@@ -133,6 +133,8 @@ public:
     virtual future<struct stat> stat(void) = 0;
     virtual future<> truncate(uint64_t length) = 0;
     virtual future<> discard(uint64_t offset, uint64_t length) = 0;
+    virtual future<int> ioctl(uint64_t cmd, void* argp) noexcept;
+    virtual future<int> fcntl(int op, uintptr_t arg) noexcept;
     virtual future<> allocate(uint64_t position, uint64_t length) = 0;
     virtual future<uint64_t> size(void) = 0;
     virtual future<> close() = 0;
@@ -390,6 +392,33 @@ public:
     /// The discard operation tells the file system that a range of offsets
     /// (which be aligned) is no longer needed and can be reused.
     future<> discard(uint64_t offset, uint64_t length) noexcept;
+
+    /// Generic ioctl syscall support for special file handling.
+    ///
+    /// This interface is useful for many non-standard operations on seastar::file.
+    /// The examples can be - querying device or file system capabilities,
+    /// configuring special performance or access modes on devices etc.
+    /// Refer ioctl(2) man page for more details.
+    ///
+    /// \param cmd ioctl command to be executed
+    /// \param argp pointer to the buffer which holds the argument
+    ///
+    /// \return a future containing the return value if any, or an exceptional future
+    ///         if the operation has failed.
+    future<int> ioctl(uint64_t cmd, void* argp) noexcept;
+
+    /// Generic fcntl syscall support for special file handling.
+    ///
+    /// fcntl performs the operation specified by 'op' field on the file.
+    /// Some of the use cases can be - setting file status flags, advisory record locking,
+    /// managing signals, managing file leases or write hints etc.
+    /// Refer fcntl(2) man page for more details.
+    ///
+    /// \param op the operation to be executed
+    /// \param arg the optional argument
+    /// \return a future containing the return value if any, or an exceptional future
+    ///         if the operation has failed
+    future<int> fcntl(int op, uintptr_t arg = 0UL) noexcept;
 
     /// Gets the file size.
     future<uint64_t> size() const noexcept;

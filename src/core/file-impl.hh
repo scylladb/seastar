@@ -102,6 +102,8 @@ public:
     future<struct stat> stat(void) noexcept override;
     future<> truncate(uint64_t length) noexcept override;
     future<> discard(uint64_t offset, uint64_t length) noexcept override;
+    future<int> ioctl(uint64_t cmd, void* argp) noexcept override;
+    future<int> fcntl(int op, uintptr_t arg) noexcept override;
     virtual future<> allocate(uint64_t position, uint64_t length) noexcept override;
     future<uint64_t> size() noexcept override;
     virtual future<> close() noexcept override;

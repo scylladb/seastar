@@ -39,6 +39,7 @@
 #include <boost/range/adaptor/transformed.hpp>
 #include <iostream>
 #include <sys/statfs.h>
+#include <fcntl.h>
 
 #include "core/file-impl.hh"
 
@@ -497,6 +498,59 @@ SEASTAR_TEST_CASE(test_file_stat_method) {
   });
 }
 
+SEASTAR_TEST_CASE(test_file_fcntl) {
+    return tmp_dir::do_with_thread([] (tmp_dir& t) {
+        auto oflags = open_flags::rw | open_flags::create;
+        sstring filename = (t.get_path() / "testfile.tmp").native();
+
+        auto f = open_file_dma(filename, oflags).get0();
+        auto close_f = deferred_close(f);
+
+        // Set and verify a lease value
+        auto lease = F_WRLCK;
+        BOOST_REQUIRE(!f.fcntl(F_SETLEASE, lease).get0());
+        auto o_lease = f.fcntl(F_GETLEASE).get0();
+        BOOST_CHECK_EQUAL(lease, o_lease);
+
+        // Perform invalid ops
+        BOOST_REQUIRE_THROW(f.fcntl(F_SETLEASE, (uintptr_t)~0ul).get(), std::system_error);
+
+        // Set and verify a life time hint value using fcntl
+        uint64_t hint = RWH_WRITE_LIFE_SHORT;
+        uint64_t o_hint1 = RWF_WRITE_LIFE_NOT_SET;
+        BOOST_REQUIRE(!f.fcntl(F_SET_FILE_RW_HINT, (uintptr_t)&hint).get0());
+        BOOST_REQUIRE(!f.fcntl(F_GET_FILE_RW_HINT, (uintptr_t)&o_hint1).get0());
+        BOOST_CHECK_EQUAL(hint, o_hint1);
+
+        // perform an invalid op
+        hint = RWH_WRITE_LIFE_EXTREME + 1;
+        BOOST_REQUIRE_THROW(f.fcntl(F_SET_FILE_RW_HINT, (uintptr_t)&hint).get(), std::system_error);
+    });
+}
+
+SEASTAR_TEST_CASE(test_file_ioctl) {
+    return tmp_dir::do_with_thread([] (tmp_dir& t) {
+        auto oflags = open_flags::rw | open_flags::create;
+        sstring filename = (t.get_path() / "testfile.tmp").native();
+        uint64_t block_size = 0;
+
+        auto f = open_file_dma(filename, oflags).get0();
+        auto close_f = deferred_close(f);
+
+        // Issueing an FS ioctl which is applicable on regular files
+        // and can be executed as normal user
+        try {
+            BOOST_REQUIRE(!f.ioctl(FIGETBSZ, &block_size).get0());
+            BOOST_REQUIRE(block_size != 0);
+        } catch (std::system_error& e) {
+            // anon_bdev filesystems do not support FIGETBSZ, and return EINVAL
+            BOOST_REQUIRE_EQUAL(e.code().value(), EINVAL);
+        }
+
+        // Perform invalid ops
+        BOOST_REQUIRE_THROW(f.ioctl(FIGETBSZ, 0ul).get(), std::system_error);
+    });
+}
 
 class test_layered_file : public layered_file_impl {
 public:
