@@ -361,7 +361,7 @@ SEASTAR_TEST_CASE(file_handle_test) {
         auto f = open_file_dma(filename, open_flags::create | open_flags::truncate | open_flags::rw).get0();
         auto close_f = deferred_close(f);
         auto buf = static_cast<char*>(aligned_alloc(4096, 4096));
-        auto del = defer([&] { ::free(buf); });
+        auto del = defer([&] () noexcept { ::free(buf); });
         for (unsigned i = 0; i < 4096; ++i) {
             buf[i] = i;
         }
@@ -371,7 +371,7 @@ SEASTAR_TEST_CASE(file_handle_test) {
             return seastar::async([fh, &bad] {
                 auto f = fh.to_file();
                 auto buf = static_cast<char*>(aligned_alloc(4096, 4096));
-                auto del = defer([&] { ::free(buf); });
+                auto del = defer([&] () noexcept { ::free(buf); });
                 f.dma_read(0, buf, 4096).get();
                 for (unsigned i = 0; i < 4096; ++i) {
                     bad[this_shard_id()] |= buf[i] != char(i);
