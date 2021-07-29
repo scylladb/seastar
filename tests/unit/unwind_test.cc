@@ -23,7 +23,6 @@
 
 #include <boost/test/included/unit_test.hpp>
 #include <pthread.h>
-#include <seastar/util/defer.hh>
 #include <seastar/core/posix.hh>
 #include <seastar/util/backtrace.hh>
 
