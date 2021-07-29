@@ -41,7 +41,6 @@
 #include <seastar/core/thread.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/posix.hh>
-#include <seastar/core/resource.hh>
 #include <seastar/core/aligned_buffer.hh>
 #include <seastar/core/sharded.hh>
 #include <seastar/core/app-template.hh>
