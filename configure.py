@@ -26,9 +26,9 @@ import tempfile
 
 tempfile.tempdir = "./build/tmp"
 
-def add_tristate(arg_parser, name, dest, help):
-    arg_parser.add_argument('--enable-' + name, dest = dest, action = 'store_true', default = None,
-                            help = 'Enable ' + help)
+def add_tristate(arg_parser, name, dest, help, default=None):
+    arg_parser.add_argument('--enable-' + name, dest = dest, action = 'store_true', default = default,
+                            help = 'Enable ' + help + ' [default]' if default else '')
     arg_parser.add_argument('--disable-' + name, dest = dest, action = 'store_false', default = None,
                             help = 'Disable ' + help)
 
