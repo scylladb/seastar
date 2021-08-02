@@ -133,6 +133,10 @@ public:
     virtual future<struct stat> stat(void) = 0;
     virtual future<> truncate(uint64_t length) = 0;
     virtual future<> discard(uint64_t offset, uint64_t length) = 0;
+    virtual future<int> ioctl(uint64_t cmd, void* argp) noexcept;
+    virtual future<int> ioctl_short(uint64_t cmd, void* argp) noexcept;
+    virtual future<int> fcntl(int op, uintptr_t arg) noexcept;
+    virtual future<int> fcntl_short(int op, uintptr_t arg) noexcept;
     virtual future<> allocate(uint64_t position, uint64_t length) = 0;
     virtual future<uint64_t> size(void) = 0;
     virtual future<> close() = 0;
@@ -391,6 +395,116 @@ public:
     /// (which be aligned) is no longer needed and can be reused.
     future<> discard(uint64_t offset, uint64_t length) noexcept;
 
+    /// Generic ioctl syscall support for special file handling.
+    ///
+    /// This interface is useful for many non-standard operations on seastar::file.
+    /// The examples can be - querying device or file system capabilities,
+    /// configuring special performance or access modes on devices etc.
+    /// Refer ioctl(2) man page for more details.
+    ///
+    /// \param cmd ioctl command to be executed
+    /// \param argp pointer to the buffer which holds the argument
+    ///
+    /// \return a future containing the return value if any, or an exceptional future
+    ///         if the operation has failed.
+    future<int> ioctl(uint64_t cmd, void* argp) noexcept;
+
+    /// Performs a short ioctl syscall on seastar::file
+    ///
+    /// This is similar to generic \c ioctl; the difference is, here user indicates
+    /// that this operation is a short one, and does not involve any i/o or locking.
+    /// The \c file module will process this differently from the normal \ref ioctl().
+    /// Use this method only if the user is sure that the operation does not involve any
+    /// blocking operation. If unsure, use the default \ref ioctl() method.
+    /// Refer ioctl(2) man page for more details on ioctl operation.
+    ///
+    /// \param cmd ioctl command to be executed
+    /// \param argp pointer to the buffer which holds the argument
+    ///
+    /// \return a future containing the return value if any, or an exceptional future
+    ///         if the operation has failed.
+    future<int> ioctl_short(uint64_t cmd, void* argp) noexcept;
+
+    /// Generic fcntl syscall support for special file handling.
+    ///
+    /// fcntl performs the operation specified by 'op' field on the file.
+    /// Some of the use cases can be - setting file status flags, advisory record locking,
+    /// managing signals, managing file leases or write hints etc.
+    /// Refer fcntl(2) man page for more details.
+    ///
+    /// \param op the operation to be executed
+    /// \param arg the optional argument
+    /// \return a future containing the return value if any, or an exceptional future
+    ///         if the operation has failed
+    future<int> fcntl(int op, uintptr_t arg = 0UL) noexcept;
+
+    /// Performs a 'short' fcntl syscall on seastar::file
+    ///
+    /// This is similar to generic \c fcntl; the difference is, here user indicates
+    /// that this operation is a short one, and does not involve any i/o or locking.
+    /// The \c file module will process this differently from normal \ref fcntl().
+    /// Use this only if the user is sure that the operation does not involve any
+    /// blocking operation. If unsure, use the default \ref fcntl() method.
+    /// Refer fcntl(2) man page for more details on fcntl operation.
+    ///
+    /// \param op the operation to be executed
+    /// \param arg the optional argument
+    /// \return a future containing the return value if any, or an exceptional future
+    ///         if the operation has failed
+    future<int> fcntl_short(int op, uintptr_t arg = 0UL) noexcept;
+
+    /// Set a lifetime hint for the open file descriptor corresponding to seastar::file
+    ///
+    /// Write lifetime  hints  can be used to inform the kernel about the relative
+    /// expected lifetime of writes on a given inode or via open file descriptor.
+    /// An application may use the different hint values to separate writes into different
+    /// write classes, so that multiple users or applications running on a single storage back-end
+    /// can aggregate their I/O  patterns in a consistent manner.
+    /// Refer fcntl(2) man page for more details on write lifetime hints.
+    ///
+    /// \param hint the hint value of the stream
+    /// \return future indicating success or failure
+    future<> set_file_lifetime_hint(uint64_t hint) noexcept;
+
+    /// Set a lifetime hint for the inode corresponding to seastar::file
+    ///
+    /// Write lifetime  hints  can be used to inform the kernel about the relative
+    /// expected lifetime of writes on a given inode or via open file descriptor.
+    /// An application may use the different hint values to separate writes into different
+    /// write classes, so that multiple users or applications running on a single storage back-end
+    /// can aggregate their I/O  patterns in a consistent manner.
+    /// Refer fcntl(2) man page for more details on write lifetime hints.
+    ///
+    /// \param hint the hint value of the stream
+    /// \return future indicating success or failure
+    future<> set_inode_lifetime_hint(uint64_t hint) noexcept;
+
+    /// Get the lifetime hint of the open file descriptor of seastar::file which was set by
+    /// \ref set_file_lifetime_hint()
+    ///
+    /// Write lifetime  hints  can be used to inform the kernel about the relative
+    /// expected lifetime of writes on a given inode or via open file descriptor.
+    /// An application may use the different hint values to separate writes into different
+    /// write classes, so that multiple users or applications running on a single storage back-end
+    /// can aggregate their I/O  patterns in a consistent manner.
+    /// Refer fcntl(2) man page for more details on write lifetime hints.
+    ///
+    /// \return the hint value of the open file descriptor
+    future<uint64_t> get_file_lifetime_hint() noexcept;
+
+    /// Get the lifetime hint of the inode of seastar::file which was set by
+    /// \ref set_inode_lifetime_hint()
+    ///
+    /// Write lifetime  hints  can be used to inform the kernel about the relative
+    /// expected lifetime of writes on a given inode or via open file descriptor.
+    /// An application may use the different hint values to separate writes into different
+    /// write classes, so that multiple users or applications running on a single storage back-end
+    /// can aggregate their I/O  patterns in a consistent manner.
+    /// Refer fcntl(2) man page for more details on write lifetime hints.
+    ///
+    /// \return the hint value of the inode
+    future<uint64_t> get_inode_lifetime_hint() noexcept;
+
     /// Gets the file size.
     future<uint64_t> size() const noexcept;
 
@@ -454,6 +568,9 @@ private:
 
     future<temporary_buffer<uint8_t>>
     dma_read_exactly_impl(uint64_t pos, size_t len, const io_priority_class& pc, io_intent* intent) noexcept;
+
+    future<uint64_t> get_lifetime_hint_impl(int op) noexcept;
+    future<> set_lifetime_hint_impl(int op, uint64_t hint) noexcept;
 
     friend class reactor;
     friend class file_impl;

@@ -26,6 +26,8 @@
 #include <linux/types.h> // for xfs, below
 #include <linux/fs.h> // BLKBSZGET
 #include <sys/ioctl.h>
+#include <unistd.h>
+#include <fcntl.h>
 #include <xfs/linux.h>
 #define min min    /* prevent xfs.h from defining min() as a macro */
 #include <xfs/xfs.h>
@@ -101,7 +103,7 @@ posix_file_impl::~posix_file_impl() {
 void
 posix_file_impl::query_dma_alignment(uint32_t block_size) {
     dioattr da;
-    auto r = ioctl(_fd, XFS_IOC_DIOINFO, &da);
+    auto r = ::ioctl(_fd, XFS_IOC_DIOINFO, &da);
     if (r == 0) {
         _memory_dma_alignment = da.d_mem;
         _disk_read_dma_alignment = da.d_miniosz;
@@ -171,6 +173,48 @@ posix_file_impl::truncate(uint64_t length) noexcept {
         sr.throw_if_error();
         return make_ready_future<>();
     });
+}
+
+future<int>
+posix_file_impl::ioctl(uint64_t cmd, void* argp) noexcept {
+    return engine()._thread_pool->submit<syscall_result<int>>([this, cmd, argp] () mutable {
+        return wrap_syscall<int>(::ioctl(_fd, cmd, argp));
+    }).then([] (syscall_result<int> sr) {
+        sr.throw_if_error();
+        // Some ioctls require to return a positive integer back.
+        return make_ready_future<int>(sr.result);
+    });
+}
+
+future<int>
+posix_file_impl::ioctl_short(uint64_t cmd, void* argp) noexcept {
+    int ret = ::ioctl(_fd, cmd, argp);
+    if (ret == -1) {
+        return make_exception_future<int>(
+                std::system_error(errno, std::system_category(), "ioctl failed"));
+    }
+    return make_ready_future<int>(ret);
+}
+
+future<int>
+posix_file_impl::fcntl(int op, uintptr_t arg) noexcept {
+    return engine()._thread_pool->submit<syscall_result<int>>([this, op, arg] () mutable {
+        return wrap_syscall<int>(::fcntl(_fd, op, arg));
+    }).then([] (syscall_result<int> sr) {
+        sr.throw_if_error();
+        // Some fcntls require to return a positive integer back.
+        return make_ready_future<int>(sr.result);
+    });
+}
+
+future<int>
+posix_file_impl::fcntl_short(int op, uintptr_t arg) noexcept {
+    int ret = ::fcntl(_fd, op, arg);
+    if (ret == -1) {
+        return make_exception_future<int>(
+                std::system_error(errno, std::system_category(), "fcntl failed"));
+    }
+    return make_ready_future<int>(ret);
 }
 
 future<>
@@ -997,6 +1041,84 @@ file::list_directory(std::function<future<>(directory_entry de)> next) {
     return _file_impl->list_directory(std::move(next));
 }
 
+future<int> file::ioctl(uint64_t cmd, void* argp) noexcept {
+    try {
+        return _file_impl->ioctl(cmd, argp);
+    } catch (...) {
+        return current_exception_as_future<int>();
+    }
+}
+
+future<int> file::ioctl_short(uint64_t cmd, void* argp) noexcept {
+    try {
+        return _file_impl->ioctl_short(cmd, argp);
+    } catch (...) {
+        return current_exception_as_future<int>();
+    }
+}
+
+future<int> file::fcntl(int op, uintptr_t arg) noexcept {
+    try {
+        return _file_impl->fcntl(op, arg);
+    } catch (...) {
+        return current_exception_as_future<int>();
+    }
+}
+
+future<int> file::fcntl_short(int op, uintptr_t arg) noexcept {
+    try {
+        return _file_impl->fcntl_short(op, arg);
+    } catch (...) {
+        return current_exception_as_future<int>();
+    }
+}
+
+future<> file::set_lifetime_hint_impl(int op, uint64_t hint) noexcept {
+    try {
+        uint64_t arg = hint;
+        return _file_impl->fcntl(op, (uintptr_t)&arg).then_wrapped([] (future<int> f) {
+            // Need to handle return value differently from that of fcntl
+            if (f.failed()) {
+                return make_exception_future<>(f.get_exception());
+            }
+            return make_ready_future<>();
+        });
+    } catch (...) {
+        return current_exception_as_future<>();
+    }
+}
+
+future<> file::set_file_lifetime_hint(uint64_t hint) noexcept {
+    return set_lifetime_hint_impl(F_SET_FILE_RW_HINT, hint);
+}
+
+future<> file::set_inode_lifetime_hint(uint64_t hint) noexcept {
+    return set_lifetime_hint_impl(F_SET_RW_HINT, hint);
+}
+
+future<uint64_t> file::get_lifetime_hint_impl(int op) noexcept {
+    try {
+        uint64_t arg;
+        return _file_impl->fcntl(op, (uintptr_t)&arg).then_wrapped([arg] (future<int> f) {
+            // Need to handle return value differently from that of fcntl
+            if (f.failed()) {
+                return make_exception_future<uint64_t>(f.get_exception());
+            }
+            return make_ready_future<uint64_t>(arg);
+        });
+    } catch (...) {
+        return current_exception_as_future<uint64_t>();
+    }
+}
+
+future<uint64_t> file::get_file_lifetime_hint() noexcept {
+    return get_lifetime_hint_impl(F_GET_FILE_RW_HINT);
+}
+
+future<uint64_t> file::get_inode_lifetime_hint() noexcept {
+    return get_lifetime_hint_impl(F_GET_RW_HINT);
+}
+
 future<temporary_buffer<uint8_t>>
 file::dma_read_bulk_impl(uint64_t offset, size_t range_size, const io_priority_class& pc, io_intent* intent) noexcept {
   try {
@@ -1114,6 +1236,22 @@ file_impl* file_impl::get_file_impl(file& f) {
 std::unique_ptr<seastar::file_handle_impl>
 file_impl::dup() {
     throw std::runtime_error("this file type cannot be duplicated");
+}
+
+future<int> file_impl::ioctl(uint64_t cmd, void* argp) noexcept {
+    return make_exception_future<int>(std::runtime_error("this file type does not support ioctl"));
+}
+
+future<int> file_impl::ioctl_short(uint64_t cmd, void* argp) noexcept {
+    return make_exception_future<int>(std::runtime_error("this file type does not support ioctl_short"));
+}
+
+future<int> file_impl::fcntl(int op, uintptr_t arg) noexcept {
+    return make_exception_future<int>(std::runtime_error("this file type does not support fcntl"));
+}
+
+future<int> file_impl::fcntl_short(int op, uintptr_t arg) noexcept {
+    return make_exception_future<int>(std::runtime_error("this file type does not support fcntl_short"));
 }
 
 future<file> open_file_dma(std::string_view name, open_flags flags) noexcept {
