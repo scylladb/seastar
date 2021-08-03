@@ -3762,9 +3762,11 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
         mbind = false;
     }
 
+    resource::configuration rc;
+
     smp::count = 1;
     smp::_tmain = std::this_thread::get_id();
-    auto nr_cpus = resource::nr_processing_units();
+    auto nr_cpus = resource::nr_processing_units(rc);
     resource::cpuset cpu_set;
     auto cgroup_cpu_set = cgroup::cpu_set();
 
@@ -3801,7 +3803,6 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
     }
     smp::count = nr_cpus;
     std::vector<reactor*> reactors(nr_cpus);
-    resource::configuration rc;
     if (configuration.count("memory")) {
         rc.total_memory = parse_memory_size(configuration["memory"].as<std::string>());
 #ifdef SEASTAR_HAVE_DPDK

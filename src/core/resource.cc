@@ -226,7 +226,7 @@ optional<T> read_setting_V1V2_as(std::string cg1_path, std::string cg2_fname) {
 
 namespace resource {
 
-size_t calculate_memory(configuration c, size_t available_memory, float panic_factor = 1) {
+size_t calculate_memory(const configuration& c, size_t available_memory, float panic_factor = 1) {
     size_t default_reserve_memory = std::max<size_t>(1536 * 1024 * 1024, 0.07 * available_memory) * panic_factor;
     auto reserve = c.reserve_memory.value_or(default_reserve_memory);
     size_t min_memory = 500'000'000;
@@ -264,7 +264,6 @@ io_queue_topology::io_queue_topology(io_queue_topology&& o)
 
 #include <seastar/util/defer.hh>
 #include <seastar/core/print.hh>
-#include <hwloc.h>
 #include <unordered_map>
 #include <boost/range/irange.hpp>
 
@@ -301,7 +300,7 @@ static size_t alloc_from_node(cpu& this_cpu, hwloc_obj_t node, std::unordered_ma
 }
 
 // Find the numa node that contains a specific PU.
-static hwloc_obj_t get_numa_node_for_pu(hwloc_topology_t& topology, hwloc_obj_t pu) {
+static hwloc_obj_t get_numa_node_for_pu(hwloc_topology_t topology, hwloc_obj_t pu) {
     // Can't use ancestry because hwloc 2.0 NUMA nodes are not ancestors of PUs
     hwloc_obj_t tmp = NULL;
     auto depth = hwloc_get_type_or_above_depth(topology, HWLOC_OBJ_NUMANODE);
@@ -313,7 +312,7 @@ static hwloc_obj_t get_numa_node_for_pu(hwloc_topology_t& topology, hwloc_obj_t 
     return nullptr;
 }
 
-static hwloc_obj_t hwloc_get_ancestor(hwloc_obj_type_t type, hwloc_topology_t& topology, unsigned cpu_id) {
+static hwloc_obj_t hwloc_get_ancestor(hwloc_obj_type_t type, hwloc_topology_t topology, unsigned cpu_id) {
     auto cur = hwloc_get_pu_obj_by_os_index(topology, cpu_id);
 
     while (cur != nullptr) {
@@ -326,7 +325,7 @@ static hwloc_obj_t hwloc_get_ancestor(hwloc_obj_type_t type, hwloc_topology_t& t
     return cur;
 }
 
-static std::unordered_map<hwloc_obj_t, std::vector<unsigned>> break_cpus_into_groups(hwloc_topology_t& topology,
+static std::unordered_map<hwloc_obj_t, std::vector<unsigned>> break_cpus_into_groups(hwloc_topology_t topology,
         std::vector<unsigned> cpus, hwloc_obj_type_t type) {
     std::unordered_map<hwloc_obj_t, std::vector<unsigned>> groups;
 
@@ -342,7 +341,7 @@ struct distribute_objects {
     std::vector<hwloc_cpuset_t> cpu_sets;
     hwloc_obj_t root;
 
-    distribute_objects(hwloc_topology_t& topology, size_t nobjs) : cpu_sets(nobjs), root(hwloc_get_root_obj(topology)) {
+    distribute_objects(hwloc_topology_t topology, size_t nobjs) : cpu_sets(nobjs), root(hwloc_get_root_obj(topology)) {
 #if HWLOC_API_VERSION >= 0x00010900
         hwloc_distrib(topology, &root, 1, cpu_sets.data(), cpu_sets.size(), INT_MAX, 0);
 #else
@@ -361,7 +360,7 @@ struct distribute_objects {
 };
 
 static io_queue_topology
-allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, std::unordered_map<unsigned, hwloc_obj_t>& cpu_to_node,
+allocate_io_queues(hwloc_topology_t topology, std::vector<cpu> cpus, std::unordered_map<unsigned, hwloc_obj_t>& cpu_to_node,
         unsigned num_io_groups, unsigned& last_node_idx) {
     auto node_of_shard = [&cpus, &cpu_to_node] (unsigned shard) {
         auto node = cpu_to_node.at(cpus[shard].cpu_id);
@@ -456,12 +455,44 @@ allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, std::unord
     return ret;
 }
 
+namespace hwloc::internal {
 
-resources allocate(configuration c) {
-    hwloc_topology_t topology;
-    hwloc_topology_init(&topology);
-    auto free_hwloc = defer([&] { hwloc_topology_destroy(topology); });
-    hwloc_topology_load(topology);
+topology_holder::topology_holder(topology_holder&& o) noexcept
+    : _topology(std::exchange(o._topology, nullptr))
+{ }
+
+topology_holder::~topology_holder() {
+    if (_topology) {
+        hwloc_topology_destroy(_topology);
+    }
+}
+
+topology_holder& topology_holder::operator=(topology_holder&& o) noexcept {
+    if (this != &o) {
+        std::swap(_topology, o._topology);
+    }
+    return *this;
+}
+
+void topology_holder::init_and_load() {
+    hwloc_topology_init(&_topology);
+    // hwloc_topology_destroy is required after hwloc_topology_init
+    // on success, _topology will not be null anymore
+
+    hwloc_topology_load(_topology);
+}
+
+hwloc_topology_t topology_holder::get() {
+    if (!_topology) {
+        init_and_load();
+    }
+    return _topology;
+}
+
+} // namespace hwloc::internal
+
+resources allocate(configuration& c) {
+    auto topology = c.topology.get();
     if (c.cpu_set) {
         auto bm = hwloc_bitmap_alloc();
         auto free_bm = defer([&] { hwloc_bitmap_free(bm); });
@@ -615,12 +646,8 @@ resources allocate(configuration c) {
     return ret;
 }
 
-unsigned nr_processing_units() {
-    hwloc_topology_t topology;
-    hwloc_topology_init(&topology);
-    auto free_hwloc = defer([&] { hwloc_topology_destroy(topology); });
-    hwloc_topology_load(topology);
-    return hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_PU);
+unsigned nr_processing_units(configuration& c) {
+    return hwloc_get_nbobjs_by_type(c.topology.get(), HWLOC_OBJ_PU);
 }
 
 }
@@ -653,7 +680,7 @@ allocate_io_queues(configuration c, std::vector<cpu> cpus) {
 }
 
 
-resources allocate(configuration c) {
+resources allocate(configuration& c) {
     resources ret;
 
     auto available_memory = ::sysconf(_SC_PAGESIZE) * size_t(::sysconf(_SC_PHYS_PAGES));
@@ -675,7 +702,7 @@ resources allocate(configuration c) {
     return ret;
 }
 
-unsigned nr_processing_units() {
+unsigned nr_processing_units(configuration&) {
     return ::sysconf(_SC_NPROCESSORS_ONLN);
 }
 

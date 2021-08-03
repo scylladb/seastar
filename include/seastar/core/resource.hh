@@ -31,6 +31,9 @@
 #include <sched.h>
 #include <boost/any.hpp>
 #include <unordered_map>
+#ifdef SEASTAR_HAVE_HWLOC
+#include <hwloc.h>
+#endif
 
 namespace seastar {
 
@@ -44,6 +47,39 @@ using std::optional;
 
 using cpuset = std::set<unsigned>;
 
+namespace hwloc::internal {
+
+#ifdef SEASTAR_HAVE_HWLOC
+class topology_holder {
+    hwloc_topology_t _topology;
+
+public:
+    topology_holder() noexcept
+        : _topology(nullptr)
+    { }
+
+    topology_holder(topology_holder&& o) noexcept;
+
+    ~topology_holder();
+
+    topology_holder& operator=(topology_holder&& o) noexcept;
+
+    operator bool() const noexcept {
+        return _topology != nullptr;
+    }
+
+    void init_and_load();
+    hwloc_topology_t get();
+};
+
+#else // SEASTAR_HAVE_HWLOC
+
+struct topology_holder {};
+
+#endif // SEASTAR_HAVE_HWLOC
+
+} // namespace hwloc::internal
+
 struct configuration {
     optional<size_t> total_memory;
     optional<size_t> reserve_memory;  // if total_memory not specified
@@ -52,6 +88,7 @@ struct configuration {
     bool assign_orphan_cpus = false;
     std::vector<dev_t> devices;
     unsigned num_io_groups;
+    hwloc::internal::topology_holder topology;
 };
 
 struct memory {
@@ -83,8 +120,8 @@ struct resources {
     std::unordered_map<dev_t, io_queue_topology> ioq_topology;
 };
 
-resources allocate(configuration c);
-unsigned nr_processing_units();
+resources allocate(configuration& c);
+unsigned nr_processing_units(configuration& c);
 }
 
 // We need a wrapper class, because boost::program_options wants validate()
