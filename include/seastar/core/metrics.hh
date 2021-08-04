@@ -570,7 +570,7 @@ template<typename T>
 impl::metric_definition_impl make_current_bytes(metric_name_type name,
         T&& val, description d=description(), std::vector<label_instance> labels = {},
         instance_id_type instance = impl::shard()) {
-    return make_derive(name, std::forward<T>(val), d, labels).set_type("bytes");
+    return make_gauge(name, std::forward<T>(val), d, labels).set_type("bytes");
 }
 
 
