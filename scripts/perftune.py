@@ -843,8 +843,8 @@ class NetPerfTuner(PerfTunerBase):
         """
         rx_queues_count = self.__get_rx_queue_count(iface)
 
-        num_cores = int(run_hwloc_calc(['--number-of', 'core', 'machine:0', '--restrict', self.args.cpu_mask]))
-        num_PUs = int(run_hwloc_calc(['--number-of', 'PU', 'machine:0', '--restrict', self.args.cpu_mask]))
+        num_cores = int(run_hwloc_calc(['--restrict', self.args.cpu_mask, '--number-of', 'core', 'machine:0']))
+        num_PUs = int(run_hwloc_calc(['--restrict', self.args.cpu_mask, '--number-of', 'PU', 'machine:0']))
 
         if num_PUs <= 4 or rx_queues_count == num_PUs:
             return PerfTunerBase.SupportedModes.mq
@@ -991,8 +991,8 @@ class DiskPerfTuner(PerfTunerBase):
         if not non_nvme_disks:
             return PerfTunerBase.SupportedModes.mq
 
-        num_cores = int(run_hwloc_calc(['--number-of', 'core', 'machine:0', '--restrict', self.args.cpu_mask]))
-        num_PUs = int(run_hwloc_calc(['--number-of', 'PU', 'machine:0', '--restrict', self.args.cpu_mask]))
+        num_cores = int(run_hwloc_calc(['--restrict', self.args.cpu_mask, '--number-of', 'core', 'machine:0']))
+        num_PUs = int(run_hwloc_calc(['--restrict', self.args.cpu_mask, '--number-of', 'PU', 'machine:0']))
         if num_PUs <= 4:
             return PerfTunerBase.SupportedModes.mq
         elif num_cores <= 4:
