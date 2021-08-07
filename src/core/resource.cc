@@ -685,7 +685,7 @@ resources allocate(configuration& c) {
 
     auto available_memory = ::sysconf(_SC_PAGESIZE) * size_t(::sysconf(_SC_PHYS_PAGES));
     auto mem = calculate_memory(c, available_memory);
-    auto cpuset_procs = c.cpu_set ? c.cpu_set->size() : nr_processing_units();
+    auto cpuset_procs = c.cpu_set ? c.cpu_set->size() : nr_processing_units(c);
     auto procs = c.cpus.value_or(cpuset_procs);
     ret.cpus.reserve(procs);
     if (c.cpu_set) {
