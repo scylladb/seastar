@@ -135,7 +135,8 @@ def restart_irqbalance(banned_irqs):
     # If this file exists - this a "new (systemd) style" irqbalance packaging.
     # This type of packaging uses IRQBALANCE_ARGS as an option key name, "old (init.d) style"
     # packaging uses an OPTION key.
-    if os.path.exists('/lib/systemd/system/irqbalance.service'):
+    if os.path.exists('/lib/systemd/system/irqbalance.service') or \
+        os.path.exists('/usr/lib/systemd/system/irqbalance.service'):
         options_key = 'IRQBALANCE_ARGS'
         systemd = True
 
