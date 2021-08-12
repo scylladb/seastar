@@ -54,6 +54,7 @@
 #include <seastar/core/internal/buffer_allocator.hh>
 #include <seastar/core/scheduling_specific.hh>
 #include <seastar/util/log.hh>
+#include <seastar/util/read_first_line.hh>
 #include "core/file-impl.hh"
 #include "core/reactor_backend.hh"
 #include "core/syscall_result.hh"
@@ -3713,6 +3714,32 @@ void smp::register_network_stacks() {
     register_native_stack();
 }
 
+unsigned smp::adjust_max_networking_aio_io_control_blocks(unsigned network_iocbs)
+{
+    static unsigned constexpr storage_iocbs = reactor::max_aio;
+    static unsigned constexpr preempt_iocbs = 2;
+
+    auto aio_max_nr = read_first_line_as<unsigned>("/proc/sys/fs/aio-max-nr");
+    auto aio_nr = read_first_line_as<unsigned>("/proc/sys/fs/aio-nr");
+    auto available_aio = aio_max_nr - aio_nr;
+    auto requested_aio_network = network_iocbs * smp::count;
+    auto requested_aio_other = (storage_iocbs + preempt_iocbs) * smp::count;
+    auto requested_aio = requested_aio_network + requested_aio_other;
+    auto network_iocbs_old = network_iocbs;
+
+    if (available_aio < requested_aio) {
+        seastar_logger.warn("Requested AIO slots too large, please increase request capacity in /proc/sys/fs/aio-max-nr. available:{} requested:{}", available_aio, requested_aio);
+        if (available_aio >= requested_aio_other + smp::count) { // at least one queue for each shard
+            network_iocbs = (available_aio - requested_aio_other) / smp::count;
+            seastar_logger.warn("max-networking-io-control-blocks adjusted from {} to {}, since AIO slots are unavailable", network_iocbs_old, network_iocbs);
+        } else {
+            throw std::runtime_error("Could not setup Async I/O: Not enough request capacity in /proc/sys/fs/aio-max-nr. Try increasing that number or reducing the amount of logical CPUs available for your application");
+        }
+    }
+
+    return network_iocbs;
+}
+
 void smp::configure(boost::program_options::variables_map configuration, reactor_config reactor_cfg)
 {
 #ifndef SEASTAR_NO_EXCEPTION_HACK
@@ -3886,7 +3913,7 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
         memory::set_dump_memory_diagnostics_on_alloc_failure_kind(configuration["dump-memory-diagnostics-on-alloc-failure-kind"].as<std::string>());
     }
 
-    reactor_cfg.max_networking_aio_io_control_blocks = configuration["max-networking-io-control-blocks"].as<unsigned>();
+    reactor_cfg.max_networking_aio_io_control_blocks = adjust_max_networking_aio_io_control_blocks(configuration["max-networking-io-control-blocks"].as<unsigned>());
 
     bool heapprof_enabled = configuration.count("heapprof");
     if (heapprof_enabled) {

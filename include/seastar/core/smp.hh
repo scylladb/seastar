@@ -445,6 +445,7 @@ private:
     void pin(unsigned cpu_id);
     void allocate_reactor(unsigned id, reactor_backend_selector rbs, reactor_config cfg);
     void create_thread(std::function<void ()> thread_loop);
+    unsigned adjust_max_networking_aio_io_control_blocks(unsigned network_iocbs);
 public:
     static unsigned count;
 };
