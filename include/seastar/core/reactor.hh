@@ -369,7 +369,6 @@ private:
 private:
     static std::chrono::nanoseconds calculate_poll_time();
     static void block_notifier(int);
-    void wakeup();
     size_t handle_aio_error(internal::linux_abi::iocb* iocb, int ec);
     bool flush_pending_aio();
     steady_clock_type::time_point next_pending_aio() const noexcept;
@@ -394,6 +393,7 @@ private:
 public:
     /// Register a user-defined signal handler
     void handle_signal(int signo, noncopyable_function<void ()>&& handler);
+    void wakeup();
 
 private:
     class signals {
