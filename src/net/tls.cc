@@ -1552,6 +1552,7 @@ public:
     class source_impl;
     class sink_impl;
 
+    using net::connected_socket_impl::source;
     data_source source() override;
     data_sink sink() override;
 
