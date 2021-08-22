@@ -141,11 +141,11 @@ int main(int ac, char** av) {
     return app.run(ac, av, [] {
         return seastar::async([] {
             auto sg100 = seastar::create_scheduling_group("sg100", 100).get0();
-            auto ksg100 = seastar::defer([&] { seastar::destroy_scheduling_group(sg100).get(); });
+            auto ksg100 = seastar::defer([&] () noexcept { seastar::destroy_scheduling_group(sg100).get(); });
             auto sg20 = seastar::create_scheduling_group("sg20", 20).get0();
-            auto ksg20 = seastar::defer([&] { seastar::destroy_scheduling_group(sg20).get(); });
+            auto ksg20 = seastar::defer([&] () noexcept { seastar::destroy_scheduling_group(sg20).get(); });
             auto sg50 = seastar::create_scheduling_group("sg50", 50).get0();
-            auto ksg50 = seastar::defer([&] { seastar::destroy_scheduling_group(sg50).get(); });
+            auto ksg50 = seastar::defer([&] () noexcept { seastar::destroy_scheduling_group(sg50).get(); });
 
             bool done = false;
             auto end = timer<>([&done] {

@@ -3,7 +3,6 @@
 #include <seastar/core/seastar.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/future-util.hh>
-#include <seastar/util/defer.hh>
 #include <boost/range/adaptor/map.hpp>
 
 namespace seastar {
@@ -92,6 +91,19 @@ namespace rpc {
 
   template snd_buf make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<snd_buf>>);
   template rcv_buf make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<rcv_buf>>);
+
+  static void log_exception(connection& c, log_level level, const char* log, std::exception_ptr eptr) {
+      const char* s;
+      try {
+          std::rethrow_exception(eptr);
+      } catch (std::exception& ex) {
+          s = ex.what();
+      } catch (...) {
+          s = "unknown exception";
+      }
+      auto formatted = format("{}: {}", log, s);
+      c.get_logger()(c.peer_address(), level, std::string_view(formatted.data(), formatted.size()));
+  }
 
   snd_buf connection::compress(snd_buf buf) {
       if (_compressor) {
@@ -241,8 +253,12 @@ namespace rpc {
       }
   }
 
-  future<> connection::stop() {
-      abort();
+  future<> connection::stop() noexcept {
+      try {
+          abort();
+      } catch (...) {
+          log_exception(*this, log_level::error, "fail to shutdown connection while stopping", std::current_exception());
+      }
       return _stopped.get_future();
   }
 
@@ -506,20 +522,6 @@ namespace rpc {
       return it->second;
   }
 
-  static void log_exception(connection& c, log_level level, const char* log, std::exception_ptr eptr) {
-      const char* s;
-      try {
-          std::rethrow_exception(eptr);
-      } catch (std::exception& ex) {
-          s = ex.what();
-      } catch (...) {
-          s = "unknown exception";
-      }
-      auto formatted = format("{}: {}", log, s);
-      c.get_logger()(c.peer_address(), level, std::string_view(formatted.data(), formatted.size()));
-  }
-
-
   void
   client::negotiate(feature_map provided) {
       // record features returned here
@@ -622,7 +624,7 @@ namespace rpc {
       _outstanding.erase(id);
   }
 
-  future<> client::stop() {
+  future<> client::stop() noexcept {
       _error = true;
       try {
           _socket.shutdown();

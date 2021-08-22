@@ -26,9 +26,9 @@ import tempfile
 
 tempfile.tempdir = "./build/tmp"
 
-def add_tristate(arg_parser, name, dest, help):
-    arg_parser.add_argument('--enable-' + name, dest = dest, action = 'store_true', default = None,
-                            help = 'Enable ' + help)
+def add_tristate(arg_parser, name, dest, help, default=None):
+    arg_parser.add_argument('--enable-' + name, dest = dest, action = 'store_true', default = default,
+                            help = 'Enable ' + help + ' [default]' if default else '')
     arg_parser.add_argument('--disable-' + name, dest = dest, action = 'store_false', default = None,
                             help = 'Disable ' + help)
 
@@ -113,6 +113,7 @@ arg_parser.add_argument('--without-demos', dest='exclude_demos', action='store_t
 arg_parser.add_argument('--split-dwarf', dest='split_dwarf', action='store_true', default=False,
                         help='use of split dwarf (https://gcc.gnu.org/wiki/DebugFission) to speed up linking')
 arg_parser.add_argument('--heap-profiling', dest='heap_profiling', action='store_true', default=False, help='Enable heap profiling')
+add_tristate(arg_parser, name='deferred-action-require-noexcept', dest='deferred_action_require_noexcept', help='noexcept requirement for deferred actions', default=True)
 arg_parser.add_argument('--prefix', dest='install_prefix', default='/usr/local', help='Root installation path of Seastar files')
 args = arg_parser.parse_args()
 
@@ -196,6 +197,7 @@ def configure_mode(mode):
         tr(args.alloc_page_size, 'ALLOC_PAGE_SIZE'),
         tr(args.split_dwarf, 'SPLIT_DWARF'),
         tr(args.heap_profiling, 'HEAP_PROFILING'),
+        tr(args.deferred_action_require_noexcept, 'DEFERRED_ACTION_REQUIRE_NOEXCEPT'),
         tr(args.unused_result_error, 'UNUSED_RESULT_ERROR'),
         tr(args.debug_shared_ptr, 'DEBUG_SHARED_PTR', value_when_none='default'),
     ]

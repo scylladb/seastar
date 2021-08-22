@@ -132,7 +132,6 @@ __thread int critical_alloc_section = 0;
 #include <cstring>
 #include <boost/intrusive/list.hpp>
 #include <sys/mman.h>
-#include <seastar/util/defer.hh>
 #include <seastar/util/backtrace.hh>
 
 #ifdef SEASTAR_HAVE_NUMA

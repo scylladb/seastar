@@ -34,6 +34,7 @@
 #include <seastar/core/smp.hh>
 #include <seastar/core/with_scheduling_group.hh>
 #include <seastar/util/later.hh>
+#include <seastar/util/defer.hh>
 
 using namespace std::chrono_literals;
 
@@ -50,7 +51,7 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_after_sg_create) {
         sgs.push_back(create_scheduling_group(format("sg{}", i).c_str(), 100).get0());
     }
 
-    const auto destroy_scheduling_groups = defer([&sgs] () {
+    const auto destroy_scheduling_groups = defer([&sgs] () noexcept {
        for (scheduling_group sg : sgs) {
            destroy_scheduling_group(sg).get();
        }
@@ -104,7 +105,7 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_before_sg_create) {
     using ivec  = std::vector<int>;
     const int num_scheduling_groups = 4;
     std::vector<scheduling_group> sgs;
-    const auto destroy_scheduling_groups = defer([&sgs] () {
+    const auto destroy_scheduling_groups = defer([&sgs] () noexcept {
        for (scheduling_group sg : sgs) {
            destroy_scheduling_group(sg).get();
        }
@@ -162,7 +163,7 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_before_and_after_sg_create) {
     using ivec  = std::vector<int>;
     const int num_scheduling_groups = 4;
     std::vector<scheduling_group> sgs;
-    const auto destroy_scheduling_groups = defer([&sgs] () {
+    const auto destroy_scheduling_groups = defer([&sgs] () noexcept {
        for (scheduling_group sg : sgs) {
            destroy_scheduling_group(sg).get();
        }
@@ -240,7 +241,7 @@ SEASTAR_THREAD_TEST_CASE(sg_scheduling_group_inheritance_in_seastar_async_test) 
 
 SEASTAR_THREAD_TEST_CASE(later_preserves_sg) {
     scheduling_group sg = create_scheduling_group("sg", 100).get0();
-    auto cleanup = defer([&] { destroy_scheduling_group(sg).get(); });
+    auto cleanup = defer([&] () noexcept { destroy_scheduling_group(sg).get(); });
     with_scheduling_group(sg, [&] {
         return later().then([&] {
             BOOST_REQUIRE_EQUAL(

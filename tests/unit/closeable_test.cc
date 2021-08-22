@@ -133,7 +133,7 @@ public:
         }
     }
 
-    future<> stop() {
+    future<> stop() noexcept {
         ++*_ptr;
         return make_ready_future<>();
     }

@@ -29,6 +29,7 @@
 #include <seastar/testing/test_runner.hh>
 #include <seastar/core/execution_stage.hh>
 #include <seastar/core/sleep.hh>
+#include <seastar/util/defer.hh>
 
 using namespace std::chrono_literals;
 
@@ -292,9 +293,9 @@ SEASTAR_TEST_CASE(test_unique_stage_names_are_enforced) {
 
 SEASTAR_THREAD_TEST_CASE(test_inheriting_concrete_execution_stage) {
     auto sg1 = seastar::create_scheduling_group("sg1", 300).get0();
-    auto ksg1 = seastar::defer([&] { seastar::destroy_scheduling_group(sg1).get(); });
+    auto ksg1 = seastar::defer([&] () noexcept { seastar::destroy_scheduling_group(sg1).get(); });
     auto sg2 = seastar::create_scheduling_group("sg2", 100).get0();
-    auto ksg2 = seastar::defer([&] { seastar::destroy_scheduling_group(sg2).get(); });
+    auto ksg2 = seastar::defer([&] () noexcept { seastar::destroy_scheduling_group(sg2).get(); });
     auto check_sg = [] (seastar::scheduling_group sg) {
         BOOST_REQUIRE(seastar::current_scheduling_group() == sg);
     };

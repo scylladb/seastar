@@ -62,7 +62,7 @@ int io_setup(int nr_events, aio_context_t* io_context) {
     return ::syscall(SYS_io_setup, nr_events, io_context);
 }
 
-int io_destroy(aio_context_t io_context) {
+int io_destroy(aio_context_t io_context) noexcept {
    return ::syscall(SYS_io_destroy, io_context);
 }
 

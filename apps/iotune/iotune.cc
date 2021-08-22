@@ -776,7 +776,7 @@ int main(int ac, char** av) {
 
                 ::iotune_multi_shard_context iotune_tests(test_directory);
                 iotune_tests.start().get();
-                auto stop = defer([&iotune_tests] {
+                auto stop = defer([&iotune_tests] () noexcept {
                     try {
                         iotune_tests.stop().get();
                     } catch (...) {

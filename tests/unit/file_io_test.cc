@@ -777,7 +777,7 @@ SEASTAR_TEST_CASE(test_nowait_flag_correctness) {
         }
 
         auto f = open_file_dma(filename, oflags).get0();
-        auto close_f = defer([&] { f.close().get(); });
+        auto close_f = deferred_close(f);
 
         if (is_tmpfs(filename)) {
             BOOST_TEST_WARN(0, "Skipping this test because TMPFS was detected, and RWF_NOWAIT is only supported by disk-based FSes");

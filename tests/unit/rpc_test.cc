@@ -602,9 +602,9 @@ SEASTAR_TEST_CASE(test_rpc_scheduling) {
 
 SEASTAR_THREAD_TEST_CASE(test_rpc_scheduling_connection_based) {
     auto sg1 = create_scheduling_group("sg1", 100).get0();
-    auto sg1_kill = defer([&] { destroy_scheduling_group(sg1).get(); });
+    auto sg1_kill = defer([&] () noexcept { destroy_scheduling_group(sg1).get(); });
     auto sg2 = create_scheduling_group("sg2", 100).get0();
-    auto sg2_kill = defer([&] { destroy_scheduling_group(sg2).get(); });
+    auto sg2_kill = defer([&] () noexcept { destroy_scheduling_group(sg2).get(); });
     rpc::resource_limits limits;
     limits.isolate_connection = [sg1, sg2] (sstring cookie) {
         auto sg = current_scheduling_group();
@@ -642,9 +642,9 @@ SEASTAR_THREAD_TEST_CASE(test_rpc_scheduling_connection_based) {
 
 SEASTAR_THREAD_TEST_CASE(test_rpc_scheduling_connection_based_compatibility) {
     auto sg1 = create_scheduling_group("sg1", 100).get0();
-    auto sg1_kill = defer([&] { destroy_scheduling_group(sg1).get(); });
+    auto sg1_kill = defer([&] () noexcept { destroy_scheduling_group(sg1).get(); });
     auto sg2 = create_scheduling_group("sg2", 100).get0();
-    auto sg2_kill = defer([&] { destroy_scheduling_group(sg2).get(); });
+    auto sg2_kill = defer([&] () noexcept { destroy_scheduling_group(sg2).get(); });
     rpc::resource_limits limits;
     limits.isolate_connection = [sg1, sg2] (sstring cookie) {
         auto sg = current_scheduling_group();

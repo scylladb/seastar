@@ -22,6 +22,7 @@
 #include <seastar/core/execution_stage.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/make_task.hh>
+#include <seastar/util/defer.hh>
 
 namespace seastar {
 
@@ -102,7 +103,7 @@ execution_stage::execution_stage(const sstring& name, scheduling_group sg)
     , _name(name)
 {
     internal::execution_stage_manager::get().register_execution_stage(*this);
-    auto undo = defer([&] { internal::execution_stage_manager::get().unregister_execution_stage(*this); });
+    auto undo = defer([&] () noexcept { internal::execution_stage_manager::get().unregister_execution_stage(*this); });
     _metric_group = metrics::metric_group("execution_stages", {
              metrics::make_derive("tasks_scheduled",
                                   metrics::description("Counts tasks scheduled by execution stages"),

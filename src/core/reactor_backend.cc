@@ -742,8 +742,13 @@ reactor_backend_epoll::wait_and_process(int timeout, const sigset_t* active_sigm
     // wake us up from sleep, and timer thread wakeup will just waste CPU time) and enable
     // reactor thread steady clock timer.
     maybe_switch_steady_clock_timers(timeout, _steady_clock_timer_timer_thread, _steady_clock_timer_reactor_thread);
-    auto undo_timer_switch = defer([&] {
+    auto undo_timer_switch = defer([&] () noexcept {
+      try {
         maybe_switch_steady_clock_timers(timeout, _steady_clock_timer_reactor_thread, _steady_clock_timer_timer_thread);
+      } catch (...) {
+        seastar_logger.error("Switching steady_clock timers back failed: {}. Aborting...", std::current_exception());
+        abort();
+      }
     });
     std::array<epoll_event, 128> eevt;
     int nr = ::epoll_pwait(_epollfd.get(), eevt.data(), eevt.size(), timeout, active_sigmask);
@@ -1079,7 +1084,7 @@ static bool detect_aio_poll() {
     auto fd = file_desc::eventfd(0, 0);
     aio_context_t ioc{};
     setup_aio_context(1, &ioc);
-    auto cleanup = defer([&] { io_destroy(ioc); });
+    auto cleanup = defer([&] () noexcept { io_destroy(ioc); });
     linux_abi::iocb iocb = internal::make_poll_iocb(fd.get(), POLLIN|POLLOUT);
     linux_abi::iocb* a[1] = { &iocb };
     auto r = io_submit(ioc, 1, a);
