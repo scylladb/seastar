@@ -21,6 +21,12 @@
 
 #pragma once
 
+#include <seastar/core/sstring.hh>
+#include <seastar/core/future.hh>
+
+#include <array>
+#include <mutex>
+
 namespace seastar {
 
 /// \cond internal
