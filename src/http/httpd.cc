@@ -38,7 +38,7 @@
 #include <seastar/http/httpd.hh>
 #include <seastar/http/internal/content_source.hh>
 #include <seastar/http/reply.hh>
-#include <seastar/http/short_streams.hh>
+#include <seastar/util/short_streams.hh>
 #include <seastar/util/log.hh>
 
 using namespace std::chrono_literals;
@@ -203,7 +203,7 @@ set_request_content(std::unique_ptr<httpd::request> req, input_stream<char>* con
         return make_ready_future<std::unique_ptr<httpd::request>>(std::move(req));
     } else {
         // Read the entire content into the request content string
-        return read_entire_stream_contiguous(*content_stream).then([req = std::move(req)] (sstring content) mutable {
+        return util::read_entire_stream_contiguous(*content_stream).then([req = std::move(req)] (sstring content) mutable {
             req->content = std::move(content);
             return make_ready_future<std::unique_ptr<httpd::request>>(std::move(req));
         });
