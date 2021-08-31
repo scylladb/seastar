@@ -20,27 +20,49 @@
 # Copyright (C) 2018 Scylladb, Ltd.
 #
 
+find_package (PkgConfig REQUIRED)
+pkg_check_modules (dpdk_PC libdpdk)
+
+if (dpdk_PC_FOUND)
+  find_package_handle_standard_args (dpdk
+    REQUIRED_VARS
+      dpdk_PC_STATIC_CFLAGS
+      dpdk_PC_STATIC_INCLUDE_DIRS
+      dpdk_PC_STATIC_LDFLAGS
+      dpdk_PC_STATIC_LIBRARY_DIRS)
+  if (dpdk_FOUND AND NOT (TARGET dpdk::dpdk))
+    add_library (dpdk::dpdk INTERFACE IMPORTED)
+    set_target_properties (dpdk::dpdk
+      PROPERTIES
+        INTERFACE_COMPILE_OPTIONS "${dpdk_PC_STATIC_CFLAGS}"
+        INTERFACE_INCLUDE_DIRECTORIES "${dpdk_PC_STATIC_INCLUDE_DIRS}"
+        INTERFACE_LINK_OPTIONS "${dpdk_PC_STATIC_LDFLAGS}"
+        INTERFACE_LINK_DIRECTORIES "${dpdk_PC_STATIC_LIBRARY_DIRS}")
+    return ()
+  endif ()
+endif ()
+
 find_path (dpdk_INCLUDE_DIR
   NAMES rte_atomic.h
   PATH_SUFFIXES dpdk)
 
-find_library (dpdk_PMD_VMXNET3_UIO_LIBRARY rte_pmd_vmxnet3_uio)
-find_library (dpdk_PMD_I40E_LIBRARY rte_pmd_i40e)
-find_library (dpdk_PMD_IXGBE_LIBRARY rte_pmd_ixgbe)
-find_library (dpdk_PMD_E1000_LIBRARY rte_pmd_e1000)
-find_library (dpdk_PMD_BNXT_LIBRARY rte_pmd_bnxt)
-find_library (dpdk_PMD_RING_LIBRARY rte_pmd_ring)
-find_library (dpdk_PMD_CXGBE_LIBRARY rte_pmd_cxgbe)
-find_library (dpdk_PMD_ENA_LIBRARY rte_pmd_ena)
-find_library (dpdk_PMD_ENIC_LIBRARY rte_pmd_enic)
-find_library (dpdk_PMD_FM10K_LIBRARY rte_pmd_fm10k)
-find_library (dpdk_PMD_NFP_LIBRARY rte_pmd_nfp)
-find_library (dpdk_PMD_QEDE_LIBRARY rte_pmd_qede)
+find_library (dpdk_PMD_VMXNET3_UIO_LIBRARY rte_net_vmxnet3)
+find_library (dpdk_PMD_I40E_LIBRARY rte_net_i40e)
+find_library (dpdk_PMD_IXGBE_LIBRARY rte_net_ixgbe)
+find_library (dpdk_PMD_E1000_LIBRARY rte_net_e1000)
+find_library (dpdk_PMD_BNXT_LIBRARY rte_net_bnxt)
+find_library (dpdk_PMD_RING_LIBRARY rte_net_ring)
+find_library (dpdk_PMD_CXGBE_LIBRARY rte_net_cxgbe)
+find_library (dpdk_PMD_ENA_LIBRARY rte_net_ena)
+find_library (dpdk_PMD_ENIC_LIBRARY rte_net_enic)
+find_library (dpdk_PMD_FM10K_LIBRARY rte_net_fm10k)
+find_library (dpdk_PMD_NFP_LIBRARY rte_net_nfp)
+find_library (dpdk_PMD_QEDE_LIBRARY rte_net_qede)
 find_library (dpdk_RING_LIBRARY rte_ring)
 find_library (dpdk_KVARGS_LIBRARY rte_kvargs)
 find_library (dpdk_MEMPOOL_LIBRARY rte_mempool)
 find_library (dpdk_MEMPOOL_RING_LIBRARY rte_mempool_ring)
-find_library (dpdk_PMD_SFC_EFX_LIBRARY rte_pmd_sfc_efx)
+find_library (dpdk_PMD_SFC_EFX_LIBRARY rte_net_sfc)
 find_library (dpdk_HASH_LIBRARY rte_hash)
 find_library (dpdk_CMDLINE_LIBRARY rte_cmdline)
 find_library (dpdk_MBUF_LIBRARY rte_mbuf)
