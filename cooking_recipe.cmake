@@ -271,57 +271,44 @@ cooking_ingredient (cryptopp
     INSTALL_COMMAND
       ${CMAKE_COMMAND} -E env CXX=${CMAKE_CXX_COMPILER} CXXFLAGS=${CMAKE_CXX_FLAGS} ${make_command} install-lib PREFIX=<INSTALL_DIR>)
 
-include(CMakeDetermineCCompiler)
-if(CMAKE_C_COMPILER_ID STREQUAL GNU)
-  set(dpdk_toolchain "gcc")
-elseif(CMAKE_C_COMPILER_ID STREQUAL Clang)
-  set(dpdk_toolchain "clang")
-elseif(CMAKE_C_COMPILER_ID STREQUAL Intel)
-  set(dpdk_toolchain "icc")
-else()
-  message(FATAL_ERROR "not able to build DPDK: "
-    "unknown compiler \"${CMAKE_C_COMPILER_ID}\"")
-endif()
+set (dpdk_args
+  --default-library=static
+  -Dc_args="-Wno-error"
+  -Denable_docs=false
+  -Denable_apps=dpdk-testpmd
+  -Dtests=false
+  -Dexamples=
+  -Dmbuf_refcnt_atomic=false
+  -Dmax_memseg_lists=8192
+  -Ddisable_drivers="net/softnic,net/bonding"
+  -Ddisable_libs="jobstats,power,port,table,pipeline,member"
+  -Dcpu_instruction_set=${Seastar_DPDK_MACHINE})
 
-# Use the "native" profile that DPDK defines in `dpdk/config`, but in `dpdk_configure.cmake` we override
-# CONFIG_RTE_MACHINE with `Seastar_DPDK_MACHINE`.
-if (CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
-  set (dpdk_quadruple arm64-armv8a-linuxapp-${dpdk_toolchain})
-else()
-  set (dpdk_quadruple ${CMAKE_SYSTEM_PROCESSOR}-native-linuxapp-${dpdk_toolchain})
-endif()
-
-# gcc 10 defaults to -fno-common, which dpdk is not prepared for
-set (dpdk_extra_cflags "-Wno-error -fcommon -fpie")
-if (BUILD_SHARED_LIBS)
-  string (APPEND dpdk_extra_cflags " -fPIC")
+if (CMAKE_BUILD_TYPE STREQUAL Debug)
+  list (APPEND dpdk_args -Dbuildtype=debug)
 endif ()
 
-set (dpdk_args
-  "EXTRA_CFLAGS=${dpdk_extra_cflags}"
-  O=<BINARY_DIR>
-  DESTDIR=<INSTALL_DIR>
-  CC=${CMAKE_C_COMPILER}
-  T=${dpdk_quadruple})
+find_program (Meson_EXECUTABLE
+  meson)
+if (NOT Meson_EXECUTABLE)
+  message (FATAL_ERROR "Cooking: Meson is required!")
+endif ()
+
+find_program (Ninja_EXECUTABLE
+  ninja)
+if (NOT Ninja_EXECUTABLE)
+  message (FATAL_ERROR "Cooking: Ninja is required!")
+endif ()
 
 cooking_ingredient (dpdk
   EXTERNAL_PROJECT_ARGS
     SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/dpdk
     CONFIGURE_COMMAND
-      COMMAND
-        ${CMAKE_COMMAND} -E chdir <SOURCE_DIR>
-        make ${dpdk_args} config
-      COMMAND
-        ${CMAKE_COMMAND}
-        -DSeastar_DPDK_MACHINE=${Seastar_DPDK_MACHINE}
-        -DSeastar_DPDK_CONFIG_FILE_IN=<BINARY_DIR>/.config
-        -DSeastar_DPDK_CONFIG_FILE_CHANGES=${CMAKE_CURRENT_SOURCE_DIR}/dpdk_config
-        -DSeastar_DPDK_CONFIG_FILE_OUT=<BINARY_DIR>/${dpdk_quadruple}/.config
-        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/dpdk_configure.cmake
-    BUILD_COMMAND <DISABLE>
+      env CC=${CMAKE_C_COMPILER} ${Meson_EXECUTABLE} setup ${dpdk_args} --prefix=<INSTALL_DIR> <BINARY_DIR> <SOURCE_DIR>
+    BUILD_COMMAND
+      ${Ninja_EXECUTABLE} -C <BINARY_DIR>
     INSTALL_COMMAND
-      ${CMAKE_COMMAND} -E chdir <SOURCE_DIR>
-      ${make_command} ${dpdk_args} install)
+      ${Ninja_EXECUTABLE} -C <BINARY_DIR> install)
 
 cooking_ingredient (fmt
   EXTERNAL_PROJECT_ARGS

@@ -4516,7 +4516,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
 #ifdef SEASTAR_HAVE_DPDK
     if (_using_dpdk) {
         auto it = _thread_loops.begin();
-        RTE_LCORE_FOREACH_SLAVE(i) {
+        RTE_LCORE_FOREACH_WORKER(i) {
             rte_eal_remote_launch(dpdk_thread_adaptor, static_cast<void*>(&*(it++)), i);
         }
     }

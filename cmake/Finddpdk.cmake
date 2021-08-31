@@ -20,474 +20,162 @@
 # Copyright (C) 2018 Scylladb, Ltd.
 #
 
+find_package (PkgConfig REQUIRED)
+pkg_check_modules (dpdk_PC libdpdk)
+
+# we cannot use ${dpdk_PC_STATIC_LDFLAGS} directly, because we want to
+# export DPDK as a bundle of static libraries, so need to find the
+# individual paths to all .a files
 find_path (dpdk_INCLUDE_DIR
   NAMES rte_atomic.h
-  PATH_SUFFIXES dpdk)
+  HINTS
+    ${dpdk_PC_INCLUDE_DIRS}
+  PATH_SUFFIXES
+    dpdk)
 
-find_library (dpdk_PMD_VMXNET3_UIO_LIBRARY rte_pmd_vmxnet3_uio)
-find_library (dpdk_PMD_I40E_LIBRARY rte_pmd_i40e)
-find_library (dpdk_PMD_IXGBE_LIBRARY rte_pmd_ixgbe)
-find_library (dpdk_PMD_E1000_LIBRARY rte_pmd_e1000)
-find_library (dpdk_PMD_BNXT_LIBRARY rte_pmd_bnxt)
-find_library (dpdk_PMD_RING_LIBRARY rte_pmd_ring)
-find_library (dpdk_PMD_CXGBE_LIBRARY rte_pmd_cxgbe)
-find_library (dpdk_PMD_ENA_LIBRARY rte_pmd_ena)
-find_library (dpdk_PMD_ENIC_LIBRARY rte_pmd_enic)
-find_library (dpdk_PMD_FM10K_LIBRARY rte_pmd_fm10k)
-find_library (dpdk_PMD_NFP_LIBRARY rte_pmd_nfp)
-find_library (dpdk_PMD_QEDE_LIBRARY rte_pmd_qede)
-find_library (dpdk_RING_LIBRARY rte_ring)
-find_library (dpdk_KVARGS_LIBRARY rte_kvargs)
-find_library (dpdk_MEMPOOL_LIBRARY rte_mempool)
-find_library (dpdk_MEMPOOL_RING_LIBRARY rte_mempool_ring)
-find_library (dpdk_PMD_SFC_EFX_LIBRARY rte_pmd_sfc_efx)
-find_library (dpdk_HASH_LIBRARY rte_hash)
-find_library (dpdk_CMDLINE_LIBRARY rte_cmdline)
-find_library (dpdk_MBUF_LIBRARY rte_mbuf)
-find_library (dpdk_CFGFILE_LIBRARY rte_cfgfile)
-find_library (dpdk_EAL_LIBRARY rte_eal)
-find_library (dpdk_ETHDEV_LIBRARY rte_ethdev)
-find_library (dpdk_NET_LIBRARY rte_net)
-find_library (dpdk_TIMER_LIBRARY rte_timer)
-find_library (dpdk_PCI_LIBRARY rte_pci)
-find_library (dpdk_BUS_PCI_LIBRARY rte_bus_pci)
-find_library (dpdk_BUS_VDEV_LIBRARY rte_bus_vdev)
+if (dpdk_INCLUDE_DIR AND EXISTS "${dpdk_INCLUDE_DIR}/rte_build_config.h")
+  file (STRINGS "${dpdk_INCLUDE_DIR}/rte_build_config.h" rte_mbuf_refcnt_atomic
+    REGEX "^#define[ \t ]+RTE_MBUF_REFCNT_ATOMIC")
+  if (rte_mbuf_refcnt_atomic)
+    message (WARNING
+      "DPDK is configured with RTE_MBUF_REFCNT_ATOMIC enabled, "
+      "please disable this option and recompile DPDK for better performance.")
+  endif ()
+endif ()
+
+set(rte_libs
+  bus_pci
+  bus_vdev
+  cfgfile
+  cmdline
+  cryptodev
+  eal
+  ethdev
+  hash
+  kvargs
+  mbuf
+  mempool
+  mempool_ring
+  net
+  net_bnxt
+  net_cxgbe
+  net_e1000
+  net_ena
+  net_enic
+  net_i40e
+  net_ixgbe
+  net_nfp
+  net_qede
+  net_ring
+  net_sfc
+  net_vmxnet3
+  pci
+  rcu
+  ring
+  security
+  telemetry
+  timer)
+# sfc_efx driver can only build on x86 and aarch64
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "amd64|x86_64|aarch64")
+  list (APPEND rte_libs
+    common_sfc_efx)
+endif ()
+
+list (APPEND dpdk_REQUIRED
+  dpdk_INCLUDE_DIR)
+
+# we prefer static library over the shared library, so just find the
+# static libraries first.
+set (_cmake_find_library_suffixes_saved ${CMAKE_FIND_LIBRARY_SUFFIXES})
+set (CMAKE_FIND_LIBRARY_SUFFIXES
+  ${CMAKE_STATIC_LIBRARY_SUFFIX}
+  ${CMAKE_SHARED_LIBRARY_SUFFIX})
+
+foreach (lib ${rte_libs})
+  string(TOUPPER ${lib} upper_lib)
+  set(library_name "dpdk_${upper_lib}_LIBRARY")
+  find_library (${library_name}
+    NAME rte_${lib}
+    HINTS
+      ${dpdk_PC_STATIC_LIBRARY_DIRS})
+  list (APPEND dpdk_REQUIRED
+    ${library_name})
+  list (APPEND dpdk_LIBRARIES
+    ${library_name})
+
+  if (NOT ${library_name})
+    continue()
+  endif ()
+
+  set (library_path ${${library_name}})
+  list (APPEND _dpdk_linker_files ${library_path})
+  set (dpdk_lib dpdk::${lib})
+  list (APPEND _dpdk_libraries ${dpdk_lib})
+
+  if (dpdk_INCLUDE_DIR AND NOT (TARGET ${dpdk_lib}))
+    add_library (${dpdk_lib} UNKNOWN IMPORTED)
+    set_target_properties (${dpdk_lib}
+      PROPERTIES
+        IMPORTED_LOCATION ${library_path}
+        INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
+  endif ()
+endforeach ()
+
+# restore the previous saved suffixes
+set (CMAKE_FIND_LIBRARY_SUFFIXES ${_cmake_find_library_suffixes_saved})
 
 include (FindPackageHandleStandardArgs)
-
-set (dpdk_REQUIRED
-  dpdk_INCLUDE_DIR
-  dpdk_PMD_VMXNET3_UIO_LIBRARY
-  dpdk_PMD_I40E_LIBRARY
-  dpdk_PMD_IXGBE_LIBRARY
-  dpdk_PMD_E1000_LIBRARY
-  dpdk_PMD_BNXT_LIBRARY
-  dpdk_PMD_RING_LIBRARY
-  dpdk_PMD_CXGBE_LIBRARY
-  dpdk_PMD_ENA_LIBRARY
-  dpdk_PMD_ENIC_LIBRARY
-  dpdk_PMD_NFP_LIBRARY
-  dpdk_PMD_QEDE_LIBRARY
-  dpdk_RING_LIBRARY
-  dpdk_KVARGS_LIBRARY
-  dpdk_MEMPOOL_LIBRARY
-  dpdk_MEMPOOL_RING_LIBRARY
-  dpdk_HASH_LIBRARY
-  dpdk_CMDLINE_LIBRARY
-  dpdk_MBUF_LIBRARY
-  dpdk_CFGFILE_LIBRARY
-  dpdk_EAL_LIBRARY
-  dpdk_ETHDEV_LIBRARY
-  dpdk_NET_LIBRARY
-  dpdk_TIMER_LIBRARY
-  dpdk_PCI_LIBRARY
-  dpdk_BUS_PCI_LIBRARY
-  dpdk_BUS_VDEV_LIBRARY)
-
-# fm10k, sfc_efx driver can only build on x86
-if (CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
-  set (dpdk_REQUIRED
-    ${dpdk_REQUIRED}
-    dpdk_PMD_FM10K_LIBRARY
-    dpdk_PMD_SFC_EFX_LIBRARY)
-endif()
-
 find_package_handle_standard_args (dpdk
   REQUIRED_VARS
-    ${dpdk_REQUIRED}
-)
+    ${dpdk_REQUIRED})
 
-if (dpdk_FOUND AND NOT (TARGET dpdk::dpdk))
-  set (dpdk_LIBRARIES
-    ${dpdk_CFGFILE_LIBRARY}
-    ${dpdk_CMDLINE_LIBRARY}
-    ${dpdk_ETHDEV_LIBRARY}
-    ${dpdk_HASH_LIBRARY}
-    ${dpdk_MBUF_LIBRARY}
-    ${dpdk_EAL_LIBRARY}
-    ${dpdk_KVARGS_LIBRARY}
-    ${dpdk_MEMPOOL_LIBRARY}
-    ${dpdk_MEMPOOL_RING_LIBRARY}
-    ${dpdk_PMD_BNXT_LIBRARY}
-    ${dpdk_PMD_E1000_LIBRARY}
-    ${dpdk_PMD_ENA_LIBRARY}
-    ${dpdk_PMD_ENIC_LIBRARY}
-    ${dpdk_PMD_QEDE_LIBRARY}
-    ${dpdk_PMD_I40E_LIBRARY}
-    ${dpdk_PMD_IXGBE_LIBRARY}
-    ${dpdk_PMD_NFP_LIBRARY}
-    ${dpdk_PMD_RING_LIBRARY}
-    ${dpdk_PMD_VMXNET3_UIO_LIBRARY})
-
-  if (CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
-    set (dpdk_LIBRARIES
-      ${dpdk_LIBRARIES}
-      ${dpdk_PMD_FM10K_LIBRARY}
-      ${dpdk_PMD_SFC_EFX_LIBRARY})
+if (dpdk_FOUND AND NOT (TARGET dpdk))
+  get_filename_component (library_suffix "${dpdk_EAL_LIBRARY}" LAST_EXT)
+  # strictly speaking, we should have being using check_c_compiler_flag()
+  # here, but we claim Seastar as a project written in CXX language, and
+  # C is not enabled, so CXX is used here instead.
+  include(CheckCXXCompilerFlag)
+  check_cxx_compiler_flag("-Wno-volatile" _warning_supported_volatile)
+  if(_warning_supported_volatile)
+    # include/generic/rte_spinlock.h increments volatiled-qualified type with
+    # "++". but this is deprecated by GCC, so silence it.
+    set(compile_options
+      INTERFACE_COMPILE_OPTIONS "-Wno-volatile")
   endif()
-
-  set (dpdk_LIBRARIES
-    ${dpdk_LIBRARIES}
-    ${dpdk_RING_LIBRARY}
-    ${dpdk_NET_LIBRARY}
-    ${dpdk_TIMER_LIBRARY}
-    ${dpdk_PCI_LIBRARY}
-    ${dpdk_BUS_PCI_LIBRARY}
-    ${dpdk_BUS_VDEV_LIBRARY})
-
-  #
-  # pmd_vmxnet3_uio
-  #
-
-  add_library (dpdk::pmd_vmxnet3_uio UNKNOWN IMPORTED)
-
-  set_target_properties (dpdk::pmd_vmxnet3_uio
-    PROPERTIES
-      IMPORTED_LOCATION ${dpdk_PMD_VMXNET3_UIO_LIBRARY}
-      INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
-
-  #
-  # pmd_i40e
-  #
-
-  add_library (dpdk::pmd_i40e UNKNOWN IMPORTED)
-
-  set_target_properties (dpdk::pmd_i40e
-    PROPERTIES
-      IMPORTED_LOCATION ${dpdk_PMD_I40E_LIBRARY}
-      INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
-
-  #
-  # pmd_ixgbe
-  #
-
-  add_library (dpdk::pmd_ixgbe UNKNOWN IMPORTED)
-
-  set_target_properties (dpdk::pmd_ixgbe
-    PROPERTIES
-      IMPORTED_LOCATION ${dpdk_PMD_IXGBE_LIBRARY}
-      INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
-
-  #
-  # pmd_e1000
-  #
-
-  add_library (dpdk::pmd_e1000 UNKNOWN IMPORTED)
-
-  set_target_properties (dpdk::pmd_e1000
-    PROPERTIES
-      IMPORTED_LOCATION ${dpdk_PMD_E1000_LIBRARY}
-      INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
-
-  #
-  # pmd_bnxt
-  #
-
-  add_library (dpdk::pmd_bnxt UNKNOWN IMPORTED)
-
-  set_target_properties (dpdk::pmd_bnxt
-    PROPERTIES
-      IMPORTED_LOCATION ${dpdk_PMD_BNXT_LIBRARY}
-      INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
-
-  #
-  # pmd_ring
-  #
-
-  add_library (dpdk::pmd_ring UNKNOWN IMPORTED)
-
-  set_target_properties (dpdk::pmd_ring
-    PROPERTIES
-      IMPORTED_LOCATION ${dpdk_PMD_RING_LIBRARY}
-      INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
-
-  #
-  # pmd_cxgbe
-  #
-
-  add_library (dpdk::pmd_cxgbe UNKNOWN IMPORTED)
-
-  set_target_properties (dpdk::pmd_cxgbe
-    PROPERTIES
-      IMPORTED_LOCATION ${dpdk_PMD_CXGBE_LIBRARY}
-      INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
-
-  #
-  # pmd_ena
-  #
-
-  add_library (dpdk::pmd_ena UNKNOWN IMPORTED)
-
-  set_target_properties (dpdk::pmd_ena
-    PROPERTIES
-      IMPORTED_LOCATION ${dpdk_PMD_ENA_LIBRARY}
-      INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
-
-  #
-  # pmd_enic
-  #
-
-  add_library (dpdk::pmd_enic UNKNOWN IMPORTED)
-
-  set_target_properties (dpdk::pmd_enic
-    PROPERTIES
-      IMPORTED_LOCATION ${dpdk_PMD_ENIC_LIBRARY}
-      INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
-
-  #
-  # pmd_fm10k
-  #
-
-  add_library (dpdk::pmd_fm10k UNKNOWN IMPORTED)
-
-  set_target_properties (dpdk::pmd_fm10k
-    PROPERTIES
-      IMPORTED_LOCATION ${dpdk_PMD_FM10K_LIBRARY}
-      INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
-
-  #
-  # pmd_nfp
-  #
-
-  add_library (dpdk::pmd_nfp UNKNOWN IMPORTED)
-
-  set_target_properties (dpdk::pmd_nfp
-    PROPERTIES
-      IMPORTED_LOCATION ${dpdk_PMD_NFP_LIBRARY}
-      INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
-
-  #
-  # pmd_qede
-  #
-
-  add_library (dpdk::pmd_qede UNKNOWN IMPORTED)
-
-  set_target_properties (dpdk::pmd_qede
-    PROPERTIES
-      IMPORTED_LOCATION ${dpdk_PMD_QEDE_LIBRARY}
-      INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
-
-  #
-  # pmd_sfc_efx
-  #
-
-  add_library (dpdk::pmd_sfc_efx UNKNOWN IMPORTED)
-
-  set_target_properties (dpdk::pmd_sfc_efx
-    PROPERTIES
-      IMPORTED_LOCATION ${dpdk_PMD_SFC_EFX_LIBRARY}
-      INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
-
-  #
-  # hash
-  #
-
-  add_library (dpdk::hash UNKNOWN IMPORTED)
-
-  set_target_properties (dpdk::hash
-    PROPERTIES
-      IMPORTED_LOCATION ${dpdk_HASH_LIBRARY}
-      INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
-
-  #
-  # kvargs
-  #
-
-  add_library (dpdk::kvargs UNKNOWN IMPORTED)
-
-  set_target_properties (dpdk::kvargs
-    PROPERTIES
-      IMPORTED_LOCATION ${dpdk_KVARGS_LIBRARY}
-      INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
-
-  #
-  # mbuf
-  #
-
-  add_library (dpdk::mbuf UNKNOWN IMPORTED)
-
-  set_target_properties (dpdk::mbuf
-    PROPERTIES
-      IMPORTED_LOCATION ${dpdk_MBUF_LIBRARY}
-      INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR}
-      INTERFACE_LINK_LIBRARIES dpdk::eal)
-
-  #
-  # eal (since dpdk 18.08, eal depends on kvargs)
-  #
-
-  add_library (dpdk::eal UNKNOWN IMPORTED)
-
-  set_target_properties (dpdk::eal
-    PROPERTIES
-      IMPORTED_LOCATION ${dpdk_EAL_LIBRARY}
-      INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR}
-      INTERFACE_LINK_LIBRARIES dpdk::kvargs)
-
-  #
-  # ethdev
-  #
-
-  add_library (dpdk::ethdev UNKNOWN IMPORTED)
-
-  set_target_properties (dpdk::ethdev
-    PROPERTIES
-      IMPORTED_LOCATION ${dpdk_ETHDEV_LIBRARY}
-      INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR}
-      INTERACE_LINK_LIBRARIES dpdk::eal)
-
-  #
-  # mempool
-  #
-
-  add_library (dpdk::mempool UNKNOWN IMPORTED)
-
-  set_target_properties (dpdk::mempool
-    PROPERTIES
-      IMPORTED_LOCATION ${dpdk_MEMPOOL_LIBRARY}
-      INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
-
-  #
-  # mempool_ring
-  #
-
-  add_library (dpdk::mempool_ring UNKNOWN IMPORTED)
-
-  set_target_properties (dpdk::mempool_ring
-    PROPERTIES
-      IMPORTED_LOCATION ${dpdk_MEMPOOL_RING_LIBRARY}
-      INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
-
-  #
-  # ring
-  #
-
-  add_library (dpdk::ring UNKNOWN IMPORTED)
-
-  set_target_properties (dpdk::ring
-    PROPERTIES
-      IMPORTED_LOCATION ${dpdk_RING_LIBRARY}
-      INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
-
-  #
-  # cmdline
-  #
-
-  add_library (dpdk::cmdline UNKNOWN IMPORTED)
-
-  set_target_properties (dpdk::cmdline
-    PROPERTIES
-      IMPORTED_LOCATION ${dpdk_CMDLINE_LIBRARY}
-      INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
-
-  #
-  # cfgfile
-  #
-
-  add_library (dpdk::cfgfile UNKNOWN IMPORTED)
-
-  set_target_properties (dpdk::cfgfile
-    PROPERTIES
-      IMPORTED_LOCATION ${dpdk_CFGFILE_LIBRARY}
-      INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
-
-  #
-  # net
-  #
-
-  add_library (dpdk::net UNKNOWN IMPORTED)
-
-  set_target_properties (dpdk::net
-    PROPERTIES
-      IMPORTED_LOCATION ${dpdk_NET_LIBRARY}
-      INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
-
-  #
-  # timer
-  #
-
-  add_library (dpdk::timer UNKNOWN IMPORTED)
-
-  set_target_properties (dpdk::timer
-    PROPERTIES
-      IMPORTED_LOCATION ${dpdk_TIMER_LIBRARY}
-      INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
-
-  #
-  # pci
-  #
-
-  add_library (dpdk::pci UNKNOWN IMPORTED)
-
-  set_target_properties (dpdk::pci
-    PROPERTIES
-      IMPORTED_LOCATION ${dpdk_PCI_LIBRARY}
-      INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
-
-  #
-  # bus_pci
-  #
-
-  add_library (dpdk::bus_pci UNKNOWN IMPORTED)
-
-  set_target_properties (dpdk::bus_pci
-    PROPERTIES
-      IMPORTED_LOCATION ${dpdk_BUS_PCI_LIBRARY}
-      INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
-
-  #
-  # bus_vdev
-  #
-
-  add_library (dpdk::bus_vdev UNKNOWN IMPORTED)
-
-  set_target_properties (dpdk::bus_vdev
-    PROPERTIES
-      IMPORTED_LOCATION ${dpdk_BUS_VDEV_LIBRARY}
-      INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR})
-
-  #
-  # Summary.
-  #
-
-  add_library (dpdk::dpdk INTERFACE IMPORTED)
-
-  set (_dpdk_libraries
-    dpdk::cfgfile
-    dpdk::cmdline
-    dpdk::eal
-    dpdk::ethdev
-    dpdk::hash
-    dpdk::kvargs
-    dpdk::mbuf
-    dpdk::mempool
-    dpdk::mempool_ring
-    dpdk::pmd_bnxt
-    dpdk::pmd_cxgbe
-    dpdk::pmd_e1000
-    dpdk::pmd_ena
-    dpdk::pmd_enic
-    dpdk::pmd_qede
-    dpdk::pmd_i40e
-    dpdk::pmd_ixgbe
-    dpdk::pmd_nfp
-    dpdk::pmd_ring
-    dpdk::pmd_vmxnet3_uio
-    dpdk::ring
-    dpdk::net
-    dpdk::timer
-    dpdk::pci
-    dpdk::bus_pci
-    dpdk::bus_vdev)
-
-  if (CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64")
-    set (_dpdk_libraries
-      ${_dpdk_libraries}
-      dpdk::pmd_fm10k
-      dpdk::pmd_sfc_efx)
+  if (library_suffix STREQUAL CMAKE_STATIC_LIBRARY_SUFFIX)
+    # No pmd driver code will be pulled in without "--whole-archive". To
+    # avoid exposing that to seastar users, combine dpdk into a single
+    # .o file.
+    set (dpdk_object_path "${CMAKE_BINARY_DIR}/dpdk.o")
+    add_custom_command (
+      OUTPUT ${dpdk_object_path}
+      COMMAND ${CMAKE_CXX_COMPILER}
+        -r # create a relocatable object
+        -o ${dpdk_object_path}
+        -Wl,--whole-archive ${_dpdk_linker_files}
+      DEPENDS
+        ${_dpdk_linker_files})
+    add_custom_target (dpdk_object
+      DEPENDS ${dpdk_object_path})
+
+    add_library (dpdk OBJECT IMPORTED)
+    add_dependencies (dpdk dpdk_object)
+    set_target_properties (dpdk
+      PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR}
+        IMPORTED_OBJECTS ${dpdk_object_path}
+        ${compile_options})
+    # we include dpdk in seastar already, so no need to expose it with
+    # dpdk_LIBRARIES
+    set (dpdk_LIBRARIES "")
+    add_library (DPDK::dpdk ALIAS dpdk)
+  else ()
+    set (dpdk_LIBRARIES ${dpdk_PC_LDFLAGS})
+    add_library (DPDK::dpdk INTERFACE IMPORTED)
+    set_target_properties (DPDK::dpdk
+      PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES "${dpdk_PC_INCLUDE_DIRS}"
+        INTERFACE_LINK_LIBRARIES "${_dpdk_libraries}"
+        ${compile_options})
   endif()
-
-  set_target_properties (dpdk::dpdk
-    PROPERTIES
-      INTERFACE_LINK_LIBRARIES "${_dpdk_libraries}")
 endif ()
