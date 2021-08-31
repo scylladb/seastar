@@ -201,4 +201,20 @@ future<> recursive_remove_directory(fs::path path) noexcept {
     });
 }
 
+namespace util {
+
+future<std::vector<temporary_buffer<char>>> read_entire_file(std::filesystem::path path) {
+    return with_file_input_stream(path, [] (input_stream<char>& in) {
+        return read_entire_stream(in);
+    });
+}
+
+future<sstring> read_entire_file_contiguous(std::filesystem::path path) {
+    return with_file_input_stream(path, [] (input_stream<char>& in) {
+        return read_entire_stream_contiguous(in);
+    });
+}
+
+} // namespace util
+
 } //namespace seastar
