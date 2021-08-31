@@ -41,7 +41,7 @@ set (Seastar_DPDK_MACHINE
   "native"
   CACHE
   STRING
-  "Configure DPDK for this processor architecture (if `Seastar_DPDK` is enabled). A DPDK code name abbreviation (e.g., ivb)")
+  "Configure DPDK for this processor architecture (if `Seastar_DPDK` is enabled). It configures -march or -mcpu")
 
 project (Seastar
   VERSION 1.0
@@ -475,14 +475,9 @@ seastar_generate_ragel (
   IN_FILE ${CMAKE_CURRENT_SOURCE_DIR}/src/http/response_parser.rl
   OUT_FILE ${Seastar_GEN_BINARY_DIR}/include/seastar/http/response_parser.hh)
 
-if (Seastar_DPDK)
-  set (seastar_dpdk_obj seastar-dpdk.o)
-endif ()
-
 add_library (seastar
   ${http_chunk_parsers_file}
   ${http_request_parser_file}
-  ${seastar_dpdk_obj}
   include/seastar/core/abort_source.hh
   include/seastar/core/alien.hh
   include/seastar/core/align.hh
@@ -801,6 +796,11 @@ target_link_libraries (seastar
     yaml-cpp::yaml-cpp
     "$<BUILD_INTERFACE:Valgrind::valgrind>"
     Threads::Threads)
+if (Seastar_DPDK)
+  target_link_libraries (seastar
+    PRIVATE
+      DPDK::dpdk)
+endif()
 
 set (Seastar_SANITIZE_MODES "Debug" "Sanitize")
 if ((Seastar_SANITIZE STREQUAL "ON") OR
@@ -940,40 +940,18 @@ if (Seastar_DEFERRED_ACTION_REQUIRE_NOEXCEPT)
 endif ()
 
 if (Seastar_DPDK)
-  #
-  # The DPDK architecture needs to be transitively applied to consumers of Seastar as well.
-  #
-
-  set (Seastar_ARCH_FOR_native "native")
-  set (Seastar_ARCH_FOR_nhm "nehalem")
-  set (Seastar_ARCH_FOR_wsm "westmere")
-  set (Seastar_ARCH_FOR_snb "sandybridge")
-  set (Seastar_ARCH_FOR_ivb "ivybridge")
-  set (Seastar_ARCH_FOR_hsw "haswell")
-  set (Seastar_ARCH_FOR_armv8a "armv8-a")
-  set (Seastar_ARCH ${Seastar_ARCH_FOR_${Seastar_DPDK_MACHINE}})
-
-  if (NOT Seastar_ARCH)
-    message (FATAL_ERROR "Unrecognized DPDK machine identifier: ${Seastar_DPDK_MACHINE}")
-  endif ()
-
-  target_compile_options (seastar
-    PUBLIC -march=${Seastar_ARCH})
-
+  if (CMAKE_SYSTEM_PROCESSOR MATCHES "ppc64")
+    target_compile_options (seastar
+      PUBLIC
+        -mcpu=${Seastar_DPDK_MACHINE}
+        -mtune=${Seastar_DPDK_MACHINE})
+  else()
+    target_compile_options (seastar
+      PUBLIC
+        -march=${Seastar_DPDK_MACHINE})
+  endif()
   target_compile_definitions (seastar
     PUBLIC SEASTAR_HAVE_DPDK)
-
-  # No pmd driver code will be pulled in without "--whole-archive". To
-  # avoid exposing that to seastar users, combine dpdk into a single
-  # .o file.
-  add_custom_command (
-    OUTPUT seastar-dpdk.o
-    COMMAND ld -r -o seastar-dpdk.o --whole-archive ${dpdk_LIBRARIES} --no-whole-archive
-  )
-
-  # This just provides the include path to cmake
-  target_link_libraries (seastar
-    PUBLIC dpdk::dpdk)
 endif ()
 
 if (Seastar_HWLOC)
