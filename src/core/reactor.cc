@@ -83,6 +83,7 @@
 #include <dirent.h>
 #include <linux/types.h> // for xfs, below
 #include <sys/ioctl.h>
+#include <linux/perf_event.h>
 #include <xfs/linux.h>
 #define min min    /* prevent xfs.h from defining min() as a macro */
 #include <xfs/xfs.h>
@@ -1110,6 +1111,9 @@ void cpu_stall_detector::maybe_report() {
 //
 // We can do it a cheaper if we don't report suppressed backtraces.
 void cpu_stall_detector::on_signal() {
+    if (reap_event_and_check_spuriousness()) {
+        return;
+    }
     auto tasks_processed = engine().tasks_processed();
     auto last_seen = _last_tasks_processed_seen.load(std::memory_order_relaxed);
     if (!last_seen) {
@@ -1173,10 +1177,100 @@ void cpu_stall_detector_posix_timer::start_sleep() {
 void cpu_stall_detector::end_sleep() {
 }
 
+static long
+perf_event_open(struct perf_event_attr* hw_event, pid_t pid, int cpu, int group_fd, unsigned long flags) {
+    return syscall(__NR_perf_event_open, hw_event, pid, cpu, group_fd, flags);
+}
+
+cpu_stall_detector_linux_perf_event::cpu_stall_detector_linux_perf_event(file_desc fd, cpu_stall_detector_config cfg)
+        : cpu_stall_detector(cfg), _fd(std::move(fd)) {
+}
+
+void
+cpu_stall_detector_linux_perf_event::arm_timer() {
+    uint64_t ns = (_threshold * _report_at + _slack) / 1ns;
+    if (_enabled && _current_period == ns) [[likely]] {
+        // Common case - we're re-arming with the same period, the counter
+        // is already enabled.
+        _fd.ioctl(PERF_EVENT_IOC_RESET, 0);
+    } else {
+        // Uncommon case - we're moving from disabled to enabled, or changing
+        // the period. Issue more calls and be careful.
+        _fd.ioctl(PERF_EVENT_IOC_DISABLE, 0); // avoid false alarms while we modify stuff
+        _fd.ioctl(PERF_EVENT_IOC_PERIOD, ns);
+        _fd.ioctl(PERF_EVENT_IOC_RESET, 0);
+        _fd.ioctl(PERF_EVENT_IOC_ENABLE, 0);
+        _enabled = true;
+        _current_period = ns;
+    }
+}
+
+void
+cpu_stall_detector_linux_perf_event::start_sleep() {
+    _fd.ioctl(PERF_EVENT_IOC_DISABLE, 0);
+    _enabled = false;
+}
+
+bool
+cpu_stall_detector_linux_perf_event::reap_event_and_check_spuriousness() {
+    struct read_format {
+        uint64_t value;
+    } buf;
+    _fd.read(&buf, sizeof(read_format));
+    return buf.value < _current_period;
+}
+
+std::unique_ptr<cpu_stall_detector_linux_perf_event>
+cpu_stall_detector_linux_perf_event::try_make(cpu_stall_detector_config cfg) {
+    ::perf_event_attr pea = {
+        .type = PERF_TYPE_SOFTWARE,
+        .size = sizeof(pea),
+        .config = PERF_COUNT_SW_TASK_CLOCK, // more likely to work on virtual machines than hardware events
+        .sample_period = 1'000'000'000, // Needs non-zero value or PERF_IOC_PERIOD gets confused
+        .disabled = 1,
+        .wakeup_events = 1,
+    };
+    unsigned long flags = 0;
+    if (kernel_uname().whitelisted({"3.14"})) {
+        flags |= PERF_FLAG_FD_CLOEXEC;
+    }
+    int fd = perf_event_open(&pea, 0, -1, -1, flags);
+    if (fd == -1) {
+        throw std::system_error(errno, std::system_category(), "perf_event_open() failed");
+    }
+    auto desc = file_desc::from_fd(fd);
+    struct f_owner_ex sig_owner = {
+        .type = F_OWNER_TID,
+        .pid = gettid(),
+    };
+    auto ret1 = ::fcntl(fd, F_SETOWN_EX, &sig_owner);
+    if (ret1 == -1) {
+        abort();
+    }
+    auto ret2 = ::fcntl(fd, F_SETSIG, signal_number());
+    if (ret2 == -1) {
+        abort();
+    }
+    auto fd_flags = ::fcntl(fd, F_GETFL);
+    if (fd_flags == -1) {
+        abort();
+    }
+    auto ret3 = ::fcntl(fd, F_SETFL, fd_flags | O_ASYNC);
+    if (ret3 == -1) {
+        abort();
+    }
+    return std::make_unique<cpu_stall_detector_linux_perf_event>(std::move(desc), std::move(cfg));
+}
+
 
 std::unique_ptr<cpu_stall_detector>
 internal::make_cpu_stall_detector(cpu_stall_detector_config cfg) {
-    return std::make_unique<cpu_stall_detector_posix_timer>(cfg);
+    try {
+        return cpu_stall_detector_linux_perf_event::try_make(cfg);
+    } catch (...) {
+        seastar_logger.warn("Creation of perf_event based stall detector failed, falling back to posix timer: {}", std::current_exception());
+        return std::make_unique<cpu_stall_detector_posix_timer>(cfg);
+    }
 }
 
 void

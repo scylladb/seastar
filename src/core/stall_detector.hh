@@ -99,6 +99,18 @@ private:
     virtual void start_sleep() override;
 };
 
+class cpu_stall_detector_linux_perf_event : public cpu_stall_detector {
+    file_desc _fd;
+    bool _enabled = false;
+    uint64_t _current_period = 0;
+public:
+    static std::unique_ptr<cpu_stall_detector_linux_perf_event> try_make(cpu_stall_detector_config cfg = {});
+    explicit cpu_stall_detector_linux_perf_event(file_desc fd, cpu_stall_detector_config cfg = {});
+    virtual void arm_timer() override;
+    virtual void start_sleep() override;
+    virtual bool reap_event_and_check_spuriousness() override;
+};
+
 std::unique_ptr<cpu_stall_detector> make_cpu_stall_detector(cpu_stall_detector_config cfg = {});
 
 }
