@@ -47,4 +47,10 @@ future<> recursive_remove_directory(std::filesystem::path path) noexcept;
 
 /// @}
 
+/// \defgroup fileio-util File and Stream Utilities
+/// \ingroup fileio-module
+///
+/// \brief
+/// These utilities are provided to help perform operations on files and I/O streams.
+
 } // namespace seastar

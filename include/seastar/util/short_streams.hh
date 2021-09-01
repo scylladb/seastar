@@ -27,6 +27,9 @@ namespace seastar {
 
 namespace util {
 
+/// \addtogroup fileio-util
+/// @{
+
 /// Returns all bytes from the stream until eof, accessible in chunks.
 ///
 /// \note use only on short streams to avoid running out of memory.
@@ -45,6 +48,8 @@ future<sstring> read_entire_stream_contiguous(input_stream<char>& inp);
 ///
 /// \param inp \ref input_stream to be read.
 future<> skip_entire_stream(input_stream<char>& inp);
+
+/// @}
 
 } // namespace util
 
