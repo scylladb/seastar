@@ -31,6 +31,8 @@
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/core/scheduling.hh>
 
+struct perf_event_mmap_page;
+
 namespace seastar {
 
 class reactor;
@@ -69,6 +71,7 @@ protected:
     virtual bool reap_event_and_check_spuriousness() {
         return false;
     }
+    virtual void maybe_report_kernel_trace() {}
 private:
     void maybe_report();
     virtual void arm_timer() = 0;
@@ -103,12 +106,17 @@ class cpu_stall_detector_linux_perf_event : public cpu_stall_detector {
     file_desc _fd;
     bool _enabled = false;
     uint64_t _current_period = 0;
+    struct ::perf_event_mmap_page* _mmap;
+    char* _data_area;
+    size_t _data_area_mask;
 public:
     static std::unique_ptr<cpu_stall_detector_linux_perf_event> try_make(cpu_stall_detector_config cfg = {});
     explicit cpu_stall_detector_linux_perf_event(file_desc fd, cpu_stall_detector_config cfg = {});
+    ~cpu_stall_detector_linux_perf_event();
     virtual void arm_timer() override;
     virtual void start_sleep() override;
     virtual bool reap_event_and_check_spuriousness() override;
+    virtual void maybe_report_kernel_trace() override;
 };
 
 std::unique_ptr<cpu_stall_detector> make_cpu_stall_detector(cpu_stall_detector_config cfg = {});
