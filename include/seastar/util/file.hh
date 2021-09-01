@@ -27,6 +27,9 @@
 
 namespace seastar {
 
+/// \addtogroup fileio-module
+/// @{
+
 /// Recursively removes a directory and all of its contents.
 ///
 /// \param path path of the directory to recursively remove
@@ -41,5 +44,7 @@ namespace seastar {
 /// (and their contents) may be left behind at the level in which the error was detected.
 ///
 future<> recursive_remove_directory(std::filesystem::path path) noexcept;
+
+/// @}
 
 } // namespace seastar
