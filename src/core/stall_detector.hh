@@ -26,6 +26,7 @@
 #include <limits>
 #include <chrono>
 #include <functional>
+#include <memory>
 #include <seastar/core/posix.hh>
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/core/scheduling.hh>
@@ -47,7 +48,7 @@ struct cpu_stall_detector_config {
 
 // Detects stalls in continuations that run for too long
 class cpu_stall_detector {
-    timer_t _timer;
+protected:
     std::atomic<uint64_t> _last_tasks_processed_seen{};
     unsigned _stall_detector_reports_per_minute;
     std::atomic<uint64_t> _stall_detector_missed_ticks = { 0 };
@@ -65,15 +66,18 @@ class cpu_stall_detector {
     cpu_stall_detector_config _config;
     seastar::metrics::metric_groups _metrics;
     friend reactor;
+    virtual bool reap_event_and_check_spuriousness() {
+        return false;
+    }
 private:
     void maybe_report();
-    void arm_timer();
+    virtual void arm_timer() = 0;
     void report_suppressions(sched_clock::time_point now);
 public:
     using clock_type = thread_cputime_clock;
 public:
     explicit cpu_stall_detector(cpu_stall_detector_config cfg = {});
-    ~cpu_stall_detector();
+    virtual ~cpu_stall_detector() = default;
     static int signal_number() { return SIGRTMIN + 1; }
     void start_task_run(sched_clock::time_point now);
     void end_task_run(sched_clock::time_point now);
@@ -81,9 +85,21 @@ public:
     void update_config(cpu_stall_detector_config cfg);
     cpu_stall_detector_config get_config() const;
     void on_signal();
-    void start_sleep();
+    virtual void start_sleep() = 0;
     void end_sleep();
 };
+
+class cpu_stall_detector_posix_timer : public cpu_stall_detector {
+    timer_t _timer;
+public:
+    explicit cpu_stall_detector_posix_timer(cpu_stall_detector_config cfg = {});
+    virtual ~cpu_stall_detector_posix_timer() override;
+private:
+    virtual void arm_timer() override;
+    virtual void start_sleep() override;
+};
+
+std::unique_ptr<cpu_stall_detector> make_cpu_stall_detector(cpu_stall_detector_config cfg = {});
 
 }
 }

@@ -925,7 +925,7 @@ reactor::reactor(std::shared_ptr<smp> smp, alien::instance& alien, unsigned id, 
     , _engine_thread(sched::thread::current())
 #endif
     , _cpu_started(0)
-    , _cpu_stall_detector(std::make_unique<cpu_stall_detector>())
+    , _cpu_stall_detector(make_cpu_stall_detector())
     , _reuseport(posix_reuseport_detect())
     , _thread_pool(std::make_unique<thread_pool>(this, seastar::format("syscall-{}", id))) {
     /*
@@ -1061,6 +1061,16 @@ cpu_stall_detector::cpu_stall_detector(cpu_stall_detector_config cfg)
     // a safe place.
     backtrace([] (frame) {});
     update_config(cfg);
+
+    namespace sm = seastar::metrics;
+
+    _metrics.add_group("stall_detector", {
+            sm::make_derive("reported", _total_reported, sm::description("Total number of reported stalls, look in the traces for the exact reason"))});
+
+    // note: if something is added here that can, it should take care to destroy _timer.
+}
+
+cpu_stall_detector_posix_timer::cpu_stall_detector_posix_timer(cpu_stall_detector_config cfg) : cpu_stall_detector(cfg) {
     struct sigevent sev = {};
     sev.sigev_notify = SIGEV_THREAD_ID;
     sev.sigev_signo = signal_number();
@@ -1069,17 +1079,9 @@ cpu_stall_detector::cpu_stall_detector(cpu_stall_detector_config cfg)
     if (err) {
         throw std::system_error(std::error_code(err, std::system_category()));
     }
-
-    namespace sm = seastar::metrics;
-
-    _metrics.add_group("stall_detector", {
-            sm::make_derive("reported", _total_reported, sm::description("Total number of reported stalls, look in the traces for the exact reason"))});
-
-
-    // note: if something is added here that can, it should take care to destroy _timer.
 }
 
-cpu_stall_detector::~cpu_stall_detector() {
+cpu_stall_detector_posix_timer::~cpu_stall_detector_posix_timer() {
     timer_delete(_timer);
 }
 
@@ -1140,7 +1142,7 @@ void cpu_stall_detector::report_suppressions(sched_clock::time_point now) {
     }
 }
 
-void cpu_stall_detector::arm_timer() {
+void cpu_stall_detector_posix_timer::arm_timer() {
     auto its = posix::to_relative_itimerspec(_threshold * _report_at + _slack, 0s);
     timer_settime(_timer, 0, &its, nullptr);
 }
@@ -1162,13 +1164,19 @@ void cpu_stall_detector::end_task_run(sched_clock::time_point now) {
     _last_tasks_processed_seen.store(0, std::memory_order_relaxed);
 }
 
-void cpu_stall_detector::start_sleep() {
+void cpu_stall_detector_posix_timer::start_sleep() {
     auto its = posix::to_relative_itimerspec(0s,  0s);
     timer_settime(_timer, 0, &its, nullptr);
     _rearm_timer_at = reactor::now();
 }
 
 void cpu_stall_detector::end_sleep() {
+}
+
+
+std::unique_ptr<cpu_stall_detector>
+internal::make_cpu_stall_detector(cpu_stall_detector_config cfg) {
+    return std::make_unique<cpu_stall_detector_posix_timer>(cfg);
 }
 
 void
