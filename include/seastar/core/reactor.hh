@@ -243,6 +243,10 @@ public:
     };
     friend void io_completion::complete_with(ssize_t);
 
+    /// Obtains an alien::instance object that can be used to send messages
+    /// to Seastar shards from non-Seastar threads.
+    alien::instance& alien() { return _alien; }
+
 private:
     std::shared_ptr<smp> _smp;
     alien::instance& _alien;
