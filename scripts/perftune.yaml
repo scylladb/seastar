@@ -2,6 +2,8 @@
 #   - 'mq'
 #   - 'sq'
 #   - 'sq_split'
+#   - 'dq'
+#   - 'dq_split'
 #mode: 'sq_split'
 
 # Name of the NIC to tune, e.g. eth7.

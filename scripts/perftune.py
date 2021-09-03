@@ -277,6 +277,8 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
         sq_split = 0
         sq = 1
         mq = 2
+        dq_split = 3
+        dq = 4
 
         # Note: no_irq_restrictions should always have the greatest value in the enum since it's the least restricting mode.
         no_irq_restrictions = 9999
@@ -321,6 +323,12 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
         elif mq_mode == PerfTunerBase.SupportedModes.sq_split:
             # all but CPU0 and its HT siblings
             irqs_cpu_mask = run_hwloc_calc([cpu_mask, '~core:0'])
+        elif mq_mode == PerfTunerBase.SupportedModes.dq:
+            # all but core 0 on NUMA node 0 and NUMA node 1 (2 CPUs in total)
+            irqs_cpu_mask = run_hwloc_calc([cpu_mask, '~node:0.PU:0', '~node:1.PU:0'])
+        elif mq_mode == PerfTunerBase.SupportedModes.dq_split:
+            # all but core 0 and its HT siblings on NUMA node 0 and 1 (4 CPUs in total)
+            irqs_cpu_mask = run_hwloc_calc([cpu_mask, '~node:0.core:0', '~node:1.core:0']) 
         elif mq_mode == PerfTunerBase.SupportedModes.mq:
             # all available cores
             irqs_cpu_mask = cpu_mask
@@ -329,6 +337,8 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
             irqs_cpu_mask = cpu_mask
         else:
             raise Exception("Unsupported mode: {}".format(mq_mode))
+
+        print(irqs_cpu_mask)
 
         if PerfTunerBase.cpu_mask_is_zero(irqs_cpu_mask):
             raise PerfTunerBase.CPUMaskIsZeroException("Bad configuration mode ({}) and cpu-mask value ({}): this results in a zero-mask for compute".format(mq_mode.name, cpu_mask))
@@ -1320,6 +1330,13 @@ Modes description:
       to spreads NAPIs' handling between other CPUs.
 
  sq_split - divide all IRQs of a given NIC between CPU0 and its HT siblings and configure RPS
+      to spreads NAPIs' handling between other CPUs.
+
+ dq - set all IRQs of a given NIC to CPU0 of NUMA 1 and CPU0 of NUMA node 1 and configure RPS
+      to spreads NAPIs' handling between other CPUs.
+
+ dq_split - divide all IRQs of a given NIC between CPU0 and its HT siblings of NUMA node 1 
+      and CPU0 and its HT sibliing of NUMA node 2. And configure RPS
       to spreads NAPIs' handling between other CPUs.
 
  mq - distribute NIC's IRQs among all CPUs instead of binding
