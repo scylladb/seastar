@@ -36,6 +36,7 @@ SEASTAR_TEST_CASE(test_coroutines_not_compiled_in) {
 
 #include <seastar/core/coroutine.hh>
 #include <seastar/coroutine/all.hh>
+#include <seastar/coroutine/maybe_yield.hh>
 
 namespace {
 
@@ -309,6 +310,30 @@ SEASTAR_TEST_CASE(test_coroutine_exception) {
         BOOST_REQUIRE(f.failed());
         BOOST_REQUIRE_THROW(std::rethrow_exception(f.get_exception()), std::logic_error);
     });
+}
+
+SEASTAR_TEST_CASE(test_maybe_yield) {
+    int var = 0;
+    bool done = false;
+    auto spinner = [&] () -> future<> {
+        // increment a variable continuously, but yield so an observer can see it.
+        while (!done) {
+            ++var;
+            co_await coroutine::maybe_yield();
+        }
+    }();
+    int snapshot = var;
+    for (int nr_changes = 0; nr_changes < 10; ++nr_changes) {
+        // Try to observe the value changing in time, yield to
+        // allow the spinner to advance it.
+        while (snapshot == var) {
+            co_await coroutine::maybe_yield();
+        }
+        snapshot = var;
+    }
+    done = true;
+    co_await std::move(spinner);
+    BOOST_REQUIRE(true); // the test will hang if it doesn't work.
 }
 
 #endif

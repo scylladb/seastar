@@ -440,6 +440,27 @@ Here, two read() calls are launched concurrently. The coroutine is paused until 
 
 Note that `all` waits for all of its sub-computations, even if some throw an exception. If an exception is thrown, it is propagated to the calling coroutine.
 
+## Breaking up long running computations
+
+Seastar is generally used for I/O, and coroutines usually launch I/O operations and consume their results, with little computation in between. But occasionally a long running computation is needed, and this risks preventing the reactor from performing I/O and scheduling other tasks.
+
+A coroutine will automatically yield in a `co_await` expression; but in a computation we do not `co_await` anything. We can use the `seastar::coroutine::maybe_yield` class in such cases:
+
+```cpp
+#include <seastar/coroutine/maybe_yield>
+
+seastar::future<int> long_loop(int n) {
+    float acc = 0;
+    for (int i = 0; i < n; ++i) {
+        acc += std::sin(float(i));
+        // Give the Seastar reactor opportunity to perform I/O or schedule
+        // other tasks.
+        co_await seastar::coroutine::maybe_yield();
+    }
+    co_return acc;
+}
+```
+
 # Continuations
 ## Capturing state in continuations
 
