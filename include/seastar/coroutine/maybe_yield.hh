@@ -83,7 +83,6 @@ struct maybe_yield_awaiter final : task {
 ///     co_return acc;
 /// }
 /// ```
-template <typename... Futures>
 class [[nodiscard("must co_await an maybe_yield() object")]] maybe_yield {
 public:
     auto operator co_await() { return internal::maybe_yield_awaiter(); }
