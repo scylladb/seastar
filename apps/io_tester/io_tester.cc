@@ -158,23 +158,29 @@ public:
 
     virtual ~class_data() = default;
 
+private:
+    future<> issue_requests_in_parallel(std::chrono::steady_clock::time_point stop, unsigned parallelism) {
+        return parallel_for_each(boost::irange(0u, parallelism), [this, stop] (auto dummy) mutable {
+            auto bufptr = allocate_aligned_buffer<char>(this->req_size(), _alignment);
+            auto buf = bufptr.get();
+            return do_until([stop] { return std::chrono::steady_clock::now() > stop; }, [this, buf, stop] () mutable {
+                auto start = std::chrono::steady_clock::now();
+                return issue_request(buf).then([this, start, stop] (auto size) {
+                    auto now = std::chrono::steady_clock::now();
+                    if (now < stop) {
+                        this->add_result(size, std::chrono::duration_cast<std::chrono::microseconds>(now - start));
+                    }
+                    return think();
+                });
+            }).finally([bufptr = std::move(bufptr)] {});
+        });
+    }
+
+public:
     future<> issue_requests(std::chrono::steady_clock::time_point stop) {
         _start = std::chrono::steady_clock::now();
         return with_scheduling_group(_sg, [this, stop] {
-            return parallel_for_each(boost::irange(0u, parallelism()), [this, stop] (auto dummy) mutable {
-                auto bufptr = allocate_aligned_buffer<char>(this->req_size(), _alignment);
-                auto buf = bufptr.get();
-                return do_until([stop] { return std::chrono::steady_clock::now() > stop; }, [this, buf, stop] () mutable {
-                    auto start = std::chrono::steady_clock::now();
-                    return issue_request(buf).then([this, start, stop] (auto size) {
-                        auto now = std::chrono::steady_clock::now();
-                        if (now < stop) {
-                            this->add_result(size, std::chrono::duration_cast<std::chrono::microseconds>(now - start));
-                        }
-                        return think();
-                    });
-                }).finally([bufptr = std::move(bufptr)] {});
-            });
+            return issue_requests_in_parallel(stop, parallelism());
         }).then([this] {
             _total_duration = std::chrono::steady_clock::now() - _start;
         });
