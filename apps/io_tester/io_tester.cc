@@ -179,7 +179,27 @@ private:
     }
 
     future<> issue_requests_at_rate(std::chrono::steady_clock::time_point stop, unsigned rps) {
-        return make_ready_future<>();
+        return do_with(io_intent{}, 0u, [this, stop, rps] (io_intent& intent, unsigned& in_flight) {
+            auto bufptr = allocate_aligned_buffer<char>(this->req_size(), _alignment);
+            auto buf = bufptr.get();
+            auto pause = std::chrono::duration_cast<std::chrono::microseconds>(1s) / rps;
+            return do_until([stop] { return std::chrono::steady_clock::now() > stop; }, [this, buf, stop, pause, &intent, &in_flight] () mutable {
+                auto start = std::chrono::steady_clock::now();
+                in_flight++;
+                (void)issue_request(buf, &intent).then([this, start, stop, &in_flight] (auto size) {
+                    auto now = std::chrono::steady_clock::now();
+                    if (now < stop) {
+                        this->add_result(size, std::chrono::duration_cast<std::chrono::microseconds>(now - start));
+                    }
+                    in_flight--;
+                    return make_ready_future<>();
+                });
+                return seastar::sleep(std::max(std::chrono::duration_cast<std::chrono::microseconds>((start + pause) - std::chrono::steady_clock::now()), 0us));
+            }).then([this, &intent, &in_flight] {
+                intent.cancel();
+                return do_until([&in_flight] { return in_flight == 0; }, [] { return seastar::sleep(100ms /* ¯\_(ツ)_/¯ */); });
+            }).finally([bufptr = std::move(bufptr)] {});
+        });
     }
 
 public:
