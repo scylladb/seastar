@@ -32,6 +32,7 @@
 #include <seastar/core/loop.hh>
 #include <seastar/core/with_scheduling_group.hh>
 #include <seastar/core/metrics_api.hh>
+#include <seastar/core/io_intent.hh>
 #include <chrono>
 #include <vector>
 #include <boost/range/irange.hpp>
@@ -145,7 +146,7 @@ protected:
     file _file;
 
     virtual future<> do_start(sstring dir, directory_entry_type type) = 0;
-    virtual future<size_t> issue_request(char *buf) = 0;
+    virtual future<size_t> issue_request(char *buf, io_intent* intent) = 0;
 public:
     class_data(job_config cfg)
         : _config(std::move(cfg))
@@ -165,7 +166,7 @@ private:
             auto buf = bufptr.get();
             return do_until([stop] { return std::chrono::steady_clock::now() > stop; }, [this, buf, stop] () mutable {
                 auto start = std::chrono::steady_clock::now();
-                return issue_request(buf).then([this, start, stop] (auto size) {
+                return issue_request(buf, nullptr).then([this, start, stop] (auto size) {
                     auto now = std::chrono::steady_clock::now();
                     if (now < stop) {
                         this->add_result(size, std::chrono::duration_cast<std::chrono::microseconds>(now - start));
@@ -436,8 +437,8 @@ class read_io_class_data : public io_class_data {
 public:
     read_io_class_data(job_config cfg) : io_class_data(std::move(cfg)) {}
 
-    future<size_t> issue_request(char *buf) override {
-        return _file.dma_read(this->get_pos(), buf, this->req_size(), _iop);
+    future<size_t> issue_request(char *buf, io_intent* intent) override {
+        return _file.dma_read(this->get_pos(), buf, this->req_size(), _iop, intent);
     }
 };
 
@@ -445,8 +446,8 @@ class write_io_class_data : public io_class_data {
 public:
     write_io_class_data(job_config cfg) : io_class_data(std::move(cfg)) {}
 
-    future<size_t> issue_request(char *buf) override {
-        return _file.dma_write(this->get_pos(), buf, this->req_size(), _iop);
+    future<size_t> issue_request(char *buf, io_intent* intent) override {
+        return _file.dma_write(this->get_pos(), buf, this->req_size(), _iop, intent);
     }
 };
 
@@ -458,7 +459,7 @@ public:
         return make_ready_future<>();
     }
 
-    future<size_t> issue_request(char *buf) override {
+    future<size_t> issue_request(char *buf, io_intent* intent) override {
         // We do want the execution time to be a busy loop, and not just a bunch of
         // continuations until our time is up: by doing this we can also simulate the behavior
         // of I/O continuations in the face of reactor stalls.
