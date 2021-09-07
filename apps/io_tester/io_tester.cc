@@ -93,7 +93,8 @@ public:
 };
 
 struct shard_info {
-    unsigned parallelism = 10;
+    unsigned parallelism = 0;
+    unsigned rps = 0;
     unsigned shares = 10;
     uint64_t request_size = 4 << 10;
     std::chrono::duration<float> think_time = 0ms;
@@ -177,11 +178,20 @@ private:
         });
     }
 
+    future<> issue_requests_at_rate(std::chrono::steady_clock::time_point stop, unsigned rps) {
+        return make_ready_future<>();
+    }
+
 public:
     future<> issue_requests(std::chrono::steady_clock::time_point stop) {
         _start = std::chrono::steady_clock::now();
         return with_scheduling_group(_sg, [this, stop] {
-            return issue_requests_in_parallel(stop, parallelism());
+            if (parallelism() != 0) {
+                return issue_requests_in_parallel(stop, parallelism());
+            } else /* rps() != 0 */ {
+                assert(rps() != 0);
+                return issue_requests_at_rate(stop, rps());
+            }
         }).then([this] {
             _total_duration = std::chrono::steady_clock::now() - _start;
         });
@@ -249,6 +259,10 @@ protected:
 
     unsigned parallelism() const {
         return _config.shard_info.parallelism;
+    }
+
+    unsigned rps() const {
+        return _config.shard_info.rps;
     }
 
     unsigned shares() const {
@@ -575,6 +589,14 @@ struct convert<shard_info> {
         if (node["parallelism"]) {
             sl.parallelism = node["parallelism"].as<unsigned>();
         }
+        if (node["rps"]) {
+            sl.rps = node["rps"].as<unsigned>();
+        }
+        if ((sl.parallelism == 0) == (sl.rps == 0)) {
+            fmt::print("Must specify exactly one of 'parallelism' or 'rps' parameters\n");
+            return false;
+        }
+
         if (node["shares"]) {
             sl.shares = node["shares"].as<unsigned>();
         }
