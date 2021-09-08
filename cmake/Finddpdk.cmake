@@ -21,9 +21,9 @@
 #
 
 find_package (PkgConfig REQUIRED)
-pkg_check_modules (dpdk_PC libdpdk)
+pkg_check_modules (dpdk_PC QUIET libdpdk)
 
-if (dpdk_PC_FOUND)
+if (dpdk_PC_FOUND AND dpdk_PC_STATIC_LIBRARIES)
   find_package_handle_standard_args (dpdk
     REQUIRED_VARS
       dpdk_PC_STATIC_CFLAGS
@@ -40,11 +40,38 @@ if (dpdk_PC_FOUND)
         INTERFACE_LINK_DIRECTORIES "${dpdk_PC_STATIC_LIBRARY_DIRS}")
     return ()
   endif ()
+elseif (dpdk_PC_FOUND)
+  find_package_handle_standard_args (dpdk
+    REQUIRED_VARS
+      dpdk_PC_CFLAGS
+      dpdk_PC_INCLUDE_DIRS
+      dpdk_PC_LDFLAGS
+      dpdk_PC_LIBRARY_DIRS)
+  if (dpdk_FOUND AND NOT (TARGET dpdk::dpdk))
+    add_library (dpdk::dpdk INTERFACE IMPORTED)
+    set_target_properties (dpdk::dpdk
+      PROPERTIES
+        INTERFACE_COMPILE_OPTIONS "${dpdk_PC_CFLAGS}"
+        INTERFACE_INCLUDE_DIRECTORIES "${dpdk_PC_INCLUDE_DIRS}"
+        INTERFACE_LINK_OPTIONS "${dpdk_PC_LDFLAGS}"
+        INTERFACE_LINK_DIRECTORIES "${dpdk_PC_LIBRARY_DIRS}")
+    return ()
+  endif ()
 endif ()
 
 find_path (dpdk_INCLUDE_DIR
   NAMES rte_atomic.h
   PATH_SUFFIXES dpdk)
+
+if (dpdk_INCLUDE_DIR AND EXISTS "${dpdk_INCLUDE_DIR}/rte_config.h")
+  file (STRINGS "${dpdk_INCLUDE_DIR}/rte_config.h" rte_mbuf_refcnt_atomic
+    REGEX "^#define[ \t ]+RTE_MBUF_REFCNT_ATOMIC")
+  if (rte_mbuf_refcnt_atomic)
+    message (SEND_ERROR
+      "DPDK is configured with RTE_MBUF_REFCNT_ATOMIC enabled, "
+      "please disable this option and recompile DPDK.")
+  endif ()
+endif ()
 
 find_library (dpdk_PMD_VMXNET3_UIO_LIBRARY rte_net_vmxnet3)
 find_library (dpdk_PMD_I40E_LIBRARY rte_net_i40e)
