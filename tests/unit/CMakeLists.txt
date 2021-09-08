@@ -554,7 +554,7 @@ add_custom_target(tls_files
 seastar_add_test (tls
   DEPENDS tls_files testcrt othercrt
   SOURCES tls_test.cc
-  LIBRARIES boost_filesystem
+  LIBRARIES Boost::filesystem
   WORKING_DIRECTORY ${Seastar_BINARY_DIR})
 
 seastar_add_test (tuple_utils
