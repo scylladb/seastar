@@ -55,6 +55,7 @@ reactor_config_from_app_config(app_template::config cfg) {
 app_template::seastar_options::seastar_options()
     : program_options::option_group(nullptr, "seastar")
     , reactor_opts(this)
+    , metrics_opts(this)
 {
 }
 
@@ -82,7 +83,6 @@ app_template::app_template(app_template::config cfg)
             _opts.describe(visitor);
             _opts_conf_file.add(std::move(visitor).get_options_description());
         }
-        _opts_conf_file.add(seastar::metrics::get_options_description());
         _opts_conf_file.add(smp::get_options_description());
         _opts_conf_file.add(scollectd::get_options_description());
         _opts_conf_file.add(log_cli::get_options_description());
@@ -238,7 +238,7 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
     // No need to wait for this future.
     // func is waited on via engine().run()
     (void)engine().when_started().then([this] {
-        return seastar::metrics::configure(this->configuration()).then([this] {
+        return seastar::metrics::configure(_opts.metrics_opts).then([this] {
             // set scollectd use the metrics configuration, so the later
             // need to be set first
             scollectd::configure( this->configuration());

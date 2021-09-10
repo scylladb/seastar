@@ -26,6 +26,7 @@
 #include <seastar/core/smp.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/util/program-options.hh>
+#include <seastar/core/metrics_api.hh>
 #include <chrono>
 
 namespace seastar {
@@ -94,6 +95,8 @@ public:
         bool auto_handle_sigint_sigterm = true;
         /// Configuration options for the reactor.
         reactor_options reactor_opts;
+        /// Configuration for the metrics sub-system.
+        metrics::options metrics_opts;
 
         seastar_options();
     };
