@@ -629,7 +629,7 @@ posix_data_sink_impl::close() {
     return make_ready_future<>();
 }
 
-posix_network_stack::posix_network_stack(boost::program_options::variables_map opts, std::pmr::polymorphic_allocator<char>* allocator)
+posix_network_stack::posix_network_stack(const program_options::option_group& opts, std::pmr::polymorphic_allocator<char>* allocator)
         : _reuseport(engine().posix_reuseport_available()), _allocator(allocator) {
 }
 
@@ -654,8 +654,8 @@ posix_network_stack::listen(socket_address sa, listen_options opt) {
     return ::seastar::socket(std::make_unique<posix_socket_impl>(_allocator));
 }
 
-posix_ap_network_stack::posix_ap_network_stack(boost::program_options::variables_map opts, std::pmr::polymorphic_allocator<char>* allocator)
-        : posix_network_stack(std::move(opts), allocator), _reuseport(engine().posix_reuseport_available()) {
+posix_ap_network_stack::posix_ap_network_stack(const program_options::option_group& opts, std::pmr::polymorphic_allocator<char>* allocator)
+        : posix_network_stack(opts, allocator), _reuseport(engine().posix_reuseport_available()) {
 }
 
 server_socket
@@ -840,13 +840,14 @@ posix_udp_channel::receive() {
     });
 }
 
-void register_posix_stack() {
-    register_network_stack("posix", boost::program_options::options_description(),
-        [](boost::program_options::variables_map ops) {
+network_stack_entry register_posix_stack() {
+    return network_stack_entry{
+        "posix", std::make_unique<program_options::option_group>(nullptr, "Posix"),
+        [](const program_options::option_group& ops) {
             return smp::main_thread() ? posix_network_stack::create(ops)
                                       : posix_ap_network_stack::create(ops);
         },
-        true);
+        true};
 }
 
 // nw interface stuff

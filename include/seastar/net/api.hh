@@ -31,6 +31,7 @@
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/core/iostream.hh>
 #include <seastar/util/std-compat.hh>
+#include <seastar/util/program-options.hh>
 #include "../core/internal/api-level.hh"
 #include <sys/types.h>
 
@@ -387,6 +388,15 @@ public:
      * return by value.
      */
     virtual std::vector<network_interface> network_interfaces();
+};
+
+struct network_stack_entry {
+    using factory_func = noncopyable_function<future<std::unique_ptr<network_stack>> (const program_options::option_group&)>;
+
+    sstring name;
+    std::unique_ptr<program_options::option_group> opts;
+    factory_func factory;
+    bool is_default;
 };
 
 }

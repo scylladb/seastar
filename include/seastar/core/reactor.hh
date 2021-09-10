@@ -131,10 +131,6 @@ bool operator==(const ::sockaddr_in a, const ::sockaddr_in b);
 
 namespace seastar {
 
-void register_network_stack(sstring name, boost::program_options::options_description opts,
-    noncopyable_function<future<std::unique_ptr<network_stack>>(boost::program_options::variables_map opts)> create,
-    bool make_default = false);
-
 class thread_pool;
 class smp;
 
@@ -216,6 +212,7 @@ private:
     friend class reactor_backend_epoll;
     friend class reactor_backend_aio;
     friend class reactor_backend_selector;
+    friend struct reactor_options;
     friend class aio_storage_context;
     friend size_t scheduling_group_count();
 public:
@@ -466,7 +463,6 @@ private:
     do_write_some(pollable_fd_state& fd, net::packet& p);
     int do_run();
 public:
-    static boost::program_options::options_description get_options_description(reactor_config cfg);
     explicit reactor(std::shared_ptr<smp> smp, alien::instance& alien, unsigned id, reactor_backend_selector rbs, reactor_config cfg);
     reactor(const reactor&) = delete;
     ~reactor();
@@ -501,7 +497,7 @@ public:
     /// @private
     future<> rename_queues(io_priority_class pc, sstring new_name) noexcept;
 
-    void configure(boost::program_options::variables_map config);
+    void configure(const reactor_options& opts);
 
     server_socket listen(socket_address sa, listen_options opts = {});
 

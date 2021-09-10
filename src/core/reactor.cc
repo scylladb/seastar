@@ -1434,6 +1434,15 @@ void reactor::set_timer(sched::timer &tmr, s64 t) {
 }
 #endif
 
+class network_stack_factory {
+    network_stack_entry::factory_func _func;
+
+public:
+    network_stack_factory(noncopyable_function<future<std::unique_ptr<network_stack>> (const program_options::option_group&)> func)
+        : _func(std::move(func)) { }
+    future<std::unique_ptr<network_stack>> operator()(const program_options::option_group& opts) { return _func(opts); }
+};
+
 class network_stack_registry {
 public:
     using options = boost::program_options::variables_map;
@@ -1462,42 +1471,37 @@ public:
     static future<std::unique_ptr<network_stack>> create(sstring name, options opts);
 };
 
-void reactor::configure(boost::program_options::variables_map vm) {
-    _network_stack_ready = vm.count("network-stack")
-        ? network_stack_registry::create(sstring(vm["network-stack"].as<std::string>()), vm)
-        : network_stack_registry::create(vm);
+void reactor::configure(const reactor_options& opts) {
+    _network_stack_ready = opts.network_stack.get_selected_candidate()(*opts.network_stack.get_selected_candidate_opts());
 
-    _handle_sigint = !vm.count("no-handle-interrupt");
-    auto task_quota = vm["task-quota-ms"].as<double>() * 1ms;
+    _handle_sigint = !opts.no_handle_interrupt;
+    auto task_quota = opts.task_quota_ms.get_value() * 1ms;
     _task_quota = std::chrono::duration_cast<sched_clock::duration>(task_quota);
 
-    auto blocked_time = vm["blocked-reactor-notify-ms"].as<unsigned>() * 1ms;
+    auto blocked_time = opts.blocked_reactor_notify_ms.get_value() * 1ms;
     cpu_stall_detector_config csdc;
     csdc.threshold = blocked_time;
-    csdc.stall_detector_reports_per_minute = vm["blocked-reactor-reports-per-minute"].as<unsigned>();
-    csdc.oneline = vm["blocked-reactor-report-format-oneline"].as<bool>();
+    csdc.stall_detector_reports_per_minute = opts.blocked_reactor_reports_per_minute.get_value();
+    csdc.oneline = opts.blocked_reactor_report_format_oneline.get_value();
     _cpu_stall_detector->update_config(csdc);
 
-    _max_task_backlog = vm["max-task-backlog"].as<unsigned>();
-    _max_poll_time = vm["idle-poll-time-us"].as<unsigned>() * 1us;
-    if (vm.count("poll-mode")) {
+    _max_task_backlog = opts.max_task_backlog.get_value();
+    _max_poll_time = opts.idle_poll_time_us.get_value() * 1us;
+    if (opts.poll_mode) {
         _max_poll_time = std::chrono::nanoseconds::max();
     }
-    if (vm.count("overprovisioned")
-           && vm["idle-poll-time-us"].defaulted()
-           && !vm.count("poll-mode")) {
+    if (opts.overprovisioned && opts.idle_poll_time_us.defaulted() && !opts.poll_mode) {
         _max_poll_time = 0us;
     }
-    set_strict_dma(!vm.count("relaxed-dma"));
-    if (!vm["poll-aio"].as<bool>()
-            || (vm["poll-aio"].defaulted() && vm.count("overprovisioned"))) {
+    set_strict_dma(!opts.relaxed_dma);
+    if (!opts.poll_aio.get_value() || (opts.poll_aio.defaulted() && opts.overprovisioned)) {
         _aio_eventfd = pollable_fd(file_desc::eventfd(0, 0));
     }
-    set_bypass_fsync(vm["unsafe-bypass-fsync"].as<bool>());
-    _kernel_page_cache = vm["kernel-page-cache"].as<bool>();
-    _force_io_getevents_syscall = vm["force-aio-syscalls"].as<bool>();
-    aio_nowait_supported = vm["linux-aio-nowait"].as<bool>();
-    _have_aio_fsync = vm["aio-fsync"].as<bool>();
+    set_bypass_fsync(opts.unsafe_bypass_fsync.get_value());
+    _kernel_page_cache = opts.kernel_page_cache.get_value();
+    _force_io_getevents_syscall = opts.force_aio_syscalls.get_value();
+    aio_nowait_supported = opts.linux_aio_nowait.get_value();
+    _have_aio_fsync = opts.aio_fsync.get_value();
 }
 
 pollable_fd
@@ -3492,60 +3496,84 @@ static bool kernel_supports_aio_fsync() {
     return kernel_uname().whitelisted({"4.18"});
 }
 
-boost::program_options::options_description
-reactor::get_options_description(reactor_config cfg) {
-    namespace bpo = boost::program_options;
-    bpo::options_description opts("Core options");
-    auto net_stack_names = network_stack_registry::list();
-    opts.add_options()
-        ("network-stack", bpo::value<std::string>(),
-                format("select network stack (valid values: {})",
-                        format_separated(net_stack_names.begin(), net_stack_names.end(), ", ")).c_str())
-        ("poll-mode", "poll continuously (100% cpu use)")
-        ("idle-poll-time-us", bpo::value<unsigned>()->default_value(calculate_poll_time() / 1us),
+static program_options::selection_value<network_stack_factory> create_network_stacks_option(reactor_options& zis) {
+    using value_type = program_options::selection_value<network_stack_factory>;
+    value_type::candidates candidates;
+    std::vector<std::string> net_stack_names;
+
+    auto deleter = [] (network_stack_factory* p) { delete p; };
+
+    std::string default_stack;
+    for (auto reg_func : {register_native_stack, register_posix_stack}) {
+        auto s = reg_func();
+        if (s.is_default) {
+            default_stack = s.name;
+        }
+        candidates.push_back({s.name, {new network_stack_factory(std::move(s.factory)), deleter}, std::move(s.opts)});
+        net_stack_names.emplace_back(s.name);
+    }
+
+    return program_options::selection_value<network_stack_factory>(zis, "network-stack", std::move(candidates), default_stack,
+            format("select network stack (valid values: {})", format_separated(net_stack_names.begin(), net_stack_names.end(), ", ")));
+}
+
+static program_options::selection_value<reactor_backend_selector>::candidates backend_selector_candidates() {
+    using value_type = program_options::selection_value<reactor_backend_selector>;
+    value_type::candidates candidates;
+
+    auto deleter = [] (reactor_backend_selector* p) { delete p; };
+
+    for (auto&& be : reactor_backend_selector::available()) {
+        auto name = be.name();
+        candidates.push_back({std::move(name), {new reactor_backend_selector(std::move(be)), deleter}, {}});
+    }
+    return candidates;
+}
+
+reactor_options::reactor_options(program_options::option_group* parent_group)
+    : program_options::option_group(parent_group, "Core options")
+    , network_stack(create_network_stacks_option(*this))
+    , poll_mode(*this, "poll-mode", "poll continuously (100% cpu use)")
+    , idle_poll_time_us(*this, "idle-poll-time-us", reactor::calculate_poll_time() / 1us,
                 "idle polling time in microseconds (reduce for overprovisioned environments or laptops)")
-        ("poll-aio", bpo::value<bool>()->default_value(true),
+    , poll_aio(*this, "poll-aio", true,
                 "busy-poll for disk I/O (reduces latency and increases throughput)")
-        ("task-quota-ms", bpo::value<double>()->default_value(cfg.task_quota / 1ms), "Max time (ms) between polls")
-        ("max-task-backlog", bpo::value<unsigned>()->default_value(1000), "Maximum number of task backlog to allow; above this we ignore I/O")
-        ("blocked-reactor-notify-ms", bpo::value<unsigned>()->default_value(200), "threshold in miliseconds over which the reactor is considered blocked if no progress is made")
-        ("blocked-reactor-reports-per-minute", bpo::value<unsigned>()->default_value(5), "Maximum number of backtraces reported by stall detector per minute")
-        ("blocked-reactor-report-format-oneline", bpo::value<bool>()->default_value(true), "Print a simplified backtrace on a single line")
-        ("relaxed-dma", "allow using buffered I/O if DMA is not available (reduces performance)")
-        ("linux-aio-nowait",
-                bpo::value<bool>()->default_value(aio_nowait_supported),
+    , task_quota_ms(*this, "task-quota-ms", 500, "Max time (ms) between polls")
+    , max_task_backlog(*this, "max-task-backlog", 1000, "Maximum number of task backlog to allow; above this we ignore I/O")
+    , blocked_reactor_notify_ms(*this, "blocked-reactor-notify-ms", 200, "threshold in miliseconds over which the reactor is considered blocked if no progress is made")
+    , blocked_reactor_reports_per_minute(*this, "blocked-reactor-reports-per-minute", 5, "Maximum number of backtraces reported by stall detector per minute")
+    , blocked_reactor_report_format_oneline(*this, "blocked-reactor-report-format-oneline", true, "Print a simplified backtrace on a single line")
+    , relaxed_dma(*this, "relaxed-dma", "allow using buffered I/O if DMA is not available (reduces performance)")
+    , linux_aio_nowait(*this, "linux-aio-nowait", aio_nowait_supported,
                 "use the Linux NOWAIT AIO feature, which reduces reactor stalls due to aio (autodetected)")
-        ("unsafe-bypass-fsync", bpo::value<bool>()->default_value(false), "Bypass fsync(), may result in data loss. Use for testing on consumer drives")
-        ("kernel-page-cache", bpo::value<bool>()->default_value(false),
+    , unsafe_bypass_fsync(*this, "unsafe-bypass-fsync", false, "Bypass fsync(), may result in data loss. Use for testing on consumer drives")
+    , kernel_page_cache(*this, "kernel-page-cache", false,
                 "Use the kernel page cache. This disables DMA (O_DIRECT)."
                 " Useful for short-lived functional tests with a small data set.")
-        ("overprovisioned", "run in an overprovisioned environment (such as docker or a laptop); equivalent to --idle-poll-time-us 0 --thread-affinity 0 --poll-aio 0")
-        ("abort-on-seastar-bad-alloc", "abort when seastar allocator cannot allocate memory")
-        ("force-aio-syscalls", bpo::value<bool>()->default_value(false),
+    , overprovisioned(*this, "overprovisioned", "run in an overprovisioned environment (such as docker or a laptop); equivalent to --idle-poll-time-us 0 --thread-affinity 0 --poll-aio 0")
+    , abort_on_seastar_bad_alloc(*this, "abort-on-seastar-bad-alloc", "abort when seastar allocator cannot allocate memory")
+    , force_aio_syscalls(*this, "force-aio-syscalls", false,
                 "Force io_getevents(2) to issue a system call, instead of bypassing the kernel when possible."
                 " This makes strace output more useful, but slows down the application")
-        ("dump-memory-diagnostics-on-alloc-failure-kind", bpo::value<std::string>()->default_value("critical"), "Dump diagnostics of the seastar allocator state on allocation failure."
+    , dump_memory_diagnostics_on_alloc_failure_kind(*this, "dump-memory-diagnostics-on-alloc-failure-kind", memory::alloc_failure_kind::critical,
+                "Dump diagnostics of the seastar allocator state on allocation failure."
                  " Accepted values: never, critical (default), always. When set to critical, only allocations marked as critical will trigger diagnostics dump."
                  " The diagnostics will be written to the seastar_memory logger, with error level."
                  " Note that if the seastar_memory logger is set to debug or trace level, the diagnostics will be logged irrespective of this setting.")
-        ("reactor-backend", bpo::value<reactor_backend_selector>()->default_value(reactor_backend_selector::default_backend()),
-                format("Internal reactor implementation ({})", reactor_backend_selector::available()).c_str())
-        ("aio-fsync", bpo::value<bool>()->default_value(kernel_supports_aio_fsync()),
+    , reactor_backend(*this, "reactor-backend", backend_selector_candidates(), reactor_backend_selector::default_backend().name(),
+                format("Internal reactor implementation ({})", reactor_backend_selector::available()))
+    , aio_fsync(*this, "aio-fsync", kernel_supports_aio_fsync(),
                 "Use Linux aio for fsync() calls. This reduces latency; requires Linux 4.18 or later.")
-        ("max-networking-io-control-blocks", bpo::value<unsigned>()->default_value(cfg.max_networking_aio_io_control_blocks,
+    , max_networking_io_control_blocks(*this, "max-networking-io-control-blocks", 10000,
                 "Maximum number of I/O control blocks (IOCBs) to allocate per shard. This translates to the number of sockets supported per shard."
-                " Requires tuning /proc/sys/fs/aio-max-nr. Only valid for the linux-aio reactor backend (see --reactor-backend)."));
+                " Requires tuning /proc/sys/fs/aio-max-nr. Only valid for the linux-aio reactor backend (see --reactor-backend).")
 #ifdef SEASTAR_HEAPPROF
-        ("heapprof", "enable seastar heap profiling")
+    , heapprof(*this, "heapprof", "enable seastar heap profiling")
+#else
+    , heapprof(*this, "heapprof", program_options::unused{})
 #endif
-        ;
-    if (cfg.auto_handle_sigint_sigterm) {
-        opts.add_options()
-                ("no-handle-interrupt", "ignore SIGINT (for gdb)")
-                ;
-    }
-    opts.add(network_stack_registry::options_description());
-    return opts;
+    , no_handle_interrupt(*this, "no-handle-interrupt", "ignore SIGINT (for gdb)")
+{
 }
 
 boost::program_options::options_description
@@ -3748,9 +3776,9 @@ public:
         return _latency_goal;
     }
 
-    void parse_config(boost::program_options::variables_map& configuration) {
+    void parse_config(boost::program_options::variables_map& configuration, const reactor_options& reactor_opts) {
         seastar_logger.debug("smp::count: {}", smp::count);
-        _latency_goal = std::chrono::duration_cast<std::chrono::duration<double>>(configuration["task-quota-ms"].as<double>() * 1.5 * 1ms);
+        _latency_goal = std::chrono::duration_cast<std::chrono::duration<double>>(reactor_opts.task_quota_ms.get_value() * 1.5 * 1ms);
         seastar_logger.debug("latency_goal: {}", latency_goal().count());
 
         if (configuration.count("max-io-requests")) {
@@ -3857,11 +3885,6 @@ public:
     }
 };
 
-void smp::register_network_stacks() {
-    register_posix_stack();
-    register_native_stack();
-}
-
 unsigned smp::adjust_max_networking_aio_io_control_blocks(unsigned network_iocbs)
 {
     static unsigned constexpr storage_iocbs = reactor::max_aio;
@@ -3888,7 +3911,7 @@ unsigned smp::adjust_max_networking_aio_io_control_blocks(unsigned network_iocbs
     return network_iocbs;
 }
 
-void smp::configure(boost::program_options::variables_map configuration, reactor_config reactor_cfg)
+void smp::configure(boost::program_options::variables_map configuration, const reactor_options& reactor_opts, reactor_config reactor_cfg)
 {
 #ifndef SEASTAR_NO_EXCEPTION_HACK
     if (configuration["enable-glibc-exception-scaling-workaround"].as<bool>()) {
@@ -3922,10 +3945,11 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
     install_oneshot_signal_handler<SIGABRT, sigabrt_action>();
 
 #ifdef SEASTAR_HAVE_DPDK
-    _using_dpdk = configuration.count("dpdk-pmd");
+    const auto* native_stack = dynamic_cast<const net::native_stack_options*>(reactor_opts.network_stack.get_selected_candidate_opts());
+    _using_dpdk = native_stack && native_stack->dpdk_pmd;
 #endif
     auto thread_affinity = configuration["thread-affinity"].as<bool>();
-    if (configuration.count("overprovisioned")
+    if (reactor_opts.overprovisioned
            && configuration["thread-affinity"].defaulted()) {
         thread_affinity = false;
     }
@@ -3982,7 +4006,7 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
         rc.total_memory = parse_memory_size(configuration["memory"].as<std::string>());
 #ifdef SEASTAR_HAVE_DPDK
         if (configuration.count("hugepages") &&
-            !configuration["network-stack"].as<std::string>().compare("native") &&
+            !reactor_opts.network_stack.get_selected_candidate_name().compare("native") &&
             _using_dpdk) {
             size_t dpdk_memory = dpdk::eal::mem_size(smp::count);
 
@@ -4034,7 +4058,7 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
     rc.cpu_set = std::move(cpu_set);
 
     disk_config_params disk_config;
-    disk_config.parse_config(configuration);
+    disk_config.parse_config(configuration, reactor_opts);
     for (auto& id : disk_config.device_ids()) {
         rc.devices.push_back(id);
     }
@@ -4053,20 +4077,24 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
     }
     memory::configure(allocations[0].mem, mbind, hugepages_path);
 
-    if (configuration.count("abort-on-seastar-bad-alloc")) {
+    if (reactor_opts.abort_on_seastar_bad_alloc) {
         memory::enable_abort_on_allocation_failure();
     }
 
-    if (configuration.count("dump-memory-diagnostics-on-alloc-failure-kind")) {
-        memory::set_dump_memory_diagnostics_on_alloc_failure_kind(configuration["dump-memory-diagnostics-on-alloc-failure-kind"].as<std::string>());
+    if (reactor_opts.dump_memory_diagnostics_on_alloc_failure_kind) {
+        memory::set_dump_memory_diagnostics_on_alloc_failure_kind(reactor_opts.dump_memory_diagnostics_on_alloc_failure_kind.get_value());
     }
 
     reactor_cfg.max_networking_aio_io_control_blocks = adjust_max_networking_aio_io_control_blocks(configuration["max-networking-io-control-blocks"].as<unsigned>());
 
-    bool heapprof_enabled = configuration.count("heapprof");
+#ifdef SEASTAR_HEAPPROF
+    bool heapprof_enabled = reactor_opts.heapprof;
     if (heapprof_enabled) {
         memory::set_heap_profiling_enabled(heapprof_enabled);
     }
+#else
+    bool heapprof_enabled = false;
+#endif
 
 #ifdef SEASTAR_HAVE_DPDK
     if (_using_dpdk) {
@@ -4074,7 +4102,7 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
         for (auto&& a : allocations) {
             cpus[a.cpu_id] = true;
         }
-        dpdk::eal::init(cpus, configuration);
+        dpdk::eal::init(cpus, reactor_opts._argv0, hugepages_path, native_stack ? bool(native_stack->dpdk_pmd) : false);
     }
 #endif
 
@@ -4130,13 +4158,13 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
 
     _all_event_loops_done.emplace(smp::count);
 
-    auto backend_selector = configuration["reactor-backend"].as<reactor_backend_selector>();
+    auto backend_selector = reactor_opts.reactor_backend.get_selected_candidate();
 
     unsigned i;
     auto smp_tmain = smp::_tmain;
     for (i = 1; i < smp::count; i++) {
         auto allocation = allocations[i];
-        create_thread([this, smp_tmain, inited, &reactors_registered, &smp_queues_constructed, configuration, &reactors, hugepages_path, i, allocation, assign_io_queues, alloc_io_queues, thread_affinity, heapprof_enabled, mbind, backend_selector, reactor_cfg] {
+        create_thread([this, smp_tmain, inited, &reactors_registered, &smp_queues_constructed, &reactor_opts, &reactors, hugepages_path, i, allocation, assign_io_queues, alloc_io_queues, thread_affinity, heapprof_enabled, mbind, backend_selector, reactor_cfg] {
           try {
             // initialize thread_locals that are equal across all reacto threads of this smp instance
             smp::_tmain = smp_tmain;
@@ -4167,7 +4195,7 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
             start_all_queues();
             assign_io_queues(i);
             inited->wait();
-            engine().configure(configuration);
+            engine().configure(reactor_opts);
             engine().do_run();
           } catch (const std::exception& e) {
               seastar_logger.error(e.what());
@@ -4211,7 +4239,7 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
     assign_io_queues(0);
     inited->wait();
 
-    engine().configure(configuration);
+    engine().configure(reactor_opts);
     // The raw `new` is necessary because of the private constructor of `lowres_clock_impl`.
     engine()._lowres_clock_impl = std::unique_ptr<lowres_clock_impl>(new lowres_clock_impl);
 }

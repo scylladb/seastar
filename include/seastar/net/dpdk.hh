@@ -21,14 +21,37 @@
 
 #pragma once
 
-#ifdef SEASTAR_HAVE_DPDK
-
 #include <memory>
 #include <seastar/net/config.hh>
 #include <seastar/net/net.hh>
 #include <seastar/core/sstring.hh>
+#include <seastar/util/program-options.hh>
 
 namespace seastar {
+
+namespace net {
+
+/// DPDK configuration.
+struct dpdk_options : public program_options::option_group {
+    /// DPDK Port Index.
+    ///
+    /// Default: 0.
+    program_options::value<unsigned> dpdk_port_index;
+    /// \brief Enable HW Flow Control (on / off).
+    ///
+    /// Default: \p on.
+    program_options::value<std::string> hw_fc;
+
+    /// \cond internal
+    dpdk_options(program_options::option_group* parent_group);
+    /// \endcond
+};
+
+}
+
+/// \cond internal
+
+#ifdef SEASTAR_HAVE_DPDK
 
 std::unique_ptr<net::device> create_dpdk_net_device(
                                     uint16_t port_idx = 0,
@@ -39,9 +62,6 @@ std::unique_ptr<net::device> create_dpdk_net_device(
 std::unique_ptr<net::device> create_dpdk_net_device(
                                     const net::hw_config& hw_cfg);
 
-
-boost::program_options::options_description get_dpdk_net_options_description();
-
 namespace dpdk {
 /**
  * @return Number of bytes needed for mempool objects of each QP.
@@ -49,6 +69,8 @@ namespace dpdk {
 uint32_t qp_mempool_obj_size(bool hugetlbfs_membackend);
 }
 
-}
+/// \endcond
 
 #endif // SEASTAR_HAVE_DPDK
+
+}
