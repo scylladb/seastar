@@ -97,6 +97,8 @@ public:
         reactor_options reactor_opts;
         /// Configuration for the metrics sub-system.
         metrics::options metrics_opts;
+        /// Configuration options for the smp aspect of seastar.
+        smp_options smp_opts;
 
         seastar_options();
     };

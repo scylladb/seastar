@@ -3576,37 +3576,38 @@ reactor_options::reactor_options(program_options::option_group* parent_group)
 {
 }
 
-boost::program_options::options_description
-smp::get_options_description()
-{
-    namespace bpo = boost::program_options;
-    bpo::options_description opts("SMP options");
-    opts.add_options()
-        ("smp,c", bpo::value<unsigned>(), "number of threads (default: one per CPU)")
-        ("cpuset", bpo::value<cpuset_bpo_wrapper>(), "CPUs to use (in cpuset(7) format; default: all))")
-        ("memory,m", bpo::value<std::string>(), "memory to use, in bytes (ex: 4G) (default: all)")
-        ("reserve-memory", bpo::value<std::string>(), "memory reserved to OS (if --memory not specified)")
-        ("hugepages", bpo::value<std::string>(), "path to accessible hugetlbfs mount (typically /dev/hugepages/something)")
-        ("lock-memory", bpo::value<bool>(), "lock all memory (prevents swapping)")
-        ("thread-affinity", bpo::value<bool>()->default_value(true), "pin threads to their cpus (disable for overprovisioning)")
+smp_options::smp_options(program_options::option_group* parent_group)
+    : program_options::option_group(parent_group, "SMP options")
+    , smp(*this, "smp", {}, "number of threads (default: one per CPU)")
+    , cpuset(*this, "cpuset", {}, "CPUs to use (in cpuset(7) format; default: all))")
+    , memory(*this, "memory", std::nullopt, "memory to use, in bytes (ex: 4G) (default: all)")
+    , reserve_memory(*this, "reserve-memory", {}, "memory reserved to OS (if --memory not specified)")
+    , hugepages(*this, "hugepages", {}, "path to accessible hugetlbfs mount (typically /dev/hugepages/something)")
+    , lock_memory(*this, "lock-memory", {}, "lock all memory (prevents swapping)")
+    , thread_affinity(*this, "thread-affinity", true, "pin threads to their cpus (disable for overprovisioning)")
 #ifdef SEASTAR_HAVE_HWLOC
-        ("num-io-queues", bpo::value<unsigned>(), "Number of IO queues. Each IO unit will be responsible for a fraction of the IO requests. Defaults to the number of threads")
-        ("num-io-groups", bpo::value<unsigned>(), "Number of IO groups. Each IO group will be responsible for a fraction of the IO requests. Defaults to the number of NUMA nodes")
-        ("max-io-requests", bpo::value<unsigned>(), "Maximum amount of concurrent requests to be sent to the disk. Defaults to 128 times the number of IO queues")
+    , num_io_queues(*this, "num-io-queues", {}, "Number of IO queues. Each IO unit will be responsible for a fraction of the IO requests. Defaults to the number of threads")
+    , num_io_groups(*this, "num-io-groups", {}, "Number of IO groups. Each IO group will be responsible for a fraction of the IO requests. Defaults to the number of NUMA nodes")
+    , max_io_requests(*this, "max-io-requests", {}, "Maximum amount of concurrent requests to be sent to the disk. Defaults to 128 times the number of IO queues")
 #else
-        ("max-io-requests", bpo::value<unsigned>(), "Maximum amount of concurrent requests to be sent to the disk. Defaults to 128 times the number of processors")
+    , num_io_queues(*this, "num-io-queues", program_options::unused{})
+    , num_io_groups(*this, "num-io-groups", program_options::unused{})
+    , max_io_requests(*this, "max-io-requests", {}, "Maximum amount of concurrent requests to be sent to the disk. Defaults to 128 times the number of processors")
 #endif
-        ("io-properties-file", bpo::value<std::string>(), "path to a YAML file describing the characteristics of the I/O Subsystem")
-        ("io-properties", bpo::value<std::string>(), "a YAML string describing the characteristics of the I/O Subsystem")
-        ("mbind", bpo::value<bool>()->default_value(true), "enable mbind")
+    , io_properties_file(*this, "io-properties-file", {}, "path to a YAML file describing the characteristics of the I/O Subsystem")
+    , io_properties(*this, "io-properties", {}, "a YAML string describing the characteristics of the I/O Subsystem")
+    , mbind(*this, "mbind", true, "enable mbind")
 #ifndef SEASTAR_NO_EXCEPTION_HACK
-        ("enable-glibc-exception-scaling-workaround", bpo::value<bool>()->default_value(true), "enable workaround for glibc/gcc c++ exception scalablity problem")
+    , enable_glibc_exception_scaling_workaround(*this, "enable-glibc-exception-scaling-workaround", true, "enable workaround for glibc/gcc c++ exception scalablity problem")
+#else
+    , enable_glibc_exception_scaling_workaround(*this, program_options::unused{})
 #endif
 #ifdef SEASTAR_HAVE_HWLOC
-        ("allow-cpus-in-remote-numa-nodes", bpo::value<bool>()->default_value(true), "if some CPUs are found not to have any local NUMA nodes, allow assigning them to remote ones")
+    , allow_cpus_in_remote_numa_nodes(*this, "allow-cpus-in-remote-numa-nodes", true, "if some CPUs are found not to have any local NUMA nodes, allow assigning them to remote ones")
+#else
+    , allow_cpus_in_remote_numa_nodes(*this, "allow-cpus-in-remote-numa-nodes", program_options::unused{})
 #endif
-        ;
-    return opts;
+{
 }
 
 thread_local scollectd::impl scollectd_impl;
@@ -3776,33 +3777,33 @@ public:
         return _latency_goal;
     }
 
-    void parse_config(boost::program_options::variables_map& configuration, const reactor_options& reactor_opts) {
+    void parse_config(const smp_options& smp_opts, const reactor_options& reactor_opts) {
         seastar_logger.debug("smp::count: {}", smp::count);
         _latency_goal = std::chrono::duration_cast<std::chrono::duration<double>>(reactor_opts.task_quota_ms.get_value() * 1.5 * 1ms);
         seastar_logger.debug("latency_goal: {}", latency_goal().count());
 
-        if (configuration.count("max-io-requests")) {
+        if (smp_opts.max_io_requests) {
             seastar_logger.warn("the --max-io-requests option is deprecated, switch to io properties file instead");
-            _capacity = configuration["max-io-requests"].as<unsigned>();
+            _capacity = smp_opts.max_io_requests.get_value();
         }
 
-        if (configuration.count("num-io-groups")) {
-            _num_io_groups = configuration["num-io-groups"].as<unsigned>();
+        if (smp_opts.num_io_groups) {
+            _num_io_groups = smp_opts.num_io_groups.get_value();
             if (!_num_io_groups) {
                 throw std::runtime_error("num-io-groups must be greater than zero");
             }
-        } else if (configuration.count("num-io-queues")) {
+        } else if (smp_opts.num_io_queues) {
             seastar_logger.warn("the --num-io-queues option is deprecated, switch to --num-io-groups instead");
         }
-        if (configuration.count("io-properties-file") && configuration.count("io-properties")) {
+        if (smp_opts.io_properties_file && smp_opts.io_properties) {
             throw std::runtime_error("Both io-properties and io-properties-file specified. Don't know which to trust!");
         }
 
         std::optional<YAML::Node> doc;
-        if (configuration.count("io-properties-file")) {
-            doc = YAML::LoadFile(configuration["io-properties-file"].as<std::string>());
-        } else if (configuration.count("io-properties")) {
-            doc = YAML::Load(configuration["io-properties"].as<std::string>());
+        if (smp_opts.io_properties_file) {
+            doc = YAML::LoadFile(smp_opts.io_properties_file.get_value());
+        } else if (smp_opts.io_properties) {
+            doc = YAML::Load(smp_opts.io_properties.get_value());
         }
 
         if (doc) {
@@ -3911,10 +3912,10 @@ unsigned smp::adjust_max_networking_aio_io_control_blocks(unsigned network_iocbs
     return network_iocbs;
 }
 
-void smp::configure(boost::program_options::variables_map configuration, const reactor_options& reactor_opts, reactor_config reactor_cfg)
+void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_opts, reactor_config reactor_cfg)
 {
 #ifndef SEASTAR_NO_EXCEPTION_HACK
-    if (configuration["enable-glibc-exception-scaling-workaround"].as<bool>()) {
+    if (smp_opts.enable_glibc_exception_scaling_workaround.get_value()) {
         init_phdr_cache();
     }
 #endif
@@ -3948,15 +3949,15 @@ void smp::configure(boost::program_options::variables_map configuration, const r
     const auto* native_stack = dynamic_cast<const net::native_stack_options*>(reactor_opts.network_stack.get_selected_candidate_opts());
     _using_dpdk = native_stack && native_stack->dpdk_pmd;
 #endif
-    auto thread_affinity = configuration["thread-affinity"].as<bool>();
+    auto thread_affinity = smp_opts.thread_affinity.get_value();
     if (reactor_opts.overprovisioned
-           && configuration["thread-affinity"].defaulted()) {
+           && smp_opts.thread_affinity.defaulted()) {
         thread_affinity = false;
     }
     if (!thread_affinity && _using_dpdk) {
         fmt::print("warning: --thread-affinity 0 ignored in dpdk mode\n");
     }
-    auto mbind = configuration["mbind"].as<bool>();
+    auto mbind = smp_opts.mbind.get_value();
     if (!thread_affinity) {
         mbind = false;
     }
@@ -3972,8 +3973,8 @@ void smp::configure(boost::program_options::variables_map configuration, const r
     std::copy(boost::counting_iterator<unsigned>(0), boost::counting_iterator<unsigned>(nr_cpus),
             std::inserter(cpu_set, cpu_set.end()));
 
-    if (configuration.count("cpuset")) {
-        cpu_set = configuration["cpuset"].as<cpuset_bpo_wrapper>().value;
+    if (smp_opts.cpuset) {
+        cpu_set = smp_opts.cpuset.get_value();
         if (cgroup_cpu_set && *cgroup_cpu_set != cpu_set) {
             // CPUs that are not available are those pinned by
             // --cpuset but not by cgroups, if mounted.
@@ -3995,24 +3996,24 @@ void smp::configure(boost::program_options::variables_map configuration, const r
         cpu_set = *cgroup_cpu_set;
     }
 
-    if (configuration.count("smp")) {
-        nr_cpus = configuration["smp"].as<unsigned>();
+    if (smp_opts.smp) {
+        nr_cpus = smp_opts.smp.get_value();
     } else {
         nr_cpus = cpu_set.size();
     }
     smp::count = nr_cpus;
     std::vector<reactor*> reactors(nr_cpus);
-    if (configuration.count("memory")) {
-        rc.total_memory = parse_memory_size(configuration["memory"].as<std::string>());
+    if (smp_opts.memory) {
+        rc.total_memory = parse_memory_size(smp_opts.memory.get_value());
 #ifdef SEASTAR_HAVE_DPDK
-        if (configuration.count("hugepages") &&
+        if (smp_opts.hugepages &&
             !reactor_opts.network_stack.get_selected_candidate_name().compare("native") &&
             _using_dpdk) {
             size_t dpdk_memory = dpdk::eal::mem_size(smp::count);
 
             if (dpdk_memory >= rc.total_memory) {
                 std::cerr<<"Can't run with the given amount of memory: ";
-                std::cerr<<configuration["memory"].as<std::string>();
+                std::cerr<<smp_opts.memory.get_value();
                 std::cerr<<". Consider giving more."<<std::endl;
                 exit(1);
             }
@@ -4025,16 +4026,16 @@ void smp::configure(boost::program_options::variables_map configuration, const r
         }
 #endif
     }
-    if (configuration.count("reserve-memory")) {
-        rc.reserve_memory = parse_memory_size(configuration["reserve-memory"].as<std::string>());
+    if (smp_opts.reserve_memory) {
+        rc.reserve_memory = parse_memory_size(smp_opts.reserve_memory.get_value());
     }
     std::optional<std::string> hugepages_path;
-    if (configuration.count("hugepages")) {
-        hugepages_path = configuration["hugepages"].as<std::string>();
+    if (smp_opts.hugepages) {
+        hugepages_path = smp_opts.hugepages.get_value();
     }
     auto mlock = false;
-    if (configuration.count("lock-memory")) {
-        mlock = configuration["lock-memory"].as<bool>();
+    if (smp_opts.lock_memory) {
+        mlock = smp_opts.lock_memory.get_value();
     }
     if (mlock) {
         auto extra_flags = 0;
@@ -4058,14 +4059,14 @@ void smp::configure(boost::program_options::variables_map configuration, const r
     rc.cpu_set = std::move(cpu_set);
 
     disk_config_params disk_config;
-    disk_config.parse_config(configuration, reactor_opts);
+    disk_config.parse_config(smp_opts, reactor_opts);
     for (auto& id : disk_config.device_ids()) {
         rc.devices.push_back(id);
     }
     rc.num_io_groups = disk_config.num_io_groups();
 
 #ifdef SEASTAR_HAVE_HWLOC
-    if (configuration["allow-cpus-in-remote-numa-nodes"].as<bool>()) {
+    if (smp_opts.allow_cpus_in_remote_numa_nodes.get_value()) {
         rc.assign_orphan_cpus = true;
     }
 #endif
@@ -4085,7 +4086,7 @@ void smp::configure(boost::program_options::variables_map configuration, const r
         memory::set_dump_memory_diagnostics_on_alloc_failure_kind(reactor_opts.dump_memory_diagnostics_on_alloc_failure_kind.get_value());
     }
 
-    reactor_cfg.max_networking_aio_io_control_blocks = adjust_max_networking_aio_io_control_blocks(configuration["max-networking-io-control-blocks"].as<unsigned>());
+    reactor_cfg.max_networking_aio_io_control_blocks = adjust_max_networking_aio_io_control_blocks(reactor_opts.max_networking_io_control_blocks.get_value());
 
 #ifdef SEASTAR_HEAPPROF
     bool heapprof_enabled = reactor_opts.heapprof;

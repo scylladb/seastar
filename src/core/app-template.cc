@@ -56,6 +56,7 @@ app_template::seastar_options::seastar_options()
     : program_options::option_group(nullptr, "seastar")
     , reactor_opts(this)
     , metrics_opts(this)
+    , smp_opts(this)
 {
 }
 
@@ -83,7 +84,6 @@ app_template::app_template(app_template::config cfg)
             _opts.describe(visitor);
             _opts_conf_file.add(std::move(visitor).get_options_description());
         }
-        _opts_conf_file.add(smp::get_options_description());
         _opts_conf_file.add(scollectd::get_options_description());
         _opts_conf_file.add(log_cli::get_options_description());
 
@@ -217,7 +217,7 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
     }
     _opts.reactor_opts._argv0 = std::string(av[0]);
     if (auto* native_stack = dynamic_cast<net::native_stack_options*>(_opts.reactor_opts.network_stack.get_selected_candidate_opts())) {
-        native_stack->_hugepages = configuration.count("hugepages");
+        native_stack->_hugepages = _opts.smp_opts.hugepages;
     }
 
     // Needs to be before `smp::configure()`.
@@ -229,7 +229,7 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
     }
 
     try {
-        _smp->configure(configuration, _opts.reactor_opts, reactor_config_from_app_config(_cfg));
+        _smp->configure(_opts.smp_opts, _opts.reactor_opts, reactor_config_from_app_config(_cfg));
     } catch (...) {
         std::cerr << "Could not initialize seastar: " << std::current_exception() << std::endl;
         return 1;

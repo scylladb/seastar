@@ -78,27 +78,6 @@ std::optional<cpuset> parse_cpuset(std::string value) {
 
 }
 
-// Overload for boost program options parsing/validation
-void validate(boost::any& v,
-              const std::vector<std::string>& values,
-              cpuset_bpo_wrapper* target_type, int) {
-    using namespace boost::program_options;
-    validators::check_first_occurrence(v);
-
-    // Extract the first string from 'values'. If there is more than
-    // one string, it's an error, and exception will be thrown.
-    auto&& s = validators::get_single_string(values);
-    auto parsed_cpu_set = resource::parse_cpuset(s);
-
-    if (parsed_cpu_set) {
-        cpuset_bpo_wrapper ret;
-        ret.value = *parsed_cpu_set;
-        v = std::move(ret);
-    } else {
-        throw validation_error(validation_error::invalid_option_value);
-    }
-}
-
 namespace cgroup {
 
 namespace fs = std::filesystem;

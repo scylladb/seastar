@@ -126,18 +126,8 @@ struct resources {
 
 resources allocate(configuration& c);
 unsigned nr_processing_units(configuration& c);
+
+std::optional<resource::cpuset> parse_cpuset(std::string value);
+
 }
-
-// We need a wrapper class, because boost::program_options wants validate()
-// (below) to be in the same namespace as the type it is validating.
-struct cpuset_bpo_wrapper {
-    resource::cpuset value;
-};
-
-// Overload for boost program options parsing/validation
-extern
-void validate(boost::any& v,
-              const std::vector<std::string>& values,
-              cpuset_bpo_wrapper* target_type, int);
-
 }
