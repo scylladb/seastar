@@ -93,6 +93,84 @@ std::istream& operator>>(std::istream& is, string_map& ss) {
     return is;
 }
 
+option_group::option_group(option_group* parent, std::string name)
+    : _parent(parent), _used(true), _name(std::move(name)) {
+    if (_parent) {
+        _parent->_subgroups.push_back(*this);
+    }
+}
+
+option_group::option_group(option_group* parent, std::string name, unused)
+    : _parent(parent), _used(false), _name(std::move(name)) {
+    if (_parent) {
+        _parent->_subgroups.push_back(*this);
+    }
+}
+
+option_group::option_group(option_group&& o)
+    : _parent(o._parent), _used(o._used), _name(std::move(o._name))
+{
+    for (auto& val : o._values) {
+        val._group = this;
+    }
+    for (auto& grp : o._subgroups) {
+        grp._parent = this;
+    }
+    unlink();
+    if (_parent) {
+        _parent->_subgroups.push_back(*this);
+    }
+}
+
+void option_group::describe(options_descriptor& descriptor) const {
+    if (descriptor.visit_group_start(_name, _used)) {
+        for (auto& value : _values) {
+            value.describe(descriptor);
+        }
+        for (auto& grp : _subgroups) {
+            grp.describe(descriptor);
+        }
+    }
+    descriptor.visit_group_end();
+}
+
+void option_group::mutate(options_mutator& mutator) {
+    if (mutator.visit_group_start(_name, _used)) {
+        for (auto& value : _values) {
+            value.mutate(mutator);
+        }
+        for (auto& grp : _subgroups) {
+            grp.mutate(mutator);
+        }
+    }
+    mutator.visit_group_end();
+}
+
+basic_value::basic_value(option_group& group, bool used, std::string name, std::string description)
+    : _group(&group), _used(used), _name(std::move(name)), _description(std::move(description))
+{
+    _group->_values.push_back(*this);
+}
+
+basic_value::basic_value(basic_value&& o)
+    : _group(o._group), _used(o._used), _name(std::move(o._name)), _description(std::move(o._description))
+{
+    unlink();
+    _group->_values.push_back(*this);
+}
+
+void basic_value::describe(options_descriptor& descriptor) const {
+    if (descriptor.visit_value_metadata(_name, _description, _used)) {
+        do_describe(descriptor);
+    }
+}
+
+void basic_value::mutate(options_mutator& mutator) {
+    if (mutator.visit_value_metadata(_name, _used)) {
+        do_mutate(mutator);
+    }
+}
+
 }
 
 }
