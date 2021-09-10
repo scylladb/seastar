@@ -527,17 +527,17 @@ future<> send_metric(const type_instance_id & id,
     return get_impl().send_metric(id, values);
 }
 
-void configure(const boost::program_options::variables_map & opts) {
-    bool enable = opts["collectd"].as<bool>();
+void configure(const options& opts) {
+    bool enable = opts.collectd.get_value();
     if (!enable) {
         return;
     }
-    auto addr = ipv4_addr(opts["collectd-address"].as<std::string>());
-    auto period = std::chrono::milliseconds(opts["collectd-poll-period"].as<unsigned>());
+    auto addr = ipv4_addr(opts.collectd_address.get_value());
+    auto period = std::chrono::milliseconds(opts.collectd_poll_period.get_value());
 
-    auto host = (opts["collectd-hostname"].as<std::string>() == "")
+    auto host = (opts.collectd_hostname.get_value() == "")
             ? seastar::metrics::impl::get_local_impl()->get_config().hostname
-            : sstring(opts["collectd-hostname"].as<std::string>());
+            : sstring(opts.collectd_hostname.get_value());
 
     // Now create send loops on each cpu
     for (unsigned c = 0; c < smp::count; c++) {
@@ -548,19 +548,20 @@ void configure(const boost::program_options::variables_map & opts) {
     }
 }
 
-boost::program_options::options_description get_options_description() {
-    namespace bpo = boost::program_options;
-    bpo::options_description opts("COLLECTD options");
-    opts.add_options()("collectd", bpo::value<bool>()->default_value(false),
-            "enable collectd daemon")("collectd-address",
-            bpo::value<std::string>()->default_value("239.192.74.66:25826"),
-            "address to send/broadcast metrics to")("collectd-poll-period",
-            bpo::value<unsigned>()->default_value(1000),
-            "poll period - frequency of sending counter metrics (default: 1000ms, 0 disables)")(
-            "collectd-hostname",
-            bpo::value<std::string>()->default_value(""),
-            "Deprecated option, use metrics-hostname instead");
-    return opts;
+options::options(program_options::option_group* parent_group)
+    : program_options::option_group(parent_group, "COLLECTD options")
+    , collectd(*this, "collectd", false,
+            "enable collectd daemon")
+    , collectd_address(*this, "collectd-address",
+            "239.192.74.66:25826",
+            "address to send/broadcast metrics to")
+    , collectd_poll_period(*this, "collectd-poll-period",
+            1000,
+            "poll period - frequency of sending counter metrics (default: 1000ms, 0 disables)")
+    , collectd_hostname(*this, "collectd-hostname",
+            "",
+            "Deprecated option, use metrics-hostname instead")
+{
 }
 
 static seastar::metrics::impl::register_ref get_register(const scollectd::type_instance_id& i) {

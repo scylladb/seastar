@@ -27,6 +27,7 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/util/program-options.hh>
 #include <seastar/core/metrics_api.hh>
+#include <seastar/core/scollectd.hh>
 #include <chrono>
 
 namespace seastar {
@@ -99,6 +100,8 @@ public:
         metrics::options metrics_opts;
         /// Configuration options for the smp aspect of seastar.
         smp_options smp_opts;
+        /// Configuration for the scollectd sub-system.
+        scollectd::options scollectd_opts;
 
         seastar_options();
     };

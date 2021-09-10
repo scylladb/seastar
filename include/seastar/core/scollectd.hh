@@ -348,8 +348,30 @@ private:
 
 extern const plugin_instance_id per_cpu_plugin_instance;
 
-void configure(const boost::program_options::variables_map&);
-boost::program_options::options_description get_options_description();
+// Scollectd configuration options.
+struct options : public program_options::option_group {
+    /// \brief Enable collectd daemon.
+    ///
+    /// Default: \p false.
+    program_options::value<bool> collectd;
+    /// \brief Address to send/broadcast metrics to.
+    ///
+    /// Default: \p 239.192.74.66:25826.
+    program_options::value<std::string> collectd_address;
+    /// \brief Poll period (ms).
+    ///
+    /// Frequency of sending counter metrics (0 disables).
+    /// Default: \p 1000.
+    program_options::value<unsigned> collectd_poll_period;
+    /// \deprecated use \ref metrics::options::metrics_hostname instead
+    program_options::value<std::string> collectd_hostname;
+
+    /// \cond internal
+    options(program_options::option_group* parent_group);
+    /// \endcond
+};
+
+void configure(const options&);
 void remove_polled_metric(const type_instance_id &);
 
 class plugin_instance_metrics;
