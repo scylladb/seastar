@@ -25,6 +25,7 @@
 #include <seastar/core/future.hh>
 #include <seastar/core/smp.hh>
 #include <seastar/core/sstring.hh>
+#include <seastar/util/program-options.hh>
 #include <chrono>
 
 namespace seastar {
@@ -67,6 +68,34 @@ public:
         config() {}
     };
 
+    /// Seastar configuration options
+    struct seastar_options : public program_options::option_group {
+        /// The name of the application.
+        ///
+        /// Will be used in the --help output to distinguish command line args
+        /// registered by the application, as opposed to those registered by
+        /// seastar and its subsystems.
+        sstring name = "App";
+        /// The description of the application.
+        ///
+        /// Will be printed on the top of the --help output. Lines should be
+        /// hard-wrapped for 80 chars.
+        sstring description = "";
+        /// \brief Handle SIGINT/SIGTERM by calling reactor::stop()
+        ///
+        /// When true, Seastar will set up signal handlers for SIGINT/SIGTERM that call
+        /// reactor::stop(). The reactor will then execute callbacks installed by
+        /// reactor::at_exit().
+        ///
+        /// When false, Seastar will not set up signal handlers for SIGINT/SIGTERM
+        /// automatically. The default behavior (terminate the program) will be kept.
+        /// You can adjust the behavior of SIGINT/SIGTERM by installing signal handlers
+        /// via reactor::handle_signal().
+        bool auto_handle_sigint_sigterm = true;
+
+        seastar_options();
+    };
+
     using configuration_reader = std::function<void (boost::program_options::variables_map&)>;
 private:
     // unique_ptr to avoid pulling in alien.hh.
@@ -75,6 +104,7 @@ private:
     // destroy the smp instance
     std::shared_ptr<smp> _smp;
     config _cfg;
+    seastar_options _opts;
     boost::program_options::options_description _app_opts;
     boost::program_options::options_description _seastar_opts;
     boost::program_options::options_description _opts_conf_file;
@@ -93,6 +123,8 @@ public:
 public:
     explicit app_template(config cfg = config());
     ~app_template();
+
+    const seastar_options& options() const;
 
     boost::program_options::options_description& get_options_description();
     boost::program_options::options_description& get_conf_file_options_description();

@@ -33,6 +33,8 @@
 #include <fstream>
 #include <cstdlib>
 
+#include "program_options.hh"
+
 namespace seastar {
 
 namespace bpo = boost::program_options;
@@ -45,6 +47,11 @@ reactor_config_from_app_config(app_template::config cfg) {
     ret.task_quota = cfg.default_task_quota;
     ret.max_networking_aio_io_control_blocks = cfg.max_networking_aio_io_control_blocks;
     return ret;
+}
+
+app_template::seastar_options::seastar_options()
+    : program_options::option_group(nullptr, "seastar")
+{
 }
 
 app_template::app_template(app_template::config cfg)
@@ -64,6 +71,11 @@ app_template::app_template(app_template::config cfg)
                 ("help-seastar", "show help message about seastar options")
                 ;
 
+        {
+            program_options::options_description_building_visitor visitor;
+            _opts.describe(visitor);
+            _opts_conf_file.add(std::move(visitor).get_options_description());
+        }
         _smp->register_network_stacks();
         _opts_conf_file.add(reactor::get_options_description(reactor_config_from_app_config(_cfg)));
         _opts_conf_file.add(seastar::metrics::get_options_description());
@@ -75,6 +87,10 @@ app_template::app_template(app_template::config cfg)
 }
 
 app_template::~app_template() = default;
+
+const app_template::seastar_options& app_template::options() const {
+    return _opts;
+}
 
 app_template::configuration_reader app_template::get_default_configuration_reader() {
     return [this] (bpo::variables_map& configuration) {
@@ -189,6 +205,11 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
     } catch (const bpo::required_option& ex) {
         std::cout << ex.what() << std::endl;
         return 1;
+    }
+
+    {
+        program_options::variables_map_extracting_visitor visitor(configuration);
+        _opts.mutate(visitor);
     }
 
     // Needs to be before `smp::configure()`.
