@@ -121,19 +121,18 @@ def identify_best_dialect(dialects, compiler):
     """Returns the first C++ dialect accepted by the compiler in the sequence,
     assuming the "best" dialects appear first.
 
-    If no dialects are accepted, the result is the last dialect in the sequence
-    (we assume that this error will be displayed to the user - during compile
-    time - in an informative way).
-
+    If no dialects are accepted, we fail configure.py. There is not point
+    of letting the user attempt to build with a dialect that is known not
+    to be supported. However, the user may still choose a dialect by
+    explicitly passing the --c++-dialect option.
     """
     for d in dialects:
         if dialect_supported(d, compiler):
             return d
-
-    return d
+    raise Exception(f"{compiler} does not seem to support any of Seastar's preferred C++ dialects - {dialects}. Please upgrade your compiler, or choose a valid dialect with '--c++-dialect'")
 
 if args.cpp_dialect == '':
-    cpp_dialects = ['gnu++17', 'gnu++1z', 'gnu++14', 'gnu++1y']
+    cpp_dialects = ['gnu++20', 'c++20', 'gnu++2a', 'gnu++17', 'c++17', 'gnu++1z']
     args.cpp_dialect = identify_best_dialect(cpp_dialects, compiler=args.cxx)
 
 def infer_dpdk_machine(user_cflags):

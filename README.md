@@ -142,9 +142,11 @@ Use of the [DPDK](http://dpdk.org) is [optional](doc/building-dpdk.md).
 
 #### Seastar's C++ dialect: C++17 or C++20
 
-Seastar supports both C++17, and C++20. It can be selected with the
-`--c++-dialect=gnu++17` configure option or, if using CMake directly,
-by setting on the `Seastar_CXX_DIALECT` CMake variable.
+Seastar supports both C++17, and C++20. The build defaults to the latest
+dialect supported by your compiler, but can be explicitly selected with
+the `--c++-dialect` configure option, e.g., `--c++-dialect=gnu++17`,
+or if using CMake directly, by setting on the `Seastar_CXX_DIALECT` CMake
+variable.
 
 See the [compatibity statement](doc/compatibility.md) for more information.
 
