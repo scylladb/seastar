@@ -331,6 +331,21 @@ public:
             }, std::forward<Reducer>(r));
     }
 
+    /// The const version of \ref map_reduce(Reducer&& r, Func&& func)
+    template <typename Reducer, typename Func>
+    inline
+    auto map_reduce(Reducer&& r, Func&& func) const -> typename reducer_traits<Reducer>::future_type
+    {
+        return ::seastar::map_reduce(boost::make_counting_iterator<unsigned>(0),
+                            boost::make_counting_iterator<unsigned>(_instances.size()),
+            [this, &func] (unsigned c) {
+                return smp::submit_to(c, [this, func] () {
+                    auto inst = get_local_service();
+                    return func(*inst);
+                });
+            }, std::forward<Reducer>(r));
+    }
+
     /// Applies a map function to all shards, then reduces the output by calling a reducer function.
     ///
     /// \param map callable with the signature `Value (Service&)` or
@@ -351,6 +366,23 @@ public:
     inline
     future<Initial>
     map_reduce0(Mapper map, Initial initial, Reduce reduce) {
+        auto wrapped_map = [this, map] (unsigned c) {
+            return smp::submit_to(c, [this, map] {
+                auto inst = get_local_service();
+                return map(*inst);
+            });
+        };
+        return ::seastar::map_reduce(smp::all_cpus().begin(), smp::all_cpus().end(),
+                            std::move(wrapped_map),
+                            std::move(initial),
+                            std::move(reduce));
+    }
+
+    /// The const version of \ref map_reduce0(Mapper map, Initial initial, Reduce reduce)
+    template <typename Mapper, typename Initial, typename Reduce>
+    inline
+    future<Initial>
+    map_reduce0(Mapper map, Initial initial, Reduce reduce) const {
         auto wrapped_map = [this, map] (unsigned c) {
             return smp::submit_to(c, [this, map] {
                 auto inst = get_local_service();
@@ -458,6 +490,14 @@ private:
     }
 
     shared_ptr<Service> get_local_service() {
+        auto inst = _instances[this_shard_id()].service;
+        if (!inst) {
+            throw no_sharded_instance_exception(pretty_type_name(typeid(Service)));
+        }
+        return inst;
+    }
+
+    shared_ptr<const Service> get_local_service() const {
         auto inst = _instances[this_shard_id()].service;
         if (!inst) {
             throw no_sharded_instance_exception(pretty_type_name(typeid(Service)));
