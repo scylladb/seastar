@@ -32,7 +32,6 @@ namespace seastar {
 /// This structure provides configuration items for the reactor. It is typically
 /// provided by \ref app_template, not the user.
 struct reactor_config {
-    std::chrono::duration<double> task_quota{0.5e-3}; ///< default time between polls
     /// \brief Handle SIGINT/SIGTERM by calling reactor::stop()
     ///
     /// When true, Seastar will set up signal handlers for SIGINT/SIGTERM that call

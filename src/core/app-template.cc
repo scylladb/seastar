@@ -47,7 +47,6 @@ reactor_config
 reactor_config_from_app_config(app_template::config cfg) {
     reactor_config ret;
     ret.auto_handle_sigint_sigterm = cfg.auto_handle_sigint_sigterm;
-    ret.task_quota = cfg.default_task_quota;
     ret.max_networking_aio_io_control_blocks = cfg.max_networking_aio_io_control_blocks;
     return ret;
 }
