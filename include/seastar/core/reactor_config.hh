@@ -27,27 +27,12 @@
 
 namespace seastar {
 
-/// Configuration structure for reactor
-///
-/// This structure provides configuration items for the reactor. It is typically
-/// provided by \ref app_template, not the user.
+/// \cond internal
 struct reactor_config {
-    /// \brief Handle SIGINT/SIGTERM by calling reactor::stop()
-    ///
-    /// When true, Seastar will set up signal handlers for SIGINT/SIGTERM that call
-    /// reactor::stop(). The reactor will then execute callbacks installed by
-    /// reactor::at_exit().
-    ///
-    /// When false, Seastar will not set up signal handlers for SIGINT/SIGTERM
-    /// automatically. The default behavior (terminate the program) will be kept.
-    /// You can adjust the behavior of SIGINT/SIGTERM by installing signal handlers
-    /// via reactor::handle_signal().
-    bool auto_handle_sigint_sigterm = true;  ///< automatically terminate on SIGINT/SIGTERM
-
-    /// Specifies the default value for linux-aio I/O control blocks. This translates
-    /// to the maximum number of sockets the shard can handle.
+    bool auto_handle_sigint_sigterm = true;
     unsigned max_networking_aio_io_control_blocks = 10000;
 };
+/// \endcond
 
 class reactor_backend_selector;
 class network_stack_factory;
