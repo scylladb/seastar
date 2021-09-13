@@ -44,11 +44,23 @@ using namespace std::chrono_literals;
 
 static
 reactor_config
-reactor_config_from_app_config(app_template::config cfg) {
+reactor_config_from_seastar_options(const app_template::seastar_options& opts) {
     reactor_config ret;
-    ret.auto_handle_sigint_sigterm = cfg.auto_handle_sigint_sigterm;
-    ret.max_networking_aio_io_control_blocks = cfg.max_networking_aio_io_control_blocks;
+    ret.auto_handle_sigint_sigterm = opts.auto_handle_sigint_sigterm;
+    ret.max_networking_aio_io_control_blocks = opts.reactor_opts.max_networking_io_control_blocks.get_value();
     return ret;
+}
+
+static
+app_template::seastar_options
+seastar_options_from_config(app_template::config cfg) {
+    app_template::seastar_options opts;
+    opts.name = std::move(cfg.name);
+    opts.description = std::move(cfg.description);
+    opts.auto_handle_sigint_sigterm = std::move(cfg.auto_handle_sigint_sigterm);
+    opts.reactor_opts.task_quota_ms.set_default_value(cfg.default_task_quota / 1ms);
+    opts.reactor_opts.max_networking_io_control_blocks.set_default_value(cfg.max_networking_aio_io_control_blocks);
+    return opts;
 }
 
 app_template::seastar_options::seastar_options()
@@ -61,11 +73,11 @@ app_template::seastar_options::seastar_options()
 {
 }
 
-app_template::app_template(app_template::config cfg)
+app_template::app_template(app_template::seastar_options opts)
     : _alien(std::make_unique<alien::instance>())
     , _smp(std::make_shared<smp>(*_alien))
-    , _cfg(std::move(cfg))
-    , _app_opts(_cfg.name + " options")
+    , _opts(std::move(opts))
+    , _app_opts(_opts.name + " options")
     , _conf_reader(get_default_configuration_reader()) {
 
         if (!alien::internal::default_instance) {
@@ -81,8 +93,6 @@ app_template::app_template(app_template::config cfg)
                 ("help-loggers", "print a list of logger names and exit")
                 ;
 
-        _opts.reactor_opts.task_quota_ms.set_default_value(cfg.default_task_quota / 1ms);
-        _opts.reactor_opts.max_networking_io_control_blocks.set_default_value(cfg.max_networking_aio_io_control_blocks);
         {
             program_options::options_description_building_visitor visitor;
             _opts.describe(visitor);
@@ -90,6 +100,11 @@ app_template::app_template(app_template::config cfg)
         }
 
         _seastar_opts.add(_opts_conf_file);
+}
+
+app_template::app_template(app_template::config cfg)
+    : app_template(seastar_options_from_config(std::move(cfg)))
+{
 }
 
 app_template::~app_template() = default;
@@ -191,8 +206,8 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
         return 2;
     }
     if (configuration.count("help")) {
-        if (!_cfg.description.empty()) {
-            std::cout << _cfg.description << "\n";
+        if (!_opts.description.empty()) {
+            std::cout << _opts.description << "\n";
         }
         std::cout << _app_opts << "\n";
         return 1;
@@ -231,7 +246,7 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
     }
 
     try {
-        _smp->configure(_opts.smp_opts, _opts.reactor_opts, reactor_config_from_app_config(_cfg));
+        _smp->configure(_opts.smp_opts, _opts.reactor_opts, reactor_config_from_seastar_options(_opts));
     } catch (...) {
         std::cerr << "Could not initialize seastar: " << std::current_exception() << std::endl;
         return 1;

@@ -116,7 +116,6 @@ private:
     // reactor destruction is asynchronous, so we must let the last reactor
     // destroy the smp instance
     std::shared_ptr<smp> _smp;
-    config _cfg;
     seastar_options _opts;
     boost::program_options::options_description _app_opts;
     boost::program_options::options_description _seastar_opts;
@@ -134,6 +133,7 @@ public:
         int max_count;
     };
 public:
+    explicit app_template(seastar_options opts);
     explicit app_template(config cfg = config());
     ~app_template();
 
