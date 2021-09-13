@@ -43,15 +43,6 @@ namespace bpo = boost::program_options;
 using namespace std::chrono_literals;
 
 static
-reactor_config
-reactor_config_from_seastar_options(const app_template::seastar_options& opts) {
-    reactor_config ret;
-    ret.auto_handle_sigint_sigterm = opts.auto_handle_sigint_sigterm;
-    ret.max_networking_aio_io_control_blocks = opts.reactor_opts.max_networking_io_control_blocks.get_value();
-    return ret;
-}
-
-static
 app_template::seastar_options
 seastar_options_from_config(app_template::config cfg) {
     app_template::seastar_options opts;
@@ -233,6 +224,7 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
         _opts.mutate(visitor);
     }
     _opts.reactor_opts._argv0 = std::string(av[0]);
+    _opts.reactor_opts._auto_handle_sigint_sigterm = _opts.auto_handle_sigint_sigterm;
     if (auto* native_stack = dynamic_cast<net::native_stack_options*>(_opts.reactor_opts.network_stack.get_selected_candidate_opts())) {
         native_stack->_hugepages = _opts.smp_opts.hugepages;
     }
@@ -246,7 +238,7 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
     }
 
     try {
-        _smp->configure(_opts.smp_opts, _opts.reactor_opts, reactor_config_from_seastar_options(_opts));
+        _smp->configure(_opts.smp_opts, _opts.reactor_opts);
     } catch (...) {
         std::cerr << "Could not initialize seastar: " << std::current_exception() << std::endl;
         return 1;

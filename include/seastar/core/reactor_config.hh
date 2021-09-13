@@ -164,6 +164,7 @@ struct reactor_options : public program_options::option_group {
 
     /// \cond internal
     std::string _argv0;
+    bool _auto_handle_sigint_sigterm = true;
     /// \endcond
 
 public:

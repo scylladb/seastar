@@ -3838,7 +3838,7 @@ unsigned smp::adjust_max_networking_aio_io_control_blocks(unsigned network_iocbs
     return network_iocbs;
 }
 
-void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_opts, reactor_config reactor_cfg)
+void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_opts)
 {
 #ifndef SEASTAR_NO_EXCEPTION_HACK
     if (smp_opts.enable_glibc_exception_scaling_workaround.get_value()) {
@@ -3857,7 +3857,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
             SIGALRM, SIGCONT, SIGSTOP, SIGTSTP, SIGTTIN, SIGTTOU}) {
         sigdelset(&sigs, sig);
     }
-    if (!reactor_cfg.auto_handle_sigint_sigterm) {
+    if (!reactor_opts._auto_handle_sigint_sigterm) {
         sigdelset(&sigs, SIGINT);
         sigdelset(&sigs, SIGTERM);
     }
@@ -4012,6 +4012,8 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
         memory::set_dump_memory_diagnostics_on_alloc_failure_kind(reactor_opts.dump_memory_diagnostics_on_alloc_failure_kind.get_value());
     }
 
+    reactor_config reactor_cfg;
+    reactor_cfg.auto_handle_sigint_sigterm = reactor_opts._auto_handle_sigint_sigterm;
     reactor_cfg.max_networking_aio_io_control_blocks = adjust_max_networking_aio_io_control_blocks(reactor_opts.max_networking_io_control_blocks.get_value());
 
 #ifdef SEASTAR_HEAPPROF

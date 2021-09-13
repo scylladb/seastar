@@ -368,7 +368,7 @@ class smp : public std::enable_shared_from_this<smp> {
     using returns_void = std::is_same<std::invoke_result_t<Func>, void>;
 public:
     explicit smp(alien::instance& alien) : _alien(alien) {}
-    void configure(const smp_options& smp_opts, const reactor_options& reactor_opts, reactor_config cfg = {});
+    void configure(const smp_options& smp_opts, const reactor_options& reactor_opts);
     void cleanup() noexcept;
     void cleanup_cpu();
     void arrive_at_event_loop_end();
