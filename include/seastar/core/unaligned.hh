@@ -63,14 +63,14 @@ struct unaligned {
 } __attribute__((packed));
 
 
-// deprecated: violates strict aliasing rules
 template <typename T, typename F>
+[[deprecated("violates strict aliasing rules. See issue #165.")]]
 inline auto unaligned_cast(F* p) noexcept {
     return reinterpret_cast<unaligned<std::remove_pointer_t<T>>*>(p);
 }
 
-// deprecated: violates strict aliasing rules
 template <typename T, typename F>
+[[deprecated("violates strict aliasing rules. See issue #165.")]]
 inline auto unaligned_cast(const F* p) noexcept {
     return reinterpret_cast<const unaligned<std::remove_pointer_t<T>>*>(p);
 }
