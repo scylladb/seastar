@@ -195,7 +195,7 @@ private:
                     return make_ready_future<>();
                 });
                 return seastar::sleep(std::max(std::chrono::duration_cast<std::chrono::microseconds>((start + pause) - std::chrono::steady_clock::now()), 0us));
-            }).then([this, &intent, &in_flight] {
+            }).then([&intent, &in_flight] {
                 intent.cancel();
                 return do_until([&in_flight] { return in_flight == 0; }, [] { return seastar::sleep(100ms /* ¯\_(ツ)_/¯ */); });
             }).finally([bufptr = std::move(bufptr)] {});
