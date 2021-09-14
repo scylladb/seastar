@@ -1443,34 +1443,6 @@ public:
     future<std::unique_ptr<network_stack>> operator()(const program_options::option_group& opts) { return _func(opts); }
 };
 
-class network_stack_registry {
-public:
-    using options = boost::program_options::variables_map;
-private:
-    static std::unordered_map<sstring,
-            noncopyable_function<future<std::unique_ptr<network_stack>> (options opts)>>& _map() {
-        static std::unordered_map<sstring,
-                noncopyable_function<future<std::unique_ptr<network_stack>> (options opts)>> map;
-        return map;
-    }
-    static sstring& _default() {
-        static sstring def;
-        return def;
-    }
-public:
-    static boost::program_options::options_description& options_description() {
-        static boost::program_options::options_description opts;
-        return opts;
-    }
-    static void register_stack(sstring name, boost::program_options::options_description opts,
-        noncopyable_function<future<std::unique_ptr<network_stack>>(options opts)> create,
-        bool make_default);
-    static sstring default_stack();
-    static std::vector<sstring> list();
-    static future<std::unique_ptr<network_stack>> create(options opts);
-    static future<std::unique_ptr<network_stack>> create(sstring name, options opts);
-};
-
 void reactor::configure(const reactor_options& opts) {
     _network_stack_ready = opts.network_stack.get_selected_candidate()(*opts.network_stack.get_selected_candidate_opts());
 
@@ -3445,52 +3417,6 @@ bool operator==(const ::sockaddr_in a, const ::sockaddr_in b) {
 }
 
 namespace seastar {
-
-void network_stack_registry::register_stack(sstring name,
-        boost::program_options::options_description opts,
-        noncopyable_function<future<std::unique_ptr<network_stack>> (options opts)> create, bool make_default) {
-    if (_map().count(name)) {
-        return;
-    }
-    _map()[name] = std::move(create);
-    options_description().add(opts);
-    if (make_default) {
-        _default() = name;
-    }
-}
-
-void register_network_stack(sstring name, boost::program_options::options_description opts,
-    noncopyable_function<future<std::unique_ptr<network_stack>>(boost::program_options::variables_map)>
-        create,
-    bool make_default) {
-    return network_stack_registry::register_stack(
-        std::move(name), std::move(opts), std::move(create), make_default);
-}
-
-sstring network_stack_registry::default_stack() {
-    return _default();
-}
-
-std::vector<sstring> network_stack_registry::list() {
-    std::vector<sstring> ret;
-    for (auto&& ns : _map()) {
-        ret.push_back(ns.first);
-    }
-    return ret;
-}
-
-future<std::unique_ptr<network_stack>>
-network_stack_registry::create(options opts) {
-    return create(_default(), opts);
-}
-
-future<std::unique_ptr<network_stack>>
-network_stack_registry::create(sstring name, options opts) {
-    if (!_map().count(name)) {
-        throw std::runtime_error(format("network stack {} not registered", name));
-    }
-    return _map()[name](opts);
-}
 
 static bool kernel_supports_aio_fsync() {
     return kernel_uname().whitelisted({"4.18"});
