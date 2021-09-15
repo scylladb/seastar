@@ -90,6 +90,7 @@ protected:
 
     posix_file_impl(int fd, open_flags, file_open_options options, dev_t device_id,
             uint32_t block_size, bool nowait_works);
+    posix_file_impl(int fd, open_flags, file_open_options options, dev_t device_id, const internal::fs_info& fsi);
     posix_file_impl(int fd, open_flags, std::atomic<unsigned>* refcount, dev_t device_id,
             uint32_t memory_dma_alignment,
             uint32_t disk_read_dma_alignment,
@@ -175,7 +176,7 @@ protected:
 class posix_file_real_impl final : public posix_file_impl {
 public:
     posix_file_real_impl(int fd, open_flags of, file_open_options options, const internal::fs_info& fsi, dev_t device_id)
-        : posix_file_impl(fd, of, std::move(options), device_id, fsi.block_size, fsi.nowait_works) {}
+        : posix_file_impl(fd, of, std::move(options), device_id, fsi) {}
     posix_file_real_impl(int fd, open_flags of, std::atomic<unsigned>* refcount, dev_t device_id,
             uint32_t memory_dma_alignment, uint32_t disk_read_dma_alignment, uint32_t disk_write_dma_alignment, uint32_t disk_overwrite_dma_alignment, bool nowait_works)
         : posix_file_impl(fd, of, refcount, device_id, memory_dma_alignment, disk_read_dma_alignment, disk_write_dma_alignment, disk_overwrite_dma_alignment, nowait_works) {}
