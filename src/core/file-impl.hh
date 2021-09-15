@@ -131,7 +131,7 @@ public:
         return _open_flags;
     }
 private:
-    void query_dma_alignment(uint32_t block_size);
+    void configure_dma_alignment(const internal::fs_info& fsi);
     void configure_io_lengths() noexcept;
 
     /**

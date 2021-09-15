@@ -59,6 +59,7 @@ struct fs_info {
     unsigned append_concurrency;
     bool fsync_is_exclusive;
     bool nowait_works;
+    std::optional<dioattr> dioinfo;
 };
 
 };
@@ -103,7 +104,7 @@ posix_file_impl::posix_file_impl(int fd, open_flags f, file_open_options options
 posix_file_impl::posix_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id, const internal::fs_info& fsi)
         : posix_file_impl(fd, f, options, device_id, fsi.nowait_works)
 {
-    query_dma_alignment(fsi.block_size);
+    configure_dma_alignment(fsi);
 }
 
 posix_file_impl::~posix_file_impl() {
@@ -118,15 +119,14 @@ posix_file_impl::~posix_file_impl() {
 }
 
 void
-posix_file_impl::query_dma_alignment(uint32_t block_size) {
-    dioattr da;
-    auto r = ::ioctl(_fd, XFS_IOC_DIOINFO, &da);
-    if (r == 0) {
+posix_file_impl::configure_dma_alignment(const internal::fs_info& fsi) {
+    if (fsi.dioinfo) {
+        const dioattr& da = *fsi.dioinfo;
         _memory_dma_alignment = da.d_mem;
         _disk_read_dma_alignment = da.d_miniosz;
         // xfs wants at least the block size for writes
         // FIXME: really read the block size
-        _disk_write_dma_alignment = std::max<unsigned>(da.d_miniosz, block_size);
+        _disk_write_dma_alignment = std::max<unsigned>(da.d_miniosz, fsi.block_size);
         static bool xfs_with_relaxed_overwrite_alignment = kernel_uname().whitelisted({"5.12"});
         _disk_overwrite_dma_alignment = xfs_with_relaxed_overwrite_alignment ? da.d_miniosz : _disk_write_dma_alignment;
     }
@@ -981,11 +981,16 @@ make_file_impl(int fd, file_open_options options, int flags) noexcept {
             }
             static thread_local std::unordered_map<decltype(st_dev), fs_info> s_fstype;
             future<> get_fs_info = s_fstype.count(st_dev) ? make_ready_future<>() :
-                engine().fstatfs(fd).then([st_dev] (struct statfs sfs) {
+                engine().fstatfs(fd).then([fd, st_dev] (struct statfs sfs) {
                     internal::fs_info fsi;
                     fsi.block_size = sfs.f_bsize;
                     switch (sfs.f_type) {
                     case 0x58465342: /* XFS */
+                        dioattr da;
+                        if (::ioctl(fd, XFS_IOC_DIOINFO, &da) == 0) {
+                            fsi.dioinfo = std::move(da);
+                        }
+
                         fsi.append_challenged = true;
                         static auto xc = xfs_concurrency_from_kernel_version();
                         fsi.append_concurrency = xc;
