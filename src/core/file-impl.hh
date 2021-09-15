@@ -32,14 +32,7 @@ class io_queue;
 
 namespace internal {
 
-struct fs_info {
-    uint32_t block_size;
-    bool append_challenged;
-    unsigned append_concurrency;
-    bool fsync_is_exclusive;
-    bool nowait_works;
-};
-
+struct fs_info;
 // Given a properly aligned vector of iovecs, ensures that it respects the
 // IOV_MAX limit, by trimming if necessary. The modified vector still satisfied
 // the alignment requirements.

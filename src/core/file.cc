@@ -51,6 +51,18 @@ namespace seastar {
 static_assert(std::is_nothrow_copy_constructible_v<io_priority_class>);
 static_assert(std::is_nothrow_move_constructible_v<io_priority_class>);
 
+namespace internal {
+
+struct fs_info {
+    uint32_t block_size;
+    bool append_challenged;
+    unsigned append_concurrency;
+    bool fsync_is_exclusive;
+    bool nowait_works;
+};
+
+};
+
 using namespace internal;
 using namespace internal::linux_abi;
 
