@@ -171,6 +171,30 @@ SEASTAR_TEST_CASE(test_invoke_on_others) {
     });
 }
 
+SEASTAR_TEST_CASE(test_smp_invoke_on_others) {
+    return seastar::async([] {
+        std::vector<std::vector<int>> calls;
+        calls.reserve(smp::count);
+        for (unsigned i = 0; i < smp::count; i++) {
+            auto& sv = calls.emplace_back();
+            sv.reserve(smp::count);
+        }
+
+        smp::invoke_on_all([&calls] {
+            return smp::invoke_on_others(this_shard_id(), [&calls, from = this_shard_id()] {
+                calls[this_shard_id()].emplace_back(from);
+            });
+        }).get();
+
+        for (unsigned i = 0; i < smp::count; i++) {
+            BOOST_REQUIRE_EQUAL(calls[i].size(), smp::count - 1);
+            for (unsigned f = 0; f < smp::count; f++) {
+                auto r = std::find(calls[i].begin(), calls[i].end(), f);
+                BOOST_REQUIRE_EQUAL(r == calls[i].end(), i == f);
+            }
+        }
+    });
+}
 
 struct remote_worker {
     unsigned current = 0;

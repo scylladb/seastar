@@ -418,12 +418,13 @@ public:
     ///         of \c func.
     /// \returns a future that resolves when all async invocations finish.
     template<typename Func>
-    SEASTAR_CONCEPT( requires std::is_nothrow_move_constructible_v<Func> )
+    SEASTAR_CONCEPT( requires std::is_nothrow_move_constructible_v<Func> &&
+            std::is_nothrow_copy_constructible_v<Func> )
     static future<> invoke_on_others(unsigned cpu_id, smp_submit_to_options options, Func func) noexcept {
         static_assert(std::is_same<future<>, typename futurize<std::result_of_t<Func()>>::type>::value, "bad Func signature");
         static_assert(std::is_nothrow_move_constructible_v<Func>);
         return parallel_for_each(all_cpus(), [cpu_id, options, func = std::move(func)] (unsigned id) {
-            return id != cpu_id ? smp::submit_to(id, options, func) : make_ready_future<>();
+            return id != cpu_id ? smp::submit_to(id, options, Func(func)) : make_ready_future<>();
         });
     }
     /// Invokes func on all other shards.
