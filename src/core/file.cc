@@ -78,20 +78,20 @@ file_handle::to_file() && {
     return file(std::move(*_impl).to_file());
 }
 
-posix_file_impl::posix_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id, uint32_t block_size, bool nowait_works)
+posix_file_impl::posix_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id, bool nowait_works)
         : _device_id(device_id)
         , _nowait_works(nowait_works)
         , _io_queue(engine().get_io_queue(_device_id))
         , _open_flags(f)
         , _fd(fd)
 {
-    query_dma_alignment(block_size);
     configure_io_lengths();
 }
 
 posix_file_impl::posix_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id, const internal::fs_info& fsi)
-        : posix_file_impl(fd, f, options, device_id, fsi.block_size, fsi.nowait_works)
+        : posix_file_impl(fd, f, options, device_id, fsi.nowait_works)
 {
+    query_dma_alignment(fsi.block_size);
 }
 
 posix_file_impl::~posix_file_impl() {
@@ -554,7 +554,7 @@ posix_file_impl::read_maybe_eof(uint64_t pos, size_t len, const io_priority_clas
 static bool blockdev_nowait_works = kernel_uname().whitelisted({"4.13"});
 
 blockdev_file_impl::blockdev_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id, size_t block_size)
-        : posix_file_impl(fd, f, options, device_id, block_size, blockdev_nowait_works) {
+        : posix_file_impl(fd, f, options, device_id, blockdev_nowait_works) {
     // FIXME -- configure file_impl::_..._dma_alignment's from block_size
 }
 

@@ -88,8 +88,7 @@ class posix_file_impl : public file_impl {
 protected:
     int _fd;
 
-    posix_file_impl(int fd, open_flags, file_open_options options, dev_t device_id,
-            uint32_t block_size, bool nowait_works);
+    posix_file_impl(int fd, open_flags, file_open_options options, dev_t device_id, bool nowait_works);
     posix_file_impl(int fd, open_flags, file_open_options options, dev_t device_id, const internal::fs_info& fsi);
     posix_file_impl(int fd, open_flags, std::atomic<unsigned>* refcount, dev_t device_id,
             uint32_t memory_dma_alignment,
