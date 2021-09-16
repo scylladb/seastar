@@ -550,6 +550,7 @@ static bool blockdev_nowait_works = kernel_uname().whitelisted({"4.13"});
 
 blockdev_file_impl::blockdev_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id, size_t block_size)
         : posix_file_impl(fd, f, options, device_id, block_size, blockdev_nowait_works) {
+    // FIXME -- configure file_impl::_..._dma_alignment's from block_size
 }
 
 future<>
