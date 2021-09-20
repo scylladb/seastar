@@ -531,13 +531,15 @@ class NetPerfTuner(PerfTunerBase):
 
 #### Protected methods ##########################
     def _get_def_mode(self):
-        mode=PerfTunerBase.SupportedModes.no_irq_restrictions
-        for nic in self.nics:
-            if self.nic_is_bond_iface(nic):
-                mode = min(mode, min(map(self.__get_hw_iface_def_mode, filter(self.__dev_is_hw_iface, self.slaves(nic)))))
-            else:
-                mode = min(mode, self.__get_hw_iface_def_mode(nic))
-        return mode
+        num_cores = int(run_hwloc_calc(['--restrict', self.args.cpu_mask, '--number-of', 'core', 'machine:0']))
+        num_PUs = int(run_hwloc_calc(['--restrict', self.args.cpu_mask, '--number-of', 'PU', 'machine:0']))
+
+        if num_PUs <= 4:
+            return PerfTunerBase.SupportedModes.mq
+        elif num_cores <= 4:
+            return PerfTunerBase.SupportedModes.sq
+        else:
+            return PerfTunerBase.SupportedModes.sq_split
 
     def _get_irqs(self):
         """
@@ -837,21 +839,7 @@ class NetPerfTuner(PerfTunerBase):
 
         return min(self.__max_rx_queue_count(iface), rx_queues_count)
 
-    def __get_hw_iface_def_mode(self, iface):
-        """
-        Returns the default configuration mode for the given interface.
-        """
-        rx_queues_count = self.__get_rx_queue_count(iface)
 
-        num_cores = int(run_hwloc_calc(['--restrict', self.args.cpu_mask, '--number-of', 'core', 'machine:0']))
-        num_PUs = int(run_hwloc_calc(['--restrict', self.args.cpu_mask, '--number-of', 'PU', 'machine:0']))
-
-        if num_PUs <= 4 or rx_queues_count == num_PUs:
-            return PerfTunerBase.SupportedModes.mq
-        elif num_cores <= 4:
-            return PerfTunerBase.SupportedModes.sq
-        else:
-            return PerfTunerBase.SupportedModes.sq_split
 
 class ClocksourceManager:
     class PreferredClockSourceNotAvailableException(Exception):
