@@ -181,7 +181,7 @@ SEASTAR_TEST_CASE(test_smp_invoke_on_others) {
         }
 
         smp::invoke_on_all([&calls] {
-            return smp::invoke_on_others(this_shard_id(), [&calls, from = this_shard_id()] {
+            return smp::invoke_on_others([&calls, from = this_shard_id()] {
                 calls[this_shard_id()].emplace_back(from);
             });
         }).get();

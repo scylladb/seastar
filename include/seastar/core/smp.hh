@@ -442,6 +442,17 @@ public:
     static future<> invoke_on_others(unsigned cpu_id, Func func) noexcept {
         return invoke_on_others(cpu_id, smp_submit_to_options{}, std::move(func));
     }
+    /// Invokes func on all shards but the current one
+    ///
+    /// \param func the function to be invoked on each shard. May return void or
+    ///         future<>. Each async invocation will work with a separate copy
+    ///         of \c func.
+    /// \returns a future that resolves when all async invocations finish.
+    template<typename Func>
+    SEASTAR_CONCEPT( requires std::is_nothrow_move_constructible_v<Func> )
+    static future<> invoke_on_others(Func func) noexcept {
+        return invoke_on_others(this_shard_id(), std::move(func));
+    }
 private:
     void start_all_queues();
     void pin(unsigned cpu_id);
