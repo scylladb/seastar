@@ -92,10 +92,18 @@ aio_storage_context::aio_storage_context(reactor& r)
     static_assert(max_aio >= reactor::max_queues * reactor::max_queues,
                   "Mismatch between maximum allowed io and what the IO queues can produce");
     internal::setup_aio_context(max_aio, &_io_context);
+    _r.at_exit([this] { return stop(); });
 }
 
 aio_storage_context::~aio_storage_context() {
     internal::io_destroy(_io_context);
+}
+
+future<> aio_storage_context::stop() noexcept {
+    return std::exchange(_pending_aio_retry_fut, make_ready_future<>()).finally([this] {
+        // FIXME: reap_completions
+        assert(!_iocb_pool.outstanding());
+    });
 }
 
 inline
@@ -173,6 +181,7 @@ aio_storage_context::submit_work() {
         //
         // Pretend that all aio failed with EAGAIN and submit them
         // via schedule_retry(), below.
+        did_work = !_submission_queue.empty();
         for (auto& iocbp : _submission_queue) {
             set_nowait(*iocbp, false);
             _pending_aio_retry.push_back(iocbp);
@@ -195,29 +204,48 @@ aio_storage_context::submit_work() {
         submitted += nr_consumed;
     }
 
-    if (!_pending_aio_retry.empty()) {
+    if (need_to_retry() && !retry_in_progress()) {
         schedule_retry();
-        did_work = true;
     }
 
     return did_work;
 }
 
 void aio_storage_context::schedule_retry() {
-    // FIXME: future is discarded
-    (void)do_with(std::exchange(_pending_aio_retry, {}), [this](pending_aio_retry_t& retries){
-        return _r._thread_pool->submit<syscall_result<int>>([this, &retries] () mutable {
-            auto r = io_submit(_io_context, retries.size(), retries.data());
+    // loop until both _pending_aio_retry and _aio_retries are empty.
+    // While retrying _aio_retries, new retries may be queued onto _pending_aio_retry.
+    _pending_aio_retry_fut = do_until([this] {
+        if (_aio_retries.empty()) {
+            if (_pending_aio_retry.empty()) {
+                return true;
+            }
+            // _pending_aio_retry, holding a batch of new iocbs to retry,
+            // is swapped with the empty _aio_retries.
+            std::swap(_aio_retries, _pending_aio_retry);
+        }
+        return false;
+    }, [this] {
+        return _r._thread_pool->submit<syscall_result<int>>([this] () mutable {
+            auto r = io_submit(_io_context, _aio_retries.size(), _aio_retries.data());
             return wrap_syscall<int>(r);
-        }).then([this, &retries] (syscall_result<int> result) {
-            auto iocbs = retries.data();
+        }).then_wrapped([this] (future<syscall_result<int>> f) {
+            // If submit failed, just log the error and exit the loop.
+            // The next call to submit_work will call schedule_retry again.
+            if (f.failed()) {
+                auto ex = f.get_exception();
+                seastar_logger.warn("aio_storage_context::schedule_retry failed: {}", std::move(ex));
+                return;
+            }
+            auto result = f.get0();
+            auto iocbs = _aio_retries.data();
             size_t nr_consumed = 0;
             if (result.result == -1) {
+                // FIXME: abort if handle_aio_error throws
                 nr_consumed = handle_aio_error(iocbs[0], result.error);
             } else {
                 nr_consumed = result.result;
             }
-            std::copy(retries.begin() + nr_consumed, retries.end(), std::back_inserter(_pending_aio_retry));
+            _aio_retries.erase(_aio_retries.begin(), _aio_retries.begin() + nr_consumed);
         });
     });
 }
