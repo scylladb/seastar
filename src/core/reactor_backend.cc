@@ -101,8 +101,10 @@ aio_storage_context::~aio_storage_context() {
 
 future<> aio_storage_context::stop() noexcept {
     return std::exchange(_pending_aio_retry_fut, make_ready_future<>()).finally([this] {
-        // FIXME: reap_completions
-        assert(!_iocb_pool.outstanding());
+        return do_until([this] { return !_iocb_pool.outstanding(); }, [this] {
+            reap_completions(false);
+            return make_ready_future<>();
+        });
     });
 }
 
@@ -254,7 +256,7 @@ void aio_storage_context::schedule_retry() {
     });
 }
 
-bool aio_storage_context::reap_completions()
+bool aio_storage_context::reap_completions(bool allow_retry)
 {
     struct timespec timeout = {0, 0};
     auto n = io_getevents(_io_context, 1, max_aio, _ev_buffer, &timeout, _r._force_io_getevents_syscall);
@@ -264,7 +266,7 @@ bool aio_storage_context::reap_completions()
     assert(n >= 0);
     for (size_t i = 0; i < size_t(n); ++i) {
         auto iocb = get_iocb(_ev_buffer[i]);
-        if (_ev_buffer[i].res == -EAGAIN) {
+        if (_ev_buffer[i].res == -EAGAIN && allow_retry) {
             set_nowait(*iocb, false);
             _pending_aio_retry.push_back(iocb);
             continue;

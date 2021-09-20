@@ -94,7 +94,7 @@ public:
     explicit aio_storage_context(reactor& r);
     ~aio_storage_context();
 
-    bool reap_completions();
+    bool reap_completions(bool allow_retry = true);
     void schedule_retry();
     bool submit_work();
     bool can_sleep() const;
