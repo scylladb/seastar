@@ -51,6 +51,19 @@ namespace seastar {
 static_assert(std::is_nothrow_copy_constructible_v<io_priority_class>);
 static_assert(std::is_nothrow_move_constructible_v<io_priority_class>);
 
+namespace internal {
+
+struct fs_info {
+    uint32_t block_size;
+    bool append_challenged;
+    unsigned append_concurrency;
+    bool fsync_is_exclusive;
+    bool nowait_works;
+    std::optional<dioattr> dioinfo;
+};
+
+};
+
 using namespace internal;
 using namespace internal::linux_abi;
 
@@ -78,15 +91,20 @@ file_handle::to_file() && {
     return file(std::move(*_impl).to_file());
 }
 
-posix_file_impl::posix_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id, uint32_t block_size, bool nowait_works)
+posix_file_impl::posix_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id, bool nowait_works)
         : _device_id(device_id)
         , _nowait_works(nowait_works)
         , _io_queue(engine().get_io_queue(_device_id))
         , _open_flags(f)
         , _fd(fd)
 {
-    query_dma_alignment(block_size);
     configure_io_lengths();
+}
+
+posix_file_impl::posix_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id, const internal::fs_info& fsi)
+        : posix_file_impl(fd, f, options, device_id, fsi.nowait_works)
+{
+    configure_dma_alignment(fsi);
 }
 
 posix_file_impl::~posix_file_impl() {
@@ -101,15 +119,14 @@ posix_file_impl::~posix_file_impl() {
 }
 
 void
-posix_file_impl::query_dma_alignment(uint32_t block_size) {
-    dioattr da;
-    auto r = ::ioctl(_fd, XFS_IOC_DIOINFO, &da);
-    if (r == 0) {
+posix_file_impl::configure_dma_alignment(const internal::fs_info& fsi) {
+    if (fsi.dioinfo) {
+        const dioattr& da = *fsi.dioinfo;
         _memory_dma_alignment = da.d_mem;
         _disk_read_dma_alignment = da.d_miniosz;
         // xfs wants at least the block size for writes
         // FIXME: really read the block size
-        _disk_write_dma_alignment = std::max<unsigned>(da.d_miniosz, block_size);
+        _disk_write_dma_alignment = std::max<unsigned>(da.d_miniosz, fsi.block_size);
         static bool xfs_with_relaxed_overwrite_alignment = kernel_uname().whitelisted({"5.12"});
         _disk_overwrite_dma_alignment = xfs_with_relaxed_overwrite_alignment ? da.d_miniosz : _disk_write_dma_alignment;
     }
@@ -549,7 +566,8 @@ posix_file_impl::read_maybe_eof(uint64_t pos, size_t len, const io_priority_clas
 static bool blockdev_nowait_works = kernel_uname().whitelisted({"4.13"});
 
 blockdev_file_impl::blockdev_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id, size_t block_size)
-        : posix_file_impl(fd, f, options, device_id, block_size, blockdev_nowait_works) {
+        : posix_file_impl(fd, f, options, device_id, blockdev_nowait_works) {
+    // FIXME -- configure file_impl::_..._dma_alignment's from block_size
 }
 
 future<>
@@ -600,7 +618,7 @@ blockdev_file_impl::dma_read_bulk(uint64_t offset, size_t range_size, const io_p
 }
 
 append_challenged_posix_file_impl::append_challenged_posix_file_impl(int fd, open_flags f, file_open_options options, const fs_info& fsi, dev_t device_id)
-        : posix_file_impl(fd, f, options, device_id, fsi.block_size, fsi.nowait_works)
+        : posix_file_impl(fd, f, options, device_id, fsi)
         , _max_size_changing_ops(fsi.append_concurrency)
         , _fsync_is_exclusive(fsi.fsync_is_exclusive)
         , _sloppy_size(options.sloppy_size)
@@ -963,11 +981,16 @@ make_file_impl(int fd, file_open_options options, int flags) noexcept {
             }
             static thread_local std::unordered_map<decltype(st_dev), fs_info> s_fstype;
             future<> get_fs_info = s_fstype.count(st_dev) ? make_ready_future<>() :
-                engine().fstatfs(fd).then([st_dev] (struct statfs sfs) {
+                engine().fstatfs(fd).then([fd, st_dev] (struct statfs sfs) {
                     internal::fs_info fsi;
                     fsi.block_size = sfs.f_bsize;
                     switch (sfs.f_type) {
                     case 0x58465342: /* XFS */
+                        dioattr da;
+                        if (::ioctl(fd, XFS_IOC_DIOINFO, &da) == 0) {
+                            fsi.dioinfo = std::move(da);
+                        }
+
                         fsi.append_challenged = true;
                         static auto xc = xfs_concurrency_from_kernel_version();
                         fsi.append_concurrency = xc;
