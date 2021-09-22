@@ -75,7 +75,8 @@ private:
     // destroy the smp instance
     std::shared_ptr<smp> _smp;
     config _cfg;
-    boost::program_options::options_description _opts;
+    boost::program_options::options_description _app_opts;
+    boost::program_options::options_description _seastar_opts;
     boost::program_options::options_description _opts_conf_file;
     boost::program_options::positional_options_description _pos_opts;
     std::optional<boost::program_options::variables_map> _configuration;

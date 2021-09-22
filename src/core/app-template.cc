@@ -51,14 +51,17 @@ app_template::app_template(app_template::config cfg)
     : _alien(std::make_unique<alien::instance>())
     , _smp(std::make_shared<smp>(*_alien))
     , _cfg(std::move(cfg))
-    , _opts(_cfg.name + " options")
+    , _app_opts(_cfg.name + " options")
     , _conf_reader(get_default_configuration_reader()) {
 
         if (!alien::internal::default_instance) {
             alien::internal::default_instance = _alien.get();
         }
-        _opts.add_options()
+        _app_opts.add_options()
                 ("help,h", "show help message")
+                ;
+        _app_opts.add_options()
+                ("help-seastar", "show help message about seastar options")
                 ;
 
         _smp->register_network_stacks();
@@ -68,7 +71,7 @@ app_template::app_template(app_template::config cfg)
         _opts_conf_file.add(scollectd::get_options_description());
         _opts_conf_file.add(log_cli::get_options_description());
 
-        _opts.add(_opts_conf_file);
+        _seastar_opts.add(_opts_conf_file);
 }
 
 app_template::~app_template() = default;
@@ -94,7 +97,7 @@ void app_template::set_configuration_reader(configuration_reader conf_reader) {
 }
 
 boost::program_options::options_description& app_template::get_options_description() {
-    return _opts;
+    return _app_opts;
 }
 
 boost::program_options::options_description& app_template::get_conf_file_options_description() {
@@ -103,13 +106,13 @@ boost::program_options::options_description& app_template::get_conf_file_options
 
 boost::program_options::options_description_easy_init
 app_template::add_options() {
-    return _opts.add_options();
+    return _app_opts.add_options();
 }
 
 void
 app_template::add_positional_options(std::initializer_list<positional_option> options) {
     for (auto&& o : options) {
-        _opts.add(boost::make_shared<bpo::option_description>(o.name, o.value_semantic, o.help));
+        _app_opts.add(boost::make_shared<bpo::option_description>(o.name, o.value_semantic, o.help));
         _pos_opts.add(o.name, o.max_count);
     }
 }
@@ -149,10 +152,14 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
 #ifdef SEASTAR_DEBUG
     fmt::print("WARNING: debug mode. Not for benchmarking or production\n");
 #endif
+    boost::program_options::options_description all_opts;
+    all_opts.add(_app_opts);
+    all_opts.add(_seastar_opts);
+
     bpo::variables_map configuration;
     try {
         bpo::store(bpo::command_line_parser(ac, av)
-                    .options(_opts)
+                    .options(all_opts)
                     .positional(_pos_opts)
                     .run()
             , configuration);
@@ -165,7 +172,11 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
         if (!_cfg.description.empty()) {
             std::cout << _cfg.description << "\n";
         }
-        std::cout << _opts << "\n";
+        std::cout << _app_opts << "\n";
+        return 1;
+    }
+    if (configuration.count("help-seastar")) {
+        std::cout << _seastar_opts << "\n";
         return 1;
     }
     if (configuration["help-loggers"].as<bool>()) {
