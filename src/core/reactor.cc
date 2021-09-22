@@ -84,6 +84,7 @@
 #include <dirent.h>
 #include <linux/types.h> // for xfs, below
 #include <sys/ioctl.h>
+#include <linux/perf_event.h>
 #include <xfs/linux.h>
 #define min min    /* prevent xfs.h from defining min() as a macro */
 #include <xfs/xfs.h>
@@ -926,7 +927,7 @@ reactor::reactor(std::shared_ptr<smp> smp, alien::instance& alien, unsigned id, 
     , _engine_thread(sched::thread::current())
 #endif
     , _cpu_started(0)
-    , _cpu_stall_detector(std::make_unique<cpu_stall_detector>())
+    , _cpu_stall_detector(make_cpu_stall_detector())
     , _reuseport(posix_reuseport_detect())
     , _thread_pool(std::make_unique<thread_pool>(this, seastar::format("syscall-{}", id))) {
     /*
@@ -1062,6 +1063,16 @@ cpu_stall_detector::cpu_stall_detector(cpu_stall_detector_config cfg)
     // a safe place.
     backtrace([] (frame) {});
     update_config(cfg);
+
+    namespace sm = seastar::metrics;
+
+    _metrics.add_group("stall_detector", {
+            sm::make_derive("reported", _total_reported, sm::description("Total number of reported stalls, look in the traces for the exact reason"))});
+
+    // note: if something is added here that can, it should take care to destroy _timer.
+}
+
+cpu_stall_detector_posix_timer::cpu_stall_detector_posix_timer(cpu_stall_detector_config cfg) : cpu_stall_detector(cfg) {
     struct sigevent sev = {};
     sev.sigev_notify = SIGEV_THREAD_ID;
     sev.sigev_signo = signal_number();
@@ -1070,17 +1081,9 @@ cpu_stall_detector::cpu_stall_detector(cpu_stall_detector_config cfg)
     if (err) {
         throw std::system_error(std::error_code(err, std::system_category()));
     }
-
-    namespace sm = seastar::metrics;
-
-    _metrics.add_group("stall_detector", {
-            sm::make_derive("reported", _total_reported, sm::description("Total number of reported stalls, look in the traces for the exact reason"))});
-
-
-    // note: if something is added here that can, it should take care to destroy _timer.
 }
 
-cpu_stall_detector::~cpu_stall_detector() {
+cpu_stall_detector_posix_timer::~cpu_stall_detector_posix_timer() {
     timer_delete(_timer);
 }
 
@@ -1109,6 +1112,9 @@ void cpu_stall_detector::maybe_report() {
 //
 // We can do it a cheaper if we don't report suppressed backtraces.
 void cpu_stall_detector::on_signal() {
+    if (reap_event_and_check_spuriousness()) {
+        return;
+    }
     auto tasks_processed = engine().tasks_processed();
     auto last_seen = _last_tasks_processed_seen.load(std::memory_order_relaxed);
     if (!last_seen) {
@@ -1141,7 +1147,7 @@ void cpu_stall_detector::report_suppressions(sched_clock::time_point now) {
     }
 }
 
-void cpu_stall_detector::arm_timer() {
+void cpu_stall_detector_posix_timer::arm_timer() {
     auto its = posix::to_relative_itimerspec(_threshold * _report_at + _slack, 0s);
     timer_settime(_timer, 0, &its, nullptr);
 }
@@ -1163,13 +1169,158 @@ void cpu_stall_detector::end_task_run(sched_clock::time_point now) {
     _last_tasks_processed_seen.store(0, std::memory_order_relaxed);
 }
 
-void cpu_stall_detector::start_sleep() {
+void cpu_stall_detector_posix_timer::start_sleep() {
     auto its = posix::to_relative_itimerspec(0s,  0s);
     timer_settime(_timer, 0, &its, nullptr);
     _rearm_timer_at = reactor::now();
 }
 
 void cpu_stall_detector::end_sleep() {
+}
+
+static long
+perf_event_open(struct perf_event_attr* hw_event, pid_t pid, int cpu, int group_fd, unsigned long flags) {
+    return syscall(__NR_perf_event_open, hw_event, pid, cpu, group_fd, flags);
+}
+
+cpu_stall_detector_linux_perf_event::cpu_stall_detector_linux_perf_event(file_desc fd, cpu_stall_detector_config cfg)
+        : cpu_stall_detector(cfg), _fd(std::move(fd)) {
+    void* ret = ::mmap(nullptr, 2*getpagesize(), PROT_READ|PROT_WRITE, MAP_SHARED, _fd.get(), 0);
+    if (ret == MAP_FAILED) {
+        abort();
+    }
+    _mmap = static_cast<struct ::perf_event_mmap_page*>(ret);
+    _data_area = reinterpret_cast<char*>(_mmap) + getpagesize();
+    _data_area_mask = getpagesize() - 1;
+}
+
+cpu_stall_detector_linux_perf_event::~cpu_stall_detector_linux_perf_event() {
+    ::munmap(_mmap, 2*getpagesize());
+}
+
+void
+cpu_stall_detector_linux_perf_event::arm_timer() {
+    uint64_t ns = (_threshold * _report_at + _slack) / 1ns;
+    if (_enabled && _current_period == ns) [[likely]] {
+        // Common case - we're re-arming with the same period, the counter
+        // is already enabled.
+        _fd.ioctl(PERF_EVENT_IOC_RESET, 0);
+    } else {
+        // Uncommon case - we're moving from disabled to enabled, or changing
+        // the period. Issue more calls and be careful.
+        _fd.ioctl(PERF_EVENT_IOC_DISABLE, 0); // avoid false alarms while we modify stuff
+        _fd.ioctl(PERF_EVENT_IOC_PERIOD, ns);
+        _fd.ioctl(PERF_EVENT_IOC_RESET, 0);
+        _fd.ioctl(PERF_EVENT_IOC_ENABLE, 0);
+        _enabled = true;
+        _current_period = ns;
+    }
+}
+
+void
+cpu_stall_detector_linux_perf_event::start_sleep() {
+    _fd.ioctl(PERF_EVENT_IOC_DISABLE, 0);
+    _enabled = false;
+}
+
+bool
+cpu_stall_detector_linux_perf_event::reap_event_and_check_spuriousness() {
+    struct read_format {
+        uint64_t value;
+    } buf;
+    _fd.read(&buf, sizeof(read_format));
+    return buf.value < _current_period;
+}
+
+void
+cpu_stall_detector_linux_perf_event::maybe_report_kernel_trace() {
+    auto tail = _mmap->data_tail;
+    auto head = _mmap->data_head;
+    std::atomic_thread_fence(std::memory_order_acquire); // required after reading data_head
+    auto current_record = [&] () -> ::perf_event_header* {
+        return reinterpret_cast<::perf_event_header*>(_data_area + (tail & _data_area_mask));
+    };
+
+    // Skip all but last record
+    while (tail + current_record()->size != head) {
+        tail += current_record()->size;
+    }
+
+    auto last_record = current_record();
+
+    if (last_record->type == PERF_RECORD_SAMPLE) {
+        struct sample_record : perf_event_header {
+            uint64_t nr;
+            uint64_t ips[];
+        };
+        auto sample = static_cast<sample_record*>(last_record);
+        backtrace_buffer buf;
+        buf.append("kernel callstack:");
+        for (uint64_t i = 0; i < sample->nr; ++i) {
+            buf.append(" 0x");
+            buf.append_hex(uintptr_t(sample->ips[i]));
+        }
+        buf.append("\n");
+        buf.flush();
+    };
+
+    std::atomic_thread_fence(std::memory_order_release); // not documented, but probably required before writing data_tail
+    _mmap->data_tail = tail;
+}
+
+std::unique_ptr<cpu_stall_detector_linux_perf_event>
+cpu_stall_detector_linux_perf_event::try_make(cpu_stall_detector_config cfg) {
+    ::perf_event_attr pea = {
+        .type = PERF_TYPE_SOFTWARE,
+        .size = sizeof(pea),
+        .config = PERF_COUNT_SW_TASK_CLOCK, // more likely to work on virtual machines than hardware events
+        .sample_period = 1'000'000'000, // Needs non-zero value or PERF_IOC_PERIOD gets confused
+        .sample_type = PERF_SAMPLE_CALLCHAIN,
+        .disabled = 1,
+        .exclude_callchain_user = 1,  // we're using backtrace() to capture the user callchain
+        .wakeup_events = 1,
+    };
+    unsigned long flags = 0;
+    if (kernel_uname().whitelisted({"3.14"})) {
+        flags |= PERF_FLAG_FD_CLOEXEC;
+    }
+    int fd = perf_event_open(&pea, 0, -1, -1, flags);
+    if (fd == -1) {
+        throw std::system_error(errno, std::system_category(), "perf_event_open() failed");
+    }
+    auto desc = file_desc::from_fd(fd);
+    struct f_owner_ex sig_owner = {
+        .type = F_OWNER_TID,
+        .pid = gettid(),
+    };
+    auto ret1 = ::fcntl(fd, F_SETOWN_EX, &sig_owner);
+    if (ret1 == -1) {
+        abort();
+    }
+    auto ret2 = ::fcntl(fd, F_SETSIG, signal_number());
+    if (ret2 == -1) {
+        abort();
+    }
+    auto fd_flags = ::fcntl(fd, F_GETFL);
+    if (fd_flags == -1) {
+        abort();
+    }
+    auto ret3 = ::fcntl(fd, F_SETFL, fd_flags | O_ASYNC);
+    if (ret3 == -1) {
+        abort();
+    }
+    return std::make_unique<cpu_stall_detector_linux_perf_event>(std::move(desc), std::move(cfg));
+}
+
+
+std::unique_ptr<cpu_stall_detector>
+internal::make_cpu_stall_detector(cpu_stall_detector_config cfg) {
+    try {
+        return cpu_stall_detector_linux_perf_event::try_make(cfg);
+    } catch (...) {
+        seastar_logger.warn("Creation of perf_event based stall detector failed, falling back to posix timer: {}", std::current_exception());
+        return std::make_unique<cpu_stall_detector_posix_timer>(cfg);
+    }
 }
 
 void
@@ -1220,6 +1371,7 @@ cpu_stall_detector::generate_trace() {
     buf.append_decimal(uint64_t(delta / 1ms));
     buf.append(" ms");
     print_with_backtrace(buf, _config.oneline);
+    maybe_report_kernel_trace();
 }
 
 template <typename T, typename E, typename EnableFunc>
