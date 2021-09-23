@@ -971,7 +971,7 @@ make_file_impl(int fd, file_open_options options, int flags) noexcept {
             }
             return make_ready_future<shared_ptr<file_impl>>(make_shared<blockdev_file_impl>(fd, open_flags(flags), options, st_dev, block_size));
         } else {
-            if ((flags & O_ACCMODE) == O_RDONLY || S_ISDIR(st.st_mode)) {
+            if (S_ISDIR(st.st_mode)) {
                 // Directories don't care about block size, so we need not
                 // query it here. Just provide something reasonable.
                 internal::fs_info fsi;
@@ -1032,7 +1032,7 @@ make_file_impl(int fd, file_open_options options, int flags) noexcept {
                 });
             return get_fs_info.then([st_dev, fd, flags, options = std::move(options)] () mutable {
                 const fs_info& fsi = s_fstype[st_dev];
-                if (!fsi.append_challenged || options.append_is_unlikely) {
+                if (!fsi.append_challenged || options.append_is_unlikely || ((flags & O_ACCMODE) == O_RDONLY)) {
                     return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_real_impl>(fd, open_flags(flags), std::move(options), fsi, st_dev));
                 }
                 return make_ready_future<shared_ptr<file_impl>>(make_shared<append_challenged_posix_file_impl>(fd, open_flags(flags), std::move(options), fsi, st_dev));
