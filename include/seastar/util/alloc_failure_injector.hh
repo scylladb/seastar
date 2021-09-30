@@ -47,10 +47,10 @@ namespace memory {
 ///         }
 ///     }
 class alloc_failure_injector {
-    uint64_t _alloc_count;
+    uint64_t _alloc_count = 0;
     uint64_t _fail_at = std::numeric_limits<uint64_t>::max();
     noncopyable_function<void()> _on_alloc_failure = [] { throw std::bad_alloc(); };
-    bool _failed;
+    bool _failed = false;
 private:
     void fail();
 public:
