@@ -133,7 +133,11 @@ template <typename... A>
 sstring
 format(const char* fmt, A&&... a) {
     fmt::memory_buffer out;
+#if FMT_VERSION >= 80000
+    fmt::format_to(fmt::appender(out), fmt::runtime(fmt), std::forward<A>(a)...);
+#else
     fmt::format_to(out, fmt, std::forward<A>(a)...);
+#endif
     return sstring{out.data(), out.size()};
 }
 

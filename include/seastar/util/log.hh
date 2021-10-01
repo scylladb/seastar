@@ -204,7 +204,11 @@ public:
         if (is_enabled(level)) {
             try {
                 lambda_log_writer writer([&] (internal::log_buf::inserter_iterator it) {
+#if FMT_VERSION >= 80000
+                    return fmt::format_to(it, fmt::runtime(fmt.format), std::forward<Args>(args)...);
+#else
                     return fmt::format_to(it, fmt.format, std::forward<Args>(args)...);
+#endif
                 });
                 do_log(level, writer);
             } catch (...) {
@@ -235,7 +239,11 @@ public:
                     if (rl.has_dropped_messages()) {
                         it = fmt::format_to(it, "(rate limiting dropped {} similar messages) ", rl.get_and_reset_dropped_messages());
                     }
+#if FMT_VERSION >= 80000
+                    return fmt::format_to(it, fmt::runtime(fmt.format), std::forward<Args>(args)...);
+#else
                     return fmt::format_to(it, fmt.format, std::forward<Args>(args)...);
+#endif
                 });
                 do_log(level, writer);
             } catch (...) {
