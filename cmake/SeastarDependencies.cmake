@@ -52,7 +52,6 @@ macro (seastar_find_dependencies)
     Boost
     c-ares
     cryptopp
-    dpdk # No version information published.
     fmt
     lz4
     # Private and private/public dependencies.
@@ -66,6 +65,11 @@ macro (seastar_find_dependencies)
     numactl # No version information published.
     rt
     yaml-cpp)
+
+  if (Seastar_DPDK)
+    list (APPEND _seastar_all_dependencies
+      dpdk)
+  endif ()
 
   # Arguments to `find_package` for each 3rd-party dependency.
   # Note that the version specification is a "minimal" version requirement.
