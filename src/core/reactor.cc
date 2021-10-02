@@ -4194,7 +4194,7 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
 #ifdef SEASTAR_HAVE_DPDK
     if (_using_dpdk) {
         auto it = _thread_loops.begin();
-        RTE_LCORE_FOREACH_SLAVE(i) {
+        RTE_LCORE_FOREACH_WORKER(i) {
             rte_eal_remote_launch(dpdk_thread_adaptor, static_cast<void*>(&*(it++)), i);
         }
     }
