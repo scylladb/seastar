@@ -25,6 +25,7 @@
 #include <seastar/core/chunked_fifo.hh>
 #include <stdexcept>
 #include <exception>
+#include <optional>
 #include <seastar/core/timer.hh>
 #include <seastar/core/expiring_fifo.hh>
 #include <seastar/core/timed_out_error.hh>
@@ -479,6 +480,31 @@ get_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units, typename 
     });
 }
 
+/// \brief Try to take units from semaphore temporarily
+///
+/// Takes units from the semaphore, if available, and returns them when the \ref semaphore_units object goes out of scope.
+/// This provides a safe way to temporarily take units from a semaphore and ensure
+/// that they are eventually returned under all circumstances (exceptions, premature scope exits, etc).
+///
+/// Unlike with_semaphore(), the scope of unit holding is not limited to the scope of a single async lambda.
+///
+/// \param sem The semaphore to take units from
+/// \param units  Number of units to take
+/// \return an optional \ref semaphore_units object. If engaged, when the object goes out of scope or is reset
+///         the units are returned to the semaphore.
+///
+/// \note The caller must guarantee that \c sem is valid as long as
+///      \ref seaphore_units object is alive.
+///
+/// \related semaphore
+template<typename ExceptionFactory, typename Clock = typename timer<>::clock>
+std::optional<semaphore_units<ExceptionFactory, Clock>>
+try_get_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units) noexcept {
+    if (!sem.try_wait(units)) {
+        return std::nullopt;
+    }
+    return std::make_optional<semaphore_units<ExceptionFactory, Clock>>(sem, units);
+}
 
 /// \brief Consume units from semaphore temporarily
 ///
