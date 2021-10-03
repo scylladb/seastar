@@ -1291,7 +1291,7 @@ cpu_stall_detector_linux_perf_event::try_make(cpu_stall_detector_config cfg) {
     auto desc = file_desc::from_fd(fd);
     struct f_owner_ex sig_owner = {
         .type = F_OWNER_TID,
-        .pid = gettid(),
+        .pid = static_cast<pid_t>(syscall(SYS_gettid)),
     };
     auto ret1 = ::fcntl(fd, F_SETOWN_EX, &sig_owner);
     if (ret1 == -1) {
