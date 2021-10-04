@@ -168,6 +168,16 @@ struct hash<seastar::allocation_site> {
 
 }
 
+extern "C" {
+extern void *__libc_malloc (size_t);
+extern void __libc_free (void *);
+extern void *__libc_realloc (void *, size_t);
+
+#ifdef __GLIBC__
+extern void *__libc_memalign (size_t, size_t);
+#endif
+}
+
 namespace seastar {
 
 using allocation_site_ptr = const allocation_site*;
@@ -239,22 +249,6 @@ static uint64_t get(types stat_type)
 }
 
 }
-
-// original memory allocator support
-// note: allocations before calling the constructor would use seastar allocator
-using malloc_func_type = void * (*)(size_t);
-using free_func_type = void * (*)(void *);
-using realloc_func_type = void * (*)(void *, size_t);
-using aligned_alloc_type = void * (*)(size_t alignment, size_t size);
-using malloc_trim_type = int (*)(size_t);
-using malloc_usable_size_type = size_t (*)(void *);
-
-malloc_func_type original_malloc_func = reinterpret_cast<malloc_func_type>(dlsym(RTLD_NEXT, "malloc"));
-free_func_type original_free_func = reinterpret_cast<free_func_type>(dlsym(RTLD_NEXT, "free"));
-realloc_func_type original_realloc_func = reinterpret_cast<realloc_func_type>(dlsym(RTLD_NEXT, "realloc"));
-aligned_alloc_type original_aligned_alloc_func = reinterpret_cast<aligned_alloc_type>(dlsym(RTLD_NEXT, "aligned_alloc"));
-malloc_trim_type original_malloc_trim_func = reinterpret_cast<malloc_trim_type>(dlsym(RTLD_NEXT, "malloc_trim"));
-malloc_usable_size_type original_malloc_usable_size_func = reinterpret_cast<malloc_usable_size_type>(dlsym(RTLD_NEXT, "malloc_usable_size"));
 
 using allocate_system_memory_fn
         = std::function<mmap_area (void* where, size_t how_much)>;
@@ -952,7 +946,7 @@ cpu_pages::try_foreign_free(void* ptr) {
         } else {
             alloc_stats::increment(alloc_stats::types::foreign_frees);
         }
-        original_free_func(ptr);
+        __libc_free(ptr);
         return true;
     }
     free_cross_cpu(object_cpu_id(ptr), ptr);
@@ -1365,13 +1359,8 @@ static constexpr int debug_allocation_pattern = 0xab;
 
 void* allocate(size_t size) {
     if (!is_reactor_thread) {
-        if (original_malloc_func) {
-            alloc_stats::increment(alloc_stats::types::foreign_mallocs);
-            return original_malloc_func(size);
-        }
-        // original_malloc_func might be null for allocations before main
-        // in constructors before original_malloc_func ctor is called
-        init_cpu_mem();
+        alloc_stats::increment(alloc_stats::types::foreign_mallocs);
+        return __libc_malloc(size);
     }
     if (size <= sizeof(free_object)) {
         size = sizeof(free_object);
@@ -1396,13 +1385,15 @@ void* allocate(size_t size) {
 
 void* allocate_aligned(size_t align, size_t size) {
     if (!is_reactor_thread) {
-        if (original_aligned_alloc_func) {
-            alloc_stats::increment(alloc_stats::types::foreign_mallocs);
-            return original_aligned_alloc_func(align, size);
-        }
-        // original_realloc_func might be null for allocations before main
-        // in constructors before original_realloc_func ctor is called
-        init_cpu_mem();
+        alloc_stats::increment(alloc_stats::types::foreign_mallocs);
+#ifdef __GLIBC__
+        return __libc_memalign(align, size);
+#else
+        using aligned_alloc_type = void * (*)(size_t alignment, size_t size);
+        aligned_alloc_type original_aligned_alloc_func =
+            reinterpret_cast<aligned_alloc_type>(dlsym(RTLD_NEXT, "aligned_alloc"));
+        return original_aligned_alloc_func(obj);
+#endif
     }
     if (size <= sizeof(free_object)) {
         size = std::max(sizeof(free_object), align);
@@ -1818,16 +1809,6 @@ void* malloc(size_t n) throw () {
 }
 
 extern "C"
-[[gnu::alias("malloc")]]
-[[gnu::visibility("default")]]
-[[gnu::malloc]]
-[[gnu::alloc_size(1)]]
-#ifndef __clang__
-[[gnu::leaf]]
-#endif
-void* __libc_malloc(size_t n) throw ();
-
-extern "C"
 [[gnu::visibility("default")]]
 [[gnu::used]]
 void free(void* ptr) {
@@ -1835,14 +1816,6 @@ void free(void* ptr) {
         seastar::memory::free(ptr);
     }
 }
-
-extern "C"
-[[gnu::alias("free")]]
-[[gnu::visibility("default")]]
-#ifndef __clang__
-[[gnu::leaf]]
-#endif
-void __libc_free(void* obj) throw ();
 
 extern "C"
 [[gnu::visibility("default")]]
@@ -1861,16 +1834,6 @@ void* calloc(size_t nmemb, size_t size) {
 }
 
 extern "C"
-[[gnu::alias("calloc")]]
-[[gnu::visibility("default")]]
-[[gnu::alloc_size(1, 2)]]
-[[gnu::malloc]]
-#ifndef __clang__
-[[gnu::leaf]]
-#endif
-void* __libc_calloc(size_t n, size_t m) throw ();
-
-extern "C"
 [[gnu::visibility("default")]]
 void* realloc(void* ptr, size_t size) {
     if (try_trigger_error_injector()) {
@@ -1881,10 +1844,7 @@ void* realloc(void* ptr, size_t size) {
         if (is_reactor_thread) {
             abort();
         }
-        // original_realloc_func might be null when previous ctor allocates
-        if (original_realloc_func) {
-            return original_realloc_func(ptr, size);
-        }
+        return __libc_realloc(ptr, size);
     }
     // if we're here, it's either ptr is a seastar memory ptr
     // or a nullptr, or, original functions aren't available
@@ -1913,15 +1873,6 @@ void* realloc(void* ptr, size_t size) {
 }
 
 extern "C"
-[[gnu::alias("realloc")]]
-[[gnu::visibility("default")]]
-[[gnu::alloc_size(2)]]
-#ifndef __clang__
-[[gnu::leaf]]
-#endif
-void* __libc_realloc(void* obj, size_t size) throw ();
-
-extern "C"
 [[gnu::visibility("default")]]
 [[gnu::used]]
 #ifndef __clang__
@@ -1938,15 +1889,6 @@ int posix_memalign(void** ptr, size_t align, size_t size) throw () {
     }
     return 0;
 }
-
-extern "C"
-[[gnu::alias("posix_memalign")]]
-[[gnu::visibility("default")]]
-#ifndef __clang__
-[[gnu::leaf]]
-#endif
-[[gnu::nonnull(1)]]
-int __libc_posix_memalign(void** ptr, size_t align, size_t size) throw ();
 
 extern "C"
 [[gnu::visibility("default")]]
@@ -1972,29 +1914,18 @@ void *aligned_alloc(size_t align, size_t size) throw () {
 }
 
 extern "C"
-[[gnu::alias("memalign")]]
-[[gnu::visibility("default")]]
-[[gnu::malloc]]
-#if defined(__GLIBC__) && __GLIBC_PREREQ(2, 30)
-[[gnu::alloc_size(2)]]
-#endif
-void* __libc_memalign(size_t align, size_t size) throw ();
-
-extern "C"
 [[gnu::visibility("default")]]
 void cfree(void* obj) throw () {
     return ::free(obj);
 }
 
 extern "C"
-[[gnu::alias("cfree")]]
-[[gnu::visibility("default")]]
-void __libc_cfree(void* obj) throw ();
-
-extern "C"
 [[gnu::visibility("default")]]
 size_t malloc_usable_size(void* obj) {
     if (!is_seastar_memory(obj)) {
+        using malloc_usable_size_type = size_t (*)(void *);
+        static malloc_usable_size_type original_malloc_usable_size_func =
+            reinterpret_cast<malloc_usable_size_type>(dlsym(RTLD_NEXT, "malloc_usable_size"));
         return original_malloc_usable_size_func(obj);
     }
     return object_size(obj);
@@ -2004,7 +1935,10 @@ extern "C"
 [[gnu::visibility("default")]]
 int malloc_trim(size_t pad) {
     if (!is_reactor_thread) {
-        return original_malloc_trim_func(pad);
+        using malloc_trim_type = int (*)(size_t);
+        auto original_malloc_trim_func =
+            reinterpret_cast<malloc_trim_type>(dlsym(RTLD_NEXT, "malloc_trim"));
+        original_malloc_trim_func(pad);
     }
     return 0;
 }
