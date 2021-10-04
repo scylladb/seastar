@@ -1097,18 +1097,19 @@ future<int> file::fcntl_short(int op, uintptr_t arg) noexcept {
 }
 
 future<> file::set_lifetime_hint_impl(int op, uint64_t hint) noexcept {
-    try {
-        uint64_t arg = hint;
-        return _file_impl->fcntl(op, (uintptr_t)&arg).then_wrapped([] (future<int> f) {
-            // Need to handle return value differently from that of fcntl
-            if (f.failed()) {
-                return make_exception_future<>(f.get_exception());
-            }
-            return make_ready_future<>();
-        });
-    } catch (...) {
-        return current_exception_as_future<>();
-    }
+    return do_with(hint, [op, this] (uint64_t& arg) {
+        try {
+            return _file_impl->fcntl(op, (uintptr_t)&arg).then_wrapped([] (future<int> f) {
+                // Need to handle return value differently from that of fcntl
+                if (f.failed()) {
+                    return make_exception_future<>(f.get_exception());
+                }
+                return make_ready_future<>();
+            });
+        } catch (...) {
+            return current_exception_as_future<>();
+        }
+    });
 }
 
 future<> file::set_file_lifetime_hint(uint64_t hint) noexcept {
@@ -1120,18 +1121,19 @@ future<> file::set_inode_lifetime_hint(uint64_t hint) noexcept {
 }
 
 future<uint64_t> file::get_lifetime_hint_impl(int op) noexcept {
-    try {
-        uint64_t arg;
-        return _file_impl->fcntl(op, (uintptr_t)&arg).then_wrapped([arg] (future<int> f) {
-            // Need to handle return value differently from that of fcntl
-            if (f.failed()) {
-                return make_exception_future<uint64_t>(f.get_exception());
-            }
-            return make_ready_future<uint64_t>(arg);
-        });
-    } catch (...) {
-        return current_exception_as_future<uint64_t>();
-    }
+    return do_with(uint64_t(0), [op, this] (uint64_t& arg) {
+        try {
+            return _file_impl->fcntl(op, (uintptr_t)&arg).then_wrapped([&arg] (future<int> f) {
+                // Need to handle return value differently from that of fcntl
+                if (f.failed()) {
+                    return make_exception_future<uint64_t>(f.get_exception());
+                }
+                return make_ready_future<uint64_t>(arg);
+            });
+        } catch (...) {
+            return current_exception_as_future<uint64_t>();
+        }
+    });
 }
 
 future<uint64_t> file::get_file_lifetime_hint() noexcept {
