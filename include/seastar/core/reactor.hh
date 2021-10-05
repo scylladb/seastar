@@ -172,6 +172,8 @@ public:
     friend class reactor;
 };
 
+size_t scheduling_group_count();
+
 }
 
 class kernel_completion;
@@ -215,6 +217,7 @@ private:
     friend class reactor_backend_aio;
     friend class reactor_backend_selector;
     friend class aio_storage_context;
+    friend size_t scheduling_group_count();
 public:
     using poller = internal::poller;
     using idle_cpu_handler_result = seastar::idle_cpu_handler_result;

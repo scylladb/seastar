@@ -33,6 +33,7 @@
 #include <seastar/core/scheduling_specific.hh>
 #include <seastar/core/smp.hh>
 #include <seastar/core/with_scheduling_group.hh>
+#include <seastar/core/reactor.hh>
 #include <seastar/util/later.hh>
 #include <seastar/util/defer.hh>
 
@@ -250,4 +251,34 @@ SEASTAR_THREAD_TEST_CASE(later_preserves_sg) {
                     internal::scheduling_group_index(sg));
         });
     }).get();
+}
+
+SEASTAR_THREAD_TEST_CASE(sg_count) {
+    class scheduling_group_destroyer {
+        scheduling_group _sg;
+    public:
+        scheduling_group_destroyer(scheduling_group sg) : _sg(sg) {}
+        ~scheduling_group_destroyer() {
+            destroy_scheduling_group(_sg).get();
+        }
+    };
+
+    std::vector<scheduling_group_destroyer> scheduling_groups_defered_cleanup;
+    // The line below is necessairy in order to skip support pf copy and move construction of scheduling_group_destroyer.
+    scheduling_groups_defered_cleanup.reserve(max_scheduling_groups());
+    // try to create 3 groups too many.
+    for (auto i = internal::scheduling_group_count() ;i < max_scheduling_groups() + 3 ;i++) {
+        try {
+            BOOST_REQUIRE_LE(internal::scheduling_group_count(), max_scheduling_groups());
+            scheduling_groups_defered_cleanup.emplace_back(create_scheduling_group(format("sg_{}", i), 10).get());
+        } catch (std::runtime_error& e) {
+            // make sure it is the right exception.
+            BOOST_REQUIRE_EQUAL(e.what(), "Scheduling group limit exceeded");
+            // make sure that the scheduling group count makes sense
+            BOOST_REQUIRE_EQUAL(internal::scheduling_group_count(), max_scheduling_groups());
+            // make sure that we expect this exception at this point
+            BOOST_REQUIRE_GE(i, max_scheduling_groups());
+        }
+    }
+    BOOST_REQUIRE_EQUAL(internal::scheduling_group_count(), max_scheduling_groups());
 }
