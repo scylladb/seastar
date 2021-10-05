@@ -221,6 +221,7 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_before_and_after_sg_create) {
  */
 SEASTAR_THREAD_TEST_CASE(sg_scheduling_group_inheritance_in_seastar_async_test) {
     scheduling_group sg = create_scheduling_group("sg0", 100).get0();
+    auto cleanup = defer([&] () noexcept { destroy_scheduling_group(sg).get(); });
     thread_attributes attr = {};
     attr.sched_group = sg;
     seastar::async(attr, [attr] {
