@@ -263,14 +263,14 @@ SEASTAR_THREAD_TEST_CASE(sg_count) {
         }
     };
 
-    std::vector<scheduling_group_destroyer> scheduling_groups_defered_cleanup;
-    // The line below is necessairy in order to skip support pf copy and move construction of scheduling_group_destroyer.
-    scheduling_groups_defered_cleanup.reserve(max_scheduling_groups());
+    std::vector<scheduling_group_destroyer> scheduling_groups_deferred_cleanup;
+    // The line below is necessary in order to skip support of copy and move construction of scheduling_group_destroyer.
+    scheduling_groups_deferred_cleanup.reserve(max_scheduling_groups());
     // try to create 3 groups too many.
-    for (auto i = internal::scheduling_group_count() ;i < max_scheduling_groups() + 3 ;i++) {
+    for (auto i = internal::scheduling_group_count(); i < max_scheduling_groups() + 3; i++) {
         try {
             BOOST_REQUIRE_LE(internal::scheduling_group_count(), max_scheduling_groups());
-            scheduling_groups_defered_cleanup.emplace_back(create_scheduling_group(format("sg_{}", i), 10).get());
+            scheduling_groups_deferred_cleanup.emplace_back(create_scheduling_group(format("sg_{}", i), 10).get());
         } catch (std::runtime_error& e) {
             // make sure it is the right exception.
             BOOST_REQUIRE_EQUAL(e.what(), "Scheduling group limit exceeded");

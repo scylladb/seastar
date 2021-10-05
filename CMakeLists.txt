@@ -73,6 +73,16 @@ set_property (CACHE Seastar_API_LEVEL
   PROPERTY
   STRINGS 2 3 4 5 6)
 
+set (Seastar_SCHEDULING_GROUPS_COUNT
+  "16"
+  CACHE
+  STRING
+  "A positive number to set Seastar's reactor number of allowed different scheduling groups.")
+
+if (NOT Seastar_SCHEDULING_GROUPS_COUNT MATCHES "^[1-9][0-9]*")
+  message(FATAL_ERROR "Seastar_SCHEDULING_GROUPS_COUNT must be a positive number (${Seastar_SCHEDULING_GROUPS_COUNT})")
+endif()
+
 #
 # Add a dev build type.
 #
@@ -825,6 +835,9 @@ if (Seastar_ALLOC_PAGE_SIZE)
   target_compile_definitions (seastar
     PUBLIC SEASTAR_OVERRIDE_ALLOCATOR_PAGE_SIZE=${Seastar_ALLOC_PAGE_SIZE})
 endif ()
+
+target_compile_definitions (seastar
+  PUBLIC SEASTAR_SCHEDULING_GROUPS_COUNT=${Seastar_SCHEDULING_GROUPS_COUNT})
 
 if (Seastar_CXX_FLAGS)
   list (APPEND Seastar_PRIVATE_CXX_FLAGS ${Seastar_CXX_FLAGS})
