@@ -53,7 +53,7 @@ static void dummy_handler(int) {
 }
 
 static void install_dummy_handler(int sig) {
-    struct sigaction sa;
+    struct sigaction sa {};
     sa.sa_handler = dummy_handler;
     sigaction(sig, &sa, nullptr);
 }
