@@ -30,8 +30,7 @@
 #include <seastar/core/posix.hh>
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/core/scheduling.hh>
-
-struct perf_event_mmap_page;
+#include <linux/perf_event.h>
 
 namespace seastar {
 
@@ -109,6 +108,51 @@ class cpu_stall_detector_linux_perf_event : public cpu_stall_detector {
     struct ::perf_event_mmap_page* _mmap;
     char* _data_area;
     size_t _data_area_mask;
+private:
+    class data_area_reader {
+        cpu_stall_detector_linux_perf_event& _p;
+        const char* _data_area;
+        size_t _data_area_mask;
+        uint64_t _head;
+        uint64_t _tail;
+    public:
+        explicit data_area_reader(cpu_stall_detector_linux_perf_event& p)
+                : _p(p)
+                , _data_area(p._data_area)
+                , _data_area_mask(p._data_area_mask) {
+            _head = _p._mmap->data_head;
+            _tail = _p._mmap->data_tail;
+            std::atomic_thread_fence(std::memory_order_acquire); // required after reading data_head
+        }
+        ~data_area_reader() {
+            std::atomic_thread_fence(std::memory_order_release); // not documented, but probably required before writing data_tail
+            _p._mmap->data_tail = _tail;
+        }
+        uint64_t read_u64() {
+            uint64_t ret;
+            // We cannot wrap around if the 8-byte unit is aligned
+            std::copy_n(_data_area + (_tail & _data_area_mask), 8, reinterpret_cast<char*>(&ret));
+            _tail += 8;
+            return ret;
+        }
+        template <typename S>
+        S read_struct() {
+            static_assert(sizeof(S) % 8 == 0);
+            S ret;
+            char* p = reinterpret_cast<char*>(&ret);
+            for (size_t i = 0; i != sizeof(S); i += 8) {
+                uint64_t w = read_u64();
+                std::copy_n(reinterpret_cast<const char*>(&w), 8, p + i);
+            }
+            return ret;
+        }
+        void skip(uint64_t bytes_to_skip) {
+            _tail += bytes_to_skip;
+        }
+        bool have_data() const {
+            return _head != _tail;
+        }
+    };
 public:
     static std::unique_ptr<cpu_stall_detector_linux_perf_event> try_make(cpu_stall_detector_config cfg = {});
     explicit cpu_stall_detector_linux_perf_event(file_desc fd, cpu_stall_detector_config cfg = {});

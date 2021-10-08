@@ -1234,38 +1234,29 @@ cpu_stall_detector_linux_perf_event::reap_event_and_check_spuriousness() {
 
 void
 cpu_stall_detector_linux_perf_event::maybe_report_kernel_trace() {
-    auto tail = _mmap->data_tail;
-    auto head = _mmap->data_head;
-    std::atomic_thread_fence(std::memory_order_acquire); // required after reading data_head
-    auto current_record = [&] () -> ::perf_event_header* {
-        return reinterpret_cast<::perf_event_header*>(_data_area + (tail & _data_area_mask));
+    data_area_reader reader(*this);
+    auto current_record = [&] () -> ::perf_event_header {
+        return reader.read_struct<perf_event_header>();
     };
 
-    // Skip all but last record
-    while (tail + current_record()->size != head) {
-        tail += current_record()->size;
-    }
+    while (reader.have_data()) {
+        auto record = current_record();
 
-    auto last_record = current_record();
+        if (record.type != PERF_RECORD_SAMPLE) {
+            reader.skip(record.size - sizeof(record));
+            continue;
+        }
 
-    if (last_record->type == PERF_RECORD_SAMPLE) {
-        struct sample_record : perf_event_header {
-            uint64_t nr;
-            uint64_t ips[];
-        };
-        auto sample = static_cast<sample_record*>(last_record);
+        auto nr = reader.read_u64();
         backtrace_buffer buf;
         buf.append("kernel callstack:");
-        for (uint64_t i = 0; i < sample->nr; ++i) {
+        for (uint64_t i = 0; i < nr; ++i) {
             buf.append(" 0x");
-            buf.append_hex(uintptr_t(sample->ips[i]));
+            buf.append_hex(uintptr_t(reader.read_u64()));
         }
         buf.append("\n");
         buf.flush();
     };
-
-    std::atomic_thread_fence(std::memory_order_release); // not documented, but probably required before writing data_tail
-    _mmap->data_tail = tail;
 }
 
 std::unique_ptr<cpu_stall_detector_linux_perf_event>
