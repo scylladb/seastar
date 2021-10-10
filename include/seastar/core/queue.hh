@@ -61,9 +61,9 @@ public:
 
     /// \brief access the front element in the queue
     ///
-    /// Accessing the front of an empty queue will result in undefined
+    /// Accessing the front of an empty or aborted queue will result in undefined
     /// behaviour.
-    T& front();
+    T& front() noexcept;
 
     /// Consumes items from the queue, passing them to \c func, until \c func
     /// returns false or the queue it empty
@@ -73,10 +73,10 @@ public:
     bool consume(Func&& func);
 
     /// Returns true when the queue is empty.
-    bool empty() const;
+    bool empty() const noexcept;
 
     /// Returns true when the queue is full.
-    bool full() const;
+    bool full() const noexcept;
 
     /// Returns a future<> that becomes available when pop() or consume()
     /// can be called.
@@ -102,7 +102,10 @@ public:
     future<> push_eventually(T&& data);
 
     /// Returns the number of items currently in the queue.
-    size_t size() const { return _q.size(); }
+    size_t size() const noexcept {
+        // std::queue::size() has no reason to throw
+        return _q.size();
+    }
 
     /// Returns the size limit imposed on the queue during its construction
     /// or by a call to set_max_size(). If the queue contains max_size()
@@ -121,7 +124,10 @@ public:
 
     /// Destroy any items in the queue, and pass the provided exception to any
     /// waiting readers or writers - or to any later read or write attempts.
-    void abort(std::exception_ptr ex) {
+    void abort(std::exception_ptr ex) noexcept {
+        // std::queue::empty() and pop() doesn't throw
+        // since it just calls seastar::circular_buffer::pop_front
+        // that is specified as noexcept.
         while (!_q.empty()) {
             _q.pop();
         }
@@ -182,7 +188,8 @@ bool queue<T>::push(T&& data) {
 
 template <typename T>
 inline
-T& queue<T>::front() {
+T& queue<T>::front() noexcept {
+    // std::queue::front() has no reason to throw
     return _q.front();
 }
 
@@ -259,13 +266,15 @@ bool queue<T>::consume(Func&& func) {
 
 template <typename T>
 inline
-bool queue<T>::empty() const {
+bool queue<T>::empty() const noexcept {
+    // std::queue::empty() has no reason to throw
     return _q.empty();
 }
 
 template <typename T>
 inline
-bool queue<T>::full() const {
+bool queue<T>::full() const noexcept {
+    // std::queue::size() has no reason to throw
     return _q.size() >= _max;
 }
 
