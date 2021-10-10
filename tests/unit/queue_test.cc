@@ -27,6 +27,7 @@
 #include <seastar/core/loop.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/util/log.hh>
+#include <seastar/util/alloc_failure_injector.hh>
 
 using namespace seastar;
 using namespace std::chrono_literals;
@@ -103,6 +104,21 @@ SEASTAR_THREAD_TEST_CASE(test_queue_pop_eventually) {
     BOOST_REQUIRE(popper_done);
     testlog.info("Pushed and popped {} elemements in {}us, {:.3f} elements/us", pushed, elapsed_us, double(pushed) / elapsed_us);
 }
+
+#ifdef SEASTAR_ENABLE_ALLOC_FAILURE_INJECTION
+SEASTAR_THREAD_TEST_CASE(test_queue_push_eventually_exception) {
+    int i = 0;
+    queue<int> q(42);
+    int intercepted = 0;
+
+    memory::with_allocation_failures([&] {
+        BOOST_REQUIRE_NO_THROW(q.push_eventually(i++).handle_exception_type([&] (std::bad_alloc&) {
+            intercepted++;
+        }).get());
+    });
+    BOOST_REQUIRE(intercepted);
+}
+#endif
 
 SEASTAR_TEST_CASE(test_queue_pop_after_abort) {
     return async([] {

@@ -99,7 +99,7 @@ public:
     /// If the queue is, or already was, abort()ed, the future resolves with
     /// the exception provided to abort().
     /// A producer-side operation. Cannot be called concurrently with other producer-side operations.
-    future<> push_eventually(T&& data);
+    future<> push_eventually(T&& data) noexcept;
 
     /// Returns the number of items currently in the queue.
     size_t size() const noexcept {
@@ -234,7 +234,7 @@ future<T> queue<T>::pop_eventually() noexcept {
 
 template <typename T>
 inline
-future<> queue<T>::push_eventually(T&& data) {
+future<> queue<T>::push_eventually(T&& data) noexcept {
     if (_ex) {
         return make_exception_future<>(_ex);
     }
@@ -244,9 +244,13 @@ future<> queue<T>::push_eventually(T&& data) {
             notify_not_empty();
         });
     } else {
+      try {
         _q.push(std::move(data));
         notify_not_empty();
         return make_ready_future<>();
+      } catch (...) {
+        return current_exception_as_future();
+      }
     }
 }
 
