@@ -470,8 +470,8 @@ struct shared_ptr_count_for : shared_ptr_count_base {
 template <typename T>
 class enable_shared_from_this : private shared_ptr_count_base {
 public:
-    shared_ptr<T> shared_from_this();
-    shared_ptr<const T> shared_from_this() const;
+    shared_ptr<T> shared_from_this() noexcept;
+    shared_ptr<const T> shared_from_this() const noexcept;
     long use_count() const noexcept { return count; }
 
     template <typename U>
@@ -682,7 +682,7 @@ const_pointer_cast(const shared_ptr<U>& p) {
 template <typename T>
 inline
 shared_ptr<T>
-enable_shared_from_this<T>::shared_from_this() {
+enable_shared_from_this<T>::shared_from_this() noexcept {
     auto unconst = reinterpret_cast<enable_shared_from_this<std::remove_const_t<T>>*>(this);
     return shared_ptr<T>(unconst);
 }
@@ -690,7 +690,7 @@ enable_shared_from_this<T>::shared_from_this() {
 template <typename T>
 inline
 shared_ptr<const T>
-enable_shared_from_this<T>::shared_from_this() const {
+enable_shared_from_this<T>::shared_from_this() const noexcept {
     auto esft = const_cast<enable_shared_from_this*>(this);
     auto unconst = reinterpret_cast<enable_shared_from_this<std::remove_const_t<T>>*>(esft);
     return shared_ptr<const T>(unconst);
