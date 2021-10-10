@@ -92,7 +92,7 @@ public:
     /// If the queue is, or already was, abort()ed, the future resolves with
     /// the exception provided to abort().
     /// A consumer-side operation. Cannot be called concurrently with other consumer-side operations.
-    future<T> pop_eventually();
+    future<T> pop_eventually() noexcept;
 
     /// Pushes the element now or when there is room. Returns a future<> which
     /// resolves when data was pushed.
@@ -210,7 +210,7 @@ T queue<T>::pop() noexcept {
 
 template <typename T>
 inline
-future<T> queue<T>::pop_eventually() {
+future<T> queue<T>::pop_eventually() noexcept {
     // seastar allows only nothrow_move_constructible types
     // to be returned as future<T>
     static_assert(std::is_nothrow_move_constructible_v<T>,
