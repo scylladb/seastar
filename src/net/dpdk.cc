@@ -468,7 +468,7 @@ public:
     }
 
     ethernet_address hw_address() override {
-        struct ether_addr mac;
+        struct rte_ether_addr mac;
         rte_eth_macaddr_get(_port_idx, &mac);
 
         return mac.addr_bytes;
@@ -621,14 +621,14 @@ class dpdk_qp : public net::qp {
             if (oi.needs_ip_csum) {
                 head->ol_flags |= PKT_TX_IP_CKSUM;
                 // TODO: Take a VLAN header into an account here
-                head->l2_len = sizeof(struct ether_hdr);
+                head->l2_len = sizeof(struct rte_ether_hdr);
                 head->l3_len = oi.ip_hdr_len;
             }
             if (qp.port().hw_features().tx_csum_l4_offload) {
                 if (oi.protocol == ip_protocol_num::tcp) {
                     head->ol_flags |= PKT_TX_TCP_CKSUM;
                     // TODO: Take a VLAN header into an account here
-                    head->l2_len = sizeof(struct ether_hdr);
+                    head->l2_len = sizeof(struct rte_ether_hdr);
                     head->l3_len = oi.ip_hdr_len;
 
                     if (oi.tso_seg_size) {
@@ -640,7 +640,7 @@ class dpdk_qp : public net::qp {
                 } else if (oi.protocol == ip_protocol_num::udp) {
                     head->ol_flags |= PKT_TX_UDP_CKSUM;
                     // TODO: Take a VLAN header into an account here
-                    head->l2_len = sizeof(struct ether_hdr);
+                    head->l2_len = sizeof(struct rte_ether_hdr);
                     head->l3_len = oi.ip_hdr_len;
                 }
             }
@@ -1716,27 +1716,9 @@ void dpdk_device::init_port_fini()
     });
 
     // TODO: replace deprecated filter api with generic flow api
-    #pragma GCC diagnostic push
-    #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     if (_num_queues > 1) {
-        if (!rte_eth_dev_filter_supported(_port_idx, RTE_ETH_FILTER_HASH)) {
-            printf("Port %d: HASH FILTER configuration is supported\n", _port_idx);
-
-            // Setup HW touse the TOEPLITZ hash function as an RSS hash function
-            struct rte_eth_hash_filter_info info = {};
-
-            info.info_type = RTE_ETH_HASH_FILTER_GLOBAL_CONFIG;
-            info.info.global_conf.hash_func = RTE_ETH_HASH_FUNCTION_TOEPLITZ;
-
-            if (rte_eth_dev_filter_ctrl(_port_idx, RTE_ETH_FILTER_HASH,
-                                        RTE_ETH_FILTER_SET, &info) < 0) {
-                rte_exit(EXIT_FAILURE, "Cannot set hash function on a port %d\n", _port_idx);
-            }
-        }
-
         set_rss_table();
     }
-    #pragma GCC diagnostic pop
 
     // Wait for a link
     check_port_link_status();
@@ -1876,7 +1858,8 @@ bool dpdk_qp<HugetlbfsMemBackend>::map_dma()
     auto m = memory::get_memory_layout();
     rte_iova_t iova = rte_mem_virt2iova((const void*)m.start);
 
-    return rte_vfio_dma_map(m.start, iova, m.end - m.start) == 0;
+    return rte_vfio_container_dma_map(RTE_VFIO_DEFAULT_CONTAINER_FD,
+                                      m.start, iova, m.end - m.start) == 0;
 }
 
 void dpdk_device::check_port_link_status()

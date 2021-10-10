@@ -418,14 +418,9 @@ seastar_generate_ragel (
   IN_FILE ${CMAKE_CURRENT_SOURCE_DIR}/src/http/response_parser.rl
   OUT_FILE ${Seastar_GEN_BINARY_DIR}/include/seastar/http/response_parser.hh)
 
-if (Seastar_DPDK)
-  set (seastar_dpdk_obj seastar-dpdk.o)
-endif ()
-
 add_library (seastar STATIC
   ${http_chunk_parsers_file}
   ${http_request_parser_file}
-  ${seastar_dpdk_obj}
   include/seastar/core/abort_source.hh
   include/seastar/core/alien.hh
   include/seastar/core/align.hh
@@ -730,6 +725,11 @@ target_link_libraries (seastar
     rt::rt
     yaml-cpp::yaml-cpp
     Threads::Threads)
+if (Seastar_DPDK)
+  target_link_libraries (seastar
+    PUBLIC
+      dpdk::dpdk)
+endif()
 
 set (Seastar_SANITIZE_MODES "Debug" "Sanitize")
 if ((Seastar_SANITIZE STREQUAL "ON") OR
@@ -879,17 +879,9 @@ if (Seastar_DPDK)
   target_compile_definitions (seastar
     PUBLIC SEASTAR_HAVE_DPDK)
 
-  # No pmd driver code will be pulled in without "--whole-archive". To
-  # avoid exposing that to seastar users, combine dpdk into a single
-  # .o file.
-  add_custom_command (
-    OUTPUT seastar-dpdk.o
-    COMMAND ld -r -o seastar-dpdk.o --whole-archive ${dpdk_LIBRARIES} --no-whole-archive
-  )
-
   # This just provides the include path to cmake
-  target_link_libraries (seastar
-    PUBLIC dpdk::dpdk)
+  target_include_directories (seastar
+    PUBLIC $<TARGET_PROPERTY:dpdk::dpdk,INTERFACE_INCLUDE_DIRECTORIES>)
 endif ()
 
 if (Seastar_HWLOC)
