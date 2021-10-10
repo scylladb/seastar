@@ -142,8 +142,8 @@ protected:
     enable_lw_shared_from_this& operator=(const enable_lw_shared_from_this&) noexcept { return *this; }
     enable_lw_shared_from_this& operator=(enable_lw_shared_from_this&&) noexcept { return *this; }
 public:
-    lw_shared_ptr<T> shared_from_this();
-    lw_shared_ptr<const T> shared_from_this() const;
+    lw_shared_ptr<T> shared_from_this() noexcept;
+    lw_shared_ptr<const T> shared_from_this() const noexcept;
     long use_count() const noexcept { return _count; }
 
     template <typename X>
@@ -432,14 +432,14 @@ lw_shared_ptr<T> make_lw_shared(T& a) {
 template <typename T>
 inline
 lw_shared_ptr<T>
-enable_lw_shared_from_this<T>::shared_from_this() {
+enable_lw_shared_from_this<T>::shared_from_this() noexcept {
     return lw_shared_ptr<T>(this);
 }
 
 template <typename T>
 inline
 lw_shared_ptr<const T>
-enable_lw_shared_from_this<T>::shared_from_this() const {
+enable_lw_shared_from_this<T>::shared_from_this() const noexcept {
     return lw_shared_ptr<const T>(const_cast<enable_lw_shared_from_this*>(this));
 }
 
