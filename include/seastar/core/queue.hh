@@ -81,11 +81,11 @@ public:
     /// Returns a future<> that becomes available when pop() or consume()
     /// can be called.
     /// A consumer-side operation. Cannot be called concurrently with other consumer-side operations.
-    future<> not_empty();
+    future<> not_empty() noexcept;
 
     /// Returns a future<> that becomes available when push() can be called.
     /// A producer-side operation. Cannot be called concurrently with other producer-side operations.
-    future<> not_full();
+    future<> not_full() noexcept;
 
     /// Pops element now or when there is some. Returns a future that becomes
     /// available when some element is available.
@@ -284,7 +284,7 @@ bool queue<T>::full() const noexcept {
 
 template <typename T>
 inline
-future<> queue<T>::not_empty() {
+future<> queue<T>::not_empty() noexcept {
     if (_ex) {
         return make_exception_future<>(_ex);
     }
@@ -298,7 +298,7 @@ future<> queue<T>::not_empty() {
 
 template <typename T>
 inline
-future<> queue<T>::not_full() {
+future<> queue<T>::not_full() noexcept {
     if (_ex) {
         return make_exception_future<>(_ex);
     }
