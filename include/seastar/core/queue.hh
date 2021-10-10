@@ -115,7 +115,7 @@ public:
     /// Set the maximum size to a new value. If the queue's max size is reduced,
     /// items already in the queue will not be expunged and the queue will be temporarily
     /// bigger than its max_size.
-    void set_max_size(size_t max) {
+    void set_max_size(size_t max) noexcept {
         _max = max;
         if (!full()) {
             notify_not_full();
