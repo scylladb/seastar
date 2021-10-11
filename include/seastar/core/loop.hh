@@ -552,9 +552,9 @@ parallel_for_each(Iterator begin, Iterator end, Func&& func) noexcept {
     //   - not available: collect in s (allocating it if needed)
     while (begin != end) {
         auto f = futurize_invoke(std::forward<Func>(func), *begin++);
+        memory::scoped_critical_alloc_section _;
         if (!f.available() || f.failed()) {
             if (!s) {
-                memory::scoped_critical_alloc_section _;
                 using itraits = std::iterator_traits<Iterator>;
                 auto n = (internal::iterator_range_estimate_vector_capacity(begin, end, typename itraits::iterator_category()) + 1);
                 s = new parallel_for_each_state(n);
