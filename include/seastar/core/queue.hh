@@ -39,8 +39,8 @@ class queue {
     std::optional<promise<>> _not_full;
     std::exception_ptr _ex = nullptr;
 private:
-    void notify_not_empty();
-    void notify_not_full();
+    void notify_not_empty() noexcept;
+    void notify_not_full() noexcept;
 public:
     explicit queue(size_t size);
 
@@ -147,7 +147,7 @@ queue<T>::queue(size_t size)
 
 template <typename T>
 inline
-void queue<T>::notify_not_empty() {
+void queue<T>::notify_not_empty() noexcept {
     if (_not_empty) {
         _not_empty->set_value();
         _not_empty = std::optional<promise<>>();
@@ -156,7 +156,7 @@ void queue<T>::notify_not_empty() {
 
 template <typename T>
 inline
-void queue<T>::notify_not_full() {
+void queue<T>::notify_not_full() noexcept {
     if (_not_full) {
         _not_full->set_value();
         _not_full = std::optional<promise<>>();
