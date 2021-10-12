@@ -321,7 +321,8 @@ SEASTAR_TEST_CASE(test_maybe_yield) {
             ++var;
             co_await coroutine::maybe_yield();
         }
-    }();
+    };
+    auto spinner_fut = spinner();
     int snapshot = var;
     for (int nr_changes = 0; nr_changes < 10; ++nr_changes) {
         // Try to observe the value changing in time, yield to
@@ -332,7 +333,7 @@ SEASTAR_TEST_CASE(test_maybe_yield) {
         snapshot = var;
     }
     done = true;
-    co_await std::move(spinner);
+    co_await std::move(spinner_fut);
     BOOST_REQUIRE(true); // the test will hang if it doesn't work.
 }
 
