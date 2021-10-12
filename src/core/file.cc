@@ -1054,9 +1054,8 @@ future<uint64_t> file::size() const noexcept {
 }
 
 future<> file::close() noexcept {
-    return do_with(shared_ptr<file_impl>(_file_impl), [](shared_ptr<file_impl>& f) {
-        return f->close();
-    });
+    auto f = std::move(_file_impl);
+    return f->close().then([f = std::move(f)] {});
 }
 
 subscription<directory_entry>
