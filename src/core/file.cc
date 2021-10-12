@@ -635,7 +635,7 @@ append_challenged_posix_file_impl::~append_challenged_posix_file_impl() {
     //
     // It is safe to destory it if nothing is queued.
     // Note that posix_file_impl::~posix_file_impl auto-closes the file descriptor.
-    assert(_q.empty() && _logical_size == _committed_size);
+    assert(_q.empty() && (_logical_size == _committed_size || _closing_state == state::closed));
 }
 
 bool
