@@ -75,6 +75,9 @@ arg_parser.add_argument('--c++-dialect', action='store', dest='cpp_dialect', def
 arg_parser.add_argument('--cook', action='append', dest='cook', default=[],
                         help='Supply this dependency locally for development via `cmake-cooking` (can be repeated)')
 arg_parser.add_argument('--verbose', dest='verbose', action='store_true', help='Make configure output more verbose.')
+arg_parser.add_argument('--scheduling-groups-count', action='store', dest='scheduling_groups_count', default='16',
+                        help='Number of available scheduling groups in the reactor')
+
 add_tristate(
     arg_parser,
     name = 'dpdk',
@@ -181,6 +184,7 @@ def configure_mode(mode):
         '-DCMAKE_CXX_COMPILER={}'.format(args.cxx),
         '-DCMAKE_INSTALL_PREFIX={}'.format(args.install_prefix),
         '-DSeastar_API_LEVEL={}'.format(args.api_level),
+        '-DSeastar_SCHEDULING_GROUPS_COUNT={}'.format(args.scheduling_groups_count),
         tr(args.exclude_tests, 'EXCLUDE_TESTS_FROM_ALL'),
         tr(args.exclude_apps, 'EXCLUDE_APPS_FROM_ALL'),
         tr(args.exclude_demos, 'EXCLUDE_DEMOS_FROM_ALL'),

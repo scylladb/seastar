@@ -31,7 +31,7 @@
 
 namespace seastar {
 
-constexpr unsigned max_scheduling_groups() { return 16; }
+constexpr unsigned max_scheduling_groups() { return SEASTAR_SCHEDULING_GROUPS_COUNT; }
 
 #if SEASTAR_API_LEVEL < 6
 #define SEASTAR_ELLIPSIS ...

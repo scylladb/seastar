@@ -4640,6 +4640,11 @@ std::ostream& operator<<(std::ostream& os, const stall_report& sr) {
     return os << format("{} stalls, {} ms stall time, {} ms run time", sr.kernel_stalls, to_ms(sr.stall_time), to_ms(sr.run_wall_time));
 }
 
+size_t scheduling_group_count() {
+    auto b = s_used_scheduling_group_ids_bitmap.load(std::memory_order_relaxed);
+    return __builtin_popcountl(b);
+}
+
 }
 
 #ifdef SEASTAR_TASK_BACKTRACE

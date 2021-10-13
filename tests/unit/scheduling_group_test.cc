@@ -33,6 +33,7 @@
 #include <seastar/core/scheduling_specific.hh>
 #include <seastar/core/smp.hh>
 #include <seastar/core/with_scheduling_group.hh>
+#include <seastar/core/reactor.hh>
 #include <seastar/util/later.hh>
 #include <seastar/util/defer.hh>
 
@@ -221,6 +222,7 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_before_and_after_sg_create) {
  */
 SEASTAR_THREAD_TEST_CASE(sg_scheduling_group_inheritance_in_seastar_async_test) {
     scheduling_group sg = create_scheduling_group("sg0", 100).get0();
+    auto cleanup = defer([&] () noexcept { destroy_scheduling_group(sg).get(); });
     thread_attributes attr = {};
     attr.sched_group = sg;
     seastar::async(attr, [attr] {
@@ -249,4 +251,34 @@ SEASTAR_THREAD_TEST_CASE(later_preserves_sg) {
                     internal::scheduling_group_index(sg));
         });
     }).get();
+}
+
+SEASTAR_THREAD_TEST_CASE(sg_count) {
+    class scheduling_group_destroyer {
+        scheduling_group _sg;
+    public:
+        scheduling_group_destroyer(scheduling_group sg) : _sg(sg) {}
+        ~scheduling_group_destroyer() {
+            destroy_scheduling_group(_sg).get();
+        }
+    };
+
+    std::vector<scheduling_group_destroyer> scheduling_groups_deferred_cleanup;
+    // The line below is necessary in order to skip support of copy and move construction of scheduling_group_destroyer.
+    scheduling_groups_deferred_cleanup.reserve(max_scheduling_groups());
+    // try to create 3 groups too many.
+    for (auto i = internal::scheduling_group_count(); i < max_scheduling_groups() + 3; i++) {
+        try {
+            BOOST_REQUIRE_LE(internal::scheduling_group_count(), max_scheduling_groups());
+            scheduling_groups_deferred_cleanup.emplace_back(create_scheduling_group(format("sg_{}", i), 10).get());
+        } catch (std::runtime_error& e) {
+            // make sure it is the right exception.
+            BOOST_REQUIRE_EQUAL(e.what(), "Scheduling group limit exceeded");
+            // make sure that the scheduling group count makes sense
+            BOOST_REQUIRE_EQUAL(internal::scheduling_group_count(), max_scheduling_groups());
+            // make sure that we expect this exception at this point
+            BOOST_REQUIRE_GE(i, max_scheduling_groups());
+        }
+    }
+    BOOST_REQUIRE_EQUAL(internal::scheduling_group_count(), max_scheduling_groups());
 }
