@@ -31,7 +31,12 @@ namespace seastar {
 /// Asynchronous single-producer single-consumer queue with limited capacity.
 /// There can be at most one producer-side and at most one consumer-side operation active at any time.
 /// Operations returning a future are considered to be active until the future resolves.
+///
+/// Note: queue requires the data type T to be nothrow move constructible as it's
+/// returned as future<T> by \ref pop_eventually and seastar futurized data type
+/// are required to be nothrow move-constructible.
 template <typename T>
+SEASTAR_CONCEPT(requires std::is_nothrow_move_constructible_v<T>)
 class queue {
     std::queue<T, circular_buffer<T>> _q;
     size_t _max;
@@ -195,6 +200,11 @@ T queue<T>::pop() {
 template <typename T>
 inline
 future<T> queue<T>::pop_eventually() {
+    // seastar allows only nothrow_move_constructible types
+    // to be returned as future<T>
+    static_assert(std::is_nothrow_move_constructible_v<T>,
+                  "Queue element type must be no-throw move constructible");
+
     if (_ex) {
         return make_exception_future<T>(_ex);
     }
