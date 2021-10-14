@@ -57,7 +57,7 @@ public:
     /// \brief Pop an item.
     ///
     /// Popping from an empty queue will result in undefined behavior.
-    T pop();
+    T pop() noexcept;
 
     /// \brief access the front element in the queue
     ///
@@ -195,10 +195,14 @@ T& queue<T>::front() noexcept {
 
 template <typename T>
 inline
-T queue<T>::pop() {
+T queue<T>::pop() noexcept {
     if (_q.size() == _max) {
         notify_not_full();
     }
+    // popping the front element must not throw
+    // as T is required to be nothrow_move_constructible
+    // and std::queue::pop won't throw since it uses
+    // seastar::circular_beffer::pop_front.
     T data = std::move(_q.front());
     _q.pop();
     return data;
