@@ -151,16 +151,7 @@ def infer_dpdk_machine(user_cflags):
         if flag.startswith('-march'):
             arch = flag[7:].split('+')[0]
 
-    MAPPING = {
-        'native': 'native',
-        'nehalem': 'nhm',
-        'westmere': 'wsm',
-        'sandybridge': 'snb',
-        'ivybridge': 'ivb',
-        'armv8-a': 'armv8a',
-    }
-
-    return MAPPING.get(arch, 'native')
+    return arch
 
 MODES = seastar_cmake.SUPPORTED_MODES if args.mode == 'all' else [args.mode]
 
