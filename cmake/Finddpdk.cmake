@@ -38,9 +38,21 @@ if (dpdk_PC_FOUND AND dpdk_PC_STATIC_LIBRARIES)
         INTERFACE_INCLUDE_DIRECTORIES "${dpdk_PC_STATIC_INCLUDE_DIRS}"
         INTERFACE_LINK_OPTIONS "${dpdk_PC_STATIC_LDFLAGS}"
         INTERFACE_LINK_DIRECTORIES "${dpdk_PC_STATIC_LIBRARY_DIRS}")
+    list(FIND dpdk_PC_STATIC_LDFLAGS "-Wl,--whole-archive" begin)
+    list(FIND dpdk_PC_STATIC_LDFLAGS "-Wl,--no-whole-archive" end)
+    if (begin EQUAL -1 OR end EQUAL -1)
+      message(FATAL_ERROR "failed to parse dpdk LDFLAGS: ${dpdk_PC_STATIC_LDFLAGS}")
+    endif ()
+    math(EXPR length "${end} - ${begin}")
+    list(SUBLIST dpdk_PC_STATIC_LDFLAGS ${begin} ${length} archives)
+    list(FILTER dpdk_PC_STATIC_LDFLAGS INCLUDE REGEX "-L.*")
+    set(dpdk_LIBRARIES
+      "${dpdk_PC_STATIC_LDFLAGS}"
+      ${archives})
     return ()
   endif ()
 elseif (dpdk_PC_FOUND)
+  set(dpdk_LIBRARIES "${dpdk_PC_LDFLAGS}")
   find_package_handle_standard_args (dpdk
     REQUIRED_VARS
       dpdk_PC_CFLAGS
