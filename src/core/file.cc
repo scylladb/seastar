@@ -689,6 +689,13 @@ int append_challenged_posix_file_impl::truncate_sync(uint64_t length) noexcept {
     return r;
 }
 
+void append_challenged_posix_file_impl::truncate_to_logical_size() {
+    auto r = truncate_sync(_logical_size);
+    if (r == -1) {
+        throw std::system_error(errno, std::system_category(), "truncate");
+    }
+}
+
 // If we have a bunch of size-extending writes in the queue,
 // issue an ftruncate() extending the file size, so they can
 // be issued concurrently.
@@ -868,10 +875,7 @@ append_challenged_posix_file_impl::flush() noexcept {
             [this] () {
                 if (_logical_size != _committed_size) {
                     // We're all alone, so can truncate in reactor thread
-                    auto r = truncate_sync(_logical_size);
-                    if (r == -1) {
-                        return make_exception_future<>(std::system_error(errno, std::system_category(), "flush"));
-                    }
+                    truncate_to_logical_size();
                 }
                 return posix_file_impl::flush();
             }
@@ -914,7 +918,7 @@ append_challenged_posix_file_impl::close() noexcept {
     process_queue();
     return _completed.get_future().then([this] {
         if (_logical_size != _committed_size) {
-            truncate_sync(_logical_size);
+            truncate_to_logical_size();
         }
     }).then_wrapped([this] (future<> f) {
         if (f.failed()) {

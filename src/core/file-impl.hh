@@ -238,6 +238,7 @@ private:
     bool may_quit() const noexcept;
     void enqueue_op(op&& op);
     int truncate_sync(uint64_t len) noexcept;
+    void truncate_to_logical_size();
     template <typename... T, typename Func>
     future<T...> enqueue(opcode type, uint64_t pos, size_t len, Func&& func) noexcept {
         try {
