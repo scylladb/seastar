@@ -474,7 +474,7 @@ priority_class_data::register_stats(sstring name, sstring mountpoint) {
     auto class_label = class_label_type(name);
     new_metrics.add_group("io_queue", {
             sm::make_derive("total_bytes", _bytes, sm::description("Total bytes passed in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
-            sm::make_derive("total_operations", _ops, sm::description("Total bytes passed in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
+            sm::make_derive("total_operations", _ops, sm::description("Total operations passed in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
             sm::make_derive("total_delay_sec", [this] {
                     return _total_queue_time.count();
                 }, sm::description("Total time spent in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
