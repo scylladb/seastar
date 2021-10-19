@@ -916,6 +916,10 @@ append_challenged_posix_file_impl::close() noexcept {
         if (_logical_size != _committed_size) {
             truncate_sync(_logical_size);
         }
+    }).then_wrapped([this] (future<> f) {
+        if (f.failed()) {
+            report_exception("Closing append_challenged_posix_file_impl failed.", f.get_exception());
+        }
         return posix_file_impl::close().finally([this] { _closing_state = state::closed; });
     });
 }
