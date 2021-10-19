@@ -43,7 +43,7 @@ if (dpdk_PC_FOUND AND dpdk_PC_STATIC_LIBRARIES)
     if (begin EQUAL -1 OR end EQUAL -1)
       message(FATAL_ERROR "failed to parse dpdk LDFLAGS: ${dpdk_PC_STATIC_LDFLAGS}")
     endif ()
-    math(EXPR length "${end} - ${begin}")
+    math(EXPR length "${end} - ${begin} + 1")
     list(SUBLIST dpdk_PC_STATIC_LDFLAGS ${begin} ${length} archives)
     list(FILTER dpdk_PC_STATIC_LDFLAGS INCLUDE REGEX "-L.*")
     set(dpdk_LIBRARIES
