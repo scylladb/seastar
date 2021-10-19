@@ -31,7 +31,6 @@
 #include <seastar/core/internal/io_desc.hh>
 #include <seastar/core/internal/io_sink.hh>
 #include <seastar/core/io_priority_class.hh>
-#include <seastar/core/on_internal_error.hh>
 #include <seastar/util/log.hh>
 #include <chrono>
 #include <mutex>
@@ -175,7 +174,7 @@ public:
 
 class queued_io_request : private internal::io_request {
     io_queue& _ioq;
-    size_t _len;
+    internal::io_direction_and_length _dnl;
     std::chrono::steady_clock::time_point _started;
     fair_queue_entry _fq_entry;
     internal::cancellable_queue::link _intent;
@@ -184,15 +183,15 @@ class queued_io_request : private internal::io_request {
     bool is_cancelled() const noexcept { return !_desc; }
 
 public:
-    queued_io_request(internal::io_request req, io_queue& q, priority_class_data& pc, size_t l)
+    queued_io_request(internal::io_request req, io_queue& q, priority_class_data& pc, internal::io_direction_and_length dnl)
         : io_request(std::move(req))
         , _ioq(q)
-        , _len(l)
+        , _dnl(std::move(dnl))
         , _started(std::chrono::steady_clock::now())
-        , _fq_entry(_ioq.request_fq_ticket(*this, _len))
+        , _fq_entry(_ioq.request_fq_ticket(dnl))
         , _desc(std::make_unique<io_desc_read_write>(_ioq, pc, _fq_entry.ticket()))
     {
-        io_log.trace("dev {} : req {} queue  len {} ticket {}", _ioq.dev_id(), fmt::ptr(&*_desc), _len, _fq_entry.ticket());
+        io_log.trace("dev {} : req {} queue  len {} ticket {}", _ioq.dev_id(), fmt::ptr(&*_desc), _dnl.length(), _fq_entry.ticket());
     }
 
     queued_io_request(queued_io_request&&) = delete;
@@ -206,7 +205,7 @@ public:
 
         io_log.trace("dev {} : req {} submit", _ioq.dev_id(), fmt::ptr(&*_desc));
         _intent.maybe_dequeue();
-        _desc->dispatch(_len, _started);
+        _desc->dispatch(_dnl.length(), _started);
         _ioq.submit_request(_desc.release(), std::move(*this));
         delete this;
     }
@@ -541,17 +540,16 @@ priority_class_data& io_queue::find_or_create_class(const io_priority_class& pc)
     return *_priority_classes[id];
 }
 
-fair_queue_ticket io_queue::request_fq_ticket(const internal::io_request& req, size_t len) const {
+fair_queue_ticket io_queue::request_fq_ticket(internal::io_direction_and_length dnl) const noexcept {
     unsigned weight;
     size_t size;
-    if (req.is_write()) {
+
+    if (dnl.is_write()) {
         weight = get_config().disk_req_write_to_read_multiplier;
-        size = get_config().disk_bytes_write_to_read_multiplier * len;
-    } else if (req.is_read()) {
-        weight = io_queue::read_request_base_count;
-        size = io_queue::read_request_base_count * len;
+        size = get_config().disk_bytes_write_to_read_multiplier * dnl.length();
     } else {
-        on_internal_error(io_log, fmt::format("Unrecognized request passing through I/O queue {}", req.opname()));
+        weight = io_queue::read_request_base_count;
+        size = io_queue::read_request_base_count * dnl.length();
     }
 
     static thread_local size_t oversize_warning_threshold = 0;
@@ -560,7 +558,7 @@ fair_queue_ticket io_queue::request_fq_ticket(const internal::io_request& req, s
         if (size > oversize_warning_threshold) {
             oversize_warning_threshold = size;
             io_log.warn("oversized request (length {}) submitted. "
-                "dazed and confuzed, trimming its weight from {} down to {}", len,
+                "dazed and confuzed, trimming its weight from {} down to {}", dnl.length(),
                 size >> request_ticket_size_shift,
                 get_config().max_bytes_count >> request_ticket_size_shift);
         }
@@ -583,7 +581,8 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_re
         // First time will hit here, and then we create the class. It is important
         // that we create the shared pointer in the same shard it will be used at later.
         auto& pclass = find_or_create_class(pc);
-        auto queued_req = std::make_unique<queued_io_request>(std::move(req), *this, pclass, len);
+        internal::io_direction_and_length dnl(req, len);
+        auto queued_req = std::make_unique<queued_io_request>(std::move(req), *this, pclass, std::move(dnl));
         auto fut = queued_req->get_future();
         internal::cancellable_queue* cq = nullptr;
         if (intent != nullptr) {
