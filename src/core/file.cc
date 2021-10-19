@@ -303,7 +303,11 @@ posix_file_impl::close() noexcept {
         }
     }();
     return closed.then([] (syscall_result<int> sr) {
+      try {
         sr.throw_if_error();
+      } catch (...) {
+        report_exception("close() syscall failed", std::current_exception());
+      }
     });
 }
 
