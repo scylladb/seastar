@@ -4046,17 +4046,6 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
     if (thread_affinity) {
         smp::pin(allocations[0].cpu_id);
     }
-
-#ifdef SEASTAR_HAVE_DPDK
-    if (_using_dpdk) {
-        dpdk::eal::cpuset cpus;
-        for (auto&& a : allocations) {
-            cpus[a.cpu_id] = true;
-        }
-        dpdk::eal::init(cpus, configuration);
-    }
-#endif
-
     memory::configure(allocations[0].mem, mbind, hugepages_path);
 
     if (configuration.count("abort-on-seastar-bad-alloc")) {
@@ -4073,6 +4062,16 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
     if (heapprof_enabled) {
         memory::set_heap_profiling_enabled(heapprof_enabled);
     }
+
+#ifdef SEASTAR_HAVE_DPDK
+    if (_using_dpdk) {
+        dpdk::eal::cpuset cpus;
+        for (auto&& a : allocations) {
+            cpus[a.cpu_id] = true;
+        }
+        dpdk::eal::init(cpus, configuration);
+    }
+#endif
 
     // Better to put it into the smp class, but at smp construction time
     // correct smp::count is not known.
@@ -4186,7 +4185,7 @@ void smp::configure(boost::program_options::variables_map configuration, reactor
 #ifdef SEASTAR_HAVE_DPDK
     if (_using_dpdk) {
         auto it = _thread_loops.begin();
-        RTE_LCORE_FOREACH_WORKER(i) {
+        RTE_LCORE_FOREACH_SLAVE(i) {
             rte_eal_remote_launch(dpdk_thread_adaptor, static_cast<void*>(&*(it++)), i);
         }
     }
