@@ -89,6 +89,8 @@ public:
                         return make_ready_future<>();
                     }
                     auto _rsp = _parser.get_parsed_response();
+                    http_debug("status = %d\n", _rsp->_status);
+
                     auto it = _rsp->_headers.find("Content-Length");
                     if (it == _rsp->_headers.end()) {
                         fmt::print("Error: HTTP response does not contain: Content-Length\n");
