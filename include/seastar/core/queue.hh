@@ -31,7 +31,12 @@ namespace seastar {
 /// Asynchronous single-producer single-consumer queue with limited capacity.
 /// There can be at most one producer-side and at most one consumer-side operation active at any time.
 /// Operations returning a future are considered to be active until the future resolves.
+///
+/// Note: queue requires the data type T to be nothrow move constructible as it's
+/// returned as future<T> by \ref pop_eventually and seastar futurized data type
+/// are required to be nothrow move-constructible.
 template <typename T>
+SEASTAR_CONCEPT(requires std::is_nothrow_move_constructible_v<T>)
 class queue {
     std::queue<T, circular_buffer<T>> _q;
     size_t _max;
@@ -146,12 +151,14 @@ public:
 };
 
 template <typename T>
+SEASTAR_CONCEPT(requires std::is_nothrow_move_constructible_v<T>)
 inline
 queue<T>::queue(size_t size)
     : _max(size) {
 }
 
 template <typename T>
+SEASTAR_CONCEPT(requires std::is_nothrow_move_constructible_v<T>)
 inline
 void queue<T>::notify_not_empty() noexcept {
     if (_not_empty) {
@@ -161,6 +168,7 @@ void queue<T>::notify_not_empty() noexcept {
 }
 
 template <typename T>
+SEASTAR_CONCEPT(requires std::is_nothrow_move_constructible_v<T>)
 inline
 void queue<T>::notify_not_full() noexcept {
     if (_not_full) {
@@ -170,6 +178,7 @@ void queue<T>::notify_not_full() noexcept {
 }
 
 template <typename T>
+SEASTAR_CONCEPT(requires std::is_nothrow_move_constructible_v<T>)
 inline
 bool queue<T>::push(T&& data) {
     if (_q.size() < _max) {
@@ -182,6 +191,7 @@ bool queue<T>::push(T&& data) {
 }
 
 template <typename T>
+SEASTAR_CONCEPT(requires std::is_nothrow_move_constructible_v<T>)
 inline
 T& queue<T>::front() noexcept {
     // std::queue::front() has no reason to throw
@@ -189,6 +199,7 @@ T& queue<T>::front() noexcept {
 }
 
 template <typename T>
+SEASTAR_CONCEPT(requires std::is_nothrow_move_constructible_v<T>)
 inline
 T queue<T>::pop() noexcept {
     if (_q.size() == _max) {
@@ -204,6 +215,7 @@ T queue<T>::pop() noexcept {
 }
 
 template <typename T>
+SEASTAR_CONCEPT(requires std::is_nothrow_move_constructible_v<T>)
 inline
 future<T> queue<T>::pop_eventually() noexcept {
     // seastar allows only nothrow_move_constructible types
@@ -228,6 +240,7 @@ future<T> queue<T>::pop_eventually() noexcept {
 }
 
 template <typename T>
+SEASTAR_CONCEPT(requires std::is_nothrow_move_constructible_v<T>)
 inline
 future<> queue<T>::push_eventually(T&& data) noexcept {
     if (_ex) {
@@ -250,6 +263,7 @@ future<> queue<T>::push_eventually(T&& data) noexcept {
 }
 
 template <typename T>
+SEASTAR_CONCEPT(requires std::is_nothrow_move_constructible_v<T>)
 template <typename Func>
 inline
 bool queue<T>::consume(Func&& func) {
@@ -268,6 +282,7 @@ bool queue<T>::consume(Func&& func) {
 }
 
 template <typename T>
+SEASTAR_CONCEPT(requires std::is_nothrow_move_constructible_v<T>)
 inline
 bool queue<T>::empty() const noexcept {
     // std::queue::empty() has no reason to throw
@@ -275,6 +290,7 @@ bool queue<T>::empty() const noexcept {
 }
 
 template <typename T>
+SEASTAR_CONCEPT(requires std::is_nothrow_move_constructible_v<T>)
 inline
 bool queue<T>::full() const noexcept {
     // std::queue::size() has no reason to throw
@@ -282,6 +298,7 @@ bool queue<T>::full() const noexcept {
 }
 
 template <typename T>
+SEASTAR_CONCEPT(requires std::is_nothrow_move_constructible_v<T>)
 inline
 future<> queue<T>::not_empty() noexcept {
     if (_ex) {
@@ -296,6 +313,7 @@ future<> queue<T>::not_empty() noexcept {
 }
 
 template <typename T>
+SEASTAR_CONCEPT(requires std::is_nothrow_move_constructible_v<T>)
 inline
 future<> queue<T>::not_full() noexcept {
     if (_ex) {
