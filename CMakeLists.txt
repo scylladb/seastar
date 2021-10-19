@@ -803,6 +803,15 @@ if (MaybeUninitialized_FOUND)
       -Wno-maybe-uninitialized)
 endif ()
 
+if (Seastar_DPDK)
+  seastar_supports_flag ("-Wno-error=volatile -Werror" ErrorVolatile_FOUND)
+  if (ErrorVolatile_FOUND)
+    target_compile_options (seastar
+      PUBLIC
+        -Wno-error=volatile)
+  endif ()
+endif ()
+
 if (Seastar_SSTRING)
   target_compile_options (seastar PUBLIC -DSEASTAR_SSTRING)
 endif ()
