@@ -20,6 +20,7 @@
 #include <seastar/core/thread.hh>
 #include <seastar/util/noncopyable_function.hh>
 #include <seastar/http/json_path.hh>
+#include <seastar/http/response_parser.hh>
 #include <sstream>
 
 using namespace seastar;
@@ -1186,4 +1187,21 @@ SEASTAR_THREAD_TEST_CASE(multiple_connections) {
     server.do_accepts(0).get();
     server.stop().get();
     lcf.destroy_all_shards().get();
+}
+
+SEASTAR_TEST_CASE(http_parse_response_status) {
+    http_response_parser parser;
+    parser.init();
+    char r101[] = "HTTP/1.1 101 Switching Protocols\r\n\r\n";
+    char r200[] = "HTTP/1.1 200 OK\r\nHost: localhost\r\nhello\r\n";
+
+    parser.parse(r101, r101 + sizeof(r101), r101 + sizeof(r101));
+    auto response = parser.get_parsed_response();
+    BOOST_REQUIRE_EQUAL(response->_status_code, 101);
+
+    parser.init();
+    parser.parse(r200, r200 + sizeof(r200), r200 + sizeof(r200));
+    response = parser.get_parsed_response();
+    BOOST_REQUIRE_EQUAL(response->_status_code, 200);
+    return make_ready_future<>();
 }
