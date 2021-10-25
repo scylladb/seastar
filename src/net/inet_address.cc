@@ -155,7 +155,7 @@ seastar::net::inet_address::operator ::in_addr() const {
 seastar::net::inet_address::operator ::in6_addr() const noexcept {
     if (_in_family == family::INET) {
         in6_addr in6 = IN6ADDR_ANY_INIT;
-        in6.s6_addr32[2] = ::htonl(0xffff);
+        in6.s6_addr32[2] = htonl(0xffff);
         in6.s6_addr32[3] = _in.s_addr;
         return in6;
     }
