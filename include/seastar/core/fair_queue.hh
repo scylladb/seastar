@@ -132,7 +132,7 @@ public:
 
 /// \cond internal
 class priority_class {
-    using accumulator_t = float;
+    using accumulator_t = double;
     friend class fair_queue;
     uint32_t _shares = 0;
     accumulator_t _accumulated = 0;
@@ -232,7 +232,7 @@ public:
     /// \sets the operation parameters of a \ref fair_queue
     /// \related fair_queue
     struct config {
-        std::chrono::microseconds tau = std::chrono::milliseconds(100);
+        std::chrono::microseconds tau = std::chrono::milliseconds(5);
         // Time (in microseconds) is takes to process one ticket value
         float ticket_size_pace;
         float ticket_weight_pace;
