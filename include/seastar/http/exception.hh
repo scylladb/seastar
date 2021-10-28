@@ -61,9 +61,8 @@ private:
  */
 class redirect_exception : public base_exception {
 public:
-    redirect_exception(const std::string& url)
-            : base_exception("", http::reply::status_type::moved_permanently), url(
-                    url) {
+    redirect_exception(const std::string& url, reply::status_type status = reply::status_type::moved_permanently)
+            : base_exception("", status), url(url) {
     }
     std::string url;
 };
