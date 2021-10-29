@@ -157,9 +157,7 @@ priority_class::accumulator_t fair_queue::normalize_factor() const {
 }
 
 void fair_queue::normalize_stats() {
-    auto time_delta = std::log(normalize_factor()) * _config.tau;
-    // time_delta is negative; and this may advance _base into the future
-    _base -= std::chrono::duration_cast<clock_type::duration>(time_delta);
+    _base = std::chrono::steady_clock::now() - _config.tau;
     for (auto& pc: _all_classes) {
         pc->_accumulated *= normalize_factor();
     }
