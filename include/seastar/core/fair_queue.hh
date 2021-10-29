@@ -280,8 +280,6 @@ private:
     void push_priority_class(priority_class_ptr pc);
     void pop_priority_class(priority_class_ptr pc);
 
-    priority_class::accumulator_t normalize_factor() const;
-
     void normalize_stats();
 
     // Estimated time to process the given ticket
