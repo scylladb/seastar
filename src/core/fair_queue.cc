@@ -152,14 +152,10 @@ void fair_queue::pop_priority_class(priority_class_ptr pc) {
     _handles.pop();
 }
 
-priority_class::accumulator_t fair_queue::normalize_factor() const {
-    return std::numeric_limits<priority_class::accumulator_t>::min();
-}
-
 void fair_queue::normalize_stats() {
     _base = std::chrono::steady_clock::now() - _config.tau;
     for (auto& pc: _all_classes) {
-        pc->_accumulated *= normalize_factor();
+        pc->_accumulated *= std::numeric_limits<priority_class::accumulator_t>::min();
     }
 }
 
