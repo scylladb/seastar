@@ -109,7 +109,7 @@ public:
     size_t size() const noexcept;
     size_t capacity() const noexcept;
     void reserve(size_t);
-    void clear();
+    void clear() noexcept;
     T& operator[](size_t idx) noexcept;
     const T& operator[](size_t idx) const noexcept;
     template <typename Func>
@@ -260,7 +260,7 @@ circular_buffer<T, Alloc>::reserve(size_t size) {
 template <typename T, typename Alloc>
 inline
 void
-circular_buffer<T, Alloc>::clear() {
+circular_buffer<T, Alloc>::clear() noexcept {
     erase(begin(), end());
 }
 
