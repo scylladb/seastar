@@ -83,7 +83,7 @@ public:
         return false;
     }
     /// Unlocks a \c shared_mutex after a previous call to \ref lock_shared().
-    void unlock_shared() {
+    void unlock_shared() noexcept {
         assert(_readers > 0);
         --_readers;
         wake();
@@ -110,13 +110,13 @@ public:
         return false;
     }
     /// Unlocks a \c shared_mutex after a previous call to \ref lock().
-    void unlock() {
+    void unlock() noexcept {
         assert(_writer);
         _writer = false;
         wake();
     }
 private:
-    void wake() {
+    void wake() noexcept {
         while (!_waiters.empty()) {
             auto& w = _waiters.front();
             // note: _writer == false in wake()
