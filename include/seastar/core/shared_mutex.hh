@@ -65,12 +65,17 @@ public:
     ///
     /// \return a future that becomes ready when no exclusive access
     ///         is granted to anyone.
-    future<> lock_shared() {
+    future<> lock_shared() noexcept {
         if (try_lock_shared()) {
             return make_ready_future<>();
         }
+        try {
+        // FIXME: indentation
         _waiters.emplace_back(promise<>(), false);
         return _waiters.back().pr.get_future();
+        } catch (...) {
+            return current_exception_as_future();
+        }
     }
     /// Try to lock the \c shared_mutex for shared access
     ///
@@ -92,12 +97,17 @@ public:
     ///
     /// \return a future that becomes ready when no access, shared or exclusive
     ///         is granted to anyone.
-    future<> lock() {
+    future<> lock() noexcept {
         if (try_lock()) {
             return make_ready_future<>();
         }
+        try {
+        // FIXME: indentation
         _waiters.emplace_back(promise<>(), true);
         return _waiters.back().pr.get_future();
+        } catch (...) {
+            return current_exception_as_future();
+        }
     }
     /// Try to lock the \c shared_mutex for exclusive access
     ///
