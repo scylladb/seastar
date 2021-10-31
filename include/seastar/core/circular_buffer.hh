@@ -105,9 +105,9 @@ public:
     const T& back() const noexcept;
     void pop_front() noexcept;
     void pop_back() noexcept;
-    bool empty() const;
-    size_t size() const;
-    size_t capacity() const;
+    bool empty() const noexcept;
+    size_t size() const noexcept;
+    size_t capacity() const noexcept;
     void reserve(size_t);
     void clear();
     T& operator[](size_t idx) noexcept;
@@ -229,21 +229,21 @@ circular_buffer<T, Alloc>::mask(size_t idx) const {
 template <typename T, typename Alloc>
 inline
 bool
-circular_buffer<T, Alloc>::empty() const {
+circular_buffer<T, Alloc>::empty() const noexcept {
     return _impl.begin == _impl.end;
 }
 
 template <typename T, typename Alloc>
 inline
 size_t
-circular_buffer<T, Alloc>::size() const {
+circular_buffer<T, Alloc>::size() const noexcept {
     return _impl.end - _impl.begin;
 }
 
 template <typename T, typename Alloc>
 inline
 size_t
-circular_buffer<T, Alloc>::capacity() const {
+circular_buffer<T, Alloc>::capacity() const noexcept {
     return _impl.capacity;
 }
 
