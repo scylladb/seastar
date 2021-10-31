@@ -41,7 +41,7 @@ static_assert(std::is_nothrow_copy_constructible_v<ipv6_addr>);
 static_assert(std::is_nothrow_move_constructible_v<ipv6_addr>);
 
 std::ostream& operator<<(std::ostream &os, ipv4_addr addr) {
-    fmt_print(os, "{:d}.{:d}.{:d}.{:d}",
+    fmt::print(os, "{:d}.{:d}.{:d}.{:d}",
             (addr.ip >> 24) & 0xff,
             (addr.ip >> 16) & 0xff,
             (addr.ip >> 8) & 0xff,

@@ -232,11 +232,12 @@ bool seastar::net::ipv6_address::is_unspecified() const noexcept {
 
 std::ostream& seastar::net::operator<<(std::ostream& os, const ipv4_address& a) {
     auto ip = a.ip;
-    return fmt_print(os, "{:d}.{:d}.{:d}.{:d}",
+    fmt::print(os, "{:d}.{:d}.{:d}.{:d}",
             (ip >> 24) & 0xff,
             (ip >> 16) & 0xff,
             (ip >> 8) & 0xff,
             (ip >> 0) & 0xff);
+    return os;
 }
 
 std::ostream& seastar::net::operator<<(std::ostream& os, const ipv6_address& a) {

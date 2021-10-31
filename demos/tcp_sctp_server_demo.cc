@@ -188,7 +188,7 @@ int main(int ac, char** av) {
         enable_tcp = config["tcp"].as<std::string>() == "yes";
         enable_sctp = config["sctp"].as<std::string>() == "yes";
         if (!enable_tcp && !enable_sctp) {
-            fprint(std::cerr, "Error: no protocols enabled. Use \"--tcp yes\" and/or \"--sctp yes\" to enable\n");
+            fmt::print(std::cerr, "Error: no protocols enabled. Use \"--tcp yes\" and/or \"--sctp yes\" to enable\n");
             return engine().exit(1);
         }
         auto server = new distributed<tcp_server>;
