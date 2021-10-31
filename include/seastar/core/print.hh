@@ -49,6 +49,7 @@ operator<<(std::ostream&& os, const void* ptr) {
 namespace seastar {
 
 template <typename... A>
+[[deprecated("use std::format_to() or fmt::print()")]]
 std::ostream&
 fprint(std::ostream& os, const char* fmt, A&&... a) {
     ::fmt::fprintf(os, fmt, std::forward<A>(a)...);
@@ -56,12 +57,14 @@ fprint(std::ostream& os, const char* fmt, A&&... a) {
 }
 
 template <typename... A>
+[[deprecated("use std::format_to() or fmt::print()")]]
 void
 print(const char* fmt, A&&... a) {
     ::fmt::printf(fmt, std::forward<A>(a)...);
 }
 
 template <typename... A>
+[[deprecated("use std::format() or fmt::format()")]]
 std::string
 sprint(const char* fmt, A&&... a) {
     std::ostringstream os;
@@ -70,6 +73,7 @@ sprint(const char* fmt, A&&... a) {
 }
 
 template <typename... A>
+[[deprecated("use std::format() or fmt::format()")]]
 std::string
 sprint(const sstring& fmt, A&&... a) {
     std::ostringstream os;
@@ -143,6 +147,7 @@ format(const char* fmt, A&&... a) {
 
 // temporary, use fmt::print() instead
 template <typename... A>
+[[deprecated("use std::format() or fmt::print()")]]
 std::ostream&
 fmt_print(std::ostream& os, const char* format, A&&... a) {
     fmt::print(os, format, std::forward<A>(a)...);
