@@ -101,6 +101,8 @@ public:
     future<int> fcntl_short(int op, uintptr_t arg) noexcept override;
     virtual future<> allocate(uint64_t position, uint64_t length) noexcept override;
     future<uint64_t> size() noexcept override;
+    // close() never fails. It just reports errors and swallows them.
+    // The user must call flush() first if they care aout stable storage semantics.
     virtual future<> close() noexcept override;
     virtual std::unique_ptr<seastar::file_handle_impl> dup() override;
     virtual subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next) override;
@@ -236,6 +238,7 @@ private:
     bool may_quit() const noexcept;
     void enqueue_op(op&& op);
     int truncate_sync(uint64_t len) noexcept;
+    void truncate_to_logical_size();
     template <typename... T, typename Func>
     future<T...> enqueue(opcode type, uint64_t pos, size_t len, Func&& func) noexcept {
         try {

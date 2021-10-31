@@ -514,7 +514,8 @@ public:
     /// the file (except for stable storage).
     ///
     /// \note
-    /// to ensure file data reaches stable storage, you must call \ref flush()
+    /// \c close() never fails. It just reports errors and swallows them.
+    /// To ensure file data reaches stable storage, you must call \ref flush()
     /// before calling \c close().
     future<> close() noexcept;
 

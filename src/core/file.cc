@@ -303,7 +303,11 @@ posix_file_impl::close() noexcept {
         }
     }();
     return closed.then([] (syscall_result<int> sr) {
+      try {
         sr.throw_if_error();
+      } catch (...) {
+        report_exception("close() syscall failed", std::current_exception());
+      }
     });
 }
 
@@ -635,7 +639,7 @@ append_challenged_posix_file_impl::~append_challenged_posix_file_impl() {
     //
     // It is safe to destory it if nothing is queued.
     // Note that posix_file_impl::~posix_file_impl auto-closes the file descriptor.
-    assert(_q.empty() && _logical_size == _committed_size);
+    assert(_q.empty() && (_logical_size == _committed_size || _closing_state == state::closed));
 }
 
 bool
@@ -683,6 +687,13 @@ int append_challenged_posix_file_impl::truncate_sync(uint64_t length) noexcept {
         _committed_size = length;
     }
     return r;
+}
+
+void append_challenged_posix_file_impl::truncate_to_logical_size() {
+    auto r = truncate_sync(_logical_size);
+    if (r == -1) {
+        throw std::system_error(errno, std::system_category(), "truncate");
+    }
 }
 
 // If we have a bunch of size-extending writes in the queue,
@@ -864,10 +875,7 @@ append_challenged_posix_file_impl::flush() noexcept {
             [this] () {
                 if (_logical_size != _committed_size) {
                     // We're all alone, so can truncate in reactor thread
-                    auto r = truncate_sync(_logical_size);
-                    if (r == -1) {
-                        return make_exception_future<>(std::system_error(errno, std::system_category(), "flush"));
-                    }
+                    truncate_to_logical_size();
                 }
                 return posix_file_impl::flush();
             }
@@ -910,7 +918,11 @@ append_challenged_posix_file_impl::close() noexcept {
     process_queue();
     return _completed.get_future().then([this] {
         if (_logical_size != _committed_size) {
-            truncate_sync(_logical_size);
+            truncate_to_logical_size();
+        }
+    }).then_wrapped([this] (future<> f) {
+        if (f.failed()) {
+            report_exception("Closing append_challenged_posix_file_impl failed.", f.get_exception());
         }
         return posix_file_impl::close().finally([this] { _closing_state = state::closed; });
     });
@@ -1054,8 +1066,9 @@ future<uint64_t> file::size() const noexcept {
 }
 
 future<> file::close() noexcept {
-    return do_with(shared_ptr<file_impl>(_file_impl), [](shared_ptr<file_impl>& f) {
-        return f->close();
+    auto f = std::move(_file_impl);
+    return f->close().handle_exception([f = std::move(f)] (std::exception_ptr ex) {
+        report_exception("Closing the file failed unexpectedly", std::move(ex));
     });
 }
 
