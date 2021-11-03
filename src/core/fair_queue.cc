@@ -152,16 +152,10 @@ void fair_queue::pop_priority_class(priority_class_ptr pc) {
     _handles.pop();
 }
 
-float fair_queue::normalize_factor() const {
-    return std::numeric_limits<float>::min();
-}
-
 void fair_queue::normalize_stats() {
-    auto time_delta = std::log(normalize_factor()) * _config.tau;
-    // time_delta is negative; and this may advance _base into the future
-    _base -= std::chrono::duration_cast<clock_type::duration>(time_delta);
+    _base = std::chrono::steady_clock::now() - _config.tau;
     for (auto& pc: _all_classes) {
-        pc->_accumulated *= normalize_factor();
+        pc->_accumulated *= std::numeric_limits<priority_class::accumulator_t>::min();
     }
 }
 
@@ -281,13 +275,13 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
 
         auto delta = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - _base);
         auto req_cost  = req._ticket.normalize(_group.maximum_capacity()) / h->_shares;
-        auto cost  = expf(1.0f/_config.tau.count() * delta.count()) * req_cost;
-        float next_accumulated = h->_accumulated + cost;
+        auto cost  = exp(priority_class::accumulator_t(1.0f/_config.tau.count() * delta.count())) * req_cost;
+        priority_class::accumulator_t next_accumulated = h->_accumulated + cost;
         while (std::isinf(next_accumulated)) {
             normalize_stats();
             // If we have renormalized, our time base will have changed. This should happen very infrequently
             delta = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - _base);
-            cost  = expf(1.0f/_config.tau.count() * delta.count()) * req_cost;
+            cost  = exp(priority_class::accumulator_t(1.0f/_config.tau.count() * delta.count())) * req_cost;
             next_accumulated = h->_accumulated + cost;
         }
         h->_accumulated = next_accumulated;
