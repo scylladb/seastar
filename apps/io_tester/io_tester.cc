@@ -444,6 +444,7 @@ private:
         emit_one_metrics(out, "io_queue_total_exec_sec");
         emit_one_metrics(out, "io_queue_total_delay_sec");
         emit_one_metrics(out, "io_queue_total_operations");
+        emit_one_metrics(out, "io_queue_starvation_time_sec");
     }
 
 public:

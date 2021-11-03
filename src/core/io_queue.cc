@@ -61,6 +61,8 @@ class priority_class_data {
     std::chrono::duration<double> _queue_time;
     std::chrono::duration<double> _total_queue_time;
     std::chrono::duration<double> _total_execution_time;
+    std::chrono::duration<double> _starvation_time;
+    std::chrono::steady_clock::time_point _activated;
     metrics::metric_groups _metric_groups;
 
     void register_stats(sstring name, sstring mountpoint);
@@ -77,12 +79,16 @@ public:
         , _queue_time(0)
         , _total_queue_time(0)
         , _total_execution_time(0)
+        , _starvation_time(0)
     {
         register_stats(name, mountpoint);
     }
 
     void on_queue() noexcept {
         _nr_queued++;
+        if (_nr_executing == 0 && _nr_queued == 1) {
+            _activated = std::chrono::steady_clock::now();
+        }
     }
 
     void on_dispatch(size_t len, std::chrono::duration<double> lat) noexcept {
@@ -92,6 +98,9 @@ public:
         _total_queue_time += lat;
         _nr_queued--;
         _nr_executing++;
+        if (_nr_executing == 1) {
+            _starvation_time += std::chrono::steady_clock::now() - _activated;
+        }
     }
 
     void on_cancel() noexcept {
@@ -101,10 +110,16 @@ public:
     void on_complete(std::chrono::duration<double> lat) noexcept {
         _total_execution_time += lat;
         _nr_executing--;
+        if (_nr_executing == 0 && _nr_queued != 0) {
+            _activated = std::chrono::steady_clock::now();
+        }
     }
 
     void on_error() noexcept {
         _nr_executing--;
+        if (_nr_executing == 0 && _nr_queued != 0) {
+            _activated = std::chrono::steady_clock::now();
+        }
     }
 
     priority_class_ptr pclass() const noexcept { return _ptr; }
@@ -466,6 +481,13 @@ priority_class_data::register_stats(sstring name, sstring mountpoint) {
             sm::make_derive("total_exec_sec", [this] {
                     return _total_execution_time.count();
                 }, sm::description("Total time spent in disk"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
+            sm::make_derive("starvation_time_sec", [this] {
+                auto st = _starvation_time;
+                if (_nr_queued != 0 && _nr_executing == 0) {
+                    st += std::chrono::steady_clock::now() - _activated;
+                }
+                return st.count();
+            }, sm::description("Total time spent starving for disk"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
 
             // Note: The counter below is not the same as reactor's queued-io-requests
             // queued-io-requests shows us how many requests in total exist in this I/O Queue.
