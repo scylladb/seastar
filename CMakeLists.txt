@@ -610,7 +610,6 @@ add_library (seastar STATIC
   include/seastar/util/variant_utils.hh
   include/seastar/util/closeable.hh
   include/seastar/util/source_location-compat.hh
-  include/seastar/websocket/server.hh
   src/core/alien.cc
   src/core/file.cc
   src/core/fair_queue.cc
@@ -692,8 +691,7 @@ add_library (seastar STATIC
   src/util/log.cc
   src/util/program-options.cc
   src/util/read_first_line.cc
-  src/util/tmp_file.cc
-  src/websocket/server.cc)
+  src/util/tmp_file.cc)
 
 add_library (Seastar::seastar ALIAS seastar)
 
