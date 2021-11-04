@@ -98,7 +98,6 @@ struct shard_info {
     unsigned shares = 10;
     uint64_t request_size = 4 << 10;
     std::chrono::duration<float> think_time = 0ms;
-    std::chrono::duration<float> think_after = 0ms;
     std::chrono::duration<float> execution_time = 1ms;
     seastar::scheduling_group scheduling_group = seastar::default_scheduling_group();
 };
@@ -146,8 +145,6 @@ protected:
     uint64_t _requests = 0;
     std::uniform_int_distribution<uint32_t> _pos_distribution;
     file _file;
-    bool _think = false;
-    timer<> _thinker;
 
     virtual future<> do_start(sstring dir, directory_entry_type type) = 0;
     virtual future<size_t> issue_request(char *buf, io_intent* intent) = 0;
@@ -159,29 +156,11 @@ public:
         , _sg(cfg.shard_info.scheduling_group)
         , _latencies(extended_p_square_probabilities = quantiles)
         , _pos_distribution(0,  _config.file_size / _config.shard_info.request_size)
-        , _thinker([this] { think_tick(); })
-    {
-        if (_config.shard_info.think_after > 0us) {
-            _thinker.arm(std::chrono::duration_cast<std::chrono::microseconds>(_config.shard_info.think_after));
-        } else if (_config.shard_info.think_time > 0us) {
-            _think = true;
-        }
-    }
+    {}
 
     virtual ~class_data() = default;
 
 private:
-
-    void think_tick() {
-        if (_think) {
-            _think = false;
-            _thinker.arm(std::chrono::duration_cast<std::chrono::microseconds>(_config.shard_info.think_after));
-        } else {
-            _think = true;
-            _thinker.arm(std::chrono::duration_cast<std::chrono::microseconds>(_config.shard_info.think_time));
-        }
-    }
-
     future<> issue_requests_in_parallel(std::chrono::steady_clock::time_point stop, unsigned parallelism) {
         return parallel_for_each(boost::irange(0u, parallelism), [this, stop] (auto dummy) mutable {
             auto bufptr = allocate_aligned_buffer<char>(this->req_size(), _alignment);
@@ -239,7 +218,7 @@ public:
     }
 
     future<> think() {
-        if (_think) {
+        if (_config.shard_info.think_time > 0us) {
             return seastar::sleep(std::chrono::duration_cast<std::chrono::microseconds>(_config.shard_info.think_time));
         } else {
             return make_ready_future<>();
@@ -647,9 +626,6 @@ struct convert<shard_info> {
         }
         if (node["think_time"]) {
             sl.think_time = node["think_time"].as<duration_time>().time;
-        }
-        if (node["think_after"]) {
-            sl.think_after = node["think_after"].as<duration_time>().time;
         }
         if (node["execution_time"]) {
             sl.execution_time = node["execution_time"].as<duration_time>().time;
