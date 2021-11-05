@@ -20,6 +20,7 @@ SEASTAR_TEST_CASE(test_websocket_handshake) {
                 "Connection: Upgrade\r\n"
                 "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
                 "Sec-WebSocket-Version: 13\r\n"
+                "Sec-WebSocket-Protocol: echo\r\n"
                 "\r\n";
         loopback_connection_factory factory;
         loopback_socket_impl lsi(factory);
@@ -31,6 +32,10 @@ SEASTAR_TEST_CASE(test_websocket_handshake) {
         auto output = sock.output();
 
         websocket::server dummy;
+        dummy.register_handler("echo", [] (input_stream<char>& in,
+                    output_stream<char>& out) {
+            return make_ready_future<>();
+        });
         websocket::connection conn(dummy, acceptor.get0().connection);
         future<> serve = conn.process();
 

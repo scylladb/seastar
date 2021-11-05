@@ -24,6 +24,7 @@
 #include <cryptopp/sha.h>
 #include <cryptopp/filters.h>
 #include <cryptopp/base64.h>
+#include <seastar/core/scattered_message.hh>
 
 #ifndef CRYPTOPP_NO_GLOBAL_BYTE
 namespace CryptoPP {
@@ -110,6 +111,7 @@ future<> connection::process() {
         } catch (...) {
             wlogger.debug("Read exception encountered: {}", std::current_exception());
         }
+        
         try {
             std::get<1>(joined).get();
         } catch (...) {
@@ -139,13 +141,27 @@ future<> connection::read_http_upgrade_request() {
         }
         std::unique_ptr<httpd::request> req = _http_parser.get_parsed_request();
         if (_http_parser.failed()) {
+            return make_exception_future<>(websocket::exception("Incorrect upgrade request"));
             throw websocket::exception("Incorrect upgrade request");
         }
 
         sstring upgrade_header = req->get_header("Upgrade");
         if (upgrade_header != "websocket") {
-            throw websocket::exception("Upgrade header missing");
+            return make_exception_future<>("Upgrade header missing");
         }
+
+        sstring subprotocol = req->get_header("Sec-WebSocket-Protocol");
+        if (subprotocol.empty()) {
+            return make_exception_future<>("Subprotocol header missing.");
+        }
+
+        if (!_server.is_handler_registered(subprotocol)) {
+            return make_exception_future<>("Subprotocol not supported.");
+        }
+        this->_handler = this->_server._handlers[subprotocol];
+        this->_subprotocol = subprotocol;
+        wlogger.debug("Sec-WebSocket-Protocol: {}", subprotocol);
+
         sstring sec_key = req->get_header("Sec-Websocket-Key");
         sstring sec_version = req->get_header("Sec-Websocket-Version");
 
@@ -166,40 +182,175 @@ future<> connection::read_http_upgrade_request() {
     });
 }
 
-future<> connection::read_one() {
-    return _read_buf.read().then([this] (temporary_buffer<char> buf) {
-        if (buf.empty()) {
-            _done = true;
+future<websocket_parser::consumption_result_t> websocket_parser::operator()(
+        temporary_buffer<char> data) {
+    if (data.size() == 0) {
+        // EOF
+        _cstate = connection_state::closed;
+        return websocket_parser::stop(std::move(data));
+    }
+    if (_state == parsing_state::flags_and_payload_data) {
+        if (_buffer.length() + data.size() >= 2) {
+            if (_buffer.length() < 2) {
+                size_t hlen = _buffer.length();
+                _buffer.append(data.get(), 2 - hlen);
+                data.trim_front(2 - hlen);
+                _header = std::make_unique<frame_header>(_buffer.data());
+                _buffer = {};
+
+                // https://datatracker.ietf.org/doc/html/rfc6455#section-5.1
+                // We must close the connection if data isn't masked.
+                if ((!_header->masked) || 
+                        // RSVX must be 0 
+                        (_header->rsv1 | _header->rsv2 | _header->rsv3) ||
+                        // Opcode must be known.
+                        (!_header->is_opcode_known())) {
+                    _cstate = connection_state::error;
+                    return websocket_parser::stop(std::move(data));
+                }
+            }
+            _state = parsing_state::payload_length_and_mask;
+        } else {
+            _buffer.append(data.get(), data.size());
+            return websocket_parser::dont_stop();
         }
-        //FIXME: implement
-        wlogger.info("Received: {}", buf.get());
+    }
+    if (_state == parsing_state::payload_length_and_mask) {
+        size_t const required_bytes = _header->get_rest_of_header_length();
+        if (_buffer.length() + data.size() >= required_bytes) {
+            if (_buffer.length() < required_bytes) {
+                size_t hlen = _buffer.length();
+                _buffer.append(data.get(), required_bytes - hlen);
+                data.trim_front(required_bytes - hlen);
+
+                _payload_length = _header->length;
+                size_t offset = 0;
+                char const *input = _buffer.data();
+                if (_header->length == 126) {
+                    _payload_length = be16toh(*(uint16_t const *)(input + offset));
+                    offset += sizeof(uint16_t);
+                } else if (_header->length == 127) {
+                    _payload_length = be64toh(*(uint64_t const *)(input + offset));
+                    offset += sizeof(uint64_t);
+                }
+                _masking_key = be32toh(*(uint32_t const *)(input + offset));
+                _buffer = {};
+            }                
+            _state = parsing_state::payload;
+        } else {
+            _buffer.append(data.get(), data.size());
+            return websocket_parser::dont_stop();
+        }
+    }
+    if (_state == parsing_state::payload) {
+        if (_payload_length > data.size()) {
+            _payload_length -= data.size();
+            remove_mask(data, data.size());
+            _result = std::move(data);
+            return websocket_parser::stop(buff_t(0));
+        } else { 
+            _result = data.clone();
+            remove_mask(_result, _payload_length);
+            data.trim_front(_payload_length);
+            _payload_length = 0;
+            _state = parsing_state::flags_and_payload_data;
+            return websocket_parser::stop(std::move(data));
+        }
+    }
+    _cstate = connection_state::error;
+    return websocket_parser::stop(std::move(data));
+}
+
+future<> connection::read_one() {
+    return _read_buf.consume(_websocket_parser).then([this] () mutable {
+        if (_websocket_parser.is_valid()) {
+            // FIXME: implement error handling
+            return _input_buffer.push_eventually(_websocket_parser.result());
+        } else if (_websocket_parser.eof()) {
+            _done = true;
+            return make_ready_future<>();    
+        }
+        wlogger.debug("Reading from socket has failed.");
+        _done = true;
+        return make_ready_future<>();    
     });
 }
 
 future<> connection::read_loop() {
     return read_http_upgrade_request().then([this] {
-        return do_until([this] {return _done;}, [this] {
-            return read_one();
+        return when_all(
+            _handler(_input, _output), 
+            do_until([this] {return _done;}, [this] {return read_one();})
+        ).then([] (std::tuple<future<>, future<>> joined) {
+            try {
+                std::get<0>(joined).get();
+            } catch (...) {
+                wlogger.debug("Handler exception encountered: {}", 
+                        std::current_exception());
+            }
+            try {
+                std::get<1>(joined).get();
+            } catch (...) {
+                wlogger.debug("Read exception encountered: {}", 
+                        std::current_exception());
+            }
+            // FIXME
+            return _replies.push_eventually({});
+        }).finally([this] {
+            return _read_buf.close();
         });
-    }).then_wrapped([this] (future<> f) {
-        if (f.failed()) {
-            wlogger.error("Read failed: {}", f.get_exception());
-        }
-        return _replies.push_eventually({});
-    }).finally([this] {
-        return _read_buf.close();
     });
 }
 
+future<> connection::send_data(temporary_buffer<char>&& buff) {
+    sstring data;
+    data.append("\x81", 1);
+    if ((126 <= buff.size()) && (buff.size() <= std::numeric_limits<uint16_t>::max())) {
+        uint16_t length = buff.size();
+        length = htobe16(length);
+        data.append("\x7e", 1);
+        data.append(reinterpret_cast<char*>(&length), sizeof(uint16_t));
+    } else if (std::numeric_limits<uint16_t>::max() < buff.size()) {
+        uint64_t length = buff.size();
+        length = htobe64(length);
+        data.append("\x7f", 1);
+        data.append(reinterpret_cast<char*>(&length), sizeof(uint64_t));
+    } else {
+        uint8_t length = buff.size() & 0x7F;
+        data.append(reinterpret_cast<char*>(&length), sizeof(uint8_t));
+    }
+
+    scattered_message<char> msg;
+    msg.append(std::move(data));
+    msg.append(std::move(buff));
+    return _write_buf.write(std::move(msg)).then([this] {
+        return _write_buf.flush();
+    }); 
+}
+
 future<> connection::response_loop() {
-    // FIXME: implement
-    return make_ready_future<>();
+    return do_until([this] {return _done;}, [this] {
+        // FIXME: implement error handling
+        return _output_buffer.pop_eventually().then([this] (
+                temporary_buffer<char> buf) {
+            return send_data(std::move(buf));
+        });
+    });
 }
 
 void connection::shutdown() {
     wlogger.debug("Shutting down");
     _fd.shutdown_input();
     _fd.shutdown_output();
+    when_all(_input.close(), _output.close()).discard_result().get();
+}
+
+bool server::is_handler_registered(std::string const& name) {
+    return _handlers.find(name) != _handlers.end();
+}
+
+void server::register_handler(std::string&& name, handler_t handler) {
+    _handlers[name] = handler;
 }
 
 }
