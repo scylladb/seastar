@@ -37,6 +37,9 @@ int main(int argc, char** argv) {
     app.run(argc, argv, [] () -> seastar::future<> {
         return async([] {
             websocket::server ws;
+            ws.register_handler("echo", [] (temporary_buffer<char> &&buf, output_stream<char> &write_buf) {
+                return write_buf.write(std::move(buf));
+            });
             auto d = defer([&ws] () noexcept {
                 ws.stop().get();
             });
