@@ -393,7 +393,7 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_longer_run_different_shares) {
     // long period of time, ticking slowly
     for (int i = 0; i < 1000; ++i) {
         sleep(1ms).get();
-        env.tick(2);
+        env.tick(3);
     }
     env.verify("longer_run_different_shares", {1, 2}, 2);
 }
