@@ -43,7 +43,7 @@ class exception : std::exception {
     std::string _msg;
 public:
     exception(std::string_view msg) : _msg(msg) {}
-    const char* what() noexcept {
+    const char* what() const noexcept {
         return _msg.c_str();
     }
 };
