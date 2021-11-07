@@ -34,7 +34,7 @@ SEASTAR_TEST_CASE(test_websocket_handshake) {
         websocket::connection conn(dummy, acceptor.get0().connection);
         future<> serve = conn.process();
 
-        auto close = defer([&sock, &conn, &input, &output, &serve] () noexcept {
+        auto close = defer([&conn, &input, &output, &serve] () noexcept {
             conn.shutdown();
             input.close().get();
             output.close().get();
