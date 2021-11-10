@@ -274,9 +274,9 @@ void fair_queue::queue(class_id id, fair_queue_entry& ent) {
     _requests_queued++;
 }
 
-void fair_queue::notify_requests_finished(fair_queue_ticket desc, unsigned nr) noexcept {
+void fair_queue::notify_request_finished(fair_queue_ticket desc) noexcept {
     _resources_executing -= desc;
-    _requests_executing -= nr;
+    _requests_executing--;
     _group.release_capacity(desc);
 }
 

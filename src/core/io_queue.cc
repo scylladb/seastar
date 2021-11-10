@@ -150,7 +150,7 @@ public:
     virtual void set_exception(std::exception_ptr eptr) noexcept override {
         io_log.trace("dev {} : req {} error", _ioq.dev_id(), fmt::ptr(this));
         _pclass.on_error();
-        _ioq.notify_requests_finished(_fq_ticket);
+        _ioq.complete_request(*this);
         _pr.set_exception(eptr);
         delete this;
     }
@@ -159,7 +159,7 @@ public:
         io_log.trace("dev {} : req {} complete", _ioq.dev_id(), fmt::ptr(this));
         auto now = std::chrono::steady_clock::now();
         _pclass.on_complete(std::chrono::duration_cast<std::chrono::duration<double>>(now - _dispatched));
-        _ioq.notify_requests_finished(_fq_ticket);
+        _ioq.complete_request(*this);
         _pr.set_value(res);
         delete this;
     }
@@ -179,6 +179,8 @@ public:
     future<size_t> get_future() {
         return _pr.get_future();
     }
+
+    fair_queue_ticket ticket() const noexcept { return _fq_ticket; }
 };
 
 class queued_io_request : private internal::io_request {
@@ -303,9 +305,9 @@ io_intent* internal::intent_reference::retrieve() const {
 }
 
 void
-io_queue::notify_requests_finished(fair_queue_ticket& desc) noexcept {
+io_queue::complete_request(io_desc_read_write& desc) noexcept {
     _requests_executing--;
-    _fq.notify_requests_finished(desc);
+    _fq.notify_request_finished(desc.ticket());
 }
 
 fair_queue::config io_queue::make_fair_queue_config(config iocfg) {
@@ -635,7 +637,7 @@ void io_queue::cancel_request(queued_io_request& req) noexcept {
 }
 
 void io_queue::complete_cancelled_request(queued_io_request& req) noexcept {
-    _fq.notify_requests_finished(req.queue_entry().ticket());
+    _fq.notify_request_finished(req.queue_entry().ticket());
 }
 
 future<>

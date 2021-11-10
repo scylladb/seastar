@@ -113,6 +113,8 @@ public:
     void submit_request(io_desc_read_write* desc, internal::io_request req) noexcept;
     void cancel_request(queued_io_request& req) noexcept;
     void complete_cancelled_request(queued_io_request& req) noexcept;
+    void complete_request(io_desc_read_write& desc) noexcept;
+
 
     [[deprecated("modern I/O queues should use a property file")]] size_t capacity() const;
 
@@ -126,8 +128,6 @@ public:
     size_t requests_currently_executing() const {
         return _requests_executing;
     }
-
-    void notify_requests_finished(fair_queue_ticket& desc) noexcept;
 
     // Dispatch requests that are pending in the I/O queue
     void poll_io_queue();

@@ -89,7 +89,7 @@ future<> perf_fair_queue::test(bool loc) {
         return parallel_for_each(boost::irange(0u, requests_to_dispatch), [&local, loc] (unsigned dummy) {
             auto req = std::make_unique<local_fq_entry>(1, 1, [&local, loc] {
                 local.executed++;
-                local.queue(loc).notify_requests_finished(seastar::fair_queue_ticket{1, 1});
+                local.queue(loc).notify_request_finished(seastar::fair_queue_ticket{1, 1});
             });
             local.queue(loc).queue(cid, req->ent);
             req.release();
