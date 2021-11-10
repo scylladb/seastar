@@ -140,16 +140,16 @@ fair_queue::~fair_queue() {
     }
 }
 
-void fair_queue::push_priority_class(priority_class_ptr pc) {
-    if (!pc->_queued) {
-        _handles.push(pc);
-        pc->_queued = true;
+void fair_queue::push_priority_class(priority_class& pc) {
+    if (!pc._queued) {
+        _handles.push(&pc);
+        pc._queued = true;
     }
 }
 
-void fair_queue::pop_priority_class(priority_class_ptr pc) {
-    assert(pc->_queued);
-    pc->_queued = false;
+void fair_queue::pop_priority_class(priority_class& pc) {
+    assert(pc._queued);
+    pc._queued = false;
     _handles.pop();
 }
 
@@ -210,13 +210,13 @@ void fair_queue::register_priority_class(class_id id, uint32_t shares) {
         assert(!_priority_classes[id]);
     }
 
-    _priority_classes[id] = make_lw_shared<priority_class>(shares);
+    _priority_classes[id] = std::make_unique<priority_class>(shares);
 }
 
 void fair_queue::unregister_priority_class(class_id id) {
     auto& pclass = _priority_classes[id];
     assert(pclass && pclass->_queue.empty());
-    pclass.release();
+    pclass.reset();
 }
 
 void fair_queue::update_shares_for_class(class_id id, uint32_t shares) {
@@ -243,12 +243,12 @@ fair_queue_ticket fair_queue::resources_currently_executing() const {
 }
 
 void fair_queue::queue(class_id id, fair_queue_entry& ent) {
-    auto& pc = _priority_classes[id];
+    priority_class& pc = *_priority_classes[id];
     // We need to return a future in this function on which the caller can wait.
     // Since we don't know which queue we will use to execute the next request - if ours or
     // someone else's, we need a separate promise at this point.
     push_priority_class(pc);
-    pc->_queue.push_back(ent);
+    pc._queue.push_back(ent);
     _resources_queued += ent._ticket;
     _requests_queued++;
 }
@@ -266,19 +266,19 @@ void fair_queue::notify_request_cancelled(fair_queue_entry& ent) noexcept {
 
 void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
     while (!_handles.empty()) {
-        priority_class_ptr h = _handles.top();
-        if (h->_queue.empty()) {
+        priority_class& h = *_handles.top();
+        if (h._queue.empty()) {
             pop_priority_class(h);
             continue;
         }
 
-        auto& req = h->_queue.front();
+        auto& req = h._queue.front();
         if (!grab_capacity(req._ticket)) {
             break;
         }
 
         pop_priority_class(h);
-        h->_queue.pop_front();
+        h._queue.pop_front();
 
         _resources_executing += req._ticket;
         _resources_queued -= req._ticket;
@@ -286,19 +286,19 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         _requests_queued--;
 
         auto delta = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - _base);
-        auto req_cost  = req._ticket.normalize(_group.maximum_capacity()) / h->_shares;
+        auto req_cost  = req._ticket.normalize(_group.maximum_capacity()) / h._shares;
         auto cost  = exp(priority_class::accumulator_t(1.0f/_config.tau.count() * delta.count())) * req_cost;
-        priority_class::accumulator_t next_accumulated = h->_accumulated + cost;
+        priority_class::accumulator_t next_accumulated = h._accumulated + cost;
         while (std::isinf(next_accumulated)) {
             normalize_stats();
             // If we have renormalized, our time base will have changed. This should happen very infrequently
             delta = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - _base);
             cost  = exp(priority_class::accumulator_t(1.0f/_config.tau.count() * delta.count())) * req_cost;
-            next_accumulated = h->_accumulated + cost;
+            next_accumulated = h._accumulated + cost;
         }
-        h->_accumulated = next_accumulated;
+        h._accumulated = next_accumulated;
 
-        if (!h->_queue.empty()) {
+        if (!h._queue.empty()) {
             push_priority_class(h);
         }
 

@@ -24,6 +24,7 @@
 #include <boost/intrusive/slist.hpp>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/circular_buffer.hh>
+#include <functional>
 #include <atomic>
 #include <queue>
 #include <chrono>
@@ -139,10 +140,9 @@ class priority_class {
     fair_queue_entry::container_list_t _queue;
     bool _queued = false;
 
-    friend struct shared_ptr_no_esft<priority_class>;
+public:
     explicit priority_class(uint32_t shares) noexcept : _shares(std::max(shares, 1u)) {}
 
-public:
     /// \brief return the current amount of shares for this priority class
     uint32_t shares() const noexcept {
         return _shares;
@@ -162,7 +162,6 @@ public:
 /// to the \ref fair_queue to identify a given class.
 ///
 /// \related fair_queue
-using priority_class_ptr = lw_shared_ptr<priority_class>;
 
 /// \brief Group of queues class
 ///
@@ -240,8 +239,9 @@ public:
 
     using class_id = unsigned int;
 private:
+    using priority_class_ptr = priority_class*;
     struct class_compare {
-        bool operator() (const priority_class_ptr& lhs, const priority_class_ptr& rhs) const {
+        bool operator() (const priority_class_ptr& lhs, const priority_class_ptr & rhs) const {
             return lhs->_accumulated > rhs->_accumulated;
         }
     };
@@ -256,7 +256,7 @@ private:
     clock_type _base;
     using prioq = std::priority_queue<priority_class_ptr, std::vector<priority_class_ptr>, class_compare>;
     prioq _handles;
-    std::vector<priority_class_ptr> _priority_classes;
+    std::vector<std::unique_ptr<priority_class>> _priority_classes;
 
     /*
      * When the shared capacity os over the local queue delays
@@ -278,8 +278,8 @@ private:
 
     std::optional<pending> _pending;
 
-    void push_priority_class(priority_class_ptr pc);
-    void pop_priority_class(priority_class_ptr pc);
+    void push_priority_class(priority_class& pc);
+    void pop_priority_class(priority_class& pc);
 
     void normalize_stats();
 
