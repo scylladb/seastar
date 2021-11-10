@@ -57,9 +57,11 @@ class queued_io_request;
 class io_group;
 
 using io_group_ptr = std::shared_ptr<io_group>;
-class priority_class_data;
 
 class io_queue {
+public:
+    class priority_class_data;
+
 private:
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
     io_group_ptr _group;

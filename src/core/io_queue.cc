@@ -51,7 +51,7 @@ struct default_io_exception_factory {
     }
 };
 
-class priority_class_data {
+class io_queue::priority_class_data {
     priority_class_ptr _ptr;
     struct {
         size_t bytes = 0;
@@ -130,13 +130,13 @@ public:
 
 class io_desc_read_write final : public io_completion {
     io_queue& _ioq;
-    priority_class_data& _pclass;
+    io_queue::priority_class_data& _pclass;
     std::chrono::steady_clock::time_point _dispatched;
     fair_queue_ticket _fq_ticket;
     promise<size_t> _pr;
 
 public:
-    io_desc_read_write(io_queue& ioq, priority_class_data& pc, fair_queue_ticket ticket)
+    io_desc_read_write(io_queue& ioq, io_queue::priority_class_data& pc, fair_queue_ticket ticket)
         : _ioq(ioq)
         , _pclass(pc)
         , _fq_ticket(ticket)
@@ -187,7 +187,7 @@ class queued_io_request : private internal::io_request {
     bool is_cancelled() const noexcept { return !_desc; }
 
 public:
-    queued_io_request(internal::io_request req, io_queue& q, priority_class_data& pc, internal::io_direction_and_length dnl)
+    queued_io_request(internal::io_request req, io_queue& q, io_queue::priority_class_data& pc, internal::io_direction_and_length dnl)
         : io_request(std::move(req))
         , _ioq(q)
         , _dnl(std::move(dnl))
@@ -451,7 +451,7 @@ future<> io_priority_class::rename(sstring new_name) noexcept {
 seastar::metrics::label io_queue_shard("ioshard");
 
 void
-priority_class_data::rename(sstring new_name, sstring mountpoint) {
+io_queue::priority_class_data::rename(sstring new_name, sstring mountpoint) {
     try {
         register_stats(new_name, mountpoint);
     } catch (metrics::double_registration &e) {
@@ -464,7 +464,7 @@ priority_class_data::rename(sstring new_name, sstring mountpoint) {
 }
 
 void
-priority_class_data::register_stats(sstring name, sstring mountpoint) {
+io_queue::priority_class_data::register_stats(sstring name, sstring mountpoint) {
     shard_id owner = this_shard_id();
     seastar::metrics::metric_groups new_metrics;
     namespace sm = seastar::metrics;
@@ -525,7 +525,7 @@ priority_class_data::register_stats(sstring name, sstring mountpoint) {
     _metric_groups = std::exchange(new_metrics, {});
 }
 
-priority_class_data& io_queue::find_or_create_class(const io_priority_class& pc) {
+io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_class& pc) {
     auto id = pc.id();
     if (id >= _priority_classes.size()) {
         _priority_classes.resize(id + 1);
