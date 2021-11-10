@@ -641,6 +641,10 @@ void io_queue::complete_cancelled_request(queued_io_request& req) noexcept {
     _fq.notify_request_finished(req.queue_entry().ticket());
 }
 
+io_queue::clock_type::time_point io_queue::next_pending_aio() const noexcept {
+    return _fq.next_pending_aio();
+}
+
 future<>
 io_queue::update_shares_for_class(const io_priority_class pc, size_t new_shares) {
     return futurize_invoke([this, pc, new_shares] {

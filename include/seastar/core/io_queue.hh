@@ -135,9 +135,7 @@ public:
     // Dispatch requests that are pending in the I/O queue
     void poll_io_queue();
 
-    clock_type::time_point next_pending_aio() const noexcept {
-        return _fq.next_pending_aio();
-    }
+    clock_type::time_point next_pending_aio() const noexcept;
 
     sstring mountpoint() const;
     dev_t dev_id() const noexcept;
