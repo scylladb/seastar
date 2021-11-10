@@ -153,7 +153,7 @@ public:
     request_limits get_request_limits() const noexcept;
 
 private:
-    static fair_queue::config make_fair_queue_config(config cfg);
+    static fair_queue::config make_fair_queue_config(const config& cfg);
 
     const config& get_config() const noexcept;
 };
@@ -164,10 +164,10 @@ public:
 
 private:
     friend class io_queue;
-    fair_group _fg;
     const io_queue::config _config;
+    fair_group _fg;
 
-    static fair_group::config make_fair_group_config(io_queue::config qcfg) noexcept;
+    static fair_group::config make_fair_group_config(const io_queue::config& qcfg) noexcept;
 };
 
 inline const io_queue::config& io_queue::get_config() const noexcept {
