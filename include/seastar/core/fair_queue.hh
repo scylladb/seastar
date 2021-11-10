@@ -163,6 +163,7 @@ public:
                 : max_req_count(max_requests), max_bytes_count(max_bytes) {}
     };
     explicit fair_group(config cfg) noexcept;
+    fair_group(fair_group&&) = delete;
 
     fair_queue_ticket maximum_capacity() const noexcept { return _maximum_capacity; }
     fair_group_rover grab_capacity(fair_queue_ticket cap) noexcept;

@@ -329,7 +329,7 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     , _sink(sink)
 {
     auto fq_cfg = make_fair_queue_config(get_config());
-    _streams.emplace_back(_group->_fg, fq_cfg);
+    _streams.emplace_back(*_group->_fgs[0], fq_cfg);
     seastar_logger.debug("Created io queue, multipliers {}:{}",
             get_config().disk_req_write_to_read_multiplier,
             get_config().disk_bytes_write_to_read_multiplier);
@@ -366,8 +366,9 @@ fair_group::config io_group::make_fair_group_config(const io_queue::config& qcfg
 
 io_group::io_group(io_queue::config io_cfg) noexcept
     : _config(std::move(io_cfg))
-    , _fg(make_fair_group_config(_config))
 {
+    auto fg_cfg = make_fair_group_config(_config);
+    _fgs.push_back(std::make_unique<fair_group>(fg_cfg));
     seastar_logger.debug("Created io group, limits {}:{}", _config.max_req_count, _config.max_bytes_count);
 }
 

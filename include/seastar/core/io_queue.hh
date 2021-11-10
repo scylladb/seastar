@@ -166,7 +166,7 @@ public:
 private:
     friend class io_queue;
     const io_queue::config _config;
-    fair_group _fg;
+    std::vector<std::unique_ptr<fair_group>> _fgs;
 
     static fair_group::config make_fair_group_config(const io_queue::config& qcfg) noexcept;
 };
