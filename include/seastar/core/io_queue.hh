@@ -50,6 +50,7 @@ struct iocb;
 }
 
 using shard_id = unsigned;
+using stream_id = unsigned;
 
 class io_priority_class;
 class io_desc_read_write;
@@ -109,6 +110,7 @@ public:
     io_queue(io_group_ptr group, internal::io_sink& sink);
     ~io_queue();
 
+    stream_id request_stream(internal::io_direction_and_length dnl) const noexcept;
     fair_queue_ticket request_fq_ticket(internal::io_direction_and_length dnl) const noexcept;
 
     future<size_t>

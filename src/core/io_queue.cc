@@ -137,13 +137,15 @@ class io_desc_read_write final : public io_completion {
     io_queue& _ioq;
     io_queue::priority_class_data& _pclass;
     io_queue::clock_type::time_point _dispatched;
+    const stream_id _stream;
     fair_queue_ticket _fq_ticket;
     promise<size_t> _pr;
 
 public:
-    io_desc_read_write(io_queue& ioq, io_queue::priority_class_data& pc, fair_queue_ticket ticket)
+    io_desc_read_write(io_queue& ioq, io_queue::priority_class_data& pc, stream_id stream, fair_queue_ticket ticket)
         : _ioq(ioq)
         , _pclass(pc)
+        , _stream(stream)
         , _fq_ticket(ticket)
     {}
 
@@ -181,12 +183,14 @@ public:
     }
 
     fair_queue_ticket ticket() const noexcept { return _fq_ticket; }
+    stream_id stream() const noexcept { return _stream; }
 };
 
 class queued_io_request : private internal::io_request {
     io_queue& _ioq;
     internal::io_direction_and_length _dnl;
     io_queue::clock_type::time_point _started;
+    const stream_id _stream;
     fair_queue_entry _fq_entry;
     internal::cancellable_queue::link _intent;
     std::unique_ptr<io_desc_read_write> _desc;
@@ -199,8 +203,9 @@ public:
         , _ioq(q)
         , _dnl(std::move(dnl))
         , _started(io_queue::clock_type::now())
+        , _stream(_ioq.request_stream(_dnl))
         , _fq_entry(_ioq.request_fq_ticket(dnl))
-        , _desc(std::make_unique<io_desc_read_write>(_ioq, pc, _fq_entry.ticket()))
+        , _desc(std::make_unique<io_desc_read_write>(_ioq, pc, _stream, _fq_entry.ticket()))
     {
         io_log.trace("dev {} : req {} queue  len {} ticket {}", _ioq.dev_id(), fmt::ptr(&*_desc), _dnl.length(), _fq_entry.ticket());
     }
@@ -232,6 +237,7 @@ public:
 
     future<size_t> get_future() noexcept { return _desc->get_future(); }
     fair_queue_entry& queue_entry() noexcept { return _fq_entry; }
+    stream_id stream() const noexcept { return _stream; }
 
     static queued_io_request& from_fq_entry(fair_queue_entry& ent) noexcept {
         return *boost::intrusive::get_parent_from_member(&ent, &queued_io_request::_fq_entry);
@@ -560,6 +566,10 @@ io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_
         _priority_classes[id] = std::move(pc_data);
     }
     return *_priority_classes[id];
+}
+
+stream_id io_queue::request_stream(internal::io_direction_and_length dnl) const noexcept {
+    return 0; // for now we only have one stream
 }
 
 fair_queue_ticket io_queue::request_fq_ticket(internal::io_direction_and_length dnl) const noexcept {
