@@ -237,6 +237,8 @@ public:
         float ticket_size_pace;
         float ticket_weight_pace;
     };
+
+    using class_id = unsigned int;
 private:
     struct class_compare {
         bool operator() (const priority_class_ptr& lhs, const priority_class_ptr& rhs) const {
@@ -254,7 +256,7 @@ private:
     clock_type _base;
     using prioq = std::priority_queue<priority_class_ptr, std::vector<priority_class_ptr>, class_compare>;
     prioq _handles;
-    std::unordered_set<priority_class_ptr> _all_classes;
+    std::vector<priority_class_ptr> _priority_classes;
 
     /*
      * When the shared capacity os over the local queue delays
@@ -293,16 +295,19 @@ public:
     ///
     /// \param cfg an instance of the class \ref config
     explicit fair_queue(fair_group& shared, config cfg);
+    ~fair_queue();
 
     /// Registers a priority class against this fair queue.
     ///
     /// \param shares how many shares to create this class with
-    priority_class_ptr register_priority_class(uint32_t shares);
+    void register_priority_class(class_id c, uint32_t shares);
 
     /// Unregister a priority class.
     ///
     /// It is illegal to unregister a priority class that still have pending requests.
-    void unregister_priority_class(priority_class_ptr pclass);
+    void unregister_priority_class(class_id c);
+
+    void update_shares_for_class(class_id c, uint32_t new_shares);
 
     /// \return how many waiters are currently queued for all classes.
     [[deprecated("fair_queue users should not track individual requests, but resources (weight, size) passing through the queue")]]
@@ -322,7 +327,7 @@ public:
     ///
     /// The user of this interface is supposed to call \ref notify_requests_finished when the
     /// request finishes executing - regardless of success or failure.
-    void queue(priority_class_ptr pc, fair_queue_entry& ent);
+    void queue(class_id c, fair_queue_entry& ent);
 
     /// Notifies that ont request finished
     /// \param desc an instance of \c fair_queue_ticket structure describing the request that just finished.

@@ -134,6 +134,12 @@ fair_queue::fair_queue(fair_group& group, config cfg)
     seastar_logger.debug("Created fair queue, ticket pace {}:{}", cfg.ticket_weight_pace, cfg.ticket_size_pace);
 }
 
+fair_queue::~fair_queue() {
+    for (const auto& fq : _priority_classes) {
+        assert(!fq);
+    }
+}
+
 void fair_queue::push_priority_class(priority_class_ptr pc) {
     if (!pc->_queued) {
         _handles.push(pc);
@@ -149,8 +155,10 @@ void fair_queue::pop_priority_class(priority_class_ptr pc) {
 
 void fair_queue::normalize_stats() {
     _base = std::chrono::steady_clock::now() - _config.tau;
-    for (auto& pc: _all_classes) {
-        pc->_accumulated *= std::numeric_limits<priority_class::accumulator_t>::min();
+    for (auto& pc: _priority_classes) {
+        if (pc) {
+            pc->_accumulated *= std::numeric_limits<priority_class::accumulator_t>::min();
+        }
     }
 }
 
@@ -195,15 +203,27 @@ bool fair_queue::grab_capacity(fair_queue_ticket cap) noexcept {
     return true;
 }
 
-priority_class_ptr fair_queue::register_priority_class(uint32_t shares) {
-    priority_class_ptr pclass = make_lw_shared<priority_class>(shares);
-    _all_classes.insert(pclass);
-    return pclass;
+void fair_queue::register_priority_class(class_id id, uint32_t shares) {
+    if (id >= _priority_classes.size()) {
+        _priority_classes.resize(id + 1);
+    } else {
+        assert(!_priority_classes[id]);
+    }
+
+    _priority_classes[id] = make_lw_shared<priority_class>(shares);
 }
 
-void fair_queue::unregister_priority_class(priority_class_ptr pclass) {
-    assert(pclass->_queue.empty());
-    _all_classes.erase(pclass);
+void fair_queue::unregister_priority_class(class_id id) {
+    auto& pclass = _priority_classes[id];
+    assert(pclass && pclass->_queue.empty());
+    pclass.release();
+}
+
+void fair_queue::update_shares_for_class(class_id id, uint32_t shares) {
+    assert(id < _priority_classes.size());
+    auto& pc = _priority_classes[id];
+    assert(pc);
+    pc->update_shares(shares);
 }
 
 size_t fair_queue::waiters() const {
@@ -222,7 +242,8 @@ fair_queue_ticket fair_queue::resources_currently_executing() const {
     return _resources_executing;
 }
 
-void fair_queue::queue(priority_class_ptr pc, fair_queue_entry& ent) {
+void fair_queue::queue(class_id id, fair_queue_entry& ent) {
+    auto& pc = _priority_classes[id];
     // We need to return a future in this function on which the caller can wait.
     // Since we don't know which queue we will use to execute the next request - if ours or
     // someone else's, we need a separate promise at this point.

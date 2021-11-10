@@ -59,7 +59,7 @@ class test_env {
     fair_queue _fq;
     std::vector<int> _results;
     std::vector<std::vector<std::exception_ptr>> _exceptions;
-    std::vector<priority_class_ptr> _classes;
+    fair_queue::class_id _nr_classes = 0;
     std::vector<request> _inflight;
 
     void drain() {
@@ -103,20 +103,20 @@ public:
 
     ~test_env() {
         drain();
-        for (auto& p: _classes) {
-            _fq.unregister_priority_class(p);
+        for (fair_queue::class_id id = 0; id < _nr_classes; id++) {
+            _fq.unregister_priority_class(id);
         }
     }
 
     size_t register_priority_class(uint32_t shares) {
         _results.push_back(0);
         _exceptions.push_back(std::vector<std::exception_ptr>());
-        _classes.push_back(_fq.register_priority_class(shares));
-        return _classes.size() - 1;
+        _fq.register_priority_class(_nr_classes, shares);
+        return _nr_classes++;
     }
 
-    void do_op(unsigned index, unsigned weight) {
-        auto cl = _classes[index];
+    void do_op(fair_queue::class_id id, unsigned weight) {
+        unsigned index = id;
         auto req = std::make_unique<request>(weight, index, [this, index] (request& req) mutable noexcept {
             try {
                 _inflight.push_back(std::move(req));
@@ -127,13 +127,12 @@ public:
             }
         });
 
-        _fq.queue(cl, req->fqent);
+        _fq.queue(id, req->fqent);
         req.release();
     }
 
-    void update_shares(unsigned index, uint32_t shares) {
-        auto cl = _classes[index];
-        cl->update_shares(shares);
+    void update_shares(fair_queue::class_id id, uint32_t shares) {
+        _fq.update_shares_for_class(id, shares);
     }
 
     void reset_results(unsigned index) {

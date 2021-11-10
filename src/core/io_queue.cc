@@ -52,7 +52,8 @@ struct default_io_exception_factory {
 };
 
 class io_queue::priority_class_data {
-    priority_class_ptr _ptr;
+    const io_priority_class _pc;
+    uint32_t _shares;
     struct {
         size_t bytes = 0;
         uint64_t ops = 0;
@@ -75,9 +76,13 @@ class io_queue::priority_class_data {
 
 public:
     void rename(sstring new_name, sstring mountpoint);
+    void update_shares(uint32_t shares) noexcept {
+        _shares = std::max(shares, 1u);
+    }
 
-    priority_class_data(sstring name, sstring mountpoint, priority_class_ptr ptr)
-        : _ptr(ptr)
+    priority_class_data(io_priority_class pc, uint32_t shares, sstring name, sstring mountpoint)
+        : _pc(pc)
+        , _shares(shares)
         , _nr_queued(0)
         , _nr_executing(0)
         , _queue_time(0)
@@ -125,7 +130,7 @@ public:
         }
     }
 
-    priority_class_ptr pclass() const noexcept { return _ptr; }
+    fair_queue::class_id fq_class() const noexcept { return _pc.id(); }
 };
 
 class io_desc_read_write final : public io_completion {
@@ -365,7 +370,7 @@ io_queue::~io_queue() {
     // that, then this has to change.
     for (auto&& pc_data : _priority_classes) {
         if (pc_data) {
-            _fq.unregister_priority_class(pc_data->pclass());
+            _fq.unregister_priority_class(pc_data->fq_class());
         }
     }
 }
@@ -394,7 +399,7 @@ io_priority_class io_priority_class::register_one(sstring name, uint32_t shares)
             // found an entry matching the name to be registered,
             // make sure it was registered with the same number shares
             // Note: those may change dynamically later on in the
-            // fair queue priority_class_ptr
+            // fair queue
             assert(_infos[i].shares == shares);
         }
         return io_priority_class(i);
@@ -518,9 +523,7 @@ io_queue::priority_class_data::register_stats(sstring name, sstring mountpoint) 
             sm::make_gauge("delay", [this] {
                 return _queue_time.count();
             }, sm::description("random delay time in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
-            sm::make_gauge("shares", [this] {
-                return this->_ptr->shares();
-            }, sm::description("current amount of shares"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label})
+            sm::make_gauge("shares", _shares, sm::description("current amount of shares"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label})
     });
     _metric_groups = std::exchange(new_metrics, {});
 }
@@ -548,8 +551,8 @@ io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_
         //
         // This conveys all the information we need and allows one to easily group all classes from
         // the same I/O queue (by filtering by shard)
-        auto pc_ptr = _fq.register_priority_class(shares);
-        auto pc_data = std::make_unique<priority_class_data>(name, mountpoint(), pc_ptr);
+        _fq.register_priority_class(id, shares);
+        auto pc_data = std::make_unique<priority_class_data>(pc, shares, name, mountpoint());
 
         _priority_classes[id] = std::move(pc_data);
     }
@@ -605,7 +608,7 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_re
             cq = &intent->find_or_create_cancellable_queue(dev_id(), pc.id());
         }
 
-        _fq.queue(pclass.pclass(), queued_req->queue_entry());
+        _fq.queue(pclass.fq_class(), queued_req->queue_entry());
         queued_req->set_intent(cq);
         queued_req.release();
         pclass.on_queue();
@@ -639,7 +642,8 @@ future<>
 io_queue::update_shares_for_class(const io_priority_class pc, size_t new_shares) {
     return futurize_invoke([this, pc, new_shares] {
         auto& pclass = find_or_create_class(pc);
-        pclass.pclass()->update_shares(new_shares);
+        pclass.update_shares(new_shares);
+        _fq.update_shares_for_class(pclass.fq_class(), new_shares);
     });
 }
 
