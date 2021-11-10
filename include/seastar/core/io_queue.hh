@@ -106,6 +106,7 @@ public:
         size_t disk_read_saturation_length = std::numeric_limits<size_t>::max();
         size_t disk_write_saturation_length = std::numeric_limits<size_t>::max();
         sstring mountpoint = "undefined";
+        bool duplex = false;
     };
 
     io_queue(io_group_ptr group, internal::io_sink& sink);

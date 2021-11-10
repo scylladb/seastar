@@ -330,6 +330,9 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
 {
     auto fq_cfg = make_fair_queue_config(get_config());
     _streams.emplace_back(*_group->_fgs[0], fq_cfg);
+    if (get_config().duplex) {
+        _streams.emplace_back(*_group->_fgs[1], fq_cfg);
+    }
     seastar_logger.debug("Created io queue, multipliers {}:{}",
             get_config().disk_req_write_to_read_multiplier,
             get_config().disk_bytes_write_to_read_multiplier);
@@ -369,6 +372,9 @@ io_group::io_group(io_queue::config io_cfg) noexcept
 {
     auto fg_cfg = make_fair_group_config(_config);
     _fgs.push_back(std::make_unique<fair_group>(fg_cfg));
+    if (_config.duplex) {
+        _fgs.push_back(std::make_unique<fair_group>(fg_cfg));
+    }
     seastar_logger.debug("Created io group, limits {}:{}", _config.max_req_count, _config.max_bytes_count);
 }
 
@@ -575,7 +581,7 @@ io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_
 }
 
 stream_id io_queue::request_stream(internal::io_direction_and_length dnl) const noexcept {
-    return 0; // for now we only have one stream
+    return get_config().duplex ? dnl.rw_idx() : 0;
 }
 
 fair_queue_ticket io_queue::request_fq_ticket(internal::io_direction_and_length dnl) const noexcept {
