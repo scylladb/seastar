@@ -24,10 +24,13 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/core/linux-aio.hh>
 #include <seastar/core/internal/io_desc.hh>
+#include <seastar/core/on_internal_error.hh>
 #include <sys/types.h>
 #include <sys/socket.h>
 
 namespace seastar {
+extern logger io_log;
+
 namespace internal {
 
 class io_request {
@@ -270,5 +273,28 @@ public:
         return io_request(operation::cancel, fd, reinterpret_cast<char*>(addr));
     }
 };
+
+// Helper pair of IO direction and length
+struct io_direction_and_length {
+    size_t _directed_length; // bit 0 is R/W flag
+
+public:
+    io_direction_and_length(const io_request& rq, size_t val) {
+        _directed_length = val << 1;
+        if (rq.is_read()) {
+            _directed_length |= 0x1;
+        } else if (!rq.is_write()) {
+            on_internal_error(io_log, fmt::format("Unrecognized request passing through I/O queue {}", rq.opname()));
+        }
+    }
+
+    bool is_read() const noexcept { return (_directed_length & 0x1) == 1; }
+    bool is_write() const noexcept { return (_directed_length & 0x1) == 0; }
+    size_t length() const noexcept { return _directed_length >> 1; }
+    int rw_idx() const noexcept { return _directed_length & 0x1; }
+    static constexpr int read_idx = 1;
+    static constexpr int write_idx = 0;
+};
+
 }
 }
