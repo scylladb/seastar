@@ -313,7 +313,7 @@ io_intent* internal::intent_reference::retrieve() const {
 void
 io_queue::complete_request(io_desc_read_write& desc) noexcept {
     _requests_executing--;
-    _fq.notify_request_finished(desc.ticket());
+    _streams[desc.stream()].notify_request_finished(desc.ticket());
 }
 
 fair_queue::config io_queue::make_fair_queue_config(const config& iocfg) {
@@ -326,9 +326,10 @@ fair_queue::config io_queue::make_fair_queue_config(const config& iocfg) {
 io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     : _priority_classes()
     , _group(std::move(group))
-    , _fq(_group->_fg, make_fair_queue_config(_group->_config))
     , _sink(sink)
 {
+    auto fq_cfg = make_fair_queue_config(get_config());
+    _streams.emplace_back(_group->_fg, fq_cfg);
     seastar_logger.debug("Created io queue, multipliers {}:{}",
             get_config().disk_req_write_to_read_multiplier,
             get_config().disk_bytes_write_to_read_multiplier);
@@ -379,7 +380,9 @@ io_queue::~io_queue() {
     // that, then this has to change.
     for (auto&& pc_data : _priority_classes) {
         if (pc_data) {
-            _fq.unregister_priority_class(pc_data->fq_class());
+            for (auto&& s : _streams) {
+                s.unregister_priority_class(pc_data->fq_class());
+            }
         }
     }
 }
@@ -560,7 +563,9 @@ io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_
         //
         // This conveys all the information we need and allows one to easily group all classes from
         // the same I/O queue (by filtering by shard)
-        _fq.register_priority_class(id, shares);
+        for (auto&& s : _streams) {
+            s.register_priority_class(id, shares);
+        }
         auto pc_data = std::make_unique<priority_class_data>(pc, shares, name, mountpoint());
 
         _priority_classes[id] = std::move(pc_data);
@@ -621,7 +626,7 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_re
             cq = &intent->find_or_create_cancellable_queue(dev_id(), pc.id());
         }
 
-        _fq.queue(pclass.fq_class(), queued_req->queue_entry());
+        _streams[queued_req->stream()].queue(pclass.fq_class(), queued_req->queue_entry());
         queued_req->set_intent(cq);
         queued_req.release();
         pclass.on_queue();
@@ -631,9 +636,11 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_re
 }
 
 void io_queue::poll_io_queue() {
-    _fq.dispatch_requests([] (fair_queue_entry& fqe) {
-        queued_io_request::from_fq_entry(fqe).dispatch();
-    });
+    for (auto&& st : _streams) {
+        st.dispatch_requests([] (fair_queue_entry& fqe) {
+            queued_io_request::from_fq_entry(fqe).dispatch();
+        });
+    }
 }
 
 void io_queue::submit_request(io_desc_read_write* desc, internal::io_request req) noexcept {
@@ -644,15 +651,24 @@ void io_queue::submit_request(io_desc_read_write* desc, internal::io_request req
 
 void io_queue::cancel_request(queued_io_request& req) noexcept {
     _queued_requests--;
-    _fq.notify_request_cancelled(req.queue_entry());
+    _streams[req.stream()].notify_request_cancelled(req.queue_entry());
 }
 
 void io_queue::complete_cancelled_request(queued_io_request& req) noexcept {
-    _fq.notify_request_finished(req.queue_entry().ticket());
+    _streams[req.stream()].notify_request_finished(req.queue_entry().ticket());
 }
 
 io_queue::clock_type::time_point io_queue::next_pending_aio() const noexcept {
-    return _fq.next_pending_aio();
+    clock_type::time_point next = clock_type::time_point::max();
+
+    for (const auto& s : _streams) {
+        clock_type::time_point n = s.next_pending_aio();
+        if (n < next) {
+            next = std::move(n);
+        }
+    }
+
+    return next;
 }
 
 future<>
@@ -660,7 +676,9 @@ io_queue::update_shares_for_class(const io_priority_class pc, size_t new_shares)
     return futurize_invoke([this, pc, new_shares] {
         auto& pclass = find_or_create_class(pc);
         pclass.update_shares(new_shares);
-        _fq.update_shares_for_class(pclass.fq_class(), new_shares);
+        for (auto&& s : _streams) {
+            s.update_shares_for_class(pclass.fq_class(), new_shares);
+        }
     });
 }
 

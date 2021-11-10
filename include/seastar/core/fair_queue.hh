@@ -263,6 +263,7 @@ public:
     ///
     /// \param cfg an instance of the class \ref config
     explicit fair_queue(fair_group& shared, config cfg);
+    fair_queue(fair_queue&&);
     ~fair_queue();
 
     /// Registers a priority class against this fair queue.

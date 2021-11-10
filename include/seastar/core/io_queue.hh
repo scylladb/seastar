@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include <boost/container/small_vector.hpp>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/fair_queue.hh>
 #include <seastar/core/metrics_registration.hh>
@@ -66,7 +67,7 @@ public:
 private:
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
     io_group_ptr _group;
-    fair_queue _fq;
+    boost::container::small_vector<fair_queue, 2> _streams;
     internal::io_sink& _sink;
 
     priority_class_data& find_or_create_class(const io_priority_class& pc);

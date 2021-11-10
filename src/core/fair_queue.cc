@@ -155,6 +155,19 @@ fair_queue::fair_queue(fair_group& group, config cfg)
     seastar_logger.debug("Created fair queue, ticket pace {}:{}", cfg.ticket_weight_pace, cfg.ticket_size_pace);
 }
 
+fair_queue::fair_queue(fair_queue&& other)
+    : _config(std::move(other._config))
+    , _group(other._group)
+    , _resources_executing(std::exchange(other._resources_executing, fair_queue_ticket{}))
+    , _resources_queued(std::exchange(other._resources_queued, fair_queue_ticket{}))
+    , _requests_executing(std::exchange(other._requests_executing, 0))
+    , _requests_queued(std::exchange(other._requests_queued, 0))
+    , _base(other._base)
+    , _handles(std::move(other._handles))
+    , _priority_classes(std::move(other._priority_classes))
+{
+}
+
 fair_queue::~fair_queue() {
     for (const auto& fq : _priority_classes) {
         assert(!fq);
