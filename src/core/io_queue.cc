@@ -69,7 +69,7 @@ class io_queue::priority_class_data {
     std::chrono::duration<double> _total_queue_time;
     std::chrono::duration<double> _total_execution_time;
     std::chrono::duration<double> _starvation_time;
-    std::chrono::steady_clock::time_point _activated;
+    io_queue::clock_type::time_point _activated;
     metrics::metric_groups _metric_groups;
 
     void register_stats(sstring name, sstring mountpoint);
@@ -96,7 +96,7 @@ public:
     void on_queue() noexcept {
         _nr_queued++;
         if (_nr_executing == 0 && _nr_queued == 1) {
-            _activated = std::chrono::steady_clock::now();
+            _activated = io_queue::clock_type::now();
         }
     }
 
@@ -107,7 +107,7 @@ public:
         _nr_queued--;
         _nr_executing++;
         if (_nr_executing == 1) {
-            _starvation_time += std::chrono::steady_clock::now() - _activated;
+            _starvation_time += io_queue::clock_type::now() - _activated;
         }
     }
 
@@ -119,14 +119,14 @@ public:
         _total_execution_time += lat;
         _nr_executing--;
         if (_nr_executing == 0 && _nr_queued != 0) {
-            _activated = std::chrono::steady_clock::now();
+            _activated = io_queue::clock_type::now();
         }
     }
 
     void on_error() noexcept {
         _nr_executing--;
         if (_nr_executing == 0 && _nr_queued != 0) {
-            _activated = std::chrono::steady_clock::now();
+            _activated = io_queue::clock_type::now();
         }
     }
 
@@ -136,7 +136,7 @@ public:
 class io_desc_read_write final : public io_completion {
     io_queue& _ioq;
     io_queue::priority_class_data& _pclass;
-    std::chrono::steady_clock::time_point _dispatched;
+    io_queue::clock_type::time_point _dispatched;
     fair_queue_ticket _fq_ticket;
     promise<size_t> _pr;
 
@@ -157,7 +157,7 @@ public:
 
     virtual void complete(size_t res) noexcept override {
         io_log.trace("dev {} : req {} complete", _ioq.dev_id(), fmt::ptr(this));
-        auto now = std::chrono::steady_clock::now();
+        auto now = io_queue::clock_type::now();
         _pclass.on_complete(std::chrono::duration_cast<std::chrono::duration<double>>(now - _dispatched));
         _ioq.complete_request(*this);
         _pr.set_value(res);
@@ -170,8 +170,8 @@ public:
         delete this;
     }
 
-    void dispatch(internal::io_direction_and_length dnl, std::chrono::steady_clock::time_point queued) noexcept {
-        auto now = std::chrono::steady_clock::now();
+    void dispatch(internal::io_direction_and_length dnl, io_queue::clock_type::time_point queued) noexcept {
+        auto now = io_queue::clock_type::now();
         _pclass.on_dispatch(dnl, std::chrono::duration_cast<std::chrono::duration<double>>(now - queued));
         _dispatched = now;
     }
@@ -186,7 +186,7 @@ public:
 class queued_io_request : private internal::io_request {
     io_queue& _ioq;
     internal::io_direction_and_length _dnl;
-    std::chrono::steady_clock::time_point _started;
+    io_queue::clock_type::time_point _started;
     fair_queue_entry _fq_entry;
     internal::cancellable_queue::link _intent;
     std::unique_ptr<io_desc_read_write> _desc;
@@ -198,7 +198,7 @@ public:
         : io_request(std::move(req))
         , _ioq(q)
         , _dnl(std::move(dnl))
-        , _started(std::chrono::steady_clock::now())
+        , _started(io_queue::clock_type::now())
         , _fq_entry(_ioq.request_fq_ticket(dnl))
         , _desc(std::make_unique<io_desc_read_write>(_ioq, pc, _fq_entry.ticket()))
     {
@@ -506,7 +506,7 @@ io_queue::priority_class_data::register_stats(sstring name, sstring mountpoint) 
             sm::make_derive("starvation_time_sec", [this] {
                 auto st = _starvation_time;
                 if (_nr_queued != 0 && _nr_executing == 0) {
-                    st += std::chrono::steady_clock::now() - _activated;
+                    st += io_queue::clock_type::now() - _activated;
                 }
                 return st.count();
             }, sm::description("Total time spent starving for disk"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),

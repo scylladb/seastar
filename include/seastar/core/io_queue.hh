@@ -77,6 +77,9 @@ private:
     size_t _queued_requests = 0;
     size_t _requests_executing = 0;
 public:
+
+    using clock_type = std::chrono::steady_clock;
+
     // We want to represent the fact that write requests are (maybe) more expensive
     // than read requests. To avoid dealing with floating point math we will scale one
     // read request to be counted by this amount.
@@ -132,7 +135,7 @@ public:
     // Dispatch requests that are pending in the I/O queue
     void poll_io_queue();
 
-    std::chrono::steady_clock::time_point next_pending_aio() const noexcept {
+    clock_type::time_point next_pending_aio() const noexcept {
         return _fq.next_pending_aio();
     }
 
