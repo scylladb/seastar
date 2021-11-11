@@ -39,7 +39,7 @@ using namespace seastar::internal::linux_abi;
 // Runs func(), and also adds the number of context switches
 // that happened during func() to counter.
 template <typename Counter, typename Func>
-typename std::result_of<Func()>::type
+typename std::invoke_result_t<Func>
 with_ctxsw_counting(Counter& counter, Func&& func) {
     struct count_guard {
         Counter& counter;

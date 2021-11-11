@@ -255,7 +255,7 @@ inline
 auto
 try_with_gate(gate& g, Func&& func) noexcept {
     if (!g.try_enter()) {
-        using futurator = futurize<std::result_of_t<Func()>>;
+        using futurator = futurize<std::invoke_result_t<Func>>;
         return futurator::make_exception_future(gate_closed_exception());
     }
     return internal::invoke_func_with_gate(g, std::forward<Func>(func));

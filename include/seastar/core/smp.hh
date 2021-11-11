@@ -211,7 +211,7 @@ class smp_message_queue {
     struct async_work_item : work_item {
         smp_message_queue& _queue;
         Func _func;
-        using futurator = futurize<std::result_of_t<Func()>>;
+        using futurator = futurize<std::invoke_result_t<Func>>;
         using future_type = typename futurator::type;
         using value_type = typename future_type::value_type;
         std::optional<value_type> _result;
@@ -262,7 +262,7 @@ public:
     smp_message_queue(reactor* from, reactor* to);
     ~smp_message_queue();
     template <typename Func>
-    futurize_t<std::result_of_t<Func()>> submit(shard_id t, smp_submit_to_options options, Func&& func) noexcept {
+    futurize_t<std::invoke_result_t<Func>> submit(shard_id t, smp_submit_to_options options, Func&& func) noexcept {
         memory::scoped_critical_alloc_section _;
         auto wi = std::make_unique<async_work_item<Func>>(*this, options.service_group, std::forward<Func>(func));
         auto fut = wi->get_future();
@@ -303,9 +303,9 @@ class smp : public std::enable_shared_from_this<smp> {
     bool _using_dpdk = false;
 
     template <typename Func>
-    using returns_future = is_future<std::result_of_t<Func()>>;
+    using returns_future = is_future<std::invoke_result_t<Func>>;
     template <typename Func>
-    using returns_void = std::is_same<std::result_of_t<Func()>, void>;
+    using returns_void = std::is_same<std::invoke_result_t<Func>, void>;
 public:
     explicit smp(alien::instance& alien) : _alien(alien) {}
     static boost::program_options::options_description get_options_description();
@@ -331,8 +331,8 @@ public:
     /// \return whatever \c func returns, as a future<> (if \c func does not return a future,
     ///         submit_to() will wrap it in a future<>).
     template <typename Func>
-    static futurize_t<std::result_of_t<Func()>> submit_to(unsigned t, smp_submit_to_options options, Func&& func) noexcept {
-        using ret_type = std::result_of_t<Func()>;
+    static futurize_t<std::invoke_result_t<Func>> submit_to(unsigned t, smp_submit_to_options options, Func&& func) noexcept {
+        using ret_type = std::invoke_result_t<Func>;
         if (t == this_shard_id()) {
             try {
                 if (!is_future<ret_type>::value) {
@@ -349,7 +349,7 @@ public:
                 }
             } catch (...) {
                 // Consistently return a failed future rather than throwing, to simplify callers
-                return futurize<std::result_of_t<Func()>>::make_exception_future(std::current_exception());
+                return futurize<std::invoke_result_t<Func>>::make_exception_future(std::current_exception());
             }
         } else {
             return _qs[t][this_shard_id()].submit(t, options, std::forward<Func>(func));
@@ -370,7 +370,7 @@ public:
     /// \return whatever \c func returns, as a future<> (if \c func does not return a future,
     ///         submit_to() will wrap it in a future<>).
     template <typename Func>
-    static futurize_t<std::result_of_t<Func()>> submit_to(unsigned t, Func&& func) noexcept {
+    static futurize_t<std::invoke_result_t<Func>> submit_to(unsigned t, Func&& func) noexcept {
         return submit_to(t, default_smp_service_group(), std::forward<Func>(func));
     }
     static bool poll_queues();
@@ -389,7 +389,7 @@ public:
     template<typename Func>
     SEASTAR_CONCEPT( requires std::is_nothrow_move_constructible_v<Func> )
     static future<> invoke_on_all(smp_submit_to_options options, Func&& func) noexcept {
-        static_assert(std::is_same<future<>, typename futurize<std::result_of_t<Func()>>::type>::value, "bad Func signature");
+        static_assert(std::is_same<future<>, typename futurize<std::invoke_result_t<Func>>::type>::value, "bad Func signature");
         static_assert(std::is_nothrow_move_constructible_v<Func>);
         return parallel_for_each(all_cpus(), [options, &func] (unsigned id) {
             return smp::submit_to(id, options, Func(func));
@@ -421,7 +421,7 @@ public:
     SEASTAR_CONCEPT( requires std::is_nothrow_move_constructible_v<Func> &&
             std::is_nothrow_copy_constructible_v<Func> )
     static future<> invoke_on_others(unsigned cpu_id, smp_submit_to_options options, Func func) noexcept {
-        static_assert(std::is_same<future<>, typename futurize<std::result_of_t<Func()>>::type>::value, "bad Func signature");
+        static_assert(std::is_same<future<>, typename futurize<std::invoke_result_t<Func>>::type>::value, "bad Func signature");
         static_assert(std::is_nothrow_move_constructible_v<Func>);
         return parallel_for_each(all_cpus(), [cpu_id, options, func = std::move(func)] (unsigned id) {
             return id != cpu_id ? smp::submit_to(id, options, Func(func)) : make_ready_future<>();

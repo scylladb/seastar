@@ -239,9 +239,9 @@ thread::join() {
 /// \endcode
 template <typename Func, typename... Args>
 inline
-futurize_t<std::result_of_t<std::decay_t<Func>(std::decay_t<Args>...)>>
+futurize_t<std::invoke_result_t<Func, Args...>>
 async(thread_attributes attr, Func&& func, Args&&... args) noexcept {
-    using return_type = std::result_of_t<std::decay_t<Func>(std::decay_t<Args>...)>;
+    using return_type = std::invoke_result_t<Func, Args...>;
     struct work {
         thread_attributes attr;
         Func func;
@@ -276,7 +276,7 @@ async(thread_attributes attr, Func&& func, Args&&... args) noexcept {
 /// \return whatever \c func returns, as a future.
 template <typename Func, typename... Args>
 inline
-futurize_t<std::result_of_t<std::decay_t<Func>(std::decay_t<Args>...)>>
+futurize_t<std::invoke_result_t<Func, Args...>>
 async(Func&& func, Args&&... args) noexcept {
     return async(thread_attributes{}, std::forward<Func>(func), std::forward<Args>(args)...);
 }

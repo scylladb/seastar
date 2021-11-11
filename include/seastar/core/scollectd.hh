@@ -525,7 +525,7 @@ struct is_callable;
 template<typename T>
 struct is_callable<T,
 typename std::enable_if<
-!std::is_void<typename std::result_of<T()>::type>::value,
+!std::is_void<std::invoke_result_t<T>>::value,
 void>::type> : public std::true_type {
 };
 
@@ -555,7 +555,7 @@ data_type, data_type::GAUGE> {
 template<typename T>
 struct data_type_for<T,
 typename std::enable_if<is_callable<T>::value, void>::type> : public data_type_for<
-typename std::result_of<T()>::type> {
+std::invoke_result_t<T>> {
 };
 template<typename T>
 struct data_type_for<typed<T>> : public data_type_for<T> {

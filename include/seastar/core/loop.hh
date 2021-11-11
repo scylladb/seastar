@@ -111,7 +111,7 @@ template<typename AsyncAction>
 SEASTAR_CONCEPT( requires seastar::InvokeReturns<AsyncAction, stop_iteration> || seastar::InvokeReturns<AsyncAction, future<stop_iteration>> )
 inline
 future<> repeat(AsyncAction&& action) noexcept {
-    using futurator = futurize<std::result_of_t<AsyncAction()>>;
+    using futurator = futurize<std::invoke_result_t<AsyncAction>>;
     static_assert(std::is_same<future<stop_iteration>, typename futurator::type>::value, "bad AsyncAction signature");
     for (;;) {
         // Do not type-erase here in case this is a short repeat()
@@ -152,7 +152,7 @@ struct repeat_until_value_type_helper<future<std::optional<T>>> {
 /// Return value of repeat_until_value()
 template <typename AsyncAction>
 using repeat_until_value_return_type
-        = typename repeat_until_value_type_helper<typename futurize<std::result_of_t<AsyncAction()>>::type>::future_type;
+        = typename repeat_until_value_type_helper<typename futurize<std::invoke_result_t<AsyncAction>>::type>::future_type;
 
 /// \endcond
 
@@ -227,7 +227,7 @@ SEASTAR_CONCEPT( requires requires (AsyncAction aa) {
 } )
 repeat_until_value_return_type<AsyncAction>
 repeat_until_value(AsyncAction action) noexcept {
-    using futurator = futurize<std::result_of_t<AsyncAction()>>;
+    using futurator = futurize<std::invoke_result_t<AsyncAction>>;
     using type_helper = repeat_until_value_type_helper<typename futurator::type>;
     // the "T" in the documentation
     using value_type = typename type_helper::value_type;

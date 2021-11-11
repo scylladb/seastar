@@ -30,7 +30,7 @@ namespace seastar {
 template <typename Func>
 class lambda_task final : public task {
     Func _func;
-    using futurator = futurize<std::result_of_t<Func()>>;
+    using futurator = futurize<std::invoke_result_t<Func>>;
     typename futurator::promise_type _result;
 public:
     lambda_task(scheduling_group sg, const Func& func) : task(sg), _func(func) {}

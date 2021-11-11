@@ -371,7 +371,7 @@ template<typename T, typename En = std::true_type>
 struct is_callable;
 
 template<typename T>
-struct is_callable<T, typename std::integral_constant<bool, !std::is_void<typename std::result_of<T()>::type>::value>::type> : public std::true_type {
+struct is_callable<T, typename std::integral_constant<bool, !std::is_void<std::invoke_result_t<T>>::value>::type> : public std::true_type {
 };
 
 template<typename T>
