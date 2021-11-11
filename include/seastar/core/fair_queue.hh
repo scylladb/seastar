@@ -24,6 +24,7 @@
 #include <boost/intrusive/slist.hpp>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/circular_buffer.hh>
+#include <functional>
 #include <atomic>
 #include <queue>
 #include <chrono>
@@ -130,40 +131,6 @@ public:
     fair_queue_ticket ticket() const noexcept { return _ticket; }
 };
 
-/// \cond internal
-class priority_class {
-    using accumulator_t = double;
-    friend class fair_queue;
-    uint32_t _shares = 0;
-    accumulator_t _accumulated = 0;
-    fair_queue_entry::container_list_t _queue;
-    bool _queued = false;
-
-    friend struct shared_ptr_no_esft<priority_class>;
-    explicit priority_class(uint32_t shares) noexcept : _shares(std::max(shares, 1u)) {}
-
-public:
-    /// \brief return the current amount of shares for this priority class
-    uint32_t shares() const noexcept {
-        return _shares;
-    }
-
-    void update_shares(uint32_t shares) noexcept {
-        _shares = (std::max(shares, 1u));
-    }
-};
-/// \endcond
-
-/// \brief Priority class, to be used with a given \ref fair_queue
-///
-/// An instance of this class is associated with a given \ref fair_queue. When registering
-/// a class, the caller will receive a \ref lw_shared_ptr to an object of this class. All its methods
-/// are private, so the only thing the caller is expected to do with it is to pass it later
-/// to the \ref fair_queue to identify a given class.
-///
-/// \related fair_queue
-using priority_class_ptr = lw_shared_ptr<priority_class>;
-
 /// \brief Group of queues class
 ///
 /// This is a fair group. It's attached by one or mode fair queues. On machines having the
@@ -196,6 +163,7 @@ public:
                 : max_req_count(max_requests), max_bytes_count(max_bytes) {}
     };
     explicit fair_group(config cfg) noexcept;
+    fair_group(fair_group&&) = delete;
 
     fair_queue_ticket maximum_capacity() const noexcept { return _maximum_capacity; }
     fair_group_rover grab_capacity(fair_queue_ticket cap) noexcept;
@@ -215,7 +183,7 @@ public:
 /// 1 share. Higher weights for a request will consume a proportionally higher amount of
 /// shares.
 ///
-/// The user of this interface is expected to register multiple `priority_class`
+/// The user of this interface is expected to register multiple `priority_class_data`
 /// objects, which will each have a shares attribute.
 ///
 /// Internally, each priority class may keep a separate queue of requests.
@@ -237,11 +205,14 @@ public:
         float ticket_size_pace;
         float ticket_weight_pace;
     };
+
+    using class_id = unsigned int;
+    class priority_class_data;
+
 private:
+    using priority_class_ptr = priority_class_data*;
     struct class_compare {
-        bool operator() (const priority_class_ptr& lhs, const priority_class_ptr& rhs) const {
-            return lhs->_accumulated > rhs->_accumulated;
-        }
+        bool operator() (const priority_class_ptr& lhs, const priority_class_ptr & rhs) const noexcept;
     };
 
     config _config;
@@ -254,7 +225,7 @@ private:
     clock_type _base;
     using prioq = std::priority_queue<priority_class_ptr, std::vector<priority_class_ptr>, class_compare>;
     prioq _handles;
-    std::unordered_set<priority_class_ptr> _all_classes;
+    std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
 
     /*
      * When the shared capacity os over the local queue delays
@@ -276,9 +247,8 @@ private:
 
     std::optional<pending> _pending;
 
-    priority_class_ptr peek_priority_class();
-    void push_priority_class(priority_class_ptr pc);
-    void pop_priority_class(priority_class_ptr pc);
+    void push_priority_class(priority_class_data& pc);
+    void pop_priority_class(priority_class_data& pc);
 
     void normalize_stats();
 
@@ -294,16 +264,20 @@ public:
     ///
     /// \param cfg an instance of the class \ref config
     explicit fair_queue(fair_group& shared, config cfg);
+    fair_queue(fair_queue&&);
+    ~fair_queue();
 
     /// Registers a priority class against this fair queue.
     ///
     /// \param shares how many shares to create this class with
-    priority_class_ptr register_priority_class(uint32_t shares);
+    void register_priority_class(class_id c, uint32_t shares);
 
     /// Unregister a priority class.
     ///
     /// It is illegal to unregister a priority class that still have pending requests.
-    void unregister_priority_class(priority_class_ptr pclass);
+    void unregister_priority_class(class_id c);
+
+    void update_shares_for_class(class_id c, uint32_t new_shares);
 
     /// \return how many waiters are currently queued for all classes.
     [[deprecated("fair_queue users should not track individual requests, but resources (weight, size) passing through the queue")]]
@@ -323,11 +297,11 @@ public:
     ///
     /// The user of this interface is supposed to call \ref notify_requests_finished when the
     /// request finishes executing - regardless of success or failure.
-    void queue(priority_class_ptr pc, fair_queue_entry& ent);
+    void queue(class_id c, fair_queue_entry& ent);
 
     /// Notifies that ont request finished
     /// \param desc an instance of \c fair_queue_ticket structure describing the request that just finished.
-    void notify_requests_finished(fair_queue_ticket desc, unsigned nr = 1) noexcept;
+    void notify_request_finished(fair_queue_ticket desc) noexcept;
     void notify_request_cancelled(fair_queue_entry& ent) noexcept;
 
     /// Try to execute new requests if there is capacity left in the queue.

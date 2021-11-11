@@ -29,11 +29,12 @@
 #include <seastar/core/when_all.hh>
 #include <boost/range/irange.hpp>
 
+static constexpr fair_queue::class_id cid = 0;
+
 struct local_fq_and_class {
     seastar::fair_group fg;
     seastar::fair_queue fq;
     seastar::fair_queue sfq;
-    seastar::priority_class_ptr pclass;
     unsigned executed = 0;
 
     seastar::fair_queue& queue(bool local) noexcept { return local ? fq : sfq; }
@@ -42,11 +43,12 @@ struct local_fq_and_class {
         : fg(seastar::fair_group::config(1, 1))
         , fq(fg, seastar::fair_queue::config())
         , sfq(sfg, seastar::fair_queue::config())
-        , pclass(fq.register_priority_class(1))
-    {}
+    {
+        fq.register_priority_class(cid, 1);
+    }
 
     ~local_fq_and_class() {
-        fq.unregister_priority_class(pclass);
+        fq.unregister_priority_class(cid);
     }
 };
 
@@ -87,9 +89,9 @@ future<> perf_fair_queue::test(bool loc) {
         return parallel_for_each(boost::irange(0u, requests_to_dispatch), [&local, loc] (unsigned dummy) {
             auto req = std::make_unique<local_fq_entry>(1, 1, [&local, loc] {
                 local.executed++;
-                local.queue(loc).notify_requests_finished(seastar::fair_queue_ticket{1, 1});
+                local.queue(loc).notify_request_finished(seastar::fair_queue_ticket{1, 1});
             });
-            local.queue(loc).queue(local.pclass, req->ent);
+            local.queue(loc).queue(cid, req->ent);
             req.release();
             return make_ready_future<>();
         });

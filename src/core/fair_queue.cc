@@ -126,6 +126,27 @@ void fair_group::release_capacity(fair_queue_ticket cap) noexcept {
     while (!_capacity_head.compare_exchange_weak(cur, cur + cap)) ;
 }
 
+// Priority class, to be used with a given fair_queue
+class fair_queue::priority_class_data {
+    using accumulator_t = double;
+    friend class fair_queue;
+    uint32_t _shares = 0;
+    accumulator_t _accumulated = 0;
+    fair_queue_entry::container_list_t _queue;
+    bool _queued = false;
+
+public:
+    explicit priority_class_data(uint32_t shares) noexcept : _shares(std::max(shares, 1u)) {}
+
+    void update_shares(uint32_t shares) noexcept {
+        _shares = (std::max(shares, 1u));
+    }
+};
+
+bool fair_queue::class_compare::operator() (const priority_class_ptr& lhs, const priority_class_ptr & rhs) const noexcept {
+    return lhs->_accumulated > rhs->_accumulated;
+}
+
 fair_queue::fair_queue(fair_group& group, config cfg)
     : _config(std::move(cfg))
     , _group(group)
@@ -134,28 +155,44 @@ fair_queue::fair_queue(fair_group& group, config cfg)
     seastar_logger.debug("Created fair queue, ticket pace {}:{}", cfg.ticket_weight_pace, cfg.ticket_size_pace);
 }
 
-void fair_queue::push_priority_class(priority_class_ptr pc) {
-    if (!pc->_queued) {
-        _handles.push(pc);
-        pc->_queued = true;
+fair_queue::fair_queue(fair_queue&& other)
+    : _config(std::move(other._config))
+    , _group(other._group)
+    , _resources_executing(std::exchange(other._resources_executing, fair_queue_ticket{}))
+    , _resources_queued(std::exchange(other._resources_queued, fair_queue_ticket{}))
+    , _requests_executing(std::exchange(other._requests_executing, 0))
+    , _requests_queued(std::exchange(other._requests_queued, 0))
+    , _base(other._base)
+    , _handles(std::move(other._handles))
+    , _priority_classes(std::move(other._priority_classes))
+{
+}
+
+fair_queue::~fair_queue() {
+    for (const auto& fq : _priority_classes) {
+        assert(!fq);
     }
 }
 
-priority_class_ptr fair_queue::peek_priority_class() {
-    assert(!_handles.empty());
-    return _handles.top();
+void fair_queue::push_priority_class(priority_class_data& pc) {
+    if (!pc._queued) {
+        _handles.push(&pc);
+        pc._queued = true;
+    }
 }
 
-void fair_queue::pop_priority_class(priority_class_ptr pc) {
-    assert(pc->_queued);
-    pc->_queued = false;
+void fair_queue::pop_priority_class(priority_class_data& pc) {
+    assert(pc._queued);
+    pc._queued = false;
     _handles.pop();
 }
 
 void fair_queue::normalize_stats() {
     _base = std::chrono::steady_clock::now() - _config.tau;
-    for (auto& pc: _all_classes) {
-        pc->_accumulated *= std::numeric_limits<priority_class::accumulator_t>::min();
+    for (auto& pc: _priority_classes) {
+        if (pc) {
+            pc->_accumulated *= std::numeric_limits<priority_class_data::accumulator_t>::min();
+        }
     }
 }
 
@@ -200,15 +237,27 @@ bool fair_queue::grab_capacity(fair_queue_ticket cap) noexcept {
     return true;
 }
 
-priority_class_ptr fair_queue::register_priority_class(uint32_t shares) {
-    priority_class_ptr pclass = make_lw_shared<priority_class>(shares);
-    _all_classes.insert(pclass);
-    return pclass;
+void fair_queue::register_priority_class(class_id id, uint32_t shares) {
+    if (id >= _priority_classes.size()) {
+        _priority_classes.resize(id + 1);
+    } else {
+        assert(!_priority_classes[id]);
+    }
+
+    _priority_classes[id] = std::make_unique<priority_class_data>(shares);
 }
 
-void fair_queue::unregister_priority_class(priority_class_ptr pclass) {
-    assert(pclass->_queue.empty());
-    _all_classes.erase(pclass);
+void fair_queue::unregister_priority_class(class_id id) {
+    auto& pclass = _priority_classes[id];
+    assert(pclass && pclass->_queue.empty());
+    pclass.reset();
+}
+
+void fair_queue::update_shares_for_class(class_id id, uint32_t shares) {
+    assert(id < _priority_classes.size());
+    auto& pc = _priority_classes[id];
+    assert(pc);
+    pc->update_shares(shares);
 }
 
 size_t fair_queue::waiters() const {
@@ -227,19 +276,20 @@ fair_queue_ticket fair_queue::resources_currently_executing() const {
     return _resources_executing;
 }
 
-void fair_queue::queue(priority_class_ptr pc, fair_queue_entry& ent) {
+void fair_queue::queue(class_id id, fair_queue_entry& ent) {
+    priority_class_data& pc = *_priority_classes[id];
     // We need to return a future in this function on which the caller can wait.
     // Since we don't know which queue we will use to execute the next request - if ours or
     // someone else's, we need a separate promise at this point.
     push_priority_class(pc);
-    pc->_queue.push_back(ent);
+    pc._queue.push_back(ent);
     _resources_queued += ent._ticket;
     _requests_queued++;
 }
 
-void fair_queue::notify_requests_finished(fair_queue_ticket desc, unsigned nr) noexcept {
+void fair_queue::notify_request_finished(fair_queue_ticket desc) noexcept {
     _resources_executing -= desc;
-    _requests_executing -= nr;
+    _requests_executing--;
     _group.release_capacity(desc);
 }
 
@@ -249,24 +299,20 @@ void fair_queue::notify_request_cancelled(fair_queue_entry& ent) noexcept {
 }
 
 void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
-    while (_requests_queued) {
-        priority_class_ptr h;
-
-        while (true) {
-            h = peek_priority_class();
-            if (!h->_queue.empty()) {
-                break;
-            }
+    while (!_handles.empty()) {
+        priority_class_data& h = *_handles.top();
+        if (h._queue.empty()) {
             pop_priority_class(h);
+            continue;
         }
 
-        auto& req = h->_queue.front();
+        auto& req = h._queue.front();
         if (!grab_capacity(req._ticket)) {
             break;
         }
 
         pop_priority_class(h);
-        h->_queue.pop_front();
+        h._queue.pop_front();
 
         _resources_executing += req._ticket;
         _resources_queued -= req._ticket;
@@ -274,19 +320,19 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         _requests_queued--;
 
         auto delta = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - _base);
-        auto req_cost  = req._ticket.normalize(_group.maximum_capacity()) / h->_shares;
-        auto cost  = exp(priority_class::accumulator_t(1.0f/_config.tau.count() * delta.count())) * req_cost;
-        priority_class::accumulator_t next_accumulated = h->_accumulated + cost;
+        auto req_cost  = req._ticket.normalize(_group.maximum_capacity()) / h._shares;
+        auto cost  = exp(priority_class_data::accumulator_t(1.0f/_config.tau.count() * delta.count())) * req_cost;
+        priority_class_data::accumulator_t next_accumulated = h._accumulated + cost;
         while (std::isinf(next_accumulated)) {
             normalize_stats();
             // If we have renormalized, our time base will have changed. This should happen very infrequently
             delta = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - _base);
-            cost  = exp(priority_class::accumulator_t(1.0f/_config.tau.count() * delta.count())) * req_cost;
-            next_accumulated = h->_accumulated + cost;
+            cost  = exp(priority_class_data::accumulator_t(1.0f/_config.tau.count() * delta.count())) * req_cost;
+            next_accumulated = h._accumulated + cost;
         }
-        h->_accumulated = next_accumulated;
+        h._accumulated = next_accumulated;
 
-        if (!h->_queue.empty()) {
+        if (!h._queue.empty()) {
             push_priority_class(h);
         }
 

@@ -149,6 +149,7 @@ struct mountpoint_params {
     uint64_t write_req_rate = std::numeric_limits<uint64_t>::max();
     uint64_t read_saturation_length = std::numeric_limits<uint64_t>::max();
     uint64_t write_saturation_length = std::numeric_limits<uint64_t>::max();
+    bool duplex = false;
 };
 
 }
@@ -168,6 +169,9 @@ struct convert<seastar::mountpoint_params> {
         }
         if (node["write_saturation_length"]) {
             mp.write_saturation_length = parse_memory_size(node["write_saturation_length"].as<std::string>());
+        }
+        if (node["duplex"]) {
+            mp.duplex = node["duplex"].as<bool>();
         }
         return true;
     }
@@ -3834,6 +3838,7 @@ public:
                 cfg.disk_write_saturation_length = p.write_saturation_length;
             }
             cfg.mountpoint = p.mountpoint;
+            cfg.duplex = p.duplex;
         } else {
             // For backwards compatibility
             cfg.capacity = *_capacity;

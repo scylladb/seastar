@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include <boost/container/small_vector.hpp>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/fair_queue.hh>
 #include <seastar/core/metrics_registration.hh>
@@ -50,6 +51,7 @@ struct iocb;
 }
 
 using shard_id = unsigned;
+using stream_id = unsigned;
 
 class io_priority_class;
 class io_desc_read_write;
@@ -57,13 +59,15 @@ class queued_io_request;
 class io_group;
 
 using io_group_ptr = std::shared_ptr<io_group>;
-class priority_class_data;
 
 class io_queue {
+public:
+    class priority_class_data;
+
 private:
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
     io_group_ptr _group;
-    fair_queue _fq;
+    boost::container::small_vector<fair_queue, 2> _streams;
     internal::io_sink& _sink;
 
     priority_class_data& find_or_create_class(const io_priority_class& pc);
@@ -75,6 +79,9 @@ private:
     size_t _queued_requests = 0;
     size_t _requests_executing = 0;
 public:
+
+    using clock_type = std::chrono::steady_clock;
+
     // We want to represent the fact that write requests are (maybe) more expensive
     // than read requests. To avoid dealing with floating point math we will scale one
     // read request to be counted by this amount.
@@ -99,11 +106,13 @@ public:
         size_t disk_read_saturation_length = std::numeric_limits<size_t>::max();
         size_t disk_write_saturation_length = std::numeric_limits<size_t>::max();
         sstring mountpoint = "undefined";
+        bool duplex = false;
     };
 
     io_queue(io_group_ptr group, internal::io_sink& sink);
     ~io_queue();
 
+    stream_id request_stream(internal::io_direction_and_length dnl) const noexcept;
     fair_queue_ticket request_fq_ticket(internal::io_direction_and_length dnl) const noexcept;
 
     future<size_t>
@@ -111,6 +120,8 @@ public:
     void submit_request(io_desc_read_write* desc, internal::io_request req) noexcept;
     void cancel_request(queued_io_request& req) noexcept;
     void complete_cancelled_request(queued_io_request& req) noexcept;
+    void complete_request(io_desc_read_write& desc) noexcept;
+
 
     [[deprecated("modern I/O queues should use a property file")]] size_t capacity() const;
 
@@ -125,14 +136,10 @@ public:
         return _requests_executing;
     }
 
-    void notify_requests_finished(fair_queue_ticket& desc) noexcept;
-
     // Dispatch requests that are pending in the I/O queue
     void poll_io_queue();
 
-    std::chrono::steady_clock::time_point next_pending_aio() const noexcept {
-        return _fq.next_pending_aio();
-    }
+    clock_type::time_point next_pending_aio() const noexcept;
 
     sstring mountpoint() const;
     dev_t dev_id() const noexcept;
@@ -148,7 +155,7 @@ public:
     request_limits get_request_limits() const noexcept;
 
 private:
-    static fair_queue::config make_fair_queue_config(config cfg);
+    static fair_queue::config make_fair_queue_config(const config& cfg);
 
     const config& get_config() const noexcept;
 };
@@ -159,10 +166,10 @@ public:
 
 private:
     friend class io_queue;
-    fair_group _fg;
     const io_queue::config _config;
+    std::vector<std::unique_ptr<fair_group>> _fgs;
 
-    static fair_group::config make_fair_group_config(io_queue::config qcfg) noexcept;
+    static fair_group::config make_fair_group_config(const io_queue::config& qcfg) noexcept;
 };
 
 inline const io_queue::config& io_queue::get_config() const noexcept {
