@@ -56,6 +56,10 @@ void print_available_loggers(std::ostream& os);
 ///
 log_level parse_log_level(const sstring&);
 
+/// \cond internal
+void parse_map_associations(const std::string& v, std::function<void(std::string, std::string)> consume_key_value);
+/// \endcond
+
 //
 // \brief Parse associations from loggers to log-levels and write the resulting pairs to the output iterator.
 //

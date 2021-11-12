@@ -458,6 +458,25 @@ log_level parse_log_level(const sstring& s) {
     }
 }
 
+void parse_map_associations(const std::string& v, std::function<void(std::string, std::string)> consume_key_value) {
+    static const std::regex colon(":");
+
+    std::sregex_token_iterator s(v.begin(), v.end(), colon, -1);
+    const std::sregex_token_iterator e;
+    while (s != e) {
+        const sstring p = std::string(*s++);
+
+        const auto i = p.find('=');
+        if (i == sstring::npos) {
+            throw bpo::invalid_option_value(p);
+        }
+
+        auto k = p.substr(0, i);
+        auto v = p.substr(i + 1, p.size());
+        consume_key_value(std::move(k), std::move(v));
+    };
+}
+
 bpo::options_description get_options_description() {
     bpo::options_description opts("Logging options");
 
