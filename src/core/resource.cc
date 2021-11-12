@@ -40,9 +40,11 @@ namespace seastar {
 
 extern logger seastar_logger;
 
+namespace resource {
+
 // This function was made optional because of validate. It needs to
 // throw an error when a non parseable input is given.
-std::optional<resource::cpuset> parse_cpuset(std::string value) {
+std::optional<cpuset> parse_cpuset(std::string value) {
     static std::regex r("(\\d+-)?(\\d+)(,(\\d+-)?(\\d+))*");
 
     std::smatch match;
@@ -74,6 +76,8 @@ std::optional<resource::cpuset> parse_cpuset(std::string value) {
     return std::nullopt;
 }
 
+}
+
 // Overload for boost program options parsing/validation
 void validate(boost::any& v,
               const std::vector<std::string>& values,
@@ -84,7 +88,7 @@ void validate(boost::any& v,
     // Extract the first string from 'values'. If there is more than
     // one string, it's an error, and exception will be thrown.
     auto&& s = validators::get_single_string(values);
-    auto parsed_cpu_set = parse_cpuset(s);
+    auto parsed_cpu_set = resource::parse_cpuset(s);
 
     if (parsed_cpu_set) {
         cpuset_bpo_wrapper ret;
@@ -104,7 +108,7 @@ optional<cpuset> cpu_set() {
                               "cpuset/cpuset.cpus",
                               "cpuset.cpus.effective");
     if (cpuset) {
-        return seastar::parse_cpuset(*cpuset);
+        return seastar::resource::parse_cpuset(*cpuset);
     }
 
     seastar_logger.warn("Unable to parse cgroup's cpuset. Ignoring.");

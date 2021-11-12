@@ -47,6 +47,10 @@ using std::optional;
 
 using cpuset = std::set<unsigned>;
 
+/// \cond internal
+std::optional<cpuset> parse_cpuset(std::string value);
+/// \endcond
+
 namespace hwloc::internal {
 
 #ifdef SEASTAR_HAVE_HWLOC
