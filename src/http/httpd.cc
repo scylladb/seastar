@@ -167,6 +167,7 @@ bool connection::url_decode(const std::string_view& in, sstring& out) {
 void connection::on_new_connection() {
     ++_server._total_connections;
     ++_server._current_connections;
+    _fd.set_nodelay(true);
     _server._connections.push_back(*this);
 }
 
