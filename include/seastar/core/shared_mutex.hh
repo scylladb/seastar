@@ -155,14 +155,46 @@ private:
 ///
 /// \relates shared_mutex
 template <typename Func>
-inline
-futurize_t<std::invoke_result_t<Func>>
-with_shared(shared_mutex& sm, Func&& func) {
+SEASTAR_CONCEPT(
+    requires (std::invocable<Func> && std::is_nothrow_move_constructible_v<Func>)
+    inline
+    futurize_t<std::invoke_result_t<Func>>
+)
+SEASTAR_NO_CONCEPT(
+    inline
+    std::enable_if_t<std::is_nothrow_move_constructible_v<Func>, futurize_t<std::result_of_t<Func ()>>>
+)
+with_shared(shared_mutex& sm, Func&& func) noexcept {
     return sm.lock_shared().then([&sm, func = std::forward<Func>(func)] () mutable {
         return futurize_invoke(func).finally([&sm] {
             sm.unlock_shared();
         });
     });
+}
+
+template <typename Func>
+SEASTAR_CONCEPT(
+    requires (std::invocable<Func> && !std::is_nothrow_move_constructible_v<Func>)
+    inline
+    futurize_t<std::invoke_result_t<Func>>
+)
+SEASTAR_NO_CONCEPT(
+    inline
+    std::enable_if_t<!std::is_nothrow_move_constructible_v<Func>, futurize_t<std::result_of_t<Func ()>>>
+)
+with_shared(shared_mutex& sm, Func&& func) noexcept {
+    // FIXME: use a coroutine when c++17 support is dropped
+    try {
+        return do_with(std::forward<Func>(func), [&sm] (Func& func) {
+            return sm.lock_shared().then([&func] {
+                return func();
+            }).finally([&sm] {
+                sm.unlock_shared();
+            });
+        });
+    } catch (...) {
+        return current_exception_as_future();
+    }
 }
 
 /// Executes a function while holding exclusive access to a resource.
@@ -176,14 +208,47 @@ with_shared(shared_mutex& sm, Func&& func) {
 ///
 /// \relates shared_mutex
 template <typename Func>
-inline
-futurize_t<std::invoke_result_t<Func>>
-with_lock(shared_mutex& sm, Func&& func) {
+SEASTAR_CONCEPT(
+    requires (std::invocable<Func> && std::is_nothrow_move_constructible_v<Func>)
+    inline
+    futurize_t<std::invoke_result_t<Func>>
+)
+SEASTAR_NO_CONCEPT(
+    inline
+    std::enable_if_t<std::is_nothrow_move_constructible_v<Func>, futurize_t<std::result_of_t<Func ()>>>
+)
+with_lock(shared_mutex& sm, Func&& func) noexcept {
     return sm.lock().then([&sm, func = std::forward<Func>(func)] () mutable {
         return futurize_invoke(func).finally([&sm] {
             sm.unlock();
         });
     });
+}
+
+
+template <typename Func>
+SEASTAR_CONCEPT(
+    requires (std::invocable<Func> && !std::is_nothrow_move_constructible_v<Func>)
+    inline
+    futurize_t<std::invoke_result_t<Func>>
+)
+SEASTAR_NO_CONCEPT(
+    inline
+    std::enable_if_t<!std::is_nothrow_move_constructible_v<Func>, futurize_t<std::result_of_t<Func ()>>>
+)
+with_lock(shared_mutex& sm, Func&& func) noexcept {
+    // FIXME: use a coroutine when c++17 support is dropped
+    try {
+        return do_with(std::forward<Func>(func), [&sm] (Func& func) {
+            return sm.lock().then([&func] {
+                return func();
+            }).finally([&sm] {
+                sm.unlock();
+            });
+        });
+    } catch (...) {
+        return current_exception_as_future();
+    }
 }
 
 /// @}
