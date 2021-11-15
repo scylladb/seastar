@@ -29,7 +29,8 @@ class logger;
 
 /// Controls whether on_internal_error() aborts or throws. The default
 /// is to throw.
-void set_abort_on_internal_error(bool do_abort);
+/// \returns the current abort_on_internal_error state.
+bool set_abort_on_internal_error(bool do_abort) noexcept;
 
 /// Report an internal error
 ///

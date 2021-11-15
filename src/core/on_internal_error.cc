@@ -29,8 +29,8 @@ static std::atomic<bool> abort_on_internal_error{false};
 
 using namespace seastar;
 
-void seastar::set_abort_on_internal_error(bool do_abort) {
-    abort_on_internal_error.store(do_abort);
+bool seastar::set_abort_on_internal_error(bool do_abort) noexcept {
+    return abort_on_internal_error.exchange(do_abort);
 }
 
 void seastar::on_internal_error(logger& logger, std::string_view msg) {

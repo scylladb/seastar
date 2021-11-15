@@ -101,12 +101,13 @@ std::function<bool(const std::exception&)> message_contains(std::string_view exp
 
 } // exception_predicate
 
-scoped_no_abort_on_internal_error::scoped_no_abort_on_internal_error() {
-    set_abort_on_internal_error(false);
+scoped_no_abort_on_internal_error::scoped_no_abort_on_internal_error() noexcept
+    : _prev(set_abort_on_internal_error(false))
+{
 }
 
 scoped_no_abort_on_internal_error::~scoped_no_abort_on_internal_error() {
-    set_abort_on_internal_error(true);
+    set_abort_on_internal_error(_prev);
 }
 
 }

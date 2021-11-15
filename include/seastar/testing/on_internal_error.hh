@@ -31,8 +31,9 @@ namespace testing {
 // for other, indirectly affected code paths, that are not a direct target of
 // the test.
 class scoped_no_abort_on_internal_error {
+    bool _prev;
 public:
-    scoped_no_abort_on_internal_error();
+    scoped_no_abort_on_internal_error() noexcept;
     ~scoped_no_abort_on_internal_error();
 };
 
