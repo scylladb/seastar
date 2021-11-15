@@ -22,7 +22,7 @@
 #pragma once
 
 #include <seastar/core/future.hh>
-#include <seastar/core/circular_buffer.hh>
+#include <seastar/core/chunked_fifo.hh>
 
 namespace seastar {
 
@@ -54,7 +54,7 @@ class shared_mutex {
         promise<> pr;
         bool for_write;
     };
-    circular_buffer<waiter> _waiters;
+    chunked_fifo<waiter> _waiters;
 public:
     shared_mutex() = default;
     shared_mutex(shared_mutex&&) = default;
