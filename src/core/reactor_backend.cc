@@ -240,8 +240,12 @@ void aio_storage_context::schedule_retry() {
             auto iocbs = _aio_retries.data();
             size_t nr_consumed = 0;
             if (result.result == -1) {
-                // FIXME: abort if handle_aio_error throws
-                nr_consumed = handle_aio_error(iocbs[0], result.error);
+                try {
+                    nr_consumed = handle_aio_error(iocbs[0], result.error);
+                } catch (...) {
+                    seastar_logger.error("aio retry failed: {}. Aborting.", std::current_exception());
+                    abort();
+                }
             } else {
                 nr_consumed = result.result;
             }
