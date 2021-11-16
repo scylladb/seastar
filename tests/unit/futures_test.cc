@@ -19,6 +19,8 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
+#include <cstddef>
+#include <exception>
 #include <seastar/testing/test_case.hh>
 
 #include <seastar/core/reactor.hh>
@@ -32,6 +34,7 @@
 #include <seastar/core/manual_clock.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/print.hh>
+#include <seastar/core/when_any.hh>
 #include <seastar/core/gate.hh>
 #include <seastar/util/log.hh>
 #include <boost/iterator/counting_iterator.hpp>
@@ -41,6 +44,8 @@
 #include <boost/range/irange.hpp>
 
 #include <seastar/core/internal/api-level.hh>
+#include <stdexcept>
+#include <unistd.h>
 
 using namespace seastar;
 using namespace std::chrono_literals;
@@ -495,6 +500,102 @@ SEASTAR_TEST_CASE(test_when_all_iterator_range) {
     return when_all(p->begin(), p->end()).then([p] (std::vector<future<size_t>> ret) {
         BOOST_REQUIRE(std::all_of(ret.begin(), ret.end(), [] (auto& f) { return f.available(); }));
         BOOST_REQUIRE(std::all_of(ret.begin(), ret.end(), [&ret] (auto& f) { return f.get0() == size_t(&f - ret.data()); }));
+    });
+}
+
+// helper function for when_any tests
+template<typename Container>
+future<> when_all_but_one_succeed(Container& futures, size_t leave_out)
+{
+    auto sz = futures.size();
+    assert(sz >= 1);
+    assert(leave_out < sz);
+    std::vector<future<size_t>> all_but_one_tmp;
+    all_but_one_tmp.reserve(sz - 1);
+    for (size_t i = 0 ; i < sz; i++){
+        if (i == leave_out) { continue; }
+        all_but_one_tmp.push_back(std::move(futures[i]));
+    }
+    auto all_but_one = make_shared(std::move(all_but_one_tmp));
+    return when_all_succeed(all_but_one->begin(), all_but_one->end()).then([all_but_one] (auto&& _) {
+        return make_ready_future<>();
+    });
+}
+
+SEASTAR_TEST_CASE(test_when_any_iterator_range_i) {
+    std::vector<future<size_t>> futures;
+    for (size_t i = 0; i != 100; ++i) {
+        auto fut = later();
+        futures.push_back(fut.then([i] { return i; }));
+    }
+
+    // Verify the above statement is correct
+    BOOST_REQUIRE(std::all_of(futures.begin(), futures.end(), [](auto &f) { return !f.available(); }));
+
+    auto p = make_shared(std::move(futures));
+    return seastar::when_any(p->begin(), p->end()).then([p](auto &&ret_obj) {
+        BOOST_REQUIRE(ret_obj.futures[ret_obj.index].available());
+        BOOST_REQUIRE(ret_obj.futures[ret_obj.index].get0() == ret_obj.index);
+        return when_all_but_one_succeed(ret_obj.futures, ret_obj.index);
+    });
+}
+
+SEASTAR_TEST_CASE(test_when_any_iterator_range_ii) {
+    std::vector<future<size_t>> futures;
+    for (size_t i = 0; i != 100; ++i) {
+        if (i == 42) {
+            auto fut = seastar::make_ready_future<>();
+            futures.push_back(fut.then([i] { return i; }));
+        } else {
+            auto fut = seastar::sleep(100ms);
+            futures.push_back(fut.then([i] { return i; }));
+        }
+    }
+    auto p = make_shared(std::move(futures));
+    return seastar::when_any(p->begin(), p->end()).then([p](auto &&ret_obj) {
+        BOOST_REQUIRE(ret_obj.futures[ret_obj.index].available());
+        BOOST_REQUIRE(ret_obj.futures[ret_obj.index].get0() == ret_obj.index);
+        BOOST_REQUIRE(ret_obj.index == 42);
+        return when_all_but_one_succeed(ret_obj.futures, ret_obj.index);
+    });
+}
+
+SEASTAR_TEST_CASE(test_when_any_iterator_range_iii) {
+    std::vector<future<size_t>> futures;
+    for (size_t i = 0; i != 100; ++i) {
+        if (i == 42) {
+            auto fut = seastar::sleep(5ms);
+            futures.push_back(fut.then([i] { return i; }));
+        } else {
+            auto fut = seastar::sleep(100ms);
+            futures.push_back(fut.then([i] { return i; }));
+        }
+    }
+    auto p = make_shared(std::move(futures));
+    return seastar::when_any(p->begin(), p->end()).then([p](auto &&ret_obj) {
+        BOOST_REQUIRE(ret_obj.futures[ret_obj.index].available());
+        BOOST_REQUIRE(ret_obj.futures[ret_obj.index].get0() == ret_obj.index);
+        BOOST_REQUIRE(ret_obj.index == 42);
+        return when_all_but_one_succeed(ret_obj.futures, ret_obj.index);
+    });
+}
+
+SEASTAR_TEST_CASE(test_when_any_iterator_range_iv) {
+    std::vector<future<size_t>> futures;
+    for (size_t i = 0; i != 100; ++i) {
+        if (i == 42) {
+            auto fut = later().then([] { return seastar::make_exception_future(std::runtime_error("test")); } );
+            futures.push_back(fut.then([i] { return i; }));
+        } else {
+            auto fut = seastar::sleep(100ms);
+            futures.push_back(fut.then([i] { return i; }));
+        }
+    }
+    auto p = make_shared(std::move(futures));
+    return seastar::when_any(p->begin(), p->end()).then([p](auto &&ret_obj) {
+        BOOST_REQUIRE(ret_obj.futures[ret_obj.index].available());
+        BOOST_REQUIRE_THROW(ret_obj.futures[ret_obj.index].get(), std::runtime_error);
+        return when_all_but_one_succeed(ret_obj.futures, ret_obj.index);
     });
 }
 
