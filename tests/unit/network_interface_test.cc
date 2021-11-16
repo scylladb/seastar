@@ -32,6 +32,10 @@ using namespace seastar;
 
 static logger niflog("network_interface_test");
 
+static_assert(std::is_nothrow_default_constructible_v<net::ethernet_address>);
+static_assert(std::is_nothrow_copy_constructible_v<net::ethernet_address>);
+static_assert(std::is_nothrow_move_constructible_v<net::ethernet_address>);
+
 SEASTAR_TEST_CASE(list_interfaces) {
     // just verifying we have something. And can access all the stuff.
     auto interfaces = engine().net().network_interfaces();

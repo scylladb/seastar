@@ -31,14 +31,14 @@ namespace seastar {
 namespace net {
 
 struct ethernet_address {
-    ethernet_address()
+    ethernet_address() noexcept
         : mac{} {}
 
-    ethernet_address(const uint8_t *eaddr) {
+    ethernet_address(const uint8_t *eaddr) noexcept {
         std::copy(eaddr, eaddr + 6, mac.begin());
     }
 
-    ethernet_address(std::initializer_list<uint8_t> eaddr) {
+    ethernet_address(std::initializer_list<uint8_t> eaddr) noexcept {
         assert(eaddr.size() == mac.size());
         std::copy(eaddr.begin(), eaddr.end(), mac.begin());
     }
@@ -46,26 +46,26 @@ struct ethernet_address {
     std::array<uint8_t, 6> mac;
 
     template <typename Adjuster>
-    void adjust_endianness(Adjuster a) {}
+    void adjust_endianness(Adjuster a) noexcept {}
 
-    static ethernet_address read(const char* p) {
+    static ethernet_address read(const char* p) noexcept {
         ethernet_address ea;
         std::copy_n(p, size(), reinterpret_cast<char*>(ea.mac.data()));\
         return ea;
     }
-    static ethernet_address consume(const char*& p) {
+    static ethernet_address consume(const char*& p) noexcept {
         auto ea = read(p);
         p += size();
         return ea;
     }
-    void write(char* p) const {
+    void write(char* p) const noexcept {
         std::copy_n(reinterpret_cast<const char*>(mac.data()), size(), p);
     }
-    void produce(char*& p) const {
+    void produce(char*& p) const noexcept {
         write(p);
         p += size();
     }
-    static constexpr size_t size() {
+    static constexpr size_t size() noexcept {
         return 6;
     }
 } __attribute__((packed));
