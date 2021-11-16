@@ -127,7 +127,7 @@ private:
     future<> dispatch_packet(packet p);
 public:
     explicit interface(std::shared_ptr<device> dev);
-    ethernet_address hw_address() { return _hw_address; }
+    ethernet_address hw_address() const noexcept { return _hw_address; }
     const net::hw_features& hw_features() const { return _hw_features; }
     future<> register_l3(eth_protocol_num proto_num,
             std::function<future<> (packet p, ethernet_address from)> next,
