@@ -202,7 +202,7 @@ opensuse_packages=(
 )
 
 case "$ID" in
-    ubuntu|debian)
+    ubuntu|debian|pop)
         apt-get install -y "${debian_packages[@]}"
     ;;
     fedora)
