@@ -70,9 +70,8 @@ public:
             return make_ready_future<>();
         }
         try {
-        // FIXME: indentation
-        _waiters.emplace_back(promise<>(), false);
-        return _waiters.back().pr.get_future();
+            _waiters.emplace_back(promise<>(), false);
+            return _waiters.back().pr.get_future();
         } catch (...) {
             return current_exception_as_future();
         }
@@ -102,9 +101,8 @@ public:
             return make_ready_future<>();
         }
         try {
-        // FIXME: indentation
-        _waiters.emplace_back(promise<>(), true);
-        return _waiters.back().pr.get_future();
+            _waiters.emplace_back(promise<>(), true);
+            return _waiters.back().pr.get_future();
         } catch (...) {
             return current_exception_as_future();
         }
