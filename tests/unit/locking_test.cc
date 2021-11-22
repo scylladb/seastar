@@ -200,6 +200,27 @@ SEASTAR_THREAD_TEST_CASE(test_shared_mutex_failed_func) {
     sm.unlock();
 }
 
+SEASTAR_THREAD_TEST_CASE(test_shared_mutex_throwing_func) {
+    shared_mutex sm;
+    struct X {
+        int x;
+        X(int x_) noexcept : x(x_) {};
+        X(X&& o) : x(o.x) {
+            throw std::runtime_error("X moved");
+        }
+    };
+
+    // verify that the shared_mutex is unlocked when func move fails
+    future<> fut = with_shared(sm, [x = X(0)] {});
+    BOOST_REQUIRE_THROW(fut.get(), std::runtime_error);
+
+    fut = with_lock(sm, [x = X(0)] {});
+    BOOST_REQUIRE_THROW(fut.get(), std::runtime_error);
+
+    BOOST_REQUIRE(sm.try_lock());
+    sm.unlock();
+}
+
 SEASTAR_THREAD_TEST_CASE(test_shared_mutex_failed_lock) {
 #ifdef SEASTAR_ENABLE_ALLOC_FAILURE_INJECTION
     shared_mutex sm;

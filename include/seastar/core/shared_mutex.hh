@@ -22,7 +22,7 @@
 #pragma once
 
 #include <seastar/core/future.hh>
-#include <seastar/core/circular_buffer.hh>
+#include <seastar/core/chunked_fifo.hh>
 
 namespace seastar {
 
@@ -54,7 +54,7 @@ class shared_mutex {
         promise<> pr;
         bool for_write;
     };
-    circular_buffer<waiter> _waiters;
+    chunked_fifo<waiter> _waiters;
 public:
     shared_mutex() = default;
     shared_mutex(shared_mutex&&) = default;
@@ -65,12 +65,16 @@ public:
     ///
     /// \return a future that becomes ready when no exclusive access
     ///         is granted to anyone.
-    future<> lock_shared() {
+    future<> lock_shared() noexcept {
         if (try_lock_shared()) {
             return make_ready_future<>();
         }
-        _waiters.emplace_back(promise<>(), false);
-        return _waiters.back().pr.get_future();
+        try {
+            _waiters.emplace_back(promise<>(), false);
+            return _waiters.back().pr.get_future();
+        } catch (...) {
+            return current_exception_as_future();
+        }
     }
     /// Try to lock the \c shared_mutex for shared access
     ///
@@ -92,12 +96,16 @@ public:
     ///
     /// \return a future that becomes ready when no access, shared or exclusive
     ///         is granted to anyone.
-    future<> lock() {
+    future<> lock() noexcept {
         if (try_lock()) {
             return make_ready_future<>();
         }
-        _waiters.emplace_back(promise<>(), true);
-        return _waiters.back().pr.get_future();
+        try {
+            _waiters.emplace_back(promise<>(), true);
+            return _waiters.back().pr.get_future();
+        } catch (...) {
+            return current_exception_as_future();
+        }
     }
     /// Try to lock the \c shared_mutex for exclusive access
     ///
@@ -147,14 +155,46 @@ private:
 ///
 /// \relates shared_mutex
 template <typename Func>
-inline
-futurize_t<std::invoke_result_t<Func>>
-with_shared(shared_mutex& sm, Func&& func) {
+SEASTAR_CONCEPT(
+    requires (std::invocable<Func> && std::is_nothrow_move_constructible_v<Func>)
+    inline
+    futurize_t<std::invoke_result_t<Func>>
+)
+SEASTAR_NO_CONCEPT(
+    inline
+    std::enable_if_t<std::is_nothrow_move_constructible_v<Func>, futurize_t<std::result_of_t<Func ()>>>
+)
+with_shared(shared_mutex& sm, Func&& func) noexcept {
     return sm.lock_shared().then([&sm, func = std::forward<Func>(func)] () mutable {
         return futurize_invoke(func).finally([&sm] {
             sm.unlock_shared();
         });
     });
+}
+
+template <typename Func>
+SEASTAR_CONCEPT(
+    requires (std::invocable<Func> && !std::is_nothrow_move_constructible_v<Func>)
+    inline
+    futurize_t<std::invoke_result_t<Func>>
+)
+SEASTAR_NO_CONCEPT(
+    inline
+    std::enable_if_t<!std::is_nothrow_move_constructible_v<Func>, futurize_t<std::result_of_t<Func ()>>>
+)
+with_shared(shared_mutex& sm, Func&& func) noexcept {
+    // FIXME: use a coroutine when c++17 support is dropped
+    try {
+        return do_with(std::forward<Func>(func), [&sm] (Func& func) {
+            return sm.lock_shared().then([&func] {
+                return func();
+            }).finally([&sm] {
+                sm.unlock_shared();
+            });
+        });
+    } catch (...) {
+        return current_exception_as_future();
+    }
 }
 
 /// Executes a function while holding exclusive access to a resource.
@@ -168,14 +208,47 @@ with_shared(shared_mutex& sm, Func&& func) {
 ///
 /// \relates shared_mutex
 template <typename Func>
-inline
-futurize_t<std::invoke_result_t<Func>>
-with_lock(shared_mutex& sm, Func&& func) {
+SEASTAR_CONCEPT(
+    requires (std::invocable<Func> && std::is_nothrow_move_constructible_v<Func>)
+    inline
+    futurize_t<std::invoke_result_t<Func>>
+)
+SEASTAR_NO_CONCEPT(
+    inline
+    std::enable_if_t<std::is_nothrow_move_constructible_v<Func>, futurize_t<std::result_of_t<Func ()>>>
+)
+with_lock(shared_mutex& sm, Func&& func) noexcept {
     return sm.lock().then([&sm, func = std::forward<Func>(func)] () mutable {
         return futurize_invoke(func).finally([&sm] {
             sm.unlock();
         });
     });
+}
+
+
+template <typename Func>
+SEASTAR_CONCEPT(
+    requires (std::invocable<Func> && !std::is_nothrow_move_constructible_v<Func>)
+    inline
+    futurize_t<std::invoke_result_t<Func>>
+)
+SEASTAR_NO_CONCEPT(
+    inline
+    std::enable_if_t<!std::is_nothrow_move_constructible_v<Func>, futurize_t<std::result_of_t<Func ()>>>
+)
+with_lock(shared_mutex& sm, Func&& func) noexcept {
+    // FIXME: use a coroutine when c++17 support is dropped
+    try {
+        return do_with(std::forward<Func>(func), [&sm] (Func& func) {
+            return sm.lock().then([&func] {
+                return func();
+            }).finally([&sm] {
+                sm.unlock();
+            });
+        });
+    } catch (...) {
+        return current_exception_as_future();
+    }
 }
 
 /// @}
