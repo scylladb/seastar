@@ -169,9 +169,7 @@ public:
     fair_group_rover grab_capacity(fair_queue_ticket cap) noexcept;
     void release_capacity(fair_queue_ticket cap) noexcept;
 
-    fair_group_rover head() const noexcept {
-        return _capacity_head.load(std::memory_order_relaxed);
-    }
+    fair_queue_ticket capacity_deficiency(fair_group_rover from) const noexcept;
 };
 
 /// \brief Fair queuing class
@@ -319,8 +317,7 @@ public:
              * which's sub-optimal. The expectation is that we think disk
              * works faster, than it really does.
              */
-            fair_group_rover pending_head = _pending->head;
-            fair_queue_ticket over = pending_head.maybe_ahead_of(_group.head());
+            fair_queue_ticket over = _group.capacity_deficiency(_pending->head);
             return std::chrono::steady_clock::now() + duration(over);
         }
 

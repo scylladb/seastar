@@ -126,6 +126,10 @@ void fair_group::release_capacity(fair_queue_ticket cap) noexcept {
     while (!_capacity_head.compare_exchange_weak(cur, cur + cap)) ;
 }
 
+fair_queue_ticket fair_group::capacity_deficiency(fair_group_rover from) const noexcept {
+    return from.maybe_ahead_of(_capacity_head.load(std::memory_order_relaxed));
+}
+
 // Priority class, to be used with a given fair_queue
 class fair_queue::priority_class_data {
     using accumulator_t = double;
@@ -202,8 +206,7 @@ std::chrono::microseconds fair_queue_ticket::duration_at_pace(float weight_pace,
 }
 
 bool fair_queue::grab_pending_capacity(fair_queue_ticket cap) noexcept {
-    fair_group_rover pending_head = _pending->head;
-    if (pending_head.maybe_ahead_of(_group.head())) {
+    if (_group.capacity_deficiency(_pending->head)) {
         return false;
     }
 
@@ -229,7 +232,7 @@ bool fair_queue::grab_capacity(fair_queue_ticket cap) noexcept {
     }
 
     fair_group_rover want_head = _group.grab_capacity(cap) + cap;
-    if (want_head.maybe_ahead_of(_group.head())) {
+    if (_group.capacity_deficiency(want_head)) {
         _pending.emplace(want_head, cap);
         return false;
     }
