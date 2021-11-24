@@ -96,18 +96,21 @@ fair_group::fair_group(config cfg) noexcept
 }
 
 auto fair_group::grab_capacity(capacity_t cap) noexcept -> capacity_t {
-    capacity_t cur = _capacity_tail.load(std::memory_order_relaxed);
-    while (!_capacity_tail.compare_exchange_weak(cur, cur + cap)) ;
-    return cur;
+    return fetch_add(_capacity_tail, cap);
 }
 
 void fair_group::release_capacity(capacity_t cap) noexcept {
-    capacity_t cur = _capacity_head.load(std::memory_order_relaxed);
-    while (!_capacity_head.compare_exchange_weak(cur, cur + cap)) ;
+    fetch_add(_capacity_head, cap);
 }
 
 auto fair_group::capacity_deficiency(capacity_t from) const noexcept -> capacity_t {
     return wrapping_difference(from, _capacity_head.load(std::memory_order_relaxed));
+}
+
+auto fair_group::fetch_add(fair_group_atomic_rover& rover, capacity_t cap) noexcept -> capacity_t {
+    capacity_t cur = rover.load(std::memory_order_relaxed);
+    while (!rover.compare_exchange_weak(cur, cur + cap)) ;
+    return cur;
 }
 
 // Priority class, to be used with a given fair_queue

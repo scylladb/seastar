@@ -138,6 +138,8 @@ private:
     fair_group_atomic_rover _capacity_head;
     fair_queue_ticket _maximum_capacity;
 
+    capacity_t fetch_add(fair_group_atomic_rover& rover, capacity_t cap) noexcept;
+
 public:
     struct config {
         unsigned max_req_count;
