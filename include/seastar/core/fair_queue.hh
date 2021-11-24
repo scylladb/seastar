@@ -134,9 +134,9 @@ private:
     using fair_group_atomic_rover = std::atomic<capacity_t>;
     static_assert(fair_group_atomic_rover::is_always_lock_free);
 
+    const fair_queue_ticket _maximum_capacity;
     fair_group_atomic_rover _capacity_tail;
     fair_group_atomic_rover _capacity_head;
-    fair_queue_ticket _maximum_capacity;
 
     capacity_t fetch_add(fair_group_atomic_rover& rover, capacity_t cap) noexcept;
 
