@@ -86,9 +86,9 @@ fair_group_rover::fair_group_rover(uint32_t weight, uint32_t size) noexcept
         , _size(size)
 {}
 
-fair_queue_ticket fair_group_rover::maybe_ahead_of(const fair_group_rover& other) const noexcept {
-    return fair_queue_ticket(std::max<int32_t>(_weight - other._weight, 0),
-            std::max<int32_t>(_size - other._size, 0));
+fair_queue_ticket wrapping_difference(const fair_group_rover& a, const fair_group_rover& b) noexcept {
+    return fair_queue_ticket(std::max<int32_t>(a._weight - b._weight, 0),
+            std::max<int32_t>(a._size - b._size, 0));
 }
 
 fair_group_rover fair_group_rover::operator+(fair_queue_ticket t) const noexcept {
@@ -110,8 +110,7 @@ fair_group::fair_group(config cfg) noexcept
         , _capacity_head(fair_group_rover(cfg.max_req_count, cfg.max_bytes_count))
         , _maximum_capacity(cfg.max_req_count, cfg.max_bytes_count)
 {
-    assert(!_capacity_tail.load(std::memory_order_relaxed)
-                .maybe_ahead_of(_capacity_head.load(std::memory_order_relaxed)));
+    assert(!wrapping_difference(_capacity_tail.load(std::memory_order_relaxed), _capacity_head.load(std::memory_order_relaxed)));
     seastar_logger.debug("Created fair group, capacity {}:{}", cfg.max_req_count, cfg.max_bytes_count);
 }
 
@@ -127,7 +126,7 @@ void fair_group::release_capacity(fair_queue_ticket cap) noexcept {
 }
 
 fair_queue_ticket fair_group::capacity_deficiency(fair_group_rover from) const noexcept {
-    return from.maybe_ahead_of(_capacity_head.load(std::memory_order_relaxed));
+    return wrapping_difference(from, _capacity_head.load(std::memory_order_relaxed));
 }
 
 // Priority class, to be used with a given fair_queue

@@ -100,15 +100,15 @@ class fair_group_rover {
 public:
     fair_group_rover(uint32_t weight, uint32_t size) noexcept;
 
-    /*
-     * For both dimentions checks if the current rover is ahead of the
-     * other and returns the difference. If this is behind returns zero.
-     */
-    fair_queue_ticket maybe_ahead_of(const fair_group_rover& other) const noexcept;
     fair_group_rover operator+(fair_queue_ticket t) const noexcept;
     fair_group_rover& operator+=(fair_queue_ticket t) noexcept;
 
     friend std::ostream& operator<<(std::ostream& os, fair_group_rover r);
+    /*
+     * For both dimentions checks if the first rover is ahead of the
+     * second and returns the difference. If behind returns zero.
+     */
+    friend fair_queue_ticket wrapping_difference(const fair_group_rover& a, const fair_group_rover& b) noexcept;
 };
 
 /// \addtogroup io-module
