@@ -202,7 +202,7 @@ std::chrono::microseconds fair_queue_ticket::duration_at_pace(float weight_pace,
 }
 
 bool fair_queue::grab_pending_capacity(fair_queue_ticket cap) noexcept {
-    fair_group_rover pending_head = _pending->orig_tail + cap;
+    fair_group_rover pending_head = _pending->head;
     if (pending_head.maybe_ahead_of(_group.head())) {
         return false;
     }
@@ -217,7 +217,7 @@ bool fair_queue::grab_pending_capacity(fair_queue_ticket cap) noexcept {
          * expected head value.
          */
         _group.grab_capacity(cap);
-        _pending->orig_tail += cap;
+        _pending->head += cap;
     }
 
     return true;
@@ -228,9 +228,9 @@ bool fair_queue::grab_capacity(fair_queue_ticket cap) noexcept {
         return grab_pending_capacity(cap);
     }
 
-    fair_group_rover orig_tail = _group.grab_capacity(cap);
-    if ((orig_tail + cap).maybe_ahead_of(_group.head())) {
-        _pending.emplace(orig_tail, cap);
+    fair_group_rover want_head = _group.grab_capacity(cap) + cap;
+    if (want_head.maybe_ahead_of(_group.head())) {
+        _pending.emplace(want_head, cap);
         return false;
     }
 
