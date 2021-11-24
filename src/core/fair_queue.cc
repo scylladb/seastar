@@ -81,51 +81,32 @@ std::ostream& operator<<(std::ostream& os, fair_queue_ticket t) {
     return os << t._weight << ":" << t._size;
 }
 
-fair_group_rover::fair_group_rover(uint32_t weight, uint32_t size) noexcept
-        : _weight(weight)
-        , _size(size)
-{}
-
-fair_queue_ticket wrapping_difference(const fair_group_rover& a, const fair_group_rover& b) noexcept {
+fair_queue_ticket wrapping_difference(const fair_queue_ticket& a, const fair_queue_ticket& b) noexcept {
     return fair_queue_ticket(std::max<int32_t>(a._weight - b._weight, 0),
             std::max<int32_t>(a._size - b._size, 0));
 }
 
-fair_group_rover fair_group_rover::operator+(fair_queue_ticket t) const noexcept {
-    return fair_group_rover(_weight + t._weight, _size + t._size);
-}
-
-fair_group_rover& fair_group_rover::operator+=(fair_queue_ticket t) noexcept {
-    _weight += t._weight;
-    _size += t._size;
-    return *this;
-}
-
-std::ostream& operator<<(std::ostream& os, fair_group_rover r) {
-    return os << r._weight << ":" << r._size;
-}
-
 fair_group::fair_group(config cfg) noexcept
-        : _capacity_tail(fair_group_rover(0, 0))
-        , _capacity_head(fair_group_rover(cfg.max_req_count, cfg.max_bytes_count))
+        : _capacity_tail(fair_queue_ticket(0, 0))
+        , _capacity_head(fair_queue_ticket(cfg.max_req_count, cfg.max_bytes_count))
         , _maximum_capacity(cfg.max_req_count, cfg.max_bytes_count)
 {
     assert(!wrapping_difference(_capacity_tail.load(std::memory_order_relaxed), _capacity_head.load(std::memory_order_relaxed)));
     seastar_logger.debug("Created fair group, capacity {}:{}", cfg.max_req_count, cfg.max_bytes_count);
 }
 
-fair_group_rover fair_group::grab_capacity(fair_queue_ticket cap) noexcept {
-    fair_group_rover cur = _capacity_tail.load(std::memory_order_relaxed);
+auto fair_group::grab_capacity(capacity_t cap) noexcept -> capacity_t {
+    capacity_t cur = _capacity_tail.load(std::memory_order_relaxed);
     while (!_capacity_tail.compare_exchange_weak(cur, cur + cap)) ;
     return cur;
 }
 
-void fair_group::release_capacity(fair_queue_ticket cap) noexcept {
-    fair_group_rover cur = _capacity_head.load(std::memory_order_relaxed);
+void fair_group::release_capacity(capacity_t cap) noexcept {
+    capacity_t cur = _capacity_head.load(std::memory_order_relaxed);
     while (!_capacity_head.compare_exchange_weak(cur, cur + cap)) ;
 }
 
-fair_queue_ticket fair_group::capacity_deficiency(fair_group_rover from) const noexcept {
+auto fair_group::capacity_deficiency(capacity_t from) const noexcept -> capacity_t {
     return wrapping_difference(from, _capacity_head.load(std::memory_order_relaxed));
 }
 
@@ -230,7 +211,7 @@ bool fair_queue::grab_capacity(fair_queue_ticket cap) noexcept {
         return grab_pending_capacity(cap);
     }
 
-    fair_group_rover want_head = _group.grab_capacity(cap) + cap;
+    fair_group::capacity_t want_head = _group.grab_capacity(cap) + cap;
     if (_group.capacity_deficiency(want_head)) {
         _pending.emplace(want_head, cap);
         return false;

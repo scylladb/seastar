@@ -35,8 +35,6 @@ namespace bi = boost::intrusive;
 
 namespace seastar {
 
-class fair_group_rover;
-
 /// \brief describes a request that passes through the \ref fair_queue.
 ///
 /// A ticket is specified by a \c weight and a \c size. For example, one can specify a request of \c weight
@@ -47,7 +45,6 @@ class fair_group_rover;
 class fair_queue_ticket {
     uint32_t _weight = 0; ///< the total weight of these requests for capacity purposes (IOPS).
     uint32_t _size = 0;        ///< the total effective size of these requests
-    friend class fair_group_rover;
 public:
     /// Constructs a fair_queue_ticket with a given \c weight and a given \c size
     ///
@@ -91,24 +88,12 @@ public:
     /// It is however not legal for the axis to have any quantity set to zero.
     /// \param axis another \ref fair_queue_ticket to be used as a a base vector against which to normalize this fair_queue_ticket.
     float normalize(fair_queue_ticket axis) const noexcept;
-};
 
-class fair_group_rover {
-    uint32_t _weight = 0;
-    uint32_t _size = 0;
-
-public:
-    fair_group_rover(uint32_t weight, uint32_t size) noexcept;
-
-    fair_group_rover operator+(fair_queue_ticket t) const noexcept;
-    fair_group_rover& operator+=(fair_queue_ticket t) noexcept;
-
-    friend std::ostream& operator<<(std::ostream& os, fair_group_rover r);
     /*
      * For both dimentions checks if the first rover is ahead of the
      * second and returns the difference. If behind returns zero.
      */
-    friend fair_queue_ticket wrapping_difference(const fair_group_rover& a, const fair_group_rover& b) noexcept;
+    friend fair_queue_ticket wrapping_difference(const fair_queue_ticket& a, const fair_queue_ticket& b) noexcept;
 };
 
 /// \addtogroup io-module
@@ -142,7 +127,11 @@ public:
 /// cope with the number of arriving requests, or the total size of the data withing
 /// the given time frame exceeds the disk throughput.
 class fair_group {
-    using fair_group_atomic_rover = std::atomic<fair_group_rover>;
+public:
+    using capacity_t = fair_queue_ticket;
+
+private:
+    using fair_group_atomic_rover = std::atomic<capacity_t>;
     static_assert(fair_group_atomic_rover::is_always_lock_free);
 
     fair_group_atomic_rover _capacity_tail;
@@ -166,10 +155,10 @@ public:
     fair_group(fair_group&&) = delete;
 
     fair_queue_ticket maximum_capacity() const noexcept { return _maximum_capacity; }
-    fair_group_rover grab_capacity(fair_queue_ticket cap) noexcept;
-    void release_capacity(fair_queue_ticket cap) noexcept;
+    capacity_t grab_capacity(capacity_t cap) noexcept;
+    void release_capacity(capacity_t cap) noexcept;
 
-    fair_queue_ticket capacity_deficiency(fair_group_rover from) const noexcept;
+    capacity_t capacity_deficiency(capacity_t from) const noexcept;
 };
 
 /// \brief Fair queuing class
@@ -237,10 +226,10 @@ private:
      * in the middle of the waiting
      */
     struct pending {
-        fair_group_rover head;
+        fair_group::capacity_t head;
         fair_queue_ticket cap;
 
-        pending(fair_group_rover t, fair_queue_ticket c) noexcept : head(t), cap(c) {}
+        pending(fair_group::capacity_t t, fair_queue_ticket c) noexcept : head(t), cap(c) {}
     };
 
     std::optional<pending> _pending;
@@ -251,7 +240,7 @@ private:
     void normalize_stats();
 
     // Estimated time to process the given ticket
-    std::chrono::microseconds duration(fair_queue_ticket desc) const noexcept {
+    std::chrono::microseconds duration(fair_group::capacity_t desc) const noexcept {
         return desc.duration_at_pace(_config.ticket_weight_pace, _config.ticket_size_pace);
     }
 
@@ -317,7 +306,7 @@ public:
              * which's sub-optimal. The expectation is that we think disk
              * works faster, than it really does.
              */
-            fair_queue_ticket over = _group.capacity_deficiency(_pending->head);
+            fair_group::capacity_t over = _group.capacity_deficiency(_pending->head);
             return std::chrono::steady_clock::now() + duration(over);
         }
 
