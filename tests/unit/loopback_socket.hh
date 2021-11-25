@@ -184,6 +184,10 @@ public:
     int get_sockopt(int level, int optname, void* data, size_t len) const override {
         throw std::runtime_error("Getting custom socket options is not supported for loopback");
     }
+    socket_address local_address() const noexcept override {
+        // dummy
+        return {};
+    }
 };
 
 class loopback_server_socket_impl : public net::server_socket_impl {

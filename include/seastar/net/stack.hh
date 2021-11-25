@@ -46,6 +46,7 @@ public:
     virtual keepalive_params get_keepalive_parameters() const = 0;
     virtual void set_sockopt(int level, int optname, const void* data, size_t len) = 0;
     virtual int get_sockopt(int level, int optname, void* data, size_t len) const = 0;
+    virtual socket_address local_address() const noexcept = 0;
 };
 
 class socket_impl {

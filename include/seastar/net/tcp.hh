@@ -701,6 +701,12 @@ public:
         uint16_t foreign_port() {
             return _tcb->_foreign_port;
         }
+        ipaddr local_ip() {
+            return _tcb->_local_ip;
+        }
+        uint16_t local_port() {
+            return _tcb->_local_port;
+        }
         void shutdown_connect();
         void close_read();
         void close_write();

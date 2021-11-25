@@ -89,6 +89,9 @@ public:
     virtual int get_sockopt(file_desc& _fd, int level, int optname, void* data, size_t len) const {
         return _fd.getsockopt(level, optname, reinterpret_cast<char*>(data), socklen_t(len));
     }
+    virtual socket_address local_address(file_desc& _fd) const {
+        return _fd.get_address();
+    }
 };
 
 thread_local posix_ap_server_socket_impl::sockets_map_t posix_ap_server_socket_impl::sockets{};
@@ -248,6 +251,10 @@ public:
     int get_sockopt(int level, int optname, void* data, size_t len) const override {
         return _ops->get_sockopt(_fd.get_file_desc(), level, optname, data, len);
     }
+    socket_address local_address() const noexcept override {
+        return _ops->local_address(_fd.get_file_desc());
+    }
+
     friend class posix_server_socket_impl;
     friend class posix_ap_server_socket_impl;
     friend class posix_reuseport_server_socket_impl;

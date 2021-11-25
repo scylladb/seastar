@@ -211,6 +211,8 @@ public:
     /// Linux users should refer to protocol-specific manuals
     /// to see available options, e.g. tcp(7), ip(7), etc.
     int get_sockopt(int level, int optname, void* data, size_t len) const;
+    /// Local address of the socket
+    socket_address local_address() const noexcept;
 
     /// Disables output to the socket.
     ///

@@ -129,6 +129,10 @@ int connected_socket::get_sockopt(int level, int optname, void* data, size_t len
     return _csi->get_sockopt(level, optname, data, len);
 }
 
+socket_address connected_socket::local_address() const noexcept {
+    return _csi->local_address();
+}
+
 void connected_socket::shutdown_output() {
     _csi->shutdown_output();
 }

@@ -1586,6 +1586,10 @@ public:
     int get_sockopt(int level, int optname, void* data, size_t len) const override {
         return _session->socket().get_sockopt(level, optname, data, len);
     }
+    socket_address local_address() const noexcept override {
+        return _session->socket().local_address();
+    }
+
 };
 
 
