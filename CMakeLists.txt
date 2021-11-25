@@ -632,6 +632,7 @@ add_library (seastar STATIC
   src/core/on_internal_error.cc
   src/core/posix.cc
   src/core/prometheus.cc
+  src/core/program_options.cc
   src/core/reactor.cc
   src/core/resource.cc
   src/core/sharded.cc

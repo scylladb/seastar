@@ -22,14 +22,77 @@
 #pragma once
 
 #include <seastar/net/net.hh>
-#include <boost/program_options.hpp>
+#include <seastar/net/virtio.hh>
+#include <seastar/net/dpdk.hh>
+#include <seastar/util/program-options.hh>
 
 namespace seastar {
 
+struct network_stack_entry;
+
 namespace net {
 
-void create_native_stack(boost::program_options::variables_map opts, std::shared_ptr<device> dev);
-void register_native_stack();
+/// Native stack configuration.
+struct native_stack_options : public program_options::option_group {
+    program_options::value<std::string> net_config;
+    program_options::value<std::string> net_config_file;
+    /// \brief Tap device to connect to.
+    ///
+    /// Default: \p tap0.
+    program_options::value<std::string> tap_device;
+    /// \brief Static IPv4 address to use.
+    ///
+    /// Default: \p 192.168.122.2.
+    program_options::value<std::string> host_ipv4_addr;
+    /// \brief Static IPv4 gateway to use.
+    ///
+    /// Default: \p 192.168.122.1.
+    program_options::value<std::string> gw_ipv4_addr;
+    /// \brief Static IPv4 netmask to use.
+    ///
+    /// Default: \p 255.255.255.0.
+    program_options::value<std::string> netmask_ipv4_addr;
+    /// \brief Default size of the UDPv4 per-channel packet queue.
+    ///
+    /// Default: \ref ipv4_udp::default_queue_size.
+    program_options::value<int> udpv4_queue_size;
+    /// \brief Use DHCP discovery.
+    ///
+    /// Default: \p true.
+    program_options::value<bool> dhcp;
+    /// \brief Weighing of a hardware network queue relative to a software queue.
+    ///
+    /// Values:
+    /// * 0.0: no work
+    /// * 1.0: equal share
+    ///
+    /// Default: 1.0.
+    program_options::value<float> hw_queue_weight;
+    /// \brief Use DPDK PMD drivers.
+    ///
+    /// \note Unused when seastar is compiled without DPDK support.
+    program_options::value<> dpdk_pmd;
+    /// \brief Enable LRO (on/off).
+    ///
+    /// Default: \p on.
+    program_options::value<std::string> lro;
+
+    /// Virtio configuration.
+    virtio_options virtio_opts;
+    /// DPDK configuration.
+    ///
+    /// \note Unused when seastar is compiled without DPDK support.
+    dpdk_options dpdk_opts;
+
+    /// \cond internal
+    bool _hugepages;
+
+    native_stack_options();
+    /// \endcond
+};
+
+void create_native_stack(const native_stack_options& opts, std::shared_ptr<device> dev);
+network_stack_entry register_native_stack();
 
 }
 

@@ -21,6 +21,7 @@
  */
 
 #include <seastar/util/program-options.hh>
+#include <seastar/util/log-cli.hh>
 
 #include <regex>
 
@@ -39,25 +40,6 @@ sstring get_or_default(const string_map& ss, const sstring& key, const sstring& 
     return def;
 }
 
-static void parse_map_associations(const std::string& v, string_map& ss) {
-    static const std::regex colon(":");
-
-    std::sregex_token_iterator s(v.begin(), v.end(), colon, -1);
-    const std::sregex_token_iterator e;
-    while (s != e) {
-        const sstring p = std::string(*s++);
-
-        const auto i = p.find('=');
-        if (i == sstring::npos) {
-            throw bpo::invalid_option_value(p);
-        }
-
-        auto k = p.substr(0, i);
-        auto v = p.substr(i + 1, p.size());
-        ss[std::move(k)] = std::move(v);
-    };
-}
-
 void validate(boost::any& out, const std::vector<std::string>& in, string_map*, int) {
     if (out.empty()) {
         out = boost::any(string_map());
@@ -66,7 +48,7 @@ void validate(boost::any& out, const std::vector<std::string>& in, string_map*, 
     auto* ss = boost::any_cast<string_map>(&out);
 
     for (const auto& s : in) {
-        parse_map_associations(s, *ss);
+        log_cli::parse_map_associations(s, [&ss] (std::string k, std::string v) { (*ss)[std::move(k)] = std::move(v); });
     }
 }
 
@@ -89,8 +71,86 @@ std::istream& operator>>(std::istream& is, string_map& ss) {
     std::string str;
     is >> str;
 
-    parse_map_associations(str, ss);
+    log_cli::parse_map_associations(str, [&ss] (std::string k, std::string v) { ss[std::move(k)] = std::move(v); });
     return is;
+}
+
+option_group::option_group(option_group* parent, std::string name)
+    : _parent(parent), _used(true), _name(std::move(name)) {
+    if (_parent) {
+        _parent->_subgroups.push_back(*this);
+    }
+}
+
+option_group::option_group(option_group* parent, std::string name, unused)
+    : _parent(parent), _used(false), _name(std::move(name)) {
+    if (_parent) {
+        _parent->_subgroups.push_back(*this);
+    }
+}
+
+option_group::option_group(option_group&& o)
+    : _parent(o._parent), _used(o._used), _name(std::move(o._name))
+{
+    for (auto& val : o._values) {
+        val._group = this;
+    }
+    for (auto& grp : o._subgroups) {
+        grp._parent = this;
+    }
+    unlink();
+    if (_parent) {
+        _parent->_subgroups.push_back(*this);
+    }
+}
+
+void option_group::describe(options_descriptor& descriptor) const {
+    if (descriptor.visit_group_start(_name, _used)) {
+        for (auto& value : _values) {
+            value.describe(descriptor);
+        }
+        for (auto& grp : _subgroups) {
+            grp.describe(descriptor);
+        }
+    }
+    descriptor.visit_group_end();
+}
+
+void option_group::mutate(options_mutator& mutator) {
+    if (mutator.visit_group_start(_name, _used)) {
+        for (auto& value : _values) {
+            value.mutate(mutator);
+        }
+        for (auto& grp : _subgroups) {
+            grp.mutate(mutator);
+        }
+    }
+    mutator.visit_group_end();
+}
+
+basic_value::basic_value(option_group& group, bool used, std::string name, std::string description)
+    : _group(&group), _used(used), _name(std::move(name)), _description(std::move(description))
+{
+    _group->_values.push_back(*this);
+}
+
+basic_value::basic_value(basic_value&& o)
+    : _group(o._group), _used(o._used), _name(std::move(o._name)), _description(std::move(o._description))
+{
+    unlink();
+    _group->_values.push_back(*this);
+}
+
+void basic_value::describe(options_descriptor& descriptor) const {
+    if (descriptor.visit_value_metadata(_name, _description, _used)) {
+        do_describe(descriptor);
+    }
+}
+
+void basic_value::mutate(options_mutator& mutator) {
+    if (mutator.visit_value_metadata(_name, _used)) {
+        do_mutate(mutator);
+    }
 }
 
 }

@@ -24,10 +24,44 @@
 #include <memory>
 #include <seastar/net/net.hh>
 #include <seastar/core/sstring.hh>
+#include <seastar/util/program-options.hh>
 
 namespace seastar {
 
-std::unique_ptr<net::device> create_virtio_net_device(boost::program_options::variables_map opts = boost::program_options::variables_map());
-boost::program_options::options_description get_virtio_net_options_description();
+namespace net {
+
+/// Virtio configuration.
+struct virtio_options : public program_options::option_group {
+    /// \brief Enable event-index feature (on / off).
+    ///
+    /// Default: \p on.
+    program_options::value<std::string> event_index;
+    /// \brief Enable checksum offload feature (on / off).
+    ///
+    /// Default: \p on.
+    program_options::value<std::string> csum_offload;
+    /// \brief Enable TCP segment offload feature (on / off).
+    ///
+    /// Default: \p on.
+    program_options::value<std::string> tso;
+    /// \brief Enable UDP fragmentation offload feature (on / off).
+    ///
+    /// Default: \p on.
+    program_options::value<std::string> ufo;
+    /// \brief Virtio ring size (must be power-of-two).
+    ///
+    /// Default: 256.
+    program_options::value<unsigned> virtio_ring_size;
+
+    /// \cond internal
+    virtio_options(program_options::option_group* parent_group);
+    /// \endcond
+};
+
+}
+
+/// \cond internal
+std::unique_ptr<net::device> create_virtio_net_device(const net::virtio_options& opts, const program_options::value<std::string>& lro);
+/// \endcond
 
 }

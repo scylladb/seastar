@@ -456,12 +456,14 @@ public:
 
 logger_registry& global_logger_registry();
 
+/// \brief Timestamp style.
 enum class logger_timestamp_style {
     none,
     boot,
     real,
 };
 
+/// \brief Output stream to use for logging.
 enum class logger_ostream_type {
     none,
     stdout,

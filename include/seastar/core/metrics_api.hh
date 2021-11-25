@@ -371,16 +371,21 @@ void unregister_metric(const metric_id & id);
 std::unique_ptr<metric_groups_def> create_metric_groups();
 
 }
+
+/// Metrics configuration options.
+struct options : public program_options::option_group {
+    /// \brief The hostname used by the metrics.
+    ///
+    /// If not set, the local hostname will be used.
+    program_options::value<std::string> metrics_hostname;
+
+    options(program_options::option_group* parent_group);
+};
+
 /*!
  * \brief set the metrics configuration
  */
-future<> configure(const boost::program_options::variables_map & opts);
-
-/*!
- * \brief get the metrics configuration desciprtion
- */
-
-boost::program_options::options_description get_options_description();
+future<> configure(const options& opts);
 
 }
 }

@@ -24,6 +24,7 @@
 #include <seastar/net/dpdk.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/net/ip.hh>
+#include <seastar/net/native-stack.hh>
 #include <iostream>
 #include <utility>
 #include <algorithm>
@@ -91,8 +92,7 @@ int main(int ac, char** av) {
     std::unique_ptr<net::device> dnet;
     net::qp* vnet;
 
-    boost::program_options::variables_map opts;
-    opts.insert(std::make_pair("tap-device", boost::program_options::variable_value(std::string("tap0"), false)));
+    native_stack_options opts;
 
 #ifdef SEASTAR_HAVE_DPDK
     if (ac > 2) {
@@ -101,7 +101,7 @@ int main(int ac, char** av) {
     }
 
     if ((ac == 1) || !std::strcmp(av[1], "-virtio")) {
-        dnet = create_virtio_net_device(opts);
+        dnet = create_virtio_net_device(opts.virtio_opts, opts.lro);
     } else if (!std::strcmp(av[1], "-dpdk")) {
         dnet = create_dpdk_net_device();
     } else {
@@ -109,7 +109,7 @@ int main(int ac, char** av) {
         return -1;
     }
 #else
-    dnet = create_virtio_net_device(opts);
+    dnet = create_virtio_net_device(opts.virtio_opts, opts.lro);
 #endif // SEASTAR_HAVE_DPDK
 
     auto qp = dnet->init_local_queue(opts, 0);

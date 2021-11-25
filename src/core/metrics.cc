@@ -94,19 +94,16 @@ static std::string get_hostname() {
 }
 
 
-boost::program_options::options_description get_options_description() {
-    namespace bpo = boost::program_options;
-    bpo::options_description opts("Metrics options");
-    opts.add_options()(
-            "metrics-hostname",
-            bpo::value<std::string>()->default_value(get_hostname()),
-            "set the hostname used by the metrics, if not set, the local hostname will be used");
-    return opts;
+options::options(program_options::option_group* parent_group)
+    : program_options::option_group(parent_group, "Metrics options")
+    , metrics_hostname(*this, "metrics-hostname", get_hostname(),
+            "set the hostname used by the metrics, if not set, the local hostname will be used")
+{
 }
 
-future<> configure(const boost::program_options::variables_map & opts) {
+future<> configure(const options& opts) {
     impl::config c;
-    c.hostname = opts["metrics-hostname"].as<std::string>();
+    c.hostname = opts.metrics_hostname.get_value();
     return smp::invoke_on_all([c] {
         impl::get_local_impl()->set_config(c);
     });
