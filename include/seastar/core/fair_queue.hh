@@ -161,6 +161,7 @@ public:
     void release_capacity(capacity_t cap) noexcept;
 
     capacity_t capacity_deficiency(capacity_t from) const noexcept;
+    capacity_t ticket_capacity(fair_queue_ticket ticket) const noexcept;
 };
 
 /// \brief Fair queuing class
@@ -229,9 +230,9 @@ private:
      */
     struct pending {
         fair_group::capacity_t head;
-        fair_queue_ticket cap;
+        fair_queue_ticket ticket;
 
-        pending(fair_group::capacity_t t, fair_queue_ticket c) noexcept : head(t), cap(c) {}
+        pending(fair_group::capacity_t t, fair_queue_ticket c) noexcept : head(t), ticket(c) {}
     };
 
     std::optional<pending> _pending;
@@ -246,8 +247,8 @@ private:
         return desc.duration_at_pace(_config.ticket_weight_pace, _config.ticket_size_pace);
     }
 
-    bool grab_capacity(fair_queue_ticket cap) noexcept;
-    bool grab_pending_capacity(fair_queue_ticket cap) noexcept;
+    bool grab_capacity(const fair_queue_entry& ent) noexcept;
+    bool grab_pending_capacity(const fair_queue_entry& ent) noexcept;
 public:
     /// Constructs a fair queue with configuration parameters \c cfg.
     ///

@@ -107,6 +107,10 @@ auto fair_group::capacity_deficiency(capacity_t from) const noexcept -> capacity
     return wrapping_difference(from, _capacity_head.load(std::memory_order_relaxed));
 }
 
+auto fair_group::ticket_capacity(fair_queue_ticket t) const noexcept -> capacity_t {
+    return t;
+}
+
 auto fair_group::fetch_add(fair_group_atomic_rover& rover, capacity_t cap) noexcept -> capacity_t {
     capacity_t cur = rover.load(std::memory_order_relaxed);
     while (!rover.compare_exchange_weak(cur, cur + cap)) ;
@@ -188,14 +192,15 @@ std::chrono::microseconds fair_queue_ticket::duration_at_pace(float weight_pace,
     return std::chrono::microseconds(dur);
 }
 
-bool fair_queue::grab_pending_capacity(fair_queue_ticket cap) noexcept {
+bool fair_queue::grab_pending_capacity(const fair_queue_entry& ent) noexcept {
     if (_group.capacity_deficiency(_pending->head)) {
         return false;
     }
 
-    if (cap == _pending->cap) {
+    if (ent._ticket == _pending->ticket) {
         _pending.reset();
     } else {
+        fair_group::capacity_t cap = _group.ticket_capacity(ent._ticket);
         /*
          * This branch is called when the fair queue decides to
          * submit not the same request that entered it into the
@@ -209,14 +214,15 @@ bool fair_queue::grab_pending_capacity(fair_queue_ticket cap) noexcept {
     return true;
 }
 
-bool fair_queue::grab_capacity(fair_queue_ticket cap) noexcept {
+bool fair_queue::grab_capacity(const fair_queue_entry& ent) noexcept {
     if (_pending) {
-        return grab_pending_capacity(cap);
+        return grab_pending_capacity(ent);
     }
 
+    fair_group::capacity_t cap = _group.ticket_capacity(ent._ticket);
     fair_group::capacity_t want_head = _group.grab_capacity(cap) + cap;
     if (_group.capacity_deficiency(want_head)) {
-        _pending.emplace(want_head, cap);
+        _pending.emplace(want_head, ent._ticket);
         return false;
     }
 
@@ -276,7 +282,7 @@ void fair_queue::queue(class_id id, fair_queue_entry& ent) {
 void fair_queue::notify_request_finished(fair_queue_ticket desc) noexcept {
     _resources_executing -= desc;
     _requests_executing--;
-    _group.release_capacity(desc);
+    _group.release_capacity(_group.ticket_capacity(desc));
 }
 
 void fair_queue::notify_request_cancelled(fair_queue_entry& ent) noexcept {
@@ -293,7 +299,7 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         }
 
         auto& req = h._queue.front();
-        if (!grab_capacity(req._ticket)) {
+        if (!grab_capacity(req)) {
             break;
         }
 
