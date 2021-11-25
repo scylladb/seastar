@@ -62,12 +62,19 @@ class test_env {
     fair_queue::class_id _nr_classes = 0;
     std::vector<request> _inflight;
 
+    static fair_group::config fg_config(unsigned cap) {
+        fair_group::config cfg;
+        cfg.max_req_count = cap;
+        cfg.max_bytes_count = std::numeric_limits<int>::max();
+        return cfg;
+    }
+
     void drain() {
         do {} while (tick() != 0);
     }
 public:
     test_env(unsigned capacity)
-        : _fg(fair_group::config(capacity, std::numeric_limits<int>::max()))
+        : _fg(fg_config(capacity))
         , _fq(_fg, fair_queue::config())
     {}
 

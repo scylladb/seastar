@@ -144,14 +144,6 @@ public:
     struct config {
         unsigned max_req_count;
         unsigned max_bytes_count;
-
-        /// Constructs a config with the given \c capacity, expressed in maximum
-        /// values for requests and bytes.
-        ///
-        /// \param max_requests how many concurrent requests are allowed in this queue.
-        /// \param max_bytes how many total bytes are allowed in this queue.
-        config(unsigned max_requests, unsigned max_bytes) noexcept
-                : max_req_count(max_requests), max_bytes_count(max_bytes) {}
     };
     explicit fair_group(config cfg) noexcept;
     fair_group(fair_group&&) = delete;
