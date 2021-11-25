@@ -18,7 +18,7 @@
 
 /*
  * author: Niek J Bouman
- * reviewer: Avi Kivity
+ * reviewers: Avi Kivity, Benny Halevy
  * November 2021
  */ 
 
@@ -28,6 +28,8 @@
 #include <cstddef>
 #include <type_traits>
 #include <vector>
+#include <tuple>
+#include <utility>
 #include <seastar/core/future.hh>
 #include <seastar/core/shared_ptr.hh>
 
@@ -99,4 +101,52 @@ auto when_any(FutureIterator begin, FutureIterator end) noexcept
         }
     );
 }
+
+namespace internal {
+
+template <class... Futures, std::size_t... I>
+future<when_any_result<std::tuple<Futures...>>>
+when_any_impl(std::index_sequence<I...>, Futures&&... futs) noexcept
+{
+    auto waiter_obj = make_lw_shared<waiter>();
+    auto attach_notifier = [&](auto&& fut, size_t index) {
+        if (fut.available()) {
+            waiter_obj->done(index);
+            return std::move(fut);
+        }
+        else {
+            return fut.finally([waiter_obj, index] { waiter_obj->done(index); });
+        }
+    };
+
+    auto result =
+        when_any_result<std::tuple<Futures...>>{0, std::make_tuple(attach_notifier(std::forward<Futures>(futs), I)...)};
+    return waiter_obj->get_future().then([result = std::move(result)](std::size_t index) mutable {
+        result.index = index;
+        return std::move(result);
+    });
+}
+
+} // namespace internal
+
+/// Wait for the first of multiple futures to complete (variadic version).
+///
+/// Each future can be passed directly, or a function that returns a
+/// future can be given instead.
+///
+/// Returns a \c when_any_result (following the concurrency TS from
+/// the standard library), containing a std::tuple to all futures
+/// and the index (into the vector) of the future that resolved.
+///
+/// \param fut_or_funcs futures or functions that return futures
+/// \return a \c when_any_result containing a tuple of all futures
+///  and and index; when ready, at least one of the contained futures
+///  (the one indicated by index) will be ready.
+template <class... FutOrFuncs>
+auto when_any(FutOrFuncs&&... fut_or_funcs) noexcept
+{
+    return internal::when_any_impl(std::make_index_sequence<sizeof...(FutOrFuncs)>{},
+                                   futurize_invoke_if_func(std::forward<FutOrFuncs>(fut_or_funcs))...);
+}
+
 } // namespace seastar

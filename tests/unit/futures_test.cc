@@ -35,6 +35,7 @@
 #include <seastar/core/thread.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/when_any.hh>
+#include <seastar/core/when_all.hh>
 #include <seastar/core/gate.hh>
 #include <seastar/util/log.hh>
 #include <boost/iterator/counting_iterator.hpp>
@@ -597,6 +598,54 @@ SEASTAR_TEST_CASE(test_when_any_iterator_range_iv) {
         BOOST_REQUIRE_THROW(ret_obj.futures[ret_obj.index].get(), std::runtime_error);
         return when_all_but_one_succeed(ret_obj.futures, ret_obj.index);
     });
+}
+
+SEASTAR_TEST_CASE(test_when_any_variadic_i)
+{
+    auto f_int = later().then([] { return make_ready_future<int>(42); });
+    auto f_string = sleep(100ms).then([] { return make_ready_future<sstring>("hello"); });
+    auto f_l33tspeak = sleep(100ms).then([] {
+        return make_ready_future<std::tuple<char, int, int, char, char, int, char>>(
+            std::make_tuple('s', 3, 4, 's', 't', 4, 'r'));
+    });
+    return when_any(std::move(f_int), std::move(f_string), std::move(f_l33tspeak)).then([](auto&& wa_result) {
+        BOOST_REQUIRE(wa_result.index == 0);
+        auto [one, two, three] = std::move(wa_result.futures);
+        BOOST_REQUIRE(one.get0() == 42);
+        return when_all_succeed(std::move(two), std::move(three)).then([](auto _) { return seastar::make_ready_future<>(); });
+    });
+}
+
+SEASTAR_TEST_CASE(test_when_any_variadic_ii)
+{
+    struct foo {
+        int bar = 86;
+    };
+
+    auto f_int = sleep(100ms).then([] { return make_ready_future<int>(42); });
+    auto f_foo = sleep(75ms).then([] { return make_ready_future<foo>(); });
+    auto f_string = sleep(1ms).then([] { return make_ready_future<sstring>("hello"); });
+    auto f_l33tspeak = sleep(50ms).then([] {
+        return make_ready_future<std::tuple<char, int, int, char, char, int, char>>(
+            std::make_tuple('s', 3, 4, 's', 't', 4, 'r'));
+    });
+    return when_any(std::move(f_int), std::move(f_foo), std::move(f_string), std::move(f_l33tspeak))
+        .then([](auto&& wa_result) {
+            BOOST_REQUIRE(wa_result.index == 2);
+            auto [one, two, three, four] = std::move(wa_result.futures);
+            BOOST_REQUIRE(three.get0() == "hello");
+            return when_any(std::move(one), std::move(two), std::move(four)).then([](auto wa_nextresult) {
+                auto [one, two, four] = std::move(wa_nextresult.futures);
+                BOOST_REQUIRE(wa_nextresult.index == 2);
+                BOOST_REQUIRE(four.get0() == std::make_tuple('s', 3, 4, 's', 't', 4, 'r'));
+                return when_any(std::move(one), std::move(two)).then([](auto wa_result) {
+                    auto [one, two] = std::move(wa_result.futures);
+                    BOOST_REQUIRE(wa_result.index == 1);
+                    BOOST_REQUIRE(two.get0().bar == foo{}.bar);
+                    return one.then([](int x) { BOOST_REQUIRE(x == 42); });
+                });
+            });
+        });
 }
 
 SEASTAR_TEST_CASE(test_map_reduce) {
