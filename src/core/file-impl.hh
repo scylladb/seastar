@@ -249,8 +249,13 @@ private:
                     f.forward_to(std::move(*pr));
                 });
             };
-            enqueue_op({type, pos, len, std::move(op_func)});
-            return fut;
+            try {
+                enqueue_op({type, pos, len, std::move(op_func)});
+                return fut;
+            } catch (...) {
+                fut.ignore_ready_future();
+                return current_exception_as_future<T...>();
+            }
         } catch (...) {
             return make_exception_future<T...>(std::current_exception());
         }
