@@ -845,7 +845,7 @@ private:
     PtrType _value;
     unsigned _cpu;
 private:
-    void destroy(PtrType p, unsigned cpu) noexcept {
+    static void destroy(PtrType p, unsigned cpu) noexcept {
         if (p && this_shard_id() != cpu) {
             // `destroy()` is called from the destructor and other
             // synchronous methods (like `reset()`), that have no way to
