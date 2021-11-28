@@ -25,7 +25,7 @@
 
 namespace seastar {
 
-namespace util {
+namespace httpd {
 
 future<std::vector<temporary_buffer<char>>> read_entire_stream(input_stream<char>& inp) {
     using tmp_buf = temporary_buffer<char>;

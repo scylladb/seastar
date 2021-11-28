@@ -26,11 +26,11 @@
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/http/request.hh>
-#include <seastar/util/short_streams.hh>
+#include <seastar/http/short_streams.hh>
 #include <string>
 
 using namespace seastar;
-using namespace util;
+using namespace httpd;
 
 /*
  * Simple data source producing up to total_size bytes
