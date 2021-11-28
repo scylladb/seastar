@@ -102,12 +102,16 @@ struct smp_service_group_config {
 /// new smp_service_group_instead.
 class smp_service_group {
     unsigned _id;
+#ifdef SEASTAR_DEBUG
+    unsigned _version = 0;
+#endif
 private:
     explicit smp_service_group(unsigned id) noexcept : _id(id) {}
 
     friend unsigned internal::smp_service_group_id(smp_service_group ssg) noexcept;
     friend smp_service_group default_smp_service_group() noexcept;
     friend future<smp_service_group> create_smp_service_group(smp_service_group_config ssgc) noexcept;
+    friend future<> destroy_smp_service_group(smp_service_group) noexcept;
 };
 
 inline
