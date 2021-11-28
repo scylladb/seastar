@@ -289,3 +289,25 @@ SEASTAR_TEST_CASE(tmp_dir_do_with_thread_fail_remove_test) {
         set_default_tmpdir(saved_default_tmpdir.c_str());
     });
 }
+
+SEASTAR_TEST_CASE(test_read_entire_file_contiguous) {
+    return tmp_file::do_with([] (tmp_file& tf) {
+        return async([&tf] {
+            file& f = tf.get_file();
+            auto& eng = testing::local_random_engine;
+            auto dist = std::uniform_int_distribution<unsigned>();
+            size_t size = dist(eng) % 1'000'000;
+            auto wbuf = temporary_buffer<char>::aligned(f.memory_dma_alignment(), size);
+            for (size_t i = 0; i < size; i++) {
+                static char chars[] = "abcdefghijklmnopqrstuvwxyz0123456789";
+                wbuf.get_write()[i] = chars[dist(eng) % sizeof(chars)];
+            }
+
+            BOOST_REQUIRE_EQUAL(f.dma_write(0, wbuf.begin(), wbuf.size()).get0(), wbuf.size());
+            f.flush().get();
+
+            sstring res = util::read_entire_file_contiguous(tf.get_path()).get0();
+            BOOST_REQUIRE_EQUAL(res, std::string_view(wbuf.begin(), wbuf.size()));
+        });
+    });
+}
