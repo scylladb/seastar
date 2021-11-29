@@ -23,6 +23,7 @@
 
 #include <boost/intrusive/slist.hpp>
 #include <seastar/core/timer.hh>
+#include <seastar/core/sstring.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/circular_buffer.hh>
 #include <functional>
@@ -238,6 +239,7 @@ public:
     static constexpr float fixed_point_factor = float(1 << 14);
 
     struct config {
+        sstring label = "";
         unsigned max_weight;
         unsigned max_size;
         unsigned long weight_rate;
@@ -288,6 +290,7 @@ public:
     /// \sets the operation parameters of a \ref fair_queue
     /// \related fair_queue
     struct config {
+        sstring label = "";
         std::chrono::microseconds tau = std::chrono::milliseconds(5);
     };
 

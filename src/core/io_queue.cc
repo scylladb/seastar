@@ -318,6 +318,7 @@ io_queue::complete_request(io_desc_read_write& desc) noexcept {
 
 fair_queue::config io_queue::make_fair_queue_config(const config& iocfg) {
     fair_queue::config cfg;
+    cfg.label = fmt::format("io-queue-{}", iocfg.devid);
     return cfg;
 }
 
@@ -331,9 +332,17 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     if (get_config().duplex) {
         _streams.emplace_back(*_group->_fgs[1], fq_cfg);
     }
-    seastar_logger.debug("Created io queue, multipliers {}:{}",
-            get_config().disk_req_write_to_read_multiplier,
-            get_config().disk_blocks_write_to_read_multiplier);
+
+    if (this_shard_id() == 0) {
+        sstring caps_str;
+        for (size_t sz = 512; sz <= 128 * 1024; sz <<= 1) {
+            caps_str += fmt::format(" {}:{}/{}", sz,
+                    _group->_fgs[0]->ticket_capacity(request_fq_ticket(internal::io_direction_and_length(true, sz))),
+                    _group->_fgs[0]->ticket_capacity(request_fq_ticket(internal::io_direction_and_length(false, sz)))
+            );
+        }
+        seastar_logger.info("Created io queue dev({}) capacities:{}", get_config().devid, caps_str);
+    }
 }
 
 fair_group::config io_group::make_fair_group_config(const io_queue::config& qcfg) noexcept {
@@ -362,6 +371,7 @@ fair_group::config io_group::make_fair_group_config(const io_queue::config& qcfg
     }
 
     fair_group::config cfg;
+    cfg.label = fmt::format("io-queue-{}", qcfg.devid);
     cfg.max_weight = max_req_count;
     cfg.max_size = qcfg.max_blocks_count;
     cfg.weight_rate = qcfg.req_count_rate;
