@@ -366,6 +366,9 @@ fair_group::config io_group::make_fair_group_config(const io_queue::config& qcfg
     fair_group::config cfg;
     cfg.max_weight = max_req_count;
     cfg.max_size = qcfg.max_blocks_count;
+    cfg.weight_rate = qcfg.req_count_rate;
+    cfg.size_rate = qcfg.blocks_count_rate;
+    cfg.rate_limit_duration = qcfg.rate_limit_duration;
     return cfg;
 }
 
@@ -377,7 +380,9 @@ io_group::io_group(io_queue::config io_cfg) noexcept
     if (_config.duplex) {
         _fgs.push_back(std::make_unique<fair_group>(fg_cfg));
     }
-    seastar_logger.debug("Created io group, limits {}:{}", _config.max_req_count, _config.max_blocks_count);
+    seastar_logger.debug("Created io group, limits {}:{}, rate {}:{}",
+            _config.max_req_count, _config.max_blocks_count,
+            _config.req_count_rate, _config.blocks_count_rate);
 }
 
 io_queue::~io_queue() {

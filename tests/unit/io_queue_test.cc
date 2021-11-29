@@ -21,6 +21,7 @@
  */
 
 #include <seastar/core/thread.hh>
+#include <seastar/core/sleep.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/testing/test_runner.hh>
@@ -71,6 +72,7 @@ SEASTAR_THREAD_TEST_CASE(test_basic_flow) {
         BOOST_REQUIRE(file.data[0] == 42);
     });
 
+    seastar::sleep(std::chrono::milliseconds(500)).get();
     tio.queue.poll_io_queue();
     tio.sink.drain([&file] (internal::io_request& rq, io_completion* desc) -> bool {
         file.execute_write_req(rq, desc);
@@ -210,6 +212,7 @@ SEASTAR_THREAD_TEST_CASE(test_io_cancellation) {
 
     when_all_succeed(cancelled.begin(), cancelled.end()).get();
 
+    seastar::sleep(std::chrono::milliseconds(500)).get();
     tio.queue.poll_io_queue();
     tio.sink.drain([&file] (internal::io_request& rq, io_completion* desc) -> bool {
         file.execute_write_req(rq, desc);

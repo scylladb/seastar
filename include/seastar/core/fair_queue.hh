@@ -22,6 +22,7 @@
 #pragma once
 
 #include <boost/intrusive/slist.hpp>
+#include <seastar/core/timer.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/circular_buffer.hh>
 #include <functional>
@@ -128,32 +129,139 @@ public:
 /// the given time frame exceeds the disk throughput.
 class fair_group {
 public:
-    using capacity_t = fair_queue_ticket;
+    using capacity_t = uint64_t;
+    using clock_type = std::chrono::steady_clock;
+
+    /*
+     * tldr; The math
+     *
+     *    Bw, Br -- write/read bandwidth (bytes per second)
+     *    Ow, Or -- write/read iops (ops per second)
+     *
+     *    xx_max -- their maximum values (configured)
+     *
+     * Throttling formula:
+     *
+     *    Bw/Bw_max + Br/Br_max + Ow/Ow_max + Or/Or_max <= K
+     *
+     * where K is the scalar value <= 1.0 (also configured)
+     *
+     * Bandwidth is bytes time derivatite, iops is ops time derivative, i.e.
+     * Bx = d(bx)/dt, Ox = d(ox)/dt. Then the formula turns into
+     *
+     *   d(bw/Bw_max + br/Br_max + ow/Ow_max + or/Or_max)/dt <= K
+     *
+     * Fair queue tickets are {w, s} weight-size pairs that are
+     *
+     *   s = read_base_count * br, for reads
+     *       Br_max/Bw_max * read_base_count * bw, for writes
+     *
+     *   w = read_base_count, for reads
+     *       Or_max/Ow_max * read_base_count, for writes
+     *
+     * Thus the formula turns into
+     *
+     *   d(sum(w/W + s/S))/dr <= K
+     *
+     * where {w, s} is the ticket value if a request and sum summarizes the
+     * ticket values from all the requests seen so far, {W, S} is the ticket
+     * value that corresonds to a virtual summary of Or_max requests of
+     * Br_max size total.
+     */
 
 private:
     using fair_group_atomic_rover = std::atomic<capacity_t>;
     static_assert(fair_group_atomic_rover::is_always_lock_free);
 
     const fair_queue_ticket _shares_capacity;
+
+    /*
+     * The dF/dt <= K limitation is managed by the modified token bucket
+     * algo where tokens are ticket.normalize(cost_capacity), the refill
+     * rate is K.
+     *
+     * The token bucket algo must have the limit on the number of tokens
+     * accumulated. Here it's configured so that it accumulates for the
+     * latency_goal duration.
+     *
+     * The replenish threshold is the minimal number of tokens to put back.
+     * It's reserved for future use to reduce the load on the replenish
+     * timestamp.
+     *
+     * The timestamp, in turn, is the time when the bucket was replenished
+     * last. Every time a shard tries to get tokens from bucket it first
+     * tries to convert the time that had passed since this timestamp
+     * into more tokens in the bucket.
+     */
+
+    timer<> _replenisher;
+    const fair_queue_ticket _cost_capacity;
+    const capacity_t _replenish_rate;
+    const capacity_t _replenish_limit;
+    const capacity_t _replenish_threshold;
+    std::atomic<clock_type::time_point> _replenished;
+
+    /*
+     * The token bucket is implemented as a pair of wrapping monotonic
+     * counters (called rovers) one chasing the other. Getting a token
+     * from the bucket is increasing the tail, replenishing a token back
+     * is increasing the head. If increased tail overruns the head then
+     * the bucket is empty and we have to wait. The shard that grabs tail
+     * earlier will be "woken up" earlier, so they form a queue.
+     *
+     * The top rover is needed to implement two buckets actually. The
+     * tokens are not just replenished by timer. They are replenished by
+     * timer from the second bucket. And the second bucket only get a
+     * token in it after the request that grabbed it from the first bucket
+     * completes and returns it back.
+     */
+
     fair_group_atomic_rover _capacity_tail;
     fair_group_atomic_rover _capacity_head;
+    fair_group_atomic_rover _capacity_ceil;
 
     capacity_t fetch_add(fair_group_atomic_rover& rover, capacity_t cap) noexcept;
 
 public:
+
+    /*
+     * The normalization results in a float of the 2^-30 seconds order of
+     * magnitude. Not to invent float point atomic arithmetics, the result
+     * is converted to an integer by multiplying by a factor that's large
+     * enough to turn these values into a non-zero integer.
+     *
+     * Also, the rates in bytes/sec when adjusted by io-queue according to
+     * multipliers become too large to be stored in 32-bit ticket value.
+     * Thus the rate resolution is applied. The rate_resolution is the
+     * time period for which the speeds from F (in above formula) are taken.
+     */
+
+    using rate_resolution = std::chrono::duration<double, std::micro>;
+    static constexpr float fixed_point_factor = float(1 << 14);
+
     struct config {
         unsigned max_weight;
         unsigned max_size;
+        unsigned long weight_rate;
+        unsigned long size_rate;
+        float rate_factor = 1.0;
+        std::chrono::duration<double> rate_limit_duration = std::chrono::milliseconds(1);
     };
+
     explicit fair_group(config cfg) noexcept;
     fair_group(fair_group&&) = delete;
 
     fair_queue_ticket shares_capacity() const noexcept { return _shares_capacity; }
+    fair_queue_ticket cost_capacity() const noexcept { return _cost_capacity; }
+    capacity_t maximum_capacity() const noexcept { return _replenish_limit; }
     capacity_t grab_capacity(capacity_t cap) noexcept;
+    clock_type::time_point replenished_ts() const noexcept { return _replenished; }
     void release_capacity(capacity_t cap) noexcept;
+    void replenish_capacity(clock_type::time_point now) noexcept;
 
     capacity_t capacity_deficiency(capacity_t from) const noexcept;
     capacity_t ticket_capacity(fair_queue_ticket ticket) const noexcept;
+    capacity_t rate() const noexcept { return _replenish_rate; }
 };
 
 /// \brief Fair queuing class
@@ -236,7 +344,8 @@ private:
 
     // Estimated time to process the given ticket
     std::chrono::microseconds duration(fair_group::capacity_t desc) const noexcept {
-        return desc.duration_at_pace(_config.ticket_weight_pace, _config.ticket_size_pace);
+        auto duration_ms = fair_group::rate_resolution(desc / _group.rate());
+        return std::chrono::duration_cast<std::chrono::microseconds>(duration_ms);
     }
 
     bool grab_capacity(const fair_queue_entry& ent) noexcept;

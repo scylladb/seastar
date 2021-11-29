@@ -66,6 +66,9 @@ class test_env {
         fair_group::config cfg;
         cfg.max_weight = cap;
         cfg.max_size = std::numeric_limits<int>::max();
+        cfg.weight_rate = 1'000'000;
+        cfg.size_rate = std::numeric_limits<int>::max();
+        cfg.rate_limit_duration = std::chrono::microseconds(cap);
         return cfg;
     }
 
@@ -87,6 +90,7 @@ public:
     // before the queue is destroyed.
     unsigned tick(unsigned n = 1) {
         unsigned processed = 0;
+        _fg.replenish_capacity(_fg.replenished_ts() + std::chrono::microseconds(1));
         _fq.dispatch_requests([] (fair_queue_entry& ent) {
             boost::intrusive::get_parent_from_member(&ent, &request::fqent)->submit();
         });
@@ -101,6 +105,7 @@ public:
                 _fq.notify_request_finished(req.fqent.ticket());
             }
 
+            _fg.replenish_capacity(_fg.replenished_ts() + std::chrono::microseconds(1));
             _fq.dispatch_requests([] (fair_queue_entry& ent) {
                 boost::intrusive::get_parent_from_member(&ent, &request::fqent)->submit();
             });

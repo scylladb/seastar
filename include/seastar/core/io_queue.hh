@@ -98,6 +98,8 @@ public:
         unsigned capacity = std::numeric_limits<unsigned>::max();
         unsigned max_req_count = std::numeric_limits<int>::max();
         unsigned max_blocks_count = std::numeric_limits<int>::max();
+        unsigned long req_count_rate = std::numeric_limits<int>::max();
+        unsigned long blocks_count_rate = std::numeric_limits<int>::max();
         unsigned disk_req_write_to_read_multiplier = read_request_base_count;
         unsigned disk_blocks_write_to_read_multiplier = read_request_base_count;
         float disk_us_per_request = 0;
@@ -106,6 +108,7 @@ public:
         size_t disk_write_saturation_length = std::numeric_limits<size_t>::max();
         sstring mountpoint = "undefined";
         bool duplex = false;
+        std::chrono::duration<double> rate_limit_duration = std::chrono::milliseconds(1);
     };
 
     io_queue(io_group_ptr group, internal::io_sink& sink);

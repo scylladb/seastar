@@ -86,13 +86,26 @@ fair_queue_ticket wrapping_difference(const fair_queue_ticket& a, const fair_que
             std::max<int32_t>(a._size - b._size, 0));
 }
 
+uint64_t wrapping_difference(const uint64_t& a, const uint64_t& b) noexcept {
+    return std::max<int64_t>(a - b, 0);
+}
+
 fair_group::fair_group(config cfg) noexcept
         : _shares_capacity(cfg.max_weight, cfg.max_size)
-        , _capacity_tail(fair_queue_ticket(0, 0))
-        , _capacity_head(fair_queue_ticket(cfg.max_weight, cfg.max_size))
+        , _replenisher([this] { replenish_capacity(clock_type::now()); })
+        , _cost_capacity(cfg.weight_rate / std::chrono::duration_cast<rate_resolution>(std::chrono::seconds(1)).count(), cfg.size_rate / std::chrono::duration_cast<rate_resolution>(std::chrono::seconds(1)).count())
+        , _replenish_rate(cfg.rate_factor * fixed_point_factor)
+        , _replenish_limit(_replenish_rate * std::chrono::duration_cast<rate_resolution>(cfg.rate_limit_duration).count())
+        , _replenish_threshold(1) // FIXME -- too frequest replenish
+        , _replenished(clock_type::now())
+        , _capacity_tail(0)
+        , _capacity_head(0)
+        , _capacity_ceil(_replenish_limit)
 {
     assert(!wrapping_difference(_capacity_tail.load(std::memory_order_relaxed), _capacity_head.load(std::memory_order_relaxed)));
-    seastar_logger.debug("Created fair group, capacity {}:{}", cfg.max_weight, cfg.max_size);
+    seastar_logger.debug("Created fair group, capacity shares {} rate {}, limit {}, rate {} (factor {}), threshold {}",
+            _shares_capacity, _cost_capacity, _replenish_limit, _replenish_rate, cfg.rate_factor, _replenish_threshold);
+    _replenisher.arm_periodic(std::chrono::microseconds(500));
 }
 
 auto fair_group::grab_capacity(capacity_t cap) noexcept -> capacity_t {
@@ -100,7 +113,27 @@ auto fair_group::grab_capacity(capacity_t cap) noexcept -> capacity_t {
 }
 
 void fair_group::release_capacity(capacity_t cap) noexcept {
-    fetch_add(_capacity_head, cap);
+    fetch_add(_capacity_ceil, cap);
+}
+
+void fair_group::replenish_capacity(clock_type::time_point now) noexcept {
+    auto ts = _replenished.load(std::memory_order_relaxed);
+
+    if (now <= ts) {
+        return;
+    }
+
+    auto delta = std::chrono::duration_cast<rate_resolution>(now - ts);
+    capacity_t extra = std::round(_replenish_rate * delta.count());
+
+    if (extra >= _replenish_threshold) {
+        if (!_replenished.compare_exchange_weak(ts, ts + std::chrono::duration_cast<std::chrono::nanoseconds>(delta))) {
+            return; // next time or another shard
+        }
+
+        auto max_extra = wrapping_difference(_capacity_ceil.load(std::memory_order_relaxed), _capacity_head.load(std::memory_order_relaxed));
+        fetch_add(_capacity_head, std::min(extra, max_extra));
+    }
 }
 
 auto fair_group::capacity_deficiency(capacity_t from) const noexcept -> capacity_t {
@@ -108,13 +141,11 @@ auto fair_group::capacity_deficiency(capacity_t from) const noexcept -> capacity
 }
 
 auto fair_group::ticket_capacity(fair_queue_ticket t) const noexcept -> capacity_t {
-    return t;
+    return t.normalize(_cost_capacity) * fixed_point_factor;
 }
 
 auto fair_group::fetch_add(fair_group_atomic_rover& rover, capacity_t cap) noexcept -> capacity_t {
-    capacity_t cur = rover.load(std::memory_order_relaxed);
-    while (!rover.compare_exchange_weak(cur, cur + cap)) ;
-    return cur;
+    return rover.fetch_add(cap);
 }
 
 // Priority class, to be used with a given fair_queue
@@ -291,7 +322,9 @@ void fair_queue::notify_request_cancelled(fair_queue_entry& ent) noexcept {
 }
 
 void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
-    while (!_handles.empty()) {
+    fair_group::capacity_t dispatched = 0;
+
+    while (!_handles.empty() && (dispatched < _group.maximum_capacity() / smp::count)) {
         priority_class_data& h = *_handles.top();
         if (h._queue.empty()) {
             pop_priority_class(h);
@@ -328,6 +361,7 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
             push_priority_class(h);
         }
 
+        dispatched += _group.ticket_capacity(req._ticket);
         cb(req);
     }
 }

@@ -41,6 +41,8 @@ struct local_fq_and_class {
         fair_group::config cfg;
         cfg.max_weight = 1;
         cfg.max_size = 1;
+        cfg.weight_rate = std::numeric_limits<int>::max();
+        cfg.size_rate = std::numeric_limits<int>::max();
         return cfg;
     }
 
@@ -81,6 +83,8 @@ struct perf_fair_queue {
         fair_group::config cfg;
         cfg.max_weight = smp::count;
         cfg.max_size = smp::count;
+        cfg.weight_rate = std::numeric_limits<int>::max();
+        cfg.size_rate = std::numeric_limits<int>::max();
         return cfg;
     }
 
