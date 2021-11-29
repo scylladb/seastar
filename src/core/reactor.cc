@@ -150,6 +150,7 @@ struct mountpoint_params {
     uint64_t read_saturation_length = std::numeric_limits<uint64_t>::max();
     uint64_t write_saturation_length = std::numeric_limits<uint64_t>::max();
     bool duplex = false;
+    float rate_factor = 1.0;
 };
 
 }
@@ -172,6 +173,9 @@ struct convert<seastar::mountpoint_params> {
         }
         if (node["duplex"]) {
             mp.duplex = node["duplex"].as<bool>();
+        }
+        if (node["rate_factor"]) {
+            mp.rate_factor = node["rate_factor"].as<float>();
         }
         return true;
     }
@@ -3794,6 +3798,7 @@ public:
             }
             cfg.mountpoint = p.mountpoint;
             cfg.duplex = p.duplex;
+            cfg.rate_factor = p.rate_factor;
             cfg.rate_limit_duration = latency_goal();
         } else {
             // For backwards compatibility

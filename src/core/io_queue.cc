@@ -366,6 +366,7 @@ fair_group::config io_group::make_fair_group_config(const io_queue::config& qcfg
     cfg.max_size = qcfg.max_blocks_count;
     cfg.weight_rate = qcfg.req_count_rate;
     cfg.size_rate = qcfg.blocks_count_rate;
+    cfg.rate_factor = qcfg.rate_factor;
     cfg.rate_limit_duration = qcfg.rate_limit_duration;
     return cfg;
 }

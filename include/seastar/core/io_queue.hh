@@ -106,6 +106,7 @@ public:
         size_t disk_write_saturation_length = std::numeric_limits<size_t>::max();
         sstring mountpoint = "undefined";
         bool duplex = false;
+        float rate_factor = 1.0;
         std::chrono::duration<double> rate_limit_duration = std::chrono::milliseconds(1);
     };
 
