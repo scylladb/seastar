@@ -87,12 +87,12 @@ fair_queue_ticket wrapping_difference(const fair_queue_ticket& a, const fair_que
 }
 
 fair_group::fair_group(config cfg) noexcept
-        : _maximum_capacity(cfg.max_req_count, cfg.max_bytes_count)
+        : _maximum_capacity(cfg.max_weight, cfg.max_size)
         , _capacity_tail(fair_queue_ticket(0, 0))
-        , _capacity_head(fair_queue_ticket(cfg.max_req_count, cfg.max_bytes_count))
+        , _capacity_head(fair_queue_ticket(cfg.max_weight, cfg.max_size))
 {
     assert(!wrapping_difference(_capacity_tail.load(std::memory_order_relaxed), _capacity_head.load(std::memory_order_relaxed)));
-    seastar_logger.debug("Created fair group, capacity {}:{}", cfg.max_req_count, cfg.max_bytes_count);
+    seastar_logger.debug("Created fair group, capacity {}:{}", cfg.max_weight, cfg.max_size);
 }
 
 auto fair_group::grab_capacity(capacity_t cap) noexcept -> capacity_t {

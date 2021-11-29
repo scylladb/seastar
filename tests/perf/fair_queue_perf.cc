@@ -39,8 +39,8 @@ struct local_fq_and_class {
 
     static fair_group::config fg_config() {
         fair_group::config cfg;
-        cfg.max_req_count = 1;
-        cfg.max_bytes_count = 1;
+        cfg.max_weight = 1;
+        cfg.max_size = 1;
         return cfg;
     }
 
@@ -79,8 +79,8 @@ struct perf_fair_queue {
 
     static fair_group::config fg_config() {
         fair_group::config cfg;
-        cfg.max_req_count = smp::count;
-        cfg.max_bytes_count = smp::count;
+        cfg.max_weight = smp::count;
+        cfg.max_size = smp::count;
         return cfg;
     }
 

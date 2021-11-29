@@ -142,8 +142,8 @@ private:
 
 public:
     struct config {
-        unsigned max_req_count;
-        unsigned max_bytes_count;
+        unsigned max_weight;
+        unsigned max_size;
     };
     explicit fair_group(config cfg) noexcept;
     fair_group(fair_group&&) = delete;

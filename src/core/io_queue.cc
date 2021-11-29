@@ -364,8 +364,8 @@ fair_group::config io_group::make_fair_group_config(const io_queue::config& qcfg
     }
 
     fair_group::config cfg;
-    cfg.max_req_count = max_req_count;
-    cfg.max_bytes_count = qcfg.max_blocks_count;
+    cfg.max_weight = max_req_count;
+    cfg.max_size = qcfg.max_blocks_count;
     return cfg;
 }
 
