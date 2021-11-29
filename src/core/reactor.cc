@@ -3777,9 +3777,9 @@ public:
 
         if (!_capacity) {
             if (p.read_bytes_rate != std::numeric_limits<uint64_t>::max()) {
-                cfg.max_bytes_count = io_queue::read_request_base_count * per_io_group(p.read_bytes_rate * latency_goal().count(), nr_groups);
-                cfg.disk_bytes_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_bytes_rate) / p.write_bytes_rate;
-                cfg.disk_us_per_byte = 1000000. / p.read_bytes_rate;
+                cfg.max_blocks_count = (io_queue::read_request_base_count * per_io_group(p.read_bytes_rate * latency_goal().count(), nr_groups)) >> io_queue::block_size_shift;
+                cfg.disk_blocks_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_bytes_rate) / p.write_bytes_rate;
+                cfg.disk_us_per_block = 1000000. / (p.read_bytes_rate >> io_queue::block_size_shift);
             }
             if (p.read_req_rate != std::numeric_limits<uint64_t>::max()) {
                 cfg.max_req_count = io_queue::read_request_base_count * per_io_group(p.read_req_rate * latency_goal().count(), nr_groups);
@@ -3801,8 +3801,8 @@ public:
             unsigned max_req_count = std::min(*_capacity, reactor::max_aio_per_queue);
             cfg.max_req_count = io_queue::read_request_base_count * max_req_count;
             // specify size in terms of 16kB IOPS.
-            static_assert(reactor::max_aio_per_queue << 14 <= std::numeric_limits<decltype(cfg.max_bytes_count)>::max() / io_queue::read_request_base_count);
-            cfg.max_bytes_count = io_queue::read_request_base_count * (max_req_count << 14);
+            static_assert(reactor::max_aio_per_queue << (14 - io_queue::block_size_shift) <= std::numeric_limits<decltype(cfg.max_blocks_count)>::max() / io_queue::read_request_base_count);
+            cfg.max_blocks_count = io_queue::read_request_base_count * (max_req_count << (14 - io_queue::block_size_shift));
         }
         return cfg;
     }
