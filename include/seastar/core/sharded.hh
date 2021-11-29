@@ -840,6 +840,7 @@ inline bool sharded<Service>::local_is_initialized() const noexcept {
 /// \c foreign_ptr<> is a move-only object; it cannot be copied.
 ///
 template <typename PtrType>
+SEASTAR_CONCEPT( requires (!std::is_pointer<PtrType>::value) )
 class foreign_ptr {
 private:
     PtrType _value;
