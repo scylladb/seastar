@@ -102,8 +102,6 @@ public:
         unsigned long blocks_count_rate = std::numeric_limits<int>::max();
         unsigned disk_req_write_to_read_multiplier = read_request_base_count;
         unsigned disk_blocks_write_to_read_multiplier = read_request_base_count;
-        float disk_us_per_request = 0;
-        float disk_us_per_block = 0;
         size_t disk_read_saturation_length = std::numeric_limits<size_t>::max();
         size_t disk_write_saturation_length = std::numeric_limits<size_t>::max();
         sstring mountpoint = "undefined";

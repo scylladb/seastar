@@ -65,8 +65,6 @@ public:
     /// \param desc another \ref fair_queue_ticket to compare with
     bool operator==(const fair_queue_ticket& desc) const noexcept;
 
-    std::chrono::microseconds duration_at_pace(float weight_pace, float size_pace) const noexcept;
-
     /// \returns true if the fair_queue_ticket represents a non-zero quantity.
     ///
     /// For a fair_queue ticket to be non-zero, at least one of its represented quantities need to
@@ -291,9 +289,6 @@ public:
     /// \related fair_queue
     struct config {
         std::chrono::microseconds tau = std::chrono::milliseconds(5);
-        // Time (in microseconds) is takes to process one ticket value
-        float ticket_size_pace;
-        float ticket_weight_pace;
     };
 
     using class_id = unsigned int;

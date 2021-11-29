@@ -318,8 +318,6 @@ io_queue::complete_request(io_desc_read_write& desc) noexcept {
 
 fair_queue::config io_queue::make_fair_queue_config(const config& iocfg) {
     fair_queue::config cfg;
-    cfg.ticket_weight_pace = iocfg.disk_us_per_request / read_request_base_count;
-    cfg.ticket_size_pace = iocfg.disk_us_per_block / read_request_base_count;
     return cfg;
 }
 
