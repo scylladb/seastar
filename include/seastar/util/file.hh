@@ -23,7 +23,10 @@
 #pragma once
 
 #include <seastar/core/future.hh>
+#include <seastar/core/fstream.hh>
+#include <seastar/core/sstring.hh>
 #include <seastar/util/std-compat.hh>
+#include <seastar/util/short_streams.hh>
 
 namespace seastar {
 
@@ -41,5 +44,53 @@ namespace seastar {
 /// (and their contents) may be left behind at the level in which the error was detected.
 ///
 future<> recursive_remove_directory(std::filesystem::path path) noexcept;
+
+/// @}
+
+/// \defgroup fileio-util File and Stream Utilities
+/// \ingroup fileio-module
+///
+/// \brief
+/// These utilities are provided to help perform operations on files and I/O streams.
+
+namespace util {
+
+/// \addtogroup fileio-util
+/// @{
+
+template <typename Func>
+SEASTAR_CONCEPT(requires requires(Func func, input_stream<char>& in) {
+     { func(in) };
+})
+auto with_file_input_stream(const std::filesystem::path& path, Func func, file_open_options file_opts = {}, file_input_stream_options input_stream_opts = {}) {
+    static_assert(std::is_nothrow_move_constructible_v<Func>);
+    return open_file_dma(path.native(), open_flags::ro, std::move(file_opts)).then(
+            [func = std::move(func), input_stream_opts = std::move(input_stream_opts)] (file f) mutable {
+        return do_with(make_file_input_stream(std::move(f), std::move(input_stream_opts)),
+                [func = std::move(func)] (input_stream<char>& in) mutable {
+            return futurize_invoke(std::move(func), in).finally([&in] {
+                return in.close();
+            });
+        });
+    });
+}
+
+/// Returns all bytes from the file until eof, accessible in chunks.
+///
+/// \note use only on short files to avoid running out of memory.
+///
+/// \param path path of the file to be read.
+future<std::vector<temporary_buffer<char>>> read_entire_file(std::filesystem::path path);
+
+/// Returns all bytes from the file until eof as a single buffer.
+///
+/// \note use only on short files to avoid running out of memory.
+///
+/// \param path path of the file to be read.
+future<sstring> read_entire_file_contiguous(std::filesystem::path path);
+
+/// @}
+
+} // namespace util
 
 } // namespace seastar
