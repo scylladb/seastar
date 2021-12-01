@@ -30,11 +30,13 @@
 //
 #pragma once
 
+#include <seastar/core/iostream.hh>
 #include <seastar/core/sstring.hh>
 #include <string>
 #include <vector>
 #include <strings.h>
 #include <seastar/http/common.hh>
+#include <seastar/core/iostream.hh>
 
 namespace seastar {
 
@@ -50,6 +52,20 @@ struct request {
             other, multipart, app_x_www_urlencoded,
     };
 
+    struct case_insensitive_cmp {
+        bool operator()(const sstring& s1, const sstring& s2) const {
+            return std::equal(s1.begin(), s1.end(), s2.begin(), s2.end(),
+                    [](char a, char b) { return ::tolower(a) == ::tolower(b); });
+        }
+    };
+
+    struct case_insensitive_hash {
+        size_t operator()(sstring s) const {
+            std::transform(s.begin(), s.end(), s.begin(), ::tolower);
+            return std::hash<sstring>()(s);
+        }
+    };
+
     sstring _method;
     sstring _url;
     sstring _version;
@@ -57,11 +73,19 @@ struct request {
     int http_version_minor;
     ctclass content_type_class;
     size_t content_length = 0;
-    std::unordered_map<sstring, sstring> _headers;
+    std::unordered_map<sstring, sstring, case_insensitive_hash, case_insensitive_cmp> _headers;
     std::unordered_map<sstring, sstring> query_parameters;
     connection* connection_ptr;
     parameters param;
-    sstring content;
+    sstring content; // deprecated: use content_stream instead
+    /*
+     * The handler should read the contents of this stream till reaching eof (i.e., the end of this request's content). Failing to do so
+     * will force the server to close this connection, and the client will not be able to reuse this connection for the next request.
+     * The stream should not be closed by the handler, the server will close it for the handler.
+     * */
+    input_stream<char>* content_stream;
+    std::unordered_map<sstring, sstring> trailing_headers;
+    std::unordered_map<sstring, sstring> chunk_extensions;
     sstring protocol_name = "http";
 
     /**

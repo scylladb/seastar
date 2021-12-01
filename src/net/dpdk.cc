@@ -23,8 +23,8 @@
 #include <cinttypes>
 #include <seastar/core/posix.hh>
 #include "core/vla.hh"
-#include <seastar/net/virtio-interface.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/net/virtio-interface.hh>
 #include <seastar/core/stream.hh>
 #include <seastar/core/circular_buffer.hh>
 #include <seastar/core/align.hh>
@@ -43,6 +43,7 @@
 #include <seastar/core/dpdk_rte.hh>
 #include <seastar/net/dpdk.hh>
 #include <seastar/net/toeplitz.hh>
+#include <seastar/net/native-stack.hh>
 
 #include <getopt.h>
 #include <malloc.h>
@@ -397,7 +398,7 @@ public:
                 bool enable_fc)
         : _port_idx(port_idx)
         , _num_queues(num_queues)
-        , _home_cpu(engine().cpu_id())
+        , _home_cpu(this_shard_id())
         , _use_lro(use_lro)
         , _enable_fc(enable_fc)
         , _stats_plugin_name("network")
@@ -493,8 +494,8 @@ public:
     void set_rss_table();
 
     virtual uint16_t hw_queues_count() override { return _num_queues; }
-    virtual future<> link_ready() { return _link_ready_promise.get_future(); }
-    virtual std::unique_ptr<qp> init_local_queue(boost::program_options::variables_map opts, uint16_t qid) override;
+    virtual future<> link_ready() override { return _link_ready_promise.get_future(); }
+    virtual std::unique_ptr<qp> init_local_queue(const program_options::option_group& opts, uint16_t qid) override;
     virtual unsigned hash2qid(uint32_t hash) override {
         assert(_redir_table.size());
         return _redir_table[hash & (_redir_table.size() - 1)];
@@ -1028,11 +1029,11 @@ build_mbuf_cluster:
             //
             if (_p) {
                 //
-                // Reset the compat::optional. This in particular is going
+                // Reset the std::optional. This in particular is going
                 // to call the "packet"'s destructor and reset the
                 // "optional" state to "nonengaged".
                 //
-                _p = compat::nullopt;
+                _p = std::nullopt;
 
             } else if (!_is_zc) {
                 return;
@@ -1064,7 +1065,7 @@ build_mbuf_cluster:
     private:
         struct rte_mbuf _mbuf;
         MARKER private_start;
-        compat::optional<packet> _p;
+        std::optional<packet> _p;
         rte_iova_t _buf_iova;
         uint16_t _data_off;
         // TRUE if underlying mbuf has been used in the zero-copy flow
@@ -1392,7 +1393,7 @@ private:
      * @return a "optional" object representing the newly received data if in an
      *         "engaged" state or an error if in a "disengaged" state.
      */
-    compat::optional<packet> from_mbuf(rte_mbuf* m);
+    std::optional<packet> from_mbuf(rte_mbuf* m);
 
     /**
      * Transform an LRO rte_mbuf cluster into the "packet" object.
@@ -1401,7 +1402,7 @@ private:
      * @return a "optional" object representing the newly received LRO packet if
      *         in an "engaged" state or an error if in a "disengaged" state.
      */
-    compat::optional<packet> from_mbuf_lro(rte_mbuf* m);
+    std::optional<packet> from_mbuf_lro(rte_mbuf* m);
 
 private:
     dpdk_device* _dev;
@@ -1415,7 +1416,7 @@ private:
     reactor::poller _rx_gc_poller;
     std::unique_ptr<void, free_deleter> _rx_xmem;
     tx_buf_factory _tx_buf_factory;
-    compat::optional<reactor::poller> _rx_poller;
+    std::optional<reactor::poller> _rx_poller;
     reactor::poller _tx_gc_poller;
     std::vector<rte_mbuf*> _tx_burst;
     uint16_t _tx_burst_idx = 0;
@@ -1981,7 +1982,7 @@ void dpdk_qp<HugetlbfsMemBackend>::rx_start() {
 }
 
 template<>
-inline compat::optional<packet>
+inline std::optional<packet>
 dpdk_qp<false>::from_mbuf_lro(rte_mbuf* m)
 {
     //
@@ -2011,11 +2012,11 @@ dpdk_qp<false>::from_mbuf_lro(rte_mbuf* m)
     // Drop if allocation failed
     rte_pktmbuf_free(m);
 
-    return compat::nullopt;
+    return std::nullopt;
 }
 
 template<>
-inline compat::optional<packet>
+inline std::optional<packet>
 dpdk_qp<false>::from_mbuf(rte_mbuf* m)
 {
     if (!_dev->hw_features_ref().rx_lro || rte_pktmbuf_is_contiguous(m)) {
@@ -2032,7 +2033,7 @@ dpdk_qp<false>::from_mbuf(rte_mbuf* m)
             // Drop if allocation failed
             rte_pktmbuf_free(m);
 
-            return compat::nullopt;
+            return std::nullopt;
         } else {
             rte_memcpy(buf, rte_pktmbuf_mtod(m, char*), len);
             rte_pktmbuf_free(m);
@@ -2045,7 +2046,7 @@ dpdk_qp<false>::from_mbuf(rte_mbuf* m)
 }
 
 template<>
-inline compat::optional<packet>
+inline std::optional<packet>
 dpdk_qp<true>::from_mbuf_lro(rte_mbuf* m)
 {
     _frags.clear();
@@ -2068,7 +2069,7 @@ dpdk_qp<true>::from_mbuf_lro(rte_mbuf* m)
 }
 
 template<>
-inline compat::optional<packet> dpdk_qp<true>::from_mbuf(rte_mbuf* m)
+inline std::optional<packet> dpdk_qp<true>::from_mbuf(rte_mbuf* m)
 {
     _rx_free_pkts.push_back(m);
     _num_rx_free_segs += m->nb_segs;
@@ -2150,7 +2151,7 @@ void dpdk_qp<HugetlbfsMemBackend>::process_packets(
         struct rte_mbuf *m = bufs[i];
         offload_info oi;
 
-        compat::optional<packet> p = from_mbuf(m);
+        std::optional<packet> p = from_mbuf(m);
 
         // Drop the packet if translation above has failed
         if (!p) {
@@ -2220,7 +2221,7 @@ void dpdk_device::set_rss_table()
 
     int reta_conf_size =
         std::max(1, _dev_info.reta_size / RTE_RETA_GROUP_SIZE);
-    rte_eth_rss_reta_entry64 reta_conf[reta_conf_size];
+    std::vector<rte_eth_rss_reta_entry64> reta_conf(reta_conf_size);
 
     // Configure the HW indirection table
     unsigned i = 0;
@@ -2231,7 +2232,7 @@ void dpdk_device::set_rss_table()
         }
     }
 
-    if (rte_eth_dev_rss_reta_update(_port_idx, reta_conf, _dev_info.reta_size)) {
+    if (rte_eth_dev_rss_reta_update(_port_idx, reta_conf.data(), _dev_info.reta_size)) {
         rte_exit(EXIT_FAILURE, "Port %d: Failed to update an RSS indirection table", _port_idx);
     }
 
@@ -2242,10 +2243,12 @@ void dpdk_device::set_rss_table()
     }
 }
 
-std::unique_ptr<qp> dpdk_device::init_local_queue(boost::program_options::variables_map opts, uint16_t qid) {
+std::unique_ptr<qp> dpdk_device::init_local_queue(const program_options::option_group& opts, uint16_t qid) {
+    auto net_opts = dynamic_cast<const net::native_stack_options*>(&opts);
+    assert(net_opts);
 
     std::unique_ptr<qp> qp;
-    if (opts.count("hugepages")) {
+    if (net_opts->_hugepages) {
         qp = std::make_unique<dpdk_qp<true>>(this, qid,
                                  _stats_plugin_name + "-" + _stats_plugin_inst);
     } else {
@@ -2295,22 +2298,28 @@ std::unique_ptr<net::device> create_dpdk_net_device(
     return create_dpdk_net_device(*hw_cfg.port_index, smp::count, hw_cfg.lro, hw_cfg.hw_fc);
 }
 
+}
 
-boost::program_options::options_description
-get_dpdk_net_options_description()
-{
-    boost::program_options::options_description opts(
-            "DPDK net options");
+#else
+#include <seastar/net/dpdk.hh>
+#endif // SEASTAR_HAVE_DPDK
 
-    opts.add_options()
-        ("dpdk-port-index",
-                boost::program_options::value<unsigned>()->default_value(0),
-                "DPDK Port Index");
+namespace seastar::net {
 
-    opts.add_options()
-        ("hw-fc",
-                boost::program_options::value<std::string>()->default_value("on"),
-                "Enable HW Flow Control (on / off)");
+dpdk_options::dpdk_options(program_options::option_group* parent_group)
+#ifdef SEASTAR_HAVE_DPDK
+    : program_options::option_group(parent_group, "DPDK net options")
+    , dpdk_port_index(*this, "dpdk-port-index",
+                0,
+                "DPDK Port Index")
+    , hw_fc(*this, "hw-fc",
+                "on",
+                "Enable HW Flow Control (on / off)")
+#else
+    : program_options::option_group(parent_group, "DPDK net options", program_options::unused{})
+    , dpdk_port_index(*this, "dpdk-port-index", program_options::unused{})
+    , hw_fc(*this, "hw-fc", program_options::unused{})
+#endif
 #if 0
     opts.add_options()
         ("csum-offload",
@@ -2324,9 +2333,7 @@ get_dpdk_net_options_description()
                 "Enable UDP fragmentation offload feature (on / off)")
         ;
 #endif
-    return opts;
+{
 }
 
 }
-
-#endif // SEASTAR_HAVE_DPDK

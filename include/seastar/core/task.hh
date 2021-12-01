@@ -23,11 +23,15 @@
 
 #include <memory>
 #include <seastar/core/scheduling.hh>
+#include <seastar/util/backtrace.hh>
 
 namespace seastar {
 
 class task {
     scheduling_group _sg;
+#ifdef SEASTAR_TASK_BACKTRACE
+    shared_backtrace _bt;
+#endif
 protected:
     // Task destruction is performed by run_and_dispose() via a concrete type,
     // so no need for a virtual destructor here. Derived classes that implement
@@ -35,38 +39,29 @@ protected:
     // information via inheritance.
     ~task() = default;
 public:
-    explicit task(scheduling_group sg = current_scheduling_group()) : _sg(sg) {}
+    explicit task(scheduling_group sg = current_scheduling_group()) noexcept : _sg(sg) {}
     virtual void run_and_dispose() noexcept = 0;
+    /// Returns the next task which is waiting for this task to complete execution, or nullptr.
+    virtual task* waiting_task() noexcept = 0;
     scheduling_group group() const { return _sg; }
+    shared_backtrace get_backtrace() const;
+#ifdef SEASTAR_TASK_BACKTRACE
+    void make_backtrace() noexcept;
+#else
+    void make_backtrace() noexcept {}
+#endif
 };
+
+inline
+shared_backtrace task::get_backtrace() const {
+#ifdef SEASTAR_TASK_BACKTRACE
+    return _bt;
+#else
+    return {};
+#endif
+}
 
 void schedule(task* t) noexcept;
 void schedule_urgent(task* t) noexcept;
-
-template <typename Func>
-class lambda_task final : public task {
-    Func _func;
-public:
-    lambda_task(scheduling_group sg, const Func& func) : task(sg), _func(func) {}
-    lambda_task(scheduling_group sg, Func&& func) : task(sg), _func(std::move(func)) {}
-    virtual void run_and_dispose() noexcept override {
-        _func();
-        delete this;
-    }
-};
-
-template <typename Func>
-inline
-task*
-make_task(Func&& func) noexcept {
-    return new lambda_task<Func>(current_scheduling_group(), std::forward<Func>(func));
-}
-
-template <typename Func>
-inline
-task*
-make_task(scheduling_group sg, Func&& func) noexcept {
-    return new lambda_task<Func>(sg, std::forward<Func>(func));
-}
 
 }

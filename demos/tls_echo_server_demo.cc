@@ -59,7 +59,7 @@ int main(int ac, char** av) {
             }).then([=] {
                 std::cout << "TLS echo server running at " << addr << ":" << port << std::endl;
                 engine().at_exit([server] {
-                    return server->stop();
+                    return server->stop().finally([server] {});
                 });
             });
         });

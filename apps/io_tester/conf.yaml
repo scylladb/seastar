@@ -10,6 +10,7 @@
 - name: latency_reads
   shards: [0]
   type: randread
+  data_size: 1GB
   shard_info:
     parallelism: 1
     reqsize: 512

@@ -133,9 +133,8 @@ cooking_ingredient (zlib
 
 cooking_ingredient (Boost
   EXTERNAL_PROJECT_ARGS
-    # The 1.67.0 release has a bug in Boost Lockfree around a missing header.
-    URL https://dl.bintray.com/boostorg/release/1.64.0/source/boost_1_64_0.tar.gz
-    URL_MD5 319c6ffbbeccc366f14bb68767a6db79
+    URL https://boostorg.jfrog.io/artifactory/main/release/1.77.0/source/boost_1_77_0.tar.bz2
+    URL_HASH SHA256=fc9f85fc030e233142908241af7a846e60630aa7388de9a5fafb1f3a26840854
     PATCH_COMMAND
       ./bootstrap.sh
       --prefix=<INSTALL_DIR>
@@ -177,22 +176,13 @@ cooking_ingredient (GnuTLS
     BUILD_COMMAND <DISABLE>
     INSTALL_COMMAND ${make_command} install)
 
-cooking_ingredient (Protobuf
-  REQUIRES zlib
-  EXTERNAL_PROJECT_ARGS
-    URL https://github.com/protocolbuffers/protobuf/releases/download/v3.3.0/protobuf-cpp-3.3.0.tar.gz
-    URL_MD5 73c28d3044e89782bdc8d9fdcfbb5792
-    CONFIGURE_COMMAND <SOURCE_DIR>/configure --prefix=<INSTALL_DIR> --srcdir=<SOURCE_DIR>
-    BUILD_COMMAND <DISABLE>
-    INSTALL_COMMAND ${make_command} install)
-
 cooking_ingredient (hwloc
   REQUIRES
     numactl
     libpciaccess
   EXTERNAL_PROJECT_ARGS
-    URL https://download.open-mpi.org/release/hwloc/v1.11/hwloc-1.11.5.tar.gz
-    URL_MD5 8f5fe6a9be2eb478409ad5e640b2d3ba
+    URL https://download.open-mpi.org/release/hwloc/v2.2/hwloc-2.2.0.tar.gz
+    URL_MD5 762c93cdca3249eed4627c4a160192bd
     CONFIGURE_COMMAND <SOURCE_DIR>/configure --prefix=<INSTALL_DIR> --srcdir=<SOURCE_DIR>
     BUILD_COMMAND <DISABLE>
     INSTALL_COMMAND ${make_command} install)
@@ -202,6 +192,8 @@ cooking_ingredient (ragel
   EXTERNAL_PROJECT_ARGS
     URL http://www.colm.net/files/ragel/ragel-6.10.tar.gz
     URL_MD5 748cae8b50cffe9efcaa5acebc6abf0d
+    PATCH_COMMAND
+      sed -i "s/ CHAR_M/ SCHAR_M/g" ragel/common.cpp
     # This is upsetting.
     BUILD_IN_SOURCE YES
     CONFIGURE_COMMAND
@@ -261,7 +253,8 @@ else()
 endif()
 
 set (dpdk_args
-  EXTRA_CFLAGS=-Wno-error
+  # gcc 10 defaults to -fno-common, which dpdk is not prepared for
+  "EXTRA_CFLAGS=-Wno-error -fcommon"
   O=<BINARY_DIR>
   DESTDIR=<INSTALL_DIR>
   T=${dpdk_quadruple})

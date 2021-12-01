@@ -31,14 +31,9 @@ namespace rpc {
     class lz4_compressor : public compressor {
     public:
         class factory: public rpc::compressor::factory {
-            static const sstring _name;
         public:
-            virtual const sstring& supported() const override {
-                return _name;
-            }
-            virtual std::unique_ptr<rpc::compressor> negotiate(sstring feature, bool is_server) const override {
-                return feature == _name ? std::make_unique<rpc::lz4_compressor>() : nullptr;
-            }
+            virtual const sstring& supported() const override;
+            virtual std::unique_ptr<rpc::compressor> negotiate(sstring feature, bool is_server) const override;
         };
     public:
         ~lz4_compressor() {}
@@ -46,6 +41,7 @@ namespace rpc {
         snd_buf compress(size_t head_space, snd_buf data) override;
         // decompress data
         rcv_buf decompress(rcv_buf data) override;
+        sstring name() const override;
     };
 }
 

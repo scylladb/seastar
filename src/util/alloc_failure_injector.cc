@@ -41,10 +41,24 @@ void alloc_failure_injector::fail() {
 }
 
 void alloc_failure_injector::run_with_callback(noncopyable_function<void()> callback, noncopyable_function<void()> to_run) {
-    auto restore = defer([this, prev = std::exchange(_on_alloc_failure, std::move(callback))] () mutable {
+    auto restore = defer([this, prev = std::exchange(_on_alloc_failure, std::move(callback))] () mutable noexcept {
         _on_alloc_failure = std::move(prev);
     });
     to_run();
+}
+
+void with_allocation_failures(noncopyable_function<void()> func) {
+    auto& injector = memory::local_failure_injector();
+    uint64_t i = 0;
+    do {
+        try {
+            injector.fail_after(i++);
+            func();
+            injector.cancel();
+        } catch (const std::bad_alloc&) {
+            // expected
+        }
+    } while (injector.failed());
 }
 
 }

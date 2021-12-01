@@ -14,7 +14,7 @@ if that affects higher percentile latencies.
 Aside from the usual seastar options, I/O tester accepts the following options:
 
 * `duration`: for how long to run the evaluation,
-* `directory`: a directory where to run the evaluation,
+* `directory`: a directory where to run the evaluation (it must be on XFS),
 * `conf`: the path to a YAML file describing the evaluation.
 
 # Describing the evaluation

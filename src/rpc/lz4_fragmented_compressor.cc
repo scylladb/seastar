@@ -23,11 +23,27 @@
 #include <seastar/core/byteorder.hh>
 
 #include <lz4.h>
+// LZ4_DECODER_RING_BUFFER_SIZE macro is introduced since v1.8.2
+// To work with previous lz4 release, copied the definition in lz4 here
+#ifndef LZ4_DECODER_RING_BUFFER_SIZE
+#define LZ4_DECODER_RING_BUFFER_SIZE(maxBlockSize) (65536 + 14 + (maxBlockSize))
+#endif
 
 namespace seastar {
 namespace rpc {
 
-const sstring lz4_fragmented_compressor::factory::_name = "LZ4_FRAGMENTED";
+sstring lz4_fragmented_compressor::name() const {
+    return factory{}.supported();
+}
+
+const sstring& lz4_fragmented_compressor::factory::supported() const {
+    const static sstring name = "LZ4_FRAGMENTED";
+    return name;
+}
+
+std::unique_ptr<rpc::compressor> lz4_fragmented_compressor::factory::negotiate(sstring feature, bool is_server) const {
+    return feature == supported() ? std::make_unique<lz4_fragmented_compressor>() : nullptr;
+}
 
 // Compressed message format:
 // The message consists of one or more data chunks each preceeded by a 4 byte header.
@@ -69,9 +85,9 @@ snd_buf lz4_fragmented_compressor::compress(size_t head_space, snd_buf data) {
     LZ4_resetStream(stream.get());
 
     auto size_left = data.size;
-    auto src = compat::get_if<temporary_buffer<char>>(&data.bufs);
+    auto src = std::get_if<temporary_buffer<char>>(&data.bufs);
     if (!src) {
-        src = compat::get<std::vector<temporary_buffer<char>>>(data.bufs).data();
+        src = std::get<std::vector<temporary_buffer<char>>>(data.bufs).data();
     }
 
     auto single_chunk_size = LZ4_COMPRESSBOUND(size_left) + head_space + chunk_header_size;
@@ -86,13 +102,9 @@ snd_buf lz4_fragmented_compressor::compress(size_t head_space, snd_buf data) {
         return snd_buf(std::move(dst));
     }
 
-    // Input chunks do not have to be multiplies of chunk_size (it is unlikely though).
-    // We handle such cases by reassembling a chunk in this temporary buffer.
-    static thread_local char temporary_chunk_data[chunk_size];
-
     static constexpr size_t chunk_compress_bound = LZ4_COMPRESSBOUND(chunk_size);
     static constexpr size_t chunk_maximum_compressed_size = chunk_compress_bound + chunk_header_size;
-    static_assert(chunk_maximum_compressed_size < snd_buf::chunk_size);
+    static_assert(chunk_maximum_compressed_size < snd_buf::chunk_size, "chunk_maximum_compressed_size is too large");
 
     std::vector<temporary_buffer<char>> dst_buffers;
     size_t dst_offset = head_space;
@@ -114,6 +126,39 @@ snd_buf lz4_fragmented_compressor::compress(size_t head_space, snd_buf data) {
         src_left -= n;
     };
 
+    // Input chunks do not have to be multiplies of chunk_size.
+    // We handle such cases by reassembling a chunk in this temporary buffer.
+    // Note that this is similar to the ring buffer compression case in docs, 
+    // we need to ensure that a suitable amount of (maybe) previous data is 
+    // stable in this or input buffer, thus make the temp buffer 
+    // LZ4_DECODER_RING_BUFFER_SIZE(chunk_size) large, and treat it as a ring.
+    static constexpr auto lin_buf_size = LZ4_DECODER_RING_BUFFER_SIZE(chunk_size);
+    static thread_local char temporary_chunk_data[lin_buf_size];
+    size_t lin_off = 0;
+
+    auto maybe_linearize = [&](size_t size) {
+        auto src_ptr = src->get() + src_current_offset;
+        if (src->size() - src_current_offset < size) {
+            auto left = size;
+            assert(lin_buf_size > size);
+            if (lin_buf_size - lin_off < size) {
+                lin_off = 0;
+            }
+            auto tmp = temporary_chunk_data + std::exchange(lin_off, lin_off + size);
+            src_ptr = tmp;
+            while (left) {
+                auto this_size = std::min(src->size() - src_current_offset, left);
+                tmp = std::copy_n(src->get() + src_current_offset, this_size, tmp);
+                left -= this_size;
+                advance_src(this_size);
+            }
+        } else {
+            advance_src(chunk_size);
+            lin_off = 0;
+        }
+        return src_ptr;
+    };
+
     while (src_left > chunk_size) {
         // Check if we can fit another chunk in the current destination fragment.
         // If not allocate a new one.
@@ -125,22 +170,7 @@ snd_buf lz4_fragmented_compressor::compress(size_t head_space, snd_buf data) {
 
         // Check if there is at least a contiguous chunk_size of data in the current
         // source fragment. If not, linearise that into temporary_chunk_data.
-        auto src_ptr = src->get() + src_current_offset;
-        if (src->size() - src_current_offset < chunk_size) {
-            auto left = chunk_size;
-            auto dst = temporary_chunk_data;
-            while (left) {
-                auto this_size = std::min(src->size() - src_current_offset, left);
-                dst = std::copy_n(src->get() + src_current_offset, this_size, dst);
-                left -= this_size;
-                advance_src(this_size);
-
-            }
-            src_ptr = temporary_chunk_data;
-        } else {
-            advance_src(chunk_size);
-        }
-
+        auto src_ptr = maybe_linearize(chunk_size);
         auto header = dst_buffers.back().get_write() + dst_offset;
         auto dst = header + chunk_header_size;
 
@@ -165,24 +195,12 @@ snd_buf lz4_fragmented_compressor::compress(size_t head_space, snd_buf data) {
     auto dst = header + chunk_header_size;
 
     // Check if all remaining source data is contiguous. If not linearise it into temporary_chunk_data.
-    auto src_ptr = src->get() + src_current_offset;
-    if (src->size() - src_current_offset < src_left) {
-        auto left = src_left;
-        auto dst = temporary_chunk_data;
-        while (left) {
-            auto this_size = src->size() - src_current_offset;
-            assert(this_size <= chunk_size);
-            dst = std::copy_n(src->get() + src_current_offset, this_size, dst);
-            left -= this_size;
-            src_current_offset = 0;
-            ++src;
-        }
-        src_ptr = temporary_chunk_data;
-    }
+    auto rem = src_left;
+    auto src_ptr = maybe_linearize(src_left);
 
-    auto compressed_size = LZ4_compress_fast_continue(stream.get(), src_ptr, dst, src_left, last_chunk_compress_bound, 0);
+    auto compressed_size = LZ4_compress_fast_continue(stream.get(), src_ptr, dst, rem, last_chunk_compress_bound, 0);
     dst_offset += compressed_size + chunk_header_size;
-    write_le<uint32_t>(header, last_chunk_flag | src_left);
+    write_le<uint32_t>(header, last_chunk_flag | rem);
     total_compressed_size += compressed_size + chunk_header_size + head_space;
 
     auto& last = dst_buffers.back();
@@ -202,10 +220,10 @@ rcv_buf lz4_fragmented_compressor::decompress(rcv_buf data) {
     static thread_local auto stream = std::unique_ptr<LZ4_streamDecode_t, decompression_stream_deleter>(LZ4_createStreamDecode());
 
     if (!LZ4_setStreamDecode(stream.get(), nullptr, 0)) {
-        throw std::runtime_error("RPC frame LZ4 decompression failed to reset state");
+        throw std::runtime_error("RPC frame LZ4_FRAGMENTED decompression failed to reset state");
     }
 
-    auto src = compat::get_if<temporary_buffer<char>>(&data.bufs);
+    auto src = std::get_if<temporary_buffer<char>>(&data.bufs);
     size_t src_left = data.size;
     size_t src_offset = 0;
 
@@ -256,14 +274,14 @@ rcv_buf lz4_fragmented_compressor::decompress(rcv_buf data) {
             src_left -= chunk_header_size;
             auto dst = temporary_buffer<char>(header);
             if (LZ4_decompress_safe_continue(stream.get(), src->get() + src_offset, dst.get_write(), src_left, header) < 0) {
-                throw std::runtime_error("RPC frame LZ4 decompression failure");
+                throw std::runtime_error("RPC frame LZ4_FRAGMENTED decompression failure (short)");
             }
             return rcv_buf(std::move(dst));
         }
         // not eligible for fast path: multiple chunks in a single buffer
     } else {
         // not eligible for fast path: multiple buffers
-        src = compat::get<std::vector<temporary_buffer<char>>>(data.bufs).data();
+        src = std::get<std::vector<temporary_buffer<char>>>(data.bufs).data();
     }
 
     // Let's be a bit paranoid and not assume that the remote has the same
@@ -273,17 +291,38 @@ rcv_buf lz4_fragmented_compressor::decompress(rcv_buf data) {
     std::vector<temporary_buffer<char>> dst_buffers;
     size_t total_size = 0;
 
+    // Decompressing requires either dest to be fully split or
+    // "preserved" in 64KB or larger, depending on how it was
+    // compressed. If not, decompression will fail, typically
+    // on text-like constructs. Making our dest buffers 64K
+    // ensures we retain a suitable dictionary region for all
+    // passes. 
+    constexpr auto buf_size = 64 * 1024;
+    size_t dst_offset = 0;
+
+    auto get_dest = [&](size_t size) {
+        if (dst_buffers.empty()) {
+            dst_buffers.emplace_back(buf_size);
+        }
+        if (dst_buffers.back().size() - dst_offset < size) {
+            dst_buffers.back().trim(dst_offset);
+            dst_buffers.emplace_back(buf_size);
+            dst_offset = 0;
+        }
+        return dst_buffers.back().get_write() + std::exchange(dst_offset, dst_offset + size);
+    };
+
     // Intermediate chunks
     uint32_t header_value = read_header();
     while (!(header_value & last_chunk_flag)) {
         total_size += chunk_size;
-        dst_buffers.emplace_back(chunk_size);
         if (chunk_buffer.size() < header_value) {
             chunk_buffer = temporary_buffer<char>(header_value);
         }
         auto src_ptr = copy_src(chunk_buffer.get_write(), header_value);
-        if (LZ4_decompress_safe_continue(stream.get(), src_ptr, dst_buffers.back().get_write(), header_value, chunk_size) < 0) {
-            throw std::runtime_error("RPC frame LZ4 decompression failure");
+        auto dst = get_dest(chunk_size);
+        if (LZ4_decompress_safe_continue(stream.get(), src_ptr, /*dst_buffers.back().get_write()*/dst, header_value, chunk_size) < 0) {
+            throw std::runtime_error(format("RPC frame LZ4_FRAGMENTED decompression failure (long, at {} bytes)", total_size - chunk_size));
         }
         header_value = read_header();
     }
@@ -291,15 +330,17 @@ rcv_buf lz4_fragmented_compressor::decompress(rcv_buf data) {
     // Last chunk
     header_value &= ~last_chunk_flag;
     total_size += header_value;
-    dst_buffers.emplace_back(header_value);
+    auto dst = get_dest(header_value);
     if (chunk_buffer.size() < src_left) {
         chunk_buffer = temporary_buffer<char>(src_left);
     }
     auto last_chunk_compressed_size = src_left;
     auto src_ptr = copy_src(chunk_buffer.get_write(), src_left);
-    if (LZ4_decompress_safe_continue(stream.get(), src_ptr, dst_buffers.back().get_write(), last_chunk_compressed_size, header_value) < 0) {
-        throw std::runtime_error("RPC frame LZ4 decompression failure");
+    if (LZ4_decompress_safe_continue(stream.get(), src_ptr, /*dst_buffers.back().get_write()*/dst, last_chunk_compressed_size, header_value) < 0) {
+        throw std::runtime_error(format("RPC frame LZ4_FRAGMENTED decompression failure (long, last frame, at {} bytes)", total_size - header_value));
     }
+
+    dst_buffers.back().trim(dst_offset);
 
     if (dst_buffers.size() == 1) {
         return rcv_buf(std::move(dst_buffers.front()));

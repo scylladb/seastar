@@ -46,27 +46,32 @@
 // cause the sanitizer not to generate runtime alignment checks for this
 // access.
 
+#include <type_traits>
+
 namespace seastar {
 
 template <typename T>
 struct unaligned {
+    // This is made to support only simple types, so it is fine to
+    // require them to be trivially copy constructible.
+    static_assert(std::is_trivially_copy_constructible_v<T>);
     T raw;
-    unaligned() = default;
-    unaligned(T x) : raw(x) {}
-    unaligned& operator=(const T& x) { raw = x; return *this; }
-    operator T() const { return raw; }
+    unaligned() noexcept = default;
+    unaligned(T x) noexcept : raw(x) {}
+    unaligned& operator=(const T& x) noexcept { raw = x; return *this; }
+    operator T() const noexcept { return raw; }
 } __attribute__((packed));
 
 
-// deprecated: violates strict aliasing rules
 template <typename T, typename F>
-inline auto unaligned_cast(F* p) {
+[[deprecated("violates strict aliasing rules. See issue #165.")]]
+inline auto unaligned_cast(F* p) noexcept {
     return reinterpret_cast<unaligned<std::remove_pointer_t<T>>*>(p);
 }
 
-// deprecated: violates strict aliasing rules
 template <typename T, typename F>
-inline auto unaligned_cast(const F* p) {
+[[deprecated("violates strict aliasing rules. See issue #165.")]]
+inline auto unaligned_cast(const F* p) noexcept {
     return reinterpret_cast<const unaligned<std::remove_pointer_t<T>>*>(p);
 }
 

@@ -20,8 +20,7 @@
  */
 
 #include <seastar/core/smp.hh>
-#include <seastar/core/reactor.hh>
-#include <seastar/core/future.hh>
+#include <seastar/core/loop.hh>
 #include <seastar/core/semaphore.hh>
 #include <seastar/core/print.hh>
 #include <boost/range/algorithm/find_if.hpp>
@@ -40,11 +39,23 @@ struct smp_service_group_impl {
 static smp_service_group_semaphore smp_service_group_management_sem{1, named_semaphore_exception_factory{"smp_service_group_management_sem"}};
 static thread_local std::vector<smp_service_group_impl> smp_service_groups;
 
-static named_semaphore_exception_factory make_service_group_semaphore_exception_factory(unsigned id, shard_id client_cpu, shard_id this_cpu) {
-    return named_semaphore_exception_factory{format("smp_service_group#{} {}->{} semaphore", id, client_cpu, this_cpu)};
+static named_semaphore_exception_factory make_service_group_semaphore_exception_factory(unsigned id, shard_id client_cpu, shard_id this_cpu, std::optional<sstring> smp_group_name) {
+    if (smp_group_name) {
+        return named_semaphore_exception_factory{format("smp_service_group:'{}' (#{}) {}->{} semaphore", *smp_group_name, id, client_cpu, this_cpu)};
+    } else {
+        return named_semaphore_exception_factory{format("smp_service_group#{} {}->{} semaphore", id, client_cpu, this_cpu)};
+    }
+
 }
 
-future<smp_service_group> create_smp_service_group(smp_service_group_config ssgc) {
+static_assert(std::is_nothrow_copy_constructible_v<smp_service_group>);
+static_assert(std::is_nothrow_move_constructible_v<smp_service_group>);
+
+static_assert(std::is_nothrow_default_constructible_v<smp_submit_to_options>);
+static_assert(std::is_nothrow_copy_constructible_v<smp_submit_to_options>);
+static_assert(std::is_nothrow_move_constructible_v<smp_submit_to_options>);
+
+future<smp_service_group> create_smp_service_group(smp_service_group_config ssgc) noexcept {
     ssgc.max_nonlocal_requests = std::max(ssgc.max_nonlocal_requests, smp::count - 1);
     return smp::submit_to(0, [ssgc] {
         return with_semaphore(smp_service_group_management_sem, 1, [ssgc] {
@@ -58,7 +69,7 @@ future<smp_service_group> create_smp_service_group(smp_service_group_config ssgc
                 smp_service_groups[id].clients.reserve(smp::count); // may throw
                 auto per_client = smp::count > 1 ? ssgc.max_nonlocal_requests / (smp::count - 1) : 0u;
                 for (unsigned i = 0; i != smp::count; ++i) {
-                    smp_service_groups[id].clients.emplace_back(per_client, make_service_group_semaphore_exception_factory(id, i, cpu));
+                    smp_service_groups[id].clients.emplace_back(per_client, make_service_group_semaphore_exception_factory(id, i, cpu, ssgc.group_name));
                 }
               });
             }).handle_exception([id] (std::exception_ptr e) {
@@ -77,7 +88,7 @@ future<smp_service_group> create_smp_service_group(smp_service_group_config ssgc
     });
 }
 
-future<> destroy_smp_service_group(smp_service_group ssg) {
+future<> destroy_smp_service_group(smp_service_group ssg) noexcept {
     return smp::submit_to(0, [ssg] {
         return with_semaphore(smp_service_group_management_sem, 1, [ssg] {
             auto id = internal::smp_service_group_id(ssg);
@@ -93,16 +104,12 @@ void init_default_smp_service_group(shard_id cpu) {
     auto& ssg0 = smp_service_groups.back();
     ssg0.clients.reserve(smp::count);
     for (unsigned i = 0; i != smp::count; ++i) {
-        ssg0.clients.emplace_back(smp_service_group_semaphore::max_counter(), make_service_group_semaphore_exception_factory(0, i, cpu));
+        ssg0.clients.emplace_back(smp_service_group_semaphore::max_counter(), make_service_group_semaphore_exception_factory(0, i, cpu, {"default"}));
     }
 }
 
-smp_service_group_semaphore& get_smp_service_groups_semaphore(unsigned ssg_id, shard_id t) {
+smp_service_group_semaphore& get_smp_service_groups_semaphore(unsigned ssg_id, shard_id t) noexcept {
     return smp_service_groups[ssg_id].clients[t];
-}
-
-shard_id this_shard_id() {
-    return engine().cpu_id();
 }
 
 }

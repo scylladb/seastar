@@ -220,9 +220,11 @@ circular_buffer_fixed_capacity<T, Capacity>::capacity() const {
 template <typename T, size_t Capacity>
 inline
 circular_buffer_fixed_capacity<T, Capacity>::circular_buffer_fixed_capacity(circular_buffer_fixed_capacity&& x) noexcept
-        : _begin(std::exchange(x._begin, 0)), _end(std::exchange(x._end, 0)) {
-    for (auto i = _begin; i != _end; ++i) {
-        new (&_storage[i].data) T(std::move(x._storage[i].data));
+        : _begin(x._begin), _end(x._end) {
+    // This is std::uninitialized_move, but that is c++17 only
+    auto dest = begin();
+    for (auto& obj : x) {
+        new (&*dest++) T(std::move(obj));
     }
 }
 
@@ -240,9 +242,7 @@ circular_buffer_fixed_capacity<T, Capacity>::operator=(circular_buffer_fixed_cap
 template <typename T, size_t Capacity>
 inline
 circular_buffer_fixed_capacity<T, Capacity>::~circular_buffer_fixed_capacity() {
-    for (auto i = _begin; i != _end; ++i) {
-        _storage[i].data.~T();
-    }
+    clear();
 }
 
 template <typename T, size_t Capacity>
@@ -368,8 +368,8 @@ template <typename T, size_t Capacity>
 inline
 void
 circular_buffer_fixed_capacity<T, Capacity>::clear() {
-    for (auto i = _begin; i != _end; ++i) {
-        obj(i)->~T();
+    for (auto& obj : *this) {
+        obj.~T();
     }
     _begin = _end = 0;
 }

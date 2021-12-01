@@ -23,11 +23,13 @@
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/core/metrics.hh>
 #include <seastar/core/metrics_api.hh>
+#include <seastar/core/reactor.hh>
 #include <seastar/core/scheduling.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/sharded.hh>
 #include <seastar/core/do_with.hh>
 #include <seastar/core/io_queue.hh>
+#include <seastar/core/loop.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/testing/test_runner.hh>
@@ -124,11 +126,11 @@ SEASTAR_THREAD_TEST_CASE(test_renaming_io_priority_classes) {
     using namespace seastar;
     static const char* name1 = "A";
     static const char* name2 = "B";
-    seastar::io_priority_class pc = engine().register_one_priority_class("hello",100);
-    smp::invoke_on_all([pc] () {
+    seastar::io_priority_class pc = io_priority_class::register_one("hello",100);
+    smp::invoke_on_all([&pc] () {
         // this is a trick to get all of the queues actually register their
         // stats.
-        return engine().update_shares_for_class(pc,101);
+        return pc.update_shares(101);
     }).get();
 
     boost::integer_range<int> rng(0, 1000);
@@ -139,7 +141,7 @@ SEASTAR_THREAD_TEST_CASE(test_renaming_io_priority_classes) {
         const char* name = i%2 ? name1 : name2;
         const char* prev_name = i%2 ? name2 : name1;
         sleep(std::chrono::microseconds(100000/(i+1))).get();
-        rename_priority_class(pc, name).get();
+        pc.rename(name).get();
         std::set<sstring> label_vals = get_label_values(sstring("io_queue_shares"), sstring("class"));
         // validate that the name that we *renamed to* is in the stats
         BOOST_REQUIRE(label_vals.find(sstring(name)) != label_vals.end());
@@ -147,15 +149,15 @@ SEASTAR_THREAD_TEST_CASE(test_renaming_io_priority_classes) {
         BOOST_REQUIRE(label_vals.find(sstring(prev_name)) == label_vals.end());
     }
 
-    smp::invoke_on_all([pc] () {
+    smp::invoke_on_all([&pc] () {
         return do_with(std::uniform_int_distribution<int>(), boost::irange<int>(0, 1000),
-                [pc] (std::uniform_int_distribution<int>& dist, boost::integer_range<int>& rng) {
+                [&pc] (std::uniform_int_distribution<int>& dist, boost::integer_range<int>& rng) {
             // flip a fair coin and rename to one of two options and rename to that
             // scheduling group name, do it 1000 in parallel on all shards so there
             // is a chance of collision.
-            return do_for_each(rng, [pc, &dist] (auto i) {
+            return do_for_each(rng, [&pc, &dist] (auto i) {
                 bool odd = dist(seastar::testing::local_random_engine)%2;
-                return rename_priority_class(pc, odd ? name1 : name2);
+                return pc.rename(odd ? name1 : name2);
             });
         });
     }).get();

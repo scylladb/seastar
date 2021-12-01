@@ -26,9 +26,9 @@ import tempfile
 
 tempfile.tempdir = "./build/tmp"
 
-def add_tristate(arg_parser, name, dest, help):
-    arg_parser.add_argument('--enable-' + name, dest = dest, action = 'store_true', default = None,
-                            help = 'Enable ' + help)
+def add_tristate(arg_parser, name, dest, help, default=None):
+    arg_parser.add_argument('--enable-' + name, dest = dest, action = 'store_true', default = default,
+                            help = 'Enable ' + help + ' [default]' if default else '')
     arg_parser.add_argument('--disable-' + name, dest = dest, action = 'store_false', default = None,
                             help = 'Disable ' + help)
 
@@ -65,8 +65,8 @@ arg_parser.add_argument('--ldflags', action = 'store', dest = 'user_ldflags', de
                         help = 'Extra flags for the linker')
 arg_parser.add_argument('--optflags', action = 'store', dest = 'user_optflags', default = '',
                         help = 'Extra optimization flags for the release mode')
-arg_parser.add_argument('--api-level', action='store', dest='api_level', default='2',
-                        help='Compatibility API level (2=latest)')
+arg_parser.add_argument('--api-level', action='store', dest='api_level', default='6',
+                        help='Compatibility API level (6=latest)')
 arg_parser.add_argument('--compiler', action = 'store', dest = 'cxx', default = 'g++',
                         help = 'C++ compiler path')
 arg_parser.add_argument('--c-compiler', action='store', dest='cc', default='gcc',
@@ -76,6 +76,9 @@ arg_parser.add_argument('--c++-dialect', action='store', dest='cpp_dialect', def
 arg_parser.add_argument('--cook', action='append', dest='cook', default=[],
                         help='Supply this dependency locally for development via `cmake-cooking` (can be repeated)')
 arg_parser.add_argument('--verbose', dest='verbose', action='store_true', help='Make configure output more verbose.')
+arg_parser.add_argument('--scheduling-groups-count', action='store', dest='scheduling_groups_count', default='16',
+                        help='Number of available scheduling groups in the reactor')
+
 add_tristate(
     arg_parser,
     name = 'dpdk',
@@ -88,24 +91,24 @@ add_tristate(
     help = 'hwloc support')
 add_tristate(
     arg_parser,
-    name = 'gcc6-concepts',
-    dest = 'gcc6_concepts',
-    help = 'experimental support for C++ Concepts as implemented in GCC 6')
-add_tristate(
-    arg_parser,
     name = 'alloc-failure-injector',
     dest = 'alloc_failure_injection',
     help = 'allocation failure injection')
 add_tristate(
     arg_parser,
-    name = 'experimental-coroutines-ts',
-    dest = "coroutines_ts",
-    help = 'experimental support for Coroutines TS')
+    name = 'task-backtrace',
+    dest = 'task_backtrace',
+    help = 'Collect backtrace at deferring points')
 add_tristate(
     arg_parser,
     name = 'unused-result-error',
     dest = "unused_result_error",
     help = 'Make [[nodiscard]] violations an error')
+add_tristate(
+    arg_parser,
+    name = 'debug-shared-ptr',
+    dest = "debug_shared_ptr",
+    help = 'Debug shared_ptr')
 arg_parser.add_argument('--allocator-page-size', dest='alloc_page_size', type=int, help='override allocator page size')
 arg_parser.add_argument('--without-tests', dest='exclude_tests', action='store_true', help='Do not build tests by default')
 arg_parser.add_argument('--without-apps', dest='exclude_apps', action='store_true', help='Do not build applications by default')
@@ -113,8 +116,7 @@ arg_parser.add_argument('--without-demos', dest='exclude_demos', action='store_t
 arg_parser.add_argument('--split-dwarf', dest='split_dwarf', action='store_true', default=False,
                         help='use of split dwarf (https://gcc.gnu.org/wiki/DebugFission) to speed up linking')
 arg_parser.add_argument('--heap-profiling', dest='heap_profiling', action='store_true', default=False, help='Enable heap profiling')
-arg_parser.add_argument('--use-std-optional-variant-stringview', dest='cpp17_goodies', action='store', type=int, default=0,
-                        help='Use C++17 std types for optional, variant, and string_view. Requires C++17 dialect and GCC >= 8.1.1-5')
+add_tristate(arg_parser, name='deferred-action-require-noexcept', dest='deferred_action_require_noexcept', help='noexcept requirement for deferred actions', default=True)
 arg_parser.add_argument('--prefix', dest='install_prefix', default='/usr/local', help='Root installation path of Seastar files')
 args = arg_parser.parse_args()
 
@@ -122,19 +124,18 @@ def identify_best_dialect(dialects, compiler):
     """Returns the first C++ dialect accepted by the compiler in the sequence,
     assuming the "best" dialects appear first.
 
-    If no dialects are accepted, the result is the last dialect in the sequence
-    (we assume that this error will be displayed to the user - during compile
-    time - in an informative way).
-
+    If no dialects are accepted, we fail configure.py. There is not point
+    of letting the user attempt to build with a dialect that is known not
+    to be supported. However, the user may still choose a dialect by
+    explicitly passing the --c++-dialect option.
     """
     for d in dialects:
         if dialect_supported(d, compiler):
             return d
-
-    return d
+    raise Exception(f"{compiler} does not seem to support any of Seastar's preferred C++ dialects - {dialects}. Please upgrade your compiler, or choose a valid dialect with '--c++-dialect'")
 
 if args.cpp_dialect == '':
-    cpp_dialects = ['gnu++17', 'gnu++1z', 'gnu++14', 'gnu++1y']
+    cpp_dialects = ['gnu++20', 'c++20', 'gnu++2a', 'gnu++17', 'c++17', 'gnu++1z']
     args.cpp_dialect = identify_best_dialect(cpp_dialects, compiler=args.cxx)
 
 def infer_dpdk_machine(user_cflags):
@@ -184,6 +185,7 @@ def configure_mode(mode):
         '-DCMAKE_CXX_COMPILER={}'.format(args.cxx),
         '-DCMAKE_INSTALL_PREFIX={}'.format(args.install_prefix),
         '-DSeastar_API_LEVEL={}'.format(args.api_level),
+        '-DSeastar_SCHEDULING_GROUPS_COUNT={}'.format(args.scheduling_groups_count),
         tr(args.exclude_tests, 'EXCLUDE_TESTS_FROM_ALL'),
         tr(args.exclude_apps, 'EXCLUDE_APPS_FROM_ALL'),
         tr(args.exclude_demos, 'EXCLUDE_DEMOS_FROM_ALL'),
@@ -193,14 +195,14 @@ def configure_mode(mode):
         tr(args.dpdk, 'DPDK'),
         tr(infer_dpdk_machine(args.user_cflags), 'DPDK_MACHINE'),
         tr(args.hwloc, 'HWLOC', value_when_none='yes'),
-        tr(args.gcc6_concepts, 'GCC6_CONCEPTS'),
-        tr(args.alloc_failure_injection, 'ALLOC_FAILURE_INJECTION'),
+        tr(args.alloc_failure_injection, 'ALLOC_FAILURE_INJECTION', value_when_none='DEFAULT'),
+        tr(args.task_backtrace, 'TASK_BACKTRACE'),
         tr(args.alloc_page_size, 'ALLOC_PAGE_SIZE'),
-        tr(args.cpp17_goodies, 'STD_OPTIONAL_VARIANT_STRINGVIEW'),
         tr(args.split_dwarf, 'SPLIT_DWARF'),
         tr(args.heap_profiling, 'HEAP_PROFILING'),
-        tr(args.coroutines_ts, 'EXPERIMENTAL_COROUTINES_TS'),
+        tr(args.deferred_action_require_noexcept, 'DEFERRED_ACTION_REQUIRE_NOEXCEPT'),
         tr(args.unused_result_error, 'UNUSED_RESULT_ERROR'),
+        tr(args.debug_shared_ptr, 'DEBUG_SHARED_PTR', value_when_none='default'),
     ]
 
     ingredients_to_cook = set(args.cook)

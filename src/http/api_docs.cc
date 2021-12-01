@@ -23,9 +23,10 @@
 #include <seastar/http/handlers.hh>
 #include <seastar/json/formatter.hh>
 #include <seastar/http/transformers.hh>
-#include <seastar/core/reactor.hh>
 #include <seastar/core/fstream.hh>
+#include <seastar/core/seastar.hh>
 #include <seastar/http/transformers.hh>
+#include <seastar/core/loop.hh>
 
 using namespace std;
 

@@ -23,6 +23,7 @@
 
 #include <tuple>
 #include <utility>
+#include <stddef.h>
 
 namespace seastar {
 
@@ -107,7 +108,7 @@ struct tuple_map_types<MapClass, std::tuple<Elements...>> {
 /// Filters elements in tuple by their type
 ///
 /// Returns a tuple containing only those elements which type `T` caused
-/// expression `FilterClass<T>::value` to be true.
+/// expression FilterClass<T>::value to be true.
 ///
 /// \tparam FilterClass class template having an element value set to true for elements that
 ///                     should be present in the result

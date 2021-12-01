@@ -29,11 +29,29 @@ class logger;
 
 /// Controls whether on_internal_error() aborts or throws. The default
 /// is to throw.
-void set_abort_on_internal_error(bool do_abort);
+/// \returns the current abort_on_internal_error state.
+bool set_abort_on_internal_error(bool do_abort) noexcept;
 
 /// Report an internal error
 ///
 /// Depending on the value passed to set_abort_on_internal_error, this
 /// will either log to \p logger and abort or throw a std::runtime_error.
-[[noreturn]] void on_internal_error(logger& logger, compat::string_view reason);
+[[noreturn]] void on_internal_error(logger& logger, std::string_view reason);
+
+/// Report an internal error
+///
+/// Depending on the value passed to set_abort_on_internal_error, this
+/// will either log to \p logger and abort or throw the passed-in
+/// \p ex.
+/// This overload cannot attach a backtrace to the exception, so if the
+/// caller wishes to have one attached they have to do it themselves.
+[[noreturn]] void on_internal_error(logger& logger, std::exception_ptr ex);
+
+/// Report an internal error in a noexcept context
+///
+/// The error will be logged to \logger and if set_abort_on_internal_error,
+/// was set to true, the program will be aborted. This overload can be used
+/// in noexcept contexts like destructors or noexcept functions.
+void on_internal_error_noexcept(logger& logger, std::string_view reason) noexcept;
+
 }

@@ -26,11 +26,11 @@ struct mapping {
         { "js", "text/javascript" },
         { "html", "text/html" },
         { "jpg", "image/jpeg" },
+        { "svg", "image/svg+xml" },
         { "png", "image/png" },
         { "txt", "text/plain" },
         { "ico", "image/x-icon" },
         { "bin", "application/octet-stream" },
-        { "proto", "application/vnd.google.protobuf; proto=io.prometheus.client.MetricFamily; encoding=delimited"},
 };
 
 const char* extension_to_type(const sstring& extension)

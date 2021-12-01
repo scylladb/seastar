@@ -28,4 +28,4 @@ case `pandoc --version` in
     SMART_OPT=
     SMART_EXT=+smart
 esac
-pandoc --self-contained $SMART_OPT --toc -c ${dir}/template.css --number-sections -f markdown+pandoc_title_block+implicit_header_references$SMART_EXT --highlight-style tango "$1" -o "$2"
+pandoc --self-contained $SMART_OPT --toc -c ${dir}/template.css --number-sections -f markdown+pandoc_title_block+implicit_header_references$SMART_EXT -V lang=en --highlight-style tango "$1" -o "$2"

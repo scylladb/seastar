@@ -23,8 +23,15 @@
 #include <seastar/http/handlers.hh>
 #include <seastar/http/function_handlers.hh>
 #include <seastar/http/file_handler.hh>
+#include <seastar/core/seastar.hh>
+#include <seastar/core/reactor.hh>
 #include "demo.json.hh"
 #include <seastar/http/api_docs.hh>
+#include <seastar/core/thread.hh>
+#include <seastar/core/prometheus.hh>
+#include <seastar/core/print.hh>
+#include <seastar/net/inet_address.hh>
+#include "../lib/stop_signal.hh"
 
 namespace bpo = boost::program_options;
 
@@ -64,28 +71,64 @@ void set_routes(routes& r) {
 }
 
 int main(int ac, char** av) {
+    httpd::http_server_control prometheus_server;
+    prometheus::config pctx;
     app_template app;
-    app.add_options()("port", bpo::value<uint16_t>()->default_value(10000),
-            "HTTP Server port");
-    return app.run_deprecated(ac, av, [&] {
-        auto&& config = app.configuration();
-        uint16_t port = config["port"].as<uint16_t>();
-        auto server = new http_server_control();
-        auto rb = make_shared<api_registry_builder>("apps/httpd/");
-        return server->start().then([server] {
-            return server->set_routes(set_routes);
-        }).then([server, rb]{
-            return server->set_routes([rb](routes& r){rb->set_api_doc(r);});
-        }).then([server, rb]{
-            return server->set_routes([rb](routes& r) {rb->register_function(r, "demo", "hello world application");});
-        }).then([server, port] {
-            return server->listen(port);
-        }).then([server, port] {
-            std::cout << "Seastar HTTP server listening on port " << port << " ...\n";
-            engine().at_exit([server] {
-                return server->stop();
-            });
-        });
 
+    app.add_options()("port", bpo::value<uint16_t>()->default_value(10000), "HTTP Server port");
+    app.add_options()("prometheus_port", bpo::value<uint16_t>()->default_value(9180), "Prometheus port. Set to zero in order to disable.");
+    app.add_options()("prometheus_address", bpo::value<sstring>()->default_value("0.0.0.0"), "Prometheus address");
+    app.add_options()("prometheus_prefix", bpo::value<sstring>()->default_value("seastar_httpd"), "Prometheus metrics prefix");
+
+    return app.run_deprecated(ac, av, [&] {
+        return seastar::async([&] {
+            seastar_apps_lib::stop_signal stop_signal;
+            auto&& config = app.configuration();
+            httpd::http_server_control prometheus_server;
+
+            uint16_t pport = config["prometheus_port"].as<uint16_t>();
+            if (pport) {
+                prometheus::config pctx;
+                net::inet_address prom_addr(config["prometheus_address"].as<sstring>());
+
+                pctx.metric_help = "seastar::httpd server statistics";
+                pctx.prefix = config["prometheus_prefix"].as<sstring>();
+
+                std::cout << "starting prometheus API server" << std::endl;
+                prometheus_server.start("prometheus").get();
+
+                prometheus::start(prometheus_server, pctx).get();
+
+                prometheus_server.listen(socket_address{prom_addr, pport}).handle_exception([prom_addr, pport] (auto ep) {
+                    std::cerr << seastar::format("Could not start Prometheus API server on {}:{}: {}\n", prom_addr, pport, ep);
+                    return make_exception_future<>(ep);
+                }).get();
+            }
+
+            uint16_t port = config["port"].as<uint16_t>();
+            auto server = new http_server_control();
+            auto rb = make_shared<api_registry_builder>("apps/httpd/");
+            server->start().get();
+            server->set_routes(set_routes).get();
+            server->set_routes([rb](routes& r){rb->set_api_doc(r);}).get();
+            server->set_routes([rb](routes& r) {rb->register_function(r, "demo", "hello world application");}).get();
+            server->listen(port).get();
+
+            std::cout << "Seastar HTTP server listening on port " << port << " ...\n";
+            engine().at_exit([&prometheus_server, server, pport] {
+                return [pport, &prometheus_server] {
+                    if (pport) {
+                        std::cout << "Stoppping Prometheus server" << std::endl;
+                        return prometheus_server.stop();
+                    }
+                    return make_ready_future<>();
+                }().finally([server] {
+                    std::cout << "Stoppping HTTP server" << std::endl;
+                    return server->stop();
+                });
+            });
+
+            stop_signal.wait().get();
+        });
     });
 }

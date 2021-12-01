@@ -47,7 +47,33 @@ static bool init_unit_test_suite() {
     return global_test_runner().start(ts.argc, ts.argv);
 }
 
+static void dummy_handler(int) {
+    // This handler should have been replaced.
+    _exit(1);
+}
+
+static void install_dummy_handler(int sig) {
+    struct sigaction sa {};
+    sa.sa_handler = dummy_handler;
+    sigaction(sig, &sa, nullptr);
+}
+
 int entry_point(int argc, char** argv) {
+#ifndef SEASTAR_ASAN_ENABLED
+    // Before we call into boost, install some dummy signal
+    // handlers. This seems to be the only way to stop boost from
+    // installing its own handlers, which disables our backtrace
+    // printer. The real handler will be installed when the reactor is
+    // constructed.
+    // If we are using ASAN, it has already installed a signal handler
+    // that does its own stack printing.
+    for (int sig : {SIGSEGV, SIGABRT}) {
+        install_dummy_handler(sig);
+    }
+#else
+    (void)install_dummy_handler;
+#endif
+
     const int boost_exit_code = ::boost::unit_test::unit_test_main(&init_unit_test_suite, argc, argv);
     const int seastar_exit_code = seastar::testing::global_test_runner().finalize();
     if (boost_exit_code) {

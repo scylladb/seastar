@@ -58,48 +58,50 @@ private:
 public:
     static constexpr uint32_t invalid_scope = std::numeric_limits<uint32_t>::max();
 
-    inet_address();
-    inet_address(family);
-    inet_address(::in_addr i);
-    inet_address(::in6_addr i, uint32_t scope = invalid_scope);
+    inet_address() noexcept;
+    inet_address(family) noexcept;
+    inet_address(::in_addr i) noexcept;
+    inet_address(::in6_addr i, uint32_t scope = invalid_scope) noexcept;
     // NOTE: does _not_ resolve the address. Only parses
     // ipv4/ipv6 numerical address
+    // throws std::invalid_argument if sstring is invalid
     inet_address(const sstring&);
-    inet_address(inet_address&&) = default;
-    inet_address(const inet_address&) = default;
+    inet_address(inet_address&&) noexcept = default;
+    inet_address(const inet_address&) noexcept = default;
 
-    inet_address(const ipv4_address&);
-    inet_address(const ipv6_address&, uint32_t scope = invalid_scope);
+    inet_address(const ipv4_address&) noexcept;
+    inet_address(const ipv6_address&, uint32_t scope = invalid_scope) noexcept;
 
     // throws iff ipv6
     ipv4_address as_ipv4_address() const;
-    ipv6_address as_ipv6_address() const;
+    ipv6_address as_ipv6_address() const noexcept;
 
-    inet_address& operator=(const inet_address&) = default;
-    bool operator==(const inet_address&) const;
+    inet_address& operator=(const inet_address&) noexcept = default;
+    bool operator==(const inet_address&) const noexcept;
 
-    family in_family() const {
+    family in_family() const noexcept {
         return _in_family;
     }
 
-    bool is_ipv6() const {
+    bool is_ipv6() const noexcept {
         return _in_family == family::INET6;
     }
-    bool is_ipv4() const {
+    bool is_ipv4() const noexcept {
         return _in_family == family::INET;
     }
 
-    size_t size() const;
-    const void * data() const;
+    size_t size() const noexcept;
+    const void * data() const noexcept;
 
-    uint32_t scope() const {
+    uint32_t scope() const noexcept {
         return _scope;
     }
 
+    // throws iff ipv6
     operator ::in_addr() const;
-    operator ::in6_addr() const;
+    operator ::in6_addr() const noexcept;
 
-    operator ipv6_address() const;
+    operator ipv6_address() const noexcept;
 
     future<sstring> hostname() const;
     future<std::vector<sstring>> aliases() const;
@@ -109,7 +111,7 @@ public:
     static future<std::vector<inet_address>> find_all(const sstring&);
     static future<std::vector<inet_address>> find_all(const sstring&, family);
 
-    static compat::optional<inet_address> parse_numerical(const sstring&);
+    static std::optional<inet_address> parse_numerical(const sstring&);
 };
 
 std::ostream& operator<<(std::ostream&, const inet_address&);

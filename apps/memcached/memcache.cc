@@ -23,12 +23,13 @@
 #include <boost/intrusive/list.hpp>
 #include <boost/intrusive_ptr.hpp>
 #include <boost/lexical_cast.hpp>
-#include <boost/optional.hpp>
 #include <iostream>
 #include <iomanip>
 #include <sstream>
 #include <seastar/core/app-template.hh>
-#include <seastar/core/future-util.hh>
+#include <seastar/core/reactor.hh>
+#include <seastar/core/seastar.hh>
+#include <seastar/core/loop.hh>
 #include <seastar/core/timer-set.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/stream.hh>
@@ -43,6 +44,7 @@
 #include <seastar/net/api.hh>
 #include <seastar/net/packet-data-source.hh>
 #include <seastar/util/std-compat.hh>
+#include <seastar/util/log.hh>
 #include "ascii.hh"
 #include "memcached.hh"
 #include <unistd.h>
@@ -65,7 +67,7 @@ static __thread slab_allocator<item>* slab;
 static thread_local std::unique_ptr<slab_allocator<item>> slab_holder;
 
 template<typename T>
-using optional = boost::optional<T>;
+using optional = std::optional<T>;
 
 using clock_type = lowres_clock;
 
@@ -182,19 +184,19 @@ public:
         return _version;
     }
 
-    const compat::string_view key() const {
-        return compat::string_view(_data, _key_size);
+    const std::string_view key() const {
+        return std::string_view(_data, _key_size);
     }
 
-    const compat::string_view ascii_prefix() const {
+    const std::string_view ascii_prefix() const {
         const char *p = _data + align_up(_key_size, field_alignment);
-        return compat::string_view(p, _ascii_prefix_size);
+        return std::string_view(p, _ascii_prefix_size);
     }
 
-    const compat::string_view value() const {
+    const std::string_view value() const {
         const char *p = _data + align_up(_key_size, field_alignment) +
             align_up(_ascii_prefix_size, field_alignment);
-        return compat::string_view(p, _value_size);
+        return std::string_view(p, _value_size);
     }
 
     size_t key_size() const {
@@ -722,7 +724,7 @@ public:
             }
             ss << histo[i] << "\n";
         }
-        return {engine().cpu_id(), make_foreign(make_lw_shared<std::string>(ss.str()))};
+        return {this_shard_id(), make_foreign(make_lw_shared<std::string>(ss.str()))};
     }
 
     future<> stop() { return make_ready_future<>(); }
@@ -753,7 +755,7 @@ public:
     // The caller must keep @insertion live until the resulting future resolves.
     future<bool> set(item_insertion_data& insertion) {
         auto cpu = get_cpu(insertion.key);
-        if (engine().cpu_id() == cpu) {
+        if (this_shard_id() == cpu) {
             return make_ready_future<bool>(_peers.local().set(insertion));
         }
         return _peers.invoke_on(cpu, &cache::set<remote_origin_tag>, std::ref(insertion));
@@ -762,7 +764,7 @@ public:
     // The caller must keep @insertion live until the resulting future resolves.
     future<bool> add(item_insertion_data& insertion) {
         auto cpu = get_cpu(insertion.key);
-        if (engine().cpu_id() == cpu) {
+        if (this_shard_id() == cpu) {
             return make_ready_future<bool>(_peers.local().add(insertion));
         }
         return _peers.invoke_on(cpu, &cache::add<remote_origin_tag>, std::ref(insertion));
@@ -771,7 +773,7 @@ public:
     // The caller must keep @insertion live until the resulting future resolves.
     future<bool> replace(item_insertion_data& insertion) {
         auto cpu = get_cpu(insertion.key);
-        if (engine().cpu_id() == cpu) {
+        if (this_shard_id() == cpu) {
             return make_ready_future<bool>(_peers.local().replace(insertion));
         }
         return _peers.invoke_on(cpu, &cache::replace<remote_origin_tag>, std::ref(insertion));
@@ -792,7 +794,7 @@ public:
     // The caller must keep @insertion live until the resulting future resolves.
     future<cas_result> cas(item_insertion_data& insertion, item::version_type version) {
         auto cpu = get_cpu(insertion.key);
-        if (engine().cpu_id() == cpu) {
+        if (this_shard_id() == cpu) {
             return make_ready_future<cas_result>(_peers.local().cas(insertion, version));
         }
         return _peers.invoke_on(cpu, &cache::cas<remote_origin_tag>, std::ref(insertion), std::move(version));
@@ -805,7 +807,7 @@ public:
     // The caller must keep @key live until the resulting future resolves.
     future<std::pair<item_ptr, bool>> incr(item_key& key, uint64_t delta) {
         auto cpu = get_cpu(key);
-        if (engine().cpu_id() == cpu) {
+        if (this_shard_id() == cpu) {
             return make_ready_future<std::pair<item_ptr, bool>>(
                 _peers.local().incr<local_origin_tag>(key, delta));
         }
@@ -815,7 +817,7 @@ public:
     // The caller must keep @key live until the resulting future resolves.
     future<std::pair<item_ptr, bool>> decr(item_key& key, uint64_t delta) {
         auto cpu = get_cpu(key);
-        if (engine().cpu_id() == cpu) {
+        if (this_shard_id() == cpu) {
             return make_ready_future<std::pair<item_ptr, bool>>(
                 _peers.local().decr(key, delta));
         }
@@ -1221,7 +1223,7 @@ class udp_server {
 public:
     static const size_t default_max_datagram_size = 1400;
 private:
-    compat::optional<future<>> _task;
+    std::optional<future<>> _task;
     sharded_cache& _cache;
     distributed<system_stats>& _system_stats;
     udp_channel _chan;
@@ -1248,12 +1250,18 @@ private:
         std::vector<packet> _out_bufs;
         ascii_protocol _proto;
 
+        static output_stream_options make_opts() noexcept {
+            output_stream_options opts;
+            opts.trim_to_size = true;
+            return opts;
+        }
+
         connection(ipv4_addr src, uint16_t request_id, input_stream<char>&& in, size_t out_size,
                 sharded_cache& c, distributed<system_stats>& system_stats)
             : _src(src)
             , _request_id(request_id)
             , _in(std::move(in))
-            , _out(output_stream<char>(data_sink(std::make_unique<vector_data_sink>(_out_bufs)), out_size, true))
+            , _out(output_stream<char>(data_sink(std::make_unique<vector_data_sink>(_out_bufs)), out_size, make_opts()))
             , _proto(c, system_stats)
         {}
 
@@ -1282,7 +1290,7 @@ public:
     }
 
     void start() {
-        _chan = engine().net().make_udp_channel({_port});
+        _chan = make_udp_channel({_port});
         // Run in the background.
         _task = keep_doing([this] {
             return _chan.receive().then([this](udp_datagram dgram) {
@@ -1328,8 +1336,8 @@ public:
 
 class tcp_server {
 private:
-    compat::optional<future<>> _task;
-    lw_shared_ptr<seastar::api_v2::server_socket> _listener;
+    std::optional<future<>> _task;
+    lw_shared_ptr<seastar::server_socket> _listener;
     sharded_cache& _cache;
     distributed<system_stats>& _system_stats;
     uint16_t _port;
@@ -1365,7 +1373,7 @@ public:
     void start() {
         listen_options lo;
         lo.reuse_address = true;
-        _listener = seastar::api_v2::server_socket(engine().listen(make_ipv4_address({_port}), lo));
+        _listener = seastar::server_socket(seastar::listen(make_ipv4_address({_port}), lo));
         // Run in the background until eof has reached on the input connection.
         _task = keep_doing([this] {
             return _listener->accept().then([this] (accept_result ar) mutable {

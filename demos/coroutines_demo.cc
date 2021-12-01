@@ -19,11 +19,25 @@
  * Copyright (C) 2019 ScyllaDB Ltd.
  */
 
+#include <iostream>
+
+#include <seastar/util/std-compat.hh>
+
+#ifndef SEASTAR_COROUTINES_ENABLED
+
+int main(int argc, char** argv) {
+    std::cout << "coroutines not available\n";
+    return 0;
+}
+
+#else
+
 #include <seastar/core/app-template.hh>
 #include <seastar/core/coroutine.hh>
 #include <seastar/core/fstream.hh>
-#include <seastar/core/reactor.hh>
 #include <seastar/core/sleep.hh>
+#include <seastar/core/seastar.hh>
+#include <seastar/core/loop.hh>
 
 int main(int argc, char** argv) {
     seastar::app_template app;
@@ -35,7 +49,7 @@ int main(int argc, char** argv) {
         });
 
         auto file = co_await seastar::open_file_dma("useless_file.txt", seastar::open_flags::create | seastar::open_flags::wo);
-        auto out = seastar::make_file_output_stream(file);
+        auto out = co_await seastar::make_file_output_stream(file);
         seastar::sstring str = "nothing to see here, move along now\n";
         co_await out.write(str);
         co_await out.flush();
@@ -45,3 +59,5 @@ int main(int argc, char** argv) {
         std::cout << "done\n";
     });
 }
+
+#endif

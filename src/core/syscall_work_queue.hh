@@ -43,25 +43,31 @@ class syscall_work_queue {
         virtual ~work_item() {}
         virtual void process() = 0;
         virtual void complete() = 0;
+        virtual void set_exception(std::exception_ptr) = 0;
     };
     template <typename T>
     struct work_item_returning :  work_item {
         noncopyable_function<T ()> _func;
         promise<T> _promise;
-        compat::optional<T> _result;
+        std::optional<T> _result;
         work_item_returning(noncopyable_function<T ()> func) : _func(std::move(func)) {}
         virtual void process() override { _result = this->_func(); }
         virtual void complete() override { _promise.set_value(std::move(*_result)); }
+        virtual void set_exception(std::exception_ptr eptr) override { _promise.set_exception(eptr); };
         future<T> get_future() { return _promise.get_future(); }
     };
 public:
     syscall_work_queue();
     template <typename T>
-    future<T> submit(noncopyable_function<T ()> func) {
+    future<T> submit(noncopyable_function<T ()> func) noexcept {
+      try {
         auto wi = std::make_unique<work_item_returning<T>>(std::move(func));
         auto fut = wi->get_future();
         submit_item(std::move(wi));
         return fut;
+      } catch (...) {
+        return current_exception_as_future<T>();
+      }
     }
 private:
     void work();

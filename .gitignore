@@ -1,3 +1,4 @@
+.cooking_memory
 .cproject
 .project
 .settings
@@ -6,3 +7,4 @@ build.ninja
 cscope.*
 __pycache__/
 cmake/Cooking.cmake
+tags

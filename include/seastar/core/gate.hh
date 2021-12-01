@@ -46,23 +46,40 @@ public:
 /// requests have completed.  The \c gate class provides a solution.
 class gate {
     size_t _count = 0;
-    compat::optional<promise<>> _stopped;
+    std::optional<promise<>> _stopped;
 public:
+    gate() = default;
+    gate(const gate&) = delete;
+    gate(gate&&) = default;
+    gate& operator=(gate&&) = default;
+    ~gate() {
+        assert(!_count && "gate destroyed with outstanding requests");
+    }
+    /// Tries to register an in-progress request.
+    ///
+    /// If the gate is not closed, the request is registered and the function returns `true`,
+    /// Otherwise the function just returns `false` and has no other effect.
+    bool try_enter() noexcept {
+        bool opened = !_stopped;
+        if (opened) {
+            ++_count;
+        }
+        return opened;
+    }
     /// Registers an in-progress request.
     ///
     /// If the gate is not closed, the request is registered.  Otherwise,
     /// a \ref gate_closed_exception is thrown.
     void enter() {
-        if (_stopped) {
+        if (!try_enter()) {
             throw gate_closed_exception();
         }
-        ++_count;
     }
     /// Unregisters an in-progress request.
     ///
     /// If the gate is closed, and there are no more in-progress requests,
-    /// the \ref closed() promise will be fulfilled.
-    void leave() {
+    /// the `_stopped` promise will be fulfilled.
+    void leave() noexcept {
         --_count;
         if (!_count && _stopped) {
             _stopped->set_value();
@@ -87,9 +104,9 @@ public:
     /// Future calls to \ref enter() will fail with an exception, and when
     /// all current requests call \ref leave(), the returned future will be
     /// made ready.
-    future<> close() {
+    future<> close() noexcept {
         assert(!_stopped && "seastar::gate::close() cannot be called more than once");
-        _stopped = compat::make_optional(promise<>());
+        _stopped = std::make_optional(promise<>());
         if (!_count) {
             _stopped->set_value();
         }
@@ -97,15 +114,114 @@ public:
     }
 
     /// Returns a current number of registered in-progress requests.
-    size_t get_count() const {
+    size_t get_count() const noexcept {
         return _count;
     }
 
     /// Returns whether the gate is closed.
-    bool is_closed() const {
+    bool is_closed() const noexcept {
         return bool(_stopped);
     }
+
+    /// Facility to hold a gate opened using RAII.
+    ///
+    /// A \ref gate::holder is usually obtained using \ref gate::get_holder.
+    ///
+    /// The \c gate is entered when the \ref gate::holder is constructed,
+    /// And the \c gate is left when the \ref gate::holder is destroyed.
+    ///
+    /// Copying the \ref gate::holder reenters the \c gate to keep an extra reference on it.
+    /// Moving the \ref gate::holder is supported and has no effect on the \c gate itself.
+    class holder {
+        gate* _g;
+
+    public:
+        /// Construct a default \ref holder, referencing no \ref gate.
+        /// Never throws.
+        holder() noexcept : _g(nullptr) { }
+
+        /// Construct a \ref holder by entering the \c gate.
+        /// May throw \ref gate_closed_exception if the gate is already closed.
+        explicit holder(gate& g) : _g(&g) {
+            _g->enter();
+        }
+
+        /// Construct a \ref holder by copying another \c holder.
+        /// Copying a holder never throws: The original holder has already entered the gate,
+        /// so even if later the gate was \ref close "close()d", the copy of the holder is also allowed to enter too.
+        /// Note that the fiber waiting for the close(), which until now was waiting for the one holder to leave,
+        /// will now wait for both copies to leave.
+        holder(const holder& x) noexcept : _g(x._g) {
+            if (_g) {
+                _g->_count++;
+            }
+        }
+
+        /// Construct a \ref holder by moving another \c holder.
+        /// The referenced \ref gate is unaffected, and so the
+        /// move-constructor must never throw.
+        holder(holder&& x) noexcept : _g(std::exchange(x._g, nullptr)) { }
+
+        /// Destroy a \ref holder and leave the referenced \ref gate.
+        ~holder() {
+            release();
+        }
+
+        /// Copy-assign another \ref holder.
+        /// \ref leave "Leave()" the current \ref gate before assigning the other one, if they are different.
+        /// Copying a holder never throws: The original holder has already entered the gate,
+        /// so even if later the gate was \ref close "close()d", the copy of the holder is also allowed to enter too.
+        /// Note that the fiber waiting for the close(), which until now was waiting for the one holder to leave,
+        /// will now wait for both copies to leave.
+        holder& operator=(const holder& x) noexcept {
+            if (x._g != _g) {
+                release();
+                _g = x._g;
+                if (_g) {
+                    _g->_count++;
+                }
+            }
+            return *this;
+        }
+
+        /// Move-assign another \ref holder.
+        /// The other \ref gate is unaffected,
+        /// and so the move-assign operator must always succeed.
+        /// Leave the current \ref gate before assigning the other one.
+        holder& operator=(holder&& x) noexcept {
+            if (&x != this) {
+                release();
+                _g = std::exchange(x._g, nullptr);
+            }
+            return *this;
+        }
+
+        /// Leave the held \c gate
+        void release() noexcept {
+            if (_g) {
+                _g->leave();
+                _g = nullptr;
+            }
+        }
+    };
+
+    /// Get a RAII-based gate::holder object that \ref enter "enter()s"
+    /// the gate when constructed and \ref leave "leave()s" it when destroyed.
+    holder hold() {
+        return holder(*this);
+    }
 };
+
+namespace internal {
+
+template <typename Func>
+inline
+auto
+invoke_func_with_gate(gate& g, Func&& func) noexcept {
+    return futurize_invoke(std::forward<Func>(func)).finally([&g] { g.leave(); });
+}
+
+} // namespace intgernal
 
 /// Executes the function \c func making sure the gate \c g is properly entered
 /// and later on, properly left.
@@ -120,7 +236,29 @@ inline
 auto
 with_gate(gate& g, Func&& func) {
     g.enter();
-    return futurize_apply(std::forward<Func>(func)).finally([&g] { g.leave(); });
+    return internal::invoke_func_with_gate(g, std::forward<Func>(func));
+}
+
+/// Executes the function \c func if the gate \c g can be entered
+/// and later on, properly left.
+///
+/// \param func function to be executed
+/// \param g the gate. Caller must make sure that it outlives this function.
+///
+/// If the gate is already closed, an exception future holding
+/// \ref gate_closed_exception is returned, otherwise
+/// \returns whatever \c func returns.
+///
+/// \relates gate
+template <typename Func>
+inline
+auto
+try_with_gate(gate& g, Func&& func) noexcept {
+    if (!g.try_enter()) {
+        using futurator = futurize<std::invoke_result_t<Func>>;
+        return futurator::make_exception_future(gate_closed_exception());
+    }
+    return internal::invoke_func_with_gate(g, std::forward<Func>(func));
 }
 /// @}
 

@@ -24,7 +24,8 @@
 #include <seastar/core/shared_ptr.hh>
 
 
-/// \file Include this header files when using \c lw_shared_ptr<some_incomplete_type>, at the point
+/// \file
+/// \brief Include this header files when using \c lw_shared_ptr<some_incomplete_type>, at the point
 /// where \c some_incomplete_type is defined.
 
 namespace seastar {

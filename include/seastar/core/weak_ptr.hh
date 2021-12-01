@@ -45,29 +45,53 @@ private:
     using hook_type = boost::intrusive::list_member_hook<boost::intrusive::link_mode<boost::intrusive::auto_unlink>>;
     hook_type _hook;
     T* _ptr = nullptr;
-    weak_ptr(T* p) : _ptr(p) {}
-public:
-    weak_ptr() = default;
-    weak_ptr(std::nullptr_t) : weak_ptr() {}
-    weak_ptr(weak_ptr&& o) noexcept
-        : _ptr(o._ptr)
-    {
+    weak_ptr(T* p) noexcept : _ptr(p) {}
+    void clear() noexcept {
+        _hook = {};
+        _ptr = nullptr;
+    }
+    void swap(weak_ptr&& o) noexcept {
         _hook.swap_nodes(o._hook);
-        o._ptr = nullptr;
+        std::swap(_ptr, o._ptr);
+    }
+public:
+    // Note: The default constructor's body is implemented as no-op
+    // rather than `noexcept = default` due to a bug with gcc 9.3.1
+    // that deletes the constructor since boost::intrusive::list_member_hook
+    // is not default_nothrow_constructible.
+    weak_ptr() noexcept {}
+    weak_ptr(std::nullptr_t) noexcept : weak_ptr() {}
+    weak_ptr(weak_ptr&& o) noexcept
+    {
+        swap(std::move(o));
+    }
+    weak_ptr(const weak_ptr& o) noexcept {
+        if (o._ptr) {
+            swap(o._ptr->weak_from_this());
+        }
     }
     weak_ptr& operator=(weak_ptr&& o) noexcept {
         if (this != &o) {
-            this->~weak_ptr();
-            new (this) weak_ptr(std::move(o));
+            clear();
+            swap(std::move(o));
         }
         return *this;
     }
-    explicit operator bool() const { return _ptr != nullptr; }
+    weak_ptr& operator=(const weak_ptr& o) noexcept {
+        if (this != &o) {
+            clear();
+            if (o._ptr) {
+                swap(o._ptr->weak_from_this());
+            }
+        }
+        return *this;
+    }
+    explicit operator bool() const noexcept { return _ptr != nullptr; }
     T* operator->() const noexcept { return _ptr; }
     T& operator*() const noexcept { return *_ptr; }
     T* get() const noexcept { return _ptr; }
-    bool operator==(const weak_ptr& o) const { return _ptr == o._ptr; }
-    bool operator!=(const weak_ptr& o) const { return _ptr != o._ptr; }
+    bool operator==(const weak_ptr& o) const noexcept { return _ptr == o._ptr; }
+    bool operator!=(const weak_ptr& o) const noexcept { return _ptr != o._ptr; }
 };
 
 /// Allows obtaining a non-owning reference (weak_ptr) to the object.
@@ -93,7 +117,11 @@ class weakly_referencable {
             boost::intrusive::member_hook<weak_ptr<T>, typename weak_ptr<T>::hook_type, &weak_ptr<T>::_hook>,
             boost::intrusive::constant_time_size<false>> _ptr_list;
 public:
-    weakly_referencable() = default;
+    // Note: The default constructor's body is implemented as no-op
+    // rather than `noexcept = default` due to a bug with gcc 9.3.1
+    // that deletes the constructor since boost::intrusive::member_hook
+    // is not default_nothrow_constructible.
+    weakly_referencable() noexcept {}
     weakly_referencable(weakly_referencable&&) = delete; // pointer to this is captured and passed to weak_ptr
     weakly_referencable(const weakly_referencable&) = delete;
     ~weakly_referencable() noexcept {

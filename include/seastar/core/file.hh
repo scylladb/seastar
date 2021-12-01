@@ -21,12 +21,12 @@
 
 #pragma once
 
+#include <seastar/core/do_with.hh>
 #include <seastar/core/stream.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/align.hh>
-#include <seastar/core/future-util.hh>
-#include <seastar/core/fair_queue.hh>
+#include <seastar/core/io_priority_class.hh>
 #include <seastar/core/file-types.hh>
 #include <seastar/util/std-compat.hh>
 #include <system_error>
@@ -46,7 +46,7 @@ struct directory_entry {
     /// Name of the file in a directory entry.  Will never be "." or "..".  Only the last component is included.
     sstring name;
     /// Type of the directory entry, if known.
-    compat::optional<directory_entry_type> type;
+    std::optional<directory_entry_type> type;
 };
 
 /// Filesystem object stat information
@@ -78,30 +78,15 @@ struct file_open_options {
     bool sloppy_size = false; ///< Allow the file size not to track the amount of data written until a flush
     uint64_t sloppy_size_hint = 1 << 20; ///< Hint as to what the eventual file size will be
     file_permissions create_permissions = file_permissions::default_file_permissions; ///< File permissions to use when creating a file
+    bool append_is_unlikely = false; ///< Hint that user promises (or at least tries hard) not to write behind file size
+
+    // The fsxattr.fsx_extsize is 32-bit
+    static constexpr uint64_t max_extent_allocation_size_hint = 1 << 31;
 };
-
-/// \cond internal
-class io_queue;
-using io_priority_class_id = unsigned;
-class io_priority_class {
-    io_priority_class_id _id;
-    friend io_queue;
-
-    explicit io_priority_class(io_priority_class_id id)
-        : _id(id)
-    { }
-
-public:
-    io_priority_class_id id() const {
-        return _id;
-    }
-};
-
-const io_priority_class& default_priority_class();
 
 class file;
 class file_impl;
-
+class io_intent;
 class file_handle;
 
 // A handle that can be transported across shards and used to
@@ -114,12 +99,15 @@ public:
 };
 
 class file_impl {
+    friend class file;
 protected:
     static file_impl* get_file_impl(file& f);
-public:
     unsigned _memory_dma_alignment = 4096;
     unsigned _disk_read_dma_alignment = 4096;
     unsigned _disk_write_dma_alignment = 4096;
+    unsigned _disk_overwrite_dma_alignment = 4096;
+    unsigned _read_max_length = 1u << 30;
+    unsigned _write_max_length = 1u << 30;
 public:
     virtual ~file_impl() {}
 
@@ -127,19 +115,42 @@ public:
     virtual future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc) = 0;
     virtual future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc) = 0;
     virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc) = 0;
+
+    virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc, io_intent*) {
+        return write_dma(pos, buffer, len, pc);
+    }
+    virtual future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent*) {
+        return write_dma(pos, std::move(iov), pc);
+    }
+    virtual future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc, io_intent*) {
+        return read_dma(pos, buffer, len, pc);
+    }
+    virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent*) {
+        return read_dma(pos, std::move(iov), pc);
+    }
+
     virtual future<> flush(void) = 0;
     virtual future<struct stat> stat(void) = 0;
     virtual future<> truncate(uint64_t length) = 0;
     virtual future<> discard(uint64_t offset, uint64_t length) = 0;
+    virtual future<int> ioctl(uint64_t cmd, void* argp) noexcept;
+    virtual future<int> ioctl_short(uint64_t cmd, void* argp) noexcept;
+    virtual future<int> fcntl(int op, uintptr_t arg) noexcept;
+    virtual future<int> fcntl_short(int op, uintptr_t arg) noexcept;
     virtual future<> allocate(uint64_t position, uint64_t length) = 0;
     virtual future<uint64_t> size(void) = 0;
     virtual future<> close() = 0;
     virtual std::unique_ptr<file_handle_impl> dup();
     virtual subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next) = 0;
     virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc) = 0;
+    virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc, io_intent*) {
+        return dma_read_bulk(offset, range_size, pc);
+    }
 
     friend class reactor;
 };
+
+future<shared_ptr<file_impl>> make_file_impl(int fd, file_open_options options, int oflags) noexcept;
 
 /// \endcond
 
@@ -154,8 +165,6 @@ public:
 /// on a 4096 byte boundary, while a 512 byte boundary suffices for the latter.
 class file {
     shared_ptr<file_impl> _file_impl;
-private:
-    explicit file(int fd, file_open_options options);
 public:
     /// Default constructor constructs an uninitialized file object.
     ///
@@ -167,13 +176,13 @@ public:
     /// One can check whether a file object is in uninitialized state with
     /// \ref operator bool(); One can reset a file back to uninitialized state
     /// by assigning file() to it.
-    file() : _file_impl(nullptr) {}
+    file() noexcept : _file_impl(nullptr) {}
 
-    file(shared_ptr<file_impl> impl)
+    file(shared_ptr<file_impl> impl) noexcept
             : _file_impl(std::move(impl)) {}
 
     /// Constructs a file object from a \ref file_handle obtained from another shard
-    explicit file(file_handle&& handle);
+    explicit file(file_handle&& handle) noexcept;
 
     /// Checks whether the file object was initialized.
     ///
@@ -205,20 +214,45 @@ public:
     // overlapping ranges. Those would be very challenging to cache.
 
     /// Alignment requirement for file offsets (for reads)
-    uint64_t disk_read_dma_alignment() const {
+    uint64_t disk_read_dma_alignment() const noexcept {
         return _file_impl->_disk_read_dma_alignment;
     }
 
     /// Alignment requirement for file offsets (for writes)
-    uint64_t disk_write_dma_alignment() const {
+    uint64_t disk_write_dma_alignment() const noexcept {
         return _file_impl->_disk_write_dma_alignment;
     }
 
+    /// Alignment requirement for file offsets (for overwrites).
+    ///
+    /// Specifies the minimum alignment for disk offsets for
+    /// overwrites (writes to a location that was previously written).
+    /// This can be smaller than \ref disk_write_dma_alignment(), allowing
+    /// a reduction in disk bandwidth used.
+    uint64_t disk_overwrite_dma_alignment() const noexcept {
+        return _file_impl->_disk_overwrite_dma_alignment;
+    }
+
     /// Alignment requirement for data buffers
-    uint64_t memory_dma_alignment() const {
+    uint64_t memory_dma_alignment() const noexcept {
         return _file_impl->_memory_dma_alignment;
     }
 
+    /// Recommended limit for read request size.
+    /// Submitting a larger request will not cause any error,
+    /// but may result in poor latencies for this and any other
+    /// concurrent requests
+    size_t disk_read_max_length() const noexcept {
+        return _file_impl->_read_max_length;
+    }
+
+    /// Recommended limit for write request size.
+    /// Submitting a larger request will not cause any error,
+    /// but may result in poor latencies for this and any other
+    /// concurrent requests
+    size_t disk_write_max_length() const noexcept {
+        return _file_impl->_write_max_length;
+    }
 
     /**
      * Perform a single DMA read operation.
@@ -227,17 +261,18 @@ public:
      * @param aligned_buffer output buffer (should be aligned)
      * @param aligned_len number of bytes to read (should be aligned)
      * @param pc the IO priority class under which to queue this operation
+     * @param intent the IO intention confirmation (\ref seastar::io_intent)
      *
      * Alignment is HW dependent but use 4KB alignment to be on the safe side as
      * explained above.
      *
      * @return number of bytes actually read
-     * @throw exception in case of I/O error
+     *         or exceptional future in case of I/O error
      */
     template <typename CharType>
     future<size_t>
-    dma_read(uint64_t aligned_pos, CharType* aligned_buffer, size_t aligned_len, const io_priority_class& pc = default_priority_class()) {
-        return _file_impl->read_dma(aligned_pos, aligned_buffer, aligned_len, pc);
+    dma_read(uint64_t aligned_pos, CharType* aligned_buffer, size_t aligned_len, const io_priority_class& pc = default_priority_class(), io_intent* intent = nullptr) noexcept {
+        return dma_read_impl(aligned_pos, reinterpret_cast<uint8_t*>(aligned_buffer), aligned_len, pc, intent);
     }
 
     /**
@@ -246,24 +281,20 @@ public:
      * @param pos offset to begin reading from
      * @param len number of bytes to read
      * @param pc the IO priority class under which to queue this operation
+     * @param intent the IO intention confirmation (\ref seastar::io_intent)
      *
      * @return temporary buffer containing the requested data.
-     * @throw exception in case of I/O error
+     *         or exceptional future in case of I/O error
      *
      * This function doesn't require any alignment for both "pos" and "len"
      *
      * @note size of the returned buffer may be smaller than "len" if EOF is
-     *       reached of in case of I/O error.
+     *       reached or in case of I/O error.
      */
     template <typename CharType>
-    future<temporary_buffer<CharType>> dma_read(uint64_t pos, size_t len, const io_priority_class& pc = default_priority_class()) {
-        return dma_read_bulk<CharType>(pos, len, pc).then(
-                [len] (temporary_buffer<CharType> buf) {
-            if (len < buf.size()) {
-                buf.trim(len);
-            }
-
-            return SEASTAR_COPY_ELISION(buf);
+    future<temporary_buffer<CharType>> dma_read(uint64_t pos, size_t len, const io_priority_class& pc = default_priority_class(), io_intent* intent = nullptr) noexcept {
+        return dma_read_impl(pos, len, pc, intent).then([] (temporary_buffer<uint8_t> t) {
+            return temporary_buffer<CharType>(reinterpret_cast<CharType*>(t.get_write()), t.size(), t.release());
         });
     }
 
@@ -277,82 +308,72 @@ public:
      * @param pos offset in a file to begin reading from
      * @param len number of bytes to read
      * @param pc the IO priority class under which to queue this operation
+     * @param intent the IO intention confirmation (\ref seastar::io_intent)
      *
      * @return temporary buffer containing the read data
-     * @throw end_of_file_error if EOF is reached, file_io_error or
+     *        or exceptional future in case an error, holding:
+     *        end_of_file_error if EOF is reached, file_io_error or
      *        std::system_error in case of I/O error.
      */
     template <typename CharType>
     future<temporary_buffer<CharType>>
-    dma_read_exactly(uint64_t pos, size_t len, const io_priority_class& pc = default_priority_class()) {
-        return dma_read<CharType>(pos, len, pc).then(
-                [pos, len] (auto buf) {
-            if (buf.size() < len) {
-                throw eof_error();
-            }
-
-            return SEASTAR_COPY_ELISION(buf);
+    dma_read_exactly(uint64_t pos, size_t len, const io_priority_class& pc = default_priority_class(), io_intent* intent = nullptr) noexcept {
+        return dma_read_exactly_impl(pos, len, pc, intent).then([] (temporary_buffer<uint8_t> t) {
+            return temporary_buffer<CharType>(reinterpret_cast<CharType*>(t.get_write()), t.size(), t.release());
         });
     }
 
     /// Performs a DMA read into the specified iovec.
     ///
-    /// \param pos offset to read from.  Must be aligned to \ref dma_alignment.
+    /// \param pos offset to read from.  Must be aligned to \ref disk_read_dma_alignment.
     /// \param iov vector of address/size pairs to read into.  Addresses must be
     ///            aligned.
     /// \param pc the IO priority class under which to queue this operation
+    /// \param intent the IO intention confirmation (\ref seastar::io_intent)
     ///
     /// \return a future representing the number of bytes actually read.  A short
     ///         read may happen due to end-of-file or an I/O error.
-    future<size_t> dma_read(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc = default_priority_class()) {
-        return _file_impl->read_dma(pos, std::move(iov), pc);
-    }
+    future<size_t> dma_read(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc = default_priority_class(), io_intent* intent = nullptr) noexcept;
 
     /// Performs a DMA write from the specified buffer.
     ///
-    /// \param pos offset to write into.  Must be aligned to \ref dma_alignment.
+    /// \param pos offset to write into.  Must be aligned to \ref disk_write_dma_alignment.
     /// \param buffer aligned address of buffer to read from.  Buffer must exists
     ///               until the future is made ready.
     /// \param len number of bytes to write.  Must be aligned.
     /// \param pc the IO priority class under which to queue this operation
+    /// \param intent the IO intention confirmation (\ref seastar::io_intent)
     ///
     /// \return a future representing the number of bytes actually written.  A short
     ///         write may happen due to an I/O error.
     template <typename CharType>
-    future<size_t> dma_write(uint64_t pos, const CharType* buffer, size_t len, const io_priority_class& pc = default_priority_class()) {
-        return _file_impl->write_dma(pos, buffer, len, pc);
+    future<size_t> dma_write(uint64_t pos, const CharType* buffer, size_t len, const io_priority_class& pc = default_priority_class(), io_intent* intent = nullptr) noexcept {
+        return dma_write_impl(pos, reinterpret_cast<const uint8_t*>(buffer), len, pc, intent);
     }
 
     /// Performs a DMA write to the specified iovec.
     ///
-    /// \param pos offset to write into.  Must be aligned to \ref dma_alignment.
+    /// \param pos offset to write into.  Must be aligned to \ref disk_write_dma_alignment.
     /// \param iov vector of address/size pairs to write from.  Addresses must be
     ///            aligned.
     /// \param pc the IO priority class under which to queue this operation
+    /// \param intent the IO intention confirmation (\ref seastar::io_intent)
     ///
     /// \return a future representing the number of bytes actually written.  A short
     ///         write may happen due to an I/O error.
-    future<size_t> dma_write(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc = default_priority_class()) {
-        return _file_impl->write_dma(pos, std::move(iov), pc);
-    }
+    future<size_t> dma_write(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc = default_priority_class(), io_intent* intent = nullptr) noexcept;
 
     /// Causes any previously written data to be made stable on persistent storage.
     ///
     /// Prior to a flush, written data may or may not survive a power failure.  After
     /// a flush, data is guaranteed to be on disk.
-    future<> flush() {
-        return _file_impl->flush();
-    }
+    future<> flush() noexcept;
 
     /// Returns \c stat information about the file.
-    future<struct stat> stat() {
-        return _file_impl->stat();
-    }
+    future<struct stat> stat() noexcept;
 
     /// Truncates the file to a specified length.
-    future<> truncate(uint64_t length) {
-        return _file_impl->truncate(length);
-    }
+    future<> truncate(uint64_t length) noexcept;
 
     /// Preallocate disk blocks for a specified byte range.
     ///
@@ -364,24 +385,128 @@ public:
     ///
     /// \param position beginning of the range at which to allocate
     ///                 blocks.
-    /// \parm length length of range to allocate.
+    /// \param length length of range to allocate.
     /// \return future that becomes ready when the operation completes.
-    future<> allocate(uint64_t position, uint64_t length) {
-        return _file_impl->allocate(position, length);
-    }
+    future<> allocate(uint64_t position, uint64_t length) noexcept;
 
     /// Discard unneeded data from the file.
     ///
     /// The discard operation tells the file system that a range of offsets
     /// (which be aligned) is no longer needed and can be reused.
-    future<> discard(uint64_t offset, uint64_t length) {
-        return _file_impl->discard(offset, length);
-    }
+    future<> discard(uint64_t offset, uint64_t length) noexcept;
+
+    /// Generic ioctl syscall support for special file handling.
+    ///
+    /// This interface is useful for many non-standard operations on seastar::file.
+    /// The examples can be - querying device or file system capabilities,
+    /// configuring special performance or access modes on devices etc.
+    /// Refer ioctl(2) man page for more details.
+    ///
+    /// \param cmd ioctl command to be executed
+    /// \param argp pointer to the buffer which holds the argument
+    ///
+    /// \return a future containing the return value if any, or an exceptional future
+    ///         if the operation has failed.
+    future<int> ioctl(uint64_t cmd, void* argp) noexcept;
+
+    /// Performs a short ioctl syscall on seastar::file
+    ///
+    /// This is similar to generic \c ioctl; the difference is, here user indicates
+    /// that this operation is a short one, and does not involve any i/o or locking.
+    /// The \c file module will process this differently from the normal \ref ioctl().
+    /// Use this method only if the user is sure that the operation does not involve any
+    /// blocking operation. If unsure, use the default \ref ioctl() method.
+    /// Refer ioctl(2) man page for more details on ioctl operation.
+    ///
+    /// \param cmd ioctl command to be executed
+    /// \param argp pointer to the buffer which holds the argument
+    ///
+    /// \return a future containing the return value if any, or an exceptional future
+    ///         if the operation has failed.
+    future<int> ioctl_short(uint64_t cmd, void* argp) noexcept;
+
+    /// Generic fcntl syscall support for special file handling.
+    ///
+    /// fcntl performs the operation specified by 'op' field on the file.
+    /// Some of the use cases can be - setting file status flags, advisory record locking,
+    /// managing signals, managing file leases or write hints etc.
+    /// Refer fcntl(2) man page for more details.
+    ///
+    /// \param op the operation to be executed
+    /// \param arg the optional argument
+    /// \return a future containing the return value if any, or an exceptional future
+    ///         if the operation has failed
+    future<int> fcntl(int op, uintptr_t arg = 0UL) noexcept;
+
+    /// Performs a 'short' fcntl syscall on seastar::file
+    ///
+    /// This is similar to generic \c fcntl; the difference is, here user indicates
+    /// that this operation is a short one, and does not involve any i/o or locking.
+    /// The \c file module will process this differently from normal \ref fcntl().
+    /// Use this only if the user is sure that the operation does not involve any
+    /// blocking operation. If unsure, use the default \ref fcntl() method.
+    /// Refer fcntl(2) man page for more details on fcntl operation.
+    ///
+    /// \param op the operation to be executed
+    /// \param arg the optional argument
+    /// \return a future containing the return value if any, or an exceptional future
+    ///         if the operation has failed
+    future<int> fcntl_short(int op, uintptr_t arg = 0UL) noexcept;
+
+    /// Set a lifetime hint for the open file descriptor corresponding to seastar::file
+    ///
+    /// Write lifetime  hints  can be used to inform the kernel about the relative
+    /// expected lifetime of writes on a given inode or via open file descriptor.
+    /// An application may use the different hint values to separate writes into different
+    /// write classes, so that multiple users or applications running on a single storage back-end
+    /// can aggregate their I/O  patterns in a consistent manner.
+    /// Refer fcntl(2) man page for more details on write lifetime hints.
+    ///
+    /// \param hint the hint value of the stream
+    /// \return future indicating success or failure
+    future<> set_file_lifetime_hint(uint64_t hint) noexcept;
+
+    /// Set a lifetime hint for the inode corresponding to seastar::file
+    ///
+    /// Write lifetime  hints  can be used to inform the kernel about the relative
+    /// expected lifetime of writes on a given inode or via open file descriptor.
+    /// An application may use the different hint values to separate writes into different
+    /// write classes, so that multiple users or applications running on a single storage back-end
+    /// can aggregate their I/O  patterns in a consistent manner.
+    /// Refer fcntl(2) man page for more details on write lifetime hints.
+    ///
+    /// \param hint the hint value of the stream
+    /// \return future indicating success or failure
+    future<> set_inode_lifetime_hint(uint64_t hint) noexcept;
+
+    /// Get the lifetime hint of the open file descriptor of seastar::file which was set by
+    /// \ref set_file_lifetime_hint()
+    ///
+    /// Write lifetime  hints  can be used to inform the kernel about the relative
+    /// expected lifetime of writes on a given inode or via open file descriptor.
+    /// An application may use the different hint values to separate writes into different
+    /// write classes, so that multiple users or applications running on a single storage back-end
+    /// can aggregate their I/O  patterns in a consistent manner.
+    /// Refer fcntl(2) man page for more details on write lifetime hints.
+    ///
+    /// \return the hint value of the open file descriptor
+    future<uint64_t> get_file_lifetime_hint() noexcept;
+
+    /// Get the lifetime hint of the inode of seastar::file which was set by
+    /// \ref set_inode_lifetime_hint()
+    ///
+    /// Write lifetime  hints  can be used to inform the kernel about the relative
+    /// expected lifetime of writes on a given inode or via open file descriptor.
+    /// An application may use the different hint values to separate writes into different
+    /// write classes, so that multiple users or applications running on a single storage back-end
+    /// can aggregate their I/O  patterns in a consistent manner.
+    /// Refer fcntl(2) man page for more details on write lifetime hints.
+    ///
+    /// \return the hint value of the inode
+    future<uint64_t> get_inode_lifetime_hint() noexcept;
 
     /// Gets the file size.
-    future<uint64_t> size() const {
-        return _file_impl->size();
-    }
+    future<uint64_t> size() const noexcept;
 
     /// Closes the file.
     ///
@@ -389,16 +514,13 @@ public:
     /// the file (except for stable storage).
     ///
     /// \note
-    /// to ensure file data reaches stable storage, you must call \ref flush()
+    /// \c close() never fails. It just reports errors and swallows them.
+    /// To ensure file data reaches stable storage, you must call \ref flush()
     /// before calling \c close().
-    future<> close() {
-        return _file_impl->close();
-    }
+    future<> close() noexcept;
 
     /// Returns a directory listing, given that this file object is a directory.
-    subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next) {
-        return _file_impl->list_directory(std::move(next));
-    }
+    subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next);
 
     /**
      * Read a data bulk containing the provided addresses range that starts at
@@ -408,15 +530,17 @@ public:
      * @param offset starting address of the range the read bulk should contain
      * @param range_size size of the addresses range
      * @param pc the IO priority class under which to queue this operation
+     * @param intent the IO intention confirmation (\ref seastar::io_intent)
      *
      * @return temporary buffer containing the read data bulk.
-     * @throw system_error exception in case of I/O error or eof_error when
+     *        or exceptional future holding:
+     *        system_error exception in case of I/O error or eof_error when
      *        "offset" is beyond EOF.
      */
     template <typename CharType>
     future<temporary_buffer<CharType>>
-    dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc = default_priority_class()) {
-        return _file_impl->dma_read_bulk(offset, range_size, pc).then([] (temporary_buffer<uint8_t> t) {
+    dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc = default_priority_class(), io_intent* intent = nullptr) noexcept {
+        return dma_read_bulk_impl(offset, range_size, pc, intent).then([] (temporary_buffer<uint8_t> t) {
             return temporary_buffer<CharType>(reinterpret_cast<CharType*>(t.get_write()), t.size(), t.release());
         });
     }
@@ -430,13 +554,85 @@ public:
     /// \note Use on read-only files.
     ///
     file_handle dup();
-
-    template <typename CharType>
-    struct read_state;
 private:
+    future<temporary_buffer<uint8_t>>
+    dma_read_bulk_impl(uint64_t offset, size_t range_size, const io_priority_class& pc, io_intent* intent) noexcept;
+
+    future<size_t>
+    dma_write_impl(uint64_t pos, const uint8_t* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept;
+
+    future<temporary_buffer<uint8_t>>
+    dma_read_impl(uint64_t pos, size_t len, const io_priority_class& pc, io_intent* intent) noexcept;
+
+    future<size_t>
+    dma_read_impl(uint64_t aligned_pos, uint8_t* aligned_buffer, size_t aligned_len, const io_priority_class& pc, io_intent* intent) noexcept;
+
+    future<temporary_buffer<uint8_t>>
+    dma_read_exactly_impl(uint64_t pos, size_t len, const io_priority_class& pc, io_intent* intent) noexcept;
+
+    future<uint64_t> get_lifetime_hint_impl(int op) noexcept;
+    future<> set_lifetime_hint_impl(int op, uint64_t hint) noexcept;
+
     friend class reactor;
     friend class file_impl;
 };
+
+/// \brief Helper for ensuring a file is closed after \c func is called.
+///
+/// The file provided by the \c file_fut future is passed to \c func.
+///
+/// \param file_fut A future that produces a file
+/// \param func A function that uses a file
+/// \returns the future returned by \c func, or an exceptional future if either \c file_fut or closing the file failed.
+template <typename Func>
+SEASTAR_CONCEPT( requires std::invocable<Func, file&> && std::is_nothrow_move_constructible_v<Func> )
+auto with_file(future<file> file_fut, Func func) noexcept {
+    static_assert(std::is_nothrow_move_constructible_v<Func>, "Func's move constructor must not throw");
+    return file_fut.then([func = std::move(func)] (file f) mutable {
+        return do_with(std::move(f), [func = std::move(func)] (file& f) mutable {
+            return futurize_invoke(func, f).finally([&f] {
+                return f.close();
+            });
+        });
+    });
+}
+
+/// \brief Helper for ensuring a file is closed if \c func fails.
+///
+/// The file provided by the \c file_fut future is passed to \c func.
+/// * If func throws an exception E, the file is closed and we return
+///   a failed future with E.
+/// * If func returns a value V, the file is not closed and we return
+///   a future with V.
+/// Note that when an exception is not thrown, it is the
+/// responsibility of func to make sure the file will be closed. It
+/// can close the file itself, return it, or store it somewhere.
+///
+/// \param file_fut A future that produces a file
+/// \param func A function that uses a file
+/// \returns the future returned by \c func, or an exceptional future if \c file_fut failed or a nested exception if closing the file failed.
+template <typename Func>
+SEASTAR_CONCEPT( requires std::invocable<Func, file&> && std::is_nothrow_move_constructible_v<Func> )
+auto with_file_close_on_failure(future<file> file_fut, Func func) noexcept {
+    static_assert(std::is_nothrow_move_constructible_v<Func>, "Func's move constructor must not throw");
+    return file_fut.then([func = std::move(func)] (file f) mutable {
+        return do_with(std::move(f), [func = std::move(func)] (file& f) mutable {
+            return futurize_invoke(std::move(func), f).then_wrapped([&f] (auto ret) mutable {
+                if (!ret.failed()) {
+                    return ret;
+                }
+                return ret.finally([&f] {
+                    // If f.close() fails, return that as nested exception.
+                    return f.close();
+                });
+             });
+         });
+     });
+}
+
+/// \example file_demo.cc
+/// A program demonstrating the use of \ref seastar::with_file
+/// and \ref seastar::with_file_close_on_failure
 
 /// \brief A shard-transportable handle to a file
 ///
@@ -466,76 +662,14 @@ public:
     friend class file;
 };
 
-/// \cond internal
-
-template <typename CharType>
-struct file::read_state {
-    typedef temporary_buffer<CharType> tmp_buf_type;
-
-    read_state(uint64_t offset, uint64_t front, size_t to_read,
-            size_t memory_alignment, size_t disk_alignment)
-    : buf(tmp_buf_type::aligned(memory_alignment,
-                                align_up(to_read, disk_alignment)))
-    , _offset(offset)
-    , _to_read(to_read)
-    , _front(front) {}
-
-    bool done() const {
-        return eof || pos >= _to_read;
-    }
-
-    /**
-     * Trim the buffer to the actual number of read bytes and cut the
-     * bytes from offset 0 till "_front".
-     *
-     * @note this function has to be called only if we read bytes beyond
-     *       "_front".
-     */
-    void trim_buf_before_ret() {
-        if (have_good_bytes()) {
-            buf.trim(pos);
-            buf.trim_front(_front);
-        } else {
-            buf.trim(0);
-        }
-    }
-
-    uint64_t cur_offset() const {
-        return _offset + pos;
-    }
-
-    size_t left_space() const {
-        return buf.size() - pos;
-    }
-
-    size_t left_to_read() const {
-        // positive as long as (done() == false)
-        return _to_read - pos;
-    }
-
-    void append_new_data(tmp_buf_type& new_data) {
-        auto to_copy = std::min(left_space(), new_data.size());
-
-        std::memcpy(buf.get_write() + pos, new_data.get(), to_copy);
-        pos += to_copy;
-    }
-
-    bool have_good_bytes() const {
-        return pos > _front;
-    }
-
-public:
-    bool         eof      = false;
-    tmp_buf_type buf;
-    size_t       pos      = 0;
-private:
-    uint64_t     _offset;
-    size_t       _to_read;
-    uint64_t     _front;
-};
-
-/// \endcond
-
 /// @}
+
+/// An exception Cancelled IOs resolve their future into (see \ref io_intent "io_intent")
+class cancelled_error : public std::exception {
+public:
+    virtual const char* what() const noexcept {
+        return "cancelled";
+    }
+};
 
 }

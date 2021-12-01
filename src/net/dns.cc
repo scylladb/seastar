@@ -29,14 +29,23 @@
 #include <seastar/util/std-compat.hh>
 #include <seastar/net/inet_address.hh>
 
-namespace seastar {
+#include <seastar/net/ip.hh>
+#include <seastar/net/api.hh>
+#include <seastar/net/dns.hh>
+#include <seastar/core/sstring.hh>
+#include <seastar/core/timer.hh>
+#include <seastar/core/reactor.hh>
+#include <seastar/core/gate.hh>
+#include <seastar/core/print.hh>
+
+namespace seastar::net {
 
 // NOTE: Should be prior to <seastar/util/log.hh> include because
 // logger::stringer_for<T> needs to see the corresponding `operator <<`
 // declaration at the call site
 //
 // This doesn't need to be in the public API, so leave it there instead of placing into `inet_address.hh`
-std::ostream& operator<<(std::ostream& os, const compat::optional<net::inet_address::family>& f) {
+std::ostream& operator<<(std::ostream& os, const opt_family& f) {
     if (f) {
         return os << *f;
     } else {
@@ -46,14 +55,6 @@ std::ostream& operator<<(std::ostream& os, const compat::optional<net::inet_addr
 
 }
 
-#include <seastar/net/ip.hh>
-#include <seastar/net/api.hh>
-#include <seastar/net/dns.hh>
-#include <seastar/core/sstring.hh>
-#include <seastar/core/timer.hh>
-#include <seastar/core/reactor.hh>
-#include <seastar/core/gate.hh>
-#include <seastar/core/print.hh>
 #include <seastar/util/log.hh>
 
 namespace seastar {
@@ -253,6 +254,9 @@ public:
 
         auto af = family ? int(*family) : AF_UNSPEC;
 
+// The following pragma is needed to work around a false-positive warning
+// in Gcc 11 (see https://gcc.gnu.org/bugzilla/show_bug.cgi?id=96003).
+#pragma GCC diagnostic ignored "-Wnonnull"
         ares_gethostbyname(_channel, p->name.c_str(), af, [](void* arg, int status, int timeouts, ::hostent* host) {
             // we do potentially allocating operations below, so wrap the pointer in a
             // unique here.
@@ -847,6 +851,7 @@ private:
                     // is close to the same guarantee a "normal" message send would have anyway.
                     // For tcp we also pretend we're done, to make sure we don't have to deal with
                     // matching sent data
+                    return bytes;
                 }
                 if (f.failed()) {
                     try {
@@ -858,7 +863,7 @@ private:
                     return -1;
                 }
 
-                return len;
+                return bytes;
             }
         } catch (...) {
         }
@@ -883,8 +888,8 @@ private:
         }
         ;
         connected_socket socket;
-        compat::optional<input_stream<char>> in;
-        compat::optional<output_stream<char>> out;
+        std::optional<input_stream<char>> in;
+        std::optional<output_stream<char>> out;
         temporary_buffer<char> indata;
     };
     struct udp_entry {
@@ -892,7 +897,7 @@ private:
                         : channel(std::move(c)) {
         }
         net::udp_channel channel;
-        compat::optional<net::udp_datagram> in;;
+        std::optional<net::udp_datagram> in;;
         socket_address dst;
     };
     struct sock_entry {

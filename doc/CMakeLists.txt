@@ -14,33 +14,29 @@ add_custom_target (doc_api
   COMMAND ${Seastar_DOXYGEN_EXECUTABLE} ${CMAKE_CURRENT_BINARY_DIR}/Doxyfile)
 
 add_custom_command (
-  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/tutorial.html
+  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/html/tutorial.html
   DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tutorial.md
   COMMAND
     ${CMAKE_CURRENT_SOURCE_DIR}/md2html
     ${CMAKE_CURRENT_SOURCE_DIR}/tutorial.md
-    ${CMAKE_CURRENT_BINARY_DIR}/tutorial.html)
+    ${CMAKE_CURRENT_BINARY_DIR}/html/tutorial.html)
 
 add_custom_target (doc_tutorial_html
-  DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/tutorial.html)
-
-configure_file (
-  ${CMAKE_CURRENT_SOURCE_DIR}/htmlsplit.py
-  ${CMAKE_CURRENT_BINARY_DIR}/htmlsplit.py
-  COPYONLY)
+  DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/html/tutorial.html)
 
 add_custom_command (
-  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/split
+  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/html/split
   DEPENDS
     # Necessary because file-level dependencies are not propagated for custom targets.
-    ${CMAKE_CURRENT_BINARY_DIR}/tutorial.html
+    ${CMAKE_CURRENT_BINARY_DIR}/html/tutorial.html
     doc_tutorial_html
-    ${CMAKE_CURRENT_BINARY_DIR}/htmlsplit.py
-  COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/split
-  COMMAND ${CMAKE_CURRENT_BINARY_DIR}/htmlsplit.py)
+  COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/html/split
+  COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/htmlsplit.py
+    --input ${CMAKE_CURRENT_BINARY_DIR}/html/tutorial.html
+    --output-dir ${CMAKE_CURRENT_BINARY_DIR}/html/split)
 
 add_custom_target (doc_tutorial_html_split
-  DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/split)
+  DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/html/split)
 
 add_custom_command (
   OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/tutorial.pdf

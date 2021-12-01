@@ -17,8 +17,8 @@
  */
 #pragma once
 
-#include <seastar/core/reactor.hh>
 #include <seastar/net/packet.hh>
+#include <seastar/core/iostream.hh>
 
 namespace seastar {
 

@@ -35,9 +35,9 @@ namespace internal {
 struct uname_t {
     int version;   // 4 in "4.5"
     int patchlevel;   // 5 in "4.5"
-    compat::optional<int> sublevel;   // 1 in "4.5.1"
-    compat::optional<int> subsublevel;  // 33 in "2.6.44.33"
-    compat::optional<int> distro_patch; // 957 in "3.10.0-957.5.1.el7.x86_64"
+    std::optional<int> sublevel;   // 1 in "4.5.1"
+    std::optional<int> subsublevel;  // 33 in "2.6.44.33"
+    std::optional<int> distro_patch; // 957 in "3.10.0-957.5.1.el7.x86_64"
     std::string distro_extra; // .5.1.el7.x86_64
 
     bool same_as_or_descendant_of(const uname_t& x) const;

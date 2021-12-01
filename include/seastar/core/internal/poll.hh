@@ -37,8 +37,23 @@ struct pollfn {
     // to return to normal polling.
     //
     // If it returns false, the sleeping idle loop may not be entered.
-    virtual bool try_enter_interrupt_mode() { return false; }
-    virtual void exit_interrupt_mode() {}
+    virtual bool try_enter_interrupt_mode() = 0;
+    virtual void exit_interrupt_mode() = 0;
+};
+
+// The common case for poller -- do not make any difference between
+// poll() and pure_poll(), always/never agree to go to sleep and do
+// nothing on wakeup.
+template <bool Passive>
+struct simple_pollfn : public pollfn {
+    virtual bool pure_poll() override final {
+        return poll();
+    }
+    virtual bool try_enter_interrupt_mode() override final {
+        return Passive;
+    }
+    virtual void exit_interrupt_mode() override final {
+    }
 };
 
 }

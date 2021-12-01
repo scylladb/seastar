@@ -25,17 +25,16 @@
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/core/sstring.hh>
-#include <seastar/core/reactor.hh>
 #include <seastar/core/semaphore.hh>
 #include <seastar/core/do_with.hh>
-#include <seastar/core/future-util.hh>
+#include <seastar/core/loop.hh>
+#include <seastar/core/map_reduce.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/shared_mutex.hh>
 #include <boost/range/irange.hpp>
 
 using namespace seastar;
 using namespace std::chrono_literals;
-
 
 SEASTAR_TEST_CASE(test_semaphore_consume) {
     semaphore sem(0);
@@ -64,15 +63,16 @@ SEASTAR_TEST_CASE(test_semaphore_1) {
     });
 }
 
-SEASTAR_TEST_CASE(test_semaphore_2) {
-    return do_with(std::make_pair(semaphore(0), 0), [] (std::pair<semaphore, int>& x) {
-        (void)x.first.wait().then([&x] {
-            x.second++;
-        });
-        return sleep(10ms).then([&x] {
-            BOOST_REQUIRE_EQUAL(x.second, 0);
-        });
+SEASTAR_THREAD_TEST_CASE(test_semaphore_2) {
+    auto sem = std::make_optional<semaphore>(0);
+    int x = 0;
+    auto fut = sem->wait().then([&x] {
+        x++;
     });
+    sleep(10ms).get();
+    BOOST_REQUIRE_EQUAL(x, 0);
+    sem = std::nullopt;
+    BOOST_CHECK_THROW(fut.get(), broken_promise);
 }
 
 SEASTAR_TEST_CASE(test_semaphore_timeout_1) {
@@ -89,35 +89,41 @@ SEASTAR_TEST_CASE(test_semaphore_timeout_1) {
     });
 }
 
-SEASTAR_TEST_CASE(test_semaphore_timeout_2) {
-    return do_with(std::make_pair(semaphore(0), 0), [] (std::pair<semaphore, int>& x) {
-        (void)x.first.wait(3ms).then([&x] {
-            x.second++;
-        });
-        (void)sleep(100ms).then([&x] {
-            x.first.signal();
-        });
-        return sleep(200ms).then([&x] {
-            BOOST_REQUIRE_EQUAL(x.second, 0);
-        });
+SEASTAR_THREAD_TEST_CASE(test_semaphore_timeout_2) {
+    auto sem = semaphore(0);
+    int x = 0;
+    auto fut1 = sem.wait(3ms).then([&x] {
+        x++;
     });
+    bool signaled = false;
+    auto fut2 = sleep(100ms).then([&sem, &signaled] {
+        signaled = true;
+        sem.signal();
+    });
+    sleep(200ms).get();
+    fut2.get();
+    BOOST_REQUIRE_EQUAL(signaled, true);
+    BOOST_CHECK_THROW(fut1.get(), semaphore_timed_out);
+    BOOST_REQUIRE_EQUAL(x, 0);
 }
 
-SEASTAR_TEST_CASE(test_semaphore_mix_1) {
-    return do_with(std::make_pair(semaphore(0), 0), [] (std::pair<semaphore, int>& x) {
-        (void)x.first.wait(30ms).then([&x] {
-            x.second++;
-        });
-        (void)x.first.wait().then([&x] {
-            x.second = 10;
-        });
-        (void)sleep(100ms).then([&x] {
-            x.first.signal();
-        });
-        return sleep(200ms).then([&x] {
-            BOOST_REQUIRE_EQUAL(x.second, 10);
-        });
+SEASTAR_THREAD_TEST_CASE(test_semaphore_mix_1) {
+    auto sem = semaphore(0);
+    int x = 0;
+    auto fut1 = sem.wait(30ms).then([&x] {
+        x++;
     });
+    auto fut2 = sem.wait().then([&x] {
+        x += 10;
+    });
+    auto fut3 = sleep(100ms).then([&sem] {
+        sem.signal();
+    });
+    sleep(200ms).get();
+    fut3.get();
+    fut2.get();
+    BOOST_CHECK_THROW(fut1.get(), semaphore_timed_out);
+    BOOST_REQUIRE_EQUAL(x, 10);
 }
 
 SEASTAR_TEST_CASE(test_broken_semaphore) {
@@ -236,6 +242,7 @@ SEASTAR_THREAD_TEST_CASE(test_semaphore_units_splitting) {
     auto sm = semaphore(2);
     auto units = get_units(sm, 2, 1min).get0();
     {
+        BOOST_REQUIRE_EQUAL(units.count(), 2);
         BOOST_REQUIRE_EQUAL(sm.available_units(), 0);
         auto split = units.split(1);
         BOOST_REQUIRE_EQUAL(sm.available_units(), 0);
@@ -246,6 +253,47 @@ SEASTAR_THREAD_TEST_CASE(test_semaphore_units_splitting) {
     BOOST_REQUIRE_EQUAL(sm.available_units(), 0);
     BOOST_REQUIRE_THROW(units.split(10), std::invalid_argument);
     BOOST_REQUIRE_EQUAL(sm.available_units(), 0);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_semaphore_units_return) {
+    auto sm = semaphore(3);
+    auto units = get_units(sm, 3, 1min).get0();
+    BOOST_REQUIRE_EQUAL(units.count(), 3);
+    BOOST_REQUIRE_EQUAL(sm.available_units(), 0);
+    BOOST_REQUIRE_EQUAL(units.return_units(1), 2);
+    BOOST_REQUIRE_EQUAL(units.count(), 2);
+    BOOST_REQUIRE_EQUAL(sm.available_units(), 1);
+    units.~semaphore_units();
+    BOOST_REQUIRE_EQUAL(sm.available_units(), 3);
+
+    units = get_units(sm, 2, 1min).get0();
+    BOOST_REQUIRE_EQUAL(sm.available_units(), 1);
+    BOOST_REQUIRE_THROW(units.return_units(10), std::invalid_argument);
+    BOOST_REQUIRE_EQUAL(sm.available_units(), 1);
+    units.return_all();
+    BOOST_REQUIRE_EQUAL(units.count(), 0);
+    BOOST_REQUIRE_EQUAL(sm.available_units(), 3);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_semaphore_try_get_units) {
+    constexpr size_t initial_units = 1;
+    auto sm = semaphore(initial_units);
+
+    auto opt_units = try_get_units(sm, 1);
+    BOOST_REQUIRE(opt_units);
+
+    auto opt_units2 = try_get_units(sm, 1);
+    BOOST_REQUIRE(!opt_units2);
+
+    opt_units.reset();
+    BOOST_REQUIRE_EQUAL(sm.available_units(), initial_units);
+
+    opt_units = try_get_units(sm, 1);
+    BOOST_REQUIRE(opt_units);
+
+    opt_units->return_all();
+    BOOST_REQUIRE_EQUAL(opt_units->count(), 0);
+    BOOST_REQUIRE_EQUAL(sm.available_units(), initial_units);
 }
 
 SEASTAR_THREAD_TEST_CASE(test_named_semaphore_error) {

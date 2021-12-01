@@ -28,6 +28,8 @@
 #include <string.h>
 
 #include <seastar/core/print.hh>
+#include <seastar/core/thread.hh>
+#include <seastar/core/reactor.hh>
 
 
 namespace seastar {
@@ -59,11 +61,11 @@ static std::vector<shared_object> enumerate_shared_objects() {
 static const std::vector<shared_object> shared_objects{enumerate_shared_objects()};
 static const shared_object uknown_shared_object{"", 0, std::numeric_limits<uintptr_t>::max()};
 
-bool operator==(const frame& a, const frame& b) {
+bool operator==(const frame& a, const frame& b) noexcept {
     return a.so == b.so && a.addr == b.addr;
 }
 
-frame decorate(uintptr_t addr) {
+frame decorate(uintptr_t addr) noexcept {
     // If the shared-objects are not enumerated yet, or the enumeration
     // failed return the addr as-is with a dummy shared-object.
     if (shared_objects.empty()) {
@@ -79,17 +81,17 @@ frame decorate(uintptr_t addr) {
     return {&so, addr - so.begin};
 }
 
-saved_backtrace current_backtrace() noexcept {
-    saved_backtrace::vector_type v;
+simple_backtrace current_backtrace_tasklocal() noexcept {
+    simple_backtrace::vector_type v;
     backtrace([&] (frame f) {
         if (v.size() < v.capacity()) {
             v.emplace_back(std::move(f));
         }
     });
-    return saved_backtrace(std::move(v));
+    return simple_backtrace(std::move(v));
 }
 
-size_t saved_backtrace::hash() const {
+size_t simple_backtrace::calculate_hash() const noexcept {
     size_t h = 0;
     for (auto f : _frames) {
         h = ((h << 5) - h) ^ (f.so->begin + f.addr);
@@ -97,16 +99,88 @@ size_t saved_backtrace::hash() const {
     return h;
 }
 
-std::ostream& operator<<(std::ostream& out, const saved_backtrace& b) {
+std::ostream& operator<<(std::ostream& out, const frame& f) {
+    if (!f.so->name.empty()) {
+        out << f.so->name << "+";
+    }
+    out << format("0x{:x}", f.addr);
+    return out;
+}
+
+std::ostream& operator<<(std::ostream& out, const simple_backtrace& b) {
+    char delim[2] = {'\0', '\0'};
     for (auto f : b._frames) {
-        out << "  ";
-        if (!f.so->name.empty()) {
-            out << f.so->name << "+";
-        }
-        out << format("0x{:x}", f.addr) << "\n";
+        out << delim << f;
+        delim[0] = b.delimeter();
     }
     return out;
 }
 
+std::ostream& operator<<(std::ostream& out, const tasktrace& b) {
+    out << b._main;
+    for (auto&& e : b._prev) {
+        out << "\n   --------";
+        std::visit(make_visitor([&] (const shared_backtrace& sb) {
+            out << '\n' << sb;
+        }, [&] (const task_entry& f) {
+            out << "\n   " << f;
+        }), e);
+    }
+    return out;
+}
+
+std::ostream& operator<<(std::ostream& out, const task_entry& e) {
+    return out << seastar::pretty_type_name(*e._task_type);
+}
+
+tasktrace current_tasktrace() noexcept {
+    auto main = current_backtrace_tasklocal();
+
+    tasktrace::vector_type prev;
+    size_t hash = 0;
+    if (local_engine && g_current_context) {
+        task* tsk = nullptr;
+
+        thread_context* thread = thread_impl::get();
+        if (thread) {
+            tsk = thread->waiting_task();
+        } else {
+            tsk = local_engine->current_task();
+        }
+
+        while (tsk && prev.size() < prev.max_size()) {
+            shared_backtrace bt = tsk->get_backtrace();
+            hash *= 31;
+            if (bt) {
+                hash ^= bt->hash();
+                prev.push_back(bt);
+            } else {
+                const std::type_info& ti = typeid(*tsk);
+                prev.push_back(task_entry(ti));
+                hash ^= ti.hash_code();
+            }
+            tsk = tsk->waiting_task();
+        }
+    }
+
+    return tasktrace(std::move(main), std::move(prev), hash, current_scheduling_group());
+}
+
+saved_backtrace current_backtrace() noexcept {
+    return current_tasktrace();
+}
+
+tasktrace::tasktrace(simple_backtrace main, tasktrace::vector_type prev, size_t prev_hash, scheduling_group sg) noexcept
+    : _main(std::move(main))
+    , _prev(std::move(prev))
+    , _sg(sg)
+    , _hash(_main.hash() * 31 ^ prev_hash)
+{ }
+
+bool tasktrace::operator==(const tasktrace& o) const noexcept {
+    return _hash == o._hash && _main == o._main && _prev == o._prev;
+}
+
+tasktrace::~tasktrace() {}
 
 } // namespace seastar

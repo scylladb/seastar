@@ -21,6 +21,7 @@
  */
 
 #include <seastar/core/alien.hh>
+#include <seastar/core/reactor.hh>
 #include <seastar/core/metrics.hh>
 #include <seastar/core/prefetch.hh>
 
@@ -101,7 +102,7 @@ size_t message_queue::process_incoming() {
 void message_queue::start() {
     namespace sm = seastar::metrics;
     char instance[10];
-    std::snprintf(instance, sizeof(instance), "%u", engine().cpu_id());
+    std::snprintf(instance, sizeof(instance), "%u", this_shard_id());
     _metrics.add_group("alien", {
         // Absolute value of num packets in last tx batch.
         sm::make_queue_length("receive_batch_queue_length", _last_rcv_batch, sm::description("Current receive batch queue length")),
@@ -113,32 +114,32 @@ void message_queue::start() {
 }
 
 
-void smp::qs_deleter::operator()(alien::message_queue* qs) const {
+void internal::qs_deleter::operator()(alien::message_queue* qs) const {
     for (unsigned i = 0; i < count; i++) {
         qs[i].~message_queue();
     }
     ::operator delete[](qs);
 }
 
-smp::qs smp::_qs;
-
-smp::qs smp::create_qs(const std::vector<reactor*>& reactors) {
+instance::qs instance::create_qs(const std::vector<reactor*>& reactors) {
     auto queues = reinterpret_cast<alien::message_queue*>(operator new[] (sizeof(alien::message_queue) * reactors.size()));
     for (unsigned i = 0; i < reactors.size(); i++) {
         new (&queues[i]) alien::message_queue(reactors[i]);
     }
-    return qs{queues, smp::qs_deleter{static_cast<unsigned>(reactors.size())}};
+    return qs{queues, internal::qs_deleter{static_cast<unsigned>(reactors.size())}};
 }
 
-bool smp::poll_queues() {
-    auto& queue = _qs[engine().cpu_id()];
+bool instance::poll_queues() {
+    auto& queue = _qs[this_shard_id()];
     return queue.process_incoming() != 0;
 }
 
-bool smp::pure_poll_queues() {
-    auto& queue = _qs[engine().cpu_id()];
+bool instance::pure_poll_queues() {
+    auto& queue = _qs[this_shard_id()];
     return queue.pure_poll_rx();
 }
+
+instance* internal::default_instance;
 
 }
 }

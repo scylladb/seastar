@@ -43,15 +43,15 @@ static bool enable_tcp = false;
 static bool enable_sctp = false;
 
 class tcp_server {
-    std::vector<api_v2::server_socket> _tcp_listeners;
-    std::vector<api_v2::server_socket> _sctp_listeners;
+    std::vector<server_socket> _tcp_listeners;
+    std::vector<server_socket> _sctp_listeners;
 public:
     future<> listen(ipv4_addr addr) {
         if (enable_tcp) {
             listen_options lo;
             lo.proto = transport::TCP;
             lo.reuse_address = true;
-            _tcp_listeners.push_back(engine().listen(make_ipv4_address(addr), lo));
+            _tcp_listeners.push_back(seastar::listen(make_ipv4_address(addr), lo));
             do_accepts(_tcp_listeners);
         }
 
@@ -59,7 +59,7 @@ public:
             listen_options lo;
             lo.proto = transport::SCTP;
             lo.reuse_address = true;
-            _sctp_listeners.push_back(engine().listen(make_ipv4_address(addr), lo));
+            _sctp_listeners.push_back(seastar::listen(make_ipv4_address(addr), lo));
             do_accepts(_sctp_listeners);
         }
         return make_ready_future<>();
@@ -70,7 +70,7 @@ public:
         return make_ready_future<>();
     }
 
-    void do_accepts(std::vector<api_v2::server_socket>& listeners) {
+    void do_accepts(std::vector<server_socket>& listeners) {
         int which = listeners.size() - 1;
         // Accept in the background.
         (void)listeners[which].accept().then([this, &listeners] (accept_result ar) mutable {
@@ -188,7 +188,7 @@ int main(int ac, char** av) {
         enable_tcp = config["tcp"].as<std::string>() == "yes";
         enable_sctp = config["sctp"].as<std::string>() == "yes";
         if (!enable_tcp && !enable_sctp) {
-            fprint(std::cerr, "Error: no protocols enabled. Use \"--tcp yes\" and/or \"--sctp yes\" to enable\n");
+            fmt::print(std::cerr, "Error: no protocols enabled. Use \"--tcp yes\" and/or \"--sctp yes\" to enable\n");
             return engine().exit(1);
         }
         auto server = new distributed<tcp_server>;

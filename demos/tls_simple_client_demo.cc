@@ -24,6 +24,7 @@
 #include <seastar/core/reactor.hh>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/sleep.hh>
+#include <seastar/core/loop.hh>
 #include <seastar/net/dns.hh>
 #include "tls_echo_server.hh"
 

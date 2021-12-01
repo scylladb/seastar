@@ -125,6 +125,7 @@ public:
     /**
      * The directory handler map a base path and a path parameter to a file
      * @param doc_root the root directory to search the file from.
+     * @param transformer an optional file transformer
      * For example if the root is '/usr/mgmt/public' and the path parameter
      * will be '/css/style.css' the file wil be /usr/mgmt/public/css/style.css'
      */
@@ -149,6 +150,8 @@ public:
     /**
      * The file handler map a file to a url
      * @param file the full path to the file on the disk
+     * @param transformer an optional file transformer
+     * @param force_path check if redirect is needed upon `handle`
      */
     explicit file_handler(const sstring& file, file_transformer* transformer =
             nullptr, bool force_path = true)

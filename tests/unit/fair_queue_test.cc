@@ -21,15 +21,13 @@
  */
 
 #include <seastar/core/thread.hh>
-#include <seastar/core/do_with.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/testing/test_runner.hh>
 #include <seastar/core/sstring.hh>
-#include <seastar/core/reactor.hh>
 #include <seastar/core/fair_queue.hh>
 #include <seastar/core/do_with.hh>
-#include <seastar/core/future-util.hh>
+#include <seastar/util/later.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/print.hh>
 #include <boost/range/irange.hpp>
@@ -38,36 +36,39 @@
 using namespace seastar;
 using namespace std::chrono_literals;
 
-fair_queue::config make_config(unsigned capacity) {
-    fair_queue::config cfg;
-    cfg.capacity = capacity;
-    cfg.max_req_count = capacity;
-    return cfg;
-}
-
 struct request {
-    fair_queue_request_descriptor fqdesc;
+    fair_queue_entry fqent;
+    std::function<void(request& req)> handle;
     unsigned index;
 
-    request(unsigned weight, unsigned index)
-        : fqdesc({weight, 0})
+    template <typename Func>
+    request(unsigned weight, unsigned index, Func&& h)
+        : fqent(fair_queue_ticket(weight, 0))
+        , handle(std::move(h))
         , index(index)
     {}
+
+    void submit() {
+        handle(*this);
+        delete this;
+    }
 };
 
-
 class test_env {
+    fair_group _fg;
     fair_queue _fq;
     std::vector<int> _results;
     std::vector<std::vector<std::exception_ptr>> _exceptions;
-    std::vector<priority_class_ptr> _classes;
+    fair_queue::class_id _nr_classes = 0;
     std::vector<request> _inflight;
 
     void drain() {
         do {} while (tick() != 0);
     }
 public:
-    test_env(unsigned capacity) : _fq(capacity)
+    test_env(unsigned capacity)
+        : _fg(fair_group::config(capacity, std::numeric_limits<int>::max()))
+        , _fq(_fg, fair_queue::config())
     {}
 
     // As long as there is a request sitting in the queue, tick() will process
@@ -79,7 +80,9 @@ public:
     // before the queue is destroyed.
     unsigned tick(unsigned n = 1) {
         unsigned processed = 0;
-        _fq.dispatch_requests();
+        _fq.dispatch_requests([] (fair_queue_entry& ent) {
+            boost::intrusive::get_parent_from_member(&ent, &request::fqent)->submit();
+        });
 
         for (unsigned i = 0; i < n; ++i) {
             std::vector<request> curr;
@@ -88,46 +91,48 @@ public:
             for (auto& req : curr) {
                 processed++;
                 _results[req.index]++;
-                _fq.notify_requests_finished(req.fqdesc);
+                _fq.notify_request_finished(req.fqent.ticket());
             }
 
-            _fq.dispatch_requests();
+            _fq.dispatch_requests([] (fair_queue_entry& ent) {
+                boost::intrusive::get_parent_from_member(&ent, &request::fqent)->submit();
+            });
         }
         return processed;
     }
 
     ~test_env() {
         drain();
-        for (auto& p: _classes) {
-            _fq.unregister_priority_class(p);
+        for (fair_queue::class_id id = 0; id < _nr_classes; id++) {
+            _fq.unregister_priority_class(id);
         }
     }
 
     size_t register_priority_class(uint32_t shares) {
         _results.push_back(0);
         _exceptions.push_back(std::vector<std::exception_ptr>());
-        _classes.push_back(_fq.register_priority_class(shares));
-        return _classes.size() - 1;
+        _fq.register_priority_class(_nr_classes, shares);
+        return _nr_classes++;
     }
 
-    void do_op(unsigned index, unsigned weight) {
-        auto cl = _classes[index];
-        auto req = request(weight, index);
-
-        _fq.queue(cl, req.fqdesc, [this, index, req] () mutable noexcept {
+    void do_op(fair_queue::class_id id, unsigned weight) {
+        unsigned index = id;
+        auto req = std::make_unique<request>(weight, index, [this, index] (request& req) mutable noexcept {
             try {
                 _inflight.push_back(std::move(req));
             } catch (...) {
                 auto eptr = std::current_exception();
                 _exceptions[index].push_back(eptr);
-                _fq.notify_requests_finished(req.fqdesc);
+                _fq.notify_request_finished(req.fqent.ticket());
             }
         });
+
+        _fq.queue(id, req->fqent);
+        req.release();
     }
 
-    void update_shares(unsigned index, uint32_t shares) {
-        auto cl = _classes[index];
-        _fq.update_shares(cl, shares);
+    void update_shares(fair_queue::class_id id, uint32_t shares) {
+        _fq.update_shares_for_class(id, shares);
     }
 
     void reset_results(unsigned index) {
@@ -257,7 +262,7 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_different_shares_hi_capacity) {
 
 // Classes equally powerful. But Class1 issues twice as expensive requests. Expected Class2 to have 2 x more requests.
 SEASTAR_THREAD_TEST_CASE(test_fair_queue_different_weights) {
-    test_env env(1);
+    test_env env(2);
 
     auto a = env.register_priority_class(10);
     auto b = env.register_priority_class(10);
@@ -387,7 +392,7 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_longer_run_different_shares) {
     // long period of time, ticking slowly
     for (int i = 0; i < 1000; ++i) {
         sleep(1ms).get();
-        env.tick(2);
+        env.tick(3);
     }
     env.verify("longer_run_different_shares", {1, 2}, 2);
 }

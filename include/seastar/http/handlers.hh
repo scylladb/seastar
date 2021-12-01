@@ -24,7 +24,6 @@
 #include <seastar/http/request.hh>
 #include <seastar/http/common.hh>
 #include <seastar/http/reply.hh>
-#include <seastar/core/future-util.hh>
 
 #include <unordered_map>
 
@@ -46,7 +45,6 @@ public:
      * All handlers should implement this method.
      *  It fill the reply according to the request.
      * @param path the url path used in this call
-     * @param params optional parameter object
      * @param req the original request
      * @param rep the reply
      */

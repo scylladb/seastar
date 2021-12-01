@@ -21,6 +21,7 @@
 
 #include <seastar/core/metrics.hh>
 #include <seastar/core/metrics_api.hh>
+#include <seastar/core/reactor.hh>
 #include <boost/range/algorithm.hpp>
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/replace.hpp>
@@ -93,19 +94,16 @@ static std::string get_hostname() {
 }
 
 
-boost::program_options::options_description get_options_description() {
-    namespace bpo = boost::program_options;
-    bpo::options_description opts("Metrics options");
-    opts.add_options()(
-            "metrics-hostname",
-            bpo::value<std::string>()->default_value(get_hostname()),
-            "set the hostname used by the metrics, if not set, the local hostname will be used");
-    return opts;
+options::options(program_options::option_group* parent_group)
+    : program_options::option_group(parent_group, "Metrics options")
+    , metrics_hostname(*this, "metrics-hostname", get_hostname(),
+            "set the hostname used by the metrics, if not set, the local hostname will be used")
+{
 }
 
-future<> configure(const boost::program_options::variables_map & opts) {
+future<> configure(const options& opts) {
     impl::config c;
-    c.hostname = opts["metrics-hostname"].as<std::string>();
+    c.hostname = opts.metrics_hostname.get_value();
     return smp::invoke_on_all([c] {
         impl::get_local_impl()->set_config(c);
     });
@@ -118,7 +116,6 @@ bool label_instance::operator!=(const label_instance& id2) const {
 }
 
 label shard_label("shard");
-label type_label("type");
 namespace impl {
 
 registered_metric::registered_metric(metric_id id, metric_function f, bool enabled) :
@@ -131,13 +128,17 @@ metric_value metric_value::operator+(const metric_value& c) {
     metric_value res(*this);
     switch (_type) {
     case data_type::HISTOGRAM:
-        compat::get<histogram>(res.u) += compat::get<histogram>(c.u);
+        std::get<histogram>(res.u) += std::get<histogram>(c.u);
         break;
     default:
-        compat::get<double>(res.u) += compat::get<double>(c.u);
+        std::get<double>(res.u) += std::get<double>(c.u);
         break;
     }
     return res;
+}
+
+void metric_value::ulong_conversion_error(double d) {
+    throw std::range_error(format("cannot convert double value {} to unsigned long", d));
 }
 
 metric_definition_impl::metric_definition_impl(
@@ -154,9 +155,6 @@ metric_definition_impl::metric_definition_impl(
     if (labels.find(shard_label.name()) == labels.end()) {
         labels[shard_label.name()] = shard();
     }
-    if (labels.find(type_label.name()) == labels.end()) {
-        labels[type_label.name()] = type.type_name;
-    }
 }
 
 metric_definition_impl& metric_definition_impl::operator ()(bool _enabled) {
@@ -166,6 +164,11 @@ metric_definition_impl& metric_definition_impl::operator ()(bool _enabled) {
 
 metric_definition_impl& metric_definition_impl::operator ()(const label_instance& label) {
     labels[label.key()] = label.value();
+    return *this;
+}
+
+metric_definition_impl& metric_definition_impl::set_type(const sstring& type_name) {
+    type.type_name = type_name;
     return *this;
 }
 
@@ -183,7 +186,7 @@ metric_groups_impl& metric_groups_impl::add_metric(group_name_type name, const m
 
     metric_id id(name, md._impl->name, md._impl->labels);
 
-    get_local_impl()->add_registration(id, md._impl->type.base_type, md._impl->f, md._impl->d, md._impl->enabled);
+    get_local_impl()->add_registration(id, md._impl->type, md._impl->f, md._impl->d, md._impl->enabled);
 
     _registration.push_back(id);
     return *this;
@@ -274,7 +277,7 @@ foreign_ptr<values_reference> get_values() {
 
 instance_id_type shard() {
     if (engine_is_ready()) {
-        return to_sstring(engine().cpu_id());
+        return to_sstring(this_shard_id());
     }
 
     return sstring("0");
@@ -324,7 +327,7 @@ std::vector<std::vector<metric_function>>& impl::functions() {
     return _current_metrics;
 }
 
-void impl::add_registration(const metric_id& id, data_type type, metric_function f, const description& d, bool enabled) {
+void impl::add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled) {
     auto rm = ::seastar::make_shared<registered_metric>(id, f, enabled);
     sstring name = id.full_name();
     if (_value_map.find(name) != _value_map.end()) {
@@ -332,13 +335,14 @@ void impl::add_registration(const metric_id& id, data_type type, metric_function
         if (metric.find(id.labels()) != metric.end()) {
             throw double_registration("registering metrics twice for metrics: " + name);
         }
-        if (metric.info().type != type) {
+        if (metric.info().type != type.base_type) {
             throw std::runtime_error("registering metrics " + name + " registered with different type.");
         }
         metric[id.labels()] = rm;
     } else {
-        _value_map[name].info().type = type;
+        _value_map[name].info().type = type.base_type;
         _value_map[name].info().d = d;
+        _value_map[name].info().inherit_type = type.type_name;
         _value_map[name].info().name = id.full_name();
         _value_map[name][id.labels()] = rm;
     }

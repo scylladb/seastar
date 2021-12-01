@@ -24,10 +24,13 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/core/linux-aio.hh>
 #include <seastar/core/internal/io_desc.hh>
+#include <seastar/core/on_internal_error.hh>
 #include <sys/types.h>
 #include <sys/socket.h>
 
 namespace seastar {
+extern logger io_log;
+
 namespace internal {
 
 class io_request {
@@ -59,7 +62,8 @@ private:
         socklen_t* socklen_ptr;
         socklen_t socklen;
     } _size;
-    kernel_completion* _kernel_completion;
+
+    bool _nowait_works;
 
     explicit io_request(operation op, int fd, int flags, ::msghdr* msg)
         : _op(op)
@@ -94,9 +98,20 @@ private:
         _size.len = size;
     }
 
-    explicit io_request(operation op, int fd, uint64_t pos, iovec* ptr, size_t size)
+    explicit io_request(operation op, int fd, uint64_t pos, char* ptr, size_t size, bool nowait_works)
         : _op(op)
         , _fd(fd)
+        , _nowait_works(nowait_works)
+    {
+        _attr.pos = pos;
+        _ptr.addr = ptr;
+        _size.len = size;
+    }
+
+    explicit io_request(operation op, int fd, uint64_t pos, iovec* ptr, size_t size, bool nowait_works)
+        : _op(op)
+        , _fd(fd)
+        , _nowait_works(nowait_works)
     {
         _attr.pos = pos;
         _ptr.iovec = ptr;
@@ -199,20 +214,16 @@ public:
         return _size.socklen_ptr;
     }
 
-    void attach_kernel_completion(kernel_completion* kc) {
-        _kernel_completion = kc;
+    bool nowait_works() const {
+        return _nowait_works;
     }
 
-    kernel_completion* get_kernel_completion() const {
-        return _kernel_completion;
+    static io_request make_read(int fd, uint64_t pos, void* address, size_t size, bool nowait_works) {
+        return io_request(operation::read, fd, pos, reinterpret_cast<char*>(address), size, nowait_works);
     }
 
-    static io_request make_read(int fd, uint64_t pos, void* address, size_t size) {
-        return io_request(operation::read, fd, pos, reinterpret_cast<char*>(address), size);
-    }
-
-    static io_request make_readv(int fd, uint64_t pos, std::vector<iovec>& iov) {
-        return io_request(operation::readv, fd, pos, iov.data(), iov.size());
+    static io_request make_readv(int fd, uint64_t pos, std::vector<iovec>& iov, bool nowait_works) {
+        return io_request(operation::readv, fd, pos, iov.data(), iov.size(), nowait_works);
     }
 
     static io_request make_recv(int fd, void* address, size_t size, int flags) {
@@ -231,12 +242,12 @@ public:
         return io_request(operation::sendmsg, fd, flags, msg);
     }
 
-    static io_request make_write(int fd, uint64_t pos, const void* address, size_t size) {
-        return io_request(operation::write, fd, pos, const_cast<char*>(reinterpret_cast<const char*>(address)), size);
+    static io_request make_write(int fd, uint64_t pos, const void* address, size_t size, bool nowait_works) {
+        return io_request(operation::write, fd, pos, const_cast<char*>(reinterpret_cast<const char*>(address)), size, nowait_works);
     }
 
-    static io_request make_writev(int fd, uint64_t pos, std::vector<iovec>& iov) {
-        return io_request(operation::writev, fd, pos, iov.data(), iov.size());
+    static io_request make_writev(int fd, uint64_t pos, std::vector<iovec>& iov, bool nowait_works) {
+        return io_request(operation::writev, fd, pos, iov.data(), iov.size(), nowait_works);
     }
 
     static io_request make_fdatasync(int fd) {
@@ -262,5 +273,28 @@ public:
         return io_request(operation::cancel, fd, reinterpret_cast<char*>(addr));
     }
 };
+
+// Helper pair of IO direction and length
+struct io_direction_and_length {
+    size_t _directed_length; // bit 0 is R/W flag
+
+public:
+    io_direction_and_length(const io_request& rq, size_t val) {
+        _directed_length = val << 1;
+        if (rq.is_read()) {
+            _directed_length |= 0x1;
+        } else if (!rq.is_write()) {
+            on_internal_error(io_log, fmt::format("Unrecognized request passing through I/O queue {}", rq.opname()));
+        }
+    }
+
+    bool is_read() const noexcept { return (_directed_length & 0x1) == 1; }
+    bool is_write() const noexcept { return (_directed_length & 0x1) == 0; }
+    size_t length() const noexcept { return _directed_length >> 1; }
+    int rw_idx() const noexcept { return _directed_length & 0x1; }
+    static constexpr int read_idx = 1;
+    static constexpr int write_idx = 0;
+};
+
 }
 }

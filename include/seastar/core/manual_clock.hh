@@ -21,6 +21,9 @@
 
 #pragma once
 
+#include <seastar/core/timer.hh>
+
+#include <atomic>
 #include <chrono>
 
 namespace seastar {
@@ -33,13 +36,13 @@ public:
     using time_point = std::chrono::time_point<manual_clock, duration>;
 private:
     static std::atomic<rep> _now;
-    static void expire_timers();
+    static void expire_timers() noexcept;
 public:
-    manual_clock();
-    static time_point now() {
+    manual_clock() noexcept;
+    static time_point now() noexcept {
         return time_point(duration(_now.load(std::memory_order_relaxed)));
     }
-    static void advance(duration d);
+    static void advance(duration d) noexcept;
 };
 
 extern template class timer<manual_clock>;

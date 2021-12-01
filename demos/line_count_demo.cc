@@ -23,9 +23,9 @@
 // since no read-ahead or caching is done yet.
 
 #include <seastar/core/fstream.hh>
+#include <seastar/core/seastar.hh>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/shared_ptr.hh>
-#include <seastar/core/reactor.hh>
 #include <fmt/printf.h>
 #include <algorithm>
 #include <iostream>
@@ -42,7 +42,7 @@ public:
     size_t count = 0;
 
     // for input_stream::consume():
-    using unconsumed_remainder = compat::optional<temporary_buffer<char>>;
+    using unconsumed_remainder = std::optional<temporary_buffer<char>>;
     future<unconsumed_remainder> operator()(temporary_buffer<char> data) {
         if (data.empty()) {
             return make_ready_future<unconsumed_remainder>(std::move(data));

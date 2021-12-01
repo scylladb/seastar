@@ -25,6 +25,7 @@
 #include <seastar/rpc/lz4_fragmented_compressor.hh>
 
 #include <seastar/testing/perf_tests.hh>
+#include <seastar/testing/random.hh>
 
 template<typename Compressor>
 struct compression {
@@ -78,7 +79,7 @@ public:
         : _small_buffer_random(seastar::temporary_buffer<char>(small_buffer_size))
         , _small_buffer_zeroes(seastar::temporary_buffer<char>(small_buffer_size))
     {
-        auto eng = std::default_random_engine{std::random_device{}()};
+        auto& eng = testing::local_random_engine;
         auto dist = std::uniform_int_distribution<char>();
 
         std::generate_n(_small_buffer_random.get_write(), small_buffer_size, [&] { return dist(eng); });
@@ -90,19 +91,19 @@ public:
         }
 
         auto rcv = _compressor.compress(0, seastar::rpc::snd_buf(_small_buffer_random.share()));
-        if (auto buffer = compat::get_if<seastar::temporary_buffer<char>>(&rcv.bufs)) {
+        if (auto buffer = std::get_if<seastar::temporary_buffer<char>>(&rcv.bufs)) {
             _small_compressed_buffer_random.emplace_back(std::move(*buffer));
         } else {
             _small_compressed_buffer_random
-                = std::move(compat::get<std::vector<seastar::temporary_buffer<char>>>(rcv.bufs));
+                = std::move(std::get<std::vector<seastar::temporary_buffer<char>>>(rcv.bufs));
         }
 
         rcv = _compressor.compress(0, seastar::rpc::snd_buf(_small_buffer_zeroes.share()));
-        if (auto buffer = compat::get_if<seastar::temporary_buffer<char>>(&rcv.bufs)) {
+        if (auto buffer = std::get_if<seastar::temporary_buffer<char>>(&rcv.bufs)) {
             _small_compressed_buffer_zeroes.emplace_back(std::move(*buffer));
         } else {
             _small_compressed_buffer_zeroes
-                = std::move(compat::get<std::vector<seastar::temporary_buffer<char>>>(rcv.bufs));
+                = std::move(std::get<std::vector<seastar::temporary_buffer<char>>>(rcv.bufs));
         }
 
         auto bufs = std::vector<temporary_buffer<char>>{};
@@ -110,11 +111,11 @@ public:
             bufs.emplace_back(b.clone());
         }
         rcv = _compressor.compress(0, seastar::rpc::snd_buf(std::move(bufs), large_buffer_size));
-        if (auto buffer = compat::get_if<seastar::temporary_buffer<char>>(&rcv.bufs)) {
+        if (auto buffer = std::get_if<seastar::temporary_buffer<char>>(&rcv.bufs)) {
             _large_compressed_buffer_random.emplace_back(std::move(*buffer));
         } else {
             _large_compressed_buffer_random
-                = std::move(compat::get<std::vector<seastar::temporary_buffer<char>>>(rcv.bufs));
+                = std::move(std::get<std::vector<seastar::temporary_buffer<char>>>(rcv.bufs));
         }
 
         bufs = std::vector<temporary_buffer<char>>{};
@@ -122,11 +123,11 @@ public:
             bufs.emplace_back(b.clone());
         }
         rcv = _compressor.compress(0, seastar::rpc::snd_buf(std::move(bufs), large_buffer_size));
-        if (auto buffer = compat::get_if<seastar::temporary_buffer<char>>(&rcv.bufs)) {
+        if (auto buffer = std::get_if<seastar::temporary_buffer<char>>(&rcv.bufs)) {
             _large_compressed_buffer_zeroes.emplace_back(std::move(*buffer));
         } else {
             _large_compressed_buffer_zeroes
-                = std::move(compat::get<std::vector<seastar::temporary_buffer<char>>>(rcv.bufs));
+                = std::move(std::get<std::vector<seastar::temporary_buffer<char>>>(rcv.bufs));
         }
     }
 

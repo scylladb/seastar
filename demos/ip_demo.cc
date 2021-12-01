@@ -24,15 +24,16 @@
 #include <seastar/net/net.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/net/virtio.hh>
+#include <seastar/net/native-stack.hh>
+#include <seastar/core/aligned_buffer.hh>
 
 using namespace seastar;
 using namespace net;
 
 int main(int ac, char** av) {
-    boost::program_options::variables_map opts;
-    opts.insert(std::make_pair("tap-device", boost::program_options::variable_value(std::string("tap0"), false)));
+    native_stack_options opts;
 
-    auto vnet = create_virtio_net_device(opts);
+    auto vnet = create_virtio_net_device(opts.virtio_opts, opts.lro);
     vnet->set_local_queue(vnet->init_local_queue(opts, 0));
 
     interface netif(std::move(vnet));

@@ -49,8 +49,7 @@ public:
 /// Callbacks can be registered with the \c abort_source, which are called
 /// atomically with a call to request_abort().
 class abort_source {
-    //FIXME: Add noexcept in function type when we move to C++17
-    using subscription_callback_type = noncopyable_function<void()>;
+    using subscription_callback_type = noncopyable_function<void() noexcept>;
 
 public:
     /// Represents a handle to the callback registered by a given fiber. Ending the
@@ -59,12 +58,10 @@ public:
     class subscription : public bi::list_base_hook<bi::link_mode<bi::auto_unlink>> {
         friend class abort_source;
 
-        abort_source* _as = nullptr;
         subscription_callback_type _target;
 
         explicit subscription(abort_source& as, subscription_callback_type target)
-                : _as(&as)
-                , _target(std::move(target)) {
+                : _target(std::move(target)) {
             as._subscriptions->push_back(*this);
         }
 
@@ -76,15 +73,13 @@ public:
         subscription() = default;
 
         subscription(subscription&& other) noexcept(std::is_nothrow_move_constructible<subscription_callback_type>::value)
-                : _as(other._as)
-                , _target(std::move(other._target)) {
+                : _target(std::move(other._target)) {
             subscription_list_type::node_algorithms::swap_nodes(other.this_ptr(), this_ptr());
         }
 
         subscription& operator=(subscription&& other) noexcept(std::is_nothrow_move_assignable<subscription_callback_type>::value) {
             if (this != &other) {
                 _target = std::move(other._target);
-                _as = other._as;
                 if (is_linked()) {
                     subscription_list_type::node_algorithms::unlink(this_ptr());
                 }
@@ -94,19 +89,20 @@ public:
         }
 
         explicit operator bool() const noexcept {
-            return _as != nullptr;
+            return is_linked();
         }
     };
 
 private:
     using subscription_list_type = bi::list<subscription, bi::constant_time_size<false>>;
-    compat::optional<subscription_list_type> _subscriptions = subscription_list_type();
+    std::optional<subscription_list_type> _subscriptions = subscription_list_type();
 
 public:
     /// Delays the invocation of the callback \c f until \ref request_abort() is called.
     /// \returns an engaged \ref optimized_optional containing a \ref subscription that can be used to control
     ///          the lifetime of the callback \c f, if \ref abort_requested() is \c false. Otherwise,
     ///          returns a disengaged \ref optimized_optional.
+    [[nodiscard]]
     optimized_optional<subscription> subscribe(subscription_callback_type f) noexcept(std::is_nothrow_move_constructible<subscription_callback_type>::value) {
         if (abort_requested()) {
             return { };
@@ -127,7 +123,7 @@ public:
     }
 
 
-    /// Throws a \ref if cancellation has been requested.
+    /// Throws a \ref abort_requested_exception if cancellation has been requested.
     void check() const {
         if (abort_requested()) {
             throw abort_requested_exception();

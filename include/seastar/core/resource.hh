@@ -21,31 +21,78 @@
 
 #pragma once
 
+#include <cassert>
 #include <cstdlib>
 #include <string>
 #include <seastar/util/std-compat.hh>
+#include <seastar/util/spinlock.hh>
 #include <vector>
 #include <set>
 #include <sched.h>
 #include <boost/any.hpp>
 #include <unordered_map>
+#ifdef SEASTAR_HAVE_HWLOC
+#include <hwloc.h>
+#endif
 
 namespace seastar {
 
 cpu_set_t cpuid_to_cpuset(unsigned cpuid);
+class io_queue;
+class io_group;
 
 namespace resource {
 
-using compat::optional;
+using std::optional;
 
 using cpuset = std::set<unsigned>;
+
+/// \cond internal
+std::optional<cpuset> parse_cpuset(std::string value);
+/// \endcond
+
+namespace hwloc::internal {
+
+#ifdef SEASTAR_HAVE_HWLOC
+class topology_holder {
+    hwloc_topology_t _topology;
+
+public:
+    topology_holder() noexcept
+        : _topology(nullptr)
+    { }
+
+    topology_holder(topology_holder&& o) noexcept;
+
+    ~topology_holder();
+
+    topology_holder& operator=(topology_holder&& o) noexcept;
+
+    operator bool() const noexcept {
+        return _topology != nullptr;
+    }
+
+    void init_and_load();
+    hwloc_topology_t get();
+};
+
+#else // SEASTAR_HAVE_HWLOC
+
+struct topology_holder {};
+
+#endif // SEASTAR_HAVE_HWLOC
+
+} // namespace hwloc::internal
 
 struct configuration {
     optional<size_t> total_memory;
     optional<size_t> reserve_memory;  // if total_memory not specified
     optional<size_t> cpus;
     optional<cpuset> cpu_set;
-    std::unordered_map<dev_t, unsigned> num_io_queues;
+    bool assign_orphan_cpus = false;
+    std::vector<dev_t> devices;
+    unsigned num_io_groups;
+    hwloc::internal::topology_holder topology;
 };
 
 struct memory {
@@ -54,14 +101,17 @@ struct memory {
 
 };
 
-// Since this is static information, we will keep a copy at each CPU.
-// This will allow us to easily find who is the IO coordinator for a given
-// node without a trip to a remote CPU.
 struct io_queue_topology {
-    std::vector<unsigned> shard_to_coordinator;
-    std::vector<unsigned> coordinators;
-    std::vector<unsigned> coordinator_to_idx;
-    std::vector<bool> coordinator_to_idx_valid; // for validity asserts
+    std::vector<std::unique_ptr<io_queue>> queues;
+    std::vector<unsigned> shard_to_group;
+    std::vector<std::shared_ptr<io_group>> groups;
+
+    util::spinlock lock;
+
+    io_queue_topology();
+    io_queue_topology(const io_queue_topology&) = delete;
+    io_queue_topology(io_queue_topology&&);
+    ~io_queue_topology();
 };
 
 struct cpu {
@@ -74,20 +124,10 @@ struct resources {
     std::unordered_map<dev_t, io_queue_topology> ioq_topology;
 };
 
-resources allocate(configuration c);
-unsigned nr_processing_units();
+resources allocate(configuration& c);
+unsigned nr_processing_units(configuration& c);
+
+std::optional<resource::cpuset> parse_cpuset(std::string value);
+
 }
-
-// We need a wrapper class, because boost::program_options wants validate()
-// (below) to be in the same namespace as the type it is validating.
-struct cpuset_bpo_wrapper {
-    resource::cpuset value;
-};
-
-// Overload for boost program options parsing/validation
-extern
-void validate(boost::any& v,
-              const std::vector<std::string>& values,
-              cpuset_bpo_wrapper* target_type, int);
-
 }

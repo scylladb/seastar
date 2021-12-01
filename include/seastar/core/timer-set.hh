@@ -54,17 +54,17 @@ private:
 
     std::bitset<n_buckets> _non_empty_buckets;
 private:
-    static timestamp_t get_timestamp(time_point _time_point)
+    static timestamp_t get_timestamp(time_point _time_point) noexcept
     {
         return _time_point.time_since_epoch().count();
     }
 
-    static timestamp_t get_timestamp(Timer& timer)
+    static timestamp_t get_timestamp(Timer& timer) noexcept
     {
         return get_timestamp(timer.get_timeout());
     }
 
-    int get_index(timestamp_t timestamp) const
+    int get_index(timestamp_t timestamp) const noexcept
     {
         if (timestamp <= _last) {
             return n_buckets - 1;
@@ -75,17 +75,17 @@ private:
         return index;
     }
 
-    int get_index(Timer& timer) const
+    int get_index(Timer& timer) const noexcept
     {
         return get_index(get_timestamp(timer));
     }
 
-    int get_last_non_empty_bucket() const
+    int get_last_non_empty_bucket() const noexcept
     {
         return bitsets::get_last_set(_non_empty_buckets);
     }
 public:
-    timer_set()
+    timer_set() noexcept
         : _last(0)
         , _next(max_timestamp)
         , _non_empty_buckets(0)
@@ -118,7 +118,7 @@ public:
      * When this function returns true the caller should reschedule expire() to be
      * called at timer.get_timeout() to ensure timers are expired in a timely manner.
      */
-    bool insert(Timer& timer)
+    bool insert(Timer& timer) noexcept
     {
         auto timestamp = get_timestamp(timer);
         auto index = get_index(timestamp);
@@ -144,7 +144,7 @@ public:
      *  - timer is no longer in the active set.
      *  - this object will no longer hold any references to this timer.
      */
-    void remove(Timer& timer)
+    void remove(Timer& timer) noexcept
     {
         auto index = get_index(timer);
         auto& list = _buckets[index];
@@ -168,7 +168,7 @@ public:
      *  - all timers from the active set with Timer::get_timeout() <= now are moved
      *    to the expired set.
      */
-    timer_list_t expire(time_point now)
+    timer_list_t expire(time_point now) noexcept
     {
         timer_list_t exp;
         auto timestamp = get_timestamp(now);
@@ -214,7 +214,7 @@ public:
      *
      * Returned values are monotonically increasing.
      */
-    time_point get_next_timeout() const
+    time_point get_next_timeout() const noexcept
     {
         return time_point(duration(std::max(_last, _next)));
     }
@@ -222,14 +222,14 @@ public:
     /**
      * Clears both active and expired timer sets.
      */
-    void clear()
+    void clear() noexcept
     {
         for (int i : bitsets::for_each_set(_non_empty_buckets)) {
             _buckets[i].clear();
         }
     }
 
-    size_t size() const
+    size_t size() const noexcept
     {
         size_t res = 0;
         for (int i : bitsets::for_each_set(_non_empty_buckets)) {
@@ -241,12 +241,12 @@ public:
     /**
      * Returns true if and only if there are no timers in the active set.
      */
-    bool empty() const
+    bool empty() const noexcept
     {
         return _non_empty_buckets.none();
     }
 
-    time_point now() {
+    time_point now() noexcept {
         return Timer::clock::now();
     }
 };

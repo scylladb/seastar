@@ -21,26 +21,23 @@
 
 #pragma once
 
-#include <seastar/util/gcc6-concepts.hh>
+#include <seastar/util/concepts.hh>
 #include <seastar/util/std-compat.hh>
 
-#include <experimental/type_traits>
+#include <type_traits>
 #include <iostream>
 
 namespace seastar {
 
-namespace stdx = std::experimental;
-
-GCC6_CONCEPT(
+SEASTAR_CONCEPT(
 
 template<typename T>
-concept bool OptimizableOptional() {
-    return stdx::is_default_constructible_v<T>
-        && stdx::is_nothrow_move_assignable_v<T>
+concept OptimizableOptional =
+    std::is_default_constructible<T>::value
+        && std::is_nothrow_move_assignable<T>::value
         && requires(const T& obj) {
             { bool(obj) } noexcept;
         };
-}
 
 )
 
@@ -53,10 +50,10 @@ class optimized_optional {
     T _object;
 public:
     optimized_optional() = default;
-    optimized_optional(compat::nullopt_t) noexcept { }
+    optimized_optional(std::nullopt_t) noexcept { }
     optimized_optional(const T& obj) : _object(obj) { }
     optimized_optional(T&& obj) noexcept : _object(std::move(obj)) { }
-    optimized_optional(compat::optional<T>&& obj) noexcept {
+    optimized_optional(std::optional<T>&& obj) noexcept {
         if (obj) {
             _object = std::move(*obj);
         }
@@ -64,7 +61,7 @@ public:
     optimized_optional(const optimized_optional&) = default;
     optimized_optional(optimized_optional&&) = default;
 
-    optimized_optional& operator=(compat::nullopt_t) noexcept {
+    optimized_optional& operator=(std::nullopt_t) noexcept {
         _object = T();
         return *this;
     }

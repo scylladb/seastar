@@ -57,10 +57,11 @@ template <typename InetTraits>
 class tcp;
 
 struct ipv4_address {
-    ipv4_address() : ip(0) {}
-    explicit ipv4_address(uint32_t ip) : ip(ip) {}
+    ipv4_address() noexcept : ip(0) {}
+    explicit ipv4_address(uint32_t ip) noexcept : ip(ip) {}
+    // throws if addr is not a valid ipv4 address
     explicit ipv4_address(const std::string& addr);
-    ipv4_address(ipv4_addr addr) {
+    ipv4_address(ipv4_addr addr) noexcept {
         ip = addr.ip;
     }
 
@@ -69,27 +70,27 @@ struct ipv4_address {
     template <typename Adjuster>
     auto adjust_endianness(Adjuster a) { return a(ip); }
 
-    friend bool operator==(ipv4_address x, ipv4_address y) {
+    friend bool operator==(ipv4_address x, ipv4_address y) noexcept {
         return x.ip == y.ip;
     }
-    friend bool operator!=(ipv4_address x, ipv4_address y) {
+    friend bool operator!=(ipv4_address x, ipv4_address y) noexcept {
         return x.ip != y.ip;
     }
 
-    static ipv4_address read(const char* p) {
+    static ipv4_address read(const char* p) noexcept {
         ipv4_address ia;
         ia.ip = read_be<uint32_t>(p);
         return ia;
     }
-    static ipv4_address consume(const char*& p) {
+    static ipv4_address consume(const char*& p) noexcept {
         auto ia = read(p);
         p += 4;
         return ia;
     }
-    void write(char* p) const {
+    void write(char* p) const noexcept {
         write_be<uint32_t>(p, ip);
     }
-    void produce(char*& p) const {
+    void produce(char*& p) const noexcept {
         produce_be<uint32_t>(p, ip);
     }
     static constexpr size_t size() {
@@ -97,7 +98,7 @@ struct ipv4_address {
     }
 } __attribute__((packed));
 
-static inline bool is_unspecified(ipv4_address addr) { return addr.ip == 0; }
+static inline bool is_unspecified(ipv4_address addr) noexcept { return addr.ip == 0; }
 
 std::ostream& operator<<(std::ostream& os, const ipv4_address& a);
 
@@ -108,11 +109,12 @@ struct ipv6_address {
     static_assert(alignof(ipv6_bytes) == 1, "ipv6_bytes should be byte-aligned");
     static_assert(sizeof(ipv6_bytes) == 16, "ipv6_bytes should be 16 bytes");
 
-    ipv6_address();
-    explicit ipv6_address(const ::in6_addr&);
-    explicit ipv6_address(const ipv6_bytes&);
+    ipv6_address() noexcept;
+    explicit ipv6_address(const ::in6_addr&) noexcept;
+    explicit ipv6_address(const ipv6_bytes&) noexcept;
+    // throws if addr is not a valid ipv6 address
     explicit ipv6_address(const std::string&);
-    ipv6_address(const ipv6_addr& addr);
+    ipv6_address(const ipv6_addr& addr) noexcept;
 
     // No need to use packed - we only store
     // as byte array. If we want to read as
@@ -122,23 +124,23 @@ struct ipv6_address {
     template <typename Adjuster>
     auto adjust_endianness(Adjuster a) { return a(ip); }
 
-    bool operator==(const ipv6_address& y) const {
+    bool operator==(const ipv6_address& y) const noexcept {
         return bytes() == y.bytes();
     }
-    bool operator!=(const ipv6_address& y) const {
+    bool operator!=(const ipv6_address& y) const noexcept {
         return !(*this == y);
     }
 
-    const ipv6_bytes& bytes() const {
+    const ipv6_bytes& bytes() const noexcept {
         return ip;
     }
 
-    bool is_unspecified() const;
+    bool is_unspecified() const noexcept;
 
-    static ipv6_address read(const char*);
-    static ipv6_address consume(const char*& p);
-    void write(char* p) const;
-    void produce(char*& p) const;
+    static ipv6_address read(const char*) noexcept;
+    static ipv6_address consume(const char*& p) noexcept;
+    void write(char* p) const noexcept;
+    void produce(char*& p) const noexcept;
     static constexpr size_t size() {
         return sizeof(ipv6_bytes);
     }
@@ -177,7 +179,7 @@ struct ipv4_traits {
         ethernet_address e_dst;
         ip_protocol_num proto_num;
     };
-    using packet_provider_type = std::function<compat::optional<l4packet> ()>;
+    using packet_provider_type = std::function<std::optional<l4packet> ()>;
     static void tcp_pseudo_header_checksum(checksummer& csum, ipv4_address src, ipv4_address dst, uint16_t len) {
         csum.sum_many(src.ip.raw, dst.ip.raw, uint8_t(0), uint8_t(ip_protocol_num::tcp), len);
     }
@@ -268,7 +270,7 @@ public:
     using inet_type = ipv4_l4<ip_protocol_num::icmp>;
     explicit icmp(inet_type& inet) : _inet(inet) {
         _inet.register_packet_provider([this] {
-            compat::optional<ipv4_traits::l4packet> l4p;
+            std::optional<ipv4_traits::l4packet> l4p;
             if (!_packetq.empty()) {
                 l4p = std::move(_packetq.front());
                 _packetq.pop_front();
@@ -422,7 +424,7 @@ private:
 private:
     future<> handle_received_packet(packet p, ethernet_address from);
     bool forward(forward_hash& out_hash_data, packet& p, size_t off);
-    compat::optional<l3_protocol::l3packet> get_packet();
+    std::optional<l3_protocol::l3packet> get_packet();
     bool in_my_netmask(ipv4_address a) const;
     void frag_limit_mem();
     void frag_timeout();

@@ -26,7 +26,18 @@ namespace seastar {
 
 namespace rpc {
 
-const sstring lz4_compressor::factory::_name = "LZ4";
+sstring lz4_compressor::name() const {
+    return factory{}.supported();
+}
+
+const sstring& lz4_compressor::factory::supported() const {
+    const static sstring name = "LZ4";
+    return name;
+}
+
+std::unique_ptr<rpc::compressor> lz4_compressor::factory::negotiate(sstring feature, bool is_server) const {
+    return feature == supported() ? std::make_unique<lz4_compressor>() : nullptr;
+}
 
 // Reusable contiguous buffers needed for LZ4 compression and decompression functions.
 class reusable_buffer {
@@ -47,13 +58,13 @@ private:
 public:
     // Returns a pointer to a contiguous buffer containing all data stored in input.
     // The pointer remains valid until next call to this.
-    const char* prepare(const compat::variant<std::vector<temporary_buffer<char>>, temporary_buffer<char>>& input, size_t size) {
-        if (const auto single = compat::get_if<temporary_buffer<char>>(&input)) {
+    const char* prepare(const std::variant<std::vector<temporary_buffer<char>>, temporary_buffer<char>>& input, size_t size) {
+        if (const auto single = std::get_if<temporary_buffer<char>>(&input)) {
             return single->get();
         }
         reserve(size);
         auto dst = _data.get();
-        for (const auto& fragment : compat::get<std::vector<temporary_buffer<char>>>(input)) {
+        for (const auto& fragment : std::get<std::vector<temporary_buffer<char>>>(input)) {
             dst = std::copy_n(fragment.begin(), fragment.size(), dst);
         }
         return _data.get();
@@ -66,8 +77,8 @@ public:
     // containing data that was written to the temporary buffer.
     // Output should be either snd_buf or rcv_buf.
     template<typename Output, typename Function>
-    GCC6_CONCEPT(requires requires (Function fn, char* ptr) {
-        { fn(ptr) } -> size_t;
+    SEASTAR_CONCEPT(requires requires (Function fn, char* ptr) {
+        { fn(ptr) } -> std::convertible_to<size_t>;
     } && (std::is_same<Output, snd_buf>::value || std::is_same<Output, rcv_buf>::value))
     Output with_reserved(size_t max_size, Function&& fn) {
         if (max_size <= chunk_size) {

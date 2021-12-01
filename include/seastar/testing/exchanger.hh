@@ -29,15 +29,13 @@ namespace seastar {
 
 namespace testing {
 
-// Single-element blocking queue
-template <typename T>
-class exchanger {
-private:
+class exchanger_base {
+protected:
+    exchanger_base();
+    ~exchanger_base();
     std::mutex _mutex;
     std::condition_variable _cv;
-    seastar::compat::optional<T> _element;
     std::exception_ptr _exception;
-private:
     void interrupt_ptr(std::exception_ptr e) {
         std::unique_lock<std::mutex> lock(_mutex);
         if (!_exception) {
@@ -46,6 +44,14 @@ private:
         }
         // FIXME: log if already interrupted
     }
+};
+
+// Single-element blocking queue
+template <typename T>
+class exchanger : public exchanger_base {
+private:
+    std::optional<T> _element;
+
 public:
     template <typename Exception>
     void interrupt(Exception e) {

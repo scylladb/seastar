@@ -21,6 +21,7 @@
 
 #include <seastar/http/routes.hh>
 #include <seastar/http/reply.hh>
+#include <seastar/http/request.hh>
 #include <seastar/http/exception.hh>
 #include <seastar/http/json_path.hh>
 
@@ -127,7 +128,7 @@ handler_base* routes::get_handler(operation_type type, const sstring& url,
         }
         params.clear();
     }
-    return nullptr;
+    return _default_handler;
 }
 
 routes& routes::add(operation_type type, const url& url,
@@ -138,6 +139,11 @@ routes& routes::add(operation_type type, const url& url,
         rule->add_param(url._param, true);
     }
     return add(rule, type);
+}
+
+routes& routes::add_default_handler(handler_base* handler) {
+    _default_handler = handler;
+    return *this;
 }
 
 template <typename Map, typename Key>
@@ -155,6 +161,14 @@ static auto delete_rule_from(operation_type type, Key& key, Map& map) {
 
 handler_base* routes::drop(operation_type type, const sstring& url) {
     return delete_rule_from(type, url, _map);
+}
+
+routes& routes::put(operation_type type, const sstring& url, handler_base* handler) {
+    auto it = _map[type].emplace(url, handler);
+    if (it.second == false) {
+        throw std::runtime_error(format("Handler for {} already exists.", url));
+    }
+    return *this;
 }
 
 match_rule* routes::del_cookie(rule_cookie cookie, operation_type type) {

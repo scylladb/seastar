@@ -19,10 +19,12 @@
  * Copyright (C) 2016 ScyllaDB
  */
 
-#include <seastar/core/reactor.hh>
 #include <seastar/core/fstream.hh>
+#include <seastar/core/seastar.hh>
 #include <seastar/core/file.hh>
 #include <seastar/core/app-template.hh>
+#include <seastar/core/do_with.hh>
+#include <seastar/core/loop.hh>
 #include <fmt/printf.h>
 
 using namespace seastar;
@@ -51,28 +53,29 @@ int main(int ac, char** av) {
             foso.buffer_size = buffer_size;
             foso.preallocation_size = 32 << 20;
             foso.write_behind = concurrency;
-            auto os = make_file_output_stream(f, foso);
-            return do_with(std::move(os), std::move(f), unsigned(0), [=] (output_stream<char>& os, file& f, unsigned& completed) {
-                auto start = std::chrono::steady_clock::now();
-                return repeat([=, &os, &completed] {
-                    if (completed == total_ops) {
-                        return make_ready_future<stop_iteration>(stop_iteration::yes);
-                    }
-                    char buf[buffer_size];
-                    memset(buf, 0, buffer_size);
-                    return os.write(buf, buffer_size).then([&completed] {
-                        ++completed;
-                        return stop_iteration::no;
+            return api_v3::and_newer::make_file_output_stream(f, foso).then([=] (output_stream<char>&& os) {
+                return do_with(std::move(os), std::move(f), unsigned(0), [=] (output_stream<char>& os, file& f, unsigned& completed) {
+                    auto start = std::chrono::steady_clock::now();
+                    return repeat([=, &os, &completed] {
+                        if (completed == total_ops) {
+                            return make_ready_future<stop_iteration>(stop_iteration::yes);
+                        }
+                        char buf[buffer_size];
+                        memset(buf, 0, buffer_size);
+                        return os.write(buf, buffer_size).then([&completed] {
+                            ++completed;
+                            return stop_iteration::no;
+                        });
+                    }).then([=, &os] {
+                        auto end = std::chrono::steady_clock::now();
+                        using fseconds = std::chrono::duration<float, std::ratio<1, 1>>;
+                        auto iops = total_ops / std::chrono::duration_cast<fseconds>(end - start).count();
+                        fmt::print("{:10} {:10} {:10} {:12}\n", "bufsize", "ops", "iodepth", "IOPS");
+                        fmt::print("{:10d} {:10d} {:10d} {:12.0f}\n", buffer_size, total_ops, concurrency, iops);
+                        return os.flush();
+                    }).then([&os] {
+                        return os.close();
                     });
-                }).then([=, &os] {
-                    auto end = std::chrono::steady_clock::now();
-                    using fseconds = std::chrono::duration<float, std::ratio<1, 1>>;
-                    auto iops = total_ops / std::chrono::duration_cast<fseconds>(end - start).count();
-                    fmt::print("{:10} {:10} {:10} {:12}\n", "bufsize", "ops", "iodepth", "IOPS");
-                    fmt::print("{:10d} {:10d} {:10d} {:12.0f}\n", buffer_size, total_ops, concurrency, iops);
-                    return os.flush();
-                }).then([&os] {
-                    return os.close();
                 });
             });
         });

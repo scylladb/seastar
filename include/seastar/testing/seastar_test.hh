@@ -27,7 +27,7 @@
 #include <boost/test/unit_test.hpp>
 
 #include <seastar/core/future.hh>
-
+#include <seastar/util/std-compat.hh>
 #include <seastar/testing/entry_point.hh>
 
 namespace seastar {
@@ -46,6 +46,14 @@ public:
 };
 
 const std::vector<seastar_test*>& known_tests();
+
+// BOOST_REQUIRE_EXCEPTION predicates
+namespace exception_predicate {
+
+std::function<bool(const std::exception&)> message_equals(std::string_view expected_message);
+std::function<bool(const std::exception&)> message_contains(std::string_view expected_message);
+
+} // exception_predicate
 
 }
 

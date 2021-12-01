@@ -27,7 +27,6 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/do_with.hh>
-#include <seastar/core/future-util.hh>
 #include <seastar/net/dns.hh>
 #include <seastar/net/inet_address.hh>
 
@@ -90,14 +89,11 @@ SEASTAR_TEST_CASE(test_timeout_udp) {
     });
 }
 
-// Currently failing, disable until fixed (#521)
-#if 0
 SEASTAR_TEST_CASE(test_resolve_tcp) {
     dns_resolver::options opts;
     opts.use_tcp_query = true;
     return test_resolve(opts);
 }
-#endif
 
 SEASTAR_TEST_CASE(test_bad_name_tcp) {
     dns_resolver::options opts;

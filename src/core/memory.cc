@@ -54,13 +54,21 @@
 
 #include <seastar/core/cacheline.hh>
 #include <seastar/core/memory.hh>
-#include <seastar/core/reactor.hh>
 #include <seastar/core/print.hh>
 #include <seastar/util/alloc_failure_injector.hh>
+#include <seastar/util/memory_diagnostics.hh>
 #include <seastar/util/std-compat.hh>
+#include <seastar/util/log.hh>
+#include <seastar/core/aligned_buffer.hh>
+#include <unordered_set>
 #include <iostream>
+#include <thread>
+
+#include <dlfcn.h>
 
 namespace seastar {
+
+extern seastar::logger seastar_logger;
 
 void* internal::allocate_aligned_buffer_impl(size_t size, size_t align) {
     void *ret;
@@ -87,8 +95,20 @@ disable_abort_on_alloc_failure_temporarily::~disable_abort_on_alloc_failure_temp
     --abort_on_alloc_failure_suppressed;
 }
 
-static compat::polymorphic_allocator<char> static_malloc_allocator{compat::pmr_get_default_resource()};;
-compat::polymorphic_allocator<char>* malloc_allocator{&static_malloc_allocator};
+static std::pmr::polymorphic_allocator<char> static_malloc_allocator{std::pmr::get_default_resource()};;
+std::pmr::polymorphic_allocator<char>* malloc_allocator{&static_malloc_allocator};
+
+namespace internal {
+
+#ifdef __cpp_constinit
+#define SEASTAR_CONSTINIT constinit
+thread_local constinit int critical_alloc_section = 0;
+#else
+#define SEASTAR_CONSTINIT
+__thread int critical_alloc_section = 0;
+#endif
+
+} // namespace internal
 
 }
 
@@ -112,7 +132,6 @@ compat::polymorphic_allocator<char>* malloc_allocator{&static_malloc_allocator};
 #include <cstring>
 #include <boost/intrusive/list.hpp>
 #include <sys/mman.h>
-#include <seastar/util/defer.hh>
 #include <seastar/util/backtrace.hh>
 
 #ifdef SEASTAR_HAVE_NUMA
@@ -164,6 +183,7 @@ static void on_allocation_failure(size_t size);
 
 static constexpr unsigned cpu_id_shift = 36; // FIXME: make dynamic
 static constexpr unsigned max_cpus = 256;
+static constexpr uintptr_t cpu_id_and_mem_base_mask = ~((uintptr_t(1) << cpu_id_shift) - 1);
 
 using pageidx = uint32_t;
 
@@ -172,18 +192,76 @@ class page_list;
 
 static std::atomic<bool> live_cpus[max_cpus];
 
-static thread_local uint64_t g_allocs;
-static thread_local uint64_t g_frees;
-static thread_local uint64_t g_cross_cpu_frees;
-static thread_local uint64_t g_reclaims;
-static thread_local uint64_t g_large_allocs;
+using std::optional;
 
-using compat::optional;
+// is_reactor_thread gets set to true when memory::configure() gets called
+// it is used to identify seastar threads and hence use system memory allocator
+// for those threads
+static thread_local bool is_reactor_thread = false;
+
+
+namespace alloc_stats {
+
+enum class types { allocs, frees, cross_cpu_frees, reclaims, large_allocs, foreign_mallocs, foreign_frees, foreign_cross_frees, enum_size };
+
+using stats_array = std::array<uint64_t, static_cast<std::size_t>(types::enum_size)>;
+using stats_atomic_array = std::array<std::atomic_uint64_t, static_cast<std::size_t>(types::enum_size)>;
+
+static thread_local SEASTAR_CONSTINIT stats_array stats{};
+std::array<stats_atomic_array, max_cpus> alien_stats{};
+
+static void increment_local(types stat_type, uint64_t size = 1) {
+    stats[static_cast<std::size_t>(stat_type)] += size;
+}
+
+static void increment(types stat_type, uint64_t size=1)
+{
+    // fast path, reactor threads takes thread local statistics
+    if (is_reactor_thread) {
+        increment_local(stat_type, size);
+    } else {
+        auto hash = std::hash<std::thread::id>()(std::this_thread::get_id());
+        auto i = static_cast<std::size_t>(stat_type);
+        alien_stats[hash % alien_stats.size()][i].fetch_add(size, std::memory_order_relaxed);
+    }
+}
+
+static uint64_t get(types stat_type)
+{
+    auto i = static_cast<std::size_t>(stat_type);
+    // fast path, reactor threads takes thread local statistics
+    if (is_reactor_thread) {
+        return stats[i];
+    } else {
+        auto hash = std::hash<std::thread::id>()(std::this_thread::get_id());
+        return alien_stats[hash % alien_stats.size()][i].load();
+    }
+}
+
+}
+
+// original memory allocator support
+// note: allocations before calling the constructor would use seastar allocator
+using malloc_func_type = void * (*)(size_t);
+using free_func_type = void * (*)(void *);
+using realloc_func_type = void * (*)(void *, size_t);
+using aligned_alloc_type = void * (*)(size_t alignment, size_t size);
+using malloc_trim_type = int (*)(size_t);
+using malloc_usable_size_type = size_t (*)(void *);
+
+malloc_func_type original_malloc_func = reinterpret_cast<malloc_func_type>(dlsym(RTLD_NEXT, "malloc"));
+free_func_type original_free_func = reinterpret_cast<free_func_type>(dlsym(RTLD_NEXT, "free"));
+realloc_func_type original_realloc_func = reinterpret_cast<realloc_func_type>(dlsym(RTLD_NEXT, "realloc"));
+aligned_alloc_type original_aligned_alloc_func = reinterpret_cast<aligned_alloc_type>(dlsym(RTLD_NEXT, "aligned_alloc"));
+malloc_trim_type original_malloc_trim_func = reinterpret_cast<malloc_trim_type>(dlsym(RTLD_NEXT, "malloc_trim"));
+malloc_usable_size_type original_malloc_usable_size_func = reinterpret_cast<malloc_usable_size_type>(dlsym(RTLD_NEXT, "malloc_usable_size"));
 
 using allocate_system_memory_fn
-        = std::function<mmap_area (optional<void*> where, size_t how_much)>;
+        = std::function<mmap_area (void* where, size_t how_much)>;
 
 namespace bi = boost::intrusive;
+
+static thread_local uintptr_t local_expected_cpu_id = std::numeric_limits<uintptr_t>::max();
 
 inline
 unsigned object_cpu_id(const void* ptr) {
@@ -194,28 +272,36 @@ class page_list_link {
     uint32_t _prev;
     uint32_t _next;
     friend class page_list;
-    friend void on_allocation_failure(size_t);
+    friend seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar::internal::log_buf::inserter_iterator);
 };
+
+constexpr size_t mem_base_alloc = size_t(1) << 44;
 
 static char* mem_base() {
     static char* known;
     static std::once_flag flag;
     std::call_once(flag, [] {
-        size_t alloc = size_t(1) << 44;
-        auto r = ::mmap(NULL, 2 * alloc,
+        auto r = ::mmap(NULL, 2 * mem_base_alloc,
                     PROT_NONE,
                     MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE,
                     -1, 0);
         if (r == MAP_FAILED) {
             abort();
         }
-        ::madvise(r, 2 * alloc, MADV_DONTDUMP);
+        ::madvise(r, 2 * mem_base_alloc, MADV_DONTDUMP);
         auto cr = reinterpret_cast<char*>(r);
-        known = align_up(cr, alloc);
+        known = align_up(cr, mem_base_alloc);
         ::munmap(cr, known - cr);
-        ::munmap(known + alloc, cr + 2 * alloc - (known + alloc));
+        ::munmap(known + mem_base_alloc, cr + 2 * mem_base_alloc - (known + mem_base_alloc));
     });
     return known;
+}
+
+bool is_seastar_memory(void * ptr)
+{
+    auto begin = mem_base();
+    auto end = begin + mem_base_alloc;
+    return ptr >= begin && ptr < end;
 }
 
 constexpr bool is_page_aligned(size_t size) {
@@ -283,7 +369,7 @@ public:
         }
         _front = ary[_front].link._next;
     }
-    friend void on_allocation_failure(size_t);
+    friend seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar::internal::log_buf::inserter_iterator);
 };
 
 class small_pool {
@@ -313,16 +399,26 @@ public:
 private:
     void add_more_objects();
     void trim_free_list();
-    friend void on_allocation_failure(size_t);
+    friend seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar::internal::log_buf::inserter_iterator);
 };
 
 // index 0b0001'1100 -> size (1 << 4) + 0b11 << (4 - 2)
 
 constexpr unsigned
 small_pool::idx_to_size(unsigned idx) {
-    return (((1 << idx_frac_bits) | (idx & ((1 << idx_frac_bits) - 1)))
+    size_t s = (((1 << idx_frac_bits) | (idx & ((1 << idx_frac_bits) - 1)))
               << (idx >> idx_frac_bits))
                   >> idx_frac_bits;
+    // If size is larger than max_align_t, force it to be a multiple of
+    // max_align_t. Clang relies in this property to use aligned mov
+    // instructions (e.g. movaps)
+    //
+    // Note this function is used at initialization time only, so it doesn't
+    // need to be especially fast.
+    if (s > alignof(std::max_align_t)) {
+	s = align_up(s, alignof(std::max_align_t));
+    }
+    return s;
 }
 
 constexpr unsigned
@@ -431,9 +527,9 @@ struct cpu_pages {
     void* allocate_small(unsigned size);
     void free(void* ptr);
     void free(void* ptr, size_t size);
-    bool try_cross_cpu_free(void* ptr);
+    static bool try_foreign_free(void* ptr);
     void shrink(void* ptr, size_t new_size);
-    void free_cross_cpu(unsigned cpu_id, void* ptr);
+    static void free_cross_cpu(unsigned cpu_id, void* ptr);
     bool drain_cross_cpu_freelist();
     size_t object_size(void* ptr);
     page* to_page(void* p) {
@@ -459,10 +555,12 @@ static thread_local cpu_pages cpu_mem;
 std::atomic<unsigned> cpu_pages::cpu_id_gen;
 cpu_pages* cpu_pages::all_cpus[max_cpus];
 
+static cpu_pages& get_cpu_mem();
+
 #ifdef SEASTAR_HEAPPROF
 
 void set_heap_profiling_enabled(bool enable) {
-    bool is_enabled = cpu_mem.collect_backtrace;
+    bool is_enabled = get_cpu_mem().collect_backtrace;
     if (enable) {
         if (!is_enabled) {
             seastar_logger.info("Enabling heap profiler");
@@ -472,7 +570,7 @@ void set_heap_profiling_enabled(bool enable) {
             seastar_logger.info("Disabling heap profiler");
         }
     }
-    cpu_mem.collect_backtrace = enable;
+    get_cpu_mem().collect_backtrace = enable;
 }
 
 static thread_local int64_t scoped_heap_profiling_embed_count = 0;
@@ -655,7 +753,7 @@ cpu_pages::allocate_large_and_trim(unsigned n_pages) {
 
 void
 cpu_pages::warn_large_allocation(size_t size) {
-    ++g_large_allocs;
+    alloc_stats::increment_local(alloc_stats::types::large_allocs);
     seastar_memory_logger.warn("oversized allocation: {} bytes. This is non-fatal, but could lead to latency and/or fragmentation issues. Please report: at {}", size, current_backtrace());
     large_allocation_warning_threshold *= 1.618; // prevent spam
 }
@@ -681,27 +779,14 @@ cpu_pages::allocate_large_aligned(unsigned align_pages, unsigned n_pages) {
     return allocate_large_and_trim(n_pages);
 }
 
-#ifdef SEASTAR_HEAPPROF
+disable_backtrace_temporarily::disable_backtrace_temporarily() {
+    _old = get_cpu_mem().collect_backtrace;
+    get_cpu_mem().collect_backtrace = false;
+}
 
-class disable_backtrace_temporarily {
-    bool _old;
-public:
-    disable_backtrace_temporarily() {
-        _old = cpu_mem.collect_backtrace;
-        cpu_mem.collect_backtrace = false;
-    }
-    ~disable_backtrace_temporarily() {
-        cpu_mem.collect_backtrace = _old;
-    }
-};
-
-#else
-
-struct disable_backtrace_temporarily {
-    ~disable_backtrace_temporarily() {}
-};
-
-#endif
+disable_backtrace_temporarily::~disable_backtrace_temporarily() {
+    get_cpu_mem().collect_backtrace = _old;
+}
 
 static
 saved_backtrace get_backtrace() noexcept {
@@ -731,7 +816,7 @@ allocation_site_ptr get_allocation_site() {
 allocation_site_ptr&
 small_pool::alloc_site_holder(void* ptr) {
     if (objects_page_aligned()) {
-        return cpu_mem.to_page(ptr)->alloc_site;
+        return get_cpu_mem().to_page(ptr)->alloc_site;
     } else {
         return *reinterpret_cast<allocation_site_ptr*>(reinterpret_cast<char*>(ptr) + _object_size - sizeof(allocation_site_ptr));
     }
@@ -800,7 +885,7 @@ void cpu_pages::free_cross_cpu(unsigned cpu_id, void* ptr) {
     do {
         p->next = old;
     } while (!list.compare_exchange_weak(old, p, std::memory_order_release, std::memory_order_relaxed));
-    ++g_cross_cpu_frees;
+    alloc_stats::increment(alloc_stats::types::cross_cpu_frees);
 }
 
 bool cpu_pages::drain_cross_cpu_freelist() {
@@ -810,7 +895,7 @@ bool cpu_pages::drain_cross_cpu_freelist() {
     auto p = xcpu_freelist.exchange(nullptr, std::memory_order_acquire);
     while (p) {
         auto n = p->next;
-        ++g_frees;
+        alloc_stats::increment_local(alloc_stats::types::frees);
         free(p);
         p = n;
     }
@@ -856,13 +941,22 @@ void cpu_pages::free(void* ptr, size_t size) {
 }
 
 bool
-cpu_pages::try_cross_cpu_free(void* ptr) {
-    auto obj_cpu = object_cpu_id(ptr);
-    if (obj_cpu != cpu_id) {
-        free_cross_cpu(obj_cpu, ptr);
+cpu_pages::try_foreign_free(void* ptr) {
+    // fast path for local free
+    if (__builtin_expect((reinterpret_cast<uintptr_t>(ptr) & cpu_id_and_mem_base_mask) == local_expected_cpu_id, true)) {
+        return false;
+    }
+    if (!is_seastar_memory(ptr)) {
+        if (is_reactor_thread) {
+            alloc_stats::increment_local(alloc_stats::types::foreign_cross_frees);
+        } else {
+            alloc_stats::increment(alloc_stats::types::foreign_frees);
+        }
+        original_free_func(ptr);
         return true;
     }
-    return false;
+    free_cross_cpu(object_cpu_id(ptr), ptr);
+    return true;
 }
 
 void cpu_pages::shrink(void* ptr, size_t new_size) {
@@ -895,7 +989,9 @@ void cpu_pages::shrink(void* ptr, size_t new_size) {
 }
 
 cpu_pages::~cpu_pages() {
-    live_cpus[cpu_id].store(false, std::memory_order_relaxed);
+    if (is_initialized()) {
+        live_cpus[cpu_id].store(false, std::memory_order_relaxed);
+    }
 }
 
 bool cpu_pages::is_initialized() const {
@@ -907,6 +1003,8 @@ bool cpu_pages::initialize() {
         return false;
     }
     cpu_id = cpu_id_gen.fetch_add(1, std::memory_order_relaxed);
+    local_expected_cpu_id = (static_cast<uint64_t>(cpu_id) << cpu_id_shift)
+	| reinterpret_cast<uintptr_t>(mem_base());
     assert(cpu_id < max_cpus);
     all_cpus[cpu_id] = this;
     auto base = mem_base() + (size_t(cpu_id) << cpu_id_shift);
@@ -936,15 +1034,15 @@ bool cpu_pages::initialize() {
 }
 
 mmap_area
-allocate_anonymous_memory(compat::optional<void*> where, size_t how_much) {
-    return mmap_anonymous(where.value_or(nullptr),
+static allocate_anonymous_memory(void* where, size_t how_much) {
+    return mmap_anonymous(where,
             how_much,
             PROT_READ | PROT_WRITE,
-            MAP_PRIVATE | (where ? MAP_FIXED : 0));
+            MAP_PRIVATE | MAP_FIXED);
 }
 
 mmap_area
-allocate_hugetlbfs_memory(file_desc& fd, compat::optional<void*> where, size_t how_much) {
+allocate_hugetlbfs_memory(file_desc& fd, void* where, size_t how_much) {
     auto pos = fd.size();
     fd.truncate(pos + how_much);
     auto ret = fd.map(
@@ -952,7 +1050,7 @@ allocate_hugetlbfs_memory(file_desc& fd, compat::optional<void*> where, size_t h
             PROT_READ | PROT_WRITE,
             MAP_SHARED | MAP_POPULATE | (where ? MAP_FIXED : 0),
             pos,
-            where.value_or(nullptr));
+            where);
     return ret;
 }
 
@@ -966,7 +1064,7 @@ void cpu_pages::replace_memory_backing(allocate_system_memory_fn alloc_sys_mem) 
     auto old_mem = mem();
     auto relocated_old_mem = mmap_anonymous(nullptr, bytes, PROT_READ|PROT_WRITE, MAP_PRIVATE);
     std::memcpy(relocated_old_mem.get(), old_mem, bytes);
-    alloc_sys_mem({old_mem}, bytes).release();
+    alloc_sys_mem(old_mem, bytes).release();
     std::memcpy(old_mem, relocated_old_mem.get(), bytes);
 }
 
@@ -978,7 +1076,7 @@ void cpu_pages::do_resize(size_t new_size, allocate_system_memory_fn alloc_sys_m
     auto old_size = nr_pages * page_size;
     auto mmap_start = memory + old_size;
     auto mmap_size = new_size - old_size;
-    auto mem = alloc_sys_mem({mmap_start}, mmap_size);
+    auto mem = alloc_sys_mem(mmap_start, mmap_size);
     mem.release();
     ::madvise(mmap_start, mmap_size, MADV_HUGEPAGE);
     // one past last page structure is a sentinel
@@ -1024,7 +1122,7 @@ reclaiming_result cpu_pages::run_reclaimers(reclaimer_scope scope, size_t n_page
     reclaiming_result result = reclaiming_result::reclaimed_nothing;
     while (nr_free_pages < target) {
         bool made_progress = false;
-        ++g_reclaims;
+        alloc_stats::increment_local(alloc_stats::types::reclaims);
         for (auto&& r : reclaimers) {
             if (r->scope() >= scope) {
                 made_progress |= r->do_reclaim((target - nr_free_pages) * page_size) == reclaiming_result::reclaimed_something;
@@ -1083,13 +1181,26 @@ small_pool::small_pool(unsigned object_size) noexcept
         ++span_size;
     }
     _span_sizes.fallback = span_size;
-    span_size = 1;
-    while (_object_size > span_bytes()
-            || (span_size < 32 && waste() > 0.05)
-            || (span_bytes() / object_size < 4)) {
-        ++span_size;
+
+    // Choose a preferred span size which keeps waste (internal fragmentation) below
+    // 5% and fits at least 4 objects. If there is no span size (up to 32 pages) that
+    // satisfies this, just go with the minimum waste out of the checked span sizes.
+    float min_waste = std::numeric_limits<float>::max();
+    unsigned min_waste_span_size = 0;
+    for (span_size = 1; span_size <= 32; span_size *= 2) {
+        if (span_bytes() / object_size >= 4) {
+            auto w = waste();
+            if (w < min_waste) {
+                min_waste = w;
+                min_waste_span_size = span_size;
+                if (w < 0.05) {
+                    break;
+                }
+            }
+        }
     }
-    _span_sizes.preferred = span_size;
+    _span_sizes.preferred = min_waste_span_size ? min_waste_span_size : _span_sizes.fallback;
+
     _max_free = std::max<unsigned>(100, span_bytes() * 2 / _object_size);
     _min_free = _max_free / 2;
 }
@@ -1131,8 +1242,8 @@ void
 small_pool::add_more_objects() {
     auto goal = (_min_free + _max_free) / 2;
     while (!_span_list.empty() && _free_count < goal) {
-        page& span = _span_list.front(cpu_mem.pages);
-        _span_list.pop_front(cpu_mem.pages);
+        page& span = _span_list.front(get_cpu_mem().pages);
+        _span_list.pop_front(get_cpu_mem().pages);
         while (span.freelist) {
             auto obj = span.freelist;
             span.freelist = span.freelist->next;
@@ -1145,15 +1256,15 @@ small_pool::add_more_objects() {
     while (_free_count < goal) {
         disable_backtrace_temporarily dbt;
         auto span_size = _span_sizes.preferred;
-        auto data = reinterpret_cast<char*>(cpu_mem.allocate_large(span_size));
+        auto data = reinterpret_cast<char*>(get_cpu_mem().allocate_large(span_size));
         if (!data) {
             span_size = _span_sizes.fallback;
-            data = reinterpret_cast<char*>(cpu_mem.allocate_large(span_size));
+            data = reinterpret_cast<char*>(get_cpu_mem().allocate_large(span_size));
             if (!data) {
                 return;
             }
         }
-        auto span = cpu_mem.to_page(data);
+        auto span = get_cpu_mem().to_page(data);
         span_size = span->span_size;
         _pages_in_use += span_size;
         for (unsigned i = 0; i < span_size; ++i) {
@@ -1179,18 +1290,18 @@ small_pool::trim_free_list() {
         auto obj = _free;
         _free = _free->next;
         --_free_count;
-        page* span = cpu_mem.to_page(obj);
+        page* span = get_cpu_mem().to_page(obj);
         span -= span->offset_in_span;
         if (!span->freelist) {
             new (&span->link) page_list_link();
-            _span_list.push_front(cpu_mem.pages, *span);
+            _span_list.push_front(get_cpu_mem().pages, *span);
         }
         obj->next = span->freelist;
         span->freelist = obj;
         if (--span->nr_small_alloc == 0) {
             _pages_in_use -= span->span_size;
-            _span_list.erase(cpu_mem.pages, *span);
-            cpu_mem.free_span(span - cpu_mem.pages, span->span_size);
+            _span_list.erase(get_cpu_mem().pages, *span);
+            get_cpu_mem().free_span(span - get_cpu_mem().pages, span->span_size);
         }
     }
 }
@@ -1209,7 +1320,7 @@ void* allocate_large(size_t size) {
     if ((size_t(size_in_pages) << page_bits) < size) {
         return nullptr; // (size + page_size - 1) caused an overflow
     }
-    return cpu_mem.allocate_large(size_in_pages);
+    return get_cpu_mem().allocate_large(size_in_pages);
 
 }
 
@@ -1217,42 +1328,51 @@ void* allocate_large_aligned(size_t align, size_t size) {
     abort_on_underflow(size);
     unsigned size_in_pages = (size + page_size - 1) >> page_bits;
     unsigned align_in_pages = std::max(align, page_size) >> page_bits;
-    return cpu_mem.allocate_large_aligned(align_in_pages, size_in_pages);
+    return get_cpu_mem().allocate_large_aligned(align_in_pages, size_in_pages);
 }
 
 void free_large(void* ptr) {
-    return cpu_mem.free_large(ptr);
+    return get_cpu_mem().free_large(ptr);
 }
 
 size_t object_size(void* ptr) {
     return cpu_pages::all_cpus[object_cpu_id(ptr)]->object_size(ptr);
 }
 
+static thread_local cpu_pages* cpu_mem_ptr = nullptr;
+
 // Mark as cold so that GCC8+ can move to .text.unlikely.
 [[gnu::cold]]
-static void init_cpu_mem_ptr(cpu_pages*& cpu_mem_ptr) {
+static void init_cpu_mem() {
     cpu_mem_ptr = &cpu_mem;
-};
+    cpu_mem.initialize();
+}
 
 [[gnu::always_inline]]
 static inline cpu_pages& get_cpu_mem()
 {
     // cpu_pages has a non-trivial constructor which means that the compiler
     // must make sure the instance local to the current thread has been
-    // constructed before each access.
-    // Unfortunately, this means that GCC will emit an unconditional call
-    // to __tls_init(), which may incurr a noticeable overhead in applications
-    // that are heavy on memory allocations.
-    // This can be solved by adding an easily predictable branch checking
-    // whether the object has already been constructed.
-    static thread_local cpu_pages* cpu_mem_ptr;
-    if (__builtin_expect(!bool(cpu_mem_ptr), false)) {
-        init_cpu_mem_ptr(cpu_mem_ptr);
-    }
+    // constructed before each access. So instead we access cpu_mem_ptr
+    // which has been initialized by calls to init_cpu_mem() before it is
+    // accessed.
     return *cpu_mem_ptr;
 }
 
+#ifdef SEASTAR_DEBUG_ALLOCATIONS
+static constexpr int debug_allocation_pattern = 0xab;
+#endif
+
 void* allocate(size_t size) {
+    if (!is_reactor_thread) {
+        if (original_malloc_func) {
+            alloc_stats::increment(alloc_stats::types::foreign_mallocs);
+            return original_malloc_func(size);
+        }
+        // original_malloc_func might be null for allocations before main
+        // in constructors before original_malloc_func ctor is called
+        init_cpu_mem();
+    }
     if (size <= sizeof(free_object)) {
         size = sizeof(free_object);
     }
@@ -1265,12 +1385,25 @@ void* allocate(size_t size) {
     }
     if (!ptr) {
         on_allocation_failure(size);
+    } else {
+#ifdef SEASTAR_DEBUG_ALLOCATIONS
+        std::memset(ptr, debug_allocation_pattern, size);
+#endif
     }
-    ++g_allocs;
+    alloc_stats::increment_local(alloc_stats::types::allocs);
     return ptr;
 }
 
 void* allocate_aligned(size_t align, size_t size) {
+    if (!is_reactor_thread) {
+        if (original_aligned_alloc_func) {
+            alloc_stats::increment(alloc_stats::types::foreign_mallocs);
+            return original_aligned_alloc_func(align, size);
+        }
+        // original_realloc_func might be null for allocations before main
+        // in constructors before original_realloc_func ctor is called
+        init_cpu_mem();
+    }
     if (size <= sizeof(free_object)) {
         size = std::max(sizeof(free_object), align);
     }
@@ -1285,24 +1418,28 @@ void* allocate_aligned(size_t align, size_t size) {
     }
     if (!ptr) {
         on_allocation_failure(size);
+    } else {
+#ifdef SEASTAR_DEBUG_ALLOCATIONS
+        std::memset(ptr, debug_allocation_pattern, size);
+#endif
     }
-    ++g_allocs;
+    alloc_stats::increment_local(alloc_stats::types::allocs);
     return ptr;
 }
 
 void free(void* obj) {
-    if (get_cpu_mem().try_cross_cpu_free(obj)) {
+    if (cpu_pages::try_foreign_free(obj)) {
         return;
     }
-    ++g_frees;
+    alloc_stats::increment_local(alloc_stats::types::frees);
     get_cpu_mem().free(obj);
 }
 
 void free(void* obj, size_t size) {
-    if (get_cpu_mem().try_cross_cpu_free(obj)) {
+    if (cpu_pages::try_foreign_free(obj)) {
         return;
     }
-    ++g_frees;
+    alloc_stats::increment_local(alloc_stats::types::frees);
     get_cpu_mem().free(obj, size);
 }
 
@@ -1310,17 +1447,21 @@ void free_aligned(void* obj, size_t align, size_t size) {
     if (size <= sizeof(free_object)) {
         size = sizeof(free_object);
     }
+    if (size <= max_small_allocation && align <= page_size) {
+        // Same adjustment as allocate_aligned()
+        size = 1 << log2ceil(object_size_with_alloc_site(size));
+    }
     free(obj, size);
 }
 
 void shrink(void* obj, size_t new_size) {
-    ++g_frees;
-    ++g_allocs; // keep them balanced
-    cpu_mem.shrink(obj, new_size);
+    alloc_stats::increment_local(alloc_stats::types::frees);
+    alloc_stats::increment_local(alloc_stats::types::allocs); // keep them balanced
+    get_cpu_mem().shrink(obj, new_size);
 }
 
 void set_reclaim_hook(std::function<void (std::function<void ()>)> hook) {
-    cpu_mem.set_reclaim_hook(hook);
+    get_cpu_mem().set_reclaim_hook(hook);
 }
 
 reclaimer::reclaimer(std::function<reclaiming_result ()> reclaim, reclaimer_scope scope)
@@ -1332,28 +1473,36 @@ reclaimer::reclaimer(std::function<reclaiming_result ()> reclaim, reclaimer_scop
 reclaimer::reclaimer(std::function<reclaiming_result (request)> reclaim, reclaimer_scope scope)
     : _reclaim(std::move(reclaim))
     , _scope(scope) {
-    cpu_mem.reclaimers.push_back(this);
+    get_cpu_mem().reclaimers.push_back(this);
 }
 
 reclaimer::~reclaimer() {
-    auto& r = cpu_mem.reclaimers;
+    auto& r = get_cpu_mem().reclaimers;
     r.erase(std::find(r.begin(), r.end(), this));
 }
 
 void set_large_allocation_warning_threshold(size_t threshold) {
-    cpu_mem.large_allocation_warning_threshold = threshold;
+    get_cpu_mem().large_allocation_warning_threshold = threshold;
 }
 
 size_t get_large_allocation_warning_threshold() {
-    return cpu_mem.large_allocation_warning_threshold;
+    return get_cpu_mem().large_allocation_warning_threshold;
 }
 
 void disable_large_allocation_warning() {
-    cpu_mem.large_allocation_warning_threshold = std::numeric_limits<size_t>::max();
+    get_cpu_mem().large_allocation_warning_threshold = std::numeric_limits<size_t>::max();
 }
 
 void configure(std::vector<resource::memory> m, bool mbind,
         optional<std::string> hugetlbfs_path) {
+    // we need to make sure cpu_mem is initialize since configure calls cpu_mem.resize
+    // and we might reach configure without ever allocating, hence without ever calling
+    // cpu_pages::initialize.
+    // The correct solution is to add a condition inside cpu_mem.resize, but since all
+    // other paths to cpu_pages::resize are already verifying initialize was called, we
+    // verify that here.
+    init_cpu_mem();
+    is_reactor_thread = true;
     size_t total = 0;
     for (auto&& x : m) {
         total += x.bytes;
@@ -1363,18 +1512,18 @@ void configure(std::vector<resource::memory> m, bool mbind,
         // std::function is copyable, but file_desc is not, so we must use
         // a shared_ptr to allow sys_alloc to be copied around
         auto fdp = make_lw_shared<file_desc>(file_desc::temporary(*hugetlbfs_path));
-        sys_alloc = [fdp] (optional<void*> where, size_t how_much) {
+        sys_alloc = [fdp] (void* where, size_t how_much) {
             return allocate_hugetlbfs_memory(*fdp, where, how_much);
         };
-        cpu_mem.replace_memory_backing(sys_alloc);
+        get_cpu_mem().replace_memory_backing(sys_alloc);
     }
-    cpu_mem.resize(total, sys_alloc);
+    get_cpu_mem().resize(total, sys_alloc);
     size_t pos = 0;
     for (auto&& x : m) {
 #ifdef SEASTAR_HAVE_NUMA
         unsigned long nodemask = 1UL << x.nodeid;
         if (mbind) {
-            auto r = ::mbind(cpu_mem.mem() + pos, x.bytes,
+            auto r = ::mbind(get_cpu_mem().mem() + pos, x.bytes,
                             MPOL_PREFERRED,
                             &nodemask, std::numeric_limits<unsigned long>::digits,
                             MPOL_MF_MOVE);
@@ -1392,24 +1541,25 @@ void configure(std::vector<resource::memory> m, bool mbind,
 }
 
 statistics stats() {
-    return statistics{g_allocs, g_frees, g_cross_cpu_frees,
-        cpu_mem.nr_pages * page_size, cpu_mem.nr_free_pages * page_size, g_reclaims, g_large_allocs};
+    return statistics{alloc_stats::get(alloc_stats::types::allocs), alloc_stats::get(alloc_stats::types::frees), alloc_stats::get(alloc_stats::types::cross_cpu_frees),
+        cpu_mem.nr_pages * page_size, cpu_mem.nr_free_pages * page_size, alloc_stats::get(alloc_stats::types::reclaims), alloc_stats::get(alloc_stats::types::large_allocs),
+        alloc_stats::get(alloc_stats::types::foreign_mallocs), alloc_stats::get(alloc_stats::types::foreign_frees), alloc_stats::get(alloc_stats::types::foreign_cross_frees)};
 }
 
 bool drain_cross_cpu_freelist() {
-    return cpu_mem.drain_cross_cpu_freelist();
+    return get_cpu_mem().drain_cross_cpu_freelist();
 }
 
 memory_layout get_memory_layout() {
-    return cpu_mem.memory_layout();
+    return get_cpu_mem().memory_layout();
 }
 
 size_t min_free_memory() {
-    return cpu_mem.min_free_pages * page_size;
+    return get_cpu_mem().min_free_pages * page_size;
 }
 
 void set_min_free_pages(size_t pages) {
-    cpu_mem.set_min_free_pages(pages);
+    get_cpu_mem().set_min_free_pages(pages);
 }
 
 static thread_local int report_on_alloc_failure_suppressed = 0;
@@ -1425,50 +1575,217 @@ public:
 };
 
 static std::atomic<bool> abort_on_allocation_failure{false};
+static std::atomic<alloc_failure_kind> dump_diagnostics_on_alloc_failure_kind{alloc_failure_kind::critical};
 
 void enable_abort_on_allocation_failure() {
     abort_on_allocation_failure.store(true, std::memory_order_seq_cst);
 }
 
-void on_allocation_failure(size_t size) {
-    if (!report_on_alloc_failure_suppressed &&
-            // report even suppressed failures if trace level is enabled
-            (seastar_memory_logger.is_enabled(seastar::log_level::trace) ||
-                    (seastar_memory_logger.is_enabled(seastar::log_level::debug) && !abort_on_alloc_failure_suppressed))) {
-        disable_report_on_alloc_failure_temporarily guard;
-        seastar_memory_logger.debug("Failed to allocate {} bytes at {}", size, current_backtrace());
-        auto free_mem = cpu_mem.nr_free_pages * page_size;
-        auto total_mem = cpu_mem.nr_pages * page_size;
-        seastar_memory_logger.debug("Used memory: {} Free memory: {} Total memory: {}", total_mem - free_mem, free_mem, total_mem);
-        seastar_memory_logger.debug("Small pools:");
-        seastar_memory_logger.debug("objsz spansz usedobj   memory       wst%");
-        for (unsigned i = 0; i < cpu_mem.small_pools.nr_small_pools; i++) {
-            auto& sp = cpu_mem.small_pools[i];
-            auto use_count = sp._pages_in_use * page_size / sp.object_size() - sp._free_count;
-            auto memory = sp._pages_in_use * page_size;
-            auto wasted_percent = memory ? sp._free_count * sp.object_size() * 100.0 / memory : 0;
-            seastar_memory_logger.debug("{} {} {} {} {}", sp.object_size(), sp._span_sizes.preferred * page_size, use_count, memory, wasted_percent);
-        }
-        seastar_memory_logger.debug("Page spans:");
-        seastar_memory_logger.debug("index size [B]     free [B]");
-        for (unsigned i = 0; i< cpu_mem.nr_span_lists; i++) {
-            auto& span_list = cpu_mem.free_spans[i];
-            auto front = span_list._front;
-            uint32_t total = 0;
-            while(front) {
-                auto& span = cpu_mem.pages[front];
-                total += span.span_size;
-                front = span.link._next;
-            }
-            seastar_memory_logger.debug("{} {} {}", i, (1<<i) * page_size, total * page_size);
+void set_dump_memory_diagnostics_on_alloc_failure_kind(alloc_failure_kind kind) {
+    dump_diagnostics_on_alloc_failure_kind.store(kind, std::memory_order_seq_cst);
+}
+
+void set_dump_memory_diagnostics_on_alloc_failure_kind(std::string_view str) {
+    if (str == "none") {
+        set_dump_memory_diagnostics_on_alloc_failure_kind(alloc_failure_kind::none);
+    } else if (str == "critical") {
+        set_dump_memory_diagnostics_on_alloc_failure_kind(alloc_failure_kind::critical);
+    } else if (str == "all") {
+        set_dump_memory_diagnostics_on_alloc_failure_kind(alloc_failure_kind::all);
+    } else {
+        seastar_logger.error("Ignoring invalid option '{}' for the allocation failure kind to dump seastar memory diagnostics for, valid options are: none, critical and all", str);
+    }
+}
+
+static thread_local noncopyable_function<void(memory_diagnostics_writer)> additional_diagnostics_producer;
+
+void set_additional_diagnostics_producer(noncopyable_function<void(memory_diagnostics_writer)> producer) {
+    additional_diagnostics_producer = std::move(producer);
+}
+
+struct human_readable_value {
+    uint16_t value;  // [0, 1024)
+    char suffix; // 0 -> no suffix
+};
+
+std::ostream& operator<<(std::ostream& os, const human_readable_value& val) {
+    os << val.value;
+    if (val.suffix) {
+        os << val.suffix;
+    }
+    return os;
+}
+
+static human_readable_value to_human_readable_value(uint64_t value, uint64_t step, uint64_t precision, const std::array<char, 5>& suffixes) {
+    if (!value) {
+        return {0, suffixes[0]};
+    }
+
+    uint64_t result = value;
+    uint64_t remainder = 0;
+    unsigned i = 0;
+    // If there is no remainder we go below precision because we don't loose any.
+    while (((!remainder && result >= step) || result >= precision)) {
+        remainder = result % step;
+        result /= step;
+        if (i == suffixes.size()) {
+            break;
+        } else {
+            ++i;
         }
     }
+    return {uint16_t(remainder < (step / 2) ? result : result + 1), suffixes[i]};
+}
+
+static human_readable_value to_hr_size(uint64_t size) {
+    const std::array<char, 5> suffixes = {'B', 'K', 'M', 'G', 'T'};
+    return to_human_readable_value(size, 1024, 8192, suffixes);
+}
+
+static human_readable_value to_hr_number(uint64_t number) {
+    const std::array<char, 5> suffixes = {'\0', 'k', 'm', 'b', 't'};
+    return to_human_readable_value(number, 1000, 10000, suffixes);
+}
+
+seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar::internal::log_buf::inserter_iterator it) {
+    auto free_mem = get_cpu_mem().nr_free_pages * page_size;
+    auto total_mem = get_cpu_mem().nr_pages * page_size;
+    it = fmt::format_to(it, "Dumping seastar memory diagnostics\n");
+
+    it = fmt::format_to(it, "Used memory:  {}\n", to_hr_size(total_mem - free_mem));
+    it = fmt::format_to(it, "Free memory:  {}\n", to_hr_size(free_mem));
+    it = fmt::format_to(it, "Total memory: {}\n\n", to_hr_size(total_mem));
+
+    if (additional_diagnostics_producer) {
+        additional_diagnostics_producer([&it] (std::string_view v) mutable {
+#if FMT_VERSION >= 80000
+            it = fmt::format_to(it, fmt::runtime(v));
+#else
+            it = fmt::format_to(it, v);
+#endif
+        });
+    }
+
+    it = fmt::format_to(it, "Small pools:\n");
+    it = fmt::format_to(it, "objsz\tspansz\tusedobj\tmemory\tunused\twst%\n");
+    for (unsigned i = 0; i < get_cpu_mem().small_pools.nr_small_pools; i++) {
+        auto& sp = get_cpu_mem().small_pools[i];
+        // We don't use pools too small to fit a free_object, so skip these, they
+        // are always empty.
+        if (sp.object_size() < sizeof(free_object)) {
+            continue;
+        }
+
+        // For the small pools, there are two types of free objects:
+        // Pool freelist objects are poitned to by sp._free and their count is sp._free_count
+        // Span freelist objects are those removed from the pool freelist when that list
+        // becomes too large: they are instead attached to the spans allocated to this
+        // pool. To count this second category, we iterate over the spans below.
+        uint32_t span_freelist_objs = 0;
+        auto front = sp._span_list._front;
+        while (front) {
+            auto& span = get_cpu_mem().pages[front];
+            auto capacity_in_objects = span.span_size * page_size / sp.object_size();
+            span_freelist_objs += capacity_in_objects - span.nr_small_alloc;
+            front = span.link._next;
+        }
+        const auto free_objs = sp._free_count + span_freelist_objs; // pool + span free objects
+        const auto use_count = sp._pages_in_use * page_size / sp.object_size() - free_objs;
+        auto memory = sp._pages_in_use * page_size;
+        const auto unused = free_objs * sp.object_size();
+        const auto wasted_percent = memory ? unused * 100 / memory : 0;
+        it = fmt::format_to(it,
+                "{}\t{}\t{}\t{}\t{}\t{}\n",
+                sp.object_size(),
+                to_hr_size(sp._span_sizes.preferred * page_size),
+                to_hr_number(use_count),
+                to_hr_size(memory),
+                to_hr_size(unused),
+                unsigned(wasted_percent));
+    }
+    it = fmt::format_to(it, "Page spans:\n");
+    it = fmt::format_to(it, "index\tsize\tfree\tused\tspans\n");
+
+    std::array<uint32_t, cpu_pages::nr_span_lists> span_size_histogram;
+    span_size_histogram.fill(0);
+
+    for (unsigned i = 0; i < get_cpu_mem().nr_pages;) {
+        const auto span_size = get_cpu_mem().pages[i].span_size;
+        if (!span_size) {
+            ++i;
+            continue;
+        }
+        ++span_size_histogram[log2ceil(span_size)];
+        i += span_size;
+    }
+
+    for (unsigned i = 0; i< get_cpu_mem().nr_span_lists; i++) {
+        auto& span_list = get_cpu_mem().free_spans[i];
+        auto front = span_list._front;
+        uint32_t free_pages = 0;
+        while (front) {
+            auto& span = get_cpu_mem().pages[front];
+            free_pages += span.span_size;
+            front = span.link._next;
+        }
+        const auto total_spans = span_size_histogram[i];
+        const auto total_pages = total_spans * (1 << i);
+        it = fmt::format_to(it,
+                "{}\t{}\t{}\t{}\t{}\n",
+                i,
+                to_hr_size((uint64_t(1) << i) * page_size),
+                to_hr_size(free_pages * page_size),
+                to_hr_size((total_pages - free_pages) * page_size),
+                to_hr_number(total_spans));
+    }
+
+    return it;
+}
+
+void maybe_dump_memory_diagnostics(size_t size) {
+    if (report_on_alloc_failure_suppressed) {
+        return;
+    }
+
+    disable_report_on_alloc_failure_temporarily guard;
+    seastar_memory_logger.debug("Failed to allocate {} bytes at {}", size, current_backtrace());
+
+    static thread_local logger::rate_limit rate_limit(std::chrono::seconds(10));
+
+    auto lvl = log_level::debug;
+    switch (dump_diagnostics_on_alloc_failure_kind.load(std::memory_order_relaxed)) {
+        case alloc_failure_kind::none:
+            lvl = log_level::debug;
+            break;
+        case alloc_failure_kind::critical:
+            lvl = is_critical_alloc_section() ? log_level::error : log_level::debug;
+            break;
+        case alloc_failure_kind::all:
+            lvl = log_level::error;
+            break;
+    }
+
+    logger::lambda_log_writer writer([] (seastar::internal::log_buf::inserter_iterator it) {
+        return do_dump_memory_diagnostics(it);
+    });
+    seastar_memory_logger.log(lvl, rate_limit, writer);
+}
+
+void on_allocation_failure(size_t size) {
+    maybe_dump_memory_diagnostics(size);
 
     if (!abort_on_alloc_failure_suppressed
             && abort_on_allocation_failure.load(std::memory_order_relaxed)) {
         seastar_logger.error("Failed to allocate {} bytes", size);
         abort();
     }
+}
+
+sstring generate_memory_diagnostics_report() {
+    seastar::internal::log_buf buf;
+    auto it = buf.back_insert_begin();
+    do_dump_memory_diagnostics(it);
+    return sstring(buf.data(), buf.size());
 }
 
 static void trigger_error_injector() {
@@ -1562,6 +1879,19 @@ void* realloc(void* ptr, size_t size) {
     if(ptr == nullptr && size == 0) {
         return malloc(0);
     }
+    if (ptr != nullptr && !is_seastar_memory(ptr)) {
+        // we can't realloc foreign memory on a shard
+        if (is_reactor_thread) {
+            abort();
+        }
+        // original_realloc_func might be null when previous ctor allocates
+        if (original_realloc_func) {
+            return original_realloc_func(ptr, size);
+        }
+    }
+    // if we're here, it's either ptr is a seastar memory ptr
+    // or a nullptr, or, original functions aren't available
+    // at any rate, using the seastar allocator is OK now.
     auto old_size = ptr ? object_size(ptr) : 0;
     if (size == old_size) {
         return ptr;
@@ -1667,12 +1997,18 @@ void __libc_cfree(void* obj) throw ();
 extern "C"
 [[gnu::visibility("default")]]
 size_t malloc_usable_size(void* obj) {
+    if (!is_seastar_memory(obj)) {
+        return original_malloc_usable_size_func(obj);
+    }
     return object_size(obj);
 }
 
 extern "C"
 [[gnu::visibility("default")]]
 int malloc_trim(size_t pad) {
+    if (!is_reactor_thread) {
+        return original_malloc_trim_func(pad);
+    }
     return 0;
 }
 
@@ -1862,6 +2198,13 @@ namespace seastar {
 
 namespace memory {
 
+disable_backtrace_temporarily::disable_backtrace_temporarily() {
+    (void)_old;
+}
+
+disable_backtrace_temporarily::~disable_backtrace_temporarily() {
+}
+
 void set_heap_profiling_enabled(bool enabled) {
     seastar_logger.warn("Seastar compiled with default allocator, heap profiler not supported");
 }
@@ -1889,11 +2232,11 @@ reclaimer::~reclaimer() {
 void set_reclaim_hook(std::function<void (std::function<void ()>)> hook) {
 }
 
-void configure(std::vector<resource::memory> m, bool mbind, compat::optional<std::string> hugepages_path) {
+void configure(std::vector<resource::memory> m, bool mbind, std::optional<std::string> hugepages_path) {
 }
 
 statistics stats() {
-    return statistics{0, 0, 0, 1 << 30, 1 << 30, 0, 0};
+    return statistics{0, 0, 0, 1 << 30, 1 << 30, 0, 0, 0, 0, 0};
 }
 
 bool drain_cross_cpu_freelist() {
@@ -1923,6 +2266,24 @@ size_t get_large_allocation_warning_threshold() {
 
 void disable_large_allocation_warning() {
     // Ignore, not supported for default allocator.
+}
+
+
+void set_dump_memory_diagnostics_on_alloc_failure_kind(alloc_failure_kind) {
+    // Ignore, not supported for default allocator.
+}
+
+void set_dump_memory_diagnostics_on_alloc_failure_kind(std::string_view) {
+    // Ignore, not supported for default allocator.
+}
+
+void set_additional_diagnostics_producer(noncopyable_function<void(memory_diagnostics_writer)>) {
+    // Ignore, not supported for default allocator.
+}
+
+sstring generate_memory_diagnostics_report() {
+    // Ignore, not supported for default allocator.
+    return {};
 }
 
 }

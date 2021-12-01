@@ -27,8 +27,7 @@
 #include <fmt/format.h>
 
 #include <seastar/core/future.hh>
-#include <seastar/core/future-util.hh>
-
+#include <seastar/core/loop.hh>
 
 using namespace seastar;
 
@@ -146,7 +145,7 @@ do_if_constexpr_<Condition, TrueFn, FalseFn> if_constexpr_(TrueFn&& true_fn, Fal
 
 template<typename Test>
 class concrete_performance_test final : public performance_test {
-    compat::optional<Test> _test;
+    std::optional<Test> _test;
 private:
     template<typename... Args>
     auto run_test(Args&&...) {
@@ -159,7 +158,7 @@ protected:
     }
 
     virtual void tear_down() noexcept override {
-        _test = compat::nullopt;
+        _test = std::nullopt;
     }
 
     [[gnu::hot]]

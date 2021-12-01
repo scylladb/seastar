@@ -29,15 +29,31 @@ static std::atomic<bool> abort_on_internal_error{false};
 
 using namespace seastar;
 
-void seastar::set_abort_on_internal_error(bool do_abort) {
-    abort_on_internal_error.store(do_abort);
+bool seastar::set_abort_on_internal_error(bool do_abort) noexcept {
+    return abort_on_internal_error.exchange(do_abort);
 }
 
-void seastar::on_internal_error(logger& logger, compat::string_view msg) {
+void seastar::on_internal_error(logger& logger, std::string_view msg) {
     if (abort_on_internal_error.load()) {
         logger.error("{}, at: {}", msg, current_backtrace());
         abort();
     } else {
         throw_with_backtrace<std::runtime_error>(std::string(msg));
+    }
+}
+
+void seastar::on_internal_error(logger& logger, std::exception_ptr ex) {
+    if (abort_on_internal_error.load()) {
+        logger.error("{}", ex);
+        abort();
+    } else {
+        std::rethrow_exception(std::move(ex));
+    }
+}
+
+void seastar::on_internal_error_noexcept(logger& logger, std::string_view msg) noexcept {
+    logger.error("{}, at: {}", msg, current_backtrace());
+    if (abort_on_internal_error.load()) {
+        abort();
     }
 }

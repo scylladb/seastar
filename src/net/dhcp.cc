@@ -337,7 +337,7 @@ public:
             return make_ready_future<>();
         }
         handled = true;
-        auto src_cpu = engine().cpu_id();
+        auto src_cpu = this_shard_id();
         if (src_cpu == 0) {
             return process_packet(std::move(p), dhp, opt_off);
         }
@@ -348,7 +348,7 @@ public:
         return make_ready_future<>();
     }
 
-    future<compat::optional<lease>> run(const lease & l,
+    future<std::optional<lease>> run(const lease & l,
             const steady_clock_type::duration & timeout) {
 
         _state = state::NONE;
@@ -356,7 +356,7 @@ public:
             _state = state::FAIL;
             log() << "timeout" << std::endl;
             _retry_timer.cancel();
-            _result.set_value(compat::nullopt);
+            _result.set_value(std::nullopt);
         });
 
         log() << "sending discover" << std::endl;
@@ -428,7 +428,7 @@ public:
     }
 
 private:
-    promise<compat::optional<lease>> _result;
+    promise<std::optional<lease>> _result;
     state _state = state::NONE;
     timer<> _timer;
     timer<> _retry_timer;
@@ -453,9 +453,7 @@ net::dhcp::dhcp(ipv4 & ip)
 : _impl(std::make_unique<impl>(ip))
 {}
 
-net::dhcp::dhcp(dhcp && v)
-: _impl(std::move(v._impl))
-{}
+net::dhcp::dhcp(dhcp && v) noexcept = default;
 
 net::dhcp::~dhcp()
 {}

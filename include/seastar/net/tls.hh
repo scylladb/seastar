@@ -20,8 +20,8 @@
  */
 #pragma once
 
-#include <vector>
-#include <map>
+#include <functional>
+#include <unordered_set>
 
 #include <boost/any.hpp>
 
@@ -37,13 +37,7 @@ namespace seastar {
 
 class socket;
 
-#if SEASTAR_API_LEVEL <= 1
-
-SEASTAR_INCLUDE_API_V1 namespace api_v1 { class server_socket; }
-
-#endif
-
-SEASTAR_INCLUDE_API_V2 namespace api_v2 { class server_socket; }
+class server_socket;
 class connected_socket;
 class socket_address;
 
@@ -63,7 +57,7 @@ namespace tls {
         PEM,
     };
 
-    typedef compat::basic_string_view<char> blob;
+    typedef std::basic_string_view<char> blob;
 
     class session;
     class server_session;
@@ -124,12 +118,33 @@ namespace tls {
 
         virtual void set_simple_pkcs12(const blob&, x509_crt_format, const sstring& password) = 0;
 
-        future<> set_x509_trust_file(const sstring& cafile, x509_crt_format);
-        future<> set_x509_crl_file(const sstring& crlfile, x509_crt_format);
-        future<> set_x509_key_file(const sstring& cf, const sstring& kf, x509_crt_format);
+        virtual future<> set_x509_trust_file(const sstring& cafile, x509_crt_format);
+        virtual future<> set_x509_crl_file(const sstring& crlfile, x509_crt_format);
+        virtual future<> set_x509_key_file(const sstring& cf, const sstring& kf, x509_crt_format);
 
-        future<> set_simple_pkcs12_file(const sstring& pkcs12file, x509_crt_format, const sstring& password);
+        virtual future<> set_simple_pkcs12_file(const sstring& pkcs12file, x509_crt_format, const sstring& password);
     };
+
+    template<typename Base>
+    class reloadable_credentials;
+
+    /**
+     * Enum like tls::session::type but independent of gnutls headers
+     *
+     * \warning Uses a different internal encoding than tls::session::type
+     */
+    enum class session_type {
+        CLIENT, SERVER,
+    };
+
+    /**
+     * Callback prototype for receiving Distinguished Name (DN) information
+     *
+     * \param type Our own role in the TLS handshake (client vs. server)
+     * \param subject The subject DN string
+     * \param issuer The issuer DN string
+     */
+    using dn_callback = noncopyable_function<void(session_type type, sstring subject, sstring issuer)>;
 
     /**
      * Holds certificates and keys.
@@ -171,13 +186,39 @@ namespace tls {
          * Allows specifying order and allowance for handshake alg.
          */
         void set_priority_string(const sstring&);
+
+        /**
+         * Register a callback for receiving Distinguished Name (DN) information
+         * during the TLS handshake, extracted from the certificate as sent by the peer.
+         *
+         * The callback is not invoked in case the peer did not send a certificate.
+         * (This could e.g. happen when we are the server, and a client connects while
+         * client_auth is not set to REQUIRE.)
+         *
+         * If, based upon the extracted DN information, you want to abort the handshake,
+         * then simply throw an exception (e.g., from the callback) like verification_error.
+         *
+         * Registering this callback does not bypass the 'standard' certificate verification
+         * procedure; instead it merely extracts the DN information from the peer certificate
+         * (i.e., the 'leaf' certificate from the chain of certificates sent by the peer)
+         * and allows for extra checks.
+         *
+         * To keep the API simple, you can unregister the callback by means of registering
+         * an empty callback, i.e. dn_callback{}
+         *
+         * The callback prototype is documented in the dn_callback typedef.
+         */
+        void set_dn_verification_callback(dn_callback);
+
     private:
         class impl;
         friend class session;
         friend class server_session;
         friend class server_credentials;
         friend class credentials_builder;
-        std::unique_ptr<impl> _impl;
+        template<typename Base>
+        friend class reloadable_credentials;
+        shared_ptr<impl> _impl;
     };
 
     /** Exception thrown on certificate validation error */
@@ -196,6 +237,7 @@ namespace tls {
      */
     class server_credentials : public certificate_credentials {
     public:
+        server_credentials();
         server_credentials(shared_ptr<dh_params>);
         server_credentials(const dh_params&);
 
@@ -207,6 +249,10 @@ namespace tls {
 
         void set_client_auth(client_auth);
     };
+
+    class reloadable_credentials_base;
+
+    using reload_callback = std::function<void(const std::unordered_set<sstring>&, std::exception_ptr)>;
 
     /**
      * Intentionally "primitive", and more importantly, copyable
@@ -227,6 +273,11 @@ namespace tls {
         void set_x509_key(const blob& cert, const blob& key, x509_crt_format) override;
         void set_simple_pkcs12(const blob&, x509_crt_format, const sstring& password) override;
 
+        future<> set_x509_trust_file(const sstring& cafile, x509_crt_format) override;
+        future<> set_x509_crl_file(const sstring& crlfile, x509_crt_format) override;
+        future<> set_x509_key_file(const sstring& cf, const sstring& kf, x509_crt_format) override;
+        future<> set_simple_pkcs12_file(const sstring& pkcs12file, x509_crt_format, const sstring& password) override;
+
         future<> set_system_trust();
         void set_client_auth(client_auth);
         void set_priority_string(const sstring&);
@@ -236,7 +287,13 @@ namespace tls {
         shared_ptr<certificate_credentials> build_certificate_credentials() const;
         shared_ptr<server_credentials> build_server_credentials() const;
 
+        // same as above, but any files used for certs/keys etc will be watched
+        // for modification and reloaded if changed
+        future<shared_ptr<certificate_credentials>> build_reloadable_certificate_credentials(reload_callback = {}, std::optional<std::chrono::milliseconds> tolerance = {}) const;
+        future<shared_ptr<server_credentials>> build_reloadable_server_credentials(reload_callback = {}, std::optional<std::chrono::milliseconds> tolerance = {}) const;
     private:
+        friend class reloadable_credentials_base;
+
         std::multimap<sstring, boost::any> _blobs;
         client_auth _client_auth = client_auth::NONE;
         sstring _priority;

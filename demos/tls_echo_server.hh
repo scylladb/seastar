@@ -20,14 +20,13 @@
  */
 #pragma once
 
-#include <seastar/core/do_with.hh>
 #include <seastar/core/sstring.hh>
-#include <seastar/core/reactor.hh>
 #include <seastar/core/do_with.hh>
-#include <seastar/core/future-util.hh>
 #include <seastar/core/sharded.hh>
 #include <seastar/core/gate.hh>
+#include <seastar/core/loop.hh>
 #include <seastar/net/tls.hh>
+#include <seastar/util/log.hh>
 #include <iostream>
 
 using namespace seastar;
@@ -42,7 +41,7 @@ struct streams {
 };
 
 class echoserver {
-    api_v2::server_socket _socket;
+    server_socket _socket;
     shared_ptr<tls::server_credentials> _certs;
     seastar::gate _gate;
     bool _stopped = false;

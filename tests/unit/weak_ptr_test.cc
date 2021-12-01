@@ -29,6 +29,11 @@ using namespace seastar;
 
 class myclass : public weakly_referencable<myclass> {};
 
+static_assert(std::is_nothrow_default_constructible_v<myclass>);
+
+static_assert(std::is_nothrow_default_constructible_v<weak_ptr<myclass>>);
+static_assert(std::is_nothrow_move_constructible_v<weak_ptr<myclass>>);
+
 BOOST_AUTO_TEST_CASE(test_weak_ptr_is_empty_when_default_initialized) {
     weak_ptr<myclass> wp;
     BOOST_REQUIRE(!bool(wp));
@@ -49,8 +54,9 @@ BOOST_AUTO_TEST_CASE(test_weak_ptr_can_be_moved) {
     weak_ptr<myclass> wp2 = owning_ptr->weak_from_this();
     weak_ptr<myclass> wp3 = owning_ptr->weak_from_this();
 
-    auto wp3_moved = std::move(wp3);
-    auto wp1_moved = std::move(wp1);
+    weak_ptr<myclass> wp3_moved;
+    wp3_moved = std::move(wp3);
+    weak_ptr<myclass> wp1_moved(std::move(wp1));
     auto wp2_moved = std::move(wp2);
     BOOST_REQUIRE(!bool(wp1));
     BOOST_REQUIRE(!bool(wp2));
@@ -58,12 +64,46 @@ BOOST_AUTO_TEST_CASE(test_weak_ptr_can_be_moved) {
     BOOST_REQUIRE(bool(wp1_moved));
     BOOST_REQUIRE(bool(wp2_moved));
     BOOST_REQUIRE(bool(wp3_moved));
+    BOOST_REQUIRE(wp1_moved.get() == owning_ptr.get());
+    BOOST_REQUIRE(wp2_moved.get() == owning_ptr.get());
+    BOOST_REQUIRE(wp3_moved.get() == owning_ptr.get());
 
     owning_ptr = {};
 
     BOOST_REQUIRE(!bool(wp1_moved));
     BOOST_REQUIRE(!bool(wp2_moved));
     BOOST_REQUIRE(!bool(wp3_moved));
+}
+
+BOOST_AUTO_TEST_CASE(test_weak_ptr_can_be_copied) {
+    auto owning_ptr = std::make_unique<myclass>();
+    weak_ptr<myclass> wp1 = owning_ptr->weak_from_this();
+    weak_ptr<myclass> wp2 = owning_ptr->weak_from_this();
+    weak_ptr<myclass> wp3 = owning_ptr->weak_from_this();
+
+    weak_ptr<myclass> wp1_copied(wp1);
+    auto wp2_copied = wp2;
+    weak_ptr<myclass> wp3_copied;
+    wp3_copied = wp3;
+    BOOST_REQUIRE(bool(wp1));
+    BOOST_REQUIRE(bool(wp2));
+    BOOST_REQUIRE(bool(wp3));
+    BOOST_REQUIRE(bool(wp1_copied));
+    BOOST_REQUIRE(bool(wp2_copied));
+    BOOST_REQUIRE(bool(wp3_copied));
+
+    BOOST_REQUIRE(wp1.get() == wp1_copied.get());
+    BOOST_REQUIRE(wp2.get() == wp2_copied.get());
+    BOOST_REQUIRE(wp3.get() == wp3_copied.get());
+
+    owning_ptr = {};
+
+    BOOST_REQUIRE(!bool(wp1));
+    BOOST_REQUIRE(!bool(wp2));
+    BOOST_REQUIRE(!bool(wp3));
+    BOOST_REQUIRE(!bool(wp1_copied));
+    BOOST_REQUIRE(!bool(wp2_copied));
+    BOOST_REQUIRE(!bool(wp3_copied));
 }
 
 BOOST_AUTO_TEST_CASE(test_multipe_weak_ptrs) {

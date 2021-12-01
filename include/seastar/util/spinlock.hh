@@ -22,6 +22,7 @@
 #pragma once
 
 #include <atomic>
+#include <cassert>
 
 #if defined(__x86_64__) || defined(__i386__)
 #include <xmmintrin.h>
@@ -85,6 +86,9 @@ public:
     spinlock() = default;
     spinlock(const spinlock&) = delete;
     ~spinlock() { assert(!_busy.load(std::memory_order_relaxed)); }
+    bool try_lock() noexcept {
+        return !_busy.exchange(true, std::memory_order_acquire);
+    }
     void lock() noexcept {
         while (_busy.exchange(true, std::memory_order_acquire)) {
             internal::cpu_relax();

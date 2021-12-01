@@ -21,7 +21,7 @@
 
 namespace seastar {
 
-namespace fs = seastar::compat::filesystem;
+namespace fs = std::filesystem;
 
 #pragma once
 template <typename T>

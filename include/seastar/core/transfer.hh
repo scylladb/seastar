@@ -33,6 +33,7 @@
 // transfer_pass1() simply moves the objects and destroys the source, and
 // transfer_pass2() does nothing.
 
+#include <memory>
 #include <type_traits>
 #include <utility>
 
@@ -43,8 +44,8 @@ inline
 void
 transfer_pass1(Alloc& a, T* from, T* to,
         typename std::enable_if<std::is_nothrow_move_constructible<T>::value>::type* = nullptr) {
-    a.construct(to, std::move(*from));
-    a.destroy(from);
+    std::allocator_traits<Alloc>::construct(a, to, std::move(*from));
+    std::allocator_traits<Alloc>::destroy(a, from);
 }
 
 template <typename T, typename Alloc>
@@ -59,7 +60,7 @@ inline
 void
 transfer_pass1(Alloc& a, T* from, T* to,
         typename std::enable_if<!std::is_nothrow_move_constructible<T>::value>::type* = nullptr) {
-    a.construct(to, *from);
+    std::allocator_traits<Alloc>::construct(a, to, *from);
 }
 
 template <typename T, typename Alloc>
@@ -67,7 +68,7 @@ inline
 void
 transfer_pass2(Alloc& a, T* from, T* to,
         typename std::enable_if<!std::is_nothrow_move_constructible<T>::value>::type* = nullptr) {
-    a.destroy(from);
+    std::allocator_traits<Alloc>::destroy(a, from);
 }
 
 }

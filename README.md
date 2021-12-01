@@ -52,12 +52,12 @@ Build modes
 The configure.py script is a wrapper around cmake. The --mode argument
 maps to CMAKE_BUILD_TYPE, and supports the following modes
 
-          | CMake mode        | Debug info | Optimizations  | Sanitizers   | Allocator | Checks   | Use for                                |
- ---------+-------------------+------------+----------------+--------------+-----------+----------+----------------------------------------|
- debug    | Debug             | Yes        | -O0            | ASAN, UBSAN  | System    | All      | gdb                                    |
- release  | RelWithDebInfo    | Yes        | -O3            | None         | Seastar   | Asserts  | production                             |
- dev      | Dev (Custom)      | No         | -O1            | None         | Seastar   | Asserts  | build and test cycle                   |
- sanitize | Sanitize (Custom) | Yes        | -Os            | ASAN, UBSAN  | System    | All      | second level of tests, track down bugs |
+|          | CMake mode          | Debug info | Optimi&shy;zations | Sanitizers   | Allocator | Checks   | Use for                                |
+| -------- | ------------------- | ---------- | ------------------ |------------- | --------- | -------- | -------------------------------------- |
+| debug    | `Debug`             | Yes        | `-O0`              | ASAN, UBSAN  | System    | All      | gdb                                    |
+| release  | `RelWithDebInfo`    | Yes        | `-O3`              | None         | Seastar   | Asserts  | production                             |
+| dev      | `Dev` (Custom)      | No         | `-O1`              | None         | Seastar   | Asserts  | build and test cycle                   |
+| sanitize | `Sanitize` (Custom) | Yes        | `-Os`              | ASAN, UBSAN  | System    | All      | second level of tests, track down bugs |
 
 Note that seastar is more sensitive to allocators and optimizations than
 usual. A quick rule of the thumb of the relative performances is that
@@ -140,21 +140,15 @@ There are also instructions for building on any host that supports [Docker](doc/
 
 Use of the [DPDK](http://dpdk.org) is [optional](doc/building-dpdk.md).
 
-#### Seastar's C++ dialect: C++14 or C++17
+#### Seastar's C++ dialect: C++17 or C++20
 
-Seastar supports both C++14, and C++17. Some newer features and optimizations
-may only be available to C++17, so users are encouraged to use C++17 when
-possible. By default Seastar builds with the C++17 dialect, but a C++14
-compilation can be requested with a `./configure.py --c++-dialect=gnu++14`
-or, if using CMake directly, by setting on the `Seastar_CXX_DIALECT` CMake
-variable to `"gnu++14"`.
+Seastar supports both C++17, and C++20. The build defaults to the latest
+dialect supported by your compiler, but can be explicitly selected with
+the `--c++-dialect` configure option, e.g., `--c++-dialect=gnu++17`,
+or if using CMake directly, by setting on the `Seastar_CXX_DIALECT` CMake
+variable.
 
-However, by default Seastar uses C++14-compatible types such as
-`std::experimental::optional<>`, `boost::variant` and `std::experimental::string_view`, both internally and in its public
-API, thus forcing them on C++17 projects. To fix this, Seastar respects the value of the preprocessor variable
-`SEASTAR_USE_STD_OPTIONAL_VARIANT_STRINGVIEW`, which changes those types to their `stdlib` incarnation, and allows
-seemless use of C++17. Usage of this option requires an updated compiler, such
-as GCC 8.1.1-5 on Fedora.
+See the [compatibity statement](doc/compatibility.md) for more information.
 
 Getting started
 ---------------

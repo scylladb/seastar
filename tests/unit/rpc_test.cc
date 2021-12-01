@@ -31,7 +31,11 @@
 #include <seastar/core/thread.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/distributed.hh>
+#include <seastar/core/loop.hh>
 #include <seastar/util/defer.hh>
+#include <seastar/util/log.hh>
+#include <seastar/util/closeable.hh>
+#include <seastar/util/noncopyable_function.hh>
 
 using namespace seastar;
 
@@ -175,12 +179,12 @@ class rpc_test_env {
 
     rpc_test_config _cfg;
     loopback_connection_factory _lcf;
-    sharded<rpc_test_service> _service;
+    std::unique_ptr<sharded<rpc_test_service>> _service;
 
 public:
     rpc_test_env() = delete;
     explicit rpc_test_env(rpc_test_config cfg)
-        : _cfg(cfg)
+        : _cfg(cfg), _service(std::make_unique<sharded<rpc_test_service>>())
     {
     }
 
@@ -209,7 +213,7 @@ public:
         return do_with(std::move(cfg), [func, co = std::move(co)] (rpc_test_env<MsgType>& env) {
             return seastar::async([&env, func, co = std::move(co)] {
                 test_rpc_proto::client cl(env.proto(), co, env.make_socket(), ipv4_addr());
-                auto stop = defer([&] { cl.stop().get(); });
+                auto stop = deferred_stop(cl);
                 func(env, cl);
             });
         });
@@ -233,7 +237,7 @@ public:
 
     template<typename Func>
     future<> register_handler(MsgType t, scheduling_group sg, Func func) {
-        return _service.invoke_on_all([t, func = std::move(func), sg] (rpc_test_service& s) mutable {
+        return _service->invoke_on_all([t, func = std::move(func), sg] (rpc_test_service& s) mutable {
             s.register_handler(t, sg, std::move(func));
         });
     }
@@ -244,22 +248,23 @@ public:
     }
 
     future<> unregister_handler(MsgType t) {
-        return _service.invoke_on_all([t] (rpc_test_service& s) mutable {
+        return _service->invoke_on_all([t] (rpc_test_service& s) mutable {
             return s.unregister_handler(t);
         });
     }
 
 private:
     rpc_test_service& local_service() {
-        return _service.local();
+        return _service->local();
+
     }
 
     future<> start() {
-        return _service.start(std::cref(_cfg), std::ref(_lcf));
+        return _service->start(std::cref(_cfg), std::ref(_lcf));
     }
 
     future<> stop() {
-        return _service.stop().then([this] {
+        return _service->stop().then([this] {
             return _lcf.destroy_all_shards();
         });
     }
@@ -272,10 +277,18 @@ struct cfactory : rpc::compressor::factory {
     const sstring& supported() const override {
         return name;
     }
+    class mylz4 : public rpc::lz4_compressor {
+        sstring _name;
+    public:
+        mylz4(const sstring& n) : _name(n) {}
+        sstring name() const override {
+            return _name;
+        }
+    };
     std::unique_ptr<rpc::compressor> negotiate(sstring feature, bool is_server) const override {
         if (feature == name) {
             use_compression++;
-            return std::make_unique<rpc::lz4_compressor>();
+            return std::make_unique<mylz4>(name);
         } else {
             return nullptr;
         }
@@ -425,8 +438,8 @@ struct stream_test_result {
     int server_sum = 0;
 };
 
-future<stream_test_result> stream_test_func(rpc_test_env<>& env, bool stop_client) {
-    return seastar::async([&env, stop_client] {
+future<stream_test_result> stream_test_func(rpc_test_env<>& env, bool stop_client, bool expect_connection_error = false) {
+    return seastar::async([&env, stop_client, expect_connection_error] {
         stream_test_result r;
         test_rpc_proto::client c(env.proto(), {}, env.make_socket(), ipv4_addr());
         future<> server_done = make_ready_future();
@@ -438,9 +451,12 @@ future<stream_test_result> stream_test_func(rpc_test_env<>& env, bool stop_clien
                     sink("seastar").get();
                     sleep(std::chrono::milliseconds(1)).get();
                 }
-                sink.flush().get();
-                sink.close().get();
-            });
+            }).finally([sink] () mutable {
+                return sink.flush();
+            }).finally([sink] () mutable {
+                return sink.close();
+            }).finally([sink] {});
+
             auto source_loop = seastar::async([source, &r] () mutable {
                 while (!r.server_source_closed) {
                     auto data = source().get0();
@@ -493,7 +509,10 @@ future<stream_test_result> stream_test_func(rpc_test_env<>& env, bool stop_clien
             return false;
         };
         future<> stop_client_future = make_ready_future();
-        for (int i = 1; i < 101; i++) {
+        // With a connection error sink() will eventually fail, but we
+        // cannot guarantee when.
+        int max = expect_connection_error ? std::numeric_limits<int>::max()  : 101;
+        for (int i = 1; i < max; i++) {
             if (stop_client && i == 50) {
                 // stop client while stream is in use
                 stop_client_future = c.stop();
@@ -557,7 +576,7 @@ SEASTAR_TEST_CASE(test_stream_connection_error) {
     cfg.server_options = so;
     cfg.inject_error = true;
     return rpc_test_env<>::do_with(cfg, [] (rpc_test_env<>& env) {
-        return stream_test_func(env, false).then([] (stream_test_result r) {
+        return stream_test_func(env, false, true).then([] (stream_test_result r) {
             BOOST_REQUIRE(!r.client_source_closed);
             BOOST_REQUIRE(!r.server_source_closed);
             BOOST_REQUIRE(r.sink_exception);
@@ -583,9 +602,9 @@ SEASTAR_TEST_CASE(test_rpc_scheduling) {
 
 SEASTAR_THREAD_TEST_CASE(test_rpc_scheduling_connection_based) {
     auto sg1 = create_scheduling_group("sg1", 100).get0();
-    auto sg1_kill = defer([&] { destroy_scheduling_group(sg1).get(); });
+    auto sg1_kill = defer([&] () noexcept { destroy_scheduling_group(sg1).get(); });
     auto sg2 = create_scheduling_group("sg2", 100).get0();
-    auto sg2_kill = defer([&] { destroy_scheduling_group(sg2).get(); });
+    auto sg2_kill = defer([&] () noexcept { destroy_scheduling_group(sg2).get(); });
     rpc::resource_limits limits;
     limits.isolate_connection = [sg1, sg2] (sstring cookie) {
         auto sg = current_scheduling_group();
@@ -623,9 +642,9 @@ SEASTAR_THREAD_TEST_CASE(test_rpc_scheduling_connection_based) {
 
 SEASTAR_THREAD_TEST_CASE(test_rpc_scheduling_connection_based_compatibility) {
     auto sg1 = create_scheduling_group("sg1", 100).get0();
-    auto sg1_kill = defer([&] { destroy_scheduling_group(sg1).get(); });
+    auto sg1_kill = defer([&] () noexcept { destroy_scheduling_group(sg1).get(); });
     auto sg2 = create_scheduling_group("sg2", 100).get0();
-    auto sg2_kill = defer([&] { destroy_scheduling_group(sg2).get(); });
+    auto sg2_kill = defer([&] () noexcept { destroy_scheduling_group(sg2).get(); });
     rpc::resource_limits limits;
     limits.isolate_connection = [sg1, sg2] (sstring cookie) {
         auto sg = current_scheduling_group();
@@ -714,7 +733,7 @@ void test_compressor(std::function<std::unique_ptr<seastar::rpc::compressor>()> 
                 for (auto& b : bufs) {
                     c.emplace_back(b.clone());
                 }
-                return SEASTAR_COPY_ELISION(c);
+                return c;
             }
         );
         return c;
@@ -722,72 +741,103 @@ void test_compressor(std::function<std::unique_ptr<seastar::rpc::compressor>()> 
 
     auto compressor = compressor_factory();
 
-    std::vector<std::tuple<sstring, size_t, snd_buf>> inputs;
+    std::vector<noncopyable_function<std::tuple<sstring, size_t, snd_buf> ()>> inputs;
+
+    auto add_input = [&] (auto func_returning_tuple) {
+        inputs.emplace_back(std::move(func_returning_tuple));
+    };
 
     auto& eng = testing::local_random_engine;
     auto dist = std::uniform_int_distribution<char>();
 
     auto snd = snd_buf(1);
     *snd.front().get_write() = 'a';
-    inputs.emplace_back("one byte, no headroom", 0, std::move(snd));
+    add_input([snd = std::move(snd)] () mutable { return std::tuple(sstring("one byte, no headroom"), size_t(0), std::move(snd)); });
 
     snd = snd_buf(1);
     *snd.front().get_write() = 'a';
-    inputs.emplace_back("one byte, 128k of headroom", 128 * 1024, std::move(snd));
+    add_input([snd = std::move(snd)] () mutable { return std::tuple(sstring("one byte, 128k of headroom"), size_t(128 * 1024), std::move(snd)); });
 
-    auto buf = temporary_buffer<char>(16 * 1024);
-    std::fill_n(buf.get_write(), 16 * 1024, 'a');
+    auto gen_fill = [&](size_t s, sstring msg, std::optional<size_t> split = {}) {
+        auto buf = temporary_buffer<char>(s);
+        std::fill_n(buf.get_write(), s, 'a');
 
-    snd = snd_buf();
-    snd.size = 16 * 1024;
-    snd.bufs = buf.clone();
-    inputs.emplace_back("single 16 kB buffer of \'a\'", 0, std::move(snd));
+        auto snd = snd_buf();
+        snd.size = s;
+        if (split) {
+            snd.bufs = split_buffer(buf.clone(), *split);
+        } else {
+            snd.bufs = buf.clone();
+        }
+        return std::tuple(msg, size_t(0), std::move(snd));
+    };
 
-    buf = temporary_buffer<char>(16 * 1024);
-    std::generate_n(buf.get_write(), 16 * 1024, [&] { return dist(eng); });
 
-    snd = snd_buf();
-    snd.size = 16 * 1024;
-    snd.bufs = buf.clone();
-    inputs.emplace_back("single 16 kB buffer of random", 0, std::move(snd));
+    add_input(std::bind(gen_fill, 16 * 1024, "single 16 kB buffer of \'a\'"));
 
-    buf = temporary_buffer<char>(1 * 1024 * 1024);
-    std::fill_n(buf.get_write(), 1 * 1024 * 1024, 'a');
+    auto gen_rand = [&](size_t s, sstring msg, std::optional<size_t> split = {}) {
+        auto buf = temporary_buffer<char>(s);
+        std::generate_n(buf.get_write(), s, [&] { return dist(eng); });
 
-    snd = snd_buf();
-    snd.size = 1 * 1024 * 1024;
-    snd.bufs = split_buffer(buf.clone(), 128 * 1024 - 128);
-    inputs.emplace_back("1 MB buffer of \'a\' split into 128 kB - 128", 0, std::move(snd));
+        auto snd = snd_buf();
+        snd.size = s;
+        if (split) {
+            snd.bufs = split_buffer(buf.clone(), *split);
+        } else {
+            snd.bufs = buf.clone();
+        }
+        return std::tuple(msg, size_t(0), std::move(snd));
+    };
 
-    snd = snd_buf();
-    snd.size = 1 * 1024 * 1024;
-    snd.bufs = split_buffer(buf.clone(), 128 * 1024);
-    inputs.emplace_back("1 MB buffer of \'a\' split into 128 kB", 0, std::move(snd));
+    add_input(std::bind(gen_rand, 16 * 1024, "single 16 kB buffer of random"));
 
-    buf = temporary_buffer<char>(1 * 1024 * 1024);
-    std::generate_n(buf.get_write(), 1 * 1024 * 1024, [&] { return dist(eng); });
+    auto gen_text = [&](size_t s, sstring msg, std::optional<size_t> split = {}) {
+        static const std::string_view text = "The quick brown fox wants bananas for his long term health but sneaks bacon behind his wife's back. ";
 
-    snd = snd_buf();
-    snd.size = 1 * 1024 * 1024;
-    snd.bufs = split_buffer(buf.clone(), 128 * 1024);
-    inputs.emplace_back("1 MB buffer of random split into 128 kB", 0, std::move(snd));
+        auto buf = temporary_buffer<char>(s);
+        size_t n = 0;
+        while (n < s) {
+            auto rem = std::min(s - n, text.size());
+            std::copy(text.data(), text.data() + rem, buf.get_write() + n);
+            n += rem;
+        }
 
-    buf = temporary_buffer<char>(1 * 1024 * 1024 + 1);
-    std::fill_n(buf.get_write(), 1 * 1024 * 1024 + 1, 'a');
+        auto snd = snd_buf();
+        snd.size = s;
+        if (split) {
+            snd.bufs = split_buffer(buf.clone(), *split);
+        } else {
+            snd.bufs = buf.clone();
+        }
+        return std::tuple(msg, size_t(0), std::move(snd));
+    };
 
-    snd = snd_buf();
-    snd.size = 1 * 1024 * 1024 + 1;
-    snd.bufs = split_buffer(buf.clone(), 128 * 1024);
-    inputs.emplace_back("1 MB + 1B buffer of \'a\' split into 128 kB", 0, std::move(snd));
 
-    buf = temporary_buffer<char>(1 * 1024 * 1024 + 1);
-    std::generate_n(buf.get_write(), 1 * 1024 * 1024 + 1, [&] { return dist(eng); });
+    for (auto s : { 1, 4 }) {
+        for (auto ss : { 32, 64, 128, 48, 56, 246, 511 }) {
+            add_input(std::bind(gen_fill, s * 1024 * 1024, format("{} MB buffer of \'a\' split into {} kB - {}", s, ss, ss), ss * 1024 - ss));
+            add_input(std::bind(gen_fill, s * 1024 * 1024, format("{} MB buffer of \'a\' split into {} kB", s, ss), ss * 1024));
+            add_input(std::bind(gen_rand, s * 1024 * 1024, format("{} MB buffer of random split into {} kB", s, ss), ss * 1024));
 
-    snd = snd_buf();
-    snd.size = 1 * 1024 * 1024 + 1;
-    snd.bufs = split_buffer(buf.clone(), 128 * 1024);
-    inputs.emplace_back("16 MB + 1 B buffer of random split into 128 kB", 0, std::move(snd));
+            add_input(std::bind(gen_fill, s * 1024 * 1024 + 1, format("{} MB + 1B buffer of \'a\' split into {} kB", s, ss), ss * 1024));
+            add_input(std::bind(gen_rand, s * 1024 * 1024 + 1, format("{} MB + 1B buffer of random split into {} kB", s, ss), ss * 1024));
+        }
 
+        for (auto ss : { 128, 246, 511, 3567, 2*1024, 8*1024 }) {
+            add_input(std::bind(gen_fill, s * 1024 * 1024, format("{} MB buffer of \'a\' split into {} B", s, ss), ss));
+            add_input(std::bind(gen_rand, s * 1024 * 1024, format("{} MB buffer of random split into {} B", s, ss), ss));
+            add_input(std::bind(gen_text, s * 1024 * 1024, format("{} MB buffer of text split into {} B", s, ss), ss));
+            add_input(std::bind(gen_fill, s * 1024 * 1024 - ss, format("{} MB - {}B buffer of \'a\' split into {} B", s, ss, ss), ss));
+            add_input(std::bind(gen_rand, s * 1024 * 1024 - ss, format("{} MB - {}B buffer of random split into {} B", s, ss, ss), ss));
+            add_input(std::bind(gen_text, s * 1024 * 1024 - ss, format("{} MB - {}B buffer of random split into {} B", s, ss, ss), ss));
+        }
+    }
+
+    for (auto s : { 64*1024 + 5670, 16*1024 + 3421, 32*1024 - 321 }) {
+        add_input(std::bind(gen_fill, s, format("{} bytes buffer of \'a\'", s)));
+        add_input(std::bind(gen_rand, s, format("{} bytes buffer of random", s)));
+        add_input(std::bind(gen_text, s, format("{} bytes buffer of text", s)));
+    }
 
     std::vector<std::tuple<sstring, std::function<rcv_buf(snd_buf)>>> transforms {
         { "identity", [] (snd_buf snd) {
@@ -842,7 +892,8 @@ void test_compressor(std::function<std::unique_ptr<seastar::rpc::compressor>()> 
         BOOST_CHECK_EQUAL(actual_size, buffer.size);
     };
 
-    for (auto& in : inputs) {
+    for (auto& in_func : inputs) {
+        auto in = in_func();
         BOOST_TEST_MESSAGE("Input: " << std::get<0>(in));
         auto headroom = std::get<1>(in);
         auto compressed = compressor->compress(headroom, clone(std::get<2>(in)));
@@ -987,7 +1038,7 @@ SEASTAR_TEST_CASE(test_rpc_nonvariadic_client_variadic_server) {
     return rpc_test_env<>::do_with_thread(rpc_test_config(), [] (rpc_test_env<>& env, test_rpc_proto::client& c1) {
         // Server is variadic
         env.register_handler(1, [] () {
-            return make_ready_future<int, long>(1, 0x7'0000'0000L);
+            return make_ready_future<rpc::tuple<int, long>>(rpc::tuple(1, 0x7'0000'0000L));
         }).get();
         // Client is non-variadic
         auto f1 = env.proto().make_client<future<rpc::tuple<int, long>> ()>(1);
@@ -1004,8 +1055,8 @@ SEASTAR_TEST_CASE(test_rpc_variadic_client_nonvariadic_server) {
             return make_ready_future<rpc::tuple<int, long>>(rpc::tuple<int, long>(1, 0x7'0000'0000L));
         }).get();
         // Client is variadic
-        auto f1 = env.proto().make_client<future<int, long> ()>(1);
-        auto result = f1(c1).get();
+        auto f1 = env.proto().make_client<future<rpc::tuple<int, long>> ()>(1);
+        auto result = f1(c1).get0();
         BOOST_REQUIRE_EQUAL(std::get<0>(result), 1);
         BOOST_REQUIRE_EQUAL(std::get<1>(result), 0x7'0000'0000L);
     });
@@ -1016,6 +1067,9 @@ SEASTAR_TEST_CASE(test_handler_registration) {
     cfg.connect = false;
     return rpc_test_env<>::do_with_thread(cfg, [] (rpc_test_env<>& env) {
         auto& proto = env.proto();
+
+        // new proto must be empty
+        BOOST_REQUIRE(!proto.has_handlers());
 
         // non-existing handler should not be found
         BOOST_REQUIRE(!proto.has_handler(1));
@@ -1040,6 +1094,9 @@ SEASTAR_TEST_CASE(test_handler_registration) {
         // re-registering a handler should succeed
         proto.register_handler(1, handler);
         BOOST_REQUIRE(proto.has_handler(1));
+
+        // proto with handlers must not be empty
+        BOOST_REQUIRE(proto.has_handlers());
     });
 }
 
@@ -1120,8 +1177,31 @@ SEASTAR_TEST_CASE(test_unregister_handler) {
     });
 }
 
-#if __cplusplus >= 201703
+SEASTAR_TEST_CASE(test_loggers) {
+    static seastar::logger log("dummy");
+    log.set_level(log_level::debug);
+    return rpc_test_env<>::do_with_thread(rpc_test_config(), [] (rpc_test_env<>& env, test_rpc_proto::client& c1) {
+        socket_address dummy_addr;
+        auto& proto = env.proto();
+        auto& logger = proto.get_logger();
+        logger(dummy_addr, "Hello0");
+        logger(dummy_addr, log_level::debug, "Hello1");
+        proto.set_logger(&log);
+        logger(dummy_addr, "Hello2");
+        logger(dummy_addr, log_level::debug, "Hello3");
+        // We *want* to test the deprecated API, don't spam warnings about it.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+        proto.set_logger([] (const sstring& str) {
+            log.info("Test: {}", str);
+        });
+#pragma GCC diagnostic pop
+        logger(dummy_addr, "Hello4");
+        logger(dummy_addr, log_level::debug, "Hello5");
+        proto.set_logger(nullptr);
+        logger(dummy_addr, "Hello6");
+        logger(dummy_addr, log_level::debug, "Hello7");
+    });
+}
 
 static_assert(std::is_same_v<decltype(rpc::tuple(1U, 1L)), rpc::tuple<unsigned, long>>, "rpc::tuple deduction guid not working");
-
-#endif

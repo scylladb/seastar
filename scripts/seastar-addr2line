@@ -23,153 +23,9 @@ import collections
 import re
 import sys
 import subprocess
+from enum import Enum
 
-class Addr2Line:
-    def __init__(self, binary):
-        self._binary = binary
-
-        # Print warning if binary has no debug info according to `file`.
-        # Note: no message is printed for system errors as they will be
-        # printed also by addr2line later on.
-        output = subprocess.check_output(["file", self._binary])
-        s = output.decode("utf-8")
-        if s.find('ELF') >= 0 and s.find('debug_info', len(self._binary)) < 0:
-            print('{}'.format(s))
-
-        self._addr2line = subprocess.Popen(["addr2line", "-Cfpia", "-e", self._binary], stdin=subprocess.PIPE, stdout=subprocess.PIPE, universal_newlines=True)
-
-        # If a library doesn't exist in a particular path, addr2line
-        # will just exit.  We need to be robust against that.  We
-        # can't just wait on self._addr2line since there is no
-        # guarantee on what timeout is sufficient.
-        self._addr2line.stdin.write('\n')
-        self._addr2line.stdin.flush()
-        res = self._addr2line.stdout.readline()
-        self._missing = res == ''
-
-    def _read_resolved_address(self):
-        res = self._addr2line.stdout.readline()
-        # remove the address
-        res = res.split(': ', 1)[1]
-        dummy = '0x0000000000000000: ?? ??:0\n'
-        line = ''
-        while line != dummy:
-            res += line
-            line = self._addr2line.stdout.readline()
-        return res
-
-    def __call__(self, address):
-        if self._missing:
-            return " ".join([self._binary, address, '\n'])
-        # print two lines to force addr2line to output a dummy
-        # line which we can look for in _read_address
-        self._addr2line.stdin.write(address + '\n\n')
-        self._addr2line.stdin.flush()
-        return self._read_resolved_address()
-
-class BacktraceResolver(object):
-    object_address_re = re.compile('^(.*?)\W(((/[^/]+)+)\+)?(0x[0-9a-f]+)\W*$')
-
-    def __init__(self, executable, before_lines, context_re, verbose):
-        self._executable = executable
-        self._current_backtrace = []
-        self._prefix = None
-        self._before_lines = before_lines
-        self._before_lines_queue = collections.deque(maxlen=before_lines)
-        self._i = 0
-        self._known_backtraces = {}
-        if context_re is not None:
-            self._context_re = re.compile(context_re)
-        else:
-            self._context_re = None
-        self._verbose = verbose
-        self._known_modules = {self._executable: Addr2Line(self._executable)}
-
-    def _get_resolver_for_module(self, module):
-        if not module in self._known_modules:
-            self._known_modules[module] = Addr2Line(module)
-        return self._known_modules[module]
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, type, value, tb):
-        self._print_current_backtrace()
-
-    def _print_resolved_address(self, module, address):
-        resolved_address = self._get_resolver_for_module(module)(address)
-        if self._verbose:
-            resolved_address = '{{{}}} {}: {}'.format(module, address, resolved_address)
-        sys.stdout.write(resolved_address)
-
-    def _backtrace_context_matches(self):
-        if self._context_re is None:
-            return True
-
-        if any(map(lambda x: self._context_re.search(x) is not None, self._before_lines_queue)):
-            return True
-
-        if (not self._prefix is None) and self._context_re.search(self._prefix):
-            return True
-
-        return False
-
-    def _print_current_backtrace(self):
-        if len(self._current_backtrace) == 0:
-            return
-
-        if not self._backtrace_context_matches():
-            self._current_backtrace = []
-            return
-
-        for line in self._before_lines_queue:
-            sys.stdout.write(line)
-
-        if not self._prefix is None:
-            print(self._prefix)
-            self._prefix = None
-
-        backtrace = "".join(map(str, self._current_backtrace))
-        if backtrace in self._known_backtraces:
-            print("[Backtrace #{}] Already seen, not resolving again.".format(self._known_backtraces[backtrace]))
-            print("") # To separate traces with an empty line
-            self._current_backtrace = []
-            return
-
-        self._known_backtraces[backtrace] = self._i
-
-        print("[Backtrace #{}]".format(self._i))
-
-        for module, addr in self._current_backtrace:
-            self._print_resolved_address(module, addr)
-
-        print("") # To separate traces with an empty line
-
-        self._current_backtrace = []
-        self._i += 1
-
-    def __call__(self, line):
-        match = re.match(self.object_address_re, line)
-
-        if match:
-            prefix, _, object_path, _, addr = match.groups()
-
-            if len(self._current_backtrace) == 0:
-                self._prefix = prefix;
-
-            if object_path:
-                self._current_backtrace.append((object_path, addr))
-            else:
-                self._current_backtrace.append((self._executable, addr))
-        else:
-            self._print_current_backtrace()
-            if self._before_lines > 0:
-                self._before_lines_queue.append(line)
-            elif self._before_lines < 0:
-                sys.stdout.write(line) # line already has a trailing newline
-            else:
-                pass # when == 0 no non-backtrace lines are printed
-
+from addr2line import BacktraceResolver
 
 class StdinBacktraceIterator(object):
     """
@@ -231,7 +87,7 @@ cmdline_parser.add_argument(
         required=False,
         metavar='FILE',
         dest='file',
-        help='The file containing the addresses (one per line)')
+        help='The file containing the addresses')
 
 cmdline_parser.add_argument(
         '-b',
@@ -261,6 +117,13 @@ cmdline_parser.add_argument(
         ' it originates from, as well as the address being resolved')
 
 cmdline_parser.add_argument(
+        '-t',
+        '--test',
+        action='store_true',
+        default=False,
+        help='Self-test')
+
+cmdline_parser.add_argument(
         'addresses',
         type=str,
         metavar='ADDRESS',
@@ -268,6 +131,64 @@ cmdline_parser.add_argument(
         help='Addresses to parse')
 
 args = cmdline_parser.parse_args()
+
+if args.test:
+    data = [
+        ('---', {'type': BacktraceResolver.BacktraceParser.Type.SEPARATOR}),
+
+        ('0x12f34', {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': None, 'addr': '0x12f34'}]}),
+        ('0xa1234 0xb4567', {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': None, 'addr': '0xa1234'},{'path': None, 'addr': '0xb4567'}]}),
+        ('	0xa1234 /my/path+0xb4567', {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': None, 'addr': '0xa1234'},{'path': '/my/path', 'addr': '0xb4567'}]}),
+        ('/my/path+0x12f34', {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': '/my/path', 'addr': '0x12f34'}]}),
+        (' /my/path+0x12f34', {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': '/my/path', 'addr': '0x12f34'}]}),
+
+        ('Some prefix 0x12f34', None),
+        ('Some prefix /my/path+0x12f34', None),
+
+        ('Reactor stalled on shard 1. Backtrace: 0x12f34',
+                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': 'Reactor stalled on shard 1. Backtrace:',
+                 'addresses': [{'path': None, 'addr': '0x12f34'}]}),
+        ('Reactor stalled on shard 1. Backtrace: 0xa1234 0xb5678',
+                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': 'Reactor stalled on shard 1. Backtrace:',
+                 'addresses': [{'path': None, 'addr': '0xa1234'}, {'path': None, 'addr': '0xb5678'}]}),
+        ('Reactor stalled on shard 1. Backtrace: /my/path+0xabcd',
+                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': 'Reactor stalled on shard 1. Backtrace:',
+                 'addresses': [{'path': '/my/path', 'addr': '0xabcd'}]}),
+
+        ('Expected partition_end(), but got end of stream, at 0xa1234 0xb5678 /my/path+0xabcd',
+                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': 'Expected partition_end(), but got end of stream, at',
+                 'addresses': [{'path': None, 'addr': '0xa1234'}, {'path': None, 'addr': '0xb5678'}, {'path': '/my/path', 'addr': '0xabcd'}]}),
+
+        ('==16118==ERROR: AddressSanitizer: heap-use-after-free on address 0x60700019c710 at pc 0x000014d24643 bp 0x7ffc51f72220 sp 0x7ffc51f72218', None),
+        ('READ of size 8 at 0x60700019c710 thread T0', None),
+        ('#0 0x14d24642  (/jenkins/workspace/scylla-enterprise/dtest-debug/scylla/.ccm/scylla-repository/1a5173bd45d01697d98ba2a7645f5d86afb2d0be/scylla/libexec/scylla+0x14d24642)',
+                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None,
+                 'addresses': [{'path': '/jenkins/workspace/scylla-enterprise/dtest-debug/scylla/.ccm/scylla-repository/1a5173bd45d01697d98ba2a7645f5d86afb2d0be/scylla/libexec/scylla', 'addr': '0x14d24642'}]}),
+
+        ('Apr 28 11:42:58 ip-172-31-2-154.ec2.internal scylla[10612]: Reactor stalled for 260 ms on shard 20.', None),
+        ('Apr 28 11:42:58 ip-172-31-2-154.ec2.internal scylla[10612]: Backtrace:', None),
+        ('Apr 28 11:42:58 ip-172-31-2-154.ec2.internal scylla[10612]: 0x0000000003163dc2',
+                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': 'Apr 28 11:42:58 ip-172-31-2-154.ec2.internal scylla[10612]:',
+                 'addresses': [{'path': None, 'addr': '0x0000000003163dc2'}]}),
+
+        ('seastar::internal::backtraced<std::runtime_error> (throw_with_backtrace_exception_logging Backtrace: 0x42bc95 /lib64/libc.so.6+0x281e1 0x412cfd)',
+                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': 'seastar::internal::backtraced<std::runtime_error> (throw_with_backtrace_exception_logging Backtrace:',
+                 'addresses': [{'path': None, 'addr': '0x42bc95'}, {'path': '/lib64/libc.so.6', 'addr': '0x281e1'}, {'path': None, 'addr': '0x412cfd'}]}),
+        ('seastar::nested_exception: seastar::internal::backtraced<std::runtime_error> (inner Backtrace: 0x42bc95 /lib64/libc.so.6+0x281e1 0x412cfd) (while cleaning up after unknown_obj)',
+                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': 'seastar::nested_exception: seastar::internal::backtraced<std::runtime_error> (inner Backtrace:',
+                 'addresses': [{'path': None, 'addr': '0x42bc95'}, {'path': '/lib64/libc.so.6', 'addr': '0x281e1'}, {'path': None, 'addr': '0x412cfd'}]}),
+        ('seastar::nested_exception: seastar::internal::backtraced<std::runtime_error> (inner Backtrace: 0x42bc95 /lib64/libc.so.6+0x281e1 0x412cfd) '
+         '(while cleaning up after seastar::internal::backtraced<std::runtime_error> (outer Backtrace: 0x1234 /lib64/libc.so.6+0x5678 0xabcd))',
+                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
+                 'prefix': 'seastar::nested_exception: seastar::internal::backtraced<std::runtime_error> (inner Backtrace: 0x42bc95 /lib64/libc.so.6+0x281e1 0x412cfd)'
+                           ' (while cleaning up after seastar::internal::backtraced<std::runtime_error> (outer Backtrace:',
+                 'addresses': [{'path': None, 'addr': '0x1234'}, {'path': '/lib64/libc.so.6', 'addr': '0x5678'}, {'path': None, 'addr': '0xabcd'}]}),
+    ]
+    parser = BacktraceResolver.BacktraceParser()
+    for line, expected in data:
+        res = parser(line)
+        assert res == expected, f"{line}:\nExpected {expected}\nBut got  {res}"
+    exit(0)
 
 if args.addresses and args.file:
     print("Cannot use both -f and ADDRESS")
@@ -284,6 +205,7 @@ else:
     else:
         lines = sys.stdin
 
-with BacktraceResolver(args.executable, args.before, args.match, args.verbose) as resolve:
+with BacktraceResolver(executable=args.executable, before_lines=args.before, context_re=args.match, verbose=args.verbose) as resolve:
+    p = re.compile(r'\W+')
     for line in lines:
         resolve(line)

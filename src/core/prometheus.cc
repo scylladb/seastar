@@ -20,9 +20,6 @@
  */
 
 #include <seastar/core/prometheus.hh>
-#include <google/protobuf/io/coded_stream.h>
-#include <google/protobuf/io/zero_copy_stream_impl_lite.h>
-#include "proto/metrics2.pb.h"
 #include <sstream>
 
 #include <seastar/core/scollectd_api.hh>
@@ -35,84 +32,15 @@
 #include <boost/range/algorithm.hpp>
 #include <boost/range/combine.hpp>
 #include <seastar/core/thread.hh>
+#include <seastar/core/loop.hh>
 
 namespace seastar {
 
+extern seastar::logger seastar_logger;
+
 namespace prometheus {
-namespace pm = io::prometheus::client;
 
 namespace mi = metrics::impl;
-
-/**
- * Taken from an answer in stackoverflow:
- * http://stackoverflow.com/questions/2340730/are-there-c-equivalents-for-the-protocol-buffers-delimited-i-o-functions-in-ja
- */
-static bool write_delimited_to(const google::protobuf::MessageLite& message,
-        google::protobuf::io::ZeroCopyOutputStream* rawOutput) {
-    google::protobuf::io::CodedOutputStream output(rawOutput);
-
-    const int size = message.ByteSize();
-    output.WriteVarint32(size);
-
-    uint8_t* buffer = output.GetDirectBufferForNBytesAndAdvance(size);
-    if (buffer != nullptr) {
-        message.SerializeWithCachedSizesToArray(buffer);
-    } else {
-        message.SerializeWithCachedSizes(&output);
-        if (output.HadError()) {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-static pm::Metric* add_label(pm::Metric* mt, const metrics::impl::metric_id & id, const config& ctx) {
-    mt->mutable_label()->Reserve(id.labels().size() + 1);
-    if (ctx.label) {
-        auto label = mt->add_label();
-        label->set_name(ctx.label->key());
-        label->set_value(ctx.label->value());
-    }
-    for (auto &&i : id.labels()) {
-        auto label = mt->add_label();
-        label->set_name(i.first);
-        label->set_value(i.second);
-    }
-    return mt;
-}
-
-static void fill_metric(pm::MetricFamily& mf, const metrics::impl::metric_value& c,
-        const metrics::impl::metric_id & id, const config& ctx) {
-    switch (c.type()) {
-    case scollectd::data_type::DERIVE:
-        add_label(mf.add_metric(), id, ctx)->mutable_counter()->set_value(c.i());
-        mf.set_type(pm::MetricType::COUNTER);
-        break;
-    case scollectd::data_type::GAUGE:
-        add_label(mf.add_metric(), id, ctx)->mutable_gauge()->set_value(c.d());
-        mf.set_type(pm::MetricType::GAUGE);
-        break;
-    case scollectd::data_type::HISTOGRAM:
-    {
-        auto h = c.get_histogram();
-        auto mh = add_label(mf.add_metric(), id,ctx)->mutable_histogram();
-        mh->set_sample_count(h.sample_count);
-        mh->set_sample_sum(h.sample_sum);
-        for (auto b : h.buckets) {
-            auto bc = mh->add_bucket();
-            bc->set_cumulative_count(b.count);
-            bc->set_upper_bound(b.upper_bound);
-        }
-        mf.set_type(pm::MetricType::HISTOGRAM);
-        break;
-    }
-    default:
-        add_label(mf.add_metric(), id, ctx)->mutable_counter()->set_value(c.ui());
-        mf.set_type(pm::MetricType::COUNTER);
-        break;
-    }
-}
 
 static std::string to_str(seastar::metrics::impl::data_type dt) {
     switch (dt) {
@@ -123,11 +51,10 @@ static std::string to_str(seastar::metrics::impl::data_type dt) {
     case seastar::metrics::impl::data_type::HISTOGRAM:
         return "histogram";
     case seastar::metrics::impl::data_type::DERIVE:
-        // Prometheus server does not respect derive parameters
+    case seastar::metrics::impl::data_type::ABSOLUTE:
+        // Prometheus server does not respect derive/absolute parameters
         // So we report them as counter
         return "counter";
-    default:
-        break;
     }
     return "untyped";
 }
@@ -137,10 +64,11 @@ static std::string to_str(const seastar::metrics::impl::metric_value& v) {
     case seastar::metrics::impl::data_type::GAUGE:
         return std::to_string(v.d());
     case seastar::metrics::impl::data_type::COUNTER:
-        return std::to_string(v.i());
-    case seastar::metrics::impl::data_type::DERIVE:
+    case seastar::metrics::impl::data_type::ABSOLUTE:
         return std::to_string(v.ui());
-    default:
+    case seastar::metrics::impl::data_type::DERIVE:
+        return std::to_string(v.i());
+    case seastar::metrics::impl::data_type::HISTOGRAM:
         break;
     }
     return ""; // we should never get here but it makes the compiler happy
@@ -595,7 +523,19 @@ future<> write_text_representation(output_stream<char>& out, const config& ctx, 
                     s << "\n";
                 } else {
                     add_name(s, name, value_info.id.labels(), ctx);
-                    s << to_str(value);
+                    std::string value_str;
+                    try {
+                        value_str = to_str(value);
+                    } catch (const std::range_error& e) {
+                        seastar_logger.debug("prometheus: write_text_representation: {}: {}", s.str(), e.what());
+                        value_str = "NaN";
+                    } catch (...) {
+                        auto ex = std::current_exception();
+                        // print this error as it's ignored later on by `connection::start_response`
+                        seastar_logger.error("prometheus: write_text_representation: {}: {}", s.str(), ex);
+                        std::rethrow_exception(std::move(ex));
+                    }
+                    s << value_str;
                     s << "\n";
                 }
                 out.write(s.str()).get();
@@ -603,38 +543,6 @@ future<> write_text_representation(output_stream<char>& out, const config& ctx, 
             });
         }
     });
-}
-
-future<> write_protobuf_representation(output_stream<char>& out, const config& ctx, metric_family_range& m) {
-    return do_for_each(m, [&ctx, &out](metric_family& metric_family) mutable {
-        std::string s;
-        google::protobuf::io::StringOutputStream os(&s);
-
-        auto& name = metric_family.name();
-        pm::MetricFamily mtf;
-
-        mtf.set_name(ctx.prefix + "_" + name);
-        mtf.mutable_metric()->Reserve(metric_family.size());
-        metric_family.foreach_metric([&mtf, &ctx](auto value, auto value_info) {
-            fill_metric(mtf, value, value_info.id, ctx);
-        });
-        if (!write_delimited_to(mtf, &os)) {
-            seastar_logger.warn("Failed to write protobuf metrics");
-        }
-        return out.write(s);
-    });
-}
-
-bool is_accept_text(const std::string& accept) {
-    std::vector<std::string> strs;
-    boost::split(strs, accept, boost::is_any_of(","));
-    for (auto i : strs) {
-        boost::trim(i);
-        if (boost::starts_with(i, "application/vnd.google.protobuf;")) {
-            return false;
-        }
-    }
-    return true;
 }
 
 class metrics_handler : public handler_base  {
@@ -666,18 +574,16 @@ public:
 
     future<std::unique_ptr<httpd::reply>> handle(const sstring& path,
         std::unique_ptr<httpd::request> req, std::unique_ptr<httpd::reply> rep) override {
-        auto text = is_accept_text(req->get_header("Accept"));
         sstring metric_family_name = req->get_query_param("name");
         bool prefix = trim_asterisk(metric_family_name);
 
-        rep->write_body((text) ? "txt" : "proto", [this, text, metric_family_name, prefix] (output_stream<char>&& s) {
+        rep->write_body("txt", [this, metric_family_name, prefix] (output_stream<char>&& s) {
             return do_with(metrics_families_per_shard(), output_stream<char>(std::move(s)),
-                    [this, text, prefix, &metric_family_name] (metrics_families_per_shard& families, output_stream<char>& s) mutable {
-                return get_map_value(families).then([&s, &families, this, text, prefix, &metric_family_name]() mutable {
+                    [this, prefix, &metric_family_name] (metrics_families_per_shard& families, output_stream<char>& s) mutable {
+                return get_map_value(families).then([&s, &families, this, prefix, &metric_family_name]() mutable {
                     return do_with(get_range(families, metric_family_name, prefix),
-                            [&s, this, text](metric_family_range& m) {
-                        return (text) ? write_text_representation(s, _ctx, m) :
-                                write_protobuf_representation(s, _ctx, m);
+                            [&s, this](metric_family_range& m) {
+                        return write_text_representation(s, _ctx, m);
                     });
                 }).finally([&s] () mutable {
                     return s.close();

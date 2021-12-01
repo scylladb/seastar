@@ -31,6 +31,7 @@
 #include <limits>
 #include "cgroup.hh"
 #include <seastar/util/log.hh>
+#include <seastar/core/io_queue.hh>
 
 #include <boost/range/adaptor/map.hpp>
 #include <boost/range/algorithm/copy.hpp>
@@ -39,9 +40,11 @@ namespace seastar {
 
 extern logger seastar_logger;
 
+namespace resource {
+
 // This function was made optional because of validate. It needs to
 // throw an error when a non parseable input is given.
-compat::optional<resource::cpuset> parse_cpuset(std::string value) {
+std::optional<cpuset> parse_cpuset(std::string value) {
     static std::regex r("(\\d+-)?(\\d+)(,(\\d+-)?(\\d+))*");
 
     std::smatch match;
@@ -61,7 +64,7 @@ compat::optional<resource::cpuset> parse_cpuset(std::string value) {
             auto e = boost::lexical_cast<unsigned>(end);
 
             if (b > e) {
-                return seastar::compat::nullopt;
+                return std::nullopt;
             }
 
             for (auto i = b; i <= e; ++i) {
@@ -70,44 +73,25 @@ compat::optional<resource::cpuset> parse_cpuset(std::string value) {
         }
         return ret;
     }
-    return seastar::compat::nullopt;
+    return std::nullopt;
 }
 
-// Overload for boost program options parsing/validation
-void validate(boost::any& v,
-              const std::vector<std::string>& values,
-              cpuset_bpo_wrapper* target_type, int) {
-    using namespace boost::program_options;
-    validators::check_first_occurrence(v);
-
-    // Extract the first string from 'values'. If there is more than
-    // one string, it's an error, and exception will be thrown.
-    auto&& s = validators::get_single_string(values);
-    auto parsed_cpu_set = parse_cpuset(s);
-
-    if (parsed_cpu_set) {
-        cpuset_bpo_wrapper ret;
-        ret.value = *parsed_cpu_set;
-        v = std::move(ret);
-    } else {
-        throw validation_error(validation_error::invalid_option_value);
-    }
 }
 
 namespace cgroup {
 
-namespace fs = seastar::compat::filesystem;
+namespace fs = std::filesystem;
 
 optional<cpuset> cpu_set() {
     auto cpuset = read_setting_V1V2_as<std::string>(
                               "cpuset/cpuset.cpus",
                               "cpuset.cpus.effective");
     if (cpuset) {
-        return seastar::parse_cpuset(*cpuset);
+        return seastar::resource::parse_cpuset(*cpuset);
     }
 
     seastar_logger.warn("Unable to parse cgroup's cpuset. Ignoring.");
-    return seastar::compat::nullopt;
+    return std::nullopt;
 }
 
 size_t memory_limit() {
@@ -126,7 +110,7 @@ optional<T> read_setting_as(std::string path) {
         seastar_logger.warn("Couldn't read cgroup file {}.", path);
     }
 
-    return seastar::compat::nullopt;
+    return std::nullopt;
 }
 
 /*
@@ -152,7 +136,7 @@ static optional<fs::path> cgroup2_path_my_pid() {
         // This is either a v1 system, or system configured with a hybrid of v1 & v2.
         // We do not support such combinations of v1 and v2 at this point.
         seastar_logger.debug("Not a cgroups-v2-only system");
-        return seastar::compat::nullopt;
+        return std::nullopt;
     }
 
     // the path is guaranteed to start with '0::/'
@@ -176,7 +160,7 @@ static optional<fs::path> locate_lowest_cgroup2(fs::path lowest_subdir, std::str
         lowest_subdir = lowest_subdir.parent_path();
     } while (lowest_subdir.compare("/sys/fs"));
 
-    return seastar::compat::nullopt;
+    return std::nullopt;
 }
 
 /*
@@ -198,7 +182,7 @@ optional<T> read_setting_V1V2_as(std::string cg1_path, std::string cg2_fname) {
             line = read_first_line(locate_lowest_cgroup2(*cg2_path, cg2_fname).value());
         } catch (...) {
             seastar_logger.warn("Could not read cgroups v2 file ({}).", cg2_fname);
-            return seastar::compat::nullopt;
+            return std::nullopt;
         }
         if (line.compare("max")) {
             try {
@@ -207,7 +191,7 @@ optional<T> read_setting_V1V2_as(std::string cg1_path, std::string cg2_fname) {
                 seastar_logger.warn("Malformed cgroups file ({}) contents.", cg2_fname);
             }
         }
-        return seastar::compat::nullopt;
+        return std::nullopt;
     }
 
     // try cgroups v1:
@@ -218,14 +202,14 @@ optional<T> read_setting_V1V2_as(std::string cg1_path, std::string cg2_fname) {
         seastar_logger.warn("Could not parse cgroups v1 file ({}).", cg1_path);
     }
 
-    return seastar::compat::nullopt;
+    return std::nullopt;
 }
 
 }
 
 namespace resource {
 
-size_t calculate_memory(configuration c, size_t available_memory, float panic_factor = 1) {
+size_t calculate_memory(const configuration& c, size_t available_memory, float panic_factor = 1) {
     size_t default_reserve_memory = std::max<size_t>(1536 * 1024 * 1024, 0.07 * available_memory) * panic_factor;
     auto reserve = c.reserve_memory.value_or(default_reserve_memory);
     size_t min_memory = 500'000'000;
@@ -242,6 +226,19 @@ size_t calculate_memory(configuration c, size_t available_memory, float panic_fa
     return mem;
 }
 
+io_queue_topology::io_queue_topology() {
+}
+
+io_queue_topology::~io_queue_topology() {
+}
+
+io_queue_topology::io_queue_topology(io_queue_topology&& o)
+    : queues(std::move(o.queues))
+    , shard_to_group(std::move(o.shard_to_group))
+    , groups(std::move(o.groups))
+    , lock() // unused until now, so just initialize
+{ }
+
 }
 
 }
@@ -250,7 +247,6 @@ size_t calculate_memory(configuration c, size_t available_memory, float panic_fa
 
 #include <seastar/util/defer.hh>
 #include <seastar/core/print.hh>
-#include <hwloc.h>
 #include <unordered_map>
 #include <boost/range/irange.hpp>
 
@@ -287,7 +283,7 @@ static size_t alloc_from_node(cpu& this_cpu, hwloc_obj_t node, std::unordered_ma
 }
 
 // Find the numa node that contains a specific PU.
-static hwloc_obj_t get_numa_node_for_pu(hwloc_topology_t& topology, hwloc_obj_t pu) {
+static hwloc_obj_t get_numa_node_for_pu(hwloc_topology_t topology, hwloc_obj_t pu) {
     // Can't use ancestry because hwloc 2.0 NUMA nodes are not ancestors of PUs
     hwloc_obj_t tmp = NULL;
     auto depth = hwloc_get_type_or_above_depth(topology, HWLOC_OBJ_NUMANODE);
@@ -296,15 +292,39 @@ static hwloc_obj_t get_numa_node_for_pu(hwloc_topology_t& topology, hwloc_obj_t 
             return tmp;
         }
     }
-    assert(false && "PU not inside any NUMA node");
-    abort();
+    return nullptr;
+}
+
+static hwloc_obj_t hwloc_get_ancestor(hwloc_obj_type_t type, hwloc_topology_t topology, unsigned cpu_id) {
+    auto cur = hwloc_get_pu_obj_by_os_index(topology, cpu_id);
+
+    while (cur != nullptr) {
+        if (cur->type == type) {
+            break;
+        }
+        cur = cur->parent;
+    }
+
+    return cur;
+}
+
+static std::unordered_map<hwloc_obj_t, std::vector<unsigned>> break_cpus_into_groups(hwloc_topology_t topology,
+        std::vector<unsigned> cpus, hwloc_obj_type_t type) {
+    std::unordered_map<hwloc_obj_t, std::vector<unsigned>> groups;
+
+    for (auto&& cpu_id : cpus) {
+        hwloc_obj_t anc = hwloc_get_ancestor(type, topology, cpu_id);
+        groups[anc].push_back(cpu_id);
+    }
+
+    return groups;
 }
 
 struct distribute_objects {
     std::vector<hwloc_cpuset_t> cpu_sets;
     hwloc_obj_t root;
 
-    distribute_objects(hwloc_topology_t& topology, size_t nobjs) : cpu_sets(nobjs), root(hwloc_get_root_obj(topology)) {
+    distribute_objects(hwloc_topology_t topology, size_t nobjs) : cpu_sets(nobjs), root(hwloc_get_root_obj(topology)) {
 #if HWLOC_API_VERSION >= 0x00010900
         hwloc_distrib(topology, &root, 1, cpu_sets.data(), cpu_sets.size(), INT_MAX, 0);
 #else
@@ -323,10 +343,10 @@ struct distribute_objects {
 };
 
 static io_queue_topology
-allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, unsigned num_io_queues, unsigned& last_node_idx) {
-    auto node_of_shard = [&topology, &cpus] (unsigned shard) {
-        auto pu = hwloc_get_pu_obj_by_os_index(topology, cpus[shard].cpu_id);
-        auto node = get_numa_node_for_pu(topology, pu);
+allocate_io_queues(hwloc_topology_t topology, std::vector<cpu> cpus, std::unordered_map<unsigned, hwloc_obj_t>& cpu_to_node,
+        unsigned num_io_groups, unsigned& last_node_idx) {
+    auto node_of_shard = [&cpus, &cpu_to_node] (unsigned shard) {
+        auto node = cpu_to_node.at(cpus[shard].cpu_id);
         return hwloc_bitmap_first(node->nodeset);
     };
 
@@ -351,15 +371,17 @@ allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, unsigned n
     }
 
     io_queue_topology ret;
-    ret.shard_to_coordinator.resize(cpus.size());
-    ret.coordinator_to_idx.resize(cpus.size());
-    ret.coordinator_to_idx_valid.resize(cpus.size());
+    ret.shard_to_group.resize(cpus.size());
 
-    // User may be playing with --smp option, but num_io_queues was independently
-    // determined by iotune, so adjust for any conflicts.
-    if (num_io_queues > cpus.size()) {
-        fmt::print("Warning: number of IO queues ({:d}) greater than logical cores ({:d}). Adjusting downwards.\n", num_io_queues, cpus.size());
-        num_io_queues = cpus.size();
+    if (num_io_groups == 0) {
+        num_io_groups = numa_nodes.size();
+        assert(num_io_groups != 0);
+        seastar_logger.debug("Auto-configure {} IO groups", num_io_groups);
+    } else if (num_io_groups > cpus.size()) {
+        // User may be playing with --smp option, but num_io_groups was independently
+        // determined by iotune, so adjust for any conflicts.
+        fmt::print("Warning: number of IO queues ({:d}) greater than logical cores ({:d}). Adjusting downwards.\n", num_io_groups, cpus.size());
+        num_io_groups = cpus.size();
     }
 
     auto find_shard = [&cpus] (unsigned cpu_id) {
@@ -373,21 +395,16 @@ allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, unsigned n
         assert(0);
     };
 
-    auto cpu_sets = distribute_objects(topology, num_io_queues);
-    ret.coordinators.reserve(cpu_sets().size());
+    auto cpu_sets = distribute_objects(topology, num_io_groups);
+    ret.queues.resize(cpus.size());
+    unsigned nr_groups = 0;
 
     // First step: distribute the IO queues given the information returned in cpu_sets.
     // If there is one IO queue per processor, only this loop will be executed.
     std::unordered_map<unsigned, std::vector<unsigned>> node_coordinators;
     for (auto&& cs : cpu_sets()) {
         auto io_coordinator = find_shard(hwloc_bitmap_first(cs));
-
-        ret.coordinator_to_idx[io_coordinator] = ret.coordinators.size();
-        assert(!ret.coordinator_to_idx_valid[io_coordinator]);
-        ret.coordinator_to_idx_valid[io_coordinator] = true;
-        ret.coordinators.emplace_back(io_coordinator);
-        // If a processor is a coordinator, it is also obviously a coordinator of itself
-        ret.shard_to_coordinator[io_coordinator] = io_coordinator;
+        ret.shard_to_group[io_coordinator] = nr_groups++;
 
         auto node_id = node_of_shard(io_coordinator);
         if (node_coordinators.count(node_id) == 0) {
@@ -397,6 +414,7 @@ allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, unsigned n
         numa_nodes[node_id].erase(io_coordinator);
     }
 
+    ret.groups.resize(nr_groups);
 
     auto available_nodes = boost::copy_range<std::vector<unsigned>>(node_coordinators | boost::adaptors::map_keys);
 
@@ -413,22 +431,54 @@ allocate_io_queues(hwloc_topology_t& topology, std::vector<cpu> cpus, unsigned n
             }
             auto idx = cid_idx++ % node_coordinators.at(my_node).size();
             auto io_coordinator = node_coordinators.at(my_node)[idx];
-            ret.shard_to_coordinator[remaining_shard] = io_coordinator;
+            ret.shard_to_group[remaining_shard] = ret.shard_to_group[io_coordinator];
         }
     }
 
     return ret;
 }
 
+namespace hwloc::internal {
 
-resources allocate(configuration c) {
-    hwloc_topology_t topology;
-    hwloc_topology_init(&topology);
-    auto free_hwloc = defer([&] { hwloc_topology_destroy(topology); });
-    hwloc_topology_load(topology);
+topology_holder::topology_holder(topology_holder&& o) noexcept
+    : _topology(std::exchange(o._topology, nullptr))
+{ }
+
+topology_holder::~topology_holder() {
+    if (_topology) {
+        hwloc_topology_destroy(_topology);
+    }
+}
+
+topology_holder& topology_holder::operator=(topology_holder&& o) noexcept {
+    if (this != &o) {
+        std::swap(_topology, o._topology);
+    }
+    return *this;
+}
+
+void topology_holder::init_and_load() {
+    hwloc_topology_init(&_topology);
+    // hwloc_topology_destroy is required after hwloc_topology_init
+    // on success, _topology will not be null anymore
+
+    hwloc_topology_load(_topology);
+}
+
+hwloc_topology_t topology_holder::get() {
+    if (!_topology) {
+        init_and_load();
+    }
+    return _topology;
+}
+
+} // namespace hwloc::internal
+
+resources allocate(configuration& c) {
+    auto topology = c.topology.get();
     if (c.cpu_set) {
         auto bm = hwloc_bitmap_alloc();
-        auto free_bm = defer([&] { hwloc_bitmap_free(bm); });
+        auto free_bm = defer([&] () noexcept { hwloc_bitmap_free(bm); });
         for (auto idx : *c.cpu_set) {
             hwloc_bitmap_set(bm, idx);
         }
@@ -465,21 +515,85 @@ resources allocate(configuration c) {
     if (procs > available_procs) {
         throw std::runtime_error("insufficient processing units");
     }
-    auto mem_per_proc = align_down<size_t>(mem / procs, 2 << 20);
+    // limit memory address to fit in 36-bit, see core/memory.cc:Memory map
+    constexpr size_t max_mem_per_proc = 1UL << 36;
+    auto mem_per_proc = std::min(align_down<size_t>(mem / procs, 2 << 20), max_mem_per_proc);
 
     resources ret;
+    std::unordered_map<unsigned, hwloc_obj_t> cpu_to_node;
+    std::vector<unsigned> orphan_pus;
     std::unordered_map<hwloc_obj_t, size_t> topo_used_mem;
     std::vector<std::pair<cpu, size_t>> remains;
     size_t remain;
 
     auto cpu_sets = distribute_objects(topology, procs);
 
-    // Divide local memory to cpus
     for (auto&& cs : cpu_sets()) {
         auto cpu_id = hwloc_bitmap_first(cs);
         assert(cpu_id != -1);
         auto pu = hwloc_get_pu_obj_by_os_index(topology, cpu_id);
         auto node = get_numa_node_for_pu(topology, pu);
+        if (node == nullptr) {
+            orphan_pus.push_back(cpu_id);
+        } else {
+            cpu_to_node[cpu_id] = node;
+            seastar_logger.debug("Assign CPU{} to NUMA{}", cpu_id, node->os_index);
+        }
+    }
+
+    if (!orphan_pus.empty()) {
+        if (!c.assign_orphan_cpus) {
+            seastar_logger.error("CPUs without local NUMA nodes are disabled by the "
+                        "--allow-cpus-in-remote-numa-nodes=false option.\n");
+            throw std::runtime_error("no NUMA node for CPU");
+        }
+
+        seastar_logger.warn("Assigning some CPUs to remote NUMA nodes");
+
+        // Get the list of NUMA nodes available
+        std::vector<hwloc_obj_t> nodes;
+
+        hwloc_obj_t tmp = NULL;
+        auto depth = hwloc_get_type_or_above_depth(topology, HWLOC_OBJ_NUMANODE);
+        while ((tmp = hwloc_get_next_obj_by_depth(topology, depth, tmp)) != NULL) {
+            nodes.push_back(tmp);
+        }
+
+        // Group orphan CPUs by ... some sane enough feature
+        std::unordered_map<hwloc_obj_t, std::vector<unsigned>> grouped;
+        hwloc_obj_type_t group_by[] = {
+            HWLOC_OBJ_L3CACHE,
+            HWLOC_OBJ_L2CACHE,
+            HWLOC_OBJ_L1CACHE,
+            HWLOC_OBJ_PU,
+        };
+
+        for (auto&& gb : group_by) {
+            grouped = break_cpus_into_groups(topology, orphan_pus, gb);
+            if (grouped.size() >= nodes.size()) {
+                seastar_logger.debug("Grouped orphan CPUs by {}", hwloc_obj_type_string(gb));
+                break;
+            }
+            // Try to scatter orphans into as much NUMA nodes as possible
+            // by grouping them with more specific selection
+        }
+
+        // Distribute PUs among the nodes by groups
+        unsigned nid = 0;
+        for (auto&& grp : grouped) {
+            for (auto&& cpu_id : grp.second) {
+                cpu_to_node[cpu_id] = nodes[nid];
+                seastar_logger.debug("Assign orphan CPU{} to NUMA{}", cpu_id, nodes[nid]->os_index);
+            }
+            nid = (nid + 1) % nodes.size();
+        }
+    }
+
+    // Divide local memory to cpus
+    for (auto&& cs : cpu_sets()) {
+        auto cpu_id = hwloc_bitmap_first(cs);
+        assert(cpu_id != -1);
+        auto node = cpu_to_node.at(cpu_id);
         cpu this_cpu;
         this_cpu.cpu_id = cpu_id;
         remain = mem_per_proc - alloc_from_node(this_cpu, node, topo_used_mem, mem_per_proc);
@@ -493,8 +607,7 @@ resources allocate(configuration c) {
         cpu this_cpu;
         size_t remain;
         std::tie(this_cpu, remain) = r;
-        auto pu = hwloc_get_pu_obj_by_os_index(topology, this_cpu.cpu_id);
-        auto node = get_numa_node_for_pu(topology, pu);
+        auto node = cpu_to_node.at(this_cpu.cpu_id);
         auto obj = node;
 
         while (remain) {
@@ -510,20 +623,14 @@ resources allocate(configuration c) {
     }
 
     unsigned last_node_idx = 0;
-    for (auto d : c.num_io_queues) {
-        auto devid = d.first;
-        auto num_io_queues = d.second;
-        ret.ioq_topology.emplace(devid, allocate_io_queues(topology, ret.cpus, num_io_queues, last_node_idx));
+    for (auto devid : c.devices) {
+        ret.ioq_topology.emplace(devid, allocate_io_queues(topology, ret.cpus, cpu_to_node, c.num_io_groups, last_node_idx));
     }
     return ret;
 }
 
-unsigned nr_processing_units() {
-    hwloc_topology_t topology;
-    hwloc_topology_init(&topology);
-    auto free_hwloc = defer([&] { hwloc_topology_destroy(topology); });
-    hwloc_topology_load(topology);
-    return hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_PU);
+unsigned nr_processing_units(configuration& c) {
+    return hwloc_get_nbobjs_by_type(c.topology.get(), HWLOC_OBJ_PU);
 }
 
 }
@@ -545,27 +652,23 @@ allocate_io_queues(configuration c, std::vector<cpu> cpus) {
     io_queue_topology ret;
 
     unsigned nr_cpus = unsigned(cpus.size());
-    ret.shard_to_coordinator.resize(nr_cpus);
-    ret.coordinators.resize(nr_cpus);
-    ret.coordinator_to_idx.resize(nr_cpus);
-    ret.coordinator_to_idx_valid.resize(nr_cpus);
+    ret.queues.resize(nr_cpus);
+    ret.shard_to_group.resize(nr_cpus);
+    ret.groups.resize(1);
 
     for (unsigned shard = 0; shard < nr_cpus; ++shard) {
-        ret.shard_to_coordinator[shard] = shard;
-        ret.coordinators[shard] = shard;
-        ret.coordinator_to_idx[shard] = shard;
-        ret.coordinator_to_idx_valid[shard] = true;
+        ret.shard_to_group[shard] = 0;
     }
     return ret;
 }
 
 
-resources allocate(configuration c) {
+resources allocate(configuration& c) {
     resources ret;
 
     auto available_memory = ::sysconf(_SC_PAGESIZE) * size_t(::sysconf(_SC_PHYS_PAGES));
     auto mem = calculate_memory(c, available_memory);
-    auto cpuset_procs = c.cpu_set ? c.cpu_set->size() : nr_processing_units();
+    auto cpuset_procs = c.cpu_set ? c.cpu_set->size() : nr_processing_units(c);
     auto procs = c.cpus.value_or(cpuset_procs);
     ret.cpus.reserve(procs);
     if (c.cpu_set) {
@@ -582,7 +685,7 @@ resources allocate(configuration c) {
     return ret;
 }
 
-unsigned nr_processing_units() {
+unsigned nr_processing_units(configuration&) {
     return ::sysconf(_SC_NPROCESSORS_ONLN);
 }
 

@@ -21,18 +21,38 @@
 #pragma once
 
 #include <boost/program_options.hpp>
-#include <boost/optional.hpp>
 #include <functional>
 #include <seastar/core/future.hh>
+#include <seastar/core/smp.hh>
 #include <seastar/core/sstring.hh>
+#include <seastar/util/program-options.hh>
+#include <seastar/core/metrics_api.hh>
+#include <seastar/core/scollectd.hh>
+#include <seastar/util/log-cli.hh>
 #include <chrono>
 
 namespace seastar {
 
+namespace alien {
+
+class instance;
+
+}
+
 class app_template {
 public:
     struct config {
+        /// The name of the application.
+        ///
+        /// Will be used in the --help output to distinguish command line args
+        /// registered by the application, as opposed to those registered by
+        /// seastar and its subsystems.
         sstring name = "App";
+        /// The description of the application.
+        ///
+        /// Will be printed on the top of the --help output. Lines should be
+        /// hard-wrapped for 80 chars.
+        sstring description = "";
         std::chrono::duration<double> default_task_quota = std::chrono::microseconds(500);
         /// \brief Handle SIGINT/SIGTERM by calling reactor::stop()
         ///
@@ -45,16 +65,63 @@ public:
         /// You can adjust the behavior of SIGINT/SIGTERM by installing signal handlers
         /// via reactor::handle_signal().
         bool auto_handle_sigint_sigterm = true;
+        /// Specifies the default value for linux-aio I/O control blocks. This translates
+        /// to the maximum number of sockets the shard can handle.
+        unsigned max_networking_aio_io_control_blocks = 10000;
         config() {}
+    };
+
+    /// Seastar configuration options
+    struct seastar_options : public program_options::option_group {
+        /// The name of the application.
+        ///
+        /// Will be used in the --help output to distinguish command line args
+        /// registered by the application, as opposed to those registered by
+        /// seastar and its subsystems.
+        sstring name = "App";
+        /// The description of the application.
+        ///
+        /// Will be printed on the top of the --help output. Lines should be
+        /// hard-wrapped for 80 chars.
+        sstring description = "";
+        /// \brief Handle SIGINT/SIGTERM by calling reactor::stop()
+        ///
+        /// When true, Seastar will set up signal handlers for SIGINT/SIGTERM that call
+        /// reactor::stop(). The reactor will then execute callbacks installed by
+        /// reactor::at_exit().
+        ///
+        /// When false, Seastar will not set up signal handlers for SIGINT/SIGTERM
+        /// automatically. The default behavior (terminate the program) will be kept.
+        /// You can adjust the behavior of SIGINT/SIGTERM by installing signal handlers
+        /// via reactor::handle_signal().
+        bool auto_handle_sigint_sigterm = true;
+        /// Configuration options for the reactor.
+        reactor_options reactor_opts;
+        /// Configuration for the metrics sub-system.
+        metrics::options metrics_opts;
+        /// Configuration options for the smp aspect of seastar.
+        smp_options smp_opts;
+        /// Configuration for the scollectd sub-system.
+        scollectd::options scollectd_opts;
+        /// Configuration for the logging sub-system.
+        log_cli::options log_opts;
+
+        seastar_options();
     };
 
     using configuration_reader = std::function<void (boost::program_options::variables_map&)>;
 private:
-    config _cfg;
-    boost::program_options::options_description _opts;
+    // unique_ptr to avoid pulling in alien.hh.
+    std::unique_ptr<alien::instance> _alien;
+    // reactor destruction is asynchronous, so we must let the last reactor
+    // destroy the smp instance
+    std::shared_ptr<smp> _smp;
+    seastar_options _opts;
+    boost::program_options::options_description _app_opts;
+    boost::program_options::options_description _seastar_opts;
     boost::program_options::options_description _opts_conf_file;
     boost::program_options::positional_options_description _pos_opts;
-    boost::optional<boost::program_options::variables_map> _configuration;
+    std::optional<boost::program_options::variables_map> _configuration;
     configuration_reader _conf_reader;
 
     configuration_reader get_default_configuration_reader();
@@ -66,26 +133,34 @@ public:
         int max_count;
     };
 public:
+    explicit app_template(seastar_options opts);
     explicit app_template(config cfg = config());
+    ~app_template();
+
+    const seastar_options& options() const;
 
     boost::program_options::options_description& get_options_description();
     boost::program_options::options_description& get_conf_file_options_description();
     boost::program_options::options_description_easy_init add_options();
     void add_positional_options(std::initializer_list<positional_option> options);
     boost::program_options::variables_map& configuration();
-    int run_deprecated(int ac, char ** av, std::function<void ()>&& func);
+    int run_deprecated(int ac, char ** av, std::function<void ()>&& func) noexcept;
 
     void set_configuration_reader(configuration_reader conf_reader);
+
+    /// Obtains an alien::instance object that can be used to send messages
+    /// to Seastar shards from non-Seastar threads.
+    alien::instance& alien() { return *_alien; }
 
     // Runs given function and terminates the application when the future it
     // returns resolves. The value with which the future resolves will be
     // returned by this function.
-    int run(int ac, char ** av, std::function<future<int> ()>&& func);
+    int run(int ac, char ** av, std::function<future<int> ()>&& func) noexcept;
 
     // Like run() which takes std::function<future<int>()>, but returns
     // with exit code 0 when the future returned by func resolves
     // successfully.
-    int run(int ac, char ** av, std::function<future<> ()>&& func);
+    int run(int ac, char ** av, std::function<future<> ()>&& func) noexcept;
 };
 
 }

@@ -26,10 +26,9 @@
 #include <seastar/core/circular_buffer.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/queue.hh>
-#include <seastar/core/future-util.hh>
+#include <seastar/core/loop.hh>
 #include <seastar/core/do_with.hh>
 #include <seastar/net/stack.hh>
-#include <seastar/core/reactor.hh>
 #include <seastar/core/sharded.hh>
 
 namespace seastar {
@@ -179,9 +178,19 @@ public:
     net::keepalive_params get_keepalive_parameters() const override {
         return net::tcp_keepalive_params {std::chrono::seconds(0), std::chrono::seconds(0), 0};
     }
+    void set_sockopt(int level, int optname, const void* data, size_t len) override {
+        throw std::runtime_error("Setting custom socket options is not supported for loopback");
+    }
+    int get_sockopt(int level, int optname, void* data, size_t len) const override {
+        throw std::runtime_error("Getting custom socket options is not supported for loopback");
+    }
+    socket_address local_address() const noexcept override {
+        // dummy
+        return {};
+    }
 };
 
-class loopback_server_socket_impl : public net::api_v2::server_socket_impl {
+class loopback_server_socket_impl : public net::server_socket_impl {
     lw_shared_ptr<queue<connected_socket>> _pending;
 public:
     explicit loopback_server_socket_impl(lw_shared_ptr<queue<connected_socket>> q)
@@ -210,16 +219,16 @@ public:
         _pending.resize(smp::count);
     }
     server_socket get_server_socket() {
-       if (!_pending[engine().cpu_id()]) {
-           _pending[engine().cpu_id()] = make_lw_shared<queue<connected_socket>>(10);
+       if (!_pending[this_shard_id()]) {
+           _pending[this_shard_id()] = make_lw_shared<queue<connected_socket>>(10);
        }
-       return server_socket(std::make_unique<loopback_server_socket_impl>(_pending[engine().cpu_id()]));
+       return server_socket(std::make_unique<loopback_server_socket_impl>(_pending[this_shard_id()]));
     }
     future<> make_new_server_connection(foreign_ptr<lw_shared_ptr<loopback_buffer>> b1, lw_shared_ptr<loopback_buffer> b2) {
-        if (!_pending[engine().cpu_id()]) {
-            _pending[engine().cpu_id()] = make_lw_shared<queue<connected_socket>>(10);
+        if (!_pending[this_shard_id()]) {
+            _pending[this_shard_id()] = make_lw_shared<queue<connected_socket>>(10);
         }
-        return _pending[engine().cpu_id()]->push_eventually(connected_socket(std::make_unique<loopback_connected_socket_impl>(std::move(b1), b2)));
+        return _pending[this_shard_id()]->push_eventually(connected_socket(std::make_unique<loopback_connected_socket_impl>(std::move(b1), b2)));
     }
     connected_socket make_new_client_connection(lw_shared_ptr<loopback_buffer> b1, foreign_ptr<lw_shared_ptr<loopback_buffer>> b2) {
         return connected_socket(std::make_unique<loopback_connected_socket_impl>(std::move(b2), b1));
@@ -232,7 +241,7 @@ public:
     }
     future<> destroy_all_shards() {
         return smp::invoke_on_all([this] () {
-            destroy_shard(engine().cpu_id());
+            destroy_shard(this_shard_id());
         });
     }
 };

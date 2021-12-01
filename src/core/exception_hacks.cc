@@ -94,6 +94,7 @@ void init_phdr_cache() {
 seastar::logger exception_logger("exception");
 
 void log_exception_trace() noexcept {
+    seastar::engine()._cxx_exceptions++;
     static thread_local bool nested = false;
     if (!nested && exception_logger.is_enabled(log_level::trace)) {
         nested = true;
@@ -143,7 +144,6 @@ int _Unwind_RaiseException(struct _Unwind_Exception *h) {
     }
     if (seastar::local_engine) {
         seastar::log_exception_trace();
-        seastar::engine()._cxx_exceptions++;
     }
     return org(h);
 }

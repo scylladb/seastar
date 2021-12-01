@@ -20,13 +20,17 @@
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
-#include <seastar/core/app-template.hh>
+#include <seastar/testing/test_case.hh>
+#include <seastar/testing/thread_test_case.hh>
 #include <seastar/core/distributed.hh>
-#include <seastar/core/future-util.hh>
+#include <seastar/core/loop.hh>
+#include <seastar/core/semaphore.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/print.hh>
 #include <seastar/util/defer.hh>
+#include <seastar/util/closeable.hh>
+#include <mutex>
 
 using namespace seastar;
 using namespace std::chrono_literals;
@@ -39,7 +43,7 @@ struct async_service : public seastar::async_sharded_service<async_service> {
     void run() {
         auto ref = shared_from_this();
         // Wait a while and check.
-        (void)sleep(std::chrono::milliseconds(100 + 100 * engine().cpu_id())).then([this, ref] {
+        (void)sleep(std::chrono::milliseconds(100 + 100 * this_shard_id())).then([this, ref] {
            check();
         });
     }
@@ -56,7 +60,7 @@ struct X {
         return arg;
     }
     int cpu_id_squared() const {
-        auto id = engine().cpu_id();
+        auto id = this_shard_id();
         return id * id;
     }
     future<> stop() { return make_ready_future<>(); }
@@ -70,7 +74,7 @@ future<> do_with_distributed(Func&& func) {
     }).finally([x]{});
 }
 
-future<> test_that_each_core_gets_the_arguments() {
+SEASTAR_TEST_CASE(test_that_each_core_gets_the_arguments) {
     return do_with_distributed<X>([] (auto& x) {
         return x.start().then([&x] {
             return x.map_reduce([] (sstring msg){
@@ -82,7 +86,7 @@ future<> test_that_each_core_gets_the_arguments() {
     });
 }
 
-future<> test_functor_version() {
+SEASTAR_TEST_CASE(test_functor_version) {
     return do_with_distributed<X>([] (auto& x) {
         return x.start().then([&x] {
             return x.map_reduce([] (sstring msg){
@@ -100,7 +104,7 @@ struct Y {
     future<> stop() { return make_ready_future<>(); }
 };
 
-future<> test_constructor_argument_is_passed_to_each_core() {
+SEASTAR_TEST_CASE(test_constructor_argument_is_passed_to_each_core) {
     return do_with_distributed<Y>([] (auto& y) {
         return y.start(sstring("hello")).then([&y] {
             return y.invoke_on_all([] (Y& y) {
@@ -112,7 +116,7 @@ future<> test_constructor_argument_is_passed_to_each_core() {
     });
 }
 
-future<> test_map_reduce() {
+SEASTAR_TEST_CASE(test_map_reduce) {
     return do_with_distributed<X>([] (distributed<X>& x) {
         return x.start().then([&x] {
             return x.map_reduce0(std::mem_fn(&X::cpu_id_squared),
@@ -127,7 +131,7 @@ future<> test_map_reduce() {
     });
 }
 
-future<> test_async() {
+SEASTAR_TEST_CASE(test_async) {
     return do_with_distributed<async_service>([] (distributed<async_service>& x) {
         return x.start().then([&x] {
             return x.invoke_on_all(&async_service::run);
@@ -137,7 +141,7 @@ future<> test_async() {
     });
 }
 
-future<> test_invoke_on_others() {
+SEASTAR_TEST_CASE(test_invoke_on_others) {
     return seastar::async([] {
         struct my_service {
             int counter = 0;
@@ -154,7 +158,7 @@ future<> test_invoke_on_others() {
                         throw std::runtime_error("local modified");
                     }
                     s.invoke_on_all([c](auto& remote) {
-                        if (engine().cpu_id() != c) {
+                        if (this_shard_id() != c) {
                             if (remote.counter != 1) {
                                 throw std::runtime_error("remote not modified");
                             }
@@ -167,16 +171,50 @@ future<> test_invoke_on_others() {
     });
 }
 
+SEASTAR_TEST_CASE(test_smp_invoke_on_others) {
+    return seastar::async([] {
+        std::vector<std::vector<int>> calls;
+        calls.reserve(smp::count);
+        for (unsigned i = 0; i < smp::count; i++) {
+            auto& sv = calls.emplace_back();
+            sv.reserve(smp::count);
+        }
+
+        smp::invoke_on_all([&calls] {
+            return smp::invoke_on_others([&calls, from = this_shard_id()] {
+                calls[this_shard_id()].emplace_back(from);
+            });
+        }).get();
+
+        for (unsigned i = 0; i < smp::count; i++) {
+            BOOST_REQUIRE_EQUAL(calls[i].size(), smp::count - 1);
+            for (unsigned f = 0; f < smp::count; f++) {
+                auto r = std::find(calls[i].begin(), calls[i].end(), f);
+                BOOST_REQUIRE_EQUAL(r == calls[i].end(), i == f);
+            }
+        }
+    });
+}
 
 struct remote_worker {
     unsigned current = 0;
     unsigned max_concurrent_observed = 0;
+    unsigned expected_max;
+    semaphore sem{0};
+    remote_worker(unsigned expected_max) : expected_max(expected_max) {
+    }
     future<> do_work() {
         ++current;
         max_concurrent_observed = std::max(current, max_concurrent_observed);
-        return sleep(100ms).then([this] {
-            max_concurrent_observed = std::max(current, max_concurrent_observed);
-            --current;
+        if (max_concurrent_observed >= expected_max && sem.current() == 0) {
+            sem.signal(semaphore::max_counter());
+        }
+        return sem.wait().then([this] {
+            // Sleep a bit to check if the concurrency goes over the max
+            return sleep(100ms).then([this] {
+                max_concurrent_observed = std::max(current, max_concurrent_observed);
+                --current;
+            });
         });
     }
     future<> do_remote_work(shard_id t, smp_service_group ssg) {
@@ -186,7 +224,7 @@ struct remote_worker {
     }
 };
 
-future<> test_smp_service_groups() {
+SEASTAR_TEST_CASE(test_smp_service_groups) {
     return async([] {
         smp_service_group_config ssgc1;
         ssgc1.max_nonlocal_requests = 1;
@@ -195,22 +233,22 @@ future<> test_smp_service_groups() {
         ssgc2.max_nonlocal_requests = 1000;
         auto ssg2 = create_smp_service_group(ssgc2).get0();
         shard_id other_shard = smp::count - 1;
-        remote_worker rm1;
-        remote_worker rm2;
+        remote_worker rm1(1);
+        remote_worker rm2(1000);
         auto bunch1 = parallel_for_each(boost::irange(0, 20), [&] (int ignore) { return rm1.do_remote_work(other_shard, ssg1); });
         auto bunch2 = parallel_for_each(boost::irange(0, 2000), [&] (int ignore) { return rm2.do_remote_work(other_shard, ssg2); });
         bunch1.get();
         bunch2.get();
         if (smp::count > 1) {
             assert(rm1.max_concurrent_observed == 1);
-            assert(rm2.max_concurrent_observed >= 1000 / (smp::count - 1) && rm2.max_concurrent_observed <= 1000);
+            assert(rm2.max_concurrent_observed == 1000);
         }
         destroy_smp_service_group(ssg1).get();
         destroy_smp_service_group(ssg2).get();
     });
 }
 
-future<> test_smp_service_groups_re_construction() {
+SEASTAR_TEST_CASE(test_smp_service_groups_re_construction) {
     // During development of the feature, we saw a bug where the vector
     // holding the groups did not expand correctly. This test triggers the
     // bug.
@@ -224,13 +262,13 @@ future<> test_smp_service_groups_re_construction() {
     });
 }
 
-future<> test_smp_timeout() {
+SEASTAR_TEST_CASE(test_smp_timeout) {
     return async([] {
         smp_service_group_config ssgc1;
         ssgc1.max_nonlocal_requests = 1;
         auto ssg1 = create_smp_service_group(ssgc1).get0();
 
-        auto _ = defer([ssg1] {
+        auto _ = defer([ssg1] () noexcept {
             destroy_smp_service_group(ssg1).get();
         });
 
@@ -256,7 +294,7 @@ future<> test_smp_timeout() {
         });
 
         {
-            auto notify = defer([lk = std::move(lk)] { });
+            auto notify = defer([lk = std::move(lk)] () noexcept { });
 
             try {
                 fut_timedout.get();
@@ -273,25 +311,33 @@ future<> test_smp_timeout() {
     });
 }
 
-int main(int argc, char** argv) {
-    app_template app;
-    return app.run(argc, argv, [] {
-        return test_that_each_core_gets_the_arguments().then([] {
-            return test_functor_version();
-        }).then([] {
-            return test_constructor_argument_is_passed_to_each_core();
-        }).then([] {
-            return test_map_reduce();
-        }).then([] {
-            return test_async();
-        }).then([] {
-            return test_invoke_on_others();
-        }).then([] {
-            return test_smp_service_groups();
-        }).then([] {
-            return test_smp_service_groups_re_construction();
-        }).then([] {
-            return test_smp_timeout();
-        });
-    });
+SEASTAR_THREAD_TEST_CASE(test_sharded_parameter) {
+    struct dependency {
+        unsigned val = this_shard_id() * 7;
+    };
+    struct some_service {
+        bool ok = false;
+        some_service(unsigned non_shard_dependent, unsigned shard_dependent, dependency& dep, unsigned shard_dependent_2) {
+            ok =
+                    non_shard_dependent == 43
+                    && shard_dependent == this_shard_id() * 3
+                    && dep.val == this_shard_id() * 7
+                    && shard_dependent_2 == -dep.val;
+        }
+    };
+    sharded<dependency> s_dep;
+    s_dep.start().get();
+    auto undo1 = deferred_stop(s_dep);
+
+    sharded<some_service> s_service;
+    s_service.start(
+            43, // should be copied verbatim
+            sharded_parameter([] { return this_shard_id() * 3; }),
+            std::ref(s_dep),
+            sharded_parameter([] (dependency& d) { return -d.val; }, std::ref(s_dep))
+            ).get();
+    auto undo2 = deferred_stop(s_service);
+
+    auto all_ok = s_service.map_reduce0(std::mem_fn(&some_service::ok), true, std::multiplies<>()).get0();
+    BOOST_REQUIRE(all_ok);
 }

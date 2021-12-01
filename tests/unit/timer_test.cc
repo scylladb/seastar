@@ -20,8 +20,11 @@
  */
 
 #include <seastar/core/app-template.hh>
+#include <seastar/core/timer.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/print.hh>
+#include <seastar/core/thread.hh>
+#include <seastar/core/sleep.hh>
 #include <chrono>
 #include <iostream>
 
@@ -70,7 +73,9 @@ struct timer_test {
         t4.arm(700ms);
         t5.arm(800ms);
 
-        return pr1.get_future().then([this] { return test_timer_cancelling(); });
+        return pr1.get_future().then([this] { return test_timer_cancelling(); }).then([this] {
+            return test_timer_with_scheduling_groups();
+        });
     }
 
     future<> test_timer_cancelling() {
@@ -85,6 +90,37 @@ struct timer_test {
         t1.set_callback([this] { OK(); pr2.set_value(); });
         t1.arm(100ms);
         return pr2.get_future().then([&t1] { delete &t1; });
+    }
+
+    future<> test_timer_with_scheduling_groups() {
+        return async([] {
+            auto sg1 = create_scheduling_group("sg1", 100).get0();
+            auto sg2 = create_scheduling_group("sg2", 100).get0();
+            thread_attributes t1attr;
+            t1attr.sched_group = sg1;
+            auto expirations = 0;
+            async(t1attr, [&] {
+                auto make_callback_checking_sg = [&] (scheduling_group sg_to_check) {
+                    return [sg_to_check, &expirations] {
+                        ++expirations;
+                        if (current_scheduling_group() != sg_to_check) {
+                            BUG();
+                        }
+                    };
+                };
+                timer<Clock> t1(make_callback_checking_sg(sg1));
+                t1.arm(10ms);
+                timer<Clock> t2(sg2, make_callback_checking_sg(sg2));
+                t2.arm(10ms);
+                sleep(500ms).get();
+                if (expirations != 2) {
+                    BUG();
+                }
+                OK();
+            }).get();
+            destroy_scheduling_group(sg1).get();
+            destroy_scheduling_group(sg2).get();
+        });
     }
 };
 

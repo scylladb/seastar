@@ -25,14 +25,23 @@
 #include <seastar/net/net.hh>
 #include <utility>
 #include <seastar/net/toeplitz.hh>
+#include <seastar/core/reactor.hh>
 #include <seastar/core/metrics.hh>
 #include <seastar/core/print.hh>
 #include <seastar/net/inet_address.hh>
 
 namespace seastar {
 
+static_assert(std::is_nothrow_default_constructible_v<ipv4_addr>);
+static_assert(std::is_nothrow_copy_constructible_v<ipv4_addr>);
+static_assert(std::is_nothrow_move_constructible_v<ipv4_addr>);
+
+static_assert(std::is_nothrow_default_constructible_v<ipv6_addr>);
+static_assert(std::is_nothrow_copy_constructible_v<ipv6_addr>);
+static_assert(std::is_nothrow_move_constructible_v<ipv6_addr>);
+
 std::ostream& operator<<(std::ostream &os, ipv4_addr addr) {
-    fmt_print(os, "{:d}.{:d}.{:d}.{:d}",
+    fmt::print(os, "{:d}.{:d}.{:d}.{:d}",
             (addr.ip >> 24) & 0xff,
             (addr.ip >> 16) & 0xff,
             (addr.ip >> 8) & 0xff,
@@ -62,11 +71,11 @@ ipv4_addr::ipv4_addr(const net::inet_address& a, uint16_t port)
     : ipv4_addr(::in_addr(a), port)
 {}
 
-ipv4_addr::ipv4_addr(const socket_address &sa)
+ipv4_addr::ipv4_addr(const socket_address &sa) noexcept
     : ipv4_addr(sa.addr(), sa.port())
 {}
 
-ipv4_addr::ipv4_addr(const ::in_addr& in, uint16_t p)
+ipv4_addr::ipv4_addr(const ::in_addr& in, uint16_t p) noexcept
     : ip(net::ntoh(in.s_addr)), port(p)
 {}
 
@@ -101,7 +110,7 @@ bool qp::poll_tx() {
 
 qp::qp(bool register_copy_stats,
        const std::string stats_plugin_name, uint8_t qid)
-        : _tx_poller(reactor::poller::simple([this] { return poll_tx(); }))
+        : _tx_poller(std::make_unique<internal::poller>(reactor::poller::simple([this] { return poll_tx(); })))
         , _stats_plugin_name(stats_plugin_name)
         , _queue_name(std::string("queue") + std::to_string(qid))
 {
@@ -191,12 +200,12 @@ qp::~qp() {
 
 void qp::configure_proxies(const std::map<unsigned, float>& cpu_weights) {
     assert(!cpu_weights.empty());
-    if ((cpu_weights.size() == 1 && cpu_weights.begin()->first == engine().cpu_id())) {
+    if ((cpu_weights.size() == 1 && cpu_weights.begin()->first == this_shard_id())) {
         // special case queue sending to self only, to avoid requiring a hash value
         return;
     }
     register_packet_provider([this] {
-        compat::optional<packet> p;
+        std::optional<packet> p;
         if (!_proxy_packetq.empty()) {
             p = std::move(_proxy_packetq.front());
             _proxy_packetq.pop_front();
@@ -227,14 +236,14 @@ void qp::build_sw_reta(const std::map<unsigned, float>& cpu_weights) {
 
 future<>
 device::receive(std::function<future<> (packet)> next_packet) {
-    auto sub = _queues[engine().cpu_id()]->_rx_stream.listen(std::move(next_packet));
-    _queues[engine().cpu_id()]->rx_start();
+    auto sub = _queues[this_shard_id()]->_rx_stream.listen(std::move(next_packet));
+    _queues[this_shard_id()]->rx_start();
     return sub.done();
 }
 
 void device::set_local_queue(std::unique_ptr<qp> dev) {
-    assert(!_queues[engine().cpu_id()]);
-    _queues[engine().cpu_id()] = dev.get();
+    assert(!_queues[this_shard_id()]);
+    _queues[this_shard_id()] = dev.get();
     engine().at_destroy([dev = std::move(dev)] {});
 }
 
@@ -259,7 +268,7 @@ interface::interface(std::shared_ptr<device> dev)
         return dispatch_packet(std::move(p));
     });
     dev->local_queue().register_packet_provider([this, idx = 0u] () mutable {
-            compat::optional<packet> p;
+            std::optional<packet> p;
             for (size_t i = 0; i < _pkt_providers.size(); i++) {
                 auto l3p = _pkt_providers[idx++]();
                 if (idx == _pkt_providers.size())
@@ -306,7 +315,7 @@ void interface::forward(unsigned cpuid, packet p) {
 
     if (queue_depth < 1000) {
         queue_depth++;
-        auto src_cpu = engine().cpu_id();
+        auto src_cpu = this_shard_id();
         // FIXME: future is discarded
         (void)smp::submit_to(cpuid, [this, p = std::move(p), src_cpu]() mutable {
             _dev->l2receive(p.free_on_cpu(src_cpu));
@@ -322,7 +331,7 @@ future<> interface::dispatch_packet(packet p) {
         auto i = _proto_map.find(ntoh(eh->eth_proto));
         if (i != _proto_map.end()) {
             l3_rx_stream& l3 = i->second;
-            auto fw = _dev->forward_dst(engine().cpu_id(), [&p, &l3, this] () {
+            auto fw = _dev->forward_dst(this_shard_id(), [&p, &l3, this] () {
                 auto hwrss = p.rss_hash();
                 if (hwrss) {
                     return hwrss.value();
@@ -334,7 +343,7 @@ future<> interface::dispatch_packet(packet p) {
                     return 0u;
                 }
             });
-            if (fw != engine().cpu_id()) {
+            if (fw != this_shard_id()) {
                 forward(fw, std::move(p));
             } else {
                 auto h = ntoh(*eh);

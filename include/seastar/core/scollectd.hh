@@ -56,12 +56,12 @@ namespace seastar {
  *		scollectd::add_polled_metric(typ, [<metric var> | scollectd::make_typed(<data_type>, <metric_var>) [, ...]);
  *
  * Where
- * 	<pluginname> would be the overall 'module', e.g. "cpu"
- *  <instance_name> -> optional distinguisher between plugin instances. For cpu, the built-in
+ * 	`<pluginname>` would be the overall 'module', e.g. "cpu"
+ *  `<instance_name>` -> optional distinguisher between plugin instances. For cpu, the built-in
  *  scollectd::per_cpu_plugin_instance constant is a good choice, i.e. 0->N cpu.
  *  If there are no instances (e.g. only one), empty constant is appropriate (none)
- *  <type_name> is the 'type' of metric collected, for ex. "usage" (cpu/0/usage)
- *  <type_instance> is a distinguisher for metric parts of the type, e.g. "idle", "user", "kernel"
+ *  `<type_name>` is the 'type' of metric collected, for ex. "usage" (cpu/0/usage)
+ *  `<type_instance>` is a distinguisher for metric parts of the type, e.g. "idle", "user", "kernel"
  *  -> cpu/0/usage/idle | cpu/0/usage/user | cpu/0/usage/kernel
  *
  *  Each type instance can bind an arbitrary number of values, ech representing some aspect in turn of the instance.
@@ -315,8 +315,8 @@ public:
         truncate(_type, "type");
         truncate(_type_instance, "type_instance");
     }
-    type_instance_id(const seastar::metrics::impl::metric_id &id) : _plugin(id.group_name()),
-            _plugin_instance(id.instance_id()), _type(id.inherit_type()),
+    type_instance_id(const seastar::metrics::impl::metric_id &id, const type_id& inherit_type) : _plugin(id.group_name()),
+            _plugin_instance(id.instance_id()), _type(inherit_type),
             _type_instance(id.name()) {
     }
     type_instance_id(type_instance_id &&) = default;
@@ -348,8 +348,30 @@ private:
 
 extern const plugin_instance_id per_cpu_plugin_instance;
 
-void configure(const boost::program_options::variables_map&);
-boost::program_options::options_description get_options_description();
+// Scollectd configuration options.
+struct options : public program_options::option_group {
+    /// \brief Enable collectd daemon.
+    ///
+    /// Default: \p false.
+    program_options::value<bool> collectd;
+    /// \brief Address to send/broadcast metrics to.
+    ///
+    /// Default: \p 239.192.74.66:25826.
+    program_options::value<std::string> collectd_address;
+    /// \brief Poll period (ms).
+    ///
+    /// Frequency of sending counter metrics (0 disables).
+    /// Default: \p 1000.
+    program_options::value<unsigned> collectd_poll_period;
+    /// \deprecated use \ref metrics::options::metrics_hostname instead
+    program_options::value<std::string> collectd_hostname;
+
+    /// \cond internal
+    options(program_options::option_group* parent_group);
+    /// \endcond
+};
+
+void configure(const options&);
 void remove_polled_metric(const type_instance_id &);
 
 class plugin_instance_metrics;
@@ -525,7 +547,7 @@ struct is_callable;
 template<typename T>
 struct is_callable<T,
 typename std::enable_if<
-!std::is_void<typename std::result_of<T()>::type>::value,
+!std::is_void<std::invoke_result_t<T>>::value,
 void>::type> : public std::true_type {
 };
 
@@ -555,7 +577,7 @@ data_type, data_type::GAUGE> {
 template<typename T>
 struct data_type_for<T,
 typename std::enable_if<is_callable<T>::value, void>::type> : public data_type_for<
-typename std::result_of<T()>::type> {
+std::invoke_result_t<T>> {
 };
 template<typename T>
 struct data_type_for<typed<T>> : public data_type_for<T> {
@@ -783,9 +805,7 @@ seastar::metrics::impl::metric_id to_metrics_id(const type_instance_id & id);
 template<typename Arg>
 [[deprecated("Use the metrics layer")]] static type_instance_id add_polled_metric(const type_instance_id & id, description d,
         Arg&& arg, bool enabled = true) {
-    namespace sm = seastar::metrics::impl;
-
-    seastar::metrics::impl::get_local_impl()->add_registration(to_metrics_id(id), arg.type, sm::make_function(arg.value, arg.type), d, enabled);
+    seastar::metrics::impl::get_local_impl()->add_registration(to_metrics_id(id), arg.type, seastar::metrics::impl::make_function(arg.value, arg.type), d, enabled);
     return id;
 }
 /*!

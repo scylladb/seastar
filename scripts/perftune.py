@@ -2,6 +2,7 @@
 
 import abc
 import argparse
+import distutils.util
 import enum
 import functools
 import glob
@@ -56,6 +57,12 @@ def run_hwloc_calc(prog_args):
     Returns a single string with the result of the execution.
     """
     return run_read_only_command(['hwloc-calc'] + prog_args).rstrip()
+
+def run_ethtool(prog_args):
+    """
+    Returns a list of strings - each representing a single line of ethtool output.
+    """
+    return run_read_only_command(['ethtool'] + prog_args).splitlines()
 
 def fwriteln(fname, line, log_message, log_errors=True):
     try:
@@ -366,6 +373,14 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
         self.__irq_cpu_mask = PerfTunerBase.irqs_cpu_mask_for_mode(self.__mode, self.__args.cpu_mask)
 
     @property
+    def cpu_mask(self):
+        """
+        Return the CPU mask we operate on (the total CPU set)
+        """
+
+        return self.__args.cpu_mask
+
+    @property
     def compute_cpu_mask(self):
         """
         Return the CPU mask to use for seastar application binding.
@@ -465,26 +480,30 @@ class NetPerfTuner(PerfTunerBase):
     def __init__(self, args):
         super().__init__(args)
 
+        self.nics=args.nics
+
         self.__nic_is_bond_iface = self.__check_dev_is_bond_iface()
         self.__slaves = self.__learn_slaves()
 
-        # check that self.nic is either a HW device or a bonding interface
-        self.__check_nic()
+        # check that self.nics contain a HW device or a bonding interface
+        self.__check_nics()
 
         self.__irqs2procline = get_irqs2procline_map()
         self.__nic2irqs = self.__learn_irqs()
+
 
 #### Public methods ############################
     def tune(self):
         """
         Tune the networking server configuration.
         """
-        if self.nic_is_hw_iface:
-            perftune_print("Setting a physical interface {}...".format(self.nic))
-            self.__setup_one_hw_iface(self.nic)
-        else:
-            perftune_print("Setting {} bonding interface...".format(self.nic))
-            self.__setup_bonding_iface()
+        for nic in self.nics:
+            if self.nic_is_hw_iface(nic):
+                perftune_print("Setting a physical interface {}...".format(nic))
+                self.__setup_one_hw_iface(nic)
+            else:
+                perftune_print("Setting {} bonding interface...".format(nic))
+                self.__setup_bonding_iface(nic)
 
         # Increase the socket listen() backlog
         fwriteln_and_log('/proc/sys/net/core/somaxconn', '4096')
@@ -493,41 +512,36 @@ class NetPerfTuner(PerfTunerBase):
         # did not receive an acknowledgment from connecting client.
         fwriteln_and_log('/proc/sys/net/ipv4/tcp_max_syn_backlog', '4096')
 
-    @property
-    def nic_is_bond_iface(self):
-        return self.__nic_is_bond_iface
+    def nic_is_bond_iface(self, nic):
+        return self.__nic_is_bond_iface[nic]
 
-    @property
-    def nic(self):
-        return self.args.nic
+    def nic_exists(self, nic):
+        return self.__iface_exists(nic)
 
-    @property
-    def nic_exists(self):
-        return self.__iface_exists(self.nic)
+    def nic_is_hw_iface(self, nic):
+        return self.__dev_is_hw_iface(nic)
 
-    @property
-    def nic_is_hw_iface(self):
-        return self.__dev_is_hw_iface(self.nic)
-
-    @property
-    def slaves(self):
+    def slaves(self, nic):
         """
-        Returns an iterator for all slaves of the args.nic.
+        Returns an iterator for all slaves of the nic.
         If agrs.nic is not a bonding interface an attempt to use the returned iterator
         will immediately raise a StopIteration exception - use __dev_is_bond_iface() check to avoid this.
         """
-        return iter(self.__slaves)
+        return iter(self.__slaves[nic])
 
 #### Protected methods ##########################
     def _get_def_mode(self):
-        if self.nic_is_bond_iface:
-            return min(map(self.__get_hw_iface_def_mode, filter(self.__dev_is_hw_iface, self.slaves)))
-        else:
-            return self.__get_hw_iface_def_mode(self.nic)
+        mode=PerfTunerBase.SupportedModes.no_irq_restrictions
+        for nic in self.nics:
+            if self.nic_is_bond_iface(nic):
+                mode = min(mode, min(map(self.__get_hw_iface_def_mode, filter(self.__dev_is_hw_iface, self.slaves(nic)))))
+            else:
+                mode = min(mode, self.__get_hw_iface_def_mode(nic))
+        return mode
 
     def _get_irqs(self):
         """
-        Returns the iterator for all IRQs that are going to be configured (according to args.nic parameter).
+        Returns the iterator for all IRQs that are going to be configured (according to args.nics parameter).
         For instance, for a bonding interface that's going to include IRQs of all its slaves.
         """
         return itertools.chain.from_iterable(self.__nic2irqs.values())
@@ -537,14 +551,15 @@ class NetPerfTuner(PerfTunerBase):
     def __rfs_table_size(self):
         return 32768
 
-    def __check_nic(self):
+    def __check_nics(self):
         """
-        Checks that self.nic is a supported interface
+        Checks that self.nics are supported interfaces
         """
-        if not self.nic_exists:
-            raise Exception("Device {} does not exist".format(self.nic))
-        if not self.nic_is_hw_iface and not self.nic_is_bond_iface:
-            raise Exception("Not supported virtual device {}".format(self.nic))
+        for nic in self.nics:
+            if not self.nic_exists(nic):
+                raise Exception("Device {} does not exist".format(nic))
+            if not self.nic_is_hw_iface(nic) and not self.nic_is_bond_iface(nic):
+                raise Exception("Not supported virtual device {}".format(nic))
 
     def __get_irqs_one(self, iface):
         """
@@ -606,16 +621,23 @@ class NetPerfTuner(PerfTunerBase):
         return os.path.exists("/sys/class/net/{}/device".format(iface))
 
     def __check_dev_is_bond_iface(self):
+        bond_dict = {}
         if not os.path.exists('/sys/class/net/bonding_masters'):
-            return False
-
-        return any([re.search(self.nic, line) for line in open('/sys/class/net/bonding_masters', 'r').readlines()])
+            for nic in self.nics:
+                bond_dict[nic] = False
+            #return False for every nic
+            return bond_dict
+        for nic in self.nics:
+            bond_dict[nic] = any([re.search(nic, line) for line in open('/sys/class/net/bonding_masters', 'r').readlines()])
+        return bond_dict
 
     def __learn_slaves(self):
-        if self.nic_is_bond_iface:
-            return list(itertools.chain.from_iterable([ line.split() for line in open("/sys/class/net/{}/bonding/slaves".format(self.nic), 'r').readlines() ]))
+        slaves_list_per_nic = {}
+        for nic in self.nics:
+            if self.nic_is_bond_iface(nic):
+                slaves_list_per_nic[nic] = list(itertools.chain.from_iterable([line.split() for line in open("/sys/class/net/{}/bonding/slaves".format(nic), 'r').readlines()]))
 
-        return []
+        return slaves_list_per_nic
 
     def __intel_irq_to_queue_idx(self, irq):
         """
@@ -643,6 +665,53 @@ class NetPerfTuner(PerfTunerBase):
         else:
             return sys.maxsize
 
+    def __mlx_irq_to_queue_idx(self, irq):
+        """
+        Return the HW queue index for a given IRQ for Mellanox NICs in order to sort the IRQs' list by this index.
+
+        Mellanox NICs have the IRQ which name looks like
+        this:
+        mlx5_comp23
+             mlx5_comp<index>
+        or this:
+        mlx4-6
+             mlx4-<index>
+
+        :param irq: IRQ number
+        :return: HW queue index for Mellanox NICs and 0 for all other NICs
+        """
+        mlx5_fp_irq_re = re.compile("mlx5_comp(\d+)")
+        mlx4_fp_irq_re = re.compile("mlx4\-(\d+)")
+
+        m5 = mlx5_fp_irq_re.search(self.__irqs2procline[irq])
+        if m5:
+            return int(m5.group(1))
+        else:
+            m4 = mlx4_fp_irq_re.search(self.__irqs2procline[irq])
+            if m4:
+                return int(m4.group(1))
+
+        return sys.maxsize
+
+    def __get_driver_name(self, iface):
+        """
+        :param iface: Interface to check
+        :return: driver name from ethtool
+        """
+
+        driver_name = ''
+        ethtool_i_lines = run_ethtool(['-i', iface])
+        driver_re = re.compile("driver:")
+        driver_lines = list(filter(lambda one_line: driver_re.search(one_line), ethtool_i_lines))
+
+        if driver_lines:
+            if len(driver_lines) > 1:
+                raise Exception("More than one 'driver:' entries in the 'ethtool -i {}' output. Unable to continue.".format(iface))
+
+            driver_name = driver_lines[0].split()[1].strip()
+
+        return driver_name
+
     def __learn_irqs_one(self, iface):
         """
         This is a slow method that is going to read from the system files. Never
@@ -654,7 +723,10 @@ class NetPerfTuner(PerfTunerBase):
           - Intel:    <bla-bla>-TxRx-<bla-bla>
           - Broadcom: <bla-bla>-fp-<bla-bla>
           - ena:      <bla-bla>-Tx-Rx-<bla-bla>
-          - Mellanox: mlx<device model index>-<queue idx>@<bla-bla>
+          - Mellanox: for mlx4
+                      mlx4-<queue idx>@<bla-bla>
+                      or for mlx5
+                      mlx5_comp<queue idx>@<bla-bla>
 
         So, we will try to filter the etries in /proc/interrupts for IRQs we've got from get_all_irqs_one()
         according to the patterns above.
@@ -669,10 +741,14 @@ class NetPerfTuner(PerfTunerBase):
         """
         # filter 'all_irqs' to only reference valid keys from 'irqs2procline' and avoid an IndexError on the 'irqs' search below
         all_irqs = set(learn_all_irqs_one("/sys/class/net/{}/device".format(iface), self.__irqs2procline, iface)).intersection(self.__irqs2procline.keys())
-        fp_irqs_re = re.compile("\-TxRx\-|\-fp\-|\-Tx\-Rx\-|mlx\d+\-\d+@")
+        fp_irqs_re = re.compile("\-TxRx\-|\-fp\-|\-Tx\-Rx\-|mlx4-\d+@|mlx5_comp\d+@")
         irqs = list(filter(lambda irq : fp_irqs_re.search(self.__irqs2procline[irq]), all_irqs))
         if irqs:
-            irqs.sort(key=self.__intel_irq_to_queue_idx)
+            driver_name = self.__get_driver_name(iface)
+            if (driver_name.startswith("mlx")):
+                irqs.sort(key=self.__mlx_irq_to_queue_idx)
+            else:
+                irqs.sort(key=self.__intel_irq_to_queue_idx)
             return irqs
         else:
             return list(all_irqs)
@@ -682,10 +758,14 @@ class NetPerfTuner(PerfTunerBase):
         This is a slow method that is going to read from the system files. Never
         use it outside the initialization code.
         """
-        if self.nic_is_bond_iface:
-            return { slave : self.__learn_irqs_one(slave) for slave in filter(self.__dev_is_hw_iface, self.slaves) }
-        else:
-            return { self.nic : self.__learn_irqs_one(self.nic) }
+        nic_irq_dict={}
+        for nic in self.nics:
+            if self.nic_is_bond_iface(nic):
+                for slave in filter(self.__dev_is_hw_iface, self.slaves(nic)):
+                    nic_irq_dict[slave] = self.__learn_irqs_one(slave)
+            else:
+                nic_irq_dict[nic] = self.__learn_irqs_one(nic)
+        return nic_irq_dict
 
     def __get_rps_cpus(self, iface):
         """
@@ -715,11 +795,11 @@ class NetPerfTuner(PerfTunerBase):
             perftune_print("Distributing all IRQs")
             distribute_irqs(all_irqs, self.irqs_cpu_mask)
 
-        self.__setup_rps(iface, self.compute_cpu_mask)
+        self.__setup_rps(iface, self.cpu_mask)
         self.__setup_xps(iface)
 
-    def __setup_bonding_iface(self):
-        for slave in self.slaves:
+    def __setup_bonding_iface(self, nic):
+        for slave in self.slaves(nic):
             if self.__dev_is_hw_iface(slave):
                 perftune_print("Setting up {}...".format(slave))
                 self.__setup_one_hw_iface(slave)
@@ -742,17 +822,7 @@ class NetPerfTuner(PerfTunerBase):
         """
         driver_to_max_rss = {'ixgbe': 16, 'ixgbevf': 4, 'i40e': 64, 'i40evf': 16}
 
-        driver_name = ''
-        ethtool_i_lines = run_read_only_command(['ethtool', '-i', iface]).splitlines()
-        driver_re = re.compile("driver:")
-        driver_lines = list(filter(lambda one_line: driver_re.search(one_line), ethtool_i_lines))
-
-        if driver_lines:
-            if len(driver_lines) > 1:
-                raise Exception("More than one 'driver:' entries in the 'ethtool -i {}' output. Unable to continue.".format(iface))
-
-            driver_name = driver_lines[0].split()[1].strip()
-
+        driver_name = self.__get_driver_name(iface)
         return driver_to_max_rss.get(driver_name, sys.maxsize)
 
     def __get_rx_queue_count(self, iface):
@@ -773,8 +843,8 @@ class NetPerfTuner(PerfTunerBase):
         """
         rx_queues_count = self.__get_rx_queue_count(iface)
 
-        num_cores = int(run_hwloc_calc(['--number-of', 'core', 'machine:0', '--restrict', self.args.cpu_mask]))
-        num_PUs = int(run_hwloc_calc(['--number-of', 'PU', 'machine:0', '--restrict', self.args.cpu_mask]))
+        num_cores = int(run_hwloc_calc(['--restrict', self.args.cpu_mask, '--number-of', 'core', 'machine:0']))
+        num_PUs = int(run_hwloc_calc(['--restrict', self.args.cpu_mask, '--number-of', 'PU', 'machine:0']))
 
         if num_PUs <= 4 or rx_queues_count == num_PUs:
             return PerfTunerBase.SupportedModes.mq
@@ -789,17 +859,26 @@ class ClocksourceManager:
 
     def __init__(self, args):
         self.__args = args
-        self._preferred = {"x86_64": "tsc"}
-        self._arch = platform.machine()
+        self._preferred = {"x86_64": "tsc", "kvm": "kvm-clock"}
+        self._arch = self._get_arch()
         self._available_clocksources_file = "/sys/devices/system/clocksource/clocksource0/available_clocksource"
         self._current_clocksource_file = "/sys/devices/system/clocksource/clocksource0/current_clocksource"
-        self._recommendation_if_unavailable = { "x86_64": "The tsc clocksource is not available. Consider using a hardware platform where the tsc clocksource is available, or try forcing it withe the tsc=reliable boot option" }
+        self._recommendation_if_unavailable = { "x86_64": "The tsc clocksource is not available. Consider using a hardware platform where the tsc clocksource is available, or try forcing it withe the tsc=reliable boot option", "kvm": "kvm-clock is not available" }
 
     def _available_clocksources(self):
         return open(self._available_clocksources_file).readline().split()
 
     def _current_clocksource(self):
         return open(self._current_clocksource_file).readline().strip()
+
+    def _get_arch(self):
+        try:
+            virt = run_read_only_command(['systemd-detect-virt']).strip()
+            if virt == "kvm":
+                return virt
+        except:
+            pass
+        return platform.machine()
 
     def enforce_preferred_clocksource(self):
         fwriteln(self._current_clocksource_file, self._preferred[self._arch], "Setting clocksource to {}".format(self._preferred[self._arch]))
@@ -862,6 +941,7 @@ class DiskPerfTuner(PerfTunerBase):
         # sets of devices that have already been tuned
         self.__io_scheduler_tuned_devs = set()
         self.__nomerges_tuned_devs = set()
+        self.__write_back_cache_tuned_devs = set()
 
 #### Public methods #############################
     def tune(self):
@@ -911,8 +991,8 @@ class DiskPerfTuner(PerfTunerBase):
         if not non_nvme_disks:
             return PerfTunerBase.SupportedModes.mq
 
-        num_cores = int(run_hwloc_calc(['--number-of', 'core', 'machine:0', '--restrict', self.args.cpu_mask]))
-        num_PUs = int(run_hwloc_calc(['--number-of', 'PU', 'machine:0', '--restrict', self.args.cpu_mask]))
+        num_cores = int(run_hwloc_calc(['--restrict', self.args.cpu_mask, '--number-of', 'core', 'machine:0']))
+        num_PUs = int(run_hwloc_calc(['--restrict', self.args.cpu_mask, '--number-of', 'PU', 'machine:0']))
         if num_PUs <= 4:
             return PerfTunerBase.SupportedModes.mq
         elif num_cores <= 4:
@@ -935,6 +1015,17 @@ class DiskPerfTuner(PerfTunerBase):
     @property
     def __nomerges(self):
         return '2'
+
+    @property
+    def __write_cache_config(self):
+        """
+        :return: None - if write cache mode configuration is not requested or the corresponding write cache
+        configuration value string
+        """
+        if self.args.set_write_back is None:
+            return None
+
+        return "write back" if self.args.set_write_back else "write through"
 
     def __disks_info_by_type(self, disks_type):
         """
@@ -1047,10 +1138,14 @@ class DiskPerfTuner(PerfTunerBase):
     def __get_phys_devices(self, udev_obj):
         # if device is a virtual device - the underlying physical devices are going to be its slaves
         if re.search(r'virtual', udev_obj.sys_path):
-            return list(itertools.chain.from_iterable([ self.__get_phys_devices(pyudev.Devices.from_device_file(self.__pyudev_ctx, "/dev/{}".format(slave))) for slave in os.listdir(os.path.join(udev_obj.sys_path, 'slaves')) ]))
-        else:
-            # device node is something like /dev/sda1 - we need only the part without /dev/
-            return [ re.match(r'/dev/(\S+\d*)', udev_obj.device_node).group(1) ]
+            slaves = os.listdir(os.path.join(udev_obj.sys_path, 'slaves'))
+            # If the device is virtual but doesn't have slaves (e.g. as nvm-subsystem virtual devices) handle it
+            # as a regular device.
+            if slaves:
+                return list(itertools.chain.from_iterable([ self.__get_phys_devices(pyudev.Devices.from_device_file(self.__pyudev_ctx, "/dev/{}".format(slave))) for slave in slaves ]))
+
+        # device node is something like /dev/sda1 - we need only the part without /dev/
+        return [ re.match(r'/dev/(\S+\d*)', udev_obj.device_node).group(1) ]
 
     def __learn_irqs(self):
         disk2irqs = {}
@@ -1064,7 +1159,20 @@ class DiskPerfTuner(PerfTunerBase):
 
                 udev_obj = pyudev.Devices.from_device_file(self.__pyudev_ctx, "/dev/{}".format(device))
                 dev_sys_path = udev_obj.sys_path
-                split_sys_path = list(pathlib.PurePath(dev_sys_path).parts)
+
+                # If the device is a virtual NVMe device it's sys file name goes as follows:
+                # /sys/devices/virtual/nvme-subsystem/nvme-subsys0/nvme0n1
+                #
+                # and then there is this symlink:
+                # /sys/devices/virtual/nvme-subsystem/nvme-subsys0/nvme0n1/device/nvme0 -> ../../../pci0000:85/0000:85:01.0/0000:87:00.0/nvme/nvme0
+                #
+                # So, the "main device" is a "nvme\d+" prefix of the actual device name.
+                if re.search(r'virtual', udev_obj.sys_path):
+                    m = re.match(r'(nvme\d+)\S*', device)
+                    if m:
+                        dev_sys_path = "{}/device/{}".format(udev_obj.sys_path, m.group(1))
+
+                split_sys_path = list(pathlib.PurePath(pathlib.Path(dev_sys_path).resolve()).parts)
 
                 # first part is always /sys/devices/pciXXX ...
                 controller_path_parts = split_sys_path[0:4]
@@ -1095,6 +1203,10 @@ class DiskPerfTuner(PerfTunerBase):
         :param dev_node Device node file name, e.g. /dev/sda1
         :param path_creator A functor that creates a feature file name given a device system file name
         """
+        # Sanity check
+        if dev_node is None or path_creator is None:
+            return None, None
+
         udev = pyudev.Devices.from_device_file(pyudev.Context(), dev_node)
         feature_file = path_creator(udev.sys_path)
 
@@ -1132,6 +1244,13 @@ class DiskPerfTuner(PerfTunerBase):
     def __tune_nomerges(self, dev_node):
         return self.__tune_one_feature(dev_node, lambda p : os.path.join(p, 'queue', 'nomerges'), self.__nomerges, self.__nomerges_tuned_devs)
 
+    # If write cache configuration is not requested - return True immediately
+    def __tune_write_back_cache(self, dev_node):
+        if self.__write_cache_config is None:
+            return True
+
+        return self.__tune_one_feature(dev_node, lambda p : os.path.join(p, 'queue', 'write_cache'), self.__write_cache_config, self.__write_back_cache_tuned_devs)
+
     def __get_io_scheduler(self, dev_node):
         """
         Return a supported scheduler that is also present in the required schedulers list (__io_schedulers).
@@ -1151,7 +1270,7 @@ class DiskPerfTuner(PerfTunerBase):
         # ...with one or more schedulers where currently selected scheduler is the one in brackets.
         #
         # Return the scheduler with the highest priority among those that are supported for the current device.
-        supported_schedulers = frozenset([scheduler.lstrip("[").rstrip("]") for scheduler in lines[0].split(" ")])
+        supported_schedulers = frozenset([scheduler.lstrip("[").rstrip("]").rstrip("\n") for scheduler in lines[0].split(" ")])
         return next((scheduler for scheduler in self.__io_schedulers if scheduler in supported_schedulers), None)
 
     def __tune_disk(self, device):
@@ -1165,6 +1284,9 @@ class DiskPerfTuner(PerfTunerBase):
 
         if not self.__tune_nomerges(dev_node):
             perftune_print("Not setting 'nomerges' for {} - feature not present".format(device))
+
+        if not self.__tune_write_back_cache(dev_node):
+                perftune_print("Not setting 'write_cache' for {} - feature not present".format(device))
 
     def __tune_disks(self, disks):
         for disk in disks:
@@ -1216,7 +1338,7 @@ Default values:
  --tune-clock    - default: false
 ''')
 argp.add_argument('--mode', choices=PerfTunerBase.SupportedModes.names(), help='configuration mode')
-argp.add_argument('--nic', help='network interface name, by default uses \'eth0\'')
+argp.add_argument('--nic', action='append', help='network interface name(s), by default uses \'eth0\' (may appear more than once)', dest='nics', default=[])
 argp.add_argument('--tune-clock', action='store_true', help='Force tuning of the system clocksource')
 argp.add_argument('--get-cpu-mask', action='store_true', help="print the CPU mask to be used for compute")
 argp.add_argument('--get-cpu-mask-quiet', action='store_true', help="print the CPU mask to be used for compute, print the zero CPU set if that's what it turns out to be")
@@ -1229,6 +1351,7 @@ argp.add_argument('--dev', help="device to optimize (may appear more than once),
 argp.add_argument('--options-file', help="configuration YAML file")
 argp.add_argument('--dump-options-file', action='store_true', help="Print the configuration YAML file containing the current configuration")
 argp.add_argument('--dry-run', action='store_true', help="Don't take any action, just recommend what to do.")
+argp.add_argument('--write-back-cache', help="Enable/Disable \'write back\' write cache mode.", dest="set_write_back")
 
 def parse_cpu_mask_from_yaml(y, field_name, fname):
     hex_32bit_pattern='0x[0-9a-fA-F]{1,8}'
@@ -1238,6 +1361,15 @@ def parse_cpu_mask_from_yaml(y, field_name, fname):
         return y[field_name]
     else:
         raise Exception("Bad '{}' value in {}: {}".format(field_name, fname, str(y[field_name])))
+
+def extend_and_unique(orig_list, iterable):
+    """
+    Extend items to a list, and make the list items unique
+    """
+    assert(isinstance(orig_list, list))
+    assert(isinstance(iterable, list))
+    orig_list.extend(iterable)
+    return list(set(orig_list))
 
 def parse_options_file(prog_args):
     if not prog_args.options_file:
@@ -1252,15 +1384,21 @@ def parse_options_file(prog_args):
             raise Exception("Bad 'mode' value in {}: {}".format(prog_args.options_file, y['mode']))
         prog_args.mode = y['mode']
 
-    if 'nic' in y and not prog_args.nic:
-        prog_args.nic = y['nic']
+    if 'nic' in y:
+        # Multiple nics was supported by commit a2fc9d72c31b97840bc75ae49dbd6f4b6d394e25
+        # `nic' option dumped to config file will be list after this change, but the `nic'
+        # option in old config file is still string, which was generated before this change.
+        # So here convert the string option to list.
+        if not isinstance(y['nic'], list):
+            y['nic'] = [y['nic']]
+        prog_args.nics = extend_and_unique(prog_args.nics, y['nic'])
 
     if 'tune_clock' in y and not prog_args.tune_clock:
         prog_args.tune_clock= y['tune_clock']
 
     if 'tune' in y:
         if set(y['tune']) <= set(TuneModes.names()):
-            prog_args.tune.extend(y['tune'])
+            prog_args.tune = extend_and_unique(prog_args.tune, y['tune'])
         else:
             raise Exception("Bad 'tune' value in {}: {}".format(prog_args.options_file, y['tune']))
 
@@ -1271,10 +1409,13 @@ def parse_options_file(prog_args):
         prog_args.irq_cpu_mask = parse_cpu_mask_from_yaml(y, 'irq_cpu_mask', prog_args.options_file)
 
     if 'dir' in y:
-        prog_args.dirs.extend(y['dir'])
+        prog_args.dirs = extend_and_unique(prog_args.dirs, y['dir'])
 
     if 'dev' in y:
-        prog_args.devs.extend(y['dev'])
+        prog_args.devs = extend_and_unique(prog_args.devs, y['dev'])
+
+    if 'write_back_cache' in y:
+        prog_args.set_write_back = distutils.util.strtobool("{}".format(y['write_back_cache']))
 
 def dump_config(prog_args):
     prog_options = {}
@@ -1282,8 +1423,8 @@ def dump_config(prog_args):
     if prog_args.mode:
         prog_options['mode'] = prog_args.mode
 
-    if prog_args.nic:
-        prog_options['nic'] = prog_args.nic
+    if prog_args.nics:
+        prog_options['nic'] = prog_args.nics
 
     if prog_args.tune_clock:
         prog_options['tune_clock'] = prog_args.tune_clock
@@ -1303,10 +1444,21 @@ def dump_config(prog_args):
     if prog_args.devs:
         prog_options['dev'] = prog_args.devs
 
+    if prog_args.set_write_back is not None:
+        prog_options['write_back_cache'] = prog_args.set_write_back
+
     perftune_print(yaml.dump(prog_options, default_flow_style=False))
 ################################################################################
 
 args = argp.parse_args()
+
+# Sanity check
+try:
+    if args.set_write_back:
+        args.set_write_back = distutils.util.strtobool(args.set_write_back)
+except:
+    sys.exit("Invalid --write-back-cache value: should be boolean but given: {}".format(args.set_write_back))
+
 dry_run_mode = args.dry_run
 parse_options_file(args)
 
@@ -1319,8 +1471,8 @@ if args.mode and args.irq_cpu_mask:
     sys.exit("ERROR: Provide either tune mode or IRQs CPU mask - not both.")
 
 # set default values #####################
-if not args.nic:
-    args.nic = 'eth0'
+if not args.nics:
+    args.nics = ['eth0']
 
 if not args.cpu_mask:
     args.cpu_mask = run_hwloc_calc(['all'])

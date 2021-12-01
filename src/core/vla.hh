@@ -21,11 +21,11 @@
 
 #pragma once
 
+#include <seastar/core/aligned_buffer.hh>
 #include <memory>
 #include <new>
 #include <assert.h>
 #include <type_traits>
-#include <seastar/core/reactor.hh>
 
 namespace seastar {
 

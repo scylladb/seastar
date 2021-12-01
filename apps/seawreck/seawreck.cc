@@ -20,13 +20,12 @@
  */
 
 #include <seastar/http/response_parser.hh>
+#include <seastar/net/api.hh>
+#include <seastar/core/seastar.hh>
 #include <seastar/core/print.hh>
-#include <seastar/core/reactor.hh>
 #include <seastar/core/app-template.hh>
-#include <seastar/core/future-util.hh>
 #include <seastar/core/distributed.hh>
 #include <seastar/core/semaphore.hh>
-#include <seastar/core/future-util.hh>
 #include <chrono>
 
 using namespace seastar;
@@ -113,7 +112,7 @@ public:
     };
 
     future<uint64_t> total_reqs() {
-        fmt::print("Requests on cpu {:2d}: {:d}\n", engine().cpu_id(), _total_reqs);
+        fmt::print("Requests on cpu {:2d}: {:d}\n", this_shard_id(), _total_reqs);
         return make_ready_future<uint64_t>(_total_reqs);
     }
 
@@ -129,9 +128,9 @@ public:
         // Establish all the TCP connections first
         for (unsigned i = 0; i < _conn_per_core; i++) {
             // Connect in the background, signal _conn_connected when done.
-            (void)engine().net().connect(make_ipv4_address(server_addr)).then([this] (connected_socket fd) {
+            (void)seastar::connect(make_ipv4_address(server_addr)).then([this] (connected_socket fd) {
                 _sockets.push_back(std::move(fd));
-                http_debug("Established connection %6d on cpu %3d\n", _conn_connected.current(), engine().cpu_id());
+                http_debug("Established connection %6d on cpu %3d\n", _conn_connected.current(), this_shard_id());
                 _conn_connected.signal();
             }).or_terminate();
         }
@@ -140,7 +139,7 @@ public:
 
     future<> run() {
         // All connected, start HTTP request
-        http_debug("Established all %6d tcp connections on cpu %3d\n", _conn_per_core, engine().cpu_id());
+        http_debug("Established all %6d tcp connections on cpu %3d\n", _conn_per_core, this_shard_id());
         if (_timer_based) {
             _run_timer.arm(std::chrono::seconds(_duration));
         }
@@ -148,7 +147,7 @@ public:
             auto conn = new connection(std::move(fd), this);
             // Run in the background, signal _conn_finished when done.
             (void)conn->do_req().then_wrapped([this, conn] (auto&& f) {
-                http_debug("Finished connection %6d on cpu %3d\n", _conn_finished.current(), engine().cpu_id());
+                http_debug("Finished connection %6d on cpu %3d\n", _conn_finished.current(), this_shard_id());
                 _total_reqs += conn->nr_done();
                 _conn_finished.signal();
                 delete conn;
@@ -173,7 +172,10 @@ public:
 namespace bpo = boost::program_options;
 
 int main(int ac, char** av) {
-    app_template app;
+    app_template::config app_cfg;
+    app_cfg.auto_handle_sigint_sigterm = false;
+    app_template app(std::move(app_cfg));
+
     app.add_options()
         ("server,s", bpo::value<std::string>()->default_value("192.168.66.100:10000"), "Server address")
         ("conn,c", bpo::value<unsigned>()->default_value(100), "total connections")

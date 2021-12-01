@@ -19,6 +19,8 @@
  * Copyright 2015 Cloudius Systems
  */
 
+#include <seastar/core/loop.hh>
+#include <seastar/core/print.hh>
 #include <seastar/json/json_elements.hh>
 #include <string.h>
 #include <string>
@@ -67,7 +69,11 @@ public:
         if (element == nullptr || element->_set == false) {
             return;
         }
-        add(element->_name, element->to_string());
+        try {
+            add(element->_name, element->to_string());
+        } catch (...) {
+            std::throw_with_nested(std::runtime_error(format("Json generation failed for field: {}",element->_name)));
+        }
     }
 
     /**

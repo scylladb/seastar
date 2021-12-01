@@ -25,6 +25,9 @@ rootkey = ca$(name).key
 config  = $(name).cfg
 days    = 3650
 
+alg 	= RSA
+alg_opt = -pkeyopt rsa_keygen_bits:$(width)
+
 hosts   =
 
 all     	: $(crt)
@@ -32,21 +35,21 @@ all     	: $(crt)
 clean		:
 		@rm -f $(crt) $(csr) $(pubkey) $(prvkey)
 
-%.key		:
+%.key		: 
 		@echo generating $@
-		openssl genrsa -out $@ $(width) 
+		openssl genpkey -out $@ -algorithm $(alg) $(alg_opt)
 
 %.pub  		: %.key
 		@echo generating $@
-		openssl rsa -in $< -out $@
+		openssl pkey -in $< -out $@
 
 $(config) 	: $(MAKEFILE_LIST)
 		@echo generating $@
 		@(										\
-			echo RANDFILE = $ENV::HOME/.rnd					;       \
 			echo [ req ]                                                    ;       \
 			echo default_bits = $(width)                                    ;       \
 			echo default_keyfile = $(prvkey)                                  ;       \
+			echo default_md = sha256 ;	\
 			echo distinguished_name = req_distinguished_name        	;       \
 			echo req_extensions = v3_req                                    ;       \
 			echo prompt = no                                                ;       \

@@ -19,6 +19,12 @@ optional):
 * `write_iops`: write IOPS speed of the device
 * `write_bandwidth`: write bandwidth speed of the device
 
+
+Additionally the following optional properties can be added:
+
+* `read_saturation_length`: read buffer length to saturate the device throughput
+* `write_saturation_length`: write buffer length to saturate the device throughput
+
 Those quantities can be specified in raw form, or followed with a
 suffix (k, M, G, or T).
 
@@ -31,4 +37,5 @@ disks:
     read_bandwidth: 545M
     write_iops: 85000
     write_bandwidth: 510M
+    write_saturation_length: 64k
 ```

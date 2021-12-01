@@ -31,28 +31,29 @@
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/core/iostream.hh>
 #include <seastar/util/std-compat.hh>
+#include <seastar/util/program-options.hh>
 #include "../core/internal/api-level.hh"
 #include <sys/types.h>
 
 namespace seastar {
 
 inline
-bool is_ip_unspecified(const ipv4_addr& addr) {
+bool is_ip_unspecified(const ipv4_addr& addr) noexcept {
     return addr.is_ip_unspecified();
 }
 
 inline
-bool is_port_unspecified(const ipv4_addr& addr) {
+bool is_port_unspecified(const ipv4_addr& addr) noexcept {
     return addr.is_port_unspecified();
 }
 
 inline
-socket_address make_ipv4_address(const ipv4_addr& addr) {
+socket_address make_ipv4_address(const ipv4_addr& addr) noexcept {
     return socket_address(addr);
 }
 
 inline
-socket_address make_ipv4_address(uint32_t ip, uint16_t port) {
+socket_address make_ipv4_address(uint32_t ip, uint16_t port) noexcept {
     return make_ipv4_address(ipv4_addr(ip, port));
 }
 
@@ -71,19 +72,13 @@ struct sctp_keepalive_params {
     unsigned count; // spp_pathmaxrt
 };
 
-using keepalive_params = compat::variant<tcp_keepalive_params, sctp_keepalive_params>;
+using keepalive_params = std::variant<tcp_keepalive_params, sctp_keepalive_params>;
 
 /// \cond internal
 class connected_socket_impl;
 class socket_impl;
 
-#if SEASTAR_API_LEVEL <= 1
-
-SEASTAR_INCLUDE_API_V1 namespace api_v1 { class server_socket_impl; }
-
-#endif
-
-SEASTAR_INCLUDE_API_V2 namespace api_v2 { class server_socket_impl; }
+class server_socket_impl;
 class udp_channel_impl;
 class get_impl;
 /// \endcond
@@ -101,7 +96,7 @@ class udp_datagram final {
 private:
     std::unique_ptr<udp_datagram_impl> _impl;
 public:
-    udp_datagram(std::unique_ptr<udp_datagram_impl>&& impl) : _impl(std::move(impl)) {};
+    udp_datagram(std::unique_ptr<udp_datagram_impl>&& impl) noexcept : _impl(std::move(impl)) {};
     socket_address get_src() { return _impl->get_src(); }
     socket_address get_dst() { return _impl->get_dst(); }
     uint16_t get_dst_port() { return _impl->get_dst_port(); }
@@ -112,12 +107,12 @@ class udp_channel {
 private:
     std::unique_ptr<udp_channel_impl> _impl;
 public:
-    udp_channel();
-    udp_channel(std::unique_ptr<udp_channel_impl>);
+    udp_channel() noexcept;
+    udp_channel(std::unique_ptr<udp_channel_impl>) noexcept;
     ~udp_channel();
 
-    udp_channel(udp_channel&&);
-    udp_channel& operator=(udp_channel&&);
+    udp_channel(udp_channel&&) noexcept;
+    udp_channel& operator=(udp_channel&&) noexcept;
 
     socket_address local_address() const;
 
@@ -172,11 +167,11 @@ class connected_socket {
     std::unique_ptr<net::connected_socket_impl> _csi;
 public:
     /// Constructs a \c connected_socket not corresponding to a connection
-    connected_socket();
+    connected_socket() noexcept;
     ~connected_socket();
 
     /// \cond internal
-    explicit connected_socket(std::unique_ptr<net::connected_socket_impl> csi);
+    explicit connected_socket(std::unique_ptr<net::connected_socket_impl> csi) noexcept;
     /// \endcond
     /// Moves a \c connected_socket object.
     connected_socket(connected_socket&& cs) noexcept;
@@ -208,6 +203,16 @@ public:
     void set_keepalive_parameters(const net::keepalive_params& p);
     /// Get TCP keepalive parameters
     net::keepalive_params get_keepalive_parameters() const;
+    /// Sets custom socket options. Based on setsockopt function.
+    /// Linux users should refer to protocol-specific manuals
+    /// to see available options, e.g. tcp(7), ip(7), etc.
+    void set_sockopt(int level, int optname, const void* data, size_t len);
+    /// Gets custom socket options. Based on getsockopt function.
+    /// Linux users should refer to protocol-specific manuals
+    /// to see available options, e.g. tcp(7), ip(7), etc.
+    int get_sockopt(int level, int optname, void* data, size_t len) const;
+    /// Local address of the socket
+    socket_address local_address() const noexcept;
 
     /// Disables output to the socket.
     ///
@@ -235,10 +240,11 @@ public:
 class socket {
     std::unique_ptr<net::socket_impl> _si;
 public:
+    socket() noexcept = default;
     ~socket();
 
     /// \cond internal
-    explicit socket(std::unique_ptr<net::socket_impl> si);
+    explicit socket(std::unique_ptr<net::socket_impl> si) noexcept;
     /// \endcond
     /// Moves a \c seastar::socket object.
     socket(socket&&) noexcept;
@@ -273,11 +279,9 @@ struct accept_result {
     socket_address remote_address;  ///< The address of the peer that connected to us
 };
 
-SEASTAR_INCLUDE_API_V2 namespace api_v2 {
-
 /// A listening socket, waiting to accept incoming network connections.
 class server_socket {
-    std::unique_ptr<net::api_v2::server_socket_impl> _ssi;
+    std::unique_ptr<net::server_socket_impl> _ssi;
     bool _aborted = false;
 public:
     enum class load_balancing_algorithm {
@@ -294,9 +298,9 @@ public:
         default_ = connection_distribution
     };
     /// Constructs a \c server_socket not corresponding to a connection
-    server_socket();
+    server_socket() noexcept;
     /// \cond internal
-    explicit server_socket(std::unique_ptr<net::api_v2::server_socket_impl> ssi);
+    explicit server_socket(std::unique_ptr<net::server_socket_impl> ssi) noexcept;
     /// \endcond
     /// Moves a \c server_socket object.
     server_socket(server_socket&& ss) noexcept;
@@ -320,37 +324,8 @@ public:
     void abort_accept();
 
     /// Local bound address
-    socket_address local_address() const;
+    socket_address local_address() const noexcept;
 };
-
-}
-
-#if SEASTAR_API_LEVEL <= 1
-
-SEASTAR_INCLUDE_API_V1 namespace api_v1 {
-
-class server_socket {
-    api_v2::server_socket _impl;
-private:
-    static api_v2::server_socket make_v2_server_socket(std::unique_ptr<net::api_v1::server_socket_impl>);
-public:
-    using load_balancing_algorithm = api_v2::server_socket::load_balancing_algorithm;
-    server_socket();
-    explicit server_socket(std::unique_ptr<net::api_v1::server_socket_impl> ssi);
-    explicit server_socket(std::unique_ptr<net::api_v2::server_socket_impl> ssi);
-    server_socket(server_socket&& ss) noexcept;
-    server_socket(api_v2::server_socket&& ss);
-    ~server_socket();
-    operator api_v2::server_socket() &&;
-    server_socket& operator=(server_socket&& cs) noexcept;
-    future<connected_socket, socket_address> accept();
-    void abort_accept();
-    socket_address local_address() const;
-};
-
-}
-
-#endif
 
 /// @}
 
@@ -370,10 +345,11 @@ class network_interface {
 private:
     shared_ptr<net::network_interface_impl> _impl;
 public:
-    network_interface(shared_ptr<net::network_interface_impl>);
-    network_interface(network_interface&&);
+    network_interface() = delete;
+    network_interface(shared_ptr<net::network_interface_impl>) noexcept;
+    network_interface(network_interface&&) noexcept;
 
-    network_interface& operator=(network_interface&&);
+    network_interface& operator=(network_interface&&) noexcept;
 
     uint32_t index() const;
     uint32_t mtu() const;
@@ -414,6 +390,15 @@ public:
      * return by value.
      */
     virtual std::vector<network_interface> network_interfaces();
+};
+
+struct network_stack_entry {
+    using factory_func = noncopyable_function<future<std::unique_ptr<network_stack>> (const program_options::option_group&)>;
+
+    sstring name;
+    std::unique_ptr<program_options::option_group> opts;
+    factory_func factory;
+    bool is_default;
 };
 
 }

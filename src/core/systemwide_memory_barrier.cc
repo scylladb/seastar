@@ -82,6 +82,15 @@ systemwide_memory_barrier() {
                MAP_PRIVATE | MAP_ANONYMOUS,
                -1, 0) ;
        assert(mem != MAP_FAILED);
+
+       // If the user specified --lock-memory, then madvise() below will fail
+       // with EINVAL, so we unlock here:
+       auto r = munlock(mem, getpagesize());
+       // munlock may fail on old kernels if we don't have permission. That's not
+       // a problem, since if we don't have permission to unlock, we didn't have
+       // permissions to lock.
+       assert(r == 0 || errno == EPERM);
+
        return reinterpret_cast<char*>(mem);
     }();
     // Force page into memory to make madvise() have real work to do

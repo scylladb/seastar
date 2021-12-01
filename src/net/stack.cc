@@ -21,21 +21,29 @@
 
 #include <seastar/net/stack.hh>
 #include <seastar/net/inet_address.hh>
-#include <seastar/core/reactor.hh>
 
 namespace seastar {
 
-net::udp_channel::udp_channel()
+static_assert(std::is_nothrow_default_constructible_v<connected_socket>);
+static_assert(std::is_nothrow_move_constructible_v<connected_socket>);
+
+static_assert(std::is_nothrow_default_constructible_v<socket>);
+static_assert(std::is_nothrow_move_constructible_v<socket>);
+
+static_assert(std::is_nothrow_default_constructible_v<server_socket>);
+static_assert(std::is_nothrow_move_constructible_v<server_socket>);
+
+net::udp_channel::udp_channel() noexcept
 {}
 
-net::udp_channel::udp_channel(std::unique_ptr<udp_channel_impl> impl) : _impl(std::move(impl))
+net::udp_channel::udp_channel(std::unique_ptr<udp_channel_impl> impl) noexcept : _impl(std::move(impl))
 {}
 
 net::udp_channel::~udp_channel()
 {}
 
-net::udp_channel::udp_channel(udp_channel&&) = default;
-net::udp_channel& net::udp_channel::operator=(udp_channel&&) = default;
+net::udp_channel::udp_channel(udp_channel&&) noexcept = default;
+net::udp_channel& net::udp_channel::operator=(udp_channel&&) noexcept = default;
 
 socket_address net::udp_channel::local_address() const {
     return _impl->local_address();
@@ -70,11 +78,11 @@ void net::udp_channel::close() {
     return _impl->close();
 }
 
-connected_socket::connected_socket()
+connected_socket::connected_socket() noexcept
 {}
 
 connected_socket::connected_socket(
-        std::unique_ptr<net::connected_socket_impl> csi)
+        std::unique_ptr<net::connected_socket_impl> csi) noexcept
         : _csi(std::move(csi)) {
 }
 
@@ -89,8 +97,10 @@ input_stream<char> connected_socket::input(connected_socket_input_stream_config 
 }
 
 output_stream<char> connected_socket::output(size_t buffer_size) {
+    output_stream_options opts;
+    opts.batch_flushes = true;
     // TODO: allow user to determine buffer size etc
-    return output_stream<char>(_csi->sink(), buffer_size, false, true);
+    return output_stream<char>(_csi->sink(), buffer_size, opts);
 }
 
 void connected_socket::set_nodelay(bool nodelay) {
@@ -112,6 +122,16 @@ void connected_socket::set_keepalive_parameters(const net::keepalive_params& p) 
 net::keepalive_params connected_socket::get_keepalive_parameters() const {
     return _csi->get_keepalive_parameters();
 }
+void connected_socket::set_sockopt(int level, int optname, const void* data, size_t len) {
+    _csi->set_sockopt(level, optname, data, len);
+}
+int connected_socket::get_sockopt(int level, int optname, void* data, size_t len) const {
+    return _csi->get_sockopt(level, optname, data, len);
+}
+
+socket_address connected_socket::local_address() const noexcept {
+    return _csi->local_address();
+}
 
 void connected_socket::shutdown_output() {
     _csi->shutdown_output();
@@ -131,7 +151,7 @@ socket::~socket()
 {}
 
 socket::socket(
-        std::unique_ptr<net::socket_impl> si)
+        std::unique_ptr<net::socket_impl> si) noexcept
         : _si(std::move(si)) {
 }
 
@@ -154,39 +174,10 @@ void socket::shutdown() {
     _si->shutdown();
 }
 
-#if SEASTAR_API_LEVEL <= 1
-
-namespace internal {
-
-class api_v1_to_v2_server_socket_impl_adapter : public net::api_v2::server_socket_impl {
-    std::unique_ptr<net::api_v1::server_socket_impl> _v1;
-public:
-    explicit api_v1_to_v2_server_socket_impl_adapter(std::unique_ptr<net::api_v1::server_socket_impl> v1)
-            : _v1(std::move(v1)) {
-    }
-    virtual future<accept_result> accept() override {
-        return _v1->accept().then([] (connected_socket cs, socket_address sa) {
-            return accept_result{std::move(cs), std::move(sa)};
-        });
-    }
-    virtual void abort_accept() override {
-        return _v1->abort_accept();
-    }
-    virtual socket_address local_address() const override {
-        return _v1->local_address();
-    }
-};
-
+server_socket::server_socket() noexcept {
 }
 
-#endif
-
-SEASTAR_INCLUDE_API_V2 namespace api_v2 {
-
-server_socket::server_socket() {
-}
-
-server_socket::server_socket(std::unique_ptr<net::api_v2::server_socket_impl> ssi)
+server_socket::server_socket(std::unique_ptr<net::server_socket_impl> ssi) noexcept
         : _ssi(std::move(ssi)) {
 }
 server_socket::server_socket(server_socket&& ss) noexcept = default;
@@ -207,161 +198,16 @@ void server_socket::abort_accept() {
     _aborted = true;
 }
 
-socket_address server_socket::local_address() const {
+socket_address server_socket::local_address() const noexcept {
     return _ssi->local_address();
 }
 
-}
-
-#if SEASTAR_API_LEVEL <= 1
-
-SEASTAR_INCLUDE_API_V1 namespace api_v1 {
-
-server_socket::server_socket() {
-}
-
-api_v2::server_socket
-server_socket::make_v2_server_socket(std::unique_ptr<net::api_v1::server_socket_impl> ssi_v1) {
-    auto ssi_v2 = std::make_unique<internal::api_v1_to_v2_server_socket_impl_adapter>(std::move(ssi_v1));
-    return api_v2::server_socket(std::move(ssi_v2));
-}
-
-server_socket::server_socket(std::unique_ptr<net::api_v1::server_socket_impl> ssi)
-        : _impl(make_v2_server_socket(std::move(ssi))) {
-}
-
-server_socket::server_socket(std::unique_ptr<net::api_v2::server_socket_impl> ssi)
-        : _impl(api_v2::server_socket(std::move(ssi))) {
-}
-
-server_socket::server_socket(server_socket&& ss) noexcept = default;
-
-server_socket::server_socket(api_v2::server_socket&& ss)
-        : _impl(std::move(ss)) {
-}
-
-server_socket& server_socket::operator=(server_socket&& cs) noexcept = default;
-
-server_socket::~server_socket() {
-}
-
-server_socket::operator api_v2::server_socket() && {
-    return std::move(_impl);
-}
-
-future<connected_socket, socket_address> server_socket::accept() {
-    return _impl.accept().then([] (accept_result ar) {
-        return make_ready_future<connected_socket, socket_address>(std::move(ar.connection), std::move(ar.remote_address));
-    });
-}
-
-
-void server_socket::abort_accept() {
-    return _impl.abort_accept();
-}
-
-socket_address server_socket::local_address() const {
-    return _impl.local_address();
-}
-
-}
-
-
-#endif
-
-socket_address::socket_address() 
-    // set max addr_length, as we (probably) want to use the constructed object
-    // in accept() or get_address()
-    : addr_length(sizeof(::sockaddr_storage))
-{
-    static_assert(AF_UNSPEC == 0, "just checking");
-    memset(&u, 0, sizeof(u));
-}
-
-socket_address::socket_address(uint16_t p)
-    : socket_address(ipv4_addr(p))
-{}
-
-socket_address::socket_address(ipv4_addr addr)
-{
-    addr_length = sizeof(::sockaddr_in);
-    u.in.sin_family = AF_INET;
-    u.in.sin_port = htons(addr.port);
-    u.in.sin_addr.s_addr = htonl(addr.ip);
-}
-
-socket_address::socket_address(const ipv6_addr& addr, uint32_t scope)
-{
-    addr_length = sizeof(::sockaddr_in6);
-    u.in6.sin6_family = AF_INET6;
-    u.in6.sin6_port = htons(addr.port);
-    u.in6.sin6_flowinfo = 0;
-    u.in6.sin6_scope_id = scope;
-    std::copy(addr.ip.begin(), addr.ip.end(), u.in6.sin6_addr.s6_addr);
-}
-
-socket_address::socket_address(const ipv6_addr& addr)
-    : socket_address(addr, net::inet_address::invalid_scope)
-{}
-
-socket_address::socket_address(uint32_t ipv4, uint16_t p)
-    : socket_address(make_ipv4_address(ipv4, p))
-{}
-
-bool socket_address::is_unspecified() const {
-    return u.sa.sa_family == AF_UNSPEC;
-}
-
-static int adjusted_path_length(const socket_address& a) {
-    int l = std::max(0, (int)a.addr_length-(int)((size_t) (((struct sockaddr_un *) 0)->sun_path)));
-    // "un-count" a trailing null in filesystem-namespace paths
-    if (a.u.un.sun_path[0]!='\0' && (l > 1) && a.u.un.sun_path[l-1]=='\0') {
-        --l;
-    }
-    return l;
-}
-
-bool socket_address::operator==(const socket_address& a) const {
-    if (u.sa.sa_family != a.u.sa.sa_family) {
-        return false;
-    }
-    if (u.sa.sa_family == AF_UNIX) {
-        // tolerate counting/not counting a terminating null in filesystem-namespace paths
-        int adjusted_len = adjusted_path_length(*this);
-        int a_adjusted_len = adjusted_path_length(a);
-        if (adjusted_len != a_adjusted_len) {
-            return false;
-        }
-        return (memcmp(u.un.sun_path, a.u.un.sun_path, adjusted_len) == 0);
-    }
-
-    // an INET address
-    if (u.in.sin_port != a.u.in.sin_port) {
-        return false;
-    }
-    switch (u.sa.sa_family) {
-    case AF_INET:
-        return u.in.sin_addr.s_addr == a.u.in.sin_addr.s_addr;
-    case AF_UNSPEC:
-    case AF_INET6:
-        // handled below
-        break;
-    default:
-        return false;
-    }
-
-    auto& in1 = as_posix_sockaddr_in6();
-    auto& in2 = a.as_posix_sockaddr_in6();
-
-    return IN6_ARE_ADDR_EQUAL(&in1, &in2);
-}
-
-network_interface::network_interface(shared_ptr<net::network_interface_impl> impl)
+network_interface::network_interface(shared_ptr<net::network_interface_impl> impl) noexcept
     : _impl(std::move(impl))
 {}
 
-network_interface::network_interface(network_interface&&) = default;
-network_interface& network_interface::operator=(network_interface&&) = default;
+network_interface::network_interface(network_interface&&) noexcept = default;
+network_interface& network_interface::operator=(network_interface&&) noexcept = default;
     
 uint32_t network_interface::index() const {
     return _impl->index();

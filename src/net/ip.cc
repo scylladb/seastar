@@ -22,7 +22,6 @@
 
 #include <seastar/net/ip.hh>
 #include <seastar/core/print.hh>
-#include <seastar/core/future-util.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/net/toeplitz.hh>
 #include <seastar/core/metrics.hh>
@@ -187,7 +186,7 @@ ipv4::handle_received_packet(packet p, ethernet_address from) {
             auto dropped_size = frag.mem_size;
             auto& ip_data = frag.data.map.begin()->second;
             // Choose a cpu to forward this packet
-            auto cpu_id = engine().cpu_id();
+            auto cpu_id = this_shard_id();
             auto l4 = _l4[h.ip_proto];
             if (l4) {
                 size_t l4_offset = 0;
@@ -198,7 +197,7 @@ ipv4::handle_received_packet(packet p, ethernet_address from) {
                 if (forwarded) {
                     cpu_id = _netif->hash2cpu(toeplitz_hash(_netif->rss_key(), hash_data));
                     // No need to forward if the dst cpu is the current cpu
-                    if (cpu_id == engine().cpu_id()) {
+                    if (cpu_id == this_shard_id()) {
                         l4->received(std::move(ip_data), h.src_ip, h.dst_ip);
                     } else {
                         auto to = _netif->hw_address();
@@ -299,7 +298,7 @@ void ipv4::send(ipv4_address to, ip_protocol_num proto_num, packet p, ethernet_a
     }
 }
 
-compat::optional<l3_protocol::l3packet> ipv4::get_packet() {
+std::optional<l3_protocol::l3packet> ipv4::get_packet() {
     // _packetq will be mostly empty here unless it hold remnants of previously
     // fragmented packet
     if (_packetq.empty()) {
@@ -316,7 +315,7 @@ compat::optional<l3_protocol::l3packet> ipv4::get_packet() {
         }
     }
 
-    compat::optional<l3_protocol::l3packet> p;
+    std::optional<l3_protocol::l3packet> p;
     if (!_packetq.empty()) {
         p = std::move(_packetq.front());
         _packetq.pop_front();

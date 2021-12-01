@@ -25,11 +25,14 @@
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/core/sstring.hh>
-#include <seastar/core/reactor.hh>
 #include <seastar/core/semaphore.hh>
 #include <seastar/core/do_with.hh>
-#include <seastar/core/future-util.hh>
+#include <seastar/core/loop.hh>
 #include <seastar/core/sleep.hh>
+#include <sys/mman.h>
+#include <sys/signal.h>
+
+#include <valgrind/valgrind.h>
 
 using namespace seastar;
 using namespace std::chrono_literals;
@@ -163,8 +166,11 @@ SEASTAR_TEST_CASE(test_thread_custom_stack_size) {
     });
 }
 
-// The test case uses x86_64 specific signal handler info
-#if defined(SEASTAR_THREAD_STACK_GUARDS) && defined(__x86_64__)
+// The test case uses x86_64 specific signal handler info. The test
+// fails with detect_stack_use_after_return=1. We could put it behind
+// a command line option and fork/exec to run it after removing
+// detect_stack_use_after_return=1 from the environment.
+#if defined(SEASTAR_THREAD_STACK_GUARDS) && defined(__x86_64__) && !defined(SEASTAR_ASAN_ENABLED)
 struct test_thread_custom_stack_size_failure : public seastar::testing::seastar_test {
     const char* get_test_file() override { return __FILE__; }
     const char* get_name() override { return "test_thread_custom_stack_size_failure"; }
@@ -208,6 +214,10 @@ static void bypass_stack_guard(int sig, siginfo_t* si, void* ctx) {
 // This test will fail with a regular stack size, because we only probe
 // around 10KiB of data, and the stack guard resides after 128'th KiB.
 seastar::future<> test_thread_custom_stack_size_failure::run_test_case() {
+    if (RUNNING_ON_VALGRIND) {
+        return make_ready_future<>();
+    }
+
     sstring x = "x";
     sstring y = "y";
 

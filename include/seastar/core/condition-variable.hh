@@ -21,8 +21,8 @@
 
 #pragma once
 
-#include <seastar/core/future-util.hh>
 #include <seastar/core/semaphore.hh>
+#include <seastar/core/loop.hh>
 
 namespace seastar {
 
@@ -34,9 +34,7 @@ namespace seastar {
 class broken_condition_variable : public std::exception {
 public:
     /// Reports the exception reason.
-    virtual const char* what() const noexcept {
-        return "Condition variable is broken";
-    }
+    virtual const char* what() const noexcept;
 };
 
 /// Exception thrown when wait() operation times out
@@ -44,9 +42,7 @@ public:
 class condition_variable_timed_out : public std::exception {
 public:
     /// Reports the exception reason.
-    virtual const char* what() const noexcept {
-        return "Condition variable timed out";
-    }
+    virtual const char* what() const noexcept;
 };
 
 /// \brief Conditional variable.
@@ -67,26 +63,22 @@ class condition_variable {
     using clock = semaphore::clock;
     using time_point = semaphore::time_point;
     struct condition_variable_exception_factory {
-        static condition_variable_timed_out timeout() {
-            return condition_variable_timed_out();
-        }
-        static broken_condition_variable broken() {
-            return broken_condition_variable();
-        }
+        static condition_variable_timed_out timeout() noexcept;
+        static broken_condition_variable broken() noexcept;
     };
     basic_semaphore<condition_variable_exception_factory> _sem;
 public:
     /// Constructs a condition_variable object.
     /// Initialzie the semaphore with a default value of 0 to enusre
     /// the first call to wait() before signal() won't be waken up immediately.
-    condition_variable() : _sem(0) {}
+    condition_variable() noexcept : _sem(0) {}
 
     /// Waits until condition variable is signaled, may wake up without condition been met
     ///
     /// \return a future that becomes ready when \ref signal() is called
     ///         If the condition variable was \ref broken() will return \ref broken_condition_variable
     ///         exception.
-    future<> wait() {
+    future<> wait() noexcept {
         return _sem.wait();
     }
 
@@ -97,7 +89,7 @@ public:
     /// \return a future that becomes ready when \ref signal() is called
     ///         If the condition variable was \ref broken() will return \ref broken_condition_variable
     ///         exception. If timepoint is reached will return \ref condition_variable_timed_out exception.
-    future<> wait(time_point timeout) {
+    future<> wait(time_point timeout) noexcept {
         return _sem.wait(timeout);
     }
 
@@ -108,7 +100,7 @@ public:
     /// \return a future that becomes ready when \ref signal() is called
     ///         If the condition variable was \ref broken() will return \ref broken_condition_variable
     ///         exception. If timepoint is passed will return \ref condition_variable_timed_out exception.
-    future<> wait(duration timeout) {
+    future<> wait(duration timeout) noexcept {
         return _sem.wait(timeout);
     }
 
@@ -120,7 +112,7 @@ public:
     /// \return a future that becomes ready when \ref signal() is called
     ///         If the condition variable was \ref broken(), may contain an exception.
     template<typename Pred>
-    future<> wait(Pred&& pred) {
+    future<> wait(Pred&& pred) noexcept {
         return do_until(std::forward<Pred>(pred), [this] {
             return wait();
         });
@@ -135,9 +127,8 @@ public:
     /// \return a future that becomes ready when \ref signal() is called
     ///         If the condition variable was \ref broken() will return \ref broken_condition_variable
     ///         exception. If timepoint is reached will return \ref condition_variable_timed_out exception.
-    /// \param
     template<typename Pred>
-    future<> wait(time_point timeout, Pred&& pred) {
+    future<> wait(time_point timeout, Pred&& pred) noexcept {
         return do_until(std::forward<Pred>(pred), [this, timeout] () mutable {
             return wait(timeout);
         });
@@ -153,24 +144,24 @@ public:
     ///         If the condition variable was \ref broken() will return \ref broken_condition_variable
     ///         exception. If timepoint is passed will return \ref condition_variable_timed_out exception.
     template<typename Pred>
-    future<> wait(duration timeout, Pred&& pred) {
+    future<> wait(duration timeout, Pred&& pred) noexcept {
         return wait(clock::now() + timeout, std::forward<Pred>(pred));
     }
     /// Notify variable and wake up a waiter if there is one
-    void signal() {
+    void signal() noexcept {
         if (_sem.waiters()) {
             _sem.signal();
         }
     }
     /// Notify variable and wake up all waiter
-    void broadcast() {
+    void broadcast() noexcept {
         _sem.signal(_sem.waiters());
     }
 
     /// Signal to waiters that an error occurred.  \ref wait() will see
     /// an exceptional future<> containing the provided exception parameter.
     /// The future is made available immediately.
-    void broken() {
+    void broken() noexcept {
         _sem.broken();
     }
 };

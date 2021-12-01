@@ -22,6 +22,7 @@
 #pragma once
 
 #include <functional>
+#include <limits>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/metrics_registration.hh>
@@ -44,6 +45,9 @@
 namespace seastar {
 
 /*!
+ * \addtogroup metrics
+ * @{
+ *
  * \namespace seastar::metrics
  * \brief metrics creation and registration
  *
@@ -238,7 +242,7 @@ public:
 };
 
 /*!
- * \namesapce impl
+ * \namespace impl
  * \brief holds the implementation parts of the metrics layer, do not use directly.
  *
  * The metrics layer define a thin API for adding metrics.
@@ -256,27 +260,42 @@ enum class data_type : uint8_t {
 };
 
 /*!
- * \breif A helper class that used to return metrics value.
+ * \brief A helper class that used to return metrics value.
  *
  * Do not use directly @see metrics_creation
  */
-struct metric_value {
-    compat::variant<double, histogram> u;
+class metric_value {
+public:
+    std::variant<double, histogram> u;
     data_type _type;
     data_type type() const {
         return _type;
     }
 
     double d() const {
-        return compat::get<double>(u);
+        return std::get<double>(u);
     }
 
     uint64_t ui() const {
-        return compat::get<double>(u);
+        auto d = std::get<double>(u);
+        if (d >= 0 && d <= double(std::numeric_limits<long>::max())) {
+            return lround(d);
+        } else {
+            // double value is out of range or NaN or Inf
+            ulong_conversion_error(d);
+            return 0;
+        }
     }
 
     int64_t i() const {
-        return compat::get<double>(u);
+        auto d = std::get<double>(u);
+        if (d >= double(std::numeric_limits<long>::min()) && d <= double(std::numeric_limits<long>::max())) {
+            return lround(d);
+        } else {
+            // double value is out of range or NaN or Inf
+            ulong_conversion_error(d);
+            return 0;
+        }
     }
 
     metric_value()
@@ -303,8 +322,11 @@ struct metric_value {
 
     metric_value operator+(const metric_value& c);
     const histogram& get_histogram() const {
-        return compat::get<histogram>(u);
+        return std::get<histogram>(u);
     }
+
+private:
+    static void ulong_conversion_error(double d);
 };
 
 using metric_function = std::function<metric_value()>;
@@ -323,6 +345,7 @@ struct metric_definition_impl {
     std::map<sstring, sstring> labels;
     metric_definition_impl& operator ()(bool enabled);
     metric_definition_impl& operator ()(const label_instance& label);
+    metric_definition_impl& set_type(const sstring& type_name);
     metric_definition_impl(
         metric_name_type name,
         metric_type type,
@@ -348,7 +371,7 @@ template<typename T, typename En = std::true_type>
 struct is_callable;
 
 template<typename T>
-struct is_callable<T, typename std::integral_constant<bool, !std::is_void<typename std::result_of<T()>::type>::value>::type> : public std::true_type {
+struct is_callable<T, typename std::integral_constant<bool, !std::is_void<std::invoke_result_t<T>>::value>::type> : public std::true_type {
 };
 
 template<typename T>
@@ -373,7 +396,6 @@ metric_function make_function(T& val, data_type dt) {
 extern const bool metric_disabled;
 
 extern label shard_label;
-extern label type_label;
 
 /*
  * The metrics definition are defined to be compatible with collectd metrics defintion.
@@ -534,7 +556,7 @@ template<typename T>
 impl::metric_definition_impl make_total_bytes(metric_name_type name,
         T&& val, description d=description(), std::vector<label_instance> labels = {},
         instance_id_type instance = impl::shard()) {
-    return make_derive(name, std::forward<T>(val), d, labels)(type_label("total_bytes"));
+    return make_derive(name, std::forward<T>(val), d, labels).set_type("total_bytes");
 }
 
 /*!
@@ -548,7 +570,7 @@ template<typename T>
 impl::metric_definition_impl make_current_bytes(metric_name_type name,
         T&& val, description d=description(), std::vector<label_instance> labels = {},
         instance_id_type instance = impl::shard()) {
-    return make_derive(name, std::forward<T>(val), d, labels)(type_label("bytes"));
+    return make_gauge(name, std::forward<T>(val), d, labels).set_type("bytes");
 }
 
 
@@ -562,7 +584,7 @@ template<typename T>
 impl::metric_definition_impl make_queue_length(metric_name_type name,
         T&& val, description d=description(), std::vector<label_instance> labels = {},
         instance_id_type instance = impl::shard()) {
-    return make_gauge(name, std::forward<T>(val), d, labels)(type_label("queue_length"));
+    return make_gauge(name, std::forward<T>(val), d, labels).set_type("queue_length");
 }
 
 
@@ -576,7 +598,7 @@ template<typename T>
 impl::metric_definition_impl make_total_operations(metric_name_type name,
         T&& val, description d=description(), std::vector<label_instance> labels = {},
         instance_id_type instance = impl::shard()) {
-    return make_derive(name, std::forward<T>(val), d, labels)(type_label("total_operations"));
+    return make_derive(name, std::forward<T>(val), d, labels).set_type("total_operations");
 }
 
 /*! @} */

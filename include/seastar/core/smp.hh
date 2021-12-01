@@ -22,10 +22,13 @@
 #pragma once
 
 #include <seastar/core/future.hh>
+#include <seastar/core/loop.hh>
 #include <seastar/core/semaphore.hh>
 #include <seastar/core/metrics.hh>
 #include <seastar/core/posix.hh>
 #include <seastar/core/reactor_config.hh>
+#include <seastar/core/resource.hh>
+#include <seastar/util/program-options.hh>
 #include <boost/lockfree/spsc_queue.hpp>
 #include <boost/thread/barrier.hpp>
 #include <boost/range/irange.hpp>
@@ -42,14 +45,27 @@ using shard_id = unsigned;
 class smp_service_group;
 class reactor_backend_selector;
 
+namespace alien {
+
+class instance;
+
+}
+
 namespace internal {
 
-unsigned smp_service_group_id(smp_service_group ssg);
+unsigned smp_service_group_id(smp_service_group ssg) noexcept;
+
+inline shard_id* this_shard_id_ptr() noexcept {
+    static thread_local shard_id g_this_shard_id;
+    return &g_this_shard_id;
+}
 
 }
 
 /// Returns shard_id of the of the current shard.
-shard_id this_shard_id();
+inline shard_id this_shard_id() noexcept {
+    return *internal::this_shard_id_ptr();
+}
 
 /// Configuration for smp_service_group objects.
 ///
@@ -59,6 +75,11 @@ struct smp_service_group_config {
     ///
     /// Will be adjusted upwards to allow at least one request per non-local shard.
     unsigned max_nonlocal_requests = 0;
+    /// An optional name for this smp group
+    ///
+    /// If this optional is engaged, timeout exception messages of the group's
+    /// semaphores will indicate the group's name.
+    std::optional<sstring> group_name;
 };
 
 /// A resource controller for cross-shard calls.
@@ -84,16 +105,16 @@ struct smp_service_group_config {
 class smp_service_group {
     unsigned _id;
 private:
-    explicit smp_service_group(unsigned id) : _id(id) {}
+    explicit smp_service_group(unsigned id) noexcept : _id(id) {}
 
-    friend unsigned internal::smp_service_group_id(smp_service_group ssg);
-    friend smp_service_group default_smp_service_group();
-    friend future<smp_service_group> create_smp_service_group(smp_service_group_config ssgc);
+    friend unsigned internal::smp_service_group_id(smp_service_group ssg) noexcept;
+    friend smp_service_group default_smp_service_group() noexcept;
+    friend future<smp_service_group> create_smp_service_group(smp_service_group_config ssgc) noexcept;
 };
 
 inline
 unsigned
-internal::smp_service_group_id(smp_service_group ssg) {
+internal::smp_service_group_id(smp_service_group ssg) noexcept {
     return ssg._id;
 }
 
@@ -102,22 +123,22 @@ internal::smp_service_group_id(smp_service_group ssg) {
 /// This makes is deadlock-safe, but can consume unbounded resources,
 /// and should therefore only be used when initiator concurrency is
 /// very low (e.g. administrative tasks).
-smp_service_group default_smp_service_group();
+smp_service_group default_smp_service_group() noexcept;
 
 /// Creates an smp_service_group with the specified configuration.
 ///
 /// The smp_service_group is global, and after this call completes,
 /// the returned value can be used on any shard.
-future<smp_service_group> create_smp_service_group(smp_service_group_config ssgc);
+future<smp_service_group> create_smp_service_group(smp_service_group_config ssgc) noexcept;
 
 /// Destroy an smp_service_group.
 ///
 /// Frees all resources used by an smp_service_group. It must not
 /// be used again once this function is called.
-future<> destroy_smp_service_group(smp_service_group ssg);
+future<> destroy_smp_service_group(smp_service_group ssg) noexcept;
 
 inline
-smp_service_group default_smp_service_group() {
+smp_service_group default_smp_service_group() noexcept {
     return smp_service_group(0);
 }
 
@@ -136,7 +157,7 @@ struct smp_submit_to_options {
     /// executed there.
     smp_timeout_clock::time_point timeout = smp_no_timeout;
 
-    smp_submit_to_options(smp_service_group service_group = default_smp_service_group(), smp_timeout_clock::time_point timeout = smp_no_timeout)
+    smp_submit_to_options(smp_service_group service_group = default_smp_service_group(), smp_timeout_clock::time_point timeout = smp_no_timeout) noexcept
         : service_group(service_group)
         , timeout(timeout) {
     }
@@ -144,7 +165,7 @@ struct smp_submit_to_options {
 
 void init_default_smp_service_group(shard_id cpu);
 
-smp_service_group_semaphore& get_smp_service_groups_semaphore(unsigned ssg_id, shard_id t);
+smp_service_group_semaphore& get_smp_service_groups_semaphore(unsigned ssg_id, shard_id t) noexcept;
 
 class smp_message_queue {
     static constexpr size_t queue_length = 128;
@@ -192,20 +213,24 @@ class smp_message_queue {
     struct async_work_item : work_item {
         smp_message_queue& _queue;
         Func _func;
-        using futurator = futurize<std::result_of_t<Func()>>;
+        using futurator = futurize<std::invoke_result_t<Func>>;
         using future_type = typename futurator::type;
         using value_type = typename future_type::value_type;
-        compat::optional<value_type> _result;
+        std::optional<value_type> _result;
         std::exception_ptr _ex; // if !_result
         typename futurator::promise_type _promise; // used on local side
         async_work_item(smp_message_queue& queue, smp_service_group ssg, Func&& func) : work_item(ssg), _queue(queue), _func(std::move(func)) {}
         virtual void fail_with(std::exception_ptr ex) override {
             _promise.set_exception(std::move(ex));
         }
+        virtual task* waiting_task() noexcept override {
+            // FIXME: waiting_tasking across shards is not implemented. Unsynchronized task access is unsafe.
+            return nullptr;
+        }
         virtual void run_and_dispose() noexcept override {
             // _queue.respond() below forwards the continuation chain back to the
             // calling shard.
-            (void)futurator::apply(this->_func).then_wrapped([this] (auto f) {
+            (void)futurator::invoke(this->_func).then_wrapped([this] (auto f) {
                 if (f.failed()) {
                     _ex = f.get_exception();
                 } else {
@@ -239,7 +264,8 @@ public:
     smp_message_queue(reactor* from, reactor* to);
     ~smp_message_queue();
     template <typename Func>
-    futurize_t<std::result_of_t<Func()>> submit(shard_id t, smp_submit_to_options options, Func&& func) {
+    futurize_t<std::invoke_result_t<Func>> submit(shard_id t, smp_submit_to_options options, Func&& func) noexcept {
+        memory::scoped_critical_alloc_section _;
         auto wi = std::make_unique<async_work_item<Func>>(*this, options.service_group, std::forward<Func>(func));
         auto fut = wi->get_future();
         submit_item(t, options.timeout, std::move(wi));
@@ -265,30 +291,88 @@ private:
     friend class smp;
 };
 
-class smp {
-    static std::vector<posix_thread> _threads;
-    static std::vector<std::function<void ()>> _thread_loops; // for dpdk
-    static compat::optional<boost::barrier> _all_event_loops_done;
-    static std::vector<reactor*> _reactors;
+/// Configuration for the multicore aspect of seastar.
+struct smp_options : public program_options::option_group {
+    /// Number of threads (default: one per CPU).
+    program_options::value<unsigned> smp;
+    /// CPUs to use (in cpuset(7) format; default: all)).
+    program_options::value<resource::cpuset> cpuset;
+    /// Memory to use, in bytes (ex: 4G) (default: all).
+    program_options::value<std::string> memory;
+    /// Memory reserved to OS (if \ref memory not specified).
+    program_options::value<std::string> reserve_memory;
+    /// Path to accessible hugetlbfs mount (typically /dev/hugepages/something).
+    program_options::value<std::string> hugepages;
+    /// Lock all memory (prevents swapping).
+    program_options::value<bool> lock_memory;
+    /// Pin threads to their cpus (disable for overprovisioning).
+    ///
+    /// Default: \p true.
+    program_options::value<bool> thread_affinity;
+    /// \brief Number of IO queues.
+    ///
+    /// Each IO unit will be responsible for a fraction of the IO requests.
+    /// Defaults to the number of threads
+    /// \note Unused when seastar is compiled without \p HWLOC support.
+    program_options::value<unsigned> num_io_queues;
+    /// \brief Number of IO groups.
+    ///
+    /// Each IO group will be responsible for a fraction of the IO requests.
+    /// Defaults to the number of NUMA nodes
+    /// \note Unused when seastar is compiled without \p HWLOC support.
+    program_options::value<unsigned> num_io_groups;
+    /// \brief Maximum amount of concurrent requests to be sent to the disk.
+    ///
+    /// Defaults to 128 times the number of IO queues
+    program_options::value<unsigned> max_io_requests;
+    /// Path to a YAML file describing the characteristics of the I/O Subsystem.
+    program_options::value<std::string> io_properties_file;
+    /// A YAML string describing the characteristics of the I/O Subsystem.
+    program_options::value<std::string> io_properties;
+    /// Enable mbind.
+    ///
+    /// Default: \p true.
+    program_options::value<bool> mbind;
+    /// Enable workaround for glibc/gcc c++ exception scalablity problem.
+    ///
+    /// Default: \p true.
+    /// \note Unused when seastar is compiled without the exception scaling support.
+    program_options::value<bool> enable_glibc_exception_scaling_workaround;
+    /// If some CPUs are found not to have any local NUMA nodes, allow assigning
+    /// them to remote ones.
+    /// \note Unused when seastar is compiled without \p HWLOC support.
+    program_options::value<bool> allow_cpus_in_remote_numa_nodes;
+
+public:
+    smp_options(program_options::option_group* parent_group);
+};
+
+struct reactor_options;
+
+class smp : public std::enable_shared_from_this<smp> {
+    alien::instance& _alien;
+    std::vector<posix_thread> _threads;
+    std::vector<std::function<void ()>> _thread_loops; // for dpdk
+    std::optional<boost::barrier> _all_event_loops_done;
     struct qs_deleter {
       void operator()(smp_message_queue** qs) const;
     };
-    static std::unique_ptr<smp_message_queue*[], qs_deleter> _qs;
-    static std::thread::id _tmain;
-    static bool _using_dpdk;
+    std::unique_ptr<smp_message_queue*[], qs_deleter> _qs_owner;
+    static thread_local smp_message_queue**_qs;
+    static thread_local std::thread::id _tmain;
+    bool _using_dpdk = false;
 
     template <typename Func>
-    using returns_future = is_future<std::result_of_t<Func()>>;
+    using returns_future = is_future<std::invoke_result_t<Func>>;
     template <typename Func>
-    using returns_void = std::is_same<std::result_of_t<Func()>, void>;
+    using returns_void = std::is_same<std::invoke_result_t<Func>, void>;
 public:
-    static boost::program_options::options_description get_options_description();
-    static void register_network_stacks();
-    static void configure(boost::program_options::variables_map vm, reactor_config cfg = {});
-    static void cleanup();
-    static void cleanup_cpu();
-    static void arrive_at_event_loop_end();
-    static void join_all();
+    explicit smp(alien::instance& alien) : _alien(alien) {}
+    void configure(const smp_options& smp_opts, const reactor_options& reactor_opts);
+    void cleanup() noexcept;
+    void cleanup_cpu();
+    void arrive_at_event_loop_end();
+    void join_all();
     static bool main_thread() { return std::this_thread::get_id() == _tmain; }
 
     /// Runs a function on a remote core.
@@ -305,25 +389,25 @@ public:
     /// \return whatever \c func returns, as a future<> (if \c func does not return a future,
     ///         submit_to() will wrap it in a future<>).
     template <typename Func>
-    static futurize_t<std::result_of_t<Func()>> submit_to(unsigned t, smp_submit_to_options options, Func&& func) {
-        using ret_type = std::result_of_t<Func()>;
+    static futurize_t<std::invoke_result_t<Func>> submit_to(unsigned t, smp_submit_to_options options, Func&& func) noexcept {
+        using ret_type = std::invoke_result_t<Func>;
         if (t == this_shard_id()) {
             try {
                 if (!is_future<ret_type>::value) {
                     // Non-deferring function, so don't worry about func lifetime
-                    return futurize<ret_type>::apply(std::forward<Func>(func));
+                    return futurize<ret_type>::invoke(std::forward<Func>(func));
                 } else if (std::is_lvalue_reference<Func>::value) {
                     // func is an lvalue, so caller worries about its lifetime
-                    return futurize<ret_type>::apply(func);
+                    return futurize<ret_type>::invoke(func);
                 } else {
                     // Deferring call on rvalue function, make sure to preserve it across call
                     auto w = std::make_unique<std::decay_t<Func>>(std::move(func));
-                    auto ret = futurize<ret_type>::apply(*w);
+                    auto ret = futurize<ret_type>::invoke(*w);
                     return ret.finally([w = std::move(w)] {});
                 }
             } catch (...) {
                 // Consistently return a failed future rather than throwing, to simplify callers
-                return futurize<std::result_of_t<Func()>>::make_exception_future(std::current_exception());
+                return futurize<std::invoke_result_t<Func>>::make_exception_future(std::current_exception());
             }
         } else {
             return _qs[t][this_shard_id()].submit(t, options, std::forward<Func>(func));
@@ -344,12 +428,12 @@ public:
     /// \return whatever \c func returns, as a future<> (if \c func does not return a future,
     ///         submit_to() will wrap it in a future<>).
     template <typename Func>
-    static futurize_t<std::result_of_t<Func()>> submit_to(unsigned t, Func&& func) {
+    static futurize_t<std::invoke_result_t<Func>> submit_to(unsigned t, Func&& func) noexcept {
         return submit_to(t, default_smp_service_group(), std::forward<Func>(func));
     }
     static bool poll_queues();
     static bool pure_poll_queues();
-    static boost::integer_range<unsigned> all_cpus() {
+    static boost::integer_range<unsigned> all_cpus() noexcept {
         return boost::irange(0u, count);
     }
     /// Invokes func on all shards.
@@ -361,8 +445,10 @@ public:
     ///         of \c func.
     /// \returns a future that resolves when all async invocations finish.
     template<typename Func>
-    static future<> invoke_on_all(smp_submit_to_options options, Func&& func) {
-        static_assert(std::is_same<future<>, typename futurize<std::result_of_t<Func()>>::type>::value, "bad Func signature");
+    SEASTAR_CONCEPT( requires std::is_nothrow_move_constructible_v<Func> )
+    static future<> invoke_on_all(smp_submit_to_options options, Func&& func) noexcept {
+        static_assert(std::is_same<future<>, typename futurize<std::invoke_result_t<Func>>::type>::value, "bad Func signature");
+        static_assert(std::is_nothrow_move_constructible_v<Func>);
         return parallel_for_each(all_cpus(), [options, &func] (unsigned id) {
             return smp::submit_to(id, options, Func(func));
         });
@@ -377,7 +463,7 @@ public:
     /// Passes the default \ref smp_submit_to_options to the
     /// \ref smp::submit_to() called behind the scenes.
     template<typename Func>
-    static future<> invoke_on_all(Func&& func) {
+    static future<> invoke_on_all(Func&& func) noexcept {
         return invoke_on_all(smp_submit_to_options{}, std::forward<Func>(func));
     }
     /// Invokes func on all other shards.
@@ -390,10 +476,13 @@ public:
     ///         of \c func.
     /// \returns a future that resolves when all async invocations finish.
     template<typename Func>
-    static future<> invoke_on_others(unsigned cpu_id, smp_submit_to_options options, Func func) {
-        static_assert(std::is_same<future<>, typename futurize<std::result_of_t<Func()>>::type>::value, "bad Func signature");
+    SEASTAR_CONCEPT( requires std::is_nothrow_move_constructible_v<Func> &&
+            std::is_nothrow_copy_constructible_v<Func> )
+    static future<> invoke_on_others(unsigned cpu_id, smp_submit_to_options options, Func func) noexcept {
+        static_assert(std::is_same<future<>, typename futurize<std::invoke_result_t<Func>>::type>::value, "bad Func signature");
+        static_assert(std::is_nothrow_move_constructible_v<Func>);
         return parallel_for_each(all_cpus(), [cpu_id, options, func = std::move(func)] (unsigned id) {
-            return id != cpu_id ? smp::submit_to(id, options, func) : make_ready_future<>();
+            return id != cpu_id ? smp::submit_to(id, options, Func(func)) : make_ready_future<>();
         });
     }
     /// Invokes func on all other shards.
@@ -407,14 +496,27 @@ public:
     /// Passes the default \ref smp_submit_to_options to the
     /// \ref smp::submit_to() called behind the scenes.
     template<typename Func>
-    static future<> invoke_on_others(unsigned cpu_id, Func func) {
+    SEASTAR_CONCEPT( requires std::is_nothrow_move_constructible_v<Func> )
+    static future<> invoke_on_others(unsigned cpu_id, Func func) noexcept {
         return invoke_on_others(cpu_id, smp_submit_to_options{}, std::move(func));
     }
+    /// Invokes func on all shards but the current one
+    ///
+    /// \param func the function to be invoked on each shard. May return void or
+    ///         future<>. Each async invocation will work with a separate copy
+    ///         of \c func.
+    /// \returns a future that resolves when all async invocations finish.
+    template<typename Func>
+    SEASTAR_CONCEPT( requires std::is_nothrow_move_constructible_v<Func> )
+    static future<> invoke_on_others(Func func) noexcept {
+        return invoke_on_others(this_shard_id(), std::move(func));
+    }
 private:
-    static void start_all_queues();
-    static void pin(unsigned cpu_id);
-    static void allocate_reactor(unsigned id, reactor_backend_selector rbs, reactor_config cfg);
-    static void create_thread(std::function<void ()> thread_loop);
+    void start_all_queues();
+    void pin(unsigned cpu_id);
+    void allocate_reactor(unsigned id, reactor_backend_selector rbs, reactor_config cfg);
+    void create_thread(std::function<void ()> thread_loop);
+    unsigned adjust_max_networking_aio_io_control_blocks(unsigned network_iocbs);
 public:
     static unsigned count;
 };

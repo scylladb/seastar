@@ -12,14 +12,14 @@ that is sent/received. For instance the sink that is used to send messages
 containing `int` and `long` will be of a type `rpc::sink<int, long>`.  The
 opposite end of the stream will have a source of the type `rpc::source<int, long>`
 which will be used to receive those messages. Messages are received at a
-source as `compat::optional` containing an actual message as an `std::tuple`. Unengaged
+source as `std::optional` containing an actual message as an `std::tuple`. Unengaged
 optional means EOS (end of stream) - the stream was closed by a peer. If
 error happen before EOS is received a receiver cannot be sure it received all
 the data.
 
 To send the data using `rpc::source<int, long>` one can write (assuming `seastar::async` context):
 
-```c++
+```cpp
       while (has_data()) {
           int data1 = get_data1();
           long data2 = get_data2();
@@ -30,9 +30,9 @@ To send the data using `rpc::source<int, long>` one can write (assuming `seastar
 
 To receive:
 
-```c++
+```cpp
       while (true) {
-          seastar:optional<std::tuple<int, long>> data = source().get();
+          std:optional<std::tuple<int, long>> data = source().get0();
           if (!data) {
              // unengaged optional means EOS
              break;
@@ -47,11 +47,11 @@ To receive:
 
 To open an RPC stream one needs RPC client to be created already. The stream
 will be associated with the client and will be aborted if the client is closed
-before streaming is. Given RPC client `rc` one creates `rpc::sink` like that
+before streaming is. Given RPC client `rc`, and a `serializer` class that models the Serializer concept (as explained in the rpc::protocol class), one creates `rpc::sink` as follows
 (again assuming `seastar::async` context):
 
-```c++
-    rpc::sink<int, long> sink = rc.make_stream_sink<int, long>().get0();
+```cpp
+    rpc::sink<int, long> sink = rc.make_stream_sink<serializer, int, long>().get0();
 ```
 
 Now the client has the sink that can be used for streaming data to
@@ -61,7 +61,7 @@ call. To receive a sink a server should register an RPC handler that will
 be used to receive it along with any auxiliary information deemed necessary.
 To receive the sink above one may register an RPC handler like that:
 
-```c++
+```cpp
     rpc_proto.register_handler(1, [] (int aux_data, rpc::source<int, long> source) {
     });
 ```
@@ -83,9 +83,9 @@ at the full example where server want to send message containing sstring to a cl
 
 Server handler will look like that:
 
-```c++
+```cpp
     rpc_proto.register_handler(1, [] (int aux_data, rpc::source<int, long> source) {
-        rpc::sink<sstring> sink = source.make_sink<sstring>();
+        rpc::sink<sstring> sink = source.make_sink<serializer, sstring>();
         // use sink and source asynchronously
         return sink;
     });
@@ -93,9 +93,9 @@ Server handler will look like that:
 
 Client code will be:
 
-```c++
+```cpp
    auto rpc_call = rpc_proto.make_client<rpc::source<sstring> (int, rpc::sink<int>)>(1);
-   rpc::sink<int, long> sink = rc.make_stream_sink<int, long>().get0();
+   rpc::sink<int, long> sink = rc.make_stream_sink<serializer, int, long>().get0();
    rpc::source<sstring> source = rpc_call(rc, aux_data, sink).get0();
    // use sink and source here
 ```
@@ -110,8 +110,8 @@ The feature will contain ID of an RPC client that was used to create the stream.
 
 So in the example from previous chapter:
 
-```c++
-    rpc::sink<int, long> sink = rc.make_stream_sink<int, long>().get0();
+```cpp
+    rpc::sink<int, long> sink = rc.make_stream_sink<serializer, int, long>().get0();
 ```
 
 the call will initiate a new TCP connection to the same server `rc` is connected to. During RPC

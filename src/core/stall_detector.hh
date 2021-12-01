@@ -26,8 +26,11 @@
 #include <limits>
 #include <chrono>
 #include <functional>
+#include <memory>
 #include <seastar/core/posix.hh>
 #include <seastar/core/metrics_registration.hh>
+#include <seastar/core/scheduling.hh>
+#include <linux/perf_event.h>
 
 namespace seastar {
 
@@ -40,13 +43,13 @@ struct cpu_stall_detector_config {
     std::chrono::duration<double> threshold = std::chrono::seconds(2);
     unsigned stall_detector_reports_per_minute = 1;
     float slack = 0.3;  // fraction of threshold that we're allowed to overshoot
+    bool oneline = true; // print a simplified backtrace on a single line
     std::function<void ()> report;  // alternative reporting function for tests
 };
 
 // Detects stalls in continuations that run for too long
 class cpu_stall_detector {
-    reactor* _r;
-    timer_t _timer;
+protected:
     std::atomic<uint64_t> _last_tasks_processed_seen{};
     unsigned _stall_detector_reports_per_minute;
     std::atomic<uint64_t> _stall_detector_missed_ticks = { 0 };
@@ -56,33 +59,111 @@ class cpu_stall_detector {
     unsigned _shard_id;
     unsigned _thread_id;
     unsigned _report_at{};
-    std::chrono::steady_clock::time_point _minute_mark{};
-    std::chrono::steady_clock::time_point _rearm_timer_at{};
-    std::chrono::steady_clock::time_point _run_started_at{};
-    std::chrono::steady_clock::duration _threshold;
-    std::chrono::steady_clock::duration _slack;
+    sched_clock::time_point _minute_mark{};
+    sched_clock::time_point _rearm_timer_at{};
+    sched_clock::time_point _run_started_at{};
+    sched_clock::duration _threshold;
+    sched_clock::duration _slack;
     cpu_stall_detector_config _config;
     seastar::metrics::metric_groups _metrics;
     friend reactor;
+    virtual bool reap_event_and_check_spuriousness() {
+        return false;
+    }
+    virtual void maybe_report_kernel_trace() {}
 private:
     void maybe_report();
-    void arm_timer();
-    void report_suppressions(std::chrono::steady_clock::time_point now);
+    virtual void arm_timer() = 0;
+    void report_suppressions(sched_clock::time_point now);
 public:
     using clock_type = thread_cputime_clock;
 public:
-    cpu_stall_detector(reactor* r, cpu_stall_detector_config cfg = {});
-    ~cpu_stall_detector();
+    explicit cpu_stall_detector(cpu_stall_detector_config cfg = {});
+    virtual ~cpu_stall_detector() = default;
     static int signal_number() { return SIGRTMIN + 1; }
-    void start_task_run(std::chrono::steady_clock::time_point now);
-    void end_task_run(std::chrono::steady_clock::time_point now);
+    void start_task_run(sched_clock::time_point now);
+    void end_task_run(sched_clock::time_point now);
     void generate_trace();
     void update_config(cpu_stall_detector_config cfg);
     cpu_stall_detector_config get_config() const;
     void on_signal();
-    void start_sleep();
+    virtual void start_sleep() = 0;
     void end_sleep();
 };
+
+class cpu_stall_detector_posix_timer : public cpu_stall_detector {
+    timer_t _timer;
+public:
+    explicit cpu_stall_detector_posix_timer(cpu_stall_detector_config cfg = {});
+    virtual ~cpu_stall_detector_posix_timer() override;
+private:
+    virtual void arm_timer() override;
+    virtual void start_sleep() override;
+};
+
+class cpu_stall_detector_linux_perf_event : public cpu_stall_detector {
+    file_desc _fd;
+    bool _enabled = false;
+    uint64_t _current_period = 0;
+    struct ::perf_event_mmap_page* _mmap;
+    char* _data_area;
+    size_t _data_area_mask;
+private:
+    class data_area_reader {
+        cpu_stall_detector_linux_perf_event& _p;
+        const char* _data_area;
+        size_t _data_area_mask;
+        uint64_t _head;
+        uint64_t _tail;
+    public:
+        explicit data_area_reader(cpu_stall_detector_linux_perf_event& p)
+                : _p(p)
+                , _data_area(p._data_area)
+                , _data_area_mask(p._data_area_mask) {
+            _head = _p._mmap->data_head;
+            _tail = _p._mmap->data_tail;
+            std::atomic_thread_fence(std::memory_order_acquire); // required after reading data_head
+        }
+        ~data_area_reader() {
+            std::atomic_thread_fence(std::memory_order_release); // not documented, but probably required before writing data_tail
+            _p._mmap->data_tail = _tail;
+        }
+        uint64_t read_u64() {
+            uint64_t ret;
+            // We cannot wrap around if the 8-byte unit is aligned
+            std::copy_n(_data_area + (_tail & _data_area_mask), 8, reinterpret_cast<char*>(&ret));
+            _tail += 8;
+            return ret;
+        }
+        template <typename S>
+        S read_struct() {
+            static_assert(sizeof(S) % 8 == 0);
+            S ret;
+            char* p = reinterpret_cast<char*>(&ret);
+            for (size_t i = 0; i != sizeof(S); i += 8) {
+                uint64_t w = read_u64();
+                std::copy_n(reinterpret_cast<const char*>(&w), 8, p + i);
+            }
+            return ret;
+        }
+        void skip(uint64_t bytes_to_skip) {
+            _tail += bytes_to_skip;
+        }
+        bool have_data() const {
+            return _head != _tail;
+        }
+    };
+public:
+    static std::unique_ptr<cpu_stall_detector_linux_perf_event> try_make(cpu_stall_detector_config cfg = {});
+    explicit cpu_stall_detector_linux_perf_event(file_desc fd, cpu_stall_detector_config cfg = {});
+    ~cpu_stall_detector_linux_perf_event();
+    virtual void arm_timer() override;
+    virtual void start_sleep() override;
+    virtual bool reap_event_and_check_spuriousness() override;
+    virtual void maybe_report_kernel_trace() override;
+};
+
+std::unique_ptr<cpu_stall_detector> make_cpu_stall_detector(cpu_stall_detector_config cfg = {});
 
 }
 }

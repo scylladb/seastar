@@ -28,12 +28,11 @@
 #include <seastar/core/future.hh>
 #include <seastar/core/posix.hh>
 #include <seastar/testing/exchanger.hh>
+#include <seastar/testing/random.hh>
 
 namespace seastar {
 
 namespace testing {
-
-extern thread_local std::default_random_engine local_random_engine;
 
 class test_runner {
 private:
@@ -42,6 +41,14 @@ private:
     exchanger<std::function<future<>()>> _task;
     bool _done = false;
     int _exit_code{0};
+
+    struct start_thread_args {
+        int ac;
+        char** av;
+        start_thread_args(int ac_, char** av_) noexcept : ac(ac_), av(av_) {}
+    };
+    std::unique_ptr<start_thread_args> _st_args;
+    void start_thread(int ac, char** av);
 public:
     // Returns whether initialization was successful.
     // Will return as soon as the seastar::app was started.

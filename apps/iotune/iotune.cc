@@ -36,15 +36,17 @@
 #include <wordexp.h>
 #include <yaml-cpp/yaml.h>
 #include <fmt/printf.h>
+#include <seastar/core/seastar.hh>
+#include <seastar/core/file.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/posix.hh>
-#include <seastar/core/resource.hh>
 #include <seastar/core/aligned_buffer.hh>
 #include <seastar/core/sharded.hh>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/fsqual.hh>
+#include <seastar/core/loop.hh>
 #include <seastar/util/defer.hh>
 #include <seastar/util/log.hh>
 #include <seastar/util/std-compat.hh>
@@ -52,7 +54,7 @@
 
 using namespace seastar;
 using namespace std::chrono_literals;
-namespace fs = seastar::compat::filesystem;
+namespace fs = std::filesystem;
 
 logger iotune_logger("iotune");
 
@@ -84,6 +86,13 @@ void check_device_properties(fs::path dev_sys_file) {
     if (nomerges != 2u) {
         iotune_logger.warn("nomerges for {} set to {}. It is recommend to set it to 2 before evaluation so that merges are disabled. Results can be skewed otherwise.",
                 nomerges_file.string(), nomerges);
+    }
+
+    auto write_cache_file = dev_sys_file / "queue" / "write_cache";
+    auto write_cache = read_first_line_as<std::string>(write_cache_file);
+    if (write_cache == "write back") {
+        iotune_logger.warn("write_cache for {} is set to write back. Some disks have poor implementation of this mode, pay attention to the measurements accuracy.",
+                write_cache_file.string());
     }
 }
 
@@ -191,6 +200,29 @@ struct io_rates {
     }
 };
 
+struct row_stats {
+    size_t points;
+    double average;
+    double stdev;
+
+    float stdev_percents() const {
+        return points > 0 ? stdev / average : 0.0;
+    }
+};
+
+template <typename T>
+static row_stats get_row_stats_for(const std::vector<T>& v) {
+    if (v.size() == 0) {
+        return row_stats{0, 0.0, 0.0};
+    }
+
+    double avg = std::accumulate(v.begin(), v.end(), 0.0) / v.size();
+    double stdev = std::sqrt(std::transform_reduce(v.begin(), v.end(), 0.0,
+                std::plus<double>(), [avg] (auto& v) -> double { return (v - avg) * (v - avg); }) / v.size());
+
+    return row_stats{ v.size(), avg, stdev };
+}
+
 class invalid_position : public std::exception {
 public:
     virtual const char* what() const noexcept {
@@ -282,7 +314,40 @@ public:
 };
 
 class io_worker {
+    class requests_rate_meter {
+        std::vector<unsigned>& _rates;
+        const unsigned& _requests;
+        unsigned _prev_requests = 0;
+        timer<> _tick;
+
+        static constexpr auto period = 1s;
+
+    public:
+        requests_rate_meter(std::chrono::duration<double> duration, std::vector<unsigned>& rates, const unsigned& requests)
+            : _rates(rates)
+            , _requests(requests)
+            , _tick([this] {
+                _rates.push_back(_requests - _prev_requests);
+                _prev_requests = _requests;
+            })
+        {
+            _rates.reserve(256); // ~2 minutes
+            if (duration > 4 * period) {
+                _tick.arm_periodic(period);
+            }
+        }
+
+        ~requests_rate_meter() {
+            if (_tick.armed()) {
+                _tick.cancel();
+            } else {
+                _rates.push_back(_requests);
+            }
+        }
+    };
+
     uint64_t _bytes = 0;
+    uint64_t _max_offset = 0;
     unsigned _requests = 0;
     size_t _buffer_size;
     std::chrono::time_point<iotune_clock, std::chrono::duration<double>> _start_measuring;
@@ -291,6 +356,7 @@ class io_worker {
     // track separately because in the sequential case we may exhaust the file before _duration
     std::chrono::time_point<iotune_clock, std::chrono::duration<double>> _last_time_seen;
 
+    requests_rate_meter _rr_meter;
     std::unique_ptr<position_generator> _pos_impl;
     std::unique_ptr<request_issuer> _req_impl;
 public:
@@ -302,12 +368,13 @@ public:
         return iotune_clock::now() >= _end_load;
     }
 
-    io_worker(size_t buffer_size, std::chrono::duration<double> duration, std::unique_ptr<request_issuer> reqs, std::unique_ptr<position_generator> pos)
+    io_worker(size_t buffer_size, std::chrono::duration<double> duration, std::unique_ptr<request_issuer> reqs, std::unique_ptr<position_generator> pos, std::vector<unsigned>& rates)
         : _buffer_size(buffer_size)
         , _start_measuring(iotune_clock::now() + std::chrono::duration<double>(10ms))
         , _end_measuring(_start_measuring + duration)
         , _end_load(_end_measuring + 10ms)
         , _last_time_seen(_start_measuring)
+        , _rr_meter(duration, rates, _requests)
         , _pos_impl(std::move(pos))
         , _req_impl(std::move(reqs))
     {}
@@ -317,8 +384,10 @@ public:
     }
 
     future<> issue_request(char* buf) {
-        return _req_impl->issue_request(_pos_impl->get_pos(), buf, _buffer_size).then([this] (size_t size) {
+        uint64_t pos = _pos_impl->get_pos();
+        return _req_impl->issue_request(pos, buf, _buffer_size).then([this, pos] (size_t size) {
             auto now = iotune_clock::now();
+            _max_offset = std::max(_max_offset, pos + size);
             if ((now > _start_measuring) && (now < _end_measuring)) {
                 _last_time_seen = now;
                 _bytes += size;
@@ -327,9 +396,7 @@ public:
         });
     }
 
-    uint64_t bytes() const {
-        return _bytes;
-    }
+    uint64_t max_offset() const noexcept { return _max_offset; }
 
     io_rates get_io_rates() const {
         io_rates rates;
@@ -360,7 +427,7 @@ private:
     }
 public:
     test_file(const ::evaluation_directory& dir, uint64_t maximum_size)
-        : _dirpath(dir.path() / fs::path(fmt::format("ioqueue-discovery-{}", engine().cpu_id())))
+        : _dirpath(dir.path() / fs::path(fmt::format("ioqueue-discovery-{}", this_shard_id())))
         , _file_size(maximum_size)
     {}
 
@@ -405,21 +472,21 @@ public:
             }
 
             if (update_file_size) {
-                _file_size = worker->bytes();
+                _file_size = worker->max_offset();
             }
             return make_ready_future<io_rates>(worker->get_io_rates());
         });
     }
 
-    future<io_rates> read_workload(size_t buffer_size, pattern access_pattern, unsigned max_os_concurrency, std::chrono::duration<double> duration) {
+    future<io_rates> read_workload(size_t buffer_size, pattern access_pattern, unsigned max_os_concurrency, std::chrono::duration<double> duration, std::vector<unsigned>& rates) {
         buffer_size = std::max(buffer_size, _file.disk_read_dma_alignment());
-        auto worker = std::make_unique<io_worker>(buffer_size, duration, std::make_unique<read_request_issuer>(_file), get_position_generator(buffer_size, access_pattern));
+        auto worker = std::make_unique<io_worker>(buffer_size, duration, std::make_unique<read_request_issuer>(_file), get_position_generator(buffer_size, access_pattern), rates);
         return do_workload(std::move(worker), max_os_concurrency);
     }
 
-    future<io_rates> write_workload(size_t buffer_size, pattern access_pattern, unsigned max_os_concurrency, std::chrono::duration<double> duration) {
+    future<io_rates> write_workload(size_t buffer_size, pattern access_pattern, unsigned max_os_concurrency, std::chrono::duration<double> duration, std::vector<unsigned>& rates) {
         buffer_size = std::max(buffer_size, _file.disk_write_dma_alignment());
-        auto worker = std::make_unique<io_worker>(buffer_size, duration, std::make_unique<write_request_issuer>(_file), get_position_generator(buffer_size, access_pattern));
+        auto worker = std::make_unique<io_worker>(buffer_size, duration, std::make_unique<write_request_issuer>(_file), get_position_generator(buffer_size, access_pattern), rates);
         bool update_file_size = worker->is_sequential();
         return do_workload(std::move(worker), max_os_concurrency, update_file_size).then([this] (io_rates r) {
             return _file.flush().then([r = std::move(r)] () mutable {
@@ -438,19 +505,42 @@ class iotune_multi_shard_context {
 
     unsigned per_shard_io_depth() const {
         auto iodepth = _test_directory.max_iodepth() / smp::count;
-        if (engine().cpu_id() < _test_directory.max_iodepth() % smp::count) {
+        if (this_shard_id() < _test_directory.max_iodepth() % smp::count) {
             iodepth++;
         }
         return std::min(iodepth, 128u);
     }
     seastar::sharded<test_file> _iotune_test_file;
+
+    std::vector<unsigned> serial_rates;
+    seastar::sharded<std::vector<unsigned>> sharded_rates;
+
 public:
     future<> stop() {
-        return _iotune_test_file.stop();
+        return _iotune_test_file.stop().then([this] { return sharded_rates.stop(); });
     }
 
     future<> start() {
-       return _iotune_test_file.start(_test_directory, _test_directory.available_space() / (2 * smp::count));
+       return _iotune_test_file.start(_test_directory, _test_directory.available_space() / (2 * smp::count)).then([this] {
+           return sharded_rates.start();
+       });
+    }
+
+    future<row_stats> get_serial_rates() {
+        row_stats ret = get_row_stats_for<unsigned>(serial_rates);
+        serial_rates.clear();
+        return make_ready_future<row_stats>(ret);
+    }
+
+    future<row_stats> get_sharded_worst_rates() {
+        return sharded_rates.map_reduce0([] (std::vector<unsigned>& rates) {
+            row_stats ret = get_row_stats_for<unsigned>(rates);
+            rates.clear();
+            return ret;
+        }, row_stats{0, 0.0, 0.0},
+        [] (const row_stats& res, row_stats lres) {
+            return res.stdev < lres.stdev ? lres : res;
+        });
     }
 
     future<> create_data_file() {
@@ -461,26 +551,52 @@ public:
 
     future<io_rates> write_sequential_data(unsigned shard, size_t buffer_size, std::chrono::duration<double> duration) {
         return _iotune_test_file.invoke_on(shard, [this, buffer_size, duration] (test_file& tf) {
-            return tf.write_workload(buffer_size, test_file::pattern::sequential, 4 * _test_directory.disks_per_array(), duration);
+            return tf.write_workload(buffer_size, test_file::pattern::sequential, 4 * _test_directory.disks_per_array(), duration, serial_rates);
         });
     }
 
     future<io_rates> read_sequential_data(unsigned shard, size_t buffer_size, std::chrono::duration<double> duration) {
         return _iotune_test_file.invoke_on(shard, [this, buffer_size, duration] (test_file& tf) {
-            return tf.read_workload(buffer_size, test_file::pattern::sequential, 4 * _test_directory.disks_per_array(), duration);
+            return tf.read_workload(buffer_size, test_file::pattern::sequential, 4 * _test_directory.disks_per_array(), duration, serial_rates);
         });
     }
 
     future<io_rates> write_random_data(size_t buffer_size, std::chrono::duration<double> duration) {
         return _iotune_test_file.map_reduce0([buffer_size, this, duration] (test_file& tf) {
-            return tf.write_workload(buffer_size, test_file::pattern::random, per_shard_io_depth(), duration);
+            return tf.write_workload(buffer_size, test_file::pattern::random, per_shard_io_depth(), duration, sharded_rates.local());
         }, io_rates(), std::plus<io_rates>());
     }
 
     future<io_rates> read_random_data(size_t buffer_size, std::chrono::duration<double> duration) {
         return _iotune_test_file.map_reduce0([buffer_size, this, duration] (test_file& tf) {
-            return tf.read_workload(buffer_size, test_file::pattern::random, per_shard_io_depth(), duration);
+            return tf.read_workload(buffer_size, test_file::pattern::random, per_shard_io_depth(), duration, sharded_rates.local());
         }, io_rates(), std::plus<io_rates>());
+    }
+
+private:
+    template <typename Fn>
+    future<uint64_t> saturate(float rate_threshold, size_t buffer_size, std::chrono::duration<double> duration, Fn&& workload) {
+        return _iotune_test_file.invoke_on(0, [this, rate_threshold, buffer_size, duration, workload] (test_file& tf) {
+            return (tf.*workload)(buffer_size, test_file::pattern::sequential, 1, duration, serial_rates).then([this, rate_threshold, buffer_size, duration, workload] (io_rates rates) {
+                serial_rates.clear();
+                if (rates.bytes_per_sec < rate_threshold) {
+                    // The throughput with the given buffer-size is already "small enough", so
+                    // return back its previous value
+                    return make_ready_future<uint64_t>(buffer_size * 2);
+                } else {
+                    return saturate(rate_threshold, buffer_size / 2, duration, workload);
+                }
+            });
+        });
+    }
+
+public:
+    future<uint64_t> saturate_write(float rate_threshold, size_t buffer_size, std::chrono::duration<double> duration) {
+        return saturate(rate_threshold, buffer_size, duration, &test_file::write_workload);
+    }
+
+    future<uint64_t> saturate_read(float rate_threshold, size_t buffer_size, std::chrono::duration<double> duration) {
+        return saturate(rate_threshold, buffer_size, duration, &test_file::read_workload);
     }
 
     iotune_multi_shard_context(::evaluation_directory dir)
@@ -494,6 +610,8 @@ struct disk_descriptor {
     uint64_t read_bw;
     uint64_t write_iops;
     uint64_t write_bw;
+    std::optional<uint64_t> read_sat_len;
+    std::optional<uint64_t> write_sat_len;
 };
 
 void string_to_file(sstring conf_file, sstring buf) {
@@ -526,6 +644,12 @@ void write_property_file(sstring conf_file, std::vector<disk_descriptor> disk_de
         out << YAML::Key << "read_bandwidth" << YAML::Value << desc.read_bw;
         out << YAML::Key << "write_iops" << YAML::Value << desc.write_iops;
         out << YAML::Key << "write_bandwidth" << YAML::Value << desc.write_bw;
+        if (desc.read_sat_len) {
+            out << YAML::Key << "read_saturation_length" << YAML::Value << *desc.read_sat_len;
+        }
+        if (desc.write_sat_len) {
+            out << YAML::Key << "write_saturation_length" << YAML::Value << *desc.write_sat_len;
+        }
         out << YAML::EndMap;
     }
     out << YAML::EndSeq;
@@ -539,7 +663,7 @@ void write_property_file(sstring conf_file, std::vector<disk_descriptor> disk_de
 // (absolute, with symlinks resolved), until we find a point that crosses a device ID.
 fs::path mountpoint_of(sstring filename) {
     fs::path mnt_candidate = fs::canonical(fs::path(filename));
-    compat::optional<dev_t> candidate_id = {};
+    std::optional<dev_t> candidate_id = {};
     auto current = mnt_candidate;
     do {
         auto f = open_directory(current.string()).get0();
@@ -571,6 +695,8 @@ int main(int ac, char** av) {
         ("duration", bpo::value<unsigned>()->default_value(120), "time, in seconds, for which to run the test")
         ("format", bpo::value<sstring>()->default_value("seastar"), "Configuration file format (seastar | envfile)")
         ("fs-check", bpo::bool_switch(&fs_check), "perform FS check only")
+        ("accuracy", bpo::value<unsigned>()->default_value(3), "acceptable deviation of measurements (percents)")
+        ("saturation", bpo::value<sstring>()->default_value(""), "measure saturation lengths (read | write | both) (this is very slow!)")
     ;
 
     return app.run(ac, av, [&] {
@@ -579,6 +705,26 @@ int main(int ac, char** av) {
             auto eval_dirs = configuration["evaluation-directory"].as<std::vector<sstring>>();
             auto format = configuration["format"].as<sstring>();
             auto duration = std::chrono::duration<double>(configuration["duration"].as<unsigned>() * 1s);
+            auto accuracy = configuration["accuracy"].as<unsigned>();
+            auto saturation = configuration["saturation"].as<sstring>();
+
+            bool read_saturation, write_saturation;
+            if (saturation == "") {
+                read_saturation = false;
+                write_saturation = false;
+            } else if (saturation == "both") {
+                read_saturation = true;
+                write_saturation = true;
+            } else if (saturation == "read") {
+                read_saturation = true;
+                write_saturation = false;
+            } else if (saturation == "write") {
+                read_saturation = false;
+                write_saturation = true;
+            } else {
+                fmt::print("Bad --saturation value\n");
+                return 1;
+            }
 
             std::vector<disk_descriptor> disk_descriptors;
             std::unordered_map<sstring, sstring> mountpoint_map;
@@ -619,16 +765,18 @@ int main(int ac, char** av) {
 
                 iotune_logger.info("{} passed sanity checks", eval_dir);
                 if (fs_check) {
-                    return 0;
+                    continue;
                 }
 
                 // Directory is the same object for all tests.
                 ::evaluation_directory test_directory(eval_dir);
                 test_directory.discover_directory().get();
+                iotune_logger.info("Disk parameters: max_iodepth={} disks_per_array={} minimum_io_size={}",
+                        test_directory.max_iodepth(), test_directory.disks_per_array(), test_directory.minimum_io_size());
 
                 ::iotune_multi_shard_context iotune_tests(test_directory);
                 iotune_tests.start().get();
-                auto stop = defer([&iotune_tests] {
+                auto stop = defer([&iotune_tests] () noexcept {
                     try {
                         iotune_tests.stop().get();
                     } catch (...) {
@@ -636,6 +784,12 @@ int main(int ac, char** av) {
                         abort();
                     }
                 });
+
+                row_stats rates;
+                auto accuracy_msg = [accuracy, &rates] {
+                    auto stdev = rates.stdev_percents() * 100.0;
+                    return (accuracy == 0 || stdev > accuracy) ? fmt::format(" (deviation {}%)", int(round(stdev))) : std::string("");
+                };
 
                 iotune_tests.create_data_file().get();
 
@@ -648,30 +802,58 @@ int main(int ac, char** av) {
                     write_bw += iotune_tests.write_sequential_data(shard, sequential_buffer_size, duration * 0.70 / smp::count).get0();
                 }
                 write_bw.bytes_per_sec /= smp::count;
-                fmt::print("{} MB/s\n", uint64_t(write_bw.bytes_per_sec / (1024 * 1024)));
+                rates = iotune_tests.get_serial_rates().get0();
+                fmt::print("{} MB/s{}\n", uint64_t(write_bw.bytes_per_sec / (1024 * 1024)), accuracy_msg());
+
+                std::optional<uint64_t> write_sat;
+
+                if (write_saturation) {
+                    fmt::print("Measuring write saturation length: ");
+                    std::cout.flush();
+                    write_sat = iotune_tests.saturate_write(write_bw.bytes_per_sec * (1.0 - rates.stdev_percents()), sequential_buffer_size/2, duration * 0.70).get0();
+                    fmt::print("{}\n", *write_sat);
+                }
 
                 fmt::print("Measuring sequential read bandwidth: ");
                 std::cout.flush();
                 auto read_bw = iotune_tests.read_sequential_data(0, sequential_buffer_size, duration * 0.1).get0();
-                fmt::print("{} MB/s\n", uint64_t(read_bw.bytes_per_sec / (1024 * 1024)));
+                rates = iotune_tests.get_serial_rates().get0();
+                fmt::print("{} MB/s{}\n", uint64_t(read_bw.bytes_per_sec / (1024 * 1024)), accuracy_msg());
+
+                std::optional<uint64_t> read_sat;
+
+                if (read_saturation) {
+                    fmt::print("Measuring read saturation length: ");
+                    std::cout.flush();
+                    read_sat = iotune_tests.saturate_read(read_bw.bytes_per_sec * (1.0 - rates.stdev_percents()), sequential_buffer_size/2, duration * 0.1).get0();
+                    fmt::print("{}\n", *read_sat);
+                }
 
                 fmt::print("Measuring random write IOPS: ");
                 std::cout.flush();
                 auto write_iops = iotune_tests.write_random_data(test_directory.minimum_io_size(), duration * 0.1).get0();
-                fmt::print("{} IOPS\n", uint64_t(write_iops.iops));
+                rates = iotune_tests.get_sharded_worst_rates().get0();
+                fmt::print("{} IOPS{}\n", uint64_t(write_iops.iops), accuracy_msg());
 
                 fmt::print("Measuring random read IOPS: ");
                 std::cout.flush();
                 auto read_iops = iotune_tests.read_random_data(test_directory.minimum_io_size(), duration * 0.1).get0();
-                fmt::print("{} IOPS\n", uint64_t(read_iops.iops));
+                rates = iotune_tests.get_sharded_worst_rates().get0();
+                fmt::print("{} IOPS{}\n", uint64_t(read_iops.iops), accuracy_msg());
 
                 struct disk_descriptor desc;
                 desc.mountpoint = mountpoint;
                 desc.read_iops = read_iops.iops;
                 desc.read_bw = read_bw.bytes_per_sec;
+                desc.read_sat_len = read_sat;
                 desc.write_iops = write_iops.iops;
                 desc.write_bw = write_bw.bytes_per_sec;
+                desc.write_sat_len = write_sat;
                 disk_descriptors.push_back(std::move(desc));
+            }
+
+            if (fs_check) {
+                return 0;
             }
 
             auto file = "properties file";
