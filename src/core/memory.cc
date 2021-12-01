@@ -1559,6 +1559,9 @@ void* realloc(void* ptr, size_t size) {
     if (try_trigger_error_injector()) {
         return nullptr;
     }
+    if(ptr == nullptr && size == 0) {
+        return malloc(0);
+    }
     auto old_size = ptr ? object_size(ptr) : 0;
     if (size == old_size) {
         return ptr;
