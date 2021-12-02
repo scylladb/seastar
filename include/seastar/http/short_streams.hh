@@ -29,24 +29,26 @@ namespace seastar {
 namespace httpd {
 
 /// Returns all bytes from the stream until eof, accessible in chunks
-[[deprecated(seastar::http::read_entire_stream was moved to seastar::util, #include <seastar/util/short_streams.hh> instead)]]
+[[deprecated("seastar::httpd::read_entire_stream was moved to seastar::util, #include <seastar/util/short_streams.hh> instead")]]
 inline
 future<std::vector<temporary_buffer<char>>> read_entire_stream(input_stream<char>& inp) {
     return util::read_entire_stream(inp);
 }
 
 /// Returns all bytes from the stream until eof as a single buffer, use only on short streams
-[[deprecated(seastar::http::read_entire_stream_contiguous was moved to seastar::util, #include <seastar/util/short_streams.hh> instead)]]
+[[deprecated("seastar::httpd::read_entire_stream_contiguous was moved to seastar::util, #include <seastar/util/short_streams.hh> instead")]]
 inline
 future<sstring> read_entire_stream_contiguous(input_stream<char>& inp) {
     return util::read_entire_stream_contiguous(inp);
 }
 
 /// Ignores all bytes until eof
-[[deprecated(seastar::http::skip_entire_stream was moved to seastar::util, #include <seastar/util/short_streams.hh> instead)]]
+[[deprecated("seastar::httpd::skip_entire_stream was moved to seastar::util, #include <seastar/util/short_streams.hh> instead")]]
 inline
-future<> skip_entire_stream(input_stream<char>& inp);
+future<> skip_entire_stream(input_stream<char>& inp) {
     return util::skip_entire_stream(inp);
+}
+
 }
 
 }
