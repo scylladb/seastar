@@ -268,6 +268,10 @@ logger::do_log(log_level level, log_writer& writer) {
       return writer(it);
     };
 
+    // Mainly this protects us from re-entrance via malloc()'s
+    // oversized allocation warnings and failed allocation errors
+    silencer be_silent(*this);
+
     if (is_ostream_enabled) {
         internal::log_buf buf(static_log_buf.data(), static_log_buf.size());
         auto it = buf.back_insert_begin();

@@ -135,6 +135,23 @@ private:
     // We can't use an std::function<> as it potentially allocates.
     void do_log(log_level level, log_writer& writer);
     void failed_to_log(std::exception_ptr ex, format_info fmt) noexcept;
+
+    class silencer {
+        static constexpr log_level silent_level = static_cast<log_level>(-1);
+        logger& _log;
+        const log_level _level;
+
+    public:
+        explicit silencer(logger& l) noexcept
+                : _log(l)
+                , _level(_log._level.exchange(silent_level))
+        {}
+
+        ~silencer() {
+            _log.set_level(_level);
+        }
+    };
+
 public:
     /// Apply a rate limit to log message(s)
     ///
