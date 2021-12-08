@@ -163,7 +163,7 @@ void describe_enum_value(bpo::options_description& opts, const options_descripti
 template <typename T>
 bool extract_value(const bpo::variables_map& values, const std::string& current_name, T& val) {
     auto it = values.find(current_name);
-    if (it == values.end()) {
+    if (it == values.end() || it->second.defaulted()) {
         return false;
     }
     val = it->second.as<T>();
@@ -173,7 +173,7 @@ bool extract_value(const bpo::variables_map& values, const std::string& current_
 template <typename T>
 bool extract_enum_value(const bpo::variables_map& values, const std::string& current_name, T& val) {
     auto it = values.find(current_name);
-    if (it == values.end()) {
+    if (it == values.end() || it->second.defaulted()) {
         return false;
     }
     val = from_string(it->second.as<std::string>(), boost::type<T>{});
