@@ -301,6 +301,9 @@ struct json_return_type {
         _body_writer = std::move(o._body_writer);
         return *this;
     }
+
+    json_return_type(const json_return_type&) = default;
+    json_return_type& operator=(const json_return_type&) = default;
 };
 
 /*!

@@ -22,6 +22,8 @@
 #include <seastar/http/json_path.hh>
 #include <seastar/http/response_parser.hh>
 #include <sstream>
+#include <seastar/core/shared_future.hh>
+#include <seastar/util/later.hh>
 
 using namespace seastar;
 using namespace httpd;
@@ -1204,4 +1206,15 @@ SEASTAR_TEST_CASE(http_parse_response_status) {
     response = parser.get_parsed_response();
     BOOST_REQUIRE_EQUAL(response->_status_code, 200);
     return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_shared_future) {
+    shared_promise<json::json_return_type> p;
+    auto fut = p.get_shared_future();
+
+    (void)later().then([p = std::move(p)] () mutable {
+        p.set_value(json::json_void());
+    });
+
+    return std::move(fut).discard_result();
 }
