@@ -101,7 +101,7 @@ public:
     future<> start_response();
 
     future<bool> generate_reply(std::unique_ptr<http::request> req);
-    void generate_error_reply_and_close(std::unique_ptr<http::request> req, http::reply::status_type status, const sstring& msg);
+    void generate_error_reply_and_close(std::unique_ptr<http::request> req, reply::status_type status, const sstring& msg, const sstring &content_type={});
 
     future<> write_body();
 

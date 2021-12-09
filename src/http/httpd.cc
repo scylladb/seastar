@@ -186,11 +186,14 @@ set_request_content(std::unique_ptr<http::request> req, input_stream<char>* cont
     }
 }
 
-void connection::generate_error_reply_and_close(std::unique_ptr<http::request> req, http::reply::status_type status, const sstring& msg) {
+void connection::generate_error_reply_and_close(std::unique_ptr<http::request> req, reply::status_type status, const sstring& msg, const sstring &content_type) {
     auto resp = std::make_unique<http::reply>();
     // TODO: Handle HTTP/2.0 when it releases
     resp->set_version(req->_version);
     resp->set_status(status, msg);
+    if (!content_type.empty()) {
+        resp->set_content_type(content_type);
+    }
     resp->done();
     _done = true;
     _replies.push(std::move(resp));
@@ -272,7 +275,7 @@ future<> connection::read_one() {
                     // before passing the request to handler - when we were parsing chunks
                     auto err_req = std::make_unique<http::request>();
                     err_req->_version = version;
-                    generate_error_reply_and_close(std::move(err_req), e.status(), e.str());
+                    generate_error_reply_and_close(std::move(err_req), e.status(), e.str(), e.content_type());
                 });
             });
         });
