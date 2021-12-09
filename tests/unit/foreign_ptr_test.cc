@@ -20,6 +20,7 @@
  */
 
 #include <seastar/testing/test_case.hh>
+#include <seastar/testing/thread_test_case.hh>
 
 #include <seastar/core/distributed.hh>
 #include <seastar/core/shared_ptr.hh>
@@ -130,3 +131,35 @@ SEASTAR_TEST_CASE(foreign_ptr_move_assignment_test) {
     });
 }
 
+SEASTAR_THREAD_TEST_CASE(foreign_ptr_destroy_test) {
+    if (smp::count == 1) {
+        std::cerr << "Skipping multi-cpu foreign_ptr tests. Run with --smp=2 to test multi-cpu delete and reset.";
+        return;
+    }
+
+    using namespace std::chrono_literals;
+
+    std::vector<bool> destroyed_on;
+    destroyed_on.resize(smp::count);
+
+    struct deferred {
+        std::function<void()> on_destroy;
+        deferred(std::function<void()> on_destroy_func)
+            : on_destroy(std::move(on_destroy_func))
+        {}
+        ~deferred() {
+            on_destroy();
+        }
+    };
+
+    auto val = smp::submit_to(1, [&] () mutable {
+        return make_foreign(std::make_unique<deferred>([&] {
+            destroyed_on[this_shard_id()] = true;
+        }));
+    }).get0();
+
+    val.destroy().get();
+
+    BOOST_REQUIRE(destroyed_on[1]);
+    BOOST_REQUIRE(!destroyed_on[0]);
+}

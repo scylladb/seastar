@@ -846,18 +846,28 @@ private:
     PtrType _value;
     unsigned _cpu;
 private:
-    static void destroy(PtrType p, unsigned cpu) noexcept {
-        if (p && this_shard_id() != cpu) {
-            // `destroy()` is called from the destructor and other
-            // synchronous methods (like `reset()`), that have no way to
-            // wait for this future.
-            (void)smp::submit_to(cpu, [v = std::move(p)] () mutable {
+    void destroy(PtrType p, unsigned cpu) noexcept {
+        // `destroy()` is called from the destructor and other
+        // synchronous methods (like `reset()`), that have no way to
+        // wait for this future.
+        (void)destroy_on(std::move(p), cpu);
+    }
+
+    static future<> destroy_on(PtrType p, unsigned cpu) noexcept {
+        if (p) {
+          // FIXME: indentation
+          if (cpu != this_shard_id()) {
+            return smp::submit_to(cpu, [v = std::move(p)] () mutable {
                 // Destroy the contained pointer. We do this explicitly
                 // in the current shard, because the lambda is destroyed
                 // in the shard that submitted the task.
                 v = {};
             });
+          } else {
+            p = {};
+          }
         }
+        return make_ready_future<>();
     }
 public:
     using element_type = typename std::pointer_traits<PtrType>::element_type;
@@ -936,6 +946,13 @@ public:
     /// The previous managed pointer is destroyed on its owner shard.
     void reset(std::nullptr_t = nullptr) noexcept(std::is_nothrow_default_constructible_v<PtrType>) {
         reset(PtrType());
+    }
+
+    /// Destroy the managed pointer.
+    ///
+    /// \returns a future that is resolved when managed pointer is destroyed on its owner shard.
+    future<> destroy() noexcept {
+        return destroy_on(std::move(_value), _cpu);
     }
 };
 
