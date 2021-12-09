@@ -170,8 +170,7 @@ public:
         if ((futures.available() && ...)) {
             return ResolvedTupleTransform::make_ready_future(std::make_tuple(std::move(futures)...));
         }
-        auto state = [&] () noexcept {
-            memory::scoped_critical_alloc_section _;
+        auto state = [&, s = memory::scoped_critical_alloc_section()] () noexcept {
             return new when_all_state(std::move(futures)...);
         }();
         auto ret = state->p.get_future();
