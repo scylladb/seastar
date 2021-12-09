@@ -75,6 +75,8 @@ arg_parser.add_argument('--c++-dialect', action='store', dest='cpp_dialect', def
                         help='C++ dialect to build with [default: %(default)s]')
 arg_parser.add_argument('--cook', action='append', dest='cook', default=[],
                         help='Supply this dependency locally for development via `cmake-cooking` (can be repeated)')
+arg_parser.add_argument('--use-ccache', dest='use_ccache', action='store_true',
+                        help='Use ccache for faster builds (ccache must be already installed).')
 arg_parser.add_argument('--verbose', dest='verbose', action='store_true', help='Make configure output more verbose.')
 arg_parser.add_argument('--scheduling-groups-count', action='store', dest='scheduling_groups_count', default='16',
                         help='Number of available scheduling groups in the reactor')
@@ -183,6 +185,7 @@ def configure_mode(mode):
         '-DCMAKE_BUILD_TYPE={}'.format(MODE_TO_CMAKE_BUILD_TYPE[mode]),
         '-DCMAKE_C_COMPILER={}'.format(args.cc),
         '-DCMAKE_CXX_COMPILER={}'.format(args.cxx),
+        '-DCMAKE_CXX_COMPILER_LAUNCHER={}'.format('ccache' if args.use_ccache else ''),
         '-DCMAKE_INSTALL_PREFIX={}'.format(args.install_prefix),
         '-DSeastar_API_LEVEL={}'.format(args.api_level),
         '-DSeastar_SCHEDULING_GROUPS_COUNT={}'.format(args.scheduling_groups_count),
