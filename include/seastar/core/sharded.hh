@@ -855,17 +855,16 @@ private:
 
     static future<> destroy_on(PtrType p, unsigned cpu) noexcept {
         if (p) {
-          // FIXME: indentation
-          if (cpu != this_shard_id()) {
-            return smp::submit_to(cpu, [v = std::move(p)] () mutable {
-                // Destroy the contained pointer. We do this explicitly
-                // in the current shard, because the lambda is destroyed
-                // in the shard that submitted the task.
-                v = {};
-            });
-          } else {
-            p = {};
-          }
+            if (cpu != this_shard_id()) {
+                return smp::submit_to(cpu, [v = std::move(p)] () mutable {
+                    // Destroy the contained pointer. We do this explicitly
+                    // in the current shard, because the lambda is destroyed
+                    // in the shard that submitted the task.
+                    v = {};
+                });
+            } else {
+                p = {};
+            }
         }
         return make_ready_future<>();
     }
