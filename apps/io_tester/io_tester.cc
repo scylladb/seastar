@@ -207,7 +207,16 @@ private:
             return do_until([stop] { return std::chrono::steady_clock::now() > stop; }, [this, buf, stop, pause, &intent, &in_flight] () mutable {
                 auto start = std::chrono::steady_clock::now();
                 in_flight++;
-                (void)issue_request(buf, &intent).then([this, start, stop, &in_flight] (auto size) {
+                (void)issue_request(buf, &intent).then_wrapped([this, start, stop, &in_flight] (auto size_f) {
+                    size_t size;
+                    try {
+                        size = size_f.get0();
+                    } catch (...) {
+                        // cancelled
+                        in_flight--;
+                        return make_ready_future<>();
+                    }
+
                     auto now = std::chrono::steady_clock::now();
                     if (now < stop) {
                         this->add_result(size, std::chrono::duration_cast<std::chrono::microseconds>(now - start));
