@@ -380,8 +380,50 @@ io_group::io_group(io_queue::config io_cfg) noexcept
     if (_config.duplex) {
         _fgs.push_back(std::make_unique<fair_group>(fg_cfg));
     }
-    seastar_logger.debug("Created io group, limits {}:{}, rate {}:{}",
-            _config.max_req_count, _config.max_blocks_count,
+
+    /*
+     * The maximum request size shouldn't result in the capacity that would
+     * be larger than the group's replenisher limit. It's not the same as the
+     * max_blocks_count which is now used purely for shares accounting and no
+     * longer has anything to do with replenisher.
+     *
+     * To get the correct value check the 2^N sizes and find the largest one
+     * with little enough capacity. Actually (FIXME) requests should calculate
+     * capacities instead of request_fq_ticket() so this math would go away.
+     */
+    size_t max_size = std::numeric_limits<size_t>::max();
+    auto update_max_size = [this, &max_size] (unsigned idx) {
+        auto g_idx = _config.duplex ? idx : 0;
+        auto max_cap = _fgs[g_idx]->maximum_capacity();
+        size_t prev_size = 0;
+        for (unsigned shift = 0; ; shift++) {
+            unsigned weight;
+            size_t size;
+            if (idx == internal::io_direction_and_length::write_idx) {
+                weight = _config.disk_req_write_to_read_multiplier;
+                size = _config.disk_blocks_write_to_read_multiplier * (1 << shift);
+            } else {
+                weight = io_queue::read_request_base_count;
+                size = io_queue::read_request_base_count * (1 << shift);
+            }
+
+            auto cap = _fgs[g_idx]->ticket_capacity(fair_queue_ticket(weight, size));
+            if (cap > max_cap) {
+                assert(shift > 0);
+                max_size = std::min(max_size, prev_size);
+                break;
+            }
+            prev_size = size;
+        };
+    };
+
+    update_max_size(internal::io_direction_and_length::write_idx);
+    update_max_size(internal::io_direction_and_length::read_idx);
+    _config.max_blocks_count = max_size;
+
+    seastar_logger.info("Created io group, length limit {}:{}, rate {}:{}",
+            (max_size / io_queue::read_request_base_count) << io_queue::block_size_shift,
+            (max_size / _config.disk_blocks_write_to_read_multiplier) << io_queue::block_size_shift,
             _config.req_count_rate, _config.blocks_count_rate);
 }
 
@@ -605,7 +647,7 @@ fair_queue_ticket io_queue::request_fq_ticket(internal::io_direction_and_length 
 
     static thread_local size_t oversize_warning_threshold = 0;
 
-    if (size >= get_config().max_blocks_count) {
+    if (size > get_config().max_blocks_count) {
         if (size > oversize_warning_threshold) {
             oversize_warning_threshold = size;
             io_log.warn("oversized request (length {}) submitted. "
