@@ -150,10 +150,9 @@ auto fair_group::fetch_add(fair_group_atomic_rover& rover, capacity_t cap) noexc
 
 // Priority class, to be used with a given fair_queue
 class fair_queue::priority_class_data {
-    using accumulator_t = double;
     friend class fair_queue;
     uint32_t _shares = 0;
-    accumulator_t _accumulated = 0;
+    fair_queue::accumulator_t _accumulated = 0;
     fair_queue_entry::container_list_t _queue;
     bool _queued = false;
 
@@ -203,19 +202,23 @@ void fair_queue::push_priority_class(priority_class_data& pc) {
     }
 }
 
+void fair_queue::push_priority_class_from_idle(priority_class_data& pc) {
+    if (!pc._queued) {
+        // Don't let the newcomer monopolize the disk for more than tau
+        // duration. For this estimate how many capacity units can be
+        // accumulated with the current class shares per rate resulution
+        // and scale it up to tau.
+        accumulator_t max_deviation = _group.cost_capacity().normalize(_group.shares_capacity()) / pc._shares * std::chrono::duration_cast<fair_group::rate_resolution>(_config.tau).count();
+        pc._accumulated = std::max(_last_accumulated - max_deviation, pc._accumulated);
+        _handles.push(&pc);
+        pc._queued = true;
+    }
+}
+
 void fair_queue::pop_priority_class(priority_class_data& pc) {
     assert(pc._queued);
     pc._queued = false;
     _handles.pop();
-}
-
-void fair_queue::normalize_stats() {
-    _base = std::chrono::steady_clock::now() - _config.tau;
-    for (auto& pc: _priority_classes) {
-        if (pc) {
-            pc->_accumulated *= std::numeric_limits<priority_class_data::accumulator_t>::min();
-        }
-    }
 }
 
 std::chrono::microseconds fair_queue_ticket::duration_at_pace(float weight_pace, float size_pace) const noexcept {
@@ -304,7 +307,7 @@ void fair_queue::queue(class_id id, fair_queue_entry& ent) {
     // We need to return a future in this function on which the caller can wait.
     // Since we don't know which queue we will use to execute the next request - if ours or
     // someone else's, we need a separate promise at this point.
-    push_priority_class(pc);
+    push_priority_class_from_idle(pc);
     pc._queue.push_back(ent);
     _resources_queued += ent._ticket;
     _requests_queued++;
@@ -336,6 +339,7 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
             break;
         }
 
+        _last_accumulated = std::max(h._accumulated, _last_accumulated);
         pop_priority_class(h);
         h._queue.pop_front();
 
@@ -344,16 +348,20 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         _requests_executing++;
         _requests_queued--;
 
-        auto delta = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - _base);
         auto req_cost  = req._ticket.normalize(_group.shares_capacity()) / h._shares;
-        auto cost  = exp(priority_class_data::accumulator_t(1.0f/_config.tau.count() * delta.count())) * req_cost;
-        priority_class_data::accumulator_t next_accumulated = h._accumulated + cost;
-        while (std::isinf(next_accumulated)) {
-            normalize_stats();
-            // If we have renormalized, our time base will have changed. This should happen very infrequently
-            delta = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - _base);
-            cost  = exp(priority_class_data::accumulator_t(1.0f/_config.tau.count() * delta.count())) * req_cost;
-            next_accumulated = h._accumulated + cost;
+        auto next_accumulated = h._accumulated + req_cost;
+        if (std::isinf(next_accumulated)) {
+            for (auto& pc : _priority_classes) {
+                if (pc) {
+                    if (pc->_queued) {
+                        pc->_accumulated -= h._accumulated;
+                    } else { // this includes h
+                        pc->_accumulated = 0;
+                    }
+                }
+            }
+            _last_accumulated = 0;
+            next_accumulated = h._accumulated + req_cost;
         }
         h._accumulated = next_accumulated;
 

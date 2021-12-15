@@ -72,13 +72,19 @@ class test_env {
         return cfg;
     }
 
+    static fair_queue::config fq_config() {
+        fair_queue::config cfg;
+        cfg.tau = std::chrono::microseconds(50);
+        return cfg;
+    }
+
     void drain() {
         do {} while (tick() != 0);
     }
 public:
     test_env(unsigned capacity)
         : _fg(fg_config(capacity))
-        , _fq(_fg, fair_queue::config())
+        , _fq(_fg, fq_config())
     {}
 
     // As long as there is a request sitting in the queue, tick() will process
@@ -314,22 +320,27 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_dominant_queue) {
     env.verify("dominant_queue", {1, 0});
 }
 
-// Class2 pushes many requests at first. After enough time, this shouldn't matter anymore.
+// Class2 pushes many requests at first. Right after, don't expect Class1 to be able to do the same
 SEASTAR_THREAD_TEST_CASE(test_fair_queue_forgiving_queue) {
     test_env env(1);
+
+    // The fair_queue preemption logic allows one class to gain exclusive
+    // queue access for at most tau duration. Test queue configures the
+    // request rate to be 1/us and tau to be 50us, so after (re-)activation
+    // a queue can overrun its peer by at most 50 requests.
 
     auto a = env.register_priority_class(10);
     auto b = env.register_priority_class(10);
 
     for (int i = 0; i < 100; ++i) {
-        env.do_op(b, 1);
+        env.do_op(a, 1);
     }
     later().get();
 
     // consume all requests
     env.tick(100);
-    sleep(500ms).get();
-    env.reset_results(b);
+    env.reset_results(a);
+
     for (int i = 0; i < 100; ++i) {
         env.do_op(a, 1);
         env.do_op(b, 1);
@@ -338,7 +349,8 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_forgiving_queue) {
 
     // allow half the requests in
     env.tick(100);
-    env.verify("forgiving_queue", {1, 1});
+    // 50 requests should be passed from b, other 100 should be shared 1:1
+    env.verify("forgiving_queue", {1, 3}, 2);
 }
 
 // Classes push requests and then update swap their shares. In the end, should have executed

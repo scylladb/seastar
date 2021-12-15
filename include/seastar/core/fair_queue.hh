@@ -298,6 +298,7 @@ public:
 
     using class_id = unsigned int;
     class priority_class_data;
+    using accumulator_t = double;
 
 private:
     using priority_class_ptr = priority_class_data*;
@@ -316,6 +317,7 @@ private:
     using prioq = std::priority_queue<priority_class_ptr, std::vector<priority_class_ptr>, class_compare>;
     prioq _handles;
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
+    accumulator_t _last_accumulated = 0;
 
     /*
      * When the shared capacity os over the local queue delays
@@ -338,9 +340,8 @@ private:
     std::optional<pending> _pending;
 
     void push_priority_class(priority_class_data& pc);
+    void push_priority_class_from_idle(priority_class_data& pc);
     void pop_priority_class(priority_class_data& pc);
-
-    void normalize_stats();
 
     // Estimated time to process the given ticket
     std::chrono::microseconds duration(fair_group::capacity_t desc) const noexcept {
