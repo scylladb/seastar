@@ -35,9 +35,9 @@ namespace internal {
 // completely drops the init guards - https://gcc.gnu.org/bugzilla/show_bug.cgi?id=97848).
 // In < c++20 we use `__thread` which results in no TLS init guards generated.
 #ifdef __cpp_constinit
-extern thread_local constinit int critical_alloc_section;
+extern thread_local constinit volatile int critical_alloc_section;
 #else
-extern __thread int critical_alloc_section;
+extern __thread volatile int critical_alloc_section;
 #endif
 
 } // namespace internal
@@ -56,8 +56,15 @@ extern __thread int critical_alloc_section;
 ///   See \ref set_dump_memory_diagnostics_on_alloc_failure_kind().
 class scoped_critical_alloc_section {
 public:
-    scoped_critical_alloc_section() { ++internal::critical_alloc_section; }
-    ~scoped_critical_alloc_section() { --internal::critical_alloc_section; }
+    scoped_critical_alloc_section() {
+        // we assume the critical_alloc_section is thread local
+        // and there's seastar threads are non-preemptive.
+        // Otherwise, this would require an atomic variable
+        internal::critical_alloc_section = internal::critical_alloc_section + 1;
+    }
+    ~scoped_critical_alloc_section() {
+        internal::critical_alloc_section = internal::critical_alloc_section - 1;
+    }
 };
 
 /// \brief Is the current context inside a critical alloc section?
