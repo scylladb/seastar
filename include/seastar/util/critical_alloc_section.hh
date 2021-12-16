@@ -24,6 +24,8 @@
 namespace seastar {
 namespace memory {
 
+#ifdef SEASTAR_ENABLE_ALLOC_FAILURE_INJECTION
+
 /// \cond internal
 namespace internal {
 
@@ -65,6 +67,21 @@ public:
 inline bool is_critical_alloc_section() {
     return bool(internal::critical_alloc_section);
 }
+
+#else   // SEASTAR_ENABLE_ALLOC_FAILURE_INJECTION
+
+struct scoped_critical_alloc_section {
+    // FIXME: remove destructor after making
+    // internal::critical_alloc_section volatile
+    // and reverting e042ccf493c698c7337b6e45513cfe5b429bdd81
+    ~scoped_critical_alloc_section() {}
+};
+
+inline bool is_critical_alloc_section() {
+    return false;
+}
+
+#endif  // SEASTAR_ENABLE_ALLOC_FAILURE_INJECTION
 
 } // namespace seastar
 } // namespace memory
