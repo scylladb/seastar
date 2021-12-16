@@ -25,6 +25,12 @@
 #include <cryptopp/filters.h>
 #include <cryptopp/base64.h>
 
+#ifndef CRYPTOPP_NO_GLOBAL_BYTE
+namespace CryptoPP {
+using byte = unsigned char;
+}
+#endif
+
 namespace seastar::experimental::websocket {
 
 static sstring magic_key_suffix = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
