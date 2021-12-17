@@ -156,6 +156,16 @@ public:
  */
 class connection : public boost::intrusive::list_base_hook<> {
     using buff_t = temporary_buffer<char>;
+    /*!
+     * \brief Internal error that is thrown when there is no more data to read.
+     */
+    class eof_exception : public std::exception {
+    public:
+        eof_exception() {}
+        virtual const char* what() const noexcept {
+            return "Websocket connection: stream closed";
+        }
+    };
 
     /*!
      * \brief Implementation of connection's data source.
@@ -167,11 +177,19 @@ class connection : public boost::intrusive::list_base_hook<> {
         connection_source_impl(queue<buff_t>* data) : data(data) {}
 
         virtual future<buff_t> get() override {
-            return data->pop_eventually();
+            return data->pop_eventually().then_wrapped([](future<buff_t> f){
+                try {
+                    return make_ready_future<buff_t>(std::move(f.get()));
+                } catch (const eof_exception&) {
+                    return make_ready_future<buff_t>(0);
+                } catch(...) {
+                    return current_exception_as_future<buff_t>();
+                }
+            });
         }
 
         virtual future<> close() override {
-            data->abort(std::make_exception_ptr(exception("Connection closed")));
+            data->abort(std::make_exception_ptr(eof_exception()));
             return make_ready_future<>();
         }
     };
@@ -194,7 +212,7 @@ class connection : public boost::intrusive::list_base_hook<> {
         }
 
         virtual future<> close() override {
-            data->abort(std::make_exception_ptr(exception("Connection closed")));
+            data->abort(std::make_exception_ptr(eof_exception()));
             return make_ready_future<>();
         }
     };

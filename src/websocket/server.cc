@@ -105,7 +105,7 @@ void connection::on_new_connection() {
 
 future<> connection::process() {
     return when_all(read_loop(), response_loop()).then(
-            [] (std::tuple<future<>, future<>> joined) {
+            [this] (std::tuple<future<>, future<>> joined) {
         try {
             std::get<0>(joined).get();
         } catch (...) {
@@ -117,6 +117,7 @@ future<> connection::process() {
         } catch (...) {
             wlogger.debug("Response exception encountered: {}", std::current_exception());
         }
+        shutdown();
         return make_ready_future<>();
     });
 }
@@ -268,11 +269,11 @@ future<> connection::read_one() {
             return _input_buffer.push_eventually(_websocket_parser.result());
         } else if (_websocket_parser.eof()) {
             _done = true;
-            return make_ready_future<>();    
+            return when_all(_input.close(), _output.close()).discard_result();
         }
         wlogger.debug("Reading from socket has failed.");
         _done = true;
-        return make_ready_future<>();    
+        return when_all(_input.close(), _output.close()).discard_result();
     });
 }
 
@@ -342,7 +343,6 @@ void connection::shutdown() {
     wlogger.debug("Shutting down");
     _fd.shutdown_input();
     _fd.shutdown_output();
-    when_all(_input.close(), _output.close()).discard_result().get();
 }
 
 bool server::is_handler_registered(std::string const& name) {
