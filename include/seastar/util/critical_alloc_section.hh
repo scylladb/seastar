@@ -77,12 +77,7 @@ inline bool is_critical_alloc_section() {
 
 #else   // SEASTAR_ENABLE_ALLOC_FAILURE_INJECTION
 
-struct scoped_critical_alloc_section {
-    // FIXME: remove destructor after making
-    // internal::critical_alloc_section volatile
-    // and reverting e042ccf493c698c7337b6e45513cfe5b429bdd81
-    ~scoped_critical_alloc_section() {}
-};
+struct [[maybe_unused]] scoped_critical_alloc_section {};
 
 inline bool is_critical_alloc_section() {
     return false;
