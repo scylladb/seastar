@@ -70,6 +70,12 @@ public:
         assert(!_closed);
         do_close();
     }
+
+    /// Prevents close() from being called when this object is destroyed.
+    /// Cannot call close_now() any more after this.
+    void cancel() noexcept {
+        _closed = true;
+    }
 };
 
 template <typename Closeable, typename Func>
@@ -124,6 +130,12 @@ public:
     void stop_now() noexcept {
         assert(!_stopped);
         do_stop();
+    }
+
+    /// Prevents stop() from being called when this object is destroyed.
+    /// Cannot call stop_now() any more after this.
+    void cancel() noexcept {
+        _stopped = true;
     }
 };
 

@@ -75,6 +75,16 @@ SEASTAR_TEST_CASE(close_now_test) {
   });
 }
 
+SEASTAR_TEST_CASE(cancel_deferred_close_test) {
+    gate g;
+    {
+        auto close_gate = deferred_close(g);
+        close_gate.cancel();
+    }
+    g.check(); // should not throw
+    return make_ready_future<>();
+}
+
 SEASTAR_TEST_CASE(with_closeable_test) {
     return do_with(0, 42, [] (int& count, int& expected) {
         return with_closeable(gate(), [&] (gate& g) {
@@ -144,6 +154,16 @@ public:
 };
 
 } // anonymous namespace
+
+SEASTAR_TEST_CASE(cancel_deferred_stop_test) {
+    count_stops cs;
+    {
+        auto stop = deferred_stop(cs);
+        stop.cancel();
+    }
+    BOOST_REQUIRE_EQUAL(cs.stopped(), 0);
+    return make_ready_future<>();
+}
 
 SEASTAR_TEST_CASE(deferred_stop_test) {
   return do_with(count_stops(), [] (count_stops& cs) {
