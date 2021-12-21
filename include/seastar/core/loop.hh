@@ -472,7 +472,8 @@ future<> do_for_each(Iterator begin, Iterator end, AsyncAction action) noexcept 
 ///         \c action failed.
 template<typename Container, typename AsyncAction>
 SEASTAR_CONCEPT( requires requires (Container c, AsyncAction aa) {
-    { futurize_invoke(aa, *c.begin()) } -> std::same_as<future<>>;
+    { futurize_invoke(aa, *std::begin(c)) } -> std::same_as<future<>>;
+    std::end(c);
 } )
 inline
 future<> do_for_each(Container& c, AsyncAction action) noexcept {
@@ -602,7 +603,10 @@ parallel_for_each_impl(Range&& range, Func&& func) {
 } // namespace internal
 
 template <typename Range, typename Func>
-SEASTAR_CONCEPT( requires requires (Func f, Range r) { { f(*r.begin()) } -> std::same_as<future<>>; } )
+SEASTAR_CONCEPT( requires requires (Func f, Range r) {
+    { f(*std::begin(r)) } -> std::same_as<future<>>;
+    std::end(r);
+} )
 inline
 future<>
 parallel_for_each(Range&& range, Func&& func) noexcept {
@@ -703,7 +707,10 @@ max_concurrent_for_each(Iterator begin, Iterator end, size_t max_concurrent, Fun
 ///         complete.  If one or more return an exception, the return value
 ///         contains one of the exceptions.
 template <typename Range, typename Func>
-SEASTAR_CONCEPT( requires std::ranges::range<Range> && requires (Func f, Range r) { { f(*r.begin()) } -> std::same_as<future<>>; } )
+SEASTAR_CONCEPT( requires requires (Func f, Range r) {
+    { f(*std::begin(r)) } -> std::same_as<future<>>;
+    std::end(r);
+} )
 inline
 future<>
 max_concurrent_for_each(Range&& range, size_t max_concurrent, Func&& func) noexcept {
