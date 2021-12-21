@@ -205,52 +205,52 @@ private:
 
     future<> issue_requests_at_rate(std::chrono::steady_clock::time_point stop, unsigned rps, unsigned parallelism) {
         return do_with(io_intent{}, 0u, [this, stop, rps, parallelism] (io_intent& intent, unsigned& in_flight) {
-          return parallel_for_each(boost::irange(0u, parallelism), [this, stop, rps, &intent, &in_flight, parallelism] (auto dummy) mutable {
-            auto bufptr = allocate_aligned_buffer<char>(this->req_size(), _alignment);
-            auto buf = bufptr.get();
-            auto pause = std::chrono::duration_cast<std::chrono::microseconds>(1s) / rps;
-           return seastar::sleep((pause / parallelism) * dummy).then([this, buf, stop, pause, &intent, &in_flight] () mutable {
-            return do_until([stop] { return std::chrono::steady_clock::now() > stop; }, [this, buf, stop, pause, &intent, &in_flight] () mutable {
-                auto start = std::chrono::steady_clock::now();
-                in_flight++;
-                return issue_request(buf, &intent).then_wrapped([this, start, pause, stop, &in_flight] (auto size_f) {
-                    size_t size;
-                    try {
-                        size = size_f.get0();
-                    } catch (...) {
-                        // cancelled
-                        in_flight--;
-                        return make_ready_future<>();
-                    }
+            return parallel_for_each(boost::irange(0u, parallelism), [this, stop, rps, &intent, &in_flight, parallelism] (auto dummy) mutable {
+                auto bufptr = allocate_aligned_buffer<char>(this->req_size(), _alignment);
+                auto buf = bufptr.get();
+                auto pause = std::chrono::duration_cast<std::chrono::microseconds>(1s) / rps;
+                return seastar::sleep((pause / parallelism) * dummy).then([this, buf, stop, pause, &intent, &in_flight] () mutable {
+                    return do_until([stop] { return std::chrono::steady_clock::now() > stop; }, [this, buf, stop, pause, &intent, &in_flight] () mutable {
+                        auto start = std::chrono::steady_clock::now();
+                        in_flight++;
+                        return issue_request(buf, &intent).then_wrapped([this, start, pause, stop, &in_flight] (auto size_f) {
+                            size_t size;
+                            try {
+                                size = size_f.get0();
+                            } catch (...) {
+                                // cancelled
+                                in_flight--;
+                                return make_ready_future<>();
+                            }
 
-                    auto now = std::chrono::steady_clock::now();
-                    if (now < stop) {
-                        this->add_result(size, std::chrono::duration_cast<std::chrono::microseconds>(now - start));
-                    }
-                    in_flight--;
-                    auto next = start + pause;
+                            auto now = std::chrono::steady_clock::now();
+                            if (now < stop) {
+                                this->add_result(size, std::chrono::duration_cast<std::chrono::microseconds>(now - start));
+                            }
+                            in_flight--;
+                            auto next = start + pause;
 
-                    if (next > now) {
-                      if (_polling_sleep) {
-                        return do_until([next] { return std::chrono::steady_clock::now() >= next; }, [this] {
-                            auto tsk = make_task(_sg, [] {});
-                            schedule(tsk);
-                            return tsk->get_future();
+                            if (next > now) {
+                              if (_polling_sleep) {
+                                return do_until([next] { return std::chrono::steady_clock::now() >= next; }, [this] {
+                                    auto tsk = make_task(_sg, [] {});
+                                    schedule(tsk);
+                                    return tsk->get_future();
+                                });
+                              } else {
+                                return seastar::sleep(std::chrono::duration_cast<std::chrono::microseconds>(next - now));
+                              }
+                            } else {
+                                // probably the system cannot keep-up with this rate
+                                return make_ready_future<>();
+                            }
                         });
-                      } else {
-                        return seastar::sleep(std::chrono::duration_cast<std::chrono::microseconds>(next - now));
-                      }
-                    } else {
-                        // probably the system cannot keep-up with this rate
-                        return make_ready_future<>();
-                    }
-                });
+                    });
+                }).then([&intent, &in_flight] {
+                    intent.cancel();
+                    return do_until([&in_flight] { return in_flight == 0; }, [] { return seastar::sleep(100ms /* ¯\_(ツ)_/¯ */); });
+                }).finally([bufptr = std::move(bufptr)] {});
             });
-           }).then([&intent, &in_flight] {
-                intent.cancel();
-                return do_until([&in_flight] { return in_flight == 0; }, [] { return seastar::sleep(100ms /* ¯\_(ツ)_/¯ */); });
-            }).finally([bufptr = std::move(bufptr)] {});
-          });
         });
     }
 
