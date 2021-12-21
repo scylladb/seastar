@@ -33,6 +33,7 @@
 #include <seastar/core/with_scheduling_group.hh>
 #include <seastar/core/metrics_api.hh>
 #include <seastar/core/io_intent.hh>
+#include <seastar/util/later.hh>
 #include <chrono>
 #include <vector>
 #include <boost/range/irange.hpp>
@@ -105,6 +106,7 @@ struct shard_info {
 
 struct options {
     bool dsync = false;
+    bool polling_sleep = false;
 };
 
 class class_data;
@@ -147,6 +149,7 @@ protected:
     std::uniform_int_distribution<uint32_t> _pos_distribution;
     file _file;
     bool _think = false;
+    bool _polling_sleep = false;
     timer<> _thinker;
 
     virtual future<> do_start(sstring dir, directory_entry_type type) = 0;
@@ -159,6 +162,7 @@ public:
         , _sg(cfg.shard_info.scheduling_group)
         , _latencies(extended_p_square_probabilities = quantiles)
         , _pos_distribution(0,  _config.file_size / _config.shard_info.request_size)
+        , _polling_sleep(cfg.options.polling_sleep)
         , _thinker([this] { think_tick(); })
     {
         if (_config.shard_info.think_after > 0us) {
@@ -225,8 +229,17 @@ private:
                     }
                     in_flight--;
                     auto next = start + pause;
+
                     if (next > now) {
+                      if (_polling_sleep) {
+                        return do_until([next] { return std::chrono::steady_clock::now() >= next; }, [this] {
+                            auto tsk = make_task(_sg, [] {});
+                            schedule(tsk);
+                            return tsk->get_future();
+                        });
+                      } else {
                         return seastar::sleep(std::chrono::duration_cast<std::chrono::microseconds>(next - now));
+                      }
                     } else {
                         // probably the system cannot keep-up with this rate
                         return make_ready_future<>();
@@ -676,6 +689,9 @@ struct convert<options> {
     static bool decode(const Node& node, options& op) {
         if (node["dsync"]) {
             op.dsync = node["dsync"].as<bool>();
+        }
+        if (node["polling_sleep"]) {
+            op.polling_sleep = node["polling_sleep"].as<bool>();
         }
         return true;
     }
