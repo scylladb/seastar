@@ -87,7 +87,7 @@ fair_queue_ticket wrapping_difference(const fair_queue_ticket& a, const fair_que
 }
 
 fair_group::fair_group(config cfg) noexcept
-        : _maximum_capacity(cfg.max_weight, cfg.max_size)
+        : _shares_capacity(cfg.max_weight, cfg.max_size)
         , _capacity_tail(fair_queue_ticket(0, 0))
         , _capacity_head(fair_queue_ticket(cfg.max_weight, cfg.max_size))
 {
@@ -312,7 +312,7 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         _requests_queued--;
 
         auto delta = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - _base);
-        auto req_cost  = req._ticket.normalize(_group.maximum_capacity()) / h._shares;
+        auto req_cost  = req._ticket.normalize(_group.shares_capacity()) / h._shares;
         auto cost  = exp(priority_class_data::accumulator_t(1.0f/_config.tau.count() * delta.count())) * req_cost;
         priority_class_data::accumulator_t next_accumulated = h._accumulated + cost;
         while (std::isinf(next_accumulated)) {

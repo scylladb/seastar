@@ -134,7 +134,7 @@ private:
     using fair_group_atomic_rover = std::atomic<capacity_t>;
     static_assert(fair_group_atomic_rover::is_always_lock_free);
 
-    const fair_queue_ticket _maximum_capacity;
+    const fair_queue_ticket _shares_capacity;
     fair_group_atomic_rover _capacity_tail;
     fair_group_atomic_rover _capacity_head;
 
@@ -148,7 +148,7 @@ public:
     explicit fair_group(config cfg) noexcept;
     fair_group(fair_group&&) = delete;
 
-    fair_queue_ticket maximum_capacity() const noexcept { return _maximum_capacity; }
+    fair_queue_ticket shares_capacity() const noexcept { return _shares_capacity; }
     capacity_t grab_capacity(capacity_t cap) noexcept;
     void release_capacity(capacity_t cap) noexcept;
 
