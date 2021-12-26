@@ -318,8 +318,7 @@ io_queue::complete_request(io_desc_read_write& desc) noexcept {
 
 fair_queue::config io_queue::make_fair_queue_config(const config& iocfg) {
     fair_queue::config cfg;
-    cfg.ticket_weight_pace = iocfg.disk_us_per_request / read_request_base_count;
-    cfg.ticket_size_pace = (iocfg.disk_us_per_byte * (1 << request_ticket_size_shift)) / read_request_base_count;
+    cfg.label = fmt::format("io-queue-{}", iocfg.devid);
     return cfg;
 }
 
@@ -333,9 +332,17 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     if (get_config().duplex) {
         _streams.emplace_back(*_group->_fgs[1], fq_cfg);
     }
-    seastar_logger.debug("Created io queue, multipliers {}:{}",
-            get_config().disk_req_write_to_read_multiplier,
-            get_config().disk_bytes_write_to_read_multiplier);
+
+    if (this_shard_id() == 0) {
+        sstring caps_str;
+        for (size_t sz = 512; sz <= 128 * 1024; sz <<= 1) {
+            caps_str += fmt::format(" {}:{}/{}", sz,
+                    _group->_fgs[0]->ticket_capacity(request_fq_ticket(internal::io_direction_and_length(true, sz))),
+                    _group->_fgs[0]->ticket_capacity(request_fq_ticket(internal::io_direction_and_length(false, sz)))
+            );
+        }
+        seastar_logger.info("Created io queue dev({}) capacities:{}", get_config().devid, caps_str);
+    }
 }
 
 fair_group::config io_group::make_fair_group_config(const io_queue::config& qcfg) noexcept {
@@ -345,12 +352,11 @@ fair_group::config io_group::make_fair_group_config(const io_queue::config& qcfg
      * time setting too large value increases the chances to overflow
      * the group rovers and lock-up the queue.
      *
-     * The same is technically true for bytes limit, but the group
+     * The same is technically true for blocks limit, but the group
      * rovers are configured in blocks (ticket size shift), and this
      * already makes a good protection.
      */
-    auto max_req_count = std::min(qcfg.max_req_count,
-        qcfg.max_bytes_count / io_queue::minimal_request_size);
+    auto max_req_count = std::min(qcfg.max_req_count, qcfg.max_blocks_count);
     auto max_req_count_min = std::max(io_queue::read_request_base_count, qcfg.disk_req_write_to_read_multiplier);
     /*
      * Read requests weight read_request_base_count, writes weight
@@ -363,8 +369,16 @@ fair_group::config io_group::make_fair_group_config(const io_queue::config& qcfg
         seastar_logger.warn("The disk request rate is too low, configuring it to {}, but you may experience latency problems", max_req_count_min);
         max_req_count = max_req_count_min;
     }
-    return fair_group::config(max_req_count,
-        qcfg.max_bytes_count >> io_queue::request_ticket_size_shift);
+
+    fair_group::config cfg;
+    cfg.label = fmt::format("io-queue-{}", qcfg.devid);
+    cfg.max_weight = max_req_count;
+    cfg.max_size = qcfg.max_blocks_count;
+    cfg.weight_rate = qcfg.req_count_rate;
+    cfg.size_rate = qcfg.blocks_count_rate;
+    cfg.rate_factor = qcfg.rate_factor;
+    cfg.rate_limit_duration = qcfg.rate_limit_duration;
+    return cfg;
 }
 
 io_group::io_group(io_queue::config io_cfg) noexcept
@@ -375,7 +389,51 @@ io_group::io_group(io_queue::config io_cfg) noexcept
     if (_config.duplex) {
         _fgs.push_back(std::make_unique<fair_group>(fg_cfg));
     }
-    seastar_logger.debug("Created io group, limits {}:{}", _config.max_req_count, _config.max_bytes_count);
+
+    /*
+     * The maximum request size shouldn't result in the capacity that would
+     * be larger than the group's replenisher limit. It's not the same as the
+     * max_blocks_count which is now used purely for shares accounting and no
+     * longer has anything to do with replenisher.
+     *
+     * To get the correct value check the 2^N sizes and find the largest one
+     * with little enough capacity. Actually (FIXME) requests should calculate
+     * capacities instead of request_fq_ticket() so this math would go away.
+     */
+    size_t max_size = std::numeric_limits<size_t>::max();
+    auto update_max_size = [this, &max_size] (unsigned idx) {
+        auto g_idx = _config.duplex ? idx : 0;
+        auto max_cap = _fgs[g_idx]->maximum_capacity();
+        size_t prev_size = 0;
+        for (unsigned shift = 0; ; shift++) {
+            unsigned weight;
+            size_t size;
+            if (idx == internal::io_direction_and_length::write_idx) {
+                weight = _config.disk_req_write_to_read_multiplier;
+                size = _config.disk_blocks_write_to_read_multiplier * (1 << shift);
+            } else {
+                weight = io_queue::read_request_base_count;
+                size = io_queue::read_request_base_count * (1 << shift);
+            }
+
+            auto cap = _fgs[g_idx]->ticket_capacity(fair_queue_ticket(weight, size));
+            if (cap > max_cap) {
+                assert(shift > 0);
+                max_size = std::min(max_size, prev_size);
+                break;
+            }
+            prev_size = size;
+        };
+    };
+
+    update_max_size(internal::io_direction_and_length::write_idx);
+    update_max_size(internal::io_direction_and_length::read_idx);
+    _config.max_blocks_count = max_size;
+
+    seastar_logger.info("Created io group, length limit {}:{}, rate {}:{}",
+            (max_size / io_queue::read_request_base_count) << io_queue::block_size_shift,
+            (max_size / _config.disk_blocks_write_to_read_multiplier) << io_queue::block_size_shift,
+            _config.req_count_rate, _config.blocks_count_rate);
 }
 
 io_queue::~io_queue() {
@@ -590,32 +648,32 @@ fair_queue_ticket io_queue::request_fq_ticket(internal::io_direction_and_length 
 
     if (dnl.is_write()) {
         weight = get_config().disk_req_write_to_read_multiplier;
-        size = get_config().disk_bytes_write_to_read_multiplier * dnl.length();
+        size = get_config().disk_blocks_write_to_read_multiplier * (dnl.length() >> block_size_shift);
     } else {
         weight = io_queue::read_request_base_count;
-        size = io_queue::read_request_base_count * dnl.length();
+        size = io_queue::read_request_base_count * (dnl.length() >> block_size_shift);
     }
 
     static thread_local size_t oversize_warning_threshold = 0;
 
-    if (size >= get_config().max_bytes_count) {
+    if (size > get_config().max_blocks_count) {
         if (size > oversize_warning_threshold) {
             oversize_warning_threshold = size;
             io_log.warn("oversized request (length {}) submitted. "
                 "dazed and confuzed, trimming its weight from {} down to {}", dnl.length(),
-                size >> request_ticket_size_shift,
-                get_config().max_bytes_count >> request_ticket_size_shift);
+                size, get_config().max_blocks_count);
         }
-        size = get_config().max_bytes_count;
+        size = get_config().max_blocks_count;
     }
 
-    return fair_queue_ticket(weight, size >> request_ticket_size_shift);
+    return fair_queue_ticket(weight, size);
 }
 
 io_queue::request_limits io_queue::get_request_limits() const noexcept {
     request_limits l;
-    l.max_read = align_down<size_t>(std::min<size_t>(get_config().disk_read_saturation_length, get_config().max_bytes_count / read_request_base_count), minimal_request_size);
-    l.max_write = align_down<size_t>(std::min<size_t>(get_config().disk_write_saturation_length, get_config().max_bytes_count / get_config().disk_bytes_write_to_read_multiplier), minimal_request_size);
+    size_t max_length = get_config().max_blocks_count << block_size_shift;
+    l.max_read = align_down<size_t>(std::min<size_t>(get_config().disk_read_saturation_length, max_length / read_request_base_count), 1 << block_size_shift);
+    l.max_write = align_down<size_t>(std::min<size_t>(get_config().disk_write_saturation_length, max_length / get_config().disk_blocks_write_to_read_multiplier), 1 << block_size_shift);
     return l;
 }
 

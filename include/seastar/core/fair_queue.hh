@@ -22,6 +22,8 @@
 #pragma once
 
 #include <boost/intrusive/slist.hpp>
+#include <seastar/core/timer.hh>
+#include <seastar/core/sstring.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/circular_buffer.hh>
 #include <functional>
@@ -35,8 +37,6 @@ namespace bi = boost::intrusive;
 
 namespace seastar {
 
-class fair_group_rover;
-
 /// \brief describes a request that passes through the \ref fair_queue.
 ///
 /// A ticket is specified by a \c weight and a \c size. For example, one can specify a request of \c weight
@@ -47,7 +47,6 @@ class fair_group_rover;
 class fair_queue_ticket {
     uint32_t _weight = 0; ///< the total weight of these requests for capacity purposes (IOPS).
     uint32_t _size = 0;        ///< the total effective size of these requests
-    friend class fair_group_rover;
 public:
     /// Constructs a fair_queue_ticket with a given \c weight and a given \c size
     ///
@@ -66,8 +65,6 @@ public:
     /// Checks if the tickets fully equals to another one
     /// \param desc another \ref fair_queue_ticket to compare with
     bool operator==(const fair_queue_ticket& desc) const noexcept;
-
-    std::chrono::microseconds duration_at_pace(float weight_pace, float size_pace) const noexcept;
 
     /// \returns true if the fair_queue_ticket represents a non-zero quantity.
     ///
@@ -91,24 +88,12 @@ public:
     /// It is however not legal for the axis to have any quantity set to zero.
     /// \param axis another \ref fair_queue_ticket to be used as a a base vector against which to normalize this fair_queue_ticket.
     float normalize(fair_queue_ticket axis) const noexcept;
-};
-
-class fair_group_rover {
-    uint32_t _weight = 0;
-    uint32_t _size = 0;
-
-public:
-    fair_group_rover(uint32_t weight, uint32_t size) noexcept;
 
     /*
-     * For both dimentions checks if the current rover is ahead of the
-     * other and returns the difference. If this is behind returns zero.
+     * For both dimentions checks if the first rover is ahead of the
+     * second and returns the difference. If behind returns zero.
      */
-    fair_queue_ticket maybe_ahead_of(const fair_group_rover& other) const noexcept;
-    fair_group_rover operator+(fair_queue_ticket t) const noexcept;
-    fair_group_rover& operator+=(fair_queue_ticket t) noexcept;
-
-    friend std::ostream& operator<<(std::ostream& os, fair_group_rover r);
+    friend fair_queue_ticket wrapping_difference(const fair_queue_ticket& a, const fair_queue_ticket& b) noexcept;
 };
 
 /// \addtogroup io-module
@@ -142,36 +127,141 @@ public:
 /// cope with the number of arriving requests, or the total size of the data withing
 /// the given time frame exceeds the disk throughput.
 class fair_group {
-    using fair_group_atomic_rover = std::atomic<fair_group_rover>;
+public:
+    using capacity_t = uint64_t;
+    using clock_type = std::chrono::steady_clock;
+
+    /*
+     * tldr; The math
+     *
+     *    Bw, Br -- write/read bandwidth (bytes per second)
+     *    Ow, Or -- write/read iops (ops per second)
+     *
+     *    xx_max -- their maximum values (configured)
+     *
+     * Throttling formula:
+     *
+     *    Bw/Bw_max + Br/Br_max + Ow/Ow_max + Or/Or_max <= K
+     *
+     * where K is the scalar value <= 1.0 (also configured)
+     *
+     * Bandwidth is bytes time derivatite, iops is ops time derivative, i.e.
+     * Bx = d(bx)/dt, Ox = d(ox)/dt. Then the formula turns into
+     *
+     *   d(bw/Bw_max + br/Br_max + ow/Ow_max + or/Or_max)/dt <= K
+     *
+     * Fair queue tickets are {w, s} weight-size pairs that are
+     *
+     *   s = read_base_count * br, for reads
+     *       Br_max/Bw_max * read_base_count * bw, for writes
+     *
+     *   w = read_base_count, for reads
+     *       Or_max/Ow_max * read_base_count, for writes
+     *
+     * Thus the formula turns into
+     *
+     *   d(sum(w/W + s/S))/dr <= K
+     *
+     * where {w, s} is the ticket value if a request and sum summarizes the
+     * ticket values from all the requests seen so far, {W, S} is the ticket
+     * value that corresonds to a virtual summary of Or_max requests of
+     * Br_max size total.
+     */
+
+private:
+    using fair_group_atomic_rover = std::atomic<capacity_t>;
     static_assert(fair_group_atomic_rover::is_always_lock_free);
+
+    const fair_queue_ticket _shares_capacity;
+
+    /*
+     * The dF/dt <= K limitation is managed by the modified token bucket
+     * algo where tokens are ticket.normalize(cost_capacity), the refill
+     * rate is K.
+     *
+     * The token bucket algo must have the limit on the number of tokens
+     * accumulated. Here it's configured so that it accumulates for the
+     * latency_goal duration.
+     *
+     * The replenish threshold is the minimal number of tokens to put back.
+     * It's reserved for future use to reduce the load on the replenish
+     * timestamp.
+     *
+     * The timestamp, in turn, is the time when the bucket was replenished
+     * last. Every time a shard tries to get tokens from bucket it first
+     * tries to convert the time that had passed since this timestamp
+     * into more tokens in the bucket.
+     */
+
+    timer<> _replenisher;
+    const fair_queue_ticket _cost_capacity;
+    const capacity_t _replenish_rate;
+    const capacity_t _replenish_limit;
+    const capacity_t _replenish_threshold;
+    std::atomic<clock_type::time_point> _replenished;
+
+    /*
+     * The token bucket is implemented as a pair of wrapping monotonic
+     * counters (called rovers) one chasing the other. Getting a token
+     * from the bucket is increasing the tail, replenishing a token back
+     * is increasing the head. If increased tail overruns the head then
+     * the bucket is empty and we have to wait. The shard that grabs tail
+     * earlier will be "woken up" earlier, so they form a queue.
+     *
+     * The top rover is needed to implement two buckets actually. The
+     * tokens are not just replenished by timer. They are replenished by
+     * timer from the second bucket. And the second bucket only get a
+     * token in it after the request that grabbed it from the first bucket
+     * completes and returns it back.
+     */
 
     fair_group_atomic_rover _capacity_tail;
     fair_group_atomic_rover _capacity_head;
-    fair_queue_ticket _maximum_capacity;
+    fair_group_atomic_rover _capacity_ceil;
+
+    capacity_t fetch_add(fair_group_atomic_rover& rover, capacity_t cap) noexcept;
 
 public:
-    struct config {
-        unsigned max_req_count;
-        unsigned max_bytes_count;
 
-        /// Constructs a config with the given \c capacity, expressed in maximum
-        /// values for requests and bytes.
-        ///
-        /// \param max_requests how many concurrent requests are allowed in this queue.
-        /// \param max_bytes how many total bytes are allowed in this queue.
-        config(unsigned max_requests, unsigned max_bytes) noexcept
-                : max_req_count(max_requests), max_bytes_count(max_bytes) {}
+    /*
+     * The normalization results in a float of the 2^-30 seconds order of
+     * magnitude. Not to invent float point atomic arithmetics, the result
+     * is converted to an integer by multiplying by a factor that's large
+     * enough to turn these values into a non-zero integer.
+     *
+     * Also, the rates in bytes/sec when adjusted by io-queue according to
+     * multipliers become too large to be stored in 32-bit ticket value.
+     * Thus the rate resolution is applied. The rate_resolution is the
+     * time period for which the speeds from F (in above formula) are taken.
+     */
+
+    using rate_resolution = std::chrono::duration<double, std::micro>;
+    static constexpr float fixed_point_factor = float(1 << 14);
+
+    struct config {
+        sstring label = "";
+        unsigned max_weight;
+        unsigned max_size;
+        unsigned long weight_rate;
+        unsigned long size_rate;
+        float rate_factor = 1.0;
+        std::chrono::duration<double> rate_limit_duration = std::chrono::milliseconds(1);
     };
+
     explicit fair_group(config cfg) noexcept;
     fair_group(fair_group&&) = delete;
 
-    fair_queue_ticket maximum_capacity() const noexcept { return _maximum_capacity; }
-    fair_group_rover grab_capacity(fair_queue_ticket cap) noexcept;
-    void release_capacity(fair_queue_ticket cap) noexcept;
+    fair_queue_ticket shares_capacity() const noexcept { return _shares_capacity; }
+    fair_queue_ticket cost_capacity() const noexcept { return _cost_capacity; }
+    capacity_t maximum_capacity() const noexcept { return _replenish_limit; }
+    capacity_t grab_capacity(capacity_t cap) noexcept;
+    clock_type::time_point replenished_ts() const noexcept { return _replenished; }
+    void release_capacity(capacity_t cap) noexcept;
+    void replenish_capacity(clock_type::time_point now) noexcept;
 
-    fair_group_rover head() const noexcept {
-        return _capacity_head.load(std::memory_order_relaxed);
-    }
+    capacity_t capacity_deficiency(capacity_t from) const noexcept;
+    capacity_t ticket_capacity(fair_queue_ticket ticket) const noexcept;
+    capacity_t rate() const noexcept { return _replenish_rate; }
 };
 
 /// \brief Fair queuing class
@@ -200,14 +290,13 @@ public:
     /// \sets the operation parameters of a \ref fair_queue
     /// \related fair_queue
     struct config {
+        sstring label = "";
         std::chrono::microseconds tau = std::chrono::milliseconds(5);
-        // Time (in microseconds) is takes to process one ticket value
-        float ticket_size_pace;
-        float ticket_weight_pace;
     };
 
     using class_id = unsigned int;
     class priority_class_data;
+    using accumulator_t = double;
 
 private:
     using priority_class_ptr = priority_class_data*;
@@ -226,12 +315,13 @@ private:
     using prioq = std::priority_queue<priority_class_ptr, std::vector<priority_class_ptr>, class_compare>;
     prioq _handles;
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
+    accumulator_t _last_accumulated = 0;
 
     /*
      * When the shared capacity os over the local queue delays
      * further dispatching untill better times
      *
-     * \orig_tail  -- the value group tail rover had when it happened
+     * \head  -- the value group head rover is expected to cross
      * \cap   -- the capacity that's accounted on the group
      *
      * The last field is needed to "rearm" the wait in case
@@ -239,26 +329,26 @@ private:
      * in the middle of the waiting
      */
     struct pending {
-        fair_group_rover orig_tail;
-        fair_queue_ticket cap;
+        fair_group::capacity_t head;
+        fair_queue_ticket ticket;
 
-        pending(fair_group_rover t, fair_queue_ticket c) noexcept : orig_tail(t), cap(c) {}
+        pending(fair_group::capacity_t t, fair_queue_ticket c) noexcept : head(t), ticket(c) {}
     };
 
     std::optional<pending> _pending;
 
     void push_priority_class(priority_class_data& pc);
+    void push_priority_class_from_idle(priority_class_data& pc);
     void pop_priority_class(priority_class_data& pc);
 
-    void normalize_stats();
-
     // Estimated time to process the given ticket
-    std::chrono::microseconds duration(fair_queue_ticket desc) const noexcept {
-        return desc.duration_at_pace(_config.ticket_weight_pace, _config.ticket_size_pace);
+    std::chrono::microseconds duration(fair_group::capacity_t desc) const noexcept {
+        auto duration_ms = fair_group::rate_resolution(desc / _group.rate());
+        return std::chrono::duration_cast<std::chrono::microseconds>(duration_ms);
     }
 
-    bool grab_capacity(fair_queue_ticket cap) noexcept;
-    bool grab_pending_capacity(fair_queue_ticket cap) noexcept;
+    bool grab_capacity(const fair_queue_entry& ent) noexcept;
+    bool grab_pending_capacity(const fair_queue_entry& ent) noexcept;
 public:
     /// Constructs a fair queue with configuration parameters \c cfg.
     ///
@@ -319,8 +409,7 @@ public:
              * which's sub-optimal. The expectation is that we think disk
              * works faster, than it really does.
              */
-            fair_group_rover pending_head = _pending->orig_tail + _pending->cap;
-            fair_queue_ticket over = pending_head.maybe_ahead_of(_group.head());
+            fair_group::capacity_t over = _group.capacity_deficiency(_pending->head);
             return std::chrono::steady_clock::now() + duration(over);
         }
 

@@ -150,6 +150,7 @@ struct mountpoint_params {
     uint64_t read_saturation_length = std::numeric_limits<uint64_t>::max();
     uint64_t write_saturation_length = std::numeric_limits<uint64_t>::max();
     bool duplex = false;
+    float rate_factor = 1.0;
 };
 
 }
@@ -172,6 +173,9 @@ struct convert<seastar::mountpoint_params> {
         }
         if (node["duplex"]) {
             mp.duplex = node["duplex"].as<bool>();
+        }
+        if (node["rate_factor"]) {
+            mp.rate_factor = node["rate_factor"].as<float>();
         }
         return true;
     }
@@ -3777,14 +3781,14 @@ public:
 
         if (!_capacity) {
             if (p.read_bytes_rate != std::numeric_limits<uint64_t>::max()) {
-                cfg.max_bytes_count = io_queue::read_request_base_count * per_io_group(p.read_bytes_rate * latency_goal().count(), nr_groups);
-                cfg.disk_bytes_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_bytes_rate) / p.write_bytes_rate;
-                cfg.disk_us_per_byte = 1000000. / p.read_bytes_rate;
+                cfg.max_blocks_count = (io_queue::read_request_base_count * per_io_group(p.read_bytes_rate * latency_goal().count(), nr_groups)) >> io_queue::block_size_shift;
+                cfg.blocks_count_rate = (io_queue::read_request_base_count * (unsigned long)per_io_group(p.read_bytes_rate, nr_groups)) >> io_queue::block_size_shift;
+                cfg.disk_blocks_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_bytes_rate) / p.write_bytes_rate;
             }
             if (p.read_req_rate != std::numeric_limits<uint64_t>::max()) {
                 cfg.max_req_count = io_queue::read_request_base_count * per_io_group(p.read_req_rate * latency_goal().count(), nr_groups);
+                cfg.req_count_rate = io_queue::read_request_base_count * (unsigned long)per_io_group(p.read_req_rate, nr_groups);
                 cfg.disk_req_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_req_rate) / p.write_req_rate;
-                cfg.disk_us_per_request = 1000000. / p.read_req_rate;
             }
             if (p.read_saturation_length != std::numeric_limits<uint64_t>::max()) {
                 cfg.disk_read_saturation_length = p.read_saturation_length;
@@ -3794,6 +3798,8 @@ public:
             }
             cfg.mountpoint = p.mountpoint;
             cfg.duplex = p.duplex;
+            cfg.rate_factor = p.rate_factor;
+            cfg.rate_limit_duration = latency_goal();
         } else {
             // For backwards compatibility
             cfg.capacity = *_capacity;
@@ -3801,8 +3807,8 @@ public:
             unsigned max_req_count = std::min(*_capacity, reactor::max_aio_per_queue);
             cfg.max_req_count = io_queue::read_request_base_count * max_req_count;
             // specify size in terms of 16kB IOPS.
-            static_assert(reactor::max_aio_per_queue << 14 <= std::numeric_limits<decltype(cfg.max_bytes_count)>::max() / io_queue::read_request_base_count);
-            cfg.max_bytes_count = io_queue::read_request_base_count * (max_req_count << 14);
+            static_assert(reactor::max_aio_per_queue << (14 - io_queue::block_size_shift) <= std::numeric_limits<decltype(cfg.max_blocks_count)>::max() / io_queue::read_request_base_count);
+            cfg.max_blocks_count = io_queue::read_request_base_count * (max_req_count << (14 - io_queue::block_size_shift));
         }
         return cfg;
     }

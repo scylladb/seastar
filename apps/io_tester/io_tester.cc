@@ -33,6 +33,7 @@
 #include <seastar/core/with_scheduling_group.hh>
 #include <seastar/core/metrics_api.hh>
 #include <seastar/core/io_intent.hh>
+#include <seastar/util/later.hh>
 #include <chrono>
 #include <vector>
 #include <boost/range/irange.hpp>
@@ -105,6 +106,7 @@ struct shard_info {
 
 struct options {
     bool dsync = false;
+    bool polling_sleep = false;
 };
 
 class class_data;
@@ -147,6 +149,7 @@ protected:
     std::uniform_int_distribution<uint32_t> _pos_distribution;
     file _file;
     bool _think = false;
+    bool _polling_sleep = false;
     timer<> _thinker;
 
     virtual future<> do_start(sstring dir, directory_entry_type type) = 0;
@@ -159,6 +162,7 @@ public:
         , _sg(cfg.shard_info.scheduling_group)
         , _latencies(extended_p_square_probabilities = quantiles)
         , _pos_distribution(0,  _config.file_size / _config.shard_info.request_size)
+        , _polling_sleep(cfg.options.polling_sleep)
         , _thinker([this] { think_tick(); })
     {
         if (_config.shard_info.think_after > 0us) {
@@ -199,27 +203,54 @@ private:
         });
     }
 
-    future<> issue_requests_at_rate(std::chrono::steady_clock::time_point stop, unsigned rps) {
-        return do_with(io_intent{}, 0u, [this, stop, rps] (io_intent& intent, unsigned& in_flight) {
-            auto bufptr = allocate_aligned_buffer<char>(this->req_size(), _alignment);
-            auto buf = bufptr.get();
-            auto pause = std::chrono::duration_cast<std::chrono::microseconds>(1s) / rps;
-            return do_until([stop] { return std::chrono::steady_clock::now() > stop; }, [this, buf, stop, pause, &intent, &in_flight] () mutable {
-                auto start = std::chrono::steady_clock::now();
-                in_flight++;
-                (void)issue_request(buf, &intent).then([this, start, stop, &in_flight] (auto size) {
-                    auto now = std::chrono::steady_clock::now();
-                    if (now < stop) {
-                        this->add_result(size, std::chrono::duration_cast<std::chrono::microseconds>(now - start));
-                    }
-                    in_flight--;
-                    return make_ready_future<>();
-                });
-                return seastar::sleep(std::max(std::chrono::duration_cast<std::chrono::microseconds>((start + pause) - std::chrono::steady_clock::now()), 0us));
-            }).then([&intent, &in_flight] {
-                intent.cancel();
-                return do_until([&in_flight] { return in_flight == 0; }, [] { return seastar::sleep(100ms /* ¯\_(ツ)_/¯ */); });
-            }).finally([bufptr = std::move(bufptr)] {});
+    future<> issue_requests_at_rate(std::chrono::steady_clock::time_point stop, unsigned rps, unsigned parallelism) {
+        return do_with(io_intent{}, 0u, [this, stop, rps, parallelism] (io_intent& intent, unsigned& in_flight) {
+            return parallel_for_each(boost::irange(0u, parallelism), [this, stop, rps, &intent, &in_flight, parallelism] (auto dummy) mutable {
+                auto bufptr = allocate_aligned_buffer<char>(this->req_size(), _alignment);
+                auto buf = bufptr.get();
+                auto pause = std::chrono::duration_cast<std::chrono::microseconds>(1s) / rps;
+                return seastar::sleep((pause / parallelism) * dummy).then([this, buf, stop, pause, &intent, &in_flight] () mutable {
+                    return do_until([stop] { return std::chrono::steady_clock::now() > stop; }, [this, buf, stop, pause, &intent, &in_flight] () mutable {
+                        auto start = std::chrono::steady_clock::now();
+                        in_flight++;
+                        return issue_request(buf, &intent).then_wrapped([this, start, pause, stop, &in_flight] (auto size_f) {
+                            size_t size;
+                            try {
+                                size = size_f.get0();
+                            } catch (...) {
+                                // cancelled
+                                in_flight--;
+                                return make_ready_future<>();
+                            }
+
+                            auto now = std::chrono::steady_clock::now();
+                            if (now < stop) {
+                                this->add_result(size, std::chrono::duration_cast<std::chrono::microseconds>(now - start));
+                            }
+                            in_flight--;
+                            auto next = start + pause;
+
+                            if (next > now) {
+                              if (_polling_sleep) {
+                                return do_until([next] { return std::chrono::steady_clock::now() >= next; }, [this] {
+                                    auto tsk = make_task(_sg, [] {});
+                                    schedule(tsk);
+                                    return tsk->get_future();
+                                });
+                              } else {
+                                return seastar::sleep(std::chrono::duration_cast<std::chrono::microseconds>(next - now));
+                              }
+                            } else {
+                                // probably the system cannot keep-up with this rate
+                                return make_ready_future<>();
+                            }
+                        });
+                    });
+                }).then([&intent, &in_flight] {
+                    intent.cancel();
+                    return do_until([&in_flight] { return in_flight == 0; }, [] { return seastar::sleep(100ms /* ¯\_(ツ)_/¯ */); });
+                }).finally([bufptr = std::move(bufptr)] {});
+            });
         });
     }
 
@@ -227,11 +258,10 @@ public:
     future<> issue_requests(std::chrono::steady_clock::time_point stop) {
         _start = std::chrono::steady_clock::now();
         return with_scheduling_group(_sg, [this, stop] {
-            if (parallelism() != 0) {
+            if (rps() == 0) {
                 return issue_requests_in_parallel(stop, parallelism());
-            } else /* rps() != 0 */ {
-                assert(rps() != 0);
-                return issue_requests_at_rate(stop, rps());
+            } else {
+                return issue_requests_at_rate(stop, rps(), parallelism());
             }
         }).then([this] {
             _total_duration = std::chrono::steady_clock::now() - _start;
@@ -634,10 +664,6 @@ struct convert<shard_info> {
         if (node["rps"]) {
             sl.rps = node["rps"].as<unsigned>();
         }
-        if ((sl.parallelism == 0) == (sl.rps == 0)) {
-            fmt::print("Must specify exactly one of 'parallelism' or 'rps' parameters\n");
-            return false;
-        }
 
         if (node["shares"]) {
             sl.shares = node["shares"].as<unsigned>();
@@ -663,6 +689,9 @@ struct convert<options> {
     static bool decode(const Node& node, options& op) {
         if (node["dsync"]) {
             op.dsync = node["dsync"].as<bool>();
+        }
+        if (node["polling_sleep"]) {
+            op.polling_sleep = node["polling_sleep"].as<bool>();
         }
         return true;
     }

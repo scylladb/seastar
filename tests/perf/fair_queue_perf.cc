@@ -37,10 +37,19 @@ struct local_fq_and_class {
     seastar::fair_queue sfq;
     unsigned executed = 0;
 
+    static fair_group::config fg_config() {
+        fair_group::config cfg;
+        cfg.max_weight = 1;
+        cfg.max_size = 1;
+        cfg.weight_rate = std::numeric_limits<int>::max();
+        cfg.size_rate = std::numeric_limits<int>::max();
+        return cfg;
+    }
+
     seastar::fair_queue& queue(bool local) noexcept { return local ? fq : sfq; }
 
     local_fq_and_class(seastar::fair_group& sfg)
-        : fg(seastar::fair_group::config(1, 1))
+        : fg(fg_config())
         , fq(fg, seastar::fair_queue::config())
         , sfq(sfg, seastar::fair_queue::config())
     {
@@ -70,8 +79,17 @@ struct perf_fair_queue {
 
     seastar::fair_group shared_fg;
 
+    static fair_group::config fg_config() {
+        fair_group::config cfg;
+        cfg.max_weight = smp::count;
+        cfg.max_size = smp::count;
+        cfg.weight_rate = std::numeric_limits<int>::max();
+        cfg.size_rate = std::numeric_limits<int>::max();
+        return cfg;
+    }
+
     perf_fair_queue()
-        : shared_fg(seastar::fair_group::config(smp::count, smp::count))
+        : shared_fg(fg_config())
     {
         local_fq.start(std::ref(shared_fg)).get();
     }
