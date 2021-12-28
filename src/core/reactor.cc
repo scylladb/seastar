@@ -532,10 +532,7 @@ using namespace net;
 using namespace internal;
 using namespace internal::linux_abi;
 
-std::atomic<lowres_clock_impl::steady_rep> lowres_clock_impl::counters::_steady_now;
-std::atomic<lowres_clock_impl::system_rep> lowres_clock_impl::counters::_system_now;
 std::atomic<manual_clock::rep> manual_clock::_now;
-constexpr std::chrono::milliseconds lowres_clock_impl::_granularity;
 
 constexpr unsigned reactor::max_queues;
 constexpr unsigned reactor::max_aio_per_queue;
@@ -572,21 +569,9 @@ timespec to_timespec(steady_clock_type::time_point t) {
     return { n / 1'000'000'000, n % 1'000'000'000 };
 }
 
-lowres_clock_impl::lowres_clock_impl() {
-    update();
-    _timer.set_callback(&lowres_clock_impl::update);
-    _timer.arm_periodic(_granularity);
-}
-
-void lowres_clock_impl::update() noexcept {
-    auto const steady_count =
-            std::chrono::duration_cast<steady_duration>(base_steady_clock::now().time_since_epoch()).count();
-
-    auto const system_count =
-            std::chrono::duration_cast<system_duration>(base_system_clock::now().time_since_epoch()).count();
-
-    counters::_steady_now.store(steady_count, std::memory_order_relaxed);
-    counters::_system_now.store(system_count, std::memory_order_relaxed);
+void reactor::update_lowres_clocks() noexcept {
+    lowres_clock::_now = lowres_clock::time_point(std::chrono::steady_clock::now().time_since_epoch());
+    lowres_system_clock::_now = lowres_system_clock::time_point(std::chrono::system_clock::now().time_since_epoch());
 }
 
 template <typename Clock>
@@ -2754,6 +2739,7 @@ reactor::run_some_tasks() {
     }
     sched_print("run_some_tasks: start");
     reset_preemption_monitor();
+    update_lowres_clocks();
 
     sched_clock::time_point t_run_completed = now();
     STAP_PROBE(seastar, reactor_run_tasks_start);
@@ -2954,6 +2940,7 @@ int reactor::do_run() {
 
         _polls++;
 
+        update_lowres_clocks(); // Don't delay expiring lowres timers
         if (check_for_work()) {
             if (idle) {
                 _total_idle += idle_end - idle_start;
@@ -4177,7 +4164,6 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
 
     engine().configure(reactor_opts);
     // The raw `new` is necessary because of the private constructor of `lowres_clock_impl`.
-    engine()._lowres_clock_impl = std::unique_ptr<lowres_clock_impl>(new lowres_clock_impl);
 }
 
 bool smp::poll_queues() {

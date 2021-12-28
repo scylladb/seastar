@@ -345,8 +345,6 @@ private:
     /// otherwise. This function should be used by a handler to return early if a task appears.
     idle_cpu_handler _idle_cpu_handler{ [] (work_waiting_on_reactor) {return idle_cpu_handler_result::no_more_work;} };
     std::unique_ptr<network_stack> _network_stack;
-    // _lowres_clock_impl will only be created on cpu 0
-    std::unique_ptr<lowres_clock_impl> _lowres_clock_impl;
     lowres_clock::time_point _lowres_next_timeout;
     std::optional<pollable_fd> _aio_eventfd;
     const bool _reuseport;
@@ -373,6 +371,7 @@ private:
     steady_clock_type::time_point next_pending_aio() const noexcept;
     bool reap_kernel_completions();
     bool flush_tcp_batches();
+    void update_lowres_clocks() noexcept;
     bool do_expire_lowres_timers() noexcept;
     bool do_check_lowres_timers() const noexcept;
     void expire_manual_timers() noexcept;
