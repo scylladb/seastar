@@ -42,133 +42,19 @@
 #include <seastar/net/udp.hh>
 #include <seastar/core/metrics_registration.hh>
 
-namespace seastar {
+#include "ipv4_address.hh"
+#include "ipv6_address.hh"
 
-struct ipv6_addr;
+namespace seastar {
 
 namespace net {
 
 class ipv4;
 template <ip_protocol_num ProtoNum>
 class ipv4_l4;
-struct ipv4_address;
 
 template <typename InetTraits>
 class tcp;
-
-struct ipv4_address {
-    ipv4_address() noexcept : ip(0) {}
-    explicit ipv4_address(uint32_t ip) noexcept : ip(ip) {}
-    // throws if addr is not a valid ipv4 address
-    explicit ipv4_address(const std::string& addr);
-    ipv4_address(ipv4_addr addr) noexcept {
-        ip = addr.ip;
-    }
-
-    packed<uint32_t> ip;
-
-    template <typename Adjuster>
-    auto adjust_endianness(Adjuster a) { return a(ip); }
-
-    friend bool operator==(ipv4_address x, ipv4_address y) noexcept {
-        return x.ip == y.ip;
-    }
-    friend bool operator!=(ipv4_address x, ipv4_address y) noexcept {
-        return x.ip != y.ip;
-    }
-
-    static ipv4_address read(const char* p) noexcept {
-        ipv4_address ia;
-        ia.ip = read_be<uint32_t>(p);
-        return ia;
-    }
-    static ipv4_address consume(const char*& p) noexcept {
-        auto ia = read(p);
-        p += 4;
-        return ia;
-    }
-    void write(char* p) const noexcept {
-        write_be<uint32_t>(p, ip);
-    }
-    void produce(char*& p) const noexcept {
-        produce_be<uint32_t>(p, ip);
-    }
-    static constexpr size_t size() {
-        return 4;
-    }
-} __attribute__((packed));
-
-static inline bool is_unspecified(ipv4_address addr) noexcept { return addr.ip == 0; }
-
-std::ostream& operator<<(std::ostream& os, const ipv4_address& a);
-
-// IPv6
-struct ipv6_address {
-    using ipv6_bytes = std::array<uint8_t, 16>;
-
-    static_assert(alignof(ipv6_bytes) == 1, "ipv6_bytes should be byte-aligned");
-    static_assert(sizeof(ipv6_bytes) == 16, "ipv6_bytes should be 16 bytes");
-
-    ipv6_address() noexcept;
-    explicit ipv6_address(const ::in6_addr&) noexcept;
-    explicit ipv6_address(const ipv6_bytes&) noexcept;
-    // throws if addr is not a valid ipv6 address
-    explicit ipv6_address(const std::string&);
-    ipv6_address(const ipv6_addr& addr) noexcept;
-
-    // No need to use packed - we only store
-    // as byte array. If we want to read as
-    // uints or whatnot, we must copy
-    ipv6_bytes ip;
-
-    template <typename Adjuster>
-    auto adjust_endianness(Adjuster a) { return a(ip); }
-
-    bool operator==(const ipv6_address& y) const noexcept {
-        return bytes() == y.bytes();
-    }
-    bool operator!=(const ipv6_address& y) const noexcept {
-        return !(*this == y);
-    }
-
-    const ipv6_bytes& bytes() const noexcept {
-        return ip;
-    }
-
-    bool is_unspecified() const noexcept;
-
-    static ipv6_address read(const char*) noexcept;
-    static ipv6_address consume(const char*& p) noexcept;
-    void write(char* p) const noexcept;
-    void produce(char*& p) const noexcept;
-    static constexpr size_t size() {
-        return sizeof(ipv6_bytes);
-    }
-} __attribute__((packed));
-
-std::ostream& operator<<(std::ostream&, const ipv6_address&);
-
-}
-
-}
-
-namespace std {
-
-template <>
-struct hash<seastar::net::ipv4_address> {
-    size_t operator()(seastar::net::ipv4_address a) const { return a.ip; }
-};
-
-template <>
-struct hash<seastar::net::ipv6_address> {
-    size_t operator()(const seastar::net::ipv6_address&) const;
-};
-
-}
-
-namespace seastar {
-
-namespace net {
 
 struct ipv4_traits {
     using address_type = ipv4_address;
