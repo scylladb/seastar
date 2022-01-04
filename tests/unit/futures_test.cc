@@ -1791,3 +1791,21 @@ SEASTAR_THREAD_TEST_CASE(test_for_each_set) {
     }).get();
     BOOST_REQUIRE_EQUAL(res, 17);
 }
+
+SEASTAR_THREAD_TEST_CASE(test_yield) {
+    bool flag = false;
+    auto one = yield().then([&] {
+        flag = true;
+    });
+    BOOST_REQUIRE_EQUAL(flag, false);
+    one.get();
+    BOOST_REQUIRE_EQUAL(flag, true);
+
+    // same thing, with now()
+    flag = false;
+    auto two = now().then([&] {
+        flag = true;
+    });
+    // now() does not yield
+    BOOST_REQUIRE_EQUAL(flag, true);
+}

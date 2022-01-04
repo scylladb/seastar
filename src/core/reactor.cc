@@ -4302,12 +4302,24 @@ reactor::calculate_poll_time() {
     return virtualized() ? 2000us : 200us;
 }
 
-future<> later() noexcept {
+future<>
+yield() noexcept {
+    memory::scoped_critical_alloc_section _;
+    auto tsk = make_task([] {});
+    schedule(tsk);
+    return tsk->get_future();
+}
+
+future<> check_for_io_immediately() noexcept {
     memory::scoped_critical_alloc_section _;
     engine().force_poll();
     auto tsk = make_task(default_scheduling_group(), [] {});
     schedule(tsk);
     return tsk->get_future();
+}
+
+future<> later() noexcept {
+    return check_for_io_immediately();
 }
 
 void add_to_flush_poller(output_stream<char>* os) {
