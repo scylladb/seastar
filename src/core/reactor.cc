@@ -53,6 +53,7 @@
 #include <seastar/core/internal/io_desc.hh>
 #include <seastar/core/internal/buffer_allocator.hh>
 #include <seastar/core/scheduling_specific.hh>
+#include <seastar/core/smp_options.hh>
 #include <seastar/util/log.hh>
 #include <seastar/util/read_first_line.hh>
 #include "core/file-impl.hh"

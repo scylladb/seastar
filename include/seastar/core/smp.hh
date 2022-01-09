@@ -24,15 +24,13 @@
 #include <seastar/core/future.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/core/semaphore.hh>
-#include <seastar/core/metrics.hh>
+#include <seastar/core/metrics_registration.hh>
 #include <seastar/core/posix.hh>
 #include <seastar/core/reactor_config.hh>
 #include <seastar/core/resource.hh>
-#include <seastar/util/program-options.hh>
 #include <boost/lockfree/spsc_queue.hpp>
 #include <boost/thread/barrier.hpp>
 #include <boost/range/irange.hpp>
-#include <boost/program_options.hpp>
 #include <deque>
 #include <thread>
 
@@ -291,63 +289,9 @@ private:
     friend class smp;
 };
 
-/// Configuration for the multicore aspect of seastar.
-struct smp_options : public program_options::option_group {
-    /// Number of threads (default: one per CPU).
-    program_options::value<unsigned> smp;
-    /// CPUs to use (in cpuset(7) format; default: all)).
-    program_options::value<resource::cpuset> cpuset;
-    /// Memory to use, in bytes (ex: 4G) (default: all).
-    program_options::value<std::string> memory;
-    /// Memory reserved to OS (if \ref memory not specified).
-    program_options::value<std::string> reserve_memory;
-    /// Path to accessible hugetlbfs mount (typically /dev/hugepages/something).
-    program_options::value<std::string> hugepages;
-    /// Lock all memory (prevents swapping).
-    program_options::value<bool> lock_memory;
-    /// Pin threads to their cpus (disable for overprovisioning).
-    ///
-    /// Default: \p true.
-    program_options::value<bool> thread_affinity;
-    /// \brief Number of IO queues.
-    ///
-    /// Each IO unit will be responsible for a fraction of the IO requests.
-    /// Defaults to the number of threads
-    /// \note Unused when seastar is compiled without \p HWLOC support.
-    program_options::value<unsigned> num_io_queues;
-    /// \brief Number of IO groups.
-    ///
-    /// Each IO group will be responsible for a fraction of the IO requests.
-    /// Defaults to the number of NUMA nodes
-    /// \note Unused when seastar is compiled without \p HWLOC support.
-    program_options::value<unsigned> num_io_groups;
-    /// \brief Maximum amount of concurrent requests to be sent to the disk.
-    ///
-    /// Defaults to 128 times the number of IO queues
-    program_options::value<unsigned> max_io_requests;
-    /// Path to a YAML file describing the characteristics of the I/O Subsystem.
-    program_options::value<std::string> io_properties_file;
-    /// A YAML string describing the characteristics of the I/O Subsystem.
-    program_options::value<std::string> io_properties;
-    /// Enable mbind.
-    ///
-    /// Default: \p true.
-    program_options::value<bool> mbind;
-    /// Enable workaround for glibc/gcc c++ exception scalablity problem.
-    ///
-    /// Default: \p true.
-    /// \note Unused when seastar is compiled without the exception scaling support.
-    program_options::value<bool> enable_glibc_exception_scaling_workaround;
-    /// If some CPUs are found not to have any local NUMA nodes, allow assigning
-    /// them to remote ones.
-    /// \note Unused when seastar is compiled without \p HWLOC support.
-    program_options::value<bool> allow_cpus_in_remote_numa_nodes;
-
-public:
-    smp_options(program_options::option_group* parent_group);
-};
-
+class smp_message_queue;
 struct reactor_options;
+struct smp_options;
 
 class smp : public std::enable_shared_from_this<smp> {
     alien::instance& _alien;

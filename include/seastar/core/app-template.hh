@@ -24,6 +24,7 @@
 #include <functional>
 #include <seastar/core/future.hh>
 #include <seastar/core/smp.hh>
+#include <seastar/core/smp_options.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/util/program-options.hh>
 #include <seastar/core/metrics_api.hh>
