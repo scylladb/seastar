@@ -19,6 +19,7 @@
  * Copyright (C) 2021 Cloudius Systems, Ltd.
  */
 
+#include <boost/program_options.hpp>
 #include <seastar/util/program-options.hh>
 
 #include <stack>

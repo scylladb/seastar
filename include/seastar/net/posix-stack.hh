@@ -26,7 +26,7 @@
 #include <seastar/net/stack.hh>
 #include <seastar/core/polymorphic_temporary_buffer.hh>
 #include <seastar/core/internal/buffer_allocator.hh>
-#include <boost/program_options.hpp>
+#include <seastar/util/program-options.hh>
 
 namespace seastar {
 

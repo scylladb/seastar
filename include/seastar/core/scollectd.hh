@@ -31,13 +31,13 @@
 #include <string>
 #include <tuple>
 #include <chrono>
-#include <boost/program_options.hpp>
 
 #include <seastar/core/future.hh>
 #include <seastar/net/byteorder.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/util/log.hh>
+#include <seastar/util/program-options.hh>
 
 #include <seastar/core/metrics_api.hh>
 

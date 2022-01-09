@@ -50,7 +50,6 @@
 #include <seastar/util/std-compat.hh>
 #include <boost/next_prior.hpp>
 #include <boost/lockfree/spsc_queue.hpp>
-#include <boost/program_options.hpp>
 #include <boost/thread/barrier.hpp>
 #include <boost/container/static_vector.hpp>
 #include <set>

@@ -26,11 +26,11 @@
 
 #include <boost/any.hpp>
 #include <boost/intrusive/list.hpp>
-#include <boost/program_options.hpp>
 
 #include <string>
 #include <unordered_map>
 #include <vector>
+#include <set>
 
 /// \defgroup program-options Program Options
 ///
