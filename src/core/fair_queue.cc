@@ -91,7 +91,6 @@ uint64_t wrapping_difference(const uint64_t& a, const uint64_t& b) noexcept {
 
 fair_group::fair_group(config cfg) noexcept
         : _shares_capacity(cfg.max_weight, cfg.max_size)
-        , _replenisher([this] { replenish_capacity(clock_type::now()); })
         , _cost_capacity(cfg.weight_rate / std::chrono::duration_cast<rate_resolution>(std::chrono::seconds(1)).count(), cfg.size_rate / std::chrono::duration_cast<rate_resolution>(std::chrono::seconds(1)).count())
         , _replenish_rate(cfg.rate_factor * fixed_point_factor)
         , _replenish_limit(_replenish_rate * std::chrono::duration_cast<rate_resolution>(cfg.rate_limit_duration).count())
@@ -104,7 +103,6 @@ fair_group::fair_group(config cfg) noexcept
     assert(!wrapping_difference(_capacity_tail.load(std::memory_order_relaxed), _capacity_head.load(std::memory_order_relaxed)));
     seastar_logger.info("Created fair group {}, capacity shares {} rate {}, limit {}, rate {} (factor {}), threshold {}", cfg.label,
             _shares_capacity, _cost_capacity, _replenish_limit, _replenish_rate, cfg.rate_factor, _replenish_threshold);
-    _replenisher.arm_periodic(std::chrono::microseconds(500));
 }
 
 auto fair_group::grab_capacity(capacity_t cap) noexcept -> capacity_t {
@@ -132,6 +130,16 @@ void fair_group::replenish_capacity(clock_type::time_point now) noexcept {
 
         auto max_extra = wrapping_difference(_capacity_ceil.load(std::memory_order_relaxed), _capacity_head.load(std::memory_order_relaxed));
         fetch_add(_capacity_head, std::min(extra, max_extra));
+    }
+}
+
+void fair_group::maybe_replenish_capacity(clock_type::time_point& local_ts) noexcept {
+    auto now = clock_type::now();
+    auto extra = accumulated_capacity(now - local_ts);
+
+    if (extra >= _replenish_threshold) {
+        local_ts = now;
+        replenish_capacity(now);
     }
 }
 
@@ -170,12 +178,14 @@ bool fair_queue::class_compare::operator() (const priority_class_ptr& lhs, const
 fair_queue::fair_queue(fair_group& group, config cfg)
     : _config(std::move(cfg))
     , _group(group)
+    , _group_replenish(clock_type::now())
 {
 }
 
 fair_queue::fair_queue(fair_queue&& other)
     : _config(std::move(other._config))
     , _group(other._group)
+    , _group_replenish(std::move(other._group_replenish))
     , _resources_executing(std::exchange(other._resources_executing, fair_queue_ticket{}))
     , _resources_queued(std::exchange(other._resources_queued, fair_queue_ticket{}))
     , _requests_executing(std::exchange(other._requests_executing, 0))
@@ -218,6 +228,8 @@ void fair_queue::pop_priority_class(priority_class_data& pc) {
 }
 
 bool fair_queue::grab_pending_capacity(const fair_queue_entry& ent) noexcept {
+    _group.maybe_replenish_capacity(_group_replenish);
+
     if (_group.capacity_deficiency(_pending->head)) {
         return false;
     }

@@ -22,7 +22,6 @@
 #pragma once
 
 #include <boost/intrusive/slist.hpp>
-#include <seastar/core/timer.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/circular_buffer.hh>
@@ -194,7 +193,6 @@ private:
      * into more tokens in the bucket.
      */
 
-    timer<> _replenisher;
     const fair_queue_ticket _cost_capacity;
     const capacity_t _replenish_rate;
     const capacity_t _replenish_limit;
@@ -267,6 +265,7 @@ public:
     clock_type::time_point replenished_ts() const noexcept { return _replenished; }
     void release_capacity(capacity_t cap) noexcept;
     void replenish_capacity(clock_type::time_point now) noexcept;
+    void maybe_replenish_capacity(clock_type::time_point& local_ts) noexcept;
 
     capacity_t capacity_deficiency(capacity_t from) const noexcept;
     capacity_t ticket_capacity(fair_queue_ticket ticket) const noexcept;
@@ -316,6 +315,7 @@ private:
 
     config _config;
     fair_group& _group;
+    clock_type::time_point _group_replenish;
     fair_queue_ticket _resources_executing;
     fair_queue_ticket _resources_queued;
     unsigned _requests_executing = 0;
