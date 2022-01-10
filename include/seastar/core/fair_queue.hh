@@ -311,7 +311,6 @@ private:
     unsigned _requests_executing = 0;
     unsigned _requests_queued = 0;
     using clock_type = std::chrono::steady_clock::time_point;
-    clock_type _base;
     using prioq = std::priority_queue<priority_class_ptr, std::vector<priority_class_ptr>, class_compare>;
     prioq _handles;
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
