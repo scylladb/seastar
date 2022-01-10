@@ -64,7 +64,7 @@ PERF_TEST_F(parallel_for_each, immediate)
 future<> suspend(int v, int& vs)
 {
     vs += v;
-    return later();
+    return yield();
 }
 
 PERF_TEST_F(parallel_for_each, suspend)

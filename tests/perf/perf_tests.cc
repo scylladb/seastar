@@ -222,7 +222,7 @@ void performance_test::do_run(const config& conf)
     // dry run, estimate the number of iterations
     if (conf.single_run_duration.count()) {
         // switch out of seastar thread
-        later().then([&] {
+        yield().then([&] {
             tmr.arm(conf.single_run_duration);
             return do_single_run().finally([&] {
                 tmr.cancel();
@@ -235,7 +235,7 @@ void performance_test::do_run(const config& conf)
     uint64_t total_iterations = 0;
     for (auto i = 0u; i < conf.number_of_runs; i++) {
         // switch out of seastar thread
-        later().then([&] {
+        yield().then([&] {
             _single_run_iterations = 0;
             return do_single_run().then([&] (clock_type::duration dt) {
                 double ns = std::chrono::duration_cast<std::chrono::nanoseconds>(dt).count();

@@ -192,7 +192,7 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_equal_2classes) {
         env.do_op(b, 1);
     }
 
-    later().get();
+    yield().get();
     // allow half the requests in
     env.tick(100);
     env.verify("equal_2classes", {1, 1});
@@ -213,7 +213,7 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_equal_4classes) {
         env.do_op(c, 1);
         env.do_op(d, 1);
     }
-    later().get();
+    yield().get();
     // allow half the requests in
     env.tick(200);
     env.verify("equal_4classes", {1, 1, 1, 1});
@@ -230,7 +230,7 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_different_shares) {
         env.do_op(a, 1);
         env.do_op(b, 1);
     }
-    later().get();
+    yield().get();
     // allow half the requests in
     env.tick(100);
     return env.verify("different_shares", {1, 2});
@@ -250,7 +250,7 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_equal_hi_capacity_2classes) {
         env.do_op(a, 1);
         env.do_op(b, 1);
     }
-    later().get();
+    yield().get();
 
     // queue has capacity 10, 10 x 10 = 100, allow half the requests in
     env.tick(10);
@@ -272,7 +272,7 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_different_shares_hi_capacity) {
         env.do_op(a, 1);
         env.do_op(b, 1);
     }
-    later().get();
+    yield().get();
     // queue has capacity 10, 10 x 10 = 100, allow half the requests in
     env.tick(10);
     env.verify("different_shares_hi_capacity", {1, 2});
@@ -289,7 +289,7 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_different_weights) {
         env.do_op(a, 2);
         env.do_op(b, 1);
     }
-    later().get();
+    yield().get();
     // allow half the requests in
     env.tick(100);
     env.verify("different_weights", {1, 2});
@@ -305,7 +305,7 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_dominant_queue) {
     for (int i = 0; i < 100; ++i) {
         env.do_op(b, 1);
     }
-    later().get();
+    yield().get();
 
     // consume all requests
     env.tick(100);
@@ -335,7 +335,7 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_forgiving_queue) {
     for (int i = 0; i < 100; ++i) {
         env.do_op(a, 1);
     }
-    later().get();
+    yield().get();
 
     // consume all requests
     env.tick(100);
@@ -345,7 +345,7 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_forgiving_queue) {
         env.do_op(a, 1);
         env.do_op(b, 1);
     }
-    later().get();
+    yield().get();
 
     // allow half the requests in
     env.tick(100);
@@ -366,13 +366,13 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_update_shares) {
         env.do_op(b, 1);
     }
 
-    later().get();
+    yield().get();
     // allow 25% of the requests in
     env.tick(250);
     env.update_shares(a, 10);
     env.update_shares(b, 20);
 
-    later().get();
+    yield().get();
     // allow 25% of the requests in
     env.tick(250);
     env.verify("update_shares", {1, 1}, 2);
@@ -441,7 +441,7 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_random_run) {
         env.do_op(b, 1);
     }
 
-    later().get();
+    yield().get();
     // In total allow half the requests in
     env.tick(reqs);
 

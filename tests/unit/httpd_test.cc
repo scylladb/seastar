@@ -1212,7 +1212,7 @@ SEASTAR_TEST_CASE(test_shared_future) {
     shared_promise<json::json_return_type> p;
     auto fut = p.get_shared_future();
 
-    (void)later().then([p = std::move(p)] () mutable {
+    (void)yield().then([p = std::move(p)] () mutable {
         p.set_value(json::json_void());
     });
 

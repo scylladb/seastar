@@ -22,6 +22,7 @@
 #include <seastar/core/future-util.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/core/sleep.hh>
+#include <seastar/util/later.hh>
 
 using namespace seastar;
 using namespace std::chrono_literals;
@@ -41,13 +42,13 @@ SEASTAR_TEST_CASE(test_coroutines_not_compiled_in) {
 namespace {
 
 future<int> old_fashioned_continuations() {
-    return later().then([] {
+    return yield().then([] {
         return 42;
     });
 }
 
 future<int> simple_coroutine() {
-    co_await later();
+    co_await yield();
     co_return 53;
 }
 
@@ -60,7 +61,7 @@ future<std::tuple<int, double>> tuple_coroutine() {
 }
 
 future<int> failing_coroutine() {
-    co_await later();
+    co_await yield();
     throw 42;
 }
 
@@ -69,7 +70,7 @@ future<int> failing_coroutine() {
 }
 
 future<int> failing_coroutine2() noexcept {
-    co_await later();
+    co_await yield();
     co_return throw_exception(17);
 }
 
@@ -157,7 +158,7 @@ SEASTAR_TEST_CASE(test_scheduling_group) {
 SEASTAR_TEST_CASE(test_preemption) {
     bool x = false;
     unsigned preempted = 0;
-    auto f = later().then([&x] {
+    auto f = yield().then([&x] {
             x = true;
         });
 
@@ -169,7 +170,7 @@ SEASTAR_TEST_CASE(test_preemption) {
         co_await make_ready_future<>();
     }
     auto save_x = x;
-    // wait for later() to complete
+    // wait for yield() to complete
     co_await std::move(f);
     BOOST_REQUIRE(save_x);
     co_return;

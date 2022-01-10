@@ -38,6 +38,7 @@
 #include <seastar/core/when_all.hh>
 #include <seastar/core/gate.hh>
 #include <seastar/util/log.hh>
+#include <seastar/util/later.hh>
 #include <boost/iterator/counting_iterator.hpp>
 #include <seastar/testing/thread_test_case.hh>
 
@@ -491,7 +492,7 @@ SEASTAR_TEST_CASE(test_when_all_iterator_range) {
     for (size_t i = 0; i != 1000000; ++i) {
         // Use a mix of available and unavailable futures to exercise
         // both paths in when_all().
-        auto fut = (i % 2) == 0 ? make_ready_future<>() : later();
+        auto fut = (i % 2) == 0 ? make_ready_future<>() : yield();
         futures.push_back(fut.then([i] { return i; }));
     }
     // Verify the above statement is correct
@@ -526,7 +527,7 @@ future<> when_all_but_one_succeed(Container& futures, size_t leave_out)
 SEASTAR_TEST_CASE(test_when_any_iterator_range_i) {
     std::vector<future<size_t>> futures;
     for (size_t i = 0; i != 100; ++i) {
-        auto fut = later();
+        auto fut = yield();
         futures.push_back(fut.then([i] { return i; }));
     }
 
@@ -585,7 +586,7 @@ SEASTAR_TEST_CASE(test_when_any_iterator_range_iv) {
     std::vector<future<size_t>> futures;
     for (size_t i = 0; i != 100; ++i) {
         if (i == 42) {
-            auto fut = later().then([] { return seastar::make_exception_future(std::runtime_error("test")); } );
+            auto fut = yield().then([] { return seastar::make_exception_future(std::runtime_error("test")); } );
             futures.push_back(fut.then([i] { return i; }));
         } else {
             auto fut = seastar::sleep(100ms);
@@ -602,7 +603,7 @@ SEASTAR_TEST_CASE(test_when_any_iterator_range_iv) {
 
 SEASTAR_TEST_CASE(test_when_any_variadic_i)
 {
-    auto f_int = later().then([] { return make_ready_future<int>(42); });
+    auto f_int = yield().then([] { return make_ready_future<int>(42); });
     auto f_string = sleep(100ms).then([] { return make_ready_future<sstring>("hello"); });
     auto f_l33tspeak = sleep(100ms).then([] {
         return make_ready_future<std::tuple<char, int, int, char, char, int, char>>(
@@ -789,7 +790,7 @@ SEASTAR_TEST_CASE(test_do_while_failing_in_the_second_step) {
             if (count > 1) {
                 throw expected_exception();
             }
-            return later().then([] { return stop_iteration::no; });
+            return yield().then([] { return stop_iteration::no; });
         }).then_wrapped([&count](auto&& f) {
             try {
                 f.get();
@@ -821,7 +822,7 @@ SEASTAR_TEST_CASE(test_parallel_for_each) {
         // all suspend
         sum = 0;
         parallel_for_each(range, [&sum] (int v) {
-            return later().then([&sum, v] {
+            return yield().then([&sum, v] {
                 sum += v;
             });
         }).get();
@@ -834,7 +835,7 @@ SEASTAR_TEST_CASE(test_parallel_for_each) {
 
         // throws after suspension
         BOOST_CHECK_EXCEPTION(parallel_for_each(range, [] (int) {
-            return later().then([] {
+            return yield().then([] {
                 throw 5;
             });
         }).get(), int, [] (int v) { return v == 5; });
@@ -871,7 +872,7 @@ SEASTAR_TEST_CASE(test_parallel_for_each_early_failure) {
 SEASTAR_TEST_CASE(test_parallel_for_each_waits_for_all_fibers_even_if_one_of_them_failed) {
     auto can_exit = make_lw_shared<bool>(false);
     return parallel_for_each(boost::irange(0, 2), [can_exit] (int i) {
-        return later().then([i, can_exit] {
+        return yield().then([i, can_exit] {
             if (i == 1) {
                 throw expected_exception();
             } else {
@@ -1191,7 +1192,7 @@ SEASTAR_TEST_CASE(test_repeat_until_value_exception) {
 }
 
 SEASTAR_TEST_CASE(test_when_allx) {
-    return when_all(later(), later(), make_ready_future()).discard_result();
+    return when_all(yield(), yield(), make_ready_future()).discard_result();
 }
 
 // A noncopyable and nonmovable struct
@@ -1209,7 +1210,7 @@ SEASTAR_TEST_CASE(test_when_all_functions) {
     return when_all(f, [] {
         throw 42;
         return make_ready_future<>();
-    }, later()).then([] (std::tuple<future<int>, future<>, future<>> res) {
+    }, yield()).then([] (std::tuple<future<int>, future<>, future<>> res) {
         BOOST_REQUIRE_EQUAL(std::get<0>(res).get0(), 42);
 
         BOOST_REQUIRE(std::get<1>(res).available());
@@ -1230,7 +1231,7 @@ SEASTAR_TEST_CASE(test_when_all_succeed_functions) {
     return when_all_succeed(f, [] {
         throw 42;
         return make_ready_future<>();
-    }, later()).then_wrapped([] (auto res) { // type of `res` changes when SESTAR_API_LEVEL < 3
+    }, yield()).then_wrapped([] (auto res) { // type of `res` changes when SESTAR_API_LEVEL < 3
         BOOST_REQUIRE(res.available());
         BOOST_REQUIRE(res.failed());
         res.ignore_ready_future();
@@ -1264,12 +1265,12 @@ SEASTAR_TEST_CASE(test_with_timeout_when_it_times_out) {
         BOOST_REQUIRE(!f.available());
 
         manual_clock::advance(1s);
-        later().get();
+        yield().get();
 
         BOOST_REQUIRE(!f.available());
 
         manual_clock::advance(1s);
-        later().get();
+        yield().get();
 
         check_timed_out(std::move(f));
 
@@ -1316,7 +1317,7 @@ SEASTAR_TEST_CASE(test_custom_exception_factory_in_with_timeout) {
         auto f = with_timeout<my_exception_factory>(manual_clock::now() + 1s, pr.get_future());
 
         manual_clock::advance(1s);
-        later().get();
+        yield().get();
 
         check_failed_with<custom_error>(std::move(f));
     });
@@ -1335,7 +1336,7 @@ SEASTAR_TEST_CASE(test_with_timeout_when_it_does_not_time_out) {
 
         // Check that timer was indeed cancelled
         manual_clock::advance(1s);
-        later().get();
+        yield().get();
     });
 }
 
@@ -1351,14 +1352,14 @@ SEASTAR_TEST_CASE(test_shared_future_with_timeout) {
         BOOST_REQUIRE(!f3.available());
 
         manual_clock::advance(1s);
-        later().get();
+        yield().get();
 
         check_timed_out(std::move(f1));
         BOOST_REQUIRE(!f2.available());
         BOOST_REQUIRE(!f3.available());
 
         manual_clock::advance(1s);
-        later().get();
+        yield().get();
 
         check_timed_out(std::move(f2));
         BOOST_REQUIRE(!f3.available());
@@ -1586,7 +1587,7 @@ SEASTAR_TEST_CASE(test_async_throw_on_move) {
 }
 
 future<> func4() {
-    return later().then([] {
+    return yield().then([] {
         seastar_logger.info("backtrace: {}", current_backtrace());
     });
 }
@@ -1604,7 +1605,7 @@ future<> func2() {
 }
 
 future<> func1() {
-    return later().then([] {
+    return yield().then([] {
         return func2();
     });
 }
@@ -1742,7 +1743,7 @@ SEASTAR_THREAD_TEST_CASE(test_max_concurrent_for_each) {
     BOOST_TEST_MESSAGE("suspend");
     sum = 0;
     max_concurrent_for_each(range, 3, [&sum] (int v) {
-        return later().then([&sum, v] {
+        return yield().then([&sum, v] {
             sum += v;
         });
     }).get();
@@ -1762,7 +1763,7 @@ SEASTAR_THREAD_TEST_CASE(test_max_concurrent_for_each) {
     BOOST_TEST_MESSAGE("throw after suspension");
     sum = 0;
     BOOST_CHECK_EXCEPTION(max_concurrent_for_each(range, 3, [&sum] (int v) {
-        return later().then([&sum, v] {
+        return yield().then([&sum, v] {
             sum += v;
             if (v == 2) {
                 throw 5;

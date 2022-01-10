@@ -241,11 +241,11 @@ SEASTAR_THREAD_TEST_CASE(sg_scheduling_group_inheritance_in_seastar_async_test) 
 }
 
 
-SEASTAR_THREAD_TEST_CASE(later_preserves_sg) {
+SEASTAR_THREAD_TEST_CASE(yield_preserves_sg) {
     scheduling_group sg = create_scheduling_group("sg", 100).get0();
     auto cleanup = defer([&] () noexcept { destroy_scheduling_group(sg).get(); });
     with_scheduling_group(sg, [&] {
-        return later().then([&] {
+        return yield().then([&] {
             BOOST_REQUIRE_EQUAL(
                     internal::scheduling_group_index(current_scheduling_group()),
                     internal::scheduling_group_index(sg));

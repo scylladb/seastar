@@ -775,8 +775,8 @@ append_challenged_posix_file_impl::commit_size(uint64_t size) noexcept {
 future<size_t>
 append_challenged_posix_file_impl::read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept {
     if (pos >= _logical_size) {
-        // later() avoids tail recursion
-        return later().then([] {
+        // yield() avoids tail recursion
+        return yield().then([] {
             return size_t(0);
         });
     }
@@ -795,8 +795,8 @@ append_challenged_posix_file_impl::read_dma(uint64_t pos, void* buffer, size_t l
 future<size_t>
 append_challenged_posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept {
     if (pos >= _logical_size) {
-        // later() avoids tail recursion
-        return later().then([] {
+        // yield() avoids tail recursion
+        return yield().then([] {
             return size_t(0);
         });
     }

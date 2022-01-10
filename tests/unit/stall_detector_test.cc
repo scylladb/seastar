@@ -95,7 +95,7 @@ SEASTAR_THREAD_TEST_CASE(no_poll_no_stall) {
     promise<> p;
     auto f = p.get_future();
     parallel_for_each(boost::irange(0u, tasks), [&p] (unsigned int i) {
-        (void)later().then([i, &p] {
+        (void)yield().then([i, &p] {
             spin(500us);
             if (i == tasks - 1) {
                 p.set_value();
