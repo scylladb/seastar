@@ -249,6 +249,8 @@ public:
         sstring label = "";
         unsigned max_weight;
         unsigned max_size;
+        unsigned min_weight = 0;
+        unsigned min_size = 0;
         unsigned long weight_rate;
         unsigned long size_rate;
         float rate_factor = 1.0;

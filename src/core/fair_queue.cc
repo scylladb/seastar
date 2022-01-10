@@ -95,7 +95,7 @@ fair_group::fair_group(config cfg) noexcept
         , _cost_capacity(cfg.weight_rate / std::chrono::duration_cast<rate_resolution>(std::chrono::seconds(1)).count(), cfg.size_rate / std::chrono::duration_cast<rate_resolution>(std::chrono::seconds(1)).count())
         , _replenish_rate(cfg.rate_factor * fixed_point_factor)
         , _replenish_limit(_replenish_rate * std::chrono::duration_cast<rate_resolution>(cfg.rate_limit_duration).count())
-        , _replenish_threshold(1) // FIXME -- too frequest replenish
+        , _replenish_threshold(std::max((capacity_t)1, ticket_capacity(fair_queue_ticket(cfg.min_weight, cfg.min_size))))
         , _replenished(clock_type::now())
         , _capacity_tail(0)
         , _capacity_head(0)
