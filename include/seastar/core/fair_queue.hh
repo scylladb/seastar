@@ -299,6 +299,7 @@ public:
     using accumulator_t = double;
 
 private:
+    using clock_type = std::chrono::steady_clock;
     using priority_class_ptr = priority_class_data*;
     struct class_compare {
         bool operator() (const priority_class_ptr& lhs, const priority_class_ptr & rhs) const noexcept;
@@ -310,7 +311,6 @@ private:
     fair_queue_ticket _resources_queued;
     unsigned _requests_executing = 0;
     unsigned _requests_queued = 0;
-    using clock_type = std::chrono::steady_clock::time_point;
     using prioq = std::priority_queue<priority_class_ptr, std::vector<priority_class_ptr>, class_compare>;
     prioq _handles;
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
@@ -396,7 +396,7 @@ public:
     /// Try to execute new requests if there is capacity left in the queue.
     void dispatch_requests(std::function<void(fair_queue_entry&)> cb);
 
-    clock_type next_pending_aio() const noexcept {
+    clock_type::time_point next_pending_aio() const noexcept {
         if (_pending) {
             /*
              * We expect the disk to release the ticket within some time,
