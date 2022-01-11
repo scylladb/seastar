@@ -29,7 +29,6 @@
 #include <queue>
 #include <chrono>
 #include <unordered_set>
-#include <cmath>
 
 #include "fmt/format.h"
 #include "fmt/ostream.h"
@@ -123,11 +122,11 @@ void fair_group::replenish_capacity(clock_type::time_point now) noexcept {
         return;
     }
 
-    auto delta = std::chrono::duration_cast<rate_resolution>(now - ts);
-    capacity_t extra = std::round(_replenish_rate * delta.count());
+    auto delta = now - ts;
+    auto extra = accumulated_capacity(now - ts);
 
     if (extra >= _replenish_threshold) {
-        if (!_replenished.compare_exchange_weak(ts, ts + std::chrono::duration_cast<std::chrono::nanoseconds>(delta))) {
+        if (!_replenished.compare_exchange_weak(ts, ts + delta)) {
             return; // next time or another shard
         }
 

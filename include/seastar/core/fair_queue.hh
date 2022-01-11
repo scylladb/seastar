@@ -32,6 +32,7 @@
 #include <chrono>
 #include <unordered_set>
 #include <optional>
+#include <cmath>
 
 namespace bi = boost::intrusive;
 
@@ -220,6 +221,12 @@ private:
     fair_group_atomic_rover _capacity_ceil;
 
     capacity_t fetch_add(fair_group_atomic_rover& rover, capacity_t cap) noexcept;
+
+    template <typename Rep, typename Period>
+    capacity_t accumulated_capacity(const std::chrono::duration<Rep, Period> delta) const noexcept {
+       auto delta_at_rate = std::chrono::duration_cast<rate_resolution>(delta);
+       return std::round(_replenish_rate * delta_at_rate.count());
+    }
 
 public:
 
