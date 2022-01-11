@@ -30,6 +30,8 @@
 #include <mutex>
 #include <array>
 
+class io_queue_for_tests;
+
 namespace seastar {
 
 class io_priority_class;
@@ -167,6 +169,8 @@ public:
 
 private:
     friend class io_queue;
+    friend class ::io_queue_for_tests;
+
     const io_queue::config _config;
     std::vector<std::unique_ptr<fair_group>> _fgs;
 

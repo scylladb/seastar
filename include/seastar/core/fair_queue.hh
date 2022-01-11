@@ -22,7 +22,6 @@
 #pragma once
 
 #include <boost/intrusive/slist.hpp>
-#include <seastar/core/timer.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/circular_buffer.hh>
@@ -32,6 +31,7 @@
 #include <chrono>
 #include <unordered_set>
 #include <optional>
+#include <cmath>
 
 namespace bi = boost::intrusive;
 
@@ -193,7 +193,6 @@ private:
      * into more tokens in the bucket.
      */
 
-    timer<> _replenisher;
     const fair_queue_ticket _cost_capacity;
     const capacity_t _replenish_rate;
     const capacity_t _replenish_limit;
@@ -221,6 +220,12 @@ private:
 
     capacity_t fetch_add(fair_group_atomic_rover& rover, capacity_t cap) noexcept;
 
+    template <typename Rep, typename Period>
+    capacity_t accumulated_capacity(const std::chrono::duration<Rep, Period> delta) const noexcept {
+       auto delta_at_rate = std::chrono::duration_cast<rate_resolution>(delta);
+       return std::round(_replenish_rate * delta_at_rate.count());
+    }
+
 public:
 
     /*
@@ -242,6 +247,8 @@ public:
         sstring label = "";
         unsigned max_weight;
         unsigned max_size;
+        unsigned min_weight = 0;
+        unsigned min_size = 0;
         unsigned long weight_rate;
         unsigned long size_rate;
         float rate_factor = 1.0;
@@ -258,6 +265,7 @@ public:
     clock_type::time_point replenished_ts() const noexcept { return _replenished; }
     void release_capacity(capacity_t cap) noexcept;
     void replenish_capacity(clock_type::time_point now) noexcept;
+    void maybe_replenish_capacity(clock_type::time_point& local_ts) noexcept;
 
     capacity_t capacity_deficiency(capacity_t from) const noexcept;
     capacity_t ticket_capacity(fair_queue_ticket ticket) const noexcept;
@@ -299,6 +307,7 @@ public:
     using accumulator_t = double;
 
 private:
+    using clock_type = std::chrono::steady_clock;
     using priority_class_ptr = priority_class_data*;
     struct class_compare {
         bool operator() (const priority_class_ptr& lhs, const priority_class_ptr & rhs) const noexcept;
@@ -306,12 +315,11 @@ private:
 
     config _config;
     fair_group& _group;
+    clock_type::time_point _group_replenish;
     fair_queue_ticket _resources_executing;
     fair_queue_ticket _resources_queued;
     unsigned _requests_executing = 0;
     unsigned _requests_queued = 0;
-    using clock_type = std::chrono::steady_clock::time_point;
-    clock_type _base;
     using prioq = std::priority_queue<priority_class_ptr, std::vector<priority_class_ptr>, class_compare>;
     prioq _handles;
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
@@ -397,7 +405,7 @@ public:
     /// Try to execute new requests if there is capacity left in the queue.
     void dispatch_requests(std::function<void(fair_queue_entry&)> cb);
 
-    clock_type next_pending_aio() const noexcept {
+    clock_type::time_point next_pending_aio() const noexcept {
         if (_pending) {
             /*
              * We expect the disk to release the ticket within some time,

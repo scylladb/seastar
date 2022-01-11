@@ -374,6 +374,8 @@ fair_group::config io_group::make_fair_group_config(const io_queue::config& qcfg
     cfg.label = fmt::format("io-queue-{}", qcfg.devid);
     cfg.max_weight = max_req_count;
     cfg.max_size = qcfg.max_blocks_count;
+    cfg.min_weight = std::min(io_queue::read_request_base_count, qcfg.disk_req_write_to_read_multiplier);
+    cfg.min_size = std::min(io_queue::read_request_base_count, qcfg.disk_blocks_write_to_read_multiplier);
     cfg.weight_rate = qcfg.req_count_rate;
     cfg.size_rate = qcfg.blocks_count_rate;
     cfg.rate_factor = qcfg.rate_factor;

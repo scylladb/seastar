@@ -54,12 +54,22 @@ struct io_queue_for_tests {
     io_group_ptr group;
     internal::io_sink sink;
     io_queue queue;
+    timer<> kicker;
 
     io_queue_for_tests()
         : group(std::make_shared<io_group>(io_queue::config{0}))
         , sink()
         , queue(group, sink)
-    {}
+        , kicker([this] { kick(); })
+    {
+        kicker.arm_periodic(std::chrono::microseconds(500));
+    }
+
+    void kick() {
+        for (auto&& fg : group->_fgs) {
+            fg->replenish_capacity(std::chrono::steady_clock::now());
+        }
+    }
 };
 
 SEASTAR_THREAD_TEST_CASE(test_basic_flow) {
