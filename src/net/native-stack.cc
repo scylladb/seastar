@@ -350,8 +350,10 @@ public:
     native_network_interface(const native_network_stack& stack)
         : _stack(stack)
         , _addresses(1, _stack._inet.host_address())
-        , _hardware_address(_stack._inet.netif()->hw_address().mac.begin(), _stack._inet.netif()->hw_address().mac.end())
-    {}
+    {
+        const auto mac = _stack._inet.netif()->hw_address().mac;
+        _hardware_address = std::vector<uint8_t>{mac.cbegin(), mac.cend()};
+    }
     native_network_interface(const native_network_interface&) = default;
 
     uint32_t index() const override {
