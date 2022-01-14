@@ -64,8 +64,6 @@ class test_env {
 
     static fair_group::config fg_config(unsigned cap) {
         fair_group::config cfg;
-        cfg.max_weight = cap;
-        cfg.max_size = std::numeric_limits<int>::max();
         cfg.weight_rate = 1'000'000;
         cfg.size_rate = std::numeric_limits<int>::max();
         cfg.rate_limit_duration = std::chrono::microseconds(cap);

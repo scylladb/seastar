@@ -90,8 +90,7 @@ uint64_t wrapping_difference(const uint64_t& a, const uint64_t& b) noexcept {
 }
 
 fair_group::fair_group(config cfg) noexcept
-        : _shares_capacity(cfg.max_weight, cfg.max_size)
-        , _cost_capacity(cfg.weight_rate / std::chrono::duration_cast<rate_resolution>(std::chrono::seconds(1)).count(), cfg.size_rate / std::chrono::duration_cast<rate_resolution>(std::chrono::seconds(1)).count())
+        : _cost_capacity(cfg.weight_rate / std::chrono::duration_cast<rate_resolution>(std::chrono::seconds(1)).count(), cfg.size_rate / std::chrono::duration_cast<rate_resolution>(std::chrono::seconds(1)).count())
         , _replenish_rate(cfg.rate_factor * fixed_point_factor)
         , _replenish_limit(_replenish_rate * std::chrono::duration_cast<rate_resolution>(cfg.rate_limit_duration).count())
         , _replenish_threshold(std::max((capacity_t)1, ticket_capacity(fair_queue_ticket(cfg.min_weight, cfg.min_size))))
@@ -101,8 +100,8 @@ fair_group::fair_group(config cfg) noexcept
         , _capacity_ceil(_replenish_limit)
 {
     assert(!wrapping_difference(_capacity_tail.load(std::memory_order_relaxed), _capacity_head.load(std::memory_order_relaxed)));
-    seastar_logger.info("Created fair group {}, capacity shares {} rate {}, limit {}, rate {} (factor {}), threshold {}", cfg.label,
-            _shares_capacity, _cost_capacity, _replenish_limit, _replenish_rate, cfg.rate_factor, _replenish_threshold);
+    seastar_logger.info("Created fair group {}, capacity rate {}, limit {}, rate {} (factor {}), threshold {}", cfg.label,
+            _cost_capacity, _replenish_limit, _replenish_rate, cfg.rate_factor, _replenish_threshold);
 }
 
 auto fair_group::grab_capacity(capacity_t cap) noexcept -> capacity_t {
@@ -214,7 +213,7 @@ void fair_queue::push_priority_class_from_idle(priority_class_data& pc) {
         // duration. For this estimate how many capacity units can be
         // accumulated with the current class shares per rate resulution
         // and scale it up to tau.
-        accumulator_t max_deviation = _group.cost_capacity().normalize(_group.shares_capacity()) / pc._shares * std::chrono::duration_cast<fair_group::rate_resolution>(_config.tau).count();
+        accumulator_t max_deviation = fair_group::fixed_point_factor / pc._shares * std::chrono::duration_cast<fair_group::rate_resolution>(_config.tau).count();
         pc._accumulated = std::max(_last_accumulated - max_deviation, pc._accumulated);
         _handles.push(&pc);
         pc._queued = true;
@@ -371,7 +370,7 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         _requests_executing++;
         _requests_queued--;
 
-        auto req_cost  = req._ticket.normalize(_group.shares_capacity()) / h._shares;
+        auto req_cost  = (accumulator_t)_group.ticket_capacity(req._ticket) / h._shares;
         auto next_accumulated = h._accumulated + req_cost;
         if (std::isinf(next_accumulated)) {
             for (auto& pc : _priority_classes) {

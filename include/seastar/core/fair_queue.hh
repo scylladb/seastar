@@ -172,8 +172,6 @@ private:
     using fair_group_atomic_rover = std::atomic<capacity_t>;
     static_assert(fair_group_atomic_rover::is_always_lock_free);
 
-    const fair_queue_ticket _shares_capacity;
-
     /*
      * The dF/dt <= K limitation is managed by the modified token bucket
      * algo where tokens are ticket.normalize(cost_capacity), the refill
@@ -251,8 +249,6 @@ public:
 
     struct config {
         sstring label = "";
-        unsigned max_weight;
-        unsigned max_size;
         unsigned min_weight = 0;
         unsigned min_size = 0;
         unsigned long weight_rate;
@@ -264,7 +260,6 @@ public:
     explicit fair_group(config cfg) noexcept;
     fair_group(fair_group&&) = delete;
 
-    fair_queue_ticket shares_capacity() const noexcept { return _shares_capacity; }
     fair_queue_ticket cost_capacity() const noexcept { return _cost_capacity; }
     capacity_t maximum_capacity() const noexcept { return _replenish_limit; }
     capacity_t grab_capacity(capacity_t cap) noexcept;
