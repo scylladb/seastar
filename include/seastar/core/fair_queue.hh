@@ -304,7 +304,8 @@ public:
 
     using class_id = unsigned int;
     class priority_class_data;
-    using accumulator_t = double;
+    using capacity_t = fair_group::capacity_t;
+    using signed_capacity_t = std::make_signed<capacity_t>::type;
 
 private:
     using clock_type = std::chrono::steady_clock;
@@ -323,7 +324,7 @@ private:
     using prioq = std::priority_queue<priority_class_ptr, std::vector<priority_class_ptr>, class_compare>;
     prioq _handles;
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
-    accumulator_t _last_accumulated = 0;
+    capacity_t _last_accumulated = 0;
 
     /*
      * When the shared capacity os over the local queue delays

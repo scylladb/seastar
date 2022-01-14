@@ -158,7 +158,7 @@ auto fair_group::fetch_add(fair_group_atomic_rover& rover, capacity_t cap) noexc
 class fair_queue::priority_class_data {
     friend class fair_queue;
     uint32_t _shares = 0;
-    fair_queue::accumulator_t _accumulated = 0;
+    capacity_t _accumulated = 0;
     fair_queue_entry::container_list_t _queue;
     bool _queued = false;
 
@@ -213,8 +213,12 @@ void fair_queue::push_priority_class_from_idle(priority_class_data& pc) {
         // duration. For this estimate how many capacity units can be
         // accumulated with the current class shares per rate resulution
         // and scale it up to tau.
-        accumulator_t max_deviation = fair_group::fixed_point_factor / pc._shares * std::chrono::duration_cast<fair_group::rate_resolution>(_config.tau).count();
-        pc._accumulated = std::max(_last_accumulated - max_deviation, pc._accumulated);
+        capacity_t max_deviation = fair_group::fixed_point_factor / pc._shares * std::chrono::duration_cast<fair_group::rate_resolution>(_config.tau).count();
+        // On start this deviation can go to negative values, so not to
+        // introduce extra if's for that short corner case, use signed
+        // arithmetics and make sure the _accumulated value doesn't grow
+        // over signed maximum (see overflow check below)
+        pc._accumulated = std::max<signed_capacity_t>(_last_accumulated - max_deviation, pc._accumulated);
         _handles.push(&pc);
         pc._queued = true;
     }
@@ -370,9 +374,13 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         _requests_executing++;
         _requests_queued--;
 
-        auto req_cost  = (accumulator_t)_group.ticket_capacity(req._ticket) / h._shares;
-        auto next_accumulated = h._accumulated + req_cost;
-        if (std::isinf(next_accumulated)) {
+        // Usually the cost of request is tens to hundreeds of thousands. However, for
+        // unrestricted queue it can be as low as 2k. With large enough shares this
+        // has chances to be translated into zero cost which, in turn, will make the
+        // class show no progress and monopolize the queue.
+        auto req_cost  = std::max(_group.ticket_capacity(req._ticket) / h._shares, (capacity_t)1);
+        // signed overflow check to make push_priority_class_from_idle math work
+        if (h._accumulated >= std::numeric_limits<signed_capacity_t>::max() - req_cost) {
             for (auto& pc : _priority_classes) {
                 if (pc) {
                     if (pc->_queued) {
@@ -383,9 +391,8 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
                 }
             }
             _last_accumulated = 0;
-            next_accumulated = h._accumulated + req_cost;
         }
-        h._accumulated = next_accumulated;
+        h._accumulated += req_cost;
 
         if (!h._queue.empty()) {
             push_priority_class(h);
