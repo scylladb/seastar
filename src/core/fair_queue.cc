@@ -327,6 +327,26 @@ void fair_queue::notify_request_cancelled(fair_queue_entry& ent) noexcept {
     ent._ticket = fair_queue_ticket();
 }
 
+fair_queue::clock_type::time_point fair_queue::next_pending_aio() const noexcept {
+    if (_pending) {
+        /*
+         * We expect the disk to release the ticket within some time,
+         * but it's ... OK if it doesn't -- the pending wait still
+         * needs the head rover value to be ahead of the needed value.
+         *
+         * It may happen that the capacity gets released before we think
+         * it will, in this case we will wait for the full value again,
+         * which's sub-optimal. The expectation is that we think disk
+         * works faster, than it really does.
+         */
+        auto over = _group.capacity_deficiency(_pending->head);
+        auto ticks = _group.capacity_duration(over);
+        return std::chrono::steady_clock::now() + std::chrono::duration_cast<std::chrono::microseconds>(ticks);
+    }
+
+    return std::chrono::steady_clock::time_point::max();
+}
+
 void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
     fair_group::capacity_t dispatched = 0;
 

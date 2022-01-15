@@ -243,6 +243,12 @@ public:
     using rate_resolution = std::chrono::duration<double, std::micro>;
     static constexpr float fixed_point_factor = float(1 << 14);
 
+    // Estimated time to process the given amount of capacity
+    // (peer of accumulated_capacity() helper)
+    rate_resolution capacity_duration(capacity_t cap) const noexcept {
+        return rate_resolution(cap / _replenish_rate);
+    }
+
     struct config {
         sstring label = "";
         unsigned max_weight;
@@ -269,7 +275,6 @@ public:
 
     capacity_t capacity_deficiency(capacity_t from) const noexcept;
     capacity_t ticket_capacity(fair_queue_ticket ticket) const noexcept;
-    capacity_t rate() const noexcept { return _replenish_rate; }
 };
 
 /// \brief Fair queuing class
@@ -349,12 +354,6 @@ private:
     void push_priority_class_from_idle(priority_class_data& pc);
     void pop_priority_class(priority_class_data& pc);
 
-    // Estimated time to process the given ticket
-    std::chrono::microseconds duration(fair_group::capacity_t desc) const noexcept {
-        auto duration_ms = fair_group::rate_resolution(desc / _group.rate());
-        return std::chrono::duration_cast<std::chrono::microseconds>(duration_ms);
-    }
-
     bool grab_capacity(const fair_queue_entry& ent) noexcept;
     bool grab_pending_capacity(const fair_queue_entry& ent) noexcept;
 public:
@@ -405,24 +404,7 @@ public:
     /// Try to execute new requests if there is capacity left in the queue.
     void dispatch_requests(std::function<void(fair_queue_entry&)> cb);
 
-    clock_type::time_point next_pending_aio() const noexcept {
-        if (_pending) {
-            /*
-             * We expect the disk to release the ticket within some time,
-             * but it's ... OK if it doesn't -- the pending wait still
-             * needs the head rover value to be ahead of the needed value.
-             *
-             * It may happen that the capacity gets released before we think
-             * it will, in this case we will wait for the full value again,
-             * which's sub-optimal. The expectation is that we think disk
-             * works faster, than it really does.
-             */
-            fair_group::capacity_t over = _group.capacity_deficiency(_pending->head);
-            return std::chrono::steady_clock::now() + duration(over);
-        }
-
-        return std::chrono::steady_clock::time_point::max();
-    }
+    clock_type::time_point next_pending_aio() const noexcept;
 };
 /// @}
 
