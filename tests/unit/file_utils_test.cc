@@ -78,15 +78,8 @@ SEASTAR_THREAD_TEST_CASE(test_tmp_file) {
 }
 
 SEASTAR_THREAD_TEST_CASE(test_non_existing_TMPDIR) {
-    auto old_tmpdir = getenv("TMPDIR");
-    setenv("TMPDIR", "/tmp/non-existing-TMPDIR", true);
     BOOST_REQUIRE_EXCEPTION(tmp_file::do_with("/tmp/non-existing-TMPDIR", [] (tmp_file& tf) {}).get(),
             std::system_error, testing::exception_predicate::message_contains("No such file or directory"));
-    if (old_tmpdir) {
-        setenv("TMPDIR", old_tmpdir, true);
-    } else {
-        unsetenv("TMPDIR");
-    }
 }
 
 static future<> touch_file(const sstring& filename, open_flags oflags = open_flags::rw | open_flags::create) noexcept {
