@@ -28,6 +28,7 @@ class source_location {
     const char* _file;
     const char* _func;
     int _line;
+    [[maybe_unused]]
     int _col;
 
     constexpr source_location(const char* file, const char* func, int line, int col) noexcept
