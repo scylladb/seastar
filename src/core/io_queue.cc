@@ -394,9 +394,7 @@ io_group::io_group(io_queue::config io_cfg) noexcept
 
     /*
      * The maximum request size shouldn't result in the capacity that would
-     * be larger than the group's replenisher limit. It's not the same as the
-     * max_blocks_count which is now used purely for shares accounting and no
-     * longer has anything to do with replenisher.
+     * be larger than the group's replenisher limit.
      *
      * To get the correct value check the 2^N sizes and find the largest one
      * with little enough capacity. Actually (FIXME) requests should calculate
@@ -430,7 +428,7 @@ io_group::io_group(io_queue::config io_cfg) noexcept
 
     update_max_size(internal::io_direction_and_length::write_idx);
     update_max_size(internal::io_direction_and_length::read_idx);
-    _config.max_blocks_count = max_size;
+    max_ticket_size = max_size;
 
     seastar_logger.info("Created io group, length limit {}:{}, rate {}:{}",
             (max_size / io_queue::read_request_base_count) << io_queue::block_size_shift,
@@ -658,14 +656,14 @@ fair_queue_ticket io_queue::request_fq_ticket(internal::io_direction_and_length 
 
     static thread_local size_t oversize_warning_threshold = 0;
 
-    if (size > get_config().max_blocks_count) {
+    if (size > _group->max_ticket_size) {
         if (size > oversize_warning_threshold) {
             oversize_warning_threshold = size;
             io_log.warn("oversized request (length {}) submitted. "
                 "dazed and confuzed, trimming its weight from {} down to {}", dnl.length(),
-                size, get_config().max_blocks_count);
+                size, _group->max_ticket_size);
         }
-        size = get_config().max_blocks_count;
+        size = _group->max_ticket_size;
     }
 
     return fair_queue_ticket(weight, size);
@@ -673,7 +671,7 @@ fair_queue_ticket io_queue::request_fq_ticket(internal::io_direction_and_length 
 
 io_queue::request_limits io_queue::get_request_limits() const noexcept {
     request_limits l;
-    size_t max_length = get_config().max_blocks_count << block_size_shift;
+    size_t max_length = _group->max_ticket_size << block_size_shift;
     l.max_read = align_down<size_t>(std::min<size_t>(get_config().disk_read_saturation_length, max_length / read_request_base_count), 1 << block_size_shift);
     l.max_write = align_down<size_t>(std::min<size_t>(get_config().disk_write_saturation_length, max_length / get_config().disk_blocks_write_to_read_multiplier), 1 << block_size_shift);
     return l;

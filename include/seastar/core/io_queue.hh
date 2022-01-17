@@ -99,7 +99,7 @@ public:
         dev_t devid;
         unsigned capacity = std::numeric_limits<unsigned>::max();
         unsigned max_req_count = std::numeric_limits<int>::max();
-        mutable unsigned max_blocks_count = std::numeric_limits<int>::max();
+        unsigned max_blocks_count = std::numeric_limits<int>::max();
         unsigned long req_count_rate = std::numeric_limits<int>::max();
         unsigned long blocks_count_rate = std::numeric_limits<int>::max();
         unsigned disk_req_write_to_read_multiplier = read_request_base_count;
@@ -172,6 +172,7 @@ private:
     friend class ::io_queue_for_tests;
 
     const io_queue::config _config;
+    unsigned max_ticket_size = std::numeric_limits<int>::max();
     std::vector<std::unique_ptr<fair_group>> _fgs;
 
     static fair_group::config make_fair_group_config(const io_queue::config& qcfg) noexcept;
