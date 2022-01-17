@@ -338,10 +338,10 @@ private:
      * in the middle of the waiting
      */
     struct pending {
-        fair_group::capacity_t head;
+        capacity_t head;
         fair_queue_ticket ticket;
 
-        pending(fair_group::capacity_t t, fair_queue_ticket c) noexcept : head(t), ticket(c) {}
+        pending(capacity_t t, fair_queue_ticket c) noexcept : head(t), ticket(c) {}
     };
 
     std::optional<pending> _pending;

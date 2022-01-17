@@ -240,7 +240,7 @@ bool fair_queue::grab_pending_capacity(const fair_queue_entry& ent) noexcept {
     if (ent._ticket == _pending->ticket) {
         _pending.reset();
     } else {
-        fair_group::capacity_t cap = _group.ticket_capacity(ent._ticket);
+        capacity_t cap = _group.ticket_capacity(ent._ticket);
         /*
          * This branch is called when the fair queue decides to
          * submit not the same request that entered it into the
@@ -259,8 +259,8 @@ bool fair_queue::grab_capacity(const fair_queue_entry& ent) noexcept {
         return grab_pending_capacity(ent);
     }
 
-    fair_group::capacity_t cap = _group.ticket_capacity(ent._ticket);
-    fair_group::capacity_t want_head = _group.grab_capacity(cap) + cap;
+    capacity_t cap = _group.ticket_capacity(ent._ticket);
+    capacity_t want_head = _group.grab_capacity(cap) + cap;
     if (_group.capacity_deficiency(want_head)) {
         _pending.emplace(want_head, ent._ticket);
         return false;
@@ -351,7 +351,7 @@ fair_queue::clock_type::time_point fair_queue::next_pending_aio() const noexcept
 }
 
 void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
-    fair_group::capacity_t dispatched = 0;
+    capacity_t dispatched = 0;
 
     while (!_handles.empty() && (dispatched < _group.maximum_capacity() / smp::count)) {
         priority_class_data& h = *_handles.top();
