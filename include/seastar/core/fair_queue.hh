@@ -71,6 +71,7 @@ public:
     /// For a fair_queue ticket to be non-zero, at least one of its represented quantities need to
     /// be non-zero
     explicit operator bool() const noexcept;
+    bool is_non_zero() const noexcept;
 
     friend std::ostream& operator<<(std::ostream& os, fair_queue_ticket t);
 
@@ -238,8 +239,8 @@ public:
      * time period for which the speeds from F (in above formula) are taken.
      */
 
-    using rate_resolution = std::chrono::duration<double, std::micro>;
-    static constexpr float fixed_point_factor = float(1 << 14);
+    using rate_resolution = std::chrono::duration<double, std::milli>;
+    static constexpr float fixed_point_factor = float(1 << 24);
 
     // Estimated time to process the given amount of capacity
     // (peer of accumulated_capacity() helper)

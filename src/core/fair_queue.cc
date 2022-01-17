@@ -72,6 +72,10 @@ fair_queue_ticket::operator bool() const noexcept {
     return (_weight > 0) || (_size > 0);
 }
 
+bool fair_queue_ticket::is_non_zero() const noexcept {
+    return (_weight > 0) && (_size > 0);
+}
+
 bool fair_queue_ticket::operator==(const fair_queue_ticket& o) const noexcept {
     return _weight == o._weight && _size == o._size;
 }
@@ -100,6 +104,7 @@ fair_group::fair_group(config cfg) noexcept
         , _capacity_ceil(_replenish_limit)
 {
     assert(!wrapping_difference(_capacity_tail.load(std::memory_order_relaxed), _capacity_head.load(std::memory_order_relaxed)));
+    assert(_cost_capacity.is_non_zero());
     seastar_logger.info("Created fair group {}, capacity rate {}, limit {}, rate {} (factor {}), threshold {}", cfg.label,
             _cost_capacity, _replenish_limit, _replenish_rate, cfg.rate_factor, _replenish_threshold);
 }
