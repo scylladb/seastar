@@ -3776,12 +3776,10 @@ public:
 
         if (!_capacity) {
             if (p.read_bytes_rate != std::numeric_limits<uint64_t>::max()) {
-                cfg.max_blocks_count = (io_queue::read_request_base_count * per_io_group(p.read_bytes_rate * latency_goal().count(), nr_groups)) >> io_queue::block_size_shift;
                 cfg.blocks_count_rate = (io_queue::read_request_base_count * (unsigned long)per_io_group(p.read_bytes_rate, nr_groups)) >> io_queue::block_size_shift;
                 cfg.disk_blocks_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_bytes_rate) / p.write_bytes_rate;
             }
             if (p.read_req_rate != std::numeric_limits<uint64_t>::max()) {
-                cfg.max_req_count = io_queue::read_request_base_count * per_io_group(p.read_req_rate * latency_goal().count(), nr_groups);
                 cfg.req_count_rate = io_queue::read_request_base_count * (unsigned long)per_io_group(p.read_req_rate, nr_groups);
                 cfg.disk_req_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_req_rate) / p.write_req_rate;
             }

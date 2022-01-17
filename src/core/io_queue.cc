@@ -346,29 +346,6 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
 }
 
 fair_group::config io_group::make_fair_group_config(const io_queue::config& qcfg) noexcept {
-    /*
-     * It doesn't make sense to configure requests limit higher than
-     * it can be if the queue is full of minimal requests. At the same
-     * time setting too large value increases the chances to overflow
-     * the group rovers and lock-up the queue.
-     *
-     * The same is technically true for blocks limit, but the group
-     * rovers are configured in blocks (ticket size shift), and this
-     * already makes a good protection.
-     */
-    auto max_req_count = std::min(qcfg.max_req_count, qcfg.max_blocks_count);
-    auto max_req_count_min = std::max(io_queue::read_request_base_count, qcfg.disk_req_write_to_read_multiplier);
-    /*
-     * Read requests weight read_request_base_count, writes weight
-     * disk_req_write_to_read_multiplier. The fair queue limit must
-     * be enough to pass the largest one through. The same is true
-     * for request sizes, but that check is done run-time, see the
-     * request_fq_ticket() method.
-     */
-    if (max_req_count < max_req_count_min) {
-        seastar_logger.warn("The disk request rate is too low, configuring it to {}, but you may experience latency problems", max_req_count_min);
-    }
-
     fair_group::config cfg;
     cfg.label = fmt::format("io-queue-{}", qcfg.devid);
     cfg.min_weight = std::min(io_queue::read_request_base_count, qcfg.disk_req_write_to_read_multiplier);
