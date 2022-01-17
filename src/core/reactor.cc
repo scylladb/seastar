@@ -3457,6 +3457,7 @@ reactor_options::reactor_options(program_options::option_group* parent_group)
     , poll_aio(*this, "poll-aio", true,
                 "busy-poll for disk I/O (reduces latency and increases throughput)")
     , task_quota_ms(*this, "task-quota-ms", 500, "Max time (ms) between polls")
+    , io_latency_goal_ms(*this, "io-latency-goal-ms", {}, "Max time (ms) io operations must take (1.5 * task-quota-ms if not set)")
     , max_task_backlog(*this, "max-task-backlog", 1000, "Maximum number of task backlog to allow; above this we ignore I/O")
     , blocked_reactor_notify_ms(*this, "blocked-reactor-notify-ms", 200, "threshold in miliseconds over which the reactor is considered blocked if no progress is made")
     , blocked_reactor_reports_per_minute(*this, "blocked-reactor-reports-per-minute", 5, "Maximum number of backtraces reported by stall detector per minute")
@@ -3695,9 +3696,15 @@ public:
         return _latency_goal;
     }
 
+    double latency_goal_opt(const reactor_options& opts) const {
+        return opts.io_latency_goal_ms ?
+                opts.io_latency_goal_ms.get_value() :
+                opts.task_quota_ms.get_value() * 1.5;
+    }
+
     void parse_config(const smp_options& smp_opts, const reactor_options& reactor_opts) {
         seastar_logger.debug("smp::count: {}", smp::count);
-        _latency_goal = std::chrono::duration_cast<std::chrono::duration<double>>(reactor_opts.task_quota_ms.get_value() * 1.5 * 1ms);
+        _latency_goal = std::chrono::duration_cast<std::chrono::duration<double>>(latency_goal_opt(reactor_opts) * 1ms);
         seastar_logger.debug("latency_goal: {}", latency_goal().count());
 
         if (smp_opts.max_io_requests) {
