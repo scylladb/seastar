@@ -54,6 +54,29 @@ BOOST_AUTO_TEST_CASE(test_add_literal_to_sstring) {
 BOOST_AUTO_TEST_CASE(test_find_sstring) {
     BOOST_REQUIRE_EQUAL(sstring("abcde").find('b'), 1u);
     BOOST_REQUIRE_EQUAL(sstring("babcde").find('b',1), 2u);
+    BOOST_REQUIRE_EQUAL(sstring("").find("", 0), 0u);
+    BOOST_REQUIRE_EQUAL(sstring("").find("", 1), sstring::npos);
+}
+
+BOOST_AUTO_TEST_CASE(test_find_sstring_compatible) {
+    auto check_find = [](const char* s1, const char* s2, size_t pos) {
+        const auto xpos_ss = sstring(s1).find(s2, pos);
+        const auto xpos_std = std::string(s1).find(s2, pos);
+
+        // verify that std::string really has the same behavior as we just tested for sstring
+        if (xpos_ss == sstring::npos) {  // sstring::npos may not equal std::string::npos ?
+            BOOST_REQUIRE_EQUAL(xpos_std, std::string::npos);
+        } else {
+            BOOST_REQUIRE_EQUAL(xpos_ss, xpos_std);
+        }
+    };
+
+    check_find("", "", 0);
+    check_find("", "", 1);
+    check_find("abcde", "", 0);
+    check_find("abcde", "", 1);
+    check_find("abcde", "", 5);
+    check_find("abcde", "", 6);
 }
 
 BOOST_AUTO_TEST_CASE(test_not_find_sstring) {
