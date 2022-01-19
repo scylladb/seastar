@@ -400,6 +400,19 @@ public:
 };
 
 class io_class_data : public class_data {
+protected:
+    bool _is_dev_null = false;
+
+    future<size_t> on_io_completed(future<size_t> f) {
+        if (!_is_dev_null) {
+            return std::move(f);
+        }
+
+        return f.then([this] (auto size_f) {
+            return make_ready_future<size_t>(this->req_size());
+        });
+    }
+
 public:
     io_class_data(job_config cfg) : class_data(std::move(cfg)) {}
 
@@ -410,6 +423,10 @@ public:
 
         if (type == directory_entry_type::block_device) {
             return do_start_on_bdev(path);
+        }
+
+        if (type == directory_entry_type::char_device && path == "/dev/null") {
+            return do_start_on_dev_null();
         }
 
         throw std::runtime_error(format("Unsupported storage. {} should be directory or block device", path));
@@ -479,6 +496,16 @@ private:
         });
     }
 
+    future<> do_start_on_dev_null() {
+        file_open_options options;
+        options.append_is_unlikely = true;
+        return open_file_dma("/dev/null", open_flags::rw, std::move(options)).then([this] (auto f) {
+            _file = std::move(f);
+            _is_dev_null = true;
+            return make_ready_future<>();
+        });
+    }
+
     void emit_one_metrics(YAML::Emitter& out, sstring m_name) {
         const auto& values = seastar::metrics::impl::get_value_map();
         const auto& mf = values.find(m_name);
@@ -524,7 +551,8 @@ public:
     read_io_class_data(job_config cfg) : io_class_data(std::move(cfg)) {}
 
     future<size_t> issue_request(char *buf, io_intent* intent) override {
-        return _file.dma_read(this->get_pos(), buf, this->req_size(), _iop, intent);
+        auto f = _file.dma_read(this->get_pos(), buf, this->req_size(), _iop, intent);
+        return on_io_completed(std::move(f));
     }
 };
 
@@ -533,7 +561,8 @@ public:
     write_io_class_data(job_config cfg) : io_class_data(std::move(cfg)) {}
 
     future<size_t> issue_request(char *buf, io_intent* intent) override {
-        return _file.dma_write(this->get_pos(), buf, this->req_size(), _iop, intent);
+        auto f = _file.dma_write(this->get_pos(), buf, this->req_size(), _iop, intent);
+        return on_io_completed(std::move(f));
     }
 };
 
