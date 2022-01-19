@@ -14,8 +14,14 @@ parser.add_argument('--directory', help='Directory to run on', default='/mnt')
 parser.add_argument('--seastar-build-dir', help='Path to seastar build directory', default='./build/dev/', dest='bdir')
 parser.add_argument('--duration', help='One run duration', type=int, default=60)
 parser.add_argument('--read-reqsize', help='Size of a read request in kbytes', type=int, default=4)
+parser.add_argument('--read-fibers', help='Number of reading fibers', type=int, default=5)
+parser.add_argument('--read-shares', help='Shares for read workload', type=int, default=2500)
 parser.add_argument('--write-reqsize', help='Size of a write request in kbytes', type=int, default=64)
+parser.add_argument('--write-fibers', help='Number of writing fibers', type=int, default=2)
+parser.add_argument('--write-shares', help='Shares for write workload', type=int, default=100)
 parser.add_argument('--shards', help='Number of shards to use', type=int)
+parser.add_argument('--sleep-type', help='The io_tester conf.options.sleep_type option', default='busyloop')
+parser.add_argument('--pause-dist', help='The io_tester conf.option.pause_distribution option', default='uniform')
 args = parser.parse_args()
 
 
@@ -46,7 +52,7 @@ class job:
     def rqsz(self):
         return self._req_size
 
-    def to_conf_entry(self, name):
+    def to_conf_entry(self, name, options):
         ret = {
             'name': name,
             'shards': 'all',
@@ -55,9 +61,7 @@ class job:
                 'reqsize': f'{self._req_size}kB',
                 'shares': self._shares,
             },
-            'options': {
-                'polling_sleep': 'true',
-            },
+            'options': options,
         }
         if self._prl is not None:
             ret['shard_info']['parallelism'] = int(self._prl)
@@ -73,6 +77,10 @@ class io_tester:
         self._dir = args.directory
         self._use_fraction = 0.8
         self._max_data_size_gb = 8
+        self._job_options = {
+            'sleep_type': args.sleep_type,
+            'pause_distribution': args.pause_dist,
+        }
         self._io_tester_args = [
             '--io-properties-file', 'io_properties.yaml',
             '--storage', self._dir,
@@ -82,7 +90,7 @@ class io_tester:
             self._io_tester_args += [ f'-c{args.shards}' ]
 
     def add_job(self, name, job):
-        self._jobs.append(job.to_conf_entry(name))
+        self._jobs.append(job.to_conf_entry(name, self._job_options))
 
     def _setup_data_sizes(self):
         du = shutil.disk_usage(self._dir)
@@ -100,6 +108,7 @@ class io_tester:
             raise 'Empty jobs'
 
         self._setup_data_sizes()
+        yaml.Dumper.ignore_aliases = lambda *args : True
         yaml.dump(self._jobs, open('conf.yaml', 'w'))
         res = subprocess.check_output([self._io_tester, '--conf', 'conf.yaml', *self._io_tester_args], stderr=subprocess.PIPE)
         res = res.split(b'---\n')[1]
@@ -186,22 +195,17 @@ if nr_cores is None:
     nr_cores = multiprocessing.cpu_count()
 
 read_rps_per_shard = int(read_iops / nr_cores * 0.5)
-read_fibers = 5
-read_rps = read_rps_per_shard / read_fibers
-read_shares = 2500
+read_rps = read_rps_per_shard / args.read_fibers
 
-write_fibers = 2
-write_shares = 100
-
-print(f'Read RPS:{read_rps} fibers:{read_fibers}')
+print(f'Read RPS:{read_rps} fibers:{args.read_fibers}')
 
 show_stat_header()
 
 m = io_tester(args)
-m.add_job(f'read_rated_{read_shares}', job('randread', args.read_reqsize, shares = read_shares, prl = read_fibers, rps = read_rps))
+m.add_job(f'read_rated_{args.read_shares}', job('randread', args.read_reqsize, shares = args.read_shares, prl = args.read_fibers, rps = read_rps))
 run_and_show_results(m, ioprop)
 
 m = io_tester(args)
-m.add_job('write_100', job('seqwrite', args.write_reqsize, shares = write_shares, prl = write_fibers))
-m.add_job(f'read_rated_{read_shares}', job('randread', args.read_reqsize, shares = read_shares, prl = read_fibers, rps = read_rps))
+m.add_job(f'write_{args.write_shares}', job('seqwrite', args.write_reqsize, shares = args.write_shares, prl = args.write_fibers))
+m.add_job(f'read_rated_{args.read_shares}', job('randread', args.read_reqsize, shares = args.read_shares, prl = args.read_fibers, rps = read_rps))
 run_and_show_results(m, ioprop)
