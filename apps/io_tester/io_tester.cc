@@ -81,6 +81,13 @@ future<> busyloop_sleep(std::chrono::steady_clock::time_point until, std::chrono
     });
 }
 
+template <typename Clock>
+future<> timer_sleep(std::chrono::steady_clock::time_point until, std::chrono::steady_clock::time_point now) {
+    return seastar::sleep<Clock>(std::chrono::duration_cast<std::chrono::microseconds>(until - now));
+}
+
+using sleep_fn = std::function<future<>(std::chrono::steady_clock::time_point until, std::chrono::steady_clock::time_point now)>;
+
 struct byte_size {
     uint64_t size;
 };
@@ -114,7 +121,7 @@ struct shard_info {
 
 struct options {
     bool dsync = false;
-    bool polling_sleep = false;
+    ::sleep_fn sleep_fn = timer_sleep<lowres_clock>;
 };
 
 class class_data;
@@ -157,7 +164,7 @@ protected:
     std::uniform_int_distribution<uint32_t> _pos_distribution;
     file _file;
     bool _think = false;
-    bool _polling_sleep = false;
+    ::sleep_fn _sleep_fn = timer_sleep<lowres_clock>;
     timer<> _thinker;
 
     virtual future<> do_start(sstring dir, directory_entry_type type) = 0;
@@ -170,7 +177,7 @@ public:
         , _sg(cfg.shard_info.scheduling_group)
         , _latencies(extended_p_square_probabilities = quantiles)
         , _pos_distribution(0,  _config.file_size / _config.shard_info.request_size)
-        , _polling_sleep(cfg.options.polling_sleep)
+        , _sleep_fn(_config.options.sleep_fn)
         , _thinker([this] { think_tick(); })
     {
         if (_config.shard_info.think_after > 0us) {
@@ -239,11 +246,7 @@ private:
                             auto next = start + pause;
 
                             if (next > now) {
-                                if (_polling_sleep) {
-                                    return ::busyloop_sleep(next, now);
-                                } else {
-                                    return seastar::sleep(std::chrono::duration_cast<std::chrono::microseconds>(next - now));
-                                }
+                                return this->_sleep_fn(next, now);
                             } else {
                                 // probably the system cannot keep-up with this rate
                                 return make_ready_future<>();
@@ -723,8 +726,17 @@ struct convert<options> {
         if (node["dsync"]) {
             op.dsync = node["dsync"].as<bool>();
         }
-        if (node["polling_sleep"]) {
-            op.polling_sleep = node["polling_sleep"].as<bool>();
+        if (node["sleep_type"]) {
+            auto st = node["sleep_type"].as<std::string>();
+            if (st == "busyloop") {
+                op.sleep_fn = busyloop_sleep;
+            } else if (st == "lowres") {
+                op.sleep_fn = timer_sleep<lowres_clock>;
+            } else if (st == "steady") {
+                op.sleep_fn = timer_sleep<std::chrono::steady_clock>;
+            } else {
+                throw std::runtime_error(format("Unknown sleep_type {}", st));
+            }
         }
         return true;
     }
