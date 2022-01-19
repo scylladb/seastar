@@ -88,6 +88,60 @@ future<> timer_sleep(std::chrono::steady_clock::time_point until, std::chrono::s
 
 using sleep_fn = std::function<future<>(std::chrono::steady_clock::time_point until, std::chrono::steady_clock::time_point now)>;
 
+class pause_distribution {
+public:
+
+    virtual std::chrono::duration<double> get() = 0;
+
+    template <typename Dur>
+    Dur get_as() {
+        return std::chrono::duration_cast<Dur>(get());
+    }
+
+    virtual ~pause_distribution() {}
+};
+
+using pause_fn = std::function<std::unique_ptr<pause_distribution>(std::chrono::duration<double>)>;
+
+class uniform_process : public pause_distribution {
+    std::chrono::duration<double> _pause;
+
+public:
+    uniform_process(std::chrono::duration<double> period)
+            : _pause(period)
+    {
+    }
+
+    std::chrono::duration<double> get() override {
+        return _pause;
+    }
+};
+
+std::unique_ptr<pause_distribution> make_uniform_pause(std::chrono::duration<double> d) {
+    return std::make_unique<uniform_process>(d);
+}
+
+class poisson_process : public pause_distribution {
+    std::random_device _rd;
+    std::mt19937 _rng;
+    std::exponential_distribution<double> _exp;
+
+public:
+    poisson_process(std::chrono::duration<double> period)
+            : _rng(_rd())
+            , _exp(1.0 / period.count())
+    {
+    }
+
+    std::chrono::duration<double> get() override {
+        return std::chrono::duration<double>(_exp(_rng));
+    }
+};
+
+std::unique_ptr<pause_distribution> make_poisson_pause(std::chrono::duration<double> d) {
+    return std::make_unique<poisson_process>(d);
+}
+
 struct byte_size {
     uint64_t size;
 };
@@ -122,6 +176,7 @@ struct shard_info {
 struct options {
     bool dsync = false;
     ::sleep_fn sleep_fn = timer_sleep<lowres_clock>;
+    ::pause_fn pause_fn = make_uniform_pause;
 };
 
 class class_data;
@@ -224,7 +279,8 @@ private:
                 auto bufptr = allocate_aligned_buffer<char>(this->req_size(), _alignment);
                 auto buf = bufptr.get();
                 auto pause = std::chrono::duration_cast<std::chrono::microseconds>(1s) / rps;
-                return seastar::sleep((pause / parallelism) * dummy).then([this, buf, stop, pause, &intent, &in_flight] () mutable {
+                auto pause_dist = _config.options.pause_fn(pause);
+                return seastar::sleep((pause / parallelism) * dummy).then([this, buf, stop, pause = pause_dist.get(), &intent, &in_flight] () mutable {
                     return do_until([stop] { return std::chrono::steady_clock::now() > stop; }, [this, buf, stop, pause, &intent, &in_flight] () mutable {
                         auto start = std::chrono::steady_clock::now();
                         in_flight++;
@@ -243,7 +299,8 @@ private:
                                 this->add_result(size, std::chrono::duration_cast<std::chrono::microseconds>(now - start));
                             }
                             in_flight--;
-                            auto next = start + pause;
+                            auto p = pause->template get_as<std::chrono::microseconds>();
+                            auto next = start + p;
 
                             if (next > now) {
                                 return this->_sleep_fn(next, now);
@@ -256,7 +313,7 @@ private:
                 }).then([&intent, &in_flight] {
                     intent.cancel();
                     return do_until([&in_flight] { return in_flight == 0; }, [] { return seastar::sleep(100ms /* ¯\_(ツ)_/¯ */); });
-                }).finally([bufptr = std::move(bufptr)] {});
+                }).finally([bufptr = std::move(bufptr), pause = std::move(pause_dist)] {});
             });
         });
     }
@@ -736,6 +793,16 @@ struct convert<options> {
                 op.sleep_fn = timer_sleep<std::chrono::steady_clock>;
             } else {
                 throw std::runtime_error(format("Unknown sleep_type {}", st));
+            }
+        }
+        if (node["pause_distribution"]) {
+            auto pd = node["pause_distribution"].as<std::string>();
+            if (pd == "uniform") {
+                op.pause_fn = make_uniform_pause;
+            } else if (pd == "poisson") {
+                op.pause_fn = make_poisson_pause;
+            } else {
+                throw std::runtime_error(format("Unknown pause_distribution {}", pd));
             }
         }
         return true;
