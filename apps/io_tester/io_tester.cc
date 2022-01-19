@@ -73,6 +73,14 @@ struct hash<request_type> {
 
 }
 
+future<> busyloop_sleep(std::chrono::steady_clock::time_point until, std::chrono::steady_clock::time_point now) {
+    return do_until([until] {
+        return std::chrono::steady_clock::now() >= until;
+    }, [] {
+        return yield();
+    });
+}
+
 struct byte_size {
     uint64_t size;
 };
@@ -231,15 +239,11 @@ private:
                             auto next = start + pause;
 
                             if (next > now) {
-                              if (_polling_sleep) {
-                                return do_until([next] { return std::chrono::steady_clock::now() >= next; }, [this] {
-                                    auto tsk = make_task(_sg, [] {});
-                                    schedule(tsk);
-                                    return tsk->get_future();
-                                });
-                              } else {
-                                return seastar::sleep(std::chrono::duration_cast<std::chrono::microseconds>(next - now));
-                              }
+                                if (_polling_sleep) {
+                                    return ::busyloop_sleep(next, now);
+                                } else {
+                                    return seastar::sleep(std::chrono::duration_cast<std::chrono::microseconds>(next - now));
+                                }
                             } else {
                                 // probably the system cannot keep-up with this rate
                                 return make_ready_future<>();
