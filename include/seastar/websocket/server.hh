@@ -37,9 +37,6 @@ namespace seastar::experimental::websocket {
 using handler_t = std::function<future<>(input_stream<char>&, output_stream<char>&)>;
 
 class server;
-struct reply {
-    //TODO: implement
-};
 
 /*!
  * \brief an error in handling a WebSocket connection
@@ -51,6 +48,19 @@ public:
     virtual const char* what() const noexcept {
         return _msg.c_str();
     }
+};
+
+/*!
+ * \brief Possible type of a websocket frame.
+ */
+enum opcodes {
+    CONTINUATION = 0x0,
+    TEXT = 0x1,
+    BINARY = 0x2,
+    CLOSE = 0x8,
+    PING = 0x9,
+    PONG = 0xA,
+    INVALID = 0xFF,
 };
 
 struct frame_header {
@@ -100,8 +110,6 @@ struct frame_header {
     }
 };
 
-
-
 class websocket_parser {
     enum class parsing_state : uint8_t {
         flags_and_payload_data,
@@ -148,7 +156,8 @@ public:
     future<consumption_result_t> operator()(temporary_buffer<char> data);
     bool is_valid() { return _cstate == connection_state::valid; }
     bool eof() { return _cstate == connection_state::closed; }
-    buff_t result() { return std::move(_result); }
+    opcodes opcode() const;
+    buff_t result();
 };
 
 /*!
@@ -217,22 +226,33 @@ class connection : public boost::intrusive::list_base_hook<> {
         }
     };
 
+    future<> close(bool send_close);
+
+    /*!
+     * \brief This function processess received PING frame.
+     * https://datatracker.ietf.org/doc/html/rfc6455#section-5.5.2
+     */
+    future<> handle_ping();
+    /*!
+     * \brief This function processess received PONG frame.
+     * https://datatracker.ietf.org/doc/html/rfc6455#section-5.5.3
+     */
+    future<> handle_pong();
+
     static const size_t PIPE_SIZE = 512;
     server& _server;
     connected_socket _fd;
     input_stream<char> _read_buf;
     output_stream<char> _write_buf;
     http_request_parser _http_parser;
-    std::unique_ptr<reply> _resp;
-    queue<std::unique_ptr<reply>> _replies{10};
     bool _done = false;
 
     websocket_parser _websocket_parser;
     queue <temporary_buffer<char>> _input_buffer;
     input_stream<char> _input;
-
     queue <temporary_buffer<char>> _output_buffer;
     output_stream<char> _output;
+
     sstring _subprotocol;
     handler_t _handler;
 public:
@@ -272,9 +292,9 @@ protected:
     future<> response_loop();
     void on_new_connection();
     /*!
-     * \brief Packs buff in websocket data frame and sends it to the client.
+     * \brief Packs buff in websocket frame and sends it to the client.
      */
-    future<> send_data(temporary_buffer<char>&& buff);
+    future<> send_data(opcodes opcode, temporary_buffer<char>&& buff);
 
 };
 
