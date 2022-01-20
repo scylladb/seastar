@@ -61,6 +61,10 @@ struct reactor_options : public program_options::option_group {
     ///
     /// Default: 500.
     program_options::value<double> task_quota_ms;
+    /// \brief Max time (ms) IO operations must take.
+    ///
+    /// Default: 1.5 * task_quota_ms value
+    program_options::value<double> io_latency_goal_ms;
     /// \brief Maximum number of task backlog to allow.
     ///
     /// When the number of tasks grow above this, we stop polling (e.g. I/O)

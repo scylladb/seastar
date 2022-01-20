@@ -72,6 +72,10 @@ fair_queue_ticket::operator bool() const noexcept {
     return (_weight > 0) || (_size > 0);
 }
 
+bool fair_queue_ticket::is_non_zero() const noexcept {
+    return (_weight > 0) && (_size > 0);
+}
+
 bool fair_queue_ticket::operator==(const fair_queue_ticket& o) const noexcept {
     return _weight == o._weight && _size == o._size;
 }
@@ -90,19 +94,19 @@ uint64_t wrapping_difference(const uint64_t& a, const uint64_t& b) noexcept {
 }
 
 fair_group::fair_group(config cfg) noexcept
-        : _shares_capacity(cfg.max_weight, cfg.max_size)
-        , _cost_capacity(cfg.weight_rate / std::chrono::duration_cast<rate_resolution>(std::chrono::seconds(1)).count(), cfg.size_rate / std::chrono::duration_cast<rate_resolution>(std::chrono::seconds(1)).count())
+        : _cost_capacity(cfg.weight_rate / std::chrono::duration_cast<rate_resolution>(std::chrono::seconds(1)).count(), cfg.size_rate / std::chrono::duration_cast<rate_resolution>(std::chrono::seconds(1)).count())
         , _replenish_rate(cfg.rate_factor * fixed_point_factor)
-        , _replenish_limit(_replenish_rate * std::chrono::duration_cast<rate_resolution>(cfg.rate_limit_duration).count())
         , _replenish_threshold(std::max((capacity_t)1, ticket_capacity(fair_queue_ticket(cfg.min_weight, cfg.min_size))))
+        , _replenish_limit(std::max<capacity_t>(_replenish_rate * std::chrono::duration_cast<rate_resolution>(cfg.rate_limit_duration).count(), _replenish_threshold * duration_capacity))
         , _replenished(clock_type::now())
         , _capacity_tail(0)
         , _capacity_head(0)
         , _capacity_ceil(_replenish_limit)
 {
     assert(!wrapping_difference(_capacity_tail.load(std::memory_order_relaxed), _capacity_head.load(std::memory_order_relaxed)));
-    seastar_logger.info("Created fair group {}, capacity shares {} rate {}, limit {}, rate {} (factor {}), threshold {}", cfg.label,
-            _shares_capacity, _cost_capacity, _replenish_limit, _replenish_rate, cfg.rate_factor, _replenish_threshold);
+    assert(_cost_capacity.is_non_zero());
+    seastar_logger.info("Created fair group {}, capacity rate {}, limit {}, rate {} (factor {}), threshold {}", cfg.label,
+            _cost_capacity, _replenish_limit, _replenish_rate, cfg.rate_factor, _replenish_threshold);
 }
 
 auto fair_group::grab_capacity(capacity_t cap) noexcept -> capacity_t {
@@ -159,7 +163,7 @@ auto fair_group::fetch_add(fair_group_atomic_rover& rover, capacity_t cap) noexc
 class fair_queue::priority_class_data {
     friend class fair_queue;
     uint32_t _shares = 0;
-    fair_queue::accumulator_t _accumulated = 0;
+    capacity_t _accumulated = 0;
     fair_queue_entry::container_list_t _queue;
     bool _queued = false;
 
@@ -214,8 +218,12 @@ void fair_queue::push_priority_class_from_idle(priority_class_data& pc) {
         // duration. For this estimate how many capacity units can be
         // accumulated with the current class shares per rate resulution
         // and scale it up to tau.
-        accumulator_t max_deviation = _group.cost_capacity().normalize(_group.shares_capacity()) / pc._shares * std::chrono::duration_cast<fair_group::rate_resolution>(_config.tau).count();
-        pc._accumulated = std::max(_last_accumulated - max_deviation, pc._accumulated);
+        capacity_t max_deviation = fair_group::fixed_point_factor / pc._shares * std::chrono::duration_cast<fair_group::rate_resolution>(_config.tau).count();
+        // On start this deviation can go to negative values, so not to
+        // introduce extra if's for that short corner case, use signed
+        // arithmetics and make sure the _accumulated value doesn't grow
+        // over signed maximum (see overflow check below)
+        pc._accumulated = std::max<signed_capacity_t>(_last_accumulated - max_deviation, pc._accumulated);
         _handles.push(&pc);
         pc._queued = true;
     }
@@ -237,7 +245,7 @@ bool fair_queue::grab_pending_capacity(const fair_queue_entry& ent) noexcept {
     if (ent._ticket == _pending->ticket) {
         _pending.reset();
     } else {
-        fair_group::capacity_t cap = _group.ticket_capacity(ent._ticket);
+        capacity_t cap = _group.ticket_capacity(ent._ticket);
         /*
          * This branch is called when the fair queue decides to
          * submit not the same request that entered it into the
@@ -256,8 +264,8 @@ bool fair_queue::grab_capacity(const fair_queue_entry& ent) noexcept {
         return grab_pending_capacity(ent);
     }
 
-    fair_group::capacity_t cap = _group.ticket_capacity(ent._ticket);
-    fair_group::capacity_t want_head = _group.grab_capacity(cap) + cap;
+    capacity_t cap = _group.ticket_capacity(ent._ticket);
+    capacity_t want_head = _group.grab_capacity(cap) + cap;
     if (_group.capacity_deficiency(want_head)) {
         _pending.emplace(want_head, ent._ticket);
         return false;
@@ -327,8 +335,28 @@ void fair_queue::notify_request_cancelled(fair_queue_entry& ent) noexcept {
     ent._ticket = fair_queue_ticket();
 }
 
+fair_queue::clock_type::time_point fair_queue::next_pending_aio() const noexcept {
+    if (_pending) {
+        /*
+         * We expect the disk to release the ticket within some time,
+         * but it's ... OK if it doesn't -- the pending wait still
+         * needs the head rover value to be ahead of the needed value.
+         *
+         * It may happen that the capacity gets released before we think
+         * it will, in this case we will wait for the full value again,
+         * which's sub-optimal. The expectation is that we think disk
+         * works faster, than it really does.
+         */
+        auto over = _group.capacity_deficiency(_pending->head);
+        auto ticks = _group.capacity_duration(over);
+        return std::chrono::steady_clock::now() + std::chrono::duration_cast<std::chrono::microseconds>(ticks);
+    }
+
+    return std::chrono::steady_clock::time_point::max();
+}
+
 void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
-    fair_group::capacity_t dispatched = 0;
+    capacity_t dispatched = 0;
 
     while (!_handles.empty() && (dispatched < _group.maximum_capacity() / smp::count)) {
         priority_class_data& h = *_handles.top();
@@ -351,9 +379,13 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         _requests_executing++;
         _requests_queued--;
 
-        auto req_cost  = req._ticket.normalize(_group.shares_capacity()) / h._shares;
-        auto next_accumulated = h._accumulated + req_cost;
-        if (std::isinf(next_accumulated)) {
+        // Usually the cost of request is tens to hundreeds of thousands. However, for
+        // unrestricted queue it can be as low as 2k. With large enough shares this
+        // has chances to be translated into zero cost which, in turn, will make the
+        // class show no progress and monopolize the queue.
+        auto req_cost  = std::max(_group.ticket_capacity(req._ticket) / h._shares, (capacity_t)1);
+        // signed overflow check to make push_priority_class_from_idle math work
+        if (h._accumulated >= std::numeric_limits<signed_capacity_t>::max() - req_cost) {
             for (auto& pc : _priority_classes) {
                 if (pc) {
                     if (pc->_queued) {
@@ -364,9 +396,8 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
                 }
             }
             _last_accumulated = 0;
-            next_accumulated = h._accumulated + req_cost;
         }
-        h._accumulated = next_accumulated;
+        h._accumulated += req_cost;
 
         if (!h._queue.empty()) {
             push_priority_class(h);

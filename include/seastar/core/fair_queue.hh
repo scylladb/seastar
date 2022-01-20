@@ -71,6 +71,7 @@ public:
     /// For a fair_queue ticket to be non-zero, at least one of its represented quantities need to
     /// be non-zero
     explicit operator bool() const noexcept;
+    bool is_non_zero() const noexcept;
 
     friend std::ostream& operator<<(std::ostream& os, fair_queue_ticket t);
 
@@ -172,8 +173,6 @@ private:
     using fair_group_atomic_rover = std::atomic<capacity_t>;
     static_assert(fair_group_atomic_rover::is_always_lock_free);
 
-    const fair_queue_ticket _shares_capacity;
-
     /*
      * The dF/dt <= K limitation is managed by the modified token bucket
      * algo where tokens are ticket.normalize(cost_capacity), the refill
@@ -195,8 +194,8 @@ private:
 
     const fair_queue_ticket _cost_capacity;
     const capacity_t _replenish_rate;
-    const capacity_t _replenish_limit;
     const capacity_t _replenish_threshold;
+    const capacity_t _replenish_limit;
     std::atomic<clock_type::time_point> _replenished;
 
     /*
@@ -240,13 +239,24 @@ public:
      * time period for which the speeds from F (in above formula) are taken.
      */
 
-    using rate_resolution = std::chrono::duration<double, std::micro>;
-    static constexpr float fixed_point_factor = float(1 << 14);
+    using rate_resolution = std::chrono::duration<double, std::milli>;
+    static constexpr float fixed_point_factor = float(1 << 24);
+
+    /*
+     * This defines how may requests of minimal capacity should fit into
+     * the replenish limit. If the actual number happens to be below this
+     * then the rate_limit_duration is too low and should be increased.
+     */
+    static constexpr int duration_capacity = 3;
+
+    // Estimated time to process the given amount of capacity
+    // (peer of accumulated_capacity() helper)
+    rate_resolution capacity_duration(capacity_t cap) const noexcept {
+        return rate_resolution(cap / _replenish_rate);
+    }
 
     struct config {
         sstring label = "";
-        unsigned max_weight;
-        unsigned max_size;
         unsigned min_weight = 0;
         unsigned min_size = 0;
         unsigned long weight_rate;
@@ -258,7 +268,6 @@ public:
     explicit fair_group(config cfg) noexcept;
     fair_group(fair_group&&) = delete;
 
-    fair_queue_ticket shares_capacity() const noexcept { return _shares_capacity; }
     fair_queue_ticket cost_capacity() const noexcept { return _cost_capacity; }
     capacity_t maximum_capacity() const noexcept { return _replenish_limit; }
     capacity_t grab_capacity(capacity_t cap) noexcept;
@@ -269,7 +278,6 @@ public:
 
     capacity_t capacity_deficiency(capacity_t from) const noexcept;
     capacity_t ticket_capacity(fair_queue_ticket ticket) const noexcept;
-    capacity_t rate() const noexcept { return _replenish_rate; }
 };
 
 /// \brief Fair queuing class
@@ -304,7 +312,8 @@ public:
 
     using class_id = unsigned int;
     class priority_class_data;
-    using accumulator_t = double;
+    using capacity_t = fair_group::capacity_t;
+    using signed_capacity_t = std::make_signed<capacity_t>::type;
 
 private:
     using clock_type = std::chrono::steady_clock;
@@ -323,7 +332,7 @@ private:
     using prioq = std::priority_queue<priority_class_ptr, std::vector<priority_class_ptr>, class_compare>;
     prioq _handles;
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
-    accumulator_t _last_accumulated = 0;
+    capacity_t _last_accumulated = 0;
 
     /*
      * When the shared capacity os over the local queue delays
@@ -337,10 +346,10 @@ private:
      * in the middle of the waiting
      */
     struct pending {
-        fair_group::capacity_t head;
+        capacity_t head;
         fair_queue_ticket ticket;
 
-        pending(fair_group::capacity_t t, fair_queue_ticket c) noexcept : head(t), ticket(c) {}
+        pending(capacity_t t, fair_queue_ticket c) noexcept : head(t), ticket(c) {}
     };
 
     std::optional<pending> _pending;
@@ -348,12 +357,6 @@ private:
     void push_priority_class(priority_class_data& pc);
     void push_priority_class_from_idle(priority_class_data& pc);
     void pop_priority_class(priority_class_data& pc);
-
-    // Estimated time to process the given ticket
-    std::chrono::microseconds duration(fair_group::capacity_t desc) const noexcept {
-        auto duration_ms = fair_group::rate_resolution(desc / _group.rate());
-        return std::chrono::duration_cast<std::chrono::microseconds>(duration_ms);
-    }
 
     bool grab_capacity(const fair_queue_entry& ent) noexcept;
     bool grab_pending_capacity(const fair_queue_entry& ent) noexcept;
@@ -405,24 +408,7 @@ public:
     /// Try to execute new requests if there is capacity left in the queue.
     void dispatch_requests(std::function<void(fair_queue_entry&)> cb);
 
-    clock_type::time_point next_pending_aio() const noexcept {
-        if (_pending) {
-            /*
-             * We expect the disk to release the ticket within some time,
-             * but it's ... OK if it doesn't -- the pending wait still
-             * needs the head rover value to be ahead of the needed value.
-             *
-             * It may happen that the capacity gets released before we think
-             * it will, in this case we will wait for the full value again,
-             * which's sub-optimal. The expectation is that we think disk
-             * works faster, than it really does.
-             */
-            fair_group::capacity_t over = _group.capacity_deficiency(_pending->head);
-            return std::chrono::steady_clock::now() + duration(over);
-        }
-
-        return std::chrono::steady_clock::time_point::max();
-    }
+    clock_type::time_point next_pending_aio() const noexcept;
 };
 /// @}
 
