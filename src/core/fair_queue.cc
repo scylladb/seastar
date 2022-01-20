@@ -196,6 +196,7 @@ fair_queue::fair_queue(fair_queue&& other)
     , _requests_queued(std::exchange(other._requests_queued, 0))
     , _handles(std::move(other._handles))
     , _priority_classes(std::move(other._priority_classes))
+    , _last_accumulated(other._last_accumulated)
 {
 }
 
