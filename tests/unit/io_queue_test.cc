@@ -50,7 +50,8 @@ struct fake_file {
     }
 };
 
-struct io_queue_for_tests {
+class io_queue_for_tests {
+public:
     io_group_ptr group;
     internal::io_sink sink;
     io_queue queue;
