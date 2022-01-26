@@ -30,7 +30,7 @@
 #include <mutex>
 #include <array>
 
-class io_queue_for_tests;
+struct io_queue_for_tests;
 
 namespace seastar {
 
@@ -167,7 +167,7 @@ public:
 
 private:
     friend class io_queue;
-    friend class ::io_queue_for_tests;
+    friend struct ::io_queue_for_tests;
 
     const io_queue::config _config;
     unsigned max_ticket_size = std::numeric_limits<int>::max();
