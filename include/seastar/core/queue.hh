@@ -209,6 +209,7 @@ T queue<T>::pop() noexcept {
     // as T is required to be nothrow_move_constructible
     // and std::queue::pop won't throw since it uses
     // seastar::circular_beffer::pop_front.
+    assert(!_q.empty());
     T data = std::move(_q.front());
     _q.pop();
     return data;
