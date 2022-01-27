@@ -1756,7 +1756,9 @@ void maybe_dump_memory_diagnostics(size_t size) {
     }
 
     disable_report_on_alloc_failure_temporarily guard;
-    seastar_memory_logger.debug("Failed to allocate {} bytes at {}", size, current_backtrace());
+    if (seastar_memory_logger.is_enabled(log_level::debug)) {
+        seastar_memory_logger.debug("Failed to allocate {} bytes at {}", size, current_backtrace());
+    }
 
     static thread_local logger::rate_limit rate_limit(std::chrono::seconds(10));
 
