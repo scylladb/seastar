@@ -186,6 +186,12 @@ future<T...> make_exception_future(std::exception_ptr& ex) noexcept {
     return make_exception_future<T...>(static_cast<const std::exception_ptr&>(ex));
 }
 
+template <typename... T>
+future<T...> make_exception_future(const std::exception_ptr&& ex) noexcept {
+    // as ex is const, we cannot move it, but can copy it.
+    return make_exception_future<T...>(std::exception_ptr(ex));
+}
+
 /// \cond internal
 void engine_exit(std::exception_ptr eptr = {});
 

@@ -1846,3 +1846,53 @@ SEASTAR_THREAD_TEST_CASE(test_yield) {
     // now() does not yield
     BOOST_REQUIRE_EQUAL(flag, true);
 }
+
+// The seastar::make_exception_future() function has two distinct cases - it
+// can create an exceptional future from an existing std::exception_ptr, or
+// from an any object which will be wrapped in an std::exception_ptr using
+// std::make_exception_ptr. We want to test here these two cases, as well
+// what happens when the given parameter is almost a std::exception_ptr,
+// just with different qualifiers, like && or const (see issue #1010).
+SEASTAR_TEST_CASE(test_make_exception_future) {
+    // When make_exception_future() is given most types - like int and
+    // std::runtime_error - a copy of the given value get stored in the
+    // future (internally, it is wrapped using std::make_exception_ptr):
+    future<> f1 = make_exception_future<>(3);
+    BOOST_REQUIRE(f1.failed());
+    BOOST_REQUIRE_THROW(f1.get(), int);
+    future<> f2 = make_exception_future<>(std::runtime_error("hello"));
+    BOOST_REQUIRE(f2.failed());
+    BOOST_REQUIRE_THROW(f2.get(), std::runtime_error);
+    // However, if make_exception_future() is given an std::exception_ptr
+    // it behaves differently - the exception stored in the future will be
+    // the one held in the given exception_ptr - not the exception_ptr object
+    // itself.
+    std::exception_ptr e3 = std::make_exception_ptr(3);
+    future<> f3 = make_exception_future<>(e3);
+    BOOST_REQUIRE(f3.failed());
+    BOOST_REQUIRE_THROW(f3.get(), int); // expecting int, not std::exception_ptr
+    // If make_exception_future() is given an std::exception_ptr by rvalue,
+    // it should also work correctly:
+    // An unnamed rvalue:
+    future<> f4 = make_exception_future<>(std::make_exception_ptr(3));
+    BOOST_REQUIRE(f4.failed());
+    BOOST_REQUIRE_THROW(f4.get(), int); // expecting int, not std::exception_ptr
+    // A rvalue reference (a move):
+    std::exception_ptr e5 = std::make_exception_ptr(3);
+    future<> f5 = make_exception_future<>(std::move(e5)); // note std::move()
+    BOOST_REQUIRE(f5.failed());
+    BOOST_REQUIRE_THROW(f5.get(), int); // expecting int, not std::exception_ptr
+    // A rvalue reference to a *const* exception_ptr:
+    // Reproduces issue #1010 - a const exception_ptr sounds odd, but can
+    // happen accidentally when capturing an exception_ptr in a non-mutable
+    // lambda.
+    // Note that C++ is fine with std::move() being used on a const object,
+    // it will simply fall back to a copy instead of a move. And a copy does
+    // work (without std::move(), it works).
+    const std::exception_ptr e6 = std::make_exception_ptr(3); // note const!
+    future<> f6 = make_exception_future<>(std::move(e6)); // note std::move()
+    BOOST_REQUIRE(f6.failed());
+    BOOST_REQUIRE_THROW(f6.get(), int); // expecting int, not std::exception_ptr
+
+    return make_ready_future<>();
+}
