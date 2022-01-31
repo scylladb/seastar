@@ -265,7 +265,7 @@ public:
         std::chrono::duration<double> rate_limit_duration = std::chrono::milliseconds(1);
     };
 
-    explicit fair_group(config cfg) noexcept;
+    explicit fair_group(config cfg);
     fair_group(fair_group&&) = delete;
 
     fair_queue_ticket cost_capacity() const noexcept { return _cost_capacity; }

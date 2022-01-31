@@ -357,7 +357,7 @@ fair_group::config io_group::make_fair_group_config(const io_queue::config& qcfg
     return cfg;
 }
 
-io_group::io_group(io_queue::config io_cfg) noexcept
+io_group::io_group(io_queue::config io_cfg)
     : _config(std::move(io_cfg))
 {
     auto fg_cfg = make_fair_group_config(_config);
@@ -399,7 +399,9 @@ io_group::io_group(io_queue::config io_cfg) noexcept
 
             auto cap = _fgs[g_idx]->ticket_capacity(fair_queue_ticket(weight, size));
             if (cap > max_cap) {
-                assert(shift > 0);
+                if (shift == 0) {
+                    throw std::runtime_error("IO-group limits are too low");
+                }
                 max_size = std::min(max_size, prev_size);
                 break;
             }
