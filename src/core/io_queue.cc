@@ -357,20 +357,13 @@ fair_group::config io_group::make_fair_group_config(const io_queue::config& qcfg
     return cfg;
 }
 
-io_group::io_group(io_queue::config io_cfg) noexcept
+io_group::io_group(io_queue::config io_cfg)
     : _config(std::move(io_cfg))
 {
     auto fg_cfg = make_fair_group_config(_config);
     _fgs.push_back(std::make_unique<fair_group>(fg_cfg));
     if (_config.duplex) {
         _fgs.push_back(std::make_unique<fair_group>(fg_cfg));
-    }
-
-    std::chrono::duration<double> io_lat = _fgs[0]->capacity_duration(_fgs[0]->maximum_capacity());
-    if (io_lat > fg_cfg.rate_limit_duration) {
-        seastar_logger.warn("IO latency goal {:.3f} is too low for device {}, using {:.3f}ms instead",
-                std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(fg_cfg.rate_limit_duration).count(),
-                _config.mountpoint, std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(io_lat).count());
     }
 
     /*
@@ -399,7 +392,9 @@ io_group::io_group(io_queue::config io_cfg) noexcept
 
             auto cap = _fgs[g_idx]->ticket_capacity(fair_queue_ticket(weight, size));
             if (cap > max_cap) {
-                assert(shift > 0);
+                if (shift == 0) {
+                    throw std::runtime_error("IO-group limits are too low");
+                }
                 max_size = std::min(max_size, prev_size);
                 break;
             }

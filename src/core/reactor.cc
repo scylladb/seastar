@@ -3775,13 +3775,25 @@ public:
         cfg.devid = devid;
 
         if (!_capacity) {
+            std::chrono::duration<double> tick = latency_goal();
+
             if (p.read_bytes_rate != std::numeric_limits<uint64_t>::max()) {
                 cfg.blocks_count_rate = (io_queue::read_request_base_count * (unsigned long)per_io_group(p.read_bytes_rate, nr_groups)) >> io_queue::block_size_shift;
                 cfg.disk_blocks_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_bytes_rate) / p.write_bytes_rate;
+                auto bw_lat = std::chrono::duration<double>(4.0 / (p.rate_factor * (std::min(p.read_bytes_rate, p.write_bytes_rate) >> io_queue::block_size_shift)));
+                if (bw_lat > tick) {
+                    tick = bw_lat;
+                    seastar_logger.warn("Bandwidth is too low for {}, using {:.3f}ms IO latency goal", p.mountpoint, tick.count() * 1000);
+                }
             }
             if (p.read_req_rate != std::numeric_limits<uint64_t>::max()) {
                 cfg.req_count_rate = io_queue::read_request_base_count * (unsigned long)per_io_group(p.read_req_rate, nr_groups);
                 cfg.disk_req_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_req_rate) / p.write_req_rate;
+                auto iops_lat = std::chrono::duration<double>(2.0 / (p.rate_factor * std::min(p.read_req_rate, p.write_req_rate)));
+                if (iops_lat > tick) {
+                    tick = iops_lat;
+                    seastar_logger.warn("IOPS is too low for {}, using {:.3f}ms IO latency goal", p.mountpoint, tick.count() * 1000);
+                }
             }
             if (p.read_saturation_length != std::numeric_limits<uint64_t>::max()) {
                 cfg.disk_read_saturation_length = p.read_saturation_length;
@@ -3792,7 +3804,7 @@ public:
             cfg.mountpoint = p.mountpoint;
             cfg.duplex = p.duplex;
             cfg.rate_factor = p.rate_factor;
-            cfg.rate_limit_duration = latency_goal();
+            cfg.rate_limit_duration = tick;
         } else {
             // For backwards compatibility
             cfg.capacity = *_capacity;

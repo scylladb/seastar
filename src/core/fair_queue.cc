@@ -93,11 +93,11 @@ uint64_t wrapping_difference(const uint64_t& a, const uint64_t& b) noexcept {
     return std::max<int64_t>(a - b, 0);
 }
 
-fair_group::fair_group(config cfg) noexcept
+fair_group::fair_group(config cfg)
         : _cost_capacity(cfg.weight_rate / std::chrono::duration_cast<rate_resolution>(std::chrono::seconds(1)).count(), cfg.size_rate / std::chrono::duration_cast<rate_resolution>(std::chrono::seconds(1)).count())
         , _replenish_rate(cfg.rate_factor * fixed_point_factor)
+        , _replenish_limit(_replenish_rate * std::chrono::duration_cast<rate_resolution>(cfg.rate_limit_duration).count())
         , _replenish_threshold(std::max((capacity_t)1, ticket_capacity(fair_queue_ticket(cfg.min_weight, cfg.min_size))))
-        , _replenish_limit(std::max<capacity_t>(_replenish_rate * std::chrono::duration_cast<rate_resolution>(cfg.rate_limit_duration).count(), _replenish_threshold * duration_capacity))
         , _replenished(clock_type::now())
         , _capacity_tail(0)
         , _capacity_head(0)
@@ -107,6 +107,10 @@ fair_group::fair_group(config cfg) noexcept
     assert(_cost_capacity.is_non_zero());
     seastar_logger.info("Created fair group {}, capacity rate {}, limit {}, rate {} (factor {}), threshold {}", cfg.label,
             _cost_capacity, _replenish_limit, _replenish_rate, cfg.rate_factor, _replenish_threshold);
+
+    if (_replenish_threshold > _replenish_limit) {
+        throw std::runtime_error("Fair-group replenisher limit is lower than threshold");
+    }
 }
 
 auto fair_group::grab_capacity(capacity_t cap) noexcept -> capacity_t {
