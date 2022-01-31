@@ -194,8 +194,8 @@ private:
 
     const fair_queue_ticket _cost_capacity;
     const capacity_t _replenish_rate;
-    const capacity_t _replenish_threshold;
     const capacity_t _replenish_limit;
+    const capacity_t _replenish_threshold;
     std::atomic<clock_type::time_point> _replenished;
 
     /*
@@ -241,13 +241,6 @@ public:
 
     using rate_resolution = std::chrono::duration<double, std::milli>;
     static constexpr float fixed_point_factor = float(1 << 24);
-
-    /*
-     * This defines how may requests of minimal capacity should fit into
-     * the replenish limit. If the actual number happens to be below this
-     * then the rate_limit_duration is too low and should be increased.
-     */
-    static constexpr int duration_capacity = 3;
 
     // Estimated time to process the given amount of capacity
     // (peer of accumulated_capacity() helper)
