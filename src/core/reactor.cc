@@ -3456,7 +3456,7 @@ reactor_options::reactor_options(program_options::option_group* parent_group)
                 "idle polling time in microseconds (reduce for overprovisioned environments or laptops)")
     , poll_aio(*this, "poll-aio", true,
                 "busy-poll for disk I/O (reduces latency and increases throughput)")
-    , task_quota_ms(*this, "task-quota-ms", 500, "Max time (ms) between polls")
+    , task_quota_ms(*this, "task-quota-ms", 0.5, "Max time (ms) between polls")
     , io_latency_goal_ms(*this, "io-latency-goal-ms", {}, "Max time (ms) io operations must take (1.5 * task-quota-ms if not set)")
     , max_task_backlog(*this, "max-task-backlog", 1000, "Maximum number of task backlog to allow; above this we ignore I/O")
     , blocked_reactor_notify_ms(*this, "blocked-reactor-notify-ms", 200, "threshold in miliseconds over which the reactor is considered blocked if no progress is made")
