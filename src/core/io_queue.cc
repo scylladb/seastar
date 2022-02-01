@@ -413,6 +413,7 @@ io_group::io_group(io_queue::config io_cfg)
                     throw std::runtime_error("IO-group limits are too low");
                 }
                 max_size = std::min(max_size, prev_size);
+                _max_request_length[idx] = 1 << ((shift - 1) + io_queue::block_size_shift);
                 break;
             }
             prev_size = size;
@@ -423,7 +424,9 @@ io_group::io_group(io_queue::config io_cfg)
     update_max_size(io_direction_and_length::read_idx);
     max_ticket_size = max_size;
 
-    seastar_logger.info("Created io group, length limit {}:{}, rate {}:{}",
+    seastar_logger.info("Created io group, length limit {}:{} {}:{}, rate {}:{}",
+            _max_request_length[io_direction_and_length::read_idx],
+            _max_request_length[io_direction_and_length::write_idx],
             (max_size / io_queue::read_request_base_count) << io_queue::block_size_shift,
             (max_size / _config.disk_blocks_write_to_read_multiplier) << io_queue::block_size_shift,
             _config.req_count_rate, _config.blocks_count_rate);
@@ -665,9 +668,8 @@ fair_queue_ticket io_queue::request_fq_ticket(io_direction_and_length dnl) const
 
 io_queue::request_limits io_queue::get_request_limits() const noexcept {
     request_limits l;
-    size_t max_length = _group->max_ticket_size << block_size_shift;
-    l.max_read = align_down<size_t>(std::min<size_t>(get_config().disk_read_saturation_length, max_length / read_request_base_count), 1 << block_size_shift);
-    l.max_write = align_down<size_t>(std::min<size_t>(get_config().disk_write_saturation_length, max_length / get_config().disk_blocks_write_to_read_multiplier), 1 << block_size_shift);
+    l.max_read = align_down<size_t>(std::min<size_t>(get_config().disk_read_saturation_length, _group->_max_request_length[io_direction_and_length::read_idx]), 1 << block_size_shift);
+    l.max_write = align_down<size_t>(std::min<size_t>(get_config().disk_write_saturation_length, _group->_max_request_length[io_direction_and_length::write_idx]), 1 << block_size_shift);
     return l;
 }
 

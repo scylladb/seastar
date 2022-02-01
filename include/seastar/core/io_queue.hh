@@ -172,6 +172,7 @@ private:
 
     const io_queue::config _config;
     unsigned max_ticket_size = std::numeric_limits<int>::max();
+    size_t _max_request_length[2];
     std::vector<std::unique_ptr<fair_group>> _fgs;
 
     static fair_group::config make_fair_group_config(const io_queue::config& qcfg) noexcept;
