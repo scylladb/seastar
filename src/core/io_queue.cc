@@ -44,6 +44,7 @@ logger io_log("io");
 
 using namespace std::chrono_literals;
 using namespace internal::linux_abi;
+using io_direction_and_length = internal::io_direction_and_length;
 
 struct default_io_exception_factory {
     static auto cancelled() {
@@ -100,7 +101,7 @@ public:
         }
     }
 
-    void on_dispatch(internal::io_direction_and_length dnl, std::chrono::duration<double> lat) noexcept {
+    void on_dispatch(io_direction_and_length dnl, std::chrono::duration<double> lat) noexcept {
         _rwstat[dnl.rw_idx()].add(dnl.length());
         _queue_time = lat;
         _total_queue_time += lat;
@@ -172,7 +173,7 @@ public:
         delete this;
     }
 
-    void dispatch(internal::io_direction_and_length dnl, io_queue::clock_type::time_point queued) noexcept {
+    void dispatch(io_direction_and_length dnl, io_queue::clock_type::time_point queued) noexcept {
         auto now = io_queue::clock_type::now();
         _pclass.on_dispatch(dnl, std::chrono::duration_cast<std::chrono::duration<double>>(now - queued));
         _dispatched = now;
@@ -188,7 +189,7 @@ public:
 
 class queued_io_request : private internal::io_request {
     io_queue& _ioq;
-    internal::io_direction_and_length _dnl;
+    io_direction_and_length _dnl;
     io_queue::clock_type::time_point _started;
     const stream_id _stream;
     fair_queue_entry _fq_entry;
@@ -198,7 +199,7 @@ class queued_io_request : private internal::io_request {
     bool is_cancelled() const noexcept { return !_desc; }
 
 public:
-    queued_io_request(internal::io_request req, io_queue& q, io_queue::priority_class_data& pc, internal::io_direction_and_length dnl)
+    queued_io_request(internal::io_request req, io_queue& q, io_queue::priority_class_data& pc, io_direction_and_length dnl)
         : io_request(std::move(req))
         , _ioq(q)
         , _dnl(std::move(dnl))
@@ -349,8 +350,8 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
         sstring caps_str;
         for (size_t sz = 512; sz <= 128 * 1024; sz <<= 1) {
             caps_str += fmt::format(" {}:{}/{}", sz,
-                    _group->_fgs[0]->ticket_capacity(request_fq_ticket(internal::io_direction_and_length(true, sz))),
-                    _group->_fgs[0]->ticket_capacity(request_fq_ticket(internal::io_direction_and_length(false, sz)))
+                    _group->_fgs[0]->ticket_capacity(request_fq_ticket(io_direction_and_length(true, sz))),
+                    _group->_fgs[0]->ticket_capacity(request_fq_ticket(io_direction_and_length(false, sz)))
             );
         }
         seastar_logger.info("Created io queue dev({}) capacities:{}", get_config().devid, caps_str);
@@ -394,7 +395,7 @@ io_group::io_group(io_queue::config io_cfg)
         for (unsigned shift = 0; ; shift++) {
             unsigned weight;
             size_t size;
-            if (idx == internal::io_direction_and_length::write_idx) {
+            if (idx == io_direction_and_length::write_idx) {
                 weight = _config.disk_req_write_to_read_multiplier;
                 size = _config.disk_blocks_write_to_read_multiplier * (1 << shift);
             } else {
@@ -414,8 +415,8 @@ io_group::io_group(io_queue::config io_cfg)
         };
     };
 
-    update_max_size(internal::io_direction_and_length::write_idx);
-    update_max_size(internal::io_direction_and_length::read_idx);
+    update_max_size(io_direction_and_length::write_idx);
+    update_max_size(io_direction_and_length::read_idx);
     max_ticket_size = max_size;
 
     seastar_logger.info("Created io group, length limit {}:{}, rate {}:{}",
@@ -547,18 +548,18 @@ io_queue::priority_class_data::register_stats(sstring name, sstring mountpoint) 
     auto class_label = class_label_type(name);
     new_metrics.add_group("io_queue", {
             sm::make_derive("total_bytes", [this] {
-                    return _rwstat[internal::io_direction_and_length::read_idx].bytes + _rwstat[internal::io_direction_and_length::write_idx].bytes;
+                    return _rwstat[io_direction_and_length::read_idx].bytes + _rwstat[io_direction_and_length::write_idx].bytes;
                 }, sm::description("Total bytes passed in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
             sm::make_derive("total_operations", [this] {
-                    return _rwstat[internal::io_direction_and_length::read_idx].ops + _rwstat[internal::io_direction_and_length::write_idx].ops;
+                    return _rwstat[io_direction_and_length::read_idx].ops + _rwstat[io_direction_and_length::write_idx].ops;
                 }, sm::description("Total operations passed in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
-            sm::make_derive("total_read_bytes", _rwstat[internal::io_direction_and_length::read_idx].bytes,
+            sm::make_derive("total_read_bytes", _rwstat[io_direction_and_length::read_idx].bytes,
                     sm::description("Total read bytes passed in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
-            sm::make_derive("total_read_ops", _rwstat[internal::io_direction_and_length::read_idx].ops,
+            sm::make_derive("total_read_ops", _rwstat[io_direction_and_length::read_idx].ops,
                     sm::description("Total read operations passed in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
-            sm::make_derive("total_write_bytes", _rwstat[internal::io_direction_and_length::write_idx].bytes,
+            sm::make_derive("total_write_bytes", _rwstat[io_direction_and_length::write_idx].bytes,
                     sm::description("Total write bytes passed in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
-            sm::make_derive("total_write_ops", _rwstat[internal::io_direction_and_length::write_idx].ops,
+            sm::make_derive("total_write_ops", _rwstat[io_direction_and_length::write_idx].ops,
                     sm::description("Total write operations passed in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
             sm::make_derive("total_delay_sec", [this] {
                     return _total_queue_time.count();
@@ -626,11 +627,11 @@ io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_
     return *_priority_classes[id];
 }
 
-stream_id io_queue::request_stream(internal::io_direction_and_length dnl) const noexcept {
+stream_id io_queue::request_stream(io_direction_and_length dnl) const noexcept {
     return get_config().duplex ? dnl.rw_idx() : 0;
 }
 
-fair_queue_ticket io_queue::request_fq_ticket(internal::io_direction_and_length dnl) const noexcept {
+fair_queue_ticket io_queue::request_fq_ticket(io_direction_and_length dnl) const noexcept {
     unsigned weight;
     size_t size;
 
@@ -671,7 +672,7 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_re
         // First time will hit here, and then we create the class. It is important
         // that we create the shared pointer in the same shard it will be used at later.
         auto& pclass = find_or_create_class(pc);
-        internal::io_direction_and_length dnl(req, len);
+        io_direction_and_length dnl(req, len);
         auto queued_req = std::make_unique<queued_io_request>(std::move(req), *this, pclass, std::move(dnl));
         auto fut = queued_req->get_future();
         internal::cancellable_queue* cq = nullptr;
