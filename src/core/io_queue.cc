@@ -393,8 +393,7 @@ io_group::io_group(io_queue::config io_cfg)
      * with little enough capacity. Actually (FIXME) requests should calculate
      * capacities instead of request_fq_ticket() so this math would go away.
      */
-    size_t max_size = std::numeric_limits<size_t>::max();
-    auto update_max_size = [this, &max_size] (unsigned idx) {
+    auto update_max_size = [this] (unsigned idx) {
         auto g_idx = _config.duplex ? idx : 0;
         auto max_cap = _fgs[g_idx]->maximum_capacity();
         for (unsigned shift = 0; ; shift++) {
@@ -412,13 +411,10 @@ io_group::io_group(io_queue::config io_cfg)
 
     update_max_size(io_direction_and_length::write_idx);
     update_max_size(io_direction_and_length::read_idx);
-    max_ticket_size = max_size;
 
-    seastar_logger.info("Created io group, length limit {}:{} {}:{}, rate {}:{}",
+    seastar_logger.info("Created io group, length limit {}:{}, rate {}:{}",
             _max_request_length[io_direction_and_length::read_idx],
             _max_request_length[io_direction_and_length::write_idx],
-            (max_size / io_queue::read_request_base_count) << io_queue::block_size_shift,
-            (max_size / _config.disk_blocks_write_to_read_multiplier) << io_queue::block_size_shift,
             _config.req_count_rate, _config.blocks_count_rate);
 }
 
