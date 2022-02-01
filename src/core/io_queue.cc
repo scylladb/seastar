@@ -626,18 +626,22 @@ stream_id io_queue::request_stream(io_direction_and_length dnl) const noexcept {
 }
 
 fair_queue_ticket make_ticket(io_direction_and_length dnl, const io_queue::config& cfg) noexcept {
-    unsigned weight;
-    size_t size;
+    struct {
+        unsigned weight;
+        unsigned size;
+    } mult[2];
 
-    if (dnl.is_write()) {
-        weight = cfg.disk_req_write_to_read_multiplier;
-        size = cfg.disk_blocks_write_to_read_multiplier * (dnl.length() >> io_queue::block_size_shift);
-    } else {
-        weight = io_queue::read_request_base_count;
-        size = io_queue::read_request_base_count * (dnl.length() >> io_queue::block_size_shift);
-    }
+    mult[io_direction_and_length::write_idx] = {
+        cfg.disk_req_write_to_read_multiplier,
+        cfg.disk_blocks_write_to_read_multiplier,
+    };
+    mult[io_direction_and_length::read_idx] = {
+        io_queue::read_request_base_count,
+        io_queue::read_request_base_count,
+    };
 
-    return fair_queue_ticket(weight, size);
+    const auto& m = mult[dnl.rw_idx()];
+    return fair_queue_ticket(m.weight, m.size * (dnl.length() >> io_queue::block_size_shift));
 }
 
 fair_queue_ticket io_queue::request_fq_ticket(io_direction_and_length dnl) const noexcept {
