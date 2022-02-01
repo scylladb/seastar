@@ -350,8 +350,8 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
         sstring caps_str;
         for (size_t sz = 512; sz <= 128 * 1024; sz <<= 1) {
             caps_str += fmt::format(" {}:{}/{}", sz,
-                    _group->_fgs[0]->ticket_capacity(request_fq_ticket(io_direction_and_length(true, sz))),
-                    _group->_fgs[0]->ticket_capacity(request_fq_ticket(io_direction_and_length(false, sz)))
+                    _group->_fgs[0]->ticket_capacity(request_fq_ticket(io_direction_and_length(io_direction_and_length::read_idx, sz))),
+                    _group->_fgs[0]->ticket_capacity(request_fq_ticket(io_direction_and_length(io_direction_and_length::write_idx, sz)))
             );
         }
         seastar_logger.info("Created io queue dev({}) capacities:{}", get_config().devid, caps_str);
