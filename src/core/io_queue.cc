@@ -46,6 +46,8 @@ using namespace std::chrono_literals;
 using namespace internal::linux_abi;
 using io_direction_and_length = internal::io_direction_and_length;
 
+static fair_queue_ticket make_ticket(io_direction_and_length dnl, const io_queue::config& cfg) noexcept;
+
 struct default_io_exception_factory {
     static auto cancelled() {
         return cancelled_error();
@@ -395,28 +397,16 @@ io_group::io_group(io_queue::config io_cfg)
     auto update_max_size = [this, &max_size] (unsigned idx) {
         auto g_idx = _config.duplex ? idx : 0;
         auto max_cap = _fgs[g_idx]->maximum_capacity();
-        size_t prev_size = 0;
         for (unsigned shift = 0; ; shift++) {
-            unsigned weight;
-            size_t size;
-            if (idx == io_direction_and_length::write_idx) {
-                weight = _config.disk_req_write_to_read_multiplier;
-                size = _config.disk_blocks_write_to_read_multiplier * (1 << shift);
-            } else {
-                weight = io_queue::read_request_base_count;
-                size = io_queue::read_request_base_count * (1 << shift);
-            }
-
-            auto cap = _fgs[g_idx]->ticket_capacity(fair_queue_ticket(weight, size));
+            auto ticket = make_ticket(io_direction_and_length(idx, 1 << (shift + io_queue::block_size_shift)), _config);
+            auto cap = _fgs[g_idx]->ticket_capacity(ticket);
             if (cap > max_cap) {
                 if (shift == 0) {
                     throw std::runtime_error("IO-group limits are too low");
                 }
-                max_size = std::min(max_size, prev_size);
                 _max_request_length[idx] = 1 << ((shift - 1) + io_queue::block_size_shift);
                 break;
             }
-            prev_size = size;
         };
     };
 
@@ -639,10 +629,9 @@ stream_id io_queue::request_stream(io_direction_and_length dnl) const noexcept {
     return get_config().duplex ? dnl.rw_idx() : 0;
 }
 
-fair_queue_ticket io_queue::request_fq_ticket(io_direction_and_length dnl) const noexcept {
+fair_queue_ticket make_ticket(io_direction_and_length dnl, const io_queue::config& cfg) noexcept {
     unsigned weight;
     size_t size;
-    const auto& cfg = get_config();
 
     if (dnl.is_write()) {
         weight = cfg.disk_req_write_to_read_multiplier;
@@ -652,19 +641,24 @@ fair_queue_ticket io_queue::request_fq_ticket(io_direction_and_length dnl) const
         size = io_queue::read_request_base_count * (dnl.length() >> io_queue::block_size_shift);
     }
 
-    static thread_local size_t oversize_warning_threshold = 0;
+    return fair_queue_ticket(weight, size);
+}
 
-    if (size > _group->max_ticket_size) {
-        if (size > oversize_warning_threshold) {
-            oversize_warning_threshold = size;
-            io_log.warn("oversized request (length {}) submitted. "
-                "dazed and confuzed, trimming its weight from {} down to {}", dnl.length(),
-                size, _group->max_ticket_size);
-        }
-        size = _group->max_ticket_size;
+fair_queue_ticket io_queue::request_fq_ticket(io_direction_and_length dnl) const noexcept {
+    size_t max_length = _group->_max_request_length[dnl.rw_idx()];
+
+    if (__builtin_expect(dnl.length() <= max_length, true)) {
+        return make_ticket(dnl, get_config());
     }
 
-    return fair_queue_ticket(weight, size);
+    static thread_local size_t oversize_warning_threshold = 0;
+
+    if (dnl.length() > oversize_warning_threshold) {
+        oversize_warning_threshold = dnl.length();
+        io_log.warn("oversized request (length {} > {}) submitted. ", dnl.length(), max_length);
+    }
+
+    return make_ticket(io_direction_and_length(dnl.rw_idx(), max_length), get_config());
 }
 
 io_queue::request_limits io_queue::get_request_limits() const noexcept {
