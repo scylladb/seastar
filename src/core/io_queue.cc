@@ -71,7 +71,6 @@ class io_queue::priority_class_data {
     std::chrono::duration<double> _total_execution_time;
     std::chrono::duration<double> _starvation_time;
     io_queue::clock_type::time_point _activated;
-    metrics::metric_groups _metric_groups;
 
 public:
     void update_shares(uint32_t shares) noexcept {
@@ -129,7 +128,8 @@ public:
 
     fair_queue::class_id fq_class() const noexcept { return _pc.id(); }
 
-    void register_stats(sstring name, sstring mountpoint);
+    std::vector<seastar::metrics::impl::metric_definition_impl> metrics();
+    metrics::metric_groups metric_groups;
 };
 
 class io_desc_read_write final : public io_completion {
@@ -517,12 +517,9 @@ future<> io_priority_class::rename(sstring new_name) noexcept {
     });
 }
 
-void
-io_queue::priority_class_data::register_stats(sstring name, sstring mountpoint) {
+std::vector<seastar::metrics::impl::metric_definition_impl> io_queue::priority_class_data::metrics() {
     namespace sm = seastar::metrics;
-    seastar::metrics::metric_groups new_metrics;
-
-    auto ml = std::vector<sm::impl::metric_definition_impl>({
+    return std::vector<sm::impl::metric_definition_impl>({
             sm::make_derive("total_bytes", [this] {
                     return _rwstat[io_direction_and_length::read_idx].bytes + _rwstat[io_direction_and_length::write_idx].bytes;
                 }, sm::description("Total bytes passed in the queue")),
@@ -567,20 +564,25 @@ io_queue::priority_class_data::register_stats(sstring name, sstring mountpoint) 
             }, sm::description("random delay time in the queue")),
             sm::make_gauge("shares", _shares, sm::description("current amount of shares"))
     });
+}
+
+void io_queue::register_stats(sstring name, priority_class_data& pc) {
+    namespace sm = seastar::metrics;
+    seastar::metrics::metric_groups new_metrics;
 
     auto owner_l = sm::shard_label(this_shard_id());
     auto ioshard_l = sm::label("ioshard")(sm::impl::shard());
-    auto mnt_l = sm::label("mountpoint")(mountpoint);
+    auto mnt_l = sm::label("mountpoint")(mountpoint());
     auto class_l = sm::label("class")(name);
 
     std::vector<sm::metric_definition> metrics;
-    for (auto&& m : ml) {
+    for (auto&& m : pc.metrics()) {
         m(ioshard_l)(owner_l)(mnt_l)(class_l);
         metrics.emplace_back(std::move(m));
     }
 
     new_metrics.add_group("io_queue", std::move(metrics));
-    _metric_groups = std::exchange(new_metrics, {});
+    pc.metric_groups = std::exchange(new_metrics, {});
 }
 
 io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_class& pc) {
@@ -610,7 +612,7 @@ io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_
             s.register_priority_class(id, shares);
         }
         auto pc_data = std::make_unique<priority_class_data>(pc, shares);
-        pc_data->register_stats(name, mountpoint());
+        register_stats(name, *pc_data);
 
         _priority_classes[id] = std::move(pc_data);
     }
@@ -731,7 +733,7 @@ io_queue::rename_priority_class(io_priority_class pc, sstring new_name) {
     if (_priority_classes.size() > pc.id() &&
             _priority_classes[pc.id()]) {
         try {
-            _priority_classes[pc.id()]->register_stats(new_name, get_config().mountpoint);
+            register_stats(new_name, *_priority_classes[pc.id()]);
         } catch (metrics::double_registration &e) {
             // we need to ignore this exception, since it can happen that
             // a class that was already created with the new name will be

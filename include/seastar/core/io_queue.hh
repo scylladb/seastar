@@ -157,6 +157,7 @@ public:
 
 private:
     static fair_queue::config make_fair_queue_config(const config& cfg);
+    void register_stats(sstring name, priority_class_data& pc);
 
     const config& get_config() const noexcept;
 };
