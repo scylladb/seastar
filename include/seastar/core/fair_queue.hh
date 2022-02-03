@@ -248,6 +248,11 @@ public:
     using rate_resolution = std::chrono::duration<double, std::milli>;
     static constexpr float fixed_point_factor = float(1 << 24);
 
+    // Convert internal capacity value back into the real token
+    static double capacity_tokens(capacity_t cap) noexcept {
+        return (double)cap / fixed_point_factor / rate_cast(std::chrono::seconds(1)).count();
+    }
+
     // Estimated time to process the given amount of capacity
     // (peer of accumulated_capacity() helper)
     rate_resolution capacity_duration(capacity_t cap) const noexcept {

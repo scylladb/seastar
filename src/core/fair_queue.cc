@@ -419,7 +419,14 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
 
 std::vector<seastar::metrics::impl::metric_definition_impl> fair_queue::metrics(class_id c) {
     namespace sm = seastar::metrics;
+    priority_class_data& pc = *_priority_classes[c];
     return std::vector<sm::impl::metric_definition_impl>({
+            sm::make_derive("consumption",
+                    [&pc] { return fair_group::capacity_tokens(pc._pure_accumulated); },
+                    sm::description("Accumulated disk capacity units consumed by this class; an increment per-second rate indicates full utilization")),
+            sm::make_derive("adjusted_consumption",
+                    [&pc] { return fair_group::capacity_tokens(pc._accumulated); },
+                    sm::description("Consumed disk capacity units adjusted for class shares and idling preemption")),
     });
 }
 
