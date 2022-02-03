@@ -26,6 +26,7 @@
 #include <seastar/core/circular_buffer.hh>
 #include <seastar/util/noncopyable_function.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/core/metrics.hh>
 #include <queue>
 #include <chrono>
 #include <unordered_set>
@@ -411,6 +412,12 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         dispatched += _group.ticket_capacity(req._ticket);
         cb(req);
     }
+}
+
+std::vector<seastar::metrics::impl::metric_definition_impl> fair_queue::metrics(class_id c) {
+    namespace sm = seastar::metrics;
+    return std::vector<sm::impl::metric_definition_impl>({
+    });
 }
 
 }

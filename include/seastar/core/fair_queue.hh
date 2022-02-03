@@ -25,6 +25,7 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/circular_buffer.hh>
+#include <seastar/core/metrics_registration.hh>
 #include <functional>
 #include <atomic>
 #include <queue>
@@ -404,6 +405,8 @@ public:
     void dispatch_requests(std::function<void(fair_queue_entry&)> cb);
 
     clock_type::time_point next_pending_aio() const noexcept;
+
+    std::vector<seastar::metrics::impl::metric_definition_impl> metrics(class_id c);
 };
 /// @}
 
