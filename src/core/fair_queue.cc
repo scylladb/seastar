@@ -169,6 +169,7 @@ class fair_queue::priority_class_data {
     friend class fair_queue;
     uint32_t _shares = 0;
     capacity_t _accumulated = 0;
+    capacity_t _pure_accumulated = 0;
     fair_queue_entry::container_list_t _queue;
     bool _queued = false;
 
@@ -389,7 +390,8 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         // unrestricted queue it can be as low as 2k. With large enough shares this
         // has chances to be translated into zero cost which, in turn, will make the
         // class show no progress and monopolize the queue.
-        auto req_cost  = std::max(_group.ticket_capacity(req._ticket) / h._shares, (capacity_t)1);
+        auto req_cap = _group.ticket_capacity(req._ticket);
+        auto req_cost  = std::max(req_cap / h._shares, (capacity_t)1);
         // signed overflow check to make push_priority_class_from_idle math work
         if (h._accumulated >= std::numeric_limits<signed_capacity_t>::max() - req_cost) {
             for (auto& pc : _priority_classes) {
@@ -404,6 +406,7 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
             _last_accumulated = 0;
         }
         h._accumulated += req_cost;
+        h._pure_accumulated += req_cap;
 
         if (!h._queue.empty()) {
             push_priority_class(h);
