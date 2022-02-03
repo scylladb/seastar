@@ -72,3 +72,7 @@ seastar_add_test (future_util
 
 seastar_add_test (rpc
   SOURCES rpc_perf.cc)
+
+seastar_add_test (smp_submit_to
+  SOURCES smp_submit_to_perf.cc
+  NO_SEASTAR_PERF_TESTING_LIBRARY)
