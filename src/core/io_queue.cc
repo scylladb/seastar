@@ -73,15 +73,12 @@ class io_queue::priority_class_data {
     io_queue::clock_type::time_point _activated;
     metrics::metric_groups _metric_groups;
 
-    void register_stats(sstring name, sstring mountpoint);
-
 public:
-    void rename(sstring new_name, sstring mountpoint);
     void update_shares(uint32_t shares) noexcept {
         _shares = std::max(shares, 1u);
     }
 
-    priority_class_data(io_priority_class pc, uint32_t shares, sstring name, sstring mountpoint)
+    priority_class_data(io_priority_class pc, uint32_t shares)
         : _pc(pc)
         , _shares(shares)
         , _nr_queued(0)
@@ -91,7 +88,6 @@ public:
         , _total_execution_time(0)
         , _starvation_time(0)
     {
-        register_stats(name, mountpoint);
     }
 
     void on_queue() noexcept {
@@ -132,6 +128,8 @@ public:
     }
 
     fair_queue::class_id fq_class() const noexcept { return _pc.id(); }
+
+    void register_stats(sstring name, sstring mountpoint);
 };
 
 class io_desc_read_write final : public io_completion {
@@ -520,19 +518,6 @@ future<> io_priority_class::rename(sstring new_name) noexcept {
 }
 
 void
-io_queue::priority_class_data::rename(sstring new_name, sstring mountpoint) {
-    try {
-        register_stats(new_name, mountpoint);
-    } catch (metrics::double_registration &e) {
-        // we need to ignore this exception, since it can happen that
-        // a class that was already created with the new name will be
-        // renamed again (this will cause a double registration exception
-        // to be thrown).
-    }
-
-}
-
-void
 io_queue::priority_class_data::register_stats(sstring name, sstring mountpoint) {
     namespace sm = seastar::metrics;
     seastar::metrics::metric_groups new_metrics;
@@ -624,7 +609,8 @@ io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_
         for (auto&& s : _streams) {
             s.register_priority_class(id, shares);
         }
-        auto pc_data = std::make_unique<priority_class_data>(pc, shares, name, mountpoint());
+        auto pc_data = std::make_unique<priority_class_data>(pc, shares);
+        pc_data->register_stats(name, mountpoint());
 
         _priority_classes[id] = std::move(pc_data);
     }
@@ -744,7 +730,14 @@ void
 io_queue::rename_priority_class(io_priority_class pc, sstring new_name) {
     if (_priority_classes.size() > pc.id() &&
             _priority_classes[pc.id()]) {
-        _priority_classes[pc.id()]->rename(new_name, get_config().mountpoint);
+        try {
+            _priority_classes[pc.id()]->register_stats(new_name, get_config().mountpoint);
+        } catch (metrics::double_registration &e) {
+            // we need to ignore this exception, since it can happen that
+            // a class that was already created with the new name will be
+            // renamed again (this will cause a double registration exception
+            // to be thrown).
+        }
     }
 }
 
