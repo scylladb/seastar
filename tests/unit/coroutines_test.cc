@@ -338,4 +338,35 @@ SEASTAR_TEST_CASE(test_maybe_yield) {
     BOOST_REQUIRE(true); // the test will hang if it doesn't work.
 }
 
+#if __has_include(<coroutine>) && !defined(__clang__)
+
+#include "tl-generator.hh"
+tl::generator<int> simple_generator(int max)
+{
+    for (int i = 0; i < max; ++i) {
+        co_yield i;
+    }
+}
+
+SEASTAR_TEST_CASE(generator)
+{
+    // test ability of seastar::parallel_for_each to deal with move-only views
+    int accum = 0;
+    co_await seastar::parallel_for_each(simple_generator(10), [&](int i) {
+        accum += i;
+        return seastar::make_ready_future<>();
+    });
+    BOOST_REQUIRE_EQUAL(accum, 45);
+
+    // test ability of seastar::max_concurrent_for_each to deal with move-only views
+    accum = 0;
+    co_await seastar::max_concurrent_for_each(simple_generator(10), 10, [&](int i) {
+        accum += i;
+        return seastar::make_ready_future<>();
+    });
+    BOOST_REQUIRE_EQUAL(accum, 45);
+}
+
+#endif
+
 #endif

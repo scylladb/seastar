@@ -22,8 +22,10 @@
 
 #pragma once
 
+#include <cstddef>
 #include <iterator>
 #include <memory>
+#include <type_traits>
 #include <vector>
 
 #include <seastar/core/future.hh>
@@ -486,18 +488,24 @@ future<> do_for_each(Container& c, AsyncAction action) noexcept {
 
 namespace internal {
 
-template <typename Iterator, typename IteratorCategory>
+template <typename T, typename = void>
+struct has_iterator_category : std::false_type {};
+
+template <typename T>
+struct has_iterator_category<T, std::void_t<typename std::iterator_traits<T>::iterator_category >> : std::true_type {};
+
+template <typename Iterator, typename Sentinel, typename IteratorCategory>
 inline
 size_t
-iterator_range_estimate_vector_capacity(Iterator begin, Iterator end, IteratorCategory category) {
+iterator_range_estimate_vector_capacity(Iterator const& begin, Sentinel const& end, IteratorCategory category) {
     // For InputIterators we can't estimate needed capacity
     return 0;
 }
 
-template <typename Iterator>
+template <typename Iterator, typename Sentinel>
 inline
 size_t
-iterator_range_estimate_vector_capacity(Iterator begin, Iterator end, std::forward_iterator_tag category) {
+iterator_range_estimate_vector_capacity(Iterator begin, Sentinel end, std::forward_iterator_tag category) {
     // May be linear time below random_access_iterator_tag, but still better than reallocation
     return std::distance(begin, end);
 }
@@ -541,23 +549,32 @@ public:
 /// \return a \c future<> that resolves when all the function invocations
 ///         complete.  If one or more return an exception, the return value
 ///         contains one of the exceptions.
-template <typename Iterator, typename Func>
-SEASTAR_CONCEPT( requires requires (Func f, Iterator i) { { f(*i++) } -> std::same_as<future<>>; } )
+template <typename Iterator, typename Sentinel, typename Func>
+SEASTAR_CONCEPT( requires (requires (Func f, Iterator i) { { f(*i) } -> std::same_as<future<>>; { i++ }; } && (std::same_as<Sentinel, Iterator> || std::sentinel_for<Sentinel, Iterator>)))
+// We use a conjunction with std::same_as<Sentinel, Iterator> because std::sentinel_for requires Sentinel to be semiregular,
+// which implies that it requires Sentinel to be default-constructible, which is unnecessarily strict in below's context and could
+// break legacy code, for which it holds that Sentinel equals Iterator.
 inline
 future<>
-parallel_for_each(Iterator begin, Iterator end, Func&& func) noexcept {
+parallel_for_each(Iterator begin, Sentinel end, Func&& func) noexcept {
     parallel_for_each_state* s = nullptr;
     // Process all elements, giving each future the following treatment:
     //   - available, not failed: do nothing
     //   - available, failed: collect exception in ex
     //   - not available: collect in s (allocating it if needed)
     while (begin != end) {
-        auto f = futurize_invoke(std::forward<Func>(func), *begin++);
+        auto f = futurize_invoke(std::forward<Func>(func), *begin);
+        ++begin;
         memory::scoped_critical_alloc_section _;
         if (!f.available() || f.failed()) {
             if (!s) {
                 using itraits = std::iterator_traits<Iterator>;
-                auto n = (internal::iterator_range_estimate_vector_capacity(begin, end, typename itraits::iterator_category()) + 1);
+                size_t n{0U};
+                if constexpr (internal::has_iterator_category<Iterator>::value) {
+                    // We need if-constexpr here because there exist iterators for which std::iterator_traits
+                    // does not have 'iterator_category' as member type
+                    n = (internal::iterator_range_estimate_vector_capacity(begin, end, typename itraits::iterator_category{}) + 1);
+                }
                 s = new parallel_for_each_state(n);
             }
             s->add_future(std::move(f));
@@ -632,20 +649,23 @@ parallel_for_each(Range&& range, Func&& func) noexcept {
 /// \return a \c future<> that resolves when all the function invocations
 ///         complete.  If one or more return an exception, the return value
 ///         contains one of the exceptions.
-template <typename Iterator, typename Func>
-SEASTAR_CONCEPT( requires requires (Func f, Iterator i) { { f(*i++) } -> std::same_as<future<>>; } )
+template <typename Iterator, typename Sentinel, typename Func>
+SEASTAR_CONCEPT( requires (requires (Func f, Iterator i) { { f(*i) } -> std::same_as<future<>>; { i++ }; } && (std::same_as<Sentinel, Iterator> || std::sentinel_for<Sentinel, Iterator>) ) )
+// We use a conjunction with std::same_as<Sentinel, Iterator> because std::sentinel_for requires Sentinel to be semiregular,
+// which implies that it requires Sentinel to be default-constructible, which is unnecessarily strict in below's context and could
+// break legacy code, for which it holds that Sentinel equals Iterator.
 inline
 future<>
-max_concurrent_for_each(Iterator begin, Iterator end, size_t max_concurrent, Func&& func) noexcept {
+max_concurrent_for_each(Iterator begin, Sentinel end, size_t max_concurrent, Func&& func) noexcept {
     struct state {
         Iterator begin;
-        Iterator end;
+        Sentinel end;
         Func func;
         size_t max_concurrent;
         semaphore sem;
         std::exception_ptr err;
 
-        state(Iterator begin_, Iterator end_, size_t max_concurrent_, Func func_)
+        state(Iterator begin_, Sentinel end_, size_t max_concurrent_, Func func_)
             : begin(std::move(begin_))
             , end(std::move(end_))
             , func(std::move(func_))
@@ -663,7 +683,7 @@ max_concurrent_for_each(Iterator begin, Iterator end, size_t max_concurrent, Fun
                 return s.sem.wait().then([&s] () mutable noexcept {
                     // Possibly run in background and signal _sem when the task is done.
                     // The background tasks are waited on using _sem.
-                    (void)futurize_invoke(s.func, *s.begin++).then_wrapped([&s] (future<> fut) {
+                    (void)futurize_invoke(s.func, *s.begin).then_wrapped([&s] (future<> fut) {
                         if (fut.failed()) {
                             auto e = fut.get_exception();;
                             if (!s.err) {
@@ -672,6 +692,7 @@ max_concurrent_for_each(Iterator begin, Iterator end, size_t max_concurrent, Fun
                         }
                         s.sem.signal();
                     });
+                    ++s.begin;
                 });
             }).then([&s] {
                 // Wait for any background task to finish
