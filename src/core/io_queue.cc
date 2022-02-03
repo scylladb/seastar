@@ -546,7 +546,8 @@ io_queue::priority_class_data::register_stats(sstring name, sstring mountpoint) 
 
     auto class_label_type = sm::label("class");
     auto class_label = class_label_type(name);
-    new_metrics.add_group("io_queue", {
+
+    auto ml = std::vector<sm::impl::metric_definition_impl>({
             sm::make_derive("total_bytes", [this] {
                     return _rwstat[io_direction_and_length::read_idx].bytes + _rwstat[io_direction_and_length::write_idx].bytes;
                 }, sm::description("Total bytes passed in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
@@ -591,6 +592,13 @@ io_queue::priority_class_data::register_stats(sstring name, sstring mountpoint) 
             }, sm::description("random delay time in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
             sm::make_gauge("shares", _shares, sm::description("current amount of shares"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label})
     });
+
+    std::vector<sm::metric_definition> metrics;
+    for (auto&& m : ml) {
+        metrics.emplace_back(std::move(m));
+    }
+
+    new_metrics.add_group("io_queue", std::move(metrics));
     _metric_groups = std::exchange(new_metrics, {});
 }
 
