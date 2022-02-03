@@ -519,8 +519,6 @@ future<> io_priority_class::rename(sstring new_name) noexcept {
     });
 }
 
-seastar::metrics::label io_queue_shard("ioshard");
-
 void
 io_queue::priority_class_data::rename(sstring new_name, sstring mountpoint) {
     try {
@@ -536,45 +534,37 @@ io_queue::priority_class_data::rename(sstring new_name, sstring mountpoint) {
 
 void
 io_queue::priority_class_data::register_stats(sstring name, sstring mountpoint) {
-    shard_id owner = this_shard_id();
-    seastar::metrics::metric_groups new_metrics;
     namespace sm = seastar::metrics;
-    auto shard = sm::impl::shard();
-
-    auto ioq_group = sm::label("mountpoint");
-    auto mountlabel = ioq_group(mountpoint);
-
-    auto class_label_type = sm::label("class");
-    auto class_label = class_label_type(name);
+    seastar::metrics::metric_groups new_metrics;
 
     auto ml = std::vector<sm::impl::metric_definition_impl>({
             sm::make_derive("total_bytes", [this] {
                     return _rwstat[io_direction_and_length::read_idx].bytes + _rwstat[io_direction_and_length::write_idx].bytes;
-                }, sm::description("Total bytes passed in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
+                }, sm::description("Total bytes passed in the queue")),
             sm::make_derive("total_operations", [this] {
                     return _rwstat[io_direction_and_length::read_idx].ops + _rwstat[io_direction_and_length::write_idx].ops;
-                }, sm::description("Total operations passed in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
+                }, sm::description("Total operations passed in the queue")),
             sm::make_derive("total_read_bytes", _rwstat[io_direction_and_length::read_idx].bytes,
-                    sm::description("Total read bytes passed in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
+                    sm::description("Total read bytes passed in the queue")),
             sm::make_derive("total_read_ops", _rwstat[io_direction_and_length::read_idx].ops,
-                    sm::description("Total read operations passed in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
+                    sm::description("Total read operations passed in the queue")),
             sm::make_derive("total_write_bytes", _rwstat[io_direction_and_length::write_idx].bytes,
-                    sm::description("Total write bytes passed in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
+                    sm::description("Total write bytes passed in the queue")),
             sm::make_derive("total_write_ops", _rwstat[io_direction_and_length::write_idx].ops,
-                    sm::description("Total write operations passed in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
+                    sm::description("Total write operations passed in the queue")),
             sm::make_derive("total_delay_sec", [this] {
                     return _total_queue_time.count();
-                }, sm::description("Total time spent in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
+                }, sm::description("Total time spent in the queue")),
             sm::make_derive("total_exec_sec", [this] {
                     return _total_execution_time.count();
-                }, sm::description("Total time spent in disk"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
+                }, sm::description("Total time spent in disk")),
             sm::make_derive("starvation_time_sec", [this] {
                 auto st = _starvation_time;
                 if (_nr_queued != 0 && _nr_executing == 0) {
                     st += io_queue::clock_type::now() - _activated;
                 }
                 return st.count();
-            }, sm::description("Total time spent starving for disk"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
+            }, sm::description("Total time spent starving for disk")),
 
             // Note: The counter below is not the same as reactor's queued-io-requests
             // queued-io-requests shows us how many requests in total exist in this I/O Queue.
@@ -585,16 +575,22 @@ io_queue::priority_class_data::register_stats(sstring name, sstring mountpoint) 
             // In other words: the new counter tells you how busy a class is, and the
             // old counter tells you how busy the system is.
 
-            sm::make_queue_length("queue_length", _nr_queued, sm::description("Number of requests in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
-            sm::make_queue_length("disk_queue_length", _nr_executing, sm::description("Number of requests in the disk"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
+            sm::make_queue_length("queue_length", _nr_queued, sm::description("Number of requests in the queue")),
+            sm::make_queue_length("disk_queue_length", _nr_executing, sm::description("Number of requests in the disk")),
             sm::make_gauge("delay", [this] {
                 return _queue_time.count();
-            }, sm::description("random delay time in the queue"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label}),
-            sm::make_gauge("shares", _shares, sm::description("current amount of shares"), {io_queue_shard(shard), sm::shard_label(owner), mountlabel, class_label})
+            }, sm::description("random delay time in the queue")),
+            sm::make_gauge("shares", _shares, sm::description("current amount of shares"))
     });
+
+    auto owner_l = sm::shard_label(this_shard_id());
+    auto ioshard_l = sm::label("ioshard")(sm::impl::shard());
+    auto mnt_l = sm::label("mountpoint")(mountpoint);
+    auto class_l = sm::label("class")(name);
 
     std::vector<sm::metric_definition> metrics;
     for (auto&& m : ml) {
+        m(ioshard_l)(owner_l)(mnt_l)(class_l);
         metrics.emplace_back(std::move(m));
     }
 
