@@ -221,8 +221,13 @@ private:
     capacity_t fetch_add(fair_group_atomic_rover& rover, capacity_t cap) noexcept;
 
     template <typename Rep, typename Period>
+    static auto rate_cast(const std::chrono::duration<Rep, Period> delta) noexcept {
+        return std::chrono::duration_cast<rate_resolution>(delta);
+    }
+
+    template <typename Rep, typename Period>
     capacity_t accumulated_capacity(const std::chrono::duration<Rep, Period> delta) const noexcept {
-       auto delta_at_rate = std::chrono::duration_cast<rate_resolution>(delta);
+       auto delta_at_rate = rate_cast(delta);
        return std::round(_replenish_rate * delta_at_rate.count());
     }
 

@@ -95,9 +95,9 @@ uint64_t wrapping_difference(const uint64_t& a, const uint64_t& b) noexcept {
 }
 
 fair_group::fair_group(config cfg)
-        : _cost_capacity(cfg.weight_rate / std::chrono::duration_cast<rate_resolution>(std::chrono::seconds(1)).count(), cfg.size_rate / std::chrono::duration_cast<rate_resolution>(std::chrono::seconds(1)).count())
+        : _cost_capacity(cfg.weight_rate / rate_cast(std::chrono::seconds(1)).count(), cfg.size_rate / rate_cast(std::chrono::seconds(1)).count())
         , _replenish_rate(cfg.rate_factor * fixed_point_factor)
-        , _replenish_limit(_replenish_rate * std::chrono::duration_cast<rate_resolution>(cfg.rate_limit_duration).count())
+        , _replenish_limit(_replenish_rate * rate_cast(cfg.rate_limit_duration).count())
         , _replenish_threshold(std::max((capacity_t)1, ticket_capacity(fair_queue_ticket(cfg.min_weight, cfg.min_size))))
         , _replenished(clock_type::now())
         , _capacity_tail(0)
