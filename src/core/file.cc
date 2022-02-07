@@ -39,6 +39,7 @@
 #include <seastar/core/report_exception.hh>
 #include <seastar/core/linux-aio.hh>
 #include <seastar/util/later.hh>
+#include <seastar/util/internal/magic.hh>
 #include <seastar/core/io_queue.hh>
 #include "core/file-impl.hh"
 #include "core/syscall_result.hh"
@@ -997,7 +998,7 @@ make_file_impl(int fd, file_open_options options, int flags) noexcept {
                     internal::fs_info fsi;
                     fsi.block_size = sfs.f_bsize;
                     switch (sfs.f_type) {
-                    case 0x58465342: /* XFS */
+                    case fs_magic::xfs:
                         dioattr da;
                         if (::ioctl(fd, XFS_IOC_DIOINFO, &da) == 0) {
                             fsi.dioinfo = std::move(da);
@@ -1009,26 +1010,26 @@ make_file_impl(int fd, file_open_options options, int flags) noexcept {
                         fsi.fsync_is_exclusive = true;
                         fsi.nowait_works = kernel_uname().whitelisted({"4.13"});
                         break;
-                    case 0x6969: /* NFS */
+                    case fs_magic::nfs:
                         fsi.append_challenged = false;
                         fsi.append_concurrency = 0;
                         fsi.fsync_is_exclusive = false;
                         fsi.nowait_works = kernel_uname().whitelisted({"4.13"});
                         break;
-                    case 0xEF53: /* EXT4 */
+                    case fs_magic::ext4:
                         fsi.append_challenged = true;
                         fsi.append_concurrency = 0;
                         fsi.fsync_is_exclusive = false;
                         fsi.nowait_works = kernel_uname().whitelisted({"5.5"});
                         break;
-                    case 0x9123683E: /* BTRFS */
+                    case fs_magic::btrfs:
                         fsi.append_challenged = true;
                         fsi.append_concurrency = 0;
                         fsi.fsync_is_exclusive = true;
                         fsi.nowait_works = kernel_uname().whitelisted({"5.9"});
                         break;
-                    case 0x01021994: /* TMPFS */
-                    case 0x65735546: /* FUSE */
+                    case fs_magic::tmpfs:
+                    case fs_magic::fuse:
                         fsi.append_challenged = false;
                         fsi.append_concurrency = 999;
                         fsi.fsync_is_exclusive = false;

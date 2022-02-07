@@ -35,6 +35,7 @@
 #include <seastar/util/tmp_file.hh>
 #include <seastar/util/alloc_failure_injector.hh>
 #include <seastar/util/closeable.hh>
+#include <seastar/util/internal/magic.hh>
 
 #include <boost/range/adaptor/transformed.hpp>
 #include <iostream>
@@ -768,7 +769,7 @@ SEASTAR_TEST_CASE(test_nowait_flag_correctness) {
             if (r == -1) {
                 return false;
             }
-            return buf.f_type == 0x01021994; // TMPFS_MAGIC
+            return buf.f_type == internal::fs_magic::tmpfs;
         };
 
         if (!seastar::aio_nowait_supported) {

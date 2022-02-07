@@ -112,7 +112,6 @@
 #include <sys/mman.h>
 #include <sys/utsname.h>
 #include <linux/falloc.h>
-#include <linux/magic.h>
 #include <seastar/util/backtrace.hh>
 #include <seastar/util/spinlock.hh>
 #include <seastar/util/print_safe.hh>
@@ -133,6 +132,7 @@
 #include <seastar/core/exception_hacks.hh>
 #include "stall_detector.hh"
 #include <seastar/util/memory_diagnostics.hh>
+#include <seastar/util/internal/magic.hh>
 
 #include <yaml-cpp/yaml.h>
 
@@ -1729,7 +1729,7 @@ reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_opt
                 if (r == -1) {
                     return false;
                 }
-                return buf.f_type == 0x01021994; // TMPFS_MAGIC
+                return buf.f_type == fs_magic::tmpfs;
             };
             open_flags |= O_CLOEXEC;
             if (bypass_fsync) {
@@ -1984,13 +1984,13 @@ reactor::file_system_at(std::string_view pathname) noexcept {
             return wrap_syscall(ret, st);
         }).then([pathname = sstring(pathname)] (syscall_result_extra<struct statfs> sr) {
             static std::unordered_map<long int, fs_type> type_mapper = {
-                { 0x58465342, fs_type::xfs },
-                { EXT2_SUPER_MAGIC, fs_type::ext2 },
-                { EXT3_SUPER_MAGIC, fs_type::ext3 },
-                { EXT4_SUPER_MAGIC, fs_type::ext4 },
-                { BTRFS_SUPER_MAGIC, fs_type::btrfs },
-                { 0x4244, fs_type::hfs },
-                { TMPFS_MAGIC, fs_type::tmpfs },
+                { fs_magic::xfs, fs_type::xfs },
+                { fs_magic::ext2, fs_type::ext2 },
+                { fs_magic::ext3, fs_type::ext3 },
+                { fs_magic::ext4, fs_type::ext4 },
+                { fs_magic::btrfs, fs_type::btrfs },
+                { fs_magic::hfs, fs_type::hfs },
+                { fs_magic::tmpfs, fs_type::tmpfs },
             };
             sr.throw_fs_exception_if_error("statfs failed", pathname);
 
