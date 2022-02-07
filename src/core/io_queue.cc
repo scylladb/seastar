@@ -327,9 +327,9 @@ io_queue::complete_request(io_desc_read_write& desc) noexcept {
     _streams[desc.stream()].notify_request_finished(desc.ticket());
 }
 
-fair_queue::config io_queue::make_fair_queue_config(const config& iocfg) {
+fair_queue::config io_queue::make_fair_queue_config(const config& iocfg, sstring label) {
     fair_queue::config cfg;
-    cfg.label = fmt::format("io-queue-{}", iocfg.devid);
+    cfg.label = label;
     return cfg;
 }
 
@@ -338,10 +338,14 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     , _group(std::move(group))
     , _sink(sink)
 {
-    auto fq_cfg = make_fair_queue_config(get_config());
-    _streams.emplace_back(*_group->_fgs[0], fq_cfg);
-    if (get_config().duplex) {
-        _streams.emplace_back(*_group->_fgs[1], fq_cfg);
+    auto& cfg = get_config();
+    if (cfg.duplex) {
+        static_assert(internal::io_direction_and_length::write_idx == 0);
+        _streams.emplace_back(*_group->_fgs[0], make_fair_queue_config(cfg, "write"));
+        static_assert(internal::io_direction_and_length::read_idx == 1);
+        _streams.emplace_back(*_group->_fgs[1], make_fair_queue_config(cfg, "read"));
+    } else {
+        _streams.emplace_back(*_group->_fgs[0], make_fair_queue_config(cfg, "rw"));
     }
 
     if (this_shard_id() == 0) {

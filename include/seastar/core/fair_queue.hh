@@ -361,6 +361,8 @@ public:
     fair_queue(fair_queue&&);
     ~fair_queue();
 
+    sstring label() const noexcept { return _config.label; }
+
     /// Registers a priority class against this fair queue.
     ///
     /// \param shares how many shares to create this class with
