@@ -295,11 +295,9 @@ public:
     static constexpr int read_idx = 1;
     static constexpr int write_idx = 0;
 
-    io_direction_and_length(bool is_read, size_t val) {
-        _directed_length = val << 1;
-        if (is_read) {
-            _directed_length |= 0x1;
-        }
+    io_direction_and_length(int idx, size_t val) {
+        assert(idx == read_idx || idx == write_idx);
+        _directed_length = (val << 1) | idx;
     }
 };
 
