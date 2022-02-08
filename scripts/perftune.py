@@ -1448,6 +1448,35 @@ def dump_config(prog_args):
         prog_options['write_back_cache'] = prog_args.set_write_back
 
     perftune_print(yaml.dump(prog_options, default_flow_style=False))
+
+def filter_deprecated_args(prog_args):
+    """
+    Filters out deprecated arguments from the parsed program arguments.
+
+    To add a new deprecated argument add an entry to a deprecated_args_map as
+    follows:
+
+        deprecated_args_map = {
+          ...,
+          "dest field" : "parameter name",
+          ...
+        }
+
+    :param prog_args: parsed program arguments object
+    :return: filtered program arguments
+    """
+    # deprecated_arguments: map from a corresponding field in progs_args ("dest") to an argument name
+    deprecated_args_map = {
+        # "dest field" : "parameter name"
+    }
+
+    args_dict = vars(prog_args)
+    for dopt in deprecated_args_map.keys():
+        if dopt in args_dict:
+            print("WARNING: Using {} is deprecated!".format(deprecated_args_map[dopt]), file=sys.stderr)
+            args_dict[dopt] = None
+
+    return prog_args
 ################################################################################
 
 args = argp.parse_args()
@@ -1461,6 +1490,9 @@ except:
 
 dry_run_mode = args.dry_run
 parse_options_file(args)
+
+# Get rid of deprecated arguments
+args = filter_deprecated_args(args)
 
 # if nothing needs to be configured - quit
 if not args.tune:
