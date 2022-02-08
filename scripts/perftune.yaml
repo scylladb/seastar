@@ -28,6 +28,3 @@
 #dev:
 #  - /dev/sda2
 #  - /dev/md0
-
-# write_back_cache: false
-

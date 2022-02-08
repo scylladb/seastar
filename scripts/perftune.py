@@ -941,7 +941,6 @@ class DiskPerfTuner(PerfTunerBase):
         # sets of devices that have already been tuned
         self.__io_scheduler_tuned_devs = set()
         self.__nomerges_tuned_devs = set()
-        self.__write_back_cache_tuned_devs = set()
 
 #### Public methods #############################
     def tune(self):
@@ -1015,17 +1014,6 @@ class DiskPerfTuner(PerfTunerBase):
     @property
     def __nomerges(self):
         return '2'
-
-    @property
-    def __write_cache_config(self):
-        """
-        :return: None - if write cache mode configuration is not requested or the corresponding write cache
-        configuration value string
-        """
-        if self.args.set_write_back is None:
-            return None
-
-        return "write back" if self.args.set_write_back else "write through"
 
     def __disks_info_by_type(self, disks_type):
         """
@@ -1244,13 +1232,6 @@ class DiskPerfTuner(PerfTunerBase):
     def __tune_nomerges(self, dev_node):
         return self.__tune_one_feature(dev_node, lambda p : os.path.join(p, 'queue', 'nomerges'), self.__nomerges, self.__nomerges_tuned_devs)
 
-    # If write cache configuration is not requested - return True immediately
-    def __tune_write_back_cache(self, dev_node):
-        if self.__write_cache_config is None:
-            return True
-
-        return self.__tune_one_feature(dev_node, lambda p : os.path.join(p, 'queue', 'write_cache'), self.__write_cache_config, self.__write_back_cache_tuned_devs)
-
     def __get_io_scheduler(self, dev_node):
         """
         Return a supported scheduler that is also present in the required schedulers list (__io_schedulers).
@@ -1284,9 +1265,6 @@ class DiskPerfTuner(PerfTunerBase):
 
         if not self.__tune_nomerges(dev_node):
             perftune_print("Not setting 'nomerges' for {} - feature not present".format(device))
-
-        if not self.__tune_write_back_cache(dev_node):
-                perftune_print("Not setting 'write_cache' for {} - feature not present".format(device))
 
     def __tune_disks(self, disks):
         for disk in disks:
@@ -1351,7 +1329,8 @@ argp.add_argument('--dev', help="device to optimize (may appear more than once),
 argp.add_argument('--options-file', help="configuration YAML file")
 argp.add_argument('--dump-options-file', action='store_true', help="Print the configuration YAML file containing the current configuration")
 argp.add_argument('--dry-run', action='store_true', help="Don't take any action, just recommend what to do.")
-argp.add_argument('--write-back-cache', help="Enable/Disable \'write back\' write cache mode.", dest="set_write_back")
+deprecated_args_group = argp.add_argument_group("Deprecated")
+deprecated_args_group.add_argument('--write-back-cache', help="Enable/Disable \'write back\' write cache mode", dest="set_write_back")
 
 def parse_cpu_mask_from_yaml(y, field_name, fname):
     hex_32bit_pattern='0x[0-9a-fA-F]{1,8}'
@@ -1444,9 +1423,6 @@ def dump_config(prog_args):
     if prog_args.devs:
         prog_options['dev'] = prog_args.devs
 
-    if prog_args.set_write_back is not None:
-        prog_options['write_back_cache'] = prog_args.set_write_back
-
     perftune_print(yaml.dump(prog_options, default_flow_style=False))
 
 def filter_deprecated_args(prog_args):
@@ -1468,6 +1444,7 @@ def filter_deprecated_args(prog_args):
     # deprecated_arguments: map from a corresponding field in progs_args ("dest") to an argument name
     deprecated_args_map = {
         # "dest field" : "parameter name"
+        "set_write_back" : "--write-back-cache"
     }
 
     args_dict = vars(prog_args)
@@ -1480,14 +1457,6 @@ def filter_deprecated_args(prog_args):
 ################################################################################
 
 args = argp.parse_args()
-
-# Sanity check
-try:
-    if args.set_write_back:
-        args.set_write_back = distutils.util.strtobool(args.set_write_back)
-except:
-    sys.exit("Invalid --write-back-cache value: should be boolean but given: {}".format(args.set_write_back))
-
 dry_run_mode = args.dry_run
 parse_options_file(args)
 
