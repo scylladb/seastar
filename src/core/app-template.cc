@@ -178,7 +178,7 @@ app_template::run(int ac, char ** av, std::function<future<> ()>&& func) noexcep
 int
 app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) noexcept {
 #ifdef SEASTAR_DEBUG
-    fmt::print("WARNING: debug mode. Not for benchmarking or production\n");
+    fmt::print(std::cerr, "WARNING: debug mode. Not for benchmarking or production\n");
 #endif
     boost::program_options::options_description all_opts;
     all_opts.add(_app_opts);
