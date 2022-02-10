@@ -40,6 +40,7 @@ SEASTAR_TEST_CASE(test_coroutines_not_compiled_in) {
 #include <seastar/core/coroutine.hh>
 #include <seastar/coroutine/all.hh>
 #include <seastar/coroutine/maybe_yield.hh>
+#include <seastar/coroutine/switch_to.hh>
 
 namespace {
 
@@ -161,6 +162,39 @@ SEASTAR_TEST_CASE(test_scheduling_group) {
         ex = std::current_exception();
     }
     co_await destroy_scheduling_group(other_sg);
+    if (ex) {
+        std::rethrow_exception(std::move(ex));
+    }
+}
+
+SEASTAR_TEST_CASE(test_switch_to) {
+    auto other_sg0 = co_await create_scheduling_group("other group 0", 10.f);
+    auto other_sg1 = co_await create_scheduling_group("other group 1", 10.f);
+    std::exception_ptr ex;
+
+    try {
+        auto base_sg = current_scheduling_group();
+
+        auto prev_sg = co_await coroutine::switch_to(other_sg0);
+        BOOST_REQUIRE(current_scheduling_group() == other_sg0);
+        BOOST_REQUIRE(prev_sg == base_sg);
+
+        auto same_sg = co_await coroutine::switch_to(other_sg0);
+        BOOST_REQUIRE(current_scheduling_group() == other_sg0);
+        BOOST_REQUIRE(same_sg == other_sg0);
+
+        auto nested_sg = co_await coroutine::switch_to(other_sg1);
+        BOOST_REQUIRE(current_scheduling_group() == other_sg1);
+        BOOST_REQUIRE(nested_sg == other_sg0);
+
+        co_await coroutine::switch_to(base_sg);
+        BOOST_REQUIRE(current_scheduling_group() == base_sg);
+    } catch (...) {
+        ex = std::current_exception();
+    }
+
+    co_await destroy_scheduling_group(other_sg1);
+    co_await destroy_scheduling_group(other_sg0);
     if (ex) {
         std::rethrow_exception(std::move(ex));
     }

@@ -38,6 +38,10 @@ protected:
     // run_and_dispose() should be declared final to avoid losing concrete type
     // information via inheritance.
     ~task() = default;
+
+    scheduling_group set_scheduling_group(scheduling_group new_sg) noexcept{
+        return std::exchange(_sg, new_sg);
+    }
 public:
     explicit task(scheduling_group sg = current_scheduling_group()) noexcept : _sg(sg) {}
     virtual void run_and_dispose() noexcept = 0;

@@ -75,6 +75,10 @@ public:
         }
 
         task* waiting_task() noexcept override { return _promise.waiting_task(); }
+
+        scheduling_group set_scheduling_group(scheduling_group sg) noexcept {
+            return std::exchange(this->_sg, sg);
+        }
     };
 };
 
@@ -109,6 +113,10 @@ public:
         }
 
        task* waiting_task() noexcept override { return _promise.waiting_task(); }
+
+        scheduling_group set_scheduling_group(scheduling_group new_sg) noexcept {
+            return task::set_scheduling_group(new_sg);
+        }
     };
 };
 
