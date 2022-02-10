@@ -25,6 +25,7 @@
 #include <dirent.h>
 #include <linux/types.h> // for xfs, below
 #include <linux/fs.h> // BLKBSZGET
+#include <linux/major.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -567,10 +568,19 @@ posix_file_impl::read_maybe_eof(uint64_t pos, size_t len, const io_priority_clas
     });
 }
 
-static bool blockdev_nowait_works = kernel_uname().whitelisted({"4.13"});
+static bool blockdev_gen_nowait_works = kernel_uname().whitelisted({"4.13"});
+static bool blockdev_md_nowait_works = kernel_uname().whitelisted({"5.17"});
+
+static bool blockdev_nowait_works(dev_t device_id) {
+    if (major(device_id) == MD_MAJOR) {
+        return blockdev_md_nowait_works;
+    }
+
+    return blockdev_gen_nowait_works;
+}
 
 blockdev_file_impl::blockdev_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id, size_t block_size)
-        : posix_file_impl(fd, f, options, device_id, blockdev_nowait_works) {
+        : posix_file_impl(fd, f, options, device_id, blockdev_nowait_works(device_id)) {
     // FIXME -- configure file_impl::_..._dma_alignment's from block_size
 }
 
