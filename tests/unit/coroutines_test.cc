@@ -19,6 +19,8 @@
  * Copyright (C) 2019 ScyllaDB Ltd.
  */
 
+#include <exception>
+
 #include <seastar/core/future-util.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/core/sleep.hh>
@@ -120,7 +122,9 @@ SEASTAR_TEST_CASE(test_abandond_coroutine) {
 
 SEASTAR_TEST_CASE(test_scheduling_group) {
     auto other_sg = co_await create_scheduling_group("the other group", 10.f);
+    std::exception_ptr ex;
 
+    try {
     auto p1 = promise<>();
     auto p2 = promise<>();
 
@@ -153,6 +157,13 @@ SEASTAR_TEST_CASE(test_scheduling_group) {
     p2.set_value();
     BOOST_REQUIRE_EQUAL(co_await std::move(f_ret), 42);
     BOOST_REQUIRE(current_scheduling_group() == default_scheduling_group());
+    } catch (...) {
+        ex = std::current_exception();
+    }
+    co_await destroy_scheduling_group(other_sg);
+    if (ex) {
+        std::rethrow_exception(std::move(ex));
+    }
 }
 
 SEASTAR_TEST_CASE(test_preemption) {
