@@ -125,38 +125,38 @@ SEASTAR_TEST_CASE(test_scheduling_group) {
     std::exception_ptr ex;
 
     try {
-    auto p1 = promise<>();
-    auto p2 = promise<>();
+        auto p1 = promise<>();
+        auto p2 = promise<>();
 
-    auto p1b = promise<>();
-    auto p2b = promise<>();
-    auto f1 = p1b.get_future();
-    auto f2 = p2b.get_future();
+        auto p1b = promise<>();
+        auto p2b = promise<>();
+        auto f1 = p1b.get_future();
+        auto f2 = p2b.get_future();
 
-    BOOST_REQUIRE(current_scheduling_group() == default_scheduling_group());
-    auto f_ret = with_scheduling_group(other_sg,
-            [other_sg_cap = other_sg] (future<> f1, future<> f2, promise<> p1, promise<> p2) -> future<int> {
-        // Make a copy in the coroutine before the lambda is destroyed.
-        auto other_sg = other_sg_cap;
-        BOOST_REQUIRE(current_scheduling_group() == other_sg);
-        BOOST_REQUIRE(other_sg == other_sg);
-        p1.set_value();
+        BOOST_REQUIRE(current_scheduling_group() == default_scheduling_group());
+        auto f_ret = with_scheduling_group(other_sg,
+                [other_sg_cap = other_sg] (future<> f1, future<> f2, promise<> p1, promise<> p2) -> future<int> {
+            // Make a copy in the coroutine before the lambda is destroyed.
+            auto other_sg = other_sg_cap;
+            BOOST_REQUIRE(current_scheduling_group() == other_sg);
+            BOOST_REQUIRE(other_sg == other_sg);
+            p1.set_value();
+            co_await std::move(f1);
+            BOOST_REQUIRE(current_scheduling_group() == other_sg);
+            p2.set_value();
+            co_await std::move(f2);
+            BOOST_REQUIRE(current_scheduling_group() == other_sg);
+            co_return 42;
+        }, p1.get_future(), p2.get_future(), std::move(p1b), std::move(p2b));
+
         co_await std::move(f1);
-        BOOST_REQUIRE(current_scheduling_group() == other_sg);
-        p2.set_value();
+        BOOST_REQUIRE(current_scheduling_group() == default_scheduling_group());
+        p1.set_value();
         co_await std::move(f2);
-        BOOST_REQUIRE(current_scheduling_group() == other_sg);
-        co_return 42;
-    }, p1.get_future(), p2.get_future(), std::move(p1b), std::move(p2b));
-
-    co_await std::move(f1);
-    BOOST_REQUIRE(current_scheduling_group() == default_scheduling_group());
-    p1.set_value();
-    co_await std::move(f2);
-    BOOST_REQUIRE(current_scheduling_group() == default_scheduling_group());
-    p2.set_value();
-    BOOST_REQUIRE_EQUAL(co_await std::move(f_ret), 42);
-    BOOST_REQUIRE(current_scheduling_group() == default_scheduling_group());
+        BOOST_REQUIRE(current_scheduling_group() == default_scheduling_group());
+        p2.set_value();
+        BOOST_REQUIRE_EQUAL(co_await std::move(f_ret), 42);
+        BOOST_REQUIRE(current_scheduling_group() == default_scheduling_group());
     } catch (...) {
         ex = std::current_exception();
     }
