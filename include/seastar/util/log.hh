@@ -87,6 +87,7 @@ class logger {
     static std::ostream* _out;
     static std::atomic<bool> _ostream;
     static std::atomic<bool> _syslog;
+    static inline thread_local bool silent = false;
 
 public:
     class log_writer {
@@ -137,18 +138,13 @@ private:
     void failed_to_log(std::exception_ptr ex, format_info fmt) noexcept;
 
     class silencer {
-        static constexpr log_level silent_level = static_cast<log_level>(-1);
-        logger& _log;
-        const log_level _level;
-
     public:
-        explicit silencer(logger& l) noexcept
-                : _log(l)
-                , _level(_log._level.exchange(silent_level))
-        {}
+        silencer() noexcept {
+            silent = true;
+        }
 
         ~silencer() {
-            _log.set_level(_level);
+            silent = false;
         }
     };
 
@@ -207,7 +203,7 @@ public:
     /// \param level - enum level value (info|error...)
     /// \return true if the log level has been enabled.
     bool is_enabled(log_level level) const noexcept {
-        return __builtin_expect(level <= _level.load(std::memory_order_relaxed), false);
+        return __builtin_expect(level <= _level.load(std::memory_order_relaxed), false) && !silent;
     }
 
     /// logs to desired level if enabled, otherwise we ignore the log line
