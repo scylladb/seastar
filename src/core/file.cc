@@ -981,7 +981,7 @@ make_file_impl(int fd, file_open_options options, int flags) noexcept {
                 return make_exception_future<shared_ptr<file_impl>>(
                         std::system_error(errno, std::system_category(), "ioctl(BLKBSZGET) failed"));
             }
-            return make_ready_future<shared_ptr<file_impl>>(make_shared<blockdev_file_impl>(fd, open_flags(flags), options, st_dev, block_size));
+            return make_ready_future<shared_ptr<file_impl>>(make_shared<blockdev_file_impl>(fd, open_flags(flags), options, st.st_rdev, block_size));
         } else {
             if (S_ISDIR(st.st_mode)) {
                 // Directories don't care about block size, so we need not
