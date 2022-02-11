@@ -260,9 +260,9 @@ public:
     ~dpdk_xstats()
     {
         if (_xstats)
-            delete _xstats;
+            delete[] _xstats;
         if (_xstat_names)
-            delete _xstat_names;
+            delete[] _xstat_names;
     }
 
     enum xstat_id {
