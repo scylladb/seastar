@@ -214,7 +214,7 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
 
     try {
         bpo::notify(configuration);
-    } catch (const bpo::required_option& ex) {
+    } catch (const bpo::error& ex) {
         std::cout << ex.what() << std::endl;
         return 1;
     }
