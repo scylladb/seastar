@@ -27,8 +27,9 @@
 #include <exception>
 #include <optional>
 #include <seastar/core/timer.hh>
-#include <seastar/core/expiring_fifo.hh>
+#include <seastar/core/abortable_fifo.hh>
 #include <seastar/core/timed_out_error.hh>
+#include <seastar/core/abort_on_expiry.hh>
 
 namespace seastar {
 
@@ -115,19 +116,20 @@ private:
     struct entry {
         promise<> pr;
         size_t nr;
+        std::optional<abort_on_expiry<clock>> timer;
         entry(promise<>&& pr_, size_t nr_) noexcept : pr(std::move(pr_)), nr(nr_) {}
     };
-    using expiry_handler = std::function<void (entry&)>;
-    expiring_fifo<entry, expiry_handler, clock> _wait_list;
-    expiry_handler make_expiry_handler() noexcept {
-        return [this] (entry& e) noexcept {
+    struct expiry_handler {
+        basic_semaphore& sem;
+        void operator()(entry& e) noexcept {
             try {
-                e.pr.set_exception(this->timeout());
+                e.pr.set_exception(sem.timeout());
             } catch (...) {
                 e.pr.set_exception(semaphore_timed_out());
             }
-        };
-    }
+        }
+    };
+    internal::abortable_fifo<entry, expiry_handler> _wait_list;
     bool has_available_units(size_t nr) const noexcept {
         return _count >= 0 && (static_cast<size_t>(_count) >= nr);
     }
@@ -148,12 +150,12 @@ public:
     basic_semaphore(size_t count) noexcept(std::is_nothrow_default_constructible_v<exception_factory>)
         : exception_factory()
         , _count(count),
-        _wait_list(make_expiry_handler())
+        _wait_list(expiry_handler{*this})
     {}
     basic_semaphore(size_t count, exception_factory&& factory) noexcept(std::is_nothrow_move_constructible_v<exception_factory>)
         : exception_factory(std::move(factory))
         , _count(count)
-        , _wait_list(make_expiry_handler())
+        , _wait_list(expiry_handler{*this})
     {
         static_assert(std::is_nothrow_move_constructible_v<expiry_handler>);
     }
@@ -191,14 +193,18 @@ public:
         if (_ex) {
             return make_exception_future(_ex);
         }
-        entry e(promise<>(), nr);
-        auto fut = e.pr.get_future();
         try {
-            _wait_list.push_back(std::move(e), timeout);
+            entry& e = _wait_list.emplace_back(promise<>(), nr);
+            auto f = e.pr.get_future();
+            if (timeout != time_point::max()) {
+                e.timer.emplace(timeout);
+                abort_source& as = e.timer->abort_source();
+                _wait_list.make_back_abortable(as);
+            }
+            return f;
         } catch (...) {
-            e.pr.set_exception(std::current_exception());
+            return make_exception_future(std::current_exception());
         }
-        return fut;
     }
 
     /// Waits until at least a specific number of units are available in the
