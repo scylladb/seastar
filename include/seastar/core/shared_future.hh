@@ -23,7 +23,9 @@
 #pragma once
 
 #include <seastar/core/future.hh>
-#include <seastar/core/expiring_fifo.hh>
+#include <seastar/core/abortable_fifo.hh>
+#include <seastar/core/abort_on_expiry.hh>
+#include <seastar/core/timed_out_error.hh>
 
 namespace seastar {
 
@@ -104,12 +106,21 @@ public:
     using promise_type = typename future_option_traits<T...>::template parametrize<promise>::type;
     using value_tuple_type = typename future_option_traits<T...>::template parametrize<std::tuple>::type;
 private:
-    using promise_expiry = typename future_option_traits<T...>::template parametrize<promise_expiry>::type;
-
     /// \cond internal
     class shared_state : public enable_lw_shared_from_this<shared_state> {
         future_type _original_future;
-        expiring_fifo<promise_type, promise_expiry, clock> _peers;
+        struct entry {
+            promise_type pr;
+            std::optional<abort_on_expiry<clock>> timer;
+        };
+
+        struct entry_expiry {
+            void operator()(entry& e) noexcept {
+                e.pr.set_exception(std::make_exception_ptr(timed_out_error()));
+            };
+        };
+
+        internal::abortable_fifo<entry, entry_expiry> _peers;
 
     public:
         ~shared_state() {
@@ -126,12 +137,12 @@ private:
             auto& state = _original_future._state;
             if (_original_future.failed()) {
                 while (_peers) {
-                    _peers.front().set_exception(state.get_exception());
+                    _peers.front().pr.set_exception(state.get_exception());
                     _peers.pop_front();
                 }
             } else {
                 while (_peers) {
-                    auto& p = _peers.front();
+                    auto& p = _peers.front().pr;
                     try {
                         p.set_value(state.get_value());
                     } catch (...) {
@@ -151,15 +162,20 @@ private:
             // failing to perform `get_future` itself.
             memory::scoped_critical_alloc_section _;
             if (!_original_future.available()) {
-                promise_type p;
-                auto f = p.get_future();
+                entry& e = _peers.emplace_back();
+
+                auto f = e.pr.get_future();
+                if (timeout != time_point::max()) {
+                    e.timer.emplace(timeout);
+                    abort_source& as = e.timer->abort_source();
+                   _peers.make_back_abortable(as);
+                }
                 if (_original_future._state.valid()) {
                     // _original_future's result is forwarded to each peer.
                     (void)_original_future.then_wrapped([s = this->shared_from_this()] (future_type&& f) mutable {
                         s->resolve(std::move(f));
                     });
                 }
-                _peers.push_back(std::move(p), timeout);
                 return f;
             } else if (_original_future.failed()) {
                 return future_type(exception_future_marker(), std::exception_ptr(_original_future._state.get_exception()));
