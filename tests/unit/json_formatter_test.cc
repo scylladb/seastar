@@ -36,7 +36,16 @@ SEASTAR_TEST_CASE(test_simple_values) {
     BOOST_CHECK_EQUAL("3.5", formatter::to_json(3.5));
     BOOST_CHECK_EQUAL("true", formatter::to_json(true));
     BOOST_CHECK_EQUAL("false", formatter::to_json(false));
-    BOOST_CHECK_EQUAL("\"apa\"", formatter::to_json("apa"));
+
+    BOOST_CHECK_EQUAL("\"apa\"", formatter::to_json("apa")); // to_json(const char*)
+    BOOST_CHECK_EQUAL("\"apa\"", formatter::to_json(sstring("apa"))); // to_json(const sstring&)
+    BOOST_CHECK_EQUAL("\"apa\"", formatter::to_json("apa", 3)); // to_json(const char*, size_t)
+
+    using namespace std::string_literals;
+    sstring str = "\0 COWA\bU\nGA [{\r}]\x1a"s,
+            expected = "\"\\u0000 COWA\\bU\\nGA [{\\r}]\\u001A\""s;
+    BOOST_CHECK_EQUAL(expected, formatter::to_json(str)); // to_json(const sstring&)
+    BOOST_CHECK_EQUAL(expected, formatter::to_json(str.c_str(), str.size())); // to_json(const char*, size_t)
 
     return make_ready_future();
 }
