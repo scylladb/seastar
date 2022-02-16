@@ -163,9 +163,18 @@ public:
     static sstring to_json(double d);
 
     /**
-     * return a json formatted char* (treated as string)
+     * return a json formatted char* (treated as string), possibly with zero-chars in the middle
+     * @param str the char* to format
+     * @param len number of bytes to read from the \p str
+     * @return the given char* in a json format
+     */
+    static sstring to_json(const char* str, size_t len);
+
+    /**
+     * return a json formatted char* (treated as string), assuming there are no zero-chars in the middle
      * @param str the char* to format
      * @return the given char* in a json format
+     * @deprecated A more robust overload should be preferred: \ref to_json(const char*, size_t)
      */
     static sstring to_json(const char* str);
 
