@@ -3744,7 +3744,9 @@ public:
                     if (ret < 0) {
                         throw std::runtime_error(fmt::format("Couldn't stat {}", d.mountpoint));
                     }
-                    if (_mountpoints.count(buf.st_dev)) {
+
+                    auto st_dev = S_ISBLK(buf.st_mode) ? buf.st_rdev : buf.st_dev;
+                    if (_mountpoints.count(st_dev)) {
                         throw std::runtime_error(fmt::format("Mountpoint {} already configured", d.mountpoint));
                     }
                     if (_mountpoints.size() >= reactor::max_queues) {
@@ -3756,8 +3758,8 @@ public:
                         throw std::runtime_error(fmt::format("R/W bytes and req rates must not be zero"));
                     }
 
-                    seastar_logger.debug("dev_id: {} mountpoint: {}", buf.st_dev, d.mountpoint);
-                    _mountpoints.emplace(buf.st_dev, d);
+                    seastar_logger.debug("dev_id: {} mountpoint: {}", st_dev, d.mountpoint);
+                    _mountpoints.emplace(st_dev, d);
                 }
             }
         }
