@@ -1195,7 +1195,7 @@ cpu_stall_detector_linux_perf_event::~cpu_stall_detector_linux_perf_event() {
 void
 cpu_stall_detector_linux_perf_event::arm_timer() {
     uint64_t ns = (_threshold * _report_at + _slack) / 1ns;
-    if (_enabled && _current_period == ns) [[likely]] {
+    if (__builtin_expect(_enabled && _current_period == ns, 1)) {
         // Common case - we're re-arming with the same period, the counter
         // is already enabled.
         _fd.ioctl(PERF_EVENT_IOC_RESET, 0);
