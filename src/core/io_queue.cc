@@ -88,6 +88,8 @@ public:
         , _starvation_time(0)
     {
     }
+    priority_class_data(const priority_class_data&) = delete;
+    priority_class_data(priority_class_data&&) = delete;
 
     void on_queue() noexcept {
         _nr_queued++;

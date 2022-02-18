@@ -175,6 +175,8 @@ class fair_queue::priority_class_data {
 
 public:
     explicit priority_class_data(uint32_t shares) noexcept : _shares(std::max(shares, 1u)) {}
+    priority_class_data(const priority_class_data&) = delete;
+    priority_class_data(priority_class_data&&) = delete;
 
     void update_shares(uint32_t shares) noexcept {
         _shares = (std::max(shares, 1u));
