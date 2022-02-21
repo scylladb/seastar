@@ -26,6 +26,7 @@
 #include <seastar/core/circular_buffer.hh>
 #include <seastar/util/noncopyable_function.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/core/metrics.hh>
 #include <queue>
 #include <chrono>
 #include <unordered_set>
@@ -94,9 +95,9 @@ uint64_t wrapping_difference(const uint64_t& a, const uint64_t& b) noexcept {
 }
 
 fair_group::fair_group(config cfg)
-        : _cost_capacity(cfg.weight_rate / std::chrono::duration_cast<rate_resolution>(std::chrono::seconds(1)).count(), cfg.size_rate / std::chrono::duration_cast<rate_resolution>(std::chrono::seconds(1)).count())
+        : _cost_capacity(cfg.weight_rate / rate_cast(std::chrono::seconds(1)).count(), cfg.size_rate / rate_cast(std::chrono::seconds(1)).count())
         , _replenish_rate(cfg.rate_factor * fixed_point_factor)
-        , _replenish_limit(_replenish_rate * std::chrono::duration_cast<rate_resolution>(cfg.rate_limit_duration).count())
+        , _replenish_limit(_replenish_rate * rate_cast(cfg.rate_limit_duration).count())
         , _replenish_threshold(std::max((capacity_t)1, ticket_capacity(fair_queue_ticket(cfg.min_weight, cfg.min_size))))
         , _replenished(clock_type::now())
         , _capacity_tail(0)
@@ -168,11 +169,14 @@ class fair_queue::priority_class_data {
     friend class fair_queue;
     uint32_t _shares = 0;
     capacity_t _accumulated = 0;
+    capacity_t _pure_accumulated = 0;
     fair_queue_entry::container_list_t _queue;
     bool _queued = false;
 
 public:
     explicit priority_class_data(uint32_t shares) noexcept : _shares(std::max(shares, 1u)) {}
+    priority_class_data(const priority_class_data&) = delete;
+    priority_class_data(priority_class_data&&) = delete;
 
     void update_shares(uint32_t shares) noexcept {
         _shares = (std::max(shares, 1u));
@@ -388,7 +392,8 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         // unrestricted queue it can be as low as 2k. With large enough shares this
         // has chances to be translated into zero cost which, in turn, will make the
         // class show no progress and monopolize the queue.
-        auto req_cost  = std::max(_group.ticket_capacity(req._ticket) / h._shares, (capacity_t)1);
+        auto req_cap = _group.ticket_capacity(req._ticket);
+        auto req_cost  = std::max(req_cap / h._shares, (capacity_t)1);
         // signed overflow check to make push_priority_class_from_idle math work
         if (h._accumulated >= std::numeric_limits<signed_capacity_t>::max() - req_cost) {
             for (auto& pc : _priority_classes) {
@@ -403,6 +408,7 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
             _last_accumulated = 0;
         }
         h._accumulated += req_cost;
+        h._pure_accumulated += req_cap;
 
         if (!h._queue.empty()) {
             push_priority_class(h);
@@ -411,6 +417,19 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         dispatched += _group.ticket_capacity(req._ticket);
         cb(req);
     }
+}
+
+std::vector<seastar::metrics::impl::metric_definition_impl> fair_queue::metrics(class_id c) {
+    namespace sm = seastar::metrics;
+    priority_class_data& pc = *_priority_classes[c];
+    return std::vector<sm::impl::metric_definition_impl>({
+            sm::make_derive("consumption",
+                    [&pc] { return fair_group::capacity_tokens(pc._pure_accumulated); },
+                    sm::description("Accumulated disk capacity units consumed by this class; an increment per-second rate indicates full utilization")),
+            sm::make_derive("adjusted_consumption",
+                    [&pc] { return fair_group::capacity_tokens(pc._accumulated); },
+                    sm::description("Consumed disk capacity units adjusted for class shares and idling preemption")),
+    });
 }
 
 }

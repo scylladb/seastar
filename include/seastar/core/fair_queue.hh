@@ -25,6 +25,7 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/circular_buffer.hh>
+#include <seastar/core/metrics_registration.hh>
 #include <functional>
 #include <atomic>
 #include <queue>
@@ -220,8 +221,13 @@ private:
     capacity_t fetch_add(fair_group_atomic_rover& rover, capacity_t cap) noexcept;
 
     template <typename Rep, typename Period>
+    static auto rate_cast(const std::chrono::duration<Rep, Period> delta) noexcept {
+        return std::chrono::duration_cast<rate_resolution>(delta);
+    }
+
+    template <typename Rep, typename Period>
     capacity_t accumulated_capacity(const std::chrono::duration<Rep, Period> delta) const noexcept {
-       auto delta_at_rate = std::chrono::duration_cast<rate_resolution>(delta);
+       auto delta_at_rate = rate_cast(delta);
        return std::round(_replenish_rate * delta_at_rate.count());
     }
 
@@ -241,6 +247,11 @@ public:
 
     using rate_resolution = std::chrono::duration<double, std::milli>;
     static constexpr float fixed_point_factor = float(1 << 24);
+
+    // Convert internal capacity value back into the real token
+    static double capacity_tokens(capacity_t cap) noexcept {
+        return (double)cap / fixed_point_factor / rate_cast(std::chrono::seconds(1)).count();
+    }
 
     // Estimated time to process the given amount of capacity
     // (peer of accumulated_capacity() helper)
@@ -361,6 +372,8 @@ public:
     fair_queue(fair_queue&&);
     ~fair_queue();
 
+    sstring label() const noexcept { return _config.label; }
+
     /// Registers a priority class against this fair queue.
     ///
     /// \param shares how many shares to create this class with
@@ -402,6 +415,8 @@ public:
     void dispatch_requests(std::function<void(fair_queue_entry&)> cb);
 
     clock_type::time_point next_pending_aio() const noexcept;
+
+    std::vector<seastar::metrics::impl::metric_definition_impl> metrics(class_id c);
 };
 /// @}
 
