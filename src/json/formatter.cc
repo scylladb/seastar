@@ -22,6 +22,7 @@
 #include <seastar/json/formatter.hh>
 #include <seastar/json/json_elements.hh>
 #include <cmath>
+#include <algorithm>
 
 namespace seastar {
 
@@ -45,16 +46,70 @@ sstring formatter::end(state s) {
     }
 }
 
+static inline bool is_control_char(char c) {
+    return c >= 0 && c <= 0x1F;
+}
+
+static bool needs_escaping(const string_view& str) {
+    return std::any_of(str.begin(), str.end(), [] (char c) {
+        return is_control_char(c) || c == '"' || c == '\\';
+    });
+}
+
+static sstring string_view_to_json(const string_view& str) {
+    if (!needs_escaping(str)) {
+        return format("\"{}\"", str);
+    }
+
+    ostringstream oss;
+    oss << std::hex << std::uppercase << std::setfill('0');
+    oss.put('"');
+    for (char c : str) {
+        switch (c) {
+        case '"':
+            oss.put('\\').put('"');
+            break;
+        case '\\':
+            oss.put('\\').put('\\');
+            break;
+        case '\b':
+            oss.put('\\').put('b');
+            break;
+        case '\f':
+            oss.put('\\').put('f');
+            break;
+        case '\n':
+            oss.put('\\').put('n');
+            break;
+        case '\r':
+            oss.put('\\').put('r');
+            break;
+        case '\t':
+            oss.put('\\').put('t');
+            break;
+        default:
+            if (is_control_char(c)) {
+                oss.put('\\').put('u') << std::setw(4) << static_cast<int>(c);
+            } else {
+                oss.put(c);
+            }
+            break;
+        }
+    }
+    oss.put('"');
+    return oss.str();
+}
 
 sstring formatter::to_json(const sstring& str) {
-    return to_json(str.c_str());
+    return string_view_to_json(str);
 }
 
 sstring formatter::to_json(const char* str) {
-    sstring res = "\"";
-    res += str;
-    res += "\"";
-    return res;
+    return string_view_to_json(str);
+}
+
+sstring formatter::to_json(const char* str, size_t len) {
+    return string_view_to_json(string_view{str, len});
 }
 
 sstring formatter::to_json(int n) {

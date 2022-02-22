@@ -121,63 +121,72 @@ class formatter {
 public:
 
     /**
-     * return a json formated string
+     * return a json formatted string
      * @param str the string to format
      * @return the given string in a json format
      */
     static sstring to_json(const sstring& str);
 
     /**
-     * return a json formated int
+     * return a json formatted int
      * @param n the int to format
      * @return the given int in a json format
      */
     static sstring to_json(int n);
 
     /**
-     * return a json formated unsigned
+     * return a json formatted unsigned
      * @param n the unsigned to format
      * @return the given unsigned in a json format
      */
     static sstring to_json(unsigned n);
 
     /**
-     * return a json formated long
+     * return a json formatted long
      * @param n the long to format
      * @return the given long in a json format
      */
     static sstring to_json(long n);
 
     /**
-     * return a json formated float
+     * return a json formatted float
      * @param f the float to format
      * @return the given float in a json format
      */
     static sstring to_json(float f);
 
     /**
-     * return a json formated double
+     * return a json formatted double
      * @param d the double to format
      * @return the given double in a json format
      */
     static sstring to_json(double d);
 
     /**
-     * return a json formated char* (treated as string)
-     * @param str the char* to foramt
-     * @return the given char* in a json foramt
+     * return a json formatted char* (treated as string), possibly with zero-chars in the middle
+     * @param str the char* to format
+     * @param len number of bytes to read from the \p str
+     * @return the given char* in a json format
+     */
+    static sstring to_json(const char* str, size_t len);
+
+    /**
+     * return a json formatted char* (treated as string), assuming there are no zero-chars in the middle
+     * @param str the char* to format
+     * @return the given char* in a json format
+     * @deprecated A more robust overload should be preferred: \ref to_json(const char*, size_t)
      */
     static sstring to_json(const char* str);
 
     /**
-     * return a json formated bool
+     * return a json formatted bool
      * @param d the bool to format
      * @return the given bool in a json format
      */
     static sstring to_json(bool d);
 
     /**
-     * return a json formated list of a given vector of params
+     * return a json formatted list of a given vector of params
      * @param vec the vector to format
      * @return the given vector in a json format
      */
@@ -197,21 +206,21 @@ public:
     }
 
     /**
-     * return a json formated date_time
+     * return a json formatted date_time
      * @param d the date_time to format
      * @return the given date_time in a json format
      */
     static sstring to_json(const date_time& d);
 
     /**
-     * return a json formated json object
+     * return a json formatted json object
      * @param obj the date_time to format
      * @return the given json object in a json format
      */
     static sstring to_json(const jsonable& obj);
 
     /**
-     * return a json formated unsigned long
+     * return a json formatted unsigned long
      * @param l unsigned long to format
      * @return the given unsigned long in a json format
      */
@@ -220,7 +229,7 @@ public:
 
 
     /**
-     * return a json formated string
+     * return a json formatted string
      * @param str the string to format
      * @return the given string in a json format
      */
@@ -229,7 +238,7 @@ public:
     }
 
     /**
-     * return a json formated int
+     * return a json formatted int
      * @param n the int to format
      * @return the given int in a json format
      */
@@ -238,7 +247,7 @@ public:
     }
 
     /**
-     * return a json formated long
+     * return a json formatted long
      * @param n the long to format
      * @return the given long in a json format
      */
@@ -247,7 +256,7 @@ public:
     }
 
     /**
-     * return a json formated float
+     * return a json formatted float
      * @param f the float to format
      * @return the given float in a json format
      */
@@ -256,7 +265,7 @@ public:
     }
 
     /**
-     * return a json formated double
+     * return a json formatted double
      * @param d the double to format
      * @return the given double in a json format
      */
@@ -265,16 +274,16 @@ public:
     }
 
     /**
-     * return a json formated char* (treated as string)
-     * @param str the char* to foramt
-     * @return the given char* in a json foramt
+     * return a json formatted char* (treated as string)
+     * @param str the char* to format
+     * @return the given char* in a json format
      */
     static future<> write(output_stream<char>& s, const char* str) {
         return s.write(to_json(str));
     }
 
     /**
-     * return a json formated bool
+     * return a json formatted bool
      * @param d the bool to format
      * @return the given bool in a json format
      */
@@ -283,7 +292,7 @@ public:
     }
 
     /**
-     * return a json formated list of a given vector of params
+     * return a json formatted list of a given vector of params
      * @param vec the vector to format
      * @return the given vector in a json format
      */
@@ -303,7 +312,7 @@ public:
     }
 
     /**
-     * return a json formated date_time
+     * return a json formatted date_time
      * @param d the date_time to format
      * @return the given date_time in a json format
      */
@@ -312,7 +321,7 @@ public:
      }
 
     /**
-     * return a json formated json object
+     * return a json formatted json object
      * @param obj the date_time to format
      * @return the given json object in a json format
      */
@@ -321,7 +330,7 @@ public:
      }
 
     /**
-     * return a json formated unsigned long
+     * return a json formatted unsigned long
      * @param l unsigned long to format
      * @return the given unsigned long in a json format
      */
