@@ -412,7 +412,7 @@ io_group::io_group(io_queue::config io_cfg)
     update_max_size(io_direction_and_length::write_idx);
     update_max_size(io_direction_and_length::read_idx);
 
-    seastar_logger.info("Created io group, length limit {}:{}, rate {}:{}",
+    seastar_logger.info("Created io group dev({}), length limit {}:{}, rate {}:{}", _config.devid,
             _max_request_length[io_direction_and_length::read_idx],
             _max_request_length[io_direction_and_length::write_idx],
             _config.req_count_rate, _config.blocks_count_rate);
