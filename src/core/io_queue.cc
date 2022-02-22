@@ -642,13 +642,14 @@ stream_id io_queue::request_stream(io_direction_and_length dnl) const noexcept {
 fair_queue_ticket io_queue::request_fq_ticket(io_direction_and_length dnl) const noexcept {
     unsigned weight;
     size_t size;
+    const auto& cfg = get_config();
 
     if (dnl.is_write()) {
-        weight = get_config().disk_req_write_to_read_multiplier;
-        size = get_config().disk_blocks_write_to_read_multiplier * (dnl.length() >> block_size_shift);
+        weight = cfg.disk_req_write_to_read_multiplier;
+        size = cfg.disk_blocks_write_to_read_multiplier * (dnl.length() >> io_queue::block_size_shift);
     } else {
         weight = io_queue::read_request_base_count;
-        size = io_queue::read_request_base_count * (dnl.length() >> block_size_shift);
+        size = io_queue::read_request_base_count * (dnl.length() >> io_queue::block_size_shift);
     }
 
     static thread_local size_t oversize_warning_threshold = 0;
