@@ -115,6 +115,7 @@ fair_group::fair_group(config cfg)
 }
 
 auto fair_group::grab_capacity(capacity_t cap) noexcept -> capacity_t {
+    assert(cap <= _replenish_limit);
     return fetch_add(_capacity_tail, cap);
 }
 
