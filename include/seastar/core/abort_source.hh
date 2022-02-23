@@ -113,7 +113,8 @@ public:
     /// Requests that the target operation be aborted. Current subscriptions
     /// are invoked inline with this call, and no new ones can be registered.
     void request_abort() {
-        std::exchange(_subscriptions, std::nullopt)->clear_and_dispose([] (subscription* s) { s->on_abort(); });
+        _subscriptions->clear_and_dispose([] (subscription* s) { s->on_abort(); });
+        _subscriptions = { };
     }
 
     /// Returns whether an abort has been requested.

@@ -289,9 +289,6 @@ seastar_add_test (execution_stage
 seastar_add_test (expiring_fifo
   SOURCES expiring_fifo_test.cc)
 
-seastar_add_test (abortable_fifo
-  SOURCES abortable_fifo_test.cc)
-
 seastar_add_test (io_queue
   SOURCES io_queue_test.cc)
 

@@ -27,23 +27,10 @@
 #include <exception>
 #include <optional>
 #include <seastar/core/timer.hh>
-#include <seastar/core/abortable_fifo.hh>
+#include <seastar/core/expiring_fifo.hh>
 #include <seastar/core/timed_out_error.hh>
-#include <seastar/core/abort_on_expiry.hh>
 
 namespace seastar {
-
-namespace internal {
-// Test if a class T has member function broken()
-template <typename T>
-class has_broken {
-    template <typename U> constexpr static bool check(decltype(&U::broken)) { return true; }
-    template <typename U> constexpr static bool check(...) { return false; }
-
-public:
-    constexpr static bool value = check<T>(nullptr);
-};
-}
 
 /// \addtogroup fiber-module
 /// @{
@@ -128,32 +115,19 @@ private:
     struct entry {
         promise<> pr;
         size_t nr;
-        std::optional<abort_on_expiry<clock>> timer;
         entry(promise<>&& pr_, size_t nr_) noexcept : pr(std::move(pr_)), nr(nr_) {}
     };
-    struct expiry_handler {
-        basic_semaphore& sem;
-        void operator()(entry& e) noexcept {
-            if (e.timer) {
-                try {
-                    e.pr.set_exception(sem.timeout());
-                } catch (...) {
-                    e.pr.set_exception(semaphore_timed_out());
-                }
-            } else {
-                if constexpr (internal::has_broken<exception_factory>::value) {
-                    try {
-                        e.pr.set_exception(static_cast<exception_factory>(sem).broken());
-                    } catch (...) {
-                        e.pr.set_exception(broken_semaphore());
-                    }
-                } else {
-                    e.pr.set_exception(broken_semaphore());
-                }
+    using expiry_handler = std::function<void (entry&)>;
+    expiring_fifo<entry, expiry_handler, clock> _wait_list;
+    expiry_handler make_expiry_handler() noexcept {
+        return [this] (entry& e) noexcept {
+            try {
+                e.pr.set_exception(this->timeout());
+            } catch (...) {
+                e.pr.set_exception(semaphore_timed_out());
             }
-        }
-    };
-    internal::abortable_fifo<entry, expiry_handler> _wait_list;
+        };
+    }
     bool has_available_units(size_t nr) const noexcept {
         return _count >= 0 && (static_cast<size_t>(_count) >= nr);
     }
@@ -174,12 +148,12 @@ public:
     basic_semaphore(size_t count) noexcept(std::is_nothrow_default_constructible_v<exception_factory>)
         : exception_factory()
         , _count(count),
-        _wait_list(expiry_handler{*this})
+        _wait_list(make_expiry_handler())
     {}
     basic_semaphore(size_t count, exception_factory&& factory) noexcept(std::is_nothrow_move_constructible_v<exception_factory>)
         : exception_factory(std::move(factory))
         , _count(count)
-        , _wait_list(expiry_handler{*this})
+        , _wait_list(make_expiry_handler())
     {
         static_assert(std::is_nothrow_move_constructible_v<expiry_handler>);
     }
@@ -217,50 +191,14 @@ public:
         if (_ex) {
             return make_exception_future(_ex);
         }
+        entry e(promise<>(), nr);
+        auto fut = e.pr.get_future();
         try {
-            entry& e = _wait_list.emplace_back(promise<>(), nr);
-            auto f = e.pr.get_future();
-            if (timeout != time_point::max()) {
-                e.timer.emplace(timeout);
-                abort_source& as = e.timer->abort_source();
-                _wait_list.make_back_abortable(as);
-            }
-            return f;
+            _wait_list.push_back(std::move(e), timeout);
         } catch (...) {
-            return make_exception_future(std::current_exception());
+            e.pr.set_exception(std::current_exception());
         }
-    }
-
-    /// Waits until at least a specific number of units are available in the
-    /// counter, and reduces the counter by that amount of units.  If the request
-    /// cannot be satisfied in time, the request is aborted.
-    ///
-    /// \note Waits are serviced in FIFO order, though if several are awakened
-    ///       at once, they may be reordered by the scheduler.
-    ///
-    /// \param as abort source.
-    /// \param nr Amount of units to wait for (default 1).
-    /// \return a future that becomes ready when sufficient units are available
-    ///         to satisfy the request.  On abort, the future contains a
-    ///         \ref broken_semaphore exception.  If the semaphore was
-    ///         \ref broken(), may contain an exception.
-    future<> wait(abort_source& as, size_t nr = 1) noexcept {
-        if (may_proceed(nr)) {
-            _count -= nr;
-            return make_ready_future<>();
-        }
-        if (_ex) {
-            return make_exception_future(_ex);
-        }
-        try {
-            entry& e = _wait_list.emplace_back(promise<>(), nr);
-            // taking future here since make_back_abortable may expire the entry
-            auto f = e.pr.get_future();
-            _wait_list.make_back_abortable(as);
-            return f;
-        } catch (...) {
-            return make_exception_future(std::current_exception());
-        }
+        return fut;
     }
 
     /// Waits until at least a specific number of units are available in the

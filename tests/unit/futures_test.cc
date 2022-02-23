@@ -1340,11 +1340,6 @@ SEASTAR_TEST_CASE(test_with_timeout_when_it_does_not_time_out) {
     });
 }
 
-template<typename... T>
-static void check_aborted(future<T...>&& f) {
-    check_failed_with<abort_requested_exception>(std::move(f));
-}
-
 SEASTAR_TEST_CASE(test_shared_future_with_timeout) {
     return seastar::async([] {
         shared_promise<with_clock<manual_clock>, int> pr;
@@ -1373,37 +1368,6 @@ SEASTAR_TEST_CASE(test_shared_future_with_timeout) {
 
         BOOST_REQUIRE_EQUAL(42, f3.get0());
     });
-}
-
-SEASTAR_THREAD_TEST_CASE(test_shared_future_with_abort) {
-    abort_source as;
-    abort_source as2;
-    shared_promise<with_clock<manual_clock>, int> pr;
-    auto f1 = pr.get_shared_future(as);
-    auto f2 = pr.get_shared_future(as2);
-    auto f3 = pr.get_shared_future();
-
-    BOOST_REQUIRE(!f1.available());
-    BOOST_REQUIRE(!f2.available());
-    BOOST_REQUIRE(!f3.available());
-
-    as.request_abort();
-
-    check_aborted(std::move(f1));
-    BOOST_REQUIRE(!f2.available());
-    BOOST_REQUIRE(!f3.available());
-
-    as2.request_abort();
-
-    check_aborted(std::move(f2));
-    BOOST_REQUIRE(!f3.available());
-
-    pr.set_value(42);
-
-    BOOST_REQUIRE_EQUAL(42, f3.get0());
-
-    auto f4 = pr.get_shared_future(as);
-    BOOST_REQUIRE(f4.available());
 }
 
 #if SEASTAR_API_LEVEL < 4
