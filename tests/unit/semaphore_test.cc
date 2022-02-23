@@ -329,3 +329,29 @@ SEASTAR_THREAD_TEST_CASE(test_named_semaphore_timeout) {
         BOOST_FAIL("Expected an instance of named_semaphore_timed_out with proper semaphore name");
     }
 }
+
+SEASTAR_THREAD_TEST_CASE(test_semaphore_abort_after_wait) {
+    auto sem = semaphore(0);
+    abort_source as;
+    int x = 0;
+    auto fut1 = sem.wait(as).then([&x] {
+        x++;
+    });
+    as.request_abort();
+    sem.signal();
+    BOOST_CHECK_THROW(fut1.get(), broken_semaphore);
+    BOOST_REQUIRE_EQUAL(x, 0);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_semaphore_abort_before_wait) {
+    auto sem = semaphore(0);
+    abort_source as;
+    int x = 0;
+    as.request_abort();
+    auto fut1 = sem.wait(as).then([&x] {
+        x++;
+    });
+    sem.signal();
+    BOOST_CHECK_THROW(fut1.get(), broken_semaphore);
+    BOOST_REQUIRE_EQUAL(x, 0);
+}
