@@ -469,7 +469,7 @@ protected:
 
     future<size_t> on_io_completed(future<size_t> f) {
         if (!_is_dev_null) {
-            return std::move(f);
+            return f;
         }
 
         return f.then([this] (auto size_f) {
