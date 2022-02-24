@@ -199,7 +199,7 @@ class io_desc_read_write final : public io_completion {
     io_queue::priority_class_data& _pclass;
     io_queue::clock_type::time_point _dispatched;
     const stream_id _stream;
-    fair_queue_ticket _fq_ticket;
+    const fair_queue_ticket _fq_ticket;
     promise<size_t> _pr;
 
 public:
