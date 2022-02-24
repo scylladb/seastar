@@ -28,8 +28,6 @@
 #include <seastar/core/future.hh>
 #include <seastar/core/internal/io_request.hh>
 #include <seastar/util/spinlock.hh>
-#include <mutex>
-#include <array>
 
 struct io_queue_for_tests;
 
@@ -56,7 +54,6 @@ struct iocb;
 using shard_id = unsigned;
 using stream_id = unsigned;
 
-class io_priority_class;
 class io_desc_read_write;
 class queued_io_request;
 class io_group;
