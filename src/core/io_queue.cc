@@ -235,6 +235,7 @@ public:
     }
 
     void dispatch(io_direction_and_length dnl) noexcept {
+        io_log.trace("dev {} : req {} submit", _ioq.dev_id(), fmt::ptr(this));
         auto now = io_queue::clock_type::now();
         _pclass.on_dispatch(dnl, std::chrono::duration_cast<std::chrono::duration<double>>(now - _ts));
         _ts = now;
@@ -279,7 +280,6 @@ public:
             return;
         }
 
-        io_log.trace("dev {} : req {} submit", _ioq.dev_id(), fmt::ptr(&*_desc));
         _intent.maybe_dequeue();
         _desc->dispatch(_dnl);
         _ioq.submit_request(_desc.release(), std::move(*this));
