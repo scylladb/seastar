@@ -351,9 +351,9 @@ private:
      */
     struct pending {
         capacity_t head;
-        fair_queue_ticket ticket;
+        capacity_t cap;
 
-        pending(capacity_t t, fair_queue_ticket c) noexcept : head(t), ticket(c) {}
+        pending(capacity_t t, capacity_t c) noexcept : head(t), cap(c) {}
     };
 
     std::optional<pending> _pending;

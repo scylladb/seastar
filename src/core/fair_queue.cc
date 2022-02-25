@@ -251,10 +251,10 @@ auto fair_queue::grab_pending_capacity(const fair_queue_entry& ent) noexcept -> 
         return grab_result::pending;
     }
 
-    if (ent._ticket == _pending->ticket) {
+    capacity_t cap = _group.ticket_capacity(ent._ticket);
+    if (cap == _pending->cap) {
         _pending.reset();
     } else {
-        capacity_t cap = _group.ticket_capacity(ent._ticket);
         /*
          * This branch is called when the fair queue decides to
          * submit not the same request that entered it into the
@@ -276,7 +276,7 @@ auto fair_queue::grab_capacity(const fair_queue_entry& ent) noexcept -> grab_res
     capacity_t cap = _group.ticket_capacity(ent._ticket);
     capacity_t want_head = _group.grab_capacity(cap) + cap;
     if (_group.capacity_deficiency(want_head)) {
-        _pending.emplace(want_head, ent._ticket);
+        _pending.emplace(want_head, cap);
         return grab_result::pending;
     }
 
