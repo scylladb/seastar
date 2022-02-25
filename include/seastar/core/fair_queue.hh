@@ -362,8 +362,9 @@ private:
     void push_priority_class_from_idle(priority_class_data& pc);
     void pop_priority_class(priority_class_data& pc);
 
-    bool grab_capacity(const fair_queue_entry& ent) noexcept;
-    bool grab_pending_capacity(const fair_queue_entry& ent) noexcept;
+    enum class grab_result { grabbed, pending };
+    grab_result grab_capacity(const fair_queue_entry& ent) noexcept;
+    grab_result grab_pending_capacity(const fair_queue_entry& ent) noexcept;
 public:
     /// Constructs a fair queue with configuration parameters \c cfg.
     ///

@@ -244,11 +244,11 @@ void fair_queue::pop_priority_class(priority_class_data& pc) {
     _handles.pop();
 }
 
-bool fair_queue::grab_pending_capacity(const fair_queue_entry& ent) noexcept {
+auto fair_queue::grab_pending_capacity(const fair_queue_entry& ent) noexcept -> grab_result {
     _group.maybe_replenish_capacity(_group_replenish);
 
     if (_group.capacity_deficiency(_pending->head)) {
-        return false;
+        return grab_result::pending;
     }
 
     if (ent._ticket == _pending->ticket) {
@@ -265,10 +265,10 @@ bool fair_queue::grab_pending_capacity(const fair_queue_entry& ent) noexcept {
         _pending->head += cap;
     }
 
-    return true;
+    return grab_result::grabbed;
 }
 
-bool fair_queue::grab_capacity(const fair_queue_entry& ent) noexcept {
+auto fair_queue::grab_capacity(const fair_queue_entry& ent) noexcept -> grab_result {
     if (_pending) {
         return grab_pending_capacity(ent);
     }
@@ -277,10 +277,10 @@ bool fair_queue::grab_capacity(const fair_queue_entry& ent) noexcept {
     capacity_t want_head = _group.grab_capacity(cap) + cap;
     if (_group.capacity_deficiency(want_head)) {
         _pending.emplace(want_head, ent._ticket);
-        return false;
+        return grab_result::pending;
     }
 
-    return true;
+    return grab_result::grabbed;
 }
 
 void fair_queue::register_priority_class(class_id id, uint32_t shares) {
@@ -375,7 +375,8 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         }
 
         auto& req = h._queue.front();
-        if (!grab_capacity(req)) {
+        auto gr = grab_capacity(req);
+        if (gr == grab_result::pending) {
             break;
         }
 
