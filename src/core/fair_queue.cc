@@ -19,6 +19,7 @@
  * Copyright 2019 ScyllaDB
  */
 
+#include <boost/container/small_vector.hpp>
 #include <boost/intrusive/parent_from_member.hpp>
 #include <seastar/core/fair_queue.hh>
 #include <seastar/core/future.hh>
@@ -252,19 +253,15 @@ auto fair_queue::grab_pending_capacity(const fair_queue_entry& ent) noexcept -> 
     }
 
     capacity_t cap = _group.ticket_capacity(ent._ticket);
-    if (cap == _pending->cap) {
-        _pending.reset();
-    } else {
-        /*
-         * This branch is called when the fair queue decides to
-         * submit not the same request that entered it into the
-         * pending state and this new request crawls through the
-         * expected head value.
-         */
-        _group.grab_capacity(cap);
-        _pending->head += cap;
+    if (cap > _pending->cap) {
+        return grab_result::cant_preempt;
     }
 
+    if (cap < _pending->cap) {
+        _group.release_capacity(_pending->cap - cap); // FIXME -- replenish right at once?
+    }
+
+    _pending.reset();
     return grab_result::grabbed;
 }
 
@@ -366,6 +363,7 @@ fair_queue::clock_type::time_point fair_queue::next_pending_aio() const noexcept
 
 void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
     capacity_t dispatched = 0;
+    boost::container::small_vector<priority_class_ptr, 2> preempt;
 
     while (!_handles.empty() && (dispatched < _group.maximum_capacity() / smp::count)) {
         priority_class_data& h = *_handles.top();
@@ -378,6 +376,12 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         auto gr = grab_capacity(req);
         if (gr == grab_result::pending) {
             break;
+        }
+
+        if (gr == grab_result::cant_preempt) {
+            pop_priority_class(h);
+            preempt.emplace_back(&h);
+            continue;
         }
 
         _last_accumulated = std::max(h._accumulated, _last_accumulated);
@@ -417,6 +421,10 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
 
         dispatched += _group.ticket_capacity(req._ticket);
         cb(req);
+    }
+
+    for (auto&& h : preempt) {
+        push_priority_class(*h);
     }
 }
 
