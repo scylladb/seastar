@@ -36,11 +36,25 @@ int main(int argc, char** argv) {
     seastar::app_template app;
     app.run(argc, argv, [] () -> seastar::future<> {
         return async([] {
-            websocket::server ws;
-            ws.register_handler("echo", [] (temporary_buffer<char> &&buf, output_stream<char> &write_buf) {
-                return write_buf.write(std::move(buf));
+            static websocket::server ws;
+            ws.register_handler("echo", [] (input_stream<char>& in,
+                        output_stream<char>& out) {
+                return repeat([&in, &out]() {
+                    return in.read().then([&out](temporary_buffer<char> f) {
+                        std::cerr << "f.size(): " << f.size() << "\n";
+                        if (f.empty()) {
+                            return make_ready_future<stop_iteration>(stop_iteration::yes);
+                        } else {
+                            return out.write(std::move(f)).then([&out]() {
+                                return out.flush().then([] {
+                                    return make_ready_future<stop_iteration>(stop_iteration::no);
+                                });
+                            });
+                        }
+                    });
+                });
             });
-            auto d = defer([&ws] () noexcept {
+            auto d = defer([] () noexcept {
                 ws.stop().get();
             });
             ws.listen(socket_address(ipv4_addr("127.0.0.1", 8123)));
