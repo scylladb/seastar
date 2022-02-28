@@ -120,7 +120,7 @@ static inline size_t get_last_set(const std::bitset<N>& bitset) noexcept
 }
 
 template<size_t N>
-class set_iterator : public std::iterator<std::input_iterator_tag, int>
+class set_iterator
 {
 private:
     void advance() noexcept
@@ -134,6 +134,12 @@ private:
         }
     }
 public:
+    using iterator_category = std::input_iterator_tag;
+    using value_type = int;
+    using difference_type = std::ptrdiff_t;
+    using pointer = int*;
+    using reference = int&;
+
     set_iterator(std::bitset<N> bitset, int offset = 0) noexcept
         : _bitset(bitset)
         , _index(offset - 1)

@@ -124,8 +124,12 @@ private:
     size_t mask(size_t idx) const;
 
     template<typename CB, typename ValueType>
-    struct cbiterator : std::iterator<std::random_access_iterator_tag, ValueType> {
-        typedef std::iterator<std::random_access_iterator_tag, ValueType> super_t;
+    struct cbiterator {
+        using iterator_category = std::random_access_iterator_tag;
+        using value_type = ValueType;
+        using difference_type = std::ptrdiff_t;
+        using pointer = ValueType*;
+        using reference = ValueType&;
 
         ValueType& operator*() const noexcept { return cb->_impl.storage[cb->mask(idx)]; }
         ValueType* operator->() const noexcept { return &cb->_impl.storage[cb->mask(idx)]; }
@@ -151,17 +155,17 @@ private:
             idx--;
             return v;
         }
-        cbiterator<CB, ValueType> operator+(typename super_t::difference_type n) const noexcept {
+        cbiterator<CB, ValueType> operator+(difference_type n) const noexcept {
             return cbiterator<CB, ValueType>(cb, idx + n);
         }
-        cbiterator<CB, ValueType> operator-(typename super_t::difference_type n) const noexcept {
+        cbiterator<CB, ValueType> operator-(difference_type n) const noexcept {
             return cbiterator<CB, ValueType>(cb, idx - n);
         }
-        cbiterator<CB, ValueType>& operator+=(typename super_t::difference_type n) noexcept {
+        cbiterator<CB, ValueType>& operator+=(difference_type n) noexcept {
             idx += n;
             return *this;
         }
-        cbiterator<CB, ValueType>& operator-=(typename super_t::difference_type n) noexcept {
+        cbiterator<CB, ValueType>& operator-=(difference_type n) noexcept {
             idx -= n;
             return *this;
         }
@@ -183,7 +187,7 @@ private:
         bool operator<=(const cbiterator<CB, ValueType>& rhs) const noexcept {
             return idx <= rhs.idx;
         }
-       typename super_t::difference_type operator-(const cbiterator<CB, ValueType>& rhs) const noexcept {
+       difference_type operator-(const cbiterator<CB, ValueType>& rhs) const noexcept {
             return idx - rhs.idx;
         }
     private:
