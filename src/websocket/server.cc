@@ -410,6 +410,10 @@ void connection::shutdown() {
     _fd.shutdown_output();
 }
 
+future<> connection::close() {
+    return this->close(true);
+}
+
 bool server::is_handler_registered(std::string const& name) {
     return _handlers.find(name) != _handlers.end();
 }
