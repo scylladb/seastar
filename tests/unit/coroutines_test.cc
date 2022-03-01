@@ -25,6 +25,7 @@
 #include <seastar/testing/test_case.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/util/later.hh>
+#include <seastar/core/thread.hh>
 
 using namespace seastar;
 using namespace std::chrono_literals;
@@ -195,6 +196,57 @@ SEASTAR_TEST_CASE(test_switch_to) {
 
     co_await destroy_scheduling_group(other_sg1);
     co_await destroy_scheduling_group(other_sg0);
+    if (ex) {
+        std::rethrow_exception(std::move(ex));
+    }
+}
+
+future<> check_thread_inherits_sg_from_coroutine_frame(scheduling_group expected_sg) {
+    return seastar::async([expected_sg] {
+        BOOST_REQUIRE(current_scheduling_group() == expected_sg);
+    });
+}
+
+future<> check_coroutine_inherits_sg_from_another_one(scheduling_group expected_sg) {
+    co_await yield();
+    BOOST_REQUIRE(current_scheduling_group() == expected_sg);
+}
+
+future<> switch_to_sg_and_perform_inheriting_checks(scheduling_group base_sg, scheduling_group new_sg) {
+    BOOST_REQUIRE(current_scheduling_group() == base_sg);
+    co_await coroutine::switch_to(new_sg);
+    BOOST_REQUIRE(current_scheduling_group() == new_sg);
+
+    co_await check_thread_inherits_sg_from_coroutine_frame(new_sg);
+    co_await check_coroutine_inherits_sg_from_another_one(new_sg);
+
+    // don't restore previous sg on purpose, expecting it will be restored once coroutine goes out of scope
+}
+
+SEASTAR_TEST_CASE(test_switch_to_sg_restoration_and_inheriting) {
+    auto new_sg = co_await create_scheduling_group("other group 0", 10.f);
+    std::exception_ptr ex;
+
+    try {
+        auto base_sg = current_scheduling_group();
+
+        co_await switch_to_sg_and_perform_inheriting_checks(base_sg, new_sg);
+        // seastar automatically restores base_sg once it goes out of coroutine frame
+        BOOST_REQUIRE(current_scheduling_group() == base_sg);
+
+        co_await seastar::async([base_sg, new_sg] {
+            switch_to_sg_and_perform_inheriting_checks(base_sg, new_sg).get();
+            BOOST_REQUIRE(current_scheduling_group() == base_sg);
+        });
+
+        co_await switch_to_sg_and_perform_inheriting_checks(base_sg, new_sg).finally([base_sg] {
+            BOOST_REQUIRE(current_scheduling_group() == base_sg);
+        });
+    } catch (...) {
+        ex = std::current_exception();
+    }
+
+    co_await destroy_scheduling_group(new_sg);
     if (ex) {
         std::rethrow_exception(std::move(ex));
     }
