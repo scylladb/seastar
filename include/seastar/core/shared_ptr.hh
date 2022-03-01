@@ -155,14 +155,14 @@ public:
 };
 
 template <typename T>
-struct shared_ptr_no_esft : private lw_shared_ptr_counter_base {
+struct lw_shared_ptr_no_esft : private lw_shared_ptr_counter_base {
     T _value;
 
-    shared_ptr_no_esft() = default;
-    shared_ptr_no_esft(const T& x) : _value(x) {}
-    shared_ptr_no_esft(T&& x) : _value(std::move(x)) {}
+    lw_shared_ptr_no_esft() = default;
+    lw_shared_ptr_no_esft(const T& x) : _value(x) {}
+    lw_shared_ptr_no_esft(T&& x) : _value(std::move(x)) {}
     template <typename... A>
-    shared_ptr_no_esft(A&&... a) : _value(std::forward<A>(a)...) {}
+    lw_shared_ptr_no_esft(A&&... a) : _value(std::forward<A>(a)...) {}
 
     template <typename X>
     friend class lw_shared_ptr;
@@ -206,7 +206,7 @@ struct lw_shared_ptr_accessors_esft {
 
 template <typename T>
 struct lw_shared_ptr_accessors_no_esft {
-    using concrete_type = shared_ptr_no_esft<T>;
+    using concrete_type = lw_shared_ptr_no_esft<T>;
     static T* to_value(lw_shared_ptr_counter_base* counter) {
         return &static_cast<concrete_type*>(counter)->_value;
     }
