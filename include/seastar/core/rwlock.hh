@@ -98,6 +98,10 @@ public:
         return _sem.wait(timeout);
     }
 
+    future<> read_lock(abort_source& as) {
+        return _sem.wait(as);
+    }
+
     /// Releases the lock, which must have been taken in read mode. After this
     /// is called, one of the fibers waiting on \ref write_lock will be allowed
     /// to proceed.
@@ -112,6 +116,10 @@ public:
     /// not to execute.
     future<> write_lock(typename semaphore_type::time_point timeout = semaphore_type::time_point::max()) {
         return _sem.wait(timeout, max_ops);
+    }
+
+    future<> write_lock(abort_source& as) {
+        return _sem.wait(as, max_ops);
     }
 
     /// Releases the lock, which must have been taken in write mode. After this
@@ -149,6 +157,10 @@ public:
         return get_units(_sem, 1, timeout);
     }
 
+    future<holder> hold_read_lock(abort_source& as) {
+        return get_units(_sem, 1, as);
+    }
+
     /// hold_write_lock() waits for a write lock and returns an object which,
     /// when destroyed, releases the lock. This makes it easy to ensure that
     /// the lock is eventually undone, at any circumstance (even including
@@ -162,6 +174,10 @@ public:
     /// e.g., on allocation failure.
     future<holder> hold_write_lock(typename semaphore_type::time_point timeout = semaphore_type::time_point::max()) {
         return get_units(_sem, max_ops, timeout);
+    }
+
+    future<holder> hold_write_lock(abort_source& as) {
+        return get_units(_sem, max_ops, as);
     }
 
     /// Checks if any read or write locks are currently held.
