@@ -43,6 +43,15 @@ class has_broken {
 public:
     constexpr static bool value = check<T>(nullptr);
 };
+// Test if a class T has member function aborted()
+template <typename T>
+class has_aborted {
+    template <typename U> constexpr static bool check(decltype(&U::aborted)) { return true; }
+    template <typename U> constexpr static bool check(...) { return false; }
+
+public:
+    constexpr static bool value = check<T>(nullptr);
+};
 }
 
 /// \addtogroup fiber-module
@@ -66,6 +75,16 @@ public:
     virtual const char* what() const noexcept;
 };
 
+/// Exception thrown when a semaphore wait operation
+/// was aborted.
+///
+/// \see semaphore::wait(abort_source&, size_t nr)
+class semaphore_aborted : public abort_requested_exception {
+public:
+    /// Reports the exception reason.
+    virtual const char* what() const noexcept;
+};
+
 /// Exception Factory for standard semaphore
 ///
 /// constructs standard semaphore exceptions
@@ -73,6 +92,7 @@ public:
 struct semaphore_default_exception_factory {
     static semaphore_timed_out timeout() noexcept;
     static broken_semaphore broken() noexcept;
+    static semaphore_aborted aborted() noexcept;
 };
 
 class named_semaphore_timed_out : public semaphore_timed_out {
@@ -89,12 +109,20 @@ public:
     virtual const char* what() const noexcept;
 };
 
+class named_semaphore_aborted : public abort_requested_exception {
+    sstring _msg;
+public:
+    named_semaphore_aborted(std::string_view msg) noexcept;
+    virtual const char* what() const noexcept;
+};
+
 // A factory of semaphore exceptions that contain additional context: the semaphore name
 // auto sem = named_semaphore(0, named_semaphore_exception_factory{"file_opening_limit_semaphore"});
 struct named_semaphore_exception_factory {
     sstring name;
     named_semaphore_timed_out timeout() const noexcept;
     broken_named_semaphore broken() const noexcept;
+    named_semaphore_aborted aborted() const noexcept;
 };
 
 /// \brief Counted resource guard.
@@ -140,15 +168,17 @@ private:
                 } catch (...) {
                     e.pr.set_exception(semaphore_timed_out());
                 }
+            } else if (sem._ex) {
+                e.pr.set_exception(sem._ex);
             } else {
-                if constexpr (internal::has_broken<exception_factory>::value) {
+                if constexpr (internal::has_aborted<exception_factory>::value) {
                     try {
-                        e.pr.set_exception(static_cast<exception_factory>(sem).broken());
+                        e.pr.set_exception(static_cast<exception_factory>(sem).aborted());
                     } catch (...) {
-                        e.pr.set_exception(broken_semaphore());
+                        e.pr.set_exception(semaphore_aborted());
                     }
                 } else {
-                    e.pr.set_exception(broken_semaphore());
+                    e.pr.set_exception(semaphore_aborted());
                 }
             }
         }

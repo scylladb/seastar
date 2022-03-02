@@ -334,7 +334,7 @@ SEASTAR_THREAD_TEST_CASE(test_semaphore_units_abort) {
         as.request_abort();
     });
 
-    BOOST_REQUIRE_THROW(f.get(), broken_semaphore);
+    BOOST_REQUIRE_THROW(f.get(), semaphore_aborted);
 }
 
 SEASTAR_THREAD_TEST_CASE(test_named_semaphore_error) {
@@ -380,7 +380,7 @@ SEASTAR_THREAD_TEST_CASE(test_semaphore_abort_after_wait) {
     });
     as.request_abort();
     sem.signal();
-    BOOST_CHECK_THROW(fut1.get(), broken_semaphore);
+    BOOST_CHECK_THROW(fut1.get(), semaphore_aborted);
     BOOST_REQUIRE_EQUAL(x, 0);
 }
 
@@ -393,6 +393,6 @@ SEASTAR_THREAD_TEST_CASE(test_semaphore_abort_before_wait) {
         x++;
     });
     sem.signal();
-    BOOST_CHECK_THROW(fut1.get(), broken_semaphore);
+    BOOST_CHECK_THROW(fut1.get(), semaphore_aborted);
     BOOST_REQUIRE_EQUAL(x, 0);
 }
