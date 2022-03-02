@@ -25,6 +25,7 @@
 #include <seastar/core/future.hh>
 #include <seastar/core/fstream.hh>
 #include <seastar/core/sstring.hh>
+#include <seastar/core/reactor.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/short_streams.hh>
 
