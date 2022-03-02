@@ -546,6 +546,29 @@ get_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units, typename 
     });
 }
 
+/// \brief Take units from semaphore temporarily with time bound on wait
+///
+/// Like \ref get_units(basic_semaphore<ExceptionFactory>&, size_t, basic_semaphore<ExceptionFactory>::time_point) but
+/// allow the timeout to be specified as a duration.
+///
+/// \param sem The semaphore to take units from
+/// \param units  Number of units to take
+/// \param as abort source.
+/// \return a \ref future<> holding \ref semaphore_units object. When the object goes out of scope
+///         the units are returned to the semaphore.
+///
+/// \note The caller must guarantee that \c sem is valid as long as
+///      \ref seaphore_units object is alive.
+///
+/// \related semaphore
+template<typename ExceptionFactory, typename Clock>
+future<semaphore_units<ExceptionFactory, Clock>>
+get_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units, abort_source& as) noexcept {
+    return sem.wait(as, units).then([&sem, units] {
+        return semaphore_units<ExceptionFactory, Clock>{ sem, units };
+    });
+}
+
 /// \brief Try to take units from semaphore temporarily
 ///
 /// Takes units from the semaphore, if available, and returns them when the \ref semaphore_units object goes out of scope.

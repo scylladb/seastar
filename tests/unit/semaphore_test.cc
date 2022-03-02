@@ -320,6 +320,23 @@ SEASTAR_THREAD_TEST_CASE(test_semaphore_try_get_units) {
     BOOST_REQUIRE_EQUAL(sm.available_units(), initial_units);
 }
 
+SEASTAR_THREAD_TEST_CASE(test_semaphore_units_abort) {
+    auto sm = semaphore(3);
+    auto units = get_units(sm, 3, 1min).get0();
+    BOOST_REQUIRE_EQUAL(units.count(), 3);
+
+    abort_source as;
+
+    auto f = get_units(sm, 1, as);
+    BOOST_REQUIRE(!f.available());
+
+    (void)sleep(1ms).then([&as] {
+        as.request_abort();
+    });
+
+    BOOST_REQUIRE_THROW(f.get(), broken_semaphore);
+}
+
 SEASTAR_THREAD_TEST_CASE(test_named_semaphore_error) {
     auto sem = make_lw_shared<named_semaphore>(0, named_semaphore_exception_factory{"name_of_the_semaphore"});
     auto check_result = [sem] (future<> f) {
