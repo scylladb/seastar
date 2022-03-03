@@ -73,6 +73,12 @@ public:
         }
     }
 
+    void append(temporary_buffer<CharType> buff) {
+        if (buff.size()) {
+            _p = packet(std::move(_p), std::move(buff));
+        }
+    }
+
     template <typename size_type, size_type max_size>
     void append(basic_sstring<char_type, size_type, max_size> s) {
         if (s.size()) {
