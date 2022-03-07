@@ -1358,6 +1358,12 @@ public:
             gnutls_transport_set_errno(*this, EAGAIN);
             return -1;
         }
+        if (_output_pending.failed()) {
+            // copy exception for on_internal_error
+            auto ex = _output_pending.get_exception();
+            _output_pending = make_exception_future<>(ex);
+            on_internal_error(seastar_logger, format("tls: session: vec_push: unhandled pending output error: {}", ex));
+        }
         try {
             scattered_message<char> msg;
             for (int i = 0; i < iovcnt; ++i) {
@@ -1367,6 +1373,7 @@ public:
             _output_pending = _out.put(std::move(msg).release());
             return n;
         } catch (...) {
+            // FIXME: extract error code if system_error
             gnutls_transport_set_errno(*this, EIO);
             _output_pending = make_exception_future<>(std::current_exception());
         }
