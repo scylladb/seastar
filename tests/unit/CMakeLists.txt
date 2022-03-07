@@ -259,6 +259,9 @@ seastar_add_test (circular_buffer
 seastar_add_test (circular_buffer_fixed_capacity
   SOURCES circular_buffer_fixed_capacity_test.cc)
 
+seastar_add_test (condition_variable
+  SOURCES condition_variable_test.cc)
+
 seastar_add_test (connect
   SOURCES connect_test.cc)
 
