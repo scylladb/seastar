@@ -1372,8 +1372,10 @@ public:
             auto n = msg.size();
             _output_pending = _out.put(std::move(msg).release());
             return n;
+        } catch (const std::system_error& e) {
+            gnutls_transport_set_errno(*this, e.code().value());
+            _output_pending = make_exception_future<>(std::current_exception());
         } catch (...) {
-            // FIXME: extract error code if system_error
             gnutls_transport_set_errno(*this, EIO);
             _output_pending = make_exception_future<>(std::current_exception());
         }
