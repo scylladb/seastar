@@ -140,3 +140,43 @@ SEASTAR_THREAD_TEST_CASE(test_condition_variable_pred) {
     cv.signal();
     with_timeout(steady_clock::now() + 10ms, std::move(f)).get();
 }
+
+#ifdef SEASTAR_COROUTINES_ENABLED
+
+SEASTAR_TEST_CASE(test_condition_variable_signal_consume_coroutine) {
+    condition_variable cv;
+
+    cv.signal();
+    co_await with_timeout(steady_clock::now() + 10ms, [&]() -> future<> {
+        co_await cv.when();
+    }());
+
+    try {
+        co_await with_timeout(steady_clock::now() + 10ms, [&]() -> future<> {
+            co_await cv.when();
+        }());
+        BOOST_FAIL("should not reach");
+    } catch (condition_variable_timed_out&) {
+        BOOST_FAIL("should not reach");
+    } catch (timed_out_error&) {
+        // ok
+    } catch (...) {
+        BOOST_FAIL("should not reach");
+    }
+
+    try {
+        co_await with_timeout(steady_clock::now() + 10s, [&]() -> future<> {
+            co_await cv.when(100ms);
+        }());
+        BOOST_FAIL("should not reach");
+    } catch (timed_out_error&) {
+        BOOST_FAIL("should not reach");
+    } catch (condition_variable_timed_out&) {
+        // ok
+    } catch (...) {
+        BOOST_FAIL("should not reach");
+    }
+
+}
+
+#endif

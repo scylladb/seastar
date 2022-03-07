@@ -24,6 +24,9 @@
 #include <boost/intrusive/list.hpp>
 
 #include <seastar/core/timer.hh>
+#ifdef SEASTAR_COROUTINES_ENABLED
+#   include <seastar/core/coroutine.hh>
+#endif
 #include <seastar/core/loop.hh>
 
 namespace seastar {
@@ -87,6 +90,58 @@ private:
         }
     };
 
+#ifdef SEASTAR_COROUTINES_ENABLED
+    struct [[nodiscard("must co_await a when() call")]] awaiter : public waiter {
+        using handle_type = SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<>;
+
+        condition_variable* _cv;
+        handle_type _when_ready;
+        std::exception_ptr _ex;
+
+        awaiter(condition_variable* cv)
+            : _cv(cv)
+        {}
+
+        bool await_ready() const {
+            return _cv->check_and_consume_signal();
+        }
+        void await_suspend(handle_type h) {
+            _when_ready = std::move(h);
+            _cv->add_waiter(*this);
+        }
+        void await_resume() {
+            if (_ex) {
+                std::rethrow_exception(std::move(_ex));
+            }
+        }
+        void signal() noexcept override {
+            _when_ready.resume();
+        }
+        void set_exception(std::exception_ptr ep) noexcept override {
+            _ex = std::move(ep);
+            _when_ready.resume();
+        }
+    };
+
+    template<typename Clock, typename Duration>
+    struct [[nodiscard("must co_await a when() call")]] timeout_awaiter : public awaiter, public timer<Clock> {
+        using my_type = timeout_awaiter<Clock, Duration>;
+        using time_point = std::chrono::time_point<Clock, Duration>;
+
+        time_point _timeout;
+
+        timeout_awaiter(condition_variable* cv, time_point timeout)
+            : awaiter(cv)
+            , _timeout(timeout)
+        {}
+        void await_suspend(handle_type h) {
+            awaiter::await_suspend(std::move(h));
+            this->set_callback(std::bind(&waiter::timeout, this));
+            this->arm(_timeout);
+        }
+    };
+#endif
+
     boost::intrusive::list<waiter, boost::intrusive::constant_time_size<false>> _waiters;
     std::exception_ptr _ex; //"broken" exception
     bool _signalled = false; // set to true if signalled while no waiters
@@ -130,6 +185,7 @@ public:
             return make_ready_future();
         }
         struct timeout_waiter : public promise_waiter, public timer<Clock> {};
+
         auto w = std::make_unique<timeout_waiter>();
         auto f = w->get_future();
 
@@ -197,6 +253,95 @@ public:
     future<> wait(std::chrono::duration<Rep, Period> timeout, Pred&& pred) noexcept {
         return wait(timer<>::clock::now() + timeout, std::forward<Pred>(pred));
     }
+
+#ifdef SEASTAR_COROUTINES_ENABLED
+    /// Coroutine/co_await only waiter.
+    /// Waits until condition variable is signaled, may wake up without condition been met
+    ///
+    /// \return a future that becomes ready when \ref signal() is called
+    ///         If the condition variable was \ref broken() will return \ref broken_condition_variable
+    ///         exception.
+    awaiter when() noexcept {
+        return awaiter{this};
+    }
+
+    /// Coroutine/co_await only waiter.
+    /// Waits until condition variable is signaled or timeout is reached
+    ///
+    /// \param timeout time point at which wait will exit with a timeout
+    ///
+    /// \return a future that becomes ready when \ref signal() is called
+    ///         If the condition variable was \ref broken() will return \ref broken_condition_variable
+    ///         exception. If timepoint is reached will return \ref condition_variable_timed_out exception.
+    template<typename Clock = typename timer<>::clock, typename Duration = typename Clock::duration>
+    timeout_awaiter<Clock, Duration> when(std::chrono::time_point<Clock, Duration> timeout) noexcept {
+        return timeout_awaiter<Clock, Duration>{this, timeout};
+    }
+
+    /// Coroutine/co_await only waiter.
+    /// Waits until condition variable is signaled or timeout is reached
+    ///
+    /// \param timeout duration after which wait will exit with a timeout
+    ///
+    /// \return a future that becomes ready when \ref signal() is called
+    ///         If the condition variable was \ref broken() will return \ref broken_condition_variable
+    ///         exception. If timepoint is passed will return \ref condition_variable_timed_out exception.
+    template<typename Rep, typename Period>
+    auto when(std::chrono::duration<Rep, Period> timeout) noexcept {
+        return when(timer<>::clock::now() + timeout);
+    }
+
+    /// Coroutine/co_await only waiter.
+    /// Waits until condition variable is notified and pred() == true, otherwise
+    /// wait again.
+    ///
+    /// \param pred predicate that checks that awaited condition is true
+    ///
+    /// \return a future that becomes ready when \ref signal() is called
+    ///         If the condition variable was \ref broken(), may contain an exception.
+    template<typename Pred>
+    SEASTAR_CONCEPT( requires seastar::InvokeReturns<Pred, bool> )
+    awaiter when(Pred&& pred) noexcept {
+        return do_until(std::forward<Pred>(pred), [this] {
+            return when();
+        });
+    }
+
+    /// Coroutine/co_await only waiter.
+    /// Waits until condition variable is notified and pred() == true or timeout is reached, otherwise
+    /// wait again.
+    ///
+    /// \param timeout time point at which wait will exit with a timeout
+    /// \param pred predicate that checks that awaited condition is true
+    ///
+    /// \return a future that becomes ready when \ref signal() is called
+    ///         If the condition variable was \ref broken() will return \ref broken_condition_variable
+    ///         exception. If timepoint is reached will return \ref condition_variable_timed_out exception.
+    template<typename Clock = typename timer<>::clock, typename Duration = typename Clock::duration, typename Pred>
+    SEASTAR_CONCEPT( requires seastar::InvokeReturns<Pred, bool> )
+    timeout_awaiter<Clock, Duration> when(std::chrono::time_point<Clock, Duration> timeout, Pred&& pred) noexcept {
+        return do_until(std::forward<Pred>(pred), [this, timeout] {
+            return when(timeout);
+        });
+    }
+
+    /// Coroutine/co_await only waiter.
+    /// Waits until condition variable is notified and pred() == true or timeout is reached, otherwise
+    /// wait again.
+    ///
+    /// \param timeout duration after which wait will exit with a timeout
+    /// \param pred predicate that checks that awaited condition is true
+    ///
+    /// \return a future that becomes ready when \ref signal() is called
+    ///         If the condition variable was \ref broken() will return \ref broken_condition_variable
+    ///         exception. If timepoint is passed will return \ref condition_variable_timed_out exception.
+    template<typename Rep, typename Period, typename Pred>
+    SEASTAR_CONCEPT( requires seastar::InvokeReturns<Pred, bool> )
+    auto when(std::chrono::duration<Rep, Period> timeout, Pred&& pred) noexcept {
+        return when(timer<>::clock::now() + timeout, std::forward<Pred>(pred));
+    }
+
+#endif
 
     /// Notify variable and wake up a waiter if there is one
     void signal() noexcept;
