@@ -21,7 +21,9 @@
 
 #pragma once
 
-#include <seastar/core/semaphore.hh>
+#include <boost/intrusive/list.hpp>
+
+#include <seastar/core/timer.hh>
 #include <seastar/core/loop.hh>
 
 namespace seastar {
@@ -59,19 +61,50 @@ public:
 /// acting as a cancellation point.
 
 class condition_variable {
-    using duration = semaphore::duration;
-    using clock = semaphore::clock;
-    using time_point = semaphore::time_point;
-    struct condition_variable_exception_factory {
-        static condition_variable_timed_out timeout() noexcept;
-        static broken_condition_variable broken() noexcept;
+private:
+    using clock = typename timer<>::clock;
+    using duration = typename clock::duration;
+    using time_point = typename clock::time_point;
+
+    // the base for queue waiters. looks complicated, but this is
+    // to make it transparent once we add non-promise based nodes
+    struct waiter : public boost::intrusive::list_base_hook<boost::intrusive::link_mode<boost::intrusive::auto_unlink>> {
+        virtual ~waiter() = default;
+        void timeout() noexcept;
+
+        virtual void signal() noexcept = 0;
+        virtual void set_exception(std::exception_ptr) noexcept = 0;
     };
-    basic_semaphore<condition_variable_exception_factory> _sem;
+
+    struct promise_waiter : public waiter, public promise<> {
+        void signal() noexcept override {
+            set_value();
+            // note: we self-delete in either case we are woken
+            // up. See usage below: only the resulting future
+            // state is required once we've left the wait queue
+            delete this;
+        }
+        void set_exception(std::exception_ptr ep) noexcept override {
+            promise<>::set_exception(std::move(ep));
+            // see comment above
+            delete this;
+        }
+    };
+
+    boost::intrusive::list<waiter, boost::intrusive::constant_time_size<false>> _waiters;
+    std::exception_ptr _ex; //"broken" exception
+    bool _signalled = false; // set to true if signalled while no waiters
+
+    void add_waiter(waiter&) noexcept;
+    void timeout(waiter&) noexcept;
+    bool wakeup_first() noexcept;
+    bool check_and_consume_signal() noexcept;
 public:
     /// Constructs a condition_variable object.
     /// Initialzie the semaphore with a default value of 0 to enusre
     /// the first call to wait() before signal() won't be waken up immediately.
-    condition_variable() noexcept : _sem(0) {}
+    condition_variable() noexcept = default;
+    ~condition_variable();
 
     /// Waits until condition variable is signaled, may wake up without condition been met
     ///
@@ -79,7 +112,13 @@ public:
     ///         If the condition variable was \ref broken() will return \ref broken_condition_variable
     ///         exception.
     future<> wait() noexcept {
-        return _sem.wait();
+        if (check_and_consume_signal()) {
+            return make_ready_future();
+        }
+        auto* w = new promise_waiter;
+        auto f = w->get_future();
+        add_waiter(*w);
+        return f;
     }
 
     /// Waits until condition variable is signaled or timeout is reached
@@ -90,7 +129,18 @@ public:
     ///         If the condition variable was \ref broken() will return \ref broken_condition_variable
     ///         exception. If timepoint is reached will return \ref condition_variable_timed_out exception.
     future<> wait(time_point timeout) noexcept {
-        return _sem.wait(timeout);
+        if (check_and_consume_signal()) {
+            return make_ready_future();
+        }
+        struct timeout_waiter : public promise_waiter, public timer<> {};
+        // use a unique_ptr here, because bind/set_callback can throw
+        auto w = std::make_unique<timeout_waiter>();
+        auto f = w->get_future();
+
+        w->set_callback(std::bind(&waiter::timeout, w.get()));
+        w->arm(timeout);
+        add_waiter(*w.release());
+        return f;
     }
 
     /// Waits until condition variable is signaled or timeout is reached
@@ -101,7 +151,7 @@ public:
     ///         If the condition variable was \ref broken() will return \ref broken_condition_variable
     ///         exception. If timepoint is passed will return \ref condition_variable_timed_out exception.
     future<> wait(duration timeout) noexcept {
-        return _sem.wait(timeout);
+        return wait(timer<>::clock::now() + timeout);
     }
 
     /// Waits until condition variable is notified and pred() == true, otherwise
@@ -131,7 +181,7 @@ public:
     template<typename Pred>
     SEASTAR_CONCEPT( requires seastar::InvokeReturns<Pred, bool> )
     future<> wait(time_point timeout, Pred&& pred) noexcept {
-        return do_until(std::forward<Pred>(pred), [this, timeout] () mutable {
+        return do_until(std::forward<Pred>(pred), [this, timeout] {
             return wait(timeout);
         });
     }
@@ -148,25 +198,20 @@ public:
     template<typename Pred>
     SEASTAR_CONCEPT( requires seastar::InvokeReturns<Pred, bool> )
     future<> wait(duration timeout, Pred&& pred) noexcept {
-        return wait(clock::now() + timeout, std::forward<Pred>(pred));
+        return wait(timer<>::clock::now() + timeout, std::forward<Pred>(pred));
     }
     /// Notify variable and wake up a waiter if there is one
-    void signal() noexcept {
-        if (_sem.waiters()) {
-            _sem.signal();
-        }
-    }
+    void signal() noexcept;
+
     /// Notify variable and wake up all waiter
-    void broadcast() noexcept {
-        _sem.signal(_sem.waiters());
-    }
+    void broadcast() noexcept;
 
     /// Signal to waiters that an error occurred.  \ref wait() will see
     /// an exceptional future<> containing the provided exception parameter.
     /// The future is made available immediately.
-    void broken() noexcept {
-        _sem.broken();
-    }
+    void broken() noexcept;
+
+    void broken(std::exception_ptr) noexcept;
 };
 
 /// @}

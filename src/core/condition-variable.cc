@@ -31,14 +31,64 @@ const char* condition_variable_timed_out::what() const noexcept {
     return "Condition variable timed out";
 }
 
-condition_variable_timed_out condition_variable::condition_variable_exception_factory::timeout() noexcept {
-    static_assert(std::is_nothrow_default_constructible_v<condition_variable_timed_out>);
-    return condition_variable_timed_out();
+condition_variable::~condition_variable() {
+    broken();
 }
 
-broken_condition_variable condition_variable::condition_variable_exception_factory::broken() noexcept {
-    static_assert(std::is_nothrow_default_constructible_v<broken_condition_variable>);
-    return broken_condition_variable();
+void condition_variable::add_waiter(waiter& w) noexcept {
+    assert(!_signalled); // should not have snuck between
+    if (_ex) {
+        w.set_exception(_ex);
+        return;
+    }
+    _waiters.push_back(w);
+}
+
+void condition_variable::waiter::timeout() noexcept {
+    this->unlink();
+    this->set_exception(std::make_exception_ptr(condition_variable_timed_out()));
+}
+
+bool condition_variable::wakeup_first() noexcept {
+    if (_waiters.empty()) {
+        return false;
+    }
+    auto& w = _waiters.front();
+    _waiters.pop_front();
+    if (_ex) {
+        w.set_exception(_ex);
+    } else {
+        w.signal();
+    }
+    return true;
+}
+
+bool condition_variable::check_and_consume_signal() noexcept {
+    return std::exchange(_signalled, false);
+}
+
+void condition_variable::signal() noexcept {
+    if (!wakeup_first()) {
+        _signalled = true;
+    }
+}
+
+/// Notify variable and wake up all waiter
+void condition_variable::broadcast() noexcept {
+    while (wakeup_first())
+    {}
+}
+
+/// Signal to waiters that an error occurred.  \ref wait() will see
+/// an exceptional future<> containing the provided exception parameter.
+/// The future is made available immediately.
+void condition_variable::broken() noexcept {
+    broken(std::make_exception_ptr(broken_condition_variable()));
+}
+
+void condition_variable::broken(std::exception_ptr ep) noexcept {
+    _ex = ep;
+    broadcast();
 }
 
 } // namespace seastar
