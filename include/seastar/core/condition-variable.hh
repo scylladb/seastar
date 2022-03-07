@@ -112,6 +112,7 @@ public:
     /// \return a future that becomes ready when \ref signal() is called
     ///         If the condition variable was \ref broken(), may contain an exception.
     template<typename Pred>
+    SEASTAR_CONCEPT( requires seastar::InvokeReturns<Pred, bool> )
     future<> wait(Pred&& pred) noexcept {
         return do_until(std::forward<Pred>(pred), [this] {
             return wait();
@@ -128,6 +129,7 @@ public:
     ///         If the condition variable was \ref broken() will return \ref broken_condition_variable
     ///         exception. If timepoint is reached will return \ref condition_variable_timed_out exception.
     template<typename Pred>
+    SEASTAR_CONCEPT( requires seastar::InvokeReturns<Pred, bool> )
     future<> wait(time_point timeout, Pred&& pred) noexcept {
         return do_until(std::forward<Pred>(pred), [this, timeout] () mutable {
             return wait(timeout);
@@ -144,6 +146,7 @@ public:
     ///         If the condition variable was \ref broken() will return \ref broken_condition_variable
     ///         exception. If timepoint is passed will return \ref condition_variable_timed_out exception.
     template<typename Pred>
+    SEASTAR_CONCEPT( requires seastar::InvokeReturns<Pred, bool> )
     future<> wait(duration timeout, Pred&& pred) noexcept {
         return wait(clock::now() + timeout, std::forward<Pred>(pred));
     }
