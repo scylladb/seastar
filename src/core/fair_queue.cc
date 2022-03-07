@@ -193,10 +193,9 @@ fair_queue::~fair_queue() {
 }
 
 void fair_queue::push_priority_class(priority_class_data& pc) {
-    if (!pc._queued) {
-        _handles.push(&pc);
-        pc._queued = true;
-    }
+    assert(!pc._queued);
+    _handles.push(&pc);
+    pc._queued = true;
 }
 
 void fair_queue::push_priority_class_from_idle(priority_class_data& pc) {
