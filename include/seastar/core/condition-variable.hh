@@ -62,10 +62,6 @@ public:
 
 class condition_variable {
 private:
-    using clock = typename timer<>::clock;
-    using duration = typename clock::duration;
-    using time_point = typename clock::time_point;
-
     // the base for queue waiters. looks complicated, but this is
     // to make it transparent once we add non-promise based nodes
     struct waiter : public boost::intrusive::list_base_hook<boost::intrusive::link_mode<boost::intrusive::auto_unlink>> {
@@ -128,12 +124,12 @@ public:
     /// \return a future that becomes ready when \ref signal() is called
     ///         If the condition variable was \ref broken() will return \ref broken_condition_variable
     ///         exception. If timepoint is reached will return \ref condition_variable_timed_out exception.
-    future<> wait(time_point timeout) noexcept {
+    template<typename Clock = typename timer<>::clock, typename Duration = typename Clock::duration>
+    future<> wait(std::chrono::time_point<Clock, Duration> timeout) noexcept {
         if (check_and_consume_signal()) {
             return make_ready_future();
         }
-        struct timeout_waiter : public promise_waiter, public timer<> {};
-        // use a unique_ptr here, because bind/set_callback can throw
+        struct timeout_waiter : public promise_waiter, public timer<Clock> {};
         auto w = std::make_unique<timeout_waiter>();
         auto f = w->get_future();
 
@@ -150,7 +146,8 @@ public:
     /// \return a future that becomes ready when \ref signal() is called
     ///         If the condition variable was \ref broken() will return \ref broken_condition_variable
     ///         exception. If timepoint is passed will return \ref condition_variable_timed_out exception.
-    future<> wait(duration timeout) noexcept {
+    template<typename Rep, typename Period>
+    future<> wait(std::chrono::duration<Rep, Period> timeout) noexcept {
         return wait(timer<>::clock::now() + timeout);
     }
 
@@ -178,9 +175,9 @@ public:
     /// \return a future that becomes ready when \ref signal() is called
     ///         If the condition variable was \ref broken() will return \ref broken_condition_variable
     ///         exception. If timepoint is reached will return \ref condition_variable_timed_out exception.
-    template<typename Pred>
+    template<typename Clock = typename timer<>::clock, typename Duration = typename Clock::duration, typename Pred>
     SEASTAR_CONCEPT( requires seastar::InvokeReturns<Pred, bool> )
-    future<> wait(time_point timeout, Pred&& pred) noexcept {
+    future<> wait(std::chrono::time_point<Clock, Duration> timeout, Pred&& pred) noexcept {
         return do_until(std::forward<Pred>(pred), [this, timeout] {
             return wait(timeout);
         });
@@ -195,11 +192,12 @@ public:
     /// \return a future that becomes ready when \ref signal() is called
     ///         If the condition variable was \ref broken() will return \ref broken_condition_variable
     ///         exception. If timepoint is passed will return \ref condition_variable_timed_out exception.
-    template<typename Pred>
+    template<typename Rep, typename Period, typename Pred>
     SEASTAR_CONCEPT( requires seastar::InvokeReturns<Pred, bool> )
-    future<> wait(duration timeout, Pred&& pred) noexcept {
+    future<> wait(std::chrono::duration<Rep, Period> timeout, Pred&& pred) noexcept {
         return wait(timer<>::clock::now() + timeout, std::forward<Pred>(pred));
     }
+
     /// Notify variable and wake up a waiter if there is one
     void signal() noexcept;
 
