@@ -54,6 +54,9 @@ struct default_io_exception_factory {
     }
 };
 
+struct io_group::priority_class_data {
+};
+
 class io_queue::priority_class_data {
     const io_priority_class _pc;
     uint32_t _shares;
@@ -74,12 +77,14 @@ class io_queue::priority_class_data {
     std::chrono::duration<double> _starvation_time;
     io_queue::clock_type::time_point _activated;
 
+    io_group::priority_class_data& _group;
+
 public:
     void update_shares(uint32_t shares) noexcept {
         _shares = std::max(shares, 1u);
     }
 
-    priority_class_data(io_priority_class pc, uint32_t shares)
+    priority_class_data(io_priority_class pc, uint32_t shares, io_group::priority_class_data& pg)
         : _pc(pc)
         , _shares(shares)
         , _nr_queued(0)
@@ -88,6 +93,7 @@ public:
         , _total_queue_time(0)
         , _total_execution_time(0)
         , _starvation_time(0)
+        , _group(pg)
     {
     }
     priority_class_data(const priority_class_data&) = delete;
@@ -418,6 +424,9 @@ io_group::io_group(io_queue::config io_cfg)
             _config.req_count_rate, _config.blocks_count_rate);
 }
 
+io_group::~io_group() {
+}
+
 io_queue::~io_queue() {
     // It is illegal to stop the I/O queue with pending requests.
     // Technically we would use a gate to guarantee that. But here, it is not
@@ -613,11 +622,27 @@ io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_
         for (auto&& s : _streams) {
             s.register_priority_class(id, shares);
         }
-        auto pc_data = std::make_unique<priority_class_data>(pc, shares);
+        auto& pg = _group->find_or_create_class(pc);
+        auto pc_data = std::make_unique<priority_class_data>(pc, shares, pg);
         register_stats(name, *pc_data);
 
         _priority_classes[id] = std::move(pc_data);
     }
+    return *_priority_classes[id];
+}
+
+io_group::priority_class_data& io_group::find_or_create_class(io_priority_class pc) {
+    std::lock_guard _(_lock);
+
+    auto id = pc.id();
+    if (id >= _priority_classes.size()) {
+        _priority_classes.resize(id + 1);
+    }
+    if (!_priority_classes[id]) {
+        auto pg = std::make_unique<priority_class_data>();
+        _priority_classes[id] = std::move(pg);
+    }
+
     return *_priority_classes[id];
 }
 
