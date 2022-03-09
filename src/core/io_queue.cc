@@ -55,6 +55,29 @@ struct default_io_exception_factory {
 };
 
 struct io_group::priority_class_data {
+    using token_bucket_t = internal::shared_token_bucket<uint64_t, std::ratio<1>, internal::capped_release::no>;
+
+    static constexpr uint64_t bandwidth_burst_in_blocks = 10 << (20 - io_queue::block_size_shift); // 10MB
+    static constexpr uint64_t bandwidth_threshold_in_blocks = 128 << (10 - io_queue::block_size_shift); // 128kB
+    token_bucket_t tb;
+
+    uint64_t tokens(size_t length) const noexcept {
+        return length >> io_queue::block_size_shift;
+    }
+
+    void update_bandwidth(uint64_t bandwidth) {
+        if (bandwidth >> io_queue::block_size_shift > tb.max_rate) {
+            // It's ... tooooo big value indeed
+            throw std::runtime_error(format("Too large rate, maximum is {}MB/s", tb.max_rate >> (20 - io_queue::block_size_shift)));
+        }
+
+        tb.update_rate(tokens(bandwidth));
+    }
+
+    priority_class_data() noexcept
+            : tb(std::numeric_limits<uint64_t>::max(), bandwidth_burst_in_blocks, bandwidth_threshold_in_blocks)
+    {
+    }
 };
 
 class io_queue::priority_class_data {
@@ -79,6 +102,18 @@ class io_queue::priority_class_data {
     io_queue::clock_type::time_point _activated;
 
     io_group::priority_class_data& _group;
+    size_t _replenish_head;
+    timer<lowres_clock> _replenish;
+
+    void try_to_replenish() noexcept {
+        _group.tb.replenish(io_queue::clock_type::now());
+        auto delta = _group.tb.deficiency(_replenish_head);
+        if (delta > 0) {
+            _replenish.arm(std::chrono::duration_cast<std::chrono::microseconds>(_group.tb.duration_for(delta)));
+        } else {
+            _queue.unthrottle_priority_class(*this);
+        }
+    }
 
 public:
     void update_shares(uint32_t shares) noexcept {
@@ -86,7 +121,8 @@ public:
     }
 
     void update_bandwidth(uint64_t bandwidth) {
-        // FIXME -- to be implemented soon
+        _group.update_bandwidth(bandwidth);
+        io_log.debug("Updated {} class bandwidth to {}MB/s", _pc.id(), bandwidth >> 20);
     }
 
     priority_class_data(io_priority_class pc, uint32_t shares, io_queue& q, io_group::priority_class_data& pg)
@@ -100,6 +136,7 @@ public:
         , _total_execution_time(0)
         , _starvation_time(0)
         , _group(pg)
+        , _replenish([this] { try_to_replenish(); })
     {
     }
     priority_class_data(const priority_class_data&) = delete;
@@ -120,6 +157,15 @@ public:
         _nr_executing++;
         if (_nr_executing == 1) {
             _starvation_time += io_queue::clock_type::now() - _activated;
+        }
+
+        auto tokens = _group.tokens(dnl.length());
+        auto ph = _group.tb.grab(tokens);
+        auto delta = _group.tb.deficiency(ph);
+        if (delta > 0) {
+            _queue.throttle_priority_class(*this);
+            _replenish_head = ph;
+            _replenish.arm(std::chrono::duration_cast<std::chrono::microseconds>(_group.tb.duration_for(delta)));
         }
     }
 
