@@ -1,0 +1,152 @@
+/*
+ * This file is open source software, licensed to you under the terms
+ * of the Apache License, Version 2.0 (the "License").  See the NOTICE file
+ * distributed with this work for additional information regarding copyright
+ * ownership.  You may not use this file except in compliance with the License.
+ *
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+/*
+ * Copyright (C) 2022 ScyllaDB
+ */
+
+#pragma once
+
+#include <seastar/util/concepts.hh>
+#include <atomic>
+#include <chrono>
+#include <cmath>
+
+namespace seastar {
+namespace internal {
+
+static inline uint64_t wrapping_difference(const uint64_t& a, const uint64_t& b) noexcept {
+    return std::max<int64_t>(a - b, 0);
+}
+
+static inline uint64_t fetch_add(std::atomic<uint64_t>& a, uint64_t b) noexcept {
+    return a.fetch_add(b);
+}
+
+SEASTAR_CONCEPT(
+template <typename T>
+concept supports_wrapping_arithmetics = requires (T a, std::atomic<T> atomic_a, T b) {
+    { fetch_add(atomic_a, b) } noexcept -> std::same_as<T>;
+    { wrapping_difference(a, b) } noexcept -> std::same_as<T>;
+};
+)
+
+template <typename T, typename Period, typename Clock = std::chrono::steady_clock>
+SEASTAR_CONCEPT( requires std::is_nothrow_copy_constructible_v<T> && supports_wrapping_arithmetics<T> )
+class shared_token_bucket {
+    using rate_resolution = std::chrono::duration<double, Period>;
+    using atomic_rover = std::atomic<T>;
+    static_assert(atomic_rover::is_always_lock_free);
+
+    const T _replenish_rate;
+    const T _replenish_limit;
+    const T _replenish_threshold;
+    std::atomic<typename Clock::time_point> _replenished;
+
+    /*
+     * The token bucket is implemented as a pair of wrapping monotonic
+     * counters (called rovers) one chasing the other. Getting a token
+     * from the bucket is increasing the tail, replenishing a token back
+     * is increasing the head. If increased tail overruns the head then
+     * the bucket is empty and we have to wait. The shard that grabs tail
+     * earlier will be "woken up" earlier, so they form a queue.
+     *
+     * The top rover is needed to implement two buckets actually. The
+     * tokens are not just replenished by timer. They are replenished by
+     * timer from the second bucket. And the second bucket only get a
+     * token in it after the request that grabbed it from the first bucket
+     * completes and returns it back.
+     */
+
+    atomic_rover _tail;
+    atomic_rover _head;
+    atomic_rover _ceil;
+
+    T tail() const noexcept { return _tail.load(std::memory_order_relaxed); }
+    T head() const noexcept { return _head.load(std::memory_order_relaxed); }
+    T ceil() const noexcept { return _ceil.load(std::memory_order_relaxed); }
+
+public:
+    shared_token_bucket(T rate, T limit, T threshold) noexcept
+            : _replenish_rate(rate)
+            , _replenish_limit(limit)
+            , _replenish_threshold(std::clamp(threshold, (T)1, limit))
+            , _replenished(Clock::now())
+            , _tail(0)
+            , _head(0)
+            , _ceil(_replenish_limit)
+    {}
+
+    T grab(T tokens) noexcept {
+        return fetch_add(_tail, tokens);
+    }
+
+    void release(T tokens) noexcept {
+        fetch_add(_ceil, tokens);
+    }
+
+    void replenish(typename Clock::time_point now) noexcept {
+        auto ts = _replenished.load(std::memory_order_relaxed);
+
+        if (now <= ts) {
+            return;
+        }
+
+        auto delta = now - ts;
+        auto extra = accumulated_in(delta);
+
+        if (extra >= _replenish_threshold) {
+            if (!_replenished.compare_exchange_weak(ts, ts + delta)) {
+                return; // next time or another shard
+            }
+
+            auto max_extra = wrapping_difference(ceil(), head());
+            fetch_add(_head, std::min(extra, max_extra));
+        }
+    }
+
+    T deficiency(T from) const noexcept {
+        return wrapping_difference(from, head());
+    }
+
+    template <typename Rep, typename Per>
+    static auto rate_cast(const std::chrono::duration<Rep, Per> delta) noexcept {
+        return std::chrono::duration_cast<rate_resolution>(delta);
+    }
+
+    // the number of tokens accumulated for the given time frame
+    template <typename Rep, typename Per>
+    T accumulated_in(const std::chrono::duration<Rep, Per> delta) const noexcept {
+       auto delta_at_rate = rate_cast(delta);
+       return std::round(_replenish_rate * delta_at_rate.count());
+    }
+
+    // Estimated time to process the given amount of tokens
+    // (peer of accumulated_in helper)
+    rate_resolution duration_for(T tokens) const noexcept {
+        return rate_resolution(tokens / _replenish_rate);
+    }
+
+    T rate() const noexcept { return _replenish_rate; }
+    T limit() const noexcept { return _replenish_limit; }
+    T threshold() const noexcept { return _replenish_threshold; }
+    typename Clock::time_point replenished_ts() const noexcept { return _replenished; }
+};
+
+} // internal namespace
+} // seastar namespace

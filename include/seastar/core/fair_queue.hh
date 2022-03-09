@@ -26,13 +26,12 @@
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/circular_buffer.hh>
 #include <seastar/core/metrics_registration.hh>
+#include <seastar/util/shared_token_bucket.hh>
 #include <functional>
-#include <atomic>
 #include <queue>
 #include <chrono>
 #include <unordered_set>
 #include <optional>
-#include <cmath>
 
 namespace bi = boost::intrusive;
 
@@ -170,9 +169,22 @@ public:
      * Br_max size total.
      */
 
+    /*
+     * The normalization results in a float of the 2^-30 seconds order of
+     * magnitude. Not to invent float point atomic arithmetics, the result
+     * is converted to an integer by multiplying by a factor that's large
+     * enough to turn these values into a non-zero integer.
+     *
+     * Also, the rates in bytes/sec when adjusted by io-queue according to
+     * multipliers become too large to be stored in 32-bit ticket value.
+     * Thus the rate resolution is applied. The t.bucket is configured with a
+     * time period for which the speeds from F (in above formula) are taken.
+     */
+
+    static constexpr float fixed_point_factor = float(1 << 24);
+    using token_bucket_t = internal::shared_token_bucket<capacity_t, std::milli>;
+
 private:
-    using fair_group_atomic_rover = std::atomic<capacity_t>;
-    static_assert(fair_group_atomic_rover::is_always_lock_free);
 
     /*
      * The dF/dt <= K limitation is managed by the modified token bucket
@@ -194,69 +206,17 @@ private:
      */
 
     const fair_queue_ticket _cost_capacity;
-    const capacity_t _replenish_rate;
-    const capacity_t _replenish_limit;
-    const capacity_t _replenish_threshold;
-    std::atomic<clock_type::time_point> _replenished;
-
-    /*
-     * The token bucket is implemented as a pair of wrapping monotonic
-     * counters (called rovers) one chasing the other. Getting a token
-     * from the bucket is increasing the tail, replenishing a token back
-     * is increasing the head. If increased tail overruns the head then
-     * the bucket is empty and we have to wait. The shard that grabs tail
-     * earlier will be "woken up" earlier, so they form a queue.
-     *
-     * The top rover is needed to implement two buckets actually. The
-     * tokens are not just replenished by timer. They are replenished by
-     * timer from the second bucket. And the second bucket only get a
-     * token in it after the request that grabbed it from the first bucket
-     * completes and returns it back.
-     */
-
-    fair_group_atomic_rover _capacity_tail;
-    fair_group_atomic_rover _capacity_head;
-    fair_group_atomic_rover _capacity_ceil;
-
-    capacity_t fetch_add(fair_group_atomic_rover& rover, capacity_t cap) noexcept;
-
-    template <typename Rep, typename Period>
-    static auto rate_cast(const std::chrono::duration<Rep, Period> delta) noexcept {
-        return std::chrono::duration_cast<rate_resolution>(delta);
-    }
-
-    template <typename Rep, typename Period>
-    capacity_t accumulated_capacity(const std::chrono::duration<Rep, Period> delta) const noexcept {
-       auto delta_at_rate = rate_cast(delta);
-       return std::round(_replenish_rate * delta_at_rate.count());
-    }
+    token_bucket_t _token_bucket;
 
 public:
 
-    /*
-     * The normalization results in a float of the 2^-30 seconds order of
-     * magnitude. Not to invent float point atomic arithmetics, the result
-     * is converted to an integer by multiplying by a factor that's large
-     * enough to turn these values into a non-zero integer.
-     *
-     * Also, the rates in bytes/sec when adjusted by io-queue according to
-     * multipliers become too large to be stored in 32-bit ticket value.
-     * Thus the rate resolution is applied. The rate_resolution is the
-     * time period for which the speeds from F (in above formula) are taken.
-     */
-
-    using rate_resolution = std::chrono::duration<double, std::milli>;
-    static constexpr float fixed_point_factor = float(1 << 24);
-
     // Convert internal capacity value back into the real token
     static double capacity_tokens(capacity_t cap) noexcept {
-        return (double)cap / fixed_point_factor / rate_cast(std::chrono::seconds(1)).count();
+        return (double)cap / fixed_point_factor / token_bucket_t::rate_cast(std::chrono::seconds(1)).count();
     }
 
-    // Estimated time to process the given amount of capacity
-    // (peer of accumulated_capacity() helper)
-    rate_resolution capacity_duration(capacity_t cap) const noexcept {
-        return rate_resolution(cap / _replenish_rate);
+    auto capacity_duration(capacity_t cap) const noexcept {
+        return _token_bucket.duration_for(cap);
     }
 
     struct config {
@@ -273,9 +233,9 @@ public:
     fair_group(fair_group&&) = delete;
 
     fair_queue_ticket cost_capacity() const noexcept { return _cost_capacity; }
-    capacity_t maximum_capacity() const noexcept { return _replenish_limit; }
+    capacity_t maximum_capacity() const noexcept { return _token_bucket.limit(); }
     capacity_t grab_capacity(capacity_t cap) noexcept;
-    clock_type::time_point replenished_ts() const noexcept { return _replenished; }
+    clock_type::time_point replenished_ts() const noexcept { return _token_bucket.replenished_ts(); }
     void release_capacity(capacity_t cap) noexcept;
     void replenish_capacity(clock_type::time_point now) noexcept;
     void maybe_replenish_capacity(clock_type::time_point& local_ts) noexcept;
