@@ -58,6 +58,7 @@ struct io_group::priority_class_data {
 };
 
 class io_queue::priority_class_data {
+    io_queue& _queue;
     const io_priority_class _pc;
     uint32_t _shares;
     struct {
@@ -84,8 +85,9 @@ public:
         _shares = std::max(shares, 1u);
     }
 
-    priority_class_data(io_priority_class pc, uint32_t shares, io_group::priority_class_data& pg)
-        : _pc(pc)
+    priority_class_data(io_priority_class pc, uint32_t shares, io_queue& q, io_group::priority_class_data& pg)
+        : _queue(q)
+        , _pc(pc)
         , _shares(shares)
         , _nr_queued(0)
         , _nr_executing(0)
@@ -623,7 +625,7 @@ io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_
             s.register_priority_class(id, shares);
         }
         auto& pg = _group->find_or_create_class(pc);
-        auto pc_data = std::make_unique<priority_class_data>(pc, shares, pg);
+        auto pc_data = std::make_unique<priority_class_data>(pc, shares, *this, pg);
         register_stats(name, *pc_data);
 
         _priority_classes[id] = std::move(pc_data);
