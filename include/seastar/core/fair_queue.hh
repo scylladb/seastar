@@ -321,6 +321,8 @@ private:
     void push_priority_class(priority_class_data& pc);
     void push_priority_class_from_idle(priority_class_data& pc);
     void pop_priority_class(priority_class_data& pc);
+    void plug_priority_class(priority_class_data& pc);
+    void unplug_priority_class(priority_class_data& pc);
 
     enum class grab_result { grabbed, cant_preempt, pending };
     grab_result grab_capacity(const fair_queue_entry& ent) noexcept;
@@ -366,6 +368,9 @@ public:
     /// The user of this interface is supposed to call \ref notify_requests_finished when the
     /// request finishes executing - regardless of success or failure.
     void queue(class_id c, fair_queue_entry& ent);
+
+    void plug_class(class_id c);
+    void unplug_class(class_id c);
 
     /// Notifies that ont request finished
     /// \param desc an instance of \c fair_queue_ticket structure describing the request that just finished.

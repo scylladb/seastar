@@ -150,6 +150,7 @@ class fair_queue::priority_class_data {
     capacity_t _pure_accumulated = 0;
     fair_queue_entry::container_list_t _queue;
     bool _queued = false;
+    bool _plugged = true;
 
 public:
     explicit priority_class_data(uint32_t shares) noexcept : _shares(std::max(shares, 1u)) {}
@@ -193,7 +194,7 @@ fair_queue::~fair_queue() {
 }
 
 void fair_queue::push_priority_class(priority_class_data& pc) {
-    assert(!pc._queued);
+    assert(pc._plugged && !pc._queued);
     _handles.push(&pc);
     pc._queued = true;
 }
@@ -216,9 +217,33 @@ void fair_queue::push_priority_class_from_idle(priority_class_data& pc) {
 }
 
 void fair_queue::pop_priority_class(priority_class_data& pc) {
-    assert(pc._queued);
+    assert(pc._plugged && pc._queued);
     pc._queued = false;
     _handles.pop();
+}
+
+void fair_queue::plug_priority_class(priority_class_data& pc) {
+    assert(!pc._plugged && !pc._queued);
+    pc._plugged = true;
+    if (!pc._queue.empty()) {
+        push_priority_class_from_idle(pc);
+    }
+}
+
+void fair_queue::plug_class(class_id cid) {
+    plug_priority_class(*_priority_classes[cid]);
+}
+
+void fair_queue::unplug_priority_class(priority_class_data& pc) {
+    assert(pc._plugged);
+    if (pc._queued) {
+        pop_priority_class(pc);
+    }
+    pc._plugged = false;
+}
+
+void fair_queue::unplug_class(class_id cid) {
+    unplug_priority_class(*_priority_classes[cid]);
 }
 
 auto fair_queue::grab_pending_capacity(const fair_queue_entry& ent) noexcept -> grab_result {
@@ -300,7 +325,9 @@ void fair_queue::queue(class_id id, fair_queue_entry& ent) {
     // We need to return a future in this function on which the caller can wait.
     // Since we don't know which queue we will use to execute the next request - if ours or
     // someone else's, we need a separate promise at this point.
-    push_priority_class_from_idle(pc);
+    if (pc._plugged) {
+        push_priority_class_from_idle(pc);
+    }
     pc._queue.push_back(ent);
     _resources_queued += ent._ticket;
     _requests_queued++;
@@ -394,7 +421,7 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         dispatched += _group.ticket_capacity(req._ticket);
         cb(req);
 
-        if (!h._queue.empty()) {
+        if (h._plugged && !h._queue.empty()) {
             push_priority_class(h);
         }
     }
