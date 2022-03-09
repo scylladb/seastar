@@ -62,6 +62,9 @@ endif ()
 seastar_add_demo (websocket
   SOURCES websocket_demo.cc)
 
+seastar_add_demo (websocket_secure
+  SOURCES websocket_secure_demo.cc)
+
 seastar_add_demo (echo
   SOURCES echo_demo.cc)
 

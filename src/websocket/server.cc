@@ -70,6 +70,16 @@ void server::listen(socket_address addr) {
     lo.reuse_address = true;
     return listen(addr, lo);
 }
+void secure_server::listen(socket_address addr, sstring crtfile, sstring keyfile, tls::client_auth ca) {
+    _certs->set_client_auth(ca);
+    (void)_certs->set_x509_key_file(crtfile, keyfile, tls::x509_crt_format::PEM).then([this, addr] {
+        seastar::listen_options opts;
+        opts.reuse_address = true;
+        _listeners.push_back(tls::listen(_certs, addr, opts));
+        do_accepts(_listeners.size() - 1);
+    });
+}
+
 
 void server::do_accepts(int which) {
     _accept_fut = do_until(

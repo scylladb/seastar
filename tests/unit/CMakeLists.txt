@@ -330,7 +330,9 @@ seastar_add_test (httpd
     loopback_socket.hh)
 
 seastar_add_test (websocket
-  SOURCES websocket_test.cc)
+  SOURCES websocket_test.cc
+  LIBRARIES Boost::filesystem
+  WORKING_DIRECTORY ${Seastar_BINARY_DIR})
 
 seastar_add_test (ipv6
   SOURCES ipv6_test.cc)

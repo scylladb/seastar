@@ -31,6 +31,7 @@
 #include <seastar/core/gate.hh>
 #include <seastar/core/queue.hh>
 #include <seastar/core/when_all.hh>
+#include <seastar/net/tls.hh>
 
 namespace seastar::experimental::websocket {
 
@@ -295,7 +296,6 @@ protected:
  * over WebSocket protocol.
  */
 class server {
-    std::vector<server_socket> _listeners;
     boost::intrusive::list<connection> _connections;
     std::map<std::string, handler_t> _handlers;
     future<> _accept_fut = make_ready_future<>();
@@ -324,8 +324,16 @@ public:
 
     friend class connection;
 protected:
+    std::vector<server_socket> _listeners;
     void do_accepts(int which);
     future<> do_accept_one(int which);
+};
+
+class secure_server : public server {
+    shared_ptr<tls::server_credentials> _certs;
+public:
+    secure_server() : _certs(make_shared<tls::server_credentials>(make_shared<tls::dh_params>())) {}
+    void listen(socket_address addr, sstring crtfile, sstring keyfile, tls::client_auth ca = tls::client_auth::NONE);
 };
 
 }
