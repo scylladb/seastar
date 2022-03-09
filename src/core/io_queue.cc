@@ -780,4 +780,16 @@ io_queue::rename_priority_class(io_priority_class pc, sstring new_name) {
     }
 }
 
+void io_queue::throttle_priority_class(const priority_class_data& pc) noexcept {
+    for (auto&& s : _streams) {
+        s.unplug_class(pc.fq_class());
+    }
+}
+
+void io_queue::unthrottle_priority_class(const priority_class_data& pc) noexcept {
+    for (auto&& s : _streams) {
+        s.plug_class(pc.fq_class());
+    }
+}
+
 } // seastar namespace
