@@ -80,6 +80,20 @@ SEASTAR_TEST_CASE(test_sleep_abortable) {
     return f.finally([as = std::move(as)] { });
 }
 
+SEASTAR_TEST_CASE(test_sleep_abortable_no_abort) {
+    auto as = std::make_unique<abort_source>();
+
+    // Check that the sleep completes as usual if the
+    // abort source doesn't fire.
+    auto f = sleep_abortable<manual_clock>(100s, *as);
+    manual_clock::advance(99s);
+    BOOST_REQUIRE(!f.available());
+    manual_clock::advance(101s);
+    return f.finally([as = std::move(as)] { });
+}
+
+
+
 // Verify that negative sleep does not sleep forever. It should not sleep
 // at all.
 SEASTAR_TEST_CASE(test_negative_sleep_abortable) {
