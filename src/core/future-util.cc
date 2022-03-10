@@ -135,5 +135,6 @@ future<> sleep_abortable(typename Clock::duration dur, abort_source& as) {
 
 template future<> sleep_abortable<steady_clock_type>(typename steady_clock_type::duration, abort_source&);
 template future<> sleep_abortable<lowres_clock>(typename lowres_clock::duration, abort_source&);
+template future<> sleep_abortable<manual_clock>(typename manual_clock::duration, abort_source&);
 
 }
