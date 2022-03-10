@@ -308,9 +308,10 @@ protected:
  */
 class server {
     std::vector<server_socket> _listeners;
-    gate _task_gate;
     boost::intrusive::list<connection> _connections;
     std::map<std::string, handler_t> _handlers;
+    future<> _accept_fut = make_ready_future<>();
+    bool _stopped = false;
 public:
     /*!
      * \brief listen for a WebSocket connection on given address
