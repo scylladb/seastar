@@ -149,11 +149,25 @@ class io_tester:
         return ret
 
 
-def show_stat_header():
+iot = iotune(args)
+iot.ensure_io_properties()
+
+ioprop = yaml.safe_load(open('io_properties.yaml'))
+
+for prop in ioprop['disks']:
+    if prop['mountpoint'] == args.directory:
+        ioprop = prop
+        break
+else:
+    raise 'Cannot find required mountpoint in io-properties'
+
+
+def mixed_show_stat_header():
     print('-' * 20 + '8<' + '-' * 20)
     print('name           througput(kbs) iops lat95(us) queue-time(us) execution-time(us) K(bw) K(iops) K()')
 
-def run_and_show_results(m, ioprop):
+
+def mixed_run_and_show_results(m, ioprop):
     def xtimes(st, nm):
         return (st[nm] * 1000000) / st["io_queue_total_operations"]
 
@@ -175,34 +189,25 @@ def run_and_show_results(m, ioprop):
         print(f'{name:20} {int(throughput):7} {int(iops):5} {lats["p0.95"]:.1f} {xtimes(stats, "io_queue_total_delay_sec"):.1f} {xtimes(stats, "io_queue_total_exec_sec"):.1f} {k_bw:.3f} {k_iops:.3f} {k_bw + k_iops:.3f}')
 
 
-iot = iotune(args)
-iot.ensure_io_properties()
+def run_mixed_test(args, ioprop):
+    nr_cores = args.shards
+    if nr_cores is None:
+        nr_cores = multiprocessing.cpu_count()
 
-ioprop = yaml.safe_load(open('io_properties.yaml'))
+    read_rps_per_shard = int(ioprop['read_iops'] / nr_cores * 0.5)
+    read_rps = read_rps_per_shard / args.read_fibers
 
-for prop in ioprop['disks']:
-    if prop['mountpoint'] == args.directory:
-        ioprop = prop
-        break
-else:
-    raise 'Cannot find required mountpoint in io-properties'
+    print(f'Read RPS:{read_rps} fibers:{args.read_fibers}')
 
-nr_cores = args.shards
-if nr_cores is None:
-    nr_cores = multiprocessing.cpu_count()
+    mixed_show_stat_header()
 
-read_rps_per_shard = int(ioprop['read_iops'] / nr_cores * 0.5)
-read_rps = read_rps_per_shard / args.read_fibers
+    m = io_tester(args)
+    m.add_job(f'read_rated_{args.read_shares}', job('randread', args.read_reqsize, shares = args.read_shares, prl = args.read_fibers, rps = read_rps))
+    mixed_run_and_show_results(m, ioprop)
 
-print(f'Read RPS:{read_rps} fibers:{args.read_fibers}')
+    m = io_tester(args)
+    m.add_job(f'write_{args.write_shares}', job('seqwrite', args.write_reqsize, shares = args.write_shares, prl = args.write_fibers))
+    m.add_job(f'read_rated_{args.read_shares}', job('randread', args.read_reqsize, shares = args.read_shares, prl = args.read_fibers, rps = read_rps))
+    mixed_run_and_show_results(m, ioprop)
 
-show_stat_header()
-
-m = io_tester(args)
-m.add_job(f'read_rated_{args.read_shares}', job('randread', args.read_reqsize, shares = args.read_shares, prl = args.read_fibers, rps = read_rps))
-run_and_show_results(m, ioprop)
-
-m = io_tester(args)
-m.add_job(f'write_{args.write_shares}', job('seqwrite', args.write_reqsize, shares = args.write_shares, prl = args.write_fibers))
-m.add_job(f'read_rated_{args.read_shares}', job('randread', args.read_reqsize, shares = args.read_shares, prl = args.read_fibers, rps = read_rps))
-run_and_show_results(m, ioprop)
+run_mixed_test(args, ioprop)
