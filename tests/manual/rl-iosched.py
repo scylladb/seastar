@@ -179,22 +179,19 @@ iot = iotune(args)
 iot.ensure_io_properties()
 
 ioprop = yaml.safe_load(open('io_properties.yaml'))
-read_iops = 0
 
 for prop in ioprop['disks']:
     if prop['mountpoint'] == args.directory:
-        read_iops = prop['read_iops']
         ioprop = prop
         break
-
-if read_iops == 0:
+else:
     raise 'Cannot find required mountpoint in io-properties'
 
 nr_cores = args.shards
 if nr_cores is None:
     nr_cores = multiprocessing.cpu_count()
 
-read_rps_per_shard = int(read_iops / nr_cores * 0.5)
+read_rps_per_shard = int(ioprop['read_iops'] / nr_cores * 0.5)
 read_rps = read_rps_per_shard / args.read_fibers
 
 print(f'Read RPS:{read_rps} fibers:{args.read_fibers}')
