@@ -19,6 +19,7 @@ sub_parser = t_parser.add_subparsers(help='Use --help for the list of tests')
 sub_parser.required = True
 
 parser = sub_parser.add_parser('mixed', help='Run mixed test')
+parser.set_defaults(test_name='mixed')
 parser.add_argument('--read-reqsize', help='Size of a read request in kbytes', type=int, default=4)
 parser.add_argument('--read-fibers', help='Number of reading fibers', type=int, default=5)
 parser.add_argument('--read-shares', help='Shares for read workload', type=int, default=2500)
@@ -153,6 +154,14 @@ class io_tester:
         return ret
 
 
+all_tests = {}
+# decorator to add test functions by names
+def test_name(name):
+    def add_test(name, fn):
+        all_tests[name] = fn
+    return lambda x : add_test(name, x)
+
+
 iot = iotune(args)
 iot.ensure_io_properties()
 
@@ -193,6 +202,7 @@ def mixed_run_and_show_results(m, ioprop):
         print(f'{name:20} {int(throughput):7} {int(iops):5} {lats["p0.95"]:.1f} {xtimes(stats, "io_queue_total_delay_sec"):.1f} {xtimes(stats, "io_queue_total_exec_sec"):.1f} {k_bw:.3f} {k_iops:.3f} {k_bw + k_iops:.3f}')
 
 
+@test_name('mixed')
 def run_mixed_test(args, ioprop):
     nr_cores = args.shards
     if nr_cores is None:
@@ -219,4 +229,6 @@ def run_mixed_test(args, ioprop):
     m.add_job(f'read_rated_{args.read_shares}', job('randread', args.read_reqsize, shares = args.read_shares, prl = args.read_fibers, rps = read_rps))
     mixed_run_and_show_results(m, ioprop)
 
-run_mixed_test(args, ioprop)
+
+print(f'=== Running {args.test_name} ===')
+all_tests[args.test_name](args, ioprop)
