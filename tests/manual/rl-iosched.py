@@ -29,6 +29,13 @@ parser.add_argument('--write-shares', help='Shares for write workload', type=int
 parser.add_argument('--sleep-type', help='The io_tester conf.options.sleep_type option', default='busyloop')
 parser.add_argument('--pause-dist', help='The io_tester conf.option.pause_distribution option', default='uniform')
 
+parser = sub_parser.add_parser('limits', help='Run limits test')
+parser.set_defaults(test_name='limits')
+parser.add_argument('--bw-reqsize', help='Bandwidth job request size in kbytes', type=int, default=64)
+parser.add_argument('--iops-reqsize', help='IOPS job request size in kbytes', type=int, default=4)
+parser.add_argument('--limit-ratio', help='Bandidth/IOPS fraction to test', type=int, default=2)
+parser.add_argument('--parallelism', help='IO job parallelism', type=int, default=100)
+
 args = t_parser.parse_args()
 
 
@@ -228,6 +235,54 @@ def run_mixed_test(args, ioprop):
     m.add_job(f'write_{args.write_shares}', job('seqwrite', args.write_reqsize, shares = args.write_shares, prl = args.write_fibers))
     m.add_job(f'read_rated_{args.read_shares}', job('randread', args.read_reqsize, shares = args.read_shares, prl = args.read_fibers, rps = read_rps))
     mixed_run_and_show_results(m, ioprop)
+
+
+def limits_make_ioprop(name, ioprop, changes):
+    nprop = {}
+    for k in ioprop:
+        nprop[k] = ioprop[k] if k not in changes else changes[k]
+    yaml.dump({'disks': [ nprop ]}, open(name, 'w'))
+
+
+def limits_show_stat_header():
+    print('-' * 20 + '8<' + '-' * 20)
+    print('name           througput(kbs) iops')
+
+
+def limits_run_and_show_results(m):
+    res = m.run()
+    for name in res:
+        st = res[name]
+        throughput = st['throughput']
+        iops = st['IOPS']
+        print(f'{name:20} {int(throughput):7} {int(iops):5}')
+
+
+@test_name('limits')
+def run_limits_test(args, ioprop):
+    disk_bw = ioprop['read_bandwidth']
+    disk_iops = ioprop['read_iops']
+
+    print(f'Target bandwidth {disk_bw} -> {int(disk_bw / args.limit_ratio)}, IOPS {disk_iops} -> {int(disk_iops / args.limit_ratio)}')
+    limits_show_stat_header()
+
+    m = io_tester(args)
+    m.add_job(f'reads_bw', job('seqread', args.bw_reqsize, prl = args.parallelism))
+    limits_run_and_show_results(m)
+
+    limits_make_ioprop('ioprop_1.yaml', ioprop, { 'read_bandwidth': int(disk_bw / args.limit_ratio) })
+    m = io_tester(args, ioprop = 'ioprop_1.yaml')
+    m.add_job(f'reads_lim_bw', job('seqread', args.bw_reqsize, prl = args.parallelism))
+    limits_run_and_show_results(m)
+
+    m = io_tester(args)
+    m.add_job(f'reads_iops', job('randread', args.iops_reqsize, prl = args.parallelism))
+    limits_run_and_show_results(m)
+
+    limits_make_ioprop('ioprop_2.yaml', ioprop, { 'read_iops': int(disk_iops / args.limit_ratio) })
+    m = io_tester(args, ioprop = 'ioprop_2.yaml')
+    m.add_job(f'reads_lim_iops', job('randread', args.iops_reqsize, prl = args.parallelism))
+    limits_run_and_show_results(m)
 
 
 print(f'=== Running {args.test_name} ===')
