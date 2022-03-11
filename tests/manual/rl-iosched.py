@@ -61,8 +61,9 @@ class job:
                 'reqsize': f'{self._req_size}kB',
                 'shares': self._shares,
             },
-            'options': options,
         }
+        if options is not None:
+            ret['options'] = options
         if self._prl is not None:
             ret['shard_info']['parallelism'] = int(self._prl)
         if self._rps is not None:
@@ -71,16 +72,13 @@ class job:
 
 
 class io_tester:
-    def __init__(self, args):
+    def __init__(self, args, opts = None):
         self._jobs = []
         self._io_tester = args.bdir + '/apps/io_tester/io_tester'
         self._dir = args.directory
         self._use_fraction = 0.8
         self._max_data_size_gb = 8
-        self._job_options = {
-            'sleep_type': args.sleep_type,
-            'pause_distribution': args.pause_dist,
-        }
+        self._job_options = opts
         self._io_tester_args = [
             '--io-properties-file', 'io_properties.yaml',
             '--storage', self._dir,
@@ -197,15 +195,20 @@ def run_mixed_test(args, ioprop):
     read_rps_per_shard = int(ioprop['read_iops'] / nr_cores * 0.5)
     read_rps = read_rps_per_shard / args.read_fibers
 
+    options = {
+        'sleep_type': args.sleep_type,
+        'pause_distribution': args.pause_dist,
+    }
+
     print(f'Read RPS:{read_rps} fibers:{args.read_fibers}')
 
     mixed_show_stat_header()
 
-    m = io_tester(args)
+    m = io_tester(args, opts = options)
     m.add_job(f'read_rated_{args.read_shares}', job('randread', args.read_reqsize, shares = args.read_shares, prl = args.read_fibers, rps = read_rps))
     mixed_run_and_show_results(m, ioprop)
 
-    m = io_tester(args)
+    m = io_tester(args, opts = options)
     m.add_job(f'write_{args.write_shares}', job('seqwrite', args.write_reqsize, shares = args.write_shares, prl = args.write_fibers))
     m.add_job(f'read_rated_{args.read_shares}', job('randread', args.read_reqsize, shares = args.read_shares, prl = args.read_fibers, rps = read_rps))
     mixed_run_and_show_results(m, ioprop)
