@@ -72,7 +72,7 @@ class job:
 
 
 class io_tester:
-    def __init__(self, args, opts = None):
+    def __init__(self, args, opts = None, ioprop = 'io_properties.yaml'):
         self._jobs = []
         self._io_tester = args.bdir + '/apps/io_tester/io_tester'
         self._dir = args.directory
@@ -80,7 +80,7 @@ class io_tester:
         self._max_data_size_gb = 8
         self._job_options = opts
         self._io_tester_args = [
-            '--io-properties-file', 'io_properties.yaml',
+            '--io-properties-file', ioprop,
             '--storage', self._dir,
             '--duration', f'{args.duration}',
         ]
