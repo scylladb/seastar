@@ -9,20 +9,26 @@ import shutil
 import os
 import json
 
-parser = argparse.ArgumentParser(description='IO scheduler tester')
-parser.add_argument('--directory', help='Directory to run on', default='/mnt')
-parser.add_argument('--seastar-build-dir', help='Path to seastar build directory', default='./build/dev/', dest='bdir')
-parser.add_argument('--duration', help='One run duration', type=int, default=60)
+t_parser = argparse.ArgumentParser(description='IO scheduler tester')
+t_parser.add_argument('--directory', help='Directory to run on', default='/mnt')
+t_parser.add_argument('--seastar-build-dir', help='Path to seastar build directory', default='./build/dev/', dest='bdir')
+t_parser.add_argument('--duration', help='One run duration', type=int, default=60)
+t_parser.add_argument('--shards', help='Number of shards to use', type=int)
+
+sub_parser = t_parser.add_subparsers(help='Use --help for the list of tests')
+sub_parser.required = True
+
+parser = sub_parser.add_parser('mixed', help='Run mixed test')
 parser.add_argument('--read-reqsize', help='Size of a read request in kbytes', type=int, default=4)
 parser.add_argument('--read-fibers', help='Number of reading fibers', type=int, default=5)
 parser.add_argument('--read-shares', help='Shares for read workload', type=int, default=2500)
 parser.add_argument('--write-reqsize', help='Size of a write request in kbytes', type=int, default=64)
 parser.add_argument('--write-fibers', help='Number of writing fibers', type=int, default=2)
 parser.add_argument('--write-shares', help='Shares for write workload', type=int, default=100)
-parser.add_argument('--shards', help='Number of shards to use', type=int)
 parser.add_argument('--sleep-type', help='The io_tester conf.options.sleep_type option', default='busyloop')
 parser.add_argument('--pause-dist', help='The io_tester conf.option.pause_distribution option', default='uniform')
-args = parser.parse_args()
+
+args = t_parser.parse_args()
 
 
 class iotune:
