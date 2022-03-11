@@ -36,6 +36,11 @@ parser.add_argument('--iops-reqsize', help='IOPS job request size in kbytes', ty
 parser.add_argument('--limit-ratio', help='Bandidth/IOPS fraction to test', type=int, default=2)
 parser.add_argument('--parallelism', help='IO job parallelism', type=int, default=100)
 
+parser = sub_parser.add_parser('isolation', help='Run isolation test')
+parser.set_defaults(test_name='isolation')
+parser.add_argument('--instances', help='Number of instances to isolate from each other', type=int, default=3)
+parser.add_argument('--parallelism', help='IO job parallelism', type=int, default=100)
+
 args = t_parser.parse_args()
 
 
@@ -86,7 +91,7 @@ class job:
 
 
 class io_tester:
-    def __init__(self, args, opts = None, ioprop = 'io_properties.yaml'):
+    def __init__(self, args, opts = None, ioprop = 'io_properties.yaml', groups = None):
         self._jobs = []
         self._io_tester = args.bdir + '/apps/io_tester/io_tester'
         self._dir = args.directory
@@ -100,6 +105,8 @@ class io_tester:
         ]
         if args.shards is not None:
             self._io_tester_args += [ f'-c{args.shards}' ]
+        if groups is not None:
+            self._io_tester_args += [ '--num-io-groups', f'{groups}' ]
 
     def add_job(self, name, job):
         self._jobs.append(job.to_conf_entry(name, self._job_options))
@@ -283,6 +290,37 @@ def run_limits_test(args, ioprop):
     m = io_tester(args, ioprop = 'ioprop_2.yaml')
     m.add_job(f'reads_lim_iops', job('randread', args.iops_reqsize, prl = args.parallelism))
     limits_run_and_show_results(m)
+
+
+def isolation_show_stat_header():
+    print('-' * 20 + '8<' + '-' * 20)
+    print('name           iops  lat95(us)')
+
+
+def isolation_run_and_show_results(m):
+    res = m.run()
+    for name in res:
+        st = res[name]
+        iops = st['IOPS']
+        lats = st['latencies']
+
+        print(f'{name:20} {int(iops):5} {lats["p0.95"]:.1f}')
+
+
+@test_name('isolation')
+def run_isolation_test(args, ioprop):
+    if args.shards is not None and args.shards < args.instances:
+        raise f'Number of shards ({args.shards}) should be more than the number of instances ({args.instances})'
+
+    isolation_show_stat_header()
+
+    m = io_tester(args)
+    m.add_job('reads', job('randread', 4, prl = args.parallelism))
+    isolation_run_and_show_results(m)
+
+    m = io_tester(args, groups = args.instances)
+    m.add_job('reads_groups', job('randread', 4, prl = args.parallelism))
+    isolation_run_and_show_results(m)
 
 
 print(f'=== Running {args.test_name} ===')
