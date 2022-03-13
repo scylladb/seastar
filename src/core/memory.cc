@@ -1554,6 +1554,10 @@ statistics stats() {
         alloc_stats::get(alloc_stats::types::foreign_mallocs), alloc_stats::get(alloc_stats::types::foreign_frees), alloc_stats::get(alloc_stats::types::foreign_cross_frees)};
 }
 
+size_t free_memory() {
+    return get_cpu_mem().nr_free_pages * page_size;
+}
+
 bool drain_cross_cpu_freelist() {
     return get_cpu_mem().drain_cross_cpu_freelist();
 }

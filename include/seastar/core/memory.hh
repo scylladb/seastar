@@ -284,6 +284,9 @@ struct memory_layout {
 // Supported only when seastar allocator is enabled.
 memory::memory_layout get_memory_layout();
 
+/// Returns the size of free memory in bytes.
+size_t free_memory();
+
 /// Returns the value of free memory low water mark in bytes.
 /// When free memory is below this value, reclaimers are invoked until it goes above again.
 size_t min_free_memory();
