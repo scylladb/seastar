@@ -490,6 +490,8 @@ public:
     future<> update_shares_for_class(io_priority_class pc, uint32_t shares);
     /// @private
     future<> update_shares_for_queues(io_priority_class pc, uint32_t shares);
+    /// @private
+    future<> update_bandwidth_for_queues(io_priority_class pc, uint64_t bandwidth);
 
     [[deprecated("Use io_priority_class.rename")]]
     static future<> rename_priority_class(io_priority_class pc, sstring new_name) noexcept;

@@ -147,6 +147,7 @@ public:
     dev_t dev_id() const noexcept;
 
     future<> update_shares_for_class(io_priority_class pc, size_t new_shares);
+    future<> update_bandwidth_for_class(io_priority_class pc, uint64_t new_bandwidth);
     void rename_priority_class(io_priority_class pc, sstring new_name);
     void throttle_priority_class(const priority_class_data& pc) noexcept;
     void unthrottle_priority_class(const priority_class_data& pc) noexcept;

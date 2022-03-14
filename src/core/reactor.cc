@@ -214,6 +214,14 @@ future<> reactor::update_shares_for_queues(io_priority_class pc, uint32_t shares
     });
 }
 
+future<> reactor::update_bandwidth_for_queues(io_priority_class pc, uint64_t bandwidth) {
+    return smp::invoke_on_all([pc, bandwidth = bandwidth / _num_io_groups] {
+        return parallel_for_each(engine()._io_queues, [pc, bandwidth] (auto& queue) {
+            return queue.second->update_bandwidth_for_class(pc, bandwidth);
+        });
+    });
+}
+
 future<> reactor::rename_queues(io_priority_class pc, sstring new_name) noexcept {
     return futurize_invoke([this, pc, new_name = std::move(new_name)] {
         for (auto&& queue : _io_queues) {

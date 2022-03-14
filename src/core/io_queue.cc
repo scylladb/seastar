@@ -85,6 +85,10 @@ public:
         _shares = std::max(shares, 1u);
     }
 
+    void update_bandwidth(uint64_t bandwidth) {
+        // FIXME -- to be implemented soon
+    }
+
     priority_class_data(io_priority_class pc, uint32_t shares, io_queue& q, io_group::priority_class_data& pg)
         : _queue(q)
         , _pc(pc)
@@ -484,6 +488,10 @@ future<> io_priority_class::update_shares(uint32_t shares) const {
     return engine().update_shares_for_queues(*this, shares);
 }
 
+future<> io_priority_class::update_bandwidth(uint64_t bandwidth) const {
+    return engine().update_bandwidth_for_queues(*this, bandwidth);
+}
+
 bool io_priority_class::rename_registered(sstring new_name) {
     std::lock_guard<std::mutex> guard(_register_lock);
     for (unsigned i = 0; i < _max_classes; ++i) {
@@ -762,6 +770,15 @@ io_queue::update_shares_for_class(const io_priority_class pc, size_t new_shares)
         pclass.update_shares(new_shares);
         for (auto&& s : _streams) {
             s.update_shares_for_class(pclass.fq_class(), new_shares);
+        }
+    });
+}
+
+future<> io_queue::update_bandwidth_for_class(const io_priority_class pc, uint64_t new_bandwidth) {
+    return futurize_invoke([this, pc, new_bandwidth] {
+        if (_group->_allocated_on == this_shard_id()) {
+            auto& pclass = find_or_create_class(pc);
+            pclass.update_bandwidth(new_bandwidth);
         }
     });
 }
