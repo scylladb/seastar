@@ -43,15 +43,56 @@ template <typename T>
 concept supports_wrapping_arithmetics = requires (T a, std::atomic<T> atomic_a, T b) {
     { fetch_add(atomic_a, b) } noexcept -> std::same_as<T>;
     { wrapping_difference(a, b) } noexcept -> std::same_as<T>;
+    { a + b } noexcept -> std::same_as<T>;
 };
 )
 
-template <typename T, typename Period, typename Clock = std::chrono::steady_clock>
+enum class capped_release { yes, no };
+
+template <typename T, capped_release Capped>
+struct rovers;
+
+template <typename T>
+struct rovers<T, capped_release::yes> {
+    using atomic_rover = std::atomic<T>;
+
+    atomic_rover tail;
+    atomic_rover head;
+    atomic_rover ceil;
+
+    rovers(T limit) noexcept : tail(0), head(0), ceil(limit) {}
+
+    T max_extra(T limit) const noexcept {
+        return wrapping_difference(ceil.load(std::memory_order_relaxed), head.load(std::memory_order_relaxed));
+    }
+
+    void release(T tokens) {
+        fetch_add(ceil, tokens);
+    }
+};
+
+template <typename T>
+struct rovers<T, capped_release::no> {
+    using atomic_rover = std::atomic<T>;
+
+    atomic_rover tail;
+    atomic_rover head;
+
+    rovers(T limit) noexcept : tail(0), head(0) {}
+
+    T max_extra(T limit) const noexcept {
+        return wrapping_difference(tail.load(std::memory_order_relaxed) + limit, head.load(std::memory_order_relaxed));
+    }
+
+    void release(T tokens) {
+        std::abort(); // FIXME shouldn't even be compiled
+    }
+};
+
+template <typename T, typename Period, capped_release Capped, typename Clock = std::chrono::steady_clock>
 SEASTAR_CONCEPT( requires std::is_nothrow_copy_constructible_v<T> && supports_wrapping_arithmetics<T> )
 class shared_token_bucket {
     using rate_resolution = std::chrono::duration<double, Period>;
-    using atomic_rover = std::atomic<T>;
-    static_assert(atomic_rover::is_always_lock_free);
 
     const T _replenish_rate;
     const T _replenish_limit;
@@ -73,13 +114,12 @@ class shared_token_bucket {
      * completes and returns it back.
      */
 
-    atomic_rover _tail;
-    atomic_rover _head;
-    atomic_rover _ceil;
+    using rovers_t = rovers<T, Capped>;
+    static_assert(rovers_t::atomic_rover::is_always_lock_free);
+    rovers_t _rovers;
 
-    T tail() const noexcept { return _tail.load(std::memory_order_relaxed); }
-    T head() const noexcept { return _head.load(std::memory_order_relaxed); }
-    T ceil() const noexcept { return _ceil.load(std::memory_order_relaxed); }
+    T tail() const noexcept { return _rovers.tail.load(std::memory_order_relaxed); }
+    T head() const noexcept { return _rovers.head.load(std::memory_order_relaxed); }
 
 public:
     shared_token_bucket(T rate, T limit, T threshold) noexcept
@@ -87,17 +127,15 @@ public:
             , _replenish_limit(limit)
             , _replenish_threshold(std::clamp(threshold, (T)1, limit))
             , _replenished(Clock::now())
-            , _tail(0)
-            , _head(0)
-            , _ceil(_replenish_limit)
+            , _rovers(_replenish_limit)
     {}
 
     T grab(T tokens) noexcept {
-        return fetch_add(_tail, tokens);
+        return fetch_add(_rovers.tail, tokens);
     }
 
     void release(T tokens) noexcept {
-        fetch_add(_ceil, tokens);
+        _rovers.release(tokens);
     }
 
     void replenish(typename Clock::time_point now) noexcept {
@@ -115,8 +153,7 @@ public:
                 return; // next time or another shard
             }
 
-            auto max_extra = wrapping_difference(ceil(), head());
-            fetch_add(_head, std::min(extra, max_extra));
+            fetch_add(_rovers.head, std::min(extra, _rovers.max_extra(_replenish_limit)));
         }
     }
 

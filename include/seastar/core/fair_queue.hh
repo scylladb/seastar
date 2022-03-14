@@ -182,7 +182,7 @@ public:
      */
 
     static constexpr float fixed_point_factor = float(1 << 24);
-    using token_bucket_t = internal::shared_token_bucket<capacity_t, std::milli>;
+    using token_bucket_t = internal::shared_token_bucket<capacity_t, std::milli, internal::capped_release::yes>;
 
 private:
 
