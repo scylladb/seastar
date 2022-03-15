@@ -94,7 +94,7 @@ SEASTAR_CONCEPT( requires std::is_nothrow_copy_constructible_v<T> && supports_wr
 class shared_token_bucket {
     using rate_resolution = std::chrono::duration<double, Period>;
 
-    const T _replenish_rate;
+    T _replenish_rate;
     const T _replenish_limit;
     const T _replenish_threshold;
     std::atomic<typename Clock::time_point> _replenished;
@@ -121,9 +121,21 @@ class shared_token_bucket {
     T tail() const noexcept { return _rovers.tail.load(std::memory_order_relaxed); }
     T head() const noexcept { return _rovers.head.load(std::memory_order_relaxed); }
 
+    /*
+     * Need to make sure that the multiplication in accumulated_in() doesn't
+     * overflow. Not to introduce an extra branch there, define that the
+     * replenish period is not larger than this delta and limit the rate with
+     * the value that can overflow it.
+     *
+     * The additional /=2 in max_rate math is to make extra sure that the
+     * overflow doesn't break wrapping_difference sign tricks.
+     */
+    static constexpr rate_resolution max_delta = std::chrono::duration_cast<rate_resolution>(std::chrono::hours(1));
 public:
+    static constexpr T max_rate = std::numeric_limits<T>::max() / 2 / max_delta.count();
+
     shared_token_bucket(T rate, T limit, T threshold) noexcept
-            : _replenish_rate(rate)
+            : _replenish_rate(std::min(rate, max_rate))
             , _replenish_limit(limit)
             , _replenish_threshold(std::clamp(threshold, (T)1, limit))
             , _replenished(Clock::now())
@@ -183,6 +195,10 @@ public:
     T limit() const noexcept { return _replenish_limit; }
     T threshold() const noexcept { return _replenish_threshold; }
     typename Clock::time_point replenished_ts() const noexcept { return _replenished; }
+
+    void update_rate(T rate) noexcept {
+        _replenish_rate = std::min(rate, max_rate);
+    }
 };
 
 } // internal namespace

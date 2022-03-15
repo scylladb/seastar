@@ -102,6 +102,10 @@ fair_group::fair_group(config cfg)
     seastar_logger.info("Created fair group {}, capacity rate {}, limit {}, rate {} (factor {}), threshold {}", cfg.label,
             _cost_capacity, _token_bucket.limit(), _token_bucket.rate(), cfg.rate_factor, _token_bucket.threshold());
 
+    if (cfg.rate_factor * fixed_point_factor > _token_bucket.max_rate) {
+        throw std::runtime_error("Fair-group rate_factor is too large");
+    }
+
     if (ticket_capacity(fair_queue_ticket(cfg.min_weight, cfg.min_size)) > _token_bucket.threshold()) {
         throw std::runtime_error("Fair-group replenisher limit is lower than threshold");
     }
