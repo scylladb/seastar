@@ -3519,7 +3519,7 @@ smp_options::smp_options(program_options::option_group* parent_group)
 #ifndef SEASTAR_NO_EXCEPTION_HACK
     , enable_glibc_exception_scaling_workaround(*this, "enable-glibc-exception-scaling-workaround", true, "enable workaround for glibc/gcc c++ exception scalablity problem")
 #else
-    , enable_glibc_exception_scaling_workaround(*this, program_options::unused{})
+    , enable_glibc_exception_scaling_workaround(*this, "enable-glibc-exception-scaling-workaround", program_options::unused{})
 #endif
 #ifdef SEASTAR_HAVE_HWLOC
     , allow_cpus_in_remote_numa_nodes(*this, "allow-cpus-in-remote-numa-nodes", true, "if some CPUs are found not to have any local NUMA nodes, allow assigning them to remote ones")
