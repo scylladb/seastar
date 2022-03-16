@@ -65,7 +65,7 @@ public:
             as._subscriptions->push_back(*this);
         }
 
-        void on_abort() {
+        void on_abort() noexcept {
             _target();
         }
 
@@ -112,7 +112,7 @@ public:
 
     /// Requests that the target operation be aborted. Current subscriptions
     /// are invoked inline with this call, and no new ones can be registered.
-    void request_abort() {
+    void request_abort() noexcept {
         std::exchange(_subscriptions, std::nullopt)->clear_and_dispose([] (subscription* s) { s->on_abort(); });
     }
 
