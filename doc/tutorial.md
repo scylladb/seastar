@@ -440,6 +440,23 @@ Here, two read() calls are launched concurrently. The coroutine is paused until 
 
 Note that `all` waits for all of its sub-computations, even if some throw an exception. If an exception is thrown, it is propagated to the calling coroutine.
 
+The `seastar::coroutine::parallel_for_each` class template allows a coroutine to fork into several concurrently executing function invocations (or Seastar fibers, see below) over a range of elements and join again when they complete. Consider this example:
+
+```cpp
+#include <seastar/core/coroutines.hh>
+#include <seastar/coroutine/parallel_for_each.hh>
+
+seastar::future<bool> all_exist(std::vector<sstring> filenames) {
+    bool res = true;
+    co_await seastar::coroutine::parallel_for_each(filenames, [&res] (const seastar::sstring& name) -> seastar::future<> {
+        res &= co_await seastar::file_exists(name);
+    });
+    co_return res;
+}
+```
+
+Here, the lambda function passed to parallel_for_each is launched concurrently for each element in the filenames vector. The coroutine is paused until all calls complete.
+
 ## Breaking up long running computations
 
 Seastar is generally used for I/O, and coroutines usually launch I/O operations and consume their results, with little computation in between. But occasionally a long running computation is needed, and this risks preventing the reactor from performing I/O and scheduling other tasks.

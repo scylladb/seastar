@@ -20,12 +20,14 @@
  */
 
 #include <exception>
+#include <numeric>
 
 #include <seastar/core/future-util.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/util/later.hh>
 #include <seastar/core/thread.hh>
+#include <seastar/testing/random.hh>
 
 using namespace seastar;
 using namespace std::chrono_literals;
@@ -42,6 +44,7 @@ SEASTAR_TEST_CASE(test_coroutines_not_compiled_in) {
 #include <seastar/coroutine/all.hh>
 #include <seastar/coroutine/maybe_yield.hh>
 #include <seastar/coroutine/switch_to.hh>
+#include <seastar/coroutine/parallel_for_each.hh>
 
 namespace {
 
@@ -465,5 +468,99 @@ SEASTAR_TEST_CASE(generator)
 }
 
 #endif
+
+SEASTAR_TEST_CASE(test_parallel_for_each_empty) {
+    std::vector<int> values;
+    int count = 0;
+
+    co_await coroutine::parallel_for_each(values, [&] (int x) {
+        ++count;
+    });
+    BOOST_REQUIRE_EQUAL(count, 0); // the test will hang if it doesn't work.
+}
+
+SEASTAR_TEST_CASE(test_parallel_for_each_exception) {
+    std::array<int, 5> values = { 10, 2, 1, 4, 8 };
+    int count = 0;
+    auto& eng = testing::local_random_engine;
+    auto dist = std::uniform_int_distribution<unsigned>();
+    int throw_at = dist(eng) % values.size();
+
+    BOOST_TEST_MESSAGE(fmt::format("Will throw at value #{}/{}", throw_at, values.size()));
+
+    auto f0 = coroutine::parallel_for_each(values, [&] (int x) {
+        if (count++ == throw_at) {
+            BOOST_TEST_MESSAGE("throw");
+            throw std::runtime_error("test");
+        }
+    });
+    // An exception thrown by the functor must be propagated
+    BOOST_REQUIRE_THROW(co_await std::move(f0), std::runtime_error);
+    // Functor must be called on all values, even if there's an exception
+    BOOST_REQUIRE_EQUAL(count, values.size());
+
+    count = 0;
+    throw_at = dist(eng) % values.size();
+    BOOST_TEST_MESSAGE(fmt::format("Will throw at value #{}/{}", throw_at, values.size()));
+
+    auto f1 = coroutine::parallel_for_each(values, [&] (int x) -> future<> {
+        co_await sleep(std::chrono::milliseconds(x));
+        if (count++ == throw_at) {
+            throw std::runtime_error("test");
+        }
+    });
+    BOOST_REQUIRE_THROW(co_await std::move(f1), std::runtime_error);
+    BOOST_REQUIRE_EQUAL(count, values.size());
+}
+
+SEASTAR_TEST_CASE(test_parallel_for_each) {
+    std::vector<int> values = { 3, 1, 4 };
+    int sum_of_squares = 0;
+
+    int expected = std::accumulate(values.begin(), values.end(), 0, [] (int sum, int x) {
+        return sum + x * x;
+    });
+
+    // Test all-ready futures
+    co_await coroutine::parallel_for_each(values, [&sum_of_squares] (int x) {
+        sum_of_squares += x * x;
+    });
+    BOOST_REQUIRE_EQUAL(sum_of_squares, expected);
+
+    // Test non-ready futures
+    sum_of_squares = 0;
+    co_await coroutine::parallel_for_each(values, [&sum_of_squares] (int x) -> future<> {
+        if (x > 1) {
+            co_await sleep(std::chrono::milliseconds(x));
+        }
+        sum_of_squares += x * x;
+    });
+    BOOST_REQUIRE_EQUAL(sum_of_squares, expected);
+
+    // Test legacy subrange
+    sum_of_squares = 0;
+    co_await coroutine::parallel_for_each(values.begin(), values.end() - 1, [&sum_of_squares] (int x) -> future<> {
+        if (x > 1) {
+            co_await sleep(std::chrono::milliseconds(x));
+        }
+        sum_of_squares += x * x;
+    });
+    BOOST_REQUIRE_EQUAL(sum_of_squares, 10);
+
+    // clang 13.0.1 doesn't support subrange
+    // so provide also a Iterator/Sentinel based constructor.
+    // See https://github.com/llvm/llvm-project/issues/46091
+#ifndef __clang__
+    // Test std::ranges::subrange
+    sum_of_squares = 0;
+    co_await coroutine::parallel_for_each(std::ranges::subrange(values.begin(), values.end() - 1), [&sum_of_squares] (int x) -> future<> {
+        if (x > 1) {
+            co_await sleep(std::chrono::milliseconds(x));
+        }
+        sum_of_squares += x * x;
+    });
+    BOOST_REQUIRE_EQUAL(sum_of_squares, 10);
+#endif
+}
 
 #endif
