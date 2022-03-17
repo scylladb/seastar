@@ -9,20 +9,39 @@ import shutil
 import os
 import json
 
-parser = argparse.ArgumentParser(description='IO scheduler tester')
-parser.add_argument('--directory', help='Directory to run on', default='/mnt')
-parser.add_argument('--seastar-build-dir', help='Path to seastar build directory', default='./build/dev/', dest='bdir')
-parser.add_argument('--duration', help='One run duration', type=int, default=60)
+t_parser = argparse.ArgumentParser(description='IO scheduler tester')
+t_parser.add_argument('--directory', help='Directory to run on', default='/mnt')
+t_parser.add_argument('--seastar-build-dir', help='Path to seastar build directory', default='./build/dev/', dest='bdir')
+t_parser.add_argument('--duration', help='One run duration', type=int, default=60)
+t_parser.add_argument('--shards', help='Number of shards to use', type=int)
+
+sub_parser = t_parser.add_subparsers(help='Use --help for the list of tests')
+sub_parser.required = True
+
+parser = sub_parser.add_parser('mixed', help='Run mixed test')
+parser.set_defaults(test_name='mixed')
 parser.add_argument('--read-reqsize', help='Size of a read request in kbytes', type=int, default=4)
 parser.add_argument('--read-fibers', help='Number of reading fibers', type=int, default=5)
 parser.add_argument('--read-shares', help='Shares for read workload', type=int, default=2500)
 parser.add_argument('--write-reqsize', help='Size of a write request in kbytes', type=int, default=64)
 parser.add_argument('--write-fibers', help='Number of writing fibers', type=int, default=2)
 parser.add_argument('--write-shares', help='Shares for write workload', type=int, default=100)
-parser.add_argument('--shards', help='Number of shards to use', type=int)
 parser.add_argument('--sleep-type', help='The io_tester conf.options.sleep_type option', default='busyloop')
 parser.add_argument('--pause-dist', help='The io_tester conf.option.pause_distribution option', default='uniform')
-args = parser.parse_args()
+
+parser = sub_parser.add_parser('limits', help='Run limits test')
+parser.set_defaults(test_name='limits')
+parser.add_argument('--bw-reqsize', help='Bandwidth job request size in kbytes', type=int, default=64)
+parser.add_argument('--iops-reqsize', help='IOPS job request size in kbytes', type=int, default=4)
+parser.add_argument('--limit-ratio', help='Bandidth/IOPS fraction to test', type=int, default=2)
+parser.add_argument('--parallelism', help='IO job parallelism', type=int, default=100)
+
+parser = sub_parser.add_parser('isolation', help='Run isolation test')
+parser.set_defaults(test_name='isolation')
+parser.add_argument('--instances', help='Number of instances to isolate from each other', type=int, default=3)
+parser.add_argument('--parallelism', help='IO job parallelism', type=int, default=100)
+
+args = t_parser.parse_args()
 
 
 class iotune:
@@ -61,8 +80,9 @@ class job:
                 'reqsize': f'{self._req_size}kB',
                 'shares': self._shares,
             },
-            'options': options,
         }
+        if options is not None:
+            ret['options'] = options
         if self._prl is not None:
             ret['shard_info']['parallelism'] = int(self._prl)
         if self._rps is not None:
@@ -71,23 +91,22 @@ class job:
 
 
 class io_tester:
-    def __init__(self, args):
+    def __init__(self, args, opts = None, ioprop = 'io_properties.yaml', groups = None):
         self._jobs = []
         self._io_tester = args.bdir + '/apps/io_tester/io_tester'
         self._dir = args.directory
         self._use_fraction = 0.8
         self._max_data_size_gb = 8
-        self._job_options = {
-            'sleep_type': args.sleep_type,
-            'pause_distribution': args.pause_dist,
-        }
+        self._job_options = opts
         self._io_tester_args = [
-            '--io-properties-file', 'io_properties.yaml',
+            '--io-properties-file', ioprop,
             '--storage', self._dir,
             '--duration', f'{args.duration}',
         ]
         if args.shards is not None:
             self._io_tester_args += [ f'-c{args.shards}' ]
+        if groups is not None:
+            self._io_tester_args += [ '--num-io-groups', f'{groups}' ]
 
     def add_job(self, name, job):
         self._jobs.append(job.to_conf_entry(name, self._job_options))
@@ -149,11 +168,33 @@ class io_tester:
         return ret
 
 
-def show_stat_header():
+all_tests = {}
+# decorator to add test functions by names
+def test_name(name):
+    def add_test(name, fn):
+        all_tests[name] = fn
+    return lambda x : add_test(name, x)
+
+
+iot = iotune(args)
+iot.ensure_io_properties()
+
+ioprop = yaml.safe_load(open('io_properties.yaml'))
+
+for prop in ioprop['disks']:
+    if prop['mountpoint'] == args.directory:
+        ioprop = prop
+        break
+else:
+    raise 'Cannot find required mountpoint in io-properties'
+
+
+def mixed_show_stat_header():
     print('-' * 20 + '8<' + '-' * 20)
     print('name           througput(kbs) iops lat95(us) queue-time(us) execution-time(us) K(bw) K(iops) K()')
 
-def run_and_show_results(m, ioprop):
+
+def mixed_run_and_show_results(m, ioprop):
     def xtimes(st, nm):
         return (st[nm] * 1000000) / st["io_queue_total_operations"]
 
@@ -175,37 +216,112 @@ def run_and_show_results(m, ioprop):
         print(f'{name:20} {int(throughput):7} {int(iops):5} {lats["p0.95"]:.1f} {xtimes(stats, "io_queue_total_delay_sec"):.1f} {xtimes(stats, "io_queue_total_exec_sec"):.1f} {k_bw:.3f} {k_iops:.3f} {k_bw + k_iops:.3f}')
 
 
-iot = iotune(args)
-iot.ensure_io_properties()
+@test_name('mixed')
+def run_mixed_test(args, ioprop):
+    nr_cores = args.shards
+    if nr_cores is None:
+        nr_cores = multiprocessing.cpu_count()
 
-ioprop = yaml.safe_load(open('io_properties.yaml'))
-read_iops = 0
+    read_rps_per_shard = int(ioprop['read_iops'] / nr_cores * 0.5)
+    read_rps = read_rps_per_shard / args.read_fibers
 
-for prop in ioprop['disks']:
-    if prop['mountpoint'] == args.directory:
-        read_iops = prop['read_iops']
-        ioprop = prop
-        break
+    options = {
+        'sleep_type': args.sleep_type,
+        'pause_distribution': args.pause_dist,
+    }
 
-if read_iops == 0:
-    raise 'Cannot find required mountpoint in io-properties'
+    print(f'Read RPS:{read_rps} fibers:{args.read_fibers}')
 
-nr_cores = args.shards
-if nr_cores is None:
-    nr_cores = multiprocessing.cpu_count()
+    mixed_show_stat_header()
 
-read_rps_per_shard = int(read_iops / nr_cores * 0.5)
-read_rps = read_rps_per_shard / args.read_fibers
+    m = io_tester(args, opts = options)
+    m.add_job(f'read_rated_{args.read_shares}', job('randread', args.read_reqsize, shares = args.read_shares, prl = args.read_fibers, rps = read_rps))
+    mixed_run_and_show_results(m, ioprop)
 
-print(f'Read RPS:{read_rps} fibers:{args.read_fibers}')
+    m = io_tester(args, opts = options)
+    m.add_job(f'write_{args.write_shares}', job('seqwrite', args.write_reqsize, shares = args.write_shares, prl = args.write_fibers))
+    m.add_job(f'read_rated_{args.read_shares}', job('randread', args.read_reqsize, shares = args.read_shares, prl = args.read_fibers, rps = read_rps))
+    mixed_run_and_show_results(m, ioprop)
 
-show_stat_header()
 
-m = io_tester(args)
-m.add_job(f'read_rated_{args.read_shares}', job('randread', args.read_reqsize, shares = args.read_shares, prl = args.read_fibers, rps = read_rps))
-run_and_show_results(m, ioprop)
+def limits_make_ioprop(name, ioprop, changes):
+    nprop = {}
+    for k in ioprop:
+        nprop[k] = ioprop[k] if k not in changes else changes[k]
+    yaml.dump({'disks': [ nprop ]}, open(name, 'w'))
 
-m = io_tester(args)
-m.add_job(f'write_{args.write_shares}', job('seqwrite', args.write_reqsize, shares = args.write_shares, prl = args.write_fibers))
-m.add_job(f'read_rated_{args.read_shares}', job('randread', args.read_reqsize, shares = args.read_shares, prl = args.read_fibers, rps = read_rps))
-run_and_show_results(m, ioprop)
+
+def limits_show_stat_header():
+    print('-' * 20 + '8<' + '-' * 20)
+    print('name           througput(kbs) iops')
+
+
+def limits_run_and_show_results(m):
+    res = m.run()
+    for name in res:
+        st = res[name]
+        throughput = st['throughput']
+        iops = st['IOPS']
+        print(f'{name:20} {int(throughput):7} {int(iops):5}')
+
+
+@test_name('limits')
+def run_limits_test(args, ioprop):
+    disk_bw = ioprop['read_bandwidth']
+    disk_iops = ioprop['read_iops']
+
+    print(f'Target bandwidth {disk_bw} -> {int(disk_bw / args.limit_ratio)}, IOPS {disk_iops} -> {int(disk_iops / args.limit_ratio)}')
+    limits_show_stat_header()
+
+    m = io_tester(args)
+    m.add_job(f'reads_bw', job('seqread', args.bw_reqsize, prl = args.parallelism))
+    limits_run_and_show_results(m)
+
+    limits_make_ioprop('ioprop_1.yaml', ioprop, { 'read_bandwidth': int(disk_bw / args.limit_ratio) })
+    m = io_tester(args, ioprop = 'ioprop_1.yaml')
+    m.add_job(f'reads_lim_bw', job('seqread', args.bw_reqsize, prl = args.parallelism))
+    limits_run_and_show_results(m)
+
+    m = io_tester(args)
+    m.add_job(f'reads_iops', job('randread', args.iops_reqsize, prl = args.parallelism))
+    limits_run_and_show_results(m)
+
+    limits_make_ioprop('ioprop_2.yaml', ioprop, { 'read_iops': int(disk_iops / args.limit_ratio) })
+    m = io_tester(args, ioprop = 'ioprop_2.yaml')
+    m.add_job(f'reads_lim_iops', job('randread', args.iops_reqsize, prl = args.parallelism))
+    limits_run_and_show_results(m)
+
+
+def isolation_show_stat_header():
+    print('-' * 20 + '8<' + '-' * 20)
+    print('name           iops  lat95(us)')
+
+
+def isolation_run_and_show_results(m):
+    res = m.run()
+    for name in res:
+        st = res[name]
+        iops = st['IOPS']
+        lats = st['latencies']
+
+        print(f'{name:20} {int(iops):5} {lats["p0.95"]:.1f}')
+
+
+@test_name('isolation')
+def run_isolation_test(args, ioprop):
+    if args.shards is not None and args.shards < args.instances:
+        raise f'Number of shards ({args.shards}) should be more than the number of instances ({args.instances})'
+
+    isolation_show_stat_header()
+
+    m = io_tester(args)
+    m.add_job('reads', job('randread', 4, prl = args.parallelism))
+    isolation_run_and_show_results(m)
+
+    m = io_tester(args, groups = args.instances)
+    m.add_job('reads_groups', job('randread', 4, prl = args.parallelism))
+    isolation_run_and_show_results(m)
+
+
+print(f'=== Running {args.test_name} ===')
+all_tests[args.test_name](args, ioprop)
