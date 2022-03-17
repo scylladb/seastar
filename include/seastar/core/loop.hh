@@ -72,7 +72,7 @@ public:
             do {
                 auto f = futurize_invoke(_action);
                 if (!f.available()) {
-                    internal::set_callback(f, this);
+                    internal::set_callback(std::move(f), this);
                     return;
                 }
                 if (f.get0() == stop_iteration::yes) {
@@ -124,7 +124,7 @@ future<> repeat(AsyncAction&& action) noexcept {
                 memory::scoped_critical_alloc_section _;
                 auto repeater = new internal::repeater<AsyncAction>(std::move(action));
                 auto ret = repeater->get_future();
-                internal::set_callback(f, repeater);
+                internal::set_callback(std::move(f), repeater);
                 return ret;
             }();
         }
@@ -189,7 +189,7 @@ public:
             do {
                 auto f = futurize_invoke(_action);
                 if (!f.available()) {
-                    internal::set_callback(f, this);
+                    internal::set_callback(std::move(f), this);
                     return;
                 }
                 auto ret = f.get0();
@@ -242,7 +242,7 @@ repeat_until_value(AsyncAction action) noexcept {
             memory::scoped_critical_alloc_section _;
             auto state = new internal::repeat_until_value_state<AsyncAction, value_type>(std::move(action));
             auto ret = state->get_future();
-            internal::set_callback(f, state);
+            internal::set_callback(std::move(f), state);
             return ret;
           }();
         }
@@ -296,7 +296,7 @@ public:
                 }
                 auto f = _action();
                 if (!f.available()) {
-                    internal::set_callback(f, this);
+                    internal::set_callback(std::move(f), this);
                     return;
                 }
                 if (f.failed()) {
@@ -349,7 +349,7 @@ future<> do_until(StopCondition stop_cond, AsyncAction action) noexcept {
                 memory::scoped_critical_alloc_section _;
                 auto task = new do_until_state<StopCondition, AsyncAction>(std::move(stop_cond), std::move(action));
                 auto ret = task->get_future();
-                internal::set_callback(f, task);
+                internal::set_callback(std::move(f), task);
                 return ret;
             }();
         }
@@ -383,9 +383,9 @@ class do_for_each_state final : public continuation_base<> {
     promise<> _pr;
 
 public:
-    do_for_each_state(Iterator begin, Iterator end, AsyncAction action, future<> first_unavailable)
+    do_for_each_state(Iterator begin, Iterator end, AsyncAction action, future<>&& first_unavailable)
         : _begin(std::move(begin)), _end(std::move(end)), _action(std::move(action)) {
-        internal::set_callback(first_unavailable, this);
+        internal::set_callback(std::move(first_unavailable), this);
     }
     virtual void run_and_dispose() noexcept override {
         std::unique_ptr<do_for_each_state> zis(this);
@@ -401,7 +401,7 @@ public:
             }
             if (!f.available() || need_preempt()) {
                 _state = {};
-                internal::set_callback(f, this);
+                internal::set_callback(std::move(f), this);
                 zis.release();
                 return;
             }

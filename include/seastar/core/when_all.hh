@@ -113,7 +113,7 @@ public:
             return true;
         } else {
             auto c = new (continuation) when_all_state_component(wasb, f);
-            set_callback(*f, c);
+            set_callback(std::move(*f), c);
             return false;
         }
     }

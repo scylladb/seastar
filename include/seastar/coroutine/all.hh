@@ -183,7 +183,7 @@ private:
             } else {
                 if (!std::get<idx>(state._futures).available()) {
                     auto task = new (&_continuation_storage) intermediate_task<idx>(*this);
-                    seastar::internal::set_callback(std::get<idx>(state._futures), task);
+                    seastar::internal::set_callback(std::move(std::get<idx>(state._futures)), task);
                 } else {
                     process<idx + 1>();
                 }

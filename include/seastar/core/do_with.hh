@@ -98,7 +98,7 @@ do_with_impl(T1&& rv1, T2&& rv2, More&&... more) {
         return fut;
     }
     auto ret = task->get_future();
-    internal::set_callback(fut, task.release());
+    internal::set_callback(std::move(fut), task.release());
     return ret;
 }
 }

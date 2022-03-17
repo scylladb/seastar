@@ -85,13 +85,13 @@ class [[nodiscard("must co_await an parallel_for_each() object")]] parallel_for_
     }
 
     void set_callback() noexcept {
-        auto fut = std::move(_futures.back());
+        auto&& fut = std::move(_futures.back());
         _futures.pop_back();
         // To reuse `this` as continuation_base<>
         // we must reset _state, to allow setting
         // it again.
         this->_state = {};
-        seastar::internal::set_callback(fut, reinterpret_cast<continuation_base<>*>(this));
+        seastar::internal::set_callback(std::move(fut), reinterpret_cast<continuation_base<>*>(this));
     }
 
     void resume_or_set_callback() noexcept {

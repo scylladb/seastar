@@ -799,7 +799,7 @@ template <typename... T>
 future<T...> make_exception_future(future_state_base&& state) noexcept;
 
 template <typename... T, typename U>
-void set_callback(future<T...>& fut, U* callback) noexcept;
+void set_callback(future<T...>&& fut, U* callback) noexcept;
 
 class future_base;
 
@@ -1907,7 +1907,7 @@ private:
     template <typename... U>
     friend future<U...> current_exception_as_future() noexcept;
     template <typename... U, typename V>
-    friend void internal::set_callback(future<U...>&, V*) noexcept;
+    friend void internal::set_callback(future<U...>&&, V*) noexcept;
     template <typename Future>
     friend struct internal::call_then_impl;
     /// \endcond
@@ -2182,10 +2182,10 @@ namespace internal {
 
 template <typename... T, typename U>
 inline
-void set_callback(future<T...>& fut, U* callback) noexcept {
+void set_callback(future<T...>&& fut, U* callback) noexcept {
     // It would be better to use continuation_base<T...> for U, but
     // then a derived class of continuation_base<T...> won't be matched
-    return fut.set_callback(callback);
+    return std::move(fut).set_callback(callback);
 }
 
 }
