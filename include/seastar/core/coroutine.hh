@@ -120,7 +120,7 @@ public:
     };
 };
 
-template<typename... T>
+template<bool CheckPreempt, typename... T>
 struct awaiter {
     seastar::future<T...> _future;
 public:
@@ -130,12 +130,12 @@ public:
     awaiter(awaiter&&) = delete;
 
     bool await_ready() const noexcept {
-        return _future.available() && !need_preempt();
+        return _future.available() && (!CheckPreempt || !need_preempt());
     }
 
     template<typename U>
     void await_suspend(SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<U> hndl) noexcept {
-        if (!_future.available()) {
+        if (!CheckPreempt || !_future.available()) {
             _future.set_coroutine(hndl.promise());
         } else {
             schedule(&hndl.promise());
@@ -145,8 +145,8 @@ public:
     std::tuple<T...> await_resume() { return _future.get(); }
 };
 
-template<typename T>
-struct awaiter<T> {
+template<bool CheckPreempt, typename T>
+struct awaiter<CheckPreempt, T> {
     seastar::future<T> _future;
 public:
     explicit awaiter(seastar::future<T>&& f) noexcept : _future(std::move(f)) { }
@@ -155,12 +155,12 @@ public:
     awaiter(awaiter&&) = delete;
 
     bool await_ready() const noexcept {
-        return _future.available() && !need_preempt();
+        return _future.available() && (!CheckPreempt || !need_preempt());
     }
 
     template<typename U>
     void await_suspend(SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<U> hndl) noexcept {
-        if (!_future.available()) {
+        if (!CheckPreempt || !_future.available()) {
             _future.set_coroutine(hndl.promise());
         } else {
             schedule(&hndl.promise());
@@ -170,8 +170,8 @@ public:
     T await_resume() { return _future.get0(); }
 };
 
-template<>
-struct awaiter<> {
+template<bool CheckPreempt>
+struct awaiter<CheckPreempt> {
     seastar::future<> _future;
 public:
     explicit awaiter(seastar::future<>&& f) noexcept : _future(std::move(f)) { }
@@ -180,12 +180,12 @@ public:
     awaiter(awaiter&&) = delete;
 
     bool await_ready() const noexcept {
-        return _future.available() && !need_preempt();
+        return _future.available() && (!CheckPreempt || !need_preempt());
     }
 
     template<typename U>
     void await_suspend(SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<U> hndl) noexcept {
-        if (!_future.available()) {
+        if (!CheckPreempt || !_future.available()) {
             _future.set_coroutine(hndl.promise());
         } else {
             schedule(&hndl.promise());
@@ -199,7 +199,32 @@ public:
 
 template<typename... T>
 auto operator co_await(future<T...> f) noexcept {
-    return internal::awaiter<T...>(std::move(f));
+    return internal::awaiter<true, T...>(std::move(f));
+}
+
+namespace coroutine {
+/// Wrapper for a future which turns of checking for preemption
+/// when awaiting it in a coroutine.
+/// If constructed from a future, co_await-ing it will bypass
+/// checking if the task quota is depleted, which means that
+/// a ready future will be handled immediately.
+template<typename... T> struct SEASTAR_NODISCARD without_preemption_check : public seastar::future<T...> {
+    explicit without_preemption_check(seastar::future<T...>&& f) noexcept : seastar::future<T...>(std::move(f)) {}
+};
+template<typename T> struct SEASTAR_NODISCARD without_preemption_check<T> : public seastar::future<T> {
+    explicit without_preemption_check(seastar::future<T>&& f) noexcept : seastar::future<T>(std::move(f)) {}
+};
+template<> struct SEASTAR_NODISCARD without_preemption_check<> : public seastar::future<> {
+    explicit without_preemption_check(seastar::future<>&& f) noexcept : seastar::future<>(std::move(f)) {}
+};
+}
+
+/// Wait for a future without a preemption check
+///
+/// \param f a \c future<> wrapped with \c without_preemption_check
+template<typename... T>
+auto operator co_await(coroutine::without_preemption_check<T...> f) noexcept {
+    return internal::awaiter<false, T...>(std::move(f));
 }
 
 } // seastar

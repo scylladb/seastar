@@ -276,6 +276,25 @@ SEASTAR_TEST_CASE(test_preemption) {
     co_return;
 }
 
+SEASTAR_TEST_CASE(test_no_preemption) {
+    bool x = false;
+    unsigned preempted = 0;
+    auto f = yield().then([&x] {
+            x = true;
+        });
+
+    // preemption should not happen, we explicitly asked for continuing if possible
+    while(preempted < 1000 && !x) {
+        preempted += need_preempt();
+        co_await coroutine::without_preemption_check(make_ready_future<>());
+    }
+    auto save_x = x;
+    // wait for yield() to complete
+    co_await std::move(f);
+    BOOST_REQUIRE(!save_x);
+    co_return;
+}
+
 SEASTAR_TEST_CASE(test_all_simple) {
     auto [a, b] = co_await coroutine::all(
         [] { return make_ready_future<int>(1); },

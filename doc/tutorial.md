@@ -478,6 +478,28 @@ seastar::future<int> long_loop(int n) {
 }
 ```
 
+## Bypassing preemption checks in coroutines
+
+By default, `co_await`-ing a future performs a preemption check, and will suspend if the task quota is already depleted. However, in certain cases it might be useful to be able to assume that awaiting a ready future will not yield.
+For such cases, it's possible to explicitly bypass the preemption check:
+
+```cpp
+#include <seastar/core/coroutine.hh>
+
+struct resource;
+seastar::future<int> compute_always_ready(int i, resource& r);
+
+seastar::future<int> accumulate(int n, resource& important_resource) {
+    float acc = 0;
+    for (int i = 0; i < n; ++i) {
+        // This await will not yield the control, so we're sure that nobody will
+        // be able to touch important_resource while we accumulate all the results.
+        acc += co_await seastar::coroutine::without_preemption_check(compute_always_ready(i, important_resource));
+    }
+    co_return acc;
+}
+```
+
 # Continuations
 ## Capturing state in continuations
 
