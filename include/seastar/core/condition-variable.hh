@@ -155,6 +155,7 @@ public:
     /// Initialzie the semaphore with a default value of 0 to enusre
     /// the first call to wait() before signal() won't be waken up immediately.
     condition_variable() noexcept = default;
+    condition_variable(condition_variable&& rhs) noexcept = default;
     ~condition_variable();
 
     /// Waits until condition variable is signaled, may wake up without condition been met
