@@ -352,9 +352,13 @@ public:
     /// The future is made available immediately.
     void broken() noexcept {
         std::exception_ptr ep;
-        try {
-            ep = std::make_exception_ptr(exception_factory::broken());
-        } catch (...) {
+        if constexpr (internal::has_broken<exception_factory>::value) {
+            try {
+                ep = std::make_exception_ptr(exception_factory::broken());
+            } catch (...) {
+                ep = std::make_exception_ptr(broken_semaphore());
+            }
+        } else {
             ep = std::make_exception_ptr(broken_semaphore());
         }
         broken(std::move(ep));

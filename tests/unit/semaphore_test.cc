@@ -149,6 +149,30 @@ SEASTAR_TEST_CASE(test_broken_semaphore) {
     });
 }
 
+SEASTAR_THREAD_TEST_CASE(test_default_broken_semaphore) {
+    struct test_semaphore_exception_factory {
+        static semaphore_timed_out timeout() noexcept { return semaphore_timed_out(); }
+    };
+    auto sem = basic_semaphore<test_semaphore_exception_factory>(0);
+    auto fut = sem.wait();
+    BOOST_REQUIRE(!fut.available());
+    sem.broken();
+    BOOST_REQUIRE_THROW(fut.get(), broken_semaphore);
+    BOOST_REQUIRE_THROW(sem.wait().get(), broken_semaphore);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_non_default_broken_semaphore) {
+    struct test_semaphore_exception_factory {
+        static semaphore_timed_out timeout() noexcept { return semaphore_timed_out(); }
+    };
+    auto sem = basic_semaphore<test_semaphore_exception_factory>(0);
+    auto fut = sem.wait();
+    BOOST_REQUIRE(!fut.available());
+    sem.broken(std::runtime_error("test"));
+    BOOST_REQUIRE_THROW(fut.get(), std::runtime_error);
+    BOOST_REQUIRE_THROW(sem.wait().get(), std::runtime_error);
+}
+
 SEASTAR_TEST_CASE(test_shared_mutex_exclusive) {
     return do_with(shared_mutex(), unsigned(0), [] (shared_mutex& sm, unsigned& counter) {
         return parallel_for_each(boost::irange(0, 10), [&sm, &counter] (int idx) {
