@@ -149,6 +149,30 @@ SEASTAR_TEST_CASE(test_broken_semaphore) {
     });
 }
 
+SEASTAR_THREAD_TEST_CASE(test_default_broken_semaphore) {
+    struct test_semaphore_exception_factory {
+        static semaphore_timed_out timeout() noexcept { return semaphore_timed_out(); }
+    };
+    auto sem = basic_semaphore<test_semaphore_exception_factory>(0);
+    auto fut = sem.wait();
+    BOOST_REQUIRE(!fut.available());
+    sem.broken();
+    BOOST_REQUIRE_THROW(fut.get(), broken_semaphore);
+    BOOST_REQUIRE_THROW(sem.wait().get(), broken_semaphore);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_non_default_broken_semaphore) {
+    struct test_semaphore_exception_factory {
+        static semaphore_timed_out timeout() noexcept { return semaphore_timed_out(); }
+    };
+    auto sem = basic_semaphore<test_semaphore_exception_factory>(0);
+    auto fut = sem.wait();
+    BOOST_REQUIRE(!fut.available());
+    sem.broken(std::runtime_error("test"));
+    BOOST_REQUIRE_THROW(fut.get(), std::runtime_error);
+    BOOST_REQUIRE_THROW(sem.wait().get(), std::runtime_error);
+}
+
 SEASTAR_TEST_CASE(test_shared_mutex_exclusive) {
     return do_with(shared_mutex(), unsigned(0), [] (shared_mutex& sm, unsigned& counter) {
         return parallel_for_each(boost::irange(0, 10), [&sm, &counter] (int idx) {
@@ -296,6 +320,23 @@ SEASTAR_THREAD_TEST_CASE(test_semaphore_try_get_units) {
     BOOST_REQUIRE_EQUAL(sm.available_units(), initial_units);
 }
 
+SEASTAR_THREAD_TEST_CASE(test_semaphore_units_abort) {
+    auto sm = semaphore(3);
+    auto units = get_units(sm, 3, 1min).get0();
+    BOOST_REQUIRE_EQUAL(units.count(), 3);
+
+    abort_source as;
+
+    auto f = get_units(sm, 1, as);
+    BOOST_REQUIRE(!f.available());
+
+    (void)sleep(1ms).then([&as] {
+        as.request_abort();
+    });
+
+    BOOST_REQUIRE_THROW(f.get(), semaphore_aborted);
+}
+
 SEASTAR_THREAD_TEST_CASE(test_named_semaphore_error) {
     auto sem = make_lw_shared<named_semaphore>(0, named_semaphore_exception_factory{"name_of_the_semaphore"});
     auto check_result = [sem] (future<> f) {
@@ -339,7 +380,7 @@ SEASTAR_THREAD_TEST_CASE(test_semaphore_abort_after_wait) {
     });
     as.request_abort();
     sem.signal();
-    BOOST_CHECK_THROW(fut1.get(), broken_semaphore);
+    BOOST_CHECK_THROW(fut1.get(), semaphore_aborted);
     BOOST_REQUIRE_EQUAL(x, 0);
 }
 
@@ -352,6 +393,6 @@ SEASTAR_THREAD_TEST_CASE(test_semaphore_abort_before_wait) {
         x++;
     });
     sem.signal();
-    BOOST_CHECK_THROW(fut1.get(), broken_semaphore);
+    BOOST_CHECK_THROW(fut1.get(), semaphore_aborted);
     BOOST_REQUIRE_EQUAL(x, 0);
 }

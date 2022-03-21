@@ -111,6 +111,66 @@ SEASTAR_THREAD_TEST_CASE(test_rwlock_failed_func) {
     l.for_write().unlock();
 }
 
+SEASTAR_THREAD_TEST_CASE(test_rwlock_abort) {
+    rwlock l;
+
+    l.write_lock().get();
+
+    {
+        abort_source as;
+        auto f = l.write_lock(as);
+        BOOST_REQUIRE(!f.available());
+
+        (void)sleep(1ms).then([&as] {
+            as.request_abort();
+        });
+
+        BOOST_REQUIRE_THROW(f.get0(), semaphore_aborted);
+    }
+
+    {
+        abort_source as;
+        auto f = l.read_lock(as);
+        BOOST_REQUIRE(!f.available());
+
+        (void)sleep(1ms).then([&as] {
+            as.request_abort();
+        });
+
+        BOOST_REQUIRE_THROW(f.get0(), semaphore_aborted);
+    }
+}
+
+SEASTAR_THREAD_TEST_CASE(test_rwlock_hold_abort) {
+    rwlock l;
+
+    auto wh = l.hold_write_lock().get0();
+
+    {
+        abort_source as;
+        auto f = l.hold_write_lock(as);
+        BOOST_REQUIRE(!f.available());
+
+        (void)sleep(1ms).then([&as] {
+            as.request_abort();
+        });
+
+        BOOST_REQUIRE_THROW(f.get0(), semaphore_aborted);
+    }
+
+    {
+        abort_source as;
+        auto f = l.hold_read_lock(as);
+        BOOST_REQUIRE(!f.available());
+
+        (void)sleep(1ms).then([&as] {
+            as.request_abort();
+        });
+
+        BOOST_REQUIRE_THROW(f.get0(), semaphore_aborted);
+    }
+}
+
 SEASTAR_THREAD_TEST_CASE(test_failed_with_lock) {
     struct test_lock {
         future<> lock() noexcept {
