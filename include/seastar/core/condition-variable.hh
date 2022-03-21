@@ -140,6 +140,30 @@ private:
             this->arm(_timeout);
         }
     };
+
+    template<typename Func, typename Base>
+    struct [[nodiscard("must co_await a when() call")]] predicate_awaiter : public Base {
+        Func _func;
+        template<typename... Args>
+        predicate_awaiter(Func func, Args&& ...args)
+            : Base(std::forward<Args>(args)...)
+            , _func(std::move(func))
+        {}
+        bool await_ready() const {
+            return Base::await_ready() && _func();
+        }        
+        void signal() noexcept override {
+            if (Base::_ex || _func()) {
+                Base::signal();
+            } else {
+                // must re-enter waiter queue
+                // this maintains "wait" version
+                // semantics of moving to back of queue
+                // if predicate fails
+                Base::_cv->add_waiter(*this);
+            }
+        }
+    };
 #endif
 
     boost::intrusive::list<waiter, boost::intrusive::constant_time_size<false>> _waiters;
@@ -302,10 +326,8 @@ public:
     ///         If the condition variable was \ref broken(), may contain an exception.
     template<typename Pred>
     SEASTAR_CONCEPT( requires seastar::InvokeReturns<Pred, bool> )
-    awaiter when(Pred&& pred) noexcept {
-        return do_until(std::forward<Pred>(pred), [this] {
-            return when();
-        });
+    auto when(Pred&& pred) noexcept {
+        return predicate_awaiter<Pred, awaiter>{std::forward<Pred>(pred), when()};
     }
 
     /// Coroutine/co_await only waiter.
@@ -320,10 +342,8 @@ public:
     ///         exception. If timepoint is reached will return \ref condition_variable_timed_out exception.
     template<typename Clock = typename timer<>::clock, typename Duration = typename Clock::duration, typename Pred>
     SEASTAR_CONCEPT( requires seastar::InvokeReturns<Pred, bool> )
-    timeout_awaiter<Clock, Duration> when(std::chrono::time_point<Clock, Duration> timeout, Pred&& pred) noexcept {
-        return do_until(std::forward<Pred>(pred), [this, timeout] {
-            return when(timeout);
-        });
+    auto when(std::chrono::time_point<Clock, Duration> timeout, Pred&& pred) noexcept {
+        return predicate_awaiter<Pred, timeout_awaiter<Clock, Duration>>{std::forward<Pred>(pred), when(timeout)};
     }
 
     /// Coroutine/co_await only waiter.
