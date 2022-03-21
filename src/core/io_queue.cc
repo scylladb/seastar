@@ -46,6 +46,8 @@ using namespace std::chrono_literals;
 using namespace internal::linux_abi;
 using io_direction_and_length = internal::io_direction_and_length;
 
+static fair_queue_ticket make_ticket(io_direction_and_length dnl, const io_queue::config& cfg) noexcept;
+
 struct default_io_exception_factory {
     static auto cancelled() {
         return cancelled_error();
@@ -391,41 +393,28 @@ io_group::io_group(io_queue::config io_cfg)
      * with little enough capacity. Actually (FIXME) requests should calculate
      * capacities instead of request_fq_ticket() so this math would go away.
      */
-    size_t max_size = std::numeric_limits<size_t>::max();
-    auto update_max_size = [this, &max_size] (unsigned idx) {
+    auto update_max_size = [this] (unsigned idx) {
         auto g_idx = _config.duplex ? idx : 0;
         auto max_cap = _fgs[g_idx]->maximum_capacity();
-        size_t prev_size = 0;
         for (unsigned shift = 0; ; shift++) {
-            unsigned weight;
-            size_t size;
-            if (idx == io_direction_and_length::write_idx) {
-                weight = _config.disk_req_write_to_read_multiplier;
-                size = _config.disk_blocks_write_to_read_multiplier * (1 << shift);
-            } else {
-                weight = io_queue::read_request_base_count;
-                size = io_queue::read_request_base_count * (1 << shift);
-            }
-
-            auto cap = _fgs[g_idx]->ticket_capacity(fair_queue_ticket(weight, size));
+            auto ticket = make_ticket(io_direction_and_length(idx, 1 << (shift + io_queue::block_size_shift)), _config);
+            auto cap = _fgs[g_idx]->ticket_capacity(ticket);
             if (cap > max_cap) {
                 if (shift == 0) {
                     throw std::runtime_error("IO-group limits are too low");
                 }
-                max_size = std::min(max_size, prev_size);
+                _max_request_length[idx] = 1 << ((shift - 1) + io_queue::block_size_shift);
                 break;
             }
-            prev_size = size;
         };
     };
 
     update_max_size(io_direction_and_length::write_idx);
     update_max_size(io_direction_and_length::read_idx);
-    max_ticket_size = max_size;
 
-    seastar_logger.info("Created io group, length limit {}:{}, rate {}:{}",
-            (max_size / io_queue::read_request_base_count) << io_queue::block_size_shift,
-            (max_size / _config.disk_blocks_write_to_read_multiplier) << io_queue::block_size_shift,
+    seastar_logger.info("Created io group dev({}), length limit {}:{}, rate {}:{}", _config.devid,
+            _max_request_length[io_direction_and_length::read_idx],
+            _max_request_length[io_direction_and_length::write_idx],
             _config.req_count_rate, _config.blocks_count_rate);
 }
 
@@ -636,38 +625,46 @@ stream_id io_queue::request_stream(io_direction_and_length dnl) const noexcept {
     return get_config().duplex ? dnl.rw_idx() : 0;
 }
 
-fair_queue_ticket io_queue::request_fq_ticket(io_direction_and_length dnl) const noexcept {
-    unsigned weight;
-    size_t size;
+fair_queue_ticket make_ticket(io_direction_and_length dnl, const io_queue::config& cfg) noexcept {
+    struct {
+        unsigned weight;
+        unsigned size;
+    } mult[2];
 
-    if (dnl.is_write()) {
-        weight = get_config().disk_req_write_to_read_multiplier;
-        size = get_config().disk_blocks_write_to_read_multiplier * (dnl.length() >> block_size_shift);
-    } else {
-        weight = io_queue::read_request_base_count;
-        size = io_queue::read_request_base_count * (dnl.length() >> block_size_shift);
+    mult[io_direction_and_length::write_idx] = {
+        cfg.disk_req_write_to_read_multiplier,
+        cfg.disk_blocks_write_to_read_multiplier,
+    };
+    mult[io_direction_and_length::read_idx] = {
+        io_queue::read_request_base_count,
+        io_queue::read_request_base_count,
+    };
+
+    const auto& m = mult[dnl.rw_idx()];
+    return fair_queue_ticket(m.weight, m.size * (dnl.length() >> io_queue::block_size_shift));
+}
+
+fair_queue_ticket io_queue::request_fq_ticket(io_direction_and_length dnl) const noexcept {
+    size_t max_length = _group->_max_request_length[dnl.rw_idx()];
+
+    if (__builtin_expect(dnl.length() <= max_length, true)) {
+        return make_ticket(dnl, get_config());
     }
 
     static thread_local size_t oversize_warning_threshold = 0;
 
-    if (size > _group->max_ticket_size) {
-        if (size > oversize_warning_threshold) {
-            oversize_warning_threshold = size;
-            io_log.warn("oversized request (length {}) submitted. "
-                "dazed and confuzed, trimming its weight from {} down to {}", dnl.length(),
-                size, _group->max_ticket_size);
-        }
-        size = _group->max_ticket_size;
+    if (dnl.length() > oversize_warning_threshold) {
+        oversize_warning_threshold = dnl.length();
+        io_log.warn("oversized request (length {} > {}) submitted. ", dnl.length(), max_length);
     }
 
-    return fair_queue_ticket(weight, size);
+    return make_ticket(io_direction_and_length(dnl.rw_idx(), max_length), get_config());
 }
 
 io_queue::request_limits io_queue::get_request_limits() const noexcept {
     request_limits l;
-    size_t max_length = _group->max_ticket_size << block_size_shift;
-    l.max_read = align_down<size_t>(std::min<size_t>(get_config().disk_read_saturation_length, max_length / read_request_base_count), 1 << block_size_shift);
-    l.max_write = align_down<size_t>(std::min<size_t>(get_config().disk_write_saturation_length, max_length / get_config().disk_blocks_write_to_read_multiplier), 1 << block_size_shift);
+    l.max_read = align_down<size_t>(std::min<size_t>(get_config().disk_read_saturation_length, _group->_max_request_length[io_direction_and_length::read_idx]), 1 << block_size_shift);
+    l.max_write = align_down<size_t>(std::min<size_t>(get_config().disk_write_saturation_length, _group->_max_request_length[io_direction_and_length::write_idx]), 1 << block_size_shift);
     return l;
 }
 
