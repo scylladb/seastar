@@ -75,6 +75,32 @@ SEASTAR_THREAD_TEST_CASE(test_condition_variable_signal_consume) {
     BOOST_REQUIRE_EQUAL(std::count_if(waiters.begin(), waiters.end(), std::mem_fn(&future<>::available)), 3u);
 }
 
+SEASTAR_THREAD_TEST_CASE(test_condition_variable_pred) {
+    condition_variable cv;
+    bool ready = false;
+
+    try {
+        cv.wait(100ms, [&] { return ready; }).get();
+        BOOST_FAIL("should not reach");
+    } catch (condition_variable_timed_out&) {
+        // ok
+    } catch (...) {
+        BOOST_FAIL("should not reach");
+    }
+    // should not affect outcome.
+    cv.signal();
+    
+    try {
+        cv.wait(100ms, [&] { return ready; }).get();
+        BOOST_FAIL("should not reach");
+    } catch (condition_variable_timed_out&) {
+        // ok
+    } catch (...) {
+        BOOST_FAIL("should not reach");
+    }
+
+}
+
 SEASTAR_THREAD_TEST_CASE(test_condition_variable_signal_break) {
     condition_variable cv;
 
@@ -127,18 +153,60 @@ SEASTAR_THREAD_TEST_CASE(test_condition_variable_timeout) {
     }
 }
 
-SEASTAR_THREAD_TEST_CASE(test_condition_variable_pred) {
+SEASTAR_THREAD_TEST_CASE(test_condition_variable_pred_wait) {
     condition_variable cv;
 
     bool ready = false;
-    auto f = cv.wait(10000ms, [&] { return ready; });
 
-    BOOST_REQUIRE_EQUAL(f.available(), false);
-    sleep(200ms).get();
-    BOOST_REQUIRE_EQUAL(f.available(), false);
+    timer<> t;
+    t.set_callback([&] { ready = true; cv.signal(); });
+    t.arm(100ms);
+
+    cv.wait([&] { return ready; }).get();
+
+    ready = false;
+
+    try {
+        cv.wait(10ms, [&] { return ready; }).get();
+        BOOST_FAIL("should not reach");
+    } catch (timed_out_error&) {
+        BOOST_FAIL("should not reach");
+    } catch (condition_variable_timed_out&) {
+        // ok
+    } catch (...) {
+        BOOST_FAIL("should not reach");
+    }
+
     ready = true;
     cv.signal();
-    with_timeout(steady_clock::now() + 10ms, std::move(f)).get();
+
+    cv.wait(10ms, [&] { return ready; }).get();
+
+    for (int i = 0; i < 2; ++i) {
+        ready = false;
+        t.set_callback([&] { cv.signal();});
+        t.arm_periodic(10ms);
+
+        try {
+            cv.wait(300ms, [&] { return ready; }).get();
+            BOOST_FAIL("should not reach");
+        } catch (timed_out_error&) {
+            BOOST_FAIL("should not reach");
+        } catch (condition_variable_timed_out&) {
+            // ok
+        } catch (...) {
+            BOOST_FAIL("should not reach");
+        }
+        t.cancel();
+        cv.signal();
+    }
+
+    ready = true;
+    cv.signal();
+
+    cv.wait([&] { return ready; }).get();
+    // signal state should remain on
+    cv.wait().get();
 }
 
 #ifdef SEASTAR_COROUTINES_ENABLED
@@ -208,20 +276,31 @@ SEASTAR_TEST_CASE(test_condition_variable_pred_when) {
 
     co_await cv.when(10ms, [&] { return ready; });
 
-    ready = false;
-    t.set_callback([&] { cv.signal();});
-    t.arm_periodic(10ms);
+    for (int i = 0; i < 2; ++i) {
+        ready = false;
+        t.set_callback([&] { cv.signal();});
+        t.arm_periodic(10ms);
 
-    try {
-        co_await cv.when(300ms, [&] { return ready; });
-        BOOST_FAIL("should not reach");
-    } catch (timed_out_error&) {
-        BOOST_FAIL("should not reach");
-    } catch (condition_variable_timed_out&) {
-        // ok
-    } catch (...) {
-        BOOST_FAIL("should not reach");
+        try {
+            co_await cv.when(300ms, [&] { return ready; });
+            BOOST_FAIL("should not reach");
+        } catch (timed_out_error&) {
+            BOOST_FAIL("should not reach");
+        } catch (condition_variable_timed_out&) {
+            // ok
+        } catch (...) {
+            BOOST_FAIL("should not reach");
+        }
+        t.cancel();
+        cv.signal();
     }
+
+    ready = true;
+    cv.signal();
+
+    co_await cv.when([&] { return ready; });
+    // signal state should remain on
+    co_await cv.when();
 }
 
 #endif

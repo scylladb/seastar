@@ -150,7 +150,11 @@ private:
             , _func(std::move(func))
         {}
         bool await_ready() const {
-            return Base::await_ready() && _func();
+            if (!_func()) {
+                Base::await_ready(); // clear out any signal state
+                return false;
+            }
+            return true;
         }        
         void signal() noexcept override {
             if (Base::_ex || _func()) {
