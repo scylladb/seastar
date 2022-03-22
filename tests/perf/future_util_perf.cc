@@ -25,6 +25,8 @@
 #include <seastar/testing/perf_tests.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/util/later.hh>
+#include <seastar/core/coroutine.hh>
+#include <seastar/coroutine/parallel_for_each.hh>
 
 struct parallel_for_each {
     std::vector<int> empty_range;
@@ -151,3 +153,201 @@ PERF_TEST_F(parallel_for_each, suspend_100)
         return range.size();
     });
 }
+
+#ifdef SEASTAR_COROUTINES_ENABLED
+
+PERF_TEST_C(parallel_for_each, cor_empty)
+{
+    co_await seastar::parallel_for_each(empty_range, [] (int) -> future<> {
+        abort();
+    });
+}
+
+PERF_TEST_CN(parallel_for_each, cor_immediate_1)
+{
+    constexpr size_t n = 1;
+    auto&& begin = range.begin();
+    auto&& end = begin + n;
+    co_await seastar::parallel_for_each(std::move(begin), std::move(end), [this] (int v) {
+        return immediate(v, value);
+    });
+    perf_tests::do_not_optimize(value);
+    co_return n;
+}
+
+PERF_TEST_CN(parallel_for_each, cor_immediate_2)
+{
+    constexpr size_t n = 2;
+    auto&& begin = range.begin();
+    auto&& end = begin + n;
+    co_await seastar::parallel_for_each(std::move(begin), std::move(end), [this] (int v) {
+        return immediate(v, value);
+    });
+    perf_tests::do_not_optimize(value);
+    co_return n;
+}
+
+PERF_TEST_CN(parallel_for_each, cor_immediate_10)
+{
+    constexpr size_t n = 10;
+    auto&& begin = range.begin();
+    auto&& end = begin + n;
+    co_await seastar::parallel_for_each(std::move(begin), std::move(end), [this] (int v) {
+        return immediate(v, value);
+    });
+    perf_tests::do_not_optimize(value);
+    co_return n;
+}
+
+PERF_TEST_CN(parallel_for_each, cor_immediate_100)
+{
+    co_await seastar::parallel_for_each(range, [this] (int v) {
+        return immediate(v, value);
+    });
+    perf_tests::do_not_optimize(value);
+    co_return range.size();
+}
+
+PERF_TEST_CN(parallel_for_each, cor_suspend_1)
+{
+    constexpr size_t n = 1;
+    auto&& begin = range.begin();
+    auto&& end = begin + n;
+    co_await seastar::parallel_for_each(std::move(begin), std::move(end), [this] (int v) {
+        return suspend(v, value);
+    });
+    perf_tests::do_not_optimize(value);
+    co_return n;
+}
+
+PERF_TEST_CN(parallel_for_each, cor_suspend_2)
+{
+    constexpr size_t n = 2;
+    auto&& begin = range.begin();
+    auto&& end = begin + n;
+    co_await seastar::parallel_for_each(std::move(begin), std::move(end), [this] (int v) {
+        return suspend(v, value);
+    });
+    perf_tests::do_not_optimize(value);
+    co_return n;
+}
+
+PERF_TEST_CN(parallel_for_each, cor_suspend_10)
+{
+    constexpr size_t n = 10;
+    auto&& begin = range.begin();
+    auto&& end = begin + n;
+    co_await seastar::parallel_for_each(std::move(begin), std::move(end), [this] (int v) {
+        return suspend(v, value);
+    });
+    perf_tests::do_not_optimize(value);
+    co_return n;
+}
+
+PERF_TEST_CN(parallel_for_each, cor_suspend_100)
+{
+    co_await seastar::parallel_for_each(range, [this] (int v) {
+        return suspend(v, value);
+    });
+    perf_tests::do_not_optimize(value);
+    co_return range.size();
+}
+
+PERF_TEST_C(parallel_for_each, cor_pfe_empty)
+{
+    co_await seastar::coroutine::parallel_for_each(empty_range, [] (int) -> future<> {
+        abort();
+    });
+}
+
+PERF_TEST_CN(parallel_for_each, cor_pfe_immediate_1)
+{
+    constexpr size_t n = 1;
+    auto&& begin = range.begin();
+    auto&& end = begin + n;
+    co_await seastar::coroutine::parallel_for_each(std::move(begin), std::move(end), [this] (int v) {
+        return immediate(v, value);
+    });
+    perf_tests::do_not_optimize(value);
+    co_return n;
+}
+
+PERF_TEST_CN(parallel_for_each, cor_pfe_immediate_2)
+{
+    constexpr size_t n = 2;
+    auto&& begin = range.begin();
+    auto&& end = begin + n;
+    co_await seastar::coroutine::parallel_for_each(std::move(begin), std::move(end), [this] (int v) {
+        return immediate(v, value);
+    });
+    perf_tests::do_not_optimize(value);
+    co_return n;
+}
+
+PERF_TEST_CN(parallel_for_each, cor_pfe_immediate_10)
+{
+    constexpr size_t n = 10;
+    auto&& begin = range.begin();
+    auto&& end = begin + n;
+    co_await seastar::coroutine::parallel_for_each(std::move(begin), std::move(end), [this] (int v) {
+        return immediate(v, value);
+    });
+    perf_tests::do_not_optimize(value);
+    co_return n;
+}
+
+PERF_TEST_CN(parallel_for_each, cor_pfe_immediate_100)
+{
+    co_await seastar::coroutine::parallel_for_each(range, [this] (int v) {
+        return immediate(v, value);
+    });
+    perf_tests::do_not_optimize(value);
+    co_return range.size();
+}
+
+PERF_TEST_CN(parallel_for_each, cor_pfe_suspend_1)
+{
+    constexpr size_t n = 1;
+    auto&& begin = range.begin();
+    auto&& end = begin + n;
+    co_await seastar::coroutine::parallel_for_each(std::move(begin), std::move(end), [this] (int v) {
+        return suspend(v, value);
+    });
+    perf_tests::do_not_optimize(value);
+    co_return n;
+}
+
+PERF_TEST_CN(parallel_for_each, cor_pfe_suspend_2)
+{
+    constexpr size_t n = 2;
+    auto&& begin = range.begin();
+    auto&& end = begin + n;
+    co_await seastar::coroutine::parallel_for_each(std::move(begin), std::move(end), [this] (int v) {
+        return suspend(v, value);
+    });
+    perf_tests::do_not_optimize(value);
+    co_return n;
+}
+
+PERF_TEST_CN(parallel_for_each, cor_pfe_suspend_10)
+{
+    constexpr size_t n = 10;
+    auto&& begin = range.begin();
+    auto&& end = begin + n;
+    co_await seastar::coroutine::parallel_for_each(std::move(begin), std::move(end), [this] (int v) {
+        return suspend(v, value);
+    });
+    perf_tests::do_not_optimize(value);
+    co_return n;
+}
+
+PERF_TEST_CN(parallel_for_each, cor_pfe_suspend_100)
+{
+    co_await seastar::coroutine::parallel_for_each(range, [this] (int v) {
+        return suspend(v, value);
+    });
+    perf_tests::do_not_optimize(value);
+    co_return range.size();
+}
+
+#endif // SEASTAR_COROUTINES_ENABLED
