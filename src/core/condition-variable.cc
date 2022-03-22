@@ -75,8 +75,16 @@ void condition_variable::signal() noexcept {
 
 /// Notify variable and wake up all waiter
 void condition_variable::broadcast() noexcept {
-    while (wakeup_first())
-    {}
+    auto tmp(std::move(_waiters));
+    while (!tmp.empty()) {
+        auto& w = tmp.front();
+        tmp.pop_front();
+        if (_ex) {
+            w.set_exception(_ex);
+        } else {
+            w.signal();
+        }
+    }
 }
 
 /// Signal to waiters that an error occurred.  \ref wait() will see

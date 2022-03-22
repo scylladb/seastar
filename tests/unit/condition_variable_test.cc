@@ -184,7 +184,7 @@ SEASTAR_THREAD_TEST_CASE(test_condition_variable_pred_wait) {
 
     for (int i = 0; i < 2; ++i) {
         ready = false;
-        t.set_callback([&] { cv.signal();});
+        t.set_callback([&] { cv.broadcast();});
         t.arm_periodic(10ms);
 
         try {
@@ -278,7 +278,7 @@ SEASTAR_TEST_CASE(test_condition_variable_pred_when) {
 
     for (int i = 0; i < 2; ++i) {
         ready = false;
-        t.set_callback([&] { cv.signal();});
+        t.set_callback([&] { cv.broadcast();});
         t.arm_periodic(10ms);
 
         try {
