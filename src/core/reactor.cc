@@ -4092,6 +4092,13 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
             auto queue = std::move(topo.second.queues[shard]);
             assert(queue);
             engine()._io_queues.emplace(topo.first, std::move(queue));
+
+            auto num_io_groups = topo.second.groups.size();
+            if (engine()._num_io_groups == 0) {
+                engine()._num_io_groups = num_io_groups;
+            } else if (engine()._num_io_groups != num_io_groups) {
+                throw std::logic_error(format("Number of IO-groups mismatch, {} != {}", engine()._num_io_groups, num_io_groups));
+            }
         }
     };
 

@@ -274,6 +274,7 @@ private:
     std::unordered_map<dev_t, std::unique_ptr<io_queue>> _io_queues;
     // ... when dispatched all requests get into this single sink
     internal::io_sink _io_sink;
+    unsigned _num_io_groups = 0;
 
     std::vector<noncopyable_function<future<> ()>> _exit_funcs;
     unsigned _id = 0;
