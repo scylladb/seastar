@@ -386,6 +386,7 @@ fair_group::config io_group::make_fair_group_config(const io_queue::config& qcfg
 
 io_group::io_group(io_queue::config io_cfg)
     : _config(std::move(io_cfg))
+    , _allocated_on(this_shard_id())
 {
     auto fg_cfg = make_fair_group_config(_config);
     _fgs.push_back(std::make_unique<fair_group>(fg_cfg));

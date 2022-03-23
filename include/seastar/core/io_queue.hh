@@ -180,6 +180,7 @@ private:
     std::vector<std::unique_ptr<fair_group>> _fgs;
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
     util::spinlock _lock;
+    const shard_id _allocated_on;
 
     static fair_group::config make_fair_group_config(const io_queue::config& qcfg) noexcept;
     priority_class_data& find_or_create_class(io_priority_class pc);
