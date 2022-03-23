@@ -248,7 +248,7 @@ auto fair_queue::grab_capacity(const fair_queue_entry& ent) noexcept -> grab_res
     }
 
     capacity_t cap = _group.ticket_capacity(ent._ticket);
-    capacity_t want_head = _group.grab_capacity(cap) + cap;
+    capacity_t want_head = _group.grab_capacity(cap);
     if (_group.capacity_deficiency(want_head)) {
         _pending.emplace(want_head, cap);
         return grab_result::pending;

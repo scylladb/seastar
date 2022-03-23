@@ -143,7 +143,7 @@ public:
     {}
 
     T grab(T tokens) noexcept {
-        return fetch_add(_rovers.tail, tokens);
+        return fetch_add(_rovers.tail, tokens) + tokens;
     }
 
     void release(T tokens) noexcept {
