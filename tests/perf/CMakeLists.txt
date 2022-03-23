@@ -76,3 +76,6 @@ seastar_add_test (rpc
 seastar_add_test (smp_submit_to
   SOURCES smp_submit_to_perf.cc
   NO_SEASTAR_PERF_TESTING_LIBRARY)
+
+seastar_add_test (coroutine
+  SOURCES coroutine_perf.cc)
