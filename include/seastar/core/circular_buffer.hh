@@ -122,6 +122,7 @@ private:
     void expand(size_t);
     void maybe_expand(size_t nr = 1);
     size_t mask(size_t idx) const;
+    size_t offset(size_t idx) const;
 
     template<typename CB, typename ValueType>
     struct cbiterator {
@@ -176,16 +177,16 @@ private:
             return idx != rhs.idx;
         }
         bool operator<(const cbiterator<CB, ValueType>& rhs) const noexcept {
-            return idx < rhs.idx;
+            return cb->offset(idx) < cb->offset(rhs.idx);
         }
         bool operator>(const cbiterator<CB, ValueType>& rhs) const noexcept {
-            return idx > rhs.idx;
+            return cb->offset(idx) > cb->offset(rhs.idx);
         }
         bool operator>=(const cbiterator<CB, ValueType>& rhs) const noexcept {
-            return idx >= rhs.idx;
+            return cb->offset(idx) >= cb->offset(rhs.idx);
         }
         bool operator<=(const cbiterator<CB, ValueType>& rhs) const noexcept {
-            return idx <= rhs.idx;
+            return cb->offset(idx) <= cb->offset(rhs.idx);
         }
        difference_type operator-(const cbiterator<CB, ValueType>& rhs) const noexcept {
             return idx - rhs.idx;
@@ -228,6 +229,13 @@ inline
 size_t
 circular_buffer<T, Alloc>::mask(size_t idx) const {
     return idx & (_impl.capacity - 1);
+}
+
+template <typename T, typename Alloc>
+inline
+size_t
+circular_buffer<T, Alloc>::offset(size_t idx) const {
+    return mask(idx) - mask(_impl.begin);
 }
 
 template <typename T, typename Alloc>
