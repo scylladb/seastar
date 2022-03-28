@@ -107,27 +107,3 @@ BOOST_AUTO_TEST_CASE(test_erasing_in_the_middle) {
     BOOST_REQUIRE_EQUAL(*i++, 9);
     BOOST_REQUIRE(i == buf.end());
 }
-
-BOOST_AUTO_TEST_CASE(test_underflow_index_iterator_comparison) {
-    circular_buffer<int> buf;
-
-    // We want to craft a buffer such that push_front() wraps around.
-    buf.reserve(20);
-    for (int i = 0; i < 10; ++i) {
-        buf.push_back(i);
-    }
-    for (int i = 0; i < 10; ++i) {
-        buf.push_front(i);
-    }
-
-    const auto it1 = buf.begin() + 5;
-    const auto it2 = it1 + 10;
-    const auto it3 = it2;
-
-    BOOST_REQUIRE(it1 < it2);
-    BOOST_REQUIRE(it2 > it1);
-    BOOST_REQUIRE(it1 <= it2);
-    BOOST_REQUIRE(it2 <= it3);
-    BOOST_REQUIRE(it2 >= it1);
-    BOOST_REQUIRE(it3 >= it2);
-}
