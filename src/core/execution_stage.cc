@@ -105,25 +105,25 @@ execution_stage::execution_stage(const sstring& name, scheduling_group sg)
     internal::execution_stage_manager::get().register_execution_stage(*this);
     auto undo = defer([&] () noexcept { internal::execution_stage_manager::get().unregister_execution_stage(*this); });
     _metric_group = metrics::metric_group("execution_stages", {
-             metrics::make_derive("tasks_scheduled",
+             metrics::make_counter("tasks_scheduled",
                                   metrics::description("Counts tasks scheduled by execution stages"),
                                   { metrics::label_instance("execution_stage", name), },
                                   [name, &esm = internal::execution_stage_manager::get()] {
                                       return esm.get_stage(name)->get_stats().tasks_scheduled;
                                   }),
-             metrics::make_derive("tasks_preempted",
+             metrics::make_counter("tasks_preempted",
                                   metrics::description("Counts tasks which were preempted before execution all queued operations"),
                                   { metrics::label_instance("execution_stage", name), },
                                   [name, &esm = internal::execution_stage_manager::get()] {
                                       return esm.get_stage(name)->get_stats().tasks_preempted;
                                   }),
-             metrics::make_derive("function_calls_enqueued",
+             metrics::make_counter("function_calls_enqueued",
                                   metrics::description("Counts function calls added to execution stages queues"),
                                   { metrics::label_instance("execution_stage", name), },
                                   [name, &esm = internal::execution_stage_manager::get()] {
                                       return esm.get_stage(name)->get_stats().function_calls_enqueued;
                                   }),
-             metrics::make_derive("function_calls_executed",
+             metrics::make_counter("function_calls_executed",
                                   metrics::description("Counts function calls executed by execution stages"),
                                   { metrics::label_instance("execution_stage", name), },
                                   [name, &esm = internal::execution_stage_manager::get()] {

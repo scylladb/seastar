@@ -853,7 +853,7 @@ reactor::task_queue::register_stats() {
         sm::make_gauge("shares", [this] { return _shares; },
                 sm::description("Shares allocated to this queue"),
                 {group_label}),
-        sm::make_derive("time_spent_on_task_quota_violations_ms", [this] {
+        sm::make_counter("time_spent_on_task_quota_violations_ms", [this] {
                 return _time_spent_on_task_quota_violations / 1ms;
         }, sm::description("Total amount in milliseconds we were in violation of the task quota"),
            {group_label}),
@@ -1061,7 +1061,7 @@ cpu_stall_detector::cpu_stall_detector(cpu_stall_detector_config cfg)
     namespace sm = seastar::metrics;
 
     _metrics.add_group("stall_detector", {
-            sm::make_derive("reported", _total_reported, sm::description("Total number of reported stalls, look in the traces for the exact reason"))});
+            sm::make_counter("reported", _total_reported, sm::description("Total number of reported stalls, look in the traces for the exact reason"))});
 
     // note: if something is added here that can, it should take care to destroy _timer.
 }
@@ -2258,48 +2258,48 @@ void reactor::register_metrics() {
     _metric_groups.add_group("reactor", {
             sm::make_gauge("tasks_pending", std::bind(&reactor::pending_task_count, this), sm::description("Number of pending tasks in the queue")),
             // total_operations value:DERIVE:0:U
-            sm::make_derive("tasks_processed", std::bind(&reactor::tasks_processed, this), sm::description("Total tasks processed")),
-            sm::make_derive("polls", _polls, sm::description("Number of times pollers were executed")),
+            sm::make_counter("tasks_processed", std::bind(&reactor::tasks_processed, this), sm::description("Total tasks processed")),
+            sm::make_counter("polls", _polls, sm::description("Number of times pollers were executed")),
             sm::make_gauge("timers_pending", std::bind(&decltype(_timers)::size, &_timers), sm::description("Number of tasks in the timer-pending queue")),
             sm::make_gauge("utilization", [this] { return (1-_load)  * 100; }, sm::description("CPU utilization")),
-            sm::make_derive("cpu_busy_ms", [this] () -> int64_t { return total_busy_time() / 1ms; },
+            sm::make_counter("cpu_busy_ms", [this] () -> int64_t { return total_busy_time() / 1ms; },
                     sm::description("Total cpu busy time in milliseconds")),
-            sm::make_derive("cpu_steal_time_ms", [this] () -> int64_t { return total_steal_time() / 1ms; },
+            sm::make_counter("cpu_steal_time_ms", [this] () -> int64_t { return total_steal_time() / 1ms; },
                     sm::description("Total steal time, the time in which some other process was running while Seastar was not trying to run (not sleeping)."
                                      "Because this is in userspace, some time that could be legitimally thought as steal time is not accounted as such. For example, if we are sleeping and can wake up but the kernel hasn't woken us up yet.")),
             // total_operations value:DERIVE:0:U
-            sm::make_derive("aio_reads", _io_stats.aio_reads, sm::description("Total aio-reads operations")),
+            sm::make_counter("aio_reads", _io_stats.aio_reads, sm::description("Total aio-reads operations")),
 
             sm::make_total_bytes("aio_bytes_read", _io_stats.aio_read_bytes, sm::description("Total aio-reads bytes")),
             // total_operations value:DERIVE:0:U
-            sm::make_derive("aio_writes", _io_stats.aio_writes, sm::description("Total aio-writes operations")),
+            sm::make_counter("aio_writes", _io_stats.aio_writes, sm::description("Total aio-writes operations")),
             sm::make_total_bytes("aio_bytes_write", _io_stats.aio_write_bytes, sm::description("Total aio-writes bytes")),
-            sm::make_derive("aio_errors", _io_stats.aio_errors, sm::description("Total aio errors")),
+            sm::make_counter("aio_errors", _io_stats.aio_errors, sm::description("Total aio errors")),
             // total_operations value:DERIVE:0:U
-            sm::make_derive("fsyncs", _fsyncs, sm::description("Total number of fsync operations")),
+            sm::make_counter("fsyncs", _fsyncs, sm::description("Total number of fsync operations")),
             // total_operations value:DERIVE:0:U
-            sm::make_derive("io_threaded_fallbacks", std::bind(&thread_pool::operation_count, _thread_pool.get()),
+            sm::make_counter("io_threaded_fallbacks", std::bind(&thread_pool::operation_count, _thread_pool.get()),
                     sm::description("Total number of io-threaded-fallbacks operations")),
 
     });
 
     _metric_groups.add_group("memory", {
-            sm::make_derive("malloc_operations", [] { return memory::stats().mallocs(); },
+            sm::make_counter("malloc_operations", [] { return memory::stats().mallocs(); },
                     sm::description("Total number of malloc operations")),
-            sm::make_derive("free_operations", [] { return memory::stats().frees(); }, sm::description("Total number of free operations")),
-            sm::make_derive("cross_cpu_free_operations", [] { return memory::stats().cross_cpu_frees(); }, sm::description("Total number of cross cpu free")),
+            sm::make_counter("free_operations", [] { return memory::stats().frees(); }, sm::description("Total number of free operations")),
+            sm::make_counter("cross_cpu_free_operations", [] { return memory::stats().cross_cpu_frees(); }, sm::description("Total number of cross cpu free")),
             sm::make_gauge("malloc_live_objects", [] { return memory::stats().live_objects(); }, sm::description("Number of live objects")),
             sm::make_current_bytes("free_memory", [] { return memory::stats().free_memory(); }, sm::description("Free memory size in bytes")),
             sm::make_current_bytes("total_memory", [] { return memory::stats().total_memory(); }, sm::description("Total memory size in bytes")),
             sm::make_current_bytes("allocated_memory", [] { return memory::stats().allocated_memory(); }, sm::description("Allocated memory size in bytes")),
-            sm::make_derive("reclaims_operations", [] { return memory::stats().reclaims(); }, sm::description("Total reclaims operations"))
+            sm::make_counter("reclaims_operations", [] { return memory::stats().reclaims(); }, sm::description("Total reclaims operations"))
     });
 
     _metric_groups.add_group("reactor", {
-            sm::make_derive("logging_failures", [] { return logging_failures; }, sm::description("Total number of logging failures")),
+            sm::make_counter("logging_failures", [] { return logging_failures; }, sm::description("Total number of logging failures")),
             // total_operations value:DERIVE:0:U
-            sm::make_derive("cpp_exceptions", _cxx_exceptions, sm::description("Total number of C++ exceptions")),
-            sm::make_derive("abandoned_failed_futures", _abandoned_failed_futures, sm::description("Total number of abandoned failed futures, futures destroyed while still containing an exception")),
+            sm::make_counter("cpp_exceptions", _cxx_exceptions, sm::description("Total number of C++ exceptions")),
+            sm::make_counter("abandoned_failed_futures", _abandoned_failed_futures, sm::description("Total number of abandoned failed futures, futures destroyed while still containing an exception")),
     });
 
     using namespace seastar::metrics;
@@ -2308,7 +2308,7 @@ void reactor::register_metrics() {
                 description(
                         "Counts reads from disk file streams.  A high rate indicates high disk activity."
                         " Contrast with other fstream_read* counters to locate bottlenecks.")),
-        make_derive("fstream_read_bytes", _io_stats.fstream_read_bytes,
+        make_counter("fstream_read_bytes", _io_stats.fstream_read_bytes,
                 description(
                         "Counts bytes read from disk file streams.  A high rate indicates high disk activity."
                         " Divide by fstream_reads to determine average read size.")),
@@ -2316,7 +2316,7 @@ void reactor::register_metrics() {
                 description(
                         "Counts the number of times a disk read could not be satisfied from read-ahead buffers, and had to block."
                         " Indicates short streams, or incorrect read ahead configuration.")),
-        make_derive("fstream_read_bytes_blocked", _io_stats.fstream_read_bytes_blocked,
+        make_counter("fstream_read_bytes_blocked", _io_stats.fstream_read_bytes_blocked,
                 description(
                         "Counts the number of bytes read from disk that could not be satisfied from read-ahead buffers, and had to block."
                         " Indicates short streams, or incorrect read ahead configuration.")),
@@ -2324,7 +2324,7 @@ void reactor::register_metrics() {
                 description(
                         "Counts the number of times a buffer that was read ahead of time and was discarded because it was not needed, wasting disk bandwidth."
                         " Indicates over-eager read ahead configuration.")),
-        make_derive("fstream_reads_ahead_bytes_discarded", _io_stats.fstream_read_ahead_discarded_bytes,
+        make_counter("fstream_reads_ahead_bytes_discarded", _io_stats.fstream_read_ahead_discarded_bytes,
                 description(
                         "Counts the number of buffered bytes that were read ahead of time and were discarded because they were not needed, wasting disk bandwidth."
                         " Indicates over-eager read ahead configuration.")),
@@ -3353,11 +3353,11 @@ void smp_message_queue::start(unsigned cpuid) {
             sm::make_queue_length("complete_batch_queue_length", _last_cmpl_batch, sm::description("Current complete batch queue length"), {sm::shard_label(instance)})(sm::metric_disabled),
             sm::make_queue_length("send_queue_length", _current_queue_length, sm::description("Current send queue length"), {sm::shard_label(instance)})(sm::metric_disabled),
             // total_operations value:DERIVE:0:U
-            sm::make_derive("total_received_messages", _received, sm::description("Total number of received messages"), {sm::shard_label(instance)})(sm::metric_disabled),
+            sm::make_counter("total_received_messages", _received, sm::description("Total number of received messages"), {sm::shard_label(instance)})(sm::metric_disabled),
             // total_operations value:DERIVE:0:U
-            sm::make_derive("total_sent_messages", _sent, sm::description("Total number of sent messages"), {sm::shard_label(instance)})(sm::metric_disabled),
+            sm::make_counter("total_sent_messages", _sent, sm::description("Total number of sent messages"), {sm::shard_label(instance)})(sm::metric_disabled),
             // total_operations value:DERIVE:0:U
-            sm::make_derive("total_completed_messages", _compl, sm::description("Total number of messages completed"), {sm::shard_label(instance)})(sm::metric_disabled)
+            sm::make_counter("total_completed_messages", _compl, sm::description("Total number of messages completed"), {sm::shard_label(instance)})(sm::metric_disabled)
     });
 }
 

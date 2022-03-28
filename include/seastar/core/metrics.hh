@@ -586,7 +586,7 @@ template<typename T>
 impl::metric_definition_impl make_total_bytes(metric_name_type name,
         T&& val, description d=description(), std::vector<label_instance> labels = {},
         instance_id_type instance = impl::shard()) {
-    return make_derive(name, std::forward<T>(val), d, labels).set_type("total_bytes");
+    return make_counter(name, std::forward<T>(val), d, labels).set_type("total_bytes");
 }
 
 /*!
@@ -628,7 +628,7 @@ template<typename T>
 impl::metric_definition_impl make_total_operations(metric_name_type name,
         T&& val, description d=description(), std::vector<label_instance> labels = {},
         instance_id_type instance = impl::shard()) {
-    return make_derive(name, std::forward<T>(val), d, labels).set_type("total_operations");
+    return make_counter(name, std::forward<T>(val), d, labels).set_type("total_operations");
 }
 
 /*! @} */

@@ -515,27 +515,27 @@ future<> io_priority_class::rename(sstring new_name) noexcept {
 std::vector<seastar::metrics::impl::metric_definition_impl> io_queue::priority_class_data::metrics() {
     namespace sm = seastar::metrics;
     return std::vector<sm::impl::metric_definition_impl>({
-            sm::make_derive("total_bytes", [this] {
+            sm::make_counter("total_bytes", [this] {
                     return _rwstat[io_direction_and_length::read_idx].bytes + _rwstat[io_direction_and_length::write_idx].bytes;
                 }, sm::description("Total bytes passed in the queue")),
-            sm::make_derive("total_operations", [this] {
+            sm::make_counter("total_operations", [this] {
                     return _rwstat[io_direction_and_length::read_idx].ops + _rwstat[io_direction_and_length::write_idx].ops;
                 }, sm::description("Total operations passed in the queue")),
-            sm::make_derive("total_read_bytes", _rwstat[io_direction_and_length::read_idx].bytes,
+            sm::make_counter("total_read_bytes", _rwstat[io_direction_and_length::read_idx].bytes,
                     sm::description("Total read bytes passed in the queue")),
-            sm::make_derive("total_read_ops", _rwstat[io_direction_and_length::read_idx].ops,
+            sm::make_counter("total_read_ops", _rwstat[io_direction_and_length::read_idx].ops,
                     sm::description("Total read operations passed in the queue")),
-            sm::make_derive("total_write_bytes", _rwstat[io_direction_and_length::write_idx].bytes,
+            sm::make_counter("total_write_bytes", _rwstat[io_direction_and_length::write_idx].bytes,
                     sm::description("Total write bytes passed in the queue")),
-            sm::make_derive("total_write_ops", _rwstat[io_direction_and_length::write_idx].ops,
+            sm::make_counter("total_write_ops", _rwstat[io_direction_and_length::write_idx].ops,
                     sm::description("Total write operations passed in the queue")),
-            sm::make_derive("total_delay_sec", [this] {
+            sm::make_counter("total_delay_sec", [this] {
                     return _total_queue_time.count();
                 }, sm::description("Total time spent in the queue")),
-            sm::make_derive("total_exec_sec", [this] {
+            sm::make_counter("total_exec_sec", [this] {
                     return _total_execution_time.count();
                 }, sm::description("Total time spent in disk")),
-            sm::make_derive("starvation_time_sec", [this] {
+            sm::make_counter("starvation_time_sec", [this] {
                 auto st = _starvation_time;
                 if (_nr_queued != 0 && _nr_executing == 0) {
                     st += io_queue::clock_type::now() - _activated;

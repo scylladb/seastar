@@ -416,50 +416,50 @@ public:
         namespace sm = seastar::metrics;
         _metrics.add_group(_stats_plugin_name, {
             // Rx Good
-            sm::make_derive("rx_multicast", _stats.rx.good.mcast,
+            sm::make_counter("rx_multicast", _stats.rx.good.mcast,
                             sm::description("Counts a number of received multicast packets."), {sm::shard_label(_stats_plugin_inst)}),
             // Rx Errors
-            sm::make_derive("rx_crc_errors", _stats.rx.bad.crc,
+            sm::make_counter("rx_crc_errors", _stats.rx.bad.crc,
                             sm::description("Counts a number of received packets with a bad CRC value. "
                                             "A non-zero value of this metric usually indicates a HW problem, e.g. a bad cable."), {sm::shard_label(_stats_plugin_inst)}),
 
-            sm::make_derive("rx_dropped", _stats.rx.bad.dropped,
+            sm::make_counter("rx_dropped", _stats.rx.bad.dropped,
                             sm::description("Counts a number of dropped received packets. "
                                             "A non-zero value of this counter indicated the overflow of ingress HW buffers. "
                                             "This usually happens because of a rate of a sender on the other side of the link is higher than we can process as a receiver."), {sm::shard_label(_stats_plugin_inst)}),
 
-            sm::make_derive("rx_bad_length_errors", _stats.rx.bad.len,
+            sm::make_counter("rx_bad_length_errors", _stats.rx.bad.len,
                             sm::description("Counts a number of received packets with a bad length value. "
                                             "A non-zero value of this metric usually indicates a HW issue: e.g. bad cable."), {sm::shard_label(_stats_plugin_inst)}),
             // Coupled counters:
             // Good
-            sm::make_derive("rx_pause_xon", _stats.rx.good.pause_xon,
+            sm::make_counter("rx_pause_xon", _stats.rx.good.pause_xon,
                             sm::description("Counts a number of received PAUSE XON frames (PAUSE frame with a quanta of zero). "
                                             "When PAUSE XON frame is received our port may resume sending L2 frames. "
                                             "PAUSE XON frames are sent to resume sending that was previously paused with a PAUSE XOFF frame. If ingress "
                                             "buffer falls below the low watermark threshold before the timeout configured in the original PAUSE XOFF frame the receiver may decide to send PAUSE XON frame. "
                                             "A non-zero value of this metric may mean that our sender is bursty and that the spikes overwhelm the receiver on the other side of the link."), {sm::shard_label(_stats_plugin_inst)}),
 
-            sm::make_derive("tx_pause_xon", _stats.tx.good.pause_xon,
+            sm::make_counter("tx_pause_xon", _stats.tx.good.pause_xon,
                             sm::description("Counts a number of sent PAUSE XON frames (L2 flow control frames). "
                                             "A non-zero value of this metric indicates that our ingress path doesn't keep up with the rate of a sender on the other side of the link. "
                                             "Note that if a sender port respects PAUSE frames this will prevent it from sending from ALL its egress queues because L2 flow control is defined "
                                             "on a per-link resolution."), {sm::shard_label(_stats_plugin_inst)}),
 
-            sm::make_derive("rx_pause_xoff", _stats.rx.good.pause_xoff,
+            sm::make_counter("rx_pause_xoff", _stats.rx.good.pause_xoff,
                             sm::description("Counts a number of received PAUSE XOFF frames. "
                                             "A non-zero value of this metric indicates that our egress overwhelms the receiver on the other side of the link and it has to send PAUSE frames to make us stop sending. "
                                             "Note that if our port respects PAUSE frames a reception of a PAUSE XOFF frame will cause ALL egress queues of this port to stop sending."), {sm::shard_label(_stats_plugin_inst)}),
 
-            sm::make_derive("tx_pause_xoff", _stats.tx.good.pause_xoff,
+            sm::make_counter("tx_pause_xoff", _stats.tx.good.pause_xoff,
                             sm::description("Counts a number of sent PAUSE XOFF frames. "
                                             "A non-zero value of this metric indicates that our ingress path (SW and HW) doesn't keep up with the rate of a sender on the other side of the link and as a result "
                                             "our ingress HW buffers overflow."), {sm::shard_label(_stats_plugin_inst)}),
             // Errors
-            sm::make_derive("rx_errors", _stats.rx.bad.total,
+            sm::make_counter("rx_errors", _stats.rx.bad.total,
                             sm::description("Counts the total number of ingress errors: CRC errors, bad length errors, etc."), {sm::shard_label(_stats_plugin_inst)}),
 
-            sm::make_derive("tx_errors", _stats.tx.bad.total,
+            sm::make_counter("tx_errors", _stats.tx.bad.total,
                             sm::description("Counts a total number of egress errors. A non-zero value usually indicated a problem with a HW or a SW driver."), {sm::shard_label(_stats_plugin_inst)}),
         });
     }
@@ -1961,14 +1961,14 @@ dpdk_qp<HugetlbfsMemBackend>::dpdk_qp(dpdk_device* dev, uint16_t qid,
     // Register error statistics: Rx total and checksum errors
     namespace sm = seastar::metrics;
     _metrics.add_group(_stats_plugin_name, {
-        sm::make_derive(_queue_name + "_rx_csum_errors", _stats.rx.bad.csum,
+        sm::make_counter(_queue_name + "_rx_csum_errors", _stats.rx.bad.csum,
                         sm::description("Counts a number of packets received by this queue that have a bad CSUM value. "
                                         "A non-zero value of this metric usually indicates a HW issue, e.g. a bad cable.")),
 
-        sm::make_derive(_queue_name + "_rx_errors", _stats.rx.bad.total,
+        sm::make_counter(_queue_name + "_rx_errors", _stats.rx.bad.total,
                         sm::description("Counts a total number of errors in the ingress path for this queue: CSUM errors, etc.")),
 
-        sm::make_derive(_queue_name + "_rx_no_memory_errors", _stats.rx.bad.no_mem,
+        sm::make_counter(_queue_name + "_rx_no_memory_errors", _stats.rx.bad.no_mem,
                         sm::description("Counts a number of ingress packets received by this HW queue but dropped by the SW due to low memory. "
                                         "A non-zero value indicates that seastar doesn't have enough memory to handle the packet reception or the memory is too fragmented.")),
     });

@@ -400,8 +400,8 @@ private:
     void register_metrics() {
         namespace sm = seastar::metrics;
         _metrics.add_group("slab", {
-            sm::make_derive("malloc_total_operations", sm::description("Total number of slab malloc operations"), _stats.allocs),
-            sm::make_derive("free_total_operations", sm::description("Total number of slab free operations"), _stats.frees),
+            sm::make_counter("malloc_total_operations", sm::description("Total number of slab malloc operations"), _stats.allocs),
+            sm::make_counter("free_total_operations", sm::description("Total number of slab free operations"), _stats.frees),
             sm::make_gauge("malloc_objects", sm::description("Number of slab created objects currently in memory"), [this] {
                 return _stats.allocs - _stats.frees;
             })
