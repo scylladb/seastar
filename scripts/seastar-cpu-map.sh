@@ -17,7 +17,7 @@ while getopts 'p:n:s:' option; do
   case "$option" in
     p) PID=$OPTARG
         ;;
-    n) PID=`pidof $OPTARG`
+    n) PID=`pgrep --newest --exact $OPTARG`
         ;;
     s) SHARD=$OPTARG
         ;;
