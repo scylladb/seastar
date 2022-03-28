@@ -99,7 +99,7 @@ public:
 /*!
  * \defgroup metrics_types metrics type definitions
  * The following are for the metric layer use, do not use them directly
- * Instead use the make_counter, make_gauge, make_absolute and make_derived
+ * Instead use the make_counter, make_gauge
  *
  */
 using metric_type_def = sstring; /*!< Used to hold an inherit type (like bytes)*/
@@ -252,10 +252,8 @@ namespace impl {
 
 // The value binding data types
 enum class data_type : uint8_t {
-    COUNTER, // unsigned int 64
-    GAUGE, // double
-    DERIVE, // signed int 64
-    ABSOLUTE, // unsigned int 64
+    COUNTER,
+    GAUGE,
     HISTOGRAM,
 };
 
@@ -446,9 +444,10 @@ impl::metric_definition_impl make_gauge(metric_name_type name,
  * It is OK to use it when counting things and if no wrap-around is expected (it shouldn't) it's prefer over counter metric.
  */
 template<typename T>
+[[deprecated("Use make_counter()")]]
 impl::metric_definition_impl make_derive(metric_name_type name,
         T&& val, description d=description(), std::vector<label_instance> labels = {}) {
-    return {name, {impl::data_type::DERIVE, "derive"}, make_function(std::forward<T>(val), impl::data_type::DERIVE), d, labels};
+    return make_counter(std::move(name), std::forward<T>(val), std::move(d), std::move(labels));
 }
 
 
@@ -461,9 +460,10 @@ impl::metric_definition_impl make_derive(metric_name_type name,
  * It is OK to use it when counting things and if no wrap-around is expected (it shouldn't) it's prefer over counter metric.
  */
 template<typename T>
+[[deprecated("Use make_counter()")]]
 impl::metric_definition_impl make_derive(metric_name_type name, description d,
         T&& val) {
-    return {name, {impl::data_type::DERIVE, "derive"}, make_function(std::forward<T>(val), impl::data_type::DERIVE), d, {}};
+    return make_counter(std::move(name), std::forward<T>(val), std::move(d), {});
 }
 
 
@@ -476,9 +476,10 @@ impl::metric_definition_impl make_derive(metric_name_type name, description d,
  * It is OK to use it when counting things and if no wrap-around is expected (it shouldn't) it's prefer over counter metric.
  */
 template<typename T>
+[[deprecated("Use make_counter()")]]
 impl::metric_definition_impl make_derive(metric_name_type name, description d, std::vector<label_instance> labels,
         T&& val) {
-    return {name, {impl::data_type::DERIVE, "derive"}, make_function(std::forward<T>(val), impl::data_type::DERIVE), d, labels};
+    return make_counter(std::move(name), std::forward<T>(val), std::move(d), std::move(labels));
 }
 
 
@@ -532,9 +533,10 @@ impl::metric_definition_impl make_counter(metric_name_type name, description d, 
  * They are here for compatibility reasons and should general be avoided in most applications.
  */
 template<typename T>
+[[deprecated("Use make_counter()")]]
 impl::metric_definition_impl make_absolute(metric_name_type name,
         T&& val, description d=description(), std::vector<label_instance> labels = {}) {
-    return {name, {impl::data_type::ABSOLUTE, "absolute"}, make_function(std::forward<T>(val), impl::data_type::ABSOLUTE), d, labels};
+    return make_counter(std::move(name), std::forward<T>(val), std::move(d), std::move(labels));
 }
 
 /*!
