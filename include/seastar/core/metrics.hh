@@ -253,8 +253,15 @@ namespace impl {
 // The value binding data types
 enum class data_type : uint8_t {
     COUNTER,
+    REAL_COUNTER,
     GAUGE,
     HISTOGRAM,
+};
+
+template <typename T>
+struct counter_type_traits {
+    static constexpr bool is_integral = std::is_integral<typename std::conditional_t<std::is_invocable<T>::value, typename std::invoke_result<T>, typename std::type_identity<T>>::type>::value;
+    static constexpr data_type type = is_integral ? data_type::COUNTER : data_type::REAL_COUNTER;
 };
 
 /*!
@@ -489,13 +496,14 @@ impl::metric_definition_impl make_derive(metric_name_type name, description d, s
  * Counters are used when a rate is more interesting than the value, monitoring systems take
  * derivation from it to display.
  *
- * It's an integer value that can increase or decrease.
+ * It's an integer or floating point value that can increase or decrease.
  *
  */
 template<typename T>
 impl::metric_definition_impl make_counter(metric_name_type name,
         T&& val, description d=description(), std::vector<label_instance> labels = {}) {
-    return {name, {impl::data_type::COUNTER, "counter"}, make_function(std::forward<T>(val), impl::data_type::COUNTER), d, labels};
+    auto type = impl::counter_type_traits<std::remove_reference_t<T>>::type;
+    return {name, {type, "counter"}, make_function(std::forward<T>(val), type), d, labels};
 }
 
 /*!
@@ -504,7 +512,7 @@ impl::metric_definition_impl make_counter(metric_name_type name,
  * Counters are used when a rate is more interesting than the value, monitoring systems take
  * derivation from it to display.
  *
- * It's an integer value that can increase or decrease.
+ * It's an integer or floating point value that can increase or decrease.
  *
  */
 template<typename T>
@@ -518,7 +526,7 @@ impl::metric_definition_impl make_counter(metric_name_type name, description d, 
  * Counters are used when a rate is more interesting than the value, monitoring systems take
  * derivation from it to display.
  *
- * It's an integer value that can increase or decrease.
+ * It's an integer or floating point value that can increase or decrease.
  *
  */
 template<typename T>
