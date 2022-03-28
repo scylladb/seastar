@@ -26,6 +26,7 @@
 #include <stdlib.h>
 #include <chrono>
 #include <deque>
+#include <random>
 #include <seastar/core/circular_buffer.hh>
 
 using namespace seastar;
@@ -106,4 +107,73 @@ BOOST_AUTO_TEST_CASE(test_erasing_in_the_middle) {
     BOOST_REQUIRE_EQUAL(*i++, 8);
     BOOST_REQUIRE_EQUAL(*i++, 9);
     BOOST_REQUIRE(i == buf.end());
+}
+
+BOOST_AUTO_TEST_CASE(test_underflow_index_iterator_comparison) {
+    circular_buffer<int> buf;
+
+    const auto seed = std::random_device()();
+    std::cout << "seed=" << seed << std::endl;
+    auto rnd_engine = std::mt19937(seed);
+    std::uniform_int_distribution<unsigned> count_dist(0, 20);
+    std::uniform_int_distribution<unsigned> bool_dist(false, true);
+
+    auto push_back = [&buf] (unsigned n) {
+        for (unsigned i = 0; i < n; ++i) {
+            buf.push_back(i);
+        }
+    };
+    auto push_front = [&buf] (unsigned n) {
+        for (unsigned i = 0; i < n; ++i) {
+            buf.push_front(i);
+        }
+    };
+
+    for (unsigned i = 0; i < 16; ++i) {
+        const auto push_back_count = count_dist(rnd_engine);
+        const auto push_front_count = count_dist(rnd_engine);
+        std::cout << "round[" << i << "]: " << buf.size() << " front: " << push_front_count << " back: " << push_back_count << std::endl;
+        if (bool_dist(rnd_engine)) {
+            push_back(push_back_count);
+            push_front(std::max(20 - push_back_count, push_front_count));
+        } else {
+            push_front(push_front_count);
+            push_back(std::max(20 - push_front_count, push_back_count));
+        }
+
+        if (buf.empty()) {
+            continue;
+        }
+
+        for (auto it1 = buf.begin(); it1 != buf.end(); ++it1) {
+            bool bypass = false;
+            for (auto it2 = buf.end(); it2 != buf.begin(); --it2) {
+                auto itl = it1;
+                auto ith = it2;
+                if (bypass) {
+                    std::swap(itl, ith);
+                }
+                if (itl == ith) {
+                    bypass = true;
+                } else {
+                    BOOST_REQUIRE(itl < ith);
+                    BOOST_REQUIRE(ith > itl);
+                    BOOST_REQUIRE(!(ith < itl));
+                    BOOST_REQUIRE(!(itl > ith));
+                }
+
+                BOOST_REQUIRE(itl <= ith);
+                BOOST_REQUIRE(itl <= itl);
+                BOOST_REQUIRE(ith <= ith);
+                BOOST_REQUIRE(ith >= itl);
+                BOOST_REQUIRE(itl >= itl);
+                BOOST_REQUIRE(ith >= ith);
+            }
+        }
+
+        const auto erase_count = count_dist(rnd_engine);
+        const auto offset = count_dist(rnd_engine);
+        std::cout << "round[" << i << "]: " << erase_count << " @ " << offset << std::endl;
+        buf.erase(buf.begin() + offset, buf.begin() + std::min(size_t(offset + erase_count), buf.size()));
+    }
 }

@@ -176,16 +176,16 @@ private:
             return idx != rhs.idx;
         }
         bool operator<(const cbiterator<CB, ValueType>& rhs) const noexcept {
-            return idx < rhs.idx;
+            return *this - rhs < 0;
         }
         bool operator>(const cbiterator<CB, ValueType>& rhs) const noexcept {
-            return idx > rhs.idx;
+            return *this - rhs > 0;
         }
         bool operator>=(const cbiterator<CB, ValueType>& rhs) const noexcept {
-            return idx >= rhs.idx;
+            return *this - rhs >= 0;
         }
         bool operator<=(const cbiterator<CB, ValueType>& rhs) const noexcept {
-            return idx <= rhs.idx;
+            return *this - rhs <= 0;
         }
        difference_type operator-(const cbiterator<CB, ValueType>& rhs) const noexcept {
             return idx - rhs.idx;
