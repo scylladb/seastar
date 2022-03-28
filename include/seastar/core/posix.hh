@@ -225,13 +225,13 @@ public:
         throw_system_error_on(r == -1, "read");
         return { size_t(r) };
     }
-    std::optional<ssize_t> recv(void* buffer, size_t len, int flags) {
+    std::optional<size_t> recv(void* buffer, size_t len, int flags) {
         auto r = ::recv(_fd, buffer, len, flags);
         if (r == -1 && errno == EAGAIN) {
             return {};
         }
         throw_system_error_on(r == -1, "recv");
-        return { ssize_t(r) };
+        return { size_t(r) };
     }
     std::optional<size_t> recvmsg(msghdr* mh, int flags) {
         auto r = ::recvmsg(_fd, mh, flags);

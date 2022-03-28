@@ -257,7 +257,7 @@ future<> reactor::do_connect(pollable_fd_state& pfd, socket_address& sa) {
 future<size_t>
 reactor::do_read_some(pollable_fd_state& fd, void* buffer, size_t len) {
     return readable(fd).then([this, &fd, buffer, len] () mutable {
-        auto r = fd.fd.read(buffer, len);
+        auto r = fd.fd.recv(buffer, len, 0);
         if (!r) {
             return do_read_some(fd, buffer, len);
         }
@@ -272,7 +272,7 @@ future<temporary_buffer<char>>
 reactor::do_read_some(pollable_fd_state& fd, internal::buffer_allocator* ba) {
     return fd.readable().then([this, &fd, ba] {
         auto buffer = ba->allocate_buffer();
-        auto r = fd.fd.read(buffer.get_write(), buffer.size());
+        auto r = fd.fd.recv(buffer.get_write(), buffer.size(), 0);
         if (!r) {
             // Speculation failure, try again with real polling this time
             // Note we release the buffer and will reallocate it when poll
