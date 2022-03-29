@@ -220,8 +220,7 @@ public:
     /// Cannot be called on an element that si already associated
     /// with an abort source.
     void make_back_abortable(abort_source& as) {
-        entry* e;
-        e = &*_front;
+        entry* e = _front.get();
         if (!_list.empty()) {
             e = &_list.back();
         }
