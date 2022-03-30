@@ -140,9 +140,10 @@ struct named_semaphore_exception_factory {
 /// as a cancellation point.
 ///
 /// \tparam ExceptionFactory template parameter allows modifying a semaphore to throw
-/// customized exceptions on timeout/broken(). It has to provide two functions
-/// ExceptionFactory::timeout() and ExceptionFactory::broken() which return corresponding
-/// exception object.
+/// customized exceptions on timeout/broken/aborted. It has to provide three functions:
+/// ExceptionFactory::timeout() - that returns a \ref semaphore_timed_out exception by default,
+/// ExceptionFactory::broken() - that returns a \ref broken_semaphore exception by default, and
+/// ExceptionFactory::aborted() - that returns a \ref semaphore_aborted exception by default.
 template<typename ExceptionFactory, typename Clock = typename timer<>::clock>
 class basic_semaphore : private ExceptionFactory {
 public:
@@ -238,7 +239,7 @@ public:
     /// \return a future that becomes ready when sufficient units are available
     ///         to satisfy the request.  On timeout, the future contains a
     ///         \ref semaphore_timed_out exception.  If the semaphore was
-    ///         \ref broken(), may contain an exception.
+    ///         \ref broken(), may contain a \ref broken_semaphore exception.
     future<> wait(time_point timeout, size_t nr = 1) noexcept {
         if (may_proceed(nr)) {
             _count -= nr;
@@ -262,8 +263,8 @@ public:
     }
 
     /// Waits until at least a specific number of units are available in the
-    /// counter, and reduces the counter by that amount of units.  If the request
-    /// cannot be satisfied in time, the request is aborted.
+    /// counter, and reduces the counter by that amount of units.  The request
+    /// can be aborted using an \ref abort_source.
     ///
     /// \note Waits are serviced in FIFO order, though if several are awakened
     ///       at once, they may be reordered by the scheduler.
@@ -272,8 +273,8 @@ public:
     /// \param nr Amount of units to wait for (default 1).
     /// \return a future that becomes ready when sufficient units are available
     ///         to satisfy the request.  On abort, the future contains a
-    ///         \ref broken_semaphore exception.  If the semaphore was
-    ///         \ref broken(), may contain an exception.
+    ///         \ref semaphore_aborted exception.  If the semaphore was
+    ///         \ref broken(), may contain a \ref broken_semaphore exception.
     future<> wait(abort_source& as, size_t nr = 1) noexcept {
         if (may_proceed(nr)) {
             _count -= nr;
@@ -305,7 +306,7 @@ public:
     /// \return a future that becomes ready when sufficient units are available
     ///         to satisfy the request.  On timeout, the future contains a
     ///         \ref semaphore_timed_out exception.  If the semaphore was
-    ///         \ref broken(), may contain an exception.
+    ///         \ref broken(), may contain a \ref broken_semaphore exception.
     future<> wait(duration timeout, size_t nr = 1) noexcept {
         return wait(clock::now() + timeout, nr);
     }
@@ -534,12 +535,13 @@ get_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units) noexcept 
 /// \brief Take units from semaphore temporarily with time bound on wait
 ///
 /// Like \ref get_units(basic_semaphore<ExceptionFactory>&, size_t) but when
-/// timeout is reached before units are granted returns an exceptional future holding semaphore_timed_out.
+/// timeout is reached before units are granted, returns an exceptional future holding \ref semaphore_timed_out.
 ///
 /// \param sem The semaphore to take units from
 /// \param units  Number of units to take
 /// \return a \ref future<> holding \ref semaphore_units object. When the object goes out of scope
 ///         the units are returned to the semaphore.
+///         If a timeout is reached before units are granted, returns an exceptional future holding \ref semaphore_timed_out.
 ///
 /// \note The caller must guarantee that \c sem is valid as long as
 ///      \ref seaphore_units object is alive.
@@ -563,6 +565,7 @@ get_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units, typename 
 /// \param timeout a duration specifying when to timeout the current request
 /// \return a \ref future<> holding \ref semaphore_units object. When the object goes out of scope
 ///         the units are returned to the semaphore.
+///         If a timeout is reached before units are granted, returns an exceptional future holding \ref semaphore_timed_out.
 ///
 /// \note The caller must guarantee that \c sem is valid as long as
 ///      \ref seaphore_units object is alive.
@@ -576,16 +579,17 @@ get_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units, typename 
     });
 }
 
-/// \brief Take units from semaphore temporarily with time bound on wait
+/// \brief Take units from semaphore temporarily with an \ref abort_source
 ///
 /// Like \ref get_units(basic_semaphore<ExceptionFactory>&, size_t, basic_semaphore<ExceptionFactory>::time_point) but
-/// allow the timeout to be specified as a duration.
+/// allow the function to be aborted using an \ref abort_source.
 ///
 /// \param sem The semaphore to take units from
 /// \param units  Number of units to take
 /// \param as abort source.
 /// \return a \ref future<> holding \ref semaphore_units object. When the object goes out of scope
 ///         the units are returned to the semaphore.
+///         If get_units is aborted before units are granted, returns an exceptional future holding \ref semaphore_aborted.
 ///
 /// \note The caller must guarantee that \c sem is valid as long as
 ///      \ref seaphore_units object is alive.
