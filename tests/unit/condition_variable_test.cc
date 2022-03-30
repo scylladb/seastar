@@ -303,4 +303,21 @@ SEASTAR_TEST_CASE(test_condition_variable_pred_when) {
     co_await cv.when();
 }
 
+
+
+SEASTAR_TEST_CASE(test_condition_variable_when_signal) {
+    condition_variable cv;
+
+    bool ready = false;
+
+    timer<> t;
+    t.set_callback([&] { cv.signal(); ready = true; });
+    t.arm(100ms);
+
+    co_await cv.when();
+    // ensure we did not resume before timer ran fully
+    BOOST_REQUIRE_EQUAL(ready, true);
+}
+
+
 #endif

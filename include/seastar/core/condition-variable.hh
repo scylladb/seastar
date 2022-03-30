@@ -91,12 +91,13 @@ private:
     };
 
 #ifdef SEASTAR_COROUTINES_ENABLED
-    struct [[nodiscard("must co_await a when() call")]] awaiter : public waiter {
-        using handle_type = SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<>;
+    struct [[nodiscard("must co_await a when() call")]] awaiter : public waiter, private seastar::task {
+        using handle_type = SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<void>;
 
         condition_variable* _cv;
         handle_type _when_ready;
         std::exception_ptr _ex;
+        task* _waiting_task = nullptr;
 
         awaiter(condition_variable* cv)
             : _cv(cv)
@@ -105,9 +106,17 @@ private:
         bool await_ready() const {
             return _cv->check_and_consume_signal();
         }
-        void await_suspend(handle_type h) {
-            _when_ready = std::move(h);
+        template<typename T>
+        void await_suspend(SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<T> h) {
+            _when_ready = h;
+            _waiting_task = &h.promise();
             _cv->add_waiter(*this);
+        }
+        void run_and_dispose() noexcept override {
+            _when_ready.resume();
+        }
+        task* waiting_task() noexcept override { 
+            return _waiting_task;
         }
         void await_resume() {
             if (_ex) {
@@ -115,11 +124,11 @@ private:
             }
         }
         void signal() noexcept override {
-            _when_ready.resume();
+            schedule(this);
         }
         void set_exception(std::exception_ptr ep) noexcept override {
             _ex = std::move(ep);
-            _when_ready.resume();
+            schedule(this);
         }
     };
 
@@ -134,7 +143,8 @@ private:
             : awaiter(cv)
             , _timeout(timeout)
         {}
-        void await_suspend(handle_type h) {
+        template<typename T>
+        void await_suspend(SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<T> h) {
             awaiter::await_suspend(std::move(h));
             this->set_callback(std::bind(&waiter::timeout, this));
             this->arm(_timeout);
