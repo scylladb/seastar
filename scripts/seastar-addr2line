@@ -109,6 +109,15 @@ cmdline_parser.add_argument(
         ' By default no matching is performed.')
 
 cmdline_parser.add_argument(
+        '-a',
+        '--addr2line',
+        type=str,
+        metavar='CMD_PATH',
+        default='addr2line',
+        help='The path or name of the addr2line command, which should behave as and '
+        'accept the same options as binutils addr2line or llvm-addr2line.')
+
+cmdline_parser.add_argument(
         '-v',
         '--verbose',
         action='store_true',
@@ -205,7 +214,8 @@ else:
     else:
         lines = sys.stdin
 
-with BacktraceResolver(executable=args.executable, before_lines=args.before, context_re=args.match, verbose=args.verbose) as resolve:
+with BacktraceResolver(executable=args.executable, before_lines=args.before, context_re=args.match,
+        verbose=args.verbose, cmd_path=args.addr2line) as resolve:
     p = re.compile(r'\W+')
     for line in lines:
         resolve(line)
