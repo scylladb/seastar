@@ -2,3 +2,6 @@ client:
   nodelay: # bool, whether or not to set tcp_nodelay option
 server:
   nodelay: # bool, whether or not to set tcp_nodelay option
+jobs:
+  - name: # any parseable string
+    type: # string, one of: rpc

@@ -19,6 +19,7 @@
  * Copyright (C) 2022 ScyllaDB
  */
 
+#include <vector>
 #include <yaml-cpp/yaml.h>
 #include <fmt/core.h>
 #include <seastar/core/app-template.hh>
@@ -89,9 +90,15 @@ struct server_config {
     bool nodelay = true;
 };
 
+struct job_config {
+    std::string name;
+    std::string type;
+};
+
 struct config {
     client_config client;
     server_config server;
+    std::vector<job_config> jobs;
 };
 
 namespace YAML {
@@ -116,6 +123,15 @@ struct convert<server_config> {
     }
 };
 
+template <>
+struct convert<job_config> {
+    static bool decode(const Node& node, job_config& cfg) {
+        cfg.name = node["name"].as<std::string>();
+        cfg.type = node["type"].as<std::string>();
+        return true;
+    }
+};
+
 template<>
 struct convert<config> {
     static bool decode(const Node& node, config& cfg) {
@@ -124,6 +140,9 @@ struct convert<config> {
         }
         if (node["server"]) {
             cfg.server = node["server"].as<server_config>();
+        }
+        if (node["jobs"]) {
+            cfg.jobs = node["jobs"].as<std::vector<job_config>>();
         }
         return true;
     }
@@ -138,12 +157,45 @@ enum class rpc_verb : int32_t {
 
 using rpc_protocol = rpc::protocol<serializer, rpc_verb>;
 
+class job {
+public:
+    virtual future<> run() = 0;
+    virtual ~job() {}
+};
+
+class job_rpc : public job {
+    job_config _cfg;
+    rpc_protocol& _rpc;
+    rpc_protocol::client& _client;
+
+public:
+    job_rpc(job_config cfg, rpc_protocol& rpc, rpc_protocol::client& client)
+            : _cfg(cfg)
+            , _rpc(rpc)
+            , _client(client)
+    {
+    }
+
+    virtual future<> run() override {
+        return make_ready_future<>();
+    }
+};
+
+static std::unique_ptr<job> make_job(job_config cfg, rpc_protocol& rpc, rpc_protocol::client& client) {
+    if (cfg.type == "rpc") {
+        return std::make_unique<job_rpc>(cfg, rpc, client);
+    }
+
+    throw std::runtime_error("unknown job type");
+}
+
 class context {
     std::unique_ptr<rpc_protocol> _rpc;
     std::unique_ptr<rpc_protocol::server> _server;
     std::unique_ptr<rpc_protocol::client> _client;
     promise<> _bye;
     config _cfg;
+    std::vector<std::unique_ptr<job>> _jobs;
 
 public:
     context(std::optional<ipv4_addr> laddr, std::optional<ipv4_addr> caddr, uint16_t port, config cfg)
@@ -169,6 +221,10 @@ public:
             rpc::client_options co;
             co.tcp_nodelay = _cfg.client.nodelay;
             _client = std::make_unique<rpc_protocol::client>(*_rpc, co, *caddr);
+
+            for (auto&& jc : _cfg.jobs) {
+                _jobs.push_back(make_job(jc, *_rpc, *_client));
+            }
         }
     }
 
@@ -196,7 +252,9 @@ public:
 
     future<> run() {
         if (_client) {
-            return make_ready_future<>();
+            return parallel_for_each(_jobs, [] (auto& job) {
+                return job->run();
+            });
         }
 
         if (_server) {
