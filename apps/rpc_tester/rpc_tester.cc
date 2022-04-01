@@ -20,8 +20,10 @@
  */
 
 #include <vector>
+#include <chrono>
 #include <yaml-cpp/yaml.h>
 #include <fmt/core.h>
+#include <boost/range/irange.hpp>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/sharded.hh>
@@ -93,6 +95,10 @@ struct server_config {
 struct job_config {
     std::string name;
     std::string type;
+    std::string verb;
+    unsigned parallelism;
+
+    std::chrono::seconds duration;
 };
 
 struct config {
@@ -128,6 +134,10 @@ struct convert<job_config> {
     static bool decode(const Node& node, job_config& cfg) {
         cfg.name = node["name"].as<std::string>();
         cfg.type = node["type"].as<std::string>();
+        if (cfg.type == "rpc") {
+            cfg.verb = node["verb"].as<std::string>();
+            cfg.parallelism = node["parallelism"].as<unsigned>();
+        }
         return true;
     }
 };
@@ -153,6 +163,7 @@ struct convert<config> {
 enum class rpc_verb : int32_t {
     HELLO = 0,
     BYE = 1,
+    ECHO = 2,
 };
 
 using rpc_protocol = rpc::protocol<serializer, rpc_verb>;
@@ -167,16 +178,35 @@ class job_rpc : public job {
     job_config _cfg;
     rpc_protocol& _rpc;
     rpc_protocol::client& _client;
+    std::function<future<>(unsigned)> _call;
+    std::chrono::steady_clock::time_point _stop;
+
+    future<> call_echo(unsigned dummy) {
+        return _rpc.make_client<uint64_t(uint64_t)>(rpc_verb::ECHO)(_client, dummy).discard_result();
+    }
 
 public:
     job_rpc(job_config cfg, rpc_protocol& rpc, rpc_protocol::client& client)
             : _cfg(cfg)
             , _rpc(rpc)
             , _client(client)
+            , _stop(std::chrono::steady_clock::now() + _cfg.duration)
     {
+        if (_cfg.verb == "echo") {
+            _call = [this] (unsigned x) { return call_echo(x); };
+        } else {
+            throw std::runtime_error("unknown verb");
+        }
     }
 
     virtual future<> run() override {
+        return parallel_for_each(boost::irange(0u, _cfg.parallelism), [this] (auto dummy) {
+            return do_until([this] {
+                return std::chrono::steady_clock::now() > _stop;
+            }, [this, dummy] {
+                return _call(dummy);
+            });
+        });
         return make_ready_future<>();
     }
 };
@@ -208,6 +238,9 @@ public:
         _rpc->register_handler(rpc_verb::BYE, [this] {
             fmt::print("Got BYE message from client, exiting\n");
             _bye.set_value();
+        });
+        _rpc->register_handler(rpc_verb::ECHO, [] (uint64_t val) {
+            return make_ready_future<uint64_t>(val);
         });
 
         if (laddr) {
@@ -275,6 +308,7 @@ int main(int ac, char** av) {
         ("connect", bpo::value<sstring>()->default_value(""), "address to connect client to")
         ("port", bpo::value<int>()->default_value(9123), "port to listen on or connect to")
         ("conf", bpo::value<sstring>()->default_value("./conf.yaml"), "config with jobs and options")
+        ("duration", bpo::value<unsigned>()->default_value(30), "duration in seconds")
     ;
 
     sharded<context> ctx;
@@ -285,6 +319,7 @@ int main(int ac, char** av) {
             auto& connect = opts["connect"].as<sstring>();
             auto& port = opts["port"].as<int>();
             auto& conf = opts["conf"].as<sstring>();
+            auto duration = std::chrono::seconds(opts["duration"].as<unsigned>());
 
             std::optional<ipv4_addr> laddr;
             if (listen != "") {
@@ -297,6 +332,9 @@ int main(int ac, char** av) {
 
             YAML::Node doc = YAML::LoadFile(conf);
             auto cfg = doc.as<config>();
+            for (auto&& jc : cfg.jobs) {
+                jc.duration = duration;
+            }
 
             ctx.start(laddr, caddr, port, cfg).get();
             ctx.invoke_on_all(&context::start).get();

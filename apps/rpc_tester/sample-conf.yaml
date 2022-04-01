@@ -5,3 +5,5 @@ server:
 jobs:
   - name: # any parseable string
     type: # string, one of: rpc
+    verb: # string, one of: echo
+    parallelism: # number of verbs to send simultaneously
