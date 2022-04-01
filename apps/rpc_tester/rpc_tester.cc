@@ -19,6 +19,7 @@
  * Copyright (C) 2022 ScyllaDB
  */
 
+#include <yaml-cpp/yaml.h>
 #include <fmt/core.h>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/thread.hh>
@@ -80,6 +81,56 @@ inline sstring read(serializer, Input& in, rpc::type<sstring>) {
     return ret;
 }
 
+struct client_config {
+    bool nodelay = true;
+};
+
+struct server_config {
+    bool nodelay = true;
+};
+
+struct config {
+    client_config client;
+    server_config server;
+};
+
+namespace YAML {
+
+template<>
+struct convert<client_config> {
+    static bool decode(const Node& node, client_config& cfg) {
+        if (node["nodelay"]) {
+            cfg.nodelay = node["nodelay"].as<bool>();
+        }
+        return true;
+    }
+};
+
+template<>
+struct convert<server_config> {
+    static bool decode(const Node& node, server_config& cfg) {
+        if (node["nodelay"]) {
+            cfg.nodelay = node["nodelay"].as<bool>();
+        }
+        return true;
+    }
+};
+
+template<>
+struct convert<config> {
+    static bool decode(const Node& node, config& cfg) {
+        if (node["client"]) {
+            cfg.client = node["client"].as<client_config>();
+        }
+        if (node["server"]) {
+            cfg.server = node["server"].as<server_config>();
+        }
+        return true;
+    }
+};
+
+} // YAML namespace
+
 enum class rpc_verb : int32_t {
     HELLO = 0,
     BYE = 1,
@@ -92,10 +143,12 @@ class context {
     std::unique_ptr<rpc_protocol::server> _server;
     std::unique_ptr<rpc_protocol::client> _client;
     promise<> _bye;
+    config _cfg;
 
 public:
-    context(std::optional<ipv4_addr> laddr, std::optional<ipv4_addr> caddr, uint16_t port)
+    context(std::optional<ipv4_addr> laddr, std::optional<ipv4_addr> caddr, uint16_t port, config cfg)
             : _rpc(std::make_unique<rpc_protocol>(serializer{}))
+            , _cfg(cfg)
     {
         _rpc->register_handler(rpc_verb::HELLO, [] {
             fmt::print("Got HELLO message from client\n");
@@ -107,12 +160,14 @@ public:
 
         if (laddr) {
             rpc::server_options so;
+            so.tcp_nodelay = _cfg.server.nodelay;
             rpc::resource_limits limits;
             _server = std::make_unique<rpc_protocol::server>(*_rpc, so, *laddr, limits);
         }
 
         if (caddr) {
             rpc::client_options co;
+            co.tcp_nodelay = _cfg.client.nodelay;
             _client = std::make_unique<rpc_protocol::client>(*_rpc, co, *caddr);
         }
     }
@@ -161,6 +216,7 @@ int main(int ac, char** av) {
         ("listen", bpo::value<sstring>()->default_value(""), "address to start server on")
         ("connect", bpo::value<sstring>()->default_value(""), "address to connect client to")
         ("port", bpo::value<int>()->default_value(9123), "port to listen on or connect to")
+        ("conf", bpo::value<sstring>()->default_value("./conf.yaml"), "config with jobs and options")
     ;
 
     sharded<context> ctx;
@@ -170,6 +226,7 @@ int main(int ac, char** av) {
             auto& listen = opts["listen"].as<sstring>();
             auto& connect = opts["connect"].as<sstring>();
             auto& port = opts["port"].as<int>();
+            auto& conf = opts["conf"].as<sstring>();
 
             std::optional<ipv4_addr> laddr;
             if (listen != "") {
@@ -180,7 +237,10 @@ int main(int ac, char** av) {
                 caddr.emplace(connect, port);
             }
 
-            ctx.start(laddr, caddr, port).get();
+            YAML::Node doc = YAML::LoadFile(conf);
+            auto cfg = doc.as<config>();
+
+            ctx.start(laddr, caddr, port, cfg).get();
             ctx.invoke_on_all(&context::start).get();
             ctx.invoke_on_all(&context::run).get();
             ctx.stop().get();

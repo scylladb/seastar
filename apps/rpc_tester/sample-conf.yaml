@@ -1,0 +1,4 @@
+client:
+  nodelay: # bool, whether or not to set tcp_nodelay option
+server:
+  nodelay: # bool, whether or not to set tcp_nodelay option
