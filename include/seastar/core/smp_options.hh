@@ -27,6 +27,16 @@
 
 namespace seastar {
 
+enum class memory_allocator {
+    /// Seastar's own allocator, optimized for its shard-per core design.
+    /// Strongly recommended for most seastar apps.
+    seastar,
+    /// The standard allocator from libc.
+    /// Useful when writing seastar-based tool apps that want to
+    /// minimize their footprint on the system they run on.
+    standard,
+};
+
 /// Configuration for the multicore aspect of seastar.
 struct smp_options : public program_options::option_group {
     /// Number of threads (default: one per CPU).
@@ -79,6 +89,17 @@ struct smp_options : public program_options::option_group {
     /// \note Unused when seastar is compiled without \p HWLOC support.
     program_options::value<bool> allow_cpus_in_remote_numa_nodes;
 
+    /// Memory allocator to use.
+    ///
+    /// The following options only have effect if the \ref memory_allocator::seastar is used:
+    /// * \ref smp_options::memory
+    /// * \ref smp_options::reserve_memory
+    /// * \ref smp_options::hugepages
+    /// * \ref smp_options::mbind
+    /// * \ref reactor_options::heapprof
+    /// * \ref reactor_options::abort_on_seastar_bad_alloc
+    /// * \ref reactor_options::dump_memory_diagnostics_on_alloc_failure_kind
+    seastar::memory_allocator memory_allocator = memory_allocator::seastar;
 public:
     smp_options(program_options::option_group* parent_group);
 };

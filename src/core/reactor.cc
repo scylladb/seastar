@@ -3995,7 +3995,9 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     if (thread_affinity) {
         smp::pin(allocations[0].cpu_id);
     }
-    memory::configure(allocations[0].mem, mbind, hugepages_path);
+    if (smp_opts.memory_allocator == memory_allocator::seastar) {
+        memory::configure(allocations[0].mem, mbind, hugepages_path);
+    }
 
     if (reactor_opts.abort_on_seastar_bad_alloc) {
         memory::enable_abort_on_allocation_failure();
@@ -4093,7 +4095,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     auto smp_tmain = smp::_tmain;
     for (i = 1; i < smp::count; i++) {
         auto allocation = allocations[i];
-        create_thread([this, smp_tmain, inited, &reactors_registered, &smp_queues_constructed, &reactor_opts, &reactors, hugepages_path, i, allocation, assign_io_queues, alloc_io_queues, thread_affinity, heapprof_enabled, mbind, backend_selector, reactor_cfg] {
+        create_thread([this, smp_tmain, inited, &reactors_registered, &smp_queues_constructed, &smp_opts, &reactor_opts, &reactors, hugepages_path, i, allocation, assign_io_queues, alloc_io_queues, thread_affinity, heapprof_enabled, mbind, backend_selector, reactor_cfg] {
           try {
             // initialize thread_locals that are equal across all reacto threads of this smp instance
             smp::_tmain = smp_tmain;
@@ -4102,7 +4104,9 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
             if (thread_affinity) {
                 smp::pin(allocation.cpu_id);
             }
-            memory::configure(allocation.mem, mbind, hugepages_path);
+            if (smp_opts.memory_allocator == memory_allocator::seastar) {
+                memory::configure(allocation.mem, mbind, hugepages_path);
+            }
             if (heapprof_enabled) {
                 memory::set_heap_profiling_enabled(heapprof_enabled);
             }
