@@ -1,6 +1,8 @@
 # Contributing Code to Seastar
 
-To contribute code to Seastar, send your changes as [patches](https://github.com/scylladb/scylla/wiki/Formatting-and-sending-patches) to the [mailing list](https://groups.google.com/forum/#!forum/seastar-dev). We don't accept pull requests on GitHub.
+There are two ways to contribute code to Seastar:
+* send your changes as [patches](https://github.com/scylladb/scylla/wiki/Formatting-and-sending-patches) to the [mailing list](https://groups.google.com/forum/#!forum/seastar-dev).
+* alternatively, open a [github pull request](https://github.com/scylladb/seastar/pulls).
 
 # Asking questions or requesting help
 
