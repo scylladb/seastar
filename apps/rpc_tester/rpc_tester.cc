@@ -170,7 +170,9 @@ using rpc_protocol = rpc::protocol<serializer, rpc_verb>;
 
 class job {
 public:
+    virtual std::string name() const = 0;
     virtual future<> run() = 0;
+    virtual void emit_result(YAML::Emitter& out) const = 0;
     virtual ~job() {}
 };
 
@@ -180,6 +182,7 @@ class job_rpc : public job {
     rpc_protocol::client& _client;
     std::function<future<>(unsigned)> _call;
     std::chrono::steady_clock::time_point _stop;
+    uint64_t _total_messages = 0;
 
     future<> call_echo(unsigned dummy) {
         return _rpc.make_client<uint64_t(uint64_t)>(rpc_verb::ECHO)(_client, dummy).discard_result();
@@ -199,15 +202,22 @@ public:
         }
     }
 
+    virtual std::string name() const override { return _cfg.name; }
+
     virtual future<> run() override {
         return parallel_for_each(boost::irange(0u, _cfg.parallelism), [this] (auto dummy) {
             return do_until([this] {
                 return std::chrono::steady_clock::now() > _stop;
             }, [this, dummy] {
+                _total_messages++;
                 return _call(dummy);
             });
         });
         return make_ready_future<>();
+    }
+
+    virtual void emit_result(YAML::Emitter& out) const override {
+        out << YAML::Key << "messages" << YAML::Value << _total_messages;
     }
 };
 
@@ -296,6 +306,17 @@ public:
 
         return make_ready_future<>();
     }
+
+    future<> emit_result(YAML::Emitter& out) const {
+        for (const auto& job : _jobs) {
+            out << YAML::Key << job->name();
+            out << YAML::BeginMap;
+            job->emit_result(out);
+            out << YAML::EndMap;
+        }
+
+        return make_ready_future<>();
+    }
 };
 
 int main(int ac, char** av) {
@@ -339,6 +360,22 @@ int main(int ac, char** av) {
             ctx.start(laddr, caddr, port, cfg).get();
             ctx.invoke_on_all(&context::start).get();
             ctx.invoke_on_all(&context::run).get();
+
+            YAML::Emitter out;
+            out << YAML::BeginDoc;
+            out << YAML::BeginSeq;
+            for (unsigned i = 0; i < smp::count; i++) {
+                out << YAML::BeginMap;
+                out << YAML::Key << "shard" << YAML::Value << i;
+                ctx.invoke_on(i, [&out] (auto& c) {
+                    return c.emit_result(out);
+                }).get();
+                out << YAML::EndMap;
+            }
+            out << YAML::EndSeq;
+            out << YAML::EndDoc;
+            std::cout << out.c_str();
+
             ctx.stop().get();
         });
     });
