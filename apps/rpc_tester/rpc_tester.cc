@@ -27,6 +27,7 @@
 #include <seastar/core/app-template.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/sharded.hh>
+#include <seastar/core/with_scheduling_group.hh>
 #include <seastar/rpc/rpc.hh>
 
 using namespace seastar;
@@ -97,8 +98,10 @@ struct job_config {
     std::string type;
     std::string verb;
     unsigned parallelism;
+    unsigned shares = 100;
 
     std::chrono::seconds duration;
+    scheduling_group sg = default_scheduling_group();
 };
 
 struct config {
@@ -137,6 +140,9 @@ struct convert<job_config> {
         if (cfg.type == "rpc") {
             cfg.verb = node["verb"].as<std::string>();
             cfg.parallelism = node["parallelism"].as<unsigned>();
+        }
+        if (node["shares"]) {
+            cfg.shares = node["shares"].as<unsigned>();
         }
         return true;
     }
@@ -205,6 +211,7 @@ public:
     virtual std::string name() const override { return _cfg.name; }
 
     virtual future<> run() override {
+      return with_scheduling_group(_cfg.sg, [this] {
         return parallel_for_each(boost::irange(0u, _cfg.parallelism), [this] (auto dummy) {
             return do_until([this] {
                 return std::chrono::steady_clock::now() > _stop;
@@ -214,6 +221,7 @@ public:
             });
         });
         return make_ready_future<>();
+      });
     }
 
     virtual void emit_result(YAML::Emitter& out) const override {
@@ -356,6 +364,10 @@ int main(int ac, char** av) {
             for (auto&& jc : cfg.jobs) {
                 jc.duration = duration;
             }
+
+            parallel_for_each(cfg.jobs, [&] (auto& jc) {
+                return create_scheduling_group(jc.name, jc.shares).then([&jc] (auto sg) { jc.sg = sg; });
+            }).get();
 
             ctx.start(laddr, caddr, port, cfg).get();
             ctx.invoke_on_all(&context::start).get();

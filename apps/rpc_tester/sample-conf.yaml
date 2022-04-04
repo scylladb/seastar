@@ -7,3 +7,4 @@ jobs:
     type: # string, one of: rpc
     verb: # string, one of: echo
     parallelism: # number of verbs to send simultaneously
+    shares: # sched group shares (100 by default)
