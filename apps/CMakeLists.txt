@@ -51,6 +51,7 @@ endmacro ()
 
 add_subdirectory (httpd)
 add_subdirectory (io_tester)
+add_subdirectory (rpc_tester)
 add_subdirectory (iotune)
 add_subdirectory (memcached)
 add_subdirectory (seawreck)
