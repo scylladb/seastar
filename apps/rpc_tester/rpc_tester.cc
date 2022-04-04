@@ -24,6 +24,13 @@
 #include <yaml-cpp/yaml.h>
 #include <fmt/core.h>
 #include <boost/range/irange.hpp>
+#include <boost/accumulators/accumulators.hpp>
+#include <boost/accumulators/statistics/stats.hpp>
+#include <boost/accumulators/statistics/max.hpp>
+#include <boost/accumulators/statistics/mean.hpp>
+#include <boost/accumulators/statistics/p_square_quantile.hpp>
+#include <boost/accumulators/statistics/extended_p_square.hpp>
+#include <boost/accumulators/statistics/extended_p_square_quantile.hpp>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/sharded.hh>
@@ -31,6 +38,7 @@
 #include <seastar/rpc/rpc.hh>
 
 using namespace seastar;
+using namespace boost::accumulators;
 
 struct serializer {};
 
@@ -173,6 +181,7 @@ enum class rpc_verb : int32_t {
 };
 
 using rpc_protocol = rpc::protocol<serializer, rpc_verb>;
+static std::array<double, 4> quantiles = { 0.5, 0.95, 0.99, 0.999};
 
 class job {
 public:
@@ -183,12 +192,15 @@ public:
 };
 
 class job_rpc : public job {
+    using accumulator_type = accumulator_set<double, stats<tag::extended_p_square_quantile(quadratic), tag::mean, tag::max>>;
+
     job_config _cfg;
     rpc_protocol& _rpc;
     rpc_protocol::client& _client;
     std::function<future<>(unsigned)> _call;
     std::chrono::steady_clock::time_point _stop;
     uint64_t _total_messages = 0;
+    accumulator_type _latencies;
 
     future<> call_echo(unsigned dummy) {
         return _rpc.make_client<uint64_t(uint64_t)>(rpc_verb::ECHO)(_client, dummy).discard_result();
@@ -200,6 +212,7 @@ public:
             , _rpc(rpc)
             , _client(client)
             , _stop(std::chrono::steady_clock::now() + _cfg.duration)
+            , _latencies(extended_p_square_probabilities = quantiles)
     {
         if (_cfg.verb == "echo") {
             _call = [this] (unsigned x) { return call_echo(x); };
@@ -217,7 +230,11 @@ public:
                 return std::chrono::steady_clock::now() > _stop;
             }, [this, dummy] {
                 _total_messages++;
-                return _call(dummy);
+                auto now = std::chrono::steady_clock::now();
+                return _call(dummy).then([this, start = now] {
+                    std::chrono::microseconds lat = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start);
+                    _latencies(lat.count());
+                });
             });
         });
         return make_ready_future<>();
@@ -226,6 +243,14 @@ public:
 
     virtual void emit_result(YAML::Emitter& out) const override {
         out << YAML::Key << "messages" << YAML::Value << _total_messages;
+        out << YAML::Key << "latencies" << YAML::Comment("usec");
+        out << YAML::BeginMap;
+        out << YAML::Key << "average" << YAML::Value << (uint64_t)mean(_latencies);
+        for (auto& q: quantiles) {
+            out << YAML::Key << fmt::format("p{}", q) << YAML::Value << (uint64_t)quantile(_latencies, quantile_probability = q);
+        }
+        out << YAML::Key << "max" << YAML::Value << (uint64_t)max(_latencies);
+        out << YAML::EndMap;
     }
 };
 
