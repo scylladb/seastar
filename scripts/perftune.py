@@ -586,15 +586,39 @@ class NetPerfTuner(PerfTunerBase):
             msg = "Setting limit {} in {}".format(one_q_limit, rfs_limit_cnt)
             fwriteln(rfs_limit_cnt, "{}".format(one_q_limit), log_message=msg)
 
-        # Enable ntuple filtering HW offload on the NIC
-        ethtool_msg = "Enable ntuple filtering HW offload for {}...".format(iface)
+        # Enable/Disable ntuple filtering HW offload on the NIC. This is going to enable/disable aRFS on NICs supporting
+        # aRFS since ntuple is pre-requisite for an aRFS feature.
+        # If no explicit configuration has been requested enable ntuple (and thereby aRFS) only in MQ mode.
+        #
+        # aRFS acts similar to (SW) RFS: it places a TCP packet on a HW queue that it supposed to be "close" to an
+        # application thread that sent a packet on the same TCP stream.
+        #
+        # For instance if a given TCP stream was sent from CPU3 then the next Rx packet is going to be placed in an Rx
+        # HW queue which IRQ affinity is set to CPU3 or otherwise to the one with affinity close enough to CPU3.
+        #
+        # Read more here: https://access.redhat.com/documentation/en-us/red_hat_enterprise_linux/6/html/performance_tuning_guide/network-acc-rfs
+        #
+        # Obviously it would achieve the best result if there is at least one Rx HW queue with an affinity set to each
+        # application threads that handle TCP.
+        #
+        # And, similarly, if we know in advance that there won't be any such HW queue (sq and sq_split modes) - there is
+        # no sense enabling aRFS.
+        op = "Enable"
+        value = 'on'
+
+        if (self.args.enable_arfs is None and self.mode != PerfTunerBase.SupportedModes.mq) or self.args.enable_arfs == False:
+            op = "Disable"
+            value = 'off'
+
+        ethtool_msg = "{} ntuple filtering HW offload for {}...".format(op, iface)
+
         if dry_run_mode:
-                perftune_print(ethtool_msg)
-                run_one_command(['ethtool','-K', iface, 'ntuple', 'on'], stderr=subprocess.DEVNULL)
+            perftune_print(ethtool_msg)
+            run_one_command(['ethtool','-K', iface, 'ntuple', value], stderr=subprocess.DEVNULL)
         else:
             try:
-                print("Trying to enable ntuple filtering HW offload for {}...".format(iface), end='')
-                run_one_command(['ethtool','-K', iface, 'ntuple', 'on'], stderr=subprocess.DEVNULL)
+                print("Trying to {} ntuple filtering HW offload for {}...".format(op.lower(), iface), end='')
+                run_one_command(['ethtool','-K', iface, 'ntuple', value], stderr=subprocess.DEVNULL)
                 print("ok")
             except:
                 print("not supported")
@@ -1352,6 +1376,7 @@ argp.add_argument('--options-file', help="configuration YAML file")
 argp.add_argument('--dump-options-file', action='store_true', help="Print the configuration YAML file containing the current configuration")
 argp.add_argument('--dry-run', action='store_true', help="Don't take any action, just recommend what to do.")
 argp.add_argument('--write-back-cache', help="Enable/Disable \'write back\' write cache mode.", dest="set_write_back")
+argp.add_argument('--arfs', help="Enable/Disable aRFS", dest="enable_arfs")
 
 def parse_cpu_mask_from_yaml(y, field_name, fname):
     hex_32bit_pattern='0x[0-9a-fA-F]{1,8}'
@@ -1370,6 +1395,15 @@ def extend_and_unique(orig_list, iterable):
     assert(isinstance(iterable, list))
     orig_list.extend(iterable)
     return list(set(orig_list))
+
+def parse_tri_state_arg(value, arg_name):
+    try:
+        if value is not None:
+            return distutils.util.strtobool(value)
+        else:
+            return None
+    except:
+        sys.exit("Invalid {} value: should be boolean but given: {}".format(arg_name, value))
 
 def parse_options_file(prog_args):
     if not prog_args.options_file:
@@ -1417,6 +1451,9 @@ def parse_options_file(prog_args):
     if 'write_back_cache' in y:
         prog_args.set_write_back = distutils.util.strtobool("{}".format(y['write_back_cache']))
 
+    if 'arfs' in y:
+        prog_args.enable_arfs = distutils.util.strtobool("{}".format(y['arfs']))
+
 def dump_config(prog_args):
     prog_options = {}
 
@@ -1447,17 +1484,17 @@ def dump_config(prog_args):
     if prog_args.set_write_back is not None:
         prog_options['write_back_cache'] = prog_args.set_write_back
 
+    if prog_args.enable_arfs is not None:
+        prog_options['arfs'] = prog_args.enable_arfs
+
     perftune_print(yaml.dump(prog_options, default_flow_style=False))
 ################################################################################
 
 args = argp.parse_args()
 
 # Sanity check
-try:
-    if args.set_write_back:
-        args.set_write_back = distutils.util.strtobool(args.set_write_back)
-except:
-    sys.exit("Invalid --write-back-cache value: should be boolean but given: {}".format(args.set_write_back))
+args.set_write_back = parse_tri_state_arg(args.set_write_back, "--write-back-cache/write_back_cache")
+args.enable_arfs = parse_tri_state_arg(args.enable_arfs, "--arfs/arfs")
 
 dry_run_mode = args.dry_run
 parse_options_file(args)
