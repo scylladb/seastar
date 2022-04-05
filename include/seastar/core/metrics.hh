@@ -485,14 +485,44 @@ impl::metric_definition_impl make_derive(metric_name_type name, description d, s
 /*!
  * \brief create a counter metric
  *
- * Counters are similar to derived, but they assume monotony, so if a counter value decrease in a series it is count as a wrap-around.
- * It is better to use large enough data value than to use counter.
+ * Counters are used when a rate is more interesting than the value, monitoring systems take
+ * derivation from it to display.
+ *
+ * It's an integer value that can increase or decrease.
  *
  */
 template<typename T>
 impl::metric_definition_impl make_counter(metric_name_type name,
         T&& val, description d=description(), std::vector<label_instance> labels = {}) {
     return {name, {impl::data_type::COUNTER, "counter"}, make_function(std::forward<T>(val), impl::data_type::COUNTER), d, labels};
+}
+
+/*!
+ * \brief create a counter metric
+ *
+ * Counters are used when a rate is more interesting than the value, monitoring systems take
+ * derivation from it to display.
+ *
+ * It's an integer value that can increase or decrease.
+ *
+ */
+template<typename T>
+impl::metric_definition_impl make_counter(metric_name_type name, description d, T&& val) {
+    return make_counter(std::move(name), std::forward<T>(val), std::move(d), {});
+}
+
+/*!
+ * \brief create a counter metric
+ *
+ * Counters are used when a rate is more interesting than the value, monitoring systems take
+ * derivation from it to display.
+ *
+ * It's an integer value that can increase or decrease.
+ *
+ */
+template<typename T>
+impl::metric_definition_impl make_counter(metric_name_type name, description d, std::vector<label_instance> labels, T&& val) {
+    return make_counter(std::move(name), std::forward<T>(val), std::move(d), std::move(labels));
 }
 
 /*!
