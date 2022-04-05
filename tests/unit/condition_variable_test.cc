@@ -209,6 +209,19 @@ SEASTAR_THREAD_TEST_CASE(test_condition_variable_pred_wait) {
     cv.wait().get();
 }
 
+SEASTAR_THREAD_TEST_CASE(test_condition_variable_has_waiter) {
+    condition_variable cv;
+
+    BOOST_REQUIRE_EQUAL(cv.has_waiters(), false);
+
+    auto f = cv.wait();
+    BOOST_REQUIRE_EQUAL(cv.has_waiters(), true);
+
+    cv.signal();
+    f.get();
+    BOOST_REQUIRE_EQUAL(cv.has_waiters(), false);
+}
+
 #ifdef SEASTAR_COROUTINES_ENABLED
 
 SEASTAR_TEST_CASE(test_condition_variable_signal_consume_coroutine) {

@@ -378,6 +378,12 @@ public:
 
 #endif
 
+    /// Whether or not the condition variable currently has pending waiter(s)
+    /// The returned answer is valid until next continuation/fiber switch.
+    bool has_waiters() const noexcept {
+        return !_waiters.empty();
+    }
+
     /// Notify variable and wake up a waiter if there is one
     void signal() noexcept;
 
