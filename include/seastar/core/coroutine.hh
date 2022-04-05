@@ -53,6 +53,10 @@ public:
             _promise.set_exception(std::move(ce.eptr));
         }
 
+        void set_exception(std::exception_ptr&& eptr) noexcept {
+            _promise.set_exception(std::move(eptr));
+        }
+
         [[deprecated("Forwarding coroutine returns are deprecated as too dangerous. Use 'co_return co_await ...' until explicit syntax is available.")]]
         void return_value(future<T>&& fut) noexcept {
             fut.forward_to(std::move(_promise));
@@ -94,6 +98,10 @@ public:
 
         void return_void() noexcept {
             _promise.set_value();
+        }
+
+        void set_exception(std::exception_ptr&& eptr) noexcept {
+            _promise.set_exception(std::move(eptr));
         }
 
         void unhandled_exception() noexcept {
