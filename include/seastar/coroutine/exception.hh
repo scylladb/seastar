@@ -23,18 +23,47 @@
 
 #include <seastar/core/coroutine.hh>
 
-namespace seastar::coroutine {
+namespace seastar {
+
+namespace internal {
+
+struct exception_awaiter {
+    std::exception_ptr eptr;
+
+    explicit exception_awaiter(std::exception_ptr&& eptr) : eptr(std::move(eptr)) {}
+
+    exception_awaiter(const exception_awaiter&) = delete;
+    exception_awaiter(exception_awaiter&&) = delete;
+
+    bool await_ready() const noexcept {
+        return false;
+    }
+
+    template<typename U>
+    void await_suspend(SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<U> hndl) noexcept {
+        hndl.promise().set_exception(std::move(eptr));
+        hndl.destroy();
+    }
+
+    void await_resume() noexcept {}
+};
+
+} // internal
+
+namespace coroutine {
 
 /// Wrapper for propagating an exception directly rather than
-/// throwing it.
+/// throwing it. The wrapper can be used with both co_await and co_return.
 ///
-/// \note It will not work on coroutines which return future<>, due to the fact
-/// that it's not legal to specify both return_value and return_void.
-/// The mechanism works fine for future<T> though.
+/// \note It is not possible to co_return the wrapper in coroutines which
+/// return future<> due to language limitations (it's not possible to specify
+/// both return_value and return_void in the promise_type). You can use co_await
+/// instead which works in coroutines which return either future<> or future<T>.
 ///
 /// Example usage:
 ///
 /// ```
+/// co_await coroutine::exception(std::make_exception_ptr(std::runtime_error("something failed miserably")));
 /// co_return coroutine::exception(std::make_exception_ptr(std::runtime_error("something failed miserably")));
 /// ```
 struct exception {
@@ -42,7 +71,15 @@ struct exception {
     explicit exception(std::exception_ptr eptr) : eptr(std::move(eptr)) {}
 };
 
-/// Helper for creating a coroutine::exception instance
+/// Allows propagating an exception from a coroutine directly rather than
+/// throwing it.
+///
+/// `make_exception()` returns an object which must be co_returned.
+/// Co_returning the object will immediately resolve the current coroutine
+/// to the given exception.
+///
+/// \note Due to language limitations, this function doesn't work in coroutines
+/// which return future<>. Consider using return_exception instead.
 ///
 /// Example usage:
 ///
@@ -50,8 +87,33 @@ struct exception {
 /// co_return coroutine::make_exception(std::runtime_error("something failed miserably"));
 /// ```
 template<typename T>
+[[nodiscard]]
 exception make_exception(T&& t) {
     return exception(std::make_exception_ptr(std::forward<T>(t)));
 }
 
+/// Allows propagating an exception from a coroutine directly rather than
+/// throwing it.
+///
+/// `return_exception()` returns an object which must be co_awaited.
+/// Co_awaiting the object will immediately resolve the current coroutine
+/// to the given exception.
+///
+/// Example usage:
+///
+/// ```
+/// co_await coroutine::return_exception(std::runtime_error("something failed miserably"));
+/// ```
+template<typename T>
+[[nodiscard]]
+exception return_exception(T&& t) {
+    return exception(std::make_exception_ptr(std::forward<T>(t)));
 }
+
+} // coroutine
+
+inline auto operator co_await(coroutine::exception ex) noexcept {
+    return internal::exception_awaiter(std::move(ex.eptr));
+}
+
+} // seastar

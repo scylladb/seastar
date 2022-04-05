@@ -414,23 +414,54 @@ SEASTAR_TEST_CASE(test_all_throw_in_input_func) {
     BOOST_REQUIRE(exception_seen);
 }
 
-SEASTAR_TEST_CASE(test_coroutine_exception) {
-    auto i_am_exceptional = [] () -> future<int> {
-        co_return coroutine::exception(std::make_exception_ptr(std::runtime_error("threw")));
-    };
-    BOOST_REQUIRE_THROW(co_await i_am_exceptional(), std::runtime_error);
-    co_await i_am_exceptional().then_wrapped([] (future<int> f) {
-        BOOST_REQUIRE(f.failed());
-        BOOST_REQUIRE_THROW(std::rethrow_exception(f.get_exception()), std::runtime_error);
-    });
+struct counter_ref {
+private:
+    int& _counter;
 
-    auto i_am_exceptional_as_well = [] () -> future<bool> {
-        co_return coroutine::make_exception(std::logic_error("threw"));
-    };
-    BOOST_REQUIRE_THROW(co_await i_am_exceptional_as_well(), std::logic_error);
-    co_await i_am_exceptional_as_well().then_wrapped([] (future<bool> f) {
+public:
+    explicit counter_ref(int& cnt)
+            : _counter(cnt) {
+        ++_counter;
+    }
+
+    ~counter_ref() {
+        --_counter;
+    }
+};
+
+template<typename Ex>
+static future<> check_coroutine_throws(auto fun) {
+    // The counter keeps track of the number of alive "counter_ref" objects.
+    // If it is not zero then it means that some destructors weren't run
+    // while quitting the coroutine.
+    int counter = 0;
+    BOOST_REQUIRE_THROW(co_await fun(counter), Ex);
+    BOOST_REQUIRE_EQUAL(counter, 0);
+    co_await fun(counter).then_wrapped([&counter] (auto f) {
         BOOST_REQUIRE(f.failed());
-        BOOST_REQUIRE_THROW(std::rethrow_exception(f.get_exception()), std::logic_error);
+        BOOST_REQUIRE_THROW(std::rethrow_exception(f.get_exception()), Ex);
+        BOOST_REQUIRE_EQUAL(counter, 0);
+    });
+}
+
+SEASTAR_TEST_CASE(test_coroutine_exception) {
+    co_await check_coroutine_throws<std::runtime_error>([] (int& counter) -> future<int> {
+        counter_ref ref{counter};
+        co_return coroutine::exception(std::make_exception_ptr(std::runtime_error("threw")));
+    });
+    co_await check_coroutine_throws<std::logic_error>([] (int& counter) -> future<bool> {
+        counter_ref ref{counter};
+        co_return coroutine::make_exception(std::logic_error("threw"));
+    });
+    co_await check_coroutine_throws<std::runtime_error>([] (int& counter) -> future<int> {
+        counter_ref ref{counter};
+        co_await coroutine::exception(std::make_exception_ptr(std::runtime_error("threw")));
+        co_return 42;
+    });
+    co_await check_coroutine_throws<std::logic_error>([] (int& counter) -> future<> {
+        counter_ref ref{counter};
+        co_await coroutine::return_exception(std::logic_error("threw"));
+        co_return;
     });
 }
 
