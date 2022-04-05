@@ -45,6 +45,8 @@ SEASTAR_TEST_CASE(test_coroutines_not_compiled_in) {
 #include <seastar/coroutine/maybe_yield.hh>
 #include <seastar/coroutine/switch_to.hh>
 #include <seastar/coroutine/parallel_for_each.hh>
+#include <seastar/coroutine/as_future.hh>
+#include <seastar/coroutine/exception.hh>
 
 namespace {
 
@@ -580,6 +582,111 @@ SEASTAR_TEST_CASE(test_parallel_for_each) {
     });
     BOOST_REQUIRE_EQUAL(sum_of_squares, 10);
 #endif
+}
+
+SEASTAR_TEST_CASE(test_void_as_future) {
+    auto f = co_await coroutine::as_future(make_ready_future<>());
+    BOOST_REQUIRE(f.available());
+
+    f = co_await coroutine::as_future(make_exception_future<>(std::runtime_error("exception")));
+    BOOST_REQUIRE_THROW(f.get(), std::runtime_error);
+
+    semaphore sem(0);
+    (void)sleep(1ms).then([&] { sem.signal(); });
+    f = co_await coroutine::as_future(sem.wait());
+    BOOST_REQUIRE(f.available());
+
+    f = co_await coroutine::as_future(sem.wait(duration_cast<semaphore::duration>(1ms)));
+    BOOST_REQUIRE_THROW(f.get(), semaphore_timed_out);
+}
+
+SEASTAR_TEST_CASE(test_void_as_future_without_preemption_check) {
+    auto f = co_await coroutine::as_future_without_preemption_check(make_ready_future<>());
+    BOOST_REQUIRE(f.available());
+
+    f = co_await coroutine::as_future_without_preemption_check(make_exception_future<>(std::runtime_error("exception")));
+    BOOST_REQUIRE_THROW(f.get(), std::runtime_error);
+
+    semaphore sem(0);
+    (void)sleep(1ms).then([&] { sem.signal(); });
+    f = co_await coroutine::as_future_without_preemption_check(sem.wait());
+    BOOST_REQUIRE(f.available());
+
+    f = co_await coroutine::as_future_without_preemption_check(sem.wait(duration_cast<semaphore::duration>(1ms)));
+    BOOST_REQUIRE_THROW(f.get(), semaphore_timed_out);
+}
+
+SEASTAR_TEST_CASE(test_non_void_as_future) {
+    auto f = co_await coroutine::as_future(make_ready_future<int>(42));
+    BOOST_REQUIRE_EQUAL(f.get0(), 42);
+
+    f = co_await coroutine::as_future(make_exception_future<int>(std::runtime_error("exception")));
+    BOOST_REQUIRE_THROW(f.get(), std::runtime_error);
+
+    auto p = promise<int>();
+    (void)sleep(1ms).then([&] { p.set_value(314); });
+    f = co_await coroutine::as_future(p.get_future());
+    BOOST_REQUIRE_EQUAL(f.get0(), 314);
+
+    auto gen_exception = [] () -> future<int> {
+        co_await sleep(1ms);
+        co_return coroutine::make_exception(std::runtime_error("exception"));
+    };
+    f = co_await coroutine::as_future(gen_exception());
+    BOOST_REQUIRE_THROW(f.get(), std::runtime_error);
+}
+
+SEASTAR_TEST_CASE(test_non_void_as_future_without_preemption_check) {
+    auto f = co_await coroutine::as_future_without_preemption_check(make_ready_future<int>(42));
+    BOOST_REQUIRE_EQUAL(f.get0(), 42);
+
+    f = co_await coroutine::as_future_without_preemption_check(make_exception_future<int>(std::runtime_error("exception")));
+    BOOST_REQUIRE_THROW(f.get(), std::runtime_error);
+
+    auto p = promise<int>();
+    (void)sleep(1ms).then([&] { p.set_value(314); });
+    f = co_await coroutine::as_future_without_preemption_check(p.get_future());
+    BOOST_REQUIRE_EQUAL(f.get0(), 314);
+
+    auto gen_exception = [] () -> future<int> {
+        co_await sleep(1ms);
+        co_return coroutine::make_exception(std::runtime_error("exception"));
+    };
+    f = co_await coroutine::as_future_without_preemption_check(gen_exception());
+    BOOST_REQUIRE_THROW(f.get(), std::runtime_error);
+}
+
+SEASTAR_TEST_CASE(test_as_future_preemption) {
+    bool stop = false;
+
+    auto get_ready_future = [&] {
+        return stop ? make_exception_future<>(std::runtime_error("exception")) : make_ready_future<>();
+    };
+
+    auto wait_for_stop = [&] () -> future<bool> {
+        for (;;) {
+            auto f = co_await coroutine::as_future(get_ready_future());
+            if (f.failed()) {
+                co_return coroutine::exception(f.get_exception());
+            }
+        }
+    };
+
+    auto f0 = wait_for_stop();
+
+    auto set_stop = [&] () -> future<> {
+        for (;;) {
+            stop = true;
+            if (f0.available()) {
+                co_return;
+            }
+            co_await coroutine::maybe_yield();
+        }
+    };
+
+    co_await set_stop();
+
+    BOOST_REQUIRE_THROW(f0.get(), std::runtime_error);
 }
 
 #endif
