@@ -5,9 +5,10 @@ server:
 jobs:
   - name: # any parseable string
     type: rpc
-    verb: # string, one of: echo
+    verb: # string, one of: echo, write
     parallelism: # number of verbs to send simultaneously
     shares: # sched group shares (100 by default)
+    payload: # number of bytes in the payload for write verb, accepts kB suffix
   - name:
     type: cpu
     execution_time: # time in [0-9]+[mun]?s format

@@ -94,6 +94,23 @@ inline sstring read(serializer, Input& in, rpc::type<sstring>) {
     return ret;
 }
 
+using payload_t = std::vector<uint64_t>;
+
+template <typename Output>
+inline void write(serializer, Output& out, const payload_t& v) {
+    write_arithmetic_type(out, uint32_t(v.size()));
+    out.write((const char*)v.data(), v.size() * sizeof(payload_t::value_type));
+}
+
+template <typename Input>
+inline payload_t read(serializer, Input& in, rpc::type<payload_t>) {
+    auto size = read_arithmetic_type<uint32_t>(in);
+    payload_t ret;
+    ret.resize(size);
+    in.read((char*)ret.data(), size * sizeof(payload_t::value_type));
+    return ret;
+}
+
 struct client_config {
     bool nodelay = true;
 };
@@ -109,6 +126,7 @@ struct job_config {
     unsigned parallelism;
     unsigned shares = 100;
     std::chrono::duration<double> exec_time;
+    size_t payload;
 
     std::chrono::seconds duration;
     scheduling_group sg = default_scheduling_group();
@@ -122,6 +140,10 @@ struct config {
 
 struct duration_time {
     std::chrono::duration<float> time;
+};
+
+struct byte_size {
+    uint64_t size;
 };
 
 namespace YAML {
@@ -154,6 +176,7 @@ struct convert<job_config> {
         if (cfg.type == "rpc") {
             cfg.verb = node["verb"].as<std::string>();
             cfg.parallelism = node["parallelism"].as<unsigned>();
+            cfg.payload = node["payload"].as<byte_size>().size;
         } else if (cfg.type == "cpu") {
             cfg.exec_time = node["execution_time"].as<duration_time>().time;
         }
@@ -212,12 +235,31 @@ struct convert<duration_time> {
     }
 };
 
+template<>
+struct convert<byte_size> {
+    static bool decode(const Node& node, byte_size& bs) {
+        auto str = node.as<std::string>();
+        unsigned shift = 0;
+        if (str.back() == 'B') {
+            str.pop_back();
+            if (str.back() != 'k') {
+                return false;
+            }
+            str.pop_back();
+            shift = 10;
+        }
+        bs.size = (boost::lexical_cast<size_t>(str) << shift);
+        return bs.size;
+    }
+};
+
 } // YAML namespace
 
 enum class rpc_verb : int32_t {
     HELLO = 0,
     BYE = 1,
     ECHO = 2,
+    WRITE = 3,
 };
 
 using rpc_protocol = rpc::protocol<serializer, rpc_verb>;
@@ -246,6 +288,13 @@ class job_rpc : public job {
         return _rpc.make_client<uint64_t(uint64_t)>(rpc_verb::ECHO)(_client, dummy).discard_result();
     }
 
+    future<> call_write(unsigned dummy, const payload_t& pl) {
+        return _rpc.make_client<uint64_t(payload_t)>(rpc_verb::WRITE)(_client, pl).then([exp = pl.size()] (auto res) {
+            assert(res == exp);
+            return make_ready_future<>();
+        });
+    }
+
 public:
     job_rpc(job_config cfg, rpc_protocol& rpc, rpc_protocol::client& client)
             : _cfg(cfg)
@@ -256,6 +305,10 @@ public:
     {
         if (_cfg.verb == "echo") {
             _call = [this] (unsigned x) { return call_echo(x); };
+        } else if (_cfg.verb == "write") {
+            payload_t payload;
+            payload.resize(_cfg.payload / sizeof(payload_t::value_type), 0);
+            _call = [this, payload = std::move(payload)] (unsigned x) { return call_write(x, payload); };
         } else {
             throw std::runtime_error("unknown verb");
         }
@@ -358,6 +411,9 @@ public:
         });
         _rpc->register_handler(rpc_verb::ECHO, [] (uint64_t val) {
             return make_ready_future<uint64_t>(val);
+        });
+        _rpc->register_handler(rpc_verb::WRITE, [] (payload_t val) {
+            return make_ready_future<uint64_t>(val.size());
         });
 
         if (laddr) {
