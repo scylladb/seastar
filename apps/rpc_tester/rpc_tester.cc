@@ -39,6 +39,7 @@
 
 using namespace seastar;
 using namespace boost::accumulators;
+using namespace std::chrono_literals;
 
 struct serializer {};
 
@@ -107,6 +108,7 @@ struct job_config {
     std::string verb;
     unsigned parallelism;
     unsigned shares = 100;
+    std::chrono::duration<double> exec_time;
 
     std::chrono::seconds duration;
     scheduling_group sg = default_scheduling_group();
@@ -116,6 +118,10 @@ struct config {
     client_config client;
     server_config server;
     std::vector<job_config> jobs;
+};
+
+struct duration_time {
+    std::chrono::duration<float> time;
 };
 
 namespace YAML {
@@ -148,6 +154,8 @@ struct convert<job_config> {
         if (cfg.type == "rpc") {
             cfg.verb = node["verb"].as<std::string>();
             cfg.parallelism = node["parallelism"].as<unsigned>();
+        } else if (cfg.type == "cpu") {
+            cfg.exec_time = node["execution_time"].as<duration_time>().time;
         }
         if (node["shares"]) {
             cfg.shares = node["shares"].as<unsigned>();
@@ -168,6 +176,38 @@ struct convert<config> {
         if (node["jobs"]) {
             cfg.jobs = node["jobs"].as<std::vector<job_config>>();
         }
+        return true;
+    }
+};
+
+template<>
+struct convert<duration_time> {
+    static bool decode(const Node& node, duration_time& dt) {
+        auto str = node.as<std::string>();
+        if (str == "0") {
+            dt.time = 0ns;
+            return true;
+        }
+        if (str.back() != 's') {
+            return false;
+        }
+        str.pop_back();
+
+        std::chrono::duration<double> unit;
+        if (str.back() == 'm') {
+            unit = 1ms;
+            str.pop_back();
+        } else if (str.back() == 'u') {
+            unit = 1us;
+            str.pop_back();
+        } else if (str.back() == 'n') {
+            unit = 1ns;
+            str.pop_back();
+        } else {
+            unit = 1s;
+        }
+
+        dt.time = boost::lexical_cast<size_t>(str) * unit;
         return true;
     }
 };
@@ -254,9 +294,43 @@ public:
     }
 };
 
+class job_cpu : public job {
+    job_config _cfg;
+    std::chrono::steady_clock::time_point _stop;
+    uint64_t _total_invocations = 0;
+
+public:
+    job_cpu(job_config cfg)
+            : _cfg(cfg)
+            , _stop(std::chrono::steady_clock::now() + _cfg.duration)
+    {
+    }
+
+    virtual std::string name() const { return _cfg.name; }
+    virtual void emit_result(YAML::Emitter& out) const {
+        out << YAML::Key << "total" << YAML::Value << _total_invocations;
+    }
+
+    virtual future<> run() override {
+        return with_scheduling_group(_cfg.sg, [this] {
+            return do_until([this] {
+                return std::chrono::steady_clock::now() > _stop;
+            }, [this] {
+                _total_invocations++;
+                auto start  = std::chrono::steady_clock::now();
+                while ((std::chrono::steady_clock::now() - start) < _cfg.exec_time);
+                return make_ready_future<>();
+            });
+        });
+    }
+};
+
 static std::unique_ptr<job> make_job(job_config cfg, rpc_protocol& rpc, rpc_protocol::client& client) {
     if (cfg.type == "rpc") {
         return std::make_unique<job_rpc>(cfg, rpc, client);
+    }
+    if (cfg.type == "cpu") {
+        return std::make_unique<job_cpu>(cfg);
     }
 
     throw std::runtime_error("unknown job type");

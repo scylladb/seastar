@@ -4,7 +4,10 @@ server:
   nodelay: # bool, whether or not to set tcp_nodelay option
 jobs:
   - name: # any parseable string
-    type: # string, one of: rpc
+    type: rpc
     verb: # string, one of: echo
     parallelism: # number of verbs to send simultaneously
     shares: # sched group shares (100 by default)
+  - name:
+    type: cpu
+    execution_time: # time in [0-9]+[mun]?s format
