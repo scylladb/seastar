@@ -2588,7 +2588,7 @@ class reactor::smp_pollfn final : public reactor::pollfn {
 public:
     smp_pollfn(reactor& r) : _r(r) {}
     virtual bool poll() final override {
-        return (smp::poll_queues() ||
+        return (smp::poll_queues() |
                 _r._alien.poll_queues());
     }
     virtual bool pure_poll() final override {
