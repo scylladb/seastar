@@ -220,8 +220,9 @@ namespace rpc {
       });
   }
 
-  future<> connection::send(snd_buf buf, std::optional<rpc_clock_type::time_point> timeout, cancellable* cancel) {
+  future<> connection::send(snd_buf buf, const send_options& opts, std::optional<rpc_clock_type::time_point> timeout, cancellable* cancel) {
       if (!_error) {
+          _expecting_report_connection_error += opts.report_connection_error;
           if (timeout && *timeout <= rpc_clock_type::now()) {
               return make_ready_future<>();
           }
@@ -610,8 +611,11 @@ namespace rpc {
       }
       if (cancel) {
           cancel->cancel_wait = [this, id] {
-              _outstanding[id]->cancel();
-              _outstanding.erase(id);
+              if (auto it = _outstanding.find(id); it != _outstanding.end()) {
+                  it->second->cancel();
+                  _expecting_report_connection_error -= it->second->expecting_report_connection_error;
+                  _outstanding.erase(it);
+              }
           };
           h->pcancel = cancel;
           cancel->wait_back_pointer = &h->pcancel;
@@ -620,8 +624,11 @@ namespace rpc {
   }
   void client::wait_timed_out(id_type id) {
       _stats.timeout++;
-      _outstanding[id]->timeout();
-      _outstanding.erase(id);
+      if (auto it = _outstanding.find(id); it != _outstanding.end()) {
+          it->second->timeout();
+          _expecting_report_connection_error -= it->second->expecting_report_connection_error;
+          _outstanding.erase(it);
+      }
   }
 
   future<> client::stop() noexcept {
@@ -722,7 +729,7 @@ namespace rpc {
               ep = f.get_exception();
               if (is_stream()) {
                   log_exception(*this, log_level::error, _connected ? "client stream connection dropped" : "stream fail to connect", ep);
-              } else {
+              } else if (_expecting_report_connection_error) {
                   log_exception(*this, log_level::error, _connected ? "client connection dropped" : "fail to connect", ep);
               }
           }
@@ -886,7 +893,7 @@ namespace rpc {
       auto p = data.front().get_write();
       write_le<int64_t>(p, msg_id);
       write_le<uint32_t>(p + 8, data.size - 12);
-      return send(std::move(data), timeout);
+      return send(std::move(data), {.report_connection_error=false}, timeout);
   }
 
 future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_type::time_point> timeout, int64_t msg_id, uint64_t type) {

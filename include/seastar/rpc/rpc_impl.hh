@@ -406,10 +406,12 @@ template<typename Serializer>
 struct rcv_reply<Serializer, future<>> : rcv_reply<Serializer, void> {};
 
 template <typename Serializer, typename Ret, typename... InArgs>
-inline auto wait_for_reply(wait_type, std::optional<rpc_clock_type::time_point> timeout, cancellable* cancel, rpc::client& dst, id_type msg_id,
-        signature<Ret (InArgs...)> sig) {
+inline auto wait_for_reply(wait_type, const send_options& opts, std::optional<rpc_clock_type::time_point> timeout, cancellable* cancel,
+        rpc::client& dst, id_type msg_id, signature<Ret (InArgs...)> sig) {
     using reply_type = rcv_reply<Serializer, Ret>;
-    auto lambda = [] (reply_type& r, rpc::client& dst, id_type msg_id, rcv_buf data) mutable {
+    auto lambda = [expecting_report_connection_error = opts.report_connection_error]
+            (reply_type& r, rpc::client& dst, id_type msg_id, rcv_buf data) mutable {
+        dst._expecting_report_connection_error -= expecting_report_connection_error;
         if (msg_id >= 0) {
             dst.get_stats_internal().replied++;
             return r.get_reply(dst, std::move(data));
@@ -420,21 +422,21 @@ inline auto wait_for_reply(wait_type, std::optional<rpc_clock_type::time_point> 
         }
     };
     using handler_type = typename rpc::client::template reply_handler<reply_type, decltype(lambda)>;
-    auto r = std::make_unique<handler_type>(std::move(lambda));
+    auto r = std::make_unique<handler_type>(std::move(lambda), opts);
     auto fut = r->reply.p.get_future();
     dst.wait_for_reply(msg_id, std::move(r), timeout, cancel);
     return fut;
 }
 
 template<typename Serializer, typename... InArgs>
-inline auto wait_for_reply(no_wait_type, std::optional<rpc_clock_type::time_point>, cancellable* cancel, rpc::client& dst, id_type msg_id,
-        signature<no_wait_type (InArgs...)> sig) {  // no_wait overload
+inline auto wait_for_reply(no_wait_type, const send_options& opts,  std::optional<rpc_clock_type::time_point>, cancellable* cancel,
+        rpc::client& dst, id_type msg_id, signature<no_wait_type (InArgs...)> sig) {  // no_wait overload
     return make_ready_future<>();
 }
 
 template<typename Serializer, typename... InArgs>
-inline auto wait_for_reply(no_wait_type, std::optional<rpc_clock_type::time_point>, cancellable* cancel, rpc::client& dst, id_type msg_id,
-        signature<future<no_wait_type> (InArgs...)> sig) {  // future<no_wait> overload
+inline auto wait_for_reply(no_wait_type, const send_options& opts, std::optional<rpc_clock_type::time_point>, cancellable* cancel,
+        rpc::client& dst, id_type msg_id, signature<future<no_wait_type> (InArgs...)> sig) {  // future<no_wait> overload
     return make_ready_future<>();
 }
 
@@ -456,6 +458,7 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
     struct shelper {
         MsgType t;
         signature<Ret (InArgs...)> sig;
+        send_options opts;
         auto send(rpc::client& dst, std::optional<rpc_clock_type::time_point> timeout, cancellable* cancel, const InArgs&... args) {
             if (dst.error()) {
                 using cleaned_ret_type = typename wait_signature<Ret>::cleaned_type;
@@ -473,7 +476,7 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
 
             // prepare reply handler, if return type is now_wait_type this does nothing, since no reply will be sent
             using wait = wait_signature_t<Ret>;
-            return when_all(dst.send(std::move(data), timeout, cancel), wait_for_reply<Serializer>(wait(), timeout, cancel, dst, msg_id, sig)).then([] (auto r) {
+            return when_all(dst.send(std::move(data), opts, timeout, cancel), wait_for_reply<Serializer>(wait(), opts, timeout, cancel, dst, msg_id, sig)).then([] (auto r) {
                     return std::move(std::get<1>(r)); // return future of wait_for_reply
             });
         }
@@ -762,11 +765,11 @@ future<> sink_impl<Serializer, Out...>::operator()(const Out&... args) {
             }
 
             last_seq_num = seq_num;
-            auto ret_fut = con->send(std::move(local_data), {}, nullptr);
+            auto ret_fut = con->send(std::move(local_data), {}, {}, nullptr);
             while (!out_of_order_bufs.empty() && out_of_order_bufs.begin()->first == (last_seq_num + 1)) {
                 auto it = out_of_order_bufs.begin();
                 last_seq_num = it->first;
-                auto fut = con->send(std::move(it->second.data), {}, nullptr);
+                auto fut = con->send(std::move(it->second.data), {}, {}, nullptr);
                 fut.forward_to(std::move(it->second.pr));
                 out_of_order_bufs.erase(it);
             }
@@ -807,7 +810,7 @@ future<> sink_impl<Serializer, Out...>::close() {
                 static_assert(snd_buf::chunk_size >= 4, "send buffer chunk size is too small");
                 auto p = data.front().get_write();
                 write_le<uint32_t>(p, -1U); // max len fragment marks an end of a stream
-                f = con->send(std::move(data), {}, nullptr);
+                f = con->send(std::move(data), {}, {}, nullptr);
             } else {
                 f = this->_ex ? make_exception_future(this->_ex) : make_exception_future(closed_error());
             }
