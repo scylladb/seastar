@@ -120,10 +120,10 @@ struct reply {
         return *this;
     }
 
-    reply& set_status(status_type status, const sstring& content = "") {
+    reply& set_status(status_type status, sstring content = "") {
         _status = status;
         if (content != "") {
-            _content = content;
+            _content = std::move(content);
         }
         return *this;
     }
@@ -187,7 +187,7 @@ struct reply {
      * This would set the the content and content type of the message along
      * with any additional information that is needed to send the message.
      */
-    void write_body(const sstring& content_type, const sstring& content);
+    void write_body(const sstring& content_type, sstring content);
 
 private:
     future<> write_reply_to_connection(connection& con);

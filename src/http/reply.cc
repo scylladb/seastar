@@ -221,8 +221,8 @@ void reply::write_body(const sstring& content_type, noncopyable_function<future<
     _body_writer  = std::move(body_writer);
 }
 
-void reply::write_body(const sstring& content_type, const sstring& content) {
-    _content = content;
+void reply::write_body(const sstring& content_type, sstring content) {
+    _content = std::move(content);
     done(content_type);
 }
 
