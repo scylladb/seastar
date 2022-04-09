@@ -177,18 +177,18 @@ class BacktraceResolver(object):
 
         def __init__(self):
             addr = "0x[0-9a-f]+"
-            path = "\S+"
-            token = f"(?:{path}\+)?{addr}"
-            full_addr_match = f"(?:(?P<path>{path})\s*\+\s*)?(?P<addr>{addr})"
-            ignore_addr_match = f"(?:(?P<path>{path})\s*\+\s*)?(?:{addr})"
-            self.oneline_re = re.compile(f"^((?:.*(?:(?:at|backtrace):?|:))?(?:\s+))?({token}(?:\s+{token})*)(?:\).*|\s*)$", flags=re.IGNORECASE)
+            path = r"\S+"
+            token = fr"(?:{path}\+)?{addr}"
+            full_addr_match = fr"(?:(?P<path>{path})\s*\+\s*)?(?P<addr>{addr})"
+            ignore_addr_match = fr"(?:(?P<path>{path})\s*\+\s*)?(?:{addr})"
+            self.oneline_re = re.compile(fr"^((?:.*(?:(?:at|backtrace):?|:))?(?:\s+))?({token}(?:\s+{token})*)(?:\).*|\s*)$", flags=re.IGNORECASE)
             self.address_re = re.compile(full_addr_match, flags=re.IGNORECASE)
-            self.syslog_re = re.compile(f"^(?:#\d+\s+)(?P<addr>{addr})(?:.*\s+)\({ignore_addr_match}\)\s*$", flags=re.IGNORECASE)
+            self.syslog_re = re.compile(fr"^(?:#\d+\s+)(?P<addr>{addr})(?:.*\s+)\({ignore_addr_match}\)\s*$", flags=re.IGNORECASE)
             self.kernel_re = re.compile(fr'^.*kernel callstack: (?P<addrs>(?:{addr}\s*)+)$')
-            self.asan_re = re.compile(f"^(?:.*\s+)\({full_addr_match}\)(\s+\(BuildId: [0-9a-fA-F]+\))?$", flags=re.IGNORECASE)
+            self.asan_re = re.compile(fr"^(?:.*\s+)\({full_addr_match}\)(\s+\(BuildId: [0-9a-fA-F]+\))?$", flags=re.IGNORECASE)
             self.asan_ignore_re = re.compile(f"^=.*$", flags=re.IGNORECASE)
-            self.generic_re = re.compile(f"^(?:.*\s+){full_addr_match}\s*$", flags=re.IGNORECASE)
-            self.separator_re = re.compile('^\W*-+\W*$')
+            self.generic_re = re.compile(fr"^(?:.*\s+){full_addr_match}\s*$", flags=re.IGNORECASE)
+            self.separator_re = re.compile(r'^\W*-+\W*$')
 
 
         def split_addresses(self, addrstring: str, default_path=None):
