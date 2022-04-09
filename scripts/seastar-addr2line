@@ -229,6 +229,8 @@ if args.test:
     for line, expected in data:
         res = parser(line.strip())
         assert res == expected, f"{line}:\nExpected {expected}\nBut got  {res}"
+    if args.verbose:
+        print(f'All {len(data)} tests passed successfully.')
     exit(0)
 
 if args.addresses and args.file:
