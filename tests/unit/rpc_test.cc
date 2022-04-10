@@ -427,6 +427,17 @@ SEASTAR_TEST_CASE(test_message_to_big) {
     });
 }
 
+SEASTAR_TEST_CASE(test_rpc_remote_verb_error) {
+    rpc_test_config cfg;
+    return rpc_test_env<>::do_with_thread(cfg, [] (rpc_test_env<>& env) {
+        test_rpc_proto::client c1(env.proto(), {}, env.make_socket(), ipv4_addr());
+        env.register_handler(1, []() { throw std::runtime_error("error"); }).get();
+        auto f = env.proto().make_client<void ()>(1);
+        BOOST_REQUIRE_THROW(f(c1).get0(), rpc::remote_verb_error);
+        c1.stop().get0();
+    });
+}
+
 struct stream_test_result {
     bool client_source_closed = false;
     bool server_source_closed = false;

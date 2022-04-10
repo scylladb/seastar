@@ -132,7 +132,7 @@ data is transparent for the protocol and serialized/deserialized by a user
     char[len]
 
 This exception is sent as a reply if rpc handler throws an exception.
-It is delivered to a caller as std::runtime_error(char[len])
+It is delivered to a caller as rpc::remote_verb_error(char[len])
 
 #### UNKNOWN_VERB exception encoding
 

@@ -349,7 +349,7 @@ inline std::exception_ptr unmarshal_exception(rcv_buf& d) {
     case exception_type::USER: {
         std::string s(ex_len, '\0');
         data.read(&*s.begin(), ex_len);
-        ex = std::make_exception_ptr(std::runtime_error(std::move(s)));
+        ex = std::make_exception_ptr(remote_verb_error(std::move(s)));
         break;
     }
     case exception_type::UNKNOWN_VERB: {

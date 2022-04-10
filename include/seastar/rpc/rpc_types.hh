@@ -116,6 +116,10 @@ public:
     stream_closed() : error("rpc stream was closed by peer") {}
 };
 
+class remote_verb_error : public error {
+    using error::error;
+};
+
 struct no_wait_type {};
 
 // return this from a callback if client does not want to waiting for a reply
