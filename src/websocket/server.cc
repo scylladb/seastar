@@ -261,12 +261,10 @@ future<websocket_parser::consumption_result_t> websocket_parser::operator()(
 }
 
 future<> connection::handle_ping() {
-    // TODO
-    return make_ready_future<>();
+    return send_data(opcodes::PONG, temporary_buffer<char>());
 }
 
 future<> connection::handle_pong() {
-    // TODO
     return make_ready_future<>();
 }
 

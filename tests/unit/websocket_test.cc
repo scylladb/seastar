@@ -154,3 +154,72 @@ SEASTAR_TEST_CASE(test_websocket_handler_registration) {
         BOOST_REQUIRE_EQUAL(rs_frame, response_str);
     });
 }
+
+SEASTAR_TEST_CASE(test_websocket_ping) {
+    return seastar::async([] {
+        loopback_connection_factory factory;
+        loopback_socket_impl lsi(factory);
+
+        auto acceptor = factory.get_server_socket().accept();
+        auto connector = lsi.connect(socket_address(), socket_address());
+        connected_socket sock = connector.get0();
+        auto input = sock.input();
+        auto output = sock.output();
+
+        // Setup server
+        websocket::server ws;
+        ws.register_handler("echo", [] (input_stream<char>& in,
+                        output_stream<char>& out) {
+            return repeat([&in, &out]() {
+                return in.read().then([&out](temporary_buffer<char> f) {
+                    std::cerr << "f.size(): " << f.size() << "\n";
+                    if (f.empty()) {
+                        return make_ready_future<stop_iteration>(stop_iteration::yes);
+                    } else {
+                        return out.write(std::move(f)).then([&out]() {
+                            return out.flush().then([] {
+                                return make_ready_future<stop_iteration>(stop_iteration::no);
+                            });
+                        });
+                    }
+                });
+            });
+        });
+        websocket::connection conn(ws, acceptor.get0().connection);
+        future<> serve = conn.process();
+
+        auto close = defer([&conn, &input, &output, &serve] () noexcept {
+            conn.shutdown();
+            conn.close().get();
+            input.close().get();
+            output.close().get();
+            serve.get();
+         });
+
+        // handshake
+        const std::string request =
+                "GET / HTTP/1.1\r\n"
+                "Upgrade: websocket\r\n"
+                "Connection: Upgrade\r\n"
+                "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
+                "Sec-WebSocket-Version: 13\r\n"
+                "Sec-WebSocket-Protocol: echo\r\n"
+                "\r\n";
+        output.write(request).get();
+        output.flush().get();
+        input.read().get();
+
+        // Sending and recieving a websocket frame
+        const auto ws_frame = std::string(
+            "\x89\x80"  // 1000 1001 1000 000
+            "TEST", 6);   // Masking Key
+        const auto rs_frame = std::string("\x8A\x00", 2); // 1000 1010 0000 0000
+                
+        output.write(ws_frame).get();
+        output.flush().get();
+
+        auto response = input.read_exactly(2).get();
+        auto response_str = std::string(response.begin(), response.end());
+        BOOST_REQUIRE_EQUAL(rs_frame, response_str);
+    });
+}
