@@ -544,11 +544,7 @@ inline future<> reply(no_wait_type, future<no_wait_type>&& r, int64_t msgid, sha
 template<typename Ret, typename... InArgs, typename WantClientInfo, typename WantTimePoint, typename Func, typename ArgsTuple>
 inline futurize_t<Ret> apply(Func& func, client_info& info, opt_time_point time_point, WantClientInfo wci, WantTimePoint wtp, signature<Ret (InArgs...)> sig, ArgsTuple&& args) {
     using futurator = futurize<Ret>;
-    try {
-        return futurator::apply(func, maybe_add_client_info(wci, info, maybe_add_time_point(wtp, time_point, std::forward<ArgsTuple>(args))));
-    } catch (std::runtime_error& ex) {
-        return futurator::make_exception_future(std::current_exception());
-    }
+    return futurator::apply(func, maybe_add_client_info(wci, info, maybe_add_time_point(wtp, time_point, std::forward<ArgsTuple>(args))));
 }
 
 // lref_to_cref is a helper that encapsulates lvalue reference in std::ref() or does nothing otherwise
