@@ -203,6 +203,7 @@ class append_challenged_posix_file_impl final : public posix_file_impl, public e
         write,
         truncate,
         flush,
+        allocate,
     };
     struct op {
         opcode type;
@@ -275,6 +276,7 @@ public:
     future<struct stat> stat() noexcept override;
     future<> truncate(uint64_t length) noexcept override;
     future<uint64_t> size() noexcept override;
+    virtual future<> allocate(uint64_t position, uint64_t length) noexcept override;
     future<> close() noexcept override;
 };
 

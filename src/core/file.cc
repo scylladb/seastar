@@ -657,6 +657,7 @@ bool
 append_challenged_posix_file_impl::must_run_alone(const op& candidate) const noexcept {
     // checks if candidate is a non-write, size-changing operation.
     return (candidate.type == opcode::truncate)
+            || (candidate.type == opcode::allocate)
             || (candidate.type == opcode::flush && (_fsync_is_exclusive || _sloppy_size));
 }
 
@@ -892,6 +893,18 @@ append_challenged_posix_file_impl::flush() noexcept {
             }
         );
     }
+}
+
+future<>
+append_challenged_posix_file_impl::allocate(uint64_t position, uint64_t length) noexcept {
+    return enqueue<>(
+            opcode::allocate,
+            position,
+            length,
+            [this, position, length] () {
+                return posix_file_impl::allocate(position, length);
+            }
+        );
 }
 
 future<struct stat>
