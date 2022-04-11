@@ -112,6 +112,21 @@ struct client_options {
     sstring isolation_cookie;
 };
 
+struct send_options {
+    /// Specify whether this RPC call is interested in the RPC module reporting that there was a connection error.
+    /// Seastar will log a connection error if and only if either:
+    /// - there was at least one one-way RPC sent on this connection which specified report_connection_error=true,
+    /// - or there was at least one two-way RPC sent on this connection which specified report_connection_error=true
+    ///   and didn't return yet.
+    ///
+    /// Note: this works only for sending RPCs, not receiving them. That is, if there is a connection on which we didn't
+    /// send any RPCs with report_connection_error=true, but the other side did (and we may have sent responses),
+    /// and an error happens, we won't report it.
+    ///
+    /// Note: streams cannot be configured in this way and always report connection errors.
+    bool report_connection_error = true;
+};
+
 /// @}
 
 // RPC call that passes stream connection id as a parameter
@@ -239,6 +254,16 @@ protected:
     // The owner of the pointer below is an instance of rpc::protocol<typename Serializer> class.
     // The type of the pointer is erased here, but the original type is Serializer
     void* _serializer;
+
+    // If this is not a stream, counts the number of RPC calls currently executing on this connection
+    // which expect an error to be logged by Seastar if there is a connection failure.
+    // For two-way RPCs, the counter is decremented when they finish (either by timeout, cancel, or getting a response).
+    // For one-way RPCs the counter is never decremented, so if there was at least one one-way RPC call which expects an error
+    // to be reported, the counter will remain positive and we will report the error no matter how long ago the RPC call happened.
+    // We only count on the caller side, i.e. we don't count responses. Thus if a connection was used only for responses,
+    // we won't log an error for it.
+    size_t _expecting_report_connection_error = 0;
+
     struct outgoing_entry {
         timer<rpc_clock_type> t;
         snd_buf buf;
@@ -310,7 +335,7 @@ public:
     future<> send_negotiation_frame(feature_map features);
     // functions below are public because they are used by external heavily templated functions
     // and I am not smart enough to know how to define them as friends
-    future<> send(snd_buf buf, std::optional<rpc_clock_type::time_point> timeout = {}, cancellable* cancel = nullptr);
+    future<> send(snd_buf buf, const send_options& opts = {}, std::optional<rpc_clock_type::time_point> timeout = {}, cancellable* cancel = nullptr);
     bool error() { return _error; }
     void abort();
     future<> stop() noexcept;
@@ -396,8 +421,14 @@ class client : public rpc::connection, public weakly_referencable<client> {
     socket _socket;
     id_type _message_id = 1;
     struct reply_handler_base {
+    protected:
+        reply_handler_base(const send_options& opts)
+            : expecting_report_connection_error(opts.report_connection_error) {}
+    public:
         timer<rpc_clock_type> t;
         cancellable* pcancel = nullptr;
+        bool expecting_report_connection_error;
+
         virtual void operator()(client&, id_type, rcv_buf data) = 0;
         virtual void timeout() {}
         virtual void cancel() {}
@@ -413,7 +444,7 @@ public:
     struct reply_handler final : reply_handler_base {
         Func func;
         Reply reply;
-        reply_handler(Func&& f) : func(std::move(f)) {}
+        reply_handler(Func&& f, const send_options& opts) : reply_handler_base(opts), func(std::move(f)) {}
         virtual void operator()(client& client, id_type msg_id, rcv_buf data) override {
             return func(reply, client, msg_id, std::move(data));
         }
@@ -473,6 +504,7 @@ public:
     client(const logger& l, void* s, socket socket, const socket_address& addr, const socket_address& local = {});
     client(const logger& l, void* s, client_options options, socket socket, const socket_address& addr, const socket_address& local = {});
 
+    using rpc::connection::_expecting_report_connection_error;
     stats get_stats() const;
     stats& get_stats_internal() {
         return _stats;
@@ -673,6 +705,10 @@ protected:
 /// requests are to be expected, all the verbs are set-up.
 ///
 /// ## Configuration
+///
+/// The object returned by `make_client()` contains an `opts` member of type
+/// \ref seastar::rpc::send_options, which can be modified (by setting its fields)
+/// before executing RPCs using this object.
 ///
 /// TODO
 ///
