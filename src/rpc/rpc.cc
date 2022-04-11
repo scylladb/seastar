@@ -720,10 +720,18 @@ namespace rpc {
           std::exception_ptr ep;
           if (f.failed()) {
               ep = f.get_exception();
-              if (is_stream()) {
-                  log_exception(*this, log_level::error, _connected ? "client stream connection dropped" : "stream fail to connect", ep);
+              if (_connected) {
+                  if (is_stream()) {
+                      log_exception(*this, log_level::error, "client stream connection dropped", ep);
+                  } else {
+                      log_exception(*this, log_level::error, "client connection dropped", ep);
+                  }
               } else {
-                  log_exception(*this, log_level::error, _connected ? "client connection dropped" : "fail to connect", ep);
+                  if (is_stream()) {
+                      log_exception(*this, log_level::debug, "stream fail to connect", ep);
+                  } else {
+                      log_exception(*this, log_level::debug, "fail to connect", ep);
+                  }
               }
           }
           _error = true;
