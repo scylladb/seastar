@@ -277,7 +277,7 @@ protected:
     // if it is not ready it means the sink is been closed
     future<bool> _sink_closed_future = make_ready_future<bool>(false);
 
-    bool is_stream() {
+    bool is_stream() const noexcept {
         return _is_stream;
     }
 
@@ -293,7 +293,7 @@ protected:
     template<outgoing_queue_type QueueType> void send_loop();
     future<> stop_send_loop();
     future<std::optional<rcv_buf>>  read_stream_frame_compressed(input_stream<char>& in);
-    bool stream_check_twoway_closed() {
+    bool stream_check_twoway_closed() const noexcept {
         return _sink_closed && _source_closed;
     }
     future<> stream_close();
@@ -311,7 +311,7 @@ public:
     // functions below are public because they are used by external heavily templated functions
     // and I am not smart enough to know how to define them as friends
     future<> send(snd_buf buf, std::optional<rpc_clock_type::time_point> timeout = {}, cancellable* cancel = nullptr);
-    bool error() { return _error; }
+    bool error() const noexcept { return _error; }
     void abort();
     future<> stop() noexcept;
     future<> stream_receive(circular_buffer<foreign_ptr<std::unique_ptr<rcv_buf>>>& bufs);
@@ -322,7 +322,7 @@ public:
         }
         return make_ready_future();
     }
-    bool sink_closed() {
+    bool sink_closed() const noexcept {
         return _sink_closed;
     }
     future<> close_source() {
@@ -332,14 +332,14 @@ public:
         }
         return make_ready_future();
     }
-    connection_id get_connection_id() const {
+    connection_id get_connection_id() const noexcept {
         return _id;
     }
     xshard_connection_ptr get_stream(connection_id id) const;
     void register_stream(connection_id id, xshard_connection_ptr c);
     virtual socket_address peer_address() const = 0;
 
-    const logger& get_logger() const {
+    const logger& get_logger() const noexcept {
         return _logger;
     }
 
