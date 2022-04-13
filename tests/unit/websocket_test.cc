@@ -140,11 +140,11 @@ SEASTAR_TEST_CASE(test_websocket_handler_registration) {
 
         // Sending and receiving a websocket frame
         const auto ws_frame = std::string(
-            "\201\204"  // 1000 0001 1000 0100
+            "\202\204"  // 1000 0002 1000 0100
             "TEST"      // Masking Key
             "\0\0\0\0", 10); // Masked Message - TEST
         const auto rs_frame = std::string(
-            "\201\004" // 1000 0001 0000 0100
+            "\202\004" // 1000 0002 0000 0100
             "TEST", 6);    // Message - TEST
         output.write(ws_frame).get();
         output.flush().get();

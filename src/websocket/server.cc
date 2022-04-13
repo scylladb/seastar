@@ -371,7 +371,7 @@ future<> connection::response_loop() {
         // FIXME: implement error handling
         return _output_buffer.pop_eventually().then([this] (
                 temporary_buffer<char> buf) {
-            return send_data(opcodes::TEXT, std::move(buf));
+            return send_data(opcodes::BINARY, std::move(buf));
         });
     }).finally([this]() {
         return _write_buf.close();
