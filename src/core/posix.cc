@@ -115,5 +115,19 @@ void posix_thread::join() {
     _valid = false;
 }
 
+std::set<unsigned> get_current_cpuset() {
+    cpu_set_t cs;
+    auto r = pthread_getaffinity_np(pthread_self(), sizeof(cs), &cs);
+    assert(r == 0);
+    std::set<unsigned> ret;
+    unsigned nr = CPU_COUNT(&cs);
+    for (int cpu = 0; cpu < CPU_SETSIZE && ret.size() < nr; cpu++) {
+        if (CPU_ISSET(cpu, &cs)) {
+            ret.insert(cpu);
+        }
+    }
+    return ret;
+}
+
 }
 

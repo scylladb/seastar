@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include <set>
 #include <seastar/core/sstring.hh>
 #include "abort_on_ebadf.hh"
 #include <sys/types.h>
@@ -486,6 +487,8 @@ void pin_this_thread(unsigned cpu_id) {
     assert(r == 0);
     (void)r;
 }
+
+std::set<unsigned> get_current_cpuset();
 
 /// @}
 
