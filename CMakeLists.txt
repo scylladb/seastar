@@ -1051,7 +1051,8 @@ if (Seastar_INSTALL OR Seastar_TESTING)
   add_library(seastar_perf_testing
     src/testing/random.cc
     include/seastar/testing/perf_tests.hh
-    tests/perf/perf_tests.cc)
+    tests/perf/perf_tests.cc
+    tests/perf/linux_perf_event.cc)
   add_library (Seastar::seastar_perf_testing ALIAS seastar_perf_testing)
   target_compile_definitions (seastar_perf_testing
     PRIVATE ${Seastar_PRIVATE_COMPILE_DEFINITIONS})
