@@ -128,6 +128,9 @@ struct job_config {
     std::chrono::duration<double> exec_time;
     size_t payload;
 
+    bool client = false;
+    bool server = false;
+
     std::chrono::seconds duration;
     scheduling_group sg = default_scheduling_group();
 };
@@ -177,8 +180,11 @@ struct convert<job_config> {
             cfg.verb = node["verb"].as<std::string>();
             cfg.parallelism = node["parallelism"].as<unsigned>();
             cfg.payload = node["payload"].as<byte_size>().size;
+            cfg.client = true;
         } else if (cfg.type == "cpu") {
             cfg.exec_time = node["execution_time"].as<duration_time>().time;
+            cfg.client = !node["side"] || (node["side"].as<std::string>() == "client");
+            cfg.server = !node["side"] || (node["side"].as<std::string>() == "server");
         }
         if (node["shares"]) {
             cfg.shares = node["shares"].as<unsigned>();
@@ -355,7 +361,6 @@ class job_cpu : public job {
 public:
     job_cpu(job_config cfg)
             : _cfg(cfg)
-            , _stop(std::chrono::steady_clock::now() + _cfg.duration)
     {
     }
 
@@ -365,6 +370,7 @@ public:
     }
 
     virtual future<> run() override {
+        _stop = std::chrono::steady_clock::now() + _cfg.duration;
         return with_scheduling_group(_cfg.sg, [this] {
             return do_until([this] {
                 return std::chrono::steady_clock::now() > _stop;
@@ -378,32 +384,40 @@ public:
     }
 };
 
-static std::unique_ptr<job> make_job(job_config cfg, rpc_protocol& rpc, rpc_protocol::client& client) {
-    if (cfg.type == "rpc") {
-        return std::make_unique<job_rpc>(cfg, rpc, client);
-    }
-    if (cfg.type == "cpu") {
-        return std::make_unique<job_cpu>(cfg);
-    }
-
-    throw std::runtime_error("unknown job type");
-}
-
 class context {
     std::unique_ptr<rpc_protocol> _rpc;
     std::unique_ptr<rpc_protocol::server> _server;
     std::unique_ptr<rpc_protocol::client> _client;
     promise<> _bye;
+    promise<> _server_jobs;
     config _cfg;
     std::vector<std::unique_ptr<job>> _jobs;
+
+    std::unique_ptr<job> make_job(job_config cfg) {
+        if (cfg.type == "rpc") {
+            return std::make_unique<job_rpc>(cfg, *_rpc, *_client);
+        }
+        if (cfg.type == "cpu") {
+            return std::make_unique<job_cpu>(cfg);
+        }
+
+        throw std::runtime_error("unknown job type");
+    }
+
+    future<> run_jobs() {
+        return parallel_for_each(_jobs, [] (auto& job) {
+            return job->run();
+        });
+    }
 
 public:
     context(std::optional<ipv4_addr> laddr, std::optional<ipv4_addr> caddr, uint16_t port, config cfg)
             : _rpc(std::make_unique<rpc_protocol>(serializer{}))
             , _cfg(cfg)
     {
-        _rpc->register_handler(rpc_verb::HELLO, [] {
+        _rpc->register_handler(rpc_verb::HELLO, [this] {
             fmt::print("Got HELLO message from client\n");
+            run_jobs().discard_result().forward_to(std::move(_server_jobs));
         });
         _rpc->register_handler(rpc_verb::BYE, [this] {
             fmt::print("Got BYE message from client, exiting\n");
@@ -421,6 +435,12 @@ public:
             so.tcp_nodelay = _cfg.server.nodelay;
             rpc::resource_limits limits;
             _server = std::make_unique<rpc_protocol::server>(*_rpc, so, *laddr, limits);
+
+            for (auto&& jc : _cfg.jobs) {
+                if (jc.server) {
+                    _jobs.push_back(make_job(jc));
+                }
+            }
         }
 
         if (caddr) {
@@ -429,7 +449,9 @@ public:
             _client = std::make_unique<rpc_protocol::client>(*_rpc, co, *caddr);
 
             for (auto&& jc : _cfg.jobs) {
-                _jobs.push_back(make_job(jc, *_rpc, *_client));
+                if (jc.client) {
+                    _jobs.push_back(make_job(jc));
+                }
             }
         }
     }
@@ -458,13 +480,11 @@ public:
 
     future<> run() {
         if (_client) {
-            return parallel_for_each(_jobs, [] (auto& job) {
-                return job->run();
-            });
+            return run_jobs();
         }
 
         if (_server) {
-            return _bye.get_future();
+            return when_all(_bye.get_future(), _server_jobs.get_future()).discard_result();
         }
 
         return make_ready_future<>();

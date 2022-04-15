@@ -12,3 +12,4 @@ jobs:
   - name:
     type: cpu
     execution_time: # time in [0-9]+[mun]?s format
+    side: # optional, 'client' or 'server' to specify which side to run on
