@@ -360,18 +360,18 @@ void do_not_optimize(const T& v)
 
 #define PERF_TEST_C(test_group, test_case) \
     struct test_##test_group##_##test_case : test_group { \
-        [[gnu::always_inline]] inline future<> run(); \
+        inline future<> run(); \
     }; \
     static ::perf_tests::internal::test_registrar<test_##test_group##_##test_case> \
     test_##test_group##_##test_case##_registrar(#test_group, #test_case); \
-    [[gnu::always_inline]] future<> test_##test_group##_##test_case::run()
+    future<> test_##test_group##_##test_case::run()
 
 #define PERF_TEST_CN(test_group, test_case) \
     struct test_##test_group##_##test_case : test_group { \
-        [[gnu::always_inline]] inline future<size_t> run(); \
+        inline future<size_t> run(); \
     }; \
     static ::perf_tests::internal::test_registrar<test_##test_group##_##test_case> \
     test_##test_group##_##test_case##_registrar(#test_group, #test_case); \
-    [[gnu::always_inline]] future<size_t> test_##test_group##_##test_case::run()
+    future<size_t> test_##test_group##_##test_case::run()
 
 #endif // SEASTAR_COROUTINES_ENABLED
