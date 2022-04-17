@@ -36,8 +36,6 @@
 #include <seastar/json/formatter.hh>
 #include <seastar/util/later.hh>
 #include <seastar/testing/random.hh>
-#include <seastar/core/memory.hh>
-#include <seastar/core/reactor.hh>
 
 #include <signal.h>
 
@@ -108,22 +106,6 @@ private:
 
 }
 
-uint64_t perf_stats::perf_mallocs() {
-    return memory::stats().mallocs();
-}
-
-uint64_t perf_stats::perf_tasks_processed() {
-    return engine().get_sched_stats().tasks_processed;
-}
-
-perf_stats perf_stats::snapshot(linux_perf_event* instructions_retired_counter) {
-    return perf_stats(
-        perf_mallocs(),
-        perf_tasks_processed(),
-        instructions_retired_counter ? instructions_retired_counter->read() : 0
-    );
-}
-
 time_measurement measure_time;
 
 struct config;
@@ -145,19 +127,15 @@ struct config {
 };
 
 struct result {
-    sstring test_name = "";
+    sstring test_name;
 
-    uint64_t total_iterations = 0;
-    unsigned runs = 0;
+    uint64_t total_iterations;
+    unsigned runs;
 
-    double median = 0.;
-    double mad = 0.;
-    double min = 0.;
-    double max = 0.;
-
-    double allocs = 0.;
-    double tasks = 0.;
-    double inst = 0.;
+    double median;
+    double mad;
+    double min;
+    double max;
 };
 
 namespace {
@@ -185,8 +163,7 @@ static inline std::ostream& operator<<(std::ostream& os, duration d)
 
 }
 
-static constexpr auto header_format_string = "{:<40} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11}\n";
-static constexpr auto        format_string = "{:<40} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11.3f} {:>11.3f} {:>11.1f}\n";
+static constexpr auto format_string = "{:<40} {:>11} {:>11} {:>11} {:>11} {:>11}\n";
 
 struct stdout_printer final : result_printer {
   virtual void print_configuration(const config& c) override {
@@ -196,13 +173,12 @@ struct stdout_printer final : result_printer {
                "number of runs:", c.number_of_runs,
                "number of cores:", smp::count,
                "random seed:", c.random_seed);
-    fmt::print(header_format_string, "test", "iterations", "median", "mad", "min", "max", "allocs", "tasks", "inst");
+    fmt::print(format_string, "test", "iterations", "median", "mad", "min", "max");
   }
 
   virtual void print_result(const result& r) override {
     fmt::print(format_string, r.test_name, r.total_iterations / r.runs, duration { r.median },
-               duration { r.mad }, duration { r.min }, duration { r.max },
-               r.allocs, r.tasks, r.inst);
+               duration { r.mad }, duration { r.min }, duration { r.max });
   }
 };
 
@@ -229,9 +205,6 @@ public:
         result["mad"] = r.mad;
         result["min"] = r.min;
         result["max"] = r.max;
-        result["allocs"] = r.allocs;
-        result["tasks"] = r.tasks;
-        result["inst"] = r.inst;
     }
 };
 
@@ -258,28 +231,22 @@ void performance_test::do_run(const config& conf)
         }).get();
     }
 
-    result r{};
-
     auto results = std::vector<double>(conf.number_of_runs);
     uint64_t total_iterations = 0;
     for (auto i = 0u; i < conf.number_of_runs; i++) {
         // switch out of seastar thread
         yield().then([&] {
             _single_run_iterations = 0;
-            return do_single_run().then([&] (run_result rr) {
-                clock_type::duration dt = rr.duration;
+            return do_single_run().then([&] (clock_type::duration dt) {
                 double ns = std::chrono::duration_cast<std::chrono::nanoseconds>(dt).count();
                 results[i] = ns / _single_run_iterations;
 
                 total_iterations += _single_run_iterations;
-
-                r.allocs += double(rr.stats.allocations) / _single_run_iterations;
-                r.tasks += double(rr.stats.tasks_executed) / _single_run_iterations;
-                r.inst += double(rr.stats.instructions_retired) / _single_run_iterations;
             });
         }).get();
     }
 
+    result r{};
     r.test_name = name();
     r.total_iterations = total_iterations;
     r.runs = conf.number_of_runs;
@@ -297,10 +264,6 @@ void performance_test::do_run(const config& conf)
 
     r.min = results[0];
     r.max = results[results.size() - 1];
-
-    r.allocs /= conf.number_of_runs;
-    r.tasks /= conf.number_of_runs;
-    r.inst /= conf.number_of_runs;
 
     for (auto& rp : conf.printers) {
         rp->print_result(r);
