@@ -364,8 +364,8 @@ public:
     {
     }
 
-    virtual std::string name() const { return _cfg.name; }
-    virtual void emit_result(YAML::Emitter& out) const {
+    virtual std::string name() const override { return _cfg.name; }
+    virtual void emit_result(YAML::Emitter& out) const override {
         out << YAML::Key << "total" << YAML::Value << _total_invocations;
     }
 
