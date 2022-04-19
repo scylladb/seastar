@@ -214,8 +214,11 @@ struct cpwriter {
                 write_le(tmpi);
                 break;
             }
+            case data_type::DERIVE:
+                write(v.i()); // signed int 64, big endian
+                break;
             case data_type::COUNTER:
-            case data_type::REAL_COUNTER:
+            case data_type::ABSOLUTE:
                 write(v.ui()); // unsigned int 64, big endian
                 break;
             default:
@@ -365,13 +368,13 @@ void impl::start(const sstring & host, const ipv4_addr & addr, const duration pe
 
     _metrics.add_group("scollectd", {
         // total_bytes      value:DERIVE:0:U
-        sm::make_counter("total_bytes_sent", sm::description("total bytes sent"), _bytes),
+        sm::make_derive("total_bytes_sent", sm::description("total bytes sent"), _bytes),
         // total_requests      value:DERIVE:0:U
-        sm::make_counter("total_requests", sm::description("total requests"), _num_packets),
+        sm::make_derive("total_requests", sm::description("total requests"), _num_packets),
         // latency          value:GAUGE:0:U
         sm::make_gauge("latency", sm::description("avrage latency"), _avg),
         // total_time_in_ms    value:DERIVE:0:U
-        sm::make_counter("total_time_in_ms", sm::description("total time in milliseconds"), _millis),
+        sm::make_derive("total_time_in_ms", sm::description("total time in milliseconds"), _millis),
         // total_values     value:DERIVE:0:U
         sm::make_gauge("total_values", sm::description("current number of values reported"), [this] {return values().size();}),
         // records          value:GAUGE:0:U

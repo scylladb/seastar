@@ -99,7 +99,7 @@ public:
 /*!
  * \defgroup metrics_types metrics type definitions
  * The following are for the metric layer use, do not use them directly
- * Instead use the make_counter, make_gauge
+ * Instead use the make_counter, make_gauge, make_absolute and make_derived
  *
  */
 using metric_type_def = sstring; /*!< Used to hold an inherit type (like bytes)*/
@@ -252,16 +252,11 @@ namespace impl {
 
 // The value binding data types
 enum class data_type : uint8_t {
-    COUNTER,
-    REAL_COUNTER,
-    GAUGE,
+    COUNTER, // unsigned int 64
+    GAUGE, // double
+    DERIVE, // signed int 64
+    ABSOLUTE, // unsigned int 64
     HISTOGRAM,
-};
-
-template <typename T>
-struct counter_type_traits {
-    static constexpr bool is_integral = std::is_integral<typename std::conditional_t<std::is_invocable<T>::value, typename std::invoke_result<T>, typename std::type_identity<T>>::type>::value;
-    static constexpr data_type type = is_integral ? data_type::COUNTER : data_type::REAL_COUNTER;
 };
 
 /*!
@@ -451,10 +446,9 @@ impl::metric_definition_impl make_gauge(metric_name_type name,
  * It is OK to use it when counting things and if no wrap-around is expected (it shouldn't) it's prefer over counter metric.
  */
 template<typename T>
-[[deprecated("Use make_counter()")]]
 impl::metric_definition_impl make_derive(metric_name_type name,
         T&& val, description d=description(), std::vector<label_instance> labels = {}) {
-    return make_counter(std::move(name), std::forward<T>(val), std::move(d), std::move(labels));
+    return {name, {impl::data_type::DERIVE, "derive"}, make_function(std::forward<T>(val), impl::data_type::DERIVE), d, labels};
 }
 
 
@@ -467,10 +461,9 @@ impl::metric_definition_impl make_derive(metric_name_type name,
  * It is OK to use it when counting things and if no wrap-around is expected (it shouldn't) it's prefer over counter metric.
  */
 template<typename T>
-[[deprecated("Use make_counter()")]]
 impl::metric_definition_impl make_derive(metric_name_type name, description d,
         T&& val) {
-    return make_counter(std::move(name), std::forward<T>(val), std::move(d), {});
+    return {name, {impl::data_type::DERIVE, "derive"}, make_function(std::forward<T>(val), impl::data_type::DERIVE), d, {}};
 }
 
 
@@ -483,55 +476,23 @@ impl::metric_definition_impl make_derive(metric_name_type name, description d,
  * It is OK to use it when counting things and if no wrap-around is expected (it shouldn't) it's prefer over counter metric.
  */
 template<typename T>
-[[deprecated("Use make_counter()")]]
 impl::metric_definition_impl make_derive(metric_name_type name, description d, std::vector<label_instance> labels,
         T&& val) {
-    return make_counter(std::move(name), std::forward<T>(val), std::move(d), std::move(labels));
+    return {name, {impl::data_type::DERIVE, "derive"}, make_function(std::forward<T>(val), impl::data_type::DERIVE), d, labels};
 }
 
 
 /*!
  * \brief create a counter metric
  *
- * Counters are used when a rate is more interesting than the value, monitoring systems take
- * derivation from it to display.
- *
- * It's an integer or floating point value that can increase or decrease.
+ * Counters are similar to derived, but they assume monotony, so if a counter value decrease in a series it is count as a wrap-around.
+ * It is better to use large enough data value than to use counter.
  *
  */
 template<typename T>
 impl::metric_definition_impl make_counter(metric_name_type name,
         T&& val, description d=description(), std::vector<label_instance> labels = {}) {
-    auto type = impl::counter_type_traits<std::remove_reference_t<T>>::type;
-    return {name, {type, "counter"}, make_function(std::forward<T>(val), type), d, labels};
-}
-
-/*!
- * \brief create a counter metric
- *
- * Counters are used when a rate is more interesting than the value, monitoring systems take
- * derivation from it to display.
- *
- * It's an integer or floating point value that can increase or decrease.
- *
- */
-template<typename T>
-impl::metric_definition_impl make_counter(metric_name_type name, description d, T&& val) {
-    return make_counter(std::move(name), std::forward<T>(val), std::move(d), {});
-}
-
-/*!
- * \brief create a counter metric
- *
- * Counters are used when a rate is more interesting than the value, monitoring systems take
- * derivation from it to display.
- *
- * It's an integer or floating point value that can increase or decrease.
- *
- */
-template<typename T>
-impl::metric_definition_impl make_counter(metric_name_type name, description d, std::vector<label_instance> labels, T&& val) {
-    return make_counter(std::move(name), std::forward<T>(val), std::move(d), std::move(labels));
+    return {name, {impl::data_type::COUNTER, "counter"}, make_function(std::forward<T>(val), impl::data_type::COUNTER), d, labels};
 }
 
 /*!
@@ -541,10 +502,9 @@ impl::metric_definition_impl make_counter(metric_name_type name, description d, 
  * They are here for compatibility reasons and should general be avoided in most applications.
  */
 template<typename T>
-[[deprecated("Use make_counter()")]]
 impl::metric_definition_impl make_absolute(metric_name_type name,
         T&& val, description d=description(), std::vector<label_instance> labels = {}) {
-    return make_counter(std::move(name), std::forward<T>(val), std::move(d), std::move(labels));
+    return {name, {impl::data_type::ABSOLUTE, "absolute"}, make_function(std::forward<T>(val), impl::data_type::ABSOLUTE), d, labels};
 }
 
 /*!
@@ -596,7 +556,7 @@ template<typename T>
 impl::metric_definition_impl make_total_bytes(metric_name_type name,
         T&& val, description d=description(), std::vector<label_instance> labels = {},
         instance_id_type instance = impl::shard()) {
-    return make_counter(name, std::forward<T>(val), d, labels).set_type("total_bytes");
+    return make_derive(name, std::forward<T>(val), d, labels).set_type("total_bytes");
 }
 
 /*!
@@ -638,7 +598,7 @@ template<typename T>
 impl::metric_definition_impl make_total_operations(metric_name_type name,
         T&& val, description d=description(), std::vector<label_instance> labels = {},
         instance_id_type instance = impl::shard()) {
-    return make_counter(name, std::forward<T>(val), d, labels).set_type("total_operations");
+    return make_derive(name, std::forward<T>(val), d, labels).set_type("total_operations");
 }
 
 /*! @} */

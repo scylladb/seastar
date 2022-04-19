@@ -47,10 +47,14 @@ static std::string to_str(seastar::metrics::impl::data_type dt) {
     case seastar::metrics::impl::data_type::GAUGE:
         return "gauge";
     case seastar::metrics::impl::data_type::COUNTER:
-    case seastar::metrics::impl::data_type::REAL_COUNTER:
         return "counter";
     case seastar::metrics::impl::data_type::HISTOGRAM:
         return "histogram";
+    case seastar::metrics::impl::data_type::DERIVE:
+    case seastar::metrics::impl::data_type::ABSOLUTE:
+        // Prometheus server does not respect derive/absolute parameters
+        // So we report them as counter
+        return "counter";
     }
     return "untyped";
 }
@@ -58,9 +62,11 @@ static std::string to_str(seastar::metrics::impl::data_type dt) {
 static std::string to_str(const seastar::metrics::impl::metric_value& v) {
     switch (v.type()) {
     case seastar::metrics::impl::data_type::GAUGE:
-    case seastar::metrics::impl::data_type::REAL_COUNTER:
         return std::to_string(v.d());
     case seastar::metrics::impl::data_type::COUNTER:
+    case seastar::metrics::impl::data_type::ABSOLUTE:
+        return std::to_string(v.ui());
+    case seastar::metrics::impl::data_type::DERIVE:
         return std::to_string(v.i());
     case seastar::metrics::impl::data_type::HISTOGRAM:
         break;
