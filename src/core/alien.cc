@@ -107,9 +107,9 @@ void message_queue::start() {
         // Absolute value of num packets in last tx batch.
         sm::make_queue_length("receive_batch_queue_length", _last_rcv_batch, sm::description("Current receive batch queue length")),
         // total_operations value:DERIVE:0:U
-        sm::make_derive("total_received_messages", _received, sm::description("Total number of received messages")),
+        sm::make_counter("total_received_messages", _received, sm::description("Total number of received messages")),
         // total_operations value:DERIVE:0:U
-        sm::make_derive("total_sent_messages", [this] { return _sent.value.load(); }, sm::description("Total number of sent messages")),
+        sm::make_counter("total_sent_messages", [this] { return _sent.value.load(); }, sm::description("Total number of sent messages")),
     });
 }
 

@@ -565,12 +565,6 @@ data_type::COUNTER> {
 };
 template<typename T>
 struct data_type_for<T,
-typename std::enable_if<
-std::is_integral<T>::value && std::is_signed<T>::value, void>::type> : public std::integral_constant<
-data_type, data_type::DERIVE> {
-};
-template<typename T>
-struct data_type_for<T,
 typename std::enable_if<std::is_floating_point<T>::value, void>::type> : public std::integral_constant<
 data_type, data_type::GAUGE> {
 };
