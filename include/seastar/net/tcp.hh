@@ -780,7 +780,7 @@ tcp<InetTraits>::tcp(inet_type& inet)
     namespace sm = metrics;
 
     _metrics.add_group("tcp", {
-        sm::make_derive("linearizations", [] { return tcp_packet_merger::linearizations(); },
+        sm::make_counter("linearizations", [] { return tcp_packet_merger::linearizations(); },
                         sm::description("Counts a number of times a buffer linearization was invoked during the buffers merge process. "
                                         "Divide it by a total TCP receive packet rate to get an everage number of lineraizations per TCP packet."))
     });
