@@ -1968,6 +1968,9 @@ extern "C"
 #if defined(__GLIBC__) && __GLIBC_PREREQ(2, 30)
 [[gnu::alloc_size(2)]]
 #endif
+#if defined(__GLIBC__) && __GLIBC_PREREQ(2, 35)
+[[gnu::alloc_align(1)]]
+#endif
 void* memalign(size_t align, size_t size) throw () {
     if (try_trigger_error_injector()) {
         return nullptr;
@@ -1991,6 +1994,9 @@ extern "C"
 [[gnu::malloc]]
 #if defined(__GLIBC__) && __GLIBC_PREREQ(2, 30)
 [[gnu::alloc_size(2)]]
+#endif
+#if defined(__GLIBC__) && __GLIBC_PREREQ(2, 35)
+[[gnu::alloc_align(1)]]
 #endif
 void* __libc_memalign(size_t align, size_t size) throw ();
 
