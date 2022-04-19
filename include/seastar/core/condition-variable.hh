@@ -149,6 +149,14 @@ private:
             this->set_callback(std::bind(&waiter::timeout, this));
             this->arm(_timeout);
         }
+        void signal() noexcept override {
+            this->cancel();
+            awaiter::signal();
+        }
+        void set_exception(std::exception_ptr ep) noexcept override {
+            this->cancel();
+            awaiter::set_exception(std::move(ep));
+        }
     };
 
     template<typename Func, typename Base>

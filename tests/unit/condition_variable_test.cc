@@ -332,5 +332,44 @@ SEASTAR_TEST_CASE(test_condition_variable_when_signal) {
     BOOST_REQUIRE_EQUAL(ready, true);
 }
 
+SEASTAR_TEST_CASE(test_condition_variable_when_timeout) {
+    condition_variable cv;
+
+    bool ready = false;
+
+    // create "background" fiber
+    auto f = [&]() -> future<> {
+        try {
+            co_await cv.when(100ms, [&] { return ready; });
+        } catch (timed_out_error&) {
+            BOOST_FAIL("should not reach");
+        } catch (condition_variable_timed_out&) {
+            BOOST_FAIL("should not reach");
+        } catch (...) {
+            BOOST_FAIL("should not reach");
+        }
+    }();
+
+    // ensure we wake up waiter before timeuot
+    ready = true;
+    cv.signal();
+
+    // now busy-spin until the timer should be expired
+    do {
+        auto now = timer<>::clock::now();
+        while ((timer<>::clock::now() - now) < 200ms) {
+            // spin
+            int q = 0;
+            ++q;
+        }
+    } while (cv.has_waiters());
+
+    // he should not have run yet...
+    BOOST_REQUIRE_EQUAL(f.available(), false);
+    // now, if the code is broken, the timer will run once we switch out,
+    // and cause the wait to time out, even though it did not. -> assert
+
+    co_await std::move(f);
+}
 
 #endif
