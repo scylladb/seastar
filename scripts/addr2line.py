@@ -94,10 +94,10 @@ class BacktraceResolver(object):
             addr = "0x[0-9a-f]+"
             path = "\S+"
             token = f"(?:{path}\+)?{addr}"
-            full_addr_match = f"(?:({path})\+)?({addr})"
+            full_addr_match = f"(?:(?P<path>{path})\+)?(?P<addr>{addr})"
             self.oneline_re = re.compile(f"^((?:.*(?:(?:at|backtrace):?|:))?(?:\s+))?({token}(?:\s+{token})*)(?:\).*|\s*)$", flags=re.IGNORECASE)
             self.address_re = re.compile(full_addr_match, flags=re.IGNORECASE)
-            self.asan_re = re.compile(f"^(?:.*\s+)\(({full_addr_match})\)\s*$", flags=re.IGNORECASE)
+            self.asan_re = re.compile(f"^(?:.*\s+)\({full_addr_match}\)\s*$", flags=re.IGNORECASE)
             self.separator_re = re.compile('^\W*-+\W*$')
 
         def __call__(self, line):
@@ -115,7 +115,7 @@ class BacktraceResolver(object):
                 for obj in m.group(2).split():
                     m = re.match(self.address_re, obj)
                     #print(f"  >>> '{obj}': address {m.groups()}")
-                    addresses.append({'path': m.group(1), 'addr': m.group(2)})
+                    addresses.append({'path': m.group('path'), 'addr': m.group('addr')})
                 ret['addresses'] = addresses
                 return ret
 
@@ -124,7 +124,7 @@ class BacktraceResolver(object):
                 #print(f">>> '{line}': asan {m.groups()}")
                 ret = {'type': self.Type.ADDRESS}
                 ret['prefix'] = None
-                ret['addresses'] = [{'path': m.group(2), 'addr': m.group(3)}]
+                ret['addresses'] = [{'path': m.group('path'), 'addr': m.group('addr')}]
                 return ret
 
             match = re.match(self.separator_re, line)
