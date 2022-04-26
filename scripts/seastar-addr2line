@@ -151,8 +151,8 @@ if args.test:
         ('/my/path+0x12f34', {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': '/my/path', 'addr': '0x12f34'}]}),
         (' /my/path+0x12f34', {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': '/my/path', 'addr': '0x12f34'}]}),
 
-        ('Some prefix 0x12f34', None),
-        ('Some prefix /my/path+0x12f34', None),
+        ('Some prefix 0x12f34', {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': None, 'addr': '0x12f34'}]}),
+        ('Some prefix /my/path+0x12f34', {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': '/my/path', 'addr': '0x12f34'}]}),
 
         ('Reactor stalled on shard 1. Backtrace: 0x12f34',
                 {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': 'Reactor stalled on shard 1. Backtrace:',
@@ -192,6 +192,28 @@ if args.test:
                  'prefix': 'seastar::nested_exception: seastar::internal::backtraced<std::runtime_error> (inner Backtrace: 0x42bc95 /lib64/libc.so.6+0x281e1 0x412cfd)'
                            ' (while cleaning up after seastar::internal::backtraced<std::runtime_error> (outer Backtrace:',
                  'addresses': [{'path': None, 'addr': '0x1234'}, {'path': '/lib64/libc.so.6', 'addr': '0x5678'}, {'path': None, 'addr': '0xabcd'}]}),
+
+        ("2022-04-15T06:19:24+00:00 gemini-1tb-10h-master-db-node-c0c7fc43-4 !    INFO | "
+         "scylla: sstables/consumer.hh:610: future<> data_consumer::continuous_data_consumer"
+         "<sstables::index_consume_entry_context<sstables::index_consumer>>::fast_forward_to"
+         "(size_t, size_t) [StateProcessor = sstables::index_consume_entry_context"
+         "<sstables::index_consumer>]: Assertion `begin >= _stream_position.position' failed.", None),
+        ('2022-04-15T06:19:24+00:00 gemini-1tb-10h-master-db-node-c0c7fc43-4 !    INFO |   Backtrace:', None),
+        ('2022-04-15T06:19:24+00:00 gemini-1tb-10h-master-db-node-c0c7fc43-4 !    INFO |   0x199d312',
+                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
+                 'prefix': None,
+                 'addresses': [{'path': None, 'addr': '0x199d312'}]}),
+        ('2022-04-15T06:19:24+00:00 gemini-1tb-10h-master-db-node-c0c7fc43-4 !    INFO |   (throw_with_backtrace_exception_logging Backtrace: 0x42bc95 /lib64/libc.so.6+0x281e1 0x412cfd)',
+                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
+                 'prefix': '2022-04-15T06:19:24+00:00 gemini-1tb-10h-master-db-node-c0c7fc43-4 !    INFO |   (throw_with_backtrace_exception_logging Backtrace:',
+                 'addresses': [{'path': None, 'addr': '0x42bc95'}, {'path': '/lib64/libc.so.6', 'addr': '0x281e1'}, {'path': None, 'addr': '0x412cfd'}]}),
+
+        ('[2022-04-19T23:09:28.311Z] Segmentation fault on shard 1.', None),
+        ('[2022-04-19T23:09:28.311Z] Backtrace:', None),
+        ('[2022-04-19T23:09:28.311Z]   0x461bbb8',
+                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': None, 'addr': '0x461bbb8'}]}),
+        ('[2022-04-19T23:09:28.311Z]   /lib64/libpthread.so.0+0x92a4',
+                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': '/lib64/libpthread.so.0', 'addr': '0x92a4'}]})
     ]
     parser = BacktraceResolver.BacktraceParser()
     for line, expected in data:

@@ -98,6 +98,8 @@ class BacktraceResolver(object):
             self.oneline_re = re.compile(f"^((?:.*(?:(?:at|backtrace):?|:))?(?:\s+))?({token}(?:\s+{token})*)(?:\).*|\s*)$", flags=re.IGNORECASE)
             self.address_re = re.compile(full_addr_match, flags=re.IGNORECASE)
             self.asan_re = re.compile(f"^(?:.*\s+)\({full_addr_match}\)\s*$", flags=re.IGNORECASE)
+            self.asan_ignore_re = re.compile(f"^=.*$", flags=re.IGNORECASE)
+            self.syslog_re = re.compile(f"^(?:.*\s+){full_addr_match}\s*$", flags=re.IGNORECASE)
             self.separator_re = re.compile('^\W*-+\W*$')
 
         def __call__(self, line):
@@ -119,9 +121,22 @@ class BacktraceResolver(object):
                 ret['addresses'] = addresses
                 return ret
 
+            m = re.match(self.asan_ignore_re, line)
+            if m:
+                #print(f">>> '{line}': asan ignore")
+                return None
+
             m = re.match(self.asan_re, line)
             if m:
                 #print(f">>> '{line}': asan {m.groups()}")
+                ret = {'type': self.Type.ADDRESS}
+                ret['prefix'] = None
+                ret['addresses'] = [{'path': m.group('path'), 'addr': m.group('addr')}]
+                return ret
+
+            m = re.match(self.syslog_re, line)
+            if m:
+                #print(f">>> '{line}': syslog {m.groups()}")
                 ret = {'type': self.Type.ADDRESS}
                 ret['prefix'] = None
                 ret['addresses'] = [{'path': m.group('path'), 'addr': m.group('addr')}]
