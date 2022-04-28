@@ -416,7 +416,8 @@ seastar_add_test (stream_reader
   SOURCES stream_reader_test.cc)
 
 seastar_add_test (thread
-  SOURCES thread_test.cc)
+  SOURCES thread_test.cc
+  LIBRARIES Valgrind::valgrind)
 
 seastar_add_test (scheduling_group
   SOURCES scheduling_group_test.cc)

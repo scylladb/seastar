@@ -359,6 +359,7 @@ seastar_find_dependencies ()
 find_package (ragel 6.10 REQUIRED)
 find_package (Threads REQUIRED)
 find_package (PthreadSetName REQUIRED)
+find_package (Valgrind REQUIRED)
 
 #
 # Code generation helpers.
@@ -744,6 +745,7 @@ target_link_libraries (seastar
     lksctp-tools::lksctp-tools
     rt::rt
     yaml-cpp::yaml-cpp
+    Valgrind::valgrind
     Threads::Threads)
 
 set (Seastar_SANITIZE_MODES "Debug" "Sanitize")
