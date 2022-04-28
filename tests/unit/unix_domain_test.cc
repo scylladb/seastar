@@ -54,7 +54,7 @@ public:
 private:
     const string test_message{"are you still the same?"s};
     future<> init_server();
-    future<> client_round();
+    void client_round();
     const socket_address server_addr;
 
     const std::optional<string> client_path;
@@ -83,7 +83,7 @@ future<> ud_server_client::init_server() {
                         break;
                     }
                 }
-                (void)client_round().get0();
+                client_round();
             } 
         });
 
@@ -125,23 +125,21 @@ future<> ud_server_client::init_server() {
 
 /// Send a message to the server, and expect (almost) the same string back.
 /// If 'client_path' is set, the client binds to the named path.
-future<> ud_server_client::client_round() {
+// Runs in a seastar::thread.
+void ud_server_client::client_round() {
     auto cc = client_path ? 
         engine().net().connect(server_addr, socket_address{unix_domain_addr{*client_path}}).get0() :
         engine().net().connect(server_addr).get0();
 
-    return do_with(cc.input(), cc.output(), [this](auto& inp, auto& out) {
+    auto inp = cc.input();
+    auto out = cc.output();
 
-        return out.write(test_message).then(
-            [&out](){ return out.flush(); }).then(
-            [&inp](){ return inp.read(); }).then(
-            [this,&inp](auto bb){
-                BOOST_REQUIRE_EQUAL(std::string_view(bb.begin(), bb.size()), "+"s+test_message);
-                return inp.close();
-            }).then([&out](){return out.close();}).then(
-            []{ return make_ready_future<>(); });
-    });
-
+    out.write(test_message).get();
+    out.flush().get();
+    auto bb = inp.read().get0();
+    BOOST_REQUIRE_EQUAL(std::string_view(bb.begin(), bb.size()), "+"s+test_message);
+    inp.close().get();
+    out.close().get();
 }
 
 future<> ud_server_client::run() {
