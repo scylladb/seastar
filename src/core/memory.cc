@@ -563,7 +563,7 @@ static thread_local cpu_pages cpu_mem;
 std::atomic<unsigned> cpu_pages::cpu_id_gen;
 cpu_pages* cpu_pages::all_cpus[max_cpus];
 
-static cpu_pages& get_cpu_mem();
+static cpu_pages& get_cpu_mem() noexcept;
 
 #ifdef SEASTAR_HEAPPROF
 
@@ -1357,7 +1357,7 @@ static void init_cpu_mem() {
 }
 
 [[gnu::always_inline]]
-static inline cpu_pages& get_cpu_mem()
+static inline cpu_pages& get_cpu_mem() noexcept
 {
     // cpu_pages has a non-trivial constructor which means that the compiler
     // must make sure the instance local to the current thread has been
