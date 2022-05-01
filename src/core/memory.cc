@@ -218,11 +218,11 @@ using stats_atomic_array = std::array<std::atomic_uint64_t, static_cast<std::siz
 static thread_local SEASTAR_CONSTINIT stats_array stats{};
 std::array<stats_atomic_array, max_cpus> alien_stats{};
 
-static void increment_local(types stat_type, uint64_t size = 1) {
+static void increment_local(types stat_type, uint64_t size = 1) noexcept {
     stats[static_cast<std::size_t>(stat_type)] += size;
 }
 
-static void increment(types stat_type, uint64_t size=1)
+static void increment(types stat_type, uint64_t size=1) noexcept
 {
     // fast path, reactor threads takes thread local statistics
     if (is_reactor_thread) {
@@ -234,7 +234,7 @@ static void increment(types stat_type, uint64_t size=1)
     }
 }
 
-static uint64_t get(types stat_type)
+static uint64_t get(types stat_type) noexcept
 {
     auto i = static_cast<std::size_t>(stat_type);
     // fast path, reactor threads takes thread local statistics
@@ -555,7 +555,7 @@ struct cpu_pages {
     void replace_memory_backing(allocate_system_memory_fn alloc_sys_mem);
     void check_large_allocation(size_t size);
     void warn_large_allocation(size_t size);
-    memory::memory_layout memory_layout();
+    memory::memory_layout memory_layout() noexcept;
     ~cpu_pages();
 };
 
@@ -1159,7 +1159,7 @@ void cpu_pages::schedule_reclaim() {
     });
 }
 
-memory::memory_layout cpu_pages::memory_layout() {
+memory::memory_layout cpu_pages::memory_layout() noexcept {
     assert(is_initialized());
     return {
         reinterpret_cast<uintptr_t>(memory),
@@ -1548,13 +1548,13 @@ void configure(std::vector<resource::memory> m, bool mbind,
     }
 }
 
-statistics stats() {
+statistics stats() noexcept {
     return statistics{alloc_stats::get(alloc_stats::types::allocs), alloc_stats::get(alloc_stats::types::frees), alloc_stats::get(alloc_stats::types::cross_cpu_frees),
         cpu_mem.nr_pages * page_size, cpu_mem.nr_free_pages * page_size, alloc_stats::get(alloc_stats::types::reclaims), alloc_stats::get(alloc_stats::types::large_allocs),
         alloc_stats::get(alloc_stats::types::foreign_mallocs), alloc_stats::get(alloc_stats::types::foreign_frees), alloc_stats::get(alloc_stats::types::foreign_cross_frees)};
 }
 
-size_t free_memory() {
+size_t free_memory() noexcept {
     return get_cpu_mem().nr_free_pages * page_size;
 }
 
@@ -1562,11 +1562,11 @@ bool drain_cross_cpu_freelist() {
     return get_cpu_mem().drain_cross_cpu_freelist();
 }
 
-memory_layout get_memory_layout() {
+memory_layout get_memory_layout() noexcept {
     return get_cpu_mem().memory_layout();
 }
 
-size_t min_free_memory() {
+size_t min_free_memory() noexcept {
     return get_cpu_mem().min_free_pages * page_size;
 }
 
