@@ -1489,15 +1489,15 @@ reclaimer::~reclaimer() {
     r.erase(std::find(r.begin(), r.end(), this));
 }
 
-void set_large_allocation_warning_threshold(size_t threshold) {
+void set_large_allocation_warning_threshold(size_t threshold) noexcept {
     get_cpu_mem().large_allocation_warning_threshold = threshold;
 }
 
-size_t get_large_allocation_warning_threshold() {
+size_t get_large_allocation_warning_threshold() noexcept {
     return get_cpu_mem().large_allocation_warning_threshold;
 }
 
-void disable_large_allocation_warning() {
+void disable_large_allocation_warning() noexcept {
     get_cpu_mem().large_allocation_warning_threshold = std::numeric_limits<size_t>::max();
 }
 

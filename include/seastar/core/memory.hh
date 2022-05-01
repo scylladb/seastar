@@ -298,19 +298,19 @@ void set_min_free_pages(size_t pages);
 /// Warn when allocation above a given threshold are performed.
 ///
 /// \param threshold size (in bytes) above which an allocation will be logged
-void set_large_allocation_warning_threshold(size_t threshold);
+void set_large_allocation_warning_threshold(size_t threshold) noexcept;
 
 /// Gets the current large allocation warning threshold.
-size_t get_large_allocation_warning_threshold();
+size_t get_large_allocation_warning_threshold() noexcept;
 
 /// Disable large allocation warnings.
-void disable_large_allocation_warning();
+void disable_large_allocation_warning() noexcept;
 
 /// Set a different large allocation warning threshold for a scope.
 class scoped_large_allocation_warning_threshold {
     size_t _old_threshold;
 public:
-    explicit scoped_large_allocation_warning_threshold(size_t threshold)
+    explicit scoped_large_allocation_warning_threshold(size_t threshold) noexcept
             : _old_threshold(get_large_allocation_warning_threshold()) {
         set_large_allocation_warning_threshold(threshold);
     }
@@ -329,7 +329,7 @@ public:
 class scoped_large_allocation_warning_disable {
     size_t _old_threshold;
 public:
-    scoped_large_allocation_warning_disable()
+    scoped_large_allocation_warning_disable() noexcept
             : _old_threshold(get_large_allocation_warning_threshold()) {
         disable_large_allocation_warning();
     }
