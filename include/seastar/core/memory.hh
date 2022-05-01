@@ -196,7 +196,7 @@ public:
     reclaimer(std::function<reclaiming_result (request)> reclaim, reclaimer_scope scope = reclaimer_scope::async);
     ~reclaimer();
     reclaiming_result do_reclaim(size_t bytes_to_reclaim) { return _reclaim(request{bytes_to_reclaim}); }
-    reclaimer_scope scope() const { return _scope; }
+    reclaimer_scope scope() const noexcept { return _scope; }
 };
 
 extern std::pmr::polymorphic_allocator<char>* malloc_allocator;
