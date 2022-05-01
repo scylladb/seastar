@@ -186,7 +186,6 @@ public:
         // If less is released then the reclaimer may be invoked again.
         size_t bytes_to_reclaim;
     };
-    using reclaim_fn = std::function<reclaiming_result ()>;
 private:
     std::function<reclaiming_result (request)> _reclaim;
     reclaimer_scope _scope;
