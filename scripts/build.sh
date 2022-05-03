@@ -10,8 +10,12 @@ if [ $# -eq 0 -o "$1" == "--help" -o "$1" == "-h" ]; then
 fi
 
 if [ -z "$CONTAINERIZED" ]; then
-    echo "Wrapping self into $BUILDER_IMAGE container"
-    exec docker run -it --rm -v$(pwd):/home/src -e 'CONTAINERIZED=yes' -w /home/src $BUILDER_IMAGE /home/src/scripts/$(basename $0) "$@"
+    OPTIONS=""
+    if [ -t 1 ]; then
+        OPTIONS="-it"
+        echo "Wrapping self into $BUILDER_IMAGE container"
+    fi
+    exec docker run $OPTIONS --rm -v$(pwd):/home/src -e 'CONTAINERIZED=yes' -w /home/src $BUILDER_IMAGE /home/src/scripts/$(basename $0) "$@"
 fi
 
 set -e
