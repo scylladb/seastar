@@ -245,7 +245,7 @@ public:
         const char_type* c_str = s.str();
         const char_type* c_str_end = s.str() + s.size();
 
-	if (c_str == c_str_end) {
+	    if (c_str == c_str_end) {
             /* see https://en.cppreference.com/w/cpp/string/basic_string/find
              * - an empty substring is found at pos if and only if pos <= size()
              */
@@ -255,7 +255,7 @@ public:
         while (it < end) {
             auto i = it;
             auto j = c_str;
-            while ( i < end && j < c_str_end && *i == *j) {
+            while (i < end && j < c_str_end && *i == *j) {
                 i++;
                 j++;
             }
