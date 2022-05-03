@@ -29,7 +29,6 @@
 
 namespace seastar {
 
-/// \cond internal
 class io_queue;
 using io_priority_class_id = unsigned;
 // We could very well just add the name to the io_priority_class. However, because that
