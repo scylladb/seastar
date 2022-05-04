@@ -51,7 +51,7 @@ public:
     constexpr const char* file_name() const noexcept { return _file; }
     constexpr const char* function_name() const noexcept { return _func; }
     constexpr int line() const noexcept { return _line; }
-    constexpr int column() const noexcept { return 0; }
+    constexpr int column() const noexcept { return _col; }
 };
 
 } // namespace seastar::internal
