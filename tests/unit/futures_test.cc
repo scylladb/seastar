@@ -1838,13 +1838,16 @@ SEASTAR_THREAD_TEST_CASE(test_yield) {
     one.get();
     BOOST_REQUIRE_EQUAL(flag, true);
 
-    // same thing, with now()
+#ifndef SEASTAR_DEBUG
+    // same thing, with now(), but for non-DEBUG only, otherwise .then() doesn't
+    // use the ready-future fast-path and always schedules a task
     flag = false;
     auto two = now().then([&] {
         flag = true;
     });
     // now() does not yield
     BOOST_REQUIRE_EQUAL(flag, true);
+#endif
 }
 
 // The seastar::make_exception_future() function has two distinct cases - it
