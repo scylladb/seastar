@@ -823,8 +823,13 @@ void test_compressor(std::function<std::unique_ptr<seastar::rpc::compressor>()> 
         return std::tuple(msg, size_t(0), std::move(snd));
     };
 
+#ifndef SEASTAR_DEBUG
+    auto buffer_sizes = { 1, 4 };
+#else
+    auto buffer_sizes = { 1 };
+#endif
 
-    for (auto s : { 1, 4 }) {
+    for (auto s : buffer_sizes) {
         for (auto ss : { 32, 64, 128, 48, 56, 246, 511 }) {
             add_input(std::bind(gen_fill, s * 1024 * 1024, format("{} MB buffer of \'a\' split into {} kB - {}", s, ss, ss), ss * 1024 - ss));
             add_input(std::bind(gen_fill, s * 1024 * 1024, format("{} MB buffer of \'a\' split into {} kB", s, ss), ss * 1024));
