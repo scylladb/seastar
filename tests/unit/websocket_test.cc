@@ -136,7 +136,7 @@ SEASTAR_TEST_CASE(test_websocket_handler_registration) {
                 "\r\n";
         output.write(request).get();
         output.flush().get();
-        input.read_exactly(156).get();
+        input.read_exactly(186).get();
 
         // Sending and receiving a websocket frame
         const auto ws_frame = std::string(

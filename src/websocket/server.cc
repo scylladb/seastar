@@ -174,6 +174,10 @@ future<> connection::read_http_upgrade_request() {
         return _write_buf.write(http_upgrade_reply_template).then([this, sha1_output = std::move(sha1_output)] {
             return _write_buf.write(sha1_output);
         }).then([this] {
+            return _write_buf.write("\r\nSec-WebSocket-Protocol: ", 26);
+        }).then([this] {
+            return _write_buf.write(_subprotocol);
+        }).then([this] {
             return _write_buf.write("\r\n\r\n", 4);
         }).then([this] {
             return _write_buf.flush();
