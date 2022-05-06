@@ -290,6 +290,7 @@ class reactor_backend_aio : public reactor_backend {
     smp_wakeup_aio_completion _smp_wakeup_aio_completion;
     static file_desc make_timerfd();
     bool await_events(int timeout, const sigset_t* active_sigmask);
+    future<> poll(pollable_fd_state& fd, int events);
 public:
     explicit reactor_backend_aio(reactor& r);
 
@@ -297,7 +298,6 @@ public:
     virtual bool kernel_submit_work() override;
     virtual bool kernel_events_can_sleep() const override;
     virtual void wait_and_process_events(const sigset_t* active_sigmask) override;
-    future<> poll(pollable_fd_state& fd, int events);
     virtual future<> readable(pollable_fd_state& fd) override;
     virtual future<> writeable(pollable_fd_state& fd) override;
     virtual future<> readable_or_writeable(pollable_fd_state& fd) override;
