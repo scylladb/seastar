@@ -2256,6 +2256,10 @@ statistics stats() {
     return statistics{0, 0, 0, 1 << 30, 1 << 30, 0, 0, 0, 0, 0};
 }
 
+size_t free_memory() {
+    return stats().free_memory();
+}
+
 bool drain_cross_cpu_freelist() {
     return false;
 }
