@@ -25,6 +25,12 @@
 
 namespace seastar {
 
+#ifdef SEASTAR_DEBUG
+#define SEASTAR_DEBUG_ASSERT(_x_) assert(_x_)
+#else
+#define SEASTAR_DEBUG_ASSERT(_x_)
+#endif
+
 class logger;
 
 /// Controls whether on_internal_error() aborts or throws. The default
