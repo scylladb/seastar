@@ -1087,7 +1087,7 @@ Both futures are `available()` (resolved), but the second has `failed()` (result
 
 The above example demonstrate that `when_all()` is inconvenient and verbose to use properly. The results are wrapped in a tuple, leading to verbose tuple syntax, and uses ready futures which must all be inspected individually for an exception to avoid error messages. 
 
-So Seastar also provides an easier to use `when_all_succeed()` function. This function too returns a future which resolves when all the given futures have resolved. If all of them succeeded, it passes the resulting values to continuation, without wrapping them in futures or a tuple. If, however, one or more of the futures failed, `when_all_succeed()` resolves to a failed future, containing the exception from one of the failed futures. If more than one of the given future failed, one of those will be passed on (it is unspecified which one is chosen), and the rest will be silently ignored. For example,
+So Seastar also provides an easier to use `when_all_succeed()` function. This function too returns a future which resolves when all the given futures have resolved. If all of them succeeded, it passes a tuple of the resulting values to continuation, without wrapping each of them in a future first. Sometimes, it could be tedious to unpack the tuple for consuming the resulting values. In that case, `then_unpack()` can be used in place of `then()`. `then_unpack()` unpacks the returned tuple and passes its elements to the following continuation as its parameters. If, however, one or more of the futures failed, `when_all_succeed()` resolves to a failed future, containing the exception from one of the failed futures. If more than one of the given future failed, one of those will be passed on (it is unspecified which one is chosen), and the rest will be silently ignored. For example,
 
 ```cpp
 using namespace seastar;
@@ -1095,19 +1095,21 @@ future<> f() {
     using namespace std::chrono_literals;
     return when_all_succeed(sleep(1s), make_ready_future<int>(2),
                     make_ready_future<double>(3.5)
-            ).then([] (int i, double d) {
+            ).then_unpack([] (int i, double d) {
         std::cout << i << " " << d << "\n";
     });
 }
 ```
 
-Note how the integer and double values held by the futures are conveniently passed, individually (without a tuple) to the continuation. Since `sleep()` does not contain a value, it is waited for, but no third value is passed to the continuation. That also means that if we `when_all_succeed()` on several `future<>` (without a value), the result is also a `future<>`:
+Note how the integer and double values held by the futures are conveniently passed, individually to the continuation. Since `sleep()` does not contain a value, it is waited for, but no third value is passed to the continuation. That also means that if we `when_all_succeed()` on several `future<>` (without a value), the result is a `future<tuple<>>`:
 
 ```cpp
 using namespace seastar;
 future<> f() {
     using namespace std::chrono_literals;
-    return when_all_succeed(sleep(1s), sleep(2s), sleep(3s));
+    return when_all_succeed(sleep(1s), sleep(2s), sleep(3s)).then_unpack([] {
+        return make_ready_future<>();
+    });
 }
 ```
 
@@ -1121,7 +1123,7 @@ future<> f() {
     using namespace std::chrono_literals;
     return when_all_succeed(make_ready_future<int>(2),
                     make_exception_future<double>("oops")
-            ).then([] (int i, double d) {
+            ).then_unpack([] (int i, double d) {
         std::cout << i << " " << d << "\n";
     }).handle_exception([] (std::exception_ptr e) {
         std::cout << "exception: " << e << "\n";
@@ -2150,7 +2152,7 @@ seastar::future<> f() {
         seastar::sleep(std::chrono::seconds(10)).then([&stop] {
             stop = true;
         });
-        return seastar::when_all_succeed(loop(1, stop), loop(1, stop)).then(
+        return seastar::when_all_succeed(loop(1, stop), loop(1, stop)).then_unpack(
             [] (long n1, long n2) {
                 std::cout << "Counters: " << n1 << ", " << n2 << "\n";
             });
@@ -2191,13 +2193,13 @@ Now let's create two scheduling groups, and run `loop(1)` in the first schedulin
 seastar::future<> f() {
     return seastar::when_all_succeed(
             seastar::create_scheduling_group("loop1", 100),
-            seastar::create_scheduling_group("loop2", 100)).then(
+            seastar::create_scheduling_group("loop2", 100)).then_unpack(
         [] (seastar::scheduling_group sg1, seastar::scheduling_group sg2) {
         return seastar::do_with(false, [sg1, sg2] (bool& stop) {
             seastar::sleep(std::chrono::seconds(10)).then([&stop] {
                 stop = true;
             });
-            return seastar::when_all_succeed(loop_in_sg(1, stop, sg1), loop_in_sg(10, stop, sg2)).then(
+            return seastar::when_all_succeed(loop_in_sg(1, stop, sg1), loop_in_sg(10, stop, sg2)).then_unpack(
                 [] (long n1, long n2) {
                     std::cout << "Counters: " << n1 << ", " << n2 << "\n";
                 });
