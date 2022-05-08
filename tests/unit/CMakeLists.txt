@@ -247,6 +247,9 @@ seastar_add_app_test (alien
 seastar_add_test (checked_ptr
   SOURCES checked_ptr_test.cc)
 
+seastar_add_test (chunked_deque
+  SOURCES chunked_deque_test.cc)
+
 seastar_add_test (chunked_fifo
   SOURCES chunked_fifo_test.cc)
 

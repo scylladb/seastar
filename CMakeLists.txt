@@ -612,6 +612,7 @@ add_library (seastar STATIC
   include/seastar/util/closeable.hh
   include/seastar/util/source_location-compat.hh
   include/seastar/util/short_streams.hh
+  include/seastar/util/chunked_deque.hh
   include/seastar/websocket/server.hh
   src/core/alien.cc
   src/core/file.cc
