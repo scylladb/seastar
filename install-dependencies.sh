@@ -208,7 +208,7 @@ case "$ID" in
     fedora)
         dnf install -y "${fedora_packages[@]}"
     ;;
-    rhel|centos)
+    rhel|centos|rocky)
         if [ "$VERSION_ID" = "7" ]; then
             yum install -y epel-release centos-release-scl scl-utils
             yum install -y "${centos7_packages[@]}"
