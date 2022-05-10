@@ -1102,35 +1102,19 @@ file::list_directory(std::function<future<>(directory_entry de)> next) {
 }
 
 future<int> file::ioctl(uint64_t cmd, void* argp) noexcept {
-    try {
-        return _file_impl->ioctl(cmd, argp);
-    } catch (...) {
-        return current_exception_as_future<int>();
-    }
+    return _file_impl->ioctl(cmd, argp);
 }
 
 future<int> file::ioctl_short(uint64_t cmd, void* argp) noexcept {
-    try {
-        return _file_impl->ioctl_short(cmd, argp);
-    } catch (...) {
-        return current_exception_as_future<int>();
-    }
+    return _file_impl->ioctl_short(cmd, argp);
 }
 
 future<int> file::fcntl(int op, uintptr_t arg) noexcept {
-    try {
-        return _file_impl->fcntl(op, arg);
-    } catch (...) {
-        return current_exception_as_future<int>();
-    }
+    return _file_impl->fcntl(op, arg);
 }
 
 future<int> file::fcntl_short(int op, uintptr_t arg) noexcept {
-    try {
-        return _file_impl->fcntl_short(op, arg);
-    } catch (...) {
-        return current_exception_as_future<int>();
-    }
+    return _file_impl->fcntl_short(op, arg);
 }
 
 future<> file::set_lifetime_hint_impl(int op, uint64_t hint) noexcept {
