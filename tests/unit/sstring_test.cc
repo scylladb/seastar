@@ -54,8 +54,6 @@ BOOST_AUTO_TEST_CASE(test_add_literal_to_sstring) {
 BOOST_AUTO_TEST_CASE(test_find_sstring) {
     BOOST_REQUIRE_EQUAL(sstring("abcde").find('b'), 1u);
     BOOST_REQUIRE_EQUAL(sstring("babcde").find('b',1), 2u);
-    BOOST_REQUIRE_EQUAL(sstring("").find("", 0), 0u);
-    BOOST_REQUIRE_EQUAL(sstring("").find("", 1), sstring::npos);
 }
 
 BOOST_AUTO_TEST_CASE(test_find_sstring_compatible) {
@@ -86,10 +84,19 @@ BOOST_AUTO_TEST_CASE(test_not_find_sstring) {
 BOOST_AUTO_TEST_CASE(test_str_find_sstring) {
     BOOST_REQUIRE_EQUAL(sstring("abcde").find("bc"), 1u);
     BOOST_REQUIRE_EQUAL(sstring("abcbcde").find("bc", 2), 3u);
+    BOOST_REQUIRE_EQUAL(sstring("abcde").find("abcde"), 0u);
+    BOOST_REQUIRE_EQUAL(sstring("abcde").find("", 5), 5u);
+    BOOST_REQUIRE_EQUAL(sstring("ababcbdbef").find("bef"), 7u);
+    BOOST_REQUIRE_EQUAL(sstring("").find("", 0), 0u);
 }
 
 BOOST_AUTO_TEST_CASE(test_str_not_find_sstring) {
     BOOST_REQUIRE_EQUAL(sstring("abcde").find("x"), sstring::npos);
+    BOOST_REQUIRE_EQUAL(sstring("abcdefg").find("cde", 6), sstring::npos);
+    BOOST_REQUIRE_EQUAL(sstring("abcdefg").find("cde", 4), sstring::npos);
+    BOOST_REQUIRE_EQUAL(sstring("ababcbdbe").find("bcd"), sstring::npos);
+    BOOST_REQUIRE_EQUAL(sstring("").find("", 1), sstring::npos);
+    BOOST_REQUIRE_EQUAL(sstring("abc").find("abcde"), sstring::npos);
 }
 
 BOOST_AUTO_TEST_CASE(test_substr_sstring) {
