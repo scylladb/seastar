@@ -1146,7 +1146,13 @@ bool reactor_backend_selector::has_enough_aio_nr() {
      * So this method calculates:
      *  Available AIO on the system - (request AIO per-cpu * ncpus)
      */
-    if (aio_max_nr - aio_nr < reactor::max_aio * smp::count) {
+    unsigned _smp_local_count = 1;
+
+    if (smp::count > 0){
+       _smp_local_count = smp::count;
+    }
+
+    if (aio_max_nr - aio_nr < reactor::max_aio * _smp_local_count) {
         return false;
     }
     return true;
@@ -1167,9 +1173,10 @@ reactor_backend_selector reactor_backend_selector::default_backend() {
 
 std::vector<reactor_backend_selector> reactor_backend_selector::available() {
     std::vector<reactor_backend_selector> ret;
-    if (detect_aio_poll() && has_enough_aio_nr()) {
+    if (has_enough_aio_nr() && detect_aio_poll()) {
         ret.push_back(reactor_backend_selector("linux-aio"));
     }
+    seastar_logger.warn("epoll backend selected, this usually means the running system lacks AIO contexts. Consider increasing the value of fs.aio-max-nr.");
     ret.push_back(reactor_backend_selector("epoll"));
     return ret;
 }
