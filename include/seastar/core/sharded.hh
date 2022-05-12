@@ -287,61 +287,39 @@ public:
       }
     }
 
-    /// Invoke a method on all instances of `Service` and reduce the results using
+    /// Invoke a callable on all instances of `Service` and reduce the results using
     /// `Reducer`.
     ///
     /// \see map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Reducer&& r)
-    template <typename Reducer, typename Ret, typename... FuncArgs, typename... Args>
+    template <typename Reducer, typename Func, typename... Args>
     inline
-    auto
-    map_reduce(Reducer&& r, Ret (Service::*func)(FuncArgs...), Args&&... args)
-        -> typename reducer_traits<Reducer>::future_type
+    auto map_reduce(Reducer&& r, Func&& func, Args&&... args) -> typename reducer_traits<Reducer>::future_type
     {
         return ::seastar::map_reduce(boost::make_counting_iterator<unsigned>(0),
                             boost::make_counting_iterator<unsigned>(_instances.size()),
-            [this, func, args = std::make_tuple(std::forward<Args>(args)...)] (unsigned c) mutable {
+            [this, &func, args = std::make_tuple(std::forward<Args>(args)...)] (unsigned c) mutable {
                 return smp::submit_to(c, [this, func, args] () mutable {
                     return std::apply([this, func] (Args&&... args) mutable {
-                        auto inst = _instances[this_shard_id()].service;
-                        if (inst) {
-                            return ((*inst).*func)(std::forward<Args>(args)...);
-                        } else {
-                            throw no_sharded_instance_exception(pretty_type_name(typeid(Service)));
-                        }
+                        auto inst = get_local_service();
+                        return std::invoke(func, *inst, std::forward<Args>(args)...);
                     }, std::move(args));
                 });
             }, std::forward<Reducer>(r));
     }
 
-    /// Invoke a callable on all instances of `Service` and reduce the results using
-    /// `Reducer`.
-    ///
-    /// \see map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Reducer&& r)
-    template <typename Reducer, typename Func>
-    inline
-    auto map_reduce(Reducer&& r, Func&& func) -> typename reducer_traits<Reducer>::future_type
-    {
-        return ::seastar::map_reduce(boost::make_counting_iterator<unsigned>(0),
-                            boost::make_counting_iterator<unsigned>(_instances.size()),
-            [this, &func] (unsigned c) mutable {
-                return smp::submit_to(c, [this, func] () mutable {
-                    auto inst = get_local_service();
-                    return func(*inst);
-                });
-            }, std::forward<Reducer>(r));
-    }
-
     /// The const version of \ref map_reduce(Reducer&& r, Func&& func)
-    template <typename Reducer, typename Func>
+    template <typename Reducer, typename Func, typename... Args>
     inline
-    auto map_reduce(Reducer&& r, Func&& func) const -> typename reducer_traits<Reducer>::future_type
+    auto map_reduce(Reducer&& r, Func&& func, Args&&... args) const -> typename reducer_traits<Reducer>::future_type
     {
         return ::seastar::map_reduce(boost::make_counting_iterator<unsigned>(0),
                             boost::make_counting_iterator<unsigned>(_instances.size()),
-            [this, &func] (unsigned c) {
-                return smp::submit_to(c, [this, func] () {
-                    auto inst = get_local_service();
-                    return func(*inst);
+            [this, &func, args = std::make_tuple(std::forward<Args>(args)...)] (unsigned c) {
+                return smp::submit_to(c, [this, func, args] () {
+                    return std::apply([this, func] (Args&&... args) {
+                        auto inst = get_local_service();
+                        return std::invoke(func, *inst, std::forward<Args>(args)...);
+                    }, std::move(args));
                 });
             }, std::forward<Reducer>(r));
     }
