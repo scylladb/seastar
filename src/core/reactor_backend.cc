@@ -1143,10 +1143,21 @@ bool reactor_backend_selector::has_enough_aio_nr() {
     auto aio_nr = read_first_line_as<unsigned>("/proc/sys/fs/aio-nr");
     /* reactor_backend_selector::available() will be execute in early stage,
      * it's before io_setup() issued, and not per-cpu basis.
+     *
+     * As smp::count is initialized with 0 in early stages, set local_count
+     * to 1. If/when this method is called after smp::count has been properly
+     * initialized, then its actual value will be used.
+     *
      * So this method calculates:
      *  Available AIO on the system - (request AIO per-cpu * ncpus)
      */
-    if (aio_max_nr - aio_nr < reactor::max_aio * smp::count) {
+    unsigned smp_local_count = 1;
+
+    if (smp::count > 0){
+        smp_local_count = smp::count;
+    }
+
+    if (aio_max_nr - aio_nr < reactor::max_aio * smp_local_count) {
         return false;
     }
     return true;
