@@ -176,9 +176,9 @@ struct convert<job_config> {
     static bool decode(const Node& node, job_config& cfg) {
         cfg.name = node["name"].as<std::string>();
         cfg.type = node["type"].as<std::string>();
+        cfg.parallelism = node["parallelism"].as<unsigned>();
         if (cfg.type == "rpc") {
             cfg.verb = node["verb"].as<std::string>();
-            cfg.parallelism = node["parallelism"].as<unsigned>();
             cfg.payload = node["payload"].as<byte_size>().size;
             cfg.client = true;
         } else if (cfg.type == "cpu") {
@@ -372,6 +372,7 @@ public:
     virtual future<> run() override {
         _stop = std::chrono::steady_clock::now() + _cfg.duration;
         return with_scheduling_group(_cfg.sg, [this] {
+          return parallel_for_each(boost::irange(0u, _cfg.parallelism), [this] (auto dummy) {
             return do_until([this] {
                 return std::chrono::steady_clock::now() > _stop;
             }, [this] {
@@ -380,6 +381,7 @@ public:
                 while ((std::chrono::steady_clock::now() - start) < _cfg.exec_time);
                 return make_ready_future<>();
             });
+          });
         });
     }
 };
