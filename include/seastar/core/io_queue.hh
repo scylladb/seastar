@@ -27,6 +27,7 @@
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/internal/io_request.hh>
+#include <seastar/util/spinlock.hh>
 #include <mutex>
 #include <array>
 
@@ -146,7 +147,10 @@ public:
     dev_t dev_id() const noexcept;
 
     future<> update_shares_for_class(io_priority_class pc, size_t new_shares);
+    future<> update_bandwidth_for_class(io_priority_class pc, uint64_t new_bandwidth);
     void rename_priority_class(io_priority_class pc, sstring new_name);
+    void throttle_priority_class(const priority_class_data& pc) noexcept;
+    void unthrottle_priority_class(const priority_class_data& pc) noexcept;
 
     struct request_limits {
         size_t max_read;
@@ -165,6 +169,8 @@ private:
 class io_group {
 public:
     explicit io_group(io_queue::config io_cfg);
+    ~io_group();
+    struct priority_class_data;
 
 private:
     friend class io_queue;
@@ -173,8 +179,12 @@ private:
     const io_queue::config _config;
     size_t _max_request_length[2];
     std::vector<std::unique_ptr<fair_group>> _fgs;
+    std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
+    util::spinlock _lock;
+    const shard_id _allocated_on;
 
     static fair_group::config make_fair_group_config(const io_queue::config& qcfg) noexcept;
+    priority_class_data& find_or_create_class(io_priority_class pc);
 };
 
 inline const io_queue::config& io_queue::get_config() const noexcept {

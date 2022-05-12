@@ -41,6 +41,10 @@ parser.set_defaults(test_name='isolation')
 parser.add_argument('--instances', help='Number of instances to isolate from each other', type=int, default=3)
 parser.add_argument('--parallelism', help='IO job parallelism', type=int, default=100)
 
+parser = sub_parser.add_parser('class_limit', help='Run class bandwidth limit test')
+parser.set_defaults(test_name='class_limit')
+parser.add_argument('--parallelism', help='IO job parallelism', type=int, default=10)
+
 args = t_parser.parse_args()
 
 
@@ -58,12 +62,13 @@ class iotune:
 
 
 class job:
-    def __init__(self, typ, req_size_kb, shares = 100, prl = None, rps = None):
+    def __init__(self, typ, req_size_kb, shares = 100, prl = None, rps = None, bandwidth_mb = None):
         self._typ = typ
         self._req_size = req_size_kb
         self._prl = prl
         self._rps = rps
         self._shares = shares
+        self._bandwidth = bandwidth_mb
 
     def prl(self):
         return self._prl
@@ -87,6 +92,8 @@ class job:
             ret['shard_info']['parallelism'] = int(self._prl)
         if self._rps is not None:
             ret['shard_info']['rps'] = int(self._rps)
+        if self._bandwidth is not None:
+            ret['shard_info']['bandwidth'] = f'{int(self._bandwidth)}MB'
         return ret
 
 
@@ -321,6 +328,54 @@ def run_isolation_test(args, ioprop):
     m = io_tester(args, groups = args.instances)
     m.add_job('reads_groups', job('randread', 4, prl = args.parallelism))
     isolation_run_and_show_results(m)
+
+
+def class_limit_show_stat_header():
+    print('-' * 20 + '8<' + '-' * 20)
+    print('name           througput(kbs)')
+
+
+def class_limit_run_and_show_results(m):
+    res = m.run()
+    for name in res:
+        st = res[name]
+        throughput = st['throughput']
+
+        print(f'{name:20} {int(throughput):10}')
+
+
+@test_name('class_limit')
+def run_class_limit_test(args, ioprop):
+
+    class_limit_show_stat_header()
+
+    for bw in [ 150, 200 ]:
+        m = io_tester(args)
+        m.add_job(f'reads_{bw}', job('randread', 128, prl = args.parallelism, bandwidth_mb = bw))
+        class_limit_run_and_show_results(m)
+
+    for bw in [ 50, 100 ]:
+        m = io_tester(args)
+        m.add_job(f'reads_a_{bw}', job('randread', 128, prl = args.parallelism, bandwidth_mb = bw))
+        m.add_job(f'reads_b_{bw}', job('randread', 128, prl = args.parallelism, bandwidth_mb = bw))
+        class_limit_run_and_show_results(m)
+
+    disk_bw = ioprop['read_bandwidth'] / (1024 * 1024)
+
+    m = io_tester(args)
+    m.add_job(f'reads_a_unb', job('randread', 128, prl = args.parallelism))
+    m.add_job(f'reads_b_unb', job('randread', 128, prl = args.parallelism))
+    class_limit_run_and_show_results(m)
+
+    m = io_tester(args)
+    m.add_job(f'reads_a_unb', job('randread', 128, prl = args.parallelism))
+    m.add_job(f'reads_b_{int(disk_bw/4)}', job('randread', 128, prl = args.parallelism, bandwidth_mb = int(disk_bw/4)))
+    class_limit_run_and_show_results(m)
+
+    m = io_tester(args)
+    m.add_job(f'reads_a_unb', job('randread', 128, prl = args.parallelism))
+    m.add_job(f'reads_b_{int(disk_bw*2/3)}', job('randread', 128, prl = args.parallelism, bandwidth_mb = int(disk_bw*2/3)))
+    class_limit_run_and_show_results(m)
 
 
 print(f'=== Running {args.test_name} ===')

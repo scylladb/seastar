@@ -274,6 +274,7 @@ private:
     std::unordered_map<dev_t, std::unique_ptr<io_queue>> _io_queues;
     // ... when dispatched all requests get into this single sink
     internal::io_sink _io_sink;
+    unsigned _num_io_groups = 0;
 
     std::vector<noncopyable_function<future<> ()>> _exit_funcs;
     unsigned _id = 0;
@@ -489,6 +490,8 @@ public:
     future<> update_shares_for_class(io_priority_class pc, uint32_t shares);
     /// @private
     future<> update_shares_for_queues(io_priority_class pc, uint32_t shares);
+    /// @private
+    future<> update_bandwidth_for_queues(io_priority_class pc, uint64_t bandwidth);
 
     [[deprecated("Use io_priority_class.rename")]]
     static future<> rename_priority_class(io_priority_class pc, sstring new_name) noexcept;

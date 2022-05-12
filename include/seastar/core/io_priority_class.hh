@@ -29,7 +29,6 @@
 
 namespace seastar {
 
-/// \cond internal
 class io_queue;
 using io_priority_class_id = unsigned;
 // We could very well just add the name to the io_priority_class. However, because that
@@ -58,6 +57,15 @@ public:
     /// \param shares the new shares value
     /// \return a future that is ready when the share update is applied
     future<> update_shares(uint32_t shares) const;
+
+    /// \brief Updates the current bandwidth for a given priority class
+    ///
+    /// The bandwidth applied is NOT shard-local, instead it is applied so that
+    /// all shards cannot consume more bytes-per-second altogether
+    ///
+    /// \param bandwidth the new bandwidth value in bytes/second
+    /// \return a future that is ready when the bandwidth update is applied
+    future<> update_bandwidth(uint64_t bandwidth) const;
 
     /// Renames an io priority class
     ///

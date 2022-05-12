@@ -54,7 +54,34 @@ struct default_io_exception_factory {
     }
 };
 
+struct io_group::priority_class_data {
+    using token_bucket_t = internal::shared_token_bucket<uint64_t, std::ratio<1>, internal::capped_release::no>;
+
+    static constexpr uint64_t bandwidth_burst_in_blocks = 10 << (20 - io_queue::block_size_shift); // 10MB
+    static constexpr uint64_t bandwidth_threshold_in_blocks = 128 << (10 - io_queue::block_size_shift); // 128kB
+    token_bucket_t tb;
+
+    uint64_t tokens(size_t length) const noexcept {
+        return length >> io_queue::block_size_shift;
+    }
+
+    void update_bandwidth(uint64_t bandwidth) {
+        if (bandwidth >> io_queue::block_size_shift > tb.max_rate) {
+            // It's ... tooooo big value indeed
+            throw std::runtime_error(format("Too large rate, maximum is {}MB/s", tb.max_rate >> (20 - io_queue::block_size_shift)));
+        }
+
+        tb.update_rate(tokens(bandwidth));
+    }
+
+    priority_class_data() noexcept
+            : tb(std::numeric_limits<uint64_t>::max(), bandwidth_burst_in_blocks, bandwidth_threshold_in_blocks)
+    {
+    }
+};
+
 class io_queue::priority_class_data {
+    io_queue& _queue;
     const io_priority_class _pc;
     uint32_t _shares;
     struct {
@@ -74,13 +101,33 @@ class io_queue::priority_class_data {
     std::chrono::duration<double> _starvation_time;
     io_queue::clock_type::time_point _activated;
 
+    io_group::priority_class_data& _group;
+    size_t _replenish_head;
+    timer<lowres_clock> _replenish;
+
+    void try_to_replenish() noexcept {
+        _group.tb.replenish(io_queue::clock_type::now());
+        auto delta = _group.tb.deficiency(_replenish_head);
+        if (delta > 0) {
+            _replenish.arm(std::chrono::duration_cast<std::chrono::microseconds>(_group.tb.duration_for(delta)));
+        } else {
+            _queue.unthrottle_priority_class(*this);
+        }
+    }
+
 public:
     void update_shares(uint32_t shares) noexcept {
         _shares = std::max(shares, 1u);
     }
 
-    priority_class_data(io_priority_class pc, uint32_t shares)
-        : _pc(pc)
+    void update_bandwidth(uint64_t bandwidth) {
+        _group.update_bandwidth(bandwidth);
+        io_log.debug("Updated {} class bandwidth to {}MB/s", _pc.id(), bandwidth >> 20);
+    }
+
+    priority_class_data(io_priority_class pc, uint32_t shares, io_queue& q, io_group::priority_class_data& pg)
+        : _queue(q)
+        , _pc(pc)
         , _shares(shares)
         , _nr_queued(0)
         , _nr_executing(0)
@@ -88,6 +135,8 @@ public:
         , _total_queue_time(0)
         , _total_execution_time(0)
         , _starvation_time(0)
+        , _group(pg)
+        , _replenish([this] { try_to_replenish(); })
     {
     }
     priority_class_data(const priority_class_data&) = delete;
@@ -108,6 +157,15 @@ public:
         _nr_executing++;
         if (_nr_executing == 1) {
             _starvation_time += io_queue::clock_type::now() - _activated;
+        }
+
+        auto tokens = _group.tokens(dnl.length());
+        auto ph = _group.tb.grab(tokens);
+        auto delta = _group.tb.deficiency(ph);
+        if (delta > 0) {
+            _queue.throttle_priority_class(*this);
+            _replenish_head = ph;
+            _replenish.arm(std::chrono::duration_cast<std::chrono::microseconds>(_group.tb.duration_for(delta)));
         }
     }
 
@@ -378,6 +436,7 @@ fair_group::config io_group::make_fair_group_config(const io_queue::config& qcfg
 
 io_group::io_group(io_queue::config io_cfg)
     : _config(std::move(io_cfg))
+    , _allocated_on(this_shard_id())
 {
     auto fg_cfg = make_fair_group_config(_config);
     _fgs.push_back(std::make_unique<fair_group>(fg_cfg));
@@ -416,6 +475,9 @@ io_group::io_group(io_queue::config io_cfg)
             _max_request_length[io_direction_and_length::read_idx],
             _max_request_length[io_direction_and_length::write_idx],
             _config.req_count_rate, _config.blocks_count_rate);
+}
+
+io_group::~io_group() {
 }
 
 io_queue::~io_queue() {
@@ -470,6 +532,10 @@ future<> io_priority_class::update_shares(uint32_t shares) const {
     // Keep registered shares intact, just update the ones
     // on reactor queues
     return engine().update_shares_for_queues(*this, shares);
+}
+
+future<> io_priority_class::update_bandwidth(uint64_t bandwidth) const {
+    return engine().update_bandwidth_for_queues(*this, bandwidth);
 }
 
 bool io_priority_class::rename_registered(sstring new_name) {
@@ -613,11 +679,27 @@ io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_
         for (auto&& s : _streams) {
             s.register_priority_class(id, shares);
         }
-        auto pc_data = std::make_unique<priority_class_data>(pc, shares);
+        auto& pg = _group->find_or_create_class(pc);
+        auto pc_data = std::make_unique<priority_class_data>(pc, shares, *this, pg);
         register_stats(name, *pc_data);
 
         _priority_classes[id] = std::move(pc_data);
     }
+    return *_priority_classes[id];
+}
+
+io_group::priority_class_data& io_group::find_or_create_class(io_priority_class pc) {
+    std::lock_guard _(_lock);
+
+    auto id = pc.id();
+    if (id >= _priority_classes.size()) {
+        _priority_classes.resize(id + 1);
+    }
+    if (!_priority_classes[id]) {
+        auto pg = std::make_unique<priority_class_data>();
+        _priority_classes[id] = std::move(pg);
+    }
+
     return *_priority_classes[id];
 }
 
@@ -738,6 +820,15 @@ io_queue::update_shares_for_class(const io_priority_class pc, size_t new_shares)
     });
 }
 
+future<> io_queue::update_bandwidth_for_class(const io_priority_class pc, uint64_t new_bandwidth) {
+    return futurize_invoke([this, pc, new_bandwidth] {
+        if (_group->_allocated_on == this_shard_id()) {
+            auto& pclass = find_or_create_class(pc);
+            pclass.update_bandwidth(new_bandwidth);
+        }
+    });
+}
+
 void
 io_queue::rename_priority_class(io_priority_class pc, sstring new_name) {
     if (_priority_classes.size() > pc.id() &&
@@ -750,6 +841,18 @@ io_queue::rename_priority_class(io_priority_class pc, sstring new_name) {
             // renamed again (this will cause a double registration exception
             // to be thrown).
         }
+    }
+}
+
+void io_queue::throttle_priority_class(const priority_class_data& pc) noexcept {
+    for (auto&& s : _streams) {
+        s.unplug_class(pc.fq_class());
+    }
+}
+
+void io_queue::unthrottle_priority_class(const priority_class_data& pc) noexcept {
+    for (auto&& s : _streams) {
+        s.plug_class(pc.fq_class());
     }
 }
 

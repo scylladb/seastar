@@ -167,6 +167,7 @@ struct shard_info {
     unsigned rps = 0;
     unsigned shares = 10;
     uint64_t request_size = 4 << 10;
+    uint64_t bandwidth = 0;
     std::chrono::duration<float> think_time = 0ms;
     std::chrono::duration<float> think_after = 0ms;
     std::chrono::duration<float> execution_time = 1ms;
@@ -350,7 +351,13 @@ public:
     // append            : will write to the file from pos = EOF onwards, always appending to the end.
     // cpu               : CPU-only load, file is not created.
     future<> start(sstring dir, directory_entry_type type) {
-        return do_start(dir, type);
+        return do_start(dir, type).then([this] {
+            if (this_shard_id() == 0 && _config.shard_info.bandwidth != 0) {
+                return _iop.update_bandwidth(_config.shard_info.bandwidth);
+            } else {
+                return make_ready_future<>();
+            }
+        });
     }
 
     future<> stop() {
@@ -762,6 +769,9 @@ struct convert<shard_info> {
 
         if (node["shares"]) {
             sl.shares = node["shares"].as<unsigned>();
+        }
+        if (node["bandwidth"]) {
+            sl.bandwidth = node["bandwidth"].as<byte_size>().size;
         }
         if (node["reqsize"]) {
             sl.request_size = node["reqsize"].as<byte_size>().size;
