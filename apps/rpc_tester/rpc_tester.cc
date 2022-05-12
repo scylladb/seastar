@@ -132,6 +132,7 @@ struct job_config {
     bool server = false;
 
     std::chrono::seconds duration;
+    std::string sg_name;
     scheduling_group sg = default_scheduling_group();
 };
 
@@ -188,6 +189,11 @@ struct convert<job_config> {
         }
         if (node["shares"]) {
             cfg.shares = node["shares"].as<unsigned>();
+        }
+        if (node["sched_group"]) {
+            cfg.sg_name = node["sched_group"].as<std::string>();
+        } else {
+            cfg.sg_name = cfg.name;
         }
         return true;
     }
@@ -538,13 +544,16 @@ int main(int ac, char** av) {
 
             YAML::Node doc = YAML::LoadFile(conf);
             auto cfg = doc.as<config>();
+            std::unordered_map<std::string, scheduling_group> groups;
+
             for (auto&& jc : cfg.jobs) {
                 jc.duration = duration;
+                if (groups.count(jc.sg_name) == 0) {
+                    fmt::print("Make sched group {}, {} shares\n", jc.sg_name, jc.shares);
+                    groups[jc.sg_name] = create_scheduling_group(jc.sg_name, jc.shares).get0();
+                }
+                jc.sg = groups[jc.sg_name];
             }
-
-            parallel_for_each(cfg.jobs, [&] (auto& jc) {
-                return create_scheduling_group(jc.name, jc.shares).then([&jc] (auto sg) { jc.sg = sg; });
-            }).get();
 
             ctx.start(laddr, caddr, port, cfg).get();
             ctx.invoke_on_all(&context::start).get();
