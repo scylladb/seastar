@@ -21,6 +21,7 @@
 
 #include <vector>
 #include <chrono>
+#include <random>
 #include <yaml-cpp/yaml.h>
 #include <fmt/core.h>
 #include <boost/range/irange.hpp>
@@ -111,6 +112,53 @@ inline payload_t read(serializer, Input& in, rpc::type<payload_t>) {
     return ret;
 }
 
+class pause_distribution {
+public:
+
+    virtual std::chrono::duration<double> get() = 0;
+
+    template <typename Dur>
+    Dur get_as() {
+        return std::chrono::duration_cast<Dur>(get());
+    }
+
+    virtual ~pause_distribution() {}
+};
+
+class steady_process : public pause_distribution {
+    std::chrono::duration<double> _pause;
+public:
+    steady_process(std::chrono::duration<double> period) : _pause(period) { }
+    std::chrono::duration<double> get() override { return _pause; }
+};
+
+std::unique_ptr<pause_distribution> make_steady_pause(std::chrono::duration<double> d) {
+    return std::make_unique<steady_process>(d);
+}
+
+class uniform_process : public pause_distribution {
+    std::random_device _rd;
+    std::mt19937 _rng;
+    std::uniform_real_distribution<double> _range;
+
+public:
+    uniform_process(std::chrono::duration<double> min, std::chrono::duration<double> max)
+            : _rng(_rd()) , _range(min.count(), max.count()) { }
+
+    std::chrono::duration<double> get() override {
+        return std::chrono::duration<double>(_range(_rng));
+    }
+};
+
+struct duration_range {
+    std::chrono::duration<double> min;
+    std::chrono::duration<double> max;
+};
+
+std::unique_ptr<pause_distribution> make_uniform_pause(duration_range range) {
+    return std::make_unique<uniform_process>(range.min, range.max);
+}
+
 struct client_config {
     bool nodelay = true;
 };
@@ -126,6 +174,7 @@ struct job_config {
     unsigned parallelism;
     unsigned shares = 100;
     std::chrono::duration<double> exec_time;
+    std::optional<duration_range> exec_time_range;
     size_t payload;
 
     bool client = false;
@@ -183,7 +232,14 @@ struct convert<job_config> {
             cfg.payload = node["payload"].as<byte_size>().size;
             cfg.client = true;
         } else if (cfg.type == "cpu") {
-            cfg.exec_time = node["execution_time"].as<duration_time>().time;
+            if (node["execution_time"]) {
+                cfg.exec_time = node["execution_time"].as<duration_time>().time;
+            } else {
+                duration_range r;
+                r.min = node["execution_time_min"].as<duration_time>().time;
+                r.max = node["execution_time_max"].as<duration_time>().time;
+                cfg.exec_time_range = r;
+            }
             cfg.client = !node["side"] || (node["side"].as<std::string>() == "client");
             cfg.server = !node["side"] || (node["side"].as<std::string>() == "server");
         }
@@ -363,10 +419,21 @@ class job_cpu : public job {
     job_config _cfg;
     std::chrono::steady_clock::time_point _stop;
     uint64_t _total_invocations = 0;
+    std::unique_ptr<pause_distribution> _pause;
+
+    std::unique_ptr<pause_distribution> make_pause() {
+        if (_cfg.exec_time_range) {
+            fmt::print("{} has {}..{} pauses\n", name(), _cfg.exec_time_range->min.count(), _cfg.exec_time_range->max.count());
+            return make_uniform_pause(*_cfg.exec_time_range);
+        } else {
+            return make_steady_pause(_cfg.exec_time);
+        }
+    }
 
 public:
     job_cpu(job_config cfg)
             : _cfg(cfg)
+            , _pause(make_pause())
     {
     }
 
@@ -384,7 +451,8 @@ public:
             }, [this] {
                 _total_invocations++;
                 auto start  = std::chrono::steady_clock::now();
-                while ((std::chrono::steady_clock::now() - start) < _cfg.exec_time);
+                auto pause = _pause->get();
+                while ((std::chrono::steady_clock::now() - start) < pause);
                 return make_ready_future<>();
             });
           });
