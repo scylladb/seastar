@@ -3846,8 +3846,8 @@ unsigned smp::adjust_max_networking_aio_io_control_blocks(unsigned network_iocbs
     static unsigned constexpr storage_iocbs = reactor::max_aio;
     static unsigned constexpr preempt_iocbs = 2;
 
-    auto aio_max_nr = read_first_line_as<unsigned>("/proc/sys/fs/aio-max-nr");
-    auto aio_nr = read_first_line_as<unsigned>("/proc/sys/fs/aio-nr");
+    auto aio_max_nr = read_first_line_as<signed>("/proc/sys/fs/aio-max-nr");
+    auto aio_nr = read_first_line_as<signed>("/proc/sys/fs/aio-nr");
     auto available_aio = aio_max_nr - aio_nr;
     auto requested_aio_network = network_iocbs * smp::count;
     auto requested_aio_other = (storage_iocbs + preempt_iocbs) * smp::count;
