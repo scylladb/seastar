@@ -104,6 +104,7 @@ fedora_packages=(
     libasan
     libatomic
     valgrind-devel
+    dpdk-devel
 )
 
 centos7_packages=(
