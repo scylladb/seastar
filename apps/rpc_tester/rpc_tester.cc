@@ -345,29 +345,32 @@ class job_rpc : public job {
     using accumulator_type = accumulator_set<double, stats<tag::extended_p_square_quantile(quadratic), tag::mean, tag::max>>;
 
     job_config _cfg;
+    ipv4_addr _caddr;
+    client_config _ccfg;
     rpc_protocol& _rpc;
-    rpc_protocol::client& _client;
+    std::unique_ptr<rpc_protocol::client> _client;
     std::function<future<>(unsigned)> _call;
     std::chrono::steady_clock::time_point _stop;
     uint64_t _total_messages = 0;
     accumulator_type _latencies;
 
     future<> call_echo(unsigned dummy) {
-        return _rpc.make_client<uint64_t(uint64_t)>(rpc_verb::ECHO)(_client, dummy).discard_result();
+        return _rpc.make_client<uint64_t(uint64_t)>(rpc_verb::ECHO)(*_client, dummy).discard_result();
     }
 
     future<> call_write(unsigned dummy, const payload_t& pl) {
-        return _rpc.make_client<uint64_t(payload_t)>(rpc_verb::WRITE)(_client, pl).then([exp = pl.size()] (auto res) {
+        return _rpc.make_client<uint64_t(payload_t)>(rpc_verb::WRITE)(*_client, pl).then([exp = pl.size()] (auto res) {
             assert(res == exp);
             return make_ready_future<>();
         });
     }
 
 public:
-    job_rpc(job_config cfg, rpc_protocol& rpc, rpc_protocol::client& client)
+    job_rpc(job_config cfg, rpc_protocol& rpc, client_config ccfg, ipv4_addr caddr)
             : _cfg(cfg)
+            , _caddr(std::move(caddr))
+            , _ccfg(ccfg)
             , _rpc(rpc)
-            , _client(client)
             , _stop(std::chrono::steady_clock::now() + _cfg.duration)
             , _latencies(extended_p_square_probabilities = quantiles)
     {
@@ -386,6 +389,10 @@ public:
 
     virtual future<> run() override {
       return with_scheduling_group(_cfg.sg, [this] {
+        rpc::client_options co;
+        co.tcp_nodelay = _ccfg.nodelay;
+        co.isolation_cookie = _cfg.sg_name;
+        _client = std::make_unique<rpc_protocol::client>(_rpc, co, _caddr);
         return parallel_for_each(boost::irange(0u, _cfg.parallelism), [this] (auto dummy) {
             return do_until([this] {
                 return std::chrono::steady_clock::now() > _stop;
@@ -397,8 +404,9 @@ public:
                     _latencies(lat.count());
                 });
             });
+        }).finally([this] {
+            return _client->stop();
         });
-        return make_ready_future<>();
       });
     }
 
@@ -468,10 +476,11 @@ class context {
     promise<> _server_jobs;
     config _cfg;
     std::vector<std::unique_ptr<job>> _jobs;
+    std::unordered_map<std::string, scheduling_group> _sched_groups;
 
-    std::unique_ptr<job> make_job(job_config cfg) {
+    std::unique_ptr<job> make_job(job_config cfg, std::optional<ipv4_addr> caddr) {
         if (cfg.type == "rpc") {
-            return std::make_unique<job_rpc>(cfg, *_rpc, *_client);
+            return std::make_unique<job_rpc>(cfg, *_rpc, _cfg.client, *caddr);
         }
         if (cfg.type == "cpu") {
             return std::make_unique<job_cpu>(cfg);
@@ -486,10 +495,19 @@ class context {
         });
     }
 
+    rpc::isolation_config isolate_connection(std::string group_name) {
+        rpc::isolation_config cfg;
+        if (group_name != "") {
+            cfg.sched_group = _sched_groups[group_name];
+        }
+        return cfg;
+    }
+
 public:
-    context(std::optional<ipv4_addr> laddr, std::optional<ipv4_addr> caddr, uint16_t port, config cfg)
+    context(std::optional<ipv4_addr> laddr, std::optional<ipv4_addr> caddr, uint16_t port, config cfg, std::unordered_map<std::string, scheduling_group> groups)
             : _rpc(std::make_unique<rpc_protocol>(serializer{}))
             , _cfg(cfg)
+            , _sched_groups(std::move(groups))
     {
         _rpc->register_handler(rpc_verb::HELLO, [this] {
             fmt::print("Got HELLO message from client\n");
@@ -510,11 +528,12 @@ public:
             rpc::server_options so;
             so.tcp_nodelay = _cfg.server.nodelay;
             rpc::resource_limits limits;
+            limits.isolate_connection = [this] (sstring cookie) { return isolate_connection(cookie); };
             _server = std::make_unique<rpc_protocol::server>(*_rpc, so, *laddr, limits);
 
             for (auto&& jc : _cfg.jobs) {
                 if (jc.server) {
-                    _jobs.push_back(make_job(jc));
+                    _jobs.push_back(make_job(jc, {}));
                 }
             }
         }
@@ -526,7 +545,7 @@ public:
 
             for (auto&& jc : _cfg.jobs) {
                 if (jc.client) {
-                    _jobs.push_back(make_job(jc));
+                    _jobs.push_back(make_job(jc, *caddr));
                 }
             }
         }
@@ -623,7 +642,7 @@ int main(int ac, char** av) {
                 jc.sg = groups[jc.sg_name];
             }
 
-            ctx.start(laddr, caddr, port, cfg).get();
+            ctx.start(laddr, caddr, port, cfg, groups).get();
             ctx.invoke_on_all(&context::start).get();
             ctx.invoke_on_all(&context::run).get();
 
