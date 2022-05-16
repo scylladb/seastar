@@ -21,6 +21,7 @@
 
 #include <vector>
 #include <chrono>
+#include <random>
 #include <yaml-cpp/yaml.h>
 #include <fmt/core.h>
 #include <boost/range/irange.hpp>
@@ -111,6 +112,53 @@ inline payload_t read(serializer, Input& in, rpc::type<payload_t>) {
     return ret;
 }
 
+class pause_distribution {
+public:
+
+    virtual std::chrono::duration<double> get() = 0;
+
+    template <typename Dur>
+    Dur get_as() {
+        return std::chrono::duration_cast<Dur>(get());
+    }
+
+    virtual ~pause_distribution() {}
+};
+
+class steady_process : public pause_distribution {
+    std::chrono::duration<double> _pause;
+public:
+    steady_process(std::chrono::duration<double> period) : _pause(period) { }
+    std::chrono::duration<double> get() override { return _pause; }
+};
+
+std::unique_ptr<pause_distribution> make_steady_pause(std::chrono::duration<double> d) {
+    return std::make_unique<steady_process>(d);
+}
+
+class uniform_process : public pause_distribution {
+    std::random_device _rd;
+    std::mt19937 _rng;
+    std::uniform_real_distribution<double> _range;
+
+public:
+    uniform_process(std::chrono::duration<double> min, std::chrono::duration<double> max)
+            : _rng(_rd()) , _range(min.count(), max.count()) { }
+
+    std::chrono::duration<double> get() override {
+        return std::chrono::duration<double>(_range(_rng));
+    }
+};
+
+struct duration_range {
+    std::chrono::duration<double> min;
+    std::chrono::duration<double> max;
+};
+
+std::unique_ptr<pause_distribution> make_uniform_pause(duration_range range) {
+    return std::make_unique<uniform_process>(range.min, range.max);
+}
+
 struct client_config {
     bool nodelay = true;
 };
@@ -126,12 +174,14 @@ struct job_config {
     unsigned parallelism;
     unsigned shares = 100;
     std::chrono::duration<double> exec_time;
+    std::optional<duration_range> exec_time_range;
     size_t payload;
 
     bool client = false;
     bool server = false;
 
     std::chrono::seconds duration;
+    std::string sg_name;
     scheduling_group sg = default_scheduling_group();
 };
 
@@ -176,18 +226,30 @@ struct convert<job_config> {
     static bool decode(const Node& node, job_config& cfg) {
         cfg.name = node["name"].as<std::string>();
         cfg.type = node["type"].as<std::string>();
+        cfg.parallelism = node["parallelism"].as<unsigned>();
         if (cfg.type == "rpc") {
             cfg.verb = node["verb"].as<std::string>();
-            cfg.parallelism = node["parallelism"].as<unsigned>();
             cfg.payload = node["payload"].as<byte_size>().size;
             cfg.client = true;
         } else if (cfg.type == "cpu") {
-            cfg.exec_time = node["execution_time"].as<duration_time>().time;
+            if (node["execution_time"]) {
+                cfg.exec_time = node["execution_time"].as<duration_time>().time;
+            } else {
+                duration_range r;
+                r.min = node["execution_time_min"].as<duration_time>().time;
+                r.max = node["execution_time_max"].as<duration_time>().time;
+                cfg.exec_time_range = r;
+            }
             cfg.client = !node["side"] || (node["side"].as<std::string>() == "client");
             cfg.server = !node["side"] || (node["side"].as<std::string>() == "server");
         }
         if (node["shares"]) {
             cfg.shares = node["shares"].as<unsigned>();
+        }
+        if (node["sched_group"]) {
+            cfg.sg_name = node["sched_group"].as<std::string>();
+        } else {
+            cfg.sg_name = cfg.name;
         }
         return true;
     }
@@ -357,10 +419,21 @@ class job_cpu : public job {
     job_config _cfg;
     std::chrono::steady_clock::time_point _stop;
     uint64_t _total_invocations = 0;
+    std::unique_ptr<pause_distribution> _pause;
+
+    std::unique_ptr<pause_distribution> make_pause() {
+        if (_cfg.exec_time_range) {
+            fmt::print("{} has {}..{} pauses\n", name(), _cfg.exec_time_range->min.count(), _cfg.exec_time_range->max.count());
+            return make_uniform_pause(*_cfg.exec_time_range);
+        } else {
+            return make_steady_pause(_cfg.exec_time);
+        }
+    }
 
 public:
     job_cpu(job_config cfg)
             : _cfg(cfg)
+            , _pause(make_pause())
     {
     }
 
@@ -372,14 +445,17 @@ public:
     virtual future<> run() override {
         _stop = std::chrono::steady_clock::now() + _cfg.duration;
         return with_scheduling_group(_cfg.sg, [this] {
+          return parallel_for_each(boost::irange(0u, _cfg.parallelism), [this] (auto dummy) {
             return do_until([this] {
                 return std::chrono::steady_clock::now() > _stop;
             }, [this] {
                 _total_invocations++;
                 auto start  = std::chrono::steady_clock::now();
-                while ((std::chrono::steady_clock::now() - start) < _cfg.exec_time);
+                auto pause = _pause->get();
+                while ((std::chrono::steady_clock::now() - start) < pause);
                 return make_ready_future<>();
             });
+          });
         });
     }
 };
@@ -536,13 +612,16 @@ int main(int ac, char** av) {
 
             YAML::Node doc = YAML::LoadFile(conf);
             auto cfg = doc.as<config>();
+            std::unordered_map<std::string, scheduling_group> groups;
+
             for (auto&& jc : cfg.jobs) {
                 jc.duration = duration;
+                if (groups.count(jc.sg_name) == 0) {
+                    fmt::print("Make sched group {}, {} shares\n", jc.sg_name, jc.shares);
+                    groups[jc.sg_name] = create_scheduling_group(jc.sg_name, jc.shares).get0();
+                }
+                jc.sg = groups[jc.sg_name];
             }
-
-            parallel_for_each(cfg.jobs, [&] (auto& jc) {
-                return create_scheduling_group(jc.name, jc.shares).then([&jc] (auto sg) { jc.sg = sg; });
-            }).get();
 
             ctx.start(laddr, caddr, port, cfg).get();
             ctx.invoke_on_all(&context::start).get();
