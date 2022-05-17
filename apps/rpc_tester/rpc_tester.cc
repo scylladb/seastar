@@ -345,7 +345,7 @@ class job_rpc : public job {
     using accumulator_type = accumulator_set<double, stats<tag::extended_p_square_quantile(quadratic), tag::mean, tag::max>>;
 
     job_config _cfg;
-    ipv4_addr _caddr;
+    socket_address _caddr;
     client_config _ccfg;
     rpc_protocol& _rpc;
     std::unique_ptr<rpc_protocol::client> _client;
@@ -366,7 +366,7 @@ class job_rpc : public job {
     }
 
 public:
-    job_rpc(job_config cfg, rpc_protocol& rpc, client_config ccfg, ipv4_addr caddr)
+    job_rpc(job_config cfg, rpc_protocol& rpc, client_config ccfg, socket_address caddr)
             : _cfg(cfg)
             , _caddr(std::move(caddr))
             , _ccfg(ccfg)
@@ -478,7 +478,7 @@ class context {
     std::vector<std::unique_ptr<job>> _jobs;
     std::unordered_map<std::string, scheduling_group> _sched_groups;
 
-    std::unique_ptr<job> make_job(job_config cfg, std::optional<ipv4_addr> caddr) {
+    std::unique_ptr<job> make_job(job_config cfg, std::optional<socket_address> caddr) {
         if (cfg.type == "rpc") {
             return std::make_unique<job_rpc>(cfg, *_rpc, _cfg.client, *caddr);
         }
@@ -504,7 +504,7 @@ class context {
     }
 
 public:
-    context(std::optional<ipv4_addr> laddr, std::optional<ipv4_addr> caddr, uint16_t port, config cfg, std::unordered_map<std::string, scheduling_group> groups)
+    context(std::optional<socket_address> laddr, std::optional<socket_address> caddr, uint16_t port, config cfg, std::unordered_map<std::string, scheduling_group> groups)
             : _rpc(std::make_unique<rpc_protocol>(serializer{}))
             , _cfg(cfg)
             , _sched_groups(std::move(groups))
@@ -620,13 +620,25 @@ int main(int ac, char** av) {
             auto& conf = opts["conf"].as<sstring>();
             auto duration = std::chrono::seconds(opts["duration"].as<unsigned>());
 
-            std::optional<ipv4_addr> laddr;
+            std::optional<socket_address> laddr;
             if (listen != "") {
-                laddr.emplace(listen, port);
+                if (listen[0] == '.' || listen[0] == '/') {
+                    unix_domain_addr addr(listen);
+                    laddr.emplace(std::move(addr));
+                } else {
+                    ipv4_addr addr(listen, port);
+                    laddr.emplace(std::move(addr));
+                }
             }
-            std::optional<ipv4_addr> caddr;
+            std::optional<socket_address> caddr;
             if (connect != "") {
-                caddr.emplace(connect, port);
+                if (connect[0] == '.' || connect[0] == '/') {
+                    unix_domain_addr addr(connect);
+                    caddr.emplace(std::move(addr));
+                } else {
+                    ipv4_addr addr(connect, port);
+                    caddr.emplace(std::move(addr));
+                }
             }
 
             YAML::Node doc = YAML::LoadFile(conf);
