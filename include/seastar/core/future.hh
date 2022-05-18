@@ -35,6 +35,7 @@
 #include <seastar/util/concepts.hh>
 #include <seastar/util/noncopyable_function.hh>
 #include <seastar/util/backtrace.hh>
+#include <seastar/util/std-compat.hh>
 
 #if __cplusplus > 201703L
 #include <concepts>
