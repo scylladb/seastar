@@ -1102,3 +1102,119 @@ SEASTAR_THREAD_TEST_CASE(test_closed_write) {
     }
 
 }
+
+/*
+ * Certificates:
+ *
+ * make -f tests/unit/mkmtls.gmk domain=scylladb.org server=test
+ *
+ * ->   mtls_ca.crt
+ *      mtls_ca.key
+ *      mtls_server.crt
+ *      mtls_server.csr
+ *      mtls_server.key
+ *      mtls_client1.crt
+ *      mtls_client1.csr
+ *      mtls_client1.key
+ *      mtls_client2.crt
+ *      mtls_client2.csr
+ *      mtls_client2.key
+ *
+ */
+SEASTAR_THREAD_TEST_CASE(test_dn_name_handling) {
+    // Connect to server using two different client certificates.
+    // Make sure that for every client the server can fetch DN string
+    // and the string is correct.
+    // The setup consist of several certificates:
+    // - CA
+    // - mtls_server.crt - server certificate
+    // - mtls_client1.crt - first client certificate
+    // - mtls_client2.crt - second client certificate
+    //
+    // The test runs server that uses mtls_server.crt.
+    // The server accepts two incomming connections, first one uses mtls_client1.crt
+    // and the second one uses mtls_client2.crt. Every client sends a short string
+    // that server receives and tries to find it in the DN string.
+
+    auto addr = ::make_ipv4_address( {0x7f000001, 4712});
+
+    auto client1_creds = [] {
+        tls::credentials_builder builder;
+        builder.set_x509_trust_file(certfile("mtls_ca.crt"), tls::x509_crt_format::PEM).get();
+        builder.set_x509_key_file(certfile("mtls_client1.crt"), certfile("mtls_client1.key"), tls::x509_crt_format::PEM).get();
+        return builder.build_certificate_credentials();
+    }();
+
+    auto client2_creds = [] {
+        tls::credentials_builder builder;
+        builder.set_x509_trust_file(certfile("mtls_ca.crt"), tls::x509_crt_format::PEM).get();
+        builder.set_x509_key_file(certfile("mtls_client2.crt"), certfile("mtls_client2.key"), tls::x509_crt_format::PEM).get();
+        return builder.build_certificate_credentials();
+    }();
+
+    auto server_creds = [] {
+        tls::credentials_builder builder;
+        builder.set_x509_trust_file(certfile("mtls_ca.crt"), tls::x509_crt_format::PEM).get();
+        builder.set_x509_key_file(certfile("mtls_server.crt"), certfile("mtls_server.key"), tls::x509_crt_format::PEM).get();
+        builder.set_client_auth(tls::client_auth::REQUIRE);
+        return builder.build_server_credentials();
+    }();
+
+    listen_options lo{};
+    lo.reuse_address = true;
+    auto ssock = tls::listen(server_creds, addr, lo);
+
+    gate accept_gate;
+    int expected_accepts = 2;
+    (void)with_gate(accept_gate, [expected_accepts, ssock=std::move(ssock)] () mutable {
+        return async([expected_accepts, ssock=std::move(ssock)] () mutable {
+            while (expected_accepts --> 0) {
+                auto [connection, remoteaddr] = ssock.accept().get();
+                auto dn = tls::get_dn_information(connection).get();
+                BOOST_REQUIRE(dn.has_value());
+                auto server_socket = std::move(connection);
+                auto server_fin = server_socket.input();
+                auto server_fout = server_socket.output();
+                server_socket.set_nodelay(true);
+                server_socket.set_keepalive(true);
+
+                sstring client_id;
+                while(!server_fin.eof()) {
+                    auto read_buf = server_fin.read().get();
+                    client_id.append(read_buf.get(), read_buf.size());
+                }
+                server_fin.close().get();
+                server_fout.close().get();
+                server_socket.shutdown_output();
+                server_socket.shutdown_input();
+
+                auto it = dn->subject.find(client_id);
+                BOOST_REQUIRE(it != sstring::npos);
+            }
+        });
+    });
+
+    {
+        auto client_socket = tls::connect(client1_creds, addr).get();
+        auto client_fout = client_socket.output();
+        client_fout.write("client1.org").get();
+        client_fout.flush().get();
+        client_fout.close().get();
+
+        client_socket.shutdown_input();
+        client_socket.shutdown_output();
+    }
+
+    {
+        auto client_socket = tls::connect(client2_creds, addr).get();
+        auto client_fout = client_socket.output();
+        client_fout.write("client2.org").get();
+        client_fout.flush().get();
+        client_fout.close().get();
+
+        client_socket.shutdown_input();
+        client_socket.shutdown_output();
+    }
+
+    accept_gate.close().get();
+}
