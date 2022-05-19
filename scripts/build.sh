@@ -1,6 +1,6 @@
 #!/bin/bash
 # This scripts expects seastar-dev container to be built e.g. like this
-# $ docker build -t seastar-dev  -f ./build/dev/Dockerfile .
+# $ docker build -t seastar-dev  -f ./docker/dev/Dockerfile .
 
 BUILDER_IMAGE=${BUILDER_IMAGE:=seastar-dev}
 
