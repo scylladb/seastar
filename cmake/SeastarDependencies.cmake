@@ -60,6 +60,7 @@ macro (seastar_find_dependencies)
     GnuTLS
     LinuxMembarrier
     Sanitizers
+    SourceLocation
     StdAtomic
     hwloc
     lksctp-tools # No version information published.

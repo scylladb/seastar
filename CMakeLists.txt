@@ -730,6 +730,7 @@ target_link_libraries (seastar
     cryptopp::cryptopp
     fmt::fmt
     lz4::lz4
+    SourceLocation::source_location
   PRIVATE
     ${CMAKE_DL_LIBS}
     GnuTLS::gnutls
@@ -1231,6 +1232,7 @@ if (Seastar_INSTALL)
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindGnuTLS.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindLinuxMembarrier.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindSanitizers.cmake
+      ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindSourceLocation.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindStdAtomic.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findc-ares.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findcryptopp.cmake

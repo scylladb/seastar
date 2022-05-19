@@ -57,11 +57,11 @@ namespace std::pmr {
 #include <source_location>
 #endif
 
-#ifdef __cpp_lib_source_location
+#if defined(__cpp_lib_source_location) && !defined(SEASTAR_BROKEN_SOURCE_LOCATION)
 namespace seastar::compat {
 using source_location = std::source_location;
 }
-#elif __has_include(<experimental/source_location>)
+#elif __has_include(<experimental/source_location>) && !defined(SEASTAR_BROKEN_SOURCE_LOCATION)
 #include <experimental/source_location>
 namespace seastar::compat {
 using source_location = std::experimental::source_location;
