@@ -473,7 +473,7 @@ bool reactor_backend_aio::await_events(int timeout, const sigset_t* active_sigma
 }
 
 void reactor_backend_aio::signal_received(int signo, siginfo_t* siginfo, void* ignore) {
-    engine()._signals.action(signo, siginfo, ignore);
+    _r._signals.action(signo, siginfo, ignore);
 }
 
 reactor_backend_aio::reactor_backend_aio(reactor& r)
@@ -594,11 +594,11 @@ void reactor_backend_aio::forget(pollable_fd_state& fd) noexcept {
 
 future<std::tuple<pollable_fd, socket_address>>
 reactor_backend_aio::accept(pollable_fd_state& listenfd) {
-    return engine().do_accept(listenfd);
+    return _r.do_accept(listenfd);
 }
 
 future<> reactor_backend_aio::connect(pollable_fd_state& fd, socket_address& sa) {
-    return engine().do_connect(fd, sa);
+    return _r.do_connect(fd, sa);
 }
 
 void reactor_backend_aio::shutdown(pollable_fd_state& fd, int how) {
@@ -607,27 +607,27 @@ void reactor_backend_aio::shutdown(pollable_fd_state& fd, int how) {
 
 future<size_t>
 reactor_backend_aio::read_some(pollable_fd_state& fd, void* buffer, size_t len) {
-    return engine().do_read_some(fd, buffer, len);
+    return _r.do_read_some(fd, buffer, len);
 }
 
 future<size_t>
 reactor_backend_aio::read_some(pollable_fd_state& fd, const std::vector<iovec>& iov) {
-    return engine().do_read_some(fd, iov);
+    return _r.do_read_some(fd, iov);
 }
 
 future<temporary_buffer<char>>
 reactor_backend_aio::read_some(pollable_fd_state& fd, internal::buffer_allocator* ba) {
-    return engine().do_read_some(fd, ba);
+    return _r.do_read_some(fd, ba);
 }
 
 future<size_t>
 reactor_backend_aio::write_some(pollable_fd_state& fd, const void* buffer, size_t len) {
-    return engine().do_write_some(fd, buffer, len);
+    return _r.do_write_some(fd, buffer, len);
 }
 
 future<size_t>
 reactor_backend_aio::write_some(pollable_fd_state& fd, net::packet& p) {
-    return engine().do_write_some(fd, p);
+    return _r.do_write_some(fd, p);
 }
 
 void reactor_backend_aio::start_tick() {
@@ -915,7 +915,7 @@ void reactor_backend_epoll::complete_epoll_event(pollable_fd_state& pfd, int eve
 
 void reactor_backend_epoll::signal_received(int signo, siginfo_t* siginfo, void* ignore) {
     if (engine_is_ready()) {
-        engine()._signals.action(signo, siginfo, ignore);
+        _r._signals.action(signo, siginfo, ignore);
     } else {
         reactor::signals::failed_to_handle(signo);
     }
@@ -965,11 +965,11 @@ void reactor_backend_epoll::forget(pollable_fd_state& fd) noexcept {
 
 future<std::tuple<pollable_fd, socket_address>>
 reactor_backend_epoll::accept(pollable_fd_state& listenfd) {
-    return engine().do_accept(listenfd);
+    return _r.do_accept(listenfd);
 }
 
 future<> reactor_backend_epoll::connect(pollable_fd_state& fd, socket_address& sa) {
-    return engine().do_connect(fd, sa);
+    return _r.do_connect(fd, sa);
 }
 
 void reactor_backend_epoll::shutdown(pollable_fd_state& fd, int how) {
@@ -978,27 +978,27 @@ void reactor_backend_epoll::shutdown(pollable_fd_state& fd, int how) {
 
 future<size_t>
 reactor_backend_epoll::read_some(pollable_fd_state& fd, void* buffer, size_t len) {
-    return engine().do_read_some(fd, buffer, len);
+    return _r.do_read_some(fd, buffer, len);
 }
 
 future<size_t>
 reactor_backend_epoll::read_some(pollable_fd_state& fd, const std::vector<iovec>& iov) {
-    return engine().do_read_some(fd, iov);
+    return _r.do_read_some(fd, iov);
 }
 
 future<temporary_buffer<char>>
 reactor_backend_epoll::read_some(pollable_fd_state& fd, internal::buffer_allocator* ba) {
-    return engine().do_read_some(fd, ba);
+    return _r.do_read_some(fd, ba);
 }
 
 future<size_t>
 reactor_backend_epoll::write_some(pollable_fd_state& fd, const void* buffer, size_t len) {
-    return engine().do_write_some(fd, buffer, len);
+    return _r.do_write_some(fd, buffer, len);
 }
 
 future<size_t>
 reactor_backend_epoll::write_some(pollable_fd_state& fd, net::packet& p) {
-    return engine().do_write_some(fd, p);
+    return _r.do_write_some(fd, p);
 }
 
 void
