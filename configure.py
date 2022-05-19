@@ -55,8 +55,8 @@ def try_compile_and_link(compiler, source = '', flags = []):
         finally:
             if os.path.exists(ofile):
                 os.unlink(ofile)
-def dialect_supported(dialect, compiler='g++'):
-    return try_compile(compiler=compiler, source='', flags=['-std=' + dialect])
+def standard_supported(standard, compiler='g++'):
+    return try_compile(compiler=compiler, source='', flags=['-std=' + standard])
 
 arg_parser = argparse.ArgumentParser('Configure seastar')
 arg_parser.add_argument('--mode', action='store', choices=seastar_cmake.SUPPORTED_MODES + ['all'], default='all')
@@ -72,8 +72,8 @@ arg_parser.add_argument('--compiler', action = 'store', dest = 'cxx', default = 
                         help = 'C++ compiler path')
 arg_parser.add_argument('--c-compiler', action='store', dest='cc', default='gcc',
                         help = 'C compiler path (for bundled libraries such as dpdk)')
-arg_parser.add_argument('--c++-dialect', action='store', dest='cpp_dialect', default='',
-                        help='C++ dialect to build with [default: %(default)s]')
+arg_parser.add_argument('--c++-standard', action='store', dest='cpp_standard', default='',
+                        help='C++ standard to build with [default: %(default)s]')
 arg_parser.add_argument('--cook', action='append', dest='cook', default=[],
                         help='Supply this dependency locally for development via `cmake-cooking` (can be repeated)')
 arg_parser.add_argument('--verbose', dest='verbose', action='store_true', help='Make configure output more verbose.')
@@ -121,23 +121,22 @@ add_tristate(arg_parser, name='deferred-action-require-noexcept', dest='deferred
 arg_parser.add_argument('--prefix', dest='install_prefix', default='/usr/local', help='Root installation path of Seastar files')
 args = arg_parser.parse_args()
 
-def identify_best_dialect(dialects, compiler):
-    """Returns the first C++ dialect accepted by the compiler in the sequence,
-    assuming the "best" dialects appear first.
+def identify_best_standard(cpp_standards, compiler):
+    """Returns the first C++ standard accepted by the compiler in the sequence,
+    assuming the "best" standards appear first.
 
-    If no dialects are accepted, we fail configure.py. There is not point
-    of letting the user attempt to build with a dialect that is known not
-    to be supported. However, the user may still choose a dialect by
-    explicitly passing the --c++-dialect option.
+    If no standards are accepted, we fail configure.py. There is not point
+    of letting the user attempt to build with a standard that is known not
+    to be supported.
     """
-    for d in dialects:
-        if dialect_supported(d, compiler):
-            return d
-    raise Exception(f"{compiler} does not seem to support any of Seastar's preferred C++ dialects - {dialects}. Please upgrade your compiler, or choose a valid dialect with '--c++-dialect'")
+    for std in cpp_standards:
+        if standard_supported('c++{}'.format(std), compiler):
+            return std
+    raise Exception(f"{compiler} does not seem to support any of Seastar's preferred C++ standards - {cpp_standards}. Please upgrade your compiler.")
 
-if args.cpp_dialect == '':
-    cpp_dialects = ['gnu++20', 'c++20', 'gnu++2a', 'gnu++17', 'c++17', 'gnu++1z']
-    args.cpp_dialect = identify_best_dialect(cpp_dialects, compiler=args.cxx)
+if args.cpp_standard == '':
+    cpp_standards = ['23', '20', '17']
+    args.cpp_standard = identify_best_standard(cpp_standards, compiler=args.cxx)
 
 def infer_dpdk_machine(user_cflags):
     """Infer the DPDK machine identifier (e.g., 'ivb') from the space-separated
@@ -184,6 +183,7 @@ def configure_mode(mode):
         '-DCMAKE_BUILD_TYPE={}'.format(MODE_TO_CMAKE_BUILD_TYPE[mode]),
         '-DCMAKE_C_COMPILER={}'.format(args.cc),
         '-DCMAKE_CXX_COMPILER={}'.format(args.cxx),
+        '-DCMAKE_CXX_STANDARD={}'.format(args.cpp_standard),
         '-DCMAKE_INSTALL_PREFIX={}'.format(args.install_prefix),
         '-DSeastar_API_LEVEL={}'.format(args.api_level),
         '-DSeastar_SCHEDULING_GROUPS_COUNT={}'.format(args.scheduling_groups_count),
@@ -192,7 +192,6 @@ def configure_mode(mode):
         tr(args.exclude_demos, 'EXCLUDE_DEMOS_FROM_ALL'),
         tr(CFLAGS, 'CXX_FLAGS'),
         tr(LDFLAGS, 'LD_FLAGS'),
-        tr(args.cpp_dialect, 'CXX_DIALECT'),
         tr(args.dpdk, 'DPDK'),
         tr(infer_dpdk_machine(args.user_cflags), 'DPDK_MACHINE'),
         tr(args.hwloc, 'HWLOC', value_when_none='yes'),

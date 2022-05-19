@@ -186,17 +186,9 @@ option (Seastar_APPS
   "Enable application targets."
   ON)
 
-set (Seastar_CXX_DIALECT
-  "gnu++17"
-  CACHE
-  STRING
-  "Compile Seastar according to the named C++ standard.")
-if (Seastar_CXX_DIALECT)
-  # extract CXX standard (14/17/...) from Seastar_CXX_DIALECT
-  string(SUBSTRING ${Seastar_CXX_DIALECT} 5 2 STANDARD)
-  set(CMAKE_CXX_STANDARD ${STANDARD})
-  set(CMAKE_CXX_STANDARD_REQUIRED ON)
-endif ()
+option (CMAKE_CXX_STANDARD
+  "C++ standard to build with."
+  "17")
 
 set (Seastar_CXX_FLAGS
   ""
@@ -781,12 +773,15 @@ include (CTest)
 
 target_compile_options (seastar
   PUBLIC
-    $<$<COMPILE_LANGUAGE:CXX>:-std=${Seastar_CXX_DIALECT}>
     -U_FORTIFY_SOURCE)
 
 target_compile_definitions(seastar
   PUBLIC
   SEASTAR_API_LEVEL=${Seastar_API_LEVEL})
+
+target_compile_features(seastar
+  PUBLIC
+    cxx_std_${CMAKE_CXX_STANDARD})
 
 function (seastar_supports_flag flag var)
   set (CMAKE_REQUIRED_FLAGS "${flag}")
@@ -1006,6 +1001,11 @@ target_compile_definitions (seastar
 
 target_compile_options (seastar
   PRIVATE ${Seastar_PRIVATE_CXX_FLAGS})
+
+set_target_properties (seastar
+  PROPERTIES
+    CXX_STANDARD ${CMAKE_CXX_STANDARD}
+    CXX_EXTENSIONS ON)
 
 add_library (seastar_private INTERFACE)
 

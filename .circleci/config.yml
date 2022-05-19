@@ -2,9 +2,9 @@ version: 2.1
 jobs:
   build_and_test:
     parameters:
-      dialect:
-        description: C++ dialect to build with
-        default: gnu++20
+      standard:
+        description: C++ standard to build with
+        default: "20"
         type: string
     machine:
       image:  ubuntu-2004:202101-01
@@ -16,7 +16,7 @@ jobs:
       - run: echo 'docker run --pids-limit -1 --security-opt seccomp=unconfined --network host --user "$(id -u):$(id -g)" --rm -v $PWD:$PWD -w $PWD  docker.io/scylladb/seastar-toolchain "$@"' > run; chmod +x run
       - run:
           command: |
-            ./run ./configure.py --c++-dialect << parameters.dialect >>
+            ./run ./configure.py --c++-standard << parameters.standard >>
             ./run ninja -C build/release
             ./run ./test.py --mode release
 workflows:
@@ -24,6 +24,6 @@ workflows:
   build_and_test:
     jobs:
       - build_and_test:
-          dialect: c++20
+          standard: "20"
       - build_and_test:
-          dialect: c++17
+          standard: "17"
