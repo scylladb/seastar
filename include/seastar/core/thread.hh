@@ -246,8 +246,8 @@ async(thread_attributes attr, Func&& func, Args&&... args) noexcept {
         thread_attributes attr;
         Func func;
         std::tuple<Args...> args;
-        promise<return_type> pr;
-        thread th;
+        promise<return_type> pr{};
+        thread th{};
     };
 
     try {
