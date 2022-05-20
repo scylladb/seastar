@@ -45,8 +45,8 @@ private:
     using move_type = void (*)(noncopyable_function_base* from, noncopyable_function_base* to);
     using destroy_type = void (*)(noncopyable_function_base* func);
 
-    static void empty_move(noncopyable_function_base* from, noncopyable_function_base* to) {}
-    static void empty_destroy(noncopyable_function_base* func) {}
+    static void empty_move(noncopyable_function_base*, noncopyable_function_base*) {}
+    static void empty_destroy(noncopyable_function_base*) {}
 
     static void indirect_move(noncopyable_function_base* from, noncopyable_function_base* to) {
         using void_ptr = void*;
@@ -69,7 +69,7 @@ private:
 #pragma GCC diagnostic pop
     }
 
-    static void trivial_direct_destroy(noncopyable_function_base* func) {
+    static void trivial_direct_destroy(noncopyable_function_base*) {
     }
 
 private:
@@ -109,7 +109,7 @@ class noncopyable_function<Ret (Args...) noexcept(Noexcept)> : private internal:
 private:
     const vtable* _vtable;
 private:
-    static Ret empty_call(const noncopyable_function* func, Args... args) {
+    static Ret empty_call(const noncopyable_function*, Args... args) {
         throw std::bad_function_call();
     }
 

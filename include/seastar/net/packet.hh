@@ -144,7 +144,7 @@ class packet final {
             return ::operator new(size + nr_frags * sizeof(fragment));
         }
         // Matching the operator new above
-        void operator delete(void* ptr, size_t nr_frags) {
+        void operator delete(void* ptr, size_t) {
             return ::operator delete(ptr);
         }
         // Since the above "placement delete" hides the global one, expose it

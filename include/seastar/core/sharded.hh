@@ -152,7 +152,7 @@ private:
 
     template <typename T>
     std::enable_if_t<!std::is_base_of<peering_sharded_service<T>, T>::value>
-    set_container(T& service) noexcept {
+    set_container(T&) noexcept {
     }
 
     future<>
@@ -450,7 +450,7 @@ public:
     bool local_is_initialized() const noexcept;
 
 private:
-    void track_deletion(shared_ptr<Service>& s, std::false_type) noexcept {
+    void track_deletion(shared_ptr<Service>&, std::false_type) noexcept {
         // do not wait for instance to be deleted since it is not going to notify us
         service_deleted();
     }

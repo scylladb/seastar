@@ -216,7 +216,7 @@ struct lw_shared_ptr_accessors_no_esft {
     static void dispose(T* value_ptr) {
         delete boost::intrusive::get_parent_from_member(value_ptr, &concrete_type::_value);
     }
-    static void instantiate_to_value(lw_shared_ptr_counter_base* p) {
+    static void instantiate_to_value(lw_shared_ptr_counter_base*) {
         // since to_value() is defined above, we don't need to do anything special
         // to force-instantiate it
     }
