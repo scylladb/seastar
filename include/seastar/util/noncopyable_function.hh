@@ -109,7 +109,7 @@ class noncopyable_function<Ret (Args...) noexcept(Noexcept)> : private internal:
 private:
     const vtable* _vtable;
 private:
-    static Ret empty_call(const noncopyable_function*, Args... args) {
+    static Ret empty_call(const noncopyable_function*, [[maybe_unused]] Args... args) {
         throw std::bad_function_call();
     }
 
