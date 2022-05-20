@@ -5,7 +5,7 @@
 BUILDER_IMAGE=${BUILDER_IMAGE:=seastar-dev}
 
 if [ $# -eq 0 -o "$1" == "--help" -o "$1" == "-h" ]; then
-    echo "Usage: $(basename $0) <mode> [<compiler>] [<version>] [<c++ dialect>]"
+    echo "Usage: $(basename $0) <mode> [<compiler>] [<version>] [<c++ standard>]"
     exit 0
 fi
 
@@ -26,7 +26,7 @@ update-alternatives --auto clang
 MODE=$1
 COMPILER=$2
 VERSION=$3
-DIALECT=$4
+STANDARD=$4
 
 CONFIGURE="--mode=$MODE"
 if [ ! -z "$COMPILER" ]; then
@@ -44,8 +44,8 @@ if [ ! -z "$COMPILER" ]; then
         update-alternatives --set $COMPILER /usr/bin/${COMPILER}-${VERSION}
         update-alternatives --set $CPP_COMPILER /usr/bin/${CPP_COMPILER}-${VERSION}
 
-        if [ ! -z "$DIALECT" ]; then
-            CONFIGURE="$CONFIGURE --c++-dialect=$DIALECT"
+        if [ ! -z "$STANDARD" ]; then
+            CONFIGURE="$CONFIGURE --c++-standard=$STANDARD"
         fi
     fi
 fi
