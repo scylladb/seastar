@@ -103,7 +103,7 @@ map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Reducer&& r)
             return ret.then_wrapped([f = std::move(f), r_ptr] (auto rf) mutable {
                 if (rf.failed()) {
                     f.ignore_ready_future();
-                    return std::move(rf);
+                    return rf;
                 } else {
                     return futurize_invoke(*r_ptr, std::move(f.get0()));
                 }
