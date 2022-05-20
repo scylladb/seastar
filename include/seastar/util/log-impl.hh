@@ -104,9 +104,9 @@ public:
     /// Create an output iterator which allows writing into the buffer.
     inserter_iterator back_insert_begin() noexcept { return inserter_iterator(*this); }
     /// The amount of data written so far.
-    const size_t size() const noexcept { return _current - _begin; }
+    size_t size() const noexcept { return _current - _begin; }
     /// The size of the buffer.
-    const size_t capacity() const noexcept { return _end - _begin; }
+    size_t capacity() const noexcept { return _end - _begin; }
     /// Read only pointer to the buffer.
     /// Note that the buffer is not guaranteed to be null terminated. The writer
     /// has to ensure that, should it wish to.
