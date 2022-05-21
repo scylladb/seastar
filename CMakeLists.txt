@@ -187,7 +187,7 @@ option (Seastar_APPS
   ON)
 
 set (CMAKE_CXX_STANDARD
-  "17"
+  "20"
   CACHE
   STRING
   "C++ standard to build with.")
