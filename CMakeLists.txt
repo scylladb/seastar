@@ -186,9 +186,11 @@ option (Seastar_APPS
   "Enable application targets."
   ON)
 
-option (CMAKE_CXX_STANDARD
-  "C++ standard to build with."
-  "17")
+set (CMAKE_CXX_STANDARD
+  "17"
+  CACHE
+  STRING
+  "C++ standard to build with.")
 
 set (Seastar_CXX_FLAGS
   ""
