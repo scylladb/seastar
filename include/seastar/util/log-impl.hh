@@ -44,10 +44,10 @@ class log_buf {
     char* _end;
     char* _current;
     bool _own_buf;
-
+    bool _alloc_failure = false;
 private:
     void free_buffer() noexcept;
-    void realloc_buffer();
+    void realloc_buffer_and_append(char c) noexcept;
 
 public:
     // inserter_iterator is designed like std::back_insert_iterator:
@@ -72,14 +72,15 @@ public:
     public:
         explicit inserter_iterator(log_buf& buf) noexcept : _buf(&buf) { }
 
-        inserter_iterator& operator=(char c) {
+        inserter_iterator& operator=(char c) noexcept {
             if (__builtin_expect(_buf->_current == _buf->_end, false)) {
-                _buf->realloc_buffer();
+                _buf->realloc_buffer_and_append(c);
+                return *this;
             }
             *_buf->_current++ = c;
             return *this;
         }
-        inserter_iterator& operator*() {
+        inserter_iterator& operator*() noexcept {
             return *this;
         }
         inserter_iterator& operator++() noexcept {
