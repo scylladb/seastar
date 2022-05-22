@@ -273,10 +273,8 @@ inline snd_buf marshall(Serializer& serializer, size_t head_space, const T&... a
     return ret;
 }
 
-template <typename Serializer, typename Input>
-inline std::tuple<> do_unmarshall(connection& c, Input& in) {
-    return std::make_tuple();
-}
+template <typename Serializer, typename Input, typename... T>
+std::tuple<T...> do_unmarshall(connection& c, Input& in);
 
 template<typename Serializer, typename Input>
 struct unmarshal_one {
@@ -321,12 +319,18 @@ struct unmarshal_one {
     };
 };
 
-template <typename Serializer, typename Input, typename T0, typename... Trest>
-inline std::tuple<T0, Trest...> do_unmarshall(connection& c, Input& in) {
-    // FIXME: something less recursive
-    auto first = std::make_tuple(unmarshal_one<Serializer, Input>::template helper<T0>::doit(c, in));
-    auto rest = do_unmarshall<Serializer, Input, Trest...>(c, in);
-    return std::tuple_cat(std::move(first), std::move(rest));
+template <typename Serializer, typename Input, typename... T>
+inline std::tuple<T...> do_unmarshall(connection& c, Input& in) {
+    // Argument order processing is unspecified, but we need to deserialize
+    // left-to-right. So we deserialize into something that can be lazily
+    // constructed (and can conditionally destroy itself if we only constructed some
+    // of the arguments).
+    std::tuple<std::optional<T>...> temporary;
+    return std::apply([&] (auto&... args) {
+        // Comma-expression preserves left-to-right order
+        (..., (args = unmarshal_one<Serializer, Input>::template helper<typename std::remove_reference_t<decltype(args)>::value_type>::doit(c, in)));
+        return std::tuple(std::move(*args)...);
+    }, temporary);
 }
 
 template <typename Serializer, typename... T>
