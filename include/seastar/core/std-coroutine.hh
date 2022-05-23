@@ -21,8 +21,8 @@
 
 #pragma once
 
-// Clang < 15 only supports the TS
-#if __has_include(<coroutine>) && (!defined(__clang__) || __clang_major__ >= 15)
+// Clang < 14 only supports the TS
+#if __has_include(<coroutine>) && (!defined(__clang__) || __clang_major__ >= 14)
 #include <coroutine>
 #define SEASTAR_INTERNAL_COROUTINE_NAMESPACE std
 #elif __has_include(<experimental/coroutine>)
