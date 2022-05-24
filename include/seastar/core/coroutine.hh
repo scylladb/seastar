@@ -120,7 +120,7 @@ public:
             handle.resume();
         }
 
-       task* waiting_task() noexcept override { return _promise.waiting_task(); }
+        task* waiting_task() noexcept override { return _promise.waiting_task(); }
 
         scheduling_group set_scheduling_group(scheduling_group new_sg) noexcept {
             return task::set_scheduling_group(new_sg);
@@ -211,7 +211,7 @@ auto operator co_await(future<T...> f) noexcept {
 }
 
 namespace coroutine {
-/// Wrapper for a future which turns of checking for preemption
+/// Wrapper for a future which turns off checking for preemption
 /// when awaiting it in a coroutine.
 /// If constructed from a future, co_await-ing it will bypass
 /// checking if the task quota is depleted, which means that
