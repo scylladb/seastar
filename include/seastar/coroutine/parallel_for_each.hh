@@ -105,11 +105,11 @@ public:
     // clang 13.0.1 doesn't support subrange
     // so provide also a Iterator/Sentinel based constructor.
     // See https://github.com/llvm/llvm-project/issues/46091
-    template <typename Iterator, typename Sentinel>
+    template <typename Iterator, typename Sentinel, typename Func1>
     requires (std::same_as<Sentinel, Iterator> || std::sentinel_for<Sentinel, Iterator>)
-        && std::same_as<future<>, futurize_t<std::invoke_result_t<Func, typename std::iterator_traits<Iterator>::value_type>>>
-    explicit parallel_for_each(Iterator begin, Sentinel end, Func&& func) noexcept
-        : _func(std::move(func))
+        && std::same_as<future<>, futurize_t<std::invoke_result_t<Func, typename std::iterator_traits<Iterator>::reference>>>
+    explicit parallel_for_each(Iterator begin, Sentinel end, Func1&& func) noexcept
+        : _func(std::forward<Func1>(func))
     {
         for (auto it = begin; it != end; ++it) {
             auto fut = futurize_invoke(_func, *it);
@@ -131,10 +131,10 @@ public:
         }
     }
 
-    template <std::ranges::range Range>
-    requires std::invocable<Func, std::ranges::range_value_t<Range>>
-    explicit parallel_for_each(const Range& range, Func&& func) noexcept
-        : parallel_for_each(std::ranges::begin(range), std::ranges::end(range), std::forward<Func>(func))
+    template <std::ranges::range Range, typename Func1>
+    requires std::invocable<Func, std::ranges::range_reference_t<Range>>
+    explicit parallel_for_each(Range&& range, Func1&& func) noexcept
+        : parallel_for_each(std::ranges::begin(range), std::ranges::end(range), std::forward<Func1>(func))
     { }
 
     bool await_ready() const noexcept {
@@ -168,5 +168,16 @@ public:
         return _waiting_task;
     }
 };
+
+template <typename Iterator, typename Sentinel, typename Func>
+requires (std::same_as<Sentinel, Iterator> || std::sentinel_for<Sentinel, Iterator>)
+    && std::same_as<future<>, futurize_t<std::invoke_result_t<Func, typename std::iterator_traits<Iterator>::reference>>>
+parallel_for_each(Iterator begin, Sentinel end, Func&& func) -> parallel_for_each<Func>;
+
+template <std::ranges::range Range, typename Func>
+requires std::invocable<Func, std::ranges::range_reference_t<Range>>
+parallel_for_each(Range&& range, Func&& func) -> parallel_for_each<Func>;
+
+
 
 }
