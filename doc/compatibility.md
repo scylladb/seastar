@@ -10,8 +10,8 @@ Link compatibility is not maintained - you cannot link an
 application built with one version of Seastar with another
 version of Seastar.
 
-Language dialects
-=================
+Language standards
+==================
 
 Seastar will support the last two standards approved by the
 ISO C++ committee. For example, after C++20 is released,
