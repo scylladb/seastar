@@ -197,7 +197,7 @@ native_network_stack::native_network_stack(const native_stack_options& opts, std
             && opts.gw_ipv4_addr.defaulted()
             && opts.netmask_ipv4_addr.defaulted() && opts.dhcp.get_value();
     if (!_dhcp) {
-        _inet.set_host_address(ipv4_address(_dhcp ? 0 : opts.host_ipv4_addr.get_value()));
+        _inet.set_host_address(ipv4_address(opts.host_ipv4_addr.get_value()));
         _inet.set_gw_address(ipv4_address(opts.gw_ipv4_addr.get_value()));
         _inet.set_netmask_address(ipv4_address(opts.netmask_ipv4_addr.get_value()));
     }
