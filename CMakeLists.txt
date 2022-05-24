@@ -138,6 +138,12 @@ set (CMAKE_CXX_FLAGS_SANITIZE
   "Flags used by the C++ compiler during sanitize builds."
   FORCE)
 
+set (CMAKE_CXX_STANDARD
+  "20"
+  CACHE
+  STRING
+  "C++ standard to build with.")
+
 set (CMAKE_C_FLAGS_SANITIZE
   "-Os -g"
   CACHE
@@ -185,12 +191,6 @@ set (Seastar_ALLOC_PAGE_SIZE
 option (Seastar_APPS
   "Enable application targets."
   ON)
-
-set (CMAKE_CXX_STANDARD
-  "20"
-  CACHE
-  STRING
-  "C++ standard to build with.")
 
 set (Seastar_CXX_FLAGS
   ""
