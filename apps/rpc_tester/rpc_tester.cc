@@ -443,7 +443,6 @@ class job_cpu : public job {
 
     std::unique_ptr<pause_distribution> make_pause() {
         if (_cfg.exec_time_range) {
-            fmt::print("{} has {}..{} pauses\n", name(), _cfg.exec_time_range->min.count(), _cfg.exec_time_range->max.count());
             return make_uniform_pause(*_cfg.exec_time_range);
         } else {
             return make_steady_pause(_cfg.exec_time);
