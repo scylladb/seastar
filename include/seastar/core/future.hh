@@ -642,7 +642,7 @@ struct future_state :  public future_state_base, private internal::uninitialized
         new (this) future_state(ready_future_marker(), std::forward<A>(a)...);
     }
     future_state(exception_future_marker, std::exception_ptr&& ex) noexcept : future_state_base(std::move(ex)) { }
-    future_state(exception_future_marker m, future_state_base&& state) noexcept : future_state_base(std::move(state)) { }
+    future_state(exception_future_marker, future_state_base&& state) noexcept : future_state_base(std::move(state)) { }
     future_state(current_exception_future_marker m) noexcept : future_state_base(m) { }
     future_state(nested_exception_marker m, future_state_base&& old) noexcept : future_state_base(m, std::move(old)) { }
     future_state(nested_exception_marker m, future_state_base&& n, future_state_base&& old) noexcept : future_state_base(m, std::move(n), std::move(old)) { }
