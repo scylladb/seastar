@@ -328,9 +328,9 @@ std::function<future<>(output_stream<char>&&)> stream_range_as_array(Container v
                     });
                 });
             }).then([&s](){
-                return s.write("]").then([&s] {
-                    return s.close();
-                });
+                return s.write("]");
+            }).finally([&s] {
+                return s.close();
             });
         });
     };
@@ -346,7 +346,7 @@ template<class T>
 std::function<future<>(output_stream<char>&&)> stream_object(T val) {
     return [val = std::move(val)](output_stream<char>&& s) mutable {
         return do_with(output_stream<char>(std::move(s)), T(std::move(val)), [](output_stream<char>& s, const T& val){
-            return formatter::write(s, val).then([&s] {
+            return formatter::write(s, val).finally([&s] {
                 return s.close();
             });
         });
