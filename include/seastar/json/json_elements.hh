@@ -297,8 +297,11 @@ struct json_return_type {
    json_return_type(json_return_type&& o) noexcept : _res(std::move(o._res)), _body_writer(std::move(o._body_writer)) {
    }
     json_return_type& operator=(json_return_type&& o) noexcept {
+      // FIXME: indentation
+      if (this != &o) {
         _res = std::move(o._res);
         _body_writer = std::move(o._body_writer);
+      }
         return *this;
     }
 
