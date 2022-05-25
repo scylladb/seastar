@@ -121,7 +121,7 @@ struct cpwriter {
     typedef buffer_type::iterator mark_type;
     typedef buffer_type::const_iterator const_mark_type;
 
-    buffer_type _buf;
+    buffer_type _buf = {};
     mark_type _pos;
     bool _overflow = false;
 
