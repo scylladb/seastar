@@ -36,6 +36,7 @@
 #include <seastar/core/thread.hh>
 #include <seastar/core/sharded.hh>
 #include <seastar/core/with_scheduling_group.hh>
+#include <seastar/core/sleep.hh>
 #include <seastar/rpc/rpc.hh>
 
 using namespace seastar;
@@ -175,6 +176,8 @@ struct job_config {
     unsigned shares = 100;
     std::chrono::duration<double> exec_time;
     std::optional<duration_range> exec_time_range;
+    std::optional<std::chrono::duration<double>> sleep_time;
+    std::optional<duration_range> sleep_time_range;
     size_t payload;
 
     bool client = false;
@@ -239,6 +242,14 @@ struct convert<job_config> {
                 r.min = node["execution_time_min"].as<duration_time>().time;
                 r.max = node["execution_time_max"].as<duration_time>().time;
                 cfg.exec_time_range = r;
+            }
+            if (node["sleep_time"]) {
+                cfg.sleep_time = node["sleep_time"].as<duration_time>().time;
+            } else if (node["sleep_time_min"] && node["sleep_time_max"]) {
+                duration_range r;
+                r.min = node["sleep_time_min"].as<duration_time>().time;
+                r.max = node["sleep_time_max"].as<duration_time>().time;
+                cfg.sleep_time_range = r;
             }
             cfg.client = !node["side"] || (node["side"].as<std::string>() == "client");
             cfg.server = !node["side"] || (node["side"].as<std::string>() == "server");
@@ -428,6 +439,7 @@ class job_cpu : public job {
     std::chrono::steady_clock::time_point _stop;
     uint64_t _total_invocations = 0;
     std::unique_ptr<pause_distribution> _pause;
+    std::unique_ptr<pause_distribution> _sleep;
 
     std::unique_ptr<pause_distribution> make_pause() {
         if (_cfg.exec_time_range) {
@@ -438,10 +450,21 @@ class job_cpu : public job {
         }
     }
 
+    std::unique_ptr<pause_distribution> make_sleep() {
+        if (_cfg.sleep_time) {
+            return make_steady_pause(*_cfg.sleep_time);
+        }
+        if (_cfg.sleep_time_range) {
+            return make_uniform_pause(*_cfg.sleep_time_range);
+        }
+        return nullptr;
+    }
+
 public:
     job_cpu(job_config cfg)
             : _cfg(cfg)
             , _pause(make_pause())
+            , _sleep(make_sleep())
     {
     }
 
@@ -461,7 +484,12 @@ public:
                 auto start  = std::chrono::steady_clock::now();
                 auto pause = _pause->get();
                 while ((std::chrono::steady_clock::now() - start) < pause);
-                return make_ready_future<>();
+                if (!_sleep) {
+                    return make_ready_future<>();
+                } else {
+                    auto sleep = std::chrono::duration_cast<std::chrono::nanoseconds>(_sleep->get());
+                    return seastar::sleep(sleep);
+                }
             });
           });
         });

@@ -12,4 +12,5 @@ jobs:
   - name:
     type: cpu
     execution_time: # time in [0-9]+[mun]?s format
+    sleep_time: # optional inactivity pause between burning cpu
     side: # optional, 'client' or 'server' to specify which side to run on
