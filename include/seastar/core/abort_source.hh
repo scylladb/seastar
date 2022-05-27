@@ -112,8 +112,11 @@ public:
 
     /// Requests that the target operation be aborted. Current subscriptions
     /// are invoked inline with this call, and no new ones can be registered.
+    /// Must be called exactly once, otherwise the program will be aborted.
     void request_abort() noexcept {
-        std::exchange(_subscriptions, std::nullopt)->clear_and_dispose([] (subscription* s) { s->on_abort(); });
+        assert(_subscriptions);
+        auto subs = std::exchange(_subscriptions, std::nullopt);
+        subs->clear_and_dispose([] (subscription* s) { s->on_abort(); });
     }
 
     /// Returns whether an abort has been requested.
