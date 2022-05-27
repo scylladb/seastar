@@ -116,7 +116,11 @@ public:
     void request_abort() noexcept {
         assert(_subscriptions);
         auto subs = std::exchange(_subscriptions, std::nullopt);
-        subs->clear_and_dispose([] (subscription* s) { s->on_abort(); });
+        while (!subs->empty()) {
+            subscription& s = subs->front();
+            s.unlink();
+            s.on_abort();
+        }
     }
 
     /// Returns whether an abort has been requested.
