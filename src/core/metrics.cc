@@ -365,6 +365,8 @@ histogram& histogram::operator+=(const histogram& c) {
             buckets[i].count += c.buckets[i].count;
         }
     }
+    sample_count += c.sample_count;
+    sample_sum += c.sample_sum;
     return *this;
 }
 
