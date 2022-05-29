@@ -297,7 +297,7 @@ public:
         fixed,
         default_ = connection_distribution
     };
-    /// Constructs a \c server_socket not corresponding to a connection
+    /// Constructs a \c server_socket without being bound to any address
     server_socket() noexcept;
     /// \cond internal
     explicit server_socket(std::unique_ptr<net::server_socket_impl> ssi) noexcept;
@@ -325,6 +325,15 @@ public:
 
     /// Local bound address
     socket_address local_address() const noexcept;
+
+    /// is the \c server_socket listening on any address?
+    ///
+    /// \return true if this \c socket_address is listening on an address,
+    ///         otherwise if it is just created with the default constructor.
+    ///
+    /// \see listen(socket_address sa)
+    /// \see listen(socket_address sa, listen_options opts)
+    bool is_listening() const noexcept;
 };
 
 /// @}
