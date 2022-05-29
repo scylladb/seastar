@@ -199,7 +199,8 @@ public:
     awaiter operator co_await() { return awaiter{*this}; }
 };
 
-template <typename... Func>
-explicit all(Func&&... funcs) -> all<std::invoke_result_t<Func>...>;
+template <typename FirstFunc, typename... MoreFuncs>
+explicit all(FirstFunc&&, MoreFuncs&&...) -> all<std::invoke_result_t<FirstFunc>,
+                                                 std::invoke_result_t<MoreFuncs>...>;
 
 }
