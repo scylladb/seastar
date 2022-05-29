@@ -21,8 +21,8 @@
 
 #pragma once
 
+#include <cstddef>
 #include <concepts>
-#include <type_traits>
 #include <tuple>
 #include <seastar/core/coroutine.hh>
 
@@ -111,6 +111,7 @@ using value_tuple_for_non_void_futures = typename value_tuple_for_non_void_futur
 /// };
 /// ```
 template <typename... Futures>
+requires (sizeof ...(Futures) > 0)
 class [[nodiscard("must co_await an all() object")]] all {
     using tuple = std::tuple<Futures...>;
     using value_tuple = typename internal::value_tuple_for_non_void_futures<Futures...>;
@@ -139,16 +140,17 @@ class [[nodiscard("must co_await an all() object")]] all {
     struct generate_aligned_union;
     template <size_t... idx>
     struct generate_aligned_union<std::integer_sequence<size_t, idx...>> {
-        using type = std::aligned_union_t<1, intermediate_task<idx>...>;
+        static constexpr std::size_t alignment_value = std::max({alignof(intermediate_task<idx>)...});
+        using type = std::byte[std::max({sizeof(intermediate_task<idx>)...})];
     };
-    using continuation_storage_t = typename generate_aligned_union<std::make_index_sequence<std::tuple_size_v<tuple>>>::type;
+    using continuation_storage = generate_aligned_union<std::make_index_sequence<std::tuple_size_v<tuple>>>;
     using coroutine_handle_t = SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<void>;
 private:
     tuple _futures;
 private:
     struct awaiter {
         all& state;
-        continuation_storage_t _continuation_storage;
+        alignas(continuation_storage::alignment_value) typename continuation_storage::type _continuation_storage;
         coroutine_handle_t when_ready;
         awaiter(all& state) : state(state) {}
         bool await_ready() const {
