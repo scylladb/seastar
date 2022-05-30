@@ -332,14 +332,16 @@ public:
     /// \see listen(socket_address sa, listen_options opts)
     socket_address local_address() const noexcept;
 
-    /// is the \c server_socket listening on any address?
+    /// Check whether the \c server_socket is listening on any address.
     ///
-    /// \return true if this \c socket_address is listening on an address,
-    ///         otherwise if it is just created with the default constructor.
+    /// \return true if this \c socket_address is bound to an address,
+    /// false if it is just created with the default constructor.
     ///
     /// \see listen(socket_address sa)
     /// \see listen(socket_address sa, listen_options opts)
-    bool is_listening() const noexcept;
+    explicit operator bool() const noexcept {
+        return static_cast<bool>(_ssi);
+    }
 };
 
 /// @}

@@ -206,10 +206,6 @@ socket_address server_socket::local_address() const noexcept {
     return _ssi->local_address();
 }
 
-bool server_socket::is_listening() const noexcept {
-    return static_cast<bool>(_ssi);
-}
-
 network_interface::network_interface(shared_ptr<net::network_interface_impl> impl) noexcept
     : _impl(std::move(impl))
 {}
