@@ -46,7 +46,11 @@ net::udp_channel::udp_channel(udp_channel&&) noexcept = default;
 net::udp_channel& net::udp_channel::operator=(udp_channel&&) noexcept = default;
 
 socket_address net::udp_channel::local_address() const {
-    return _impl->local_address();
+    if (_impl) {
+        return _impl->local_address();
+    } else {
+        return {};
+    }
 }
 
 future<net::udp_datagram> net::udp_channel::receive() {

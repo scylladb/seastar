@@ -324,6 +324,12 @@ public:
     void abort_accept();
 
     /// Local bound address
+    ///
+    /// \return the local bound address if the \c server_socket is listening,
+    /// an empty address constructed with \c socket_address() otherwise.
+    ///
+    /// \see listen(socket_address sa)
+    /// \see listen(socket_address sa, listen_options opts)
     socket_address local_address() const noexcept;
 
     /// is the \c server_socket listening on any address?
