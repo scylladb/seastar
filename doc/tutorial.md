@@ -372,6 +372,47 @@ In #4, we call a function that returns a `seastar::future<>`. In this case, the 
 
 Line #5 demonstrates returning a value. The integer value is used to satisfy the `future<int>` that our caller got when calling the coroutine.
 
+## Generators in coroutines
+
+Sometimes, it would be convenient to model a view of `input_range` with a coroutine which emits the elements one after
+another asynchronously. From the consumer of the view's perspective, it can retrieve the elements by `co_await`ing
+the return value of the coroutine. From the coroutine's perspective, it is able to produce the elements multiple times
+using `co_yield` without "leaving" the coroutine. A function producing a sequence of values can be named "generator".
+But unlike the regular coroutine which returns a single `seastar::future<T>`, a generator should return
+`seastar::coroutine::experimental::generator<T>`. Please note, `generator<T>` is still at its early stage of developing,
+the public interface this template is subject to change before it is stablized enough.
+
+Example
+
+```cpp
+#include <seastar/core/coroutine.hh>
+#include <seastar/core/sleep.hh>
+#include <seastar/coroutine/generator.hh>
+
+seastar::future<Preprocessed> prepare_ingredients(Ingredients&&);
+seastar::future<Dish> cook_a_dish(Preprocessed&&);
+seastar::future<> consume_a_dish(Dish&&);
+
+seastar::coroutine::experimental::generator<Dish> make_dishes(Ingredients&& ingredients) {
+    while (ingredients) {
+        auto some_ingredients = ingredients.alloc();
+        auto preprocessed = co_await prepare_ingredients(std::move(some_ingredients));
+        co_yield co_await cook_a_dish(std::move(preprocessed));
+    }
+}
+
+seastar::future<> have_a_dinner() {
+    Ingredients ingredients;
+    auto dishes = make_dishes(std::move(ingredients));
+    while (auto dish = co_await dishes()) {
+        co_await consume_a_dish(std::move(dish));
+    }
+}
+```
+
+In this hypothetical kitchen, a chef and a diner are working in parallel. Instead of preparing
+all dishes beforehand, the chef cooks the dishes while the diner is consuming them one after another.
+
 ## Exceptions in coroutines
 
 Coroutines automatically translate exceptions to futures and back.

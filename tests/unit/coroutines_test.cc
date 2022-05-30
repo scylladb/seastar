@@ -47,6 +47,7 @@ SEASTAR_TEST_CASE(test_coroutines_not_compiled_in) {
 #include <seastar/coroutine/parallel_for_each.hh>
 #include <seastar/coroutine/as_future.hh>
 #include <seastar/coroutine/exception.hh>
+#include <seastar/coroutine/generator.hh>
 
 namespace {
 
@@ -718,6 +719,53 @@ SEASTAR_TEST_CASE(test_as_future_preemption) {
     co_await set_stop();
 
     BOOST_REQUIRE_THROW(f0.get(), std::runtime_error);
+}
+
+coroutine::experimental::generator<int> fibonacci_sequence(unsigned count) {
+    auto a = 0, b = 1;
+    for (unsigned i = 0; i < count; ++i) {
+        if (std::numeric_limits<decltype(a)>::max() - a < b) {
+            throw std::out_of_range(
+                fmt::format("fibonacci[{}] is greater than the largest value of int", i));
+        }
+        co_yield std::exchange(a, std::exchange(b, a + b));
+    }
+}
+
+SEASTAR_TEST_CASE(test_async_generator_drained) {
+    auto expected_fibs = {0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55};
+    auto fib = fibonacci_sequence(std::size(expected_fibs));
+    for (auto expected_fib : expected_fibs) {
+        auto actual_fib = co_await fib();
+        BOOST_REQUIRE(actual_fib.has_value());
+        BOOST_REQUIRE_EQUAL(actual_fib.value(), expected_fib);
+    }
+    auto sentinel = co_await fib();
+    BOOST_REQUIRE(!sentinel.has_value());
+}
+
+SEASTAR_TEST_CASE(test_async_generator_not_drained) {
+    auto fib = fibonacci_sequence(42);
+    auto actual_fib = co_await fib();
+    BOOST_REQUIRE(actual_fib.has_value());
+    BOOST_REQUIRE_EQUAL(actual_fib.value(), 0);
+}
+
+SEASTAR_TEST_CASE(test_async_generator_throws) {
+    auto fib = [](unsigned n) -> seastar::future<> {
+        auto fib = fibonacci_sequence(100);
+        for (int i = 0; i < n; i++) {
+            co_await fib();
+        }
+    };
+    // according to Binet formula, the maximum fibonacci number which can be
+    // represented using int32_t is fib[47], int64_t fib[93]. so fib[100]
+    // should be large enough to make fibonacci_sequence() throw even on
+    // platforms with 64-bit int.
+    co_await fib(100).then_wrapped([] (auto f) {
+        BOOST_REQUIRE(f.failed());
+        BOOST_REQUIRE_THROW(std::rethrow_exception(f.get_exception()), std::out_of_range);
+    });
 }
 
 #endif
