@@ -754,7 +754,7 @@ SEASTAR_TEST_CASE(test_async_generator_not_drained) {
 SEASTAR_TEST_CASE(test_async_generator_throws) {
     auto fib = [](unsigned n) -> seastar::future<> {
         auto fib = fibonacci_sequence(100);
-        for (int i = 0; i < n; i++) {
+        for (unsigned i = 0; i < n; i++) {
             co_await fib();
         }
     };
