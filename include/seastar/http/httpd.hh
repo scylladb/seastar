@@ -147,7 +147,6 @@ class http_server {
     bool _content_streaming = false;
     gate _task_gate;
     std::optional<future<>> _tasks_done;
-    timer<> _kill_timer;
 public:
     routes _routes;
     using connection = seastar::httpd::connection;
