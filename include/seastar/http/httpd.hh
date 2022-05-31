@@ -24,6 +24,8 @@
 #include <seastar/http/request_parser.hh>
 #include <seastar/http/request.hh>
 #include <seastar/core/seastar.hh>
+#include <seastar/core/shared_future.hh>
+#include <seastar/core/with_timeout.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/circular_buffer.hh>
@@ -191,6 +193,7 @@ public:
     future<> listen(socket_address addr, listen_options lo);
     future<> listen(socket_address addr);
     future<> stop();
+    template<typename Clock = std::chrono::steady_clock>
     future<> graceful_pre_stop(int timeout_ms);
 
     future<> do_accepts(int which);
@@ -209,6 +212,25 @@ private:
     friend class seastar::httpd::connection;
     friend class http_server_tester;
 };
+
+template<typename Clock = std::chrono::steady_clock>
+future<> http_server::graceful_pre_stop(int timeout_ms) {
+    future<> f = _task_gate.close();
+    shared_future<with_clock<Clock>> shared_done(std::move(f));
+    _tasks_done = shared_done.get_future();
+    for (auto &&l : _listeners) {
+        l.abort_accept();
+    }
+    return with_timeout(
+        Clock::now() + std::chrono::milliseconds(timeout_ms),
+        shared_done.get_future()
+    ).then_wrapped([this](auto &&f){
+        for (auto &&c : _connections) {
+            c.shutdown();
+        }
+        return f;
+    });
+}
 
 class http_server_tester {
 public:
@@ -240,12 +262,21 @@ public:
 
     future<> start(const sstring& name = generate_server_name());
     future<> stop();
+    template<typename Clock = std::chrono::steady_clock>
     future<> graceful_pre_stop(int timeout_ms);
     future<> set_routes(std::function<void(routes& r)> fun);
     future<> listen(socket_address addr);
     future<> listen(socket_address addr, listen_options lo);
     distributed<http_server>& server();
 };
+
+
+template<typename Clock = std::chrono::steady_clock>
+future<> http_server_control::graceful_pre_stop(int timeout_ms) {
+    return _server_dist->invoke_on_all([timeout_ms](http_server &server) {
+        return server.graceful_pre_stop<Clock>(timeout_ms);
+    });
+}
 
 }
 
