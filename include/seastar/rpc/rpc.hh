@@ -297,6 +297,7 @@ protected:
     future<> send_buffer(snd_buf buf);
 
     void send_loop();
+    future<> send_entry(outgoing_entry d);
     future<> stop_send_loop(std::exception_ptr ex);
     future<std::optional<rcv_buf>>  read_stream_frame_compressed(input_stream<char>& in);
     bool stream_check_twoway_closed() const noexcept {

@@ -129,6 +129,29 @@ namespace rpc {
       }
   }
 
+  future<> connection::send_entry(outgoing_entry d) {
+      if (_propagate_timeout) {
+          static_assert(snd_buf::chunk_size >= 8, "send buffer chunk size is too small");
+          if (_timeout_negotiated) {
+              auto expire = d.t.get_timeout();
+              uint64_t left = 0;
+              if (expire != typename timer<rpc_clock_type>::time_point()) {
+                  left = std::chrono::duration_cast<std::chrono::milliseconds>(expire - timer<rpc_clock_type>::clock::now()).count();
+              }
+              write_le<uint64_t>(d.buf.front().get_write(), left);
+          } else {
+              d.buf.front().trim_front(8);
+              d.buf.size -= 8;
+          }
+      }
+      d.buf = compress(std::move(d.buf));
+      auto f = send_buffer(std::move(d.buf)).then([this] {
+          _stats.sent_messages++;
+          return _write_buf.flush();
+      });
+      return f.finally([d = std::move(d)] {});
+  }
+
   void connection::send_loop() {
       _send_loop_stopped = do_until([this] { return _error; }, [this] {
           return _outgoing_queue_cond.wait([this] { return !_outgoing_queue.empty(); }).then([this] {
@@ -144,26 +167,7 @@ namespace rpc {
               if (d.pcancel) {
                   d.pcancel->cancel_send = std::function<void()>(); // request is no longer cancellable
               }
-              if (_propagate_timeout) {
-                  static_assert(snd_buf::chunk_size >= 8, "send buffer chunk size is too small");
-                  if (_timeout_negotiated) {
-                      auto expire = d.t.get_timeout();
-                      uint64_t left = 0;
-                      if (expire != typename timer<rpc_clock_type>::time_point()) {
-                          left = std::chrono::duration_cast<std::chrono::milliseconds>(expire - timer<rpc_clock_type>::clock::now()).count();
-                      }
-                      write_le<uint64_t>(d.buf.front().get_write(), left);
-                  } else {
-                      d.buf.front().trim_front(8);
-                      d.buf.size -= 8;
-                  }
-              }
-              d.buf = compress(std::move(d.buf));
-              auto f = send_buffer(std::move(d.buf)).then([this] {
-                  _stats.sent_messages++;
-                  return _write_buf.flush();
-              });
-              return f.finally([d = std::move(d)] {});
+              return send_entry(std::move(d));
           });
       }).handle_exception([this] (std::exception_ptr eptr) {
           _error = true;
