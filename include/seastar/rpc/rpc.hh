@@ -281,6 +281,10 @@ protected:
     // if it is not ready it means the sink is been closed
     future<bool> _sink_closed_future = make_ready_future<bool>(false);
 
+    size_t outgoing_queue_length() const noexcept {
+        return _outgoing_queue.size();
+    }
+
     bool is_stream() const noexcept {
         return _is_stream;
     }
@@ -558,7 +562,7 @@ public:
         const client_info& info() const { return _info; }
         stats get_stats() const {
             stats res = _stats;
-            res.pending = _outgoing_queue.size();
+            res.pending = outgoing_queue_length();
             return res;
         }
 
