@@ -137,6 +137,7 @@ module seastar;
 #include <seastar/core/make_task.hh>
 #include <seastar/core/memory.hh>
 #include <seastar/core/metrics.hh>
+#include <seastar/core/metrics_api.hh>
 #include <seastar/core/posix.hh>
 #include <seastar/core/prefetch.hh>
 #include <seastar/core/print.hh>
@@ -176,6 +177,7 @@ module seastar;
 #include "core/reactor_backend.hh"
 #include "core/syscall_result.hh"
 #include "core/thread_pool.hh"
+#include "core/scollectd-impl.hh"
 #include "syscall_work_queue.hh"
 #include "cgroup.hh"
 #ifdef SEASTAR_HAVE_DPDK
@@ -3929,6 +3931,12 @@ smp_options::smp_options(program_options::option_group* parent_group)
     , allow_cpus_in_remote_numa_nodes(*this, "allow-cpus-in-remote-numa-nodes", program_options::unused{})
 #endif
 {
+}
+
+thread_local metrics::impl::metric_implementations metric_impls;
+
+metrics::impl::metric_implementations& metrics::impl::get_metric_implementations() {
+    return metric_impls;
 }
 
 struct reactor_deleter {

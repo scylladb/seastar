@@ -344,13 +344,17 @@ bool metric_id::operator==(
     return as_tuple() == id2.as_tuple();
 }
 
-// Unfortunately, metrics_impl can not be shared because it
-// need to be available before the first users (reactor) will call it
+shared_ptr<impl> get_local_impl(int handle) {
+    auto& impls = get_metric_implementations();
+    auto [it, inserted] = impls.try_emplace(handle);
 
-shared_ptr<impl>  get_local_impl() {
-    static thread_local auto the_impl = ::seastar::make_shared<impl>();
-    return the_impl;
+    if (inserted) {
+        it->second = ::seastar::make_shared<impl>();
+    }
+
+    return it->second;
 }
+
 void impl::remove_registration(const metric_id& id) {
     auto i = get_value_map().find(id.full_name());
     if (i != get_value_map().end()) {
@@ -546,6 +550,11 @@ void impl::set_metric_family_configs(const std::vector<metric_family_config>& fa
         }
     }
 }
+
+int default_handle() {
+    return 0;
+}
+
 }
 
 const bool metric_disabled = false;
