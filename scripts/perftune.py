@@ -1450,13 +1450,13 @@ def dump_config(prog_args):
         prog_options['mode'] = prog_args.mode
 
     if prog_args.nics:
-        prog_options['nic'] = prog_args.nics
+        prog_options['nic'] = list(set(prog_args.nics))
 
     if prog_args.tune_clock:
         prog_options['tune_clock'] = prog_args.tune_clock
 
     if prog_args.tune:
-        prog_options['tune'] = prog_args.tune
+        prog_options['tune'] = list(set(prog_args.tune))
 
     if prog_args.cpu_mask:
         prog_options['cpu_mask'] = prog_args.cpu_mask
@@ -1465,10 +1465,10 @@ def dump_config(prog_args):
         prog_options['irq_cpu_mask'] = prog_args.irq_cpu_mask
 
     if prog_args.dirs:
-        prog_options['dir'] = prog_args.dirs
+        prog_options['dir'] = list(set(prog_args.dirs))
 
     if prog_args.devs:
-        prog_options['dev'] = prog_args.devs
+        prog_options['dev'] = list(set(prog_args.devs))
 
     if prog_args.set_write_back is not None:
         prog_options['write_back_cache'] = prog_args.set_write_back
