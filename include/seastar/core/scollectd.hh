@@ -373,7 +373,7 @@ struct options : public program_options::option_group {
     /// \endcond
 };
 
-void configure(const options&);
+void configure(const options&, int handle = seastar::metrics::default_handle());
 void remove_polled_metric(const type_instance_id &);
 
 class plugin_instance_metrics;
@@ -392,8 +392,8 @@ class plugin_instance_metrics;
  */
 struct registration {
     registration() = default;
-    registration(const type_instance_id& id);
-    registration(type_instance_id&& id);
+    registration(const type_instance_id& id, int handle = seastar::metrics::default_handle());
+    registration(type_instance_id&& id, int handle = seastar::metrics::default_handle());
     registration(const registration&) = delete;
     registration(registration&&) = default;
     ~registration();
@@ -800,8 +800,8 @@ seastar::metrics::impl::metric_id to_metrics_id(const type_instance_id & id);
  */
 template<typename Arg>
 [[deprecated("Use the metrics layer")]] static type_instance_id add_polled_metric(const type_instance_id & id, description d,
-        Arg&& arg, bool enabled = true) {
-    seastar::metrics::impl::get_local_impl()->add_registration(to_metrics_id(id), arg.type, seastar::metrics::impl::make_function(arg.value, arg.type), d, enabled);
+        Arg&& arg, bool enabled = true, int handle = seastar::metrics::default_handle()) {
+    seastar::metrics::impl::get_local_impl(handle)->add_registration(to_metrics_id(id), arg.type, seastar::metrics::impl::make_function(arg.value, arg.type), d, enabled);
     return id;
 }
 /*!
