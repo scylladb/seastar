@@ -44,12 +44,15 @@ struct config {
     std::optional<metrics::label_instance> label; //!< A label that will be added to all metrics, we advice not to use it and set it on the prometheus server
     sstring prefix = "seastar"; //!< a prefix that will be added to metric names
     bool allow_protobuf = false; // protobuf support is experimental and off by default
+    int handle = metrics::default_handle(); //!< Handle that specifies which metric implementation to query
+    sstring route = "/metrics"; //!< Name of the route on which to expose the metrics
 };
 
 future<> start(httpd::http_server_control& http_server, config ctx);
 
-/// \defgroup add_prometheus_routes adds a /metrics endpoint that returns prometheus metrics
-///    both in txt format and in protobuf according to the prometheus spec
+/// \defgroup add_prometheus_routes adds a specified endpoint (defaults to /metrics) that returns prometheus metrics
+///    in txt format format and in protobuf according to the prometheus spec
+
 /// @{
 future<> add_prometheus_routes(distributed<httpd::http_server>& server, config ctx);
 future<> add_prometheus_routes(httpd::http_server& server, config ctx);
