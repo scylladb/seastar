@@ -88,12 +88,12 @@ registration::~registration() {
     unregister();
 }
 
-registration::registration(const type_instance_id& id)
-: _id(id), _impl(seastar::metrics::impl::get_local_impl()) {
+registration::registration(const type_instance_id& id, int handle)
+: _id(id), _impl(seastar::metrics::impl::get_local_impl(handle)) {
 }
 
-registration::registration(type_instance_id&& id)
-: _id(std::move(id)), _impl(seastar::metrics::impl::get_local_impl()) {
+registration::registration(type_instance_id&& id, int handle)
+: _id(std::move(id)), _impl(seastar::metrics::impl::get_local_impl(handle)) {
 }
 
 seastar::metrics::impl::metric_id to_metrics_id(const type_instance_id & id) {
@@ -536,7 +536,7 @@ future<> send_metric(const type_instance_id & id,
     return get_impl().send_metric(id, values);
 }
 
-void configure(const options& opts) {
+void configure(const options& opts, int handle) {
     bool enable = opts.collectd.get_value();
     if (!enable) {
         return;
@@ -545,7 +545,7 @@ void configure(const options& opts) {
     auto period = std::chrono::milliseconds(opts.collectd_poll_period.get_value());
 
     auto host = (opts.collectd_hostname.get_value() == "")
-            ? seastar::metrics::impl::get_local_impl()->get_config().hostname
+            ? seastar::metrics::impl::get_local_impl(handle)->get_config().hostname
             : sstring(opts.collectd_hostname.get_value());
 
     // Now create send loops on each cpu
