@@ -229,15 +229,17 @@ namespace rpc {
           auto deleter = [this, it = std::prev(_outgoing_queue.cend())] {
               _outgoing_queue.erase(it);
           };
+          auto& d = _outgoing_queue.back();
+
           if (timeout) {
-              auto& t = _outgoing_queue.back().t;
+              auto& t = d.t;
               t.set_callback(deleter);
               t.arm(timeout.value());
           }
           if (cancel) {
               cancel->cancel_send = std::move(deleter);
-              cancel->send_back_pointer = &_outgoing_queue.back().pcancel;
-              _outgoing_queue.back().pcancel = cancel;
+              cancel->send_back_pointer = &d.pcancel;
+              d.pcancel = cancel;
           }
           _outgoing_queue_cond.signal();
           return _outgoing_queue.back().p->get_future();
