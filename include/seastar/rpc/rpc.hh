@@ -267,6 +267,7 @@ protected:
     condition_variable _outgoing_queue_cond;
     future<> _send_loop_stopped = make_ready_future<>();
     std::unique_ptr<compressor> _compressor;
+    bool _propagate_timeout = false;
     bool _timeout_negotiated = false;
     // stream related fields
     bool _is_stream = false;
@@ -292,13 +293,7 @@ protected:
     snd_buf compress(snd_buf buf);
     future<> send_buffer(snd_buf buf);
 
-    enum class outgoing_queue_type {
-        request,
-        response,
-        stream = response
-    };
-
-    template<outgoing_queue_type QueueType> void send_loop();
+    void send_loop();
     future<> stop_send_loop();
     future<std::optional<rcv_buf>>  read_stream_frame_compressed(input_stream<char>& in);
     bool stream_check_twoway_closed() const noexcept {
@@ -452,13 +447,6 @@ private:
     read_response_frame(input_stream<char>& in);
     future<std::tuple<int64_t, std::optional<rcv_buf>>>
     read_response_frame_compressed(input_stream<char>& in);
-    void send_loop() {
-        if (is_stream()) {
-            rpc::connection::send_loop<rpc::connection::outgoing_queue_type::stream>();
-        } else {
-            rpc::connection::send_loop<rpc::connection::outgoing_queue_type::request>();
-        }
-    }
 public:
     /**
      * Create client object which will attempt to connect to the remote address.
@@ -546,13 +534,6 @@ public:
         future<std::tuple<std::optional<uint64_t>, uint64_t, int64_t, std::optional<rcv_buf>>>
         read_request_frame_compressed(input_stream<char>& in);
         future<feature_map> negotiate(feature_map requested);
-        void send_loop() {
-            if (is_stream()) {
-                rpc::connection::send_loop<rpc::connection::outgoing_queue_type::stream>();
-            } else {
-                rpc::connection::send_loop<rpc::connection::outgoing_queue_type::response>();
-            }
-        }
         future<> send_unknown_verb_reply(std::optional<rpc_clock_type::time_point> timeout, int64_t msg_id, uint64_t type);
     public:
         connection(server& s, connected_socket&& fd, socket_address&& addr, const logger& l, void* seralizer, connection_id id);

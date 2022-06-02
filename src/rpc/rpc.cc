@@ -129,7 +129,6 @@ namespace rpc {
       }
   }
 
-  template<connection::outgoing_queue_type QueueType>
   void connection::send_loop() {
       _send_loop_stopped = do_until([this] { return _error; }, [this] {
           return _outgoing_queue_cond.wait([this] { return !_outgoing_queue.empty(); }).then([this] {
@@ -145,7 +144,7 @@ namespace rpc {
               if (d.pcancel) {
                   d.pcancel->cancel_send = std::function<void()>(); // request is no longer cancellable
               }
-              if (QueueType == outgoing_queue_type::request) {
+              if (_propagate_timeout) {
                   static_assert(snd_buf::chunk_size >= 8, "send buffer chunk size is too small");
                   if (_timeout_negotiated) {
                       auto expire = d.t.get_timeout();
@@ -684,6 +683,7 @@ namespace rpc {
           }).then([this] () {
               _client_negotiated->set_value();
               _client_negotiated = std::nullopt;
+              _propagate_timeout = !is_stream();
               send_loop();
               return do_until([this] { return _read_buf.eof() || _error; }, [this] () mutable {
                   if (is_stream()) {
