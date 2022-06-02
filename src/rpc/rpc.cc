@@ -813,7 +813,22 @@ namespace rpc {
           }
           case protocol_features::ISOLATION: {
               auto&& isolation_cookie = e.second;
-              _isolation_config = _server._limits.isolate_connection(isolation_cookie);
+              struct isolation_function_visitor {
+                  isolation_function_visitor(const sstring& isolation_cookie) :
+                        _isolation_cookie(isolation_cookie) { }
+                  future<isolation_config> operator() (resource_limits::syncronous_isolation_function f) const {
+                      return futurize_invoke(f, _isolation_cookie);
+                  }
+                  future<isolation_config> operator() (resource_limits::asyncronous_isolation_function f) const {
+                      return f(_isolation_cookie);
+                  }
+              private:
+                  sstring _isolation_cookie;
+              };
+
+              f = std::visit(isolation_function_visitor(isolation_cookie), _server._limits.isolate_connection).then([this] (isolation_config conf) {
+                  _isolation_config = conf;
+              });
               ret.emplace(e);
               break;
           }
