@@ -384,10 +384,13 @@ SEASTAR_TEST_CASE(test_rpc_cancel) {
             handler_called.set_value(); rpc_executed = true; return sleep(1ms);
         }).get();
         auto call = env.proto().make_client<void ()>(1);
+        promise<> cont;
         rpc::cancellable cancel;
+        c1.suspend_for_testing(cont);
         auto f = call(c1, cancel);
         // cancel send side
         cancel.cancel();
+        cont.set_value();
         try {
             f.get();
         } catch(rpc::canceled_error&) {

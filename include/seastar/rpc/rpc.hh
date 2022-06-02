@@ -362,6 +362,9 @@ public:
     friend class sink_impl;
     template<typename Serializer, typename... In>
     friend class source_impl;
+
+    void suspend_for_testing(promise<>& p) {
+    }
 };
 
 struct deferred_snd_buf {
