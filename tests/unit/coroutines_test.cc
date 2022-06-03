@@ -721,6 +721,8 @@ SEASTAR_TEST_CASE(test_as_future_preemption) {
     BOOST_REQUIRE_THROW(f0.get(), std::runtime_error);
 }
 
+#ifndef __clang__
+
 coroutine::experimental::generator<int> fibonacci_sequence(unsigned count) {
     auto a = 0, b = 1;
     for (unsigned i = 0; i < count; ++i) {
@@ -767,5 +769,7 @@ SEASTAR_TEST_CASE(test_async_generator_throws) {
         BOOST_REQUIRE_THROW(std::rethrow_exception(f.get_exception()), std::out_of_range);
     });
 }
+
+#endif
 
 #endif

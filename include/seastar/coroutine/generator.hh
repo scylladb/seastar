@@ -220,7 +220,7 @@ void generator_promise<T>:: unhandled_exception() noexcept {
 
 template<typename T>
 generator<T> generator_promise<T>::get_return_object() noexcept {
-    using handle_type = std::coroutine_handle<generator_promise<T>>;
+    using handle_type = SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<generator_promise<T>>;
     return generator<T>(handle_type::from_promise(*this), this);
 }
 }
