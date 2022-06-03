@@ -144,12 +144,11 @@ namespace rpc {
               d.buf.size -= 8;
           }
       }
-      d.buf = compress(std::move(d.buf));
-      auto f = send_buffer(std::move(d.buf)).then([this] {
+      auto buf = compress(std::move(d.buf));
+      return send_buffer(std::move(buf)).then([this] {
           _stats.sent_messages++;
           return _write_buf.flush();
       });
-      return f;
   }
 
   void connection::send_loop() {
