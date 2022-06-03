@@ -237,6 +237,7 @@ protected:
     output_stream<char> _write_buf;
     bool _error = false;
     bool _connected = false;
+    std::optional<shared_promise<>> _negotiated = shared_promise<>();
     promise<> _stopped;
     stats _stats;
     const logger& _logger;
@@ -286,6 +287,8 @@ protected:
         return _outgoing_queue.size();
     }
 
+    void set_negotiated() noexcept;
+
     bool is_stream() const noexcept {
         return _is_stream;
     }
@@ -294,7 +297,7 @@ protected:
     future<> send_buffer(snd_buf buf);
 
     void send_loop();
-    future<> stop_send_loop();
+    future<> stop_send_loop(std::exception_ptr ex);
     future<std::optional<rcv_buf>>  read_stream_frame_compressed(input_stream<char>& in);
     bool stream_check_twoway_closed() const noexcept {
         return _sink_closed && _source_closed;
@@ -437,7 +440,6 @@ private:
     std::unordered_map<id_type, std::unique_ptr<reply_handler_base>> _outstanding;
     socket_address _server_addr, _local_addr;
     client_options _options;
-    std::optional<shared_promise<>> _client_negotiated = shared_promise<>();
     weak_ptr<client> _parent; // for stream clients
 
 private:
@@ -486,10 +488,10 @@ public:
         return _server_addr;
     }
     future<> await_connection() {
-        if (!_client_negotiated) {
+        if (!_negotiated) {
             return make_ready_future<>();
         } else {
-            return _client_negotiated->get_shared_future();
+            return _negotiated->get_shared_future();
         }
     }
     template<typename Serializer, typename... Out>

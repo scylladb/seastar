@@ -170,11 +170,23 @@ namespace rpc {
       });
   }
 
-  future<> connection::stop_send_loop() {
+  void connection::set_negotiated() noexcept {
+      _negotiated->set_value();
+      _negotiated = std::nullopt;
+      send_loop();
+  }
+
+  future<> connection::stop_send_loop(std::exception_ptr ex) {
       _error = true;
       if (_connected) {
           _outgoing_queue_cond.broken();
           _fd.shutdown_output();
+      }
+      if (ex == nullptr) {
+          ex = std::make_exception_ptr(closed_error());
+      }
+      if (_negotiated) {
+          _negotiated->set_exception(ex);
       }
       return when_all(std::move(_send_loop_stopped), std::move(_sink_closed_future)).then([this] (std::tuple<future<>, future<bool>> res){
           _outgoing_queue.clear();
@@ -681,10 +693,8 @@ namespace rpc {
           return send_negotiation_frame(std::move(features)).then([this] {
                return negotiate_protocol(_read_buf);
           }).then([this] () {
-              _client_negotiated->set_value();
-              _client_negotiated = std::nullopt;
               _propagate_timeout = !is_stream();
-              send_loop();
+              set_negotiated();
               return do_until([this] { return _read_buf.eof() || _error; }, [this] () mutable {
                   if (is_stream()) {
                       return handle_stream_frame();
@@ -738,7 +748,7 @@ namespace rpc {
           }
           _error = true;
           _stream_queue.abort(std::make_exception_ptr(stream_closed()));
-          return stop_send_loop().then_wrapped([this] (future<> f) {
+          return stop_send_loop(ep).then_wrapped([this] (future<> f) {
               f.ignore_ready_future();
               _outstanding.clear();
               if (is_stream()) {
@@ -746,10 +756,7 @@ namespace rpc {
               } else {
                   abort_all_streams();
               }
-          }).finally([this, ep]{
-              if (_client_negotiated && ep) {
-                  _client_negotiated->set_exception(ep);
-              }
+          }).finally([this]{
               _stopped.set_value();
           });
       });
@@ -939,7 +946,7 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
       return negotiate_protocol(_read_buf).then([this] () mutable {
         auto sg = _isolation_config ? _isolation_config->sched_group : current_scheduling_group();
         return with_scheduling_group(sg, [this] {
-          send_loop();
+          set_negotiated();
           return do_until([this] { return _read_buf.eof() || _error; }, [this] () mutable {
               if (is_stream()) {
                   return handle_stream_frame();
@@ -976,14 +983,16 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
           });
         });
       }).then_wrapped([this] (future<> f) {
+          std::exception_ptr ep;
           if (f.failed()) {
+              ep = f.get_exception();
               log_exception(*this, log_level::error,
-                      format("server{} connection dropped", is_stream() ? " stream" : "").c_str(), f.get_exception());
+                      format("server{} connection dropped", is_stream() ? " stream" : "").c_str(), ep);
           }
           _fd.shutdown_input();
           _error = true;
           _stream_queue.abort(std::make_exception_ptr(stream_closed()));
-          return stop_send_loop().then_wrapped([this] (future<> f) {
+          return stop_send_loop(ep).then_wrapped([this] (future<> f) {
               f.ignore_ready_future();
               _server._conns.erase(get_connection_id());
               if (is_stream()) {
