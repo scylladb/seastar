@@ -21,7 +21,6 @@
 
 #include <gnutls/gnutls.h>
 #include <gnutls/x509.h>
-#include <stdexcept>
 #include <system_error>
 
 #include <seastar/core/loop.hh>
@@ -50,13 +49,6 @@ class net::get_impl {
 public:
     static std::unique_ptr<connected_socket_impl> get(connected_socket s) {
         return std::move(s._csi);
-    }
-
-    static connected_socket_impl* maybe_get_ptr(connected_socket& s) {
-        if (s._csi) {
-            return s._csi.get();
-        }
-        return nullptr;
     }
 };
 
@@ -1210,8 +1202,23 @@ public:
             // if the user registered a DN (Distinguished Name) callback
             // then extract subject and issuer from the (leaf) peer certificate and invoke the callback
 
-            auto dn = extract_dn_information();
-            assert(dn.has_value()); // otherwise we couldn't have gotten here
+            unsigned int list_size;
+            const gnutls_datum_t* client_cert_list = gnutls_certificate_get_peers(*this, &list_size);
+            assert(list_size > 0); // otherwise we couldn't have gotten here
+
+            gnutls_x509_crt_t peer_leaf_cert;
+            gtls_chk(gnutls_x509_crt_init(&peer_leaf_cert));
+            gtls_chk(gnutls_x509_crt_import(peer_leaf_cert, &(client_cert_list[0]), GNUTLS_X509_FMT_DER));
+
+            // we need get_string to be noexcept because we need to manually de-init peer_leaf_cert afterwards
+            auto [ec, subject] = get_gtls_string(gnutls_x509_crt_get_dn, peer_leaf_cert);
+            auto [ec2, issuer] = get_gtls_string(gnutls_x509_crt_get_issuer_dn, peer_leaf_cert);
+
+            gnutls_x509_crt_deinit(peer_leaf_cert);
+
+            if (ec || ec2) {
+                throw std::runtime_error("error while extracting certificate DN strings");
+            }
 
             // a switch here might look overelaborate, however,
             // the compiler will warn us if someone alters the definition of type
@@ -1225,7 +1232,7 @@ public:
                 break;
             }
 
-            _creds->_dn_callback(t, std::move(dn->subject), std::move(dn->issuer));
+            _creds->_dn_callback(t, std::move(subject), std::move(issuer));
         }
     }
 
@@ -1490,44 +1497,8 @@ public:
         return *_sock;
     }
 
-    future<std::optional<session_dn>> get_distinguished_name() {
-        using result_t = std::optional<session_dn>;
-        if (_error) {
-            return make_exception_future<result_t>(_error);
-        }
-        if (_shutdown) {
-            return make_exception_future<result_t>(std::system_error(ENOTCONN, std::system_category()));
-        }
-        if (!_connected) {
-            return handshake().then([this]() mutable {
-               return get_distinguished_name();
-            });
-        }
-        result_t dn = extract_dn_information();
-        return make_ready_future<result_t>(std::move(dn));
-    }
-
     struct session_ref;
 private:
-
-    std::optional<session_dn> extract_dn_information() const {
-        unsigned int list_size;
-        const gnutls_datum_t* client_cert_list = gnutls_certificate_get_peers(*this, &list_size);
-        if (list_size == 0) {
-            return std::nullopt;
-        }
-        gnutls_x509_crt_t peer_leaf_cert;
-        gtls_chk(gnutls_x509_crt_init(&peer_leaf_cert));
-        gtls_chk(gnutls_x509_crt_import(peer_leaf_cert, &(client_cert_list[0]), GNUTLS_X509_FMT_DER));
-        auto [ec, subject] = get_gtls_string(gnutls_x509_crt_get_dn, peer_leaf_cert);
-        auto [ec2, issuer] = get_gtls_string(gnutls_x509_crt_get_issuer_dn, peer_leaf_cert);
-        if (ec || ec2) {
-            throw std::runtime_error("error while extracting certificate DN strings");
-        }
-        gnutls_x509_crt_deinit(peer_leaf_cert);
-        return session_dn{.subject=subject, .issuer=issuer};
-    }
-
     type _type;
 
     std::unique_ptr<net::connected_socket_impl> _sock;
@@ -1618,9 +1589,7 @@ public:
     socket_address local_address() const noexcept override {
         return _session->socket().local_address();
     }
-    future<std::optional<session_dn>> get_distinguished_name() {
-        return _session->get_distinguished_name();
-    }
+
 };
 
 
@@ -1680,7 +1649,6 @@ public:
         return _sock.local_address();
     }
 private:
-
     shared_ptr<server_credentials> _creds;
     server_socket _sock;
 };
@@ -1755,20 +1723,6 @@ server_socket tls::listen(shared_ptr<server_credentials> creds, socket_address s
 server_socket tls::listen(shared_ptr<server_credentials> creds, server_socket ss) {
     server_socket ssls(std::make_unique<server_session>(creds, std::move(ss)));
     return server_socket(std::move(ssls));
-}
-
-future<std::optional<session_dn>> tls::get_dn_information(connected_socket& socket) {
-    auto impl = net::get_impl::maybe_get_ptr(socket);
-    if (impl == nullptr) {
-        // the socket is not yet created or moved from
-        throw std::system_error(ENOTCONN, std::system_category());
-    }
-    auto tls_impl = dynamic_cast<tls_connected_socket_impl*>(impl);
-    if (!tls_impl) {
-        // bad cast here means that we're dealing with wrong socket type
-        throw std::invalid_argument("Not a TLS socket");
-    }
-    return tls_impl->get_distinguished_name();
 }
 
 }

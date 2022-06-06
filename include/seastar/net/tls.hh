@@ -341,18 +341,6 @@ namespace tls {
     // Wraps an existing server socket in SSL
     server_socket listen(shared_ptr<server_credentials>, server_socket);
     /// @}
-
-    /**
-     * Get distinguished name from the leaf certificate in the certificate chain that
-     * the connected peer is using.
-     * This function forces the TLS handshake. If the handshake didn't happen before the
-     * call to 'get_dn_information' it will be completed when the returned future will become
-     * ready.
-     * The function returns DN information on success. If the peer didn't send the certificate
-     * during the handshake the function returns nullopt. If the socket is not connected the
-     * system_error exception will be thrown.
-     */
-    future<std::optional<session_dn>> get_dn_information(connected_socket& socket);
 }
 }
 

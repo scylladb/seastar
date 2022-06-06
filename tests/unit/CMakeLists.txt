@@ -538,76 +538,8 @@ function(seastar_add_certgen name)
   )
 endfunction()
 
-function(seastar_gen_mtls_certs)
-  find_program(OPENSSL openssl)
-
-  set(SUBJECT "/C=GB/ST=London/L=London/O=Redpanda Data/OU=Core/CN=redpanda.com")
-  set(CLIENT1_SUBJECT "/C=GB/ST=London/L=London/O=Redpanda Data/OU=Core/CN=client1.org")
-  set(CLIENT2_SUBJECT "/C=GB/ST=London/L=London/O=Redpanda Data/OU=Core/CN=client2.org")
-
-  add_custom_command(OUTPUT mtls_ca.key
-    COMMAND ${OPENSSL} ecparam -name prime256v1 -genkey -noout -out mtls_ca.key
-    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-  )
-  add_custom_command(OUTPUT mtls_ca.crt
-    COMMAND ${OPENSSL} req -new -x509 -sha256 -key mtls_ca.key -out mtls_ca.crt -subj ${SUBJECT}
-    DEPENDS mtls_ca.key
-    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-  )
-  # server certificates
-  add_custom_command(OUTPUT mtls_server.key
-    COMMAND ${OPENSSL} ecparam -name prime256v1 -genkey -noout -out mtls_server.key
-    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-  )
-  add_custom_command(OUTPUT mtls_server.csr
-    COMMAND ${OPENSSL} req -new -sha256 -key mtls_server.key -out mtls_server.csr -subj ${SUBJECT}
-    DEPENDS mtls_server.key
-    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-  )
-  add_custom_command(OUTPUT mtls_server.crt
-    COMMAND ${OPENSSL} x509 -req -in mtls_server.csr -CA mtls_ca.crt -CAkey mtls_ca.key -CAcreateserial -out mtls_server.crt -days 1000 -sha256
-    DEPENDS mtls_server.csr mtls_ca.crt mtls_ca.key
-    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-  )
-  # client1 certificates
-  add_custom_command(OUTPUT mtls_client1.key
-    COMMAND ${OPENSSL} ecparam -name prime256v1 -genkey -noout -out mtls_client1.key
-    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-  )
-  add_custom_command(OUTPUT mtls_client1.csr
-    COMMAND ${OPENSSL} req -new -sha256 -key mtls_client1.key -out mtls_client1.csr -subj ${CLIENT1_SUBJECT}
-    DEPENDS mtls_client1.key
-    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-  )
-  add_custom_command(OUTPUT mtls_client1.crt
-    COMMAND ${OPENSSL} x509 -req -in mtls_client1.csr -CA mtls_ca.crt -CAkey mtls_ca.key -CAcreateserial -out mtls_client1.crt -days 1000 -sha256
-    DEPENDS mtls_client1.csr mtls_ca.crt mtls_ca.key
-    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-  )
-  # client2 certificates
-  add_custom_command(OUTPUT mtls_client2.key
-    COMMAND ${OPENSSL} ecparam -name prime256v1 -genkey -noout -out mtls_client2.key
-    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-  )
-  add_custom_command(OUTPUT mtls_client2.csr
-    COMMAND ${OPENSSL} req -new -sha256 -key mtls_client2.key -out mtls_client2.csr -subj ${CLIENT2_SUBJECT}
-    DEPENDS mtls_client2.key
-    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-  )
-  add_custom_command(OUTPUT mtls_client2.crt
-    COMMAND ${OPENSSL} x509 -req -in mtls_client2.csr -CA mtls_ca.crt -CAkey mtls_ca.key -CAcreateserial -out mtls_client2.crt -days 1000 -sha256
-    DEPENDS mtls_client2.csr mtls_ca.crt mtls_ca.key
-    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-  )
-
-  add_custom_target(mtls_certs
-    DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/mtls_client1.crt" "${CMAKE_CURRENT_BINARY_DIR}/mtls_client2.crt" "${CMAKE_CURRENT_BINARY_DIR}/mtls_server.crt"
-  )
-endfunction()
-
 seastar_add_certgen(testcrt DOMAIN scylladb.org SERVER test)
 seastar_add_certgen(othercrt DOMAIN apa.org SERVER other)
-seastar_gen_mtls_certs()
 
 set (tls_certificate_files
   tls-ca-bundle.pem
@@ -633,7 +565,7 @@ add_custom_target(tls_files
 )
 
 seastar_add_test (tls
-  DEPENDS tls_files testcrt othercrt mtls_certs
+  DEPENDS tls_files testcrt othercrt
   SOURCES tls_test.cc
   LIBRARIES Boost::filesystem
   WORKING_DIRECTORY ${Seastar_BINARY_DIR})
