@@ -36,6 +36,7 @@
 #include <seastar/core/thread.hh>
 #include <seastar/core/sharded.hh>
 #include <seastar/core/with_scheduling_group.hh>
+#include <seastar/core/sleep.hh>
 #include <seastar/rpc/rpc.hh>
 
 using namespace seastar;
@@ -175,6 +176,8 @@ struct job_config {
     unsigned shares = 100;
     std::chrono::duration<double> exec_time;
     std::optional<duration_range> exec_time_range;
+    std::optional<std::chrono::duration<double>> sleep_time;
+    std::optional<duration_range> sleep_time_range;
     size_t payload;
 
     bool client = false;
@@ -239,6 +242,14 @@ struct convert<job_config> {
                 r.min = node["execution_time_min"].as<duration_time>().time;
                 r.max = node["execution_time_max"].as<duration_time>().time;
                 cfg.exec_time_range = r;
+            }
+            if (node["sleep_time"]) {
+                cfg.sleep_time = node["sleep_time"].as<duration_time>().time;
+            } else if (node["sleep_time_min"] && node["sleep_time_max"]) {
+                duration_range r;
+                r.min = node["sleep_time_min"].as<duration_time>().time;
+                r.max = node["sleep_time_max"].as<duration_time>().time;
+                cfg.sleep_time_range = r;
             }
             cfg.client = !node["side"] || (node["side"].as<std::string>() == "client");
             cfg.server = !node["side"] || (node["side"].as<std::string>() == "server");
@@ -345,7 +356,7 @@ class job_rpc : public job {
     using accumulator_type = accumulator_set<double, stats<tag::extended_p_square_quantile(quadratic), tag::mean, tag::max>>;
 
     job_config _cfg;
-    ipv4_addr _caddr;
+    socket_address _caddr;
     client_config _ccfg;
     rpc_protocol& _rpc;
     std::unique_ptr<rpc_protocol::client> _client;
@@ -366,7 +377,7 @@ class job_rpc : public job {
     }
 
 public:
-    job_rpc(job_config cfg, rpc_protocol& rpc, client_config ccfg, ipv4_addr caddr)
+    job_rpc(job_config cfg, rpc_protocol& rpc, client_config ccfg, socket_address caddr)
             : _cfg(cfg)
             , _caddr(std::move(caddr))
             , _ccfg(ccfg)
@@ -428,20 +439,31 @@ class job_cpu : public job {
     std::chrono::steady_clock::time_point _stop;
     uint64_t _total_invocations = 0;
     std::unique_ptr<pause_distribution> _pause;
+    std::unique_ptr<pause_distribution> _sleep;
 
     std::unique_ptr<pause_distribution> make_pause() {
         if (_cfg.exec_time_range) {
-            fmt::print("{} has {}..{} pauses\n", name(), _cfg.exec_time_range->min.count(), _cfg.exec_time_range->max.count());
             return make_uniform_pause(*_cfg.exec_time_range);
         } else {
             return make_steady_pause(_cfg.exec_time);
         }
     }
 
+    std::unique_ptr<pause_distribution> make_sleep() {
+        if (_cfg.sleep_time) {
+            return make_steady_pause(*_cfg.sleep_time);
+        }
+        if (_cfg.sleep_time_range) {
+            return make_uniform_pause(*_cfg.sleep_time_range);
+        }
+        return nullptr;
+    }
+
 public:
     job_cpu(job_config cfg)
             : _cfg(cfg)
             , _pause(make_pause())
+            , _sleep(make_sleep())
     {
     }
 
@@ -461,7 +483,12 @@ public:
                 auto start  = std::chrono::steady_clock::now();
                 auto pause = _pause->get();
                 while ((std::chrono::steady_clock::now() - start) < pause);
-                return make_ready_future<>();
+                if (!_sleep) {
+                    return make_ready_future<>();
+                } else {
+                    auto sleep = std::chrono::duration_cast<std::chrono::nanoseconds>(_sleep->get());
+                    return seastar::sleep(sleep);
+                }
             });
           });
         });
@@ -478,7 +505,7 @@ class context {
     std::vector<std::unique_ptr<job>> _jobs;
     std::unordered_map<std::string, scheduling_group> _sched_groups;
 
-    std::unique_ptr<job> make_job(job_config cfg, std::optional<ipv4_addr> caddr) {
+    std::unique_ptr<job> make_job(job_config cfg, std::optional<socket_address> caddr) {
         if (cfg.type == "rpc") {
             return std::make_unique<job_rpc>(cfg, *_rpc, _cfg.client, *caddr);
         }
@@ -504,7 +531,7 @@ class context {
     }
 
 public:
-    context(std::optional<ipv4_addr> laddr, std::optional<ipv4_addr> caddr, uint16_t port, config cfg, std::unordered_map<std::string, scheduling_group> groups)
+    context(std::optional<socket_address> laddr, std::optional<socket_address> caddr, uint16_t port, config cfg, std::unordered_map<std::string, scheduling_group> groups)
             : _rpc(std::make_unique<rpc_protocol>(serializer{}))
             , _cfg(cfg)
             , _sched_groups(std::move(groups))
@@ -620,13 +647,25 @@ int main(int ac, char** av) {
             auto& conf = opts["conf"].as<sstring>();
             auto duration = std::chrono::seconds(opts["duration"].as<unsigned>());
 
-            std::optional<ipv4_addr> laddr;
+            std::optional<socket_address> laddr;
             if (listen != "") {
-                laddr.emplace(listen, port);
+                if (listen[0] == '.' || listen[0] == '/') {
+                    unix_domain_addr addr(listen);
+                    laddr.emplace(std::move(addr));
+                } else {
+                    ipv4_addr addr(listen, port);
+                    laddr.emplace(std::move(addr));
+                }
             }
-            std::optional<ipv4_addr> caddr;
+            std::optional<socket_address> caddr;
             if (connect != "") {
-                caddr.emplace(connect, port);
+                if (connect[0] == '.' || connect[0] == '/') {
+                    unix_domain_addr addr(connect);
+                    caddr.emplace(std::move(addr));
+                } else {
+                    ipv4_addr addr(connect, port);
+                    caddr.emplace(std::move(addr));
+                }
             }
 
             YAML::Node doc = YAML::LoadFile(conf);
