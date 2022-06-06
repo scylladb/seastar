@@ -89,7 +89,7 @@ class formatter {
             });
         } else {
             return stream.write(to_json(p.first) + ":").then([&p, &stream] {
-                write(stream, p.second);
+                return write(stream, p.second);
             });
         }
     }
@@ -105,8 +105,7 @@ class formatter {
                         return write(stream, m);
                     });
                 }).then([&stream, s] {
-                    // FIXME: future is discarded
-                    (void)stream.write(end(s));
+                    return stream.write(end(s));
                 });
             });
         });
