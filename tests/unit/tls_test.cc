@@ -1102,3 +1102,100 @@ SEASTAR_THREAD_TEST_CASE(test_closed_write) {
     }
 
 }
+
+/*
+ * Certificates:
+ *
+ * make -f tests/unit/mkmtls.gmk domain=scylladb.org server=test
+ *
+ * ->   mtls_ca.crt
+ *      mtls_ca.key
+ *      mtls_server.crt
+ *      mtls_server.csr
+ *      mtls_server.key
+ *      mtls_client1.crt
+ *      mtls_client1.csr
+ *      mtls_client1.key
+ *      mtls_client2.crt
+ *      mtls_client2.csr
+ *      mtls_client2.key
+ *
+ */
+SEASTAR_THREAD_TEST_CASE(test_dn_name_handling) {
+    // Connect to server using two different client certificates.
+    // Make sure that for every client the server can fetch DN string
+    // and the string is correct.
+    // The setup consist of several certificates:
+    // - CA
+    // - mtls_server.crt - server certificate
+    // - mtls_client1.crt - first client certificate
+    // - mtls_client2.crt - second client certificate
+    //
+    // The test runs server that uses mtls_server.crt.
+    // The server accepts two incomming connections, first one uses mtls_client1.crt
+    // and the second one uses mtls_client2.crt. Every client sends a short string
+    // that server receives and tries to find it in the DN string.
+
+    auto addr = ::make_ipv4_address( {0x7f000001, 4712});
+
+    auto client1_creds = [] {
+        tls::credentials_builder builder;
+        builder.set_x509_trust_file(certfile("mtls_ca.crt"), tls::x509_crt_format::PEM).get();
+        builder.set_x509_key_file(certfile("mtls_client1.crt"), certfile("mtls_client1.key"), tls::x509_crt_format::PEM).get();
+        return builder.build_certificate_credentials();
+    }();
+
+    auto client2_creds = [] {
+        tls::credentials_builder builder;
+        builder.set_x509_trust_file(certfile("mtls_ca.crt"), tls::x509_crt_format::PEM).get();
+        builder.set_x509_key_file(certfile("mtls_client2.crt"), certfile("mtls_client2.key"), tls::x509_crt_format::PEM).get();
+        return builder.build_certificate_credentials();
+    }();
+
+    auto server_creds = [] {
+        tls::credentials_builder builder;
+        builder.set_x509_trust_file(certfile("mtls_ca.crt"), tls::x509_crt_format::PEM).get();
+        builder.set_x509_key_file(certfile("mtls_server.crt"), certfile("mtls_server.key"), tls::x509_crt_format::PEM).get();
+        builder.set_client_auth(tls::client_auth::REQUIRE);
+        return builder.build_server_credentials();
+    }();
+
+    auto fetch_dn = [server_creds, addr] (sstring id, shared_ptr<tls::certificate_credentials> client_cred) {
+        listen_options lo{};
+        lo.reuse_address = true;
+        auto server_sock = tls::listen(server_creds, addr, lo);
+
+        auto sa = server_sock.accept();
+        auto c = tls::connect(client_cred, addr).get();
+        auto s = sa.get();
+
+        auto in = s.connection.input();
+        output_stream<char> out(c.output().detach(), 1024);
+        out.write(id).get();
+
+        auto fdn = tls::get_dn_information(s.connection);
+
+        auto fout = out.flush();
+        auto fin = in.read();
+
+        fout.get();
+
+        auto dn = fdn.get();
+        auto client_id = fin.get();
+
+        in.close().get();
+        out.close().get();
+
+        s.connection.shutdown_input();
+        s.connection.shutdown_output();
+
+        c.shutdown_input();
+        c.shutdown_output();
+
+        auto it = dn->subject.find(sstring(client_id.get(), client_id.size()));
+        BOOST_REQUIRE(it != sstring::npos);
+    };
+
+    fetch_dn("client1.org", client1_creds);
+    fetch_dn("client2.org", client2_creds);
+}

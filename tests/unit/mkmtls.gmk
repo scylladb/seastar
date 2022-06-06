@@ -1,0 +1,29 @@
+server  = $(shell hostname)
+domain  = $(shell dnsdomainname)
+name    = $(server)
+
+country = SE
+state   = Stockholm
+locality= $(state)
+org     = $(domain)
+unit    = $(domain)
+mail    = mx
+common  = $(server).$(domain)
+subj	= "/C=$(country)/ST=$(state)/L=$(locality)/O=$(domain)/OU=$(domain)/CN=$(common)"
+client1	= "/C=$(country)/ST=$(state)/L=$(locality)/O=$(domain)/OU=$(domain)/CN=client1.org"
+client2	= "/C=$(country)/ST=$(state)/L=$(locality)/O=$(domain)/OU=$(domain)/CN=client2.org"
+mtls_certs  :
+		openssl ecparam -name prime256v1 -genkey -noout -out mtls_ca.key
+		openssl req -new -x509 -sha256 -key mtls_ca.key -out mtls_ca.crt -subj $(subj)
+		openssl ecparam -name prime256v1 -genkey -noout -out mtls_server.key
+		openssl req -new -sha256 -key mtls_server.key -out mtls_server.csr -subj $(subj)
+		openssl x509 -req -in mtls_server.csr -CA mtls_ca.crt -CAkey mtls_ca.key -CAcreateserial -out mtls_server.crt -days 1000 -sha256
+
+		openssl ecparam -name prime256v1 -genkey -noout -out mtls_client1.key
+		openssl req -new -sha256 -key mtls_client1.key -out mtls_client1.csr  -subj $(client1)
+		openssl x509 -req -in mtls_client1.csr -CA mtls_ca.crt -CAkey mtls_ca.key -CAcreateserial -out mtls_client1.crt -days 1000 -sha256
+
+		openssl ecparam -name prime256v1 -genkey -noout -out mtls_client2.key
+		openssl req -new -sha256 -key mtls_client2.key -out mtls_client2.csr  -subj $(client2)
+		openssl x509 -req -in mtls_client2.csr -CA mtls_ca.crt -CAkey mtls_ca.key -CAcreateserial -out mtls_client2.crt -days 1000 -sha256
+

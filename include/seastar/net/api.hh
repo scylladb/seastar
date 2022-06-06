@@ -158,6 +158,12 @@ struct connected_socket_input_stream_config final {
     unsigned max_buffer_size = 128 * 1024;
 };
 
+/// Distinguished name
+struct session_dn {
+    sstring subject;
+    sstring issuer;
+};
+
 /// A TCP (or other stream-based protocol) connection.
 ///
 /// A \c connected_socket represents a full-duplex stream between
