@@ -684,6 +684,73 @@ SEASTAR_TEST_CASE(test_map_reduce_tuple) {
     });
 }
 
+SEASTAR_TEST_CASE(test_map_reduce_lifetime) {
+    struct map {
+        bool destroyed = false;
+        ~map() {
+            destroyed = true;
+        }
+        auto operator()(long x) {
+            return yield().then([this, x] {
+                BOOST_REQUIRE(!destroyed);
+                return x;
+            });
+        }
+    };
+    struct reduce {
+        long& res;
+        bool destroyed = false;
+        ~reduce() {
+            destroyed = true;
+        }
+        auto operator()(long x) {
+            return yield().then([this, x] {
+                BOOST_REQUIRE(!destroyed);
+                res += x;
+            });
+        }
+    };
+    return do_with(0L, [] (auto& res) {
+        long n = 10;
+        return map_reduce(boost::make_counting_iterator<long>(0), boost::make_counting_iterator<long>(n),
+                map{}, reduce{res}).then([n, &res] {
+            long expected = (n * (n - 1)) / 2;
+            BOOST_REQUIRE_EQUAL(res, expected);
+        });
+    });
+}
+
+SEASTAR_TEST_CASE(test_map_reduce0_lifetime) {
+    struct map {
+        bool destroyed = false;
+        ~map() {
+            destroyed = true;
+        }
+        auto operator()(long x) {
+            return yield().then([this, x] {
+                BOOST_REQUIRE(!destroyed);
+                return x;
+            });
+        }
+    };
+    struct reduce {
+        bool destroyed = false;
+        ~reduce() {
+            destroyed = true;
+        }
+        auto operator()(long res, long x) {
+            BOOST_REQUIRE(!destroyed);
+            return res + x;
+        }
+    };
+    long n = 10;
+    return map_reduce(boost::make_counting_iterator<long>(0), boost::make_counting_iterator<long>(n),
+            map{}, 0L, reduce{}).then([n] (long res) {
+        long expected = (n * (n - 1)) / 2;
+        BOOST_REQUIRE_EQUAL(res, expected);
+    });
+}
+
 // This test doesn't actually test anything - it just waits for the future
 // returned by sleep to complete. However, a bug we had in sleep() caused
 // this test to fail the sanitizer in the debug build, so this is a useful

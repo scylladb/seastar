@@ -97,12 +97,13 @@ map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Reducer&& r)
     -> typename reducer_traits<Reducer>::future_type
 {
     struct state {
+        Mapper mapper;
         Reducer reducer;
     };
-    auto s = make_lw_shared(state{std::forward<Reducer>(r)});
+    auto s = make_lw_shared(state{std::forward<Mapper>(mapper), std::forward<Reducer>(r)});
     future<> ret = make_ready_future<>();
     while (begin != end) {
-        ret = futurize_invoke(mapper, *begin++).then_wrapped([ret = std::move(ret), s] (auto f) mutable {
+        ret = futurize_invoke(s->mapper, *begin++).then_wrapped([ret = std::move(ret), s] (auto f) mutable {
             return ret.then_wrapped([f = std::move(f), s] (auto rf) mutable {
                 if (rf.failed()) {
                     f.ignore_ready_future();
@@ -163,13 +164,14 @@ inline
 future<Initial>
 map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Initial initial, Reduce reduce) {
     struct state {
+        Mapper mapper;
         Initial result;
         Reduce reduce;
     };
-    auto s = make_lw_shared(state{std::move(initial), std::move(reduce)});
+    auto s = make_lw_shared(state{std::forward<Mapper>(mapper), std::move(initial), std::move(reduce)});
     future<> ret = make_ready_future<>();
     while (begin != end) {
-        ret = futurize_invoke(mapper, *begin++).then_wrapped([s = s.get(), ret = std::move(ret)] (auto f) mutable {
+        ret = futurize_invoke(s->mapper, *begin++).then_wrapped([s = s.get(), ret = std::move(ret)] (auto f) mutable {
             try {
                 s->result = s->reduce(std::move(s->result), std::move(f.get0()));
                 return std::move(ret);
