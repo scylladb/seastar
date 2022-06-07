@@ -297,9 +297,9 @@ public:
     {
         return ::seastar::map_reduce(boost::make_counting_iterator<unsigned>(0),
                             boost::make_counting_iterator<unsigned>(_instances.size()),
-            [this, &func, args = std::make_tuple(std::forward<Args>(args)...)] (unsigned c) mutable {
-                return smp::submit_to(c, [this, func, args] () mutable {
-                    return std::apply([this, func] (Args&&... args) mutable {
+            [this, func = std::forward<Func>(func), args = std::make_tuple(std::forward<Args>(args)...)] (unsigned c) mutable {
+                return smp::submit_to(c, [this, &func, args] () mutable {
+                    return std::apply([this, &func] (Args&&... args) mutable {
                         auto inst = get_local_service();
                         return std::invoke(func, *inst, std::forward<Args>(args)...);
                     }, std::move(args));
@@ -314,9 +314,9 @@ public:
     {
         return ::seastar::map_reduce(boost::make_counting_iterator<unsigned>(0),
                             boost::make_counting_iterator<unsigned>(_instances.size()),
-            [this, &func, args = std::make_tuple(std::forward<Args>(args)...)] (unsigned c) {
-                return smp::submit_to(c, [this, func, args] () {
-                    return std::apply([this, func] (Args&&... args) {
+            [this, func = std::forward<Func>(func), args = std::make_tuple(std::forward<Args>(args)...)] (unsigned c) {
+                return smp::submit_to(c, [this, &func, args] () {
+                    return std::apply([this, &func] (Args&&... args) {
                         auto inst = get_local_service();
                         return std::invoke(func, *inst, std::forward<Args>(args)...);
                     }, std::move(args));
