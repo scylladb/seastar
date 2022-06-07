@@ -205,6 +205,31 @@ SEASTAR_TEST_CASE(test_map_reduce0_lifetime) {
     });
 }
 
+SEASTAR_TEST_CASE(test_map_lifetime) {
+    struct map {
+        bool destroyed = false;
+        ~map() {
+            destroyed = true;
+        }
+        auto operator()(const X& x) const {
+            return yield().then([this, &x] {
+                BOOST_REQUIRE(!destroyed);
+                return x.cpu_id_squared();
+            });
+        }
+    };
+    return do_with_distributed<X>([] (distributed<X>& x) {
+        return x.start().then([&x] {
+            return x.map(map{}).then([] (std::vector<int> result) {
+                BOOST_REQUIRE_EQUAL(result.size(), smp::count);
+                for (size_t i = 0; i < (size_t)smp::count; i++) {
+                    BOOST_REQUIRE_EQUAL(result[i], i * i);
+                }
+            });
+        });
+    });
+}
+
 SEASTAR_TEST_CASE(test_async) {
     return do_with_distributed<async_service>([] (distributed<async_service>& x) {
         return x.start().then([&x] {
