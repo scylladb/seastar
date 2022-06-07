@@ -386,7 +386,7 @@ public:
     inline future<std::vector<return_type>> map(Mapper mapper) {
         return do_with(std::vector<return_type>(), std::move(mapper),
                 [this] (std::vector<return_type>& vec, Mapper& mapper) mutable {
-            vec.resize(smp::count);
+            vec.resize(_instances.size());
             return parallel_for_each(boost::irange<unsigned>(0, _instances.size()), [this, &vec, &mapper] (unsigned c) {
                 return smp::submit_to(c, [this, &mapper] {
                     auto inst = get_local_service();
