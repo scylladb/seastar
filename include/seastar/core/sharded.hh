@@ -384,11 +384,11 @@ public:
     /// \return  Result vector of invoking `map` with each instance in parallel
     template <typename Mapper, typename Future = futurize_t<std::invoke_result_t<Mapper,Service&>>, typename return_type = decltype(internal::untuple(std::declval<typename Future::tuple_type>()))>
     inline future<std::vector<return_type>> map(Mapper mapper) {
-        return do_with(std::vector<return_type>(),
-                [&mapper, this] (std::vector<return_type>& vec) mutable {
+        return do_with(std::vector<return_type>(), std::move(mapper),
+                [this] (std::vector<return_type>& vec, Mapper& mapper) mutable {
             vec.resize(smp::count);
-            return parallel_for_each(boost::irange<unsigned>(0, _instances.size()), [this, &vec, mapper] (unsigned c) {
-                return smp::submit_to(c, [this, mapper] {
+            return parallel_for_each(boost::irange<unsigned>(0, _instances.size()), [this, &vec, &mapper] (unsigned c) {
+                return smp::submit_to(c, [this, &mapper] {
                     auto inst = get_local_service();
                     return mapper(*inst);
                 }).then([&vec, c] (auto res) {
