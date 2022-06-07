@@ -391,8 +391,8 @@ public:
                 return smp::submit_to(c, [this, &mapper] {
                     auto inst = get_local_service();
                     return mapper(*inst);
-                }).then([&vec, c] (auto res) {
-                    vec[c] = res;
+                }).then([&vec, c] (auto&& res) {
+                    vec[c] = std::move(res);
                 });
             }).then([&vec] {
                 return make_ready_future<std::vector<return_type>>(std::move(vec));
