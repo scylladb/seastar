@@ -171,6 +171,40 @@ SEASTAR_TEST_CASE(test_map_reduce_lifetime) {
     });
 }
 
+SEASTAR_TEST_CASE(test_map_reduce0_lifetime) {
+    struct map {
+        bool destroyed = false;
+        ~map() {
+            destroyed = true;
+        }
+        auto operator()(const X& x) const {
+            return yield().then([this, &x] {
+                BOOST_REQUIRE(!destroyed);
+                return x.cpu_id_squared();
+            });
+        }
+    };
+    struct reduce {
+        bool destroyed = false;
+        ~reduce() {
+            destroyed = true;
+        }
+        auto operator()(long res, int x) {
+            BOOST_REQUIRE(!destroyed);
+            return res + x;
+        }
+    };
+    return do_with_distributed<X>([] (distributed<X>& x) {
+        return x.start().then([&x] {
+            return x.map_reduce0(map{}, 0L, reduce{}).then([] (long result) {
+                long n = smp::count - 1;
+                long expected = (n * (n + 1) * (2*n + 1)) / 6;
+                BOOST_REQUIRE_EQUAL(result, expected);
+            });
+        });
+    });
+}
+
 SEASTAR_TEST_CASE(test_async) {
     return do_with_distributed<async_service>([] (distributed<async_service>& x) {
         return x.start().then([&x] {
