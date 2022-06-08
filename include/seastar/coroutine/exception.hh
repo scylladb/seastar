@@ -86,7 +86,14 @@ struct exception {
 /// ```
 /// co_return coroutine::make_exception(std::runtime_error("something failed miserably"));
 /// ```
+[[deprecated("Use co_await coroutine::return_exception or co_return coroutine::exception instead")]]
+[[nodiscard]]
+inline exception make_exception(std::exception_ptr ex) noexcept {
+    return exception(std::move(ex));
+}
+
 template<typename T>
+[[deprecated("Use co_await coroutine::return_exception or co_return coroutine::exception instead")]]
 [[nodiscard]]
 exception make_exception(T&& t) noexcept {
     return exception(std::make_exception_ptr(std::forward<T>(t)));
@@ -104,6 +111,11 @@ exception make_exception(T&& t) noexcept {
 /// ```
 /// co_await coroutine::return_exception(std::runtime_error("something failed miserably"));
 /// ```
+[[nodiscard]]
+inline exception return_exception_ptr(std::exception_ptr ex) noexcept {
+    return exception(std::move(ex));
+}
+
 template<typename T>
 [[nodiscard]]
 exception return_exception(T&& t) noexcept {
