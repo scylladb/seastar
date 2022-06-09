@@ -505,6 +505,11 @@ public:
     size_t count() const noexcept {
         return _n;
     }
+
+    /// Returns true iff there any units held
+    explicit operator bool() const noexcept {
+        return _n != 0;
+    }
 };
 
 /// \brief Take units from semaphore temporarily
