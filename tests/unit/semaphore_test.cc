@@ -337,6 +337,41 @@ SEASTAR_THREAD_TEST_CASE(test_semaphore_units_abort) {
     BOOST_REQUIRE_THROW(f.get(), semaphore_aborted);
 }
 
+SEASTAR_THREAD_TEST_CASE(test_semaphore_units_bool_operator) {
+    auto sem = semaphore(2);
+    semaphore_units u0;
+    BOOST_REQUIRE(!bool(u0));
+
+    u0 = get_units(sem, 2).get0();
+    BOOST_REQUIRE(bool(u0));
+
+    u0.return_units(1);
+    BOOST_REQUIRE(bool(u0));
+
+    auto n = u0.release();
+    BOOST_REQUIRE(!bool(u0));
+    sem.signal(n);
+
+    u0 = get_units(sem, 2).get0();
+    BOOST_REQUIRE(bool(u0));
+    auto u1 = std::move(u0);
+    BOOST_REQUIRE(bool(u1));
+    BOOST_REQUIRE(!bool(u0));
+
+    u1.return_all();
+    BOOST_REQUIRE(!bool(u1));
+
+    u0 = get_units(sem, 2).get0();
+    BOOST_REQUIRE(bool(u0));
+    u1 = u0.split(1);
+    BOOST_REQUIRE(bool(u1));
+    BOOST_REQUIRE(bool(u0));
+
+    u0.adopt(std::move(u1));
+    BOOST_REQUIRE(!bool(u1));
+    BOOST_REQUIRE(bool(u0));
+}
+
 SEASTAR_THREAD_TEST_CASE(test_named_semaphore_error) {
     auto sem = make_lw_shared<named_semaphore>(0, named_semaphore_exception_factory{"name_of_the_semaphore"});
     auto check_result = [sem] (future<> f) {
