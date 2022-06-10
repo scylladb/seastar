@@ -58,6 +58,7 @@ macro (seastar_find_dependencies)
     # Private and private/public dependencies.
     Concepts
     GnuTLS
+    LibUring
     LinuxMembarrier
     Sanitizers
     SourceLocation
@@ -88,6 +89,7 @@ macro (seastar_find_dependencies)
   set (_seastar_dep_args_fmt 5.0.0 REQUIRED)
   set (_seastar_dep_args_lz4 1.7.3 REQUIRED)
   set (_seastar_dep_args_GnuTLS 3.3.26 REQUIRED)
+  set (_seastar_dep_args_LibUring 2.0)
   set (_seastar_dep_args_StdAtomic REQUIRED)
   set (_seastar_dep_args_hwloc 1.11.2)
   set (_seastar_dep_args_lksctp-tools REQUIRED)

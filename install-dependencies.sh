@@ -40,6 +40,7 @@ debian_packages=(
     libgnutls28-dev
     liblz4-dev
     libsctp-dev
+    liburing-dev
     gcc
     make
     python3
@@ -75,6 +76,7 @@ redhat_packages=(
     gnutls-devel
     lksctp-tools-devel
     lz4-devel
+    liburing-devel
     gcc
     make
     python3

@@ -110,6 +110,11 @@ add_tristate(
     name = 'debug-shared-ptr',
     dest = "debug_shared_ptr",
     help = 'Debug shared_ptr')
+add_tristate(
+    arg_parser,
+    name='io_uring',
+    dest='io_uring',
+    help='Support io_uring via liburing')
 arg_parser.add_argument('--allocator-page-size', dest='alloc_page_size', type=int, help='override allocator page size')
 arg_parser.add_argument('--without-tests', dest='exclude_tests', action='store_true', help='Do not build tests by default')
 arg_parser.add_argument('--without-apps', dest='exclude_apps', action='store_true', help='Do not build applications by default')
@@ -195,6 +200,7 @@ def configure_mode(mode):
         tr(args.dpdk, 'DPDK'),
         tr(infer_dpdk_machine(args.user_cflags), 'DPDK_MACHINE'),
         tr(args.hwloc, 'HWLOC', value_when_none='yes'),
+        tr(args.io_uring, 'IO_URING', value_when_none='yes'),
         tr(args.alloc_failure_injection, 'ALLOC_FAILURE_INJECTION', value_when_none='DEFAULT'),
         tr(args.task_backtrace, 'TASK_BACKTRACE'),
         tr(args.alloc_page_size, 'ALLOC_PAGE_SIZE'),

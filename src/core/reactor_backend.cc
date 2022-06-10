@@ -30,6 +30,10 @@
 #include <sys/poll.h>
 #include <sys/syscall.h>
 
+#ifdef SEASTAR_HAVE_URING
+#include <liburing.h>
+#endif
+
 #ifdef HAVE_OSV
 #include <osv/newpoll.hh>
 #endif
@@ -1114,6 +1118,385 @@ reactor_backend_osv::make_pollable_fd_state(file_desc fd, pollable_fd::speculati
 }
 #endif
 
+#ifdef SEASTAR_HAVE_URING
+
+static
+std::optional<::io_uring>
+try_create_uring(unsigned queue_len, bool throw_on_error) {
+    auto required_features =
+            IORING_FEAT_SUBMIT_STABLE
+            | IORING_FEAT_NODROP;
+    auto required_ops = {
+            IORING_OP_POLL_ADD,
+            IORING_OP_READ,
+            IORING_OP_WRITE,
+            IORING_OP_READV,
+            IORING_OP_WRITEV,
+            IORING_OP_FSYNC,
+            };
+    auto maybe_throw = [&] (auto exception) {
+        if (throw_on_error) {
+            throw exception;
+        }
+    };
+
+    auto params = ::io_uring_params{
+        .flags = 0,
+    };
+    ::io_uring ring;
+    auto err = ::io_uring_queue_init_params(queue_len, &ring, &params);
+    if (err != 0) {
+        maybe_throw(std::system_error(std::error_code(-err, std::system_category()), "trying to create io_uring"));
+        return std::nullopt;
+    }
+    auto free_ring = defer([&] () noexcept { ::io_uring_queue_exit(&ring); });
+    ::io_uring_ring_dontfork(&ring);
+    if (~ring.features & required_features) {
+        maybe_throw(std::runtime_error(fmt::format("missing required io_ring features, required 0x{:x} available 0x{:x}", required_features, ring.features)));
+        return std::nullopt;
+    }
+
+    auto probe = ::io_uring_get_probe_ring(&ring);
+    if (!probe) {
+        maybe_throw(std::runtime_error("unable to create io_uring probe"));
+        return std::nullopt;
+    }
+    auto free_probe = defer([&] () noexcept { ::free(probe); });
+
+    for (auto op : required_ops) {
+        if (!io_uring_opcode_supported(probe, op)) {
+            maybe_throw(std::runtime_error(fmt::format("required io_uring opcode {} not supported", op)));
+            return std::nullopt;
+        }
+    }
+
+    free_ring.cancel();
+
+    return ring;
+}
+
+static
+bool
+detect_io_uring() {
+    auto ring_opt = try_create_uring(1, false);
+    if (ring_opt) {
+        ::io_uring_queue_exit(&ring_opt.value());
+    }
+    return bool(ring_opt);
+}
+
+class reactor_backend_uring final : public reactor_backend {
+    // s_queue_len is more or less arbitrary. Too low and we'll be
+    // issuing too small batches, too high and we require too much locked
+    // memory, but otherwise it doesn't matter.
+    static constexpr unsigned s_queue_len = 200;  
+    reactor& _r;
+    ::io_uring _uring;
+    bool _did_work_while_getting_sqe = false;
+    bool _has_pending_submissions = false;
+    file_desc _hrtimer_timerfd;
+    preempt_io_context _preempt_io_context;
+
+    class uring_pollable_fd_state : public pollable_fd_state {
+        pollable_fd_state_completion _completion_pollin;
+        pollable_fd_state_completion _completion_pollout;
+    public:
+        explicit uring_pollable_fd_state(file_desc desc, speculation speculate)
+                : pollable_fd_state(std::move(desc), std::move(speculate)) {
+        }
+        pollable_fd_state_completion* get_desc(int events) {
+            if (events & POLLIN) {
+                return &_completion_pollin;
+            } else {
+                return &_completion_pollout;
+            }
+        }
+        future<> get_completion_future(int events) {
+            return get_desc(events)->get_future();
+        }
+    };
+
+    // eventfd and timerfd both need an 8-byte read after completion
+    class recurring_eventfd_or_timerfd_completion : public fd_kernel_completion {
+        bool _armed = false;
+    public:
+        explicit recurring_eventfd_or_timerfd_completion(file_desc& fd) : fd_kernel_completion(fd) {}
+        virtual void complete_with(ssize_t res) override {
+            char garbage[8];
+            auto ret = _fd.read(garbage, 8);
+            // Note: for hrtimer_completion we can have spurious wakeups,
+            // since we wait for this using both _preempt_io_context and the
+            // ring. So don't assert that we read anything.
+            assert(!ret || *ret == 8);
+            _armed = false;
+        }
+        void maybe_rearm(reactor_backend_uring& be) {
+            if (_armed) {
+                return;
+            }
+            auto sqe = be.get_sqe();
+            ::io_uring_prep_poll_add(sqe, fd().get(), POLLIN);
+            ::io_uring_sqe_set_data(sqe, static_cast<kernel_completion*>(this));
+            _armed = true;
+            be._has_pending_submissions = true;
+        }
+    };
+
+    // Completion for high resolution timerfd, used in wait_and_process_events()
+    // (while running tasks it's waited for in _preempt_io_context)
+    class hrtimer_completion : public recurring_eventfd_or_timerfd_completion {
+        reactor& _r;
+    public:
+        explicit hrtimer_completion(reactor& r, file_desc& timerfd)
+                : recurring_eventfd_or_timerfd_completion(timerfd), _r(r) {
+        }
+        virtual void complete_with(ssize_t res) override {
+            recurring_eventfd_or_timerfd_completion::complete_with(res);
+            _r.service_highres_timer();
+        }
+    };
+
+    using smp_wakeup_completion = recurring_eventfd_or_timerfd_completion;
+
+    hrtimer_completion _hrtimer_completion;
+    smp_wakeup_completion _smp_wakeup_completion;
+private:
+    static file_desc make_timerfd() {
+        return file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC|TFD_NONBLOCK);
+    }
+
+    // Can fail if the completion queue is full
+    ::io_uring_sqe* try_get_sqe() {
+        return ::io_uring_get_sqe(&_uring);
+    }
+
+    bool do_flush_submission_ring() {
+        if (_has_pending_submissions) {
+            _has_pending_submissions = false;
+            _did_work_while_getting_sqe = false;
+            io_uring_submit(&_uring);
+            return true;
+        } else {
+            return std::exchange(_did_work_while_getting_sqe, false);
+        }
+    }
+
+    ::io_uring_sqe* get_sqe() {
+        ::io_uring_sqe* sqe;
+        while (__builtin_expect((sqe = try_get_sqe()) == nullptr, false)) {
+            do_flush_submission_ring();
+            do_process_kernel_completions_step();
+            _did_work_while_getting_sqe = true;
+        }
+        return sqe;
+    }
+    future<> poll(pollable_fd_state& fd, int events) {
+        if (events & fd.events_known) {
+            fd.events_known &= ~events;
+            return make_ready_future<>();
+        }
+        auto sqe = get_sqe();
+        ::io_uring_prep_poll_add(sqe, fd.fd.get(), events);
+        auto ufd = static_cast<uring_pollable_fd_state*>(&fd);
+        ::io_uring_sqe_set_data(sqe, static_cast<kernel_completion*>(ufd->get_desc(events)));
+        _has_pending_submissions = true;
+        return ufd->get_completion_future(events);
+    }
+
+    void submit_io_request(internal::io_request& req, io_completion* completion) {
+        auto sqe = get_sqe();
+        using o = internal::io_request::operation;
+        switch (req.opcode()) {
+            case o::read:
+                ::io_uring_prep_read(sqe, req.fd(), req.address(), req.size(), req.pos());
+                break;
+            case o::write:
+                ::io_uring_prep_write(sqe, req.fd(), req.address(), req.size(), req.pos());
+                break;
+            case o::readv:
+                ::io_uring_prep_readv(sqe, req.fd(), req.iov(), req.iov_len(), req.pos());
+                break;
+            case o::writev:
+                ::io_uring_prep_writev(sqe, req.fd(), req.iov(), req.iov_len(), req.pos());
+                break;
+            case o::fdatasync:
+                ::io_uring_prep_fsync(sqe, req.fd(), IORING_FSYNC_DATASYNC);
+                break;
+            case o::recv:
+            case o::recvmsg:
+            case o::send:
+            case o::sendmsg:
+            case o::accept:
+            case o::connect:
+            case o::poll_add:
+            case o::poll_remove:
+            case o::cancel:
+                // The reactor does not generate these types of I/O requests yet, so
+                // this path is unreachable. As more features of io_uring are exploited,
+                // we'll utilize more of these opcodes.
+                seastar_logger.error("Invalid operation for iocb: {}", req.opname());
+                abort();
+        }
+        ::io_uring_sqe_set_data(sqe, completion);
+
+        _has_pending_submissions = true;
+    }
+
+    // Returns true if any work was done
+    bool queue_pending_file_io() {
+        return _r._io_sink.drain([&] (internal::io_request& req, io_completion* completion) -> bool {
+            submit_io_request(req, completion);
+            return true;
+        });
+    }
+
+    // Process kernel completions already extracted from the ring.
+    // This is needed because we sometimes extract completions without
+    // waiting, and sometimes with waiting.
+    void do_process_ready_kernel_completions(::io_uring_cqe** buf, size_t nr) {
+        for (auto p = buf; p != buf + nr; ++p) {
+            auto cqe = *p;
+            auto completion = reinterpret_cast<kernel_completion*>(cqe->user_data);
+            completion->complete_with(cqe->res);
+            ::io_uring_cqe_seen(&_uring, cqe);
+        }
+    }
+
+    // Returns true if completions were processed
+    bool do_process_kernel_completions_step() {
+        struct ::io_uring_cqe* buf[s_queue_len];
+        auto n = ::io_uring_peek_batch_cqe(&_uring, buf, s_queue_len);
+        do_process_ready_kernel_completions(buf, n);
+        return n != 0;
+    }
+
+    // Returns true if completions were processed
+    bool do_process_kernel_completions() {
+        auto did_work = false;
+        while (do_process_kernel_completions_step()) {
+            did_work = true;
+        }
+        return did_work | std::exchange(_did_work_while_getting_sqe, false);
+    }
+public:
+    explicit reactor_backend_uring(reactor& r) 
+            : _r(r)
+            , _uring(try_create_uring(s_queue_len, true).value())
+            , _hrtimer_timerfd(make_timerfd())
+            , _preempt_io_context(_r, _r._task_quota_timer, _hrtimer_timerfd)
+            , _hrtimer_completion(_r, _hrtimer_timerfd)
+            , _smp_wakeup_completion(_r._notify_eventfd) {
+        // Protect against spurious wakeups - if we get notified that the timer has
+        // expired when it really hasn't, we don't want to block in read(tfd, ...).
+        auto tfd = _r._task_quota_timer.get();
+        ::fcntl(tfd, F_SETFL, ::fcntl(tfd, F_GETFL) | O_NONBLOCK);
+    }
+    ~reactor_backend_uring() {
+        ::io_uring_queue_exit(&_uring);
+    }
+    virtual bool reap_kernel_completions() override {
+        return do_process_kernel_completions();
+    }
+    virtual bool kernel_submit_work() override {
+        bool did_work = false;
+        did_work |= _preempt_io_context.service_preempting_io();
+        did_work |= queue_pending_file_io();
+        did_work |= ::io_uring_submit(&_uring);
+        return did_work;
+    }
+    virtual bool kernel_events_can_sleep() const override {
+        // We never need to spin while I/O is in flight.
+        return true;
+    }
+    virtual void wait_and_process_events(const sigset_t* active_sigmask) override {
+        _smp_wakeup_completion.maybe_rearm(*this);
+        _hrtimer_completion.maybe_rearm(*this);
+        ::io_uring_submit(&_uring);
+        bool did_work = false;
+        did_work |= _preempt_io_context.service_preempting_io();
+        did_work |= std::exchange(_did_work_while_getting_sqe, false);
+        if (did_work) {
+            return;
+        }
+        struct ::io_uring_cqe* buf[s_queue_len];
+        sigset_t sigs = *active_sigmask; // io_uring_wait_cqes() wants non-const
+        auto r = ::io_uring_wait_cqes(&_uring, buf, 1, nullptr, &sigs);
+        if (__builtin_expect(r < 0, false)) {
+            switch (-r) {
+            case EINTR:
+                return;
+            default:
+                abort();
+            }
+        }
+        did_work |= do_process_kernel_completions();
+        _preempt_io_context.service_preempting_io();
+    }
+    virtual future<> readable(pollable_fd_state& fd) override {
+        return poll(fd, POLLIN);
+    }
+    virtual future<> writeable(pollable_fd_state& fd) override {
+        return poll(fd, POLLOUT);
+    }
+    virtual future<> readable_or_writeable(pollable_fd_state& fd) override {
+        return poll(fd, POLLIN | POLLOUT);
+    }
+    virtual void forget(pollable_fd_state& fd) noexcept override {
+        auto* pfd = static_cast<uring_pollable_fd_state*>(&fd);
+        delete pfd;
+    }
+    virtual future<std::tuple<pollable_fd, socket_address>> accept(pollable_fd_state& listenfd) override {
+        return _r.do_accept(listenfd);
+    }
+    virtual future<> connect(pollable_fd_state& fd, socket_address& sa) override {
+        return _r.do_connect(fd, sa);
+    }
+    virtual void shutdown(pollable_fd_state& fd, int how) override {
+        fd.fd.shutdown(how);
+    }
+    virtual future<size_t> read_some(pollable_fd_state& fd, void* buffer, size_t len) override {
+        return _r.do_read_some(fd, buffer, len);
+    }
+    virtual future<size_t> read_some(pollable_fd_state& fd, const std::vector<iovec>& iov) override {
+        return _r.do_read_some(fd, iov);
+    }
+    virtual future<temporary_buffer<char>> read_some(pollable_fd_state& fd, internal::buffer_allocator* ba) override {
+        return _r.do_read_some(fd, ba);
+    }
+    virtual future<size_t> write_some(pollable_fd_state& fd, net::packet& p) override {
+        return _r.do_write_some(fd, p);
+    }
+    virtual future<size_t> write_some(pollable_fd_state& fd, const void* buffer, size_t len) override {
+        return _r.do_write_some(fd, buffer, len);
+    }
+    virtual void signal_received(int signo, siginfo_t* siginfo, void* ignore) override {
+        _r._signals.action(signo, siginfo, ignore);
+    }
+    virtual void start_tick() override {
+        _preempt_io_context.start_tick();
+    }
+    virtual void stop_tick() override {
+        _preempt_io_context.stop_tick();
+    }
+    virtual void arm_highres_timer(const ::itimerspec& its) override {
+        _hrtimer_timerfd.timerfd_settime(TFD_TIMER_ABSTIME, its);
+    }
+    virtual void reset_preemption_monitor() override {
+        _preempt_io_context.reset_preemption_monitor();
+    }
+    virtual void request_preemption() override {
+        _preempt_io_context.request_preemption();
+    }
+    virtual void start_handling_signal() override {
+        // We don't have anything special wrt. signals
+    }
+    virtual pollable_fd_state_ptr make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) override {
+        return pollable_fd_state_ptr(new uring_pollable_fd_state(std::move(fd), std::move(speculate)));
+    }
+};
+
+#endif
+
 static bool detect_aio_poll() {
     auto fd = file_desc::eventfd(0, 0);
     aio_context_t ioc{};
@@ -1153,6 +1536,13 @@ bool reactor_backend_selector::has_enough_aio_nr() {
 }
 
 std::unique_ptr<reactor_backend> reactor_backend_selector::create(reactor& r) {
+    if (_name == "io_uring") {
+#ifdef SEASTAR_HAVE_URING
+        return std::make_unique<reactor_backend_uring>(r);
+#else
+        throw std::runtime_error("io_uring backend not compiled in");
+#endif
+    }
     if (_name == "linux-aio") {
         return std::make_unique<reactor_backend_aio>(r);
     } else if (_name == "epoll") {
@@ -1171,6 +1561,11 @@ std::vector<reactor_backend_selector> reactor_backend_selector::available() {
         ret.push_back(reactor_backend_selector("linux-aio"));
     }
     ret.push_back(reactor_backend_selector("epoll"));
+#ifdef SEASTAR_HAVE_URING
+    if (detect_io_uring()) {
+        ret.push_back(reactor_backend_selector("io_uring"));
+    }
+#endif
     return ret;
 }
 

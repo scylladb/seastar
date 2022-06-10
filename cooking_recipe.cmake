@@ -286,6 +286,16 @@ cooking_ingredient (fmt
     -DFMT_DOC=OFF
     -DFMT_TEST=OFF)
 
+cooking_ingredient (liburing
+  EXTERNAL_PROJECT_ARGS
+    URL https://github.com/axboe/liburing/archive/liburing-2.1.tar.gz
+    URL_MD5 78f13d9861b334b9a9ca0d12cf2a6d3c
+    CONFIGURE_COMMAND <SOURCE_DIR>/configure --prefix=<INSTALL_DIR>
+    BUILD_COMMAND <DISABLE>
+    BUILD_BYPRODUCTS "<SOURCE_DIR>/src/liburing.a"
+    BUILD_IN_SOURCE ON
+    INSTALL_COMMAND ${make_command} -C src -s install)
+
 cooking_ingredient (lz4
   EXTERNAL_PROJECT_ARGS
     URL https://github.com/lz4/lz4/archive/v1.8.0.tar.gz

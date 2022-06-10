@@ -230,6 +230,10 @@ option (Seastar_HWLOC
   "Enable hwloc support."
   ON)
 
+option (Seastar_IO_URING
+  "Enable io_uring support."
+  ON)
+
 set (Seastar_JENKINS
   ""
   CACHE
@@ -921,6 +925,16 @@ if (Seastar_HWLOC)
     PRIVATE hwloc::hwloc)
 endif ()
 
+if (Seastar_IO_URING)
+  if (NOT LibUring_FOUND)
+    message (FATAL_ERROR "`io_uring` supported is enabled but liburing is not available!")
+  endif ()
+
+  list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_HAVE_URING)
+  target_link_libraries (seastar
+    PRIVATE URING::uring)
+endif ()
+
 if (Seastar_LD_FLAGS)
   # In newer versions of CMake, there is `target_link_options`.
   target_link_libraries (seastar
@@ -1247,6 +1261,7 @@ if (Seastar_INSTALL)
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findrt.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findyaml-cpp.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/SeastarDependencies.cmake
+      ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindUring.cmake
     DESTINATION ${install_cmakedir})
 
   install (
