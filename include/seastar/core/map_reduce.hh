@@ -34,42 +34,42 @@ namespace seastar {
 
 /// \cond internal
 
-template <typename T, bool IsFuture>
+template <typename T, typename Ptr, bool IsFuture>
 struct reducer_with_get_traits;
 
-template <typename T>
-struct reducer_with_get_traits<T, false> {
+template <typename T, typename Ptr>
+struct reducer_with_get_traits<T, Ptr, false> {
     using result_type = decltype(std::declval<T>().get());
     using future_type = future<result_type>;
-    static future_type maybe_call_get(future<> f, lw_shared_ptr<T> r) {
+    static future_type maybe_call_get(future<> f, Ptr r) {
         return f.then([r = std::move(r)] () mutable {
-            return make_ready_future<result_type>(std::move(*r).get());
+            return make_ready_future<result_type>(std::move(r->reducer).get());
         });
     }
 };
 
-template <typename T>
-struct reducer_with_get_traits<T, true> {
+template <typename T, typename Ptr>
+struct reducer_with_get_traits<T, Ptr, true> {
     using future_type = decltype(std::declval<T>().get());
-    static future_type maybe_call_get(future<> f, lw_shared_ptr<T> r) {
+    static future_type maybe_call_get(future<> f, Ptr r) {
         return f.then([r = std::move(r)] () mutable {
-            return r->get();
+            return r->reducer.get();
         }).then_wrapped([r] (future_type f) {
             return f;
         });
     }
 };
 
-template <typename T, typename V = void>
+template <typename T, typename Ptr = lw_shared_ptr<T>, typename V = void>
 struct reducer_traits {
     using future_type = future<>;
-    static future_type maybe_call_get(future<> f, lw_shared_ptr<T> r) {
+    static future_type maybe_call_get(future<> f, Ptr r) {
         return f.then([r = std::move(r)] {});
     }
 };
 
-template <typename T>
-struct reducer_traits<T, decltype(std::declval<T>().get(), void())> : public reducer_with_get_traits<T, is_future<std::invoke_result_t<decltype(&T::get),T>>::value> {};
+template <typename T, typename Ptr>
+struct reducer_traits<T, Ptr, decltype(std::declval<T>().get(), void())> : public reducer_with_get_traits<T, Ptr, is_future<std::invoke_result_t<decltype(&T::get),T>>::value> {};
 
 /// \endcond
 
@@ -96,21 +96,25 @@ auto
 map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Reducer&& r)
     -> typename reducer_traits<Reducer>::future_type
 {
-    auto r_ptr = make_lw_shared(std::forward<Reducer>(r));
+    struct state {
+        Mapper mapper;
+        Reducer reducer;
+    };
+    auto s = make_lw_shared(state{std::forward<Mapper>(mapper), std::forward<Reducer>(r)});
     future<> ret = make_ready_future<>();
     while (begin != end) {
-        ret = futurize_invoke(mapper, *begin++).then_wrapped([ret = std::move(ret), r_ptr] (auto f) mutable {
-            return ret.then_wrapped([f = std::move(f), r_ptr] (auto rf) mutable {
+        ret = futurize_invoke(s->mapper, *begin++).then_wrapped([ret = std::move(ret), s] (auto f) mutable {
+            return ret.then_wrapped([f = std::move(f), s] (auto rf) mutable {
                 if (rf.failed()) {
                     f.ignore_ready_future();
                     return rf;
                 } else {
-                    return futurize_invoke(*r_ptr, std::move(f.get0()));
+                    return futurize_invoke(s->reducer, std::move(f.get0()));
                 }
             });
         });
     }
-    return reducer_traits<Reducer>::maybe_call_get(std::move(ret), r_ptr);
+    return reducer_traits<Reducer, lw_shared_ptr<state>>::maybe_call_get(std::move(ret), s);
 }
 
 /// Asynchronous map/reduce transformation.
@@ -160,13 +164,14 @@ inline
 future<Initial>
 map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Initial initial, Reduce reduce) {
     struct state {
+        Mapper mapper;
         Initial result;
         Reduce reduce;
     };
-    auto s = make_lw_shared(state{std::move(initial), std::move(reduce)});
+    auto s = make_lw_shared(state{std::forward<Mapper>(mapper), std::move(initial), std::move(reduce)});
     future<> ret = make_ready_future<>();
     while (begin != end) {
-        ret = futurize_invoke(mapper, *begin++).then_wrapped([s = s.get(), ret = std::move(ret)] (auto f) mutable {
+        ret = futurize_invoke(s->mapper, *begin++).then_wrapped([s = s.get(), ret = std::move(ret)] (auto f) mutable {
             try {
                 s->result = s->reduce(std::move(s->result), std::move(f.get0()));
                 return std::move(ret);

@@ -30,6 +30,7 @@
 #include <seastar/core/print.hh>
 #include <seastar/util/defer.hh>
 #include <seastar/util/closeable.hh>
+#include <seastar/util/later.hh>
 #include <mutex>
 
 using namespace seastar;
@@ -125,6 +126,104 @@ SEASTAR_TEST_CASE(test_map_reduce) {
                 int n = smp::count - 1;
                 if (result != (n * (n + 1) * (2*n + 1)) / 6) {
                     throw std::runtime_error("map_reduce failed");
+                }
+            });
+        });
+    });
+}
+
+SEASTAR_TEST_CASE(test_map_reduce_lifetime) {
+    struct map {
+        bool destroyed = false;
+        ~map() {
+            destroyed = true;
+        }
+        auto operator()(const X& x) {
+            return yield().then([this, &x] {
+                BOOST_REQUIRE(!destroyed);
+                return x.cpu_id_squared();
+            });
+        }
+    };
+    struct reduce {
+        long& res;
+        bool destroyed = false;
+        ~reduce() {
+            destroyed = true;
+        }
+        auto operator()(int x) {
+            return yield().then([this, x] {
+                BOOST_REQUIRE(!destroyed);
+                res += x;
+            });
+        }
+    };
+    return do_with_distributed<X>([] (distributed<X>& x) {
+        return x.start().then([&x] {
+            return do_with(0L, [&x] (auto& result) {
+                return x.map_reduce(reduce{result}, map{}).then([&result] {
+                    long n = smp::count - 1;
+                    long expected = (n * (n + 1) * (2*n + 1)) / 6;
+                    BOOST_REQUIRE_EQUAL(result, expected);
+                });
+            });
+        });
+    });
+}
+
+SEASTAR_TEST_CASE(test_map_reduce0_lifetime) {
+    struct map {
+        bool destroyed = false;
+        ~map() {
+            destroyed = true;
+        }
+        auto operator()(const X& x) const {
+            return yield().then([this, &x] {
+                BOOST_REQUIRE(!destroyed);
+                return x.cpu_id_squared();
+            });
+        }
+    };
+    struct reduce {
+        bool destroyed = false;
+        ~reduce() {
+            destroyed = true;
+        }
+        auto operator()(long res, int x) {
+            BOOST_REQUIRE(!destroyed);
+            return res + x;
+        }
+    };
+    return do_with_distributed<X>([] (distributed<X>& x) {
+        return x.start().then([&x] {
+            return x.map_reduce0(map{}, 0L, reduce{}).then([] (long result) {
+                long n = smp::count - 1;
+                long expected = (n * (n + 1) * (2*n + 1)) / 6;
+                BOOST_REQUIRE_EQUAL(result, expected);
+            });
+        });
+    });
+}
+
+SEASTAR_TEST_CASE(test_map_lifetime) {
+    struct map {
+        bool destroyed = false;
+        ~map() {
+            destroyed = true;
+        }
+        auto operator()(const X& x) const {
+            return yield().then([this, &x] {
+                BOOST_REQUIRE(!destroyed);
+                return x.cpu_id_squared();
+            });
+        }
+    };
+    return do_with_distributed<X>([] (distributed<X>& x) {
+        return x.start().then([&x] {
+            return x.map(map{}).then([] (std::vector<int> result) {
+                BOOST_REQUIRE_EQUAL(result.size(), smp::count);
+                for (size_t i = 0; i < (size_t)smp::count; i++) {
+                    BOOST_REQUIRE_EQUAL(result[i], i * i);
                 }
             });
         });
