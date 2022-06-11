@@ -535,7 +535,7 @@ private:
                         }
 
                         auto bufsize = 256ul << 10;
-                        return do_with(boost::irange(0ul, (_config.file_size / bufsize) + 1), [this, bufsize] (auto& pos) mutable {
+                        return do_with(boost::irange(UINT64_C(0), (_config.file_size / bufsize) + 1), [this, bufsize] (auto& pos) mutable {
                             return max_concurrent_for_each(pos.begin(), pos.end(), 64, [this, bufsize] (auto pos) mutable {
                                 auto bufptr = allocate_aligned_buffer<char>(bufsize, 4096);
                                 auto buf = bufptr.get();
