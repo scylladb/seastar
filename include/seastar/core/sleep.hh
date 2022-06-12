@@ -56,7 +56,7 @@ future<> sleep(std::chrono::duration<Rep, Period> dur) {
 }
 
 /// exception that is thrown when application is in process of been stopped
-class sleep_aborted : public std::exception {
+class sleep_aborted : public abort_requested_exception {
 public:
     /// Reports the exception reason.
     virtual const char* what() const noexcept {
