@@ -98,6 +98,12 @@ private:
     std::optional<subscription_list_type> _subscriptions = subscription_list_type();
 
 public:
+    abort_source() = default;
+    virtual ~abort_source() = default;
+
+    abort_source(abort_source&&) = default;
+    abort_source& operator=(abort_source&&) = default;
+
     /// Delays the invocation of the callback \c f until \ref request_abort() is called.
     /// \returns an engaged \ref optimized_optional containing a \ref subscription that can be used to control
     ///          the lifetime of the callback \c f, if \ref abort_requested() is \c false. Otherwise,
@@ -132,8 +138,14 @@ public:
     /// Throws a \ref abort_requested_exception if cancellation has been requested.
     void check() const {
         if (abort_requested()) {
-            throw abort_requested_exception();
+            std::rethrow_exception(get_default_exception());
         }
+    }
+
+    /// Returns the default exception type (\ref abort_requested_exception) for this abort source.
+    /// Overridable by derived classes.
+    virtual std::exception_ptr get_default_exception() const noexcept {
+        return make_exception_ptr(abort_requested_exception());
     }
 };
 
