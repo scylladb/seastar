@@ -20,6 +20,7 @@
  */
 
 #include <seastar/testing/test_case.hh>
+#include <seastar/testing/thread_test_case.hh>
 
 #include <seastar/core/gate.hh>
 #include <seastar/core/sleep.hh>
@@ -106,4 +107,20 @@ SEASTAR_TEST_CASE(test_request_abort_with_exception) {
     BOOST_REQUIRE(caught_exception);
     BOOST_REQUIRE_THROW(as.check(), std::runtime_error);
     return make_ready_future<>();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_sleep_abortable_with_exception) {
+    abort_source as;
+    auto f = sleep_abortable(10s, as);
+    auto expected_message = "expected";
+    as.request_abort(std::runtime_error(expected_message));
+
+    bool caught_exception = false;
+    try {
+        f.get();
+    } catch (const std::runtime_error& e) {
+        BOOST_REQUIRE_EQUAL(e.what(), expected_message);
+        caught_exception = true;
+    }
+    BOOST_REQUIRE(caught_exception);
 }
