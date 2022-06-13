@@ -3675,12 +3675,19 @@ void install_oneshot_signal_handler() {
     throw_system_error_on(r == -1);
 }
 
+static void reraise_signal(int signo) {
+    signal(signo, SIG_DFL);
+    pthread_kill(pthread_self(), signo);
+}
+
 static void sigsegv_action() noexcept {
     print_with_backtrace("Segmentation fault");
+    reraise_signal(SIGSEGV);
 }
 
 static void sigabrt_action() noexcept {
     print_with_backtrace("Aborting");
+    reraise_signal(SIGABRT);
 }
 
 void smp::qs_deleter::operator()(smp_message_queue** qs) const {
