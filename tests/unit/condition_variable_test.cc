@@ -355,14 +355,8 @@ SEASTAR_TEST_CASE(test_condition_variable_when_timeout) {
     cv.signal();
 
     // now busy-spin until the timer should be expired
-    do {
-        auto now = timer<>::clock::now();
-        while ((timer<>::clock::now() - now) < 200ms) {
-            // spin
-            int q = 0;
-            ++q;
-        }
-    } while (cv.has_waiters());
+    while (cv.has_waiters()) {
+    }
 
     // he should not have run yet...
     BOOST_REQUIRE_EQUAL(f.available(), false);
