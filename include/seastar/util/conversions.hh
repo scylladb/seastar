@@ -22,7 +22,7 @@
 #pragma once
 
 #include <cstdlib>
-#include <string>
+#include <string_view>
 #include <vector>
 
 namespace seastar {
@@ -37,9 +37,9 @@ namespace seastar {
 // "7G" -> (7 << 30)
 // "1T" -> (1 << 40)
 // anything else: exception
-size_t parse_memory_size(std::string s);
+size_t parse_memory_size(std::string_view s);
 
-static inline std::vector<char> string2vector(std::string str) {
+static inline std::vector<char> string2vector(std::string_view str) {
     auto v = std::vector<char>(str.begin(), str.end());
     v.push_back('\0');
     return v;

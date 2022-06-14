@@ -29,7 +29,7 @@
 
 namespace seastar {
 
-size_t parse_memory_size(std::string s) {
+size_t parse_memory_size(std::string_view s) {
     size_t factor = 1;
     if (s.size()) {
         auto c = s[s.size() - 1];
