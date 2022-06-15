@@ -151,39 +151,14 @@ namespace rpc {
       });
   }
 
-  void connection::send_loop() {
-      _send_loop_stopped = do_until([this] { return _error; }, [this] {
-          return _outgoing_queue_cond.wait([this] { return !_outgoing_queue.empty(); }).then([this] {
-              // despite using wait with predicated above _outgoing_queue can still be empty here if
-              // there is only one entry on the list and its expire timer runs after wait() returned ready future,
-              // but before this continuation runs.
-              if (_outgoing_queue.empty()) {
-                  return make_ready_future();
-              }
-              // the code below leaks d, but it's never executed, and is left here temporarily
-              auto& d = _outgoing_queue.front();
-              _outgoing_queue.pop_front();
-              d.t.cancel(); // cancel timeout timer
-              if (d.pcancel) {
-                  d.pcancel->cancel_send = std::function<void()>(); // request is no longer cancellable
-              }
-              return make_ready_future<>();
-          });
-      }).handle_exception([this] (std::exception_ptr eptr) {
-          _error = true;
-      });
-  }
-
   void connection::set_negotiated() noexcept {
       _negotiated->set_value();
       _negotiated = std::nullopt;
-      send_loop();
   }
 
   future<> connection::stop_send_loop(std::exception_ptr ex) {
       _error = true;
       if (_connected) {
-          _outgoing_queue_cond.broken();
           _fd.shutdown_output();
       }
       if (ex == nullptr) {
@@ -208,11 +183,11 @@ namespace rpc {
       if (_negotiated) {
           _negotiated->set_exception(ex);
       }
-      return when_all(std::move(_send_loop_stopped), std::move(_sink_closed_future), std::move(_outgoing_queue_ready)).then([this] (std::tuple<future<>, future<bool>, future<>> res){
+      return when_all(std::move(_outgoing_queue_ready), std::move(_sink_closed_future)).then([this] (std::tuple<future<>, future<bool>> res){
           // _outgoing_queue_ready might be exceptional if queue drain or
           // _negotiated abortion set it such
-          std::get<2>(res).ignore_ready_future();
-          // both _send_loop_stopped and _sink_closed_future are never exceptional
+          std::get<0>(res).ignore_ready_future();
+          // _sink_closed_future is never exceptional
           bool sink_closed = std::get<1>(res).get0();
           return _connected && !sink_closed ? _write_buf.close() : make_ready_future();
       });
