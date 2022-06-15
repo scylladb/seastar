@@ -121,6 +121,8 @@ arg_parser.add_argument('--without-apps', dest='exclude_apps', action='store_tru
 arg_parser.add_argument('--without-demos', dest='exclude_demos', action='store_true', help='Do not build demonstrations by default')
 arg_parser.add_argument('--split-dwarf', dest='split_dwarf', action='store_true', default=False,
                         help='use of split dwarf (https://gcc.gnu.org/wiki/DebugFission) to speed up linking')
+arg_parser.add_argument('--compile-commands-json', dest='cc_json', action='store_true',
+                        help='Generate a compile_commands.json file for integration with clangd and other tools.')
 arg_parser.add_argument('--heap-profiling', dest='heap_profiling', action='store_true', default=False, help='Enable heap profiling')
 add_tristate(arg_parser, name='deferred-action-require-noexcept', dest='deferred_action_require_noexcept', help='noexcept requirement for deferred actions', default=True)
 arg_parser.add_argument('--prefix', dest='install_prefix', default='/usr/local', help='Root installation path of Seastar files')
@@ -190,6 +192,7 @@ def configure_mode(mode):
         '-DCMAKE_CXX_COMPILER={}'.format(args.cxx),
         '-DCMAKE_CXX_STANDARD={}'.format(args.cpp_standard),
         '-DCMAKE_INSTALL_PREFIX={}'.format(args.install_prefix),
+        '-DCMAKE_EXPORT_COMPILE_COMMANDS={}'.format('yes' if args.cc_json else 'no'),
         '-DSeastar_API_LEVEL={}'.format(args.api_level),
         '-DSeastar_SCHEDULING_GROUPS_COUNT={}'.format(args.scheduling_groups_count),
         tr(args.exclude_tests, 'EXCLUDE_TESTS_FROM_ALL'),
