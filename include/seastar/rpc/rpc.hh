@@ -265,10 +265,10 @@ protected:
         }
 
         ~outgoing_entry() {
-                if (pcancel) {
-                    pcancel->cancel_send = std::function<void()>();
-                    pcancel->send_back_pointer = nullptr;
-                }
+            if (pcancel) {
+                pcancel->cancel_send = std::function<void()>();
+                pcancel->send_back_pointer = nullptr;
+            }
         }
 
         using container_t = bi::list<outgoing_entry, bi::constant_time_size<false>>;
