@@ -742,7 +742,7 @@ sharded<Service>::invoke_on_all(smp_submit_to_options options, Func func, Args..
     static_assert(std::is_same_v<futurize_t<std::invoke_result_t<Func, Service&, Args...>>, future<>>,
                   "invoke_on_all()'s func must return void or future<>");
   try {
-    return invoke_on_all(options, invoke_on_all_func_type([func, args = std::tuple(std::move(args)...)] (Service& service) mutable {
+    return invoke_on_all(options, invoke_on_all_func_type([func = std::move(func), args = std::tuple(std::move(args)...)] (Service& service) mutable {
         return futurize_apply(func, std::tuple_cat(std::forward_as_tuple(service), args));
     }));
   } catch (...) {
