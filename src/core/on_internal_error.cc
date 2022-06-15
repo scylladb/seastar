@@ -38,13 +38,14 @@ void seastar::on_internal_error(logger& logger, std::string_view msg) {
         logger.error("{}, at: {}", msg, current_backtrace());
         abort();
     } else {
+        logger.error(msg);
         throw_with_backtrace<std::runtime_error>(std::string(msg));
     }
 }
 
 void seastar::on_internal_error(logger& logger, std::exception_ptr ex) {
+    logger.error("{}", ex);
     if (abort_on_internal_error.load()) {
-        logger.error("{}", ex);
         abort();
     } else {
         std::rethrow_exception(std::move(ex));
