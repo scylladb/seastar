@@ -25,6 +25,7 @@
 #include <unordered_set>
 #include <list>
 #include <variant>
+#include <boost/intrusive/list.hpp>
 #include <seastar/core/future.hh>
 #include <seastar/core/seastar.hh>
 #include <seastar/net/api.hh>
@@ -40,6 +41,8 @@
 #include <seastar/core/scheduling.hh>
 #include <seastar/util/backtrace.hh>
 #include <seastar/util/log.hh>
+
+namespace bi = boost::intrusive;
 
 namespace seastar {
 
@@ -244,27 +247,37 @@ protected:
     // The owner of the pointer below is an instance of rpc::protocol<typename Serializer> class.
     // The type of the pointer is erased here, but the original type is Serializer
     void* _serializer;
-    struct outgoing_entry {
+    struct outgoing_entry : public bi::list_base_hook<bi::link_mode<bi::auto_unlink>> {
         timer<rpc_clock_type> t;
         snd_buf buf;
-        std::optional<promise<>> p = promise<>();
+        promise<> done;
         cancellable* pcancel = nullptr;
         outgoing_entry(snd_buf b) : buf(std::move(b)) {}
-        outgoing_entry(outgoing_entry&& o) noexcept : t(std::move(o.t)), buf(std::move(o.buf)), p(std::move(o.p)), pcancel(o.pcancel) {
-            o.p = std::nullopt;
+
+        outgoing_entry(outgoing_entry&&) = delete;
+        outgoing_entry(const outgoing_entry&) = delete;
+
+        void uncancellable() {
+            t.cancel();
+            if (pcancel) {
+                pcancel->cancel_send = std::function<void()>();
+            }
         }
+
         ~outgoing_entry() {
-            if (p) {
                 if (pcancel) {
                     pcancel->cancel_send = std::function<void()>();
                     pcancel->send_back_pointer = nullptr;
                 }
-                p->set_value();
-            }
         }
+
+        using container_t = bi::list<outgoing_entry, bi::constant_time_size<false>>;
     };
     friend outgoing_entry;
-    std::list<outgoing_entry> _outgoing_queue;
+    void withdraw(outgoing_entry::container_t::iterator it, std::exception_ptr ex = nullptr);
+    future<> _outgoing_queue_ready = _negotiated->get_shared_future();
+    outgoing_entry::container_t _outgoing_queue;
+    size_t _outgoing_queue_size = 0;
     condition_variable _outgoing_queue_cond;
     future<> _send_loop_stopped = make_ready_future<>();
     std::unique_ptr<compressor> _compressor;
@@ -284,7 +297,7 @@ protected:
     future<bool> _sink_closed_future = make_ready_future<bool>(false);
 
     size_t outgoing_queue_length() const noexcept {
-        return _outgoing_queue.size();
+        return _outgoing_queue_size;
     }
 
     void set_negotiated() noexcept;
@@ -297,7 +310,7 @@ protected:
     future<> send_buffer(snd_buf buf);
 
     void send_loop();
-    future<> send_entry(outgoing_entry d);
+    future<> send_entry(outgoing_entry& d);
     future<> stop_send_loop(std::exception_ptr ex);
     future<std::optional<rcv_buf>>  read_stream_frame_compressed(input_stream<char>& in);
     bool stream_check_twoway_closed() const noexcept {
@@ -367,6 +380,11 @@ public:
     friend class source_impl;
 
     void suspend_for_testing(promise<>& p) {
+        _outgoing_queue_ready.get();
+        auto dummy = std::make_unique<outgoing_entry>(snd_buf());
+        _outgoing_queue.push_back(*dummy);
+        _outgoing_queue_ready = dummy->done.get_future();
+        (void)p.get_future().then([dummy = std::move(dummy)] { dummy->done.set_value(); });
     }
 };
 

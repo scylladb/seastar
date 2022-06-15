@@ -129,7 +129,7 @@ namespace rpc {
       }
   }
 
-  future<> connection::send_entry(outgoing_entry d) {
+  future<> connection::send_entry(outgoing_entry& d) {
       if (_propagate_timeout) {
           static_assert(snd_buf::chunk_size >= 8, "send buffer chunk size is too small");
           if (_timeout_negotiated) {
@@ -149,7 +149,7 @@ namespace rpc {
           _stats.sent_messages++;
           return _write_buf.flush();
       });
-      return f.finally([d = std::move(d)] {});
+      return f;
   }
 
   void connection::send_loop() {
@@ -161,13 +161,14 @@ namespace rpc {
               if (_outgoing_queue.empty()) {
                   return make_ready_future();
               }
-              auto d = std::move(_outgoing_queue.front());
+              // the code below leaks d, but it's never executed, and is left here temporarily
+              auto& d = _outgoing_queue.front();
               _outgoing_queue.pop_front();
               d.t.cancel(); // cancel timeout timer
               if (d.pcancel) {
                   d.pcancel->cancel_send = std::function<void()>(); // request is no longer cancellable
               }
-              return send_entry(std::move(d));
+              return make_ready_future<>();
           });
       }).handle_exception([this] (std::exception_ptr eptr) {
           _error = true;
@@ -189,11 +190,29 @@ namespace rpc {
       if (ex == nullptr) {
           ex = std::make_exception_ptr(closed_error());
       }
+      while (!_outgoing_queue.empty()) {
+          auto it = std::prev(_outgoing_queue.end());
+          // Cancel all but front entry normally. The front entry is sitting in the
+          // send_entry() and cannot be withdrawn, except when _negotiated is still
+          // engaged. In the latter case when it will be aborted below the entry's
+          // continuation will not be called and its done promise will not resolve
+          // the _outgoing_queue_ready, so do it here
+          if (it != _outgoing_queue.begin()) {
+              withdraw(it, ex);
+          } else {
+              if (_negotiated) {
+                  it->done.set_exception(ex);
+              }
+              break;
+          }
+      }
       if (_negotiated) {
           _negotiated->set_exception(ex);
       }
-      return when_all(std::move(_send_loop_stopped), std::move(_sink_closed_future)).then([this] (std::tuple<future<>, future<bool>> res){
-          _outgoing_queue.clear();
+      return when_all(std::move(_send_loop_stopped), std::move(_sink_closed_future), std::move(_outgoing_queue_ready)).then([this] (std::tuple<future<>, future<bool>, future<>> res){
+          // _outgoing_queue_ready might be exceptional if queue drain or
+          // _negotiated abortion set it such
+          std::get<2>(res).ignore_ready_future();
           // both _send_loop_stopped and _sink_closed_future are never exceptional
           bool sink_closed = std::get<1>(res).get0();
           return _connected && !sink_closed ? _write_buf.close() : make_ready_future();
@@ -235,16 +254,49 @@ namespace rpc {
       });
   }
 
+  void connection::withdraw(outgoing_entry::container_t::iterator it, std::exception_ptr ex) {
+      assert(it != _outgoing_queue.end());
+
+      auto pit = std::prev(it);
+      // Previous entry's (pit's) done future will schedule current entry (it)
+      // continuation. Similarly, it.done will schedule next entry continuation
+      // or will resolve _outgoing_queue_ready future.
+      //
+      // To withdraw "it" we need to do two things:
+      // - make pit.done resolve it->next (some time later)
+      // - resolve "it"'s continuation right now
+      //
+      // The latter is achieved by resolving pit.done immediatelly, the former
+      // by moving it.done into pit.done. For simplicity (verging on obscurity?)
+      // both done's are just swapped and "it" resolves its new promise
+
+      std::swap(it->done, pit->done);
+      it->uncancellable();
+      it->unlink();
+      if (ex == nullptr) {
+          it->done.set_value();
+      } else {
+          it->done.set_exception(ex);
+      }
+  }
+
   future<> connection::send(snd_buf buf, std::optional<rpc_clock_type::time_point> timeout, cancellable* cancel) {
       if (!_error) {
           if (timeout && *timeout <= rpc_clock_type::now()) {
               return make_ready_future<>();
           }
-          _outgoing_queue.emplace_back(std::move(buf));
-          auto deleter = [this, it = std::prev(_outgoing_queue.cend())] {
-              _outgoing_queue.erase(it);
+
+          auto p = std::make_unique<outgoing_entry>(std::move(buf));
+          auto& d = *p;
+          _outgoing_queue.push_back(d);
+          _outgoing_queue_size++;
+          auto deleter = [this, it = _outgoing_queue.iterator_to(d)] {
+              // Front entry is most likely (unless _negotiated is unresolved) sitting
+              // inside send_entry() continuations and thus it cannot be cancelled.
+              if (it != _outgoing_queue.begin()) {
+                  withdraw(it);
+              }
           };
-          auto& d = _outgoing_queue.back();
 
           if (timeout) {
               auto& t = d.t;
@@ -256,8 +308,24 @@ namespace rpc {
               cancel->send_back_pointer = &d.pcancel;
               d.pcancel = cancel;
           }
-          _outgoing_queue_cond.signal();
-          return _outgoing_queue.back().p->get_future();
+
+          // New entry should continue (do its .then() lambda) after _outgoing_queue_ready
+          // resolves. Next entry will need to do the same after this entry's done resolves.
+          // Thus -- replace _outgoing_queue_ready with d's future and chain its continuation
+          // on ..._ready's old value.
+          return std::exchange(_outgoing_queue_ready, d.done.get_future()).then([this, p = std::move(p)] () mutable {
+              _outgoing_queue_size--;
+              if (__builtin_expect(!p->is_linked(), false)) {
+                  // If withdrawn the entry is unlinked and this lambda is fired right at once
+                  return make_ready_future<>();
+              }
+
+              p->uncancellable();
+              return send_entry(*p).then_wrapped([this, p = std::move(p)] (auto f) mutable {
+                  _error |= f.failed();
+                  p->done.set_value();
+              });
+          });
       } else {
           return make_exception_future<>(closed_error());
       }
