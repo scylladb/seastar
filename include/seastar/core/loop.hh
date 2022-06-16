@@ -497,7 +497,7 @@ struct has_iterator_category<T, std::void_t<typename std::iterator_traits<T>::it
 template <typename Iterator, typename Sentinel, typename IteratorCategory>
 inline
 size_t
-iterator_range_estimate_vector_capacity(Iterator const& begin, Sentinel const& end, IteratorCategory category) {
+iterator_range_estimate_vector_capacity(Iterator const&, Sentinel const&, IteratorCategory) {
     // For InputIterators we can't estimate needed capacity
     return 0;
 }
