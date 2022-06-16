@@ -233,6 +233,16 @@ public:
     /// This is useful to abort operations on a socket that is not making
     /// progress due to a peer failure.
     void shutdown_input();
+    /// Check whether the \c connected_socket is initialized.
+    ///
+    /// \return true if this \c connected_socket socket_address is bound initialized
+    /// false otherwise.
+    ///
+    /// \see connect(socket_address sa)
+    /// \see connect(socket_address sa, socket_address local, transport proto)
+    explicit operator bool() const noexcept {
+        return static_cast<bool>(_csi);
+    }
 };
 /// @}
 
