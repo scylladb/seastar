@@ -1890,7 +1890,11 @@ void* realloc(void* ptr, size_t size) {
     if (try_trigger_error_injector()) {
         return nullptr;
     }
-    if (ptr != nullptr && !is_seastar_memory(ptr)) {
+    if (ptr == nullptr) {
+        // https://en.cppreference.com/w/cpp/memory/c/realloc
+        // If ptr is a null pointer, the behavior is the same as calling std::malloc(new_size).
+        return malloc(size);
+    } else if (!is_seastar_memory(ptr)) {
         // we can't realloc foreign memory on a shard
         if (is_reactor_thread) {
             abort();
@@ -1900,8 +1904,8 @@ void* realloc(void* ptr, size_t size) {
             return original_realloc_func(ptr, size);
         }
     }
-    // if we're here, it's either ptr is a seastar memory ptr
-    // or a nullptr, or, original functions aren't available
+    // if we're here, it's a non-null seastar memory ptr
+    // or original functions aren't available.
     // at any rate, using the seastar allocator is OK now.
     auto old_size = ptr ? object_size(ptr) : 0;
     if (size == old_size) {

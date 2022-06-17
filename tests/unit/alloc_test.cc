@@ -175,4 +175,23 @@ SEASTAR_TEST_CASE(test_foreign_function_use_glibc_malloc) {
     test_allocation_function([]() { return aligned_alloc(4, 1024); });
     return make_ready_future<>();
 }
+
+// So the compiler won't optimize the call to realloc(nullptr, size)
+// and call malloc directly.
+void* test_nullptr = nullptr;
+
+SEASTAR_TEST_CASE(test_realloc_nullptr) {
+    auto p0 = realloc(test_nullptr, 8);
+    BOOST_REQUIRE(p0 != nullptr);
+    BOOST_REQUIRE_EQUAL(realloc(p0, 0), nullptr);
+
+    p0 = realloc(test_nullptr, 0);
+    BOOST_REQUIRE(p0 != nullptr);
+    auto p1 = malloc(0);
+    BOOST_REQUIRE(p1 != nullptr);
+    free(p0);
+    free(p1);
+
+    return make_ready_future<>();
+}
 #endif
