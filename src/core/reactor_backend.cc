@@ -21,12 +21,14 @@
 #include "core/reactor_backend.hh"
 #include "core/thread_pool.hh"
 #include "core/syscall_result.hh"
+#include "uname.hh"
 #include <seastar/core/print.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/internal/buffer_allocator.hh>
 #include <seastar/util/defer.hh>
 #include <seastar/util/read_first_line.hh>
 #include <chrono>
+#include <filesystem>
 #include <sys/poll.h>
 #include <sys/syscall.h>
 
@@ -1177,7 +1179,23 @@ try_create_uring(unsigned queue_len, bool throw_on_error) {
 
 static
 bool
+have_md_devices() {
+    namespace fs = std::filesystem;
+    for (auto entry : fs::directory_iterator("/sys/block")) {
+        if (entry.is_directory() && fs::exists(entry.path() / "md")) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static
+bool
 detect_io_uring() {
+    if (!kernel_uname().whitelisted({"5.17"}) && have_md_devices()) {
+        // Older kernels fall back to workqueues for RAID devices
+        return false;
+    }
     auto ring_opt = try_create_uring(1, false);
     if (ring_opt) {
         ::io_uring_queue_exit(&ring_opt.value());
