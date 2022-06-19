@@ -77,7 +77,7 @@ void test_runner::start_thread(int ac, char** av) {
             auto init = [&app] {
                 auto conf_seed = app.configuration()["random-seed"];
                 auto seed = conf_seed.empty() ? std::random_device()():  conf_seed.as<unsigned>();
-                std::cout << "random-seed=" << seed << '\n';
+                std::cout << "random-seed=" << seed << std::endl;
                 return smp::invoke_on_all([seed] {
                     auto local_seed = seed + this_shard_id();
                     local_random_engine.seed(local_seed);
@@ -97,9 +97,9 @@ void test_runner::start_thread(int ac, char** av) {
               }).or_terminate();
             }).then([&app] {
                 if (engine().abandoned_failed_futures()) {
-                    std::cerr << "*** " << engine().abandoned_failed_futures() << " abandoned failed future(s) detected\n";
+                    std::cerr << "*** " << engine().abandoned_failed_futures() << " abandoned failed future(s) detected" << std::endl;
                     if (app.configuration()["fail-on-abandoned-failed-futures"].as<bool>()) {
-                        std::cerr << "Failing the test because fail was requested by --fail-on-abandoned-failed-futures\n";
+                        std::cerr << "Failing the test because fail was requested by --fail-on-abandoned-failed-futures" << std::endl;
                         return 3;
                     }
                 }
