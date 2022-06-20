@@ -224,6 +224,13 @@ public:
     }
 };
 
+SEASTAR_TEST_CASE(test_get_on_exceptional_promise) {
+    auto p = promise<>();
+    p.set_exception(test_exception("test"));
+    BOOST_REQUIRE_THROW(p.get_future().get(), test_exception);
+    return make_ready_future();
+}
+
 static void check_finally_exception(std::exception_ptr ex) {
   BOOST_REQUIRE_EQUAL(fmt::format("{}", ex),
         "seastar::nested_exception: test_exception (bar) (while cleaning up after test_exception (foo))");
