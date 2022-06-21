@@ -25,6 +25,7 @@
 #include <cryptopp/filters.h>
 #include <cryptopp/base64.h>
 #include <seastar/core/scattered_message.hh>
+#include <seastar/core/byteorder.hh>
 
 #ifndef CRYPTOPP_NO_GLOBAL_BYTE
 namespace CryptoPP {
@@ -340,30 +341,25 @@ future<> connection::close(bool send_close) {
 }
 
 future<> connection::send_data(opcodes opcode, temporary_buffer<char>&& buff) {
-    sstring data;
-    {
-        char first_byte[] = "\x80";
-        first_byte[0] += opcode;
-        data.append(first_byte, 1);
-    }
+    char header[10] = {'\x80', 0};
+    size_t header_size = 2;
+
+    header[0] += opcode;
 
     if ((126 <= buff.size()) && (buff.size() <= std::numeric_limits<uint16_t>::max())) {
-        uint16_t length = buff.size();
-        length = htobe16(length);
-        data.append("\x7e", 1);
-        data.append(reinterpret_cast<char*>(&length), sizeof(uint16_t));
+        header[1] = '\x7e';
+        write_be<uint16_t>(header + 2, buff.size());
+        header_size = 3;
     } else if (std::numeric_limits<uint16_t>::max() < buff.size()) {
-        uint64_t length = buff.size();
-        length = htobe64(length);
-        data.append("\x7f", 1);
-        data.append(reinterpret_cast<char*>(&length), sizeof(uint64_t));
+        header[1] = '\x7e';
+        write_be<uint64_t>(header + 2, buff.size());
+        header_size = 10;
     } else {
-        uint8_t length = buff.size() & 0x7F;
-        data.append(reinterpret_cast<char*>(&length), sizeof(uint8_t));
+        header[1] = uint8_t(buff.size());
     }
 
     scattered_message<char> msg;
-    msg.append(std::move(data));
+    msg.append(sstring(header, header_size));
     msg.append(std::move(buff));
     return _write_buf.write(std::move(msg)).then([this] {
         return _write_buf.flush();
