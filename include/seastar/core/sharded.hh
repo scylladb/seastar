@@ -809,11 +809,10 @@ inline bool sharded<Service>::local_is_initialized() const noexcept {
 /// used on multiple cores in parallel.
 ///
 /// \c foreign_ptr<> provides a solution to that problem.
-/// \c foreign_ptr<> wraps any pointer type -- raw pointer,
-/// \ref seastar::shared_ptr<>, or similar, and remembers on what core this
-/// happened.  When the \c foreign_ptr<> object is destroyed, it
-/// sends a message to the original core so that the wrapped object
-/// can be safely destroyed.
+/// \c foreign_ptr<> wraps smart pointers -- \ref seastar::shared_ptr<>,
+/// or similar, and remembers on what core this happened.
+/// When the \c foreign_ptr<> object is destroyed, it sends a message to
+/// the original core so that the wrapped object can be safely destroyed.
 ///
 /// \c foreign_ptr<> is a move-only object; it cannot be copied.
 ///
