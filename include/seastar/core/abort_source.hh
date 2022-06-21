@@ -49,7 +49,8 @@ public:
 /// Callbacks can be registered with the \c abort_source, which are called
 /// atomically with a call to request_abort().
 class abort_source {
-    using subscription_callback_type = noncopyable_function<void() noexcept>;
+    using subscription_callback_type = noncopyable_function<void (const std::optional<std::exception_ptr>&) noexcept>;
+    using naive_subscription_callback_type = noncopyable_function<void() noexcept>;
 
 public:
     /// Represents a handle to the callback registered by a given fiber. Ending the
@@ -65,8 +66,14 @@ public:
             as._subscriptions->push_back(*this);
         }
 
-        void on_abort() noexcept {
-            _target();
+        struct naive_cb_tag {}; // to disambiguate constructors
+        explicit subscription(naive_cb_tag, abort_source& as, naive_subscription_callback_type naive_cb)
+                : _target([cb = std::move(naive_cb)] (const std::optional<std::exception_ptr>&) noexcept { cb(); }) {
+            as._subscriptions->push_back(*this);
+        }
+
+        void on_abort(const std::optional<std::exception_ptr>& ex) noexcept {
+            _target(ex);
         }
 
     public:
@@ -96,31 +103,53 @@ public:
 private:
     using subscription_list_type = bi::list<subscription, bi::constant_time_size<false>>;
     std::optional<subscription_list_type> _subscriptions = subscription_list_type();
+    std::exception_ptr _ex;
 
 public:
+    abort_source() = default;
+    virtual ~abort_source() = default;
+
+    abort_source(abort_source&&) = default;
+    abort_source& operator=(abort_source&&) = default;
+
     /// Delays the invocation of the callback \c f until \ref request_abort() is called.
     /// \returns an engaged \ref optimized_optional containing a \ref subscription that can be used to control
     ///          the lifetime of the callback \c f, if \ref abort_requested() is \c false. Otherwise,
     ///          returns a disengaged \ref optimized_optional.
+    template <typename Func>
+    SEASTAR_CONCEPT(requires
+            requires (Func f, const std::optional<std::exception_ptr>& opt_ex) { { f(opt_ex) } noexcept -> std::same_as<void>; }
+        ||  requires (Func f) { { f() } noexcept -> std::same_as<void>; }
+    )
     [[nodiscard]]
-    optimized_optional<subscription> subscribe(subscription_callback_type f) noexcept(std::is_nothrow_move_constructible<subscription_callback_type>::value) {
+    optimized_optional<subscription> subscribe(Func&& f) noexcept(std::is_nothrow_move_constructible_v<Func>) {
         if (abort_requested()) {
             return { };
         }
-        return { subscription(*this, std::move(f)) };
+        if constexpr (std::is_invocable_v<Func, std::exception_ptr>) {
+            return { subscription(*this, std::forward<Func>(f)) };
+        } else {
+            return { subscription(subscription::naive_cb_tag{}, *this, std::forward<Func>(f)) };
+        }
     }
 
     /// Requests that the target operation be aborted. Current subscriptions
     /// are invoked inline with this call, and no new ones can be registered.
     /// Must be called exactly once, otherwise the program will be aborted.
-    void request_abort() noexcept {
+    void request_abort(std::optional<std::exception_ptr> ex = std::nullopt) noexcept {
         assert(_subscriptions);
+        _ex = ex.value_or(get_default_exception());
         auto subs = std::exchange(_subscriptions, std::nullopt);
         while (!subs->empty()) {
             subscription& s = subs->front();
             s.unlink();
-            s.on_abort();
+            s.on_abort(ex);
         }
+    }
+
+    template <typename Exception>
+    void request_abort(Exception&& e) noexcept {
+        request_abort(std::make_optional(std::make_exception_ptr(std::forward<Exception>(e))));
     }
 
     /// Returns whether an abort has been requested.
@@ -132,8 +161,14 @@ public:
     /// Throws a \ref abort_requested_exception if cancellation has been requested.
     void check() const {
         if (abort_requested()) {
-            throw abort_requested_exception();
+            std::rethrow_exception(_ex);
         }
+    }
+
+    /// Returns the default exception type (\ref abort_requested_exception) for this abort source.
+    /// Overridable by derived classes.
+    virtual std::exception_ptr get_default_exception() const noexcept {
+        return make_exception_ptr(abort_requested_exception());
     }
 };
 

@@ -103,9 +103,9 @@ future<> sleep_abortable(typename Clock::duration dur, abort_source& as) {
 
         sleeper(typename Clock::duration dur, abort_source& as)
                 : tmr([this] { done.set_value(); }) {
-            auto sc_opt = as.subscribe([this] () noexcept {
+            auto sc_opt = as.subscribe([this] (const std::optional<std::exception_ptr>& opt_ex) noexcept {
                 if (tmr.cancel()) {
-                    done.set_exception(sleep_aborted());
+                    done.set_exception(opt_ex.value_or(std::make_exception_ptr(sleep_aborted())));
                 }
             });
             if (sc_opt) {
