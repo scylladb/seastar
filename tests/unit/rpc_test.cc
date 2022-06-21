@@ -365,7 +365,12 @@ SEASTAR_TEST_CASE(test_rpc_connect_abort) {
         test_rpc_proto::client c1(env.proto(), {}, env.make_socket(), ipv4_addr());
         env.register_handler(1, []() { return make_ready_future<>(); }).get();
         auto f = env.proto().make_client<void ()>(1);
+        auto fut = f(c1);
         c1.stop().get0();
+        try {
+            fut.get0();
+            BOOST_REQUIRE(false);
+        } catch (...) {}
         try {
             f(c1).get0();
             BOOST_REQUIRE(false);
