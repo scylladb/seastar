@@ -50,14 +50,15 @@ int default_handle() {
 
 double_registration::double_registration(std::string what): std::runtime_error(what) {}
 
-metric_groups::metric_groups() noexcept : _impl(impl::create_metric_groups()) {
+metric_groups::metric_groups(int handle) noexcept : _impl(impl::create_metric_groups(handle)) {
 }
 
 void metric_groups::clear() {
-    _impl = impl::create_metric_groups();
+    const auto current_handle = _impl->get_handle();
+    _impl = impl::create_metric_groups(current_handle);
 }
 
-metric_groups::metric_groups(std::initializer_list<metric_group_definition> mg) : _impl(impl::create_metric_groups()) {
+metric_groups::metric_groups(std::initializer_list<metric_group_definition> mg, int handle) : _impl(impl::create_metric_groups(handle)) {
     for (auto&& i : mg) {
         add_group(i.name, i.metrics);
     }
@@ -70,10 +71,9 @@ metric_groups& metric_groups::add_group(const group_name_type& name, const std::
     _impl->add_group(name, l);
     return *this;
 }
-metric_group::metric_group() noexcept = default;
+metric_group::metric_group(int handle) noexcept : metric_groups(handle) {}
 metric_group::~metric_group() = default;
-metric_group::metric_group(const group_name_type& name, std::initializer_list<metric_definition> l) {
-    add_group(name, l);
+metric_group::metric_group(const group_name_type& name, std::initializer_list<metric_definition> l, int handle) : metric_groups({metric_group_definition(name, l)}, handle) {
 }
 
 metric_group_definition::metric_group_definition(const group_name_type& name, std::initializer_list<metric_definition> l) : name(name), metrics(l) {
