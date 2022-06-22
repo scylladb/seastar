@@ -41,6 +41,7 @@
 ///          continuations, also known as fibers
 ///   - \ref thread-module Support for traditional threaded execution
 ///   - \ref rpc Build high-level communication protocols
+///   - \ref websocket (experimental) Implement a WebSocket-based server
 ///
 /// View the [Seastar compatibility statement](./md_compatibility.html) for
 /// information about library evolution.
