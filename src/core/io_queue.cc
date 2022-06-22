@@ -843,7 +843,7 @@ void io_queue::register_stats(sstring name, priority_class_data& pc) {
     }
 
     new_metrics.add_group("io_queue", std::move(metrics));
-    pc.metric_groups = std::exchange(new_metrics, {});
+    pc.metric_groups = std::exchange(new_metrics, sm::metric_groups{});
 }
 
 io_queue::priority_class_data& io_queue::find_or_create_class(internal::priority_class pc) {

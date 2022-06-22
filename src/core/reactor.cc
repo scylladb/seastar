@@ -979,7 +979,7 @@ reactor::task_queue::register_stats() {
         }, sm::description("Total amount in milliseconds we were in violation of the task quota"),
            {group_label}),
     });
-    _metrics = std::exchange(new_metrics, {});
+    _metrics = std::exchange(new_metrics, sm::metric_groups{});
 }
 
 void
