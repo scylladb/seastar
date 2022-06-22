@@ -31,13 +31,21 @@
 
 using namespace seastar;
 using namespace seastar::experimental;
+namespace bpo = boost::program_options;
 
 int main(int argc, char** argv) {
     seastar::app_template app;
-    app.run(argc, argv, [] () -> seastar::future<> {
-        return async([] {
-            static websocket::server ws;
-            ws.register_handler("echo", [] (input_stream<char>& in,
+    app.add_options()
+                    ("cert,c", bpo::value<std::string>()->required(), "Server certificate file")
+                    ("key,k", bpo::value<std::string>()->required(), "Certificate key")
+                    ;
+    app.run(argc, argv, [&] () -> seastar::future<> {
+        auto&& config = app.configuration();
+        auto crt = config["cert"].as<std::string>();
+        auto key = config["key"].as<std::string>();
+        return async([&] {
+            websocket::secure_server wss;
+            wss.register_handler("echo", [] (input_stream<char>& in,
                         output_stream<char>& out) {
                 return repeat([&in, &out]() {
                     return in.read().then([&out](temporary_buffer<char> f) {
@@ -54,10 +62,10 @@ int main(int argc, char** argv) {
                     });
                 });
             });
-            auto d = defer([] () noexcept {
-                ws.stop().get();
+            auto d = defer([&wss] () noexcept {
+                wss.stop().get();
             });
-            ws.listen(socket_address(ipv4_addr("127.0.0.1", 8123)));
+            wss.listen(socket_address(ipv4_addr("127.0.0.1", 8123)), sstring(crt), sstring(key));
             std::cout << "Listening on 127.0.0.1:8123 for 1 hour (interruptible, hit Ctrl-C to stop)..." << std::endl;
             seastar::sleep_abortable(std::chrono::hours(1)).get();
             std::cout << "Stopping the server, deepest thanks to all clients, hope we meet again" << std::endl;
