@@ -970,7 +970,7 @@ reactor::task_queue::register_stats() {
 
     register_net_metrics_for_scheduling_group(new_metrics, _id, group_label);
 
-    _metrics = std::exchange(new_metrics, {});
+    _metrics = std::exchange(new_metrics, sm::metric_groups{});
 }
 
 void
