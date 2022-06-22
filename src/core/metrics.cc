@@ -393,8 +393,9 @@ foreign_ptr<values_reference> get_values(int handle) {
     shared_ptr<values_copy> res_ref = ::seastar::make_shared<values_copy>();
     auto& res = *(res_ref.get());
     auto& mv = res.values;
-    res.metadata = get_local_impl(handle)->metadata();
-    auto & functions = get_local_impl(handle)->functions();
+    auto impl = get_local_impl(handle);
+    res.metadata = impl->metadata();
+    auto & functions = impl->functions();
     for (auto&& i : functions) {
         value_vector values;
         for (auto&& v : i) {
