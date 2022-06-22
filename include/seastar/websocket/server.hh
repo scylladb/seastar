@@ -38,6 +38,10 @@ using handler_t = std::function<future<>(input_stream<char>&, output_stream<char
 
 class server;
 
+/// \defgroup websocket WebSocket
+/// \addtogroup websocket
+/// @{
+
 /*!
  * \brief an error in handling a WebSocket connection
  */
@@ -327,5 +331,7 @@ protected:
     void do_accepts(int which);
     future<> do_accept_one(int which);
 };
+
+/// }@
 
 }
