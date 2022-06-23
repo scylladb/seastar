@@ -256,6 +256,7 @@ enum class data_type : uint8_t {
     REAL_COUNTER,
     GAUGE,
     HISTOGRAM,
+    SUMMARY,
 };
 
 template <bool callable, typename T>
@@ -593,6 +594,18 @@ template<typename T>
 impl::metric_definition_impl make_histogram(metric_name_type name,
         description d, T&& val) {
     return  {name, {impl::data_type::HISTOGRAM, "histogram"}, make_function(std::forward<T>(val), impl::data_type::HISTOGRAM), d, {}};
+}
+
+/*!
+ * \brief create a summary metric.
+ *
+ * Summaries are a different kind of histograms. It reports in quantiles.
+ * For example, the p99 and p95 latencies.
+ */
+template<typename T>
+impl::metric_definition_impl make_summary(metric_name_type name,
+        description d, T&& val) {
+    return  {name, {impl::data_type::SUMMARY, "summary"}, make_function(std::forward<T>(val), impl::data_type::SUMMARY), d, {}};
 }
 
 
