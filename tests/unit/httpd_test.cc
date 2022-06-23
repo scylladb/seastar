@@ -25,6 +25,7 @@
 #include <sstream>
 #include <seastar/core/shared_future.hh>
 #include <seastar/util/later.hh>
+#include <seastar/util/defer.hh>
 
 using namespace seastar;
 using namespace httpd;
@@ -1224,6 +1225,11 @@ static auto graceful_stop_tester(bool blocking) {
     return seastar::async([blocking] {
         loopback_connection_factory lcf;
         http_server server("test");
+        auto stop_server = seastar::defer([&server]() noexcept {
+            yield().get();
+            server.stop().get();
+        });
+
         loopback_socket_impl lsi(lcf);
         httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
 
@@ -1238,9 +1244,11 @@ static auto graceful_stop_tester(bool blocking) {
             input_stream<char> input(c_socket.input());
             output_stream<char> output(c_socket.output());
 
-            // TODO(nikandfor): should be here, but breaks test with exception "error system:32, Broken pipe" and failed assert
-            // include/seastar/core/gate.hh:56: seastar::gate::~gate(): Assertion `!_count && "gate destroyed with outstanding requests"' failed.
-            #if 0
+            auto stop_server = seastar::defer([&input, &output]() noexcept {
+                input.close().get();
+                output.close().get();
+            });
+
             try{
                 output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\nContent-Length: 20\r\n\r\n")).get();
                 output.flush().get();
@@ -1253,19 +1261,16 @@ static auto graceful_stop_tester(bool blocking) {
             }catch(...) {
                 BOOST_TEST_MESSAGE("client exception " << std::current_exception());
             }
-            #endif
-
-            input.close().get();
-            output.close().get();
 
             client_block.get_future().get();
         });
 
         yield().get();
 
+        using namespace std::chrono_literals;
+
         auto graceful_stop = async([blocking, &server] () {
-            using namespace std::chrono_literals;
-            auto f = server.graceful_pre_stop<manual_clock>(200);
+            auto f = server.graceful_pre_stop<manual_clock>(200ms);
             f.then_wrapped([blocking](auto f){
                 BOOST_REQUIRE(blocking == f.failed());
                 return f;
@@ -1273,7 +1278,7 @@ static auto graceful_stop_tester(bool blocking) {
         });
 
         if (blocking) {
-            manual_clock::advance(std::chrono::milliseconds(200));
+            manual_clock::advance(200ms);
             yield().get();
         }
 
@@ -1282,7 +1287,6 @@ static auto graceful_stop_tester(bool blocking) {
 
         client.get();
         graceful_stop.get();
-        server.stop().get();
     });
 }
 
