@@ -89,13 +89,22 @@ SEASTAR_TEST_CASE(test_negative_sleep_abortable) {
 }
 
 SEASTAR_TEST_CASE(test_request_abort_with_exception) {
+    abort_source as;
+    optimized_optional<abort_source::subscription> st_opt;
     std::optional<std::exception_ptr> aborted_ex;
-    auto as = abort_source();
-    auto st_opt = as.subscribe([&aborted_ex] (const std::optional<std::exception_ptr>& opt_ex) noexcept {
-        aborted_ex = opt_ex;
-    });
     auto expected_message = "expected";
-    as.request_abort(std::runtime_error(expected_message));
+
+    auto make_abort_source = [&] () {
+        as = abort_source();
+        st_opt = as.subscribe([&aborted_ex] (const std::optional<std::exception_ptr>& opt_ex) noexcept {
+            aborted_ex = opt_ex;
+        });
+        aborted_ex = std::nullopt;
+    };
+
+    make_abort_source();
+    auto ex = make_exception_ptr(std::runtime_error(expected_message));
+    as.request_abort_ex(ex);
     BOOST_REQUIRE(aborted_ex.has_value());
     bool caught_exception = false;
     try {
@@ -106,6 +115,34 @@ SEASTAR_TEST_CASE(test_request_abort_with_exception) {
     }
     BOOST_REQUIRE(caught_exception);
     BOOST_REQUIRE_THROW(as.check(), std::runtime_error);
+
+    make_abort_source();
+    as.request_abort_ex(make_exception_ptr(std::runtime_error(expected_message)));
+    BOOST_REQUIRE(aborted_ex.has_value());
+    caught_exception = false;
+    try {
+        std::rethrow_exception(*aborted_ex);
+    } catch (const std::runtime_error& e) {
+        BOOST_REQUIRE_EQUAL(e.what(), expected_message);
+        caught_exception = true;
+    }
+    BOOST_REQUIRE(caught_exception);
+    BOOST_REQUIRE_THROW(as.check(), std::runtime_error);
+
+
+    make_abort_source();
+    as.request_abort_ex(std::runtime_error(expected_message));
+    BOOST_REQUIRE(aborted_ex.has_value());
+    caught_exception = false;
+    try {
+        std::rethrow_exception(*aborted_ex);
+    } catch (const std::runtime_error& e) {
+        BOOST_REQUIRE_EQUAL(e.what(), expected_message);
+        caught_exception = true;
+    }
+    BOOST_REQUIRE(caught_exception);
+    BOOST_REQUIRE_THROW(as.check(), std::runtime_error);
+
     return make_ready_future<>();
 }
 
@@ -113,7 +150,7 @@ SEASTAR_THREAD_TEST_CASE(test_sleep_abortable_with_exception) {
     abort_source as;
     auto f = sleep_abortable(10s, as);
     auto expected_message = "expected";
-    as.request_abort(std::runtime_error(expected_message));
+    as.request_abort_ex(std::runtime_error(expected_message));
 
     bool caught_exception = false;
     try {
