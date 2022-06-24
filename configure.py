@@ -17,7 +17,6 @@
 # under the License.
 #
 import argparse
-import distutils.dir_util
 import os
 import seastar_cmake
 import subprocess
@@ -238,7 +237,7 @@ def configure_mode(mode):
     if args.verbose:
         print("Running CMake in '{}' ...".format(dir))
         print(" \\\n  ".join(ARGS))
-    distutils.dir_util.mkpath(BUILD_PATH)
+    os.makedirs(BUILD_PATH, exist_ok=True)
     subprocess.check_call(ARGS, shell=False, cwd=dir)
 
 for mode in MODES:
