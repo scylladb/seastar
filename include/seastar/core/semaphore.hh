@@ -109,7 +109,7 @@ public:
     virtual const char* what() const noexcept;
 };
 
-class named_semaphore_aborted : public abort_requested_exception {
+class named_semaphore_aborted : public semaphore_aborted {
     sstring _msg;
 public:
     named_semaphore_aborted(std::string_view msg) noexcept;
