@@ -1261,7 +1261,7 @@ if (Seastar_INSTALL)
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findrt.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findyaml-cpp.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/SeastarDependencies.cmake
-      ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindUring.cmake
+      ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindLibUring.cmake
     DESTINATION ${install_cmakedir})
 
   install (
