@@ -29,7 +29,7 @@ using namespace seastar;
 using namespace std::chrono_literals;
 
 SEASTAR_TEST_CASE(test_basic_non_capped_loop) {
-    internal::shared_token_bucket<uint64_t, std::ratio<1>, internal::capped_release::no, manual_clock> tb(1, 1, 0);
+    internal::shared_token_bucket<uint64_t, std::ratio<1>, internal::capped_release::no, manual_clock> tb(1, 1, 0, false);
 
     // Grab one token and make sure it's only available in 1s
     auto th = tb.grab(1);
@@ -49,7 +49,7 @@ SEASTAR_TEST_CASE(test_basic_non_capped_loop) {
 }
 
 SEASTAR_TEST_CASE(test_basic_capped_loop) {
-    internal::shared_token_bucket<uint64_t, std::ratio<1>, internal::capped_release::yes, manual_clock> tb(1, 1, 0);
+    internal::shared_token_bucket<uint64_t, std::ratio<1>, internal::capped_release::yes, manual_clock> tb(1, 1, 0, false);
 
     // Grab on token and make sure it's only available in 1s
     auto th = tb.grab(1);
