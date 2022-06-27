@@ -134,6 +134,16 @@ class shared_token_bucket {
 public:
     static constexpr T max_rate = std::numeric_limits<T>::max() / 2 / max_delta.count();
 
+private:
+    static constexpr T accumulated(T rate, rate_resolution delta) noexcept {
+        return std::round(rate * delta.count());
+    }
+#ifndef __clang__
+    // std::round() is constexpr only since C++23 (but g++ doesn't care)
+    static_assert(accumulated(max_rate, max_delta) <= std::numeric_limits<T>::max());
+#endif
+
+public:
     shared_token_bucket(T rate, T limit, T threshold) noexcept
             : _replenish_rate(std::min(rate, max_rate))
             , _replenish_limit(limit)
@@ -181,8 +191,8 @@ public:
     // the number of tokens accumulated for the given time frame
     template <typename Rep, typename Per>
     T accumulated_in(const std::chrono::duration<Rep, Per> delta) const noexcept {
-       auto delta_at_rate = rate_cast(delta);
-       return std::round(_replenish_rate * delta_at_rate.count());
+       auto delta_at_rate = std::min(rate_cast(delta), max_delta);
+       return accumulated(_replenish_rate, delta_at_rate);
     }
 
     // Estimated time to process the given amount of tokens
