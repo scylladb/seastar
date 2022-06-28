@@ -577,7 +577,7 @@ timespec to_timespec(steady_clock_type::time_point t) {
     return { n / 1'000'000'000, n % 1'000'000'000 };
 }
 
-void reactor::update_lowres_clocks() noexcept {
+void lowres_clock::update() noexcept {
     lowres_clock::_now = lowres_clock::time_point(std::chrono::steady_clock::now().time_since_epoch());
     lowres_system_clock::_now = lowres_system_clock::time_point(std::chrono::system_clock::now().time_since_epoch());
 }
@@ -2754,7 +2754,7 @@ reactor::run_some_tasks() {
     }
     sched_print("run_some_tasks: start");
     reset_preemption_monitor();
-    update_lowres_clocks();
+    lowres_clock::update();
 
     sched_clock::time_point t_run_completed = now();
     STAP_PROBE(seastar, reactor_run_tasks_start);
@@ -2955,7 +2955,7 @@ int reactor::do_run() {
 
         _polls++;
 
-        update_lowres_clocks(); // Don't delay expiring lowres timers
+        lowres_clock::update(); // Don't delay expiring lowres timers
         if (check_for_work()) {
             if (idle) {
                 _total_idle += idle_end - idle_start;
