@@ -524,21 +524,11 @@ SEASTAR_TEST_CASE(test_file_write_lifetime_method) {
             f1.set_inode_lifetime_hint(hint).get();
             auto o_hint1 = f1.get_inode_lifetime_hint().get0();
             BOOST_CHECK_EQUAL(hint, o_hint1);
-
-            // Verfiy the lifetime_hint set previously on the inode using open fds
-            auto o_hint2 = f2.get_file_lifetime_hint().get0();
-            BOOST_CHECK_EQUAL(hint, o_hint2);
-
-            // Set and verify on the open fd (different from the inode method)
-            f1.set_file_lifetime_hint(hint).get();
-            o_hint1 = f1.get_file_lifetime_hint().get0();
-            BOOST_CHECK_EQUAL(hint, o_hint1);
         }
 
         // Perform invalid ops
         uint64_t hint = RWH_WRITE_LIFE_EXTREME + 1;
         BOOST_REQUIRE_THROW(f1.set_inode_lifetime_hint(hint).get(), std::system_error);
-        BOOST_REQUIRE_THROW(f1.set_file_lifetime_hint(hint).get(), std::system_error);
     });
 }
 
@@ -563,23 +553,6 @@ SEASTAR_TEST_CASE(test_file_fcntl) {
         // Perform invalid ops
         BOOST_REQUIRE_THROW(f.fcntl(F_SETLEASE, (uintptr_t)~0ul).get(), std::system_error);
         BOOST_REQUIRE_THROW(f.fcntl_short(F_SETLEASE, (uintptr_t)~0ul).get(), std::system_error);
-
-        // Set and verify a life time hint value using fcntl
-        uint64_t hint = RWH_WRITE_LIFE_SHORT;
-        uint64_t o_hint1 = RWF_WRITE_LIFE_NOT_SET;
-        BOOST_REQUIRE(!f.fcntl(F_SET_FILE_RW_HINT, (uintptr_t)&hint).get0());
-        BOOST_REQUIRE(!f.fcntl(F_GET_FILE_RW_HINT, (uintptr_t)&o_hint1).get0());
-        BOOST_CHECK_EQUAL(hint, o_hint1);
-
-        // Do the same with _short version of fcntl
-        uint64_t o_hint2 = RWF_WRITE_LIFE_NOT_SET;
-        BOOST_REQUIRE(!f.fcntl_short(F_GET_FILE_RW_HINT, (uintptr_t)&o_hint2).get0());
-        BOOST_CHECK_EQUAL(hint, o_hint2);
-
-        // perform an invalid op
-        hint = RWH_WRITE_LIFE_EXTREME + 1;
-        BOOST_REQUIRE_THROW(f.fcntl(F_SET_FILE_RW_HINT, (uintptr_t)&hint).get(), std::system_error);
-        BOOST_REQUIRE_THROW(f.fcntl_short(F_SET_FILE_RW_HINT, (uintptr_t)&hint).get(), std::system_error);
     });
 }
 

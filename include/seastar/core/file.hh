@@ -464,6 +464,7 @@ public:
     ///
     /// \param hint the hint value of the stream
     /// \return future indicating success or failure
+    [[deprecated("This API was removed from the kernel")]]
     future<> set_file_lifetime_hint(uint64_t hint) noexcept;
 
     /// Set a lifetime hint for the inode corresponding to seastar::file
@@ -490,6 +491,7 @@ public:
     /// Refer fcntl(2) man page for more details on write lifetime hints.
     ///
     /// \return the hint value of the open file descriptor
+    [[deprecated("This API was removed from the kernel")]]
     future<uint64_t> get_file_lifetime_hint() noexcept;
 
     /// Get the lifetime hint of the inode of seastar::file which was set by
