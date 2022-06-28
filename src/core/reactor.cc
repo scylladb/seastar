@@ -4150,6 +4150,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
             auto r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
             throw_pthread_error(r);
             init_default_smp_service_group(i);
+            lowres_clock::update();
             allocate_reactor(i, backend_selector, reactor_cfg);
             reactors[i] = &engine();
             alloc_io_queues(i);
@@ -4170,6 +4171,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     }
 
     init_default_smp_service_group(0);
+    lowres_clock::update();
     try {
         allocate_reactor(0, backend_selector, reactor_cfg);
     } catch (const std::exception& e) {
