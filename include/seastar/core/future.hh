@@ -595,9 +595,16 @@ struct future_state :  public future_state_base, private internal::uninitialized
     future_state() noexcept = default;
     void move_it(future_state&& x) noexcept {
         if constexpr (has_trivial_move_and_destroy) {
+#pragma GCC diagnostic push
+            // This function may copy uninitialized memory, such as when
+            // creating an uninitialized promise and calling get_future()
+            // on it. Gcc 12 started to catch some simple cases of this
+            // at compile time, so we need to tell it that it's fine.
+#pragma GCC diagnostic ignored "-Wuninitialized"
             memmove(reinterpret_cast<char*>(&this->uninitialized_get()),
                    &x.uninitialized_get(),
                    internal::used_size<internal::maybe_wrap_ref<T>>::value);
+#pragma GCC diagnostic pop
         } else if (_u.has_result()) {
             this->uninitialized_set(std::move(x.uninitialized_get()));
             std::destroy_at(&x.uninitialized_get());
