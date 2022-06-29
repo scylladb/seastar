@@ -37,7 +37,6 @@ namespace seastar {
 
 class lowres_clock;
 class lowres_system_clock;
-class reactor;
 
 /// \endcond
 
@@ -62,7 +61,6 @@ public:
 private:
     // Use inline variable to prevent the compiler from introducing an initialization guard
     inline static thread_local time_point _now;
-    friend class reactor; // for updates
 public:
     ///
     /// \note Outside of a Seastar application, the result is undefined.
@@ -70,6 +68,8 @@ public:
     static time_point now() noexcept {
         return _now;
     }
+
+    static void update() noexcept;
 };
 
 ///
@@ -91,7 +91,7 @@ public:
 private:
     // Use inline variable to prevent the compiler from introducing an initialization guard
     inline static thread_local time_point _now;
-    friend class reactor; // for updates
+    friend class lowres_clock; // for updates
 public:
     ///
     /// \note Outside of a Seastar application, the result is undefined.
