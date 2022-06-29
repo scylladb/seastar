@@ -2,9 +2,11 @@ version: 2.1
 jobs:
   build_and_test:
     parameters:
+      compiler:
+        description: C++ compiler to build with
+        type: string
       standard:
         description: C++ standard to build with
-        default: "20"
         type: string
     machine:
       image:  ubuntu-2004:202201-02
@@ -16,14 +18,16 @@ jobs:
       - run: echo 'docker run --pids-limit -1 --security-opt seccomp=unconfined --network host --user "$(id -u):$(id -g)" --rm -v $PWD:$PWD -w $PWD  docker.io/scylladb/seastar-toolchain "$@"' > run; chmod +x run
       - run:
           command: |
-            ./run ./configure.py --c++-standard << parameters.standard >>
+            ./run ./configure.py --compiler << parameters.compiler >> --c++-standard << parameters.standard >>
             ./run ninja -C build/release
             ./run ./test.py --mode release
+
 workflows:
   version: 2
   build_and_test:
     jobs:
       - build_and_test:
-          standard: "20"
-      - build_and_test:
-          standard: "17"
+          matrix:
+            parameters:
+              compiler: ["clang++-12", "g++-11"]
+              standard: ["20", "17"]
