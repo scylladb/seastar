@@ -90,11 +90,14 @@ void init_phdr_cache() {
     }, nullptr);
 }
 
+void internal::increase_thrown_exceptions_counter() noexcept {
+    seastar::engine()._cxx_exceptions++;
+}
+
 #ifndef NO_EXCEPTION_INTERCEPT
 seastar::logger exception_logger("exception");
 
 void log_exception_trace() noexcept {
-    seastar::engine()._cxx_exceptions++;
     static thread_local bool nested = false;
     if (!nested && exception_logger.is_enabled(log_level::trace)) {
         nested = true;
@@ -143,6 +146,7 @@ int _Unwind_RaiseException(struct _Unwind_Exception *h) {
         org = (throw_fn)dlsym (RTLD_NEXT, "_Unwind_RaiseException");
     }
     if (seastar::local_engine) {
+        seastar::internal::increase_thrown_exceptions_counter();
         seastar::log_exception_trace();
     }
     return org(h);
