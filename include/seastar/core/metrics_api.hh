@@ -161,6 +161,7 @@ struct metric_family_info {
 struct metric_info {
     metric_id id;
     bool enabled;
+    skip_when_empty should_skip_when_empty;
 };
 
 
@@ -185,7 +186,7 @@ class registered_metric {
     metric_function _f;
     shared_ptr<impl> _impl;
 public:
-    registered_metric(metric_id id, metric_function f, bool enabled=true);
+    registered_metric(metric_id id, metric_function f, bool enabled=true, skip_when_empty skip=skip_when_empty::no);
     virtual ~registered_metric() {}
     virtual metric_value operator()() const {
         return _f();
@@ -198,7 +199,9 @@ public:
     void set_enabled(bool b) {
         _info.enabled = b;
     }
-
+    void set_skip_when_empty(skip_when_empty skip) noexcept {
+        _info.should_skip_when_empty = skip;
+    }
     const metric_id& get_id() const {
         return _info.id;
     }
@@ -330,7 +333,7 @@ public:
         return _value_map;
     }
 
-    void add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled);
+    void add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled, skip_when_empty skip);
     void remove_registration(const metric_id& id);
     future<> stop() {
         return make_ready_future<>();
