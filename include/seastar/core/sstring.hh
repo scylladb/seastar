@@ -692,7 +692,15 @@ string_type to_sstring_sprintf(T value, const char* fmt) {
     char tmp[sizeof(value) * 3 + 2];
     auto len = std::sprintf(tmp, fmt, value);
     using ch_type = typename string_type::value_type;
+#pragma GCC diagnostic push
+    // GCC warns that the following line may read more than the size tmp,
+    // not realizing that the size of tmp was calculated as the maximum
+    // possible value of "len" (for the types and formats we use it for).
+#pragma GCC diagnostic ignored "-Wpragmas"
+#pragma GCC diagnostic ignored "-Wunknown-warning-option"
+#pragma GCC diagnostic ignored "-Wstringop-overread"
     return string_type(reinterpret_cast<ch_type*>(tmp), len);
+#pragma GCC diagnostic pop
 }
 
 template <typename string_type>
