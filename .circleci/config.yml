@@ -7,8 +7,8 @@ jobs:
         default: "20"
         type: string
     machine:
-      image:  ubuntu-2004:202101-01
-    resource_class: medium
+      image:  ubuntu-2004:202201-02
+    resource_class: large
     steps:
       - checkout
       - run: git submodule sync
