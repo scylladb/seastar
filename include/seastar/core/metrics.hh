@@ -372,10 +372,12 @@ struct metric_definition_impl {
     description d;
     bool enabled = true;
     skip_when_empty _skip_when_empty = skip_when_empty::no;
+    std::vector<std::string> aggregate_labels;
     std::map<sstring, sstring> labels;
     metric_definition_impl& operator ()(bool enabled);
     metric_definition_impl& operator ()(const label_instance& label);
     metric_definition_impl& operator ()(skip_when_empty skip) noexcept;
+    metric_definition_impl& aggregate(const std::vector<label>& labels) noexcept;
     metric_definition_impl& set_skip_when_empty(bool skip=true) noexcept;
     metric_definition_impl& set_type(const sstring& type_name);
     metric_definition_impl(
@@ -383,7 +385,8 @@ struct metric_definition_impl {
         metric_type type,
         metric_function f,
         description d,
-        std::vector<label_instance> labels);
+        std::vector<label_instance> labels,
+        std::vector<label> aggregate_labels = {});
 };
 
 class metric_groups_def {
