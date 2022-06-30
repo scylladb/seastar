@@ -30,6 +30,7 @@
 #include <map>
 #include <seastar/core/metrics_types.hh>
 #include <seastar/util/std-compat.hh>
+#include <seastar/util/bool_class.hh>
 
 /*! \file metrics.hh
  *  \brief header for metrics creation.
@@ -105,6 +106,7 @@ public:
 using metric_type_def = sstring; /*!< Used to hold an inherit type (like bytes)*/
 using metric_name_type = sstring; /*!<  The metric name'*/
 using instance_id_type = sstring; /*!<  typically used for the shard id*/
+using skip_when_empty = bool_class<class skip_when_empty_tag>;
 
 /*!
  * \brief Human-readable description of a metric/group.
@@ -256,6 +258,7 @@ enum class data_type : uint8_t {
     REAL_COUNTER,
     GAUGE,
     HISTOGRAM,
+    SUMMARY,
 };
 
 template <bool callable, typename T>
@@ -341,6 +344,16 @@ public:
         return std::get<histogram>(u);
     }
 
+    /*!
+     * \brief return true if this metric was never used
+     *
+     * Histograms, Summaries and counters are ever growing by nature, so
+     * it is possible to check if they have been used or not.
+     */
+    bool is_empty() const noexcept {
+        return ((_type == data_type::HISTOGRAM || _type == data_type::SUMMARY) && get_histogram().sample_count == 0) ||
+                ((_type == data_type::COUNTER || _type == data_type::REAL_COUNTER) && d() == 0);
+    }
 private:
     static void ulong_conversion_error(double d);
 };
@@ -358,16 +371,22 @@ struct metric_definition_impl {
     metric_function f;
     description d;
     bool enabled = true;
+    skip_when_empty _skip_when_empty = skip_when_empty::no;
+    std::vector<std::string> aggregate_labels;
     std::map<sstring, sstring> labels;
     metric_definition_impl& operator ()(bool enabled);
     metric_definition_impl& operator ()(const label_instance& label);
+    metric_definition_impl& operator ()(skip_when_empty skip) noexcept;
+    metric_definition_impl& aggregate(const std::vector<label>& labels) noexcept;
+    metric_definition_impl& set_skip_when_empty(bool skip=true) noexcept;
     metric_definition_impl& set_type(const sstring& type_name);
     metric_definition_impl(
         metric_name_type name,
         metric_type type,
         metric_function f,
         description d,
-        std::vector<label_instance> labels);
+        std::vector<label_instance> labels,
+        std::vector<label> aggregate_labels = {});
 };
 
 class metric_groups_def {
@@ -593,6 +612,18 @@ template<typename T>
 impl::metric_definition_impl make_histogram(metric_name_type name,
         description d, T&& val) {
     return  {name, {impl::data_type::HISTOGRAM, "histogram"}, make_function(std::forward<T>(val), impl::data_type::HISTOGRAM), d, {}};
+}
+
+/*!
+ * \brief create a summary metric.
+ *
+ * Summaries are a different kind of histograms. It reports in quantiles.
+ * For example, the p99 and p95 latencies.
+ */
+template<typename T>
+impl::metric_definition_impl make_summary(metric_name_type name,
+        description d, T&& val) {
+    return  {name, {impl::data_type::SUMMARY, "summary"}, make_function(std::forward<T>(val), impl::data_type::SUMMARY), d, {}};
 }
 
 

@@ -118,9 +118,10 @@ bool label_instance::operator!=(const label_instance& id2) const {
 label shard_label("shard");
 namespace impl {
 
-registered_metric::registered_metric(metric_id id, metric_function f, bool enabled) :
+registered_metric::registered_metric(metric_id id, metric_function f, bool enabled, skip_when_empty skip) :
         _f(f), _impl(get_local_impl()) {
     _info.enabled = enabled;
+    _info.should_skip_when_empty = skip;
     _info.id = id;
 }
 
@@ -146,7 +147,8 @@ metric_definition_impl::metric_definition_impl(
         metric_type type,
         metric_function f,
         description d,
-        std::vector<label_instance> _labels)
+        std::vector<label_instance> _labels,
+        std::vector<label> _aggregate_labels)
         : name(name), type(type), f(f)
         , d(d), enabled(true) {
     for (auto i: _labels) {
@@ -155,6 +157,7 @@ metric_definition_impl::metric_definition_impl(
     if (labels.find(shard_label.name()) == labels.end()) {
         labels[shard_label.name()] = shard();
     }
+    aggregate(_aggregate_labels);
 }
 
 metric_definition_impl& metric_definition_impl::operator ()(bool _enabled) {
@@ -167,8 +170,25 @@ metric_definition_impl& metric_definition_impl::operator ()(const label_instance
     return *this;
 }
 
+metric_definition_impl& metric_definition_impl::operator ()(skip_when_empty skip) noexcept {
+    _skip_when_empty = skip;
+    return *this;
+}
+
 metric_definition_impl& metric_definition_impl::set_type(const sstring& type_name) {
     type.type_name = type_name;
+    return *this;
+}
+
+metric_definition_impl& metric_definition_impl::aggregate(const std::vector<label>& _labels) noexcept {
+    aggregate_labels.reserve(_labels.size());
+    std::transform(_labels.begin(), _labels.end(),std::back_inserter(aggregate_labels),
+            [](const label& l) { return l.name(); });
+    return *this;
+}
+
+metric_definition_impl& metric_definition_impl::set_skip_when_empty(bool skip) noexcept {
+    _skip_when_empty = skip_when_empty(skip);
     return *this;
 }
 
@@ -186,7 +206,7 @@ metric_groups_impl& metric_groups_impl::add_metric(group_name_type name, const m
 
     metric_id id(name, md._impl->name, md._impl->labels);
 
-    get_local_impl()->add_registration(id, md._impl->type, md._impl->f, md._impl->d, md._impl->enabled);
+    get_local_impl()->add_registration(id, md._impl->type, md._impl->f, md._impl->d, md._impl->enabled, md._impl->_skip_when_empty, md._impl->aggregate_labels);
 
     _registration.push_back(id);
     return *this;
@@ -327,8 +347,8 @@ std::vector<std::vector<metric_function>>& impl::functions() {
     return _current_metrics;
 }
 
-void impl::add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled) {
-    auto rm = ::seastar::make_shared<registered_metric>(id, f, enabled);
+void impl::add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled, skip_when_empty skip, const std::vector<std::string>& aggregate_labels) {
+    auto rm = ::seastar::make_shared<registered_metric>(id, f, enabled, skip);
     sstring name = id.full_name();
     if (_value_map.find(name) != _value_map.end()) {
         auto& metric = _value_map[name];
@@ -344,6 +364,7 @@ void impl::add_registration(const metric_id& id, const metric_type& type, metric
         _value_map[name].info().d = d;
         _value_map[name].info().inherit_type = type.type_name;
         _value_map[name].info().name = id.full_name();
+        _value_map[name].info().aggregate_labels = aggregate_labels;
         _value_map[name][id.labels()] = rm;
     }
     dirty();
@@ -365,6 +386,8 @@ histogram& histogram::operator+=(const histogram& c) {
             buckets[i].count += c.buckets[i].count;
         }
     }
+    sample_count += c.sample_count;
+    sample_sum += c.sample_sum;
     return *this;
 }
 
