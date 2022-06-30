@@ -8,6 +8,9 @@ jobs:
       standard:
         description: C++ standard to build with
         type: string
+      mode:
+        description: mode to build and test with
+        type: string
     machine:
       image:  ubuntu-2004:202201-02
     resource_class: large
@@ -19,8 +22,8 @@ jobs:
       - run:
           command: |
             ./run ./configure.py --compiler << parameters.compiler >> --c++-standard << parameters.standard >>
-            ./run ninja -C build/release
-            ./run ./test.py --mode release
+            ./run ninja -C build/<< parameters.mode >>
+            ./run ./test.py --mode=<< parameters.mode >>
 
 workflows:
   version: 2
@@ -31,3 +34,4 @@ workflows:
             parameters:
               compiler: ["clang++-12", "g++-11"]
               standard: ["20", "17"]
+              mode: ["dev", "debug", "release"]
