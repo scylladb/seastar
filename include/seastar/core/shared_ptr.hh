@@ -253,8 +253,9 @@ struct lw_shared_ptr_accessors<T, void_t<decltype(lw_shared_ptr_deleter<T>{})>> 
 
 template <typename T>
 class lw_shared_ptr {
-    using accessors = internal::lw_shared_ptr_accessors<std::remove_const_t<T>>;
-    using concrete_type = typename accessors::concrete_type;
+    template <typename U>
+    using accessors = internal::lw_shared_ptr_accessors<std::remove_const_t<U>>;
+
     mutable lw_shared_ptr_counter_base* _p = nullptr;
 private:
     lw_shared_ptr(lw_shared_ptr_counter_base* p) noexcept : _p(p) {
@@ -264,8 +265,8 @@ private:
     }
     template <typename... A>
     static lw_shared_ptr make(A&&... a) {
-        auto p = new concrete_type(std::forward<A>(a)...);
-        accessors::instantiate_to_value(p);
+        auto p = new typename accessors<T>::concrete_type(std::forward<A>(a)...);
+        accessors<T>::instantiate_to_value(p);
         return lw_shared_ptr(p);
     }
 public:
@@ -274,7 +275,7 @@ public:
     // Destroys the object pointed to by p and disposes of its storage.
     // The pointer to the object must have been obtained through release().
     static void dispose(T* p) noexcept {
-        accessors::dispose(const_cast<std::remove_const_t<T>*>(p));
+        accessors<T>::dispose(const_cast<std::remove_const_t<T>*>(p));
     }
 
     // A functor which calls dispose().
@@ -298,7 +299,7 @@ public:
     [[gnu::always_inline]]
     ~lw_shared_ptr() {
         if (_p && !--_p->_count) {
-            accessors::dispose(_p);
+            accessors<T>::dispose(_p);
         }
     }
     lw_shared_ptr& operator=(const lw_shared_ptr& x) noexcept {
@@ -324,11 +325,11 @@ public:
         return *this;
     }
 
-    T& operator*() const noexcept { return *accessors::to_value(_p); }
-    T* operator->() const noexcept { return accessors::to_value(_p); }
+    T& operator*() const noexcept { return *accessors<T>::to_value(_p); }
+    T* operator->() const noexcept { return accessors<T>::to_value(_p); }
     T* get() const noexcept {
         if (_p) {
-            return accessors::to_value(_p);
+            return accessors<T>::to_value(_p);
         } else {
             return nullptr;
         }
@@ -347,7 +348,7 @@ public:
         if (--p->_count) {
             return nullptr;
         } else {
-            return std::unique_ptr<T, disposer>(accessors::to_value(p));
+            return std::unique_ptr<T, disposer>(accessors<T>::to_value(p));
         }
     }
 
