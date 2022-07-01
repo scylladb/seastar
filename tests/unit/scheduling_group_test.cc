@@ -273,7 +273,7 @@ SEASTAR_THREAD_TEST_CASE(sg_count) {
             scheduling_groups_deferred_cleanup.emplace_back(create_scheduling_group(format("sg_{}", i), 10).get());
         } catch (std::runtime_error& e) {
             // make sure it is the right exception.
-            BOOST_REQUIRE_EQUAL(e.what(), "Scheduling group limit exceeded");
+            BOOST_REQUIRE_EQUAL(e.what(), fmt::format("Scheduling group limit exceeded while creating sg_{}", i));
             // make sure that the scheduling group count makes sense
             BOOST_REQUIRE_EQUAL(internal::scheduling_group_count(), max_scheduling_groups());
             // make sure that we expect this exception at this point

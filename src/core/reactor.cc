@@ -4519,7 +4519,7 @@ future<scheduling_group>
 create_scheduling_group(sstring name, float shares) noexcept {
     auto aid = allocate_scheduling_group_id();
     if (aid < 0) {
-        return make_exception_future<scheduling_group>(std::runtime_error("Scheduling group limit exceeded"));
+        return make_exception_future<scheduling_group>(std::runtime_error(fmt::format("Scheduling group limit exceeded while creating {}", name)));
     }
     auto id = static_cast<unsigned>(aid);
     assert(id < max_scheduling_groups());
