@@ -101,6 +101,53 @@ public:
     bool done() const noexcept { return __builtin_coro_done(_pointer); }
 };
 
+struct noop_coroutine_promise { };
+
+template <>
+struct coroutine_handle<noop_coroutine_promise> {
+    constexpr operator coroutine_handle<>() const noexcept {
+        return coroutine_handle<>::from_address(address());
+    }
+
+    constexpr explicit operator bool() const noexcept { return true; }
+
+    constexpr void* address() const noexcept { return _pointer; }
+
+    constexpr bool done() const noexcept { return false; }
+
+    void operator()() const noexcept { }
+
+    void resume() const noexcept { }
+
+    void destroy() const noexcept { }
+
+    noop_coroutine_promise& promise() const noexcept {
+        auto* p = __builtin_coro_promise(_pointer, alignof(noop_coroutine_promise), false);
+        return *static_cast<noop_coroutine_promise*>(p);
+    }
+
+private:
+    friend coroutine_handle<noop_coroutine_promise> noop_coroutine() noexcept;
+
+    coroutine_handle() noexcept = default;
+
+    static struct {
+    private:
+        static void dummy_resume_destroy() { }
+    public:
+        void (*resume)() = dummy_resume_destroy;
+        void (*destroy)() = dummy_resume_destroy;
+        struct noop_coroutine_promise _p;
+    } _frame;
+    void *_pointer = &_frame;
+};
+
+using noop_coroutine_handle = coroutine_handle<noop_coroutine_promise>;
+
+inline noop_coroutine_handle noop_coroutine() noexcept {
+    return {};
+}
+
 struct suspend_never {
     constexpr bool await_ready() const noexcept { return true; }
     template<typename T>

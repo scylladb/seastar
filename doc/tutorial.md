@@ -393,7 +393,9 @@ seastar::future<Preprocessed> prepare_ingredients(Ingredients&&);
 seastar::future<Dish> cook_a_dish(Preprocessed&&);
 seastar::future<> consume_a_dish(Dish&&);
 
-seastar::coroutine::experimental::generator<Dish> make_dishes(Ingredients&& ingredients) {
+seastar::coroutine::experimental::generator<Dish>
+make_dishes(coroutine::experimental::buffer_size_t max_dishes_on_table,
+            Ingredients&& ingredients) {
     while (ingredients) {
         auto some_ingredients = ingredients.alloc();
         auto preprocessed = co_await prepare_ingredients(std::move(some_ingredients));
@@ -401,7 +403,7 @@ seastar::coroutine::experimental::generator<Dish> make_dishes(Ingredients&& ingr
     }
 }
 
-seastar::future<> have_a_dinner() {
+seastar::future<> have_a_dinner(unsigned max_dishes_on_table) {
     Ingredients ingredients;
     auto dishes = make_dishes(std::move(ingredients));
     while (auto dish = co_await dishes()) {
@@ -412,6 +414,10 @@ seastar::future<> have_a_dinner() {
 
 In this hypothetical kitchen, a chef and a diner are working in parallel. Instead of preparing
 all dishes beforehand, the chef cooks the dishes while the diner is consuming them one after another.
+Under most circumstances, neither the chef or the diner is blocked by its peer. But if the diner
+is too slow so that there are `max_dishes_on_table` dishes left on the table, the chef would wait
+until the number of dishes is less than this setting. And, apparently, if there is no dishes on the
+table, the diner would wait for new ones to be prepared by the chef.
 
 ## Exceptions in coroutines
 

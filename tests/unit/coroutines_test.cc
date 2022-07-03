@@ -22,6 +22,7 @@
 #include <exception>
 #include <numeric>
 
+#include <seastar/core/circular_buffer.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/core/sleep.hh>
@@ -741,7 +742,9 @@ SEASTAR_TEST_CASE(test_as_future_preemption) {
 
 #ifndef __clang__
 
-coroutine::experimental::generator<int> fibonacci_sequence(unsigned count) {
+template<template<typename> class Container>
+coroutine::experimental::generator<int, Container>
+fibonacci_sequence(coroutine::experimental::buffer_size_t size, unsigned count) {
     auto a = 0, b = 1;
     for (unsigned i = 0; i < count; ++i) {
         if (std::numeric_limits<decltype(a)>::max() - a < b) {
@@ -752,9 +755,11 @@ coroutine::experimental::generator<int> fibonacci_sequence(unsigned count) {
     }
 }
 
-SEASTAR_TEST_CASE(test_async_generator_drained) {
+template<template<typename> class Container>
+seastar::future<> test_async_generator_drained() {
     auto expected_fibs = {0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55};
-    auto fib = fibonacci_sequence(std::size(expected_fibs));
+    auto fib = fibonacci_sequence<Container>(coroutine::experimental::buffer_size_t{2},
+                                             std::size(expected_fibs));
     for (auto expected_fib : expected_fibs) {
         auto actual_fib = co_await fib();
         BOOST_REQUIRE(actual_fib.has_value());
@@ -764,28 +769,118 @@ SEASTAR_TEST_CASE(test_async_generator_drained) {
     BOOST_REQUIRE(!sentinel.has_value());
 }
 
-SEASTAR_TEST_CASE(test_async_generator_not_drained) {
-    auto fib = fibonacci_sequence(42);
+template<typename T>
+using buffered_container = circular_buffer<T>;
+
+SEASTAR_TEST_CASE(test_async_generator_drained_buffered) {
+    return test_async_generator_drained<buffered_container>();
+}
+
+SEASTAR_TEST_CASE(test_async_generator_drained_unbuffered) {
+    return test_async_generator_drained<std::optional>();
+}
+
+template<template<typename> class Container>
+seastar::future<> test_async_generator_not_drained() {
+    auto fib = fibonacci_sequence<Container>(coroutine::experimental::buffer_size_t{2},
+                                             42);
     auto actual_fib = co_await fib();
     BOOST_REQUIRE(actual_fib.has_value());
     BOOST_REQUIRE_EQUAL(actual_fib.value(), 0);
 }
 
-SEASTAR_TEST_CASE(test_async_generator_throws) {
-    auto fib = [](unsigned n) -> seastar::future<> {
-        auto fib = fibonacci_sequence(100);
-        for (unsigned i = 0; i < n; i++) {
-            co_await fib();
+SEASTAR_TEST_CASE(test_async_generator_not_drained_buffered) {
+    return test_async_generator_not_drained<buffered_container>();
+}
+
+SEASTAR_TEST_CASE(test_async_generator_not_drained_unbuffered) {
+    return test_async_generator_not_drained<std::optional>();
+}
+
+struct counter_t {
+    int n;
+    int* count;
+    counter_t(counter_t&& other) noexcept
+        : n{std::exchange(other.n, -1)},
+          count{std::exchange(other.count, nullptr)}
+    {}
+    counter_t(int n, int* count) noexcept
+        : n{n}, count{count} {
+        ++(*count);
+    }
+    ~counter_t() noexcept {
+        if (count) {
+            --(*count);
+        }
+    }
+};
+std::ostream& operator<<(std::ostream& os, const counter_t& c) {
+    return os << c.n;
+}
+
+template<template<typename> class Container>
+coroutine::experimental::generator<counter_t, Container>
+fiddle(coroutine::experimental::buffer_size_t size, int n, int* total) {
+    int i = 0;
+    while (true) {
+        if (i++ == n) {
+            throw std::invalid_argument("Eureka from generator!");
+        }
+        co_yield counter_t{i, total};
+    }
+}
+
+template<template<typename> class Container>
+seastar::future<> test_async_generator_throws_from_generator() {
+    int total = 0;
+    auto count_to = [total=&total](unsigned n) -> seastar::future<> {
+        auto count = fiddle<Container>(coroutine::experimental::buffer_size_t{2},
+                                       n, total);
+        for (unsigned i = 0; i < 2 * n; i++) {
+            co_await count();
         }
     };
-    // according to Binet formula, the maximum fibonacci number which can be
-    // represented using int32_t is fib[47], int64_t fib[93]. so fib[100]
-    // should be large enough to make fibonacci_sequence() throw even on
-    // platforms with 64-bit int.
-    co_await fib(100).then_wrapped([] (auto f) {
+    co_await count_to(42).then_wrapped([&total] (auto f) {
         BOOST_REQUIRE(f.failed());
-        BOOST_REQUIRE_THROW(std::rethrow_exception(f.get_exception()), std::out_of_range);
+        BOOST_REQUIRE_THROW(std::rethrow_exception(f.get_exception()), std::invalid_argument);
+        BOOST_REQUIRE_EQUAL(total, 0);
     });
+}
+
+SEASTAR_TEST_CASE(test_async_generator_throws_from_generator_buffered) {
+    return test_async_generator_throws_from_generator<buffered_container>();
+}
+
+SEASTAR_TEST_CASE(test_async_generator_throws_from_generator_unbuffered) {
+    return test_async_generator_throws_from_generator<std::optional>();
+}
+
+template<template<typename> class Container>
+seastar::future<> test_async_generator_throws_from_consumer() {
+    int total = 0;
+    auto count_to = [total=&total](unsigned n) -> seastar::future<> {
+        auto count = fiddle<Container>(coroutine::experimental::buffer_size_t{2},
+                                       n, total);
+        for (unsigned i = 0; i < n; i++) {
+            if (i == n / 2) {
+                throw std::invalid_argument("Eureka from consumer!");
+            }
+            co_await count();
+        }
+    };
+    co_await count_to(42).then_wrapped([&total] (auto f) {
+        BOOST_REQUIRE(f.failed());
+        BOOST_REQUIRE_THROW(std::rethrow_exception(f.get_exception()), std::invalid_argument);
+        BOOST_REQUIRE_EQUAL(total, 0);
+    });
+}
+
+SEASTAR_TEST_CASE(test_async_generator_throws_from_consumer_buffered) {
+    return test_async_generator_throws_from_consumer<buffered_container>();
+}
+
+SEASTAR_TEST_CASE(test_async_generator_throws_from_consumer_unbuffered) {
+    return test_async_generator_throws_from_consumer<std::optional>();
 }
 
 #endif
