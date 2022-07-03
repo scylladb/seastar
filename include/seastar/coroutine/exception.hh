@@ -30,7 +30,7 @@ namespace internal {
 struct exception_awaiter {
     std::exception_ptr eptr;
 
-    explicit exception_awaiter(std::exception_ptr&& eptr) : eptr(std::move(eptr)) {}
+    explicit exception_awaiter(std::exception_ptr&& eptr) noexcept : eptr(std::move(eptr)) {}
 
     exception_awaiter(const exception_awaiter&) = delete;
     exception_awaiter(exception_awaiter&&) = delete;
@@ -68,7 +68,7 @@ namespace coroutine {
 /// ```
 struct exception {
     std::exception_ptr eptr;
-    explicit exception(std::exception_ptr eptr) : eptr(std::move(eptr)) {}
+    explicit exception(std::exception_ptr eptr) noexcept : eptr(std::move(eptr)) {}
 };
 
 /// Allows propagating an exception from a coroutine directly rather than
@@ -86,9 +86,17 @@ struct exception {
 /// ```
 /// co_return coroutine::make_exception(std::runtime_error("something failed miserably"));
 /// ```
-template<typename T>
+[[deprecated("Use co_await coroutine::return_exception or co_return coroutine::exception instead")]]
 [[nodiscard]]
-exception make_exception(T&& t) {
+inline exception make_exception(std::exception_ptr ex) noexcept {
+    return exception(std::move(ex));
+}
+
+template<typename T>
+[[deprecated("Use co_await coroutine::return_exception or co_return coroutine::exception instead")]]
+[[nodiscard]]
+exception make_exception(T&& t) noexcept {
+    log_exception_trace();
     return exception(std::make_exception_ptr(std::forward<T>(t)));
 }
 
@@ -104,9 +112,15 @@ exception make_exception(T&& t) {
 /// ```
 /// co_await coroutine::return_exception(std::runtime_error("something failed miserably"));
 /// ```
+[[nodiscard]]
+inline exception return_exception_ptr(std::exception_ptr ex) noexcept {
+    return exception(std::move(ex));
+}
+
 template<typename T>
 [[nodiscard]]
-exception return_exception(T&& t) {
+exception return_exception(T&& t) noexcept {
+    log_exception_trace();
     return exception(std::make_exception_ptr(std::forward<T>(t)));
 }
 
