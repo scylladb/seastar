@@ -193,14 +193,14 @@ fair_queue::~fair_queue() {
     }
 }
 
-void fair_queue::push_priority_class(priority_class_data& pc) {
+void fair_queue::push_priority_class(priority_class_data& pc) noexcept {
     assert(pc._plugged && !pc._queued);
     _handles.assert_enough_capacity();
     _handles.push(&pc);
     pc._queued = true;
 }
 
-void fair_queue::push_priority_class_from_idle(priority_class_data& pc) {
+void fair_queue::push_priority_class_from_idle(priority_class_data& pc) noexcept {
     if (!pc._queued) {
         // Don't let the newcomer monopolize the disk for more than tau
         // duration. For this estimate how many capacity units can be
@@ -218,13 +218,13 @@ void fair_queue::push_priority_class_from_idle(priority_class_data& pc) {
     }
 }
 
-void fair_queue::pop_priority_class(priority_class_data& pc) {
+void fair_queue::pop_priority_class(priority_class_data& pc) noexcept {
     assert(pc._plugged && pc._queued);
     pc._queued = false;
     _handles.pop();
 }
 
-void fair_queue::plug_priority_class(priority_class_data& pc) {
+void fair_queue::plug_priority_class(priority_class_data& pc) noexcept {
     assert(!pc._plugged && !pc._queued);
     pc._plugged = true;
     if (!pc._queue.empty()) {
@@ -232,11 +232,11 @@ void fair_queue::plug_priority_class(priority_class_data& pc) {
     }
 }
 
-void fair_queue::plug_class(class_id cid) {
+void fair_queue::plug_class(class_id cid) noexcept {
     plug_priority_class(*_priority_classes[cid]);
 }
 
-void fair_queue::unplug_priority_class(priority_class_data& pc) {
+void fair_queue::unplug_priority_class(priority_class_data& pc) noexcept {
     assert(pc._plugged);
     if (pc._queued) {
         pop_priority_class(pc);
@@ -244,7 +244,7 @@ void fair_queue::unplug_priority_class(priority_class_data& pc) {
     pc._plugged = false;
 }
 
-void fair_queue::unplug_class(class_id cid) {
+void fair_queue::unplug_class(class_id cid) noexcept {
     unplug_priority_class(*_priority_classes[cid]);
 }
 
@@ -325,7 +325,7 @@ fair_queue_ticket fair_queue::resources_currently_executing() const {
     return _resources_executing;
 }
 
-void fair_queue::queue(class_id id, fair_queue_entry& ent) {
+void fair_queue::queue(class_id id, fair_queue_entry& ent) noexcept {
     priority_class_data& pc = *_priority_classes[id];
     // We need to return a future in this function on which the caller can wait.
     // Since we don't know which queue we will use to execute the next request - if ours or
