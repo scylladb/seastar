@@ -195,6 +195,7 @@ fair_queue::~fair_queue() {
 
 void fair_queue::push_priority_class(priority_class_data& pc) {
     assert(pc._plugged && !pc._queued);
+    _handles.assert_enough_capacity();
     _handles.push(&pc);
     pc._queued = true;
 }
@@ -211,6 +212,7 @@ void fair_queue::push_priority_class_from_idle(priority_class_data& pc) {
         // arithmetics and make sure the _accumulated value doesn't grow
         // over signed maximum (see overflow check below)
         pc._accumulated = std::max<signed_capacity_t>(_last_accumulated - max_deviation, pc._accumulated);
+        _handles.assert_enough_capacity();
         _handles.push(&pc);
         pc._queued = true;
     }
@@ -288,13 +290,16 @@ void fair_queue::register_priority_class(class_id id, uint32_t shares) {
         assert(!_priority_classes[id]);
     }
 
+    _handles.reserve(_nr_classes + 1);
     _priority_classes[id] = std::make_unique<priority_class_data>(shares);
+    _nr_classes++;
 }
 
 void fair_queue::unregister_priority_class(class_id id) {
     auto& pclass = _priority_classes[id];
     assert(pclass && pclass->_queue.empty());
     pclass.reset();
+    _nr_classes--;
 }
 
 void fair_queue::update_shares_for_class(class_id id, uint32_t shares) {

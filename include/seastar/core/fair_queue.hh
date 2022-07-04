@@ -287,6 +287,15 @@ private:
     };
 
     class priority_queue : public std::priority_queue<priority_class_ptr, std::vector<priority_class_ptr>, class_compare> {
+        using super = std::priority_queue<priority_class_ptr, std::vector<priority_class_ptr>, class_compare>;
+    public:
+        void reserve(size_t len) {
+            c.reserve(len);
+        }
+
+        void assert_enough_capacity() const noexcept {
+            assert(c.size() < c.capacity());
+        }
     };
 
     config _config;
@@ -298,6 +307,7 @@ private:
     unsigned _requests_queued = 0;
     priority_queue _handles;
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
+    size_t _nr_classes = 0;
     capacity_t _last_accumulated = 0;
 
     /*
