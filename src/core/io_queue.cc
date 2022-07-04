@@ -292,7 +292,7 @@ public:
         _desc.release()->cancel();
     }
 
-    void set_intent(internal::cancellable_queue* cq) noexcept {
+    void set_intent(internal::cancellable_queue& cq) noexcept {
         _intent.enqueue(cq);
     }
 
@@ -759,13 +759,12 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_re
         io_direction_and_length dnl(req, len);
         auto queued_req = std::make_unique<queued_io_request>(std::move(req), *this, pclass, std::move(dnl));
         auto fut = queued_req->get_future();
-        internal::cancellable_queue* cq = nullptr;
         if (intent != nullptr) {
-            cq = &intent->find_or_create_cancellable_queue(dev_id(), pc.id());
+            auto& cq = intent->find_or_create_cancellable_queue(dev_id(), pc.id());
+            queued_req->set_intent(cq);
         }
 
         _streams[queued_req->stream()].queue(pclass.fq_class(), queued_req->queue_entry());
-        queued_req->set_intent(cq);
         queued_req.release();
         pclass.on_queue();
         _queued_requests++;

@@ -56,10 +56,8 @@ public:
         link() noexcept : _ref(nullptr) {}
         ~link() { assert(_ref == nullptr); }
 
-        void enqueue(cancellable_queue* cq) noexcept {
-            if (cq != nullptr) {
-                cq->push_back(*this);
-            }
+        void enqueue(cancellable_queue& cq) noexcept {
+            cq.push_back(*this);
         }
 
         void maybe_dequeue() noexcept {
