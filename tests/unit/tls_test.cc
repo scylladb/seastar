@@ -74,19 +74,22 @@ static future<> connect_to_ssl_addr(::shared_ptr<tls::certificate_credentials> c
                 return f.then([&s, &os]() mutable {
                     auto f = os.flush();
                     return f.then([&s]() mutable {
-                        return do_with(s.input(), [](auto& in) {
-                            auto f = in.read();
-                            return f.then([](temporary_buffer<char> buf) {
-                                // std::cout << buf.get() << std::endl;
-
-                                // Avoid passing a nullptr as an argument of strncmp().
-                                // If the temporary_buffer is empty (e.g. due to the underlying TCP connection
-                                // being reset) passing the buf.get() (which would be a nullptr) to strncmp()
-                                // causes a runtime error which masks the actual issue.
-                                if (buf) {
-                                    BOOST_CHECK(strncmp(buf.get(), "HTTP/", 5) == 0);
-                                }
-                                BOOST_CHECK(buf.size() > 8);
+                        return do_with(s.input(), sstring{}, [](auto& in, sstring& buffer) {
+                            return repeat_until_value([&] {
+                                auto f = in.read();
+                                return f.then([&](temporary_buffer<char> buf) {
+                                    // std::cout << buf.get() << std::endl;
+                                    if (buf.empty()) {
+                                        // EOF. done
+                                        return make_ready_future<std::optional<bool>>(!buffer.empty());
+                                    }
+                                    buffer.append(buf.get(), buf.size());
+                                    return make_ready_future<std::optional<bool>>(std::nullopt);
+                                });
+                            }).then([&](bool result) {
+                                BOOST_CHECK(result);
+                                BOOST_CHECK(buffer.size() > 8);
+                                BOOST_CHECK_EQUAL(buffer.substr(0, 5), sstring("HTTP/"));
                             });
                         });
                     });
