@@ -286,6 +286,9 @@ private:
         bool operator() (const priority_class_ptr& lhs, const priority_class_ptr & rhs) const noexcept;
     };
 
+    class priority_queue : public std::priority_queue<priority_class_ptr, std::vector<priority_class_ptr>, class_compare> {
+    };
+
     config _config;
     fair_group& _group;
     clock_type::time_point _group_replenish;
@@ -293,8 +296,7 @@ private:
     fair_queue_ticket _resources_queued;
     unsigned _requests_executing = 0;
     unsigned _requests_queued = 0;
-    using prioq = std::priority_queue<priority_class_ptr, std::vector<priority_class_ptr>, class_compare>;
-    prioq _handles;
+    priority_queue _handles;
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
     capacity_t _last_accumulated = 0;
 
