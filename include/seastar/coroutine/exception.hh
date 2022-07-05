@@ -117,6 +117,12 @@ inline exception return_exception_ptr(std::exception_ptr ex) noexcept {
     return exception(std::move(ex));
 }
 
+[[deprecated("Use co_await coroutine::return_exception_ptr instead")]]
+[[nodiscard]]
+inline exception return_exception(std::exception_ptr ex) noexcept {
+    return exception(std::move(ex));
+}
+
 template<typename T>
 [[nodiscard]]
 exception return_exception(T&& t) noexcept {
