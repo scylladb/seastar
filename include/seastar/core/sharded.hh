@@ -347,7 +347,7 @@ public:
         auto wrapped_map = [this, map] (unsigned c) {
             return smp::submit_to(c, [this, map] {
                 auto inst = get_local_service();
-                return map(*inst);
+                return std::invoke(map, *inst);
             });
         };
         return ::seastar::map_reduce(smp::all_cpus().begin(), smp::all_cpus().end(),
@@ -364,7 +364,7 @@ public:
         auto wrapped_map = [this, map] (unsigned c) {
             return smp::submit_to(c, [this, map] {
                 auto inst = get_local_service();
-                return map(*inst);
+                return std::invoke(map, *inst);
             });
         };
         return ::seastar::map_reduce(smp::all_cpus().begin(), smp::all_cpus().end(),
