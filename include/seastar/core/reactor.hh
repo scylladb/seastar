@@ -349,7 +349,7 @@ private:
     /// otherwise. This function should be used by a handler to return early if a task appears.
     idle_cpu_handler _idle_cpu_handler{ [] (work_waiting_on_reactor) {return idle_cpu_handler_result::no_more_work;} };
     std::unique_ptr<network_stack> _network_stack;
-    lowres_clock::time_point _lowres_next_timeout;
+    lowres_clock::time_point _lowres_next_timeout = lowres_clock::time_point::max();
     std::optional<pollable_fd> _aio_eventfd;
     const bool _reuseport;
     circular_buffer<double> _loads;

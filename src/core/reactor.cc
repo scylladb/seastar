@@ -2398,16 +2398,13 @@ reactor::flush_tcp_batches() {
 
 bool
 reactor::do_expire_lowres_timers() noexcept {
-    if (_lowres_next_timeout == lowres_clock::time_point()) {
-        return false;
-    }
     auto now = lowres_clock::now();
     if (now >= _lowres_next_timeout) {
         complete_timers(_lowres_timers, _expired_lowres_timers, [this] () noexcept {
             if (!_lowres_timers.empty()) {
                 _lowres_next_timeout = _lowres_timers.get_next_timeout();
             } else {
-                _lowres_next_timeout = lowres_clock::time_point();
+                _lowres_next_timeout = lowres_clock::time_point::max();
             }
         });
         return true;
@@ -2437,9 +2434,6 @@ manual_clock::advance(manual_clock::duration d) noexcept {
 
 bool
 reactor::do_check_lowres_timers() const noexcept {
-    if (_lowres_next_timeout == lowres_clock::time_point()) {
-        return false;
-    }
     return lowres_clock::now() > _lowres_next_timeout;
 }
 
@@ -2574,7 +2568,7 @@ public:
     virtual bool try_enter_interrupt_mode() override {
         // arm our highres timer so a signal will wake us up
         auto next = _r._lowres_next_timeout;
-        if (next == lowres_clock::time_point()) {
+        if (next == lowres_clock::time_point::max()) {
             // no pending timers
             return true;
         }
