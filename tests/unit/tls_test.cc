@@ -65,8 +65,8 @@ static std::string certfile(const std::string& file) {
 
 using namespace seastar;
 
-static future<> connect_to_ssl_addr(::shared_ptr<tls::certificate_credentials> certs, socket_address addr) {
-    return tls::connect(certs, addr, "www.google.com").then([](connected_socket s) {
+static future<> connect_to_ssl_addr(::shared_ptr<tls::certificate_credentials> certs, socket_address addr, const sstring& name = {}) {
+    return tls::connect(certs, addr, name).then([](connected_socket s) {
         return do_with(std::move(s), [](connected_socket& s) {
             return do_with(s.output(), [&s](auto& os) {
                 static const sstring msg("GET / HTTP/1.0\r\n\r\n");
@@ -75,19 +75,12 @@ static future<> connect_to_ssl_addr(::shared_ptr<tls::certificate_credentials> c
                     auto f = os.flush();
                     return f.then([&s]() mutable {
                         return do_with(s.input(), sstring{}, [](auto& in, sstring& buffer) {
-                            return repeat_until_value([&] {
+                            return do_until(std::bind(&input_stream<char>::eof, std::cref(in)), [&buffer, &in] {
                                 auto f = in.read();
                                 return f.then([&](temporary_buffer<char> buf) {
-                                    // std::cout << buf.get() << std::endl;
-                                    if (buf.empty()) {
-                                        // EOF. done
-                                        return make_ready_future<std::optional<bool>>(!buffer.empty());
-                                    }
                                     buffer.append(buf.get(), buf.size());
-                                    return make_ready_future<std::optional<bool>>(std::nullopt);
                                 });
-                            }).then([&](bool result) {
-                                BOOST_CHECK(result);
+                            }).then([&buffer]() {
                                 BOOST_CHECK(buffer.size() > 8);
                                 BOOST_CHECK_EQUAL(buffer.substr(0, 5), sstring("HTTP/"));
                             });
@@ -101,16 +94,23 @@ static future<> connect_to_ssl_addr(::shared_ptr<tls::certificate_credentials> c
     });
 }
 
-static future<> connect_to_ssl_google(::shared_ptr<tls::certificate_credentials> certs) {
+// broken out from below. to allow pre-lookup
+static future<socket_address> google_address() {
     static socket_address google;
 
     if (google.is_unspecified()) {
-        return net::dns::resolve_name("www.google.com", net::inet_address::family::INET).then([certs](net::inet_address addr) {
+        return net::dns::resolve_name("www.google.com", net::inet_address::family::INET).then([](net::inet_address addr) {
             google = socket_address(addr, 443);
-            return connect_to_ssl_google(certs);
+            return google_address();
         });
     }
-    return connect_to_ssl_addr(std::move(certs), google);
+    return make_ready_future<socket_address>(google);
+}
+
+static future<> connect_to_ssl_google(::shared_ptr<tls::certificate_credentials> certs) {
+    return google_address().then([certs](socket_address addr) {
+        return connect_to_ssl_addr(std::move(certs), addr, "www.google.com");
+    });
 }
 
 SEASTAR_TEST_CASE(test_simple_x509_client) {
@@ -134,11 +134,15 @@ SEASTAR_TEST_CASE(test_x509_client_with_builder_system_trust) {
 }
 
 SEASTAR_TEST_CASE(test_x509_client_with_builder_system_trust_multiple) {
-    tls::credentials_builder b;
-    (void)b.set_system_trust();
-    auto creds = b.build_certificate_credentials();
+    // avoid getting parallel connects stuck on dns lookup (if running single case).
+    // pre-lookup www.google.com
+    return google_address().then([](socket_address) {
+        tls::credentials_builder b;
+        (void)b.set_system_trust();
+        auto creds = b.build_certificate_credentials();
 
-    return parallel_for_each(boost::irange(0, 20), [creds](auto i) { return connect_to_ssl_google(creds); });
+        return parallel_for_each(boost::irange(0, 20), [creds](auto i) { return connect_to_ssl_google(creds); });
+    });
 }
 
 SEASTAR_TEST_CASE(test_x509_client_with_priority_strings) {
