@@ -184,3 +184,9 @@ struct hash<seastar::transport> {
 };
 
 }
+
+#if FMT_VERSION >= 90000
+template <> struct fmt::formatter<seastar::socket_address> : fmt::ostream_formatter {};
+template <> struct fmt::formatter<seastar::ipv4_addr> : fmt::ostream_formatter {};
+template <> struct fmt::formatter<seastar::ipv6_addr> : fmt::ostream_formatter {};
+#endif

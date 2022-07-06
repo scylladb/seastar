@@ -176,6 +176,13 @@ struct hash<seastar::allocation_site> {
 
 }
 
+#if FMT_VERSION >= 90000
+namespace seastar::memory {
+struct human_readable_value;
+}
+template <> struct fmt::formatter<struct seastar::memory::human_readable_value> : fmt::ostream_formatter {};
+#endif
+
 namespace seastar {
 
 using allocation_site_ptr = const allocation_site*;

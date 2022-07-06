@@ -34,6 +34,7 @@
 #include <functional>
 #include <cstdio>
 #include <type_traits>
+#include <fmt/ostream.h>
 #include <seastar/util/std-compat.hh>
 #include <seastar/core/temporary_buffer.hh>
 
@@ -804,3 +805,8 @@ std::ostream& operator<<(std::ostream& os, const std::unordered_map<Key, T, Hash
     return os;
 }
 }
+
+#if FMT_VERSION >= 90000
+template <typename T> struct fmt::formatter<std::vector<T>> : fmt::ostream_formatter {};
+template <typename... Args> struct fmt::formatter<std::unordered_map<Args...>> : fmt::ostream_formatter {};
+#endif

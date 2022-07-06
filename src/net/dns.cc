@@ -55,6 +55,10 @@ std::ostream& operator<<(std::ostream& os, const opt_family& f) {
 
 }
 
+#if FMT_VERSION >= 90000
+template <> struct fmt::formatter<seastar::net::opt_family> : fmt::ostream_formatter {};
+#endif
+
 #include <seastar/util/log.hh>
 
 namespace seastar {

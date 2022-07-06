@@ -5,6 +5,10 @@
 #include <seastar/core/future-util.hh>
 #include <boost/range/adaptor/map.hpp>
 
+#if FMT_VERSION >= 90000
+template <> struct fmt::formatter<seastar::rpc::streaming_domain_type> : fmt::ostream_formatter {};
+#endif
+
 namespace seastar {
 
 namespace rpc {
