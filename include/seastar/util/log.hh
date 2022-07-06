@@ -520,4 +520,10 @@ std::ostream& operator<<(std::ostream&, const std::exception&);
 std::ostream& operator<<(std::ostream&, const std::system_error&);
 }
 
+#if FMT_VERSION >= 90000
+template <> struct fmt::formatter<std::exception_ptr> : fmt::ostream_formatter {};
+template <> struct fmt::formatter<std::exception> : fmt::ostream_formatter {};
+template <> struct fmt::formatter<std::system_error> : fmt::ostream_formatter {};
+#endif
+
 /// @}

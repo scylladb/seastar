@@ -162,6 +162,10 @@ struct hash<seastar::tasktrace> {
 
 }
 
+#if FMT_VERSION >= 90000
+template <> struct fmt::formatter<seastar::tasktrace> : fmt::ostream_formatter {};
+#endif
+
 namespace seastar {
 
 using saved_backtrace = tasktrace;

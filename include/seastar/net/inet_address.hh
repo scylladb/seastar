@@ -126,3 +126,8 @@ struct hash<seastar::net::inet_address> {
     size_t operator()(const seastar::net::inet_address&) const;
 };
 }
+
+#if FMT_VERSION >= 90000
+template <> struct fmt::formatter<seastar::net::inet_address> : fmt::ostream_formatter {};
+template <> struct fmt::formatter<seastar::net::inet_address::family> : fmt::ostream_formatter {};
+#endif
