@@ -59,6 +59,31 @@ public:
     future<int> count_from(int base) const {
         return container().map_reduce0([] (auto& pc) { return 1; }, base, std::plus<int>());
     }
+
+    future<int> count_from_const(int base) const {
+        return container().map_reduce0(&peering_counter::get_1_c, base, std::plus<int>());
+    }
+
+    future<int> count_from_mutate(int base) {
+        return container().map_reduce0(&peering_counter::get_1_m, base, std::plus<int>());
+    }
+
+    future<int> count_const() const {
+        return container().map_reduce(adder<int>(), &peering_counter::get_1_c);
+    }
+
+    future<int> count_mutate() {
+        return container().map_reduce(adder<int>(), &peering_counter::get_1_m);
+    }
+
+private:
+    future<int> get_1_c() const {
+        return make_ready_future<int>(1);
+    }
+
+    future<int> get_1_m() {
+        return make_ready_future<int>(1);
+    }
 };
 
 SEASTAR_THREAD_TEST_CASE(test_const_map_reduces) {
@@ -68,6 +93,17 @@ SEASTAR_THREAD_TEST_CASE(test_const_map_reduces) {
     BOOST_REQUIRE_EQUAL(c.local().count().get0(), smp::count);
     BOOST_REQUIRE_EQUAL(c.local().count_from(1).get0(), smp::count + 1);
 
+    c.stop().get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_member_map_reduces) {
+    sharded<peering_counter> c;
+    c.start().get();
+
+    BOOST_REQUIRE_EQUAL(std::as_const(c.local()).count_const().get0(), smp::count);
+    BOOST_REQUIRE_EQUAL(c.local().count_mutate().get0(), smp::count);
+    BOOST_REQUIRE_EQUAL(std::as_const(c.local()).count_from_const(1).get0(), smp::count + 1);
+    BOOST_REQUIRE_EQUAL(c.local().count_from_mutate(1).get0(), smp::count + 1);
     c.stop().get();
 }
 
