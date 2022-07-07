@@ -597,7 +597,7 @@ auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo wci
                             });
                         });
                     } catch (...) {
-                        client->get_logger()(client->info(), msg_id, format("got exception while processing a message: {}", std::current_exception()));
+                        client->get_logger()(client->info(), msg_id, format("caught exception while processing a message: {}", std::current_exception()));
                         return make_ready_future();
                     }
                 }).handle_exception_type([] (gate_closed_exception&) {/* ignore */});
