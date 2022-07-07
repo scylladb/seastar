@@ -240,6 +240,11 @@ public:
     void set_skip_when_empty(skip_when_empty skip) noexcept {
         _info.should_skip_when_empty = skip;
     }
+
+    skip_when_empty get_skip_when_empty() const {
+        return _info.should_skip_when_empty;
+    }
+
     const metric_id& get_id() const {
         return _info.id;
     }
