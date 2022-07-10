@@ -286,6 +286,18 @@ private:
         bool operator() (const priority_class_ptr& lhs, const priority_class_ptr & rhs) const noexcept;
     };
 
+    class priority_queue : public std::priority_queue<priority_class_ptr, std::vector<priority_class_ptr>, class_compare> {
+        using super = std::priority_queue<priority_class_ptr, std::vector<priority_class_ptr>, class_compare>;
+    public:
+        void reserve(size_t len) {
+            c.reserve(len);
+        }
+
+        void assert_enough_capacity() const noexcept {
+            assert(c.size() < c.capacity());
+        }
+    };
+
     config _config;
     fair_group& _group;
     clock_type::time_point _group_replenish;
@@ -293,9 +305,9 @@ private:
     fair_queue_ticket _resources_queued;
     unsigned _requests_executing = 0;
     unsigned _requests_queued = 0;
-    using prioq = std::priority_queue<priority_class_ptr, std::vector<priority_class_ptr>, class_compare>;
-    prioq _handles;
+    priority_queue _handles;
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
+    size_t _nr_classes = 0;
     capacity_t _last_accumulated = 0;
 
     /*
@@ -318,11 +330,11 @@ private:
 
     std::optional<pending> _pending;
 
-    void push_priority_class(priority_class_data& pc);
-    void push_priority_class_from_idle(priority_class_data& pc);
-    void pop_priority_class(priority_class_data& pc);
-    void plug_priority_class(priority_class_data& pc);
-    void unplug_priority_class(priority_class_data& pc);
+    void push_priority_class(priority_class_data& pc) noexcept;
+    void push_priority_class_from_idle(priority_class_data& pc) noexcept;
+    void pop_priority_class(priority_class_data& pc) noexcept;
+    void plug_priority_class(priority_class_data& pc) noexcept;
+    void unplug_priority_class(priority_class_data& pc) noexcept;
 
     enum class grab_result { grabbed, cant_preempt, pending };
     grab_result grab_capacity(const fair_queue_entry& ent) noexcept;
@@ -367,10 +379,10 @@ public:
     ///
     /// The user of this interface is supposed to call \ref notify_requests_finished when the
     /// request finishes executing - regardless of success or failure.
-    void queue(class_id c, fair_queue_entry& ent);
+    void queue(class_id c, fair_queue_entry& ent) noexcept;
 
-    void plug_class(class_id c);
-    void unplug_class(class_id c);
+    void plug_class(class_id c) noexcept;
+    void unplug_class(class_id c) noexcept;
 
     /// Notifies that ont request finished
     /// \param desc an instance of \c fair_queue_ticket structure describing the request that just finished.
