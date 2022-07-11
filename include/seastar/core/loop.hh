@@ -563,8 +563,9 @@ parallel_for_each(Iterator begin, Sentinel end, Func&& func) noexcept {
     //   - available, failed: collect exception in ex
     //   - not available: collect in s (allocating it if needed)
     while (begin != end) {
-        auto f = futurize_invoke(std::forward<Func>(func), *begin);
+        auto tmp = begin;
         ++begin;
+        auto f = futurize_invoke(std::forward<Func>(func), *tmp);
         memory::scoped_critical_alloc_section _;
         if (!f.available() || f.failed()) {
             if (!s) {
@@ -683,7 +684,9 @@ max_concurrent_for_each(Iterator begin, Sentinel end, size_t max_concurrent, Fun
                 return s.sem.wait().then([&s] () mutable noexcept {
                     // Possibly run in background and signal _sem when the task is done.
                     // The background tasks are waited on using _sem.
-                    (void)futurize_invoke(s.func, *s.begin).then_wrapped([&s] (future<> fut) {
+                    auto tmp = s.begin;
+                    ++s.begin;
+                    (void)futurize_invoke(s.func, *tmp).then_wrapped([&s] (future<> fut) {
                         if (fut.failed()) {
                             auto e = fut.get_exception();;
                             if (!s.err) {
@@ -692,7 +695,6 @@ max_concurrent_for_each(Iterator begin, Sentinel end, size_t max_concurrent, Fun
                         }
                         s.sem.signal();
                     });
-                    ++s.begin;
                 });
             }).then([&s] {
                 // Wait for any background task to finish
