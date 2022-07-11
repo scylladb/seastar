@@ -436,6 +436,12 @@ private:
                           const metric_family& family,
                           const shared_ptr<impl>& destination,
                           int destination_handle) const;
+
+    void remove_metric_replica_family(const seastar::sstring& name,
+                                      int destination_handle) const;
+    void remove_metric_replica(const metric_id& id,
+                               const shared_ptr<impl>& destination) const;
+    void remove_metric_replica_if_required(const metric_id& id) const;
 };
 
 const value_map& get_value_map(int handle = default_handle());

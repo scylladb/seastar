@@ -381,6 +381,36 @@ void impl::remove_registration(const metric_id& id) {
     }
 }
 
+void impl::remove_metric_replica_family(const seastar::sstring& name,
+                                        int destination_handle) const {
+    auto entry = _value_map.find(name);
+
+    if (entry == _value_map.end()) {
+        return;
+    }
+
+    auto destination = get_local_impl(destination_handle);
+    for (const auto& metric_instance: entry->second) {
+        const auto& registered_metric = metric_instance.second;
+        remove_metric_replica(registered_metric->get_id(),
+                              destination);
+    }
+}
+
+void impl::remove_metric_replica(const metric_id& id,
+                                 const shared_ptr<impl>& destination) const {
+    destination->remove_registration(id);
+}
+
+void impl::remove_metric_replica_if_required(const metric_id& id) const {
+    auto [begin, end] = _metric_families_to_replicate.equal_range(id.full_name());
+
+    for (; begin != end; ++begin) {
+        auto destination = get_local_impl(begin->second);
+        remove_metric_replica(id, destination);
+    }
+}
+
 void unregister_metric(const metric_id & id, int handle) {
     get_local_impl(handle)->remove_registration(id);
 }
