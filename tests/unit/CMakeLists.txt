@@ -363,6 +363,9 @@ seastar_add_test (lowres_clock
 seastar_add_test (metrics
   SOURCES metrics_test.cc)
 
+seastar_add_test (metrics_family_replication
+  SOURCES metric_family_replication_test.cc)
+
 seastar_add_test (net_config
   KIND BOOST
   SOURCES net_config_test.cc)
