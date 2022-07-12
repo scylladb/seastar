@@ -378,6 +378,7 @@ class impl {
     std::vector<std::deque<metric_function>> _current_metrics;
     std::vector<relabel_config> _relabel_configs;
     std::vector<metric_family_config> _metric_family_configs;
+    std::unordered_multimap<seastar::sstring, int> _metric_families_to_replicate;
 public:
     value_map& get_value_map() {
         return _value_map;
@@ -418,6 +419,7 @@ public:
     const std::vector<relabel_config>& get_relabel_configs() const noexcept {
         return _relabel_configs;
     }
+
     const std::vector<metric_family_config>& get_metric_family_configs() const noexcept {
         return _metric_family_configs;
     }
@@ -425,6 +427,15 @@ public:
     void set_metric_family_configs(const std::vector<metric_family_config>& metrics_config);
 
     void update_aggregate(metric_family_info& mf) const noexcept;
+
+private:
+    void replicate_metric_family(const seastar::sstring& name,
+                                 int destination_handle) const;
+    void replicate_metric_if_required(const shared_ptr<registered_metric>& metric) const;
+    void replicate_metric(const shared_ptr<registered_metric>& metric,
+                          const metric_family& family,
+                          const shared_ptr<impl>& destination,
+                          int destination_handle) const;
 };
 
 const value_map& get_value_map(int handle = default_handle());
