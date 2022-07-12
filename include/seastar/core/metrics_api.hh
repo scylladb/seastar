@@ -521,6 +521,22 @@ public:
 
     void update_aggregate(metric_family_info& mf) const noexcept;
 
+    // Set the metrics families to be replicated from this metrics::impl.
+    // All metrics families that match one of the keys of
+    // the 'metric_families_to_replicate' argument will be replicated
+    // on the metrics::impl identified by the corresponding value.
+    //
+    // If this function was called previously, any previously
+    // replicated metrics will be removed before the provided ones are
+    // replicated.
+    //
+    // Metric replication spans the full life cycle of this class.
+    // Newly registered metrics that belong to a replicated family
+    // be replicated too and unregistering a replicated metric will
+    // unregister the replica.
+    void set_metric_families_to_replicate(
+            std::unordered_multimap<seastar::sstring, int> metric_families_to_replicate);
+
 private:
     void gc_internalized_labels();
     bool apply_relabeling(const relabel_config& rc, metric_info& info);
