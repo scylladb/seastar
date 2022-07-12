@@ -526,6 +526,12 @@ public:
                 xshard_connection_ptr s = make_lw_shared(make_foreign(static_pointer_cast<rpc::connection>(c)));
                 this->register_stream(c->get_connection_id(), s);
                 return sink<Out...>(make_shared<sink_impl<Serializer, Out...>>(std::move(s)));
+            }).handle_exception([c] (std::exception_ptr eptr) {
+                // If await_connection fails we need to stop the client
+                // before destroying it.
+                return c->stop().then([eptr, c] {
+                    return make_exception_future<sink<Out...>>(eptr);
+                });
             });
         });
     }
