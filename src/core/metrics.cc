@@ -415,6 +415,52 @@ instance_id_type shard() {
     return sstring("0");
 }
 
+void impl::replicate_metric_family(const seastar::sstring& name,
+                                   int destination_handle) const {
+    const auto& entry = _value_map.find(name);
+
+    if (entry == _value_map.end()) {
+        return;
+    }
+
+    const auto& metric_family = entry->second;
+    auto destination = get_local_impl(destination_handle);
+    for (const auto& [labels, metric_ptr]: metric_family) {
+        replicate_metric(metric_ptr, metric_family, destination, destination_handle);
+    }
+}
+
+void impl::replicate_metric_if_required(const shared_ptr<registered_metric>& metric) const {
+    auto full_name = metric->get_id().full_name();
+    auto [begin, end]= _metric_families_to_replicate.equal_range(full_name);
+
+    for (; begin != end; ++begin) {
+        const auto& [name, destination_handle] = *begin;
+        const auto& metric_family = _value_map.at(name);
+
+        auto destination = get_local_impl(destination_handle);
+        replicate_metric(metric, metric_family, destination, destination_handle);
+    }
+}
+
+void impl::replicate_metric(const shared_ptr<registered_metric>& metric,
+                            const metric_family& family,
+                            const shared_ptr<impl>& destination,
+                            int destination_handle) const {
+    const auto& family_info = family.info();
+    metric_type type = { .base_type = family_info.type,
+                         .type_name = family_info.inherit_type };
+
+    destination->add_registration(metric->get_id(),
+                                  type,
+                                  metric->get_function(),
+                                  family_info.d,
+                                  metric->is_enabled(),
+                                  metric->get_skip_when_empty(),
+                                  family_info.aggregate_labels,
+                                  destination_handle);
+}
+
 void impl::update_metrics_if_needed() {
     if (_dirty) {
         // Forcing the metadata to an empty initialization
