@@ -201,7 +201,7 @@ def configure_mode(mode):
         tr(args.dpdk, 'DPDK'),
         tr(infer_dpdk_machine(args.user_cflags), 'DPDK_MACHINE'),
         tr(args.hwloc, 'HWLOC', value_when_none='yes'),
-        tr(args.io_uring, 'IO_URING', value_when_none='yes'),
+        tr(args.io_uring, 'IO_URING', value_when_none=None),
         tr(args.alloc_failure_injection, 'ALLOC_FAILURE_INJECTION', value_when_none='DEFAULT'),
         tr(args.task_backtrace, 'TASK_BACKTRACE'),
         tr(args.alloc_page_size, 'ALLOC_PAGE_SIZE'),
@@ -233,7 +233,9 @@ def configure_mode(mode):
         # everything.
         ARGS = ['cmake', '-G', 'Ninja', '../..']
         dir = BUILD_PATH
-    ARGS += TRANSLATED_ARGS
+    # filter out empty args, their values are actually "guess",
+    # CMake should be able to figure it out.
+    ARGS += filter(lambda arg: arg, TRANSLATED_ARGS)
     if args.verbose:
         print("Running CMake in '{}' ...".format(dir))
         print(" \\\n  ".join(ARGS))

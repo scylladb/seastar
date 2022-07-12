@@ -188,6 +188,17 @@ set (Seastar_ALLOC_PAGE_SIZE
   STRING
   "Override the Seastar allocator page size, in bytes.")
 
+function (set_option_if_package_is_found option_name package_name)
+  # if the package is found, set the option on behalf of user unless it is
+  # explicitly specified,
+  if (DEFINED ${option_name})
+    return ()
+  endif ()
+  if (${package_name}_FOUND)
+    set (${option_name} ON CACHE BOOL "")
+  endif ()
+endfunction ()
+
 option (Seastar_APPS
   "Enable application targets."
   ON)
@@ -230,9 +241,11 @@ option (Seastar_HWLOC
   "Enable hwloc support."
   ON)
 
-option (Seastar_IO_URING
-  "Enable io_uring support."
-  ON)
+if (DEFINED Seastar_IO_URING)
+  option (Seastar_IO_URING
+    "Enable io_uring support."
+    ON)
+endif ()
 
 set (Seastar_JENKINS
   ""
@@ -925,11 +938,8 @@ if (Seastar_HWLOC)
     PRIVATE hwloc::hwloc)
 endif ()
 
+set_option_if_package_is_found(Seastar_IO_URING LibUring)
 if (Seastar_IO_URING)
-  if (NOT LibUring_FOUND)
-    message (FATAL_ERROR "`io_uring` supported is enabled but liburing is not available!")
-  endif ()
-
   list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_HAVE_URING)
   target_link_libraries (seastar
     PRIVATE URING::uring)
