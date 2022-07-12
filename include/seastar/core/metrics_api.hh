@@ -571,5 +571,12 @@ void set_metric_family_configs(const std::vector<metric_family_config>& metrics_
  * This function returns a vector of the current metrics family config
  */
 const std::vector<metric_family_config>& get_metric_family_configs();
+
+/*!
+ * \brief replicate metric families accross internal metrics implementations
+ */
+future<>
+replicate_metric_families(int source_handle, std::unordered_multimap<seastar::sstring, int> metric_families_to_replicate);
+
 }
 }
