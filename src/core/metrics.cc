@@ -445,6 +445,22 @@ instance_id_type shard() {
     return sstring("0");
 }
 
+void
+impl::set_metric_families_to_replicate(
+        std::unordered_multimap<seastar::sstring, int> metric_families_to_replicate) {
+    // Remove all previous metric replica families
+    for (const auto& [name, destination]: _metric_families_to_replicate) {
+        remove_metric_replica_family(name, destination);
+    }
+
+    // Replicate the specified metric families.
+    for (const auto& [name, destination]: metric_families_to_replicate) {
+        replicate_metric_family(name, destination);
+    }
+
+    _metric_families_to_replicate = std::move(metric_families_to_replicate);
+}
+
 void impl::replicate_metric_family(const seastar::sstring& name,
                                    int destination_handle) const {
     const auto& entry = _value_map.find(name);
