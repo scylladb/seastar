@@ -202,6 +202,17 @@ static bool apply_relabeling(const relabel_config& rc, impl::metric_info& info) 
     return true;
 }
 
+future<>
+replicate_metric_families(
+        int source_handle,
+        std::unordered_multimap<seastar::sstring, int> metric_families_to_replicate) {
+    return smp::invoke_on_all([source_handle, metric_families_to_replicate] {
+        auto source_impl = impl::get_local_impl(source_handle);
+        source_impl->set_metric_families_to_replicate(
+                std::move(metric_families_to_replicate));
+    });
+}
+
 bool label_instance::operator!=(const label_instance& id2) const {
     auto& id1 = *this;
     return !(id1 == id2);
