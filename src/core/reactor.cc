@@ -3748,6 +3748,9 @@ public:
         }
 
         if (doc) {
+            if (!doc->IsMap()) {
+                throw std::runtime_error("Bogus io-properties (did you mix up --io-properties and --io-properties-file?)");
+            }
             for (auto&& section : *doc) {
                 auto sec_name = section.first.as<std::string>();
                 if (sec_name != "disks") {
