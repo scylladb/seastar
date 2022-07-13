@@ -96,21 +96,27 @@ inline sstring read(serializer, Input& in, rpc::type<sstring>) {
 using test_rpc_proto = rpc::protocol<serializer>;
 using make_socket_fn = std::function<seastar::socket ()>;
 
-struct rpc_loopback_error_injector : public loopback_error_injector {
+class rpc_loopback_error_injector : public loopback_error_injector {
+private:
     int _x = 0;
+    int _limit;
+public:
+    rpc_loopback_error_injector(int limit) : _limit(limit) {}
+
     bool server_rcv_error() override {
-        return _x++ >= 50;
+        return _x++ >= _limit;
     }
 };
 
 class rpc_socket_impl : public ::net::socket_impl {
     promise<connected_socket> _p;
     bool _connect;
-    loopback_socket_impl _socket;
     rpc_loopback_error_injector _error_injector;
+    loopback_socket_impl _socket;
 public:
-    rpc_socket_impl(loopback_connection_factory& factory, bool connect, bool inject_error)
+    rpc_socket_impl(loopback_connection_factory& factory, bool connect, std::optional<int> inject_error)
             : _connect(connect),
+              _error_injector(inject_error.value_or(0)),
               _socket(factory, inject_error ? &_error_injector : nullptr) {
     }
     virtual future<connected_socket> connect(socket_address sa, socket_address local, transport proto = transport::TCP) override {
@@ -131,7 +137,7 @@ struct rpc_test_config {
     rpc::resource_limits resource_limits = {};
     rpc::server_options server_options = {};
     bool connect = true;
-    bool inject_error = false;
+    std::optional<int> inject_error;
 };
 
 template<typename MsgType = int>
@@ -224,6 +230,10 @@ public:
     }
 
     auto make_socket() {
+        return seastar::socket(std::make_unique<rpc_socket_impl>(_lcf, _cfg.connect, std::nullopt));
+    };
+
+    auto make_stream_socket() {
         return seastar::socket(std::make_unique<rpc_socket_impl>(_lcf, _cfg.connect, _cfg.inject_error));
     };
 
@@ -455,6 +465,7 @@ struct stream_test_result {
     bool server_done_exception = false;
     bool client_stop_exception = false;
     int server_sum = 0;
+    bool exception_while_creating_sink = false;
 };
 
 future<stream_test_result> stream_test_func(rpc_test_env<>& env, bool stop_client, bool expect_connection_error = false) {
@@ -499,54 +510,60 @@ future<stream_test_result> stream_test_func(rpc_test_env<>& env, bool stop_clien
             return sink;
         }).get();
         auto call = env.proto().make_client<rpc::source<sstring> (int, rpc::sink<int>)>(1);
+        struct failed_to_create_sync{};
         auto x = [&] {
             try {
-                return c.make_stream_sink<serializer, int>(env.make_socket()).get0();
+                return c.make_stream_sink<serializer, int>(env.make_stream_socket()).get0();
             } catch (...) {
                 c.stop().get();
-                throw;
+                throw failed_to_create_sync{};
             }
         };
-        auto sink = x();
-        auto source = call(c, 666, sink).get0();
-        auto source_done = seastar::async([&] {
-            while (!r.client_source_closed) {
-                auto data = source().get0();
-                if (data) {
-                    BOOST_REQUIRE_EQUAL(std::get<0>(*data), "seastar");
-                } else {
-                    r.client_source_closed = true;
+        try {
+            auto sink = x();
+            auto source = call(c, 666, sink).get0();
+            auto source_done = seastar::async([&] {
+                while (!r.client_source_closed) {
+                    auto data = source().get0();
+                    if (data) {
+                        BOOST_REQUIRE_EQUAL(std::get<0>(*data), "seastar");
+                    } else {
+                        r.client_source_closed = true;
+                    }
+                }
+            });
+            auto check_exception = [] (auto f) {
+                try {
+                    f.get();
+                } catch (...) {
+                    return true;
+                }
+                return false;
+            };
+            future<> stop_client_future = make_ready_future();
+            // With a connection error sink() will eventually fail, but we
+            // cannot guarantee when.
+            int max = expect_connection_error ? std::numeric_limits<int>::max()  : 101;
+            for (int i = 1; i < max; i++) {
+                if (stop_client && i == 50) {
+                    // stop client while stream is in use
+                    stop_client_future = c.stop();
+                }
+                sleep(std::chrono::milliseconds(1)).get();
+                r.sink_exception = check_exception(sink(i));
+                if (r.sink_exception) {
+                    break;
                 }
             }
-        });
-        auto check_exception = [] (auto f) {
-            try {
-                f.get();
-            } catch (...) {
-                return true;
-            }
-            return false;
-        };
-        future<> stop_client_future = make_ready_future();
-        // With a connection error sink() will eventually fail, but we
-        // cannot guarantee when.
-        int max = expect_connection_error ? std::numeric_limits<int>::max()  : 101;
-        for (int i = 1; i < max; i++) {
-            if (stop_client && i == 50) {
-                // stop client while stream is in use
-                stop_client_future = c.stop();
-            }
-            sleep(std::chrono::milliseconds(1)).get();
-            r.sink_exception = check_exception(sink(i));
-            if (r.sink_exception) {
-                break;
-            }
+            r.sink_close_exception = check_exception(sink.close());
+            r.source_done_exception = check_exception(std::move(source_done));
+            r.server_done_exception = check_exception(std::move(server_done));
+            r.client_stop_exception = check_exception(!stop_client ? c.stop() : std::move(stop_client_future));
+            return r;
+        } catch(failed_to_create_sync&) {
+            r.exception_while_creating_sink = true;
+            return r;
         }
-        r.sink_close_exception = check_exception(sink.close());
-        r.source_done_exception = check_exception(std::move(source_done));
-        r.server_done_exception = check_exception(std::move(server_done));
-        r.client_stop_exception = check_exception(!stop_client ? c.stop() : std::move(stop_client_future));
-        return r;
     });
 }
 
@@ -593,7 +610,7 @@ SEASTAR_TEST_CASE(test_stream_connection_error) {
     so.streaming_domain = rpc::streaming_domain_type(1);
     rpc_test_config cfg;
     cfg.server_options = so;
-    cfg.inject_error = true;
+    cfg.inject_error = 50;
     return rpc_test_env<>::do_with(cfg, [] (rpc_test_env<>& env) {
         return stream_test_func(env, false, true).then([] (stream_test_result r) {
             BOOST_REQUIRE(!r.client_source_closed);
@@ -603,6 +620,19 @@ SEASTAR_TEST_CASE(test_stream_connection_error) {
             BOOST_REQUIRE(r.source_done_exception);
             BOOST_REQUIRE(r.server_done_exception);
             BOOST_REQUIRE(!r.client_stop_exception);
+        });
+    });
+}
+
+SEASTAR_TEST_CASE(test_stream_negotiation_error) {
+    rpc::server_options so;
+    so.streaming_domain = rpc::streaming_domain_type(1);
+    rpc_test_config cfg;
+    cfg.server_options = so;
+    cfg.inject_error = 0;
+    return rpc_test_env<>::do_with(cfg, [] (rpc_test_env<>& env) {
+        return stream_test_func(env, false, true).then([] (stream_test_result r) {
+            BOOST_REQUIRE(r.exception_while_creating_sink);
         });
     });
 }
