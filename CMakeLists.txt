@@ -888,10 +888,6 @@ if (Seastar_DEFERRED_ACTION_REQUIRE_NOEXCEPT)
 endif ()
 
 if (Seastar_DPDK)
-  if (NOT dpdk_FOUND)
-    message (FATAL_ERROR "dpdk support is enabled but it is not available!")
-  endif ()
-
   #
   # The DPDK architecture needs to be transitively applied to consumers of Seastar as well.
   #
@@ -928,10 +924,6 @@ if (Seastar_DPDK)
 endif ()
 
 if (Seastar_HWLOC)
-  if (NOT hwloc_FOUND)
-    message (FATAL_ERROR "`hwloc` support is enabled but it is not available!")
-  endif ()
-
   list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_HAVE_HWLOC)
 
   target_link_libraries (seastar
@@ -952,10 +944,6 @@ if (Seastar_LD_FLAGS)
 endif ()
 
 if (Seastar_NUMA)
-  if (NOT numactl_FOUND)
-    message (FATAL_ERROR "NUMA support is enabled but `numactl` is not available!")
-  endif ()
-
   list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_HAVE_NUMA)
 
   target_link_libraries (seastar
