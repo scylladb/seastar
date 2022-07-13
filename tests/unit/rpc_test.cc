@@ -465,6 +465,7 @@ struct stream_test_result {
     bool server_done_exception = false;
     bool client_stop_exception = false;
     int server_sum = 0;
+    bool exception_while_creating_sink = false;
 };
 
 future<stream_test_result> stream_test_func(rpc_test_env<>& env, bool stop_client, bool expect_connection_error = false) {
@@ -509,54 +510,60 @@ future<stream_test_result> stream_test_func(rpc_test_env<>& env, bool stop_clien
             return sink;
         }).get();
         auto call = env.proto().make_client<rpc::source<sstring> (int, rpc::sink<int>)>(1);
+        struct failed_to_create_sync{};
         auto x = [&] {
             try {
                 return c.make_stream_sink<serializer, int>(env.make_stream_socket()).get0();
             } catch (...) {
                 c.stop().get();
-                throw;
+                throw failed_to_create_sync{};
             }
         };
-        auto sink = x();
-        auto source = call(c, 666, sink).get0();
-        auto source_done = seastar::async([&] {
-            while (!r.client_source_closed) {
-                auto data = source().get0();
-                if (data) {
-                    BOOST_REQUIRE_EQUAL(std::get<0>(*data), "seastar");
-                } else {
-                    r.client_source_closed = true;
+        try {
+            auto sink = x();
+            auto source = call(c, 666, sink).get0();
+            auto source_done = seastar::async([&] {
+                while (!r.client_source_closed) {
+                    auto data = source().get0();
+                    if (data) {
+                        BOOST_REQUIRE_EQUAL(std::get<0>(*data), "seastar");
+                    } else {
+                        r.client_source_closed = true;
+                    }
+                }
+            });
+            auto check_exception = [] (auto f) {
+                try {
+                    f.get();
+                } catch (...) {
+                    return true;
+                }
+                return false;
+            };
+            future<> stop_client_future = make_ready_future();
+            // With a connection error sink() will eventually fail, but we
+            // cannot guarantee when.
+            int max = expect_connection_error ? std::numeric_limits<int>::max()  : 101;
+            for (int i = 1; i < max; i++) {
+                if (stop_client && i == 50) {
+                    // stop client while stream is in use
+                    stop_client_future = c.stop();
+                }
+                sleep(std::chrono::milliseconds(1)).get();
+                r.sink_exception = check_exception(sink(i));
+                if (r.sink_exception) {
+                    break;
                 }
             }
-        });
-        auto check_exception = [] (auto f) {
-            try {
-                f.get();
-            } catch (...) {
-                return true;
-            }
-            return false;
-        };
-        future<> stop_client_future = make_ready_future();
-        // With a connection error sink() will eventually fail, but we
-        // cannot guarantee when.
-        int max = expect_connection_error ? std::numeric_limits<int>::max()  : 101;
-        for (int i = 1; i < max; i++) {
-            if (stop_client && i == 50) {
-                // stop client while stream is in use
-                stop_client_future = c.stop();
-            }
-            sleep(std::chrono::milliseconds(1)).get();
-            r.sink_exception = check_exception(sink(i));
-            if (r.sink_exception) {
-                break;
-            }
+            r.sink_close_exception = check_exception(sink.close());
+            r.source_done_exception = check_exception(std::move(source_done));
+            r.server_done_exception = check_exception(std::move(server_done));
+            r.client_stop_exception = check_exception(!stop_client ? c.stop() : std::move(stop_client_future));
+            return r;
+        } catch(failed_to_create_sync&) {
+            r.exception_while_creating_sink = true;
+            return r;
         }
-        r.sink_close_exception = check_exception(sink.close());
-        r.source_done_exception = check_exception(std::move(source_done));
-        r.server_done_exception = check_exception(std::move(server_done));
-        r.client_stop_exception = check_exception(!stop_client ? c.stop() : std::move(stop_client_future));
-        return r;
     });
 }
 
@@ -613,6 +620,19 @@ SEASTAR_TEST_CASE(test_stream_connection_error) {
             BOOST_REQUIRE(r.source_done_exception);
             BOOST_REQUIRE(r.server_done_exception);
             BOOST_REQUIRE(!r.client_stop_exception);
+        });
+    });
+}
+
+SEASTAR_TEST_CASE(test_stream_negotiation_error) {
+    rpc::server_options so;
+    so.streaming_domain = rpc::streaming_domain_type(1);
+    rpc_test_config cfg;
+    cfg.server_options = so;
+    cfg.inject_error = 0;
+    return rpc_test_env<>::do_with(cfg, [] (rpc_test_env<>& env) {
+        return stream_test_func(env, false, true).then([] (stream_test_result r) {
+            BOOST_REQUIRE(r.exception_while_creating_sink);
         });
     });
 }
