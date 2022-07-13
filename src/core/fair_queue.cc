@@ -94,7 +94,7 @@ fair_queue_ticket wrapping_difference(const fair_queue_ticket& a, const fair_que
 fair_group::fair_group(config cfg)
         : _cost_capacity(cfg.weight_rate / token_bucket_t::rate_cast(std::chrono::seconds(1)).count(), cfg.size_rate / token_bucket_t::rate_cast(std::chrono::seconds(1)).count())
         , _token_bucket(cfg.rate_factor * fixed_point_factor,
-                        cfg.rate_factor * fixed_point_factor * token_bucket_t::rate_cast(cfg.rate_limit_duration).count(),
+                        std::max<capacity_t>(cfg.rate_factor * fixed_point_factor * token_bucket_t::rate_cast(cfg.rate_limit_duration).count(), ticket_capacity(fair_queue_ticket(cfg.limit_min_weight, cfg.limit_min_size))),
                         ticket_capacity(fair_queue_ticket(cfg.min_weight, cfg.min_size))
                        )
 {

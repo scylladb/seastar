@@ -106,6 +106,7 @@ public:
         bool duplex = false;
         float rate_factor = 1.0;
         std::chrono::duration<double> rate_limit_duration = std::chrono::milliseconds(1);
+        size_t block_count_limit_min = 1;
     };
 
     io_queue(io_group_ptr group, internal::io_sink& sink);

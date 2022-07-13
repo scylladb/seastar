@@ -427,11 +427,19 @@ fair_group::config io_group::make_fair_group_config(const io_queue::config& qcfg
     cfg.label = fmt::format("io-queue-{}", qcfg.devid);
     cfg.min_weight = std::min(io_queue::read_request_base_count, qcfg.disk_req_write_to_read_multiplier);
     cfg.min_size = std::min(io_queue::read_request_base_count, qcfg.disk_blocks_write_to_read_multiplier);
+    cfg.limit_min_weight = std::max(io_queue::read_request_base_count, qcfg.disk_req_write_to_read_multiplier);
+    cfg.limit_min_size = std::max(io_queue::read_request_base_count, qcfg.disk_blocks_write_to_read_multiplier) * qcfg.block_count_limit_min;
     cfg.weight_rate = qcfg.req_count_rate;
     cfg.size_rate = qcfg.blocks_count_rate;
     cfg.rate_factor = qcfg.rate_factor;
     cfg.rate_limit_duration = qcfg.rate_limit_duration;
     return cfg;
+}
+
+static void maybe_warn_latency_goal_auto_adjust(const fair_group& fg, const io_queue::config& cfg) noexcept {
+    auto goal = fg.rate_limit_duration();
+    auto lvl = goal > 1.1 * cfg.rate_limit_duration ? log_level::warn : log_level::info;
+    seastar_logger.log(lvl, "IO queue uses {:.2f}ms latency goal for device {}", goal.count() * 1000, cfg.devid);
 }
 
 io_group::io_group(io_queue::config io_cfg)
@@ -440,8 +448,10 @@ io_group::io_group(io_queue::config io_cfg)
 {
     auto fg_cfg = make_fair_group_config(_config);
     _fgs.push_back(std::make_unique<fair_group>(fg_cfg));
+    maybe_warn_latency_goal_auto_adjust(*_fgs.back(), io_cfg);
     if (_config.duplex) {
         _fgs.push_back(std::make_unique<fair_group>(fg_cfg));
+        maybe_warn_latency_goal_auto_adjust(*_fgs.back(), io_cfg);
     }
 
     /*

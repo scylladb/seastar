@@ -182,7 +182,8 @@ public:
      */
 
     static constexpr float fixed_point_factor = float(1 << 24);
-    using token_bucket_t = internal::shared_token_bucket<capacity_t, std::milli, internal::capped_release::yes>;
+    using rate_resolution = std::milli;
+    using token_bucket_t = internal::shared_token_bucket<capacity_t, rate_resolution, internal::capped_release::yes>;
 
 private:
 
@@ -221,8 +222,17 @@ public:
 
     struct config {
         sstring label = "";
+        /*
+         * There are two "min" values that can be configured. The former one
+         * is the minimal weight:size pair that the upper layer is going to
+         * submit. However, it can submit _larger_ values, and the fair queue
+         * must accept those as large as the latter pair (but it can accept
+         * even larger values, of course)
+         */
         unsigned min_weight = 0;
         unsigned min_size = 0;
+        unsigned limit_min_weight = 0;
+        unsigned limit_min_size = 0;
         unsigned long weight_rate;
         unsigned long size_rate;
         float rate_factor = 1.0;
@@ -242,6 +252,11 @@ public:
 
     capacity_t capacity_deficiency(capacity_t from) const noexcept;
     capacity_t ticket_capacity(fair_queue_ticket ticket) const noexcept;
+
+    std::chrono::duration<double> rate_limit_duration() const noexcept {
+        std::chrono::duration<double, rate_resolution> dur((double)_token_bucket.limit() / _token_bucket.rate());
+        return std::chrono::duration_cast<std::chrono::duration<double>>(dur);
+    }
 };
 
 /// \brief Fair queuing class
