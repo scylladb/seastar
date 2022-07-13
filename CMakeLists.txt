@@ -188,6 +188,17 @@ set (Seastar_ALLOC_PAGE_SIZE
   STRING
   "Override the Seastar allocator page size, in bytes.")
 
+function (set_option_if_package_is_found option_name package_name)
+  # if the package is found, set the option on behalf of user unless it is
+  # explicitly specified,
+  if (DEFINED ${option_name})
+    return ()
+  endif ()
+  if (${package_name}_FOUND)
+    set (${option_name} ON CACHE BOOL "")
+  endif ()
+endfunction ()
+
 option (Seastar_APPS
   "Enable application targets."
   ON)
@@ -230,9 +241,11 @@ option (Seastar_HWLOC
   "Enable hwloc support."
   ON)
 
-option (Seastar_IO_URING
-  "Enable io_uring support."
-  ON)
+if (DEFINED Seastar_IO_URING)
+  option (Seastar_IO_URING
+    "Enable io_uring support."
+    ON)
+endif ()
 
 set (Seastar_JENKINS
   ""
@@ -875,10 +888,6 @@ if (Seastar_DEFERRED_ACTION_REQUIRE_NOEXCEPT)
 endif ()
 
 if (Seastar_DPDK)
-  if (NOT dpdk_FOUND)
-    message (FATAL_ERROR "dpdk support is enabled but it is not available!")
-  endif ()
-
   #
   # The DPDK architecture needs to be transitively applied to consumers of Seastar as well.
   #
@@ -915,21 +924,14 @@ if (Seastar_DPDK)
 endif ()
 
 if (Seastar_HWLOC)
-  if (NOT hwloc_FOUND)
-    message (FATAL_ERROR "`hwloc` support is enabled but it is not available!")
-  endif ()
-
   list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_HAVE_HWLOC)
 
   target_link_libraries (seastar
     PRIVATE hwloc::hwloc)
 endif ()
 
+set_option_if_package_is_found(Seastar_IO_URING LibUring)
 if (Seastar_IO_URING)
-  if (NOT LibUring_FOUND)
-    message (FATAL_ERROR "`io_uring` supported is enabled but liburing is not available!")
-  endif ()
-
   list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_HAVE_URING)
   target_link_libraries (seastar
     PRIVATE URING::uring)
@@ -942,10 +944,6 @@ if (Seastar_LD_FLAGS)
 endif ()
 
 if (Seastar_NUMA)
-  if (NOT numactl_FOUND)
-    message (FATAL_ERROR "NUMA support is enabled but `numactl` is not available!")
-  endif ()
-
   list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_HAVE_NUMA)
 
   target_link_libraries (seastar

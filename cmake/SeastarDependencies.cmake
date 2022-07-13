@@ -20,6 +20,8 @@
 # Copyright (C) 2019 Scylladb, Ltd.
 #
 
+include(CMakeParseArguments)
+
 #
 # CMake bundles `FindBoost.cmake`, which is coupled to the Boost version. If
 # we're on a system without a recent enough version of `FindBoost.cmake`, then
@@ -43,6 +45,30 @@ endif ()
 
 # This is the minimum version of Boost we need the CMake-bundled `FindBoost.cmake` to know about.
 find_package (Boost ${_seastar_boost_version} MODULE)
+
+# - set _seastar_dep_args_<package> for additional args for find_package().
+#   add REQUIRED if the corresponding option is explicitly enabled, so
+#   find_package() can stop the cmake generation.
+# - set _seastar_dep_skip_<package> if the option is explicitly disabled
+macro (seastar_set_dep_args package)
+  cmake_parse_arguments(args "REQUIRED" "VERSION;OPTION" "COMPONENTS" ${ARGN})
+  if (DEFINED args_VERSION)
+    list (APPEND _seastar_dep_args_${package} ${args_VERSION})
+  endif ()
+  if (args_REQUIRED)
+    list (APPEND _seastar_dep_args_${package} REQUIRED)
+  elseif (DEFINED args_OPTION)
+    if (args_OPTION)
+      list (APPEND _seastar_dep_args_${package} REQUIRED)
+    else ()
+      set (_seastar_dep_skip_${package} TRUE)
+    endif ()
+  endif ()
+  if (args_COMPONENTS)
+    list (APPEND _seastar_dep_args_${package} COMPONENTS
+      ${args_COMPONENTS})
+  endif ()
+endmacro ()
 
 #
 # Iterate through the dependency list defined below and execute `find_package`
@@ -82,28 +108,42 @@ macro (seastar_find_dependencies)
   # `unit_test_framework` is not required in the case we are building Seastar
   # without the testing library, however the component is always specified as required
   # to keep the CMake code minimalistic and easy-to-use.
-  set (_seastar_dep_args_Boost
-    ${_seastar_boost_version}
+  seastar_set_dep_args (Boost REQUIRED
+    VERSION ${_seastar_boost_version}
     COMPONENTS
       filesystem
       program_options
       thread
-      unit_test_framework
-    REQUIRED)
-
-  set (_seastar_dep_args_c-ares 1.13 REQUIRED)
-  set (_seastar_dep_args_cryptopp 5.6.5 REQUIRED)
-  set (_seastar_dep_args_fmt 5.0.0 REQUIRED)
-  set (_seastar_dep_args_lz4 1.7.3 REQUIRED)
-  set (_seastar_dep_args_GnuTLS 3.3.26 REQUIRED)
-  set (_seastar_dep_args_LibUring 2.0)
-  set (_seastar_dep_args_StdAtomic REQUIRED)
-  set (_seastar_dep_args_hwloc 1.11.2)
-  set (_seastar_dep_args_lksctp-tools REQUIRED)
-  set (_seastar_dep_args_rt REQUIRED)
-  set (_seastar_dep_args_yaml-cpp 0.5.1 REQUIRED)
+      unit_test_framework)
+  seastar_set_dep_args (c-ares REQUIRED
+    VERSION 1.13)
+  seastar_set_dep_args (cryptopp REQUIRED
+    VERSION 5.6.5)
+  seastar_set_dep_args (dpdk
+    OPTION ${Seastar_DPDK})
+  seastar_set_dep_args (fmt REQUIRED
+    VERSION 5.0.0)
+  seastar_set_dep_args (lz4 REQUIRED
+    VERSION 1.7.3)
+  seastar_set_dep_args (GnuTLS REQUIRED
+    VERSION 3.3.26)
+  seastar_set_dep_args (LibUring
+    VERSION 2.0
+    OPTION ${Seastar_IO_URING})
+  seastar_set_dep_args (StdAtomic REQUIRED)
+  seastar_set_dep_args (hwloc
+    VERSION 1.11.2
+    OPTION ${Seastar_HWLOC})
+  seastar_set_dep_args (lksctp-tools REQUIRED)
+  seastar_set_dep_args (rt REQUIRED)
+  seastar_set_dep_args (numactl
+    OPTION ${Seastar_NUMA})
+  seastar_set_dep_args (yaml-cpp REQUIRED
+    VERSION 0.5.1)
 
   foreach (third_party ${_seastar_all_dependencies})
-    find_package ("${third_party}" ${_seastar_dep_args_${third_party}})
+    if (NOT _seastar_dep_skip_${third_party})
+      find_package ("${third_party}" ${_seastar_dep_args_${third_party}})
+    endif ()
   endforeach ()
 endmacro ()

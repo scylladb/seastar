@@ -46,4 +46,7 @@ def translate_arg(arg, new_name, value_when_none='no'):
     else:
         value = arg
 
-    return '-DSeastar_{}={}'.format(new_name, value)
+    if value is None:
+        return ''
+    else:
+        return '-DSeastar_{}={}'.format(new_name, value)
