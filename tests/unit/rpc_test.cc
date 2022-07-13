@@ -96,21 +96,27 @@ inline sstring read(serializer, Input& in, rpc::type<sstring>) {
 using test_rpc_proto = rpc::protocol<serializer>;
 using make_socket_fn = std::function<seastar::socket ()>;
 
-struct rpc_loopback_error_injector : public loopback_error_injector {
+class rpc_loopback_error_injector : public loopback_error_injector {
+private:
     int _x = 0;
+    int _limit;
+public:
+    rpc_loopback_error_injector(int limit) : _limit(limit) {}
+
     bool server_rcv_error() override {
-        return _x++ >= 50;
+        return _x++ >= _limit;
     }
 };
 
 class rpc_socket_impl : public ::net::socket_impl {
     promise<connected_socket> _p;
     bool _connect;
-    loopback_socket_impl _socket;
     rpc_loopback_error_injector _error_injector;
+    loopback_socket_impl _socket;
 public:
-    rpc_socket_impl(loopback_connection_factory& factory, bool connect, bool inject_error)
+    rpc_socket_impl(loopback_connection_factory& factory, bool connect, std::optional<int> inject_error)
             : _connect(connect),
+              _error_injector(inject_error.value_or(0)),
               _socket(factory, inject_error ? &_error_injector : nullptr) {
     }
     virtual future<connected_socket> connect(socket_address sa, socket_address local, transport proto = transport::TCP) override {
@@ -131,7 +137,7 @@ struct rpc_test_config {
     rpc::resource_limits resource_limits = {};
     rpc::server_options server_options = {};
     bool connect = true;
-    bool inject_error = false;
+    std::optional<int> inject_error;
 };
 
 template<typename MsgType = int>
@@ -593,7 +599,7 @@ SEASTAR_TEST_CASE(test_stream_connection_error) {
     so.streaming_domain = rpc::streaming_domain_type(1);
     rpc_test_config cfg;
     cfg.server_options = so;
-    cfg.inject_error = true;
+    cfg.inject_error = 50;
     return rpc_test_env<>::do_with(cfg, [] (rpc_test_env<>& env) {
         return stream_test_func(env, false, true).then([] (stream_test_result r) {
             BOOST_REQUIRE(!r.client_source_closed);
