@@ -230,6 +230,10 @@ public:
     }
 
     auto make_socket() {
+        return seastar::socket(std::make_unique<rpc_socket_impl>(_lcf, _cfg.connect, std::nullopt));
+    };
+
+    auto make_stream_socket() {
         return seastar::socket(std::make_unique<rpc_socket_impl>(_lcf, _cfg.connect, _cfg.inject_error));
     };
 
@@ -507,7 +511,7 @@ future<stream_test_result> stream_test_func(rpc_test_env<>& env, bool stop_clien
         auto call = env.proto().make_client<rpc::source<sstring> (int, rpc::sink<int>)>(1);
         auto x = [&] {
             try {
-                return c.make_stream_sink<serializer, int>(env.make_socket()).get0();
+                return c.make_stream_sink<serializer, int>(env.make_stream_socket()).get0();
             } catch (...) {
                 c.stop().get();
                 throw;
