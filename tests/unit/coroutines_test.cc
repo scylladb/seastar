@@ -175,9 +175,16 @@ SEASTAR_TEST_CASE(test_scheduling_group) {
     }
 }
 
+future<scheduling_group> switch_to_with_context(scheduling_group& sg) {
+    scheduling_group new_sg = co_await coroutine::switch_to(sg);
+    BOOST_REQUIRE(current_scheduling_group() == sg);
+    co_return new_sg;
+}
+
 SEASTAR_TEST_CASE(test_switch_to) {
     auto other_sg0 = co_await create_scheduling_group("other group 0", 10.f);
     auto other_sg1 = co_await create_scheduling_group("other group 1", 10.f);
+    auto other_sg2 = co_await create_scheduling_group("other group 2", 10.f);
     std::exception_ptr ex;
 
     try {
@@ -194,6 +201,8 @@ SEASTAR_TEST_CASE(test_switch_to) {
         auto nested_sg = co_await coroutine::switch_to(other_sg1);
         BOOST_REQUIRE(current_scheduling_group() == other_sg1);
         BOOST_REQUIRE(nested_sg == other_sg0);
+
+        co_await switch_to_with_context(other_sg2);
 
         co_await coroutine::switch_to(base_sg);
         BOOST_REQUIRE(current_scheduling_group() == base_sg);
