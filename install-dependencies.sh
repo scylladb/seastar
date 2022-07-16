@@ -114,21 +114,21 @@ centos7_packages=(
     ragel
     cmake3
     rh-mongodb36-boost-devel
-    devtoolset-9-gcc-c++
-    devtoolset-9-libubsan
-    devtoolset-9-libasan
-    devtoolset-9-libatomic
+    devtoolset-11-gcc-c++
+    devtoolset-11-libubsan
+    devtoolset-11-libasan
+    devtoolset-11-libatomic
 )
 
 centos8_packages=(
     "${redhat_packages[@]}"
     ninja-build
     ragel
-    gcc-toolset-9-gcc
-    gcc-toolset-9-gcc-c++
-    gcc-toolset-9-libubsan-devel
-    gcc-toolset-9-libasan-devel
-    gcc-toolset-9-libatomic-devel
+    gcc-toolset-11-gcc
+    gcc-toolset-11-gcc-c++
+    gcc-toolset-11-libubsan-devel
+    gcc-toolset-11-libasan-devel
+    gcc-toolset-11-libatomic-devel
 )
 
 # 1) glibc 2.30-3 has sys/sdt.h (systemtap include)
