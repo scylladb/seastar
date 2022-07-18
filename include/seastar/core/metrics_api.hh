@@ -213,6 +213,7 @@ public:
     metric_groups_impl& add_metric(group_name_type name, const metric_definition& md);
     metric_groups_impl& add_group(group_name_type name, const std::initializer_list<metric_definition>& l);
     metric_groups_impl& add_group(group_name_type name, const std::vector<metric_definition>& l);
+    int get_handle() const;
 };
 
 class impl;
