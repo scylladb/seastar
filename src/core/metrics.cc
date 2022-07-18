@@ -331,6 +331,10 @@ metric_groups_impl& metric_groups_impl::add_group(group_name_type name, const st
     return *this;
 }
 
+int metric_groups_impl::get_handle() const {
+    return _handle;
+}
+
 bool metric_id::operator<(
         const metric_id& id2) const {
     return as_tuple() < id2.as_tuple();
