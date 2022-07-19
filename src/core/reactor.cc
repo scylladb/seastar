@@ -3648,14 +3648,11 @@ void smp::create_thread(std::function<void ()> thread_loop) {
 // in the whole program and that after it is invoked the default handler is restored.
 template<int Signal, void(*Func)()>
 void install_oneshot_signal_handler() {
-    static bool handled = false;
     static util::spinlock lock;
 
     struct sigaction sa;
     sa.sa_sigaction = [](int sig, siginfo_t *info, void *p) {
-        std::lock_guard<util::spinlock> g(lock);
-        if (!handled) {
-            handled = true;
+        if (lock.try_lock()) {
             Func();
             signal(sig, SIG_DFL);
         }
