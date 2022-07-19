@@ -36,6 +36,7 @@
 #include <seastar/util/alloc_failure_injector.hh>
 #include <seastar/util/closeable.hh>
 #include <seastar/util/internal/magic.hh>
+#include <seastar/util/internal/iovec_utils.hh>
 
 #include <boost/range/adaptor/transformed.hpp>
 #include <iostream>

@@ -41,6 +41,7 @@
 #include <seastar/core/linux-aio.hh>
 #include <seastar/util/later.hh>
 #include <seastar/util/internal/magic.hh>
+#include <seastar/util/internal/iovec_utils.hh>
 #include <seastar/core/io_queue.hh>
 #include "core/file-impl.hh"
 #include "core/syscall_result.hh"

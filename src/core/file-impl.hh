@@ -33,11 +33,6 @@ class io_queue;
 namespace internal {
 
 struct fs_info;
-// Given a properly aligned vector of iovecs, ensures that it respects the
-// IOV_MAX limit, by trimming if necessary. The modified vector still satisfied
-// the alignment requirements.
-// Returns the final total length of all iovecs.
-size_t sanitize_iovecs(std::vector<iovec>& iov, size_t disk_alignment) noexcept;
 
 }
 

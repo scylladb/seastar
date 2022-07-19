@@ -103,15 +103,6 @@ class message_queue;
 class instance;
 }
 class reactor;
-inline
-size_t iovec_len(const std::vector<iovec>& iov)
-{
-    size_t ret = 0;
-    for (auto&& e : iov) {
-        ret += e.iov_len;
-    }
-    return ret;
-}
 
 }
 
@@ -757,17 +748,6 @@ inline reactor& engine() {
 
 inline bool engine_is_ready() {
     return local_engine != nullptr;
-}
-
-inline
-size_t iovec_len(const iovec* begin, size_t len)
-{
-    size_t ret = 0;
-    auto end = begin + len;
-    while (begin != end) {
-        ret += begin++->iov_len;
-    }
-    return ret;
 }
 
 inline int hrtimer_signal() {

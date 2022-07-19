@@ -132,6 +132,7 @@
 #include <seastar/core/exception_hacks.hh>
 #include "stall_detector.hh"
 #include <seastar/util/memory_diagnostics.hh>
+#include <seastar/util/internal/iovec_utils.hh>
 #include <seastar/util/internal/magic.hh>
 
 #include <yaml-cpp/yaml.h>
@@ -305,7 +306,7 @@ reactor::do_read_some(pollable_fd_state& fd, const std::vector<iovec>& iov) {
         if (!r) {
             return do_read_some(fd, iov);
         }
-        if (size_t(*r) == iovec_len(iov)) {
+        if (size_t(*r) == internal::iovec_len(iov)) {
             fd.speculate_epoll(EPOLLIN);
         }
         return make_ready_future<size_t>(*r);
@@ -467,7 +468,7 @@ future<size_t> pollable_fd_state::sendmsg(struct msghdr* msg) {
         // For UDP this will always speculate. We can't know if there's room
         // or not, but most of the time there should be so the cost of mis-
         // speculation is amortized.
-        if (size_t(*r) == iovec_len(msg->msg_iov, msg->msg_iovlen)) {
+        if (size_t(*r) == internal::iovec_len(msg->msg_iov, msg->msg_iovlen)) {
             speculate_epoll(EPOLLOUT);
         }
         return make_ready_future<size_t>(*r);
