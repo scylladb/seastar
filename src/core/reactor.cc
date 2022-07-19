@@ -1705,7 +1705,7 @@ size_t sanitize_iovecs(std::vector<iovec>& iov, size_t disk_alignment) noexcept 
     if (iov.size() > IOV_MAX) {
         iov.resize(IOV_MAX);
     }
-    auto length = boost::accumulate(iov | boost::adaptors::transformed(std::mem_fn(&iovec::iov_len)), size_t(0));
+    auto length = iovec_len(iov);
     while (auto rest = length & (disk_alignment - 1)) {
         if (iov.back().iov_len <= rest) {
             length -= iov.back().iov_len;
