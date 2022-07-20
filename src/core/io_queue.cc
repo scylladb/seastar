@@ -26,6 +26,7 @@
 #include <seastar/core/io_queue.hh>
 #include <seastar/core/io_intent.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/core/when_all.hh>
 #include <seastar/core/metrics.hh>
 #include <seastar/core/linux-aio.hh>
 #include <seastar/core/internal/io_desc.hh>
@@ -834,8 +835,7 @@ io_queue::request_limits io_queue::get_request_limits() const noexcept {
     return l;
 }
 
-future<size_t>
-io_queue::queue_request(const io_priority_class& pc, io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
+future<size_t> io_queue::queue_one_request(const io_priority_class& pc, io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
     return futurize_invoke([&pc, dnl = std::move(dnl), req = std::move(req), this, intent, iovs = std::move(iovs)] () mutable {
         // First time will hit here, and then we create the class. It is important
         // that we create the shared pointer in the same shard it will be used at later.
@@ -852,6 +852,63 @@ io_queue::queue_request(const io_priority_class& pc, io_direction_and_length dnl
         pclass.on_queue();
         _queued_requests++;
         return fut;
+    });
+}
+
+future<size_t> io_queue::queue_request(const io_priority_class& pc, io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
+    size_t max_length = _group->_max_request_length[dnl.rw_idx()];
+
+    if (__builtin_expect(dnl.length() <= max_length, true)) {
+        return queue_one_request(pc, dnl, std::move(req), intent, std::move(iovs));
+    }
+
+    std::vector<internal::io_request::part> parts;
+    lw_shared_ptr<std::vector<future<size_t>>> p;
+
+    try {
+        parts = req.split(max_length);
+        p = make_lw_shared<std::vector<future<size_t>>>();
+        p->reserve(parts.size());
+    } catch (...) {
+        return current_exception_as_future<size_t>();
+    }
+
+    // No exceptions from now on. If queue_one_request fails it will resolve
+    // into exceptional future which will be picked up by when_all() below
+    for (auto&& part : parts) {
+        auto f = queue_one_request(pc, io_direction_and_length(dnl.rw_idx(), part.size), std::move(part.req), intent, std::move(part.iovecs));
+        p->push_back(std::move(f));
+    }
+
+    return when_all(p->begin(), p->end()).then([p, max_length] (auto results) {
+        bool prev_ok = true;
+        size_t total = 0;
+        std::exception_ptr ex;
+
+        for (auto&& res : results) {
+            if (!res.failed()) {
+                if (prev_ok) {
+                    size_t sz = res.get0();
+                    total += sz;
+                    prev_ok &= (sz == max_length);
+                }
+            } else {
+                if (!ex) {
+                    ex = res.get_exception();
+                } else {
+                    res.ignore_ready_future();
+                }
+                prev_ok = false;
+            }
+        }
+
+        if (total > 0) {
+            return make_ready_future<size_t>(total);
+        } else if (ex) {
+            return make_exception_future<size_t>(std::move(ex));
+        } else {
+            return make_ready_future<size_t>(0);
+        }
     });
 }
 
