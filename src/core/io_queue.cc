@@ -488,10 +488,17 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     if (this_shard_id() == 0) {
         sstring caps_str;
         for (size_t sz = 512; sz <= 128 * 1024; sz <<= 1) {
-            caps_str += fmt::format(" {}:{}/{}", sz,
-                    _group->_fgs[0]->ticket_capacity(request_fq_ticket(io_direction_and_length(io_direction_read, sz))),
-                    _group->_fgs[0]->ticket_capacity(request_fq_ticket(io_direction_and_length(io_direction_write, sz)))
-            );
+            caps_str += fmt::format(" {}:", sz);
+            if (sz <= _group->_max_request_length[io_direction_read]) {
+                caps_str += fmt::format("{}", _group->_fgs[0]->ticket_capacity(make_ticket(io_direction_and_length(io_direction_read, sz), get_config())));
+            } else {
+                caps_str += "X";
+            }
+            if (sz <= _group->_max_request_length[io_direction_write]) {
+                caps_str += fmt::format(":{}", _group->_fgs[0]->ticket_capacity(make_ticket(io_direction_and_length(io_direction_write, sz), get_config())));
+            } else {
+                caps_str += ":X";
+            }
         }
         seastar_logger.info("Created io queue dev({}) capacities:{}", get_config().devid, caps_str);
     }
@@ -809,23 +816,6 @@ fair_queue_ticket make_ticket(io_direction_and_length dnl, const io_queue::confi
 
     const auto& m = mult[dnl.rw_idx()];
     return fair_queue_ticket(m.weight, m.size * (dnl.length() >> io_queue::block_size_shift));
-}
-
-fair_queue_ticket io_queue::request_fq_ticket(io_direction_and_length dnl) const noexcept {
-    size_t max_length = _group->_max_request_length[dnl.rw_idx()];
-
-    if (__builtin_expect(dnl.length() <= max_length, true)) {
-        return make_ticket(dnl, get_config());
-    }
-
-    static thread_local size_t oversize_warning_threshold = 0;
-
-    if (dnl.length() > oversize_warning_threshold) {
-        oversize_warning_threshold = dnl.length();
-        io_log.warn("oversized request (length {} > {}) submitted. ", dnl.length(), max_length);
-    }
-
-    return make_ticket(io_direction_and_length(dnl.rw_idx(), max_length), get_config());
 }
 
 io_queue::request_limits io_queue::get_request_limits() const noexcept {
