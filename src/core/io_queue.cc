@@ -782,6 +782,20 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_re
     });
 }
 
+future<size_t> io_queue::submit_io_read(const io_priority_class& pc, size_t len, internal::io_request req, io_intent* intent) noexcept {
+    auto& r = engine();
+    ++r._io_stats.aio_reads;
+    r._io_stats.aio_read_bytes += len;
+    return queue_request(pc, len, std::move(req), intent);
+}
+
+future<size_t> io_queue::submit_io_write(const io_priority_class& pc, size_t len, internal::io_request req, io_intent* intent) noexcept {
+    auto& r = engine();
+    ++r._io_stats.aio_writes;
+    r._io_stats.aio_write_bytes += len;
+    return queue_request(pc, len, std::move(req), intent);
+}
+
 void io_queue::poll_io_queue() {
     for (auto&& st : _streams) {
         st.dispatch_requests([] (fair_queue_entry& fqe) {

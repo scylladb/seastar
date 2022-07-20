@@ -416,27 +416,27 @@ posix_file_impl::list_directory(std::function<future<> (directory_entry de)> nex
 future<size_t>
 posix_file_impl::do_write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& io_priority_class, io_intent* intent) noexcept {
     auto req = internal::io_request::make_write(_fd, pos, buffer, len, _nowait_works);
-    return engine().submit_io_write(&_io_queue, io_priority_class, len, std::move(req), intent);
+    return _io_queue.submit_io_write(io_priority_class, len, std::move(req), intent);
 }
 
 future<size_t>
 posix_file_impl::do_write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& io_priority_class, io_intent* intent) noexcept {
     auto len = internal::sanitize_iovecs(iov, _disk_write_dma_alignment);
     auto req = internal::io_request::make_writev(_fd, pos, iov, _nowait_works);
-    return engine().submit_io_write(&_io_queue, io_priority_class, len, std::move(req), intent).finally([iov = std::move(iov)] () {});
+    return _io_queue.submit_io_write(io_priority_class, len, std::move(req), intent).finally([iov = std::move(iov)] () {});
 }
 
 future<size_t>
 posix_file_impl::do_read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& io_priority_class, io_intent* intent) noexcept {
     auto req = internal::io_request::make_read(_fd, pos, buffer, len, _nowait_works);
-    return engine().submit_io_read(&_io_queue, io_priority_class, len, std::move(req), intent);
+    return _io_queue.submit_io_read(io_priority_class, len, std::move(req), intent);
 }
 
 future<size_t>
 posix_file_impl::do_read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& io_priority_class, io_intent* intent) noexcept {
     auto len = internal::sanitize_iovecs(iov, _disk_read_dma_alignment);
     auto req = internal::io_request::make_readv(_fd, pos, iov, _nowait_works);
-    return engine().submit_io_read(&_io_queue, io_priority_class, len, std::move(req), intent).finally([iov = std::move(iov)] () {});
+    return _io_queue.submit_io_read(io_priority_class, len, std::move(req), intent).finally([iov = std::move(iov)] () {});
 }
 
 future<size_t>

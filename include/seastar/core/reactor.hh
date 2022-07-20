@@ -205,6 +205,7 @@ private:
     friend class reactor_backend_aio;
     friend class reactor_backend_uring;
     friend class reactor_backend_selector;
+    friend class io_queue; // for aio statistics
     friend struct reactor_options;
     friend class aio_storage_context;
     friend size_t scheduling_group_count();
@@ -529,20 +530,6 @@ public:
 
     future<int> inotify_add_watch(int fd, std::string_view path, uint32_t flags);
     
-    // In the following three methods, prepare_io is not guaranteed to execute in the same processor
-    // in which it was generated. Therefore, care must be taken to avoid the use of objects that could
-    // be destroyed within or at exit of prepare_io.
-    future<size_t> submit_io_read(io_queue* ioq,
-            const io_priority_class& priority_class,
-            size_t len,
-            internal::io_request req,
-            io_intent* intent) noexcept;
-    future<size_t> submit_io_write(io_queue* ioq,
-            const io_priority_class& priority_class,
-            size_t len,
-            internal::io_request req,
-            io_intent* intent) noexcept;
-
     int run() noexcept;
     void exit(int ret);
     future<> when_started() { return _start_promise.get_future(); }

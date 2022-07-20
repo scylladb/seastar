@@ -1685,20 +1685,6 @@ const io_priority_class& default_priority_class() {
     return shard_default_class;
 }
 
-future<size_t>
-reactor::submit_io_read(io_queue* ioq, const io_priority_class& pc, size_t len, io_request req, io_intent* intent) noexcept {
-    ++_io_stats.aio_reads;
-    _io_stats.aio_read_bytes += len;
-    return ioq->queue_request(pc, len, std::move(req), intent);
-}
-
-future<size_t>
-reactor::submit_io_write(io_queue* ioq, const io_priority_class& pc, size_t len, io_request req, io_intent* intent) noexcept {
-    ++_io_stats.aio_writes;
-    _io_stats.aio_write_bytes += len;
-    return ioq->queue_request(pc, len, std::move(req), intent);
-}
-
 namespace internal {
 
 size_t sanitize_iovecs(std::vector<iovec>& iov, size_t disk_alignment) noexcept {

@@ -115,6 +115,11 @@ public:
     stream_id request_stream(internal::io_direction_and_length dnl) const noexcept;
     fair_queue_ticket request_fq_ticket(internal::io_direction_and_length dnl) const noexcept;
 
+    future<size_t> submit_io_read(const io_priority_class& priority_class,
+            size_t len, internal::io_request req, io_intent* intent) noexcept;
+    future<size_t> submit_io_write(const io_priority_class& priority_class,
+            size_t len, internal::io_request req, io_intent* intent) noexcept;
+
     future<size_t>
     queue_request(const io_priority_class& pc, size_t len, internal::io_request req, io_intent* intent) noexcept;
     void submit_request(io_desc_read_write* desc, internal::io_request req) noexcept;
