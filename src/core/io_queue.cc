@@ -761,12 +761,11 @@ io_queue::request_limits io_queue::get_request_limits() const noexcept {
 }
 
 future<size_t>
-io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_request req, io_intent* intent) noexcept {
-    return futurize_invoke([&pc, len, req = std::move(req), this, intent] () mutable {
+io_queue::queue_request(const io_priority_class& pc, io_direction_and_length dnl, internal::io_request req, io_intent* intent) noexcept {
+    return futurize_invoke([&pc, dnl = std::move(dnl), req = std::move(req), this, intent] () mutable {
         // First time will hit here, and then we create the class. It is important
         // that we create the shared pointer in the same shard it will be used at later.
         auto& pclass = find_or_create_class(pc);
-        io_direction_and_length dnl(req, len);
         auto queued_req = std::make_unique<queued_io_request>(std::move(req), *this, pclass, std::move(dnl));
         auto fut = queued_req->get_future();
         if (intent != nullptr) {
@@ -786,14 +785,14 @@ future<size_t> io_queue::submit_io_read(const io_priority_class& pc, size_t len,
     auto& r = engine();
     ++r._io_stats.aio_reads;
     r._io_stats.aio_read_bytes += len;
-    return queue_request(pc, len, std::move(req), intent);
+    return queue_request(pc, io_direction_and_length(io_direction_and_length::read_idx, len), std::move(req), intent);
 }
 
 future<size_t> io_queue::submit_io_write(const io_priority_class& pc, size_t len, internal::io_request req, io_intent* intent) noexcept {
     auto& r = engine();
     ++r._io_stats.aio_writes;
     r._io_stats.aio_write_bytes += len;
-    return queue_request(pc, len, std::move(req), intent);
+    return queue_request(pc, io_direction_and_length(io_direction_and_length::write_idx, len), std::move(req), intent);
 }
 
 void io_queue::poll_io_queue() {

@@ -279,25 +279,15 @@ struct io_direction_and_length {
     size_t _directed_length; // bit 0 is R/W flag
 
 public:
-    io_direction_and_length(const io_request& rq, size_t val) {
-        _directed_length = val << 1;
-        if (rq.is_read()) {
-            _directed_length |= 0x1;
-        } else if (!rq.is_write()) {
-            on_internal_error(io_log, fmt::format("Unrecognized request passing through I/O queue {}", rq.opname()));
-        }
-    }
-
-    bool is_read() const noexcept { return (_directed_length & 0x1) == 1; }
-    bool is_write() const noexcept { return (_directed_length & 0x1) == 0; }
     size_t length() const noexcept { return _directed_length >> 1; }
     int rw_idx() const noexcept { return _directed_length & 0x1; }
     static constexpr int read_idx = 1;
     static constexpr int write_idx = 0;
 
-    io_direction_and_length(int idx, size_t val) {
+    io_direction_and_length(int idx, size_t val) noexcept
+            : _directed_length((val << 1) | idx)
+    {
         assert(idx == read_idx || idx == write_idx);
-        _directed_length = (val << 1) | idx;
     }
 };
 

@@ -77,7 +77,7 @@ SEASTAR_THREAD_TEST_CASE(test_basic_flow) {
     fake_file<1> file;
 
     auto val = std::make_unique<int>(42);
-    auto f = tio.queue.queue_request(default_priority_class(), 0, file.make_write_req(0, val.get()), nullptr)
+    auto f = tio.queue.queue_request(default_priority_class(), internal::io_direction_and_length(internal::io_direction_and_length::write_idx, 0), file.make_write_req(0, val.get()), nullptr)
     .then([&file] (size_t len) {
         BOOST_REQUIRE(file.data[0] == 42);
     });
@@ -158,7 +158,7 @@ SEASTAR_THREAD_TEST_CASE(test_io_cancellation) {
 
     auto queue_legacy_request = [&] (io_queue_for_tests& q, io_priority_class& pc) {
         auto buf = std::make_unique<int>(val);
-        auto f = q.queue.queue_request(pc, 0, file.make_write_req(idx, buf.get()), nullptr)
+        auto f = q.queue.queue_request(pc, internal::io_direction_and_length(internal::io_direction_and_length::write_idx, 0), file.make_write_req(idx, buf.get()), nullptr)
             .then([&file, idx, val, buf = std::move(buf)] (size_t len) {
                 BOOST_REQUIRE(file.data[idx] == val);
                 return make_ready_future<>();
@@ -170,7 +170,7 @@ SEASTAR_THREAD_TEST_CASE(test_io_cancellation) {
 
     auto queue_live_request = [&] (io_queue_for_tests& q, io_priority_class& pc) {
         auto buf = std::make_unique<int>(val);
-        auto f = q.queue.queue_request(pc, 0, file.make_write_req(idx, buf.get()), &live)
+        auto f = q.queue.queue_request(pc, internal::io_direction_and_length(internal::io_direction_and_length::write_idx, 0), file.make_write_req(idx, buf.get()), &live)
             .then([&file, idx, val, buf = std::move(buf)] (size_t len) {
                 BOOST_REQUIRE(file.data[idx] == val);
                 return make_ready_future<>();
@@ -182,7 +182,7 @@ SEASTAR_THREAD_TEST_CASE(test_io_cancellation) {
 
     auto queue_dead_request = [&] (io_queue_for_tests& q, io_priority_class& pc) {
         auto buf = std::make_unique<int>(val);
-        auto f = q.queue.queue_request(pc, 0, file.make_write_req(idx, buf.get()), &dead)
+        auto f = q.queue.queue_request(pc, internal::io_direction_and_length(internal::io_direction_and_length::write_idx, 0), file.make_write_req(idx, buf.get()), &dead)
             .then_wrapped([buf = std::move(buf)] (auto&& f) {
                 try {
                     f.get();
