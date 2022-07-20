@@ -45,6 +45,8 @@ logger io_log("io");
 using namespace std::chrono_literals;
 using namespace internal::linux_abi;
 using io_direction_and_length = internal::io_direction_and_length;
+static constexpr auto io_direction_read = io_direction_and_length::read_idx;
+static constexpr auto io_direction_write = io_direction_and_length::write_idx;
 
 static fair_queue_ticket make_ticket(io_direction_and_length dnl, const io_queue::config& cfg) noexcept;
 
@@ -414,8 +416,8 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
         sstring caps_str;
         for (size_t sz = 512; sz <= 128 * 1024; sz <<= 1) {
             caps_str += fmt::format(" {}:{}/{}", sz,
-                    _group->_fgs[0]->ticket_capacity(request_fq_ticket(io_direction_and_length(io_direction_and_length::read_idx, sz))),
-                    _group->_fgs[0]->ticket_capacity(request_fq_ticket(io_direction_and_length(io_direction_and_length::write_idx, sz)))
+                    _group->_fgs[0]->ticket_capacity(request_fq_ticket(io_direction_and_length(io_direction_read, sz))),
+                    _group->_fgs[0]->ticket_capacity(request_fq_ticket(io_direction_and_length(io_direction_write, sz)))
             );
         }
         seastar_logger.info("Created io queue dev({}) capacities:{}", get_config().devid, caps_str);
@@ -478,12 +480,12 @@ io_group::io_group(io_queue::config io_cfg)
         };
     };
 
-    update_max_size(io_direction_and_length::write_idx);
-    update_max_size(io_direction_and_length::read_idx);
+    update_max_size(io_direction_write);
+    update_max_size(io_direction_read);
 
     seastar_logger.info("Created io group dev({}), length limit {}:{}, rate {}:{}", _config.devid,
-            _max_request_length[io_direction_and_length::read_idx],
-            _max_request_length[io_direction_and_length::write_idx],
+            _max_request_length[io_direction_read],
+            _max_request_length[io_direction_write],
             _config.req_count_rate, _config.blocks_count_rate);
 }
 
@@ -592,18 +594,18 @@ std::vector<seastar::metrics::impl::metric_definition_impl> io_queue::priority_c
     namespace sm = seastar::metrics;
     return std::vector<sm::impl::metric_definition_impl>({
             sm::make_counter("total_bytes", [this] {
-                    return _rwstat[io_direction_and_length::read_idx].bytes + _rwstat[io_direction_and_length::write_idx].bytes;
+                    return _rwstat[io_direction_read].bytes + _rwstat[io_direction_write].bytes;
                 }, sm::description("Total bytes passed in the queue")),
             sm::make_counter("total_operations", [this] {
-                    return _rwstat[io_direction_and_length::read_idx].ops + _rwstat[io_direction_and_length::write_idx].ops;
+                    return _rwstat[io_direction_read].ops + _rwstat[io_direction_write].ops;
                 }, sm::description("Total operations passed in the queue")),
-            sm::make_counter("total_read_bytes", _rwstat[io_direction_and_length::read_idx].bytes,
+            sm::make_counter("total_read_bytes", _rwstat[io_direction_read].bytes,
                     sm::description("Total read bytes passed in the queue")),
-            sm::make_counter("total_read_ops", _rwstat[io_direction_and_length::read_idx].ops,
+            sm::make_counter("total_read_ops", _rwstat[io_direction_read].ops,
                     sm::description("Total read operations passed in the queue")),
-            sm::make_counter("total_write_bytes", _rwstat[io_direction_and_length::write_idx].bytes,
+            sm::make_counter("total_write_bytes", _rwstat[io_direction_write].bytes,
                     sm::description("Total write bytes passed in the queue")),
-            sm::make_counter("total_write_ops", _rwstat[io_direction_and_length::write_idx].ops,
+            sm::make_counter("total_write_ops", _rwstat[io_direction_write].ops,
                     sm::description("Total write operations passed in the queue")),
             sm::make_counter("total_delay_sec", [this] {
                     return _total_queue_time.count();
@@ -723,11 +725,11 @@ fair_queue_ticket make_ticket(io_direction_and_length dnl, const io_queue::confi
         unsigned size;
     } mult[2];
 
-    mult[io_direction_and_length::write_idx] = {
+    mult[io_direction_write] = {
         cfg.disk_req_write_to_read_multiplier,
         cfg.disk_blocks_write_to_read_multiplier,
     };
-    mult[io_direction_and_length::read_idx] = {
+    mult[io_direction_read] = {
         io_queue::read_request_base_count,
         io_queue::read_request_base_count,
     };
@@ -755,8 +757,8 @@ fair_queue_ticket io_queue::request_fq_ticket(io_direction_and_length dnl) const
 
 io_queue::request_limits io_queue::get_request_limits() const noexcept {
     request_limits l;
-    l.max_read = align_down<size_t>(std::min<size_t>(get_config().disk_read_saturation_length, _group->_max_request_length[io_direction_and_length::read_idx]), 1 << block_size_shift);
-    l.max_write = align_down<size_t>(std::min<size_t>(get_config().disk_write_saturation_length, _group->_max_request_length[io_direction_and_length::write_idx]), 1 << block_size_shift);
+    l.max_read = align_down<size_t>(std::min<size_t>(get_config().disk_read_saturation_length, _group->_max_request_length[io_direction_read]), 1 << block_size_shift);
+    l.max_write = align_down<size_t>(std::min<size_t>(get_config().disk_write_saturation_length, _group->_max_request_length[io_direction_write]), 1 << block_size_shift);
     return l;
 }
 
@@ -785,14 +787,14 @@ future<size_t> io_queue::submit_io_read(const io_priority_class& pc, size_t len,
     auto& r = engine();
     ++r._io_stats.aio_reads;
     r._io_stats.aio_read_bytes += len;
-    return queue_request(pc, io_direction_and_length(io_direction_and_length::read_idx, len), std::move(req), intent);
+    return queue_request(pc, io_direction_and_length(io_direction_read, len), std::move(req), intent);
 }
 
 future<size_t> io_queue::submit_io_write(const io_priority_class& pc, size_t len, internal::io_request req, io_intent* intent) noexcept {
     auto& r = engine();
     ++r._io_stats.aio_writes;
     r._io_stats.aio_write_bytes += len;
-    return queue_request(pc, io_direction_and_length(io_direction_and_length::write_idx, len), std::move(req), intent);
+    return queue_request(pc, io_direction_and_length(io_direction_write, len), std::move(req), intent);
 }
 
 void io_queue::poll_io_queue() {
