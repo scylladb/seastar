@@ -385,6 +385,76 @@ void io_sink::submit(io_completion* desc, io_request req) noexcept {
     }
 }
 
+std::vector<io_request::part> io_request::split(size_t max_length) {
+    if (_op == operation::read || _op == operation::write) {
+        return split_buffer(max_length);
+    }
+    if (_op == operation::readv || _op == operation::writev) {
+        return split_iovec(max_length);
+    }
+
+    seastar_logger.error("Invalid operation for split: {}", static_cast<int>(_op));
+    std::abort();
+}
+
+std::vector<io_request::part> io_request::split_buffer(size_t max_length) {
+    std::vector<part> ret;
+    ret.reserve((_size.len + max_length - 1) / max_length);
+
+    size_t off = 0;
+    do {
+        size_t len = std::min(_size.len - off, max_length);
+        io_request part(_op, _fd, _attr.pos + off, _ptr.addr + off, len, _nowait_works);
+        ret.push_back({ std::move(part), len, {} });
+        off += len;
+    } while (off < _size.len);
+
+    return ret;
+}
+
+std::vector<io_request::part> io_request::split_iovec(size_t max_length) {
+    std::vector<part> parts;
+    std::vector<::iovec> vecs;
+    ::iovec* cur = iov();
+    size_t pos = 0;
+    size_t off = 0;
+    ::iovec* end = cur + iov_len();
+    size_t remaining = max_length;
+
+    while (cur != end) {
+        ::iovec iov;
+        iov.iov_base = reinterpret_cast<char*>(cur->iov_base) + off;
+        iov.iov_len = cur->iov_len - off;
+
+        if (iov.iov_len <= remaining) {
+            remaining -= iov.iov_len;
+            vecs.push_back(std::move(iov));
+            cur++;
+            off = 0;
+            continue;
+        }
+
+        if (remaining > 0) {
+            iov.iov_len = remaining;
+            off += remaining;
+            vecs.push_back(std::move(iov));
+        }
+
+        io_request req(_op, _fd, _attr.pos + pos, vecs.data(), vecs.size(), _nowait_works);
+        parts.push_back({ std::move(req), max_length, std::move(vecs) });
+        pos += max_length;
+        remaining = max_length;
+    }
+
+    if (vecs.size() > 0) {
+        assert(remaining < max_length);
+        io_request req(_op, _fd, _attr.pos + pos, vecs.data(), vecs.size(), _nowait_works);
+        parts.push_back({ std::move(req), max_length - remaining, std::move(vecs) });
+    }
+
+    return parts;
+}
+
 } // internal namespace
 
 void

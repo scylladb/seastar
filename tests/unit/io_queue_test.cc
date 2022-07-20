@@ -33,6 +33,7 @@
 #include <seastar/core/io_intent.hh>
 #include <seastar/core/internal/io_request.hh>
 #include <seastar/core/internal/io_sink.hh>
+#include <seastar/util/internal/iovec_utils.hh>
 
 using namespace seastar;
 
@@ -230,4 +231,185 @@ SEASTAR_THREAD_TEST_CASE(test_io_cancellation) {
     });
 
     when_all_succeed(finished.begin(), finished.end()).get();
+}
+
+SEASTAR_TEST_CASE(test_request_buffer_split) {
+    auto ensure = [] (const std::vector<internal::io_request::part>& parts, const internal::io_request& req, int idx, uint64_t pos, size_t size, uintptr_t mem) {
+        BOOST_REQUIRE(parts[idx].req.opcode() == req.opcode());
+        BOOST_REQUIRE_EQUAL(parts[idx].req.fd(), req.fd());
+        BOOST_REQUIRE_EQUAL(parts[idx].req.pos(), pos);
+        BOOST_REQUIRE_EQUAL(parts[idx].req.size(), size);
+        BOOST_REQUIRE_EQUAL(parts[idx].req.address(), reinterpret_cast<void*>(mem));
+        BOOST_REQUIRE_EQUAL(parts[idx].req.nowait_works(), req.nowait_works());
+        BOOST_REQUIRE_EQUAL(parts[idx].iovecs.size(), 0);
+        BOOST_REQUIRE_EQUAL(parts[idx].size, parts[idx].req.size());
+    };
+
+    // No split
+    {
+        internal::io_request req = internal::io_request::make_read(5, 13, reinterpret_cast<void*>(0x420), 17, true);
+        auto parts = req.split(21);
+        BOOST_REQUIRE_EQUAL(parts.size(), 1);
+        ensure(parts, req, 0, 13, 17, 0x420);
+    }
+
+    // Without tail
+    {
+        internal::io_request req = internal::io_request::make_read(7, 24, reinterpret_cast<void*>(0x4321), 24, true);
+        auto parts = req.split(12);
+        BOOST_REQUIRE_EQUAL(parts.size(), 2);
+        ensure(parts, req, 0, 24,      12, 0x4321);
+        ensure(parts, req, 1, 24 + 12, 12, 0x4321 + 12);
+    }
+
+    // With tail
+    {
+        internal::io_request req = internal::io_request::make_read(9, 42, reinterpret_cast<void*>(0x1234), 33, true);
+        auto parts = req.split(13);
+        BOOST_REQUIRE_EQUAL(parts.size(), 3);
+        ensure(parts, req, 0, 42,      13, 0x1234);
+        ensure(parts, req, 1, 42 + 13, 13, 0x1234 + 13);
+        ensure(parts, req, 2, 42 + 26,  7, 0x1234 + 26);
+    }
+
+    return make_ready_future<>();
+}
+
+static void show_request(const internal::io_request& req, void* buf_off, std::string pfx = "") {
+    if (!seastar_logger.is_enabled(log_level::trace)) {
+        return;
+    }
+
+    seastar_logger.trace("{}{} iovecs on req:", pfx, req.iov_len());
+    for (unsigned i = 0; i < req.iov_len(); i++) {
+        seastar_logger.trace("{}  base={} len={}", pfx, reinterpret_cast<uintptr_t>(req.iov()[i].iov_base) - reinterpret_cast<uintptr_t>(buf_off), req.iov()[i].iov_len);
+    }
+}
+
+static void show_request_parts(const std::vector<internal::io_request::part>& parts, void* buf_off) {
+    if (!seastar_logger.is_enabled(log_level::trace)) {
+        return;
+    }
+
+    seastar_logger.trace("{} parts", parts.size());
+    for (const auto& p : parts) {
+        seastar_logger.trace("  size={} iovecs={}", p.size, p.iovecs.size());
+        seastar_logger.trace("  {} iovecs on part:", p.iovecs.size());
+        for (const auto& iov : p.iovecs) {
+            seastar_logger.trace("    base={} len={}", reinterpret_cast<uintptr_t>(iov.iov_base) - reinterpret_cast<uintptr_t>(buf_off), iov.iov_len);
+        }
+        show_request(p.req, buf_off, "  ");
+    }
+}
+
+SEASTAR_TEST_CASE(test_request_iovec_split) {
+    char large_buffer[1025];
+
+    auto clear_buffer = [&large_buffer] {
+        memset(large_buffer, 0, sizeof(large_buffer));
+    };
+
+    auto bump_buffer = [] (const std::vector<::iovec>& vecs) {
+        for (auto&& v : vecs) {
+            for (unsigned i = 0; i < v.iov_len; i++) {
+                (reinterpret_cast<char*>(v.iov_base))[i]++;
+            }
+        }
+    };
+
+    auto check_buffer = [&large_buffer] (size_t len, char value) {
+        assert(len < sizeof(large_buffer));
+        bool fill_match = true;
+        bool train_match = true;
+        for (unsigned i = 0; i < sizeof(large_buffer); i++) {
+            if (i < len) {
+                if (large_buffer[i] != value) {
+                    fill_match = false;
+                }
+            } else {
+                if (large_buffer[i] != '\0') {
+                    train_match = false;
+                }
+            }
+        }
+        BOOST_REQUIRE_EQUAL(fill_match, true);
+        BOOST_REQUIRE_EQUAL(train_match, true);
+    };
+
+    auto ensure = [] (const std::vector<internal::io_request::part>& parts, const internal::io_request& req, int idx, uint64_t pos) {
+        BOOST_REQUIRE(parts[idx].req.opcode() == req.opcode());
+        BOOST_REQUIRE_EQUAL(parts[idx].req.fd(), req.fd());
+        BOOST_REQUIRE_EQUAL(parts[idx].req.pos(), pos);
+        BOOST_REQUIRE_EQUAL(parts[idx].req.iov_len(), parts[idx].iovecs.size());
+        BOOST_REQUIRE_EQUAL(parts[idx].req.nowait_works(), req.nowait_works());
+        BOOST_REQUIRE_EQUAL(parts[idx].size, internal::iovec_len(parts[idx].iovecs));
+
+        for (unsigned iov = 0; iov < parts[idx].iovecs.size(); iov++) {
+            BOOST_REQUIRE_EQUAL(parts[idx].req.iov()[iov].iov_base, parts[idx].iovecs[iov].iov_base);
+            BOOST_REQUIRE_EQUAL(parts[idx].req.iov()[iov].iov_len, parts[idx].iovecs[iov].iov_len);
+        }
+    };
+
+    std::default_random_engine& reng = testing::local_random_engine;
+    auto dice = std::uniform_int_distribution<uint16_t>(1, 31);
+    auto stop = std::chrono::steady_clock::now() + std::chrono::seconds(4);
+    uint64_t iter = 0;
+    unsigned no_splits = 0;
+    unsigned no_tails = 0;
+
+    do {
+        seastar_logger.debug("===== iter {} =====", iter++);
+        std::vector<::iovec> vecs;
+        unsigned nr_vecs = dice(reng) % 13 + 1;
+        seastar_logger.debug("Generate {} iovecs", nr_vecs);
+        size_t total = 0;
+        for (unsigned i = 0; i < nr_vecs; i++) {
+            ::iovec iov;
+            iov.iov_base = reinterpret_cast<void*>(large_buffer + total);
+            iov.iov_len = dice(reng);
+            assert(iov.iov_len != 0);
+            total += iov.iov_len;
+            vecs.push_back(std::move(iov));
+        }
+
+        assert(total > 0);
+        clear_buffer();
+        bump_buffer(vecs);
+        check_buffer(total, 1);
+
+        size_t file_off = dice(reng);
+        internal::io_request req = internal::io_request::make_readv(5, file_off, vecs, true);
+
+        show_request(req, large_buffer);
+
+        size_t max_len = dice(reng) * 3;
+        unsigned nr_parts = (total + max_len - 1) / max_len;
+        seastar_logger.debug("Split {} into {}-bytes ({} parts)", total, max_len, nr_parts);
+        auto parts = req.split(max_len);
+        show_request_parts(parts, large_buffer);
+        BOOST_REQUIRE_EQUAL(parts.size(), nr_parts);
+
+        size_t parts_total = 0;
+        for (unsigned p = 0; p < nr_parts; p++) {
+            ensure(parts, req, p, file_off + parts_total);
+            if (p < nr_parts - 1) {
+                BOOST_REQUIRE_EQUAL(parts[p].size, max_len);
+            }
+            parts_total += parts[p].size;
+            bump_buffer(parts[p].iovecs);
+        }
+        BOOST_REQUIRE_EQUAL(parts_total, total);
+        check_buffer(total, 2);
+
+        if (parts.size() == 1) {
+            no_splits++;
+        }
+        if (parts.back().size == max_len) {
+            no_tails++;
+        }
+    } while (std::chrono::steady_clock::now() < stop || iter < 32 || no_splits < 16 || no_tails < 16);
+
+    seastar_logger.info("{} iters ({} no-splits, {} no-tails)", iter, no_splits, no_tails);
+
+    return make_ready_future<>();
 }

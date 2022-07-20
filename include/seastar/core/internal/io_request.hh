@@ -272,6 +272,19 @@ public:
     static io_request make_cancel(int fd, void *addr) {
         return io_request(operation::cancel, fd, reinterpret_cast<char*>(addr));
     }
+
+    struct part;
+    std::vector<part> split(size_t max_length);
+
+private:
+    std::vector<part> split_buffer(size_t max_length);
+    std::vector<part> split_iovec(size_t max_length);
+};
+
+struct io_request::part {
+    io_request req;
+    size_t size;
+    std::vector<::iovec> iovecs;
 };
 
 // Helper pair of IO direction and length
