@@ -162,12 +162,11 @@ public:
     };
 
     request_limits get_request_limits() const noexcept;
+    const config& get_config() const noexcept;
 
 private:
     static fair_queue::config make_fair_queue_config(const config& cfg, sstring label);
     void register_stats(sstring name, priority_class_data& pc);
-
-    const config& get_config() const noexcept;
 };
 
 class io_group {

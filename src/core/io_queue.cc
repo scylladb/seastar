@@ -272,7 +272,7 @@ public:
         : io_request(std::move(req))
         , _ioq(q)
         , _stream(_ioq.request_stream(dnl))
-        , _fq_entry(_ioq.request_fq_ticket(dnl))
+        , _fq_entry(make_ticket(dnl, _ioq.get_config()))
         , _desc(std::make_unique<io_desc_read_write>(_ioq, pc, _stream, dnl, _fq_entry.ticket(), std::move(iovs)))
     {
     }
