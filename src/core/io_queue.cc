@@ -95,7 +95,7 @@ class io_queue::priority_class_data {
             ops++;
             bytes += len;
         }
-    } _rwstat[2] = {};
+    } _rwstat[2] = {}, _splits = {};
     uint32_t _nr_queued;
     uint32_t _nr_executing;
     std::chrono::duration<double> _queue_time;
@@ -189,6 +189,10 @@ public:
         if (_nr_executing == 0 && _nr_queued != 0) {
             _activated = io_queue::clock_type::now();
         }
+    }
+
+    void on_split(io_direction_and_length dnl) noexcept {
+        _splits.add(dnl.length());
     }
 
     fair_queue::class_id fq_class() const noexcept { return _pc.id(); }
@@ -687,6 +691,10 @@ std::vector<seastar::metrics::impl::metric_definition_impl> io_queue::priority_c
                     sm::description("Total write bytes passed in the queue")),
             sm::make_counter("total_write_ops", _rwstat[io_direction_write].ops,
                     sm::description("Total write operations passed in the queue")),
+            sm::make_counter("total_split_ops", _splits.ops,
+                    sm::description("Total number of requests split")),
+            sm::make_counter("total_split_bytes", _splits.bytes,
+                    sm::description("Total number of bytes split")),
             sm::make_counter("total_delay_sec", [this] {
                     return _total_queue_time.count();
                 }, sm::description("Total time spent in the queue")),
@@ -859,6 +867,8 @@ future<size_t> io_queue::queue_request(const io_priority_class& pc, io_direction
         parts = req.split(max_length);
         p = make_lw_shared<std::vector<future<size_t>>>();
         p->reserve(parts.size());
+        find_or_create_class(pc).on_split(dnl);
+        engine()._io_stats.aio_outsizes++;
     } catch (...) {
         return current_exception_as_future<size_t>();
     }

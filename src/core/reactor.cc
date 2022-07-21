@@ -2273,6 +2273,7 @@ void reactor::register_metrics() {
             // total_operations value:DERIVE:0:U
             sm::make_counter("aio_writes", _io_stats.aio_writes, sm::description("Total aio-writes operations")),
             sm::make_total_bytes("aio_bytes_write", _io_stats.aio_write_bytes, sm::description("Total aio-writes bytes")),
+            sm::make_counter("aio_outsizes", _io_stats.aio_outsizes, sm::description("Total number of aio operations that exceed IO limit")),
             sm::make_counter("aio_errors", _io_stats.aio_errors, sm::description("Total aio errors")),
             // total_operations value:DERIVE:0:U
             sm::make_counter("fsyncs", _fsyncs, sm::description("Total number of fsync operations")),

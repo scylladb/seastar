@@ -220,6 +220,7 @@ public:
         uint64_t aio_read_bytes = 0;
         uint64_t aio_writes = 0;
         uint64_t aio_write_bytes = 0;
+        uint64_t aio_outsizes = 0;
         uint64_t aio_errors = 0;
         uint64_t fstream_reads = 0;
         uint64_t fstream_read_bytes = 0;
