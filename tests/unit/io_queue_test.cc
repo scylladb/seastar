@@ -37,17 +37,33 @@
 
 using namespace seastar;
 
-template <size_t Len>
 struct fake_file {
-    int data[Len] = {};
+    std::unordered_map<uint64_t, int> data;
 
     static internal::io_request make_write_req(size_t idx, int* buf) {
         return internal::io_request::make_write(0, idx, buf, 1, false);
     }
 
+    static internal::io_request make_writev_req(size_t idx, int* buf, size_t nr, size_t buf_len, std::vector<::iovec>& vecs) {
+        vecs.reserve(nr);
+        for (unsigned i = 0; i < nr; i++) {
+            vecs.push_back({ &buf[i], buf_len });
+        }
+        return internal::io_request::make_writev(0, idx, vecs, false);
+    }
+
     void execute_write_req(internal::io_request& rq, io_completion* desc) {
         data[rq.pos()] = *(reinterpret_cast<int*>(rq.address()));
         desc->complete_with(rq.size());
+    }
+
+    void execute_writev_req(internal::io_request& rq, io_completion* desc) {
+        size_t len = 0;
+        for (unsigned i = 0; i < rq.iov_len(); i++) {
+            data[rq.pos() + i] = *(reinterpret_cast<int*>(rq.iov()[i].iov_base));
+            len += rq.iov()[i].iov_len;
+        }
+        desc->complete_with(len);
     }
 };
 
@@ -75,7 +91,7 @@ struct io_queue_for_tests {
 
 SEASTAR_THREAD_TEST_CASE(test_basic_flow) {
     io_queue_for_tests tio;
-    fake_file<1> file;
+    fake_file file;
 
     auto val = std::make_unique<int>(42);
     auto f = tio.queue.queue_request(default_priority_class(), internal::io_direction_and_length(internal::io_direction_and_length::write_idx, 0), file.make_write_req(0, val.get()), nullptr, {})
@@ -91,6 +107,70 @@ SEASTAR_THREAD_TEST_CASE(test_basic_flow) {
     });
 
     f.get();
+}
+
+enum class part_flaw { none, partial, error };
+
+static void do_test_large_request_flow(part_flaw flaw) {
+    io_queue_for_tests tio;
+    fake_file file;
+    int values[3] = { 13, 42, 73 };
+
+    auto limits = tio.queue.get_request_limits();
+
+    std::vector<::iovec> vecs;
+    auto f = tio.queue.queue_request(default_priority_class(), internal::io_direction_and_length(internal::io_direction_and_length::write_idx, limits.max_write * 3),
+                    file.make_writev_req(0, values, 3, limits.max_write, vecs), nullptr, std::move(vecs))
+    .then([&file, &values, &limits, flaw] (size_t len) {
+        size_t expected = limits.max_write;
+
+        BOOST_REQUIRE_EQUAL(file.data[0 * limits.max_write], values[0]);
+
+        if (flaw == part_flaw::none) {
+            BOOST_REQUIRE_EQUAL(file.data[1 * limits.max_write], values[1]);
+            BOOST_REQUIRE_EQUAL(file.data[2 * limits.max_write], values[2]);
+            expected += 2 * limits.max_write;
+        }
+
+        if (flaw == part_flaw::partial) {
+            BOOST_REQUIRE_EQUAL(file.data[1 * limits.max_write], values[1]);
+            expected += limits.max_write / 2;
+        }
+
+        BOOST_REQUIRE_EQUAL(len, expected);
+    });
+
+    for (int i = 0; i < 3; i++) {
+        seastar::sleep(std::chrono::milliseconds(500)).get();
+        tio.queue.poll_io_queue();
+        tio.sink.drain([&file, &limits, i, flaw] (internal::io_request& rq, io_completion* desc) -> bool {
+            if (i == 1) {
+                if (flaw == part_flaw::partial) {
+                    rq.iov()[0].iov_len /= 2;
+                }
+                if (flaw == part_flaw::error) {
+                    desc->complete_with(-EIO);
+                    return true;
+                }
+            }
+            file.execute_writev_req(rq, desc);
+            return true;
+        });
+    }
+
+    f.get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_large_request_flow) {
+    do_test_large_request_flow(part_flaw::none);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_large_request_flow_partial) {
+    do_test_large_request_flow(part_flaw::partial);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_large_request_flow_error) {
+    do_test_large_request_flow(part_flaw::error);
 }
 
 SEASTAR_THREAD_TEST_CASE(test_intent_safe_ref) {
@@ -143,7 +223,7 @@ SEASTAR_THREAD_TEST_CASE(test_intent_safe_ref) {
 static constexpr int nr_requests = 24;
 
 SEASTAR_THREAD_TEST_CASE(test_io_cancellation) {
-    fake_file<nr_requests> file;
+    fake_file file;
 
     io_queue_for_tests tio;
     io_priority_class pc0 = io_priority_class::register_one("a", 100);
