@@ -423,7 +423,7 @@ future<size_t>
 posix_file_impl::do_write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& io_priority_class, io_intent* intent) noexcept {
     auto len = internal::sanitize_iovecs(iov, _disk_write_dma_alignment);
     auto req = internal::io_request::make_writev(_fd, pos, iov, _nowait_works);
-    return _io_queue.submit_io_write(io_priority_class, len, std::move(req), intent).finally([iov = std::move(iov)] () {});
+    return _io_queue.submit_io_write(io_priority_class, len, std::move(req), intent, std::move(iov));
 }
 
 future<size_t>
@@ -436,7 +436,7 @@ future<size_t>
 posix_file_impl::do_read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& io_priority_class, io_intent* intent) noexcept {
     auto len = internal::sanitize_iovecs(iov, _disk_read_dma_alignment);
     auto req = internal::io_request::make_readv(_fd, pos, iov, _nowait_works);
-    return _io_queue.submit_io_read(io_priority_class, len, std::move(req), intent).finally([iov = std::move(iov)] () {});
+    return _io_queue.submit_io_read(io_priority_class, len, std::move(req), intent, std::move(iov));
 }
 
 future<size_t>

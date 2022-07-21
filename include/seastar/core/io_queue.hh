@@ -59,6 +59,7 @@ class queued_io_request;
 class io_group;
 
 using io_group_ptr = std::shared_ptr<io_group>;
+using iovec_keeper = std::vector<::iovec>;
 
 class io_queue {
 public:
@@ -116,12 +117,12 @@ public:
     fair_queue_ticket request_fq_ticket(internal::io_direction_and_length dnl) const noexcept;
 
     future<size_t> submit_io_read(const io_priority_class& priority_class,
-            size_t len, internal::io_request req, io_intent* intent) noexcept;
+            size_t len, internal::io_request req, io_intent* intent, iovec_keeper iovs = {}) noexcept;
     future<size_t> submit_io_write(const io_priority_class& priority_class,
-            size_t len, internal::io_request req, io_intent* intent) noexcept;
+            size_t len, internal::io_request req, io_intent* intent, iovec_keeper iovs = {}) noexcept;
 
     future<size_t>
-    queue_request(const io_priority_class& pc, internal::io_direction_and_length dnl, internal::io_request req, io_intent* intent) noexcept;
+    queue_request(const io_priority_class& pc, internal::io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept;
     void submit_request(io_desc_read_write* desc, internal::io_request req) noexcept;
     void cancel_request(queued_io_request& req) noexcept;
     void complete_cancelled_request(queued_io_request& req) noexcept;
