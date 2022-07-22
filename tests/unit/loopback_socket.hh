@@ -58,13 +58,12 @@ public:
         if (_aborted) {
             return make_exception_future<>(std::system_error(EPIPE, std::system_category()));
         }
-        bool error = false;
         if (_error_injector) {
-            error = _type == type::CLIENT_TX ? _error_injector->client_snd_error() : _error_injector->server_snd_error();
-        }
-        if (error) {
-            shutdown();
-            return make_exception_future<>(std::runtime_error("test injected error on send"));
+            auto error = _type == type::CLIENT_TX ? _error_injector->client_snd_error() : _error_injector->server_snd_error();
+            if (error) {
+                shutdown();
+                return make_exception_future<>(std::runtime_error("test injected error on send"));
+            }
         }
         return _q.push_eventually(std::move(b));
     }
@@ -72,13 +71,12 @@ public:
         if (_aborted) {
             return make_exception_future<temporary_buffer<char>>(std::system_error(EPIPE, std::system_category()));
         }
-        bool error = false;
         if (_error_injector) {
-            error = _type == type::CLIENT_TX ? _error_injector->client_rcv_error() : _error_injector->server_rcv_error();
-        }
-        if (error) {
-            shutdown();
-            return make_exception_future<temporary_buffer<char>>(std::runtime_error("test injected error on receive"));
+            auto error = _type == type::CLIENT_TX ? _error_injector->client_rcv_error() : _error_injector->server_rcv_error();
+            if (error) {
+                shutdown();
+                return make_exception_future<temporary_buffer<char>>(std::runtime_error("test injected error on receive"));
+            }
         }
         return _q.pop_eventually();
     }
