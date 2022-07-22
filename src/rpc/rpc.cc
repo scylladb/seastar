@@ -300,8 +300,10 @@ namespace rpc {
 
               p->uncancellable();
               return send_entry(*p).then_wrapped([this, p = std::move(p)] (auto f) mutable {
-                  _error |= f.failed();
-                  f.ignore_ready_future();
+                  if (f.failed()) {
+                      f.ignore_ready_future();
+                      abort();
+                  }
                   p->done.set_value();
               });
           });
