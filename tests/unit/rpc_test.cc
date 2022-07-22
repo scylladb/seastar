@@ -99,17 +99,36 @@ using make_socket_fn = std::function<seastar::socket ()>;
 class rpc_loopback_error_injector : public loopback_error_injector {
 public:
     struct config {
-        int limit = 0;
-        error kind = error::none;
+        struct {
+            int limit = 0;
+            error kind = error::none;
+        private:
+            friend class rpc_loopback_error_injector;
+            int _x = 0;
+            error inject() {
+                return _x++ >= limit ? kind : error::none;
+            }
+        } server_rcv = {}, server_snd = {}, client_rcv = {}, client_snd = {};
     };
 private:
-    int _x = 0;
     config _cfg;
 public:
     rpc_loopback_error_injector(config cfg) : _cfg(std::move(cfg)) {}
 
     error server_rcv_error() override {
-        return _x++ >= _cfg.limit ? _cfg.kind : error::none;
+        return _cfg.server_rcv.inject();
+    }
+
+    error server_snd_error() override {
+        return _cfg.server_snd.inject();
+    }
+
+    error client_rcv_error() override {
+        return _cfg.client_rcv.inject();
+    }
+
+    error client_snd_error() override {
+        return _cfg.client_snd.inject();
     }
 };
 
@@ -616,8 +635,8 @@ SEASTAR_TEST_CASE(test_stream_connection_error) {
     rpc_test_config cfg;
     cfg.server_options = so;
     rpc_loopback_error_injector::config ecfg;
-    ecfg.limit = 50;
-    ecfg.kind = loopback_error_injector::error::abort;
+    ecfg.server_rcv.limit = 50;
+    ecfg.server_rcv.kind = loopback_error_injector::error::abort;
     cfg.inject_error = ecfg;
     return rpc_test_env<>::do_with(cfg, [] (rpc_test_env<>& env) {
         return stream_test_func(env, false, true).then([] (stream_test_result r) {
@@ -638,8 +657,8 @@ SEASTAR_TEST_CASE(test_stream_negotiation_error) {
     rpc_test_config cfg;
     cfg.server_options = so;
     rpc_loopback_error_injector::config ecfg;
-    ecfg.limit = 0;
-    ecfg.kind = loopback_error_injector::error::abort;
+    ecfg.server_rcv.limit = 0;
+    ecfg.server_rcv.kind = loopback_error_injector::error::abort;
     cfg.inject_error = ecfg;
     return rpc_test_env<>::do_with(cfg, [] (rpc_test_env<>& env) {
         return stream_test_func(env, false, true).then([] (stream_test_result r) {
