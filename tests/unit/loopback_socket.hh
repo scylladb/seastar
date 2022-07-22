@@ -34,11 +34,12 @@
 namespace seastar {
 
 struct loopback_error_injector {
+    enum class error { none, abort };
     virtual ~loopback_error_injector() {};
-    virtual bool server_rcv_error() { return false; }
-    virtual bool server_snd_error() { return false; }
-    virtual bool client_rcv_error() { return false; }
-    virtual bool client_snd_error() { return false; }
+    virtual error server_rcv_error() { return error::none; }
+    virtual error server_snd_error() { return error::none; }
+    virtual error client_rcv_error() { return error::none; }
+    virtual error client_snd_error() { return error::none; }
 };
 
 class loopback_buffer {
@@ -60,7 +61,7 @@ public:
         }
         if (_error_injector) {
             auto error = _type == type::CLIENT_TX ? _error_injector->client_snd_error() : _error_injector->server_snd_error();
-            if (error) {
+            if (error == loopback_error_injector::error::abort) {
                 shutdown();
                 return make_exception_future<>(std::runtime_error("test injected error on send"));
             }
@@ -73,7 +74,7 @@ public:
         }
         if (_error_injector) {
             auto error = _type == type::CLIENT_TX ? _error_injector->client_rcv_error() : _error_injector->server_rcv_error();
-            if (error) {
+            if (error == loopback_error_injector::error::abort) {
                 shutdown();
                 return make_exception_future<temporary_buffer<char>>(std::runtime_error("test injected error on receive"));
             }

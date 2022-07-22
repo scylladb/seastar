@@ -103,8 +103,8 @@ private:
 public:
     rpc_loopback_error_injector(int limit) : _limit(limit) {}
 
-    bool server_rcv_error() override {
-        return _x++ >= _limit;
+    error server_rcv_error() override {
+        return _x++ >= _limit ? error::abort : error::none;
     }
 };
 
