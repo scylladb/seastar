@@ -97,14 +97,19 @@ using test_rpc_proto = rpc::protocol<serializer>;
 using make_socket_fn = std::function<seastar::socket ()>;
 
 class rpc_loopback_error_injector : public loopback_error_injector {
+public:
+    struct config {
+        int limit = 0;
+        error kind = error::none;
+    };
 private:
     int _x = 0;
-    int _limit;
+    config _cfg;
 public:
-    rpc_loopback_error_injector(int limit) : _limit(limit) {}
+    rpc_loopback_error_injector(config cfg) : _cfg(std::move(cfg)) {}
 
     error server_rcv_error() override {
-        return _x++ >= _limit ? error::abort : error::none;
+        return _x++ >= _cfg.limit ? _cfg.kind : error::none;
     }
 };
 
@@ -114,9 +119,9 @@ class rpc_socket_impl : public ::net::socket_impl {
     rpc_loopback_error_injector _error_injector;
     loopback_socket_impl _socket;
 public:
-    rpc_socket_impl(loopback_connection_factory& factory, bool connect, std::optional<int> inject_error)
+    rpc_socket_impl(loopback_connection_factory& factory, bool connect, std::optional<rpc_loopback_error_injector::config> inject_error)
             : _connect(connect),
-              _error_injector(inject_error.value_or(0)),
+              _error_injector(inject_error.value_or(rpc_loopback_error_injector::config{})),
               _socket(factory, inject_error ? &_error_injector : nullptr) {
     }
     virtual future<connected_socket> connect(socket_address sa, socket_address local, transport proto = transport::TCP) override {
@@ -137,7 +142,7 @@ struct rpc_test_config {
     rpc::resource_limits resource_limits = {};
     rpc::server_options server_options = {};
     bool connect = true;
-    std::optional<int> inject_error;
+    std::optional<rpc_loopback_error_injector::config> inject_error;
 };
 
 template<typename MsgType = int>
@@ -610,7 +615,10 @@ SEASTAR_TEST_CASE(test_stream_connection_error) {
     so.streaming_domain = rpc::streaming_domain_type(1);
     rpc_test_config cfg;
     cfg.server_options = so;
-    cfg.inject_error = 50;
+    rpc_loopback_error_injector::config ecfg;
+    ecfg.limit = 50;
+    ecfg.kind = loopback_error_injector::error::abort;
+    cfg.inject_error = ecfg;
     return rpc_test_env<>::do_with(cfg, [] (rpc_test_env<>& env) {
         return stream_test_func(env, false, true).then([] (stream_test_result r) {
             BOOST_REQUIRE(!r.client_source_closed);
@@ -629,7 +637,10 @@ SEASTAR_TEST_CASE(test_stream_negotiation_error) {
     so.streaming_domain = rpc::streaming_domain_type(1);
     rpc_test_config cfg;
     cfg.server_options = so;
-    cfg.inject_error = 0;
+    rpc_loopback_error_injector::config ecfg;
+    ecfg.limit = 0;
+    ecfg.kind = loopback_error_injector::error::abort;
+    cfg.inject_error = ecfg;
     return rpc_test_env<>::do_with(cfg, [] (rpc_test_env<>& env) {
         return stream_test_func(env, false, true).then([] (stream_test_result r) {
             BOOST_REQUIRE(r.exception_while_creating_sink);
