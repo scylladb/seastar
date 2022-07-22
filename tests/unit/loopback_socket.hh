@@ -34,7 +34,7 @@
 namespace seastar {
 
 struct loopback_error_injector {
-    enum class error { none, abort };
+    enum class error { none, one_shot, abort };
     virtual ~loopback_error_injector() {};
     virtual error server_rcv_error() { return error::none; }
     virtual error server_snd_error() { return error::none; }
@@ -61,6 +61,9 @@ public:
         }
         if (_error_injector) {
             auto error = _type == type::CLIENT_TX ? _error_injector->client_snd_error() : _error_injector->server_snd_error();
+            if (error == loopback_error_injector::error::one_shot) {
+                return make_exception_future<>(std::runtime_error("test injected glitch on send"));
+            }
             if (error == loopback_error_injector::error::abort) {
                 shutdown();
                 return make_exception_future<>(std::runtime_error("test injected error on send"));
@@ -74,6 +77,9 @@ public:
         }
         if (_error_injector) {
             auto error = _type == type::CLIENT_TX ? _error_injector->client_rcv_error() : _error_injector->server_rcv_error();
+            if (error == loopback_error_injector::error::one_shot) {
+                return make_exception_future<temporary_buffer<char>>(std::runtime_error("test injected glitch on receive"));
+            }
             if (error == loopback_error_injector::error::abort) {
                 shutdown();
                 return make_exception_future<temporary_buffer<char>>(std::runtime_error("test injected error on receive"));
