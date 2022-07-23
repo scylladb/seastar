@@ -19,9 +19,11 @@
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
+#include <unistd.h>
 #include <fmt/core.h>
 #if FMT_VERSION >= 60000
 #include <fmt/chrono.h>
+#include <fmt/color.h>
 #elif FMT_VERSION >= 50000
 #include <fmt/time.h>
 #endif
@@ -53,6 +55,42 @@
 #include "core/program_options.hh"
 
 using namespace std::chrono_literals;
+
+namespace fmt {
+template <> struct formatter<seastar::log_level>: formatter<std::string_view> {
+    using log_level = seastar::log_level;
+    static constexpr size_t nr_levels = static_cast<size_t>(log_level::trace) + 1;
+    static bool colored;
+
+    template <typename FormatContext>
+    auto format(seastar::log_level c, FormatContext& ctx) const {
+        static seastar::array_map<seastar::sstring, nr_levels> text = {
+            { int(log_level::debug), "DEBUG" },
+            { int(log_level::info),  "INFO " },
+            { int(log_level::trace), "TRACE" },
+            { int(log_level::warn),  "WARN " },
+            { int(log_level::error), "ERROR" },
+        };
+        int index = static_cast<int>(c);
+        std::string_view name = text[index];
+#if FMT_VERSION >= 60000
+        static seastar::array_map<text_style, nr_levels> style = {
+            { int(log_level::debug), fg(terminal_color::green)  },
+            { int(log_level::info),  fg(terminal_color::white)  },
+            { int(log_level::trace), fg(terminal_color::blue)   },
+            { int(log_level::warn),  fg(terminal_color::yellow) },
+            { int(log_level::error), fg(terminal_color::red)    },
+        };
+        if (colored) {
+            return formatter<std::string_view>::format(
+                fmt::format(style[index], "{}", name), ctx);
+        }
+#endif
+        return formatter<std::string_view>::format(name, ctx);
+    }
+};
+bool formatter<seastar::log_level>::colored = true;
+}
 
 namespace seastar {
 
@@ -269,13 +307,6 @@ logger::do_log(log_level level, log_writer& writer) {
     if(!is_ostream_enabled && !is_syslog_enabled) {
       return;
     }
-    static array_map<sstring, 20> level_map = {
-            { int(log_level::debug), "DEBUG" },
-            { int(log_level::info),  "INFO "  },
-            { int(log_level::trace), "TRACE" },
-            { int(log_level::warn),  "WARN "  },
-            { int(log_level::error), "ERROR" },
-    };
     auto print_once = [&] (internal::log_buf::inserter_iterator it) {
       if (local_engine) {
           it = fmt::format_to(it, " [shard {:{}}]", this_shard_id(), _shard_field_width);
@@ -291,7 +322,7 @@ logger::do_log(log_level level, log_writer& writer) {
     if (is_ostream_enabled) {
         internal::log_buf buf(static_log_buf.data(), static_log_buf.size());
         auto it = buf.back_insert_begin();
-        it = fmt::format_to(it, "{} ", level_map[int(level)]);
+        it = fmt::format_to(it, "{} ", level);
         it = print_timestamp(it);
         it = print_once(it);
         *it++ = '\n';
@@ -359,6 +390,11 @@ logger::set_syslog_enabled(bool enabled) noexcept {
 void
 logger::set_shard_field_width(unsigned width) noexcept {
     _shard_field_width = width;
+}
+
+void
+logger::set_with_color(bool enabled) noexcept {
+    fmt::formatter<log_level>::colored = enabled;
 }
 
 bool logger::is_shard_zero() noexcept {
@@ -441,6 +477,7 @@ void apply_logging_settings(const logging_settings& s) {
         break;
     }
     logger::set_syslog_enabled(s.syslog_enabled);
+    logger::set_with_color(s.with_color);
 
     switch (s.stdout_timestamp_style) {
     case logger_timestamp_style::none:
@@ -529,6 +566,7 @@ options::options(program_options::option_group* parent_group)
     , logger_ostream_type(*this, "logger-ostream-type", logger_ostream_type::stderr,
             "Send log output to: none|stdout|stderr")
     , log_to_syslog(*this, "log-to-syslog", false, "Send log output to syslog.")
+    , log_with_color(*this, "log-with-color", isatty(STDOUT_FILENO), "Print colored tag prefix in log message written to ostream")
 {
 }
 
@@ -557,6 +595,7 @@ logging_settings extract_settings(const options& opts) {
         opts.default_log_level.get_value(),
         opts.log_to_stdout.get_value(),
         opts.log_to_syslog.get_value(),
+        opts.log_with_color.get_value(),
         opts.logger_stdout_timestamps.get_value(),
         opts.logger_ostream_type.get_value(),
     };
