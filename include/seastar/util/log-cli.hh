@@ -81,6 +81,10 @@ struct options : public program_options::option_group {
     /// Default: \p false.
     program_options::value<bool> log_to_syslog;
 
+    /// Print colored tag prefix in log messages sent to output stream.
+    ///
+    /// Default: \p true.
+    program_options::value<bool> log_with_color;
     /// \cond internal
     options(program_options::option_group* parent_group);
     /// \endcond

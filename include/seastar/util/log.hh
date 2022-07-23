@@ -424,6 +424,11 @@ public:
     ///
     /// \param width the minimal width of the shard id field
     static void set_shard_field_width(unsigned width) noexcept;
+
+    /// enable/disable the colored tag in ostream
+    ///
+    /// \note this is a noop if fmtlib's version is less than 6.0
+    static void set_with_color(bool enabled) noexcept;
 };
 
 /// \brief used to keep a static registry of loggers
@@ -498,6 +503,7 @@ struct logging_settings final {
     log_level default_level;
     bool stdout_enabled;
     bool syslog_enabled;
+    bool with_color;
     logger_timestamp_style stdout_timestamp_style = logger_timestamp_style::real;
     logger_ostream_type logger_ostream = logger_ostream_type::stderr;
 };
