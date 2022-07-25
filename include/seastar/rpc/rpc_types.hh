@@ -247,7 +247,7 @@ struct connection_id {
     bool operator==(const connection_id& o) const {
         return id == o.id;
     }
-    operator bool() const {
+    explicit operator bool() const {
         return shard() != 0xffff;
     }
     size_t shard() const {

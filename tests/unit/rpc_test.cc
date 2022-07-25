@@ -1401,4 +1401,11 @@ SEASTAR_TEST_CASE(test_loggers) {
     });
 }
 
+SEASTAR_TEST_CASE(test_connection_id_format) {
+    rpc::connection_id cid = rpc::connection_id::make_id(0x123, 1);
+    std::string res = format("{}", cid);
+    BOOST_REQUIRE_EQUAL(res, "1230001");
+    return make_ready_future<>();
+}
+
 static_assert(std::is_same_v<decltype(rpc::tuple(1U, 1L)), rpc::tuple<unsigned, long>>, "rpc::tuple deduction guid not working");
