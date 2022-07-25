@@ -3,7 +3,7 @@
 To build a Docker image:
 
 ```
-docker build -t seastar-dev docker/dev
+docker build -t seastar-dev -f docker/dev/Dockerfile .
 ```
 
 Building is done with two commands:
