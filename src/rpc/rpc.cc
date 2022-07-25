@@ -849,24 +849,28 @@ namespace rpc {
               break;
           case protocol_features::STREAM_PARENT: {
               if (!_server._options.streaming_domain) {
-                  f = make_exception_future<>(std::runtime_error("streaming is not configured for the server"));
+                  f = f.then([] {
+                      return make_exception_future<>(std::runtime_error("streaming is not configured for the server"));
+                  });
               } else {
                   _parent_id = deserialize_connection_id(e.second);
                   _is_stream = true;
                   // remove stream connection from rpc connection list
                   _server._conns.erase(get_connection_id());
-                  f = smp::submit_to(_parent_id.shard(), [this, c = make_foreign(static_pointer_cast<rpc::connection>(shared_from_this()))] () mutable {
-                      auto sit = _servers.find(*_server._options.streaming_domain);
-                      if (sit == _servers.end()) {
-                          throw std::logic_error(format("Shard {:d} does not have server with streaming domain {}", this_shard_id(), *_server._options.streaming_domain).c_str());
-                      }
-                      auto s = sit->second;
-                      auto it = s->_conns.find(_parent_id);
-                      if (it == s->_conns.end()) {
-                          throw std::logic_error(format("Unknown parent connection {} on shard {:d}", _parent_id, this_shard_id()).c_str());
-                      }
-                      auto id = c->get_connection_id();
-                      it->second->register_stream(id, make_lw_shared(std::move(c)));
+                  f = f.then([this, c = shared_from_this()] () mutable {
+                      return smp::submit_to(_parent_id.shard(), [this, c = make_foreign(static_pointer_cast<rpc::connection>(c))] () mutable {
+                          auto sit = _servers.find(*_server._options.streaming_domain);
+                          if (sit == _servers.end()) {
+                              throw std::logic_error(format("Shard {:d} does not have server with streaming domain {}", this_shard_id(), *_server._options.streaming_domain).c_str());
+                          }
+                          auto s = sit->second;
+                          auto it = s->_conns.find(_parent_id);
+                          if (it == s->_conns.end()) {
+                              throw std::logic_error(format("Unknown parent connection {} on shard {:d}", _parent_id, this_shard_id()).c_str());
+                          }
+                          auto id = c->get_connection_id();
+                          it->second->register_stream(id, make_lw_shared(std::move(c)));
+                      });
                   });
               }
               break;
@@ -886,8 +890,11 @@ namespace rpc {
                   sstring _isolation_cookie;
               };
 
-              f = std::visit(isolation_function_visitor(isolation_cookie), _server._limits.isolate_connection).then([this] (isolation_config conf) {
-                  _isolation_config = conf;
+              auto visitor = isolation_function_visitor(isolation_cookie);
+              f = f.then([visitor = std::move(visitor), this] () mutable {
+                  return std::visit(visitor, _server._limits.isolate_connection).then([this] (isolation_config conf) {
+                      _isolation_config = conf;
+                  });
               });
               ret.emplace(e);
               break;
