@@ -858,19 +858,19 @@ namespace rpc {
                   // remove stream connection from rpc connection list
                   _server._conns.erase(get_connection_id());
                   f = f.then([this, c = shared_from_this()] () mutable {
-                    return smp::submit_to(_parent_id.shard(), [this, c = make_foreign(static_pointer_cast<rpc::connection>(c))] () mutable {
-                      auto sit = _servers.find(*_server._options.streaming_domain);
-                      if (sit == _servers.end()) {
-                          throw std::logic_error(format("Shard {:d} does not have server with streaming domain {}", this_shard_id(), *_server._options.streaming_domain).c_str());
-                      }
-                      auto s = sit->second;
-                      auto it = s->_conns.find(_parent_id);
-                      if (it == s->_conns.end()) {
-                          throw std::logic_error(format("Unknown parent connection {} on shard {:d}", _parent_id, this_shard_id()).c_str());
-                      }
-                      auto id = c->get_connection_id();
-                      it->second->register_stream(id, make_lw_shared(std::move(c)));
-                    });
+                      return smp::submit_to(_parent_id.shard(), [this, c = make_foreign(static_pointer_cast<rpc::connection>(c))] () mutable {
+                          auto sit = _servers.find(*_server._options.streaming_domain);
+                          if (sit == _servers.end()) {
+                              throw std::logic_error(format("Shard {:d} does not have server with streaming domain {}", this_shard_id(), *_server._options.streaming_domain).c_str());
+                          }
+                          auto s = sit->second;
+                          auto it = s->_conns.find(_parent_id);
+                          if (it == s->_conns.end()) {
+                              throw std::logic_error(format("Unknown parent connection {} on shard {:d}", _parent_id, this_shard_id()).c_str());
+                          }
+                          auto id = c->get_connection_id();
+                          it->second->register_stream(id, make_lw_shared(std::move(c)));
+                      });
                   });
               }
               break;
