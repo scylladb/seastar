@@ -28,7 +28,7 @@ namespace seastar {
 class measuring_output_stream {
     size_t _size = 0;
 public:
-    void write(const char* data, size_t size) {
+    void write(const char*, size_t size) {
         _size += size;
     }
 

@@ -148,7 +148,7 @@ using wait_signature_t = typename wait_signature<T>::type;
 template <typename... In>
 inline
 std::tuple<In...>
-maybe_add_client_info(dont_want_client_info, client_info& ci, std::tuple<In...>&& args) {
+maybe_add_client_info(dont_want_client_info, client_info&, std::tuple<In...>&& args) {
     return std::move(args);
 }
 
@@ -162,7 +162,7 @@ maybe_add_client_info(do_want_client_info, client_info& ci, std::tuple<In...>&& 
 template <typename... In>
 inline
 std::tuple<In...>
-maybe_add_time_point(dont_want_time_point, opt_time_point& otp, std::tuple<In...>&& args) {
+maybe_add_time_point(dont_want_time_point, opt_time_point&, std::tuple<In...>&& args) {
     return std::move(args);
 }
 
@@ -411,7 +411,7 @@ struct rcv_reply<Serializer, future<>> : rcv_reply<Serializer, void> {};
 
 template <typename Serializer, typename Ret, typename... InArgs>
 inline auto wait_for_reply(wait_type, std::optional<rpc_clock_type::time_point> timeout, cancellable* cancel, rpc::client& dst, id_type msg_id,
-        signature<Ret (InArgs...)> sig) {
+        signature<Ret (InArgs...)>) {
     using reply_type = rcv_reply<Serializer, Ret>;
     auto lambda = [] (reply_type& r, rpc::client& dst, id_type msg_id, rcv_buf data) mutable {
         if (msg_id >= 0) {
@@ -547,7 +547,7 @@ inline future<> reply(no_wait_type, future<no_wait_type>&& r, int64_t msgid, sha
 }
 
 template<typename Ret, typename... InArgs, typename WantClientInfo, typename WantTimePoint, typename Func, typename ArgsTuple>
-inline futurize_t<Ret> apply(Func& func, client_info& info, opt_time_point time_point, WantClientInfo wci, WantTimePoint wtp, signature<Ret (InArgs...)> sig, ArgsTuple&& args) {
+inline futurize_t<Ret> apply(Func& func, client_info& info, opt_time_point time_point, WantClientInfo wci, WantTimePoint wtp, signature<Ret (InArgs...)>, ArgsTuple&& args) {
     using futurator = futurize<Ret>;
     return futurator::apply(func, maybe_add_client_info(wci, info, maybe_add_time_point(wtp, time_point, std::forward<ArgsTuple>(args))));
 }
@@ -566,7 +566,7 @@ auto lref_to_cref(T& x) {
 // Creates lambda to handle RPC message on a server.
 // The lambda unmarshalls all parameters, calls a handler, marshall return values and sends them back to a client
 template <typename Serializer, typename Func, typename Ret, typename... InArgs, typename WantClientInfo, typename WantTimePoint>
-auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo wci, WantTimePoint wtp) {
+auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo, WantTimePoint) {
     using signature = decltype(sig);
     using wait_style = wait_signature_t<Ret>;
     return [func = lref_to_cref(std::forward<Func>(func))](shared_ptr<server::connection> client,
@@ -653,7 +653,7 @@ public:
 
 template<typename Serializer, typename MsgType>
 template<typename Ret, typename... In>
-auto protocol<Serializer, MsgType>::make_client(signature<Ret(In...)> clear_sig, MsgType t) {
+auto protocol<Serializer, MsgType>::make_client(signature<Ret(In...)>, MsgType t) {
     using sig_type = signature<typename client_function_type<Ret, In...>::type>;
     return send_helper<Serializer>(t, sig_type());
 }
