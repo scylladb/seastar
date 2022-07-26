@@ -673,7 +673,7 @@ auto protocol<Serializer, MsgType>::register_handler(MsgType t, scheduling_group
     using want_time_point = typename sig_type::want_time_point;
     auto recv = recv_helper<Serializer>(clean_sig_type(), std::forward<Func>(func),
             want_client_info(), want_time_point());
-    register_receiver(t, rpc_handler{sg, make_copyable_function(std::move(recv))});
+    register_receiver(t, rpc_handler{sg, make_copyable_function(std::move(recv)), {}});
     return make_client(clean_sig_type(), t);
 }
 
