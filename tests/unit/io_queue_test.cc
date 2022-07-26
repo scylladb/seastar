@@ -143,7 +143,7 @@ static void do_test_large_request_flow(part_flaw flaw) {
     for (int i = 0; i < 3; i++) {
         seastar::sleep(std::chrono::milliseconds(500)).get();
         tio.queue.poll_io_queue();
-        tio.sink.drain([&file, &limits, i, flaw] (internal::io_request& rq, io_completion* desc) -> bool {
+        tio.sink.drain([&file, i, flaw] (internal::io_request& rq, io_completion* desc) -> bool {
             if (i == 1) {
                 if (flaw == part_flaw::partial) {
                     rq.iov()[0].iov_len /= 2;
