@@ -103,15 +103,6 @@ class message_queue;
 class instance;
 }
 class reactor;
-inline
-size_t iovec_len(const std::vector<iovec>& iov)
-{
-    size_t ret = 0;
-    for (auto&& e : iov) {
-        ret += e.iov_len;
-    }
-    return ret;
-}
 
 }
 
@@ -214,6 +205,7 @@ private:
     friend class reactor_backend_aio;
     friend class reactor_backend_uring;
     friend class reactor_backend_selector;
+    friend class io_queue; // for aio statistics
     friend struct reactor_options;
     friend class aio_storage_context;
     friend size_t scheduling_group_count();
@@ -228,6 +220,7 @@ public:
         uint64_t aio_read_bytes = 0;
         uint64_t aio_writes = 0;
         uint64_t aio_write_bytes = 0;
+        uint64_t aio_outsizes = 0;
         uint64_t aio_errors = 0;
         uint64_t fstream_reads = 0;
         uint64_t fstream_read_bytes = 0;
@@ -538,20 +531,6 @@ public:
 
     future<int> inotify_add_watch(int fd, std::string_view path, uint32_t flags);
     
-    // In the following three methods, prepare_io is not guaranteed to execute in the same processor
-    // in which it was generated. Therefore, care must be taken to avoid the use of objects that could
-    // be destroyed within or at exit of prepare_io.
-    future<size_t> submit_io_read(io_queue* ioq,
-            const io_priority_class& priority_class,
-            size_t len,
-            internal::io_request req,
-            io_intent* intent) noexcept;
-    future<size_t> submit_io_write(io_queue* ioq,
-            const io_priority_class& priority_class,
-            size_t len,
-            internal::io_request req,
-            io_intent* intent) noexcept;
-
     int run() noexcept;
     void exit(int ret);
     future<> when_started() { return _start_promise.get_future(); }
@@ -757,17 +736,6 @@ inline reactor& engine() {
 
 inline bool engine_is_ready() {
     return local_engine != nullptr;
-}
-
-inline
-size_t iovec_len(const iovec* begin, size_t len)
-{
-    size_t ret = 0;
-    auto end = begin + len;
-    while (begin != end) {
-        ret += begin++->iov_len;
-    }
-    return ret;
 }
 
 inline int hrtimer_signal() {

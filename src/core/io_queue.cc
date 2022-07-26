@@ -26,6 +26,7 @@
 #include <seastar/core/io_queue.hh>
 #include <seastar/core/io_intent.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/core/when_all.hh>
 #include <seastar/core/metrics.hh>
 #include <seastar/core/linux-aio.hh>
 #include <seastar/core/internal/io_desc.hh>
@@ -45,6 +46,8 @@ logger io_log("io");
 using namespace std::chrono_literals;
 using namespace internal::linux_abi;
 using io_direction_and_length = internal::io_direction_and_length;
+static constexpr auto io_direction_read = io_direction_and_length::read_idx;
+static constexpr auto io_direction_write = io_direction_and_length::write_idx;
 
 static fair_queue_ticket make_ticket(io_direction_and_length dnl, const io_queue::config& cfg) noexcept;
 
@@ -92,7 +95,7 @@ class io_queue::priority_class_data {
             ops++;
             bytes += len;
         }
-    } _rwstat[2] = {};
+    } _rwstat[2] = {}, _splits = {};
     uint32_t _nr_queued;
     uint32_t _nr_executing;
     std::chrono::duration<double> _queue_time;
@@ -188,6 +191,10 @@ public:
         }
     }
 
+    void on_split(io_direction_and_length dnl) noexcept {
+        _splits.add(dnl.length());
+    }
+
     fair_queue::class_id fq_class() const noexcept { return _pc.id(); }
 
     std::vector<seastar::metrics::impl::metric_definition_impl> metrics();
@@ -202,15 +209,17 @@ class io_desc_read_write final : public io_completion {
     const io_direction_and_length _dnl;
     const fair_queue_ticket _fq_ticket;
     promise<size_t> _pr;
+    iovec_keeper _iovs;
 
 public:
-    io_desc_read_write(io_queue& ioq, io_queue::priority_class_data& pc, stream_id stream, io_direction_and_length dnl, fair_queue_ticket ticket)
+    io_desc_read_write(io_queue& ioq, io_queue::priority_class_data& pc, stream_id stream, io_direction_and_length dnl, fair_queue_ticket ticket, iovec_keeper iovs)
         : _ioq(ioq)
         , _pclass(pc)
         , _ts(io_queue::clock_type::now())
         , _stream(stream)
         , _dnl(dnl)
         , _fq_ticket(ticket)
+        , _iovs(std::move(iovs))
     {
         io_log.trace("dev {} : req {} queue  len {} ticket {}", _ioq.dev_id(), fmt::ptr(this), _dnl.length(), _fq_ticket);
     }
@@ -263,12 +272,12 @@ class queued_io_request : private internal::io_request {
     bool is_cancelled() const noexcept { return !_desc; }
 
 public:
-    queued_io_request(internal::io_request req, io_queue& q, io_queue::priority_class_data& pc, io_direction_and_length dnl)
+    queued_io_request(internal::io_request req, io_queue& q, io_queue::priority_class_data& pc, io_direction_and_length dnl, iovec_keeper iovs)
         : io_request(std::move(req))
         , _ioq(q)
         , _stream(_ioq.request_stream(dnl))
-        , _fq_entry(_ioq.request_fq_ticket(dnl))
-        , _desc(std::make_unique<io_desc_read_write>(_ioq, pc, _stream, dnl, _fq_entry.ticket()))
+        , _fq_entry(make_ticket(dnl, _ioq.get_config()))
+        , _desc(std::make_unique<io_desc_read_write>(_ioq, pc, _stream, dnl, _fq_entry.ticket(), std::move(iovs)))
     {
     }
 
@@ -381,6 +390,76 @@ void io_sink::submit(io_completion* desc, io_request req) noexcept {
     }
 }
 
+std::vector<io_request::part> io_request::split(size_t max_length) {
+    if (_op == operation::read || _op == operation::write) {
+        return split_buffer(max_length);
+    }
+    if (_op == operation::readv || _op == operation::writev) {
+        return split_iovec(max_length);
+    }
+
+    seastar_logger.error("Invalid operation for split: {}", static_cast<int>(_op));
+    std::abort();
+}
+
+std::vector<io_request::part> io_request::split_buffer(size_t max_length) {
+    std::vector<part> ret;
+    ret.reserve((_size.len + max_length - 1) / max_length);
+
+    size_t off = 0;
+    do {
+        size_t len = std::min(_size.len - off, max_length);
+        io_request part(_op, _fd, _attr.pos + off, _ptr.addr + off, len, _nowait_works);
+        ret.push_back({ std::move(part), len, {} });
+        off += len;
+    } while (off < _size.len);
+
+    return ret;
+}
+
+std::vector<io_request::part> io_request::split_iovec(size_t max_length) {
+    std::vector<part> parts;
+    std::vector<::iovec> vecs;
+    ::iovec* cur = iov();
+    size_t pos = 0;
+    size_t off = 0;
+    ::iovec* end = cur + iov_len();
+    size_t remaining = max_length;
+
+    while (cur != end) {
+        ::iovec iov;
+        iov.iov_base = reinterpret_cast<char*>(cur->iov_base) + off;
+        iov.iov_len = cur->iov_len - off;
+
+        if (iov.iov_len <= remaining) {
+            remaining -= iov.iov_len;
+            vecs.push_back(std::move(iov));
+            cur++;
+            off = 0;
+            continue;
+        }
+
+        if (remaining > 0) {
+            iov.iov_len = remaining;
+            off += remaining;
+            vecs.push_back(std::move(iov));
+        }
+
+        io_request req(_op, _fd, _attr.pos + pos, vecs.data(), vecs.size(), _nowait_works);
+        parts.push_back({ std::move(req), max_length, std::move(vecs) });
+        pos += max_length;
+        remaining = max_length;
+    }
+
+    if (vecs.size() > 0) {
+        assert(remaining < max_length);
+        io_request req(_op, _fd, _attr.pos + pos, vecs.data(), vecs.size(), _nowait_works);
+        parts.push_back({ std::move(req), max_length - remaining, std::move(vecs) });
+    }
+
+    return parts;
+}
+
 } // internal namespace
 
 void
@@ -413,10 +492,17 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     if (this_shard_id() == 0) {
         sstring caps_str;
         for (size_t sz = 512; sz <= 128 * 1024; sz <<= 1) {
-            caps_str += fmt::format(" {}:{}/{}", sz,
-                    _group->_fgs[0]->ticket_capacity(request_fq_ticket(io_direction_and_length(io_direction_and_length::read_idx, sz))),
-                    _group->_fgs[0]->ticket_capacity(request_fq_ticket(io_direction_and_length(io_direction_and_length::write_idx, sz)))
-            );
+            caps_str += fmt::format(" {}:", sz);
+            if (sz <= _group->_max_request_length[io_direction_read]) {
+                caps_str += fmt::format("{}", _group->_fgs[0]->ticket_capacity(make_ticket(io_direction_and_length(io_direction_read, sz), get_config())));
+            } else {
+                caps_str += "X";
+            }
+            if (sz <= _group->_max_request_length[io_direction_write]) {
+                caps_str += fmt::format(":{}", _group->_fgs[0]->ticket_capacity(make_ticket(io_direction_and_length(io_direction_write, sz), get_config())));
+            } else {
+                caps_str += ":X";
+            }
         }
         seastar_logger.info("Created io queue dev({}) capacities:{}", get_config().devid, caps_str);
     }
@@ -478,12 +564,12 @@ io_group::io_group(io_queue::config io_cfg)
         };
     };
 
-    update_max_size(io_direction_and_length::write_idx);
-    update_max_size(io_direction_and_length::read_idx);
+    update_max_size(io_direction_write);
+    update_max_size(io_direction_read);
 
     seastar_logger.info("Created io group dev({}), length limit {}:{}, rate {}:{}", _config.devid,
-            _max_request_length[io_direction_and_length::read_idx],
-            _max_request_length[io_direction_and_length::write_idx],
+            _max_request_length[io_direction_read],
+            _max_request_length[io_direction_write],
             _config.req_count_rate, _config.blocks_count_rate);
 }
 
@@ -592,19 +678,23 @@ std::vector<seastar::metrics::impl::metric_definition_impl> io_queue::priority_c
     namespace sm = seastar::metrics;
     return std::vector<sm::impl::metric_definition_impl>({
             sm::make_counter("total_bytes", [this] {
-                    return _rwstat[io_direction_and_length::read_idx].bytes + _rwstat[io_direction_and_length::write_idx].bytes;
+                    return _rwstat[io_direction_read].bytes + _rwstat[io_direction_write].bytes;
                 }, sm::description("Total bytes passed in the queue")),
             sm::make_counter("total_operations", [this] {
-                    return _rwstat[io_direction_and_length::read_idx].ops + _rwstat[io_direction_and_length::write_idx].ops;
+                    return _rwstat[io_direction_read].ops + _rwstat[io_direction_write].ops;
                 }, sm::description("Total operations passed in the queue")),
-            sm::make_counter("total_read_bytes", _rwstat[io_direction_and_length::read_idx].bytes,
+            sm::make_counter("total_read_bytes", _rwstat[io_direction_read].bytes,
                     sm::description("Total read bytes passed in the queue")),
-            sm::make_counter("total_read_ops", _rwstat[io_direction_and_length::read_idx].ops,
+            sm::make_counter("total_read_ops", _rwstat[io_direction_read].ops,
                     sm::description("Total read operations passed in the queue")),
-            sm::make_counter("total_write_bytes", _rwstat[io_direction_and_length::write_idx].bytes,
+            sm::make_counter("total_write_bytes", _rwstat[io_direction_write].bytes,
                     sm::description("Total write bytes passed in the queue")),
-            sm::make_counter("total_write_ops", _rwstat[io_direction_and_length::write_idx].ops,
+            sm::make_counter("total_write_ops", _rwstat[io_direction_write].ops,
                     sm::description("Total write operations passed in the queue")),
+            sm::make_counter("total_split_ops", _splits.ops,
+                    sm::description("Total number of requests split")),
+            sm::make_counter("total_split_bytes", _splits.bytes,
+                    sm::description("Total number of bytes split")),
             sm::make_counter("total_delay_sec", [this] {
                     return _total_queue_time.count();
                 }, sm::description("Total time spent in the queue")),
@@ -723,11 +813,11 @@ fair_queue_ticket make_ticket(io_direction_and_length dnl, const io_queue::confi
         unsigned size;
     } mult[2];
 
-    mult[io_direction_and_length::write_idx] = {
+    mult[io_direction_write] = {
         cfg.disk_req_write_to_read_multiplier,
         cfg.disk_blocks_write_to_read_multiplier,
     };
-    mult[io_direction_and_length::read_idx] = {
+    mult[io_direction_read] = {
         io_queue::read_request_base_count,
         io_queue::read_request_base_count,
     };
@@ -736,38 +826,19 @@ fair_queue_ticket make_ticket(io_direction_and_length dnl, const io_queue::confi
     return fair_queue_ticket(m.weight, m.size * (dnl.length() >> io_queue::block_size_shift));
 }
 
-fair_queue_ticket io_queue::request_fq_ticket(io_direction_and_length dnl) const noexcept {
-    size_t max_length = _group->_max_request_length[dnl.rw_idx()];
-
-    if (__builtin_expect(dnl.length() <= max_length, true)) {
-        return make_ticket(dnl, get_config());
-    }
-
-    static thread_local size_t oversize_warning_threshold = 0;
-
-    if (dnl.length() > oversize_warning_threshold) {
-        oversize_warning_threshold = dnl.length();
-        io_log.warn("oversized request (length {} > {}) submitted. ", dnl.length(), max_length);
-    }
-
-    return make_ticket(io_direction_and_length(dnl.rw_idx(), max_length), get_config());
-}
-
 io_queue::request_limits io_queue::get_request_limits() const noexcept {
     request_limits l;
-    l.max_read = align_down<size_t>(std::min<size_t>(get_config().disk_read_saturation_length, _group->_max_request_length[io_direction_and_length::read_idx]), 1 << block_size_shift);
-    l.max_write = align_down<size_t>(std::min<size_t>(get_config().disk_write_saturation_length, _group->_max_request_length[io_direction_and_length::write_idx]), 1 << block_size_shift);
+    l.max_read = align_down<size_t>(std::min<size_t>(get_config().disk_read_saturation_length, _group->_max_request_length[io_direction_read]), 1 << block_size_shift);
+    l.max_write = align_down<size_t>(std::min<size_t>(get_config().disk_write_saturation_length, _group->_max_request_length[io_direction_write]), 1 << block_size_shift);
     return l;
 }
 
-future<size_t>
-io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_request req, io_intent* intent) noexcept {
-    return futurize_invoke([&pc, len, req = std::move(req), this, intent] () mutable {
+future<size_t> io_queue::queue_one_request(const io_priority_class& pc, io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
+    return futurize_invoke([&pc, dnl = std::move(dnl), req = std::move(req), this, intent, iovs = std::move(iovs)] () mutable {
         // First time will hit here, and then we create the class. It is important
         // that we create the shared pointer in the same shard it will be used at later.
         auto& pclass = find_or_create_class(pc);
-        io_direction_and_length dnl(req, len);
-        auto queued_req = std::make_unique<queued_io_request>(std::move(req), *this, pclass, std::move(dnl));
+        auto queued_req = std::make_unique<queued_io_request>(std::move(req), *this, pclass, std::move(dnl), std::move(iovs));
         auto fut = queued_req->get_future();
         if (intent != nullptr) {
             auto& cq = intent->find_or_create_cancellable_queue(dev_id(), pc.id());
@@ -780,6 +851,79 @@ io_queue::queue_request(const io_priority_class& pc, size_t len, internal::io_re
         _queued_requests++;
         return fut;
     });
+}
+
+future<size_t> io_queue::queue_request(const io_priority_class& pc, io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
+    size_t max_length = _group->_max_request_length[dnl.rw_idx()];
+
+    if (__builtin_expect(dnl.length() <= max_length, true)) {
+        return queue_one_request(pc, dnl, std::move(req), intent, std::move(iovs));
+    }
+
+    std::vector<internal::io_request::part> parts;
+    lw_shared_ptr<std::vector<future<size_t>>> p;
+
+    try {
+        parts = req.split(max_length);
+        p = make_lw_shared<std::vector<future<size_t>>>();
+        p->reserve(parts.size());
+        find_or_create_class(pc).on_split(dnl);
+        engine()._io_stats.aio_outsizes++;
+    } catch (...) {
+        return current_exception_as_future<size_t>();
+    }
+
+    // No exceptions from now on. If queue_one_request fails it will resolve
+    // into exceptional future which will be picked up by when_all() below
+    for (auto&& part : parts) {
+        auto f = queue_one_request(pc, io_direction_and_length(dnl.rw_idx(), part.size), std::move(part.req), intent, std::move(part.iovecs));
+        p->push_back(std::move(f));
+    }
+
+    return when_all(p->begin(), p->end()).then([p, max_length] (auto results) {
+        bool prev_ok = true;
+        size_t total = 0;
+        std::exception_ptr ex;
+
+        for (auto&& res : results) {
+            if (!res.failed()) {
+                if (prev_ok) {
+                    size_t sz = res.get0();
+                    total += sz;
+                    prev_ok &= (sz == max_length);
+                }
+            } else {
+                if (!ex) {
+                    ex = res.get_exception();
+                } else {
+                    res.ignore_ready_future();
+                }
+                prev_ok = false;
+            }
+        }
+
+        if (total > 0) {
+            return make_ready_future<size_t>(total);
+        } else if (ex) {
+            return make_exception_future<size_t>(std::move(ex));
+        } else {
+            return make_ready_future<size_t>(0);
+        }
+    });
+}
+
+future<size_t> io_queue::submit_io_read(const io_priority_class& pc, size_t len, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
+    auto& r = engine();
+    ++r._io_stats.aio_reads;
+    r._io_stats.aio_read_bytes += len;
+    return queue_request(pc, io_direction_and_length(io_direction_read, len), std::move(req), intent, std::move(iovs));
+}
+
+future<size_t> io_queue::submit_io_write(const io_priority_class& pc, size_t len, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
+    auto& r = engine();
+    ++r._io_stats.aio_writes;
+    r._io_stats.aio_write_bytes += len;
+    return queue_request(pc, io_direction_and_length(io_direction_write, len), std::move(req), intent, std::move(iovs));
 }
 
 void io_queue::poll_io_queue() {

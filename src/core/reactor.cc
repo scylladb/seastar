@@ -132,6 +132,7 @@
 #include <seastar/core/exception_hacks.hh>
 #include "stall_detector.hh"
 #include <seastar/util/memory_diagnostics.hh>
+#include <seastar/util/internal/iovec_utils.hh>
 #include <seastar/util/internal/magic.hh>
 
 #include <yaml-cpp/yaml.h>
@@ -305,7 +306,7 @@ reactor::do_read_some(pollable_fd_state& fd, const std::vector<iovec>& iov) {
         if (!r) {
             return do_read_some(fd, iov);
         }
-        if (size_t(*r) == iovec_len(iov)) {
+        if (size_t(*r) == internal::iovec_len(iov)) {
             fd.speculate_epoll(EPOLLIN);
         }
         return make_ready_future<size_t>(*r);
@@ -467,7 +468,7 @@ future<size_t> pollable_fd_state::sendmsg(struct msghdr* msg) {
         // For UDP this will always speculate. We can't know if there's room
         // or not, but most of the time there should be so the cost of mis-
         // speculation is amortized.
-        if (size_t(*r) == iovec_len(msg->msg_iov, msg->msg_iovlen)) {
+        if (size_t(*r) == internal::iovec_len(msg->msg_iov, msg->msg_iovlen)) {
             speculate_epoll(EPOLLOUT);
         }
         return make_ready_future<size_t>(*r);
@@ -1684,27 +1685,13 @@ const io_priority_class& default_priority_class() {
     return shard_default_class;
 }
 
-future<size_t>
-reactor::submit_io_read(io_queue* ioq, const io_priority_class& pc, size_t len, io_request req, io_intent* intent) noexcept {
-    ++_io_stats.aio_reads;
-    _io_stats.aio_read_bytes += len;
-    return ioq->queue_request(pc, len, std::move(req), intent);
-}
-
-future<size_t>
-reactor::submit_io_write(io_queue* ioq, const io_priority_class& pc, size_t len, io_request req, io_intent* intent) noexcept {
-    ++_io_stats.aio_writes;
-    _io_stats.aio_write_bytes += len;
-    return ioq->queue_request(pc, len, std::move(req), intent);
-}
-
 namespace internal {
 
 size_t sanitize_iovecs(std::vector<iovec>& iov, size_t disk_alignment) noexcept {
     if (iov.size() > IOV_MAX) {
         iov.resize(IOV_MAX);
     }
-    auto length = boost::accumulate(iov | boost::adaptors::transformed(std::mem_fn(&iovec::iov_len)), size_t(0));
+    auto length = iovec_len(iov);
     while (auto rest = length & (disk_alignment - 1)) {
         if (iov.back().iov_len <= rest) {
             length -= iov.back().iov_len;
@@ -2286,6 +2273,7 @@ void reactor::register_metrics() {
             // total_operations value:DERIVE:0:U
             sm::make_counter("aio_writes", _io_stats.aio_writes, sm::description("Total aio-writes operations")),
             sm::make_total_bytes("aio_bytes_write", _io_stats.aio_write_bytes, sm::description("Total aio-writes bytes")),
+            sm::make_counter("aio_outsizes", _io_stats.aio_outsizes, sm::description("Total number of aio operations that exceed IO limit")),
             sm::make_counter("aio_errors", _io_stats.aio_errors, sm::description("Total aio errors")),
             // total_operations value:DERIVE:0:U
             sm::make_counter("fsyncs", _fsyncs, sm::description("Total number of fsync operations")),

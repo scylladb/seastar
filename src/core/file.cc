@@ -33,14 +33,13 @@
 #define min min    /* prevent xfs.h from defining min() as a macro */
 #include <xfs/xfs.h>
 #undef min
-#include <boost/range/numeric.hpp>
-#include <boost/range/adaptor/transformed.hpp>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/file.hh>
 #include <seastar/core/report_exception.hh>
 #include <seastar/core/linux-aio.hh>
 #include <seastar/util/later.hh>
 #include <seastar/util/internal/magic.hh>
+#include <seastar/util/internal/iovec_utils.hh>
 #include <seastar/core/io_queue.hh>
 #include "core/file-impl.hh"
 #include "core/syscall_result.hh"
@@ -417,27 +416,27 @@ posix_file_impl::list_directory(std::function<future<> (directory_entry de)> nex
 future<size_t>
 posix_file_impl::do_write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& io_priority_class, io_intent* intent) noexcept {
     auto req = internal::io_request::make_write(_fd, pos, buffer, len, _nowait_works);
-    return engine().submit_io_write(&_io_queue, io_priority_class, len, std::move(req), intent);
+    return _io_queue.submit_io_write(io_priority_class, len, std::move(req), intent);
 }
 
 future<size_t>
 posix_file_impl::do_write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& io_priority_class, io_intent* intent) noexcept {
     auto len = internal::sanitize_iovecs(iov, _disk_write_dma_alignment);
     auto req = internal::io_request::make_writev(_fd, pos, iov, _nowait_works);
-    return engine().submit_io_write(&_io_queue, io_priority_class, len, std::move(req), intent).finally([iov = std::move(iov)] () {});
+    return _io_queue.submit_io_write(io_priority_class, len, std::move(req), intent, std::move(iov));
 }
 
 future<size_t>
 posix_file_impl::do_read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& io_priority_class, io_intent* intent) noexcept {
     auto req = internal::io_request::make_read(_fd, pos, buffer, len, _nowait_works);
-    return engine().submit_io_read(&_io_queue, io_priority_class, len, std::move(req), intent);
+    return _io_queue.submit_io_read(io_priority_class, len, std::move(req), intent);
 }
 
 future<size_t>
 posix_file_impl::do_read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& io_priority_class, io_intent* intent) noexcept {
     auto len = internal::sanitize_iovecs(iov, _disk_read_dma_alignment);
     auto req = internal::io_request::make_readv(_fd, pos, iov, _nowait_works);
-    return engine().submit_io_read(&_io_queue, io_priority_class, len, std::move(req), intent).finally([iov = std::move(iov)] () {});
+    return _io_queue.submit_io_read(io_priority_class, len, std::move(req), intent, std::move(iov));
 }
 
 future<size_t>
@@ -854,7 +853,7 @@ append_challenged_posix_file_impl::write_dma(uint64_t pos, const void* buffer, s
 
 future<size_t>
 append_challenged_posix_file_impl::write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept {
-    auto len = boost::accumulate(iov | boost::adaptors::transformed(std::mem_fn(&iovec::iov_len)), size_t(0));
+    auto len = internal::iovec_len(iov);
     internal::intent_reference iref(intent);
     return enqueue<size_t>(
         opcode::write,
