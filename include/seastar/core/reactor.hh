@@ -351,7 +351,7 @@ private:
     sched_clock::duration _total_sleep;
     sched_clock::time_point _start_time = now();
     std::chrono::nanoseconds _max_poll_time = calculate_poll_time();
-    circular_buffer<output_stream<char>* > _flush_batching;
+    output_stream<char>::batch_flush_list_t _flush_batching;
     std::atomic<bool> _sleeping alignas(seastar::cache_line_size){0};
     pthread_t _thread_id alignas(seastar::cache_line_size) = pthread_self();
     bool _strict_o_direct = true;
@@ -660,7 +660,7 @@ private:
     friend class smp_message_queue;
     friend class internal::poller;
     friend class scheduling_group;
-    friend void add_to_flush_poller(output_stream<char>* os);
+    friend void add_to_flush_poller(output_stream<char>& os) noexcept;
     friend void seastar::internal::increase_thrown_exceptions_counter() noexcept;
     friend void report_failed_future(const std::exception_ptr& eptr) noexcept;
     friend void with_allow_abandoned_failed_futures(unsigned count, noncopyable_function<void ()> func);

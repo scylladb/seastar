@@ -35,10 +35,13 @@
 
 #pragma once
 
+#include <boost/intrusive/slist.hpp>
 #include <seastar/core/future.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/core/scattered_message.hh>
 #include <seastar/util/std-compat.hh>
+
+namespace bi = boost::intrusive;
 
 namespace seastar {
 
@@ -358,6 +361,8 @@ class output_stream final {
     bool _flush = false;
     bool _flushing = false;
     std::exception_ptr _ex;
+    bi::slist_member_hook<> _in_poller;
+
 private:
     size_t available() const noexcept { return _end - _begin; }
     size_t possibly_available() const noexcept { return _size - _begin; }
@@ -416,6 +421,10 @@ public:
     ///
     /// \returns the data_sink
     data_sink detach() &&;
+
+    using batch_flush_list_t = bi::slist<output_stream,
+            bi::constant_time_size<false>, bi::cache_last<true>,
+            bi::member_hook<output_stream, bi::slist_member_hook<>, &output_stream::_in_poller>>;
 private:
     friend class reactor;
 };

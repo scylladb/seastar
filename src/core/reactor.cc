@@ -2375,11 +2375,11 @@ void reactor::force_poll() {
 
 bool
 reactor::flush_tcp_batches() {
-    bool work = _flush_batching.size();
+    bool work = !_flush_batching.empty();
     while (!_flush_batching.empty()) {
-        auto os = std::move(_flush_batching.front());
+        auto& os = _flush_batching.front();
         _flush_batching.pop_front();
-        os->poll_flush();
+        os.poll_flush();
     }
     return work;
 }
@@ -4344,8 +4344,8 @@ future<> later() noexcept {
     return check_for_io_immediately();
 }
 
-void add_to_flush_poller(output_stream<char>* os) {
-    engine()._flush_batching.emplace_back(os);
+void add_to_flush_poller(output_stream<char>& os) noexcept {
+    engine()._flush_batching.push_back(os);
 }
 
 steady_clock_type::duration reactor::total_idle_time() {
