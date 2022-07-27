@@ -147,7 +147,7 @@ aio_storage_context::handle_aio_error(linux_abi::iocb* iocb, int ec) {
         case EAGAIN:
             return 0;
         case EBADF: {
-            auto desc = reinterpret_cast<kernel_completion*>(get_user_data(*iocb));
+            auto desc = get_user_data<kernel_completion>(*iocb);
             _iocb_pool.put_one(iocb);
             desc->complete_with(-EBADF);
             // if EBADF, it means that the first request has a bad fd, so
@@ -278,7 +278,7 @@ bool aio_storage_context::reap_completions(bool allow_retry)
             continue;
         }
         _iocb_pool.put_one(iocb);
-        auto desc = reinterpret_cast<kernel_completion*>(_ev_buffer[i].data);
+        auto desc = get_user_data<kernel_completion>(_ev_buffer[i]);
         desc->complete_with(_ev_buffer[i].res);
     }
     return n;
@@ -428,7 +428,7 @@ bool preempt_io_context::service_preempting_io() {
     assert(r != -1);
     bool did_work = r > 0;
     for (unsigned i = 0; i != unsigned(r); ++i) {
-        auto desc = reinterpret_cast<kernel_completion*>(a[i].data);
+        auto desc = get_user_data<kernel_completion>(a[i]);
         desc->complete_with(a[i].res);
     }
     return did_work;
@@ -468,7 +468,7 @@ bool reactor_backend_aio::await_events(int timeout, const sigset_t* active_sigma
         for (unsigned i = 0; i != unsigned(r); ++i) {
             did_work = true;
             auto& event = batch[i];
-            auto* desc = reinterpret_cast<kernel_completion*>(uintptr_t(event.data));
+            auto* desc = get_user_data<kernel_completion>(event);
             desc->complete_with(event.res);
         }
         // For the next iteration, don't use a timeout, since we may have waited already

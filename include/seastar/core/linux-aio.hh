@@ -97,7 +97,6 @@ linux_abi::iocb make_writev_iocb(int fd, uint64_t offset, const ::iovec* iov, si
 linux_abi::iocb make_poll_iocb(int fd, uint32_t events);
 
 void set_user_data(linux_abi::iocb& iocb, void* data);
-void* get_user_data(const linux_abi::iocb& iocb);
 void set_nowait(linux_abi::iocb& iocb, bool nowait);
 
 void set_eventfd_notification(linux_abi::iocb& iocb, int eventfd);
@@ -194,10 +193,14 @@ set_user_data(linux_abi::iocb& iocb, void* data) {
     iocb.aio_data = reinterpret_cast<uintptr_t>(data);
 }
 
-inline
-void*
-get_user_data(const linux_abi::iocb& iocb) {
-    return reinterpret_cast<void*>(uintptr_t(iocb.aio_data));
+template <typename T>
+inline T* get_user_data(const linux_abi::iocb& iocb) noexcept {
+    return reinterpret_cast<T*>(uintptr_t(iocb.aio_data));
+}
+
+template <typename T>
+inline T* get_user_data(const linux_abi::io_event& ev) noexcept {
+    return reinterpret_cast<T*>(uintptr_t(ev.data));
 }
 
 inline
