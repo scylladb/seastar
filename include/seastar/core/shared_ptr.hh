@@ -198,7 +198,7 @@ struct lw_shared_ptr_accessors_esft {
     static void dispose(T* value_ptr) {
         delete value_ptr;
     }
-    static void instantiate_to_value(lw_shared_ptr_counter_base* p) {
+    static void instantiate_to_value(lw_shared_ptr_counter_base*) {
         // since to_value() is defined above, we don't need to do anything special
         // to force-instantiate it
     }

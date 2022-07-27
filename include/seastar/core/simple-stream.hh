@@ -28,7 +28,7 @@ namespace seastar {
 class measuring_output_stream {
     size_t _size = 0;
 public:
-    void write(const char* data, size_t size) {
+    void write(const char*, size_t size) {
         _size += size;
     }
 
@@ -95,7 +95,7 @@ public:
     }
 
     [[gnu::always_inline]]
-    const size_t size() const {
+    size_t size() const {
         return _size;
     }
 
@@ -171,7 +171,7 @@ public:
             std::fill_n(fragment.begin(), fragment.size(), c);
         });
     }
-    const size_t size() const {
+    size_t size() const {
         return _size;
     }
 
@@ -364,7 +364,7 @@ public:
     }
 
     [[gnu::always_inline]]
-    const size_t size() const {
+    size_t size() const {
         return _size;
     }
 };
@@ -427,7 +427,7 @@ public:
             bv.copy_to(out);
         });
     }
-    const size_t size() const {
+    size_t size() const {
         return _size;
     }
 
