@@ -388,3 +388,7 @@ struct tuple_element<I, seastar::rpc::tuple<T...>> : tuple_element<I, tuple<T...
 };
 
 }
+
+#if FMT_VERSION >= 90000
+template <> struct fmt::formatter<seastar::rpc::connection_id> : fmt::ostream_formatter {};
+#endif
