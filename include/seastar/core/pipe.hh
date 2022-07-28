@@ -182,6 +182,7 @@ public:
     }
     pipe_reader& operator=(pipe_reader&& other) noexcept {
         std::swap(_bufp, other._bufp);
+        return *this;
     }
 };
 
@@ -221,6 +222,7 @@ public:
     }
     pipe_writer& operator=(pipe_writer&& other) noexcept {
         std::swap(_bufp, other._bufp);
+        return *this;
     }
 };
 
