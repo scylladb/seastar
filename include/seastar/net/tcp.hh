@@ -475,7 +475,7 @@ private:
         void insert_out_of_order(tcp_seq seq, packet p);
         void trim_receive_data_after_window();
         bool should_send_ack(uint16_t seg_len);
-        void clear_delayed_ack();
+        void clear_delayed_ack() noexcept;
         packet get_transmit_packet();
         void retransmit_one() {
             bool data_retransmit = true;
@@ -489,7 +489,7 @@ private:
             auto tp = now + _rto;
             _retransmit.rearm(tp);
         };
-        void stop_retransmit_timer() {
+        void stop_retransmit_timer() noexcept {
             _retransmit.cancel();
         };
         void start_persist_timer() {
@@ -1865,7 +1865,7 @@ bool tcp<InetTraits>::tcb::should_send_ack(uint16_t seg_len) {
 }
 
 template <typename InetTraits>
-void tcp<InetTraits>::tcb::clear_delayed_ack() {
+void tcp<InetTraits>::tcb::clear_delayed_ack() noexcept {
     _delayed_ack.cancel();
 }
 
