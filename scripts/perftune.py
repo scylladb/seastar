@@ -680,7 +680,7 @@ class NetPerfTuner(PerfTunerBase):
         We want to put the Flow Director's IRQ at the end of the sorted list of IRQs.
 
         :param irq: IRQ number
-        :return: HW queue index for Intel NICs and 0 for all other NICs
+        :return: HW queue index for Intel NICs and sys.maxsize for all other NICs
         """
         intel_fp_irq_re = re.compile("\-TxRx\-(\d+)")
         fdir_re = re.compile("fdir\-TxRx\-\d+")
@@ -705,7 +705,7 @@ class NetPerfTuner(PerfTunerBase):
              mlx4-<index>
 
         :param irq: IRQ number
-        :return: HW queue index for Mellanox NICs and 0 for all other NICs
+        :return: HW queue index for Mellanox NICs and sys.maxsize for all other NICs
         """
         mlx5_fp_irq_re = re.compile("mlx5_comp(\d+)")
         mlx4_fp_irq_re = re.compile("mlx4\-(\d+)")
