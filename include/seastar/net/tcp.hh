@@ -708,8 +708,8 @@ public:
             return _tcb->_local_port;
         }
         void shutdown_connect();
-        void close_read();
-        void close_write();
+        void close_read() noexcept;
+        void close_write() noexcept;
     };
     class listener {
         tcp& _tcp;
@@ -2101,12 +2101,12 @@ std::optional<typename InetTraits::l4packet> tcp<InetTraits>::tcb::get_packet() 
 }
 
 template <typename InetTraits>
-void tcp<InetTraits>::connection::close_read() {
+void tcp<InetTraits>::connection::close_read() noexcept {
     _tcb->abort_reader();
 }
 
 template <typename InetTraits>
-void tcp<InetTraits>::connection::close_write() {
+void tcp<InetTraits>::connection::close_write() noexcept {
     _tcb->close();
 }
 
