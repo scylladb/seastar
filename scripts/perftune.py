@@ -720,6 +720,30 @@ class NetPerfTuner(PerfTunerBase):
 
         return sys.maxsize
 
+    def __virtio_irq_to_queue_idx(self, irq):
+        """
+        Return the HW queue index for a given IRQ for VIRTIO in order to sort the IRQs' list by this index.
+
+        VIRTIO NICs have the IRQ's name that looks like this:
+        Queue K of a device virtioY, where Y is some integer is comprised of 2 IRQs
+        with following names:
+          * Tx IRQ:
+               virtioY-output.K
+          * Rx IRQ:
+               virtioY-input.K
+
+        :param irq: IRQ number
+        :return: HW queue index for VIRTIO fast path IRQ and sys.maxsize for all other IRQs
+        """
+        virtio_fp_re = re.compile(r"virtio\d+-(input|output)\.(\d+)$")
+
+        virtio_fp_irq = virtio_fp_re.search(self.__irqs2procline[irq])
+        if virtio_fp_irq:
+            return int(virtio_fp_irq.group(2))
+
+        return sys.maxsize
+
+
     def __get_driver_name(self, iface):
         """
         :param iface: Interface to check
@@ -754,6 +778,7 @@ class NetPerfTuner(PerfTunerBase):
                       mlx4-<queue idx>@<bla-bla>
                       or for mlx5
                       mlx5_comp<queue idx>@<bla-bla>
+          - VIRTIO: virtioN-[input|output].D
 
         So, we will try to filter the etries in /proc/interrupts for IRQs we've got from get_all_irqs_one()
         according to the patterns above.
@@ -768,12 +793,14 @@ class NetPerfTuner(PerfTunerBase):
         """
         # filter 'all_irqs' to only reference valid keys from 'irqs2procline' and avoid an IndexError on the 'irqs' search below
         all_irqs = set(learn_all_irqs_one("/sys/class/net/{}/device".format(iface), self.__irqs2procline, iface)).intersection(self.__irqs2procline.keys())
-        fp_irqs_re = re.compile("\-TxRx\-|\-fp\-|\-Tx\-Rx\-|mlx4-\d+@|mlx5_comp\d+@")
-        irqs = list(filter(lambda irq : fp_irqs_re.search(self.__irqs2procline[irq]), all_irqs))
+        fp_irqs_re = re.compile("\-TxRx\-|\-fp\-|\-Tx\-Rx\-|mlx4-\d+@|mlx5_comp\d+@|virtio\d+-(input|output)")
+        irqs = sorted(list(filter(lambda irq : fp_irqs_re.search(self.__irqs2procline[irq]), all_irqs)))
         if irqs:
             driver_name = self.__get_driver_name(iface)
             if (driver_name.startswith("mlx")):
                 irqs.sort(key=self.__mlx_irq_to_queue_idx)
+            elif driver_name.startswith("virtio"):
+                irqs.sort(key=self.__virtio_irq_to_queue_idx)
             else:
                 irqs.sort(key=self.__intel_irq_to_queue_idx)
             return irqs
