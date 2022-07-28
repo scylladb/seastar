@@ -1467,7 +1467,7 @@ public:
         // below, get pre-empted, have "close()" finish, get freed, and 
         // then call wait_for_eof on stale pointer.
     }
-    void close() {
+    void close() noexcept {
         // only do once.
         if (!std::exchange(_shutdown, true)) {
             auto me = shared_from_this();
