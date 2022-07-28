@@ -625,20 +625,20 @@ private:
             _snd.unacknowledged += 1;
             _snd.next += 1;
         }
-        bool syn_needs_on() {
+        bool syn_needs_on() const noexcept {
             return in_state(SYN_SENT | SYN_RECEIVED);
         }
-        bool fin_needs_on() {
+        bool fin_needs_on() const noexcept {
             return in_state(FIN_WAIT_1 | CLOSING | LAST_ACK) && _snd.closed &&
                    _snd.unsent_len == 0;
         }
-        bool ack_needs_on() {
+        bool ack_needs_on() const noexcept {
             return !in_state(CLOSED | LISTEN | SYN_SENT);
         }
-        bool foreign_will_not_send() {
+        bool foreign_will_not_send() const noexcept {
             return in_state(CLOSING | TIME_WAIT | CLOSE_WAIT | LAST_ACK | CLOSED);
         }
-        bool in_state(tcp_state state) {
+        bool in_state(tcp_state state) const noexcept {
             return uint16_t(_state) & uint16_t(state);
         }
         void exit_fast_recovery() {
