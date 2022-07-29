@@ -109,6 +109,7 @@ public:
                 return _x++ >= limit ? kind : error::none;
             }
         } server_rcv = {}, server_snd = {}, client_rcv = {}, client_snd = {};
+        error connect_kind = error::none;
     };
 private:
     config _cfg;
@@ -130,37 +131,34 @@ public:
     error client_snd_error() override {
         return _cfg.client_snd.inject();
     }
+
+    error connect_error() override {
+        return _cfg.connect_kind;
+    }
 };
 
 class rpc_socket_impl : public ::net::socket_impl {
-    promise<connected_socket> _p;
-    bool _connect;
     rpc_loopback_error_injector _error_injector;
     loopback_socket_impl _socket;
 public:
-    rpc_socket_impl(loopback_connection_factory& factory, bool connect, std::optional<rpc_loopback_error_injector::config> inject_error)
-            : _connect(connect),
+    rpc_socket_impl(loopback_connection_factory& factory, std::optional<rpc_loopback_error_injector::config> inject_error)
+            :
               _error_injector(inject_error.value_or(rpc_loopback_error_injector::config{})),
               _socket(factory, inject_error ? &_error_injector : nullptr) {
     }
     virtual future<connected_socket> connect(socket_address sa, socket_address local, transport proto = transport::TCP) override {
-        return _connect ? _socket.connect(sa, local, proto) : _p.get_future();
+        return _socket.connect(sa, local, proto);
     }
     virtual void set_reuseaddr(bool reuseaddr) override {}
     virtual bool get_reuseaddr() const override { return false; };
     virtual void shutdown() override {
-        if (_connect) {
-            _socket.shutdown();
-        } else {
-            _p.set_exception(std::make_exception_ptr(std::system_error(ECONNABORTED, std::system_category())));
-        }
+        _socket.shutdown();
     }
 };
 
 struct rpc_test_config {
     rpc::resource_limits resource_limits = {};
     rpc::server_options server_options = {};
-    bool connect = true;
     std::optional<rpc_loopback_error_injector::config> inject_error;
 };
 
@@ -254,11 +252,11 @@ public:
     }
 
     auto make_socket() {
-        return seastar::socket(std::make_unique<rpc_socket_impl>(_lcf, _cfg.connect, std::nullopt));
+        return seastar::socket(std::make_unique<rpc_socket_impl>(_lcf, _cfg.inject_error));
     };
 
     auto make_stream_socket() {
-        return seastar::socket(std::make_unique<rpc_socket_impl>(_lcf, _cfg.connect, _cfg.inject_error));
+        return seastar::socket(std::make_unique<rpc_socket_impl>(_lcf, _cfg.inject_error));
     };
 
     test_rpc_proto& proto() {
@@ -394,7 +392,9 @@ SEASTAR_TEST_CASE(test_rpc_connect_multi_compression_algo) {
 
 SEASTAR_TEST_CASE(test_rpc_connect_abort) {
     rpc_test_config cfg;
-    cfg.connect = false;
+    rpc_loopback_error_injector::config ecfg;
+    ecfg.connect_kind = loopback_error_injector::error::abort;
+    cfg.inject_error = ecfg;
     return rpc_test_env<>::do_with_thread(cfg, [] (rpc_test_env<>& env) {
         test_rpc_proto::client c1(env.proto(), {}, env.make_socket(), ipv4_addr());
         env.register_handler(1, []() { return make_ready_future<>(); }).get();
@@ -1291,7 +1291,9 @@ SEASTAR_TEST_CASE(test_rpc_variadic_client_nonvariadic_server) {
 
 SEASTAR_TEST_CASE(test_handler_registration) {
     rpc_test_config cfg;
-    cfg.connect = false;
+    rpc_loopback_error_injector::config ecfg;
+    ecfg.connect_kind = loopback_error_injector::error::abort;
+    cfg.inject_error = ecfg;
     return rpc_test_env<>::do_with_thread(cfg, [] (rpc_test_env<>& env) {
         auto& proto = env.proto();
 
