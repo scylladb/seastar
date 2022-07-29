@@ -87,6 +87,7 @@ class logger {
     static std::ostream* _out;
     static std::atomic<bool> _ostream;
     static std::atomic<bool> _syslog;
+    static unsigned _shard_field_width;
     static inline thread_local bool silent = false;
 
 public:
@@ -414,6 +415,15 @@ public:
     ///       this should be rare (will have to fill the pipe buffer
     ///       before syslogd can clear it) but can happen.
     static void set_syslog_enabled(bool enabled) noexcept;
+
+    /// Set the width of shard id field in log messages
+    ///
+    /// \c this_shard_id() is printed as a part of the prefix in logging
+    /// messages, like "[shard 42]", where \c 42 is the decimal number of the
+    /// current shard id printed with a minimal width.
+    ///
+    /// \param width the minimal width of the shard id field
+    static void set_shard_field_width(unsigned width) noexcept;
 };
 
 /// \brief used to keep a static registry of loggers

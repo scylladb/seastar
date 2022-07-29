@@ -64,6 +64,7 @@
 #include "cgroup.hh"
 #include "uname.hh"
 #include <cassert>
+#include <cmath>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/eventfd.h>
@@ -3935,6 +3936,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
         nr_cpus = cpu_set.size();
     }
     smp::count = nr_cpus;
+    logger::set_shard_field_width(std::ceil(std::log10(smp::count)));
     std::vector<reactor*> reactors(nr_cpus);
     if (smp_opts.memory) {
         rc.total_memory = parse_memory_size(smp_opts.memory.get_value());
