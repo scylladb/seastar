@@ -232,6 +232,7 @@ std::istream& operator>>(std::istream& in, log_level& level) {
 std::ostream* logger::_out = &std::cerr;
 std::atomic<bool> logger::_ostream = { true };
 std::atomic<bool> logger::_syslog = { false };
+unsigned logger::_shard_field_width = 1;
 
 logger::logger(sstring name) : _name(std::move(name)) {
     global_logger_registry().register_logger(this);
@@ -277,7 +278,7 @@ logger::do_log(log_level level, log_writer& writer) {
     };
     auto print_once = [&] (internal::log_buf::inserter_iterator it) {
       if (local_engine) {
-          it = fmt::format_to(it, " [shard {}]", this_shard_id());
+          it = fmt::format_to(it, " [shard {:{}}]", this_shard_id(), _shard_field_width);
       }
       it = fmt::format_to(it, " {} - ", _name);
       return writer(it);
@@ -353,6 +354,11 @@ logger::set_stdout_enabled(bool enabled) noexcept {
 void
 logger::set_syslog_enabled(bool enabled) noexcept {
     _syslog.store(enabled, std::memory_order_relaxed);
+}
+
+void
+logger::set_shard_field_width(unsigned width) noexcept {
+    _shard_field_width = width;
 }
 
 bool logger::is_shard_zero() noexcept {
