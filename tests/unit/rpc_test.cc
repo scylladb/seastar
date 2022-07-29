@@ -255,10 +255,6 @@ public:
         return seastar::socket(std::make_unique<rpc_socket_impl>(_lcf, _cfg.inject_error));
     };
 
-    auto make_stream_socket() {
-        return seastar::socket(std::make_unique<rpc_socket_impl>(_lcf, _cfg.inject_error));
-    };
-
     test_rpc_proto& proto() {
         return local_service().proto();
     }
@@ -537,7 +533,7 @@ future<stream_test_result> stream_test_func(rpc_test_env<>& env, bool stop_clien
         struct failed_to_create_sync{};
         auto x = [&] {
             try {
-                return c.make_stream_sink<serializer, int>(env.make_stream_socket()).get0();
+                return c.make_stream_sink<serializer, int>(env.make_socket()).get0();
             } catch (...) {
                 c.stop().get();
                 throw failed_to_create_sync{};
