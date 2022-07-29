@@ -489,8 +489,8 @@ class NetPerfTuner(PerfTunerBase):
         # check that self.nics contain a HW device or a bonding interface
         self.__check_nics()
 
-        self.__irqs2procline = get_irqs2procline_map()
-        self.__nic2irqs = self.__learn_irqs()
+        # Fetch IRQs related info
+        self.__get_irqs_info()
 
 
 #### Public methods ############################
@@ -550,6 +550,10 @@ class NetPerfTuner(PerfTunerBase):
         return itertools.chain.from_iterable(self.__nic2irqs.values())
 
 #### Private methods ############################
+    def __get_irqs_info(self):
+        self.__irqs2procline = get_irqs2procline_map()
+        self.__nic2irqs = self.__learn_irqs()
+
     @property
     def __rfs_table_size(self):
         return 32768
@@ -796,16 +800,63 @@ class NetPerfTuner(PerfTunerBase):
         fp_irqs_re = re.compile("\-TxRx\-|\-fp\-|\-Tx\-Rx\-|mlx4-\d+@|mlx5_comp\d+@|virtio\d+-(input|output)")
         irqs = sorted(list(filter(lambda irq : fp_irqs_re.search(self.__irqs2procline[irq]), all_irqs)))
         if irqs:
-            driver_name = self.__get_driver_name(iface)
-            if (driver_name.startswith("mlx")):
-                irqs.sort(key=self.__mlx_irq_to_queue_idx)
-            elif driver_name.startswith("virtio"):
-                irqs.sort(key=self.__virtio_irq_to_queue_idx)
-            else:
-                irqs.sort(key=self.__intel_irq_to_queue_idx)
+            irqs.sort(key=self.__get_irq_to_queue_idx_functor(iface))
             return irqs
         else:
             return list(all_irqs)
+
+    def __get_irq_to_queue_idx_functor(self, iface):
+        """
+        Get a functor returning a queue index for a given IRQ.
+        This functor is needed for NICs that are known to not release IRQs when the number of Rx
+        channels is reduced or have extra IRQs for non-RSS channels.
+
+        Therefore, for these NICs we need a functor that would allow us to pick IRQs that belong to channels that are
+        going to handle TCP traffic: first X channels, where the value of X depends on the NIC's type and configuration.
+
+        For others, e.g. ENA, or Broadcom, which are only going to allocate IRQs that belong to TCP handling channels,
+        we don't really need to sort them as long as we filter fast path IRQs and distribute them evenly among IRQ CPUs.
+
+        :param iface: NIC's interface name, e.g. eth19
+        :return: A functor that returns a queue index for a given IRQ if a mapping is known
+                 or a constant big integer value if mapping is unknown.
+        """
+        # There are a few known drivers for which we know how to get a queue index from an IRQ name in /proc/interrupts
+        driver_name = self.__get_driver_name(iface)
+
+        # Every functor returns a sys.maxsize for an unknown driver IRQs.
+        # So, choosing Intel's as a default is as good as any other.
+        irq_to_idx_func = self.__intel_irq_to_queue_idx
+        if driver_name.startswith("mlx"):
+            irq_to_idx_func = self.__mlx_irq_to_queue_idx
+        elif driver_name.startswith("virtio"):
+            irq_to_idx_func = self.__virtio_irq_to_queue_idx
+
+        return irq_to_idx_func
+
+    def __irq_lower_bound_by_queue(self, iface, irqs, queue_idx):
+        """
+        Get the index of the first element in irqs array which queue is greater or equal to a given index.
+        IRQs array is supposed to be sorted by queues numbers IRQs belong to.
+
+        There are additional assumptions:
+          * IRQs array items queue numbers are monotonically not decreasing, and if it increases then it increases by
+            one.
+          * Queue indexes are numbered starting from zero.
+
+        :param irqs: IRQs array sorted by queues numbers IRQs belong to
+        :param queue_idx: Queue index to partition by
+        :return: The first index in the IRQs array that corresponds to a queue number greater or equal to a given index
+                 which is at least queue_idx. If there is no such IRQ - returns len(irqs).
+        """
+        irq_to_idx_func = self.__get_irq_to_queue_idx_functor(iface)
+
+        if queue_idx < len(irqs):
+            for idx in range(queue_idx, len(irqs)):
+                if irq_to_idx_func(irqs[idx]) >= queue_idx:
+                    return idx
+
+        return len(irqs)
 
     def __learn_irqs(self):
         """
@@ -831,7 +882,50 @@ class NetPerfTuner(PerfTunerBase):
         """
         return glob.glob("/sys/class/net/{}/queues/*/rps_cpus".format(iface))
 
+    def __set_rx_channels_count(self, iface, count):
+        """
+        Try to set the number of Rx channels of a given interface to a given value.
+
+        Rx channels of any NIC can be configured using 'ethtool -L' command using one of the following semantics:
+
+        ethtool -L <iface> rx <count>
+        or
+        ethtool -L <iface> combined <count>
+
+        If a specific semantics is not supported by a given NIC or if changing the number of channels is not supported
+        ethtool is going to return an error.
+
+        Instead of parsing and trying to detect which one of the following semantics a given interface supports we will
+        simply try to use both semantics till either one of them succeeds or both fail.
+
+
+        :param iface: NIC interface name, e.g. eth4
+        :param count: number of Rx channels we want to configure
+        :return: True if configuration was successful, False otherwise
+        """
+        options = ["rx", "combined"]
+        for o in options:
+            try:
+                cmd = ['ethtool', '-L', iface, o, f"{count}"]
+                perftune_print(f"Executing: {' '.join(cmd)}")
+                run_one_command(cmd, stderr=subprocess.DEVNULL)
+                return True
+            except subprocess.CalledProcessError:
+                pass
+
+        return False
+
     def __setup_one_hw_iface(self, iface):
+        num_irq_cpus = bin(int(self.irqs_cpu_mask, 16)).count('1')
+
+        # Let's try setting the number of Rx channels to the number of IRQ CPUs.
+        #
+        # If we were able to change the number of Rx channels the number of IRQs could have changed.
+        # In this case let's refresh IRQs info.
+        rx_channels_set = self.__set_rx_channels_count(iface, num_irq_cpus)
+        if rx_channels_set:
+            self.__get_irqs_info()
+
         max_num_rx_queues = self.__max_rx_queue_count(iface)
         all_irqs = self.__get_irqs_one(iface)
 
@@ -839,12 +933,13 @@ class NetPerfTuner(PerfTunerBase):
         #
         # If this NIC has a limited number of Rx queues then we want to distribute their IRQs separately.
         # For such NICs we've sorted IRQs list so that IRQs that handle Rx are all at the head of the list.
-        if max_num_rx_queues < len(all_irqs):
+        if rx_channels_set or max_num_rx_queues < len(all_irqs):
             num_rx_queues = self.__get_rx_queue_count(iface)
-            perftune_print("Distributing IRQs handling Rx:")
-            distribute_irqs(all_irqs[0:num_rx_queues], self.irqs_cpu_mask)
+            tcp_irqs_lower_bound = self.__irq_lower_bound_by_queue(iface, all_irqs, num_rx_queues)
+            perftune_print(f"Distributing IRQs handling Rx and Tx for first {num_rx_queues} channels:")
+            distribute_irqs(all_irqs[0:tcp_irqs_lower_bound], self.irqs_cpu_mask)
             perftune_print("Distributing the rest of IRQs")
-            distribute_irqs(all_irqs[num_rx_queues:], self.irqs_cpu_mask)
+            distribute_irqs(all_irqs[tcp_irqs_lower_bound:], self.irqs_cpu_mask)
         else:
             perftune_print("Distributing all IRQs")
             distribute_irqs(all_irqs, self.irqs_cpu_mask)
