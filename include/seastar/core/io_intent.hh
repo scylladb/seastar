@@ -21,13 +21,9 @@
 
 #pragma once
 
-#include <boost/intrusive/list.hpp>
-#include <boost/intrusive/slist.hpp>
 #include <boost/container/small_vector.hpp>
 #include <seastar/core/internal/io_intent.hh>
 #include <seastar/core/io_priority_class.hh>
-
-namespace bi = boost::intrusive;
 
 namespace seastar {
 
