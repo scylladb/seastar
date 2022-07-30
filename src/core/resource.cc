@@ -513,7 +513,10 @@ resources allocate(configuration& c) {
     unsigned available_procs = hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_PU);
     unsigned procs = c.cpus.value_or(available_procs);
     if (procs > available_procs) {
-        throw std::runtime_error("insufficient processing units");
+        throw std::runtime_error(format("insufficient processing units: needed {} available {}", procs, available_procs));
+    }
+    if (procs == 0) {
+        throw std::runtime_error("number of processing units must be positive");
     }
     // limit memory address to fit in 36-bit, see core/memory.cc:Memory map
     constexpr size_t max_mem_per_proc = 1UL << 36;
