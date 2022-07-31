@@ -359,6 +359,9 @@ void impl::add_registration(const metric_id& id, const metric_type& type, metric
             throw std::runtime_error("registering metrics " + name + " registered with different type.");
         }
         metric[id.labels()] = rm;
+        for (auto&& i : id.labels()) {
+            _labels.insert(i.first);
+        }
     } else {
         _value_map[name].info().type = type.base_type;
         _value_map[name].info().d = d;
