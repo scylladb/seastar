@@ -42,7 +42,7 @@ SEASTAR_CONCEPT(
 // This class satisfies 'aborter' concept and is used by default
 template<typename... T>
 struct noop_aborter {
-    void operator()(T... x) noexcept {};
+    void operator()(T...) noexcept {};
 };
 
 

@@ -227,12 +227,12 @@ struct marshall_one {
         out.write(id.c_str(), id.size());
     }
     template <typename... T> struct helper<sink<T...>> {
-        static void doit(Serializer& serializer, Output& out, const sink<T...>& arg) {
+        static void doit(Serializer&, Output& out, const sink<T...>& arg) {
             put_connection_id(arg.get_id(), out);
         }
     };
     template <typename... T> struct helper<source<T...>> {
-        static void doit(Serializer& serializer, Output& out, const source<T...>& arg) {
+        static void doit(Serializer&, Output& out, const source<T...>& arg) {
             put_connection_id(arg.get_id(), out);
         }
     };
@@ -401,7 +401,7 @@ struct rcv_reply<Serializer, future<T...>> : rcv_reply_base<std::tuple<T...>, T.
 
 template<typename Serializer>
 struct rcv_reply<Serializer, void> : rcv_reply_base<void, void> {
-    inline void get_reply(rpc::client& dst, rcv_buf input) {
+    inline void get_reply(rpc::client&, rcv_buf) {
         this->set_value();
     }
 };
@@ -431,14 +431,14 @@ inline auto wait_for_reply(wait_type, std::optional<rpc_clock_type::time_point> 
 }
 
 template<typename Serializer, typename... InArgs>
-inline auto wait_for_reply(no_wait_type, std::optional<rpc_clock_type::time_point>, cancellable* cancel, rpc::client& dst, id_type msg_id,
-        signature<no_wait_type (InArgs...)> sig) {  // no_wait overload
+inline auto wait_for_reply(no_wait_type, std::optional<rpc_clock_type::time_point>, cancellable*, rpc::client&, id_type,
+        signature<no_wait_type (InArgs...)>) {  // no_wait overload
     return make_ready_future<>();
 }
 
 template<typename Serializer, typename... InArgs>
-inline auto wait_for_reply(no_wait_type, std::optional<rpc_clock_type::time_point>, cancellable* cancel, rpc::client& dst, id_type msg_id,
-        signature<future<no_wait_type> (InArgs...)> sig) {  // future<no_wait> overload
+inline auto wait_for_reply(no_wait_type, std::optional<rpc_clock_type::time_point>, cancellable*, rpc::client&, id_type,
+        signature<future<no_wait_type> (InArgs...)>) {  // future<no_wait> overload
     return make_ready_future<>();
 }
 
@@ -537,7 +537,7 @@ inline future<> reply(wait_type, future<RetTypes SEASTAR_ELLIPSIS>&& ret, int64_
 
 // specialization for no_wait_type which does not send a reply
 template<typename Serializer>
-inline future<> reply(no_wait_type, future<no_wait_type>&& r, int64_t msgid, shared_ptr<server::connection> client, std::optional<rpc_clock_type::time_point> timeout) {
+inline future<> reply(no_wait_type, future<no_wait_type>&& r, int64_t msgid, shared_ptr<server::connection> client, std::optional<rpc_clock_type::time_point>) {
     try {
         r.get();
     } catch (std::exception& ex) {

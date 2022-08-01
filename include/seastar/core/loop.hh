@@ -505,7 +505,7 @@ iterator_range_estimate_vector_capacity(Iterator const&, Sentinel const&, Iterat
 template <typename Iterator, typename Sentinel>
 inline
 size_t
-iterator_range_estimate_vector_capacity(Iterator begin, Sentinel end, std::forward_iterator_tag category) {
+iterator_range_estimate_vector_capacity(Iterator begin, Sentinel end, std::forward_iterator_tag) {
     // May be linear time below random_access_iterator_tag, but still better than reallocation
     return std::distance(begin, end);
 }
