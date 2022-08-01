@@ -139,7 +139,7 @@ private:
             return *this;
         }
         // postfix
-        cbiterator<CB, ValueType> operator++(int unused) noexcept {
+        cbiterator<CB, ValueType> operator++(int) noexcept {
             auto v = *this;
             idx++;
             return v;
@@ -150,7 +150,7 @@ private:
             return *this;
         }
         // postfix
-        cbiterator<CB, ValueType> operator--(int unused) noexcept {
+        cbiterator<CB, ValueType> operator--(int) noexcept {
             auto v = *this;
             idx--;
             return v;

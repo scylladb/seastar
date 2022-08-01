@@ -197,7 +197,7 @@ inline unsigned long scheduling_group_key_id(scheduling_group_key key) noexcept 
  * for suporting \ref make_scheduling_group_key_config
  */
 template<typename ConstructorType, typename Tuple, size_t...Idx>
-void apply_constructor(void* pre_alocated_mem, Tuple args, std::index_sequence<Idx...> idx_seq) {
+void apply_constructor(void* pre_alocated_mem, Tuple args, std::index_sequence<Idx...>) {
     new (pre_alocated_mem) ConstructorType(std::get<Idx>(args)...);
 }
 }

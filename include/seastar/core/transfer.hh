@@ -66,7 +66,7 @@ transfer_pass1(Alloc& a, T* from, T* to,
 template <typename T, typename Alloc>
 inline
 void
-transfer_pass2(Alloc& a, T* from, T* to,
+transfer_pass2(Alloc& a, T* from, T*,
         typename std::enable_if<!std::is_nothrow_move_constructible<T>::value>::type* = nullptr) {
     std::allocator_traits<Alloc>::destroy(a, from);
 }

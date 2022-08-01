@@ -62,7 +62,7 @@ struct rovers<T, capped_release::yes> {
 
     rovers(T limit) noexcept : tail(0), head(0), ceil(limit) {}
 
-    T max_extra(T limit) const noexcept {
+    T max_extra(T) const noexcept {
         return wrapping_difference(ceil.load(std::memory_order_relaxed), head.load(std::memory_order_relaxed));
     }
 
@@ -78,13 +78,13 @@ struct rovers<T, capped_release::no> {
     atomic_rover tail;
     atomic_rover head;
 
-    rovers(T limit) noexcept : tail(0), head(0) {}
+    rovers(T) noexcept : tail(0), head(0) {}
 
     T max_extra(T limit) const noexcept {
         return wrapping_difference(tail.load(std::memory_order_relaxed) + limit, head.load(std::memory_order_relaxed));
     }
 
-    void release(T tokens) {
+    void release(T) {
         std::abort(); // FIXME shouldn't even be compiled
     }
 };

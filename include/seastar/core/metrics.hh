@@ -637,7 +637,7 @@ impl::metric_definition_impl make_summary(metric_name_type name,
 template<typename T>
 impl::metric_definition_impl make_total_bytes(metric_name_type name,
         T&& val, description d=description(), std::vector<label_instance> labels = {},
-        instance_id_type instance = impl::shard()) {
+        instance_id_type = impl::shard()) {
     return make_counter(name, std::forward<T>(val), d, labels).set_type("total_bytes");
 }
 
@@ -651,7 +651,7 @@ impl::metric_definition_impl make_total_bytes(metric_name_type name,
 template<typename T>
 impl::metric_definition_impl make_current_bytes(metric_name_type name,
         T&& val, description d=description(), std::vector<label_instance> labels = {},
-        instance_id_type instance = impl::shard()) {
+        instance_id_type = impl::shard()) {
     return make_gauge(name, std::forward<T>(val), d, labels).set_type("bytes");
 }
 
@@ -665,7 +665,7 @@ impl::metric_definition_impl make_current_bytes(metric_name_type name,
 template<typename T>
 impl::metric_definition_impl make_queue_length(metric_name_type name,
         T&& val, description d=description(), std::vector<label_instance> labels = {},
-        instance_id_type instance = impl::shard()) {
+        instance_id_type = impl::shard()) {
     return make_gauge(name, std::forward<T>(val), d, labels).set_type("queue_length");
 }
 
@@ -679,7 +679,7 @@ impl::metric_definition_impl make_queue_length(metric_name_type name,
 template<typename T>
 impl::metric_definition_impl make_total_operations(metric_name_type name,
         T&& val, description d=description(), std::vector<label_instance> labels = {},
-        instance_id_type instance = impl::shard()) {
+        instance_id_type = impl::shard()) {
     return make_counter(name, std::forward<T>(val), d, labels).set_type("total_operations");
 }
 

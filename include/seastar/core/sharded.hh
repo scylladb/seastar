@@ -673,7 +673,7 @@ future<> sharded_call_stop<true>::call(Service& instance) {
 template <>
 template <typename Service>
 inline
-future<> sharded_call_stop<false>::call(Service& instance) {
+future<> sharded_call_stop<false>::call(Service&) {
     return make_ready_future<>();
 }
 
