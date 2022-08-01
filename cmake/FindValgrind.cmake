@@ -44,7 +44,7 @@ set (Valgrind_INCLUDE_DIRS ${Valgrind_INCLUDE_DIR})
 if (Valgrind_FOUND AND NOT (TARGET Valgrind::valgrind))
   add_library (Valgrind::valgrind INTERFACE IMPORTED)
 
-  set_target_properties (hwloc::hwloc
+  set_target_properties (Valgrind::valgrind
     PROPERTIES
       INTERFACE_INCLUDE_DIRECTORIES ${Valgrind_INCLUDE_DIRS})
 endif ()
