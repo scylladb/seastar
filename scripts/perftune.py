@@ -916,13 +916,17 @@ class NetPerfTuner(PerfTunerBase):
         return False
 
     def __setup_one_hw_iface(self, iface):
-        num_irq_cpus = bin(int(self.irqs_cpu_mask, 16)).count('1')
+        # Set Rx channels count to a number of IRQ CPUs unless an explicit count is given
+        if self.args.num_rx_queues is not None:
+            num_rx_channels = self.args.num_rx_queues
+        else:
+            num_rx_channels = bin(int(self.irqs_cpu_mask, 16)).count('1')
 
         # Let's try setting the number of Rx channels to the number of IRQ CPUs.
         #
         # If we were able to change the number of Rx channels the number of IRQs could have changed.
         # In this case let's refresh IRQs info.
-        rx_channels_set = self.__set_rx_channels_count(iface, num_irq_cpus)
+        rx_channels_set = self.__set_rx_channels_count(iface, num_rx_channels)
         if rx_channels_set:
             self.__get_irqs_info()
 
@@ -1488,6 +1492,7 @@ argp.add_argument('--dump-options-file', action='store_true', help="Print the co
 argp.add_argument('--dry-run', action='store_true', help="Don't take any action, just recommend what to do.")
 argp.add_argument('--write-back-cache', help="Enable/Disable \'write back\' write cache mode.", dest="set_write_back")
 argp.add_argument('--arfs', help="Enable/Disable aRFS", dest="enable_arfs")
+argp.add_argument('--num-rx-queues', help="Set a given number of Rx queues", type=int)
 
 def parse_cpu_mask_from_yaml(y, field_name, fname):
     hex_32bit_pattern='0x[0-9a-fA-F]{1,8}'
@@ -1565,6 +1570,9 @@ def parse_options_file(prog_args):
     if 'arfs' in y:
         prog_args.enable_arfs = distutils.util.strtobool("{}".format(y['arfs']))
 
+    if 'num_rx_queues' in y:
+        prog_args.num_rx_queues = int(y['num_rx_queues'])
+
 def dump_config(prog_args):
     prog_options = {}
 
@@ -1597,6 +1605,9 @@ def dump_config(prog_args):
 
     if prog_args.enable_arfs is not None:
         prog_options['arfs'] = prog_args.enable_arfs
+
+    if prog_args.num_rx_queues is not None:
+        prog_options['num_rx_queues'] = f"{prog_args.num_rx_queues}"
 
     perftune_print(yaml.dump(prog_options, default_flow_style=False))
 ################################################################################
