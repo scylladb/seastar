@@ -144,6 +144,10 @@
 
 namespace seastar {
 
+static_assert(posix::shutdown_mask(SHUT_RD) == posix::rcv_shutdown);
+static_assert(posix::shutdown_mask(SHUT_WR) == posix::snd_shutdown);
+static_assert(posix::shutdown_mask(SHUT_RDWR) == (posix::snd_shutdown | posix::rcv_shutdown));
+
 struct mountpoint_params {
     std::string mountpoint = "none";
     uint64_t read_bytes_rate = std::numeric_limits<uint64_t>::max();
@@ -1025,7 +1029,7 @@ void reactor::abort_reader(pollable_fd_state& fd) {
     // TCP will respond to shutdown(SHUT_RD) by returning ECONNABORT on the next read,
     // but UDP responds by returning AGAIN. The no_more_recv flag tells us to convert
     // EAGAIN to ECONNABORT in that case.
-    fd.no_more_recv = true;
+    fd.shutdown_mask |= posix::shutdown_mask(SHUT_RD);
     return fd.fd.shutdown(SHUT_RD);
 }
 
@@ -1033,7 +1037,7 @@ void reactor::abort_writer(pollable_fd_state& fd) {
     // TCP will respond to shutdown(SHUT_WR) by returning ECONNABORT on the next write,
     // but UDP responds by returning AGAIN. The no_more_recv flag tells us to convert
     // EAGAIN to ECONNABORT in that case.
-    fd.no_more_send = true;
+    fd.shutdown_mask |= posix::shutdown_mask(SHUT_WR);
     return fd.fd.shutdown(SHUT_WR);
 }
 
@@ -1531,13 +1535,13 @@ reactor::posix_reuseport_detect() {
 }
 
 void pollable_fd_state::maybe_no_more_recv() {
-    if (no_more_recv) {
+    if (shutdown_mask & posix::rcv_shutdown) {
         throw std::system_error(std::error_code(ECONNABORTED, std::system_category()));
     }
 }
 
 void pollable_fd_state::maybe_no_more_send() {
-    if (no_more_send) {
+    if (shutdown_mask & posix::snd_shutdown) {
         throw std::system_error(std::error_code(ECONNABORTED, std::system_category()));
     }
 }

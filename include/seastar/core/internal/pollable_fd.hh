@@ -64,8 +64,7 @@ public:
     void speculate_epoll(int events) { events_known |= events; }
     file_desc fd;
     bool events_rw = false;   // single consumer for both read and write (accept())
-    bool no_more_recv = false; // For udp, there is no shutdown indication from the kernel
-    bool no_more_send = false; // For udp, there is no shutdown indication from the kernel
+    unsigned shutdown_mask = 0;  // For udp, there is no shutdown indication from the kernel
     int events_requested = 0; // wanted by pollin/pollout promises
     int events_epoll = 0;     // installed in epoll
     int events_known = 0;     // returned from epoll
