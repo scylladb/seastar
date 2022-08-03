@@ -85,6 +85,11 @@ void* internal::allocate_aligned_buffer_impl(size_t size, size_t align) {
 
 namespace memory {
 
+// We always create the logger object for memory disagnostics, even in
+// in SEASTAR_DEFAULT_ALLOCATOR builds, though it only logs when the
+// seastar allocator is enabled.
+seastar::logger seastar_memory_logger("seastar_memory");
+
 static thread_local int abort_on_alloc_failure_suppressed = 0;
 
 disable_abort_on_alloc_failure_temporarily::disable_abort_on_alloc_failure_temporarily() {
@@ -188,8 +193,6 @@ namespace seastar {
 using allocation_site_ptr = const allocation_site*;
 
 namespace memory {
-
-seastar::logger seastar_memory_logger("seastar_memory");
 
 [[gnu::unused]]
 static allocation_site_ptr get_allocation_site();
