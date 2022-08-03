@@ -426,16 +426,6 @@ future<> pollable_fd_state::readable_or_writeable() {
     return engine().readable_or_writeable(*this);
 }
 
-void
-pollable_fd_state::abort_reader() {
-    engine().abort_reader(*this);
-}
-
-void
-pollable_fd_state::abort_writer() {
-    engine().abort_writer(*this);
-}
-
 future<std::tuple<pollable_fd, socket_address>> pollable_fd_state::accept() {
     return engine()._backend->accept(*this);
 }
@@ -1025,22 +1015,6 @@ future<> reactor::readable_or_writeable(pollable_fd_state& fd) {
     return _backend->readable_or_writeable(fd);
 }
 
-void reactor::abort_reader(pollable_fd_state& fd) {
-    // TCP will respond to shutdown(SHUT_RD) by returning ECONNABORT on the next read,
-    // but UDP responds by returning AGAIN. The no_more_recv flag tells us to convert
-    // EAGAIN to ECONNABORT in that case.
-    fd.shutdown_mask |= posix::shutdown_mask(SHUT_RD);
-    return fd.fd.shutdown(SHUT_RD);
-}
-
-void reactor::abort_writer(pollable_fd_state& fd) {
-    // TCP will respond to shutdown(SHUT_WR) by returning ECONNABORT on the next write,
-    // but UDP responds by returning AGAIN. The no_more_recv flag tells us to convert
-    // EAGAIN to ECONNABORT in that case.
-    fd.shutdown_mask |= posix::shutdown_mask(SHUT_WR);
-    return fd.fd.shutdown(SHUT_WR);
-}
-
 void reactor::set_strict_dma(bool value) {
     _strict_o_direct = value;
 }
@@ -1560,7 +1534,13 @@ pollable_fd::pollable_fd(file_desc fd, pollable_fd::speculation speculate)
     : _s(engine()._backend->make_pollable_fd_state(std::move(fd), speculate))
 {}
 
-void pollable_fd::shutdown(int how) {
+void pollable_fd::shutdown(int how, shutdown_kernel_only kernel_only) {
+    if (!kernel_only) {
+        // TCP will respond to shutdown() by returning ECONNABORT on the next IO,
+        // but UDP responds by returning AGAIN. The shutdown_mask tells us to convert
+        // EAGAIN to ECONNABORT in that case.
+        _s->shutdown_mask |= posix::shutdown_mask(how);
+    }
     engine()._backend->shutdown(*_s, how);
 }
 
