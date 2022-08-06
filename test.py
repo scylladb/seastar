@@ -27,6 +27,9 @@ if __name__ == "__main__":
     parser.add_argument('--fast',  action="store_true", help="Run only fast tests")
     parser.add_argument('--name',  action="store", help="Run only test whose name contains given string")
     parser.add_argument('--mode', choices=seastar_cmake.SUPPORTED_MODES, help="Run only tests for given build mode")
+    parser.add_argument('--build-root', action='store', default=seastar_cmake.DEFAULT_BUILD_ROOT, type=str,
+                        help="The name of the build root build directoy: "
+                        "using a different name allows multiple configurations to co-exist in the same repository")
     parser.add_argument('--timeout', action="store",default="300",type=int, help="timeout value for test execution")
     parser.add_argument('--jenkins', action="store",help="jenkins output file prefix")
     parser.add_argument('--smp', '-c', action="store",default='2',type=int,help="Number of threads for multi-core tests")
@@ -37,7 +40,7 @@ if __name__ == "__main__":
     MODES = [args.mode] if args.mode else seastar_cmake.SUPPORTED_MODES
 
     def run_tests(mode):
-        BUILD_PATH = seastar_cmake.BUILD_PATHS[mode]
+        BUILD_PATH = seastar_cmake.build_path(mode, args.build_root)
 
         # For convenience.
         tr = seastar_cmake.translate_arg
