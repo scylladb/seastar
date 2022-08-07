@@ -26,6 +26,7 @@
 #include <vector>
 #include <tuple>
 #include <seastar/core/internal/io_desc.hh>
+#include <seastar/util/bool_class.hh>
 #include <boost/intrusive_ptr.hpp>
 
 namespace seastar {
@@ -64,8 +65,7 @@ public:
     void speculate_epoll(int events) { events_known |= events; }
     file_desc fd;
     bool events_rw = false;   // single consumer for both read and write (accept())
-    bool no_more_recv = false; // For udp, there is no shutdown indication from the kernel
-    bool no_more_send = false; // For udp, there is no shutdown indication from the kernel
+    unsigned shutdown_mask = 0;  // For udp, there is no shutdown indication from the kernel
     int events_requested = 0; // wanted by pollin/pollout promises
     int events_epoll = 0;     // installed in epoll
     int events_known = 0;     // returned from epoll
@@ -84,8 +84,6 @@ public:
     future<> readable();
     future<> writeable();
     future<> readable_or_writeable();
-    void abort_reader();
-    void abort_writer();
     future<std::tuple<pollable_fd, socket_address>> accept();
     future<> connect(socket_address& sa);
     future<size_t> sendmsg(struct msghdr *msg);
@@ -145,12 +143,6 @@ public:
     future<> readable_or_writeable() {
         return _s->readable_or_writeable();
     }
-    void abort_reader() {
-        return _s->abort_reader();
-    }
-    void abort_writer() {
-        return _s->abort_writer();
-    }
     future<std::tuple<pollable_fd, socket_address>> accept() {
         return _s->accept();
     }
@@ -167,7 +159,8 @@ public:
         return _s->sendto(addr, buf, len);
     }
     file_desc& get_file_desc() const { return _s->fd; }
-    void shutdown(int how);
+    using shutdown_kernel_only = bool_class<struct shutdown_kernel_only_tag>;
+    void shutdown(int how, shutdown_kernel_only kernel_only = shutdown_kernel_only::yes);
     void close() { _s.reset(); }
     explicit operator bool() const noexcept {
         return bool(_s);

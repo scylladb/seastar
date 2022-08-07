@@ -343,6 +343,10 @@ private:
 
 namespace posix {
 
+static constexpr unsigned rcv_shutdown = 0x1;
+static constexpr unsigned snd_shutdown = 0x2;
+static inline constexpr unsigned shutdown_mask(int how) { return how + 1; }
+
 /// Converts a duration value to a `timespec`
 ///
 /// \param d a duration value to convert to the POSIX `timespec` format
