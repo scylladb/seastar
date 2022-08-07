@@ -171,6 +171,7 @@ public:
     [[gnu::always_inline]] [[gnu::hot]]
     void start_run(linux_perf_event* instructions_retired_counter = nullptr) {
         _total_time = { };
+        _total_stats = {};
         auto t = clock_type::now();
         _run_start_time = t;
         _start_time = t;
