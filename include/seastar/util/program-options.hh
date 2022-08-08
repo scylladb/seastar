@@ -576,7 +576,8 @@ public:
         , _selected_candidate(find_candidate(default_candidate))
     { }
     selection_value(option_group& group, std::string name, candidates candidates, std::string description)
-        : selection_value(group, std::move(name), std::move(candidates), {}, std::move(description))
+        : basic_value(group, true, std::move(name), std::move(description))
+        , _candidates(std::move(candidates))
     { }
     /// Construct an unused value.
     selection_value(option_group& group, std::string name, unused)
