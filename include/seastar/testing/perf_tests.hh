@@ -167,42 +167,47 @@ class time_measurement {
     perf_stats _start_stats;
     perf_stats _total_stats;
 
+    linux_perf_event* _instructions_retired_counter = nullptr;
+
 public:
     [[gnu::always_inline]] [[gnu::hot]]
     void start_run(linux_perf_event* instructions_retired_counter = nullptr) {
+        _instructions_retired_counter = instructions_retired_counter;
         _total_time = { };
         auto t = clock_type::now();
         _run_start_time = t;
         _start_time = t;
-        _start_stats = perf_stats::snapshot(instructions_retired_counter);
+        _start_stats = perf_stats::snapshot(_instructions_retired_counter);
     }
 
     [[gnu::always_inline]] [[gnu::hot]]
-    performance_test::run_result stop_run(linux_perf_event* instructions_retired_counter = nullptr) {
+    performance_test::run_result stop_run() {
         auto t = clock_type::now();
         performance_test::run_result ret;
         if (_start_time == _run_start_time) {
             ret.duration = t - _start_time;
-            auto stats = perf_stats::snapshot(instructions_retired_counter);
+            auto stats = perf_stats::snapshot(_instructions_retired_counter);
             ret.stats = stats - _start_stats;
         } else {
             ret.duration = _total_time;
             ret.stats = _total_stats;
         }
+        _instructions_retired_counter = nullptr;
         return ret;
     }
 
     [[gnu::always_inline]] [[gnu::hot]]
-    void start_iteration(linux_perf_event* instructions_retired_counter = nullptr) {
+    void start_iteration() {
         _start_time = clock_type::now();
-        _start_stats = perf_stats::snapshot(instructions_retired_counter);
+        _start_stats = perf_stats::snapshot(_instructions_retired_counter);
     }
 
     [[gnu::always_inline]] [[gnu::hot]]
-    void stop_iteration(linux_perf_event* instructions_retired_counter = nullptr) {
+    void stop_iteration() {
         auto t = clock_type::now();
         _total_time += t - _start_time;
-        auto stats = perf_stats::snapshot(instructions_retired_counter);
+        perf_stats stats;
+        stats = perf_stats::snapshot(_instructions_retired_counter);
         _total_stats += stats - _start_stats;
     }
 };
@@ -269,8 +274,8 @@ protected:
                         this->next_iteration(n);
                     });
                 })();
-            }).then([this] {
-                return measure_time.stop_run(&_instructions_retired_counter);
+            }).then([] {
+                return measure_time.stop_run();
             }).finally([this] {
                 _instructions_retired_counter.disable();
             });
@@ -286,7 +291,7 @@ protected:
                     this->next_iteration(run_test(dependency...));
                 })();
             }
-            auto ret = measure_time.stop_run(&_instructions_retired_counter);
+            auto ret = measure_time.stop_run();
             _instructions_retired_counter.disable();
             return make_ready_future<run_result>(std::move(ret));
         })();
