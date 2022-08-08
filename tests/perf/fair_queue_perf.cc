@@ -52,10 +52,12 @@ struct local_fq_and_class {
         , sfq(sfg, seastar::fair_queue::config())
     {
         fq.register_priority_class(cid, 1);
+        sfq.register_priority_class(cid, 1);
     }
 
     ~local_fq_and_class() {
         fq.unregister_priority_class(cid);
+        sfq.unregister_priority_class(cid);
     }
 };
 
