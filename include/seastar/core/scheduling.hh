@@ -345,6 +345,13 @@ public:
     friend unsigned internal::scheduling_group_index(scheduling_group sg) noexcept;
     friend scheduling_group internal::scheduling_group_from_index(unsigned index) noexcept;
 
+    struct stats {
+        sched_clock::duration runtime;
+        sched_clock::duration waittime;
+        sched_clock::duration starvetime;
+    };
+    stats get_stats() const noexcept;
+
     template<typename SpecificValType, typename Mapper, typename Reducer, typename Initial>
     requires requires(SpecificValType specific_val, Mapper mapper, Reducer reducer, Initial initial) {
         {reducer(initial, mapper(specific_val))} -> std::convertible_to<Initial>;

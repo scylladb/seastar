@@ -5021,6 +5021,16 @@ future<> scheduling_group::update_io_bandwidth(uint64_t bandwidth) const {
 }
 #endif
 
+scheduling_group::stats
+scheduling_group::get_stats() const noexcept {
+    const auto * const tq = engine()._task_queues[_id].get();
+    return {
+        .runtime = tq->_runtime,
+        .waittime = tq->_waittime,
+        .starvetime = tq->_starvetime
+    };
+}
+
 future<scheduling_group>
 create_scheduling_group(sstring name, sstring shortname, float shares) noexcept {
     auto aid = allocate_scheduling_group_id();
