@@ -57,20 +57,27 @@ public:
         sampling_rate_ = 1.0 / static_cast<double>(sampling_interval_);
         interval_to_next_sample_ = next_sampling_interval();
     }
-    /// Returns true if this allocation of size `alloc_size` should be sampled
-    bool should_sample(size_t alloc_size) {
-        // We need to check the sampling_interval as 0 means off. Also we need
-        // to check whether this allocation has brought the interval
-        // below/to 0. We chose to check the interval_to_next_sample first. If
-        // heap profiling is compiled in it's likely we are using it as well.
-        // Hence, lets do the interval decrement and check first and only check
-        // whether sampling is off after.
-        interval_to_next_sample_ -= alloc_size;
-        if (interval_to_next_sample_ > 0) {
+    /// Updates the sampling state (byte remaining until next sample) and
+    /// returns true if this allocation of size `alloc_size` may be sampled.
+    /// Specifically, if it returns false, this allocation is definitely not
+    /// samples. However if it returns true, it is not yet determiined whether
+    /// a sample should be taken. Instead, definitely_sample should be called
+    /// and if it returns true, a sample is called for.
+    [[gnu::always_inline]]
+    bool maybe_sample(size_t alloc_size) {
+        return (interval_to_next_sample_ -= alloc_size) < 0;
+    }
+
+    /// This method should be called if maybe_sample returned true for particular
+    /// allocation. It returns true if a sample should be taken and handles 
+    /// resetting the sample interval countdown.    
+    bool definitely_sample(size_t alloc_size) {
+        // this will hold if maybe_sample returned false for this allocation
+        if (interval_to_next_sample_ >= 0) {
             return false;
         }
         reset_interval_to_next_sample(alloc_size);
-        return sampling_interval_ != 0;
+        return sampling_interval_ != 0; // sampling interval 0 means off
     }
 
     uint64_t sampling_interval() const { return sampling_interval_; }
@@ -145,9 +152,7 @@ private:
         int64_t next = static_cast<int64_t>(dist(random_gen));
         // We approximate the geometric distribution using an exponential
         // distribution.
-        // We need to add 1 because that gives us the number of failures before
-        // the next success, while our interval includes the next success.
-        return next + 1;
+        return next;
     }
 
     uint64_t sampling_interval_; // Sample every N bytes ; 0 means off

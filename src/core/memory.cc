@@ -126,6 +126,12 @@ module seastar;
 #endif
 #endif
 
+#ifdef SEASTAR_DEBUG
+#define dassert(expr) assert(expr)
+#else
+#define dassert(expr) do {} while(false)
+#endif
+
 namespace seastar {
 
 extern seastar::logger seastar_logger;
@@ -216,6 +222,7 @@ namespace memory {
 [[gnu::unused]]
 static allocation_site_ptr get_allocation_site();
 
+[[gnu::noinline]]
 static void on_allocation_failure(size_t size);
 
 static constexpr unsigned cpu_id_shift = 36; // FIXME: make dynamic
@@ -419,9 +426,9 @@ class small_pool {
         uint8_t preferred;
         uint8_t fallback;
     };
+    free_object* _free = nullptr;
     unsigned _object_size;
     span_sizes _span_sizes;
-    free_object* _free = nullptr;
     size_t _free_count = 0;
     unsigned _min_free;
     unsigned _max_free;
@@ -438,7 +445,7 @@ class small_pool {
 public:
     explicit small_pool(unsigned object_size, bool is_sampled) noexcept;
     ~small_pool();
-    void* allocate();
+    inline void* allocate();
     void deallocate(void* object);
     unsigned object_size() const { return _object_size; }
     /// See _sampled_pool
@@ -454,7 +461,8 @@ public:
     static constexpr unsigned idx_to_size(unsigned idx);
     allocation_site_ptr& alloc_site_holder(void* ptr);
 private:
-    void add_more_objects();
+    inline void* pop_free();
+    [[gnu::noinline]] void* add_more_objects();
     void trim_free_list();
     friend seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar::internal::log_buf::inserter_iterator);
 };
@@ -536,6 +544,7 @@ struct cross_cpu_free_item {
 };
 
 struct cpu_pages {
+    small_pool_array<false> small_pools;
     uint32_t min_free_pages = 20000000 / page_size;
     char* memory;
     page* pages;
@@ -548,8 +557,6 @@ struct cpu_pages {
     std::vector<reclaimer*> reclaimers;
     static constexpr unsigned nr_span_lists = 32;
     page_list free_spans[nr_span_lists];  // contains aligned spans with span_size == 2^idx
-    small_pool_array<false> small_pools;
-    small_pool_array<true> sampled_small_pools;
     alignas(seastar::cache_line_size) std::atomic<cross_cpu_free_item*> xcpu_freelist;
     static std::atomic<unsigned> cpu_id_gen;
     static cpu_pages* all_cpus[max_cpus];
@@ -562,6 +569,7 @@ struct cpu_pages {
     } asu;
     allocation_site_ptr alloc_site_list_head = nullptr; // For easy traversal of asu.alloc_sites from scylla-gdb.py
     sampler heap_prof_sampler;
+    small_pool_array<true> sampled_small_pools;
 
     char* mem() { return memory; }
 
@@ -606,7 +614,8 @@ struct cpu_pages {
     void warn_large_allocation(size_t size);
     allocation_site_ptr add_alloc_site(size_t allocated_size);
     void remove_alloc_site(allocation_site_ptr alloc_site, size_t deallocated_size);
-    bool should_sample(size_t size);
+    bool maybe_sample(size_t size);
+    bool definitely_sample(size_t size);
     memory::memory_layout memory_layout();
     ~cpu_pages();
 };
@@ -865,11 +874,27 @@ cpu_pages::remove_alloc_site(allocation_site_ptr alloc_site, size_t deallocated_
     }
 }
 
-bool
-cpu_pages::should_sample(size_t size) {
-    return heap_prof_sampler.should_sample(size);
+[[gnu::always_inline]]
+inline bool
+cpu_pages::maybe_sample(size_t size) {
+#ifdef SEASTAR_HEAPPROF
+    return heap_prof_sampler.maybe_sample(size);
+#else
+    return false;
+#endif
 }
 
+[[gnu::always_inline]]
+inline bool
+cpu_pages::definitely_sample(size_t size) {
+#ifdef SEASTAR_HEAPPROF
+    return heap_prof_sampler.definitely_sample(size);
+#else
+    return false;
+#endif
+}
+
+[[gnu::always_inline]]
 void
 inline
 cpu_pages::check_large_allocation(size_t size) {
@@ -878,7 +903,8 @@ cpu_pages::check_large_allocation(size_t size) {
     }
 }
 
-void*
+[[gnu::always_inline]]
+inline void*
 cpu_pages::allocate_large(unsigned n_pages, bool should_sample) {
     check_large_allocation(n_pages * page_size);
     return allocate_large_and_trim(n_pages, should_sample);
@@ -1329,21 +1355,24 @@ small_pool::~small_pool() {
     trim_free_list();
 }
 
+/**
+ * Remove the next object from the freelist and return it.
+ * It must exist (caller must check) or UB.
+ */
+void *
+small_pool::pop_free() {
+    auto* obj = _free;
+    _free = _free->next;
+    --_free_count;
+    return obj;
+}
+
 // Should not throw in case of running out of memory to avoid infinite recursion,
 // becaue throwing std::bad_alloc requires allocation. __cxa_allocate_exception
 // falls back to the emergency pool in case malloc() returns nullptr.
 void*
 small_pool::allocate() {
-    if (!_free) {
-        add_more_objects();
-    }
-    if (!_free) {
-        return nullptr;
-    }
-    auto* obj = _free;
-    _free = _free->next;
-    --_free_count;
-    return obj;
+    return __builtin_expect((bool)_free, true) ? pop_free() : add_more_objects();
 }
 
 void
@@ -1357,7 +1386,7 @@ small_pool::deallocate(void* object) {
     }
 }
 
-void
+void*
 small_pool::add_more_objects() {
     auto goal = (_min_free + _max_free) / 2;
     while (!_span_list.empty() && _free_count < goal) {
@@ -1379,7 +1408,7 @@ small_pool::add_more_objects() {
             span_size = _span_sizes.fallback;
             data = reinterpret_cast<char*>(get_cpu_mem().allocate_large(span_size, false));
             if (!data) {
-                return;
+                break;
             }
         }
         auto span = get_cpu_mem().to_page(data);
@@ -1391,7 +1420,7 @@ small_pool::add_more_objects() {
         }
         span->nr_small_alloc = 0;
         span->freelist = nullptr;
-        for (unsigned offset = 0; offset <= span_size * page_size - _object_size; offset += _object_size) {
+        for (size_t offset = 0; offset <= span_size * page_size - _object_size; offset += _object_size) {
             auto h = reinterpret_cast<free_object*>(data + offset);
             h->next = _free;
             _free = h;
@@ -1399,6 +1428,8 @@ small_pool::add_more_objects() {
             ++span->nr_small_alloc;
         }
     }
+
+    return _free ? pop_free() : nullptr;
 }
 
 void
@@ -1432,7 +1463,8 @@ abort_on_underflow(size_t size) {
     }
 }
 
-void* allocate_large(size_t size, bool should_sample) {
+[[gnu::always_inline]]
+inline void* allocate_large(size_t size, bool should_sample) {
     abort_on_underflow(size);
     unsigned size_in_pages = (size + page_size - 1) >> page_bits;
     if ((size_t(size_in_pages) << page_bits) < size) {
@@ -1492,7 +1524,7 @@ void* allocate_from_sampled_small_pool(size_t size) {
     }
     auto idx = small_pool::size_to_idx(size);
     auto& pool = get_cpu_mem().sampled_small_pools[idx];
-    assert(size <= pool.object_size());
+    dassert(size <= pool.object_size());
     void* ptr = pool.allocate();
     auto alloc_site = get_cpu_mem().add_alloc_site(pool.object_size());
     new (&pool.alloc_site_holder(ptr)) allocation_site_ptr{alloc_site};
@@ -1509,11 +1541,28 @@ void* allocate_from_small_pool(size_t size)
     }
     auto idx = small_pool::size_to_idx(size);
     auto& pool = get_cpu_mem().small_pools[idx];
-    assert(size <= pool.object_size());
+    dassert(size <= pool.object_size());
     return pool.allocate();
 }
 
-void* allocate(size_t size) {
+/**
+ * Common handling code when a pointer (possibly null) has
+ * been returned by any allocation path.
+ */
+[[gnu::always_inline]]
+static inline void* finish_allocation(void* ptr, size_t size) {
+    if (!ptr) {
+        on_allocation_failure(size);
+    } else {
+#ifdef SEASTAR_DEBUG_ALLOCATIONS
+    std::memset(ptr, debug_allocation_pattern, size);
+#endif
+    }
+    alloc_stats::increment_local(alloc_stats::types::allocs);
+    return ptr;
+}
+
+void *allocate_slowpath(size_t size) {
     if (!is_reactor_thread) {
         if (original_malloc_func) {
             alloc_stats::increment(alloc_stats::types::foreign_mallocs);
@@ -1526,12 +1575,9 @@ void* allocate(size_t size) {
     if (size <= sizeof(free_object)) {
         size = sizeof(free_object);
     }
-
-#ifdef SEASTAR_HEAPPROF
-    bool should_sample = get_cpu_mem().should_sample(size);
-#else
-    bool should_sample = get_cpu_mem().should_sample(size);
-#endif
+    // On the fast path we've already called maybe_sample, except in the case
+    // of !is_reactor_thread (we don't sample such alloctions).
+    bool should_sample = get_cpu_mem().definitely_sample(size);
     void* ptr;
     if (size <= max_small_allocation) {
 #ifdef SEASTAR_HEAPPROF
@@ -1545,15 +1591,18 @@ void* allocate(size_t size) {
     } else {
         ptr = allocate_large(size, should_sample);
     }
-    if (!ptr) {
-        on_allocation_failure(size);
-    } else {
-#ifdef SEASTAR_DEBUG_ALLOCATIONS
-        std::memset(ptr, debug_allocation_pattern, size);
-#endif
+    return finish_allocation(ptr, size);
+}
+
+[[gnu::always_inline]]
+inline void* allocate(size_t size) {
+    if (__builtin_expect(is_reactor_thread && !get_cpu_mem().maybe_sample(size) && size <= max_small_allocation, true)) {
+        size = std::max(size, sizeof(free_object));
+        auto ptr = allocate_from_small_pool<alignment_t::unaligned>(size);
+        return finish_allocation(ptr, size);
     }
-    alloc_stats::increment_local(alloc_stats::types::allocs);
-    return ptr;
+
+    return allocate_slowpath(size);
 }
 
 void* allocate_aligned(size_t align, size_t size) {
@@ -1570,7 +1619,8 @@ void* allocate_aligned(size_t align, size_t size) {
         size = std::max(sizeof(free_object), align);
     }
 #ifdef SEASTAR_HEAPPROF
-    bool should_sample = get_cpu_mem().should_sample(size);
+    auto& mem = get_cpu_mem();
+    bool should_sample = mem.maybe_sample(size) && mem.definitely_sample(size);
 #else
     bool should_sample = false;
 #endif
