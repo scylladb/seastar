@@ -421,40 +421,21 @@ void connection::set_headers(reply& resp) {
 
 future<bool> connection::generate_reply(std::unique_ptr<request> req) {
     auto resp = std::make_unique<reply>();
-    bool conn_keep_alive = false;
-    bool conn_close = false;
-    auto it = req->_headers.find("Connection");
-    if (it != req->_headers.end()) {
-        if (request::case_insensitive_cmp()(it->second, "keep-alive")) {
-            conn_keep_alive = true;
-        } else if (request::case_insensitive_cmp()(it->second, "close")) {
-            conn_close = true;
-        }
-    }
-    bool should_close;
-    // TODO: Handle HTTP/2.0 when it releases
     resp->set_version(req->_version);
-
-    if (req->_version == "1.0") {
-        if (conn_keep_alive) {
-            resp->_headers["Connection"] = "Keep-Alive";
-        }
-        should_close = !conn_keep_alive;
-    } else if (req->_version == "1.1") {
-        should_close = conn_close;
-    } else {
-        // HTTP/0.9 goes here
-        should_close = true;
+    set_headers(*resp);
+    bool keep_alive = req->should_keep_alive();
+    if (keep_alive && req->_version == "1.0") {
+        resp->_headers["Connection"] = "Keep-Alive";
     }
+
     sstring url = set_query_param(*req.get());
     sstring version = req->_version;
-    set_headers(*resp);
     return _server._routes.handle(url, std::move(req), std::move(resp)).
     // Caller guarantees enough room
-    then([this, should_close, version = std::move(version)](std::unique_ptr<reply> rep) {
+    then([this, keep_alive , version = std::move(version)](std::unique_ptr<reply> rep) {
         rep->set_version(version).done();
         this->_replies.push(std::move(rep));
-        return make_ready_future<bool>(should_close);
+        return make_ready_future<bool>(!keep_alive);
     });
 }
 

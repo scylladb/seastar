@@ -137,6 +137,21 @@ struct request {
         return content_type_class == ctclass::app_x_www_urlencoded;
     }
 
+    bool should_keep_alive() const {
+        if (_version == "0.9") {
+            return false;
+        }
+
+        // TODO: handle HTTP/2.0 when it releases
+
+        auto it = _headers.find("Connection");
+        if (_version == "1.0") {
+            return it != _headers.end()
+                 && case_insensitive_cmp()(it->second, "keep-alive");
+        } else { // HTTP/1.1
+            return it == _headers.end() || !case_insensitive_cmp()(it->second, "close");
+        }
+    }
 };
 
 } // namespace httpd
