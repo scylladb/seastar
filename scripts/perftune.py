@@ -300,13 +300,13 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
     @staticmethod
     def cpu_mask_is_zero(cpu_mask):
         """
-        The irqs_cpu_mask is a coma-separated list of 32-bit hex values, e.g. 0xffff,0x0,0xffff
+        The cpu_mask is a coma-separated list of 32-bit hex values, e.g. 0xffff,0x0,0xffff
         We want to estimate if the whole mask is all-zeros.
         :param cpu_mask: hwloc-calc generated CPU mask
         :return: True if mask is zero, False otherwise
         """
-        for cur_irqs_cpu_mask in cpu_mask.split(','):
-            if int(cur_irqs_cpu_mask, 16) != 0:
+        for cur_cpu_mask in cpu_mask.split(','):
+            if int(cur_cpu_mask, 16) != 0:
                 return False
 
         return True
