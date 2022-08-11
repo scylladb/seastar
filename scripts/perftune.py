@@ -1483,7 +1483,7 @@ Default values:
  --cpu-mask MASK - default: all available cores mask
  --tune-clock    - default: false
 ''')
-argp.add_argument('--mode', choices=PerfTunerBase.SupportedModes.names(), help='configuration mode')
+argp.add_argument('--mode', choices=PerfTunerBase.SupportedModes.names(), help='configuration mode (deprecated, use --irq-cpu-mask instead)')
 argp.add_argument('--nic', action='append', help='network interface name(s), by default uses \'eth0\' (may appear more than once)', dest='nics', default=[])
 argp.add_argument('--tune-clock', action='store_true', help='Force tuning of the system clocksource')
 argp.add_argument('--get-cpu-mask', action='store_true', help="print the CPU mask to be used for compute")
@@ -1584,7 +1584,9 @@ def dump_config(prog_args):
     prog_options = {}
 
     if prog_args.mode:
-        prog_options['mode'] = prog_args.mode
+        assert prog_args.cpu_mask, "cpu_mask has to always be set. Something is terribly wrong (a bug in perftune.py?)"
+        mode = PerfTunerBase.SupportedModes[prog_args.mode]
+        prog_options['irq_cpu_mask'] = PerfTunerBase.irqs_cpu_mask_for_mode(mode, prog_args.cpu_mask)
 
     if prog_args.nics:
         prog_options['nic'] = list(set(prog_args.nics))
