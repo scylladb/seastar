@@ -1107,11 +1107,13 @@ public:
                     // version requested by the client is not supported, the
                     // "protocol_version" alert is sent.
                     auto alert = gnutls_alert_description_t(gnutls_error_to_alert(res, NULL));
-                    return send_alert(GNUTLS_AL_FATAL, alert).then_wrapped([res] (future<> f) {
-                        // Return to the caller the original handshake error.
-                        // If send_alert() *also* failed, ignore that.
-                        f.ignore_ready_future();
-                        return make_exception_future<>(std::system_error(res, glts_errorc));
+                    return handle_output_error(res).then_wrapped([this, alert = std::move(alert)] (future<> output_future) {
+                        return send_alert(GNUTLS_AL_FATAL, alert).then_wrapped([output_future = std::move(output_future)] (future<> f) mutable {
+                            // Return to the caller the original handshake error.
+                            // If send_alert() *also* failed, ignore that.
+                            f.ignore_ready_future();
+                            return std::move(output_future);
+                        });
                     });
                 }
             }
