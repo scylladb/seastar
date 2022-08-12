@@ -1360,19 +1360,18 @@ public:
             gnutls_transport_set_errno(*this, EAGAIN);
             return -1;
         }
-        if (_output_pending.failed()) {
-            // copy exception for on_internal_error
-            auto ex = _output_pending.get_exception();
-            _output_pending = make_exception_future<>(ex);
-            on_internal_error(seastar_logger, format("tls: session: vec_push: unhandled pending output error: {}", ex));
-        }
         try {
+            ssize_t n; // Set on the good path and unused on the bad path
+
+          // FIXME indentation
+          if (!_output_pending.failed()) {
             scattered_message<char> msg;
             for (int i = 0; i < iovcnt; ++i) {
                 msg.append(std::string_view(reinterpret_cast<const char *>(iov[i].iov_base), iov[i].iov_len));
             }
-            auto n = msg.size();
+            n = msg.size();
             _output_pending = _out.put(std::move(msg).release());
+          }
             if (_output_pending.failed()) {
                 // exception is copied back into _output_pending
                 // by the catch handlers below
