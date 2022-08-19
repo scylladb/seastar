@@ -1180,12 +1180,10 @@ class DiskPerfTuner(PerfTunerBase):
            - Distribute non-NVMe disks' IRQs equally among designated CPUs or among
              all available CPUs in the 'mq' mode.
         """
-        mode_cpu_mask = PerfTunerBase.irqs_cpu_mask_for_mode(self.mode, self.args.cpu_mask)
-
         non_nvme_disks, non_nvme_irqs = self.__disks_info_by_type(DiskPerfTuner.SupportedDiskTypes.non_nvme)
         if non_nvme_disks:
             perftune_print("Setting non-NVMe disks: {}...".format(", ".join(non_nvme_disks)))
-            distribute_irqs(non_nvme_irqs, mode_cpu_mask)
+            distribute_irqs(non_nvme_irqs, self.irqs_cpu_mask)
             self.__tune_disks(non_nvme_disks)
         else:
             perftune_print("No non-NVMe disks to tune")
