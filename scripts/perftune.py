@@ -8,6 +8,7 @@ import functools
 import glob
 import itertools
 import logging
+import math
 import multiprocessing
 import os
 import pathlib
@@ -246,6 +247,89 @@ def learn_all_irqs_one(irq_conf_dir, irq2procline, xen_dev_name):
 
 def get_irqs2procline_map():
     return { line.split(':')[0].lstrip().rstrip() : line for line in open('/proc/interrupts', 'r').readlines() }
+
+
+class AutodetectError(Exception):
+    pass
+
+
+def auto_detect_irq_mask(cpu_mask):
+    """
+    The logic of auto-detection of what was once a 'mode' is generic and is all about the amount of CPUs and NUMA
+    nodes that are present and a restricting 'cpu_mask'.
+    This function implements this logic:
+
+    * up to 4 CPU threads: use 'cpu_mask'
+    * up to 4 CPU cores (on x86 this would translate to 8 CPU threads): use a single CPU thread out of allowed
+    * up to 16 CPU cores: use a single CPU core out of allowed
+    * more than 16 CPU cores: use a single CPU core for each 16 CPU cores and distribute them evenly among all
+      present NUMA nodes.
+
+    An AutodetectError exception is raised if 'cpu_mask' is defined in a way that there is a different number of threads
+    and/or cores among different NUMA nodes. In such a case a user needs to provide
+    an IRQ CPUs definition explicitly using 'irq_cpu_mask' parameter.
+
+    :param cpu_mask: CPU mask that defines which out of present CPUs can be considered for tuning
+    :return: CPU mask to bind IRQs to, a.k.a. irq_cpu_mask
+    """
+    cores_key = 'cores'
+    PUs_key = 'PUs'
+
+    # List of NUMA IDs that own CPUs from the given CPU mask
+    numa_ids_list = run_hwloc_calc(['-I', 'numa', cpu_mask]).split(",")
+
+    # Let's calculate number of HTs and cores on each NUMA node belonging to the given CPU set
+    cores_PUs_per_numa = {} # { <numa_id> : {'cores':  <number of cores>, 'PUs': <number of PUs>}}
+    for n in numa_ids_list:
+        num_cores = int(run_hwloc_calc(['--restrict', cpu_mask, '--number-of', 'core', f'numa:{n}']))
+        num_PUs = int(run_hwloc_calc(['--restrict', cpu_mask, '--number-of', 'PU', f'numa:{n}']))
+        cores_PUs_per_numa[n] = {cores_key: num_cores, PUs_key: num_PUs}
+
+    # Let's check if configuration on each NUMA is the same. If it's not then we can't auto-detect the IRQs CPU set
+    # and a user needs to provide it explicitly
+    num_cores0 = cores_PUs_per_numa[numa_ids_list[0]][cores_key]
+    num_PUs0 = cores_PUs_per_numa[numa_ids_list[0]][PUs_key]
+    for n in numa_ids_list:
+        if cores_PUs_per_numa[n][cores_key] != num_cores0 or cores_PUs_per_numa[n][PUs_key] != num_PUs0:
+            raise AutodetectError(f"NUMA{n} has a different configuration from NUMA0 for a given CPU mask {cpu_mask}: "
+                                  f"{cores_PUs_per_numa[n][cores_key]}:{cores_PUs_per_numa[n][PUs_key]} vs "
+                                  f"{num_cores0}:{num_PUs0}. Auto-detection of IRQ CPUs in not possible. "
+                                  f"Please, provide irq_cpu_mask explicitly.")
+
+    # Auto-detection of IRQ CPU set is possible - let's get to it!
+    #
+    # Total counts for the whole machine
+    num_cores = int(run_hwloc_calc(['--restrict', cpu_mask, '--number-of', 'core', 'machine:0']))
+    num_PUs = int(run_hwloc_calc(['--restrict', cpu_mask, '--number-of', 'PU', 'machine:0']))
+
+    # Maximum number of HTs a single IRQ core can handle
+    cores_per_irq_core = 16
+
+    if num_PUs <= 4:
+        return cpu_mask
+    elif num_cores <= 4:
+        return run_hwloc_calc(['--restrict', cpu_mask, 'PU:0'])
+    elif num_cores <= cores_per_irq_core:
+        return run_hwloc_calc(['--restrict', cpu_mask, 'core:0'])
+    else:
+        # Big machine: more than 16 cores!
+        # Let's allocate a full core for each 16 cores.
+        # Let's distribute IRQ cores among present NUMA nodes
+        num_irq_cores = math.ceil(num_cores / cores_per_irq_core)
+        hwloc_args = []
+        numa_cores_count = {n: 0 for n in numa_ids_list}
+        added_cores = 0
+        while added_cores < num_irq_cores:
+            for numa in numa_ids_list:
+                hwloc_args.append(f"node:{numa}.core:{numa_cores_count[numa]}")
+                added_cores += 1
+                numa_cores_count[numa] += 1
+
+                if added_cores >= num_irq_cores:
+                    break
+
+        return run_hwloc_calc(['--restrict', cpu_mask] + hwloc_args)
+
 
 ################################################################################
 class PerfTunerBase(metaclass=abc.ABCMeta):
