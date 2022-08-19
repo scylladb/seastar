@@ -337,11 +337,15 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
         self.__args = args
         self.__args.cpu_mask = run_hwloc_calc(['--restrict', self.__args.cpu_mask, 'all'])
         self.__mode = None
-        self.__irq_cpu_mask = args.irq_cpu_mask
-        if self.__irq_cpu_mask:
-            self.__compute_cpu_mask = run_hwloc_calc([self.__args.cpu_mask, "~{}".format(self.__irq_cpu_mask)])
+        self.__compute_cpu_mask = None
+
+        if self.args.mode:
+            self.mode = PerfTunerBase.SupportedModes[self.args.mode]
+        elif args.irq_cpu_mask:
+            self.irqs_cpu_mask = args.irq_cpu_mask
         else:
-            self.__compute_cpu_mask = None
+            self.irqs_cpu_mask = auto_detect_irq_mask(self.cpu_mask)
+
         self.__is_aws_i3_nonmetal_instance = None
 
 #### Public methods ##########################
@@ -441,10 +445,6 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
         """
         Return the configuration mode
         """
-        # Make sure the configuration mode is set (see the __set_mode_and_masks() description).
-        if self.__mode is None:
-            self.__set_mode_and_masks()
-
         return self.__mode
 
     @mode.setter
@@ -470,10 +470,6 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
         """
         Return the CPU mask to use for seastar application binding.
         """
-        # see the __set_mode_and_masks() description
-        if self.__compute_cpu_mask is None:
-            self.__set_mode_and_masks()
-
         return self.__compute_cpu_mask
 
     @property
@@ -481,11 +477,12 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
         """
         Return the mask of CPUs used for IRQs distribution.
         """
-        # see the __set_mode_and_masks() description
-        if self.__irq_cpu_mask is None:
-            self.__set_mode_and_masks()
-
         return self.__irq_cpu_mask
+
+    @irqs_cpu_mask.setter
+    def irqs_cpu_mask(self, new_irq_cpu_mask):
+        self.__irq_cpu_mask = new_irq_cpu_mask
+        self.__compute_cpu_mask = run_hwloc_calc([self.cpu_mask, f"~{self.__irq_cpu_mask}"])
 
     @property
     def is_aws_i3_non_metal_instance(self):
@@ -510,12 +507,6 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
     def tune(self):
         pass
 
-    @abc.abstractmethod
-    def _get_def_mode(self):
-        """
-        Return a default configuration mode.
-        """
-        pass
 
     @abc.abstractmethod
     def _get_irqs(self):
@@ -525,20 +516,6 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
         pass
 
 #### Private methods ############################
-    def __set_mode_and_masks(self):
-        """
-        Sets the configuration mode and the corresponding CPU masks. We can't
-        initialize them in the constructor because the default mode may depend
-        on the child-specific values that are set in its constructor.
-
-        That's why we postpone the mode's and the corresponding masks'
-        initialization till after the child instance creation.
-        """
-        if self.__args.mode:
-            self.mode = PerfTunerBase.SupportedModes[self.__args.mode]
-        else:
-            self.mode = self._get_def_mode()
-
     def __check_host_type(self):
         """
         Check if we are running on the AWS i3 nonmetal instance.
@@ -615,17 +592,6 @@ class NetPerfTuner(PerfTunerBase):
         return iter(self.__slaves[nic])
 
 #### Protected methods ##########################
-    def _get_def_mode(self):
-        num_cores = int(run_hwloc_calc(['--restrict', self.args.cpu_mask, '--number-of', 'core', 'machine:0']))
-        num_PUs = int(run_hwloc_calc(['--restrict', self.args.cpu_mask, '--number-of', 'PU', 'machine:0']))
-
-        if num_PUs <= 4:
-            return PerfTunerBase.SupportedModes.mq
-        elif num_cores <= 4:
-            return PerfTunerBase.SupportedModes.sq
-        else:
-            return PerfTunerBase.SupportedModes.sq_split
-
     def _get_irqs(self):
         """
         Returns the iterator for all IRQs that are going to be configured (according to args.nics parameter).
@@ -697,7 +663,7 @@ class NetPerfTuner(PerfTunerBase):
         op = "Enable"
         value = 'on'
 
-        if (self.args.enable_arfs is None and self.mode != PerfTunerBase.SupportedModes.mq) or self.args.enable_arfs == False:
+        if (self.args.enable_arfs is None and self.irqs_cpu_mask == self.cpu_mask) or self.args.enable_arfs is False:
             op = "Disable"
             value = 'off'
 
@@ -1139,12 +1105,6 @@ class SystemPerfTuner(PerfTunerBase):
                 self._clocksource_manager.enforce_preferred_clocksource()
 
 #### Protected methods ##########################
-    def _get_def_mode(self):
-        """ 
-        This tuner doesn't apply any restriction to the final tune mode for now.
-        """
-        return PerfTunerBase.SupportedModes.no_irq_restrictions
-
     def _get_irqs(self):
         return []
 
@@ -1209,24 +1169,6 @@ class DiskPerfTuner(PerfTunerBase):
             perftune_print("No NVMe disks to tune")
 
 #### Protected methods ##########################
-    def _get_def_mode(self):
-        """
-        Return a default configuration mode.
-        """
-        # if the only disks we are tuning are NVMe disks - return the MQ mode
-        non_nvme_disks, non_nvme_irqs = self.__disks_info_by_type(DiskPerfTuner.SupportedDiskTypes.non_nvme)
-        if not non_nvme_disks:
-            return PerfTunerBase.SupportedModes.mq
-
-        num_cores = int(run_hwloc_calc(['--restrict', self.args.cpu_mask, '--number-of', 'core', 'machine:0']))
-        num_PUs = int(run_hwloc_calc(['--restrict', self.args.cpu_mask, '--number-of', 'PU', 'machine:0']))
-        if num_PUs <= 4:
-            return PerfTunerBase.SupportedModes.mq
-        elif num_cores <= 4:
-            return PerfTunerBase.SupportedModes.sq
-        else:
-            return PerfTunerBase.SupportedModes.sq_split
-
     def _get_irqs(self):
         return itertools.chain.from_iterable(irqs for disks, irqs in self.__type2diskinfo.values())
 
@@ -1555,8 +1497,10 @@ Modes description:
       spreads NAPIs' handling between all CPUs.
 
  If there isn't any mode given script will use a default mode:
-    - If number of physical CPU cores per Rx HW queue is greater than 4 - use the 'sq-split' mode.
-    - Otherwise, if number of hyperthreads per Rx HW queue is greater than 4 - use the 'sq' mode.
+    - If number of CPU cores is greater than 16, allocate a single IRQ CPU core for each 16 CPU cores in 'cpu_mask'.
+      IRQ cores are going to be allocated evenly on available NUMA nodes according to 'cpu_mask' value.  
+    - If number of physical CPU cores per Rx HW queue is greater than 4 and less than 16 - use the 'sq-split' mode.
+    - Otherwise, if number of hyper-threads per Rx HW queue is greater than 4 - use the 'sq' mode.
     - Otherwise use the 'mq' mode.
 
 Default values:
@@ -1747,12 +1691,6 @@ try:
 
     if TuneModes.system.name in args.tune:
         tuners.append(SystemPerfTuner(args))
-
-    # Set the minimum mode among all tuners
-    if not args.irq_cpu_mask:
-        mode = PerfTunerBase.SupportedModes.combine([tuner.mode for tuner in tuners])
-        for tuner in tuners:
-            tuner.mode = mode
 
     if args.get_cpu_mask or args.get_cpu_mask_quiet:
         # Print the compute mask from the first tuner - it's going to be the same in all of them
