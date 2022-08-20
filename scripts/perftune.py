@@ -920,7 +920,13 @@ class NetPerfTuner(PerfTunerBase):
         if self.args.num_rx_queues is not None:
             num_rx_channels = self.args.num_rx_queues
         else:
-            num_rx_channels = bin(int(self.irqs_cpu_mask, 16)).count('1')
+            num_rx_channels = 0
+
+            # If a mask is wider than 32 bits it's going to be presented as a coma-separated list of 32-bit masks
+            # with possibly omitted zero components, e.g. 0x01,0x100,,0x12122
+            for m in self.irqs_cpu_mask.split(","):
+                if m:
+                    num_rx_channels += bin(int(m, 16)).count('1')
 
         # Let's try setting the number of Rx channels to the number of IRQ CPUs.
         #
