@@ -184,11 +184,11 @@ g++ foo.cc -o foo $(pkg-config --libs --cflags --static /path/to/seastar.pc)
 
 Compiling multiple files:
 ```
-// Compiling sources into object files
-g++ -c $(pkg-config --cflags /path/to/seastar.pc)` foo.cc -o foo.o
-g++ -c $(pkg-config --cflags /path/to/seastar.pc)` bar.cc -o bar.o
+# Compiling sources into object files
+g++ -c $(pkg-config --cflags /path/to/seastar.pc) foo.cc -o foo.o
+g++ -c $(pkg-config --cflags /path/to/seastar.pc) bar.cc -o bar.o
 
-// Linking object files into an executable
+# Linking object files into an executable
 g++ -o foo_bar foo.o bar.o $(pkg-config --libs --static /path/to/seastar.pc)
 ```
 
