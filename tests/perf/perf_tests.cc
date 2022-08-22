@@ -185,6 +185,18 @@ static inline std::ostream& operator<<(std::ostream& os, duration d)
 
 }
 
+#if FMT_VERSION >= 90000
+
+}}
+
+template<>
+struct fmt::formatter<perf_tests::internal::duration> : fmt::ostream_formatter{};
+
+namespace perf_tests {
+namespace internal {
+
+#endif
+
 static constexpr auto header_format_string = "{:<40} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11}\n";
 static constexpr auto        format_string = "{:<40} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11.3f} {:>11.3f} {:>11.1f}\n";
 
