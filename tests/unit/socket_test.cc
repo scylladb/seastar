@@ -105,3 +105,10 @@ SEASTAR_TEST_CASE(socket_skip_test) {
         client.get();
     });
 }
+
+SEASTAR_TEST_CASE(test_file_desc_fdinfo) {
+    auto fd = file_desc::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    auto info = fd.fdinfo();
+    BOOST_REQUIRE_EQUAL(info.substr(0, 8), "socket:[");
+    return make_ready_future<>();
+}

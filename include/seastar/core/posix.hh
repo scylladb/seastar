@@ -97,6 +97,8 @@ public:
     }
     int get() const { return _fd; }
 
+    sstring fdinfo() const noexcept;
+
     static file_desc from_fd(int fd) {
         return file_desc(fd);
     }
