@@ -1448,7 +1448,8 @@ This script will:
 
     - Ban relevant IRQs from being moved by irqbalance.
     - Configure various system parameters in /proc/sys.
-    - Distribute the IRQs (using SMP affinity configuration) among CPUs according to the configuration mode (see below).
+    - Distribute the IRQs (using SMP affinity configuration) among CPUs according to the configuration mode (see below)
+      or an 'irq_cpu_mask' value.
 
 As a result some of the CPUs may be destined to only handle the IRQs and taken out of the CPU set
 that should be used to run the seastar application ("compute CPU set").
