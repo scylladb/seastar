@@ -253,7 +253,7 @@ class AutodetectError(Exception):
     pass
 
 
-def auto_detect_irq_mask(cpu_mask):
+def auto_detect_irq_mask(cpu_mask, cores_per_irq_core):
     """
     The logic of auto-detection of what was once a 'mode' is generic and is all about the amount of CPUs and NUMA
     nodes that are present and a restricting 'cpu_mask'.
@@ -270,6 +270,8 @@ def auto_detect_irq_mask(cpu_mask):
     an IRQ CPUs definition explicitly using 'irq_cpu_mask' parameter.
 
     :param cpu_mask: CPU mask that defines which out of present CPUs can be considered for tuning
+    :param cores_per_irq_core number of cores to allocate a single IRQ core out of, e.g. 6 means allocate a single IRQ
+                              core out of every 6 CPU cores.
     :return: CPU mask to bind IRQs to, a.k.a. irq_cpu_mask
     """
     cores_key = 'cores'
@@ -302,9 +304,6 @@ def auto_detect_irq_mask(cpu_mask):
     num_cores = int(run_hwloc_calc(['--restrict', cpu_mask, '--number-of', 'core', 'machine:0']))
     num_PUs = int(run_hwloc_calc(['--restrict', cpu_mask, '--number-of', 'PU', 'machine:0']))
 
-    # Maximum number of HTs a single IRQ core can handle
-    cores_per_irq_core = 16
-
     if num_PUs <= 4:
         return cpu_mask
     elif num_cores <= 4:
@@ -312,8 +311,8 @@ def auto_detect_irq_mask(cpu_mask):
     elif num_cores <= cores_per_irq_core:
         return run_hwloc_calc(['--restrict', cpu_mask, 'core:0'])
     else:
-        # Big machine: more than 16 cores!
-        # Let's allocate a full core for each 16 cores.
+        # Big machine.
+        # Let's allocate a full core out of every cores_per_irq_core cores.
         # Let's distribute IRQ cores among present NUMA nodes
         num_irq_cores = math.ceil(num_cores / cores_per_irq_core)
         hwloc_args = []
@@ -344,7 +343,7 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
         elif args.irq_cpu_mask:
             self.irqs_cpu_mask = args.irq_cpu_mask
         else:
-            self.irqs_cpu_mask = auto_detect_irq_mask(self.cpu_mask)
+            self.irqs_cpu_mask = auto_detect_irq_mask(self.cpu_mask, self.cores_per_irq_core)
 
         self.__is_aws_i3_nonmetal_instance = None
 
@@ -464,6 +463,21 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
         """
 
         return self.__args.cpu_mask
+
+    @property
+    def cores_per_irq_core(self):
+        """
+        Return the number of cores we are going to allocate a single IRQ core out of when auto-detecting
+        """
+        return self.__args.cores_per_irq_core
+
+    @staticmethod
+    def min_cores_per_irq_core():
+        """
+        A minimum value of cores_per_irq_core.
+        We don't allocate a full IRQ core if total number of CPU cores is less or equal to 4.
+        """
+        return 5
 
     @property
     def compute_cpu_mask(self):
@@ -1527,6 +1541,12 @@ argp.add_argument('--dry-run', action='store_true', help="Don't take any action,
 argp.add_argument('--write-back-cache', help="Enable/Disable \'write back\' write cache mode.", dest="set_write_back")
 argp.add_argument('--arfs', help="Enable/Disable aRFS", dest="enable_arfs")
 argp.add_argument('--num-rx-queues', help="Set a given number of Rx queues", type=int)
+argp.add_argument('--irq-core-auto-detection-ratio', help="Use a given ratio for IRQ mask auto-detection. For "
+                                                          "instance, if 8 is given and auto-detection is requested, a "
+                                                          "single IRQ CPU core is going to be allocated for every 8 "
+                                                          "CPU cores out of available according to a 'cpu_mask' value."
+                                                          "Default is 16",
+                  type=int, default=16, dest='cores_per_irq_core')
 
 def parse_cpu_mask_from_yaml(y, field_name, fname):
     hex_32bit_pattern='0x[0-9a-fA-F]{1,8}'
@@ -1607,6 +1627,10 @@ def parse_options_file(prog_args):
     if 'num_rx_queues' in y:
         prog_args.num_rx_queues = int(y['num_rx_queues'])
 
+    # prog_options['irq_core_auto_detection_ratio'] = prog_args.cores_per_irq_core
+    if 'irq_core_auto_detection_ratio' in y:
+        prog_args.cores_per_irq_core = int(y['irq_core_auto_detection_ratio'])
+
 def dump_config(prog_args):
     prog_options = {}
 
@@ -1645,6 +1669,8 @@ def dump_config(prog_args):
     if prog_args.num_rx_queues is not None:
         prog_options['num_rx_queues'] = f"{prog_args.num_rx_queues}"
 
+    prog_options['irq_core_auto_detection_ratio'] = prog_args.cores_per_irq_core
+
     perftune_print(yaml.dump(prog_options, default_flow_style=False))
 ################################################################################
 
@@ -1664,6 +1690,11 @@ if not args.tune:
 # The must be either 'mode' or an explicit 'irq_cpu_mask' given - not both
 if args.mode and args.irq_cpu_mask:
     sys.exit("ERROR: Provide either tune mode or IRQs CPU mask - not both.")
+
+# Sanity check
+if args.cores_per_irq_core < PerfTunerBase.min_cores_per_irq_core():
+    sys.exit(f"ERROR: irq_core_auto_detection_ratio value must be greater or equal than "
+             f"{PerfTunerBase.min_cores_per_irq_core}")
 
 # set default values #####################
 if not args.nics:
