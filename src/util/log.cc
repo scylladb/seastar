@@ -57,10 +57,14 @@
 using namespace std::chrono_literals;
 
 namespace fmt {
-template <> struct formatter<seastar::log_level>: formatter<std::string_view> {
+template <> struct formatter<seastar::log_level> {
     using log_level = seastar::log_level;
     static constexpr size_t nr_levels = static_cast<size_t>(log_level::trace) + 1;
     static bool colored;
+
+    // format specifier not supported
+    template <typename ParseContext>
+    constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
 
     template <typename FormatContext>
     auto format(seastar::log_level c, FormatContext& ctx) const {
@@ -82,11 +86,11 @@ template <> struct formatter<seastar::log_level>: formatter<std::string_view> {
             { int(log_level::error), fg(terminal_color::red)    },
         };
         if (colored) {
-            return formatter<std::string_view>::format(
-                fmt::format(style[index], "{}", name), ctx);
+            return fmt::format_to(ctx.out(), "{}",
+                fmt::format(style[index], "{}", name));
         }
 #endif
-        return formatter<std::string_view>::format(name, ctx);
+        return fmt::format_to(ctx.out(), "{}", name);
     }
 };
 bool formatter<seastar::log_level>::colored = true;
