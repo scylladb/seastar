@@ -369,6 +369,7 @@ private:
     future<> split_and_put(temporary_buffer<CharType> buf) noexcept;
     future<> put(temporary_buffer<CharType> buf) noexcept;
     void poll_flush() noexcept;
+    future<> do_flush() noexcept;
     future<> zero_copy_put(net::packet p) noexcept;
     future<> zero_copy_split_and_put(net::packet p) noexcept;
     [[gnu::noinline]]
