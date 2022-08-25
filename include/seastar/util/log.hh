@@ -503,9 +503,9 @@ struct logging_settings final {
     log_level default_level;
     bool stdout_enabled;
     bool syslog_enabled;
-    bool with_color;
     logger_timestamp_style stdout_timestamp_style = logger_timestamp_style::real;
     logger_ostream_type logger_ostream = logger_ostream_type::stderr;
+    bool with_color = true;
 };
 
 /// Shortcut for configuring the logging system all at once.
