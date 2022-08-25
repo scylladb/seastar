@@ -1107,11 +1107,13 @@ public:
                     // version requested by the client is not supported, the
                     // "protocol_version" alert is sent.
                     auto alert = gnutls_alert_description_t(gnutls_error_to_alert(res, NULL));
-                    return send_alert(GNUTLS_AL_FATAL, alert).then_wrapped([res] (future<> f) {
-                        // Return to the caller the original handshake error.
-                        // If send_alert() *also* failed, ignore that.
-                        f.ignore_ready_future();
-                        return make_exception_future<>(std::system_error(res, glts_errorc));
+                    return handle_output_error(res).then_wrapped([this, alert = std::move(alert)] (future<> output_future) {
+                        return send_alert(GNUTLS_AL_FATAL, alert).then_wrapped([output_future = std::move(output_future)] (future<> f) mutable {
+                            // Return to the caller the original handshake error.
+                            // If send_alert() *also* failed, ignore that.
+                            f.ignore_ready_future();
+                            return std::move(output_future);
+                        });
                     });
                 }
             }
@@ -1358,19 +1360,17 @@ public:
             gnutls_transport_set_errno(*this, EAGAIN);
             return -1;
         }
-        if (_output_pending.failed()) {
-            // copy exception for on_internal_error
-            auto ex = _output_pending.get_exception();
-            _output_pending = make_exception_future<>(ex);
-            on_internal_error(seastar_logger, format("tls: session: vec_push: unhandled pending output error: {}", ex));
-        }
         try {
-            scattered_message<char> msg;
-            for (int i = 0; i < iovcnt; ++i) {
-                msg.append(std::string_view(reinterpret_cast<const char *>(iov[i].iov_base), iov[i].iov_len));
+            ssize_t n; // Set on the good path and unused on the bad path
+
+            if (!_output_pending.failed()) {
+                scattered_message<char> msg;
+                for (int i = 0; i < iovcnt; ++i) {
+                    msg.append(std::string_view(reinterpret_cast<const char *>(iov[i].iov_base), iov[i].iov_len));
+                }
+                n = msg.size();
+                _output_pending = _out.put(std::move(msg).release());
             }
-            auto n = msg.size();
-            _output_pending = _out.put(std::move(msg).release());
             if (_output_pending.failed()) {
                 // exception is copied back into _output_pending
                 // by the catch handlers below
