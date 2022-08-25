@@ -34,11 +34,13 @@
 namespace seastar {
 
 struct loopback_error_injector {
+    enum class error { none, one_shot, abort };
     virtual ~loopback_error_injector() {};
-    virtual bool server_rcv_error() { return false; }
-    virtual bool server_snd_error() { return false; }
-    virtual bool client_rcv_error() { return false; }
-    virtual bool client_snd_error() { return false; }
+    virtual error server_rcv_error() { return error::none; }
+    virtual error server_snd_error() { return error::none; }
+    virtual error client_rcv_error() { return error::none; }
+    virtual error client_snd_error() { return error::none; }
+    virtual error connect_error()    { return error::none; }
 };
 
 class loopback_buffer {
@@ -58,13 +60,15 @@ public:
         if (_aborted) {
             return make_exception_future<>(std::system_error(EPIPE, std::system_category()));
         }
-        bool error = false;
         if (_error_injector) {
-            error = _type == type::CLIENT_TX ? _error_injector->client_snd_error() : _error_injector->server_snd_error();
-        }
-        if (error) {
-            shutdown();
-            return make_exception_future<>(std::runtime_error("test injected error on send"));
+            auto error = _type == type::CLIENT_TX ? _error_injector->client_snd_error() : _error_injector->server_snd_error();
+            if (error == loopback_error_injector::error::one_shot) {
+                return make_exception_future<>(std::runtime_error("test injected glitch on send"));
+            }
+            if (error == loopback_error_injector::error::abort) {
+                shutdown();
+                return make_exception_future<>(std::runtime_error("test injected error on send"));
+            }
         }
         return _q.push_eventually(std::move(b));
     }
@@ -72,13 +76,15 @@ public:
         if (_aborted) {
             return make_exception_future<temporary_buffer<char>>(std::system_error(EPIPE, std::system_category()));
         }
-        bool error = false;
         if (_error_injector) {
-            error = _type == type::CLIENT_TX ? _error_injector->client_rcv_error() : _error_injector->server_rcv_error();
-        }
-        if (error) {
-            shutdown();
-            return make_exception_future<temporary_buffer<char>>(std::runtime_error("test injected error on receive"));
+            auto error = _type == type::CLIENT_TX ? _error_injector->client_rcv_error() : _error_injector->server_rcv_error();
+            if (error == loopback_error_injector::error::one_shot) {
+                return make_exception_future<temporary_buffer<char>>(std::runtime_error("test injected glitch on receive"));
+            }
+            if (error == loopback_error_injector::error::abort) {
+                shutdown();
+                return make_exception_future<temporary_buffer<char>>(std::runtime_error("test injected error on receive"));
+            }
         }
         return _q.pop_eventually();
     }
@@ -251,11 +257,20 @@ class loopback_socket_impl : public net::socket_impl {
     loopback_error_injector* _error_injector;
     lw_shared_ptr<loopback_buffer> _b1;
     foreign_ptr<lw_shared_ptr<loopback_buffer>> _b2;
+    std::optional<promise<connected_socket>> _connect_abort;
 public:
     loopback_socket_impl(loopback_connection_factory& factory, loopback_error_injector* error_injector = nullptr)
             : _factory(factory), _error_injector(error_injector)
     { }
     future<connected_socket> connect(socket_address sa, socket_address local, seastar::transport proto = seastar::transport::TCP) override {
+        if (_error_injector) {
+            auto error = _error_injector->connect_error();
+            if (error != loopback_error_injector::error::none) {
+                _connect_abort.emplace();
+                return _connect_abort->get_future();
+            }
+        }
+
         auto shard = _factory.next_shard();
         _b1 = make_lw_shared<loopback_buffer>(_error_injector, loopback_buffer::type::SERVER_TX);
         return smp::submit_to(shard, [this, b1 = make_foreign(_b1)] () mutable {
@@ -272,10 +287,15 @@ public:
     virtual bool get_reuseaddr() const override { return false; };
 
     void shutdown() override {
-        _b1->shutdown();
-        (void)smp::submit_to(_b2.get_owner_shard(), [b2 = std::move(_b2)] {
-            b2->shutdown();
-        });
+        if (_connect_abort) {
+            _connect_abort->set_exception(std::make_exception_ptr(std::system_error(ECONNABORTED, std::system_category())));
+            _connect_abort = std::nullopt;
+        } else {
+            _b1->shutdown();
+            (void)smp::submit_to(_b2.get_owner_shard(), [b2 = std::move(_b2)] {
+                b2->shutdown();
+            });
+        }
     }
 };
 
