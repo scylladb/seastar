@@ -21,6 +21,7 @@
 
 #include <seastar/core/posix.hh>
 #include <seastar/core/align.hh>
+#include <seastar/util/critical_alloc_section.hh>
 #include <sys/mman.h>
 #include <sys/inotify.h>
 
@@ -43,6 +44,18 @@ file_desc::inotify_init(int flags) {
     int fd = ::inotify_init1(flags);
     throw_system_error_on(fd == -1, "could not create inotify instance");
     return file_desc(fd);
+}
+
+sstring file_desc::fdinfo() const noexcept {
+    memory::scoped_critical_alloc_section _;
+    auto path = fmt::format("/proc/self/fd/{}", _fd);
+    temporary_buffer<char> buf(64);
+    auto ret = ::readlink(path.c_str(), buf.get_write(), buf.size());
+    if (ret > 0) {
+        return sstring(buf.get(), ret);
+    } else {
+        return fmt::format("error({})", errno);
+    }
 }
 
 void mmap_deleter::operator()(void* ptr) const {

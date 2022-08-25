@@ -82,7 +82,7 @@ public:
         }
         return _q.pop_eventually();
     }
-    void shutdown() {
+    void shutdown() noexcept {
         _aborted = true;
         _q.abort(std::make_exception_ptr(std::system_error(EPIPE, std::system_category())));
     }
