@@ -1861,6 +1861,11 @@ reactor::file_type(std::string_view name, follow_symlink follow) noexcept {
     });
 }
 
+bool reactor::support_append(){
+    return _backend->support_append();
+}
+
+
 future<std::optional<directory_entry_type>>
 file_type(std::string_view name, follow_symlink follow) noexcept {
     return engine().file_type(name, follow);

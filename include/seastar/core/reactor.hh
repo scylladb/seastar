@@ -531,6 +531,8 @@ public:
     future<> chmod(std::string_view name, file_permissions permissions) noexcept;
 
     future<int> inotify_add_watch(int fd, std::string_view path, uint32_t flags);
+
+    bool support_append();
     
     int run() noexcept;
     void exit(int ret);
