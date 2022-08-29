@@ -56,8 +56,12 @@
 
 using namespace std::chrono_literals;
 
+struct wrapped_log_level {
+    seastar::log_level level;
+};
+
 namespace fmt {
-template <> struct formatter<seastar::log_level> {
+template <> struct formatter<wrapped_log_level> {
     using log_level = seastar::log_level;
     static constexpr size_t nr_levels = static_cast<size_t>(log_level::trace) + 1;
     static bool colored;
@@ -67,7 +71,7 @@ template <> struct formatter<seastar::log_level> {
     constexpr auto parse(ParseContext &ctx) { return ctx.begin(); }
 
     template <typename FormatContext>
-    auto format(seastar::log_level c, FormatContext& ctx) const {
+    auto format(wrapped_log_level wll, FormatContext& ctx) const {
         static seastar::array_map<seastar::sstring, nr_levels> text = {
             { int(log_level::debug), "DEBUG" },
             { int(log_level::info),  "INFO " },
@@ -75,7 +79,7 @@ template <> struct formatter<seastar::log_level> {
             { int(log_level::warn),  "WARN " },
             { int(log_level::error), "ERROR" },
         };
-        int index = static_cast<int>(c);
+        int index = static_cast<int>(wll.level);
         std::string_view name = text[index];
 #if FMT_VERSION >= 60000
         static seastar::array_map<text_style, nr_levels> style = {
@@ -93,7 +97,7 @@ template <> struct formatter<seastar::log_level> {
         return fmt::format_to(ctx.out(), "{}", name);
     }
 };
-bool formatter<seastar::log_level>::colored = true;
+bool formatter<wrapped_log_level>::colored = true;
 }
 
 namespace seastar {
@@ -326,7 +330,7 @@ logger::do_log(log_level level, log_writer& writer) {
     if (is_ostream_enabled) {
         internal::log_buf buf(static_log_buf.data(), static_log_buf.size());
         auto it = buf.back_insert_begin();
-        it = fmt::format_to(it, "{} ", level);
+        it = fmt::format_to(it, "{} ", wrapped_log_level{level});
         it = print_timestamp(it);
         it = print_once(it);
         *it++ = '\n';
@@ -398,7 +402,7 @@ logger::set_shard_field_width(unsigned width) noexcept {
 
 void
 logger::set_with_color(bool enabled) noexcept {
-    fmt::formatter<log_level>::colored = enabled;
+    fmt::formatter<wrapped_log_level>::colored = enabled;
 }
 
 bool logger::is_shard_zero() noexcept {
