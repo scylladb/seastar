@@ -120,6 +120,8 @@ public:
             size_t len, internal::io_request req, io_intent* intent, iovec_keeper iovs = {}) noexcept;
     future<size_t> submit_io_write(const io_priority_class& priority_class,
             size_t len, internal::io_request req, io_intent* intent, iovec_keeper iovs = {}) noexcept;
+    future<io_result> submit_io_append(const io_priority_class& priority_class,
+            size_t len, internal::io_request req, io_intent* intent, iovec_keeper iovs = {}) noexcept;
 
     future<size_t> queue_request(const io_priority_class& pc, internal::io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept;
     future<io_result> queue_request_for_append(const io_priority_class& pc, internal::io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept;

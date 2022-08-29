@@ -675,6 +675,11 @@ reactor_backend_aio::make_pollable_fd_state(file_desc fd, pollable_fd::speculati
     return pollable_fd_state_ptr(new aio_pollable_fd_state(std::move(fd), std::move(speculate)));
 }
 
+bool
+reactor_backend_aio::support_append() const noexcept {
+    return false;
+}
+
 reactor_backend_epoll::reactor_backend_epoll(reactor& r)
         : _r(r)
         , _steady_clock_timer_reactor_thread(file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK|TFD_CLOEXEC))
@@ -1032,6 +1037,11 @@ reactor_backend_epoll::make_pollable_fd_state(file_desc fd, pollable_fd::specula
     return pollable_fd_state_ptr(new epoll_pollable_fd_state(std::move(fd), std::move(speculate)));
 }
 
+bool
+reactor_backend_epoll::support_append() const noexcept {
+    return false;
+}
+
 void reactor_backend_epoll::reset_preemption_monitor() {
     _r._preemption_monitor.head.store(0, std::memory_order_relaxed);
 }
@@ -1127,6 +1137,12 @@ reactor_backend_osv::make_pollable_fd_state(file_desc fd, pollable_fd::speculati
     std::cerr << "reactor_backend_osv does not support file descriptors - make_pollable_fd_state() shouldn't have been called!\n";
     abort();
 }
+
+bool
+reactor_backend_osv::support_append() const noexcept {
+    return false;
+}
+
 #endif
 
 #ifdef SEASTAR_HAVE_URING
@@ -1693,6 +1709,9 @@ public:
     }
     virtual pollable_fd_state_ptr make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) override {
         return pollable_fd_state_ptr(new uring_pollable_fd_state(std::move(fd), std::move(speculate)));
+    }
+    virtual bool support_append() const noexcept override {
+        return true;
     }
 };
 

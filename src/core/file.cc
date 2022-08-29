@@ -33,6 +33,7 @@
 #define min min    /* prevent xfs.h from defining min() as a macro */
 #include <xfs/xfs.h>
 #undef min
+#include <libnvme.h>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/file.hh>
 #include <seastar/core/report_exception.hh>
@@ -46,6 +47,8 @@
 #include "core/thread_pool.hh"
 #include "core/uname.hh"
 #include "seastar/core/internal/read_state.hh"
+
+#define NVME_MAJOR_NUM 259
 
 namespace seastar {
 
@@ -419,6 +422,12 @@ posix_file_impl::do_write_dma(uint64_t pos, const void* buffer, size_t len, cons
     return _io_queue.submit_io_write(io_priority_class, len, std::move(req), intent);
 }
 
+future<io_result>
+posix_file_impl::do_append_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& io_priority_class, io_intent* intent, int ng_device_fd, const nvme_device_info& nvme_info) noexcept {
+    auto req = internal::io_request::make_append(ng_device_fd, pos, buffer, len, _nowait_works, nvme_info);
+    return _io_queue.submit_io_append(io_priority_class, len, std::move(req), intent);
+}
+
 future<size_t>
 posix_file_impl::do_write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& io_priority_class, io_intent* intent) noexcept {
     auto len = internal::sanitize_iovecs(iov, _disk_write_dma_alignment);
@@ -579,8 +588,13 @@ static bool blockdev_nowait_works(dev_t device_id) {
     return blockdev_gen_nowait_works;
 }
 
+blockdev_file_impl::blockdev_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id, shared_ptr<internal::nvme_device_info> nvme_info, int ng_device_fd)
+        : posix_file_impl(fd, f, options, device_id, blockdev_nowait_works(device_id)), ng_device_fd(ng_device_fd), nvme_info(nvme_info) {
+    // FIXME -- configure file_impl::_..._dma_alignment's from block_size
+}
+
 blockdev_file_impl::blockdev_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id, size_t block_size)
-        : posix_file_impl(fd, f, options, device_id, blockdev_nowait_works(device_id)) {
+        : posix_file_impl(fd, f, options, device_id, blockdev_nowait_works(device_id)), ng_device_fd(-1), nvme_info(nullptr) {
     // FIXME -- configure file_impl::_..._dma_alignment's from block_size
 }
 
@@ -626,9 +640,29 @@ blockdev_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov, const io_prio
     return posix_file_impl::do_read_dma(pos, std::move(iov), pc, intent);
 }
 
+future<io_result>
+blockdev_file_impl::append_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept {
+    // append is available on ng device only
+    if (ng_device_fd != -1) {
+        return posix_file_impl::do_append_dma(pos, buffer, len, pc, intent, ng_device_fd, *nvme_info);
+    } else {
+        return posix_file_impl::do_write_dma(pos, buffer, len, pc, intent).then([pos] (auto result) {
+            return make_ready_future<io_result>(io_result(result, pos));
+        });
+    }
+}
+
 future<temporary_buffer<uint8_t>>
 blockdev_file_impl::dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc, io_intent* intent) noexcept {
     return posix_file_impl::do_dma_read_bulk(offset, range_size, pc, intent);
+}
+
+future<>
+blockdev_file_impl::close() noexcept {
+  if (ng_device_fd != -1) {
+    ::close(ng_device_fd);
+  }
+  return posix_file_impl::close();
 }
 
 append_challenged_posix_file_impl::append_challenged_posix_file_impl(int fd, open_flags f, file_open_options options, const fs_info& fsi, dev_t device_id)
@@ -992,18 +1026,67 @@ xfs_concurrency_from_kernel_version() {
     return 0;
 }
 
+static const std::string NVME_STR = "nvme";
+static const std::string NG_STR = "ng";
+
+bool
+is_nvme_device(dev_t dev) {
+  unsigned int major_num = major(dev);
+  // Detect NVMe Device by using major number, 259
+  if (major_num == NVME_MAJOR_NUM) {
+    return true;
+  } else {
+    return false;
+  }
+}
+
+int
+open_ng_device_fd(std::string nvme_file_path) {
+  std::string ng_file_path = nvme_file_path;
+  size_t pos = ng_file_path.find(NVME_STR);
+  assert(pos != std::string::npos);
+  ng_file_path.replace(pos, NVME_STR.size(), NG_STR);
+  return ::open(ng_file_path.c_str(), O_RDWR);
+}
+
 future<shared_ptr<file_impl>>
-make_file_impl(int fd, file_open_options options, int flags) noexcept {
-    return engine().fstat(fd).then([fd, options = std::move(options), flags] (struct stat st) mutable {
+make_file_impl(int fd, file_open_options options, int flags, std::string name) noexcept {
+    return engine().fstat(fd).then([fd, options = std::move(options), flags, name = std::move(name)] (struct stat st) mutable {
         auto st_dev = st.st_dev;
 
         if (S_ISBLK(st.st_mode)) {
-            size_t block_size;
+            size_t block_size = 0;
             auto ret = ::ioctl(fd, BLKBSZGET, &block_size);
             if (ret == -1) {
                 return make_exception_future<shared_ptr<file_impl>>(
                         std::system_error(errno, std::system_category(), "ioctl(BLKBSZGET) failed"));
             }
+
+            uint32_t nsid = -1;
+            int ng_device_fd = -1;
+#ifdef SEASTAR_HAVE_NVME
+            if (is_nvme_device(st.st_rdev)) {
+                if (engine().support_append()) {
+                    nvme_get_nsid(fd, &nsid);
+                    ng_device_fd = open_ng_device_fd(name);
+                    if (ng_device_fd != -1) {
+                        shared_ptr<internal::nvme_device_info> nvme_info = make_shared<internal::nvme_device_info>(block_size, nsid);
+                        return make_ready_future<shared_ptr<file_impl>>(
+                            make_shared<blockdev_file_impl>(
+                                fd,
+                                open_flags(flags),
+                                options,
+                                st.st_rdev,
+                                nvme_info,
+                                ng_device_fd));
+                    }
+                    else { // if open ng device failed,
+                        return make_exception_future<shared_ptr<file_impl>>(
+                                std::system_error(errno, std::system_category(), "Open ngdevice for zone-append failed"));
+                    }
+                }
+            }
+#endif
             return make_ready_future<shared_ptr<file_impl>>(make_shared<blockdev_file_impl>(fd, open_flags(flags), options, st.st_rdev, block_size));
         } else {
             if (S_ISDIR(st.st_mode)) {
@@ -1218,6 +1301,15 @@ future<size_t> file::dma_write(uint64_t pos, std::vector<iovec> iov, const io_pr
     return _file_impl->write_dma(pos, std::move(iov), pc, intent);
   } catch (...) {
     return current_exception_as_future<size_t>();
+  }
+}
+
+future<io_result>
+file::dma_append_impl(uint64_t pos, const uint8_t* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept {
+  try {
+    return _file_impl->append_dma(pos, buffer, len, pc, intent);
+  } catch (...) {
+    return current_exception_as_future<io_result>();
   }
 }
 

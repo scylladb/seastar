@@ -31,7 +31,7 @@ namespace seastar {
 class io_queue;
 
 namespace internal {
-
+struct nvme_device_info;
 struct fs_info;
 
 }
@@ -123,6 +123,11 @@ public:
     virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept override = 0;
     virtual future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept override = 0;
     virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc, io_intent* intent) noexcept override = 0;
+    virtual future<io_result> append_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept override
+    {
+      // return error because only blockdev_file_impl can process append
+      return current_exception_as_future<io_result>();
+    }
 
     open_flags flags() const {
         return _open_flags;
@@ -160,6 +165,7 @@ protected:
     future<size_t> do_read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept;
     future<size_t> do_read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept;
     future<temporary_buffer<uint8_t>> do_dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc, io_intent* intent) noexcept;
+    future<io_result> do_append_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc, io_intent* intent, int ng_device_fd, const internal::nvme_device_info& nvme_info) noexcept;
 };
 
 class posix_file_real_impl final : public posix_file_impl {
@@ -276,7 +282,10 @@ public:
 };
 
 class blockdev_file_impl final : public posix_file_impl {
+    int ng_device_fd; 
+    shared_ptr<internal::nvme_device_info> nvme_info;
 public:
+    blockdev_file_impl(int fd, open_flags, file_open_options options, dev_t device_id, shared_ptr<internal::nvme_device_info> nvme_info, int ng_device_fd = -1);
     blockdev_file_impl(int fd, open_flags, file_open_options options, dev_t device_id, size_t block_size);
     future<> truncate(uint64_t length) noexcept override;
     future<> discard(uint64_t offset, uint64_t length) noexcept override;
@@ -288,8 +297,10 @@ public:
     using posix_file_impl::write_dma;
     virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept override;
     virtual future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept override;
+    virtual future<io_result> append_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept override;
     using posix_file_impl::dma_read_bulk;
     virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc, io_intent* intent) noexcept override;
+    virtual future<> close() noexcept override;
 };
 
 }

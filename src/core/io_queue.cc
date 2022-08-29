@@ -987,6 +987,13 @@ future<size_t> io_queue::submit_io_read(const io_priority_class& pc, size_t len,
     return queue_request(pc, io_direction_and_length(io_direction_read, len), std::move(req), intent, std::move(iovs));
 }
 
+future<io_result> io_queue::submit_io_append(const io_priority_class& pc, size_t len, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
+    auto& r = engine();
+    ++r._io_stats.aio_writes;
+    r._io_stats.aio_write_bytes += len;
+    return queue_request_for_append(pc, io_direction_and_length(io_direction_write, len), std::move(req), intent, std::move(iovs));
+}
+
 future<size_t> io_queue::submit_io_write(const io_priority_class& pc, size_t len, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
     auto& r = engine();
     ++r._io_stats.aio_writes;

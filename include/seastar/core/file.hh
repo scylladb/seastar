@@ -130,6 +130,11 @@ public:
         return read_dma(pos, std::move(iov), pc);
     }
 
+    virtual future<io_result> append_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc, io_intent*) {
+      // return error because only blockdev_file_impl can process append
+      return current_exception_as_future<io_result>();
+    }
+
     virtual future<> flush(void) = 0;
     virtual future<struct stat> stat(void) = 0;
     virtual future<> truncate(uint64_t length) = 0;
@@ -151,7 +156,7 @@ public:
     friend class reactor;
 };
 
-future<shared_ptr<file_impl>> make_file_impl(int fd, file_open_options options, int oflags) noexcept;
+future<shared_ptr<file_impl>> make_file_impl(int fd, file_open_options options, int oflags, std::string name = "") noexcept;
 
 /// \endcond
 
@@ -335,6 +340,11 @@ public:
     /// \return a future representing the number of bytes actually read.  A short
     ///         read may happen due to end-of-file or an I/O error.
     future<size_t> dma_read(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc = default_priority_class(), io_intent* intent = nullptr) noexcept;
+
+    template <typename CharType>
+    future<io_result> dma_append(uint64_t pos, const CharType* buffer, size_t len, const io_priority_class& pc = default_priority_class(), io_intent* intent = nullptr) noexcept {
+        return dma_append_impl(pos, reinterpret_cast<const uint8_t*>(buffer), len, pc, intent);
+    }
 
     /// Performs a DMA write from the specified buffer.
     ///
@@ -563,6 +573,11 @@ private:
 
     future<size_t>
     dma_write_impl(uint64_t pos, const uint8_t* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept;
+
+    // first size_t : result status or written bytes
+    // second size_t : appended block address (bytes)
+    future<io_result>
+    dma_append_impl(uint64_t pos, const uint8_t* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept;
 
     future<temporary_buffer<uint8_t>>
     dma_read_impl(uint64_t pos, size_t len, const io_priority_class& pc, io_intent* intent) noexcept;
