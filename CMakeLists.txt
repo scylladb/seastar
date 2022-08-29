@@ -247,6 +247,12 @@ if (DEFINED Seastar_IO_URING)
     ON)
 endif ()
 
+if (DEFINED Seastar_NVME)
+  option (Seastar_NVME
+    "Enable nvme support."
+    ON)
+endif ()
+
 set (Seastar_JENKINS
   ""
   CACHE
@@ -937,6 +943,13 @@ if (Seastar_IO_URING)
     PRIVATE URING::uring)
 endif ()
 
+set_option_if_package_is_found(Seastar_NVME LibNvme)
+if (Seastar_NVME)
+  list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_HAVE_NVME)
+  target_link_libraries (seastar
+    PRIVATE NVME::nvme)
+endif ()
+
 if (Seastar_LD_FLAGS)
   # In newer versions of CMake, there is `target_link_options`.
   target_link_libraries (seastar
@@ -1260,6 +1273,7 @@ if (Seastar_INSTALL)
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findyaml-cpp.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/SeastarDependencies.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindLibUring.cmake
+      ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindLibNvme.cmake
     DESTINATION ${install_cmakedir})
 
   install (

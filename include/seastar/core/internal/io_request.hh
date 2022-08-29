@@ -35,7 +35,7 @@ namespace internal {
 
 class io_request {
 public:
-    enum class operation { read, readv, write, writev, fdatasync, recv, recvmsg, send, sendmsg, accept, connect, poll_add, poll_remove, cancel };
+    enum class operation { read, readv, write, writev, fdatasync, recv, recvmsg, send, sendmsg, accept, connect, poll_add, poll_remove, cancel, append };
 private:
     operation _op;
     int _fd;
@@ -64,6 +64,8 @@ private:
     } _size;
 
     bool _nowait_works;
+    uint32_t _nsid = -1;
+    size_t _block_size = -1;
 
     explicit io_request(operation op, int fd, int flags, ::msghdr* msg)
         : _op(op)
@@ -102,6 +104,18 @@ private:
         : _op(op)
         , _fd(fd)
         , _nowait_works(nowait_works)
+    {
+        _attr.pos = pos;
+        _ptr.addr = ptr;
+        _size.len = size;
+    }
+
+    explicit io_request(operation op, int fd, uint64_t pos, char* ptr, size_t size, bool nowait_works, uint32_t nsid, size_t block_size)
+        : _op(op)
+        , _fd(fd)
+        , _nowait_works(nowait_works)
+        , _nsid(nsid)
+        , _block_size(block_size)
     {
         _attr.pos = pos;
         _ptr.addr = ptr;
@@ -218,6 +232,14 @@ public:
         return _nowait_works;
     }
 
+    uint32_t nsid() const {
+        return _nsid;
+    }
+
+    size_t block_size() const {
+        return _block_size;
+    }
+
     static io_request make_read(int fd, uint64_t pos, void* address, size_t size, bool nowait_works) {
         return io_request(operation::read, fd, pos, reinterpret_cast<char*>(address), size, nowait_works);
     }
@@ -244,6 +266,10 @@ public:
 
     static io_request make_write(int fd, uint64_t pos, const void* address, size_t size, bool nowait_works) {
         return io_request(operation::write, fd, pos, const_cast<char*>(reinterpret_cast<const char*>(address)), size, nowait_works);
+    }
+
+    static io_request make_append(int fd, uint64_t pos, const void* address, size_t size, bool nowait_works, uint32_t nsid, size_t block_size) {
+        return io_request(operation::append, fd, pos, const_cast<char*>(reinterpret_cast<const char*>(address)), size, nowait_works, nsid, block_size);
     }
 
     static io_request make_writev(int fd, uint64_t pos, std::vector<iovec>& iov, bool nowait_works) {
