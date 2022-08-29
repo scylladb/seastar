@@ -208,8 +208,9 @@ class io_desc_read_write final : public io_completion {
     const stream_id _stream;
     const io_direction_and_length _dnl;
     const fair_queue_ticket _fq_ticket;
-    promise<size_t> _pr;
+    promise<io_result> _pr;
     iovec_keeper _iovs;
+    size_t _assigned_lba = -1; // For append command, assigned block address from ZNS SSD is written here.
 
 public:
     io_desc_read_write(io_queue& ioq, io_queue::priority_class_data& pc, stream_id stream, io_direction_and_length dnl, fair_queue_ticket ticket, iovec_keeper iovs)
@@ -237,8 +238,12 @@ public:
         auto now = io_queue::clock_type::now();
         _pclass.on_complete(std::chrono::duration_cast<std::chrono::duration<double>>(now - _ts));
         _ioq.complete_request(*this);
-        _pr.set_value(res);
+        _pr.set_value(io_result(res, _assigned_lba));
         delete this;
+    }
+
+    virtual void set_additional_result(size_t result_) {
+        _assigned_lba = result_;
     }
 
     void cancel() noexcept {
@@ -254,7 +259,7 @@ public:
         _ts = now;
     }
 
-    future<size_t> get_future() {
+    future<io_result> get_future() {
         return _pr.get_future();
     }
 
@@ -305,7 +310,7 @@ public:
         _intent.enqueue(cq);
     }
 
-    future<size_t> get_future() noexcept { return _desc->get_future(); }
+    future<io_result> get_future() noexcept { return _desc->get_future(); }
     fair_queue_entry& queue_entry() noexcept { return _fq_entry; }
     stream_id stream() const noexcept { return _stream; }
 
@@ -833,7 +838,7 @@ io_queue::request_limits io_queue::get_request_limits() const noexcept {
     return l;
 }
 
-future<size_t> io_queue::queue_one_request(const io_priority_class& pc, io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
+future<io_result> io_queue::queue_one_request(const io_priority_class& pc, io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
     return futurize_invoke([&pc, dnl = std::move(dnl), req = std::move(req), this, intent, iovs = std::move(iovs)] () mutable {
         // First time will hit here, and then we create the class. It is important
         // that we create the shared pointer in the same shard it will be used at later.
@@ -853,7 +858,8 @@ future<size_t> io_queue::queue_one_request(const io_priority_class& pc, io_direc
     });
 }
 
-future<size_t> io_queue::queue_request(const io_priority_class& pc, io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
+// for append command we need new queue_request with returning io_result
+future<io_result> io_queue::queue_request_for_append(const io_priority_class& pc, io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
     size_t max_length = _group->_max_request_length[dnl.rw_idx()];
 
     if (__builtin_expect(dnl.length() <= max_length, true)) {
@@ -861,11 +867,73 @@ future<size_t> io_queue::queue_request(const io_priority_class& pc, io_direction
     }
 
     std::vector<internal::io_request::part> parts;
-    lw_shared_ptr<std::vector<future<size_t>>> p;
+    lw_shared_ptr<std::vector<future<io_result>>> p;
 
     try {
         parts = req.split(max_length);
-        p = make_lw_shared<std::vector<future<size_t>>>();
+        p = make_lw_shared<std::vector<future<io_result>>>();
+        p->reserve(parts.size());
+        find_or_create_class(pc).on_split(dnl);
+        engine()._io_stats.aio_outsizes++;
+    } catch (...) {
+        return current_exception_as_future<io_result>();
+    }
+
+    // No exceptions from now on. If queue_one_request fails it will resolve
+    // into exceptional future which will be picked up by when_all() below
+    for (auto&& part : parts) {
+        auto f = queue_one_request(pc, io_direction_and_length(dnl.rw_idx(), part.size), std::move(part.req), intent, std::move(part.iovecs));
+        p->push_back(std::move(f));
+    }
+
+    return when_all(p->begin(), p->end()).then([p, max_length] (auto results) {
+        bool prev_ok = true;
+        size_t total = 0;
+        std::exception_ptr ex;
+
+        for (auto&& res : results) {
+            if (!res.failed()) {
+                if (prev_ok) {
+                    size_t sz = res.get0().res1;
+                    total += sz;
+                    prev_ok &= (sz == max_length);
+                }
+            } else {
+                if (!ex) {
+                    ex = res.get_exception();
+                } else {
+                    res.ignore_ready_future();
+                }
+                prev_ok = false;
+            }
+        }
+
+        if (total > 0) {
+            return make_ready_future<io_result>(total);
+        } else if (ex) {
+            return make_exception_future<io_result>(std::move(ex));
+        } else {
+            return make_ready_future<io_result>(io_result(0, -1));
+        }
+    });
+}
+
+future<size_t> io_queue::queue_request(const io_priority_class& pc, io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
+    size_t max_length = _group->_max_request_length[dnl.rw_idx()];
+
+    if (__builtin_expect(dnl.length() <= max_length, true)) {
+        return queue_one_request(pc, dnl, std::move(req), intent, std::move(iovs)).then(
+          [] (auto io_result) {
+            return make_ready_future<size_t>(io_result.res1);
+          });
+    }
+
+    std::vector<internal::io_request::part> parts;
+    lw_shared_ptr<std::vector<future<io_result>>> p;
+
+    try {
+        parts = req.split(max_length);
+        p = make_lw_shared<std::vector<future<io_result>>>();
         p->reserve(parts.size());
         find_or_create_class(pc).on_split(dnl);
         engine()._io_stats.aio_outsizes++;
@@ -888,7 +956,7 @@ future<size_t> io_queue::queue_request(const io_priority_class& pc, io_direction
         for (auto&& res : results) {
             if (!res.failed()) {
                 if (prev_ok) {
-                    size_t sz = res.get0();
+                    size_t sz = res.get0().res1;
                     total += sz;
                     prev_ok &= (sz == max_length);
                 }

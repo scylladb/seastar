@@ -28,6 +28,7 @@
 #include <seastar/core/align.hh>
 #include <seastar/core/io_priority_class.hh>
 #include <seastar/core/file-types.hh>
+#include <seastar/core/io_result.hh>
 #include <seastar/util/std-compat.hh>
 #include <system_error>
 #include <sys/statvfs.h>

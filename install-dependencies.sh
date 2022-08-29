@@ -57,6 +57,7 @@ debian_packages=(
     doxygen
     openssl
     pkg-config
+    libnvme
 )
 
 # seastar doesn't directly depend on these packages. They are
@@ -77,6 +78,7 @@ redhat_packages=(
     lksctp-tools-devel
     lz4-devel
     liburing-devel
+    libnvme-devel
     gcc
     make
     python3
