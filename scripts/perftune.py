@@ -1112,7 +1112,7 @@ class SystemPerfTuner(PerfTunerBase):
     def tune(self):
         if self.args.tune_clock:
             if not self._clocksource_manager.setting_available():
-                perftune_print("Clocksource setting not available or not needed for this architecture. Not tuning");
+                perftune_print("Clocksource setting not available or not needed for this architecture. Not tuning")
             elif not self._clocksource_manager.preferred_clocksource_available():
                 perftune_print(self._clocksource_manager.recommendation_if_unavailable())
             else:
