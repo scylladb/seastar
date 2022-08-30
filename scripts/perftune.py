@@ -1694,7 +1694,7 @@ if args.mode and args.irq_cpu_mask:
 # Sanity check
 if args.cores_per_irq_core < PerfTunerBase.min_cores_per_irq_core():
     sys.exit(f"ERROR: irq_core_auto_detection_ratio value must be greater or equal than "
-             f"{PerfTunerBase.min_cores_per_irq_core}")
+             f"{PerfTunerBase.min_cores_per_irq_core()}")
 
 # set default values #####################
 if not args.nics:
