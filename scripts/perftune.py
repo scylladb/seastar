@@ -1112,7 +1112,7 @@ class SystemPerfTuner(PerfTunerBase):
     def tune(self):
         if self.args.tune_clock:
             if not self._clocksource_manager.setting_available():
-                perftune_print("Clocksource setting not available or not needed for this architecture. Not tuning");
+                perftune_print("Clocksource setting not available or not needed for this architecture. Not tuning")
             elif not self._clocksource_manager.preferred_clocksource_available():
                 perftune_print(self._clocksource_manager.recommendation_if_unavailable())
             else:
@@ -1694,7 +1694,7 @@ if args.mode and args.irq_cpu_mask:
 # Sanity check
 if args.cores_per_irq_core < PerfTunerBase.min_cores_per_irq_core():
     sys.exit(f"ERROR: irq_core_auto_detection_ratio value must be greater or equal than "
-             f"{PerfTunerBase.min_cores_per_irq_core}")
+             f"{PerfTunerBase.min_cores_per_irq_core()}")
 
 # set default values #####################
 if not args.nics:
