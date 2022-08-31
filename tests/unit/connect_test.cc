@@ -22,13 +22,12 @@ SEASTAR_THREAD_TEST_CASE(test_unconnected_socket_shutsdown_established_connectio
     auto distr = std::uniform_int_distribution<uint16_t>(12000, 65000);
     auto sa = make_ipv4_address({"127.0.0.1", distr(rnd)});
     auto listener = engine().net().listen(sa, listen_options());
-    // FIXME: indentation
-        auto f = listener.accept();
-        auto unconn = make_socket();
-        auto conn = unconn.connect(sa).get();
-            unconn.shutdown();
-            auto out = conn.output(1);
-            BOOST_REQUIRE_THROW(out.write("ping").get(), std::exception);
+    auto f = listener.accept();
+    auto unconn = make_socket();
+    auto conn = unconn.connect(sa).get();
+    unconn.shutdown();
+    auto out = conn.output(1);
+    BOOST_REQUIRE_THROW(out.write("ping").get(), std::exception);
     f.get();
 }
 
@@ -37,16 +36,15 @@ SEASTAR_THREAD_TEST_CASE(test_accept_after_abort) {
     auto distr = std::uniform_int_distribution<uint16_t>(12000, 65000);
     auto sa = make_ipv4_address({"127.0.0.1", distr(rnd)});
     auto listener = engine().net().listen(sa, listen_options());
-    // FIXME: indentation
-        using ftype = future<accept_result>;
-        promise<ftype> p;
-        future<ftype> done = p.get_future();
-        auto f = listener.accept().then_wrapped([&listener, p = std::move(p)] (auto f) mutable {
-            f.ignore_ready_future();
-            p.set_value(listener.accept());
-        });
-        listener.abort_accept();
-        ftype done_fut = done.get();
-        BOOST_REQUIRE_THROW(done_fut.get(), std::exception);
+    using ftype = future<accept_result>;
+    promise<ftype> p;
+    future<ftype> done = p.get_future();
+    auto f = listener.accept().then_wrapped([&listener, p = std::move(p)] (auto f) mutable {
+        f.ignore_ready_future();
+        p.set_value(listener.accept());
+    });
+    listener.abort_accept();
+    ftype done_fut = done.get();
+    BOOST_REQUIRE_THROW(done_fut.get(), std::exception);
     f.get();
 }
