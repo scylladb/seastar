@@ -26,12 +26,17 @@
 #include <cryptopp/base64.h>
 #include <seastar/core/scattered_message.hh>
 #include <seastar/core/byteorder.hh>
+#include <seastar/core/on_internal_error.hh>
 
 #ifndef CRYPTOPP_NO_GLOBAL_BYTE
 namespace CryptoPP {
 using byte = unsigned char;
 }
 #endif
+
+namespace seastar {
+extern logger seastar_logger;
+}
 
 namespace seastar::experimental::websocket {
 
@@ -60,6 +65,12 @@ websocket_parser::buff_t websocket_parser::result() {
     _cstate = connection_state::valid;
     _header.reset(nullptr);
     return std::move(_result);
+}
+
+server::~server() {
+    if (!_stopped && (!_listeners.empty() || !_connections.empty())) {
+        on_internal_error_noexcept(seastar_logger, "websocket server destroyed while open");
+    }
 }
 
 void server::listen(socket_address addr, listen_options lo) {

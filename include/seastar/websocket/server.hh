@@ -305,6 +305,7 @@ class server {
     future<> _accept_fut = make_ready_future<>();
     bool _stopped = false;
 public:
+    ~server();
     /*!
      * \brief listen for a WebSocket connection on given address
      * \param addr address to listen on
