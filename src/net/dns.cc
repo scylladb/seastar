@@ -921,10 +921,10 @@ private:
             e.typ = type::none;
             switch (typ) {
             case type::tcp:
-                tcp = std::move(e.tcp);
+                new (&tcp) tcp_entry(std::move(e.tcp));
                 break;
             case type::udp:
-                udp = std::move(e.udp);
+                new (&udp) udp_entry(std::move(e.udp));
                 break;
             default:
                 break;
