@@ -50,6 +50,9 @@ namespace seastar {
 template <typename Func, typename... Param>
 class sharded_parameter;
 
+template <typename Service>
+class sharded;
+
 namespace internal {
 
 template <typename Func, typename... Param>
@@ -59,7 +62,30 @@ using on_each_shard_func = std::function<future<> (unsigned shard)>;
 
 future<> sharded_parallel_for_each(unsigned nr_shards, on_each_shard_func on_each_shard) noexcept(std::is_nothrow_move_constructible_v<on_each_shard_func>);
 
-}
+template <typename Service>
+class either_sharded_or_local {
+    sharded<Service>& _sharded;
+public:
+    either_sharded_or_local(sharded<Service>& s) : _sharded(s) {}
+    operator sharded<Service>& ();
+    operator Service& ();
+};
+
+template <typename T>
+struct sharded_unwrap {
+    using type = T;
+};
+
+template <typename T>
+struct sharded_unwrap<std::reference_wrapper<sharded<T>>> {
+    using type = T&;
+};
+
+template <typename T>
+using sharded_unwrap_t = typename sharded_unwrap<T>::type;
+
+} // internal
+
 
 /// \addtogroup smp-module
 /// @{
@@ -484,23 +510,6 @@ private:
     }
 };
 
-namespace internal {
-
-template <typename T>
-struct sharded_unwrap {
-    using type = T;
-};
-
-template <typename T>
-struct sharded_unwrap<std::reference_wrapper<sharded<T>>> {
-    using type = T&;
-};
-
-template <typename T>
-using sharded_unwrap_t = typename sharded_unwrap<T>::type;
-
-} // internal
-
 
 /// \brief Helper to pass a parameter to a `sharded<>` object that depends
 /// on the shard. It is evaluated on the shard, just before being
@@ -543,15 +552,6 @@ sharded<Service>::~sharded() {
 
 namespace internal {
 
-template <typename Service>
-class either_sharded_or_local {
-    sharded<Service>& _sharded;
-public:
-    either_sharded_or_local(sharded<Service>& s) : _sharded(s) {}
-    operator sharded<Service>& () { return _sharded; }
-    operator Service& () { return _sharded.local(); }
-};
-
 template <typename T>
 inline
 T&&
@@ -570,6 +570,12 @@ auto
 unwrap_sharded_arg(sharded_parameter<Func, Param...> sp) {
     return sp.evaluate();
 }
+
+template <typename Service>
+either_sharded_or_local<Service>::operator sharded<Service>& () { return _sharded; }
+
+template <typename Service>
+either_sharded_or_local<Service>::operator Service& () { return _sharded.local(); }
 
 }
 
