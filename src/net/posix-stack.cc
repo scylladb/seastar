@@ -474,6 +474,13 @@ public:
             }
         }
     }
+
+    virtual future<> close() noexcept override {
+        if (_fd) {
+            _fd.close();
+        }
+        return make_ready_future<>();
+    }
 };
 
 future<accept_result>

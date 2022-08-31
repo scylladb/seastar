@@ -771,6 +771,8 @@ namespace rpc {
       // run in backgroud.
       // _stop_done shared_future is returned below
       (void)done.finally([this] {
+          return _socket.impl() ? _socket.close() : make_ready_future<>();
+      }).finally([this] {
           return rpc::connection::stop();
       }).finally([this] {
           seastar_logger.debug("stopped rpc::client {}", fmt::ptr(this));
@@ -780,19 +782,29 @@ namespace rpc {
     return _stop_done.get_shared_future();
   }
 
-  void client::abort_all_streams() {
+  future<> client::abort_all_streams() {
+      future<> to_stop = make_ready_future<>();
       while (!_streams.empty()) {
-          auto&& s = _streams.begin();
-          assert(s->second->get_owner_shard() == this_shard_id()); // abort can be called only locally
-          s->second->get()->abort();
-          _streams.erase(s);
+          auto s = _streams.extract(_streams.begin()).mapped();
+          assert(s->get_owner_shard() == this_shard_id()); // abort can be called only locally
+          auto sp = s->get();
+          sp->abort();
+          to_stop = to_stop.then([sp = std::move(sp)] () mutable {
+              return sp->stop().then([sp = std::move(sp)] {});
+          });
       }
+      return to_stop;
   }
 
-  void client::deregister_this_stream() {
+  future<> client::deregister_this_stream() {
       if (_parent) {
-          _parent->_streams.erase(_id);
+          auto sxcp = _parent->_streams.extract(_id).mapped();
+          assert(sxcp->get_owner_shard() == this_shard_id()); // derigster can be called only locally
+          auto sp = sxcp->get();
+          sp->abort();
+          return sp->stop().then([sp = std::move(sp)] {});
       }
+      return make_ready_future<>();
   }
 
   client::client(const logger& l, void* s, client_options ops, socket socket, const socket_address& addr, const socket_address& local)
@@ -887,9 +899,9 @@ namespace rpc {
               f.ignore_ready_future();
               _outstanding.clear();
               if (is_stream()) {
-                  deregister_this_stream();
+                  return deregister_this_stream();
               } else {
-                  abort_all_streams();
+                  return abort_all_streams();
               }
           }).finally([this]{
               _done.set_value();
@@ -1170,9 +1182,11 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
               auto s = sit->second;
               auto it = s->_conns.find(_parent_id);
               if (it != s->_conns.end()) {
-                  it->second->_streams.erase(get_connection_id());
+                  auto sxcp = it->second->_streams.extract(get_connection_id()).mapped();
+                  return sxcp->stop().then([sxcp = std::move(sxcp)] {});
               }
           }
+          return make_ready_future<>();
       });
   }
 

@@ -281,6 +281,7 @@ class loopback_socket_impl : public net::socket_impl {
     lw_shared_ptr<loopback_buffer> _b1;
     foreign_ptr<lw_shared_ptr<loopback_buffer>> _b2;
     std::optional<promise<connected_socket>> _connect_abort;
+    future<> _to_close = make_ready_future<>();
 public:
     loopback_socket_impl(loopback_connection_factory& factory, loopback_error_injector* error_injector = nullptr)
             : _factory(factory), _error_injector(error_injector)
@@ -319,11 +320,17 @@ public:
             _b1 = {};
           }
           if (_b2) {
-            (void)smp::submit_to(_b2.get_owner_shard(), [b2 = std::move(_b2)] {
+            _to_close = smp::submit_to(_b2.get_owner_shard(), [b2 = std::move(_b2)] {
                 b2->shutdown();
             });
           }
         }
+    }
+
+    virtual future<> close() noexcept override {
+        return std::exchange(_to_close, make_ready_future<>()).finally([this] {
+            return _factory.destroy_all_shards();
+        });
     }
 };
 

@@ -61,6 +61,11 @@ public:
     virtual void set_reuseaddr(bool reuseaddr) = 0;
     virtual bool get_reuseaddr() const = 0;
     virtual void shutdown() = 0;
+#if SEASTAR_API_LEVEL >= 7
+    virtual future<> close() noexcept = 0;
+#else
+    virtual future<> close() noexcept { return make_ready_future<>(); }
+#endif
 };
 
 

@@ -1825,6 +1825,9 @@ public:
     virtual void shutdown() override {
         _socket.shutdown();
     }
+    virtual future<> close() noexcept override {
+        return _socket.close();
+    }
 };
 
 }

@@ -502,8 +502,8 @@ public:
     void wait_for_reply(id_type id, std::unique_ptr<reply_handler_base>&& h, std::optional<rpc_clock_type::time_point> timeout, cancellable* cancel);
     void wait_timed_out(id_type id);
     future<> stop() noexcept;
-    void abort_all_streams();
-    void deregister_this_stream();
+    future<> abort_all_streams();
+    future<> deregister_this_stream();
     socket_address peer_address() const override {
         return _server_addr;
     }
@@ -542,6 +542,10 @@ public:
     template<typename Serializer, typename... Out>
     future<sink<Out...>> make_stream_sink() {
         return make_stream_sink<Serializer, Out...>(make_socket());
+    }
+    template<typename Serializer, typename... Out>
+    future<sink<Out...>> close() noexcept {
+        return rpc::connection::stop();
     }
 };
 

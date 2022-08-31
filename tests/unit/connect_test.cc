@@ -11,6 +11,7 @@ using namespace net;
 SEASTAR_THREAD_TEST_CASE(test_connection_attempt_is_shutdown) {
     ipv4_addr server_addr("172.16.0.1");
     auto unconn = make_socket();
+    auto close_unc = deferred_close(unconn);
     auto f = unconn.connect(make_ipv4_address(server_addr));
     unconn.shutdown();
     BOOST_REQUIRE_THROW(f.get(), std::exception);
@@ -26,6 +27,7 @@ SEASTAR_THREAD_TEST_CASE(test_unconnected_socket_shutsdown_established_connectio
     auto close_listener = deferred_close(listener);
     auto f = listener.accept();
     auto unconn = make_socket();
+    auto close_unc = deferred_close(unconn);
     auto conn = unconn.connect(sa).get();
     auto close_conn = deferred_close(conn);
     unconn.shutdown();

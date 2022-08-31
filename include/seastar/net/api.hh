@@ -182,6 +182,10 @@ public:
     /// Cancels the connection attempt if it's still in progress, and
     /// terminates the connection if it has already been established.
     void shutdown();
+    /// Wait on any async activity.
+    ///
+    /// Must be called before destroying the \c socket.
+    future<> close() noexcept;
 private:
     const net::socket_impl* impl() const noexcept;
 

@@ -145,6 +145,11 @@ public:
             _conn->shutdown_connect();
         }
     }
+
+    virtual future<> close() noexcept override {
+        // FIXME: close _conn
+        return make_ready_future<>();
+    }
 };
 
 template <typename Protocol>

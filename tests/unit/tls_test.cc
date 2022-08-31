@@ -704,7 +704,9 @@ SEASTAR_THREAD_TEST_CASE(test_close_timout) {
         }
     };
 
-    auto constexpr iterations = 500;
+    auto constexpr iterations = 50;
+    // close in the background since each close has a 10s timeout
+    auto to_close = make_ready_future<>();
         
     for (int i = 0; i < iterations; ++i) {
         auto b1 = ::make_lw_shared<loopback_buffer>(nullptr, loopback_buffer::type::SERVER_TX);
@@ -716,12 +718,21 @@ SEASTAR_THREAD_TEST_CASE(test_close_timout) {
         auto& csir = *csi;
 
         auto ss = tls::wrap_server(serv, connected_socket(std::move(ssi))).get0();
-        auto close_ss = deferred_close(ss);
         auto cs = tls::wrap_client(creds, connected_socket(std::move(csi))).get0();
-        auto close_cs = deferred_close(cs);
 
         auto os = cs.output().detach();
         auto is = ss.input();
+        auto auto_close = defer([&] () mutable noexcept {
+            auto f = when_all(
+                is.close().then([is = std::move(is)] {}),
+                os.close().then([os = std::move(os)] {}),
+                cs.close().then([cs = std::move(cs)] {}),
+                ss.close().then([ss = std::move(ss)] {})
+            ).discard_result();
+            to_close = to_close.then([f = std::move(f)] () mutable {
+                return std::move(f);
+            });
+        });
 
         auto f1 = os.put(temporary_buffer<char>(10));
         auto f2 = is.read();
@@ -734,6 +745,7 @@ SEASTAR_THREAD_TEST_CASE(test_close_timout) {
     }
 
     sem.wait(2 * iterations).get();
+    to_close.get();
 }
 
 SEASTAR_THREAD_TEST_CASE(test_reload_certificates) {
@@ -1113,6 +1125,7 @@ SEASTAR_THREAD_TEST_CASE(test_closed_write) {
         auto s = sa.get0();
         auto close_s_conn = deferred_close(s.connection);
         auto in = s.connection.input();
+        auto close_in = deferred_close(in);
 
         output_stream<char> out(c.output().detach(), 4096);
         // close on client end before writing
@@ -1132,6 +1145,7 @@ SEASTAR_THREAD_TEST_CASE(test_closed_write) {
         output_stream<char> out(c.output().detach(), 4096);
 
         out.write("apa").get();
+        auto close_out = deferred_close(out);
         auto f = out.flush();
         in.read().get();
         f.get();
