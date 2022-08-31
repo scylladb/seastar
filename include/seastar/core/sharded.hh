@@ -73,16 +73,16 @@ public:
 
 template <typename T>
 struct sharded_unwrap {
-    using type = T;
+    using evaluated_type = T;
 };
 
 template <typename T>
 struct sharded_unwrap<std::reference_wrapper<sharded<T>>> {
-    using type = T&;
+    using evaluated_type = T&;
 };
 
 template <typename T>
-using sharded_unwrap_t = typename sharded_unwrap<T>::type;
+using sharded_unwrap_evaluated_t = typename sharded_unwrap<T>::evaluated_type;
 
 } // internal
 
@@ -529,7 +529,7 @@ public:
     ///                  instance will be passed. Anything else
     ///                  will be passed by value unchanged.
     explicit sharded_parameter(Func func, Params... params)
-            SEASTAR_CONCEPT(requires std::invocable<Func, internal::sharded_unwrap_t<Params>...>)
+            SEASTAR_CONCEPT(requires std::invocable<Func, internal::sharded_unwrap_evaluated_t<Params>...>)
             : _func(std::move(func)), _params(std::make_tuple(std::move(params)...)) {
     }
 private:
