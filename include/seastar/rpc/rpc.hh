@@ -612,6 +612,7 @@ public:
     server(protocol_base* proto, server_options opts, const socket_address& addr, resource_limits memory_limit = resource_limits());
     server(protocol_base* proto, server_socket, resource_limits memory_limit = resource_limits(), server_options opts = server_options{});
     server(protocol_base* proto, server_options opts, server_socket, resource_limits memory_limit = resource_limits());
+    ~server();
     void accept();
     future<> stop();
     template<typename Func>

@@ -3,6 +3,7 @@
 #include <seastar/core/seastar.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/future-util.hh>
+#include <seastar/core/on_internal_error.hh>
 #include <boost/range/adaptor/map.hpp>
 
 #if FMT_VERSION >= 90000
@@ -10,6 +11,8 @@ template <> struct fmt::formatter<seastar::rpc::streaming_domain_type> : fmt::os
 #endif
 
 namespace seastar {
+
+extern logger seastar_logger;
 
 namespace rpc {
 
@@ -1112,6 +1115,12 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
   server::server(protocol_base* proto, server_options opts, server_socket ss, resource_limits limits)
           : server(proto, std::move(ss), limits, opts)
   {}
+
+  server::~server() {
+      if (!_reply_gate.is_closed()) {
+          on_internal_error_noexcept(seastar_logger, "rpc::server destroyed while open");
+      }
+  }
 
   void server::accept() {
       // Run asynchronously in background.
