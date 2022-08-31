@@ -165,3 +165,39 @@ SEASTAR_THREAD_TEST_CASE(failed_sharded_start_doesnt_hang) {
     seastar::sharded<fail_to_start> s;
     s.start().then_wrapped([] (auto&& fut) { fut.ignore_ready_future(); }).get();
 }
+
+class argument {
+    int _x;
+public:
+    argument() : _x(this_shard_id()) {}
+    int get() const { return _x; }
+};
+
+class service {
+public:
+    void fn_local(argument& arg) {
+        BOOST_REQUIRE_EQUAL(arg.get(), this_shard_id());
+    }
+
+    void fn_sharded(sharded<argument>& arg) {
+        BOOST_REQUIRE_EQUAL(arg.local().get(), this_shard_id());
+    }
+
+    void fn_sharded_param(int arg) {
+        BOOST_REQUIRE_EQUAL(arg, this_shard_id());
+    }
+};
+
+SEASTAR_THREAD_TEST_CASE(invoke_on_all_sharded_arg) {
+    seastar::sharded<service> srv;
+    srv.start().get();
+    seastar::sharded<argument> arg;
+    arg.start().get();
+
+    srv.invoke_on_all(&service::fn_local, std::ref(arg)).get();
+    srv.invoke_on_all(&service::fn_sharded, std::ref(arg)).get();
+    srv.invoke_on_all(&service::fn_sharded_param, sharded_parameter([&arg] { return arg.local().get(); })).get();
+
+    srv.stop().get();
+    arg.stop().get();
+}

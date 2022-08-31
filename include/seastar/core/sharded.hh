@@ -74,15 +74,25 @@ public:
 template <typename T>
 struct sharded_unwrap {
     using evaluated_type = T;
+    using type = T;
 };
 
 template <typename T>
 struct sharded_unwrap<std::reference_wrapper<sharded<T>>> {
     using evaluated_type = T&;
+    using type = either_sharded_or_local<T>;
+};
+
+template <typename Func, typename... Param>
+struct sharded_unwrap<sharded_parameter<Func, Param...>> {
+    using type = std::invoke_result_t<Func, Param...>;
 };
 
 template <typename T>
 using sharded_unwrap_evaluated_t = typename sharded_unwrap<T>::evaluated_type;
+
+template <typename T>
+using sharded_unwrap_t = typename sharded_unwrap<T>::type;
 
 } // internal
 
@@ -260,7 +270,7 @@ public:
     ///        to be invoked on all shards
     /// \return Future that becomes ready once all calls have completed
     template <typename Func, typename... Args>
-    SEASTAR_CONCEPT(requires std::invocable<Func, Service&, Args...>)
+    SEASTAR_CONCEPT(requires std::invocable<Func, Service&, internal::sharded_unwrap_t<Args>...>)
     future<> invoke_on_all(smp_submit_to_options options, Func func, Args... args) noexcept;
 
     /// Invoke a function on all instances of `Service`.
@@ -269,7 +279,7 @@ public:
     /// Passes the default \ref smp_submit_to_options to the
     /// \ref smp::submit_to() called behind the scenes.
     template <typename Func, typename... Args>
-    SEASTAR_CONCEPT(requires std::invocable<Func, Service&, Args...>)
+    SEASTAR_CONCEPT(requires std::invocable<Func, Service&, internal::sharded_unwrap_t<Args>...>)
     future<> invoke_on_all(Func func, Args... args) noexcept {
       try {
         return invoke_on_all(smp_submit_to_options{}, std::move(func), std::move(args)...);
@@ -741,15 +751,17 @@ sharded<Service>::invoke_on_all(smp_submit_to_options options, std::function<fut
 
 template <typename Service>
 template <typename Func, typename... Args>
-SEASTAR_CONCEPT(requires std::invocable<Func, Service&, Args...>)
+SEASTAR_CONCEPT(requires std::invocable<Func, Service&, internal::sharded_unwrap_t<Args>...>)
 inline
 future<>
 sharded<Service>::invoke_on_all(smp_submit_to_options options, Func func, Args... args) noexcept {
-    static_assert(std::is_same_v<futurize_t<std::invoke_result_t<Func, Service&, Args...>>, future<>>,
+    static_assert(std::is_same_v<futurize_t<std::invoke_result_t<Func, Service&, internal::sharded_unwrap_t<Args>...>>, future<>>,
                   "invoke_on_all()'s func must return void or future<>");
   try {
     return invoke_on_all(options, invoke_on_all_func_type([func = std::move(func), args = std::tuple(std::move(args)...)] (Service& service) mutable {
-        return futurize_apply(func, std::tuple_cat(std::forward_as_tuple(service), args));
+        return std::apply([&service, &func] (Args&&... args) mutable {
+            return futurize_apply(func, std::tuple_cat(std::forward_as_tuple(service), std::tuple(internal::unwrap_sharded_arg(std::forward<Args>(args))...)));
+        }, std::move(args));
     }));
   } catch (...) {
     return current_exception_as_future();
