@@ -27,10 +27,12 @@ SEASTAR_THREAD_TEST_CASE(test_unconnected_socket_shutsdown_established_connectio
     auto f = listener.accept();
     auto unconn = make_socket();
     auto conn = unconn.connect(sa).get();
+    auto close_conn = deferred_close(conn);
     unconn.shutdown();
     auto out = conn.output(1);
     BOOST_REQUIRE_THROW(out.write("ping").get(), std::exception);
-    f.get();
+    auto ar = f.get();
+    ar.connection.close().get();
 }
 
 SEASTAR_THREAD_TEST_CASE(test_accept_after_abort) {

@@ -132,6 +132,8 @@ public:
     future<> write_body();
 
     output_stream<char>& out();
+
+    future<> close() noexcept;
 };
 
 class http_server_tester;

@@ -243,6 +243,10 @@ public:
     explicit operator bool() const noexcept {
         return static_cast<bool>(_csi);
     }
+    /// Wait on any async activity.
+    ///
+    /// Must be called before destroying the \c connected_socket.
+    future<> close() noexcept;
 };
 /// @}
 

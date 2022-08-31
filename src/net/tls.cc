@@ -1506,8 +1506,9 @@ public:
             return with_semaphore(_in_sem, 1, [this] {
                 return with_semaphore(_out_sem, 1, [] {});
             });
-        }).then_wrapped([me = std::move(me)](future<> f) { // must keep object alive until here.
+        }).then_wrapped([this, me = std::move(me)] (future<> f) mutable { // must keep object alive until here.
             f.ignore_ready_future();
+            return _sock.close().finally([me = std::move(me)] {});
         });
     }
     // helper for sink
@@ -1670,6 +1671,9 @@ public:
     }
     future<std::optional<session_dn>> get_distinguished_name() {
         return get_session()->get_distinguished_name();
+    }
+    virtual future<> close() noexcept override {
+        return make_ready_future<>();
     }
 };
 

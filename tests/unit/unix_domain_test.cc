@@ -28,6 +28,7 @@
 #include <seastar/core/thread.hh>
 #include <seastar/util/log.hh>
 #include <seastar/util/std-compat.hh>
+#include <seastar/util/closeable.hh>
 
 using namespace seastar;
 using std::string;
@@ -88,7 +89,9 @@ future<> ud_server_client::init_server() {
 
         return do_until([this](){return rounds_left<=0;}, [&lstn,this]() {
             return lstn.accept().then([this](accept_result from_accept) {
+              return async([this, from_accept = std::move(from_accept)] () mutable {
                 connected_socket cn    = std::move(from_accept.connection);
+                auto close_sn = deferred_close(cn);
                 socket_address cn_addr = std::move(from_accept.remote_address);
                 --rounds_left;
                 //  verify the client address
@@ -97,19 +100,19 @@ future<> ud_server_client::init_server() {
                     BOOST_REQUIRE_EQUAL(cn_addr, socket_address{unix_domain_addr{*client_path}});
                 }
 
-                return do_with(cn.input(), cn.output(), [](auto& inp, auto& out) {
-
-                    return inp.read().then([&out](auto bb) {
+                auto inp = cn.input();
+                auto close_inp = deferred_close(inp);
+                auto out = cn.output();
+                auto close_out = deferred_close(out);
+                auto bb = inp.read().get();
+                // FIXME: indentaiton
                         string ans = "-"s;
                         if (bb && bb.size()) {
                             ans = "+"s + string{bb.get(), bb.size()};
                         }
-                        return out.write(ans).then([&out](){return out.flush();}).
-                        then([&out](){return out.close();});
-                    }).then([&inp]() { return inp.close(); }).
-                    then([]() { return make_ready_future<>(); });
-
-                }).then([]{ return make_ready_future<>();});
+                out.write(ans).get();
+                out.flush().get();
+              });
             });
         }).handle_exception([this](auto e) {
             // OK to get here only if the test was a "planned abort" one
@@ -131,6 +134,7 @@ void ud_server_client::client_round() {
     auto cc = client_path ? 
         engine().net().connect(server_addr, socket_address{unix_domain_addr{*client_path}}).get0() :
         engine().net().connect(server_addr).get0();
+    auto close_cc = deferred_close(cc);
 
     auto inp = cc.input();
     auto out = cc.output();

@@ -326,7 +326,13 @@ namespace rpc {
       } catch (...) {
           log_exception(*this, log_level::error, "fail to shutdown connection while stopping", std::current_exception());
       }
-      return _done.get_shared_future();
+      auto done = _done.get_shared_future();
+      seastar_logger.debug("stopping rpc::connection {} done={}, at {}", fmt::ptr(this), done.available(), current_backtrace());
+      return done.finally([this] {
+          return _fd.close();
+      }).then([this] {
+          seastar_logger.debug("stopped rpc::connection {}", fmt::ptr(this));
+      });
   }
 
   template<typename Connection>
@@ -698,7 +704,13 @@ namespace rpc {
       } catch(...) {
           log_exception(*this, log_level::error, "fail to shutdown connection while stopping", std::current_exception());
       }
-      return _done.get_shared_future();
+      auto done = _done.get_shared_future();
+      seastar_logger.debug("stopping rpc::client {} done={}, at {}", fmt::ptr(this), done.available(), current_backtrace());
+      return done.finally([this] {
+          return rpc::connection::stop();
+      }).finally([this] {
+          seastar_logger.debug("stopped rpc::client {}", fmt::ptr(this));
+      });
   }
 
   void client::abort_all_streams() {
@@ -1156,6 +1168,7 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
   }
 
   future<> server::stop() {
+      seastar_logger.debug("stopping rpc server {}, at {}", fmt::ptr(this), current_backtrace());
       _ss.abort_accept();
       _resources_available.broken();
       if (_options.streaming_domain) {
@@ -1167,7 +1180,9 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
           }),
           _reply_gate.close(),
           _ss.close()
-      ).discard_result(); });
+      ).discard_result(); }).finally([this] {
+          seastar_logger.debug("stopped rpc server {}", fmt::ptr(this));
+      });
   }
 
   std::ostream& operator<<(std::ostream& os, const connection_id& id) {

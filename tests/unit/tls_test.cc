@@ -100,6 +100,8 @@ static future<> connect_to_ssl_addr(::shared_ptr<tls::certificate_credentials> c
                     }).finally([&os] {
                         return os.close();
                     });
+                }).finally([&s] {
+                    return s.close();
                 });
             });
         });
@@ -272,9 +274,11 @@ SEASTAR_TEST_CASE(test_abort_accept_after_handshake) {
         b.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
 
         auto c = tls::connect(b.build_certificate_credentials(), addr).get0();
+        auto close_c = deferred_close(c);
         server.abort_accept(); // should not affect the socket we got.
 
         auto s = sa.get0();
+        auto close_s = deferred_close(s.connection);
         auto out = c.output();
         auto in = s.connection.input();
 
@@ -317,6 +321,7 @@ SEASTAR_TEST_CASE(test_abort_accept_on_server_before_handshake) {
             // the connect as such should succeed, but the handshare following it
             // should not.
             auto c = f.get0();
+            auto close_c = deferred_close(c);
             auto out = c.output();
             out.write("apa").get();
             out.flush().get();
@@ -391,7 +396,9 @@ public:
                         });
                     }).finally([strms]{
                         return strms->out.close();
-                    }).finally([strms]{});
+                    }).finally([strms]{
+                        return strms->s.close();
+                    });
                 }).handle_exception([this](auto ep) {
                     if (_stopped) {
                         return make_ready_future<>();
@@ -487,7 +494,9 @@ static future<> run_echo_test(sstring message,
                         }
                         (void)f1.handle_exception([] (std::exception_ptr ignored) { });
                         return f2;
-                    }).finally([strms] { });
+                    }).finally([strms] {
+                        return strms->s.close();
+                    });
                 });
             });
         }).finally([server] {
@@ -703,7 +712,9 @@ SEASTAR_THREAD_TEST_CASE(test_close_timout) {
         auto& csir = *csi;
 
         auto ss = tls::wrap_server(serv, connected_socket(std::move(ssi))).get0();
+        auto close_ss = deferred_close(ss);
         auto cs = tls::wrap_client(creds, connected_socket(std::move(csi))).get0();
+        auto close_cs = deferred_close(cs);
 
         auto os = cs.output().detach();
         auto is = ss.input();
@@ -763,7 +774,9 @@ SEASTAR_THREAD_TEST_CASE(test_reload_certificates) {
     {
         auto sa = server.accept();
         auto c = tls::connect(b2.build_certificate_credentials(), addr).get0();
+        auto close_c = deferred_close(c);
         auto s = sa.get0();
+        auto close_s_conn = deferred_close(s.connection);
         auto in = s.connection.input();
 
         output_stream<char> out(c.output().detach(), 4096);
@@ -812,7 +825,9 @@ SEASTAR_THREAD_TEST_CASE(test_reload_certificates) {
     {
         auto sa = server.accept();
         auto c = tls::connect(b2.build_certificate_credentials(), addr).get0();
+        auto close_c = deferred_close(c);
         auto s = sa.get0();
+        auto close_s_conn = deferred_close(s.connection);
         auto in = s.connection.input();
 
         output_stream<char> out(c.output().detach(), 4096);
@@ -1090,7 +1105,9 @@ SEASTAR_THREAD_TEST_CASE(test_closed_write) {
     {
         auto sa = server.accept();
         auto c = tls::connect(creds, addr).get0();
+        auto close_c = deferred_close(c);
         auto s = sa.get0();
+        auto close_s_conn = deferred_close(s.connection);
         auto in = s.connection.input();
 
         output_stream<char> out(c.output().detach(), 4096);
@@ -1103,7 +1120,9 @@ SEASTAR_THREAD_TEST_CASE(test_closed_write) {
     {
         auto sa = server.accept();
         auto c = tls::connect(creds, addr).get0();
+        auto close_c = deferred_close(c);
         auto s = sa.get0();
+        auto close_s_conn = deferred_close(s.connection);
         auto in = s.connection.input();
 
         output_stream<char> out(c.output().detach(), 4096);
@@ -1200,7 +1219,9 @@ SEASTAR_THREAD_TEST_CASE(test_dn_name_handling) {
 
         auto sa = server_sock.accept();
         auto c = tls::connect(client_cred, addr).get();
+        auto close_c = deferred_close(c);
         auto s = sa.get();
+        auto close_s_conn = deferred_close(s.connection);
 
         auto in = s.connection.input();
         output_stream<char> out(c.output().detach(), 1024);

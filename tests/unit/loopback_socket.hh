@@ -152,6 +152,7 @@ public:
 class loopback_connected_socket_impl : public net::connected_socket_impl {
     foreign_ptr<lw_shared_ptr<loopback_buffer>> _tx;
     lw_shared_ptr<loopback_buffer> _rx;
+    future<> _shutdown_fut = make_ready_future<>();
 public:
     loopback_connected_socket_impl(foreign_ptr<lw_shared_ptr<loopback_buffer>> tx, lw_shared_ptr<loopback_buffer> rx)
             : _tx(std::move(tx)), _rx(std::move(rx)) {
@@ -166,8 +167,7 @@ public:
         _rx->shutdown();
     }
     void shutdown_output() override {
-        (void)smp::submit_to(_tx.get_owner_shard(), [this] {
-            // FIXME: who holds to _tx?
+        _shutdown_fut = smp::submit_to(_tx.get_owner_shard(), [this] {
             _tx->shutdown();
         });
     }
@@ -194,10 +194,14 @@ public:
         // dummy
         return {};
     }
+    virtual future<> close() noexcept override {
+        return std::exchange(_shutdown_fut, make_ready_future<>());
+    }
 };
 
 class loopback_server_socket_impl : public net::server_socket_impl {
     lw_shared_ptr<queue<connected_socket>> _pending;
+    future<> _to_close = make_ready_future<>();
 public:
     explicit loopback_server_socket_impl(lw_shared_ptr<queue<connected_socket>> q)
             : _pending(std::move(q)) {
@@ -208,6 +212,14 @@ public:
         });
     }
     void abort_accept() override {
+        while (!_pending->empty()) {
+            auto cs = _pending->pop();
+            cs.shutdown_input();
+            cs.shutdown_output();
+            _to_close = _to_close.then([cs = std::move(cs)] () mutable {
+                return cs.close().then([cs = std::move(cs)] {});
+            });
+        }
         _pending->abort(std::make_exception_ptr(std::system_error(ECONNABORTED, std::system_category())));
     }
     socket_address local_address() const override {
@@ -215,8 +227,7 @@ public:
         return {};
     }
     virtual future<> close() noexcept override {
-        // FIXME: close _pending sockets
-        return make_ready_future<>();
+        return std::exchange(_to_close, make_ready_future<>());
     }
 };
 
@@ -246,12 +257,20 @@ public:
     unsigned next_shard() {
         return _shard++ % smp::count;
     }
-    void destroy_shard(unsigned shard) {
-        _pending[shard] = nullptr;
+    future<> destroy_shard(unsigned shard) {
+        future<> f = make_ready_future<>();
+        auto q = std::exchange(_pending[shard], nullptr);
+        while (q && !q->empty()) {
+            auto cs = q->pop();
+            f = f.then([cs = std::move(cs)] () mutable {
+                return cs.close().then([cs = std::move(cs)] {});
+            });
+        }
+        return f;
     }
     future<> destroy_all_shards() {
         return smp::invoke_on_all([this] () {
-            destroy_shard(this_shard_id());
+            return destroy_shard(this_shard_id());
         });
     }
 };

@@ -101,8 +101,9 @@ future<std::unique_ptr<connection>> connection::make_connection(server& server, 
         return make_ready_future<std::unique_ptr<connection>>(std::move(conn));
     } catch (...) {
         auto ex = std::current_exception();
-        // FIXME: close fd
+        return fd.close().then([fd = std::move(fd), ex = std::move(ex)] () mutable {
             return make_exception_future<std::unique_ptr<connection>>(std::move(ex));
+        });
     }
 }
 
@@ -132,9 +133,9 @@ future<> server::do_accept_one(int which) {
     return _listeners[which].accept().then([this] (accept_result ar) mutable {
       return connection::make_connection(*this, std::move(ar.connection)).then([] (std::unique_ptr<connection> conn) {
         // Tracked by _connections
-        (void)conn->process().finally([conn = std::move(conn)] {
+        (void)conn->process().finally([conn = std::move(conn)] () mutable {
             wlogger.debug("Connection is finished");
-            // FIXME: close conn
+            return conn->close().then([conn = std::move(conn)] {});
         });
       });
     }).handle_exception_type([] (const std::system_error &e) {
@@ -393,7 +394,9 @@ future<> connection::close(bool send_close) {
         _done = true;
         return when_all_succeed(_input.close(), _output.close()).discard_result().finally([this] {
             shutdown();
-            return _gate.close();
+            return _gate.close().then([this] {
+                return _fd.close();
+            });
         });
     });
 }

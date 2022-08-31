@@ -24,16 +24,20 @@
 
 #include <seastar/core/do_with.hh>
 #include <seastar/testing/test_case.hh>
+#include <seastar/testing/thread_test_case.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/do_with.hh>
 #include <seastar/net/dns.hh>
 #include <seastar/net/inet_address.hh>
+#include <seastar/util/log.hh>
 
 using namespace seastar;
 using namespace seastar::net;
 
 static const sstring seastar_name = "seastar.io";
+
+static logger tlogger("dns_test");
 
 static future<> test_resolve(dns_resolver::options opts) {
     auto d = ::make_lw_shared<dns_resolver>(std::move(opts));
@@ -43,8 +47,8 @@ static future<> test_resolve(dns_resolver::options opts) {
                 BOOST_REQUIRE(std::count(e.addr_list.begin(), e.addr_list.end(), a));
             });
         });
-    }).finally([d]{
-        return d->close();
+    }).finally([d = std::move(d)]{
+        return d->close().then([d = std::move(d)] {});
     });
 }
 
@@ -57,27 +61,32 @@ static future<> test_bad_name(dns_resolver::options opts) {
         } catch (...) {
             // ok.
         }
-    }).finally([d]{
-        return d->close();
+    }).finally([d = std::move(d)]{
+        return d->close().then([d = std::move(d)] {});
     });
 }
 
-SEASTAR_TEST_CASE(test_resolve_udp) {
-    return test_resolve(dns_resolver::options());
+SEASTAR_THREAD_TEST_CASE(test_resolve_udp) {
+    tlogger.info("Entering test_resolve_udp");
+    test_resolve(dns_resolver::options()).get();
+    tlogger.info("Exiting test_resolve_udp");
 }
 
-SEASTAR_TEST_CASE(test_bad_name_udp) {
-    return test_bad_name(dns_resolver::options());
+SEASTAR_THREAD_TEST_CASE(test_bad_name_udp) {
+    tlogger.info("Entering test_bad_name_udp");
+    test_bad_name(dns_resolver::options()).get();
+    tlogger.info("Exiting test_bad_name_udp");
 }
 
-SEASTAR_TEST_CASE(test_timeout_udp) {
+SEASTAR_THREAD_TEST_CASE(test_timeout_udp) {
+    tlogger.info("Entering test_timeout_udp");
     dns_resolver::options opts;
     opts.servers = std::vector<inet_address>({ inet_address("1.2.3.4") }); // not a server
     opts.udp_port = 29953; // not a dns port
     opts.timeout = std::chrono::milliseconds(500);
 
     auto d = ::make_lw_shared<dns_resolver>(engine().net(), opts);
-    return d->get_host_by_name(seastar_name, inet_address::family::INET).then_wrapped([d](future<hostent> f) {
+    d->get_host_by_name(seastar_name, inet_address::family::INET).then_wrapped([d](future<hostent> f) {
         try {
             f.get();
             BOOST_FAIL("should not succeed");
@@ -86,7 +95,8 @@ SEASTAR_TEST_CASE(test_timeout_udp) {
         }
     }).finally([d]{
         return d->close();
-    });
+    }).get();
+    tlogger.info("Exiting test_timeout_udp");
 }
 
 SEASTAR_TEST_CASE(test_resolve_tcp) {

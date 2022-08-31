@@ -46,8 +46,9 @@ net::udp_channel::udp_channel(std::unique_ptr<udp_channel_impl> impl) noexcept :
 net::udp_channel::~udp_channel()
 {}
 
-net::udp_channel::udp_channel(udp_channel&&) noexcept = default;
-net::udp_channel& net::udp_channel::operator=(udp_channel&&) noexcept = default;
+net::udp_channel::udp_channel(udp_channel&& uc) noexcept = default;
+
+net::udp_channel& net::udp_channel::operator=(udp_channel&& uc) noexcept = default;
 
 socket_address net::udp_channel::local_address() const {
     if (_impl) {
@@ -83,22 +84,45 @@ void net::udp_channel::shutdown_output() {
 
 
 void net::udp_channel::close() {
-    return _impl->close();
+    if (_impl) {
+        _impl->close();
+        _impl.reset();
+    }
 }
 
 connected_socket::connected_socket() noexcept
-{}
+{
+    seastar_logger.debug("constructed connected_socket {} with impl {}, at {}", fmt::ptr(this), fmt::ptr(_csi.get()), current_backtrace());
+}
 
 connected_socket::connected_socket(
         std::unique_ptr<net::connected_socket_impl> csi) noexcept
         : _csi(std::move(csi)) {
+    seastar_logger.debug("constructed connected_socket {} with impl {}, at {}", fmt::ptr(this), fmt::ptr(_csi.get()), current_backtrace());
 }
 
-connected_socket::connected_socket(connected_socket&& cs) noexcept = default;
-connected_socket& connected_socket::operator=(connected_socket&& cs) noexcept = default;
+connected_socket::connected_socket(connected_socket&& cs) noexcept
+        : _csi(std::move(cs._csi))
+{
+    seastar_logger.debug("move-constructed connected_socket {} with impl {} from {}, at {}", fmt::ptr(this), fmt::ptr(_csi.get()), fmt::ptr(&cs), current_backtrace());
+}
+connected_socket& connected_socket::operator=(connected_socket&& cs) noexcept {
+    if (this != &cs) {
+        _csi = std::move(cs._csi);
+        seastar_logger.debug("move-assigned connected_socket {} with impl {} from {}, at {}", fmt::ptr(this), fmt::ptr(_csi.get()), fmt::ptr(&cs), current_backtrace());
+    }
+    return *this;
+}
 
 connected_socket::~connected_socket()
-{}
+{
+    seastar_logger.debug("destroying connected_socket {} with impl {}, at {}", fmt::ptr(this), fmt::ptr(_csi.get()), current_backtrace());
+#if SEASTAR_API_LEVEL >= 7
+    if (_csi) {
+        on_internal_error_noexcept(seastar_logger, "connected_socket destroyed while open");
+    }
+#endif
+}
 
 input_stream<char> connected_socket::input(connected_socket_input_stream_config csisc) {
     return input_stream<char>(_csi->source(csisc));
@@ -142,11 +166,20 @@ socket_address connected_socket::local_address() const noexcept {
 }
 
 void connected_socket::shutdown_output() {
-    _csi->shutdown_output();
+    if (_csi) {
+        _csi->shutdown_output();
+    }
 }
 
 void connected_socket::shutdown_input() {
-    _csi->shutdown_input();
+    if (_csi) {
+        _csi->shutdown_input();
+    }
+}
+
+future<> connected_socket::close() noexcept {
+    seastar_logger.debug("closing connected_socket {} with impl {}, at {}", fmt::ptr(this), fmt::ptr(_csi.get()), current_backtrace());
+    return _csi ? _csi->close().then([csi = std::move(_csi)] {}) : make_ready_future<>();
 }
 
 data_source

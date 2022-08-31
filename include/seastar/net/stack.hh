@@ -47,6 +47,11 @@ public:
     virtual void set_sockopt(int level, int optname, const void* data, size_t len) = 0;
     virtual int get_sockopt(int level, int optname, void* data, size_t len) const = 0;
     virtual socket_address local_address() const noexcept = 0;
+#if SEASTAR_API_LEVEL >= 7
+    virtual future<> close() noexcept = 0;
+#else
+    virtual future<> close() noexcept { return make_ready_future<>(); }
+#endif
 };
 
 class socket_impl {

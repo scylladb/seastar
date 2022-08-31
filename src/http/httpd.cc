@@ -19,6 +19,7 @@
  * Copyright 2015 Cloudius Systems
  */
 
+#include "seastar/util/backtrace.hh"
 #include <seastar/core/sstring.hh>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/circular_buffer.hh>
@@ -144,6 +145,7 @@ connection::connection(http_server& server, connected_socket&& fd, input_stream<
         , _read_buf(std::move(read_buf))
         , _write_buf(std::move(write_buf))
 {
+    hlogger.debug("constructed httpd::connection {}, at {}", fmt::ptr(this), current_backtrace());
     on_new_connection();
 }
 
@@ -153,9 +155,11 @@ connection::connection(connection&& c) noexcept
         , _read_buf(std::move(c._read_buf))
         , _write_buf(std::move(c._write_buf))
 {
+    hlogger.debug("move-constructed httpd::connection {} from {}, at {}", fmt::ptr(this), fmt::ptr(&c), current_backtrace());
 }
 
 connection::~connection() {
+    hlogger.debug("destroying httpd::connection {}", fmt::ptr(this));
     --_server._current_connections;
     this->unlink();
 }
@@ -165,8 +169,9 @@ future<std::unique_ptr<connection>> connection::make_connection(http_server& ser
         return make_ready_future<std::unique_ptr<connection>>(std::make_unique<connection>(server, std::move(fd), fd.input(), fd.output()));
     } catch (...) {
         auto ex = std::current_exception();
-        // FIXME: close fd
+        return fd.close().then([fd = std::move(fd), ex = std::move(ex)] () mutable {
             return make_exception_future<std::unique_ptr<connection>>(std::move(ex));
+        });
     }
 }
 
@@ -467,6 +472,11 @@ future<bool> connection::generate_reply(std::unique_ptr<request> req) {
     });
 }
 
+future<> connection::close() noexcept {
+    hlogger.debug("closing httpd::connection {}", fmt::ptr(this));
+    return _fd.close();
+}
+
 void http_server::set_tls_credentials(shared_ptr<seastar::tls::server_credentials> credentials) {
     _credentials = credentials;
 }
@@ -501,6 +511,7 @@ future<> http_server::listen(socket_address addr) {
     return listen(addr, lo);
 }
 future<> http_server::stop() {
+    hlogger.debug("http_server: stop");
     future<> tasks_done = _task_gate.close();
     future<> to_close = make_ready_future<>();
     for (auto&& l : _listeners) {
@@ -540,11 +551,12 @@ future<> http_server::do_accept_one(int which) {
                     if (f.failed()) {
                         hlogger.error("request error: {}", f.get_exception());
                     }
-                    // FIXME: close conn
+                    conn->unlink();
+                    return conn->close().then([conn = std::move(conn), holder = std::move(holder)] {});
                 });
             });
         } catch (gate_closed_exception&) {
-            // FIXME: close ar.connection
+            return ar.connection.close().then([c = std::move(ar.connection)] {});
         }
         return make_ready_future<>();
     }).handle_exception_type([] (const std::system_error &e) {

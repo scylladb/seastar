@@ -105,6 +105,7 @@ public:
     int get_sockopt(int level, int optname, void* data, size_t len) const override;
     void set_sockopt(int level, int optname, const void* data, size_t len) override;
     socket_address local_address() const noexcept override;
+    virtual future<> close() noexcept override;
 };
 
 template <typename Protocol>
@@ -269,6 +270,12 @@ int native_connected_socket_impl<Protocol>::get_sockopt(int level, int optname, 
 template<typename Protocol>
 socket_address native_connected_socket_impl<Protocol>::local_address() const noexcept {
     return {_conn->local_ip(), _conn->local_port()};
+}
+
+template<typename Protocol>
+future<> native_connected_socket_impl<Protocol>::close() noexcept {
+    // FIMME: close Protocol::connection
+    return make_ready_future<>();
 }
 
 }

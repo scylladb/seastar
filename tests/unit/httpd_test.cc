@@ -24,6 +24,7 @@
 #include <sstream>
 #include <seastar/core/shared_future.hh>
 #include <seastar/util/later.hh>
+#include <seastar/util/closeable.hh>
 
 using namespace seastar;
 using namespace httpd;
@@ -484,6 +485,7 @@ public:
 
                 auto client = seastar::async([&lsi, reader] {
                     connected_socket c_socket = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get0();
+                    auto close_cs = deferred_close(c_socket);
                     input_stream<char> input(c_socket.input());
                     output_stream<char> output(c_socket.output());
                     bool more = true;
@@ -547,6 +549,7 @@ public:
 
                 auto client = seastar::async([&lsi, tests] {
                     connected_socket c_socket = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get0();
+                    auto close_cs = deferred_close(c_socket);
                     input_stream<char> input(c_socket.input());
                     output_stream<char> output(c_socket.output());
                     bool more = true;
@@ -750,6 +753,7 @@ SEASTAR_TEST_CASE(content_length_limit) {
 
         future<> client = seastar::async([&lsi] {
             connected_socket c_socket = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get0();
+            auto close_cs = deferred_close(c_socket);
             input_stream<char> input(c_socket.input());
             output_stream<char> output(c_socket.output());
 
@@ -791,6 +795,7 @@ SEASTAR_TEST_CASE(test_100_continue) {
         httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
         future<> client = seastar::async([&lsi] {
             connected_socket c_socket = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get0();
+            auto close_cs = deferred_close(c_socket);
             input_stream<char> input(c_socket.input());
             output_stream<char> output(c_socket.output());
 
@@ -847,6 +852,7 @@ SEASTAR_TEST_CASE(test_unparsable_request) {
         httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
         future<> client = seastar::async([&lsi] {
             connected_socket c_socket = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get0();
+            auto close_cs = deferred_close(c_socket);
             input_stream<char> input(c_socket.input());
             output_stream<char> output(c_socket.output());
 
@@ -938,6 +944,7 @@ future<> check_http_reply (std::vector<sstring>&& req_parts, std::vector<std::st
         httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
         future<> client = seastar::async([req_parts = std::move(req_parts), resp_parts = std::move(resp_parts), &lsi] {
             connected_socket c_socket = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get0();
+            auto close_cs = deferred_close(c_socket);
             input_stream<char> input(c_socket.input());
             output_stream<char> output(c_socket.output());
 
@@ -971,6 +978,7 @@ SEASTAR_TEST_CASE(test_streamed_content) {
         httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
         future<> client = seastar::async([&lsi] {
             connected_socket c_socket = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get0();
+            auto close_cs = deferred_close(c_socket);
             input_stream<char> input(c_socket.input());
             output_stream<char> output(c_socket.output());
 
@@ -1054,6 +1062,7 @@ SEASTAR_TEST_CASE(test_string_content) {
         httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
         future<> client = seastar::async([&lsi] {
             connected_socket c_socket = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get0();
+            auto close_cs = deferred_close(c_socket);
             input_stream<char> input(c_socket.input());
             output_stream<char> output(c_socket.output());
 
@@ -1181,6 +1190,11 @@ SEASTAR_THREAD_TEST_CASE(multiple_connections) {
     socket_address addr{ipv4_addr()};
 
     std::vector<connected_socket> socks;
+    auto close_socks = defer([&socks] () noexcept {
+        for (auto& s : socks) {
+            s.close().get();
+        }
+    });
     // Make sure one shard has two connections pending.
     for (unsigned i = 0; i <= smp::count; ++i) {
         socks.push_back(loopback_socket_impl(lcf).connect(addr, addr).get0());

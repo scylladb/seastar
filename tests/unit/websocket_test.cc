@@ -32,6 +32,11 @@ SEASTAR_TEST_CASE(test_websocket_handshake) {
         connected_socket sock = connector.get0();
         auto input = sock.input();
         auto output = sock.output();
+        auto close_sock = defer([&] () noexcept {
+            output.close().get();
+            input.close().get();
+            sock.close().get();
+        });
 
         websocket::server dummy;
         dummy.register_handler("echo", [] (input_stream<char>& in,
@@ -98,6 +103,11 @@ SEASTAR_TEST_CASE(test_websocket_handler_registration) {
         connected_socket sock = connector.get0();
         auto input = sock.input();
         auto output = sock.output();
+        auto close_sock = defer([&] () noexcept {
+            output.close().get();
+            input.close().get();
+            sock.close().get();
+        });
 
         // Setup server
         websocket::server ws;

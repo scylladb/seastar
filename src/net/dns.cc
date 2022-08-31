@@ -526,7 +526,7 @@ private:
         dns_log.trace("Release socket {} -> {}", fd, e.pending -  1);
         auto f = make_ready_future<>();
         if (--e.pending < 0) {
-            // FIXME: close the entry before destroying it 
+            f = e.close().then([e = std::move(e)] {});
             _sockets.erase(it);
             dns_log.trace("Released socket {}", fd);
         }
@@ -587,6 +587,7 @@ private:
             break;
         }
         case type::udp:
+            dns_log.trace("Close udp socket {}", fd);
             e.udp.channel.shutdown_input();
             e.udp.channel.shutdown_output();
             // OK to discard future since the _gate is entered above
@@ -919,6 +920,9 @@ private:
         std::optional<input_stream<char>> in;
         std::optional<output_stream<char>> out;
         temporary_buffer<char> indata;
+        future<> close() noexcept {
+            return socket.close();
+        }
     };
     struct udp_entry {
         udp_entry(net::udp_channel c)
@@ -927,6 +931,7 @@ private:
         net::udp_channel channel;
         std::optional<net::udp_datagram> in;;
         socket_address dst;
+        future<> close() noexcept { return make_ready_future<>(); }
     };
     struct sock_entry {
         union {
@@ -938,11 +943,13 @@ private:
         int pending = 0;
         bool closed = false;
 
+        sock_entry() = delete;
+        sock_entry(const sock_entry& e) = delete;
+
         sock_entry(sock_entry&& e)
             : typ(e.typ)
             , avail(e.avail)
         {
-            e.typ = type::none;
             switch (typ) {
             case type::tcp:
                 new (&tcp) tcp_entry(std::move(e.tcp));
@@ -954,11 +961,11 @@ private:
                 break;
             }
         }
-        sock_entry(connected_socket s)
+        explicit sock_entry(connected_socket s)
             : tcp(tcp_entry{std::move(s)})
             , typ(type::tcp)
         {}
-        sock_entry(net::udp_channel c)
+        explicit sock_entry(net::udp_channel c)
             : udp(udp_entry{std::move(c)})
             , typ(type::udp)
         {}
@@ -967,6 +974,16 @@ private:
             case type::tcp: tcp.~tcp_entry(); break;
             case type::udp: udp.~udp_entry(); break;
             default: break;
+            }
+        }
+        future<> close() noexcept {
+            switch (typ) {
+            case type::tcp:
+                return tcp.close();
+            case type::udp:
+                return udp.close();
+            default:
+                return make_ready_future<>();
             }
         }
     };

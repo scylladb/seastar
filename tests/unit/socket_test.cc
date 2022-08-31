@@ -45,6 +45,8 @@ future<> handle_connection(connected_socket s) {
                     return out.write(std::move(buf)).then([&out]() { return out.close(); });
                 });
             });
+    }).finally([s = std::move(s)] () mutable {
+        return s.close();
     });
 }
 
@@ -54,6 +56,7 @@ future<> echo_server_loop() {
               // Connect asynchronously in background.
               (void)connect(make_ipv4_address({"127.0.0.1", 1234})).then([](connected_socket&& socket) {
                   socket.shutdown_output();
+                  return socket.close();
               });
               return listener.accept().then(
                   [](accept_result ar) {
@@ -93,6 +96,7 @@ SEASTAR_TEST_CASE(socket_skip_test) {
         abort_source as;
         auto client = async([&as] {
             connected_socket socket = connect(ipv4_addr("127.0.0.1", 1234)).get();
+            auto close_socket = deferred_close(socket);
             socket.output().write("abc").get();
             socket.shutdown_output();
             try {
@@ -105,6 +109,7 @@ SEASTAR_TEST_CASE(socket_skip_test) {
         });
 
         accept_result accepted = ss.accept().get();
+        auto close_ar_conn = deferred_close(accepted.connection);
         input_stream<char> input = accepted.connection.input();
         input.skip(16).get();
         as.request_abort();
