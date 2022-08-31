@@ -21,8 +21,12 @@
 
 #include <seastar/net/stack.hh>
 #include <seastar/net/inet_address.hh>
+#include <seastar/core/on_internal_error.hh>
+#include <seastar/util/log.hh>
 
 namespace seastar {
+
+extern logger seastar_logger;
 
 static_assert(std::is_nothrow_default_constructible_v<connected_socket>);
 static_assert(std::is_nothrow_move_constructible_v<connected_socket>);
@@ -179,15 +183,28 @@ void socket::shutdown() {
 }
 
 server_socket::server_socket() noexcept {
+    seastar_logger.debug("constructed server_socket {} with impl {}, at {}", fmt::ptr(this), fmt::ptr(_ssi.get()), current_backtrace());
 }
 
 server_socket::server_socket(std::unique_ptr<net::server_socket_impl> ssi) noexcept
         : _ssi(std::move(ssi)) {
+    seastar_logger.debug("constructed server_socket {} with impl {}, at {}", fmt::ptr(this), fmt::ptr(_ssi.get()), current_backtrace());
 }
-server_socket::server_socket(server_socket&& ss) noexcept = default;
+server_socket::server_socket(server_socket&& ss) noexcept
+        : _ssi(std::move(ss._ssi))
+        , _aborted(ss._aborted)
+{
+    seastar_logger.debug("move-constructed server_socket {} with impl {} from {}, at {}", fmt::ptr(this), fmt::ptr(_ssi.get()), fmt::ptr(&ss), current_backtrace());
+}
 server_socket& server_socket::operator=(server_socket&& cs) noexcept = default;
 
 server_socket::~server_socket() {
+    seastar_logger.debug("destroying server_socket {} with impl {}, at {}", fmt::ptr(this), fmt::ptr(_ssi.get()), current_backtrace());
+#if SEASTAR_API_LEVEL >= 7
+    if (_ssi) {
+        on_internal_error_noexcept(seastar_logger, "server_socket destroyed while open");
+    }
+#endif
 }
 
 future<accept_result> server_socket::accept() {
@@ -204,6 +221,14 @@ void server_socket::abort_accept() {
 
 socket_address server_socket::local_address() const noexcept {
     return _ssi->local_address();
+}
+
+future<> server_socket::close() noexcept {
+    seastar_logger.debug("closing server_socket {} with impl {}, at {}", fmt::ptr(this), fmt::ptr(_ssi.get()), current_backtrace());
+    if (!_ssi) {
+        return make_ready_future<>();
+    }
+    return _ssi->close().then([ssi = std::move(_ssi)] {});
 }
 
 network_interface::network_interface(shared_ptr<net::network_interface_impl> impl) noexcept

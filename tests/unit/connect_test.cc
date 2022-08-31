@@ -3,6 +3,7 @@
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/testing/test_runner.hh>
 #include <seastar/net/ip.hh>
+#include <seastar/util/closeable.hh>
 
 using namespace seastar;
 using namespace net;
@@ -22,6 +23,7 @@ SEASTAR_THREAD_TEST_CASE(test_unconnected_socket_shutsdown_established_connectio
     auto distr = std::uniform_int_distribution<uint16_t>(12000, 65000);
     auto sa = make_ipv4_address({"127.0.0.1", distr(rnd)});
     auto listener = engine().net().listen(sa, listen_options());
+    auto close_listener = deferred_close(listener);
     auto f = listener.accept();
     auto unconn = make_socket();
     auto conn = unconn.connect(sa).get();
@@ -36,6 +38,7 @@ SEASTAR_THREAD_TEST_CASE(test_accept_after_abort) {
     auto distr = std::uniform_int_distribution<uint16_t>(12000, 65000);
     auto sa = make_ipv4_address({"127.0.0.1", distr(rnd)});
     auto listener = engine().net().listen(sa, listen_options());
+    auto close_listener = deferred_close(listener);
     using ftype = future<accept_result>;
     promise<ftype> p;
     future<ftype> done = p.get_future();

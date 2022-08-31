@@ -214,6 +214,10 @@ public:
         // CMH dummy
         return {};
     }
+    virtual future<> close() noexcept override {
+        // FIXME: close _pending sockets
+        return make_ready_future<>();
+    }
 };
 
 

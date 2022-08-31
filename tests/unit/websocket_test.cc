@@ -6,7 +6,7 @@
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/http/response_parser.hh>
-#include <seastar/util/defer.hh>
+#include <seastar/util/closeable.hh>
 #include "loopback_socket.hh"
 
 using namespace seastar;
@@ -25,7 +25,9 @@ SEASTAR_TEST_CASE(test_websocket_handshake) {
         loopback_connection_factory factory;
         loopback_socket_impl lsi(factory);
 
-        auto acceptor = factory.get_server_socket().accept();
+        auto ss = factory.get_server_socket();
+        auto close_ss = deferred_close(ss);
+        auto acceptor = ss.accept();
         auto connector = lsi.connect(socket_address(), socket_address());
         connected_socket sock = connector.get0();
         auto input = sock.input();
@@ -90,7 +92,9 @@ SEASTAR_TEST_CASE(test_websocket_handler_registration) {
         loopback_connection_factory factory;
         loopback_socket_impl lsi(factory);
 
-        auto acceptor = factory.get_server_socket().accept();
+        auto ss = factory.get_server_socket();
+        auto close_ss = deferred_close(ss);
+        auto acceptor = ss.accept();
         auto connector = lsi.connect(socket_address(), socket_address());
         connected_socket sock = connector.get0();
         auto input = sock.input();

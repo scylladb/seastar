@@ -152,6 +152,7 @@ public:
     socket_address local_address() const override {
         return _sa;
     }
+    virtual future<> close() noexcept override { return make_ready_future<>(); }
     static void move_connected_socket(int protocol, socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle handle, std::pmr::polymorphic_allocator<char>* allocator);
 
     template <typename T>
@@ -173,6 +174,7 @@ public:
     virtual future<accept_result> accept() override;
     virtual void abort_accept() override;
     virtual socket_address local_address() const override;
+    virtual future<> close() noexcept override { return make_ready_future<>(); }
 };
 
 class posix_reuseport_server_socket_impl : public server_socket_impl {
@@ -186,6 +188,7 @@ public:
     virtual future<accept_result> accept() override;
     virtual void abort_accept() override;
     virtual socket_address local_address() const override;
+    virtual future<> close() noexcept override { return make_ready_future<>(); }
 };
 
 class posix_network_stack : public network_stack {

@@ -474,13 +474,19 @@ future<> http_server::listen(socket_address addr) {
 }
 future<> http_server::stop() {
     future<> tasks_done = _task_gate.close();
+    future<> to_close = make_ready_future<>();
     for (auto&& l : _listeners) {
         l.abort_accept();
+        to_close = to_close.then([l = std::move(l)] () mutable {
+            return l.close().then([l = std::move(l)] {});
+        });
     }
     for (auto&& c : _connections) {
         c.shutdown();
     }
-    return tasks_done;
+    return tasks_done.finally([f = std::move(to_close)] () mutable {
+        return std::move(f);
+    });
 }
 
 // FIXME: This could return void

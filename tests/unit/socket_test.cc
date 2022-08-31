@@ -29,6 +29,7 @@
 #include <seastar/core/abort_source.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/thread.hh>
+#include <seastar/util/closeable.hh>
 
 #include <seastar/net/posix-stack.hh>
 
@@ -58,7 +59,11 @@ future<> echo_server_loop() {
                   [](accept_result ar) {
                       connected_socket s = std::move(ar.connection);
                       return handle_connection(std::move(s));
-                  }).then([l = std::move(listener)]() mutable { return l.abort_accept(); });
+                  }).then([&listener] {
+                      listener.abort_accept();
+                  }).finally([&listener] {
+                      return listener.close();
+                  });
         });
 }
 
@@ -83,6 +88,7 @@ SEASTAR_TEST_CASE(socket_skip_test) {
         listen_options lo;
         lo.reuse_address = true;
         server_socket ss = seastar::listen(ipv4_addr("127.0.0.1", 1234), lo);
+        auto close_ss = deferred_close(ss);
 
         abort_source as;
         auto client = async([&as] {

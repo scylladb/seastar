@@ -25,6 +25,7 @@
 #include <seastar/core/reactor.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/util/log.hh>
+#include <seastar/util/closeable.hh>
 
 using namespace seastar;
 
@@ -76,6 +77,7 @@ SEASTAR_TEST_CASE(tcp_packet_test) {
 
     return async([] {
         auto sc = server_socket(engine().net().listen(ipv6_addr{"::1"}, {}));
+        auto close_sc = deferred_close(sc);
         auto la = sc.local_address();
 
         BOOST_REQUIRE(la.addr().is_ipv6());

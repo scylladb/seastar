@@ -1693,6 +1693,9 @@ public:
     socket_address local_address() const override {
         return _sock.local_address();
     }
+    future<> close() noexcept override {
+        return _sock.close();
+    }
 private:
 
     shared_ptr<server_credentials> _creds;

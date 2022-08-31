@@ -48,6 +48,7 @@ public:
     virtual future<accept_result> accept() override;
     virtual void abort_accept() override;
     virtual socket_address local_address() const override;
+    virtual future<> close() noexcept override { return make_ready_future<>(); }
 };
 
 template <typename Protocol>

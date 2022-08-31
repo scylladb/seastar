@@ -58,7 +58,6 @@ private:
     const socket_address server_addr;
 
     const std::optional<string> client_path;
-    server_socket server;
     const int rounds;
     int rounds_left;
     server_socket* lstn_sock;
@@ -119,6 +118,8 @@ future<> ud_server_client::init_server() {
             }
         }).finally([this]{
             return th.join();
+        }).finally([&lstn]{
+            return lstn.close();
         });
     });
 }

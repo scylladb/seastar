@@ -358,6 +358,10 @@ public:
     explicit operator bool() const noexcept {
         return static_cast<bool>(_ssi);
     }
+
+    /// Close the server_socket
+    /// Waits on all asynchronous fibers to complete.
+    future<> close() noexcept;
 };
 
 /// @}

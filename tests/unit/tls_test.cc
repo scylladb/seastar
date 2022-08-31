@@ -20,6 +20,7 @@
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
+#include <boost/test/tools/old/interface.hpp>
 #include <iostream>
 
 #include <seastar/core/do_with.hh>
@@ -39,6 +40,7 @@
 #include <seastar/net/inet_address.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
+#include <seastar/util/closeable.hh>
 
 #include <boost/dll.hpp>
 
@@ -205,11 +207,12 @@ SEASTAR_TEST_CASE(test_failed_connect) {
     return connect_to_ssl_addr(b.build_certificate_credentials(), ipv4_addr()).handle_exception([](auto) {});
 }
 
-SEASTAR_TEST_CASE(test_non_tls) {
+SEASTAR_THREAD_TEST_CASE(test_non_tls) {
     ::listen_options opts;
     opts.reuse_address = true;
     auto addr = ::make_ipv4_address( {0x7f000001, 4712});
     auto server = server_socket(seastar::listen(addr, opts));
+    auto close_server = deferred_close(server);
 
     auto c = server.accept();
 
@@ -219,7 +222,7 @@ SEASTAR_TEST_CASE(test_non_tls) {
     auto f = connect_to_ssl_addr(b.build_certificate_credentials(), addr);
 
 
-    return c.then([f = std::move(f)](accept_result ar) mutable {
+    auto cf = c.then([f = std::move(f)](accept_result ar) mutable {
         ::connected_socket s = std::move(ar.connection);
         std::cerr << "Established connection" << std::endl;
         auto sp = std::make_unique<::connected_socket>(std::move(s));
@@ -229,26 +232,27 @@ SEASTAR_TEST_CASE(test_non_tls) {
         });
         t.arm(timer<>::clock::now() + std::chrono::seconds(5));
         return std::move(f).finally([t = std::move(t), sp = std::move(sp)] {});
-    }).handle_exception([server = std::move(server)](auto ep) {
-        std::cerr << "Got expected exception" << std::endl;
     });
+    BOOST_REQUIRE_THROW(cf.get(), std::exception);
+    std::cerr << "Got expected exception" << std::endl;
 }
 
 SEASTAR_TEST_CASE(test_abort_accept_before_handshake) {
     auto certs = ::make_shared<tls::server_credentials>(::make_shared<tls::dh_params>());
     return certs->set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).then([certs] {
+      return async([certs = std::move(certs)] {
         ::listen_options opts;
         opts.reuse_address = true;
         auto addr = ::make_ipv4_address( {0x7f000001, 4712});
         auto server = server_socket(tls::listen(certs, addr, opts));
+        auto close_server = deferred_close(server);
         auto c = server.accept();
         BOOST_CHECK(!c.available()); // should not be finished
 
         server.abort_accept();
 
-        return c.then([](auto) { BOOST_FAIL("Should not reach"); }).handle_exception([](auto) {
-            // ok
-        }).finally([server = std::move(server)] {});
+        BOOST_REQUIRE_THROW(c.get(), std::exception);
+      });
     });
 }
 
@@ -261,6 +265,7 @@ SEASTAR_TEST_CASE(test_abort_accept_after_handshake) {
         opts.reuse_address = true;
         auto addr = ::make_ipv4_address( {0x7f000001, 4712});
         auto server = tls::listen(certs, addr, opts);
+        auto close_server = deferred_close(server);
         auto sa = server.accept();
 
         tls::credentials_builder b;
@@ -290,6 +295,7 @@ SEASTAR_TEST_CASE(test_abort_accept_on_server_before_handshake) {
         opts.reuse_address = true;
         auto addr = ::make_ipv4_address( {0x7f000001, 4712});
         auto server = server_socket(seastar::listen(addr, opts));
+        auto close_server = deferred_close(server);
         auto sa = server.accept();
 
         tls::credentials_builder b;
@@ -303,6 +309,8 @@ SEASTAR_TEST_CASE(test_abort_accept_on_server_before_handshake) {
             sa.get();
         } catch (...) {
         }
+        close_server.cancel();
+        server.close().get();
         server = {};
 
         try {
@@ -403,6 +411,8 @@ public:
             if (_ex) {
                 std::rethrow_exception(_ex);
             }
+        }).finally([this] {
+            return _socket.close();
         });
     }
 };
@@ -745,6 +755,7 @@ SEASTAR_THREAD_TEST_CASE(test_reload_certificates) {
     opts.reuse_address = true;
     auto addr = ::make_ipv4_address( {0x7f000001, 4712});
     auto server = tls::listen(certs, addr, opts);
+    auto close_server = deferred_close(server);
 
     tls::credentials_builder b2;
     b2.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
@@ -1038,6 +1049,7 @@ SEASTAR_THREAD_TEST_CASE(test_closed_write) {
 
     auto addr = ::make_ipv4_address( {0x7f000001, 4712});
     auto server = tls::listen(serv, addr, opts);
+    auto close_server = deferred_close(server);
 
     auto check_same_message_two_writes = [](output_stream<char>& out) {
         std::exception_ptr ep1, ep2;
@@ -1184,6 +1196,7 @@ SEASTAR_THREAD_TEST_CASE(test_dn_name_handling) {
         listen_options lo{};
         lo.reuse_address = true;
         auto server_sock = tls::listen(server_creds, addr, lo);
+        auto close_server = deferred_close(server_sock);
 
         auto sa = server_sock.accept();
         auto c = tls::connect(client_cred, addr).get();

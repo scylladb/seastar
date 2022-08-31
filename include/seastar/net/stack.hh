@@ -65,6 +65,11 @@ public:
     virtual future<accept_result> accept() = 0;
     virtual void abort_accept() = 0;
     virtual socket_address local_address() const = 0;
+#if SEASTAR_API_LEVEL >= 7
+    virtual future<> close() noexcept = 0;
+#else
+    virtual future<> close() noexcept { return make_ready_future<>(); }
+#endif
 };
 
 class udp_channel_impl {

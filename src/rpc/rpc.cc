@@ -1163,7 +1163,8 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
           parallel_for_each(_conns | boost::adaptors::map_values, [] (shared_ptr<connection> conn) {
               return conn->stop();
           }),
-          _reply_gate.close()
+          _reply_gate.close(),
+          _ss.close()
       ).discard_result();
   }
 
