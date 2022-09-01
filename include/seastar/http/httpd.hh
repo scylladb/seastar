@@ -82,9 +82,12 @@ class connection : public list_base_hook {
     queue<std::unique_ptr<reply>> _replies { 10 };
     bool _done = false;
 public:
-    connection(http_server& server, connected_socket&& fd);
+    connection(http_server& server, connected_socket&& fd, input_stream<char>&& read_buf, output_stream<char>&& write_buf) noexcept;
     connection(connection&& c) noexcept;
     ~connection();
+
+    static future<std::unique_ptr<connection>> make_connection(http_server& server, connected_socket&& fd) noexcept;
+
     void on_new_connection();
 
     future<> process();

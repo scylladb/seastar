@@ -138,11 +138,11 @@ future<> connection::start_response() {
     });
 }
 
-connection::connection(http_server& server, connected_socket&& fd)
+connection::connection(http_server& server, connected_socket&& fd, input_stream<char>&& read_buf, output_stream<char>&& write_buf) noexcept
         : _server(server)
         , _fd(std::move(fd))
-        , _read_buf(_fd.input())
-        , _write_buf(_fd.output())
+        , _read_buf(std::move(read_buf))
+        , _write_buf(std::move(write_buf))
 {
     on_new_connection();
 }
@@ -158,6 +158,16 @@ connection::connection(connection&& c) noexcept
 connection::~connection() {
     --_server._current_connections;
     this->unlink();
+}
+
+future<std::unique_ptr<connection>> connection::make_connection(http_server& server, connected_socket&& fd) noexcept {
+    try {
+        return make_ready_future<std::unique_ptr<connection>>(std::make_unique<connection>(server, std::move(fd), fd.input(), fd.output()));
+    } catch (...) {
+        auto ex = std::current_exception();
+        // FIXME: close fd
+            return make_exception_future<std::unique_ptr<connection>>(std::move(ex));
+    }
 }
 
 bool connection::url_decode(const std::string_view& in, sstring& out) {
@@ -523,8 +533,7 @@ future<> http_server::do_accept_one(int which) {
     return _listeners[which].accept().then([this] (accept_result ar) mutable {
         try {
             auto holder = _task_gate.hold();
-            auto conn = std::make_unique<connection>(*this, std::move(ar.connection));
-            // FIXME: indentation - prepared for next patch
+            return connection::make_connection(*this, std::move(ar.connection)).then([holder = std::move(holder)] (std::unique_ptr<connection> conn) mutable {
                 // It is safe to discard the future
                 // since we're holding _task_gate
                 (void)conn->process().then_wrapped([conn = std::move(conn), holder = std::move(holder)] (future<> f) mutable {
@@ -533,6 +542,7 @@ future<> http_server::do_accept_one(int which) {
                     }
                     // FIXME: close conn
                 });
+            });
         } catch (gate_closed_exception&) {
             // FIXME: close ar.connection
         }
