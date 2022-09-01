@@ -1055,7 +1055,6 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
           _stream_queue.abort(std::make_exception_ptr(stream_closed()));
           return stop_send_loop(ep).then_wrapped([this] (future<> f) {
               f.ignore_ready_future();
-              _server._conns.erase(get_connection_id());
               if (is_stream()) {
                   return deregister_this_stream();
               } else {
@@ -1141,7 +1140,10 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
               auto r = _conns.emplace(id, conn);
               assert(r.second);
               // Process asynchronously in background.
-              (void)conn->process();
+              (void)conn->process().finally([this, id, conn = std::move(conn)] () mutable {
+                  _conns.erase(id);
+                  return conn->stop().then([conn = std::move(conn)] {});
+              });
           });
       }).then_wrapped([this] (future<>&& f){
           try {
@@ -1159,13 +1161,13 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
       if (_options.streaming_domain) {
           _servers.erase(*_options.streaming_domain);
       }
-      return when_all(_ss_stopped.get_future(),
+      return _ss_stopped.get_future().then([this] { return when_all(
           parallel_for_each(_conns | boost::adaptors::map_values, [] (shared_ptr<connection> conn) {
               return conn->stop();
           }),
           _reply_gate.close(),
           _ss.close()
-      ).discard_result();
+      ).discard_result(); });
   }
 
   std::ostream& operator<<(std::ostream& os, const connection_id& id) {
