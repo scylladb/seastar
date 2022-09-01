@@ -496,7 +496,23 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
     @irqs_cpu_mask.setter
     def irqs_cpu_mask(self, new_irq_cpu_mask):
         self.__irq_cpu_mask = new_irq_cpu_mask
-        self.__compute_cpu_mask = run_hwloc_calc([self.cpu_mask, f"~{self.__irq_cpu_mask}"])
+
+        # Sanity check
+        if PerfTunerBase.cpu_mask_is_zero(self.__irq_cpu_mask):
+            raise PerfTunerBase.CPUMaskIsZeroException("Bad configuration: zero IRQ CPU mask is given")
+
+        if run_hwloc_calc([self.__irq_cpu_mask]) == run_hwloc_calc([self.cpu_mask]):
+            # Special case: if IRQ CPU mask is the same as total CPU mask - set a Compute CPU mask to cpu_mask
+            self.__compute_cpu_mask = self.cpu_mask
+        else:
+            # Otherwise, a Compute CPU mask is a CPU mask without IRQ CPU mask bits
+            self.__compute_cpu_mask = run_hwloc_calc([self.cpu_mask, f"~{self.__irq_cpu_mask}"])
+
+        # Sanity check
+        if PerfTunerBase.cpu_mask_is_zero(self.__compute_cpu_mask):
+            raise PerfTunerBase.CPUMaskIsZeroException(
+                f"Bad configuration: cpu_maks:{self.cpu_mask}, irq_cpu_mask:{self.__irq_cpu_mask}: "
+                f"results in a zero-mask for compute")
 
     @property
     def is_aws_i3_non_metal_instance(self):
