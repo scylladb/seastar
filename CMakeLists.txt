@@ -745,7 +745,7 @@ target_link_libraries (seastar
     Boost::boost
     Boost::program_options
     Boost::thread
-    c-ares::c-ares
+    c-ares::cares
     cryptopp::cryptopp
     fmt::fmt
     lz4::lz4

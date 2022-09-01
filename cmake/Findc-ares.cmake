@@ -51,10 +51,10 @@ find_package_handle_standard_args (c-ares
 set (c-ares_LIBRARIES ${c-ares_LIBRARY})
 set (c-ares_INCLUDE_DIRS ${c-ares_INCLUDE_DIR})
 
-if (c-ares_FOUND AND NOT (TARGET c-ares::c-ares))
-  add_library (c-ares::c-ares UNKNOWN IMPORTED)
+if (c-ares_FOUND AND NOT (TARGET c-ares::cares))
+  add_library (c-ares::cares UNKNOWN IMPORTED)
 
-  set_target_properties (c-ares::c-ares
+  set_target_properties (c-ares::cares
     PROPERTIES
       IMPORTED_LOCATION ${c-ares_LIBRARY}
       INTERFACE_INCLUDE_DIRECTORIES ${c-ares_INCLUDE_DIRS})
