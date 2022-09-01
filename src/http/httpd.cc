@@ -27,6 +27,7 @@
 #include <seastar/core/when_all.hh>
 #include <seastar/core/metrics.hh>
 #include <seastar/core/print.hh>
+#include <seastar/core/on_internal_error.hh>
 #include <iostream>
 #include <algorithm>
 #include <unordered_map>
@@ -520,12 +521,22 @@ future<> http_server::do_accepts(int which) {
 
 future<> http_server::do_accept_one(int which) {
     return _listeners[which].accept().then([this] (accept_result ar) mutable {
-        auto conn = std::make_unique<connection>(*this, std::move(ar.connection));
-        (void)try_with_gate(_task_gate, [conn = std::move(conn)]() mutable {
-            return conn->process().handle_exception([conn = std::move(conn)] (std::exception_ptr ex) {
-                hlogger.error("request error: {}", ex);
-            });
-        }).handle_exception_type([] (const gate_closed_exception& e) {});
+        try {
+            auto holder = _task_gate.hold();
+            auto conn = std::make_unique<connection>(*this, std::move(ar.connection));
+            // FIXME: indentation - prepared for next patch
+                // It is safe to discard the future
+                // since we're holding _task_gate
+                (void)conn->process().then_wrapped([conn = std::move(conn), holder = std::move(holder)] (future<> f) mutable {
+                    if (f.failed()) {
+                        hlogger.error("request error: {}", f.get_exception());
+                    }
+                    // FIXME: close conn
+                });
+        } catch (gate_closed_exception&) {
+            // FIXME: close ar.connection
+        }
+        return make_ready_future<>();
     }).handle_exception_type([] (const std::system_error &e) {
         // We expect a ECONNABORTED when http_server::stop is called,
         // no point in warning about that.
