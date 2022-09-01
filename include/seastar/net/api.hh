@@ -178,6 +178,10 @@ public:
     /// Cancels the connection attempt if it's still in progress, and
     /// terminates the connection if it has already been established.
     void shutdown();
+private:
+    const net::socket_impl* impl() const noexcept;
+
+    friend class connected_socket;
 };
 
 /// Configuration for buffered connected_socket input operations
@@ -212,6 +216,7 @@ struct session_dn {
 class connected_socket {
     friend class net::get_impl;
     std::unique_ptr<net::connected_socket_impl> _csi;
+    socket _socket;  // For auto-closing the socket_impl passed down from the network_stack
 public:
     /// Constructs a \c connected_socket not corresponding to a connection
     connected_socket() noexcept;
@@ -288,6 +293,10 @@ public:
     ///
     /// Must be called before destroying the \c connected_socket.
     future<> close() noexcept;
+protected:
+    void set_socket(socket&& s) noexcept;
+
+    friend class network_stack;
 };
 /// @}
 

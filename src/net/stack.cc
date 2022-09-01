@@ -22,6 +22,7 @@
 #include <seastar/net/stack.hh>
 #include <seastar/net/inet_address.hh>
 #include <seastar/core/on_internal_error.hh>
+#include <seastar/core/when_all.hh>
 #include <seastar/util/log.hh>
 
 namespace seastar {
@@ -103,22 +104,25 @@ connected_socket::connected_socket(
 
 connected_socket::connected_socket(connected_socket&& cs) noexcept
         : _csi(std::move(cs._csi))
+        , _socket(std::move(cs._socket))
 {
-    seastar_logger.debug("move-constructed connected_socket {} with impl {} from {}, at {}", fmt::ptr(this), fmt::ptr(_csi.get()), fmt::ptr(&cs), current_backtrace());
+    seastar_logger.debug("move-constructed connected_socket {} with impl {} and socket_impl {} from {}, at {}", fmt::ptr(this), fmt::ptr(_csi.get()), fmt::ptr(_socket.impl()), fmt::ptr(&cs), current_backtrace());
 }
 connected_socket& connected_socket::operator=(connected_socket&& cs) noexcept {
     if (this != &cs) {
         _csi = std::move(cs._csi);
-        seastar_logger.debug("move-assigned connected_socket {} with impl {} from {}, at {}", fmt::ptr(this), fmt::ptr(_csi.get()), fmt::ptr(&cs), current_backtrace());
+        assert(!_socket.impl());
+        _socket = std::move(cs._socket);
+        seastar_logger.debug("move-assigned connected_socket {} with impl {} and socket_impl {} from {}, at {}", fmt::ptr(this), fmt::ptr(_csi.get()), fmt::ptr(_socket.impl()), fmt::ptr(&cs), current_backtrace());
     }
     return *this;
 }
 
 connected_socket::~connected_socket()
 {
-    seastar_logger.debug("destroying connected_socket {} with impl {}, at {}", fmt::ptr(this), fmt::ptr(_csi.get()), current_backtrace());
+    seastar_logger.debug("destroying connected_socket {} with impl {} and socket_impl {}, at {}", fmt::ptr(this), fmt::ptr(_csi.get()), fmt::ptr(_socket.impl()), current_backtrace());
 #if SEASTAR_API_LEVEL >= 7
-    if (_csi) {
+    if (_csi || _socket.impl()) {
         on_internal_error_noexcept(seastar_logger, "connected_socket destroyed while open");
     }
 #endif
@@ -179,7 +183,14 @@ void connected_socket::shutdown_input() {
 
 future<> connected_socket::close() noexcept {
     seastar_logger.debug("closing connected_socket {} with impl {}, at {}", fmt::ptr(this), fmt::ptr(_csi.get()), current_backtrace());
-    return _csi ? _csi->close().then([csi = std::move(_csi)] {}) : make_ready_future<>();
+    auto close_csi = _csi ? _csi->close().then([csi = std::move(_csi)] {}) : make_ready_future<>();
+    // FIXME: close _socket
+    auto close_sock = _socket.impl() ? make_ready_future<>().then([s = std::move(_socket)] {}) : make_ready_future<>();
+    return when_all(std::move(close_csi), std::move(close_sock)).discard_result();
+}
+
+void connected_socket::set_socket(socket&& s) noexcept {
+    _socket = std::move(s);
 }
 
 data_source
@@ -213,6 +224,10 @@ bool socket::get_reuseaddr() const {
 
 void socket::shutdown() {
     _si->shutdown();
+}
+
+const net::socket_impl* socket::impl() const noexcept {
+    return _si.get();
 }
 
 server_socket::server_socket() noexcept {
@@ -315,7 +330,10 @@ bool network_interface::supports_ipv6() const {
 future<connected_socket>
 network_stack::connect(socket_address sa, socket_address local, transport proto) {
     return do_with(socket(), [sa, local, proto](::seastar::socket& s) {
-        return s.connect(sa, local, proto);
+        return s.connect(sa, local, proto).then([&s] (connected_socket cs) {
+            cs.set_socket(std::move(s));
+            return cs;
+        });
     });
 }
 
