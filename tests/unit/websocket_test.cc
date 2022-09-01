@@ -51,11 +51,11 @@ SEASTAR_TEST_CASE(test_websocket_handshake) {
                     });
                 });
             });
-        websocket::connection conn(dummy, acceptor.get0().connection);
-        future<> serve = conn.process();
+        auto conn = websocket::connection::make_connection(dummy, acceptor.get0().connection).get0();
+        future<> serve = conn->process();
         auto close = defer([&conn, &input, &output, &serve, &dummy] () noexcept {
-            conn.shutdown();
-            conn.close().get();
+            conn->shutdown();
+            conn->close().get();
             input.close().get();
             output.close().get();
             serve.get();
@@ -119,12 +119,12 @@ SEASTAR_TEST_CASE(test_websocket_handler_registration) {
                 });
             });
         });
-        websocket::connection conn(ws, acceptor.get0().connection);
-        future<> serve = conn.process();
+        auto conn = websocket::connection::make_connection(ws, acceptor.get0().connection).get0();
+        future<> serve = conn->process();
 
         auto close = defer([&conn, &input, &output, &serve, &ws] () noexcept {
-            conn.shutdown();
-            conn.close().get();
+            conn->shutdown();
+            conn->close().get();
             input.close().get();
             output.close().get();
             serve.get();

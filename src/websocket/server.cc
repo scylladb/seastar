@@ -19,6 +19,8 @@
  * Copyright 2021 ScyllaDB
  */
 
+#include "seastar/core/future.hh"
+#include <exception>
 #include <seastar/websocket/server.hh>
 #include <seastar/util/log.hh>
 #include <cryptopp/sha.h>
@@ -67,19 +69,40 @@ websocket_parser::buff_t websocket_parser::result() {
     return std::move(_result);
 }
 
-connection::connection(server& server, connected_socket&& fd)
+connection::connection(server& server, connected_socket&& fd,
+        input_stream<char>&& read_buf, output_stream<char>&& write_buf,
+        std::unique_ptr<queue<temporary_buffer<char>>> input_buffer, input_stream<char>&& input,
+        std::unique_ptr<queue<temporary_buffer<char>>> output_buffer, output_stream<char>&& output) noexcept
     : _server(server)
     , _fd(std::move(fd))
-    , _read_buf(_fd.input())
-    , _write_buf(_fd.output())
-    , _input_buffer{PIPE_SIZE}
-    , _output_buffer{PIPE_SIZE}
+    , _read_buf(std::move(read_buf))
+    , _write_buf(std::move(write_buf))
+    , _input_buffer(std::move(input_buffer))
+    , _input(std::move(input))
+    , _output_buffer(std::move(output_buffer))
+    , _output(std::move(output))
 {
-    _input = input_stream<char>{data_source{
-            std::make_unique<connection_source_impl>(&_input_buffer)}};
-    _output = output_stream<char>{data_sink{
-            std::make_unique<connection_sink_impl>(&_output_buffer)}};
     on_new_connection();
+}
+
+future<std::unique_ptr<connection>> connection::make_connection(server& server, connected_socket&& fd) noexcept {
+    try {
+        auto read_buf = fd.input();
+        auto write_buf = fd.output();
+        auto input_buffer = std::make_unique<queue<temporary_buffer<char>>>(PIPE_SIZE);
+        auto input = input_stream<char>(data_source(std::make_unique<connection_source_impl>(input_buffer.get())));
+        auto output_buffer = std::make_unique<queue<temporary_buffer<char>>>(PIPE_SIZE);
+        auto output = output_stream<char>(data_sink(std::make_unique<connection_sink_impl>(output_buffer.get())));
+        auto conn = std::make_unique<connection>(server, std::move(fd),
+                std::move(read_buf), std::move(write_buf),
+                std::move(input_buffer), std::move(input),
+                std::move(output_buffer), std::move(output));
+        return make_ready_future<std::unique_ptr<connection>>(std::move(conn));
+    } catch (...) {
+        auto ex = std::current_exception();
+        // FIXME: close fd
+            return make_exception_future<std::unique_ptr<connection>>(std::move(ex));
+    }
 }
 
 server::~server() {
@@ -106,11 +129,13 @@ void server::do_accepts(int which) {
 
 future<> server::do_accept_one(int which) {
     return _listeners[which].accept().then([this] (accept_result ar) mutable {
-        auto conn = std::make_unique<connection>(*this, std::move(ar.connection));
+      return connection::make_connection(*this, std::move(ar.connection)).then([] (std::unique_ptr<connection> conn) {
         // Tracked by _connections
         (void)conn->process().finally([conn = std::move(conn)] {
             wlogger.debug("Connection is finished");
+            // FIXME: close conn
         });
+      });
     }).handle_exception_type([] (const std::system_error &e) {
         // We expect a ECONNABORTED when server::stop is called,
         // no point in warning about that.
@@ -318,7 +343,7 @@ future<> connection::read_one() {
                 case opcodes::CONTINUATION:
                 case opcodes::TEXT:
                 case opcodes::BINARY:
-                    return _input_buffer.push_eventually(_websocket_parser.result());
+                    return _input_buffer->push_eventually(_websocket_parser.result());
                 case opcodes::CLOSE:
                     wlogger.debug("Received close frame.");
                     /*
@@ -402,7 +427,7 @@ future<> connection::send_data(opcodes opcode, temporary_buffer<char>&& buff) {
 future<> connection::response_loop() {
     return do_until([this] {return _done;}, [this] {
         // FIXME: implement error handling
-        return _output_buffer.pop_eventually().then([this] (
+        return _output_buffer->pop_eventually().then([this] (
                 temporary_buffer<char> buf) {
             return send_data(opcodes::BINARY, std::move(buf));
         });

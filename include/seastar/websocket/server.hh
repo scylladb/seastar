@@ -233,7 +233,7 @@ class connection : public list_base_hook {
      */
     future<> handle_pong();
 
-    static const size_t PIPE_SIZE = 512;
+    static constexpr size_t PIPE_SIZE = 512;
     server& _server;
     connected_socket _fd;
     input_stream<char> _read_buf;
@@ -242,21 +242,26 @@ class connection : public list_base_hook {
     bool _done = false;
 
     websocket_parser _websocket_parser;
-    queue <temporary_buffer<char>> _input_buffer;
+    std::unique_ptr<queue<temporary_buffer<char>>> _input_buffer;
     input_stream<char> _input;
-    queue <temporary_buffer<char>> _output_buffer;
+    std::unique_ptr<queue<temporary_buffer<char>>> _output_buffer;
     output_stream<char> _output;
 
     sstring _subprotocol;
     handler_t _handler;
 public:
+    connection(server& server, connected_socket&& fd,
+            input_stream<char>&& read_buf, output_stream<char>&& write_buf,
+        std::unique_ptr<queue<temporary_buffer<char>>> input_buffer, input_stream<char>&& input,
+        std::unique_ptr<queue<temporary_buffer<char>>> output_buffer, output_stream<char>&& output) noexcept;
+    connection(connection&&) = default;
+    ~connection();
+
     /*!
      * \param server owning \ref server
      * \param fd established socket used for communication
      */
-    connection(server& server, connected_socket&& fd);
-    connection(connection&&) = default;
-    ~connection();
+    static future<std::unique_ptr<connection>> make_connection(server& server, connected_socket&& fd) noexcept;
 
     /*!
      * \brief serve WebSocket protocol on a connection
