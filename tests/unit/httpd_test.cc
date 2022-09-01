@@ -718,9 +718,9 @@ struct extra_big_object : public json::json_base {
 SEASTAR_TEST_CASE(json_stream) {
     std::vector<extra_big_object> vec;
     size_t num_objects = 1000;
-    size_t total_size = num_objects * 1000001 + 1;
+    size_t total_size = num_objects * 100001 + 1;
     for (size_t i = 0; i < num_objects; i++) {
-        vec.emplace_back(1000000);
+        vec.emplace_back(100000);
     }
     return test_client_server::run_test(json::stream_object(vec), [total_size](size_t s, http_consumer& h) {
         BOOST_REQUIRE_EQUAL(h._size, total_size);
