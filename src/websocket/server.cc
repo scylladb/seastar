@@ -20,6 +20,7 @@
  */
 
 #include "seastar/core/future.hh"
+#include "seastar/util/backtrace.hh"
 #include <exception>
 #include <seastar/websocket/server.hh>
 #include <seastar/util/log.hh>
@@ -437,9 +438,11 @@ future<> connection::response_loop() {
 }
 
 void connection::shutdown() {
-    wlogger.debug("Shutting down");
+  if (!std::exchange(_shutdown, true)) {
+    wlogger.debug("Shutting down {}, at {}", fmt::ptr(this), current_backtrace());
     _fd.shutdown_input();
     _fd.shutdown_output();
+  }
 }
 
 future<> connection::close() {
