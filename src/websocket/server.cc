@@ -372,11 +372,7 @@ future<> connection::read_one() {
 future<> connection::read_loop() {
     return read_http_upgrade_request().then([this] {
         return when_all_succeed(
-            _handler(_input, _output).handle_exception([this] (std::exception_ptr e) mutable {
-                return _read_buf.close().then([e = std::move(e)] () mutable {
-                    return make_exception_future<>(std::move(e));
-                });
-            }),
+            _handler(_input, _output),
             do_until([this] {return _done;}, [this] {return read_one();})
         ).discard_result();
     }).finally([this] {
