@@ -137,6 +137,15 @@ future<> connection::start_response() {
     });
 }
 
+connection::connection(http_server& server, connected_socket&& fd)
+        : _server(server)
+        , _fd(std::move(fd))
+        , _read_buf(_fd.input())
+        , _write_buf(_fd.output())
+{
+    on_new_connection();
+}
+
 connection::~connection() {
     --_server._current_connections;
     this->unlink();
