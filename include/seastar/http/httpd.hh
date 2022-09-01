@@ -61,7 +61,14 @@ public:
     http_stats(http_server& server, const sstring& name);
 };
 
-class connection : public boost::intrusive::list_base_hook<> {
+using list_base_hook = boost::intrusive::list_base_hook<boost::intrusive::link_mode<boost::intrusive::auto_unlink>>;
+
+using connections_list_type = boost::intrusive::list<
+        connection,
+        boost::intrusive::base_hook<list_base_hook>,
+        boost::intrusive::constant_time_size<false>>;
+
+class connection : public list_base_hook {
     http_server& _server;
     connected_socket _fd;
     input_stream<char> _read_buf;
@@ -202,7 +209,7 @@ public:
     static sstring http_date();
 private:
     future<> do_accept_one(int which);
-    boost::intrusive::list<connection> _connections;
+    connections_list_type _connections;
     friend class seastar::httpd::connection;
     friend class http_server_tester;
 };

@@ -139,7 +139,7 @@ future<> connection::start_response() {
 
 connection::~connection() {
     --_server._current_connections;
-    _server._connections.erase(_server._connections.iterator_to(*this));
+    this->unlink();
 }
 
 bool connection::url_decode(const std::string_view& in, sstring& out) {
