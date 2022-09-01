@@ -67,6 +67,21 @@ websocket_parser::buff_t websocket_parser::result() {
     return std::move(_result);
 }
 
+connection::connection(server& server, connected_socket&& fd)
+    : _server(server)
+    , _fd(std::move(fd))
+    , _read_buf(_fd.input())
+    , _write_buf(_fd.output())
+    , _input_buffer{PIPE_SIZE}
+    , _output_buffer{PIPE_SIZE}
+{
+    _input = input_stream<char>{data_source{
+            std::make_unique<connection_source_impl>(&_input_buffer)}};
+    _output = output_stream<char>{data_sink{
+            std::make_unique<connection_sink_impl>(&_output_buffer)}};
+    on_new_connection();
+}
+
 server::~server() {
     if (!_stopped && (!_listeners.empty() || !_connections.empty())) {
         on_internal_error_noexcept(seastar_logger, "websocket server destroyed while open");

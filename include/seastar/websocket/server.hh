@@ -254,20 +254,7 @@ public:
      * \param server owning \ref server
      * \param fd established socket used for communication
      */
-    connection(server& server, connected_socket&& fd)
-        : _server(server)
-        , _fd(std::move(fd))
-        , _read_buf(_fd.input())
-        , _write_buf(_fd.output())
-        , _input_buffer{PIPE_SIZE}
-        , _output_buffer{PIPE_SIZE}
-    {
-        _input = input_stream<char>{data_source{
-                std::make_unique<connection_source_impl>(&_input_buffer)}};
-        _output = output_stream<char>{data_sink{
-                std::make_unique<connection_sink_impl>(&_output_buffer)}};
-        on_new_connection();
-    }
+    connection(server& server, connected_socket&& fd);
     connection(connection&&) = default;
     ~connection();
 
