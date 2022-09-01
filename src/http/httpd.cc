@@ -146,6 +146,14 @@ connection::connection(http_server& server, connected_socket&& fd)
     on_new_connection();
 }
 
+connection::connection(connection&& c) noexcept
+        : _server(c._server)
+        , _fd(std::move(c._fd))
+        , _read_buf(std::move(c._read_buf))
+        , _write_buf(std::move(c._write_buf))
+{
+}
+
 connection::~connection() {
     --_server._current_connections;
     this->unlink();

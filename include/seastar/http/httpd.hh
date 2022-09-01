@@ -83,6 +83,7 @@ class connection : public list_base_hook {
     bool _done = false;
 public:
     connection(http_server& server, connected_socket&& fd);
+    connection(connection&& c) noexcept;
     ~connection();
     void on_new_connection();
 
