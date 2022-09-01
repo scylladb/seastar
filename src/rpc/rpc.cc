@@ -326,7 +326,7 @@ namespace rpc {
       } catch (...) {
           log_exception(*this, log_level::error, "fail to shutdown connection while stopping", std::current_exception());
       }
-      return _done.get_future();
+      return _done.get_shared_future();
   }
 
   template<typename Connection>
@@ -698,7 +698,7 @@ namespace rpc {
       } catch(...) {
           log_exception(*this, log_level::error, "fail to shutdown connection while stopping", std::current_exception());
       }
-      return _done.get_future();
+      return _done.get_shared_future();
   }
 
   void client::abort_all_streams() {
