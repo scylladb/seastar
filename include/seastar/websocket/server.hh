@@ -164,10 +164,12 @@ public:
     buff_t result();
 };
 
+using list_base_hook = boost::intrusive::list_base_hook<boost::intrusive::link_mode<boost::intrusive::auto_unlink>>;
+
 /*!
  * \brief a WebSocket connection
  */
-class connection : public boost::intrusive::list_base_hook<> {
+class connection : public list_base_hook {
     using buff_t = temporary_buffer<char>;
 
     /*!
@@ -266,6 +268,7 @@ public:
                 std::make_unique<connection_sink_impl>(&_output_buffer)}};
         on_new_connection();
     }
+    connection(connection&&) = default;
     ~connection();
 
     /*!
@@ -292,6 +295,11 @@ protected:
 
 };
 
+using connections_list_type = boost::intrusive::list<
+        connection,
+        boost::intrusive::base_hook<list_base_hook>,
+        boost::intrusive::constant_time_size<false>>;
+
 /*!
  * \brief a WebSocket server
  *
@@ -300,7 +308,7 @@ protected:
  */
 class server {
     std::vector<server_socket> _listeners;
-    boost::intrusive::list<connection> _connections;
+    connections_list_type _connections;
     std::map<std::string, handler_t> _handlers;
     future<> _accept_fut = make_ready_future<>();
     bool _stopped = false;

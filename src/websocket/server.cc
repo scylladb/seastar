@@ -113,14 +113,21 @@ future<> server::stop() {
         l.abort_accept();
     }
     return _accept_fut.finally([this] {
-        return parallel_for_each(_connections, [] (connection& conn) {
-            return conn.close().handle_exception([] (auto ignored) {});
-        });
+        future<> to_close = make_ready_future<>();
+        while (_connections.empty()) {
+            auto& c = _connections.front();
+            c.unlink();
+            auto f = c.close().then([c = std::move(c)] {});
+            to_close = to_close.then([f = std::move(f)] () mutable {
+                return std::move(f);
+            });
+        }
+        return to_close;
     });
 }
 
 connection::~connection() {
-    _server._connections.erase(_server._connections.iterator_to(*this));
+    this->unlink();
 }
 
 void connection::on_new_connection() {
