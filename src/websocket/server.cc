@@ -370,6 +370,7 @@ future<> connection::read_one() {
 }
 
 future<> connection::read_loop() {
+  return with_gate(_gate, [this] {
     return read_http_upgrade_request().then([this] {
         return when_all_succeed(
             _handler(_input, _output),
@@ -378,6 +379,7 @@ future<> connection::read_loop() {
     }).finally([this] {
         return _read_buf.close();
     });
+  });
 }
 
 future<> connection::close(bool send_close) {
@@ -391,6 +393,7 @@ future<> connection::close(bool send_close) {
         _done = true;
         return when_all_succeed(_input.close(), _output.close()).discard_result().finally([this] {
             shutdown();
+            return _gate.close();
         });
     });
 }
@@ -422,6 +425,7 @@ future<> connection::send_data(opcodes opcode, temporary_buffer<char>&& buff) {
 }
 
 future<> connection::response_loop() {
+  return with_gate(_gate, [this] {
     return do_until([this] {return _done;}, [this] {
         // FIXME: implement error handling
         return _output_buffer->pop_eventually().then([this] (
@@ -431,6 +435,7 @@ future<> connection::response_loop() {
     }).finally([this]() {
         return _write_buf.close();
     });
+  });
 }
 
 void connection::shutdown() {

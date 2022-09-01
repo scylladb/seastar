@@ -250,6 +250,7 @@ class connection : public list_base_hook {
     sstring _subprotocol;
     handler_t _handler;
     bool _shutdown = false;
+    gate _gate;
 public:
     connection(server& server, connected_socket&& fd,
             input_stream<char>&& read_buf, output_stream<char>&& write_buf,
