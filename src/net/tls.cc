@@ -1502,19 +1502,19 @@ public:
             // FIXME: this should be an internal error
             return;
         }
-        // FIXME: return future<>, indentation
-            auto me = shared_from_this();
-            shutdown();
-            (void)wait_for_shutdown().finally([this] {
-                // make sure to wait for handshake attempt to leave semaphores. Must be in same order as
-                // handshake aqcuire, because in worst case, we get here while a reader is attempting
-                // re-handshake.
-                return with_semaphore(_in_sem, 1, [this] {
-                    return with_semaphore(_out_sem, 1, [] {});
-                });
-            }).then_wrapped([me = std::move(me)](future<> f) { // must keep object alive until here.
-                f.ignore_ready_future();
+        // FIXME: return future<>
+        auto me = shared_from_this();
+        shutdown();
+        (void)wait_for_shutdown().finally([this] {
+            // make sure to wait for handshake attempt to leave semaphores. Must be in same order as
+            // handshake aqcuire, because in worst case, we get here while a reader is attempting
+            // re-handshake.
+            return with_semaphore(_in_sem, 1, [this] {
+                return with_semaphore(_out_sem, 1, [] {});
             });
+        }).then_wrapped([me = std::move(me)](future<> f) { // must keep object alive until here.
+            f.ignore_ready_future();
+        });
     }
     // helper for sink
     future<> flush() noexcept {
