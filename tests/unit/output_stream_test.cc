@@ -157,3 +157,34 @@ SEASTAR_THREAD_TEST_CASE(test_simple_write) {
     BOOST_REQUIRE_EQUAL(buf.size(), 1);
     BOOST_REQUIRE_EQUAL(sstring(buf.front().get(), buf.front().size()), value);
 }
+
+SEASTAR_THREAD_TEST_CASE(test_multiple_closes) {
+    class test_data_sink final : public data_sink_impl {
+        int& _close_count;
+    public:
+        test_data_sink(int& cc) noexcept : _close_count(cc) {
+            _close_count = 0;
+        }
+
+        virtual size_t buffer_size() const noexcept override {
+            return 0;
+        }
+
+        virtual future<> put(net::packet p) override {
+            return make_ready_future<>();
+        }
+
+        virtual future<> close() override {
+            ++_close_count;
+            return make_ready_future<>();
+        }
+    };
+
+    int close_count;
+    auto out = output_stream<char>(data_sink(std::make_unique<test_data_sink>(close_count)));
+    BOOST_REQUIRE_EQUAL(close_count, 0);
+    out.close().get();
+    BOOST_REQUIRE_EQUAL(close_count, 1);
+    out.close().get();
+    BOOST_REQUIRE_EQUAL(close_count, 1);
+}

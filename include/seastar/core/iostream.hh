@@ -39,6 +39,7 @@
 #include <seastar/core/future.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/core/scattered_message.hh>
+#include <seastar/core/shared_future.hh>
 #include <seastar/util/std-compat.hh>
 
 namespace bi = boost::intrusive;
@@ -259,6 +260,8 @@ class input_stream final {
     data_source _fd;
     temporary_buffer<CharType> _buf;
     bool _eof = false;
+    bool _closed = false;
+    shared_promise<> _close_done;
 private:
     using tmp_buf = temporary_buffer<CharType>;
     size_t available() const noexcept { return _buf.size(); }
@@ -308,7 +311,17 @@ public:
     /// \return a future that becomes ready when this stream no longer
     ///         needs the data source.
     future<> close() noexcept {
-        return _fd.close();
+        if (!std::exchange(_closed, true)) {
+            // Run in background and signal _close_done when done
+            (void)_fd.close().then_wrapped([this] (future<> f) {
+                if (f.failed()) {
+                    _close_done.set_exception(f.get_exception());
+                } else {
+                    _close_done.set_value();
+                }
+            });
+        }
+        return _close_done.get_shared_future();
     }
     /// Ignores n next bytes from the stream.
     future<> skip(uint64_t n) noexcept;
@@ -362,6 +375,8 @@ class output_stream final {
     bool _flushing = false;
     std::exception_ptr _ex;
     bi::slist_member_hook<> _in_poller;
+    bool _closed = false;
+    shared_promise<> _close_done;
 
 private:
     size_t available() const noexcept { return _end - _begin; }

@@ -491,7 +491,9 @@ output_stream<CharType>::poll_flush() noexcept {
 template <typename CharType>
 future<>
 output_stream<CharType>::close() noexcept {
-    return flush().finally([this] {
+  if (!std::exchange(_closed, true)) {
+    // Run in background and signal _close_done when done.
+    (void)flush().finally([this] {
         if (_in_batch) {
             return _in_batch.value().get_future();
         } else {
@@ -504,7 +506,15 @@ output_stream<CharType>::close() noexcept {
         }
     }).finally([this] {
         return _fd.close();
+    }).then_wrapped([this] (future<> f) {
+        if (f.failed()) {
+            _close_done.set_exception(f.get_exception());
+        } else {
+            _close_done.set_value();
+        }
     });
+  }
+  return _close_done.get_shared_future();
 }
 
 template <typename CharType>
