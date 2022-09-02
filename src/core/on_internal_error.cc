@@ -58,3 +58,8 @@ void seastar::on_internal_error_noexcept(logger& logger, std::string_view msg) n
         abort();
     }
 }
+
+void seastar::on_fatal_internal_error(logger& logger, std::string_view msg) noexcept {
+    set_abort_on_internal_error(true);
+    on_internal_error_noexcept(logger, msg);
+}
