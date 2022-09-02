@@ -69,15 +69,23 @@ using namespace seastar;
 
 static future<> connect_to_ssl_addr(::shared_ptr<tls::certificate_credentials> certs, socket_address addr, const sstring& name = {}) {
     return repeat_until_value([=]() mutable {
-        return tls::connect(certs, addr, name).then([](connected_socket s) {
-            return do_with(std::move(s), [](connected_socket& s) {
-                return do_with(s.output(), [&s](auto& os) {
+        return async([=] {
+            auto s = tls::connect(certs, addr, name).get0();
+            auto close_s = deferred_close(s);
+            auto os = s.output();
+            auto close_os = defer([&os] () noexcept {
+                os.close().handle_exception([] (auto ex) {}).get();
+            });
+            // FIXME: indentation
                     static const sstring msg("GET / HTTP/1.0\r\n\r\n");
-                    auto f = os.write(msg);
-                    return f.then([&s, &os]() mutable {
-                        auto f = os.flush();
-                        return f.then([&s]() mutable {
-                            return do_with(s.input(), sstring{}, [](auto& in, sstring& buffer) {
+            os.write(msg).get();
+            os.flush().get();
+            auto in = s.input();
+            auto close_in = defer([&in] () noexcept {
+                seastar_logger.info("Closing in");
+                in.close().handle_exception([] (auto ex) {}).get();
+            });
+            sstring buffer;
                                 return do_until(std::bind(&input_stream<char>::eof, std::cref(in)), [&buffer, &in] {
                                     auto f = in.read();
                                     return f.then([&](temporary_buffer<char> buf) {
@@ -94,16 +102,7 @@ static future<> connect_to_ssl_addr(::shared_ptr<tls::certificate_credentials> c
                                     BOOST_CHECK(buffer.size() > 8);
                                     BOOST_CHECK_EQUAL(buffer.substr(0, 5), sstring("HTTP/"));
                                     return make_ready_future<std::optional<bool>>(true);
-                                });
-                            });
-                        });
-                    }).finally([&os] {
-                        return os.close();
-                    });
-                }).finally([&s] {
-                    return s.close();
-                });
-            });
+                                }).get();
         });
 
     }).discard_result();
