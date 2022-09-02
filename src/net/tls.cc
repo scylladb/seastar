@@ -36,6 +36,7 @@
 #include <seastar/core/with_timeout.hh>
 #include <seastar/core/shared_future.hh>
 #include <seastar/core/when_all.hh>
+#include <seastar/core/pipe.hh>
 #include <seastar/net/tls.hh>
 #include <seastar/net/stack.hh>
 #include <seastar/util/std-compat.hh>
@@ -1635,12 +1636,10 @@ public:
     data_sink sink() override;
 
     void shutdown_input() override {
-        // FIXME: call shutdown
-        (void)get_session()->close();
+        get_session()->shutdown();
     }
     void shutdown_output() override {
-        // FIXME: call shutdown
-        (void)get_session()->close();
+        get_session()->shutdown();
     }
     void set_nodelay(bool nodelay) override {
         get_session()->socket().set_nodelay(nodelay);
@@ -1673,7 +1672,7 @@ public:
         return get_session()->get_distinguished_name();
     }
     virtual future<> close() noexcept override {
-        return make_ready_future<>();
+        return _session_ref.close();
     }
 };
 
@@ -1690,11 +1689,19 @@ public:
     {}
 private:
     future<temporary_buffer<char>> get() override {
-        return get_session()->get();
+        auto s = get_session();
+        if (!s) {
+            return make_exception_future<temporary_buffer<char>>(broken_pipe_exception());
+        }
+        return s->get();
     }
     future<> close() override {
-        // FIXME: call session->shutdown and session_ref::close
-        return get_session()->close();
+        auto s = get_session();
+        if (!s) {
+            return make_ready_future<>();
+        }
+        s->shutdown();
+        return _session_ref.close();
     }
 };
 
@@ -1718,11 +1725,21 @@ private:
     }
     using data_sink_impl::put;
     future<> put(net::packet p) override {
-        return get_session()->put(std::move(p));
+        auto s = get_session();
+        if (!s) {
+            return make_exception_future<>(broken_pipe_exception());
+        }
+        return s->put(std::move(p));
     }
     future<> close() override {
-        // FIXME: call session->shutdown and session_ref::close
-        return get_session()->close();
+        auto s = get_session();
+        if (!s) {
+            return make_ready_future<>();
+        }
+        return flush().finally([this, s = std::move(s)] {
+            s->shutdown();
+            return _session_ref.close();
+        });
     }
 };
 
