@@ -992,6 +992,7 @@ public:
                 gtls_chk(gnutls_init(&session, GNUTLS_NONBLOCK|uint32_t(t)));
                 return session;
             }(), &gnutls_deinit) {
+        seastar_logger.debug("tls: constructed session {}, at {}", fmt::ptr(this), current_backtrace());
         gtls_chk(gnutls_set_default_priority(*this));
         gtls_chk(
                 gnutls_credentials_set(*this, GNUTLS_CRD_CERTIFICATE,
@@ -1029,8 +1030,17 @@ public:
 #endif
     }
 
+    session(const session&) = delete;
+    session(session&& s) = delete;
+
     ~session() {
+        seastar_logger.debug("tls: destroying session {}, at {}", fmt::ptr(this), current_backtrace());
         assert(_output_pending.available());
+#if SEASTAR_API_LEVEL >= 7
+        if (!_closed) {
+            on_internal_error(seastar_logger, "tls: session destroyed while open");
+        }
+#endif
     }
 
     typedef temporary_buffer<char> buf_type;
@@ -1493,9 +1503,12 @@ public:
         return _shutdown_sem.wait(2);
     }
     future<> close() noexcept {
+        seastar_logger.debug("closing session {}, at {}", fmt::ptr(this), current_backtrace());
         // only do once.
         if (std::exchange(_closed, true)) {
-            // FIXME: this should be an internal error
+#if SEASTAR_API_LEVEL >= 7
+            on_internal_error_noexcept(seastar_logger, "session closed more than once");
+#endif
             return make_ready_future<>();
         }
         auto me = shared_from_this();
@@ -1586,18 +1599,33 @@ private:
 };
 
 struct session::session_ref {
+    bool _closed = false;
     session_ref() = default;
     session_ref(lw_shared_ptr<session> session)
                     : _session(std::move(session)) {
+        seastar_logger.debug("tls::session_ref: ref session {} use_count={}, at {}", fmt::ptr(_session.get()), _session.use_count(), current_backtrace());
     }
-    session_ref(session_ref&&) = default;
-    session_ref(const session_ref&) = default;
+    session_ref(session_ref&& sr) noexcept
+        : _session(std::move(sr._session))
+    { }
+    session_ref(const session_ref& sr) noexcept
+        : _session(sr._session)
+    {
+        seastar_logger.debug("tls::session_ref: copy-ref session {} use_count={}, at {}", fmt::ptr(_session.get()), _session.use_count(), current_backtrace());
+    }
     ~session_ref() {
         // This is not super pretty. But we take some care to only own sessions
         // through session_ref, and we need to initiate shutdown on "last owner",
         // since we cannot revive the session in destructor.
+        if (_session) {
+            seastar_logger.debug("tls::session_ref: destroy session {} use_count={}, at {}", fmt::ptr(_session.get()), _session.use_count(), current_backtrace());
+        }
+#if SEASTAR_API_LEVEL >= 7
+        if (!_closed) {
+            on_internal_error_noexcept(seastar_logger, "tls: session_ref destroyed while open");
+        }
+#endif
         if (_session && _session.use_count() == 1) {
-            // FIXME: this should be an internal error once close is mandated
             // future is discarded
             (void)_session->close();
         }
@@ -1609,6 +1637,8 @@ struct session::session_ref {
     lw_shared_ptr<session> _session;
 
     future<> close() noexcept {
+        _closed = true;
+        seastar_logger.debug("tls::session_ref: deref session {} use_count={}, at {}", fmt::ptr(_session.get()), _session.use_count(), current_backtrace());
         if (_session && _session.use_count() == 1) {
             auto sp = std::move(_session);
             return sp->close().then([sp = std::move(sp)] {});
