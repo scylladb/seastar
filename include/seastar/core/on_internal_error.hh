@@ -54,4 +54,11 @@ bool set_abort_on_internal_error(bool do_abort) noexcept;
 /// in noexcept contexts like destructors or noexcept functions.
 void on_internal_error_noexcept(logger& logger, std::string_view reason) noexcept;
 
+/// Report an internal error and abort unconditionally
+///
+/// The error will be logged to \logger and the program will be aborted,
+/// regardless of the abort_on_internal_error setting.
+/// This overload can be used to replace assert().
+[[noreturn]] void on_fatal_internal_error(logger& logger, std::string_view reason) noexcept;
+
 }
