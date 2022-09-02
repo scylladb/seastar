@@ -34,6 +34,7 @@
 #include <seastar/core/timer.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/with_timeout.hh>
+#include <seastar/core/shared_future.hh>
 #include <seastar/net/tls.hh>
 #include <seastar/net/stack.hh>
 #include <seastar/util/std-compat.hh>
@@ -1450,10 +1451,10 @@ public:
             });
         });
     }
-    future<> shutdown() {
+    void shutdown() {
         // only do once.
         if (std::exchange(_shutdown, true)) {
-            return make_ready_future<>();
+            return;
         }
         // first, make sure any pending write is done.
         // bye handshake is a flush operation, but this
@@ -1463,13 +1464,20 @@ public:
         // read from input until we see EOF. Any other reader
         // before us will get it instead of us, and mark _eof = true
         // in which case we will be no-op.
-        return with_semaphore(_out_sem, 1,
+        (void)with_semaphore(_out_sem, 1,
                         std::bind(&session::do_shutdown, this)).then(
-                        std::bind(&session::wait_for_eof, this)).finally([me = shared_from_this()] {});
+                        std::bind(&session::wait_for_eof, this)).then_wrapped([this, me = shared_from_this()] (future<> f) {
+                            f.ignore_ready_future();
+                            _shutdown_promise.set_value();
+                        });
         // note moved finally clause above. It is theorethically possible
         // that we could complete do_shutdown just before the close calls 
         // below, get pre-empted, have "close()" finish, get freed, and 
         // then call wait_for_eof on stale pointer.
+    }
+    future<> wait_for_shutdown() noexcept {
+        assert(_shutdown);
+        return _shutdown_promise.get_shared_future();
     }
     void close() noexcept {
         // only do once.
@@ -1479,8 +1487,9 @@ public:
         }
         // FIXME: return future<>, indentation
             auto me = shared_from_this();
+            shutdown();
             // running in background. try to bye-handshake us nicely, but after 10s we forcefully close.
-            (void)with_timeout(timer<>::clock::now() + std::chrono::seconds(10), shutdown()).finally([this] {
+            (void)with_timeout(timer<>::clock::now() + std::chrono::seconds(10), wait_for_shutdown()).finally([this] {
                 _eof = true;
                     (void)_in.close().handle_exception([](std::exception_ptr) {}); // should wake any waiters
                     (void)_out.close().handle_exception([](std::exception_ptr) {});
@@ -1559,6 +1568,7 @@ private:
     bool _closed = false;
     std::exception_ptr _error;
 
+    shared_promise<> _shutdown_promise;
     future<> _output_pending;
     buf_type _input;
 
