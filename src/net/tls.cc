@@ -54,7 +54,7 @@ public:
         return std::move(s._csi);
     }
 
-    static connected_socket_impl* maybe_get_ptr(connected_socket& s) {
+    static connected_socket_impl* maybe_get_ptr(const connected_socket& s) {
         if (s._csi) {
             return s._csi.get();
         }
@@ -982,9 +982,9 @@ public:
     };
 
     session(type t, shared_ptr<tls::certificate_credentials> creds,
-            std::unique_ptr<net::connected_socket_impl> sock, sstring name = { })
+            connected_socket&& sock, sstring name = { })
             : _type(t), _sock(std::move(sock)), _creds(creds->_impl), _hostname(
-                    std::move(name)), _in(_sock->source()), _out(_sock->sink()),
+                    std::move(name)), _in(socket().source()), _out(socket().sink()),
                     _in_sem(1), _out_sem(1), _output_pending(
                     make_ready_future<>()), _session([t] {
                 gnutls_session_t session;
@@ -1026,11 +1026,6 @@ public:
             gnutls_session_set_verify_function(*this, &verify_wrapper);
         }
 #endif
-    }
-    session(type t, shared_ptr<certificate_credentials> creds,
-            connected_socket sock, sstring name = { })
-            : session(t, std::move(creds), net::get_impl::get(std::move(sock)),
-                    std::move(name)) {
     }
 
     ~session() {
@@ -1522,8 +1517,8 @@ public:
         });
     }
 
-    seastar::net::connected_socket_impl & socket() const {
-        return *_sock;
+    seastar::net::connected_socket_impl & socket() const noexcept {
+        return *net::get_impl::maybe_get_ptr(_sock);
     }
 
     future<std::optional<session_dn>> get_distinguished_name() {
@@ -1566,7 +1561,7 @@ private:
 
     type _type;
 
-    std::unique_ptr<net::connected_socket_impl> _sock;
+    connected_socket _sock;
     shared_ptr<tls::certificate_credentials::impl> _creds;
     const sstring _hostname;
     data_source _in;
