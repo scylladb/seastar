@@ -76,33 +76,31 @@ static future<> connect_to_ssl_addr(::shared_ptr<tls::certificate_credentials> c
             auto close_os = defer([&os] () noexcept {
                 os.close().handle_exception([] (auto ex) {}).get();
             });
-            // FIXME: indentation
-                    static const sstring msg("GET / HTTP/1.0\r\n\r\n");
+            static const sstring msg("GET / HTTP/1.0\r\n\r\n");
             os.write(msg).get();
             os.flush().get();
             auto in = s.input();
             auto close_in = defer([&in] () noexcept {
-                seastar_logger.info("Closing in");
                 in.close().handle_exception([] (auto ex) {}).get();
             });
             sstring buffer;
-                                return do_until(std::bind(&input_stream<char>::eof, std::cref(in)), [&buffer, &in] {
-                                    auto f = in.read();
-                                    return f.then([&](temporary_buffer<char> buf) {
-                                        buffer.append(buf.get(), buf.size());
-                                    });
-                                }).then([&buffer]() -> future<std::optional<bool>> {
-                                    if (buffer.empty()) {
-                                        // # 1127 google servers have a (pretty short) timeout between connect and expected first
-                                        // write. If we are delayed inbetween connect and write above (cert verification, scheduling
-                                        // solar spots or just time sharing on AWS) we could get a short read here. Just retry.
-                                        // If we get an actual error, it is either on protocol level (exception) or HTTP error.
-                                        return make_ready_future<std::optional<bool>>(std::nullopt);
-                                    }
-                                    BOOST_CHECK(buffer.size() > 8);
-                                    BOOST_CHECK_EQUAL(buffer.substr(0, 5), sstring("HTTP/"));
-                                    return make_ready_future<std::optional<bool>>(true);
-                                }).get();
+            return do_until(std::bind(&input_stream<char>::eof, std::cref(in)), [&buffer, &in] {
+                auto f = in.read();
+                return f.then([&](temporary_buffer<char> buf) {
+                    buffer.append(buf.get(), buf.size());
+                });
+            }).then([&buffer]() -> future<std::optional<bool>> {
+                if (buffer.empty()) {
+                    // # 1127 google servers have a (pretty short) timeout between connect and expected first
+                    // write. If we are delayed inbetween connect and write above (cert verification, scheduling
+                    // solar spots or just time sharing on AWS) we could get a short read here. Just retry.
+                    // If we get an actual error, it is either on protocol level (exception) or HTTP error.
+                    return make_ready_future<std::optional<bool>>(std::nullopt);
+                }
+                BOOST_CHECK(buffer.size() > 8);
+                BOOST_CHECK_EQUAL(buffer.substr(0, 5), sstring("HTTP/"));
+                return make_ready_future<std::optional<bool>>(true);
+            }).get();
         });
 
     }).discard_result();
