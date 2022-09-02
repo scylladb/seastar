@@ -518,10 +518,14 @@ private:
         ++e.pending;
     }
     void release(ares_socket_t fd) {
-        auto& e = _sockets.at(fd);
+        auto it = _sockets.find(fd);
+        if (it == _sockets.end()) {
+            throw std::out_of_range(format("socket fd {} not found", fd));
+        }
+        auto& e = it->second;
         dns_log.trace("Release socket {} -> {}", fd, e.pending -  1);
         if (--e.pending < 0) {
-            _sockets.erase(fd);
+            _sockets.erase(it);
             dns_log.trace("Released socket {}", fd);
         }
         _gate.leave();
