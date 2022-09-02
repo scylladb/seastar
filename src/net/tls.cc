@@ -1451,6 +1451,10 @@ public:
         });
     }
     future<> shutdown() {
+        // only do once.
+        if (std::exchange(_shutdown, true)) {
+            return make_ready_future<>();
+        }
         // first, make sure any pending write is done.
         // bye handshake is a flush operation, but this
         // allows us to not pay extra attention to output state
@@ -1469,7 +1473,11 @@ public:
     }
     void close() noexcept {
         // only do once.
-        if (!std::exchange(_shutdown, true)) {
+        if (std::exchange(_closed, true)) {
+            // FIXME: this should be an internal error
+            return;
+        }
+        // FIXME: return future<>, indentation
             auto me = shared_from_this();
             // running in background. try to bye-handshake us nicely, but after 10s we forcefully close.
             (void)with_timeout(timer<>::clock::now() + std::chrono::seconds(10), shutdown()).finally([this] {
@@ -1485,7 +1493,6 @@ public:
             }).then_wrapped([me = std::move(me)](future<> f) { // must keep object alive until here.
                 f.ignore_ready_future();
             });
-        }
     }
     // helper for sink
     future<> flush() noexcept {
@@ -1549,6 +1556,7 @@ private:
     bool _eof = false;
     bool _shutdown = false;
     bool _connected = false;
+    bool _closed = false;
     std::exception_ptr _error;
 
     future<> _output_pending;
@@ -1594,9 +1602,11 @@ public:
     data_sink sink() override;
 
     void shutdown_input() override {
+        // FIXME: call shutdown
         _session->close();
     }
     void shutdown_output() override {
+        // FIXME: call shutdown
         _session->close();
     }
     void set_nodelay(bool nodelay) override {
