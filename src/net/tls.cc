@@ -1620,10 +1620,15 @@ struct session::session_ref {
     }
 };
 
-class tls_connected_socket_impl : public net::connected_socket_impl, public session::session_ref {
+class tls_connected_socket_impl : public net::connected_socket_impl {
+    session::session_ref _session_ref;
+
+    const lw_shared_ptr<session>& get_session() const noexcept {
+        return _session_ref._session;
+    }
 public:
-    tls_connected_socket_impl(session_ref&& sess)
-        : session_ref(std::move(sess))
+    tls_connected_socket_impl(lw_shared_ptr<session> sess)
+        : _session_ref(std::move(sess))
     {}
 
     class source_impl;
@@ -1635,55 +1640,62 @@ public:
 
     void shutdown_input() override {
         // FIXME: call shutdown
-        _session->close();
+        get_session()->close();
     }
     void shutdown_output() override {
         // FIXME: call shutdown
-        _session->close();
+        get_session()->close();
     }
     void set_nodelay(bool nodelay) override {
-        _session->socket().set_nodelay(nodelay);
+        get_session()->socket().set_nodelay(nodelay);
     }
     bool get_nodelay() const override {
-        return _session->socket().get_nodelay();
+        return get_session()->socket().get_nodelay();
     }
     void set_keepalive(bool keepalive) override {
-        _session->socket().set_keepalive(keepalive);
+        get_session()->socket().set_keepalive(keepalive);
     }
     bool get_keepalive() const override {
-        return _session->socket().get_keepalive();
+        return get_session()->socket().get_keepalive();
     }
     void set_keepalive_parameters(const net::keepalive_params& p) override {
-        _session->socket().set_keepalive_parameters(p);
+        get_session()->socket().set_keepalive_parameters(p);
     }
     net::keepalive_params get_keepalive_parameters() const override {
-        return _session->socket().get_keepalive_parameters();
+        return get_session()->socket().get_keepalive_parameters();
     }
     void set_sockopt(int level, int optname, const void* data, size_t len) override {
-        _session->socket().set_sockopt(level, optname, data, len);
+        get_session()->socket().set_sockopt(level, optname, data, len);
     }
     int get_sockopt(int level, int optname, void* data, size_t len) const override {
-        return _session->socket().get_sockopt(level, optname, data, len);
+        return get_session()->socket().get_sockopt(level, optname, data, len);
     }
     socket_address local_address() const noexcept override {
-        return _session->socket().local_address();
+        return get_session()->socket().local_address();
     }
     future<std::optional<session_dn>> get_distinguished_name() {
-        return _session->get_distinguished_name();
+        return get_session()->get_distinguished_name();
     }
 };
 
 
-class tls_connected_socket_impl::source_impl: public data_source_impl, public session::session_ref {
+class tls_connected_socket_impl::source_impl: public data_source_impl {
+    session::session_ref _session_ref;
+
+    const lw_shared_ptr<session>& get_session() const noexcept {
+        return _session_ref._session;
+    }
 public:
-    using session_ref::session_ref;
+    source_impl(lw_shared_ptr<session> sess) noexcept
+        : _session_ref(std::move(sess))
+    {}
 private:
     future<temporary_buffer<char>> get() override {
-        return _session->get();
+        return get_session()->get();
     }
     future<> close() override {
         // FIXME: call session->shutdown and session_ref::close
-        _session->close();
+        get_session()->close();
         return make_ready_future<>();
     }
 };
@@ -1692,20 +1704,27 @@ private:
 // produced, cannot exist outside the direct life span of
 // the connected_socket itself. This is consistent with
 // other sockets in seastar, though I am than less fond of it...
-class tls_connected_socket_impl::sink_impl: public data_sink_impl, public session::session_ref {
+class tls_connected_socket_impl::sink_impl: public data_sink_impl {
+    session::session_ref _session_ref;
+
+    const lw_shared_ptr<session>& get_session() const noexcept {
+        return _session_ref._session;
+    }
 public:
-    using session_ref::session_ref;
+    sink_impl(lw_shared_ptr<session> sess) noexcept
+        : _session_ref(std::move(sess))
+    {}
 private:
     future<> flush() override {
-        return _session->flush();
+        return get_session()->flush();
     }
     using data_sink_impl::put;
     future<> put(net::packet p) override {
-        return _session->put(std::move(p));
+        return get_session()->put(std::move(p));
     }
     future<> close() override {
         // FIXME: call session->shutdown and session_ref::close
-        _session->close();
+        get_session()->close();
         return make_ready_future<>();
     }
 };
@@ -1767,11 +1786,11 @@ public:
 }
 
 data_source tls::tls_connected_socket_impl::source() {
-    return data_source(std::make_unique<source_impl>(_session));
+    return data_source(std::make_unique<source_impl>(get_session()));
 }
 
 data_sink tls::tls_connected_socket_impl::sink() {
-    return data_sink(std::make_unique<sink_impl>(_session));
+    return data_sink(std::make_unique<sink_impl>(get_session()));
 }
 
 
@@ -1792,13 +1811,13 @@ socket tls::socket(shared_ptr<certificate_credentials> cred, sstring name) {
 }
 
 future<connected_socket> tls::wrap_client(shared_ptr<certificate_credentials> cred, connected_socket&& s, sstring name) {
-    session::session_ref sess(make_lw_shared<session>(session::type::CLIENT, std::move(cred), std::move(s), std::move(name)));
+    auto sess = make_lw_shared<session>(session::type::CLIENT, std::move(cred), std::move(s), std::move(name));
     connected_socket sock(std::make_unique<tls_connected_socket_impl>(std::move(sess)));
     return make_ready_future<connected_socket>(std::move(sock));
 }
 
 future<connected_socket> tls::wrap_server(shared_ptr<server_credentials> cred, connected_socket&& s) {
-    session::session_ref sess(make_lw_shared<session>(session::type::SERVER, std::move(cred), std::move(s)));
+    auto sess = make_lw_shared<session>(session::type::SERVER, std::move(cred), std::move(s));
     connected_socket sock(std::make_unique<tls_connected_socket_impl>(std::move(sess)));
     return make_ready_future<connected_socket>(std::move(sock));
 }
