@@ -517,18 +517,22 @@ private:
         auto& e = _sockets.at(fd);
         ++e.pending;
     }
-    void release(ares_socket_t fd) {
+    future<> release(ares_socket_t fd) {
         auto it = _sockets.find(fd);
         if (it == _sockets.end()) {
-            throw std::out_of_range(format("socket fd {} not found", fd));
+            return make_exception_future<>(std::out_of_range(format("socket fd {} not found", fd)));
         }
         auto& e = it->second;
         dns_log.trace("Release socket {} -> {}", fd, e.pending -  1);
+        auto f = make_ready_future<>();
         if (--e.pending < 0) {
+            // FIXME: close the entry before destroying it 
             _sockets.erase(it);
             dns_log.trace("Released socket {}", fd);
         }
-        _gate.leave();
+        return f.then([this] {
+            _gate.leave();
+        });
     }
     ares_socket_t do_socket(int af, int type, int protocol) {
         if (_closed) {
@@ -563,6 +567,8 @@ private:
         case type::tcp:
         {
             dns_log.trace("Close tcp socket {}, {} pending", fd, e.pending);
+            // OK to discard future since the _gate is entered above
+            // until release leaves it, and _gate is closed in stop()
             future<> f = make_ready_future();
             if (e.tcp.in) {
                 e.tcp.socket.shutdown_input();
@@ -576,14 +582,16 @@ private:
                 });
             }
             f = f.finally([me = shared_from_this(), fd] {
-                me->release(fd);
+                return me->release(fd);
             });
             break;
         }
         case type::udp:
             e.udp.channel.shutdown_input();
             e.udp.channel.shutdown_output();
-            release(fd);
+            // OK to discard future since the _gate is entered above
+            // until release leaves it, and _gate is closed in stop()
+            (void)release(fd);
             break;
         default:
             // should not happen
@@ -619,8 +627,11 @@ private:
                 if (!f.available()) {
                     dns_log.trace("Connection pending: {}", fd);
                     e.avail = 0;
+                    // It is safe to discard the future below
+                    // since use() enters the _gate
+                    // and release() leaves it
+                    // while close() waits on closing the _gate.
                     use(fd);
-                    // FIXME: future is discarded
                     (void)f.then_wrapped([me = shared_from_this(), &e, fd](future<connected_socket> f) {
                         try {
                             e.tcp.socket = f.get0();
@@ -630,7 +641,7 @@ private:
                         }
                         e.avail = POLLOUT|POLLIN;
                         me->poll_sockets();
-                        me->release(fd);
+                        return me->release(fd);
                     });
                     errno = EWOULDBLOCK;
                     return -1;
@@ -682,8 +693,11 @@ private:
                     if (!f.available()) {
                         dns_log.trace("Read {}: data unavailable", fd);
                         e.avail &= ~POLLIN;
+                        // It is safe to discard the future below
+                        // since use() enters the _gate
+                        // and release() leaves it
+                        // while close() waits on closing the _gate.
                         use(fd);
-                        // FIXME: future is discarded
                         (void)f.then_wrapped([me = shared_from_this(), &e, fd](future<temporary_buffer<char>> f) {
                             try {
                                 auto buf = f.get0();
@@ -694,7 +708,7 @@ private:
                             }
                             e.avail |= POLLIN; // always reset state
                             me->poll_sockets();
-                            me->release(fd);
+                            return me->release(fd);
                         });
                         errno = EWOULDBLOCK;
                         return -1;
@@ -744,9 +758,12 @@ private:
                     auto f = udp.channel.receive();
                     if (!f.available()) {
                         e.avail &= ~POLLIN;
+                        // It is safe to discard the future below
+                        // since use() enters the _gate
+                        // and release() leaves it
+                        // while close() waits on closing the _gate.
                         use(fd);
                         dns_log.trace("Read {}: data unavailable", fd);
-                        // FIXME: future is discarded
                         (void)f.then_wrapped([me = shared_from_this(), &e, fd](future<net::udp_datagram> f) {
                             try {
                                 auto d = f.get0();
@@ -757,7 +774,7 @@ private:
                                 dns_log.debug("Read {} failed: {}", fd, std::current_exception());
                             }
                             me->poll_sockets();
-                            me->release(fd);
+                            return me->release(fd);
                         });
                         errno = EWOULDBLOCK;
                         return -1;
@@ -841,8 +858,11 @@ private:
                 if (!f.available()) {
                     dns_log.trace("Send {} unavailable.", fd);
                     e.avail &= ~POLLOUT;
+                    // It is safe to discard the future below
+                    // since use() enters the _gate
+                    // and release() leaves it
+                    // while close() waits on closing the _gate.
                     use(fd);
-                    // FIXME: future is discarded
                     (void)f.then_wrapped([me = shared_from_this(), &e, bytes, fd](future<> f) {
                         try {
                             f.get();
@@ -852,7 +872,7 @@ private:
                         }
                         e.avail |= POLLOUT;
                         me->poll_sockets();
-                        me->release(fd);
+                        return me->release(fd);
                     });
                     // c-ares does _not_ use non-blocking retry for udp sockets. We just pretend
                     // all is fine even though we have no idea. Barring stack/adapter failure it
@@ -1016,7 +1036,7 @@ future<net::dns_resolver::srv_records> net::dns_resolver::get_srv_records(net::d
 }
 
 future<> net::dns_resolver::close() {
-    return _impl->close();
+    return _impl->close().then([i = std::move(_impl)] () {});
 }
 
 static net::dns_resolver& resolver() {
