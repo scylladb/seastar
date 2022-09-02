@@ -34,6 +34,7 @@
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/core/iostream.hh>
 #include <seastar/core/with_timeout.hh>
+#include <seastar/core/when_all.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/net/tls.hh>
 #include <seastar/net/dns.hh>
@@ -340,6 +341,14 @@ struct streams {
     // note: using custom output_stream, because we don't want polled flush
     streams(::connected_socket cs) : s(std::move(cs)), in(s.input()), out(s.output().detach(), 8192)
     {}
+
+    future<> close() noexcept {
+        return when_all(
+            in.close(),
+            out.close(),
+            s.close()
+        ).discard_result();
+    }
 };
 
 static const sstring message = "hej lilla fisk du kan dansa fint";
@@ -392,9 +401,7 @@ public:
                             });
                         });
                     }).finally([strms]{
-                        return strms->out.close();
-                    }).finally([strms]{
-                        return strms->s.close();
+                        return strms->close().then([strms] {});;
                     });
                 }).handle_exception([this](auto ep) {
                     if (_stopped) {
@@ -492,7 +499,7 @@ static future<> run_echo_test(sstring message,
                         (void)f1.handle_exception([] (std::exception_ptr ignored) { });
                         return f2;
                     }).finally([strms] {
-                        return strms->s.close();
+                        return strms->close().then([strms] {});
                     });
                 });
             });
