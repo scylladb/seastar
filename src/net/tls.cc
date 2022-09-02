@@ -1601,6 +1601,7 @@ struct session::session_ref {
         // through session_ref, and we need to initiate shutdown on "last owner",
         // since we cannot revive the session in destructor.
         if (_session && _session.use_count() == 1) {
+            // FIXME: this should be an internal error once close is mandated
             _session->close();
         }
     }
@@ -1609,6 +1610,14 @@ struct session::session_ref {
     session_ref& operator=(const session_ref&) = default;
 
     lw_shared_ptr<session> _session;
+
+    future<> close() noexcept {
+        if (_session && _session.use_count() == 1) {
+            auto sp = std::move(_session);
+            sp->close();
+        }
+        return make_ready_future<>();
+    }
 };
 
 class tls_connected_socket_impl : public net::connected_socket_impl, public session::session_ref {
@@ -1673,6 +1682,7 @@ private:
         return _session->get();
     }
     future<> close() override {
+        // FIXME: call session->shutdown and session_ref::close
         _session->close();
         return make_ready_future<>();
     }
@@ -1694,6 +1704,7 @@ private:
         return _session->put(std::move(p));
     }
     future<> close() override {
+        // FIXME: call session->shutdown and session_ref::close
         _session->close();
         return make_ready_future<>();
     }
