@@ -1496,16 +1496,15 @@ public:
         assert(_shutdown);
         return _shutdown_sem.wait(2);
     }
-    void close() noexcept {
+    future<> close() noexcept {
         // only do once.
         if (std::exchange(_closed, true)) {
             // FIXME: this should be an internal error
-            return;
+            return make_ready_future<>();
         }
-        // FIXME: return future<>
         auto me = shared_from_this();
         shutdown();
-        (void)wait_for_shutdown().finally([this] {
+        return wait_for_shutdown().finally([this] {
             // make sure to wait for handshake attempt to leave semaphores. Must be in same order as
             // handshake aqcuire, because in worst case, we get here while a reader is attempting
             // re-handshake.
@@ -1602,7 +1601,8 @@ struct session::session_ref {
         // since we cannot revive the session in destructor.
         if (_session && _session.use_count() == 1) {
             // FIXME: this should be an internal error once close is mandated
-            _session->close();
+            // future is discarded
+            (void)_session->close();
         }
     }
 
@@ -1614,7 +1614,7 @@ struct session::session_ref {
     future<> close() noexcept {
         if (_session && _session.use_count() == 1) {
             auto sp = std::move(_session);
-            sp->close();
+            return sp->close().then([sp = std::move(sp)] {});
         }
         return make_ready_future<>();
     }
@@ -1640,11 +1640,11 @@ public:
 
     void shutdown_input() override {
         // FIXME: call shutdown
-        get_session()->close();
+        (void)get_session()->close();
     }
     void shutdown_output() override {
         // FIXME: call shutdown
-        get_session()->close();
+        (void)get_session()->close();
     }
     void set_nodelay(bool nodelay) override {
         get_session()->socket().set_nodelay(nodelay);
@@ -1695,8 +1695,7 @@ private:
     }
     future<> close() override {
         // FIXME: call session->shutdown and session_ref::close
-        get_session()->close();
-        return make_ready_future<>();
+        return get_session()->close();
     }
 };
 
@@ -1724,8 +1723,7 @@ private:
     }
     future<> close() override {
         // FIXME: call session->shutdown and session_ref::close
-        get_session()->close();
-        return make_ready_future<>();
+        return get_session()->close();
     }
 };
 
