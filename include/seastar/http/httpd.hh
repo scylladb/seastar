@@ -75,8 +75,10 @@ class connection : public boost::intrusive::list_base_hook<> {
     queue<std::unique_ptr<reply>> _replies { 10 };
     bool _done = false;
 public:
+    [[deprecated("use connection(http_server&, connected_socket&&)")]]
     connection(http_server& server, connected_socket&& fd,
-            socket_address addr)
+            socket_address) : connection(server, std::move(fd)) {}
+    connection(http_server& server, connected_socket&& fd)
             : _server(server), _fd(std::move(fd)), _read_buf(_fd.input()), _write_buf(
                     _fd.output()) {
         on_new_connection();
