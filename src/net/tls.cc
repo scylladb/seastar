@@ -35,6 +35,7 @@
 #include <seastar/core/print.hh>
 #include <seastar/core/with_timeout.hh>
 #include <seastar/core/shared_future.hh>
+#include <seastar/core/when_all.hh>
 #include <seastar/net/tls.hh>
 #include <seastar/net/stack.hh>
 #include <seastar/util/std-compat.hh>
@@ -1466,18 +1467,34 @@ public:
         // in which case we will be no-op.
         (void)with_semaphore(_out_sem, 1,
                         std::bind(&session::do_shutdown, this)).then(
-                        std::bind(&session::wait_for_eof, this)).then_wrapped([this, me = shared_from_this()] (future<> f) {
+                        std::bind(&session::wait_for_eof, this)).then_wrapped([this] (future<> f) {
                             f.ignore_ready_future();
-                            _shutdown_promise.set_value();
+                            _shutdown_sem.signal();     // 1 unit is always signaled here
                         });
-        // note moved finally clause above. It is theorethically possible
-        // that we could complete do_shutdown just before the close calls 
-        // below, get pre-empted, have "close()" finish, get freed, and 
-        // then call wait_for_eof on stale pointer.
+        // running in background. try to bye-handshake us nicely, but after 10s we forcefully close.
+        // this should allow do_shutdown and wait_for_eof above to complete
+        // and set the _shutdown_promise.
+        (void)_shutdown_sem.wait(std::chrono::seconds(10)).then_wrapped([this] (future<> f) {
+            size_t units;
+            // timed out?
+            if (f.failed()) {
+                f.ignore_ready_future();
+                units = 1; // signal 1 unit here, and 1 more will be signaled above, after wait_for_eof()
+            } else {
+                units = 2; // signal 2 units, as 1 was just consumed
+            }
+            _eof = true;
+            return when_all(
+                _in.close().handle_exception([](std::exception_ptr) {}), // should wake any waiters
+                _out.close().handle_exception([](std::exception_ptr) {})
+            ).discard_result().then([this, units] {
+                _shutdown_sem.signal(units);
+            });
+        });
     }
     future<> wait_for_shutdown() noexcept {
         assert(_shutdown);
-        return _shutdown_promise.get_shared_future();
+        return _shutdown_sem.wait(2);
     }
     void close() noexcept {
         // only do once.
@@ -1488,11 +1505,7 @@ public:
         // FIXME: return future<>, indentation
             auto me = shared_from_this();
             shutdown();
-            // running in background. try to bye-handshake us nicely, but after 10s we forcefully close.
-            (void)with_timeout(timer<>::clock::now() + std::chrono::seconds(10), wait_for_shutdown()).finally([this] {
-                _eof = true;
-                    (void)_in.close().handle_exception([](std::exception_ptr) {}); // should wake any waiters
-                    (void)_out.close().handle_exception([](std::exception_ptr) {});
+            (void)wait_for_shutdown().finally([this] {
                 // make sure to wait for handshake attempt to leave semaphores. Must be in same order as
                 // handshake aqcuire, because in worst case, we get here while a reader is attempting
                 // re-handshake.
@@ -1568,7 +1581,7 @@ private:
     bool _closed = false;
     std::exception_ptr _error;
 
-    shared_promise<> _shutdown_promise;
+    semaphore _shutdown_sem = {0};    // has 2 units when shutdown is complete
     future<> _output_pending;
     buf_type _input;
 
