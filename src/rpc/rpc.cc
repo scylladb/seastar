@@ -322,18 +322,25 @@ namespace rpc {
   }
 
   future<> connection::stop() noexcept {
+    seastar_logger.debug("stopping rpc::connection {} stopping={}, at {}", fmt::ptr(this), _stopping, current_backtrace());
+    if (!std::exchange(_stopping, true)) {
       try {
           abort();
       } catch (...) {
           log_exception(*this, log_level::error, "fail to shutdown connection while stopping", std::current_exception());
       }
       auto done = _done.get_shared_future();
-      seastar_logger.debug("stopping rpc::connection {} done={}, at {}", fmt::ptr(this), done.available(), current_backtrace());
-      return done.finally([this] {
+      seastar_logger.debug("stopping rpc::connection {} done={}", fmt::ptr(this), done.available());
+      // run in backgroud.
+      // _stop_done shared_future is returned below
+      (void)done.finally([this] {
           return _fd.close();
       }).then([this] {
           seastar_logger.debug("stopped rpc::connection {}", fmt::ptr(this));
+          _stop_done.set_value();
       });
+    }
+    return _stop_done.get_shared_future();
   }
 
   template<typename Connection>
@@ -536,6 +543,7 @@ namespace rpc {
   }
 
   future<> connection::stream_close() {
+      seastar_logger.debug("rpc: stream_close called, at {}", current_backtrace());
       auto f = make_ready_future<>();
       if (!error()) {
           promise<bool> p;
@@ -747,6 +755,7 @@ namespace rpc {
   }
 
   future<> client::stop() noexcept {
+    if (!std::exchange(_stopping, true)) {
       _error = true;
       try {
         if (_socket.impl()) {
@@ -759,11 +768,16 @@ namespace rpc {
       }
       auto done = _done.get_shared_future();
       seastar_logger.debug("stopping rpc::client {} done={}, at {}", fmt::ptr(this), done.available(), current_backtrace());
-      return done.finally([this] {
+      // run in backgroud.
+      // _stop_done shared_future is returned below
+      (void)done.finally([this] {
           return rpc::connection::stop();
       }).finally([this] {
           seastar_logger.debug("stopped rpc::client {}", fmt::ptr(this));
+          _stop_done.set_value();
       });
+    }
+    return _stop_done.get_shared_future();
   }
 
   void client::abort_all_streams() {

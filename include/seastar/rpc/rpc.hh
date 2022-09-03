@@ -293,6 +293,8 @@ protected:
     // the future holds if sink is already closed
     // if it is not ready it means the sink is been closed
     future<bool> _sink_closed_future = make_ready_future<bool>(false);
+    bool _stopping = false;
+    shared_promise<> _stop_done;
 
     size_t outgoing_queue_length() const noexcept {
         return _outgoing_queue_size;
@@ -457,6 +459,8 @@ private:
     socket_address _server_addr, _local_addr;
     client_options _options;
     weak_ptr<client> _parent; // for stream clients
+    bool _stopping = false;
+    shared_promise<> _stop_done;
 
 private:
     future<> negotiate_protocol(input_stream<char>& in);
