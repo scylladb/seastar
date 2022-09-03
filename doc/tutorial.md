@@ -86,7 +86,7 @@ To compile this program (it's present in the `demos/hello-world.cc` file) you ca
 ```
 $ docker build -t seastar-dev  -f ./docker/dev/Dockerfile .
 $ scripts/build.sh dev
-$ docker run -it --rm -v $(pwd):/seastar seastar-dev /seastar/build/dev/demos/hello-world -c1
+$ docker run -it --rm -v $(pwd):/seastar seastar-dev /seastar/build/dev/demos/hello-world_demo -c1
 ```
 
 Without the docker help, first make sure you have downloaded, built, and optionally installed Seastar, and put the above program in a source file anywhere you want, let's call the file `getting-started.cc`.
