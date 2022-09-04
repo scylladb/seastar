@@ -285,7 +285,7 @@ protected:
     bool _is_stream = false;
     connection_id _id = invalid_connection_id;
 
-    std::unordered_map<connection_id, xshard_connection_ptr> _streams;
+    std::unordered_map<connection_id, lw_shared_ptr<xshard_connection_ptr>> _streams;
     queue<rcv_buf> _stream_queue = queue<rcv_buf>(max_queued_stream_buffers);
     semaphore _stream_sem = semaphore(max_stream_buffers_memory);
     bool _sink_closed = true;
@@ -352,8 +352,8 @@ public:
     connection_id get_connection_id() const noexcept {
         return _id;
     }
-    xshard_connection_ptr get_stream(connection_id id) const;
-    void register_stream(connection_id id, xshard_connection_ptr c);
+    lw_shared_ptr<xshard_connection_ptr> get_stream(connection_id id) const;
+    void register_stream(connection_id id, lw_shared_ptr<xshard_connection_ptr> c);
     virtual socket_address peer_address() const = 0;
 
     const logger& get_logger() const noexcept {
@@ -402,7 +402,7 @@ class sink_impl : public sink<Out...>::impl {
         std::map<uint64_t, deferred_snd_buf> out_of_order_bufs;
     } _remote_state;
 public:
-    sink_impl(xshard_connection_ptr con) : sink<Out...>::impl(std::move(con)) { this->_con->get()->_sink_closed = false; }
+    sink_impl(lw_shared_ptr<xshard_connection_ptr> con) : sink<Out...>::impl(std::move(con)) { this->_con->get()->_sink_closed = false; }
     future<> operator()(const Out&... args) override;
     future<> close() override;
     future<> flush() override;
@@ -413,7 +413,7 @@ public:
 template<typename Serializer, typename... In>
 class source_impl : public source<In...>::impl {
 public:
-    source_impl(xshard_connection_ptr con) : source<In...>::impl(std::move(con)) { this->_con->get()->_source_closed = false; }
+    source_impl(lw_shared_ptr<xshard_connection_ptr> con) : source<In...>::impl(std::move(con)) { this->_con->get()->_source_closed = false; }
     future<std::optional<std::tuple<In...>>> operator()() override;
 };
 
@@ -523,7 +523,7 @@ public:
             c->_parent = this->weak_from_this();
             c->_is_stream = true;
             return c->await_connection().then([c, this] {
-                xshard_connection_ptr s = make_lw_shared(make_foreign(static_pointer_cast<rpc::connection>(c)));
+                auto s = make_lw_shared(make_foreign(static_pointer_cast<rpc::connection>(c)));
                 this->register_stream(c->get_connection_id(), s);
                 return sink<Out...>(make_shared<sink_impl<Serializer, Out...>>(std::move(s)));
             }).handle_exception([c] (std::exception_ptr eptr) {

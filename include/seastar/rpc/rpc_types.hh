@@ -265,7 +265,7 @@ constexpr connection_id invalid_connection_id = connection_id::make_invalid_id()
 
 std::ostream& operator<<(std::ostream&, const connection_id&);
 
-using xshard_connection_ptr = lw_shared_ptr<foreign_ptr<shared_ptr<connection>>>;
+using xshard_connection_ptr = foreign_ptr<shared_ptr<connection>>;
 constexpr size_t max_queued_stream_buffers = 50;
 constexpr size_t max_stream_buffers_memory = 100 * 1024;
 
@@ -278,10 +278,10 @@ class sink {
 public:
     class impl {
     protected:
-        xshard_connection_ptr _con;
+        lw_shared_ptr<xshard_connection_ptr> _con;
         semaphore _sem;
         std::exception_ptr _ex;
-        impl(xshard_connection_ptr con) : _con(std::move(con)), _sem(max_stream_buffers_memory) {}
+        impl(lw_shared_ptr<xshard_connection_ptr> con) : _con(std::move(con)), _sem(max_stream_buffers_memory) {}
     public:
         virtual ~impl() {};
         virtual future<> operator()(const Out&... args) = 0;
@@ -317,9 +317,9 @@ class source {
 public:
     class impl {
     protected:
-        xshard_connection_ptr _con;
+        lw_shared_ptr<xshard_connection_ptr> _con;
         circular_buffer<foreign_ptr<std::unique_ptr<rcv_buf>>> _bufs;
-        impl(xshard_connection_ptr con) : _con(std::move(con)) {
+        impl(lw_shared_ptr<xshard_connection_ptr> con) : _con(std::move(con)) {
             _bufs.reserve(max_queued_stream_buffers);
         }
     public:

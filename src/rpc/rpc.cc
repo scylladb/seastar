@@ -584,11 +584,11 @@ namespace rpc {
       });
   }
 
-  void connection::register_stream(connection_id id, xshard_connection_ptr c) {
+  void connection::register_stream(connection_id id, lw_shared_ptr<xshard_connection_ptr> c) {
       _streams.emplace(id, std::move(c));
   }
 
-  xshard_connection_ptr connection::get_stream(connection_id id) const {
+  lw_shared_ptr<xshard_connection_ptr> connection::get_stream(connection_id id) const {
       auto it = _streams.find(id);
       if (it == _streams.end()) {
           throw std::logic_error(format("rpc stream id {} not found", id).c_str());
