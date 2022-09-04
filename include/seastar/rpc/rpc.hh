@@ -241,7 +241,7 @@ protected:
     bool _error = false;
     bool _connected = false;
     std::optional<shared_promise<>> _negotiated = shared_promise<>();
-    promise<> _stopped;
+    promise<> _done;
     stats _stats;
     const logger& _logger;
     // The owner of the pointer below is an instance of rpc::protocol<typename Serializer> class.

@@ -326,7 +326,7 @@ namespace rpc {
       } catch (...) {
           log_exception(*this, log_level::error, "fail to shutdown connection while stopping", std::current_exception());
       }
-      return _stopped.get_future();
+      return _done.get_future();
   }
 
   template<typename Connection>
@@ -698,7 +698,7 @@ namespace rpc {
       } catch(...) {
           log_exception(*this, log_level::error, "fail to shutdown connection while stopping", std::current_exception());
       }
-      return _stopped.get_future();
+      return _done.get_future();
   }
 
   void client::abort_all_streams() {
@@ -720,7 +720,7 @@ namespace rpc {
   : rpc::connection(l, s), _socket(std::move(socket)), _server_addr(addr), _local_addr(local), _options(ops) {
        _socket.set_reuseaddr(ops.reuseaddr);
       // Run client in the background.
-      // Communicate result via _stopped.
+      // Communicate result via _done.
       // The caller has to call client::stop() to synchronize.
       (void)_socket.connect(addr, local).then([this, ops = std::move(ops)] (connected_socket fd) {
           fd.set_nodelay(ops.tcp_nodelay);
@@ -811,7 +811,7 @@ namespace rpc {
                   abort_all_streams();
               }
           }).finally([this]{
-              _stopped.set_value();
+              _done.set_value();
           });
       });
   }
@@ -1062,7 +1062,7 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
                   return make_ready_future<>();
               }
           }).finally([this] {
-              _stopped.set_value();
+              _done.set_value();
           });
       }).finally([conn_ptr = shared_from_this()] {
           // hold onto connection pointer until do_until() exists
