@@ -139,6 +139,47 @@ class network_interface_impl;
 /// \addtogroup networking-module
 /// @{
 
+/// \cond internal
+
+class connected_socket;
+
+/// \endcond
+
+/// The seastar socket.
+///
+/// A \c socket that allows a connection to be established between
+/// two endpoints.
+class socket {
+    std::unique_ptr<net::socket_impl> _si;
+public:
+    socket() noexcept = default;
+    ~socket();
+
+    /// \cond internal
+    explicit socket(std::unique_ptr<net::socket_impl> si) noexcept;
+    /// \endcond
+    /// Moves a \c seastar::socket object.
+    socket(socket&&) noexcept;
+    /// Move-assigns a \c seastar::socket object.
+    socket& operator=(socket&&) noexcept;
+
+    /// Attempts to establish the connection.
+    ///
+    /// \return a \ref connected_socket representing the connection.
+    future<connected_socket> connect(socket_address sa, socket_address local = {}, transport proto = transport::TCP);
+
+    /// Sets SO_REUSEADDR option (enable reuseaddr option on a socket)
+    void set_reuseaddr(bool reuseaddr);
+    /// Gets O_REUSEADDR option
+    /// \return whether the reuseaddr option is enabled or not
+    bool get_reuseaddr() const;
+    /// Stops any in-flight connection attempt.
+    ///
+    /// Cancels the connection attempt if it's still in progress, and
+    /// terminates the connection if it has already been established.
+    void shutdown();
+};
+
 /// Configuration for buffered connected_socket input operations
 ///
 /// This structure allows tuning of buffered input operations done via
@@ -248,46 +289,6 @@ public:
     /// Must be called before destroying the \c connected_socket.
     future<> close() noexcept;
 };
-/// @}
-
-/// \addtogroup networking-module
-/// @{
-
-/// The seastar socket.
-///
-/// A \c socket that allows a connection to be established between
-/// two endpoints.
-class socket {
-    std::unique_ptr<net::socket_impl> _si;
-public:
-    socket() noexcept = default;
-    ~socket();
-
-    /// \cond internal
-    explicit socket(std::unique_ptr<net::socket_impl> si) noexcept;
-    /// \endcond
-    /// Moves a \c seastar::socket object.
-    socket(socket&&) noexcept;
-    /// Move-assigns a \c seastar::socket object.
-    socket& operator=(socket&&) noexcept;
-
-    /// Attempts to establish the connection.
-    ///
-    /// \return a \ref connected_socket representing the connection.
-    future<connected_socket> connect(socket_address sa, socket_address local = {}, transport proto = transport::TCP);
-
-    /// Sets SO_REUSEADDR option (enable reuseaddr option on a socket)
-    void set_reuseaddr(bool reuseaddr);
-    /// Gets O_REUSEADDR option
-    /// \return whether the reuseaddr option is enabled or not
-    bool get_reuseaddr() const;
-    /// Stops any in-flight connection attempt.
-    ///
-    /// Cancels the connection attempt if it's still in progress, and
-    /// terminates the connection if it has already been established.
-    void shutdown();
-};
-
 /// @}
 
 /// \addtogroup networking-module
