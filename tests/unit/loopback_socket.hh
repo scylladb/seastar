@@ -302,8 +302,8 @@ public:
             return _factory.make_new_server_connection(std::move(b1), b2).then([b2] {
                 return make_foreign(b2);
             });
-        }).then([this] (foreign_ptr<lw_shared_ptr<loopback_buffer>> b2) {
-            return _factory.make_new_client_connection(_b1, std::move(b2));
+        }).then([this, b1 = _b1] (foreign_ptr<lw_shared_ptr<loopback_buffer>> b2) mutable {
+            return _factory.make_new_client_connection(std::move(b1), std::move(b2));
         });
     }
     virtual void set_reuseaddr(bool reuseaddr) override {}
