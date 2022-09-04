@@ -265,7 +265,33 @@ constexpr connection_id invalid_connection_id = connection_id::make_invalid_id()
 
 std::ostream& operator<<(std::ostream&, const connection_id&);
 
-using xshard_connection_ptr = foreign_ptr<shared_ptr<connection>>;
+class xshard_connection_ptr {
+    shared_ptr<connection> _connection;
+    shard_id _owner;
+    bool _stopped = false;
+public:
+    xshard_connection_ptr(shared_ptr<connection>) noexcept;
+    xshard_connection_ptr(const xshard_connection_ptr&) = delete;
+    xshard_connection_ptr(xshard_connection_ptr&&) noexcept;
+    xshard_connection_ptr& operator=(xshard_connection_ptr&&) = default;
+
+    ~xshard_connection_ptr();
+
+    shard_id get_owner_shard() const noexcept {
+        return _owner;
+    }
+
+    connection* get() noexcept {
+        return _connection.get();
+    }
+
+    const connection* get() const noexcept {
+        return _connection.get();
+    }
+
+    future<> stop() noexcept;
+};
+
 constexpr size_t max_queued_stream_buffers = 50;
 constexpr size_t max_stream_buffers_memory = 100 * 1024;
 
@@ -337,6 +363,7 @@ public:
     };
     connection_id get_id() const;
     template<typename Serializer, typename... Out> sink<Out...> make_sink();
+    future<> close() noexcept;
 };
 
 /// Used to return multiple values in rpc without variadic futures

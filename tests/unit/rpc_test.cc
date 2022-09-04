@@ -508,6 +508,7 @@ future<stream_test_result> stream_test_func(rpc_test_env<>& env, bool stop_clien
             }).finally([sink] {});
 
             auto source_loop = seastar::async([source, &r] () mutable {
+                auto close_source = deferred_close(source);
                 while (!r.server_source_closed) {
                     auto data = source().get0();
                     if (data) {

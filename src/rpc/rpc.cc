@@ -544,7 +544,7 @@ namespace rpc {
           // Use _sink_closed_future to serialize them and skip second call to close()
           f = _write_buf.close().finally([p = std::move(p)] () mutable { p.set_value(true);});
       }
-      return f.finally([this] () mutable { return stop(); });
+      return f;
   }
 
   future<> connection::stream_process_incoming(rcv_buf&& buf) {
@@ -594,6 +594,54 @@ namespace rpc {
           throw std::logic_error(format("rpc stream id {} not found", id).c_str());
       }
       return it->second;
+  }
+
+  xshard_connection_ptr::xshard_connection_ptr(shared_ptr<rpc::connection> con) noexcept
+    : _connection(std::move(con))
+    , _owner(this_shard_id())
+  {
+    seastar_logger.debug("constructed xshard_connection_ptr {} with connection {} use_count={}, at {}", fmt::ptr(this), fmt::ptr(_connection.get()), _connection.use_count(), current_backtrace());
+  }
+
+  xshard_connection_ptr::xshard_connection_ptr(xshard_connection_ptr&& xcp) noexcept
+    : _connection(std::move(xcp._connection))
+    , _owner(xcp._owner)
+    , _stopped(std::exchange(xcp._stopped, true))
+  {
+    seastar_logger.debug("move-constructed xshard_connection_ptr {} with connection {} owner_shard={} from {}, at {}", fmt::ptr(this), fmt::ptr(_connection.get()), _owner, fmt::ptr(&xcp), current_backtrace());
+  }
+
+  xshard_connection_ptr::~xshard_connection_ptr() {
+    seastar_logger.debug("destroying xshard_connection_ptr {} with connection {} stopped={} owner_shard={}, at {}", fmt::ptr(this), fmt::ptr(_connection.get()), _stopped, _owner, current_backtrace());
+    if (!_stopped) {
+#if SEASTAR_API_LEVEL >= 7
+        on_internal_error_noexcept(seastar_logger, "xshard_connection_ptr destroyed while open");
+#endif
+        // FIXME: future is discarded
+        (void)stop();
+    } else if (_connection && _owner != this_shard_id()) {
+        (void)smp::submit_to(_owner, [c = std::move(_connection)] () mutable {
+            // Destroy the contained pointer. We do this explicitly
+            // in the current shard, because the lambda is destroyed
+            // in the shard that submitted the task.
+            c = {};
+        });
+    }
+  }
+
+  future<> xshard_connection_ptr::stop() noexcept {
+    seastar_logger.debug("stopping xshard_connection_ptr {} with connection {} owner_shard={} stopped={}, at {}", fmt::ptr(this), fmt::ptr(_connection.get()), _owner, _stopped, current_backtrace());
+    if (std::exchange(_stopped, true)) {
+        return make_ready_future<>();
+    }
+    return smp::submit_to(_owner, [this] {
+        const auto& c = _connection;
+        if (c.use_count() > 1) {
+            seastar_logger.debug("stopping xshard_connection_ptr {} with connection {} use_count={} owner_shard={}", fmt::ptr(this), fmt::ptr(c.get()), c.use_count(), _owner);
+            return make_ready_future<>();
+        }
+        return c->stop().then([c = std::move(c)] {});
+    });
   }
 
   void
@@ -877,10 +925,13 @@ namespace rpc {
               } else {
                   _parent_id = deserialize_connection_id(e.second);
                   _is_stream = true;
+                  auto id = get_connection_id();
                   // remove stream connection from rpc connection list
-                  _server._conns.erase(get_connection_id());
-                  f = f.then([this, c = shared_from_this()] () mutable {
-                      return smp::submit_to(_parent_id.shard(), [this, c = make_foreign(static_pointer_cast<rpc::connection>(c))] () mutable {
+                  // FIXME: stop existing connection if found
+                  _server._conns.erase(id);
+                  auto c = shared_from_this();
+                  f = f.then([this, id, c] () mutable {
+                      return smp::submit_to(_parent_id.shard(), [this, id, c = xshard_connection_ptr(static_pointer_cast<rpc::connection>(std::move(c)))] () mutable {
                           auto sit = _servers.find(*_server._options.streaming_domain);
                           if (sit == _servers.end()) {
                               throw std::logic_error(format("Shard {:d} does not have server with streaming domain {}", this_shard_id(), *_server._options.streaming_domain).c_str());
@@ -890,8 +941,11 @@ namespace rpc {
                           if (it == s->_conns.end()) {
                               throw std::logic_error(format("Unknown parent connection {} on shard {:d}", _parent_id, this_shard_id()).c_str());
                           }
-                          auto id = c->get_connection_id();
                           it->second->register_stream(id, make_lw_shared(std::move(c)));
+                      });
+                  }).handle_exception([c] (std::exception_ptr ex) mutable {
+                      return c->stop().then([c = std::move(c), ex = std::move(ex)] {
+                          return make_exception_future<>(std::move(ex));
                       });
                   });
               }

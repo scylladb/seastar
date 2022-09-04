@@ -812,7 +812,11 @@ future<> sink_impl<Serializer, Out...>::close() {
             } else {
                 f = this->_ex ? make_exception_future(this->_ex) : make_exception_future(closed_error());
             }
-            return f.finally([con] { return con->close_sink(); });
+            return f.finally([con] {
+                return con->close_sink();
+            }).finally([this] {
+                return this->_con->stop();
+            });
         });
     });
 }
@@ -821,7 +825,7 @@ template<typename Serializer, typename... Out>
 sink_impl<Serializer, Out...>::~sink_impl() {
     // A failure to close might leave some continuations running after
     // this is destroyed, leading to use-after-free bugs.
-    assert(this->_con->get()->sink_closed());
+    assert(!this->_con->get() || this->_con->get()->sink_closed());
 }
 
 template<typename Serializer, typename... In>
@@ -877,6 +881,11 @@ connection_id sink<Out...>::get_id() const {
 template<typename... In>
 connection_id source<In...>::get_id() const {
     return _impl->_con->get()->get_connection_id();
+}
+
+template<typename... In>
+future<> source<In...>::close() noexcept {
+    return _impl->_con->stop();
 }
 
 template<typename... In>
