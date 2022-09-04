@@ -170,12 +170,14 @@ socket_address connected_socket::local_address() const noexcept {
 }
 
 void connected_socket::shutdown_output() {
+    _socket.shutdown();
     if (_csi) {
         _csi->shutdown_output();
     }
 }
 
 void connected_socket::shutdown_input() {
+    _socket.shutdown();
     if (_csi) {
         _csi->shutdown_input();
     }
@@ -190,6 +192,7 @@ future<> connected_socket::close() noexcept {
 }
 
 void connected_socket::set_socket(socket&& s) noexcept {
+    seastar_logger.debug("connected_socket {} set_socket {}, at {}", fmt::ptr(this), fmt::ptr(&s), current_backtrace());
     _socket = std::move(s);
 }
 
@@ -223,7 +226,9 @@ bool socket::get_reuseaddr() const {
 }
 
 void socket::shutdown() {
+  if (_si) {
     _si->shutdown();
+  }
 }
 
 const net::socket_impl* socket::impl() const noexcept {

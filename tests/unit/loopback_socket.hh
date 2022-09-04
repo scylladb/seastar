@@ -314,10 +314,15 @@ public:
             _connect_abort->set_exception(std::make_exception_ptr(std::system_error(ECONNABORTED, std::system_category())));
             _connect_abort = std::nullopt;
         } else {
+          if (_b1) {
             _b1->shutdown();
+            _b1 = {};
+          }
+          if (_b2) {
             (void)smp::submit_to(_b2.get_owner_shard(), [b2 = std::move(_b2)] {
                 b2->shutdown();
             });
+          }
         }
     }
 };

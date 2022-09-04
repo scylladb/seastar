@@ -204,6 +204,7 @@ namespace rpc {
       if (_connected) {
           throw std::runtime_error("already connected");
       }
+      seastar_logger.debug("rpc::connection {} set_socket {}, at {}", fmt::ptr(this), fmt::ptr(&fd), current_backtrace());
       _fd = std::move(fd);
       _read_buf =_fd.input();
       _write_buf = _fd.output();
@@ -700,7 +701,11 @@ namespace rpc {
   future<> client::stop() noexcept {
       _error = true;
       try {
+        if (_socket.impl()) {
           _socket.shutdown();
+        } else {
+          _fd.shutdown_input();
+        }
       } catch(...) {
           log_exception(*this, log_level::error, "fail to shutdown connection while stopping", std::current_exception());
       }
@@ -734,12 +739,14 @@ namespace rpc {
       // Run client in the background.
       // Communicate result via _done.
       // The caller has to call client::stop() to synchronize.
-      (void)_socket.connect(addr, local).then([this, ops = std::move(ops)] (connected_socket fd) {
+      (void)_socket.connect(addr, local).then([this, ops = std::move(ops)] (connected_socket fd) mutable {
           fd.set_nodelay(ops.tcp_nodelay);
           if (ops.keepalive) {
               fd.set_keepalive(true);
               fd.set_keepalive_parameters(ops.keepalive.value());
           }
+          // transfer _socket to the connected_socket
+          fd.set_socket(std::move(_socket));
           set_socket(std::move(fd));
 
           feature_map features;

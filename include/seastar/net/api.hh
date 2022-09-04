@@ -143,6 +143,10 @@ class network_interface_impl;
 
 class connected_socket;
 
+namespace rpc {
+class client;
+}
+
 /// \endcond
 
 /// The seastar socket.
@@ -182,6 +186,7 @@ private:
     const net::socket_impl* impl() const noexcept;
 
     friend class connected_socket;
+    friend class rpc::client;
 };
 
 /// Configuration for buffered connected_socket input operations
@@ -297,6 +302,7 @@ protected:
     void set_socket(socket&& s) noexcept;
 
     friend class network_stack;
+    friend class rpc::client;
 };
 /// @}
 
