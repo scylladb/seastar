@@ -95,23 +95,23 @@ public:
 };
 
 class loopback_data_sink_impl : public data_sink_impl {
-    foreign_ptr<lw_shared_ptr<loopback_buffer>>& _buffer;
+    lw_shared_ptr<foreign_ptr<lw_shared_ptr<loopback_buffer>>> _buffer;
 public:
-    explicit loopback_data_sink_impl(foreign_ptr<lw_shared_ptr<loopback_buffer>>& buffer)
+    explicit loopback_data_sink_impl(lw_shared_ptr<foreign_ptr<lw_shared_ptr<loopback_buffer>>> buffer)
             : _buffer(buffer) {
     }
     future<> put(net::packet data) override {
         return do_with(data.release(), [this] (std::vector<temporary_buffer<char>>& bufs) {
             return do_for_each(bufs, [this] (temporary_buffer<char>& buf) {
-                return smp::submit_to(_buffer.get_owner_shard(), [this, b = buf.get(), s = buf.size()] {
-                    return _buffer->push(temporary_buffer<char>(b, s));
+                return smp::submit_to(_buffer->get_owner_shard(), [this, b = buf.get(), s = buf.size()] {
+                    return (*_buffer)->push(temporary_buffer<char>(b, s));
                 });
             });
         });
     }
     future<> close() override {
-        return smp::submit_to(_buffer.get_owner_shard(), [this] {
-            return _buffer->push({}).handle_exception_type([] (std::system_error& err) {
+        return smp::submit_to(_buffer->get_owner_shard(), [this] {
+            return (*_buffer)->push({}).handle_exception_type([] (std::system_error& err) {
                 if (err.code().value() != EPIPE) {
                     throw err;
                 }
@@ -150,11 +150,11 @@ public:
 
 
 class loopback_connected_socket_impl : public net::connected_socket_impl {
-    foreign_ptr<lw_shared_ptr<loopback_buffer>> _tx;
+    lw_shared_ptr<foreign_ptr<lw_shared_ptr<loopback_buffer>>> _tx;
     lw_shared_ptr<loopback_buffer> _rx;
 public:
     loopback_connected_socket_impl(foreign_ptr<lw_shared_ptr<loopback_buffer>> tx, lw_shared_ptr<loopback_buffer> rx)
-            : _tx(std::move(tx)), _rx(std::move(rx)) {
+            : _tx(make_lw_shared(std::move(tx))), _rx(std::move(rx)) {
     }
     data_source source() override {
         return data_source(std::make_unique<loopback_data_source_impl>(_rx));
@@ -166,9 +166,8 @@ public:
         _rx->shutdown();
     }
     void shutdown_output() override {
-        (void)smp::submit_to(_tx.get_owner_shard(), [this] {
-            // FIXME: who holds to _tx?
-            _tx->shutdown();
+        (void)smp::submit_to(_tx->get_owner_shard(), [tx = _tx] {
+            (*tx)->shutdown();
         });
     }
     void set_nodelay(bool nodelay) override {
