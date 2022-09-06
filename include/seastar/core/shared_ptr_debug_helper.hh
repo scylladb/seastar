@@ -26,7 +26,11 @@
 #include <thread>
 #include <cassert>
 
+#include <seastar/core/on_internal_error.hh>
+
 namespace seastar {
+
+extern logger seastar_logger;
 
 // A counter that is only comfortable being incremented on the cpu
 // it was created on.  Useful for verifying that a shared_ptr
@@ -60,7 +64,9 @@ public:
     }
 private:
     void check() const {
-        assert(_cpu == std::this_thread::get_id());
+        if (__builtin_expect(_cpu != std::this_thread::get_id(), false)) {
+            on_fatal_internal_error(seastar_logger, "shared_ptr accessed on non-owner cpu");
+        }
     }
 };
 
