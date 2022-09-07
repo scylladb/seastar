@@ -894,4 +894,31 @@ SEASTAR_TEST_CASE(test_async_generator_throws_from_consumer_unbuffered) {
 
 #endif
 
+SEASTAR_TEST_CASE(test_lambda_coroutine_in_continuation) {
+    auto dist = std::uniform_real_distribution<>(0.0, 1.0);
+    auto rand_eng = std::default_random_engine(std::random_device()());
+    double n = dist(rand_eng);
+    auto sin1 = std::sin(n); // avoid optimizer tricks
+    auto boo = std::array<char, 1025>(); // bias coroutine size towards 1024 size class
+    auto sin2 = co_await yield().then(coroutine::lambda([n, boo] () -> future<double> {
+        // Expect coroutine capture to be freed after co_await without coroutine::lambda
+        co_await yield();
+        // Try to overwrite recently-release coroutine frame by allocating in similar size-class
+        std::vector<char*> garbage;
+        for (size_t sz = 1024; sz < 2048; ++sz) {
+            for (int ctr = 0; ctr < 100; ++ctr) {
+                auto p = static_cast<char*>(malloc(sz));
+                std::memset(p, 0, sz);
+                garbage.push_back(p);
+            }
+        }
+        for (auto p : garbage) {
+            std::free(p);
+        }
+        (void)boo;
+        co_return std::sin(n);
+    }));
+    BOOST_REQUIRE_EQUAL(sin1, sin2);
+}
+
 #endif

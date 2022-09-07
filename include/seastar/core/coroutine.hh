@@ -225,6 +225,41 @@ template<typename T> struct SEASTAR_NODISCARD without_preemption_check<T> : publ
 template<> struct SEASTAR_NODISCARD without_preemption_check<> : public seastar::future<> {
     explicit without_preemption_check(seastar::future<>&& f) noexcept : seastar::future<>(std::move(f)) {}
 };
+
+/// Make a lambda coroutine safe for use in an outer coroutine with
+/// functions that accept continuations.
+///
+/// A lambda coroutine is not a safe parameter to a function that expects
+/// a regular Seastar continuation.
+///
+/// To use, wrap the lambda coroutine in seastar::coroutine::lambda(). The
+/// lambda coroutine must complete (co_await) in the same statement.
+///
+/// Example::
+/// ```
+///    // `future::then()` expects a continuation, so not safe for lambda
+///    // coroutines without seastar::coroutine::lambda.
+///    co_await seastar::yield().then(seastar::coroutine::lambda([captures] () -> future<> {
+///        co_await seastar::coroutine::maybe_yield();
+///        // use of `captures` here can break without seastar::coroutine::lambda.
+///    }));
+/// ```
+///
+/// \tparam Func type of function object (typically inferred)
+template <typename Func>
+class lambda {
+    Func* _func;
+public:
+    /// Create a lambda coroutine wrapper from a function object, to be passed
+    /// to a Seastar function that accepts a continuation.
+    explicit lambda(Func&& func) : _func(&func) {}
+    /// Calls the lambda coroutine object. Normally invoked by Seastar.
+    template <typename... Args>
+    decltype(auto) operator()(Args&&... args) const {
+        return std::invoke(*_func, std::forward<Args>(args)...);
+    }
+};
+
 }
 
 /// Wait for a future without a preemption check

@@ -51,6 +51,8 @@ namespace seastar::coroutine {
 ///     co_return sum;
 /// };
 /// ```
+///
+/// Safe for use with lambda coroutines.
 template <typename Func>
 // constaints for Func are defined at the parallel_for_each constructor
 class [[nodiscard("must co_await an parallel_for_each() object")]] parallel_for_each final : continuation_base<> {

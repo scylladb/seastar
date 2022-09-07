@@ -372,6 +372,39 @@ In #4, we call a function that returns a `seastar::future<>`. In this case, the 
 
 Line #5 demonstrates returning a value. The integer value is used to satisfy the `future<int>` that our caller got when calling the coroutine.
 
+## Lambda coroutines
+
+A lambda function can be a coroutine. Due to an interaction between how C++ lambda coroutines are specified and how
+Seastar coroutines work, using lambda coroutines as continuations can result in use-after-free. To avoid such problems,
+take one of the following approaches:
+
+1. Use lambda coroutines as arguments to functions that explicitly claim support for them
+2. Wrap lambda coroutines with seastar::coroutine::lambda(), and ensure the lambda coroutine is fully awaited within the statement it is defined in.
+
+An example of wrapping a lambda coroutine is:
+
+```cpp
+#include <seastar/core/coroutine.hh>
+#include <seastar/coroutine/maybe_yield.hh>
+
+future<> foo() {
+    int n = 3;
+    int m = co_await seastar::yield().then(seastar::coroutine::lambda([n] () -> future<int> {
+        co_await seastar::coroutine::maybe_yield();
+        // `n` can be safely used here
+        co_return n;
+    }));
+    assert(n == m);
+}
+```
+
+Notes:
+1. seastar::future::then() accepts a continuation
+2. We wrap the argument to seastar::future::then() with seastar::coroutine::lambda()
+3. We ensure evaluation of the lambda completes within the same expression using the outer co_await.
+
+More information can be found in lambda-coroutine-fiasco.md.
+
 ## Generators in coroutines
 
 Sometimes, it would be convenient to model a view of `input_range` with a coroutine which emits the elements one after

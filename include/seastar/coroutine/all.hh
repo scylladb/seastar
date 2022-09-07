@@ -110,6 +110,8 @@ using value_tuple_for_non_void_futures = typename value_tuple_for_non_void_futur
 ///     co_return a + b;
 /// };
 /// ```
+///
+/// Safe for use with lambda coroutines.
 template <typename... Futures>
 requires (sizeof ...(Futures) > 0)
 class [[nodiscard("must co_await an all() object")]] all {
