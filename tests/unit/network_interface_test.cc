@@ -90,3 +90,20 @@ SEASTAR_TEST_CASE(match_ipv6_scope) {
 
     return make_ready_future();
 }
+
+SEASTAR_TEST_CASE(is_standard_addresses_sanity) {
+    BOOST_REQUIRE_EQUAL(net::inet_address("127.0.0.1").is_loopback(), true);
+    BOOST_REQUIRE_EQUAL(net::inet_address("127.0.0.11").is_loopback(), true);
+    BOOST_REQUIRE_EQUAL(net::inet_address(::in_addr{INADDR_ANY}).is_addr_any(), true);
+    auto addr = net::inet_address("1.2.3.4");
+    BOOST_REQUIRE_EQUAL(addr.is_loopback(), false);
+    BOOST_REQUIRE_EQUAL(addr.is_addr_any(), false);
+
+    BOOST_REQUIRE_EQUAL(net::inet_address("::1").is_loopback(), true);
+    BOOST_REQUIRE_EQUAL(net::inet_address(::in6addr_any).is_addr_any(), true);
+    auto addr6 = net::inet_address("acf1:f5e5:5a99:337f:ebe2:c57e:0e27:69c6");
+    BOOST_REQUIRE_EQUAL(addr6.is_loopback(), false);
+    BOOST_REQUIRE_EQUAL(addr6.is_addr_any(), false);
+
+    return make_ready_future<>();
+}
