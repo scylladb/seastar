@@ -181,6 +181,28 @@ const void * seastar::net::inet_address::data() const noexcept {
     return &_in;
 }
 
+bool seastar::net::inet_address::is_loopback() const noexcept {
+    switch (_in_family) {
+    case family::INET:
+        return (net::ntoh(_in.s_addr) & 0xff000000) == 0x7f000000;
+    case family::INET6:
+        return std::equal(std::begin(_in6.s6_addr), std::end(_in6.s6_addr), std::begin(::in6addr_loopback.s6_addr));
+    default:
+        return false;
+    }
+}
+
+bool seastar::net::inet_address::is_addr_any() const noexcept {
+    switch (_in_family) {
+    case family::INET:
+        return _in.s_addr == INADDR_ANY;
+    case family::INET6:
+        return std::equal(std::begin(_in6.s6_addr), std::end(_in6.s6_addr), std::begin(::in6addr_any.s6_addr));
+    default:
+        return false;
+    }
+}
+
 seastar::net::ipv6_address::ipv6_address(const ::in6_addr& in) noexcept {
     std::copy(std::begin(in.s6_addr), std::end(in.s6_addr), ip.begin());
 }
