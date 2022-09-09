@@ -213,11 +213,18 @@ if args.test:
         ('[2022-04-19T23:09:28.311Z]   0x461bbb8',
                 {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': None, 'addr': '0x461bbb8'}]}),
         ('[2022-04-19T23:09:28.311Z]   /lib64/libpthread.so.0+0x92a4',
-                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': '/lib64/libpthread.so.0', 'addr': '0x92a4'}]})
+                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': '/lib64/libpthread.so.0', 'addr': '0x92a4'}]}),
+
+        ('#0 0x19c01681 (/path/to/scylla+0xdeadbeef)',
+                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': '/path/to/scylla', 'addr': '0x19c01681'}]}),
+        ('#1 0x00007fd2dab4f950 abort (libc.so.6 + 0x26950)',
+                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': 'libc.so.6', 'addr': '0x00007fd2dab4f950'}]}),
+        ('#2 0x00000000015c4cd3  n/a (/path/to/scylla + 0x15c4cd3)',
+                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': '/path/to/scylla', 'addr': '0x00000000015c4cd3'}]}),
     ]
     parser = BacktraceResolver.BacktraceParser()
     for line, expected in data:
-        res = parser(line)
+        res = parser(line.strip())
         assert res == expected, f"{line}:\nExpected {expected}\nBut got  {res}"
     exit(0)
 
@@ -240,4 +247,4 @@ with BacktraceResolver(executable=args.executable, before_lines=args.before, con
         verbose=args.verbose, cmd_path=args.addr2line) as resolve:
     p = re.compile(r'\W+')
     for line in lines:
-        resolve(line)
+        resolve(line.strip())
