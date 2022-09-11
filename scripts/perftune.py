@@ -387,7 +387,7 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
     @staticmethod
     def cpu_mask_is_zero(cpu_mask):
         """
-        The cpu_mask is a coma-separated list of 32-bit hex values with possibly omitted zero components,
+        The cpu_mask is a comma-separated list of 32-bit hex values with possibly omitted zero components,
         e.g. 0xffff,,0xffff
         We want to estimate if the whole mask is all-zeros.
         :param cpu_mask: hwloc-calc generated CPU mask
@@ -757,7 +757,7 @@ class NetPerfTuner(PerfTunerBase):
         Intel's fast path IRQs have the following name convention:
              <bla-bla>-TxRx-<queue index>
 
-        Intel NICs also have the IRQ for Flow Director (which is not a regular fast path IRQ) which name looks like
+        Intel NICs also have the IRQ for Flow Director (which is not a regular fast path IRQ) whose name looks like
         this:
              <bla-bla>:fdir-TxRx-<index>
 
@@ -1002,7 +1002,7 @@ class NetPerfTuner(PerfTunerBase):
         else:
             num_rx_channels = 0
 
-            # If a mask is wider than 32 bits it's going to be presented as a coma-separated list of 32-bit masks
+            # If a mask is wider than 32 bits it's going to be presented as a comma-separated list of 32-bit masks
             # with possibly omitted zero components, e.g. 0x01,0x100,,0x12122
             for m in self.irqs_cpu_mask.split(","):
                 if m:
@@ -1247,7 +1247,7 @@ class DiskPerfTuner(PerfTunerBase):
         nvme_irq_re = re.compile(r'(\s|^)nvme\d+q(\d+)(\s|$)')
 
         # There may be more than an single HW queue bound to the same IRQ. In this case queue names are going to be
-        # coma separated
+        # comma separated
         split_line = self.__irqs2procline[irq].split(",")
 
         for line in split_line:
