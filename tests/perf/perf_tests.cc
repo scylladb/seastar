@@ -160,7 +160,6 @@ struct result {
     double inst = 0.;
 };
 
-namespace {
 
 struct duration {
     double value;
@@ -181,8 +180,6 @@ static inline std::ostream& operator<<(std::ostream& os, duration d)
         os << fmt::format("{:.3f}s", value / 1'000'000'000);
     }
     return os;
-}
-
 }
 
 static constexpr auto header_format_string = "{:<40} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11}\n";
