@@ -41,6 +41,13 @@
 
 #include <signal.h>
 
+#if FMT_VERSION >= 90000
+namespace perf_tests::internal {
+    struct duration;
+}
+template <> struct fmt::formatter<perf_tests::internal::duration> : fmt::ostream_formatter {};
+#endif
+
 namespace perf_tests {
 namespace internal {
 
