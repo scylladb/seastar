@@ -67,10 +67,6 @@ struct smp_options : public program_options::option_group {
     /// Defaults to the number of NUMA nodes
     /// \note Unused when seastar is compiled without \p HWLOC support.
     program_options::value<unsigned> num_io_groups;
-    /// \brief Maximum amount of concurrent requests to be sent to the disk.
-    ///
-    /// Defaults to 128 times the number of IO queues
-    program_options::value<unsigned> max_io_requests;
     /// Path to a YAML file describing the characteristics of the I/O Subsystem.
     program_options::value<std::string> io_properties_file;
     /// A YAML string describing the characteristics of the I/O Subsystem.
