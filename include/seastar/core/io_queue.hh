@@ -96,7 +96,6 @@ public:
 
     struct config {
         dev_t devid;
-        unsigned capacity = std::numeric_limits<unsigned>::max();
         unsigned long req_count_rate = std::numeric_limits<int>::max();
         unsigned long blocks_count_rate = std::numeric_limits<int>::max();
         unsigned disk_req_write_to_read_multiplier = read_request_base_count;
@@ -127,8 +126,6 @@ public:
     void complete_cancelled_request(queued_io_request& req) noexcept;
     void complete_request(io_desc_read_write& desc) noexcept;
 
-
-    [[deprecated("modern I/O queues should use a property file")]] size_t capacity() const;
 
     [[deprecated("I/O queue users should not track individual requests, but resources (weight, size) passing through the queue")]]
     size_t queued_requests() const {
@@ -191,10 +188,6 @@ private:
 
 inline const io_queue::config& io_queue::get_config() const noexcept {
     return _group->_config;
-}
-
-inline size_t io_queue::capacity() const {
-    return get_config().capacity;
 }
 
 inline sstring io_queue::mountpoint() const {

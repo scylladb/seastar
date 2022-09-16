@@ -3489,11 +3489,9 @@ smp_options::smp_options(program_options::option_group* parent_group)
 #ifdef SEASTAR_HAVE_HWLOC
     , num_io_queues(*this, "num-io-queues", {}, "Number of IO queues. Each IO unit will be responsible for a fraction of the IO requests. Defaults to the number of threads")
     , num_io_groups(*this, "num-io-groups", {}, "Number of IO groups. Each IO group will be responsible for a fraction of the IO requests. Defaults to the number of NUMA nodes")
-    , max_io_requests(*this, "max-io-requests", {}, "Maximum amount of concurrent requests to be sent to the disk. Defaults to 128 times the number of IO queues")
 #else
     , num_io_queues(*this, "num-io-queues", program_options::unused{})
     , num_io_groups(*this, "num-io-groups", program_options::unused{})
-    , max_io_requests(*this, "max-io-requests", {}, "Maximum amount of concurrent requests to be sent to the disk. Defaults to 128 times the number of processors")
 #endif
     , io_properties_file(*this, "io-properties-file", {}, "path to a YAML file describing the characteristics of the I/O Subsystem")
     , io_properties(*this, "io-properties", {}, "a YAML string describing the characteristics of the I/O Subsystem")
@@ -3670,7 +3668,6 @@ void smp::qs_deleter::operator()(smp_message_queue** qs) const {
 class disk_config_params {
 private:
     unsigned _num_io_groups = 0;
-    std::optional<unsigned> _capacity;
     std::unordered_map<dev_t, mountpoint_params> _mountpoints;
     std::chrono::duration<double> _latency_goal;
 
@@ -3695,11 +3692,6 @@ public:
         seastar_logger.debug("smp::count: {}", smp::count);
         _latency_goal = std::chrono::duration_cast<std::chrono::duration<double>>(latency_goal_opt(reactor_opts) * 1ms);
         seastar_logger.debug("latency_goal: {}", latency_goal().count());
-
-        if (smp_opts.max_io_requests) {
-            seastar_logger.warn("the --max-io-requests option is deprecated, switch to io properties file instead");
-            _capacity = smp_opts.max_io_requests.get_value();
-        }
 
         if (smp_opts.num_io_groups) {
             _num_io_groups = smp_opts.num_io_groups.get_value();
@@ -3768,7 +3760,6 @@ public:
 
         cfg.devid = devid;
 
-        if (!_capacity) {
             if (p.read_bytes_rate != std::numeric_limits<uint64_t>::max()) {
                 cfg.blocks_count_rate = (io_queue::read_request_base_count * (unsigned long)per_io_group(p.read_bytes_rate, nr_groups)) >> io_queue::block_size_shift;
                 cfg.disk_blocks_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_bytes_rate) / p.write_bytes_rate;
@@ -3792,17 +3783,7 @@ public:
             // scheduler will self-tune to allow for the single 64k request, while it would
             // be better to sacrifice some IO latency, but allow for larger concurrency
             cfg.block_count_limit_min = (64 << 10) >> io_queue::block_size_shift;
-        } else {
-            // For backwards compatibility
-            cfg.capacity = *_capacity;
-            // Legacy configuration when only concurrency is specified.
-            unsigned max_req_count = std::min(*_capacity, reactor::max_aio_per_queue) * 1000;
-            cfg.req_count_rate = io_queue::read_request_base_count * max_req_count;
-            // specify size in terms of 16kB IOPS.
-            static_assert(reactor::max_aio_per_queue << (14 - io_queue::block_size_shift) <= std::numeric_limits<decltype(cfg.blocks_count_rate)>::max() / io_queue::read_request_base_count);
-            cfg.blocks_count_rate = io_queue::read_request_base_count * (max_req_count << (14 - io_queue::block_size_shift));
 
-        }
         return cfg;
     }
 
