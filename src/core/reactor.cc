@@ -3760,29 +3760,29 @@ public:
 
         cfg.devid = devid;
 
-            if (p.read_bytes_rate != std::numeric_limits<uint64_t>::max()) {
-                cfg.blocks_count_rate = (io_queue::read_request_base_count * (unsigned long)per_io_group(p.read_bytes_rate, nr_groups)) >> io_queue::block_size_shift;
-                cfg.disk_blocks_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_bytes_rate) / p.write_bytes_rate;
-            }
-            if (p.read_req_rate != std::numeric_limits<uint64_t>::max()) {
-                cfg.req_count_rate = io_queue::read_request_base_count * (unsigned long)per_io_group(p.read_req_rate, nr_groups);
-                cfg.disk_req_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_req_rate) / p.write_req_rate;
-            }
-            if (p.read_saturation_length != std::numeric_limits<uint64_t>::max()) {
-                cfg.disk_read_saturation_length = p.read_saturation_length;
-            }
-            if (p.write_saturation_length != std::numeric_limits<uint64_t>::max()) {
-                cfg.disk_write_saturation_length = p.write_saturation_length;
-            }
-            cfg.mountpoint = p.mountpoint;
-            cfg.duplex = p.duplex;
-            cfg.rate_factor = p.rate_factor;
-            cfg.rate_limit_duration = latency_goal();
-            // Block count limit should not be less than the minimal IO size on the device
-            // On the other hand, even this is not good enough -- in the worst case the
-            // scheduler will self-tune to allow for the single 64k request, while it would
-            // be better to sacrifice some IO latency, but allow for larger concurrency
-            cfg.block_count_limit_min = (64 << 10) >> io_queue::block_size_shift;
+        if (p.read_bytes_rate != std::numeric_limits<uint64_t>::max()) {
+            cfg.blocks_count_rate = (io_queue::read_request_base_count * (unsigned long)per_io_group(p.read_bytes_rate, nr_groups)) >> io_queue::block_size_shift;
+            cfg.disk_blocks_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_bytes_rate) / p.write_bytes_rate;
+        }
+        if (p.read_req_rate != std::numeric_limits<uint64_t>::max()) {
+            cfg.req_count_rate = io_queue::read_request_base_count * (unsigned long)per_io_group(p.read_req_rate, nr_groups);
+            cfg.disk_req_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_req_rate) / p.write_req_rate;
+        }
+        if (p.read_saturation_length != std::numeric_limits<uint64_t>::max()) {
+            cfg.disk_read_saturation_length = p.read_saturation_length;
+        }
+        if (p.write_saturation_length != std::numeric_limits<uint64_t>::max()) {
+            cfg.disk_write_saturation_length = p.write_saturation_length;
+        }
+        cfg.mountpoint = p.mountpoint;
+        cfg.duplex = p.duplex;
+        cfg.rate_factor = p.rate_factor;
+        cfg.rate_limit_duration = latency_goal();
+        // Block count limit should not be less than the minimal IO size on the device
+        // On the other hand, even this is not good enough -- in the worst case the
+        // scheduler will self-tune to allow for the single 64k request, while it would
+        // be better to sacrifice some IO latency, but allow for larger concurrency
+        cfg.block_count_limit_min = (64 << 10) >> io_queue::block_size_shift;
 
         return cfg;
     }
