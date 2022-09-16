@@ -41,6 +41,13 @@
 
 #include <signal.h>
 
+#if FMT_VERSION >= 90000
+namespace perf_tests::internal {
+    struct duration;
+}
+template <> struct fmt::formatter<perf_tests::internal::duration> : fmt::ostream_formatter {};
+#endif
+
 namespace perf_tests {
 namespace internal {
 
@@ -160,7 +167,6 @@ struct result {
     double inst = 0.;
 };
 
-namespace {
 
 struct duration {
     double value;
@@ -181,8 +187,6 @@ static inline std::ostream& operator<<(std::ostream& os, duration d)
         os << fmt::format("{:.3f}s", value / 1'000'000'000);
     }
     return os;
-}
-
 }
 
 static constexpr auto header_format_string = "{:<40} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11}\n";
