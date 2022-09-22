@@ -103,8 +103,8 @@ using sharded_unwrap_t = typename sharded_unwrap<T>::type;
 template <typename T>
 class sharded;
 
-/// If sharded service inherits from this class sharded::stop() will wait
-/// until all references to a service on each shard will disappear before
+/// If a sharded service inherits from this class, sharded::stop() will wait
+/// until all references to this service on each shard are released before
 /// returning. It is still service's own responsibility to track its references
 /// in asynchronous code by calling shared_from_this() and keeping returned smart
 /// pointer as long as object is in use.
