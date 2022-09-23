@@ -200,7 +200,6 @@ private:
     friend class internal::reactor_stall_sampler;
     friend class preempt_io_context;
     friend struct hrtimer_aio_completion;
-    friend struct task_quota_aio_completion;
     friend class reactor_backend_epoll;
     friend class reactor_backend_aio;
     friend class reactor_backend_uring;
@@ -208,7 +207,6 @@ private:
     friend class io_queue; // for aio statistics
     friend struct reactor_options;
     friend class aio_storage_context;
-    friend size_t scheduling_group_count();
 public:
     using poller = internal::poller;
     using idle_cpu_handler_result = seastar::idle_cpu_handler_result;
@@ -652,7 +650,6 @@ private:
     friend struct pollable_fd_state_deleter;
     friend class posix_file_impl;
     friend class blockdev_file_impl;
-    friend class readable_eventfd;
     friend class timer<>;
     friend class timer<lowres_clock>;
     friend class timer<manual_clock>;
