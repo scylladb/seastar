@@ -779,7 +779,7 @@ cpu_pages::warn_large_allocation(size_t size) {
 void
 inline
 cpu_pages::check_large_allocation(size_t size) {
-    if (size > large_allocation_warning_threshold) {
+    if (size >= large_allocation_warning_threshold) {
         warn_large_allocation(size);
     }
 }

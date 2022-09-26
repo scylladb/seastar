@@ -195,3 +195,20 @@ SEASTAR_TEST_CASE(test_realloc_nullptr) {
     return make_ready_future<>();
 }
 #endif
+
+SEASTAR_TEST_CASE(test_large_allocation_warning_off_by_one) {
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
+    constexpr size_t large_alloc_threshold = 1024*1024;
+    seastar::memory::scoped_large_allocation_warning_threshold mtg(large_alloc_threshold);
+    BOOST_REQUIRE(seastar::memory::get_large_allocation_warning_threshold() == large_alloc_threshold);
+    auto old_large_allocs_count = memory::stats().large_allocations();
+    auto obj = (char*)malloc(large_alloc_threshold);
+    *obj = 'c'; // to prevent compiler from considering this a dead allocation and optimizing it out
+
+    // Verify large allocation was detected by allocator.
+    BOOST_REQUIRE(memory::stats().large_allocations() == old_large_allocs_count+1);
+
+    free(obj);
+#endif
+    return make_ready_future<>();
+}
