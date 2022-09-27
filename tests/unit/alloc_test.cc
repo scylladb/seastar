@@ -25,6 +25,8 @@
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/util/memory_diagnostics.hh>
 
+#include <memory>
+#include <new>
 #include <vector>
 #include <future>
 #include <iostream>
@@ -191,6 +193,39 @@ SEASTAR_TEST_CASE(test_realloc_nullptr) {
     BOOST_REQUIRE(p1 != nullptr);
     free(p0);
     free(p1);
+
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_bad_alloc_throws) {
+    // test that a large allocation throws bad_alloc
+    auto stats = seastar::memory::stats();
+
+    // this allocation cannot be satisfied (at least when the seastar
+    // allocator is used, which it is for this test)
+    size_t size = stats.total_memory() * 2;
+
+    [[gnu::unused]]
+    void * volatile sink;
+
+    // test that new throws
+    try {
+        sink = operator new(size);
+        BOOST_TEST_FAIL("operator new did not throw");
+    } catch (std::bad_alloc&) {
+    }
+
+    // test that huge malloc returns null
+    BOOST_REQUIRE_EQUAL(malloc(size), nullptr);
+
+    // test that huge realloc on nullptr returns null
+    BOOST_REQUIRE_EQUAL(realloc(nullptr, size), nullptr);
+
+    // test that huge realloc on an existing ptr returns null
+    void *p = malloc(1);
+    BOOST_REQUIRE(p);
+    BOOST_REQUIRE_EQUAL(realloc(p, size), nullptr);
+    free(p);
 
     return make_ready_future<>();
 }
