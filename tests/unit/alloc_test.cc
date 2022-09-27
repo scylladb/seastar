@@ -214,11 +214,7 @@ SEASTAR_TEST_CASE(test_bad_alloc_throws) {
 
     // test that new throws
     stats = seastar::memory::stats();
-    try {
-        sink = operator new(size);
-        BOOST_TEST_FAIL("operator new did not throw");
-    } catch (std::bad_alloc&) {
-    }
+    BOOST_REQUIRE_THROW(sink = operator new(size), std::bad_alloc);
     BOOST_CHECK_EQUAL(failed_allocs(), 1);
 
     // test that huge malloc returns null
