@@ -208,23 +208,35 @@ SEASTAR_TEST_CASE(test_bad_alloc_throws) {
     [[gnu::unused]]
     void * volatile sink;
 
+    auto failed_allocs = [&stats]() {
+        return seastar::memory::stats().failed_allocations() - stats.failed_allocations();
+    };
+
     // test that new throws
+    stats = seastar::memory::stats();
     try {
         sink = operator new(size);
         BOOST_TEST_FAIL("operator new did not throw");
     } catch (std::bad_alloc&) {
     }
+    BOOST_CHECK_EQUAL(failed_allocs(), 1);
 
     // test that huge malloc returns null
+    stats = seastar::memory::stats();
     BOOST_REQUIRE_EQUAL(malloc(size), nullptr);
+    BOOST_CHECK_EQUAL(failed_allocs(), 1);
 
     // test that huge realloc on nullptr returns null
+    stats = seastar::memory::stats();
     BOOST_REQUIRE_EQUAL(realloc(nullptr, size), nullptr);
+    BOOST_CHECK_EQUAL(failed_allocs(), 1);
 
     // test that huge realloc on an existing ptr returns null
+    stats = seastar::memory::stats();
     void *p = malloc(1);
     BOOST_REQUIRE(p);
     BOOST_REQUIRE_EQUAL(realloc(p, size), nullptr);
+    BOOST_CHECK_EQUAL(failed_allocs(), 1);
     free(p);
 
     return make_ready_future<>();
