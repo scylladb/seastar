@@ -56,6 +56,22 @@ SEASTAR_TEST_CASE(deferred_close_test) {
   });
 }
 
+SEASTAR_TEST_CASE(move_deferred_close_test) {
+  return do_with(gate(), [] (gate& g) {
+    return async([&] {
+        auto close_gate = make_shared(deferred_close(g));
+        // g.close() should not be called when deferred_close is moved away
+        BOOST_REQUIRE(!g.is_closed());
+    }).then([&] {
+        // Before this test is exercised, gate::close() would run into a
+        // assert failure when leaving previous continuation, if gate::close()
+        // is called twice, so this test only verifies the behavior with the
+        // release build.
+        BOOST_REQUIRE(g.is_closed());
+    });
+  });
+}
+
 SEASTAR_TEST_CASE(close_now_test) {
   return do_with(gate(), 0, 42, [] (gate& g, int& count, int& expected) {
     return async([&] {
@@ -171,6 +187,18 @@ SEASTAR_TEST_CASE(deferred_stop_test) {
         auto stop_counting = deferred_stop(cs);
     }).then([&] {
         // cs.stop() should be called when stop_counting is destroyed
+        BOOST_REQUIRE_EQUAL(cs.stopped(), 1);
+    });
+  });
+}
+
+SEASTAR_TEST_CASE(move_deferred_stop_test) {
+  return do_with(count_stops(), [] (count_stops& cs) {
+    return async([&] {
+        auto stop = make_shared(deferred_stop(cs));
+    }).then([&] {
+        // cs.stop() should be called once and only once
+        // when stop is destroyed
         BOOST_REQUIRE_EQUAL(cs.stopped(), 1);
     });
   });

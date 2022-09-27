@@ -61,6 +61,19 @@ public:
     /// Construct an object that will auto-close \c obj when destroyed.
     /// \tparam obj the object to auto-close.
     deferred_close(Object& obj) noexcept : _obj(obj) {}
+    /// Moves the \c deferred_close into a new one, and
+    /// the old one is canceled.
+    deferred_close(deferred_close&& x) noexcept : _obj(x._obj), _closed(std::exchange(x._closed, true)) {}
+    deferred_close(const deferred_close&) = delete;
+    /// Move-assign another \ref deferred_close.
+    /// The current \ref deferred_close is closed before being assigned.
+    /// And the other one's state is transferred to the current one.
+    deferred_close& operator=(deferred_close&& x) noexcept {
+        do_close();
+        _obj = x._obj;
+        _closed = std::exchange(x._closed, true);
+        return *this;
+    }
     /// Destruct the deferred_close object and auto-close \c obj.
     ~deferred_close() {
         do_close();
@@ -122,6 +135,19 @@ public:
     /// Construct an object that will auto-stop \c obj when destroyed.
     /// \tparam obj the object to auto-stop.
     deferred_stop(Object& obj) noexcept : _obj(obj) {}
+    /// Moves the \c deferred_stop into a new one, and
+    /// the old one is canceled.
+    deferred_stop(deferred_stop&& x) noexcept : _obj(x._obj), _stopped(std::exchange(x._stopped, true)) {}
+    deferred_stop(const deferred_stop&) = delete;
+    /// Move-assign another \ref deferred_stop.
+    /// The current \ref deferred_stop is stopped before being assigned.
+    /// And the other one's state is transferred to the current one.
+    deferred_stop& operator=(deferred_stop&& x) noexcept {
+        do_stop();
+        _obj = x._obj;
+        _stopped = std::exchange(x._stopped, true);
+        return *this;
+    }
     /// Destruct the deferred_stop object and auto-stop \c obj.
     ~deferred_stop() {
         do_stop();
