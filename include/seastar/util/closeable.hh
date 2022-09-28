@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include <functional>
 #include <seastar/core/future.hh>
 #include <seastar/util/concepts.hh>
 #include <seastar/util/defer.hh>
@@ -48,13 +49,13 @@ concept closeable = requires (Object o) {
 template <typename Object>
 SEASTAR_CONCEPT( requires closeable<Object> )
 class deferred_close {
-    Object& _obj;
+    std::reference_wrapper<Object> _obj;
     bool _closed = false;
 
     void do_close() noexcept {
         if (!_closed) {
             _closed = true;
-            _obj.close().get();
+            _obj.get().close().get();
         }
     }
 public:
@@ -122,13 +123,13 @@ concept stoppable = requires (Object o) {
 template <typename Object>
 SEASTAR_CONCEPT( requires stoppable<Object> )
 class deferred_stop {
-    Object& _obj;
+    std::reference_wrapper<Object> _obj;
     bool _stopped = false;
 
     void do_stop() noexcept {
         if (!_stopped) {
             _stopped = true;
-            _obj.stop().get();
+            _obj.get().stop().get();
         }
     }
 public:
