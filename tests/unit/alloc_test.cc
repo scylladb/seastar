@@ -202,7 +202,7 @@ SEASTAR_TEST_CASE(test_large_allocation_warning_off_by_one) {
     seastar::memory::scoped_large_allocation_warning_threshold mtg(large_alloc_threshold);
     BOOST_REQUIRE(seastar::memory::get_large_allocation_warning_threshold() == large_alloc_threshold);
     auto old_large_allocs_count = memory::stats().large_allocations();
-    auto obj = (char*)malloc(large_alloc_threshold);
+    volatile auto obj = (char*)malloc(large_alloc_threshold);
     *obj = 'c'; // to prevent compiler from considering this a dead allocation and optimizing it out
 
     // Verify large allocation was detected by allocator.
