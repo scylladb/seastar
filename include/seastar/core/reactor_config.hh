@@ -59,7 +59,7 @@ struct reactor_options : public program_options::option_group {
     program_options::value<bool> poll_aio;
     /// \brief Max time (ms) between polls.
     ///
-    /// Default: 500.
+    /// Default: 0.5.
     program_options::value<double> task_quota_ms;
     /// \brief Max time (ms) IO operations must take.
     ///
@@ -74,7 +74,7 @@ struct reactor_options : public program_options::option_group {
     /// \brief Threshold in milliseconds over which the reactor is considered
     /// blocked if no progress is made.
     ///
-    /// Default: 200.
+    /// Default: 25.
     program_options::value<unsigned> blocked_reactor_notify_ms;
     /// \brief Maximum number of backtraces reported by stall detector per minute.
     ///
