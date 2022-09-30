@@ -50,8 +50,16 @@ class gate {
 public:
     gate() = default;
     gate(const gate&) = delete;
-    gate(gate&&) = default;
-    gate& operator=(gate&&) = default;
+    gate(gate&& x) noexcept
+        : _count(std::exchange(x._count, 0)), _stopped(std::exchange(x._stopped, std::nullopt)) {}
+    gate& operator=(gate&& x) noexcept {
+        if (this != &x) {
+            assert(!_count && "gate reassigned with outstanding requests");
+            _count = std::exchange(x._count, 0);
+            _stopped = std::exchange(x._stopped, std::nullopt);
+        }
+        return *this;
+    }
     ~gate() {
         assert(!_count && "gate destroyed with outstanding requests");
     }

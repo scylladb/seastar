@@ -246,6 +246,45 @@ SEASTAR_TEST_CASE(with_stoppable_exception_test) {
     });
 }
 
+SEASTAR_THREAD_TEST_CASE(move_open_gate_test) {
+    gate g1;
+    g1.enter();
+    // move an open gate
+    gate g2 = std::move(g1);
+    // the state in g1 should be moved into g2
+    BOOST_CHECK_EQUAL(g1.get_count(), 0);
+    BOOST_REQUIRE_EQUAL(g2.get_count(), 1);
+    g2.leave();
+    g2.close().get();
+    BOOST_CHECK(!g1.is_closed());
+    BOOST_CHECK(g2.is_closed());
+}
+
+SEASTAR_THREAD_TEST_CASE(move_closing_gate_test) {
+    gate g1;
+    g1.enter();
+    auto fut = g1.close();
+    // move a closing gate
+    gate g2 = std::move(g1);
+    BOOST_CHECK_EQUAL(g1.get_count(), 0);
+    BOOST_REQUIRE_EQUAL(g2.get_count(), 1);
+    g2.leave();
+    fut.get();
+    BOOST_CHECK(!g1.is_closed());
+    BOOST_CHECK(g2.is_closed());
+}
+
+SEASTAR_THREAD_TEST_CASE(move_closed_gate_test) {
+    gate g1;
+    g1.close().get();
+    // move a closed gate
+    gate g2 = std::move(g1);
+    BOOST_CHECK_EQUAL(g1.get_count(), 0);
+    BOOST_CHECK_EQUAL(g2.get_count(), 0);
+    BOOST_CHECK(!g1.is_closed());
+    BOOST_CHECK(g2.is_closed());
+}
+
 SEASTAR_THREAD_TEST_CASE(gate_holder_basic_test) {
     gate g;
     auto gh = g.hold();
