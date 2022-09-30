@@ -273,7 +273,6 @@ protected:
 
         using container_t = bi::list<outgoing_entry, bi::constant_time_size<false>>;
     };
-    friend outgoing_entry;
     void withdraw(outgoing_entry::container_t::iterator it, std::exception_ptr ex = nullptr);
     future<> _outgoing_queue_ready = _negotiated->get_shared_future();
     outgoing_entry::container_t _outgoing_queue;
