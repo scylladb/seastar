@@ -1078,7 +1078,7 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
                       if (expire && *expire) {
                           timeout = relative_timeout_to_absolute(std::chrono::milliseconds(*expire));
                       }
-                      auto h = get_server()._proto->get_handler(type);
+                      auto h = get_server()._proto.get_handler(type);
                       if (!h) {
                           return send_unknown_verb_reply(timeout, msg_id, type);
                       }
@@ -1089,7 +1089,7 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
                       return with_scheduling_group(sg, [this, timeout, msg_id, h, data = std::move(data.value())] () mutable {
                           return h->func(shared_from_this(), timeout, msg_id, std::move(data)).finally([this, h] {
                               // If anything between get_handler() and here throws, we leak put_handler
-                              get_server()._proto->put_handler(h);
+                              get_server()._proto.put_handler(h);
                           });
                       });
                   }
@@ -1154,7 +1154,7 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
   {}
 
   server::server(protocol_base* proto, server_socket ss, resource_limits limits, server_options opts)
-          : _proto(proto), _ss(std::move(ss)), _limits(limits), _resources_available(limits.max_memory), _options(opts)
+          : _proto(*proto), _ss(std::move(ss)), _limits(limits), _resources_available(limits.max_memory), _options(opts)
   {
       if (_options.streaming_domain) {
           if (_servers.find(*_options.streaming_domain) != _servers.end()) {
@@ -1184,7 +1184,7 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
               connection_id id = _options.streaming_domain ?
                       connection_id::make_id(_next_client_id++, uint16_t(this_shard_id())) :
                       connection_id::make_invalid_id(_next_client_id++);
-              auto conn = _proto->make_server_connection(*this, std::move(fd), std::move(addr), id);
+              auto conn = _proto.make_server_connection(*this, std::move(fd), std::move(addr), id);
               auto r = _conns.emplace(id, conn);
               assert(r.second);
               // Process asynchronously in background.
