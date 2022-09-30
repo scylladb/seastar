@@ -597,7 +597,7 @@ public:
         future<> deregister_this_stream();
     };
 private:
-    protocol_base* _proto;
+    protocol_base& _proto;
     server_socket _ss;
     resource_limits _limits;
     rpc_semaphore _resources_available;
