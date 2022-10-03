@@ -4175,7 +4175,6 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     inited->wait();
 
     engine().configure(reactor_opts);
-    // The raw `new` is necessary because of the private constructor of `lowres_clock_impl`.
 }
 
 bool smp::poll_queues() {
