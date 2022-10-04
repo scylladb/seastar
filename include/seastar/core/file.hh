@@ -113,10 +113,10 @@ class file_impl {
     friend class file;
 protected:
     static file_impl* get_file_impl(file& f);
-    unsigned _memory_dma_alignment = 4096;
-    unsigned _disk_read_dma_alignment = 4096;
-    unsigned _disk_write_dma_alignment = 4096;
-    unsigned _disk_overwrite_dma_alignment = 4096;
+    const unsigned _memory_dma_alignment = 4096;
+    const unsigned _disk_read_dma_alignment = 4096;
+    const unsigned _disk_write_dma_alignment = 4096;
+    const unsigned _disk_overwrite_dma_alignment = 4096;
     unsigned _read_max_length = 1u << 30;
     unsigned _write_max_length = 1u << 30;
 
