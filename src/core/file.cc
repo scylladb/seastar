@@ -63,21 +63,30 @@ struct fs_info {
     std::optional<dioattr> dioinfo;
 };
 
-};
+alignment_info make_alignment_info(const fs_info& fsi) {
+    alignment_info ai;
 
-void
-posix_file_impl::configure_dma_alignment(const internal::fs_info& fsi) {
     if (fsi.dioinfo) {
         const dioattr& da = *fsi.dioinfo;
-        _memory_dma_alignment = da.d_mem;
-        _disk_read_dma_alignment = da.d_miniosz;
+        ai.memory = da.d_mem;
+        ai.disk_read = da.d_miniosz;
         // xfs wants at least the block size for writes
         // FIXME: really read the block size
-        _disk_write_dma_alignment = std::max<unsigned>(da.d_miniosz, fsi.block_size);
+        ai.disk_write = std::max<unsigned>(da.d_miniosz, fsi.block_size);
         static bool xfs_with_relaxed_overwrite_alignment = kernel_uname().whitelisted({"5.12"});
-        _disk_overwrite_dma_alignment = xfs_with_relaxed_overwrite_alignment ? da.d_miniosz : _disk_write_dma_alignment;
+        ai.disk_overwrite = xfs_with_relaxed_overwrite_alignment ? da.d_miniosz : ai.disk_write;
     }
+
+    return ai;
 }
+
+alignment_info make_alignment_info(size_t block_size) {
+    alignment_info ai;
+    // FIXME -- configure file_impl::_..._dma_alignment's from block_size
+    return ai;
+}
+
+};
 
 using namespace internal;
 using namespace internal::linux_abi;
@@ -106,8 +115,9 @@ file_handle::to_file() && {
     return file(std::move(*_impl).to_file());
 }
 
-posix_file_impl::posix_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id, bool nowait_works)
-        : _device_id(device_id)
+posix_file_impl::posix_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id, bool nowait_works, internal::alignment_info alignment)
+        : file_impl(alignment)
+        , _device_id(device_id)
         , _nowait_works(nowait_works)
         , _io_queue(engine().get_io_queue(_device_id))
         , _open_flags(f)
@@ -117,9 +127,8 @@ posix_file_impl::posix_file_impl(int fd, open_flags f, file_open_options options
 }
 
 posix_file_impl::posix_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id, const internal::fs_info& fsi)
-        : posix_file_impl(fd, f, options, device_id, fsi.nowait_works)
+        : posix_file_impl(fd, f, options, device_id, fsi.nowait_works, make_alignment_info(fsi))
 {
-    configure_dma_alignment(fsi);
 }
 
 posix_file_impl::~posix_file_impl() {
@@ -157,16 +166,19 @@ posix_file_impl::posix_file_impl(int fd, open_flags f, std::atomic<unsigned>* re
         uint32_t disk_write_dma_alignment,
         uint32_t disk_overwrite_dma_alignment,
         bool nowait_works)
-        : _refcount(refcount)
+        : file_impl(internal::alignment_info{
+            .memory = memory_dma_alignment,
+            .disk_read = disk_read_dma_alignment,
+            .disk_write = disk_write_dma_alignment,
+            .disk_overwrite = disk_overwrite_dma_alignment,
+        })
+        , _refcount(refcount)
         , _device_id(device_id)
         , _nowait_works(nowait_works)
         , _io_queue(engine().get_io_queue(_device_id))
         , _open_flags(f)
-        , _fd(fd) {
-    _memory_dma_alignment = memory_dma_alignment;
-    _disk_read_dma_alignment = disk_read_dma_alignment;
-    _disk_write_dma_alignment = disk_write_dma_alignment;
-    _disk_overwrite_dma_alignment = disk_overwrite_dma_alignment;
+        , _fd(fd)
+{
     configure_io_lengths();
 }
 
@@ -580,8 +592,8 @@ static bool blockdev_nowait_works(dev_t device_id) {
 }
 
 blockdev_file_impl::blockdev_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id, size_t block_size)
-        : posix_file_impl(fd, f, options, device_id, blockdev_nowait_works(device_id)) {
-    // FIXME -- configure file_impl::_..._dma_alignment's from block_size
+        : posix_file_impl(fd, f, options, device_id, blockdev_nowait_works(device_id), make_alignment_info(block_size))
+{
 }
 
 future<>

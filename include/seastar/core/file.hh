@@ -98,6 +98,17 @@ public:
     virtual shared_ptr<file_impl> to_file() && = 0;
 };
 
+namespace internal {
+
+struct alignment_info {
+    unsigned memory = 4096;
+    unsigned disk_read = 4096;
+    unsigned disk_write = 4096;
+    unsigned disk_overwrite = 4096;
+};
+
+}
+
 class file_impl {
     friend class file;
 protected:
@@ -108,7 +119,18 @@ protected:
     unsigned _disk_overwrite_dma_alignment = 4096;
     unsigned _read_max_length = 1u << 30;
     unsigned _write_max_length = 1u << 30;
+
+    file_impl(internal::alignment_info alignment) noexcept
+        : _memory_dma_alignment(alignment.memory)
+        , _disk_read_dma_alignment(alignment.disk_read)
+        , _disk_write_dma_alignment(alignment.disk_write)
+        , _disk_overwrite_dma_alignment(alignment.disk_overwrite)
+    {
+    }
+
 public:
+    file_impl() noexcept = default;
+
     virtual ~file_impl() {}
 
     virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc) = 0;
@@ -556,6 +578,17 @@ public:
     /// \note Use on read-only files.
     ///
     file_handle dup();
+
+    /// @private
+    internal::alignment_info get_alignment_info() const noexcept {
+        return internal::alignment_info {
+            .memory = _file_impl->_memory_dma_alignment,
+            .disk_read = _file_impl->_disk_read_dma_alignment,
+            .disk_write = _file_impl->_disk_write_dma_alignment,
+            .disk_overwrite = _file_impl->_disk_overwrite_dma_alignment,
+        };
+    }
+
 private:
     future<temporary_buffer<uint8_t>>
     dma_read_bulk_impl(uint64_t offset, size_t range_size, const io_priority_class& pc, io_intent* intent) noexcept;

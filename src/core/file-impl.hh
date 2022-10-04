@@ -76,7 +76,7 @@ class posix_file_impl : public file_impl {
 protected:
     int _fd;
 
-    posix_file_impl(int fd, open_flags, file_open_options options, dev_t device_id, bool nowait_works);
+    posix_file_impl(int fd, open_flags, file_open_options options, dev_t device_id, bool nowait_works, internal::alignment_info ai = {});
     posix_file_impl(int fd, open_flags, file_open_options options, dev_t device_id, const internal::fs_info& fsi);
     posix_file_impl(int fd, open_flags, std::atomic<unsigned>* refcount, dev_t device_id,
             uint32_t memory_dma_alignment,
@@ -128,7 +128,6 @@ public:
         return _open_flags;
     }
 private:
-    void configure_dma_alignment(const internal::fs_info& fsi);
     void configure_io_lengths() noexcept;
 
     /**
