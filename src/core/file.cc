@@ -65,6 +65,20 @@ struct fs_info {
 
 };
 
+void
+posix_file_impl::configure_dma_alignment(const internal::fs_info& fsi) {
+    if (fsi.dioinfo) {
+        const dioattr& da = *fsi.dioinfo;
+        _memory_dma_alignment = da.d_mem;
+        _disk_read_dma_alignment = da.d_miniosz;
+        // xfs wants at least the block size for writes
+        // FIXME: really read the block size
+        _disk_write_dma_alignment = std::max<unsigned>(da.d_miniosz, fsi.block_size);
+        static bool xfs_with_relaxed_overwrite_alignment = kernel_uname().whitelisted({"5.12"});
+        _disk_overwrite_dma_alignment = xfs_with_relaxed_overwrite_alignment ? da.d_miniosz : _disk_write_dma_alignment;
+    }
+}
+
 using namespace internal;
 using namespace internal::linux_abi;
 
@@ -116,20 +130,6 @@ posix_file_impl::~posix_file_impl() {
     if (_fd != -1) {
         // Note: close() can be a blocking operation on NFS
         ::close(_fd);
-    }
-}
-
-void
-posix_file_impl::configure_dma_alignment(const internal::fs_info& fsi) {
-    if (fsi.dioinfo) {
-        const dioattr& da = *fsi.dioinfo;
-        _memory_dma_alignment = da.d_mem;
-        _disk_read_dma_alignment = da.d_miniosz;
-        // xfs wants at least the block size for writes
-        // FIXME: really read the block size
-        _disk_write_dma_alignment = std::max<unsigned>(da.d_miniosz, fsi.block_size);
-        static bool xfs_with_relaxed_overwrite_alignment = kernel_uname().whitelisted({"5.12"});
-        _disk_overwrite_dma_alignment = xfs_with_relaxed_overwrite_alignment ? da.d_miniosz : _disk_write_dma_alignment;
     }
 }
 
