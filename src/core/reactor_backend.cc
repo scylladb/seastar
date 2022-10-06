@@ -1436,9 +1436,9 @@ public:
         if (did_work) {
             return;
         }
-        struct ::io_uring_cqe* buf[s_queue_len];
+        struct ::io_uring_cqe* cqe = nullptr;
         sigset_t sigs = *active_sigmask; // io_uring_wait_cqes() wants non-const
-        auto r = ::io_uring_wait_cqes(&_uring, buf, 1, nullptr, &sigs);
+        auto r = ::io_uring_wait_cqes(&_uring, &cqe, 1, nullptr, &sigs);
         if (__builtin_expect(r < 0, false)) {
             switch (-r) {
             case EINTR:
