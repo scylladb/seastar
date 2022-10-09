@@ -1855,7 +1855,7 @@ public:
     /// \brief Handle the exception of a certain type carried by this future.
     ///
     /// When the future resolves, if it resolves with an exception of a type that
-    /// provided callback receives as a parameter, handle_exception(func) replaces
+    /// provided callback receives as a parameter, \c handle_exception_type(func) replaces
     /// the exception with the value returned by func. The exception is passed (by
     /// reference) as a parameter to func; func may return the replacement value
     /// immediately (T or std::tuple<T...>) or in the future (future<T...>)
