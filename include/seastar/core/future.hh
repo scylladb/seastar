@@ -1836,11 +1836,11 @@ public:
     /// successful value; Because handle_exception() is used here on a
     /// future<>, the handler function does not need to return anything.
     template <typename Func>
-    /* Broken?
-    SEASTAR_CONCEPT( requires ::seastar::InvokeReturns<Func, future<T...>, std::exception_ptr>
-                    || (sizeof...(T) == 0 && ::seastar::InvokeReturns<Func, void, std::exception_ptr>)
-                    || (sizeof...(T) == 1 && ::seastar::InvokeReturns<Func, T..., std::exception_ptr>)
-    ) */
+    SEASTAR_CONCEPT( requires ::seastar::InvokeReturns<Func, future<T SEASTAR_ELLIPSIS>, std::exception_ptr>
+                    || (std::tuple_size_v<tuple_type> == 0 && ::seastar::InvokeReturns<Func, void, std::exception_ptr>)
+                    || (std::tuple_size_v<tuple_type> == 1 && ::seastar::InvokeReturns<Func, T, std::exception_ptr>)
+                    || (std::tuple_size_v<tuple_type> > 1 && ::seastar::InvokeReturns<Func, tuple_type, std::exception_ptr>)
+    )
     future<T SEASTAR_ELLIPSIS> handle_exception(Func&& func) noexcept {
         return then_wrapped([func = std::forward<Func>(func)]
                              (auto&& fut) mutable -> future<T SEASTAR_ELLIPSIS> {
