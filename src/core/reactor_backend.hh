@@ -212,6 +212,7 @@ public:
     virtual void start_handling_signal() = 0;
 
     virtual pollable_fd_state_ptr make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) = 0;
+    virtual bool support_append() = 0;
 };
 
 // reactor backend using file-descriptor & epoll, suitable for running on
@@ -275,6 +276,8 @@ public:
 
     virtual pollable_fd_state_ptr
     make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) override;
+
+    virtual bool support_append() override;
 };
 
 class reactor_backend_aio : public reactor_backend {
@@ -323,6 +326,8 @@ public:
 
     virtual pollable_fd_state_ptr
     make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) override;
+
+    virtual bool support_append() override;
 };
 
 #ifdef HAVE_OSV
@@ -360,6 +365,8 @@ public:
     void enable_timer(steady_clock_type::time_point when);
     virtual pollable_fd_state_ptr
     make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) override;
+
+    virtual bool support_append() override;
 };
 #endif /* HAVE_OSV */
 

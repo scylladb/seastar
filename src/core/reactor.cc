@@ -1619,6 +1619,8 @@ sstring io_request::opname() const {
         return "poll remove";
     case io_request::operation::cancel:
         return "cancel";
+    case io_request::operation::append:
+        return "append";
     }
     std::abort();
 }
@@ -1748,7 +1750,7 @@ reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_opt
             return wrap_syscall<int>(fd);
         }).then([&options, name = std::move(name), &open_flags] (syscall_result<int> sr) {
             sr.throw_fs_exception_if_error("open failed", name);
-            return make_file_impl(sr.result, options, open_flags);
+            return make_file_impl(sr.result, options, open_flags, name);
         }).then([] (shared_ptr<file_impl> impl) {
             return make_ready_future<file>(std::move(impl));
         });
@@ -1858,6 +1860,11 @@ reactor::file_type(std::string_view name, follow_symlink follow) noexcept {
         });
     });
 }
+
+bool reactor::support_append(){
+    return _backend->support_append();
+}
+
 
 future<std::optional<directory_entry_type>>
 file_type(std::string_view name, follow_symlink follow) noexcept {

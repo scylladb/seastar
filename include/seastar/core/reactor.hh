@@ -171,10 +171,11 @@ class disk_config_params;
 
 class io_completion : public kernel_completion {
 public:
-    virtual void complete_with(ssize_t res) final override;
+    virtual void complete_with(ssize_t res) override;
 
     virtual void complete(size_t res) noexcept = 0;
     virtual void set_exception(std::exception_ptr eptr) noexcept = 0;
+    virtual void set_additional_result(size_t result_) { };
 };
 
 class reactor {
@@ -528,6 +529,8 @@ public:
     future<> chmod(std::string_view name, file_permissions permissions) noexcept;
 
     future<int> inotify_add_watch(int fd, std::string_view path, uint32_t flags);
+
+    bool support_append();
     
     int run() noexcept;
     void exit(int ret);
@@ -684,7 +687,7 @@ private:
 
     future<struct stat> fstat(int fd) noexcept;
     future<struct statfs> fstatfs(int fd) noexcept;
-    friend future<shared_ptr<file_impl>> make_file_impl(int fd, file_open_options options, int flags) noexcept;
+    friend future<shared_ptr<file_impl>> make_file_impl(int fd, file_open_options options, int flags, std::string name) noexcept;
 public:
     future<> readable(pollable_fd_state& fd);
     future<> writeable(pollable_fd_state& fd);

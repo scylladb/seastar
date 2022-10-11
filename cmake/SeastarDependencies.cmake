@@ -92,6 +92,7 @@ macro (seastar_find_dependencies)
     Concepts
     GnuTLS
     LibUring
+    LibNvme
     LinuxMembarrier
     Sanitizers
     SourceLocation
