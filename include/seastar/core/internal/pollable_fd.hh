@@ -62,7 +62,26 @@ public:
     };
     pollable_fd_state(const pollable_fd_state&) = delete;
     void operator=(const pollable_fd_state&) = delete;
+    /// Set the speculation of specified I/O events
+    ///
+    /// We try to speculate. If an I/O is completed successfully without being
+    /// blocked and it didn't return the short read/write. We anticipate that
+    /// the next I/O will also be non-blocking and will not return EAGAIN.
+    /// But the speculation is invalidated once it is "used" by
+    /// \c take_speculation()
     void speculate_epoll(int events) { events_known |= events; }
+    /// Check whether we speculate specified I/O is possible on the fd,
+    /// invalidate the speculation if it matches with all specified \c events.
+    ///
+    /// \return true if the current speculation includes all specified events
+    bool take_speculation(int events) {
+        // invalidate the speculation set by the last speculate_epoll() call,
+        if (events_known & events) {
+            events_known &= ~events;
+            return true;
+        }
+        return false;
+    }
     file_desc fd;
     bool events_rw = false;   // single consumer for both read and write (accept())
     unsigned shutdown_mask = 0;  // For udp, there is no shutdown indication from the kernel
