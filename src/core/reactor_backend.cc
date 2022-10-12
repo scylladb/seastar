@@ -1409,7 +1409,7 @@ private:
         }
         return did_work | std::exchange(_did_work_while_getting_sqe, false);
     }
-protected:
+
     template<typename Completion>
     auto submit_request(std::unique_ptr<Completion> desc, io_request&& req) noexcept {
         auto fut = desc->get_future();
