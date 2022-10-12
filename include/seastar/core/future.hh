@@ -880,7 +880,7 @@ protected:
 
     template<typename Exception>
     std::enable_if_t<!std::is_same<std::remove_reference_t<Exception>, std::exception_ptr>::value, void> set_exception(Exception&& e) noexcept {
-        set_exception(make_exception_ptr(std::forward<Exception>(e)));
+        set_exception(std::make_exception_ptr(std::forward<Exception>(e)));
     }
 
     friend class future_base;
