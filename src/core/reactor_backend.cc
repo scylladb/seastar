@@ -2045,15 +2045,15 @@ reactor_backend_selector reactor_backend_selector::default_backend() {
 
 std::vector<reactor_backend_selector> reactor_backend_selector::available() {
     std::vector<reactor_backend_selector> ret;
-    if (has_enough_aio_nr() && detect_aio_poll()) {
-        ret.push_back(reactor_backend_selector("linux-aio"));
-    }
-    ret.push_back(reactor_backend_selector("epoll"));
 #ifdef SEASTAR_HAVE_URING
     if (detect_io_uring()) {
         ret.push_back(reactor_backend_selector("io_uring"));
     }
 #endif
+    if (has_enough_aio_nr() && detect_aio_poll()) {
+        ret.push_back(reactor_backend_selector("linux-aio"));
+    }
+    ret.push_back(reactor_backend_selector("epoll"));
     return ret;
 }
 
