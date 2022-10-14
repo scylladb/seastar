@@ -671,6 +671,10 @@ private:
                         tcp.indata.trim_front(len);
                         return len;
                     }
+                    if (!tcp.socket) {
+                        errno = ENOTCONN;
+                        return -1;
+                    }
                     if (!tcp.in) {
                         tcp.in = tcp.socket.input();
                     }
@@ -808,6 +812,11 @@ private:
                 if (e.typ == type::tcp && !(e.avail & POLLOUT)) {
                     dns_log.trace("Send already pending {}", fd);
                     errno = EWOULDBLOCK;
+                    return -1;
+                }
+
+                if (!e.tcp.socket) {
+                    errno = ENOTCONN;
                     return -1;
                 }
 
