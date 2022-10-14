@@ -89,6 +89,30 @@ SEASTAR_TEST_CASE(test_timeout_udp) {
     });
 }
 
+// NOTE: cannot really test timeout in TCP mode, because seastar sockets do not support 
+// connect with timeout -> cannot complete connect future in dns::do_connect in reasonable
+// time.
+
+// But we can test for connection refused working as expected.
+SEASTAR_TEST_CASE(test_connection_refused_tcp) {
+    dns_resolver::options opts;
+    opts.servers = std::vector<inet_address>({ inet_address("127.0.0.1") }); 
+    opts.use_tcp_query = true;
+    opts.tcp_port = 29953; // not a dns port
+
+    auto d = ::make_lw_shared<dns_resolver>(engine().net(), opts);
+    return d->get_host_by_name(seastar_name, inet_address::family::INET).then_wrapped([d](future<hostent> f) {
+        try {
+            f.get();
+            BOOST_FAIL("should not succeed");
+        } catch (...) {
+            // ok.
+        }
+    }).finally([d]{
+        return d->close();
+    });
+}
+
 SEASTAR_TEST_CASE(test_resolve_tcp) {
     dns_resolver::options opts;
     opts.use_tcp_query = true;
