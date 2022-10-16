@@ -10,6 +10,8 @@ See the instructions in [README.md](./README.md).
 
 ### Download and install all external dependencies in a project-specific location
 
+- First pull the git submodules using `git submodule update --init --recursive`
+
 - Use `cmake-cooking` to prepare a development environment with all dependencies.  This allows for reproducible development environments, but means that approximately 3 GiB of dependencies get installed to `build/_cooking_`:
 
 ```
