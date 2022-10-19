@@ -27,6 +27,7 @@
 #include <seastar/core/internal/poll.hh>
 #include <seastar/core/linux-aio.hh>
 #include <seastar/core/cacheline.hh>
+#include <fmt/ostream.h>
 #include <sys/time.h>
 #include <signal.h>
 #include <thread>
@@ -381,3 +382,9 @@ public:
 };
 
 }
+
+#if FMT_VERSION >= 90000
+
+template <> struct fmt::formatter<seastar::reactor_backend_selector> : fmt::ostream_formatter {};
+
+#endif
