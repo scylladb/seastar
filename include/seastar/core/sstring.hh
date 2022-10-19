@@ -805,3 +805,10 @@ std::ostream& operator<<(std::ostream& os, const std::unordered_map<Key, T, Hash
     return os;
 }
 }
+
+#if FMT_VERSION >= 90000
+
+template <typename char_type, typename Size, Size max_size, bool NulTerminate>
+struct fmt::formatter<seastar::basic_sstring<char_type, Size, max_size, NulTerminate>> : fmt::ostream_formatter {};
+
+#endif
