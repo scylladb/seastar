@@ -89,6 +89,14 @@ private:
         _ptr.sockaddr = sa;
         _size.socklen_ptr = sl;
     }
+    explicit io_request(operation op, int fd, int flags, char* ptr, size_t size)
+        : _op(op)
+        , _fd(fd)
+    {
+        _attr.flags = flags;
+        _ptr.addr = ptr;
+        _size.len = size;
+    }
     explicit io_request(operation op, int fd, uint64_t pos, char* ptr, size_t size)
         : _op(op)
         , _fd(fd)
