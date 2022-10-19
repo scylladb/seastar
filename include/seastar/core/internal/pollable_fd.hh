@@ -105,6 +105,7 @@ public:
     future<> readable_or_writeable();
     future<std::tuple<pollable_fd, socket_address>> accept();
     future<> connect(socket_address& sa);
+    future<temporary_buffer<char>> recv_some(internal::buffer_allocator* ba);
     future<size_t> sendmsg(struct msghdr *msg);
     future<size_t> recvmsg(struct msghdr *msg);
     future<size_t> sendto(socket_address addr, const void* buf, size_t len);
@@ -167,6 +168,9 @@ public:
     }
     future<> connect(socket_address& sa) {
         return _s->connect(sa);
+    }
+    future<temporary_buffer<char>> recv_some(internal::buffer_allocator* ba) {
+        return _s->recv_some(ba);
     }
     future<size_t> sendmsg(struct msghdr *msg) {
         return _s->sendmsg(msg);
