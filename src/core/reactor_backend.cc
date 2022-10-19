@@ -1553,7 +1553,7 @@ public:
             mh.msg_iov = const_cast<iovec*>(iov.data());
             mh.msg_iovlen = iov.size();
             try {
-                auto r = fd.fd.recvmsg(&mh, 0);
+                auto r = fd.fd.recvmsg(&mh, MSG_DONTWAIT);
                 if (r) {
                     if (size_t(*r) == internal::iovec_len(iov)) {
                         fd.speculate_epoll(EPOLLIN);
@@ -1662,7 +1662,7 @@ public:
             mh.msg_iov = reinterpret_cast<iovec*>(p.fragment_array());
             mh.msg_iovlen = std::min<size_t>(p.nr_frags(), IOV_MAX);
             try {
-                auto r = fd.fd.sendmsg(&mh, MSG_NOSIGNAL);
+                auto r = fd.fd.sendmsg(&mh, MSG_NOSIGNAL | MSG_DONTWAIT);
                 if (r) {
                     if (size_t(*r) == p.len()) {
                         fd.speculate_epoll(EPOLLOUT);
@@ -1709,7 +1709,7 @@ public:
     virtual future<size_t> write_some(pollable_fd_state& fd, const void* buffer, size_t len) override {
         if (fd.take_speculation(EPOLLOUT)) {
             try {
-                auto r = fd.fd.send(buffer, len, MSG_NOSIGNAL);
+                auto r = fd.fd.send(buffer, len, MSG_NOSIGNAL | MSG_DONTWAIT);
                 if (r) {
                     if (size_t(*r) == len) {
                         fd.speculate_epoll(EPOLLOUT);
@@ -1746,6 +1746,7 @@ public:
         auto req = internal::io_request::make_send(fd.fd.get(), buffer, len, MSG_NOSIGNAL);
         return submit_request(std::move(desc), std::move(req));
     }
+
     virtual future<temporary_buffer<char>> recv_some(pollable_fd_state& fd, internal::buffer_allocator* ba) override {
         if (fd.take_speculation(POLLIN)) {
             auto buffer = ba->allocate_buffer();
@@ -1793,6 +1794,10 @@ public:
         auto desc = std::make_unique<recv_completion>(fd, ba->allocate_buffer());
         auto req = internal::io_request::make_recv(fd.fd.get(), desc->get_write(), desc->get_size(), 0);
         return submit_request(std::move(desc), std::move(req));
+    }
+
+    virtual bool do_blocking_io() const override {
+        return true;
     }
 
     virtual void signal_received(int signo, siginfo_t* siginfo, void* ignore) override {

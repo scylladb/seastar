@@ -1568,7 +1568,8 @@ void pollable_fd::shutdown(int how, shutdown_kernel_only kernel_only) {
 
 pollable_fd
 reactor::make_pollable_fd(socket_address sa, int proto) {
-    file_desc fd = file_desc::socket(sa.u.sa.sa_family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, proto);
+    int maybe_nonblock = _backend->do_blocking_io() ? 0 : SOCK_NONBLOCK;
+    file_desc fd = file_desc::socket(sa.u.sa.sa_family, SOCK_STREAM | maybe_nonblock | SOCK_CLOEXEC, proto);
     return pollable_fd(std::move(fd));
 }
 
