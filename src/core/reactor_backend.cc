@@ -617,8 +617,8 @@ void reactor_backend_aio::shutdown(pollable_fd_state& fd, int how) {
 }
 
 future<size_t>
-reactor_backend_aio::read_some(pollable_fd_state& fd, void* buffer, size_t len) {
-    return _r.do_read_some(fd, buffer, len);
+reactor_backend_aio::read(pollable_fd_state& fd, void* buffer, size_t len) {
+    return _r.do_read(fd, buffer, len);
 }
 
 future<size_t>
@@ -993,8 +993,8 @@ void reactor_backend_epoll::shutdown(pollable_fd_state& fd, int how) {
 }
 
 future<size_t>
-reactor_backend_epoll::read_some(pollable_fd_state& fd, void* buffer, size_t len) {
-    return _r.do_read_some(fd, buffer, len);
+reactor_backend_epoll::read(pollable_fd_state& fd, void* buffer, size_t len) {
+    return _r.do_read(fd, buffer, len);
 }
 
 future<size_t>
@@ -1104,7 +1104,7 @@ reactor_backend_osv::recv(pollable_fd_state& fd, void* buffer, size_t len) {
 }
 
 future<size_t>
-reactor_backend_osv::read_some(pollable_fd_state& fd, void* buffer, size_t len) {
+reactor_backend_osv::read(pollable_fd_state& fd, void* buffer, size_t len) {
     return engine().do_read_some(fd, buffer, len);
 }
 
@@ -1598,7 +1598,7 @@ public:
     virtual void shutdown(pollable_fd_state& fd, int how) override {
         fd.fd.shutdown(how);
     }
-    virtual future<size_t> read_some(pollable_fd_state& fd, void* buffer, size_t len) override {
+    virtual future<size_t> read(pollable_fd_state& fd, void* buffer, size_t len) override {
         if (fd.take_speculation(POLLIN)) {
             try {
                 auto r = fd.fd.read(buffer, len);

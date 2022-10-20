@@ -444,7 +444,7 @@ private:
     future<> do_connect(pollable_fd_state& pfd, socket_address& sa);
 
     future<size_t>
-    do_read_some(pollable_fd_state& fd, void* buffer, size_t size);
+    do_read(pollable_fd_state& fd, void* buffer, size_t size);
     future<size_t>
     do_recvmsg(pollable_fd_state& fd, const std::vector<iovec>& iov);
     future<temporary_buffer<char>>

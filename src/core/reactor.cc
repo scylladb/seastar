@@ -270,11 +270,11 @@ future<> reactor::do_connect(pollable_fd_state& pfd, socket_address& sa) {
 }
 
 future<size_t>
-reactor::do_read_some(pollable_fd_state& fd, void* buffer, size_t len) {
+reactor::do_read(pollable_fd_state& fd, void* buffer, size_t len) {
     return readable(fd).then([this, &fd, buffer, len] () mutable {
         auto r = fd.fd.read(buffer, len);
         if (!r) {
-            return do_read_some(fd, buffer, len);
+            return do_read(fd, buffer, len);
         }
         if (size_t(*r) == len) {
             fd.speculate_epoll(EPOLLIN);
@@ -395,11 +395,11 @@ reactor::write_all(pollable_fd_state& fd, const void* buffer, size_t len) {
 }
 
 future<size_t> pollable_fd_state::read_some(char* buffer, size_t size) {
-    return engine()._backend->read_some(*this, buffer, size);
+    return engine()._backend->read(*this, buffer, size);
 }
 
 future<size_t> pollable_fd_state::read_some(uint8_t* buffer, size_t size) {
-    return engine()._backend->read_some(*this, buffer, size);
+    return engine()._backend->read(*this, buffer, size);
 }
 
 future<size_t> pollable_fd_state::read_some(const std::vector<iovec>& iov) {
