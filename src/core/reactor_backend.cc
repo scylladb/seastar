@@ -622,8 +622,8 @@ reactor_backend_aio::read_some(pollable_fd_state& fd, void* buffer, size_t len) 
 }
 
 future<size_t>
-reactor_backend_aio::read_some(pollable_fd_state& fd, const std::vector<iovec>& iov) {
-    return _r.do_read_some(fd, iov);
+reactor_backend_aio::recvmsg(pollable_fd_state& fd, const std::vector<iovec>& iov) {
+    return _r.do_recvmsg(fd, iov);
 }
 
 future<temporary_buffer<char>>
@@ -998,8 +998,8 @@ reactor_backend_epoll::read_some(pollable_fd_state& fd, void* buffer, size_t len
 }
 
 future<size_t>
-reactor_backend_epoll::read_some(pollable_fd_state& fd, const std::vector<iovec>& iov) {
-    return _r.do_read_some(fd, iov);
+reactor_backend_epoll::recvmsg(pollable_fd_state& fd, const std::vector<iovec>& iov) {
+    return _r.do_recvmsg(fd, iov);
 }
 
 future<temporary_buffer<char>>
@@ -1109,7 +1109,7 @@ reactor_backend_osv::read_some(pollable_fd_state& fd, void* buffer, size_t len) 
 }
 
 future<size_t>
-reactor_backend_osv::read_some(pollable_fd_state& fd, const std::vector<iovec>& iov) {
+reactor_backend_osv::recvmsg(pollable_fd_state& fd, const std::vector<iovec>& iov) {
     return engine().do_read_some(fd, iov);
 }
 
@@ -1638,7 +1638,7 @@ public:
         auto req = internal::io_request::make_read(fd.fd.get(), -1, buffer, len, false);
         return submit_request(std::move(desc), std::move(req));
     }
-    virtual future<size_t> read_some(pollable_fd_state& fd, const std::vector<iovec>& iov) override {
+    virtual future<size_t> recvmsg(pollable_fd_state& fd, const std::vector<iovec>& iov) override {
         if (fd.take_speculation(POLLIN)) {
             ::msghdr mh = {};
             mh.msg_iov = const_cast<iovec*>(iov.data());

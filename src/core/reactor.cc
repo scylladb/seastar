@@ -303,14 +303,14 @@ reactor::do_read_some(pollable_fd_state& fd, internal::buffer_allocator* ba) {
 }
 
 future<size_t>
-reactor::do_read_some(pollable_fd_state& fd, const std::vector<iovec>& iov) {
+reactor::do_recvmsg(pollable_fd_state& fd, const std::vector<iovec>& iov) {
     return readable(fd).then([this, &fd, iov = iov] () mutable {
         ::msghdr mh = {};
         mh.msg_iov = &iov[0];
         mh.msg_iovlen = iov.size();
         auto r = fd.fd.recvmsg(&mh, 0);
         if (!r) {
-            return do_read_some(fd, iov);
+            return do_recvmsg(fd, iov);
         }
         if (size_t(*r) == internal::iovec_len(iov)) {
             fd.speculate_epoll(EPOLLIN);
@@ -403,7 +403,7 @@ future<size_t> pollable_fd_state::read_some(uint8_t* buffer, size_t size) {
 }
 
 future<size_t> pollable_fd_state::read_some(const std::vector<iovec>& iov) {
-    return engine()._backend->read_some(*this, iov);
+    return engine()._backend->recvmsg(*this, iov);
 }
 
 future<temporary_buffer<char>> pollable_fd_state::read_some(internal::buffer_allocator* ba) {
