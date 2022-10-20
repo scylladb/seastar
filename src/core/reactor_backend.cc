@@ -63,24 +63,32 @@ public:
 void prepare_iocb(io_request& req, io_completion* desc, iocb& iocb) {
     switch (req.opcode()) {
     case io_request::operation::fdatasync:
-        iocb = make_fdsync_iocb(req.fd());
+        iocb = make_fdsync_iocb(req.as<io_request::operation::fdatasync>().fd);
         break;
-    case io_request::operation::write:
-        iocb = make_write_iocb(req.fd(), req.pos(), req.address(), req.size());
-        set_nowait(iocb, req.nowait_works());
+    case io_request::operation::write: {
+        const auto& op = req.as<io_request::operation::write>();
+        iocb = make_write_iocb(op.fd, op.pos, op.addr, op.size);
+        set_nowait(iocb, op.nowait_works);
         break;
-    case io_request::operation::writev:
-        iocb = make_writev_iocb(req.fd(), req.pos(), req.iov(), req.size());
-        set_nowait(iocb, req.nowait_works());
+    }
+    case io_request::operation::writev: {
+        const auto& op = req.as<io_request::operation::writev>();
+        iocb = make_writev_iocb(op.fd, op.pos, op.iovec, op.iov_len);
+        set_nowait(iocb, op.nowait_works);
         break;
-    case io_request::operation::read:
-        iocb = make_read_iocb(req.fd(), req.pos(), req.address(), req.size());
-        set_nowait(iocb, req.nowait_works());
+    }
+    case io_request::operation::read: {
+        const auto& op = req.as<io_request::operation::read>();
+        iocb = make_read_iocb(op.fd, op.pos, op.addr, op.size);
+        set_nowait(iocb, op.nowait_works);
         break;
-    case io_request::operation::readv:
-        iocb = make_readv_iocb(req.fd(), req.pos(), req.iov(), req.size());
-        set_nowait(iocb, req.nowait_works());
+    }
+    case io_request::operation::readv: {
+        const auto& op = req.as<io_request::operation::readv>();
+        iocb = make_readv_iocb(op.fd, op.pos, op.iovec, op.iov_len);
+        set_nowait(iocb, op.nowait_works);
         break;
+    }
     default:
         seastar_logger.error("Invalid operation for iocb: {}", req.opname());
         std::abort();
@@ -1347,39 +1355,61 @@ private:
         auto sqe = get_sqe();
         using o = internal::io_request::operation;
         switch (req.opcode()) {
-            case o::read:
-                ::io_uring_prep_read(sqe, req.fd(), req.address(), req.size(), req.pos());
+            case o::read: {
+                const auto& op = req.as<io_request::operation::read>();
+                ::io_uring_prep_read(sqe, op.fd, op.addr, op.size, op.pos);
                 break;
-            case o::write:
-                ::io_uring_prep_write(sqe, req.fd(), req.address(), req.size(), req.pos());
+            }
+            case o::write: {
+                const auto& op = req.as<io_request::operation::write>();
+                ::io_uring_prep_write(sqe, op.fd, op.addr, op.size, op.pos);
                 break;
-            case o::readv:
-                ::io_uring_prep_readv(sqe, req.fd(), req.iov(), req.iov_len(), req.pos());
+            }
+            case o::readv: {
+                const auto& op = req.as<io_request::operation::readv>();
+                ::io_uring_prep_readv(sqe, op.fd, op.iovec, op.iov_len, op.pos);
                 break;
-            case o::writev:
-                ::io_uring_prep_writev(sqe, req.fd(), req.iov(), req.iov_len(), req.pos());
+            }
+            case o::writev: {
+                const auto& op = req.as<io_request::operation::writev>();
+                ::io_uring_prep_writev(sqe, op.fd, op.iovec, op.iov_len, op.pos);
                 break;
-            case o::fdatasync:
-                ::io_uring_prep_fsync(sqe, req.fd(), IORING_FSYNC_DATASYNC);
+            }
+            case o::fdatasync: {
+                const auto& op = req.as<io_request::operation::fdatasync>();
+                ::io_uring_prep_fsync(sqe, op.fd, IORING_FSYNC_DATASYNC);
                 break;
-            case o::recv:
-                ::io_uring_prep_recv(sqe, req.fd(), req.address(), req.size(), req.flags());
+            }
+            case o::recv: {
+                const auto& op = req.as<io_request::operation::recv>();
+                ::io_uring_prep_recv(sqe, op.fd, op.addr, op.size, op.flags);
                 break;
-            case o::recvmsg:
-                ::io_uring_prep_recvmsg(sqe, req.fd(), req.msghdr(), req.flags());
+            }
+            case o::recvmsg: {
+                const auto& op = req.as<io_request::operation::recvmsg>();
+                ::io_uring_prep_recvmsg(sqe, op.fd, op.msghdr, op.flags);
                 break;
-            case o::send:
-                ::io_uring_prep_send(sqe, req.fd(), req.address(), req.size(), req.flags());
+            }
+            case o::send: {
+                const auto& op = req.as<io_request::operation::send>();
+                ::io_uring_prep_send(sqe, op.fd, op.addr, op.size, op.flags);
                 break;
-            case o::sendmsg:
-                ::io_uring_prep_sendmsg(sqe, req.fd(), req.msghdr(), req.flags());
+            }
+            case o::sendmsg: {
+                const auto& op = req.as<io_request::operation::sendmsg>();
+                ::io_uring_prep_sendmsg(sqe, op.fd, op.msghdr, op.flags);
                 break;
-            case o::accept:
-                ::io_uring_prep_accept(sqe, req.fd(), req.posix_sockaddr(), req.socklen_ptr(), req.flags());
+            }
+            case o::accept: {
+                const auto& op = req.as<io_request::operation::accept>();
+                ::io_uring_prep_accept(sqe, op.fd, op.sockaddr, op.socklen_ptr, op.flags);
                 break;
-            case o::connect:
-                ::io_uring_prep_connect(sqe, req.fd(), req.posix_sockaddr(), req.socklen());
+            }
+            case o::connect: {
+                const auto& op = req.as<io_request::operation::connect>();
+                ::io_uring_prep_connect(sqe, op.fd, op.sockaddr, op.socklen);
                 break;
+            }
             case o::poll_add:
             case o::poll_remove:
             case o::cancel:
