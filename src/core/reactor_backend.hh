@@ -363,6 +363,7 @@ public:
     virtual future<temporary_buffer<char>> read_some(pollable_fd_state& fd, internal::buffer_allocator* ba) override;
     virtual future<size_t> sendmsg(pollable_fd_state& fd, net::packet& p) override;
     virtual future<size_t> send(pollable_fd_state& fd, const void* buffer, size_t len) override;
+    virtual future<temporary_buffer<char>> recv_some(pollable_fd_state& fd, internal::buffer_allocator* ba) override;
 
     void enable_timer(steady_clock_type::time_point when);
     virtual pollable_fd_state_ptr

@@ -1128,6 +1128,11 @@ reactor_backend_osv::sendmsg(pollable_fd_state& fd, net::packet& p) {
     return engine().do_sendmsg(fd, p);
 }
 
+future<temporary_buffer<char>>
+reactor_backend_osv::recv_some(pollable_fd_state& fd, internal::buffer_allocator* ba) {
+    return engine().do_recv_some(fd, p);
+}
+
 void
 reactor_backend_osv::enable_timer(steady_clock_type::time_point when) {
     _poller.set_timer(when);
