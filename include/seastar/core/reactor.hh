@@ -511,7 +511,7 @@ public:
 
     future<> posix_connect(pollable_fd pfd, socket_address sa, socket_address local);
 
-    future<> write_all(pollable_fd_state& fd, const void* buffer, size_t size);
+    future<> send_all(pollable_fd_state& fd, const void* buffer, size_t size);
 
     future<file> open_file_dma(std::string_view name, open_flags flags, file_open_options options = {}) noexcept;
     future<file> open_directory(std::string_view name) noexcept;
@@ -632,7 +632,7 @@ private:
     void unregister_poller(pollfn* p);
     void replace_poller(pollfn* old, pollfn* neww);
     void register_metrics();
-    future<> write_all_part(pollable_fd_state& fd, const void* buffer, size_t size, size_t completed);
+    future<> send_all_part(pollable_fd_state& fd, const void* buffer, size_t size, size_t completed);
 
     future<> fdatasync(int fd) noexcept;
 

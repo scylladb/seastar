@@ -360,13 +360,13 @@ reactor::do_sendmsg(pollable_fd_state& fd, net::packet& p) {
 }
 
 future<>
-reactor::write_all_part(pollable_fd_state& fd, const void* buffer, size_t len, size_t completed) {
+reactor::send_all_part(pollable_fd_state& fd, const void* buffer, size_t len, size_t completed) {
     if (completed == len) {
         return make_ready_future<>();
     } else {
         return _backend->send(fd, static_cast<const char*>(buffer) + completed, len - completed).then(
                 [&fd, buffer, len, completed, this] (size_t part) mutable {
-            return write_all_part(fd, buffer, len, completed + part);
+            return send_all_part(fd, buffer, len, completed + part);
         });
     }
 }
@@ -389,9 +389,9 @@ reactor::do_recv_some(pollable_fd_state& fd, internal::buffer_allocator* ba) {
 }
 
 future<>
-reactor::write_all(pollable_fd_state& fd, const void* buffer, size_t len) {
+reactor::send_all(pollable_fd_state& fd, const void* buffer, size_t len) {
     assert(len);
-    return write_all_part(fd, buffer, len, 0);
+    return send_all_part(fd, buffer, len, 0);
 }
 
 future<size_t> pollable_fd_state::read_some(char* buffer, size_t size) {
@@ -415,11 +415,11 @@ future<size_t> pollable_fd_state::write_some(net::packet& p) {
 }
 
 future<> pollable_fd_state::write_all(const char* buffer, size_t size) {
-    return engine().write_all(*this, buffer, size);
+    return engine().send_all(*this, buffer, size);
 }
 
 future<> pollable_fd_state::write_all(const uint8_t* buffer, size_t size) {
-    return engine().write_all(*this, buffer, size);
+    return engine().send_all(*this, buffer, size);
 }
 
 future<> pollable_fd_state::write_all(net::packet& p) {
