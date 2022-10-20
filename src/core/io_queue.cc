@@ -404,15 +404,15 @@ std::vector<io_request::part> io_request::split(size_t max_length) {
 
 std::vector<io_request::part> io_request::split_buffer(size_t max_length) {
     std::vector<part> ret;
-    ret.reserve((_size.len + max_length - 1) / max_length);
+    const auto& op = _read;
+    ret.reserve((op.size + max_length - 1) / max_length);
 
     size_t off = 0;
     do {
-        size_t len = std::min(_size.len - off, max_length);
-        io_request part(_op, _fd, _attr.pos + off, _ptr.addr + off, len, _nowait_works);
-        ret.push_back({ std::move(part), len, {} });
+        size_t len = std::min(op.size - off, max_length);
+        ret.push_back({ sub_req_buffer(off, len), len, {} });
         off += len;
-    } while (off < _size.len);
+    } while (off < op.size);
 
     return ret;
 }
@@ -420,10 +420,11 @@ std::vector<io_request::part> io_request::split_buffer(size_t max_length) {
 std::vector<io_request::part> io_request::split_iovec(size_t max_length) {
     std::vector<part> parts;
     std::vector<::iovec> vecs;
-    ::iovec* cur = iov();
+    const auto& op = _readv;
+    ::iovec* cur = op.iovec;
     size_t pos = 0;
     size_t off = 0;
-    ::iovec* end = cur + iov_len();
+    ::iovec* end = cur + op.iov_len;
     size_t remaining = max_length;
 
     while (cur != end) {
@@ -445,16 +446,14 @@ std::vector<io_request::part> io_request::split_iovec(size_t max_length) {
             vecs.push_back(std::move(iov));
         }
 
-        io_request req(_op, _fd, _attr.pos + pos, vecs.data(), vecs.size(), _nowait_works);
-        parts.push_back({ std::move(req), max_length, std::move(vecs) });
+        parts.push_back({ sub_req_iovec(pos, vecs), max_length, std::move(vecs) });
         pos += max_length;
         remaining = max_length;
     }
 
     if (vecs.size() > 0) {
         assert(remaining < max_length);
-        io_request req(_op, _fd, _attr.pos + pos, vecs.data(), vecs.size(), _nowait_works);
-        parts.push_back({ std::move(req), max_length - remaining, std::move(vecs) });
+        parts.push_back({ sub_req_iovec(pos, vecs), max_length - remaining, std::move(vecs) });
     }
 
     return parts;
