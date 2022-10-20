@@ -453,7 +453,7 @@ private:
     future<size_t>
     do_send(pollable_fd_state& fd, const void* buffer, size_t size);
     future<size_t>
-    do_write_some(pollable_fd_state& fd, net::packet& p);
+    do_sendmsg(pollable_fd_state& fd, net::packet& p);
 
     future<temporary_buffer<char>>
     do_recv_some(pollable_fd_state& fd, internal::buffer_allocator* ba);

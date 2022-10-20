@@ -334,7 +334,7 @@ reactor::do_send(pollable_fd_state& fd, const void* buffer, size_t len) {
 }
 
 future<size_t>
-reactor::do_write_some(pollable_fd_state& fd, net::packet& p) {
+reactor::do_sendmsg(pollable_fd_state& fd, net::packet& p) {
     return writeable(fd).then([this, &fd, &p] () mutable {
         static_assert(offsetof(iovec, iov_base) == offsetof(net::fragment, base) &&
             sizeof(iovec::iov_base) == sizeof(net::fragment::base) &&
@@ -350,7 +350,7 @@ reactor::do_write_some(pollable_fd_state& fd, net::packet& p) {
         mh.msg_iovlen = std::min<size_t>(p.nr_frags(), IOV_MAX);
         auto r = fd.fd.sendmsg(&mh, MSG_NOSIGNAL);
         if (!r) {
-            return do_write_some(fd, p);
+            return do_sendmsg(fd, p);
         }
         if (size_t(*r) == p.len()) {
             fd.speculate_epoll(EPOLLOUT);
@@ -411,7 +411,7 @@ future<temporary_buffer<char>> pollable_fd_state::read_some(internal::buffer_all
 }
 
 future<size_t> pollable_fd_state::write_some(net::packet& p) {
-    return engine()._backend->write_some(*this, p);
+    return engine()._backend->sendmsg(*this, p);
 }
 
 future<> pollable_fd_state::write_all(const char* buffer, size_t size) {

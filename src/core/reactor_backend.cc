@@ -637,8 +637,8 @@ reactor_backend_aio::send(pollable_fd_state& fd, const void* buffer, size_t len)
 }
 
 future<size_t>
-reactor_backend_aio::write_some(pollable_fd_state& fd, net::packet& p) {
-    return _r.do_write_some(fd, p);
+reactor_backend_aio::sendmsg(pollable_fd_state& fd, net::packet& p) {
+    return _r.do_sendmsg(fd, p);
 }
 
 future<temporary_buffer<char>>
@@ -1013,8 +1013,8 @@ reactor_backend_epoll::send(pollable_fd_state& fd, const void* buffer, size_t le
 }
 
 future<size_t>
-reactor_backend_epoll::write_some(pollable_fd_state& fd, net::packet& p) {
-    return _r.do_write_some(fd, p);
+reactor_backend_epoll::sendmsg(pollable_fd_state& fd, net::packet& p) {
+    return _r.do_sendmsg(fd, p);
 }
 
 future<temporary_buffer<char>>
@@ -1124,8 +1124,8 @@ reactor_backend_osv::send(pollable_fd_state& fd, const void* buffer, size_t len)
 }
 
 future<size_t>
-reactor_backend_osv::write_some(pollable_fd_state& fd, net::packet& p) {
-    return engine().do_write_some(fd, p);
+reactor_backend_osv::sendmsg(pollable_fd_state& fd, net::packet& p) {
+    return engine().do_sendmsg(fd, p);
 }
 
 void
@@ -1739,7 +1739,7 @@ public:
             return submit_request(std::move(desc), std::move(req));
         });
     }
-    virtual future<size_t> write_some(pollable_fd_state& fd, net::packet& p) final {
+    virtual future<size_t> sendmsg(pollable_fd_state& fd, net::packet& p) final {
         if (fd.take_speculation(EPOLLOUT)) {
             static_assert(offsetof(iovec, iov_base) == offsetof(net::fragment, base) &&
                 sizeof(iovec::iov_base) == sizeof(net::fragment::base) &&
