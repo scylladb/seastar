@@ -320,11 +320,11 @@ reactor::do_recvmsg(pollable_fd_state& fd, const std::vector<iovec>& iov) {
 }
 
 future<size_t>
-reactor::do_write_some(pollable_fd_state& fd, const void* buffer, size_t len) {
+reactor::do_send(pollable_fd_state& fd, const void* buffer, size_t len) {
     return writeable(fd).then([this, &fd, buffer, len] () mutable {
         auto r = fd.fd.send(buffer, len, MSG_NOSIGNAL);
         if (!r) {
-            return do_write_some(fd, buffer, len);
+            return do_send(fd, buffer, len);
         }
         if (size_t(*r) == len) {
             fd.speculate_epoll(EPOLLOUT);
@@ -364,7 +364,7 @@ reactor::write_all_part(pollable_fd_state& fd, const void* buffer, size_t len, s
     if (completed == len) {
         return make_ready_future<>();
     } else {
-        return _backend->write_some(fd, static_cast<const char*>(buffer) + completed, len - completed).then(
+        return _backend->send(fd, static_cast<const char*>(buffer) + completed, len - completed).then(
                 [&fd, buffer, len, completed, this] (size_t part) mutable {
             return write_all_part(fd, buffer, len, completed + part);
         });
