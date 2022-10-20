@@ -371,6 +371,23 @@ reactor::write_all_part(pollable_fd_state& fd, const void* buffer, size_t len, s
     }
 }
 
+
+future<temporary_buffer<char>>
+reactor::do_recv_some(pollable_fd_state& fd, internal::buffer_allocator* ba) {
+    return fd.readable().then([this, &fd, ba] {
+        auto buffer = ba->allocate_buffer();
+        auto r = fd.fd.recv(buffer.get_write(), buffer.size(), MSG_DONTWAIT);
+        if (!r) {
+            return do_recv_some(fd, ba);
+        }
+        if (size_t(*r) == buffer.size()) {
+            fd.speculate_epoll(EPOLLIN);
+        }
+        buffer.trim(*r);
+        return make_ready_future<temporary_buffer<char>>(std::move(buffer));
+    });
+}
+
 future<>
 reactor::write_all(pollable_fd_state& fd, const void* buffer, size_t len) {
     assert(len);
@@ -433,6 +450,11 @@ future<std::tuple<pollable_fd, socket_address>> pollable_fd_state::accept() {
 
 future<> pollable_fd_state::connect(socket_address& sa) {
     return engine()._backend->connect(*this, sa);
+}
+
+future<temporary_buffer<char>> pollable_fd_state::recv_some(internal::buffer_allocator* ba) {
+    maybe_no_more_recv();
+    return engine()._backend->recv_some(*this, ba);
 }
 
 future<size_t> pollable_fd_state::recvmsg(struct msghdr *msg) {
@@ -1547,7 +1569,8 @@ void pollable_fd::shutdown(int how, shutdown_kernel_only kernel_only) {
 
 pollable_fd
 reactor::make_pollable_fd(socket_address sa, int proto) {
-    file_desc fd = file_desc::socket(sa.u.sa.sa_family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, proto);
+    int maybe_nonblock = _backend->do_blocking_io() ? 0 : SOCK_NONBLOCK;
+    file_desc fd = file_desc::socket(sa.u.sa.sa_family, SOCK_STREAM | maybe_nonblock | SOCK_CLOEXEC, proto);
     return pollable_fd(std::move(fd));
 }
 

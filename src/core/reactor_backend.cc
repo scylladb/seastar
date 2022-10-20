@@ -641,6 +641,11 @@ reactor_backend_aio::write_some(pollable_fd_state& fd, net::packet& p) {
     return _r.do_write_some(fd, p);
 }
 
+future<temporary_buffer<char>>
+reactor_backend_aio::recv_some(pollable_fd_state& fd, internal::buffer_allocator* ba) {
+    return _r.do_recv_some(fd, ba);
+}
+
 void reactor_backend_aio::start_tick() {
     _preempting_io.start_tick();
 }
@@ -1012,6 +1017,11 @@ reactor_backend_epoll::write_some(pollable_fd_state& fd, net::packet& p) {
     return _r.do_write_some(fd, p);
 }
 
+future<temporary_buffer<char>>
+reactor_backend_epoll::recv_some(pollable_fd_state& fd, internal::buffer_allocator* ba) {
+    return _r.do_recv_some(fd, ba);
+}
+
 void
 reactor_backend_epoll::request_preemption() {
     _r._preemption_monitor.head.store(1, std::memory_order_relaxed);
@@ -1086,6 +1096,11 @@ future<> reactor_backend_osv::connect(pollable_fd_state& fd, socket_address& sa)
 
 void reactor_backend_osv::shutdown(pollable_fd_state& fd, int how) {
     fd.fd.shutdown(how);
+}
+
+future<size_t>
+reactor_backend_osv::recv(pollable_fd_state& fd, void* buffer, size_t len) {
+    return engine().recv(fd, buffer, len);
 }
 
 future<size_t>
@@ -1629,7 +1644,7 @@ public:
             mh.msg_iov = const_cast<iovec*>(iov.data());
             mh.msg_iovlen = iov.size();
             try {
-                auto r = fd.fd.recvmsg(&mh, 0);
+                auto r = fd.fd.recvmsg(&mh, MSG_DONTWAIT);
                 if (r) {
                     if (size_t(*r) == internal::iovec_len(iov)) {
                         fd.speculate_epoll(EPOLLIN);
@@ -1738,7 +1753,7 @@ public:
             mh.msg_iov = reinterpret_cast<iovec*>(p.fragment_array());
             mh.msg_iovlen = std::min<size_t>(p.nr_frags(), IOV_MAX);
             try {
-                auto r = fd.fd.sendmsg(&mh, MSG_NOSIGNAL);
+                auto r = fd.fd.sendmsg(&mh, MSG_NOSIGNAL | MSG_DONTWAIT);
                 if (r) {
                     if (size_t(*r) == p.len()) {
                         fd.speculate_epoll(EPOLLOUT);
@@ -1785,7 +1800,7 @@ public:
     virtual future<size_t> write_some(pollable_fd_state& fd, const void* buffer, size_t len) override {
         if (fd.take_speculation(EPOLLOUT)) {
             try {
-                auto r = fd.fd.send(buffer, len, MSG_NOSIGNAL);
+                auto r = fd.fd.send(buffer, len, MSG_NOSIGNAL | MSG_DONTWAIT);
                 if (r) {
                     if (size_t(*r) == len) {
                         fd.speculate_epoll(EPOLLOUT);
@@ -1822,6 +1837,60 @@ public:
         auto req = internal::io_request::make_send(fd.fd.get(), buffer, len, MSG_NOSIGNAL);
         return submit_request(std::move(desc), std::move(req));
     }
+
+    virtual future<temporary_buffer<char>> recv_some(pollable_fd_state& fd, internal::buffer_allocator* ba) override {
+        if (fd.take_speculation(POLLIN)) {
+            auto buffer = ba->allocate_buffer();
+            try {
+                auto r = fd.fd.recv(buffer.get_write(), buffer.size(), MSG_DONTWAIT);
+                if (r) {
+                    if (size_t(*r) == buffer.size()) {
+                        fd.speculate_epoll(EPOLLIN);
+                    }
+                    return make_ready_future<temporary_buffer<char>>(std::move(buffer));
+                }
+            } catch (...) {
+                return current_exception_as_future<temporary_buffer<char>>();
+            }
+        }
+        class recv_completion final : public io_completion {
+            pollable_fd_state& _fd;
+            temporary_buffer<char> _buffer;
+            promise<temporary_buffer<char>> _result;
+        public:
+            recv_completion(pollable_fd_state& fd, temporary_buffer<char> buffer)
+                : _fd(fd), _buffer(std::move(buffer)) {}
+            void complete(size_t bytes) noexcept final {
+                if (bytes == _buffer.size()) {
+                    _fd.speculate_epoll(EPOLLIN);
+                }
+                _buffer.trim(bytes);
+                _result.set_value(std::move(_buffer));
+                delete this;
+            }
+            void set_exception(std::exception_ptr eptr) noexcept final {
+                _result.set_exception(eptr);
+                delete this;
+            }
+            future<temporary_buffer<char>> get_future() {
+                return _result.get_future();
+            }
+            char* get_write() {
+                return _buffer.get_write();
+            }
+            size_t get_size() {
+                return _buffer.size();
+            }
+        };
+        auto desc = std::make_unique<recv_completion>(fd, ba->allocate_buffer());
+        auto req = internal::io_request::make_recv(fd.fd.get(), desc->get_write(), desc->get_size(), 0);
+        return submit_request(std::move(desc), std::move(req));
+    }
+
+    virtual bool do_blocking_io() const override {
+        return true;
+    }
+
     virtual void signal_received(int signo, siginfo_t* siginfo, void* ignore) override {
         _r._signals.action(signo, siginfo, ignore);
     }

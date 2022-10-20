@@ -591,7 +591,7 @@ posix_ap_server_socket_impl::move_connected_socket(int protocol, socket_address 
 
 future<temporary_buffer<char>>
 posix_data_source_impl::get() {
-    return _fd.read_some(static_cast<internal::buffer_allocator*>(this)).then([this] (temporary_buffer<char> b) {
+    return _fd.recv_some(static_cast<internal::buffer_allocator*>(this)).then([this] (temporary_buffer<char> b) {
         if (b.size() >= _config.buffer_size) {
             _config.buffer_size *= 2;
             _config.buffer_size = std::min(_config.buffer_size, _config.max_buffer_size);
