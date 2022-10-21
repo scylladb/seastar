@@ -2738,6 +2738,33 @@ reactor::insert_activating_task_queues() {
     _activating_task_queues.clear();
 }
 
+void reactor::add_task(task* t) noexcept {
+    auto sg = t->group();
+    auto* q = _task_queues[sg._id].get();
+    bool was_empty = q->_q.empty();
+    q->_q.push_back(std::move(t));
+#ifdef SEASTAR_SHUFFLE_TASK_QUEUE
+    shuffle(q->_q.back(), *q);
+#endif
+    if (was_empty) {
+        activate(*q);
+    }
+}
+
+void reactor::add_urgent_task(task* t) noexcept {
+    memory::scoped_critical_alloc_section _;
+    auto sg = t->group();
+    auto* q = _task_queues[sg._id].get();
+    bool was_empty = q->_q.empty();
+    q->_q.push_front(std::move(t));
+#ifdef SEASTAR_SHUFFLE_TASK_QUEUE
+    shuffle(q->_q.front(), *q);
+#endif
+    if (was_empty) {
+        activate(*q);
+    }
+}
+
 void
 reactor::run_some_tasks() {
     if (!have_more_tasks()) {
