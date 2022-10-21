@@ -556,7 +556,6 @@ namespace fs = std::filesystem;
 
 using namespace net;
 
-using namespace internal;
 using namespace internal::linux_abi;
 
 std::atomic<manual_clock::rep> manual_clock::_now;
@@ -566,7 +565,7 @@ constexpr unsigned reactor::max_aio_per_queue;
 
 // Base version where this works; some filesystems were only fixed later, so
 // this value is mixed in with filesystem-provided values later.
-bool aio_nowait_supported = kernel_uname().whitelisted({"4.13"});
+bool aio_nowait_supported = internal::kernel_uname().whitelisted({"4.13"});
 
 static bool sched_debug() {
     return false;
@@ -948,7 +947,7 @@ reactor::reactor(std::shared_ptr<smp> smp, alien::instance& alien, unsigned id, 
     , _engine_thread(sched::thread::current())
 #endif
     , _cpu_started(0)
-    , _cpu_stall_detector(make_cpu_stall_detector())
+    , _cpu_stall_detector(internal::make_cpu_stall_detector())
     , _reuseport(posix_reuseport_detect())
     , _thread_pool(std::make_unique<thread_pool>(this, seastar::format("syscall-{}", id))) {
     /*
@@ -970,7 +969,7 @@ reactor::reactor(std::shared_ptr<smp> smp, alien::instance& alien, unsigned id, 
 #else
     sigset_t mask;
     sigemptyset(&mask);
-    sigaddset(&mask, cpu_stall_detector::signal_number());
+    sigaddset(&mask, internal::cpu_stall_detector::signal_number());
     auto r = ::pthread_sigmask(SIG_UNBLOCK, &mask, NULL);
     assert(r == 0);
 #endif
@@ -984,7 +983,7 @@ reactor::reactor(std::shared_ptr<smp> smp, alien::instance& alien, unsigned id, 
 reactor::~reactor() {
     sigset_t mask;
     sigemptyset(&mask);
-    sigaddset(&mask, cpu_stall_detector::signal_number());
+    sigaddset(&mask, internal::cpu_stall_detector::signal_number());
     auto r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
     assert(r == 0);
 
@@ -1059,6 +1058,8 @@ reactor::request_preemption() {
 void reactor::start_handling_signal() {
     return _backend->start_handling_signal();
 }
+
+namespace internal {
 
 cpu_stall_detector::cpu_stall_detector(cpu_stall_detector_config cfg)
         : _shard_id(this_shard_id()) {
@@ -1277,7 +1278,7 @@ cpu_stall_detector_linux_perf_event::try_make(cpu_stall_detector_config cfg) {
         .wakeup_events = 1,
     };
     unsigned long flags = 0;
-    if (kernel_uname().whitelisted({"3.14"})) {
+    if (internal::kernel_uname().whitelisted({"3.14"})) {
         flags |= PERF_FLAG_FD_CLOEXEC;
     }
     int fd = perf_event_open(&pea, 0, -1, -1, flags);
@@ -1309,8 +1310,7 @@ cpu_stall_detector_linux_perf_event::try_make(cpu_stall_detector_config cfg) {
 }
 
 
-std::unique_ptr<cpu_stall_detector>
-internal::make_cpu_stall_detector(cpu_stall_detector_config cfg) {
+std::unique_ptr<cpu_stall_detector> make_cpu_stall_detector(cpu_stall_detector_config cfg) {
     try {
         return cpu_stall_detector_linux_perf_event::try_make(cfg);
     } catch (...) {
@@ -1318,6 +1318,25 @@ internal::make_cpu_stall_detector(cpu_stall_detector_config cfg) {
         return std::make_unique<cpu_stall_detector_posix_timer>(cfg);
     }
 }
+
+void cpu_stall_detector::generate_trace() {
+    auto delta = reactor::now() - _run_started_at;
+
+    _total_reported++;
+    if (_config.report) {
+        _config.report();
+        return;
+    }
+
+    backtrace_buffer buf;
+    buf.append("Reactor stalled for ");
+    buf.append_decimal(uint64_t(delta / 1ms));
+    buf.append(" ms");
+    print_with_backtrace(buf, _config.oneline);
+    maybe_report_kernel_trace();
+}
+
+} // internal namespace
 
 void
 reactor::update_blocked_reactor_notify_ms(std::chrono::milliseconds ms) {
@@ -1350,24 +1369,6 @@ reactor::get_stall_detector_report_function() const {
 void
 reactor::block_notifier(int) {
     engine()._cpu_stall_detector->on_signal();
-}
-
-void
-cpu_stall_detector::generate_trace() {
-    auto delta = reactor::now() - _run_started_at;
-
-    _total_reported++;
-    if (_config.report) {
-        _config.report();
-        return;
-    }
-
-    backtrace_buffer buf;
-    buf.append("Reactor stalled for ");
-    buf.append_decimal(uint64_t(delta / 1ms));
-    buf.append(" ms");
-    print_with_backtrace(buf, _config.oneline);
-    maybe_report_kernel_trace();
 }
 
 template <typename T, typename E, typename EnableFunc>
@@ -1452,7 +1453,7 @@ void reactor::configure(const reactor_options& opts) {
     _task_quota = std::chrono::duration_cast<sched_clock::duration>(task_quota);
 
     auto blocked_time = opts.blocked_reactor_notify_ms.get_value() * 1ms;
-    cpu_stall_detector_config csdc;
+    internal::cpu_stall_detector_config csdc;
     csdc.threshold = blocked_time;
     csdc.stall_detector_reports_per_minute = opts.blocked_reactor_reports_per_minute.get_value();
     csdc.oneline = opts.blocked_reactor_report_format_oneline.get_value();
@@ -1613,40 +1614,6 @@ reactor::connect(socket_address sa, socket_address local, transport proto) {
     return _network_stack->connect(sa, local, proto);
 }
 
-sstring io_request::opname() const {
-    switch (_op) {
-    case io_request::operation::fdatasync:
-        return "fdatasync";
-    case io_request::operation::write:
-        return "write";
-    case io_request::operation::writev:
-        return "vectored write";
-    case io_request::operation::read:
-        return "read";
-    case io_request::operation::readv:
-        return "vectored read";
-    case io_request::operation::recv:
-        return "recv";
-    case io_request::operation::recvmsg:
-        return "recvmsg";
-    case io_request::operation::send:
-        return "send";
-    case io_request::operation::sendmsg:
-        return "sendmsg";
-    case io_request::operation::accept:
-        return "accept";
-    case io_request::operation::connect:
-        return "connect";
-    case io_request::operation::poll_add:
-        return "poll add";
-    case io_request::operation::poll_remove:
-        return "poll remove";
-    case io_request::operation::cancel:
-        return "cancel";
-    }
-    std::abort();
-}
-
 void io_completion::complete_with(ssize_t res) {
     if (res >= 0) {
         complete(res);
@@ -1733,7 +1700,7 @@ reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_opt
                 if (r == -1) {
                     return false;
                 }
-                return buf.f_type == fs_magic::tmpfs;
+                return buf.f_type == internal::fs_magic::tmpfs;
             };
             open_flags |= O_CLOEXEC;
             if (bypass_fsync) {
@@ -1992,13 +1959,13 @@ reactor::file_system_at(std::string_view pathname) noexcept {
             return wrap_syscall(ret, st);
         }).then([pathname = sstring(pathname)] (syscall_result_extra<struct statfs> sr) {
             static std::unordered_map<long int, fs_type> type_mapper = {
-                { fs_magic::xfs, fs_type::xfs },
-                { fs_magic::ext2, fs_type::ext2 },
-                { fs_magic::ext3, fs_type::ext3 },
-                { fs_magic::ext4, fs_type::ext4 },
-                { fs_magic::btrfs, fs_type::btrfs },
-                { fs_magic::hfs, fs_type::hfs },
-                { fs_magic::tmpfs, fs_type::tmpfs },
+                { internal::fs_magic::xfs, fs_type::xfs },
+                { internal::fs_magic::ext2, fs_type::ext2 },
+                { internal::fs_magic::ext3, fs_type::ext3 },
+                { internal::fs_magic::ext4, fs_type::ext4 },
+                { internal::fs_magic::btrfs, fs_type::btrfs },
+                { internal::fs_magic::hfs, fs_type::hfs },
+                { internal::fs_magic::tmpfs, fs_type::tmpfs },
             };
             sr.throw_fs_exception_if_error("statfs failed", pathname);
 
@@ -2114,7 +2081,7 @@ reactor::fdatasync(int fd) noexcept {
         return futurize_invoke([this, fd] {
             auto desc = new fsync_io_desc;
             auto fut = desc->get_future();
-            auto req = io_request::make_fdatasync(fd);
+            auto req = internal::io_request::make_fdatasync(fd);
             _io_sink.submit(desc, std::move(req));
             return fut;
         });
@@ -2348,7 +2315,7 @@ void reactor::run_tasks(task_queue& tq) {
         auto tsk = tasks.front();
         tasks.pop_front();
         STAP_PROBE(seastar, reactor_run_tasks_single_start);
-        task_histogram_add_task(*tsk);
+        internal::task_histogram_add_task(*tsk);
         _current_task = tsk;
         tsk->run_and_dispose();
         _current_task = nullptr;
@@ -2914,7 +2881,7 @@ int reactor::do_run() {
     struct sigaction sa_block_notifier = {};
     sa_block_notifier.sa_handler = &reactor::block_notifier;
     sa_block_notifier.sa_flags = SA_RESTART;
-    auto r = sigaction(cpu_stall_detector::signal_number(), &sa_block_notifier, nullptr);
+    auto r = sigaction(internal::cpu_stall_detector::signal_number(), &sa_block_notifier, nullptr);
     assert(r == 0);
 
     bool idle = false;
@@ -3320,7 +3287,7 @@ size_t smp_message_queue::process_queue(lf_queue& q, Func process) {
 size_t smp_message_queue::process_completions(shard_id t) {
     auto nr = process_queue<prefetch_cnt*2>(_completed, [t] (work_item* wi) {
         wi->complete();
-        auto ssg_id = smp_service_group_id(wi->ssg);
+        auto ssg_id = internal::smp_service_group_id(wi->ssg);
         get_smp_service_groups_semaphore(ssg_id, t).signal();
         delete wi;
     });
@@ -3417,7 +3384,7 @@ bool operator==(const ::sockaddr_in a, const ::sockaddr_in b) {
 namespace seastar {
 
 static bool kernel_supports_aio_fsync() {
-    return kernel_uname().whitelisted({"4.18"});
+    return internal::kernel_uname().whitelisted({"4.18"});
 }
 
 static program_options::selection_value<network_stack_factory> create_network_stacks_option(reactor_options& zis) {
