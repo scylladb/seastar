@@ -717,6 +717,11 @@ future<> io_priority_class::rename(sstring new_name) noexcept {
     });
 }
 
+std::tuple<unsigned, sstring> get_class_info(io_priority_class_id pc) {
+    const auto& ci = io_priority_class::_infos.at(pc);
+    return std::make_tuple(ci.shares, ci.name);
+}
+
 std::vector<seastar::metrics::impl::metric_definition_impl> io_queue::priority_class_data::metrics() {
     namespace sm = seastar::metrics;
     return std::vector<sm::impl::metric_definition_impl>({
@@ -802,8 +807,7 @@ io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_
         _priority_classes.resize(id + 1);
     }
     if (!_priority_classes[id]) {
-        auto shares = pc.get_shares();
-        auto name = pc.get_name();
+        auto [ shares, name ] = get_class_info(pc.id());
 
         // A note on naming:
         //

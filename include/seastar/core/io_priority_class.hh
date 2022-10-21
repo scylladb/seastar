@@ -92,6 +92,8 @@ private:
     static constexpr unsigned _max_classes = 2048;
     static std::mutex _register_lock;
     static std::array<class_info, _max_classes> _infos;
+
+    friend std::tuple<unsigned, sstring> get_class_info(io_priority_class_id pc);
 };
 
 const io_priority_class& default_priority_class();
