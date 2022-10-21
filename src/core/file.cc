@@ -65,7 +65,6 @@ struct fs_info {
 
 };
 
-using namespace internal;
 using namespace internal::linux_abi;
 
 file_handle::file_handle(const file_handle& x)
@@ -128,7 +127,7 @@ posix_file_impl::configure_dma_alignment(const internal::fs_info& fsi) {
         // xfs wants at least the block size for writes
         // FIXME: really read the block size
         _disk_write_dma_alignment = std::max<unsigned>(da.d_miniosz, fsi.block_size);
-        static bool xfs_with_relaxed_overwrite_alignment = kernel_uname().whitelisted({"5.12"});
+        static bool xfs_with_relaxed_overwrite_alignment = internal::kernel_uname().whitelisted({"5.12"});
         _disk_overwrite_dma_alignment = xfs_with_relaxed_overwrite_alignment ? da.d_miniosz : _disk_write_dma_alignment;
     }
 }
@@ -568,8 +567,8 @@ posix_file_impl::read_maybe_eof(uint64_t pos, size_t len, const io_priority_clas
     });
 }
 
-static bool blockdev_gen_nowait_works = kernel_uname().whitelisted({"4.13"});
-static bool blockdev_md_nowait_works = kernel_uname().whitelisted({"5.17"});
+static bool blockdev_gen_nowait_works = internal::kernel_uname().whitelisted({"4.13"});
+static bool blockdev_md_nowait_works = internal::kernel_uname().whitelisted({"5.17"});
 
 static bool blockdev_nowait_works(dev_t device_id) {
     if (major(device_id) == MD_MAJOR) {
@@ -631,7 +630,7 @@ blockdev_file_impl::dma_read_bulk(uint64_t offset, size_t range_size, const io_p
     return posix_file_impl::do_dma_read_bulk(offset, range_size, pc, intent);
 }
 
-append_challenged_posix_file_impl::append_challenged_posix_file_impl(int fd, open_flags f, file_open_options options, const fs_info& fsi, dev_t device_id)
+append_challenged_posix_file_impl::append_challenged_posix_file_impl(int fd, open_flags f, file_open_options options, const internal::fs_info& fsi, dev_t device_id)
         : posix_file_impl(fd, f, options, device_id, fsi)
         , _max_size_changing_ops(fsi.append_concurrency)
         , _fsync_is_exclusive(fsi.fsync_is_exclusive)
@@ -984,7 +983,7 @@ unsigned
 xfs_concurrency_from_kernel_version() {
     // try to see if this is a mainline kernel with xfs append fixed (3.15+)
     // or a RHEL kernel with the backported fix (3.10.0-325.el7+)
-    if (kernel_uname().whitelisted({"3.15", "3.10.0-325.el7"})) {
+    if (internal::kernel_uname().whitelisted({"3.15", "3.10.0-325.el7"})) {
             // Can append, but not concurrently
             return 1;
     }
@@ -1014,13 +1013,13 @@ make_file_impl(int fd, file_open_options options, int flags) noexcept {
                 fsi.nowait_works = false;
                 return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_real_impl>(fd, open_flags(flags), options, fsi, st_dev));
             }
-            static thread_local std::unordered_map<decltype(st_dev), fs_info> s_fstype;
+            static thread_local std::unordered_map<decltype(st_dev), internal::fs_info> s_fstype;
             future<> get_fs_info = s_fstype.count(st_dev) ? make_ready_future<>() :
                 engine().fstatfs(fd).then([fd, st_dev] (struct statfs sfs) {
                     internal::fs_info fsi;
                     fsi.block_size = sfs.f_bsize;
                     switch (sfs.f_type) {
-                    case fs_magic::xfs:
+                    case internal::fs_magic::xfs:
                         dioattr da;
                         if (::ioctl(fd, XFS_IOC_DIOINFO, &da) == 0) {
                             fsi.dioinfo = std::move(da);
@@ -1030,28 +1029,28 @@ make_file_impl(int fd, file_open_options options, int flags) noexcept {
                         static auto xc = xfs_concurrency_from_kernel_version();
                         fsi.append_concurrency = xc;
                         fsi.fsync_is_exclusive = true;
-                        fsi.nowait_works = kernel_uname().whitelisted({"4.13"});
+                        fsi.nowait_works = internal::kernel_uname().whitelisted({"4.13"});
                         break;
-                    case fs_magic::nfs:
+                    case internal::fs_magic::nfs:
                         fsi.append_challenged = false;
                         fsi.append_concurrency = 0;
                         fsi.fsync_is_exclusive = false;
-                        fsi.nowait_works = kernel_uname().whitelisted({"4.13"});
+                        fsi.nowait_works = internal::kernel_uname().whitelisted({"4.13"});
                         break;
-                    case fs_magic::ext4:
+                    case internal::fs_magic::ext4:
                         fsi.append_challenged = true;
                         fsi.append_concurrency = 0;
                         fsi.fsync_is_exclusive = false;
-                        fsi.nowait_works = kernel_uname().whitelisted({"5.5"});
+                        fsi.nowait_works = internal::kernel_uname().whitelisted({"5.5"});
                         break;
-                    case fs_magic::btrfs:
+                    case internal::fs_magic::btrfs:
                         fsi.append_challenged = true;
                         fsi.append_concurrency = 0;
                         fsi.fsync_is_exclusive = true;
-                        fsi.nowait_works = kernel_uname().whitelisted({"5.9"});
+                        fsi.nowait_works = internal::kernel_uname().whitelisted({"5.9"});
                         break;
-                    case fs_magic::tmpfs:
-                    case fs_magic::fuse:
+                    case internal::fs_magic::tmpfs:
+                    case internal::fs_magic::fuse:
                         fsi.append_challenged = false;
                         fsi.append_concurrency = 999;
                         fsi.fsync_is_exclusive = false;
@@ -1066,7 +1065,7 @@ make_file_impl(int fd, file_open_options options, int flags) noexcept {
                     s_fstype[st_dev] = std::move(fsi);
                 });
             return get_fs_info.then([st_dev, fd, flags, options = std::move(options)] () mutable {
-                const fs_info& fsi = s_fstype[st_dev];
+                const internal::fs_info& fsi = s_fstype[st_dev];
                 if (!fsi.append_challenged || options.append_is_unlikely || ((flags & O_ACCMODE) == O_RDONLY)) {
                     return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_real_impl>(fd, open_flags(flags), std::move(options), fsi, st_dev));
                 }
