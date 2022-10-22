@@ -1697,9 +1697,11 @@ public:
                 return _result.get_future();
             }
         };
-        auto desc = std::make_unique<read_completion>(fd, len);
-        auto req = internal::io_request::make_read(fd.fd.get(), -1, buffer, len, false);
-        return submit_request(std::move(desc), std::move(req));
+        return readable(fd).then([this, &fd, buffer, len] {
+            auto desc = std::make_unique<read_completion>(fd, len);
+            auto req = internal::io_request::make_read(fd.fd.get(), -1, buffer, len, false);
+            return submit_request(std::move(desc), std::move(req));
+        });
     }
     virtual future<size_t> recvmsg(pollable_fd_state& fd, const std::vector<iovec>& iov) override {
         if (fd.take_speculation(POLLIN)) {
