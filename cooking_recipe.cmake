@@ -294,7 +294,7 @@ cooking_ingredient (liburing
     BUILD_COMMAND <DISABLE>
     BUILD_BYPRODUCTS "<SOURCE_DIR>/src/liburing.a"
     BUILD_IN_SOURCE ON
-    INSTALL_COMMAND ${make_command} -C src -s install)
+    INSTALL_COMMAND ${make_command} -s install)
 
 cooking_ingredient (lz4
   EXTERNAL_PROJECT_ARGS
