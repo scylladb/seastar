@@ -27,8 +27,8 @@
 #include <seastar/core/file.hh>
 #include <seastar/core/seastar.hh>
 #include <seastar/util/std-compat.hh>
+#include <seastar/core/fsnotify.hh>
 
-#include "../../src/core/fsnotify.hh"
 #include "tmpdir.hh"
 
 namespace fs = std::filesystem;

@@ -22,7 +22,7 @@
 #include <seastar/core/internal/pollable_fd.hh>
 #include <seastar/core/posix.hh>
 #include <seastar/core/reactor.hh>
-#include "fsnotify.hh"
+#include <seastar/core/fsnotify.hh>
 
 class seastar::fsnotifier::impl : public enable_shared_from_this<impl> {
     class my_poll_fd : public pollable_fd {

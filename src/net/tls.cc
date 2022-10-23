@@ -38,11 +38,11 @@
 #include <seastar/net/stack.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/variant_utils.hh>
+#include <seastar/core/fsnotify.hh>
 
 #include <boost/range/iterator_range.hpp>
 #include <boost/range/adaptor/map.hpp>
 
-#include "../core/fsnotify.hh"
 
 namespace seastar {
 
