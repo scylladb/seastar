@@ -8,6 +8,14 @@ To enable DPDK, specify `--enable-dpdk` to `./configure.py`, and `--dpdk-pmd` as
 run-time parameter.  This will use the DPDK package provided as a git submodule with the
 seastar sources.
 
+Please note, if `--enable-dpdk` is used to build DPDK on an aarch64 machine, you need to
+specify [target architecture](https://gcc.gnu.org/onlinedocs/gcc/AArch64-Options.html) with optional
+[feature modifiers](https://gcc.gnu.org/onlinedocs/gcc/AArch64-Options.html#aarch64-feature-modifiers)
+with the `--cflags` option as well, like:
+```console
+$ ./configure.py --mode debug --enable-dpdk --cflags='-march=armv8-a+crc+crypto'
+```
+
 To use your own self-compiled DPDK package, follow this procedure:
 
 1. Setup host to compile DPDK:
