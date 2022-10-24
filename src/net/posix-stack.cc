@@ -29,6 +29,7 @@
 
 #include <seastar/core/loop.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/core/gate.hh>
 #include <seastar/net/posix-stack.hh>
 #include <seastar/net/net.hh>
 #include <seastar/net/packet.hh>
@@ -96,6 +97,7 @@ public:
 
 thread_local posix_ap_server_socket_impl::sockets_map_t posix_ap_server_socket_impl::sockets{};
 thread_local posix_ap_server_socket_impl::conn_map_t posix_ap_server_socket_impl::conn_q{};
+static thread_local gate exiting_gate;
 
 class posix_tcp_connected_socket_operations : public posix_connected_socket_operations {
 public:
@@ -498,9 +500,12 @@ posix_server_socket_impl::accept() {
             return make_ready_future<accept_result>(
                     accept_result{connected_socket(std::move(csi)), sa});
         } else {
-            // FIXME: future is discarded
-            (void)smp::submit_to(cpu, [protocol = _protocol, ssa = _sa, fd = std::move(fd.get_file_desc()), sa, cth = std::move(cth), allocator = _allocator] () mutable {
-                posix_ap_server_socket_impl::move_connected_socket(protocol, ssa, pollable_fd(std::move(fd)), sa, std::move(cth), allocator);
+            (void)with_gate(exiting_gate, [cpu, protocol = _protocol, ssa = _sa, fd = std::move(fd.get_file_desc()), sa, cth = std::move(cth), allocator = _allocator] () mutable {
+                return smp::submit_to(cpu, [protocol, ssa, fd = std::move(fd), sa, cth = std::move(cth), allocator] () mutable {
+                    posix_ap_server_socket_impl::move_connected_socket(protocol, ssa, pollable_fd(std::move(fd)), sa, std::move(cth), allocator);
+                });
+            }).handle_exception([] (const std::exception_ptr&) {
+                // intentionally ignored since we are exiting
             });
             return accept();
         }
@@ -584,7 +589,7 @@ posix_ap_server_socket_impl::move_connected_socket(int protocol, socket_address 
             i->second.set_exception(std::current_exception());
         }
         sockets.erase(i);
-    } else {
+    } else if (!exiting_gate.is_closed()) {
         conn_q.emplace(std::piecewise_construct, std::make_tuple(t_sa), std::make_tuple(std::move(fd), std::move(addr), std::move(cth)));
     }
 }
@@ -1091,6 +1096,15 @@ std::vector<network_interface> posix_network_stack::network_interfaces() {
     }();
 
     return std::vector<network_interface>(thread_local_interfaces.begin(), thread_local_interfaces.end());
+}
+
+future<> posix_network_stack::initialize() {
+    engine().at_exit([] {
+        return exiting_gate.close().then([] {
+            posix_ap_server_socket_impl::conn_q.clear();
+        });
+    });
+    return make_ready_future<>();
 }
 
 }
