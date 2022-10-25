@@ -1240,7 +1240,7 @@ future<size_t> file::dma_read(uint64_t pos, std::vector<iovec> iov, const io_pri
 
 future<temporary_buffer<uint8_t>>
 file::dma_read_exactly_impl(uint64_t pos, size_t len, const io_priority_class& pc, io_intent* intent) noexcept {
-    return dma_read<uint8_t>(pos, len, pc, intent).then([len](auto buf) {
+    return dma_read_impl(pos, len, pc, intent).then([len](auto buf) {
         if (buf.size() < len) {
             throw eof_error();
         }
@@ -1251,7 +1251,7 @@ file::dma_read_exactly_impl(uint64_t pos, size_t len, const io_priority_class& p
 
 future<temporary_buffer<uint8_t>>
 file::dma_read_impl(uint64_t pos, size_t len, const io_priority_class& pc, io_intent* intent) noexcept {
-    return dma_read_bulk<uint8_t>(pos, len, pc, intent).then([len](temporary_buffer<uint8_t> buf) {
+    return dma_read_bulk_impl(pos, len, pc, intent).then([len](temporary_buffer<uint8_t> buf) {
         if (len < buf.size()) {
             buf.trim(len);
         }
