@@ -966,11 +966,11 @@ io_queue::clock_type::time_point io_queue::next_pending_aio() const noexcept {
 
 void
 io_queue::update_shares_for_class(const io_priority_class pc, size_t new_shares) {
-        auto& pclass = find_or_create_class(pc);
-        pclass.update_shares(new_shares);
-        for (auto&& s : _streams) {
-            s.update_shares_for_class(pclass.fq_class(), new_shares);
-        }
+    auto& pclass = find_or_create_class(pc);
+    pclass.update_shares(new_shares);
+    for (auto&& s : _streams) {
+        s.update_shares_for_class(pclass.fq_class(), new_shares);
+    }
 }
 
 future<> io_queue::update_bandwidth_for_class(const io_priority_class pc, uint64_t new_bandwidth) {
