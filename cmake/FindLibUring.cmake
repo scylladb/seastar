@@ -22,7 +22,7 @@
 
 find_package (PkgConfig REQUIRED)
 
-pkg_search_module (URING liburing)
+pkg_search_module (URING_PC liburing)
 
 find_library (URING_LIBRARY
   NAMES uring
@@ -64,7 +64,7 @@ find_package_handle_standard_args (LibUring
 set (URING_LIBRARIES ${URING_LIBRARY})
 set (URING_INCLUDE_DIRS ${URING_INCLUDE_DIR})
 
-if (URING_FOUND AND NOT (TARGET URING::uring))
+if (LibUring_FOUND AND NOT (TARGET URING::uring))
   add_library (URING::uring UNKNOWN IMPORTED)
 
   set_target_properties (URING::uring
