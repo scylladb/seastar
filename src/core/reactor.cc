@@ -4095,6 +4095,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     _all_event_loops_done.emplace(smp::count);
 
     auto backend_selector = reactor_opts.reactor_backend.get_selected_candidate();
+    seastar_logger.info("Reactor backend: {}", backend_selector);
 
     unsigned i;
     auto smp_tmain = smp::_tmain;
