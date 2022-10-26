@@ -494,7 +494,7 @@ public:
     [[deprecated("Use io_priority_class.rename")]]
     static future<> rename_priority_class(io_priority_class pc, sstring new_name) noexcept;
     /// @private
-    future<> rename_queues(io_priority_class pc, sstring new_name) noexcept;
+    void rename_queues(io_priority_class pc, sstring new_name);
 
     void configure(const reactor_options& opts);
 

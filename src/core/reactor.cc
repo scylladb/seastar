@@ -229,12 +229,10 @@ future<> reactor::update_bandwidth_for_queues(io_priority_class pc, uint64_t ban
     });
 }
 
-future<> reactor::rename_queues(io_priority_class pc, sstring new_name) noexcept {
-    return futurize_invoke([this, pc, new_name = std::move(new_name)] {
+void reactor::rename_queues(io_priority_class pc, sstring new_name) {
         for (auto&& queue : _io_queues) {
             queue.second->rename_priority_class(pc, new_name);
         }
-    });
 }
 
 future<std::tuple<pollable_fd, socket_address>>

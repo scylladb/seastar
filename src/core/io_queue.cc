@@ -671,7 +671,7 @@ future<> io_priority_class::rename(sstring new_name) noexcept {
         }
 
         return smp::invoke_on_all([this, new_name = std::move(new_name)] {
-            return engine().rename_queues(*this, new_name);
+            engine().rename_queues(*this, new_name);
         });
     });
 }
