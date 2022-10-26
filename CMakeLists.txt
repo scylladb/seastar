@@ -757,7 +757,7 @@ target_link_libraries (seastar
     lksctp-tools::lksctp-tools
     rt::rt
     yaml-cpp::yaml-cpp
-    Valgrind::valgrind
+    "$<BUILD_INTERFACE:Valgrind::valgrind>"
     Threads::Threads)
 
 set (Seastar_SANITIZE_MODES "Debug" "Sanitize")
