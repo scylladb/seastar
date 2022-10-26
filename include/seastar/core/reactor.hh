@@ -487,7 +487,7 @@ public:
     [[deprecated("Use io_priority_class.update_shares")]]
     future<> update_shares_for_class(io_priority_class pc, uint32_t shares);
     /// @private
-    future<> update_shares_for_queues(io_priority_class pc, uint32_t shares);
+    void update_shares_for_queues(io_priority_class pc, uint32_t shares);
     /// @private
     future<> update_bandwidth_for_queues(io_priority_class pc, uint64_t bandwidth);
 

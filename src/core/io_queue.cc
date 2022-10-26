@@ -627,7 +627,9 @@ io_priority_class io_priority_class::register_one(sstring name, uint32_t shares)
 future<> io_priority_class::update_shares(uint32_t shares) const {
     // Keep registered shares intact, just update the ones
     // on reactor queues
-    return engine().update_shares_for_queues(*this, shares);
+    return futurize_invoke([this, shares] {
+        engine().update_shares_for_queues(*this, shares);
+    });
 }
 
 future<> io_priority_class::update_bandwidth(uint64_t bandwidth) const {
@@ -962,15 +964,13 @@ io_queue::clock_type::time_point io_queue::next_pending_aio() const noexcept {
     return next;
 }
 
-future<>
+void
 io_queue::update_shares_for_class(const io_priority_class pc, size_t new_shares) {
-    return futurize_invoke([this, pc, new_shares] {
         auto& pclass = find_or_create_class(pc);
         pclass.update_shares(new_shares);
         for (auto&& s : _streams) {
             s.update_shares_for_class(pclass.fq_class(), new_shares);
         }
-    });
 }
 
 future<> io_queue::update_bandwidth_for_class(const io_priority_class pc, uint64_t new_bandwidth) {
