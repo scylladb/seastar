@@ -550,9 +550,6 @@ public:
         _at_destroy_tasks->_q.push_back(make_task(default_scheduling_group(), std::forward<Func>(func)));
     }
 
-#ifdef SEASTAR_SHUFFLE_TASK_QUEUE
-    void shuffle(task*&, task_queue&);
-#endif
     task* current_task() const { return _current_task; }
 
     void add_task(task* t) noexcept;

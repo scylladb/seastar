@@ -2369,14 +2369,21 @@ void reactor::run_tasks(task_queue& tq) {
     }
 }
 
+namespace {
+
 #ifdef SEASTAR_SHUFFLE_TASK_QUEUE
-void reactor::shuffle(task*& t, task_queue& q) {
+void shuffle(task*& t, circular_buffer<task*>& q) {
     static thread_local std::mt19937 gen = std::mt19937(std::default_random_engine()());
-    std::uniform_int_distribution<size_t> tasks_dist{0, q._q.size() - 1};
-    auto& to_swap = q._q[tasks_dist(gen)];
+    std::uniform_int_distribution<size_t> tasks_dist{0, q.size() - 1};
+    auto& to_swap = q[tasks_dist(gen)];
     std::swap(to_swap, t);
 }
+#else
+void shuffle(task*&, circular_buffer<task*>&) {
+}
 #endif
+
+}
 
 void reactor::force_poll() {
     request_preemption();
@@ -2743,9 +2750,7 @@ void reactor::add_task(task* t) noexcept {
     auto* q = _task_queues[sg._id].get();
     bool was_empty = q->_q.empty();
     q->_q.push_back(std::move(t));
-#ifdef SEASTAR_SHUFFLE_TASK_QUEUE
-    shuffle(q->_q.back(), *q);
-#endif
+    shuffle(q->_q.back(), q->_q);
     if (was_empty) {
         activate(*q);
     }
@@ -2757,9 +2762,7 @@ void reactor::add_urgent_task(task* t) noexcept {
     auto* q = _task_queues[sg._id].get();
     bool was_empty = q->_q.empty();
     q->_q.push_front(std::move(t));
-#ifdef SEASTAR_SHUFFLE_TASK_QUEUE
-    shuffle(q->_q.front(), *q);
-#endif
+    shuffle(q->_q.front(), q->_q);
     if (was_empty) {
         activate(*q);
     }
