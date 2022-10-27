@@ -48,7 +48,7 @@ concept closeable = requires (Object o) {
 /// needs to wait on the \c obj close() future.
 template <typename Object>
 SEASTAR_CONCEPT( requires closeable<Object> )
-class deferred_close {
+class [[nodiscard("unassigned deferred_close")]] deferred_close {
     std::reference_wrapper<Object> _obj;
     bool _closed = false;
 
@@ -122,7 +122,7 @@ concept stoppable = requires (Object o) {
 /// needs to wait on the \c obj stop() future.
 template <typename Object>
 SEASTAR_CONCEPT( requires stoppable<Object> )
-class deferred_stop {
+class [[nodiscard("unassigned deferred_stop")]] deferred_stop {
     std::reference_wrapper<Object> _obj;
     bool _stopped = false;
 
