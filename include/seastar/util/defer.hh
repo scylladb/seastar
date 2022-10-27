@@ -43,7 +43,7 @@ namespace seastar {
 
 template <typename Func>
 SEASTAR_CONCEPT( requires deferrable_action<Func> )
-class deferred_action {
+class [[nodiscard("unassigned deferred_action")]] deferred_action {
     Func _func;
     bool _cancelled = false;
 public:
