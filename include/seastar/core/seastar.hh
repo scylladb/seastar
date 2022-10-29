@@ -42,6 +42,7 @@
 ///   - \ref thread-module Support for traditional threaded execution
 ///   - \ref rpc Build high-level communication protocols
 ///   - \ref websocket (experimental) Implement a WebSocket-based server
+///   - \ref fsnotifier (experimental) Implement a filesystem modification notifier.
 ///
 /// View the [Seastar compatibility statement](./md_compatibility.html) for
 /// information about library evolution.

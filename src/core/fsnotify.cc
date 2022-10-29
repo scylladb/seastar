@@ -24,7 +24,9 @@
 #include <seastar/core/reactor.hh>
 #include <seastar/core/fsnotify.hh>
 
-class seastar::fsnotifier::impl : public enable_shared_from_this<impl> {
+namespace seastar::experimental {
+
+class fsnotifier::impl : public enable_shared_from_this<impl> {
     class my_poll_fd : public pollable_fd {
     public:
         using pollable_fd::pollable_fd;
@@ -49,7 +51,7 @@ public:
     }
 };
 
-void seastar::fsnotifier::impl::remove_watch(watch_token token) {
+void fsnotifier::impl::remove_watch(watch_token token) {
     if (active()) {
         auto res = ::inotify_rm_watch(_fd, token);
         // throw if any other error than EINVAL.
@@ -57,14 +59,14 @@ void seastar::fsnotifier::impl::remove_watch(watch_token token) {
     }
 }
 
-seastar::future<seastar::fsnotifier::watch_token> seastar::fsnotifier::impl::create_watch(const sstring& path, flags events) {
+future<fsnotifier::watch_token> fsnotifier::impl::create_watch(const sstring& path, flags events) {
     if (!active()) {
         throw std::runtime_error("attempting to use closed notifier");
     }
     return engine().inotify_add_watch(_fd, path, uint32_t(events));
 }
 
-seastar::future<std::vector<seastar::fsnotifier::event>> seastar::fsnotifier::impl::wait() {
+future<std::vector<fsnotifier::event>> fsnotifier::impl::wait() {
     // be paranoid about buffer alignment
     auto buf = temporary_buffer<char>::aligned(std::max(alignof(::inotify_event), alignof(int64_t)), 4096);
     auto f = _fd.read_some(buf.get_write(), buf.size());
@@ -91,7 +93,7 @@ seastar::future<std::vector<seastar::fsnotifier::event>> seastar::fsnotifier::im
     });
 }
 
-void seastar::fsnotifier::impl::shutdown() {
+void fsnotifier::impl::shutdown() {
     // reactor does not yet have 
     // any means of "shutting down" a non-socket read,
     // so we work around this by creating a watch for something ubiquitous,
@@ -104,48 +106,50 @@ void seastar::fsnotifier::impl::shutdown() {
     });
 }
 
-seastar::fsnotifier::watch::~watch() {
+fsnotifier::watch::~watch() {
     if (_impl) {
         _impl->remove_watch(_token);
     }
 }
 
-seastar::fsnotifier::watch::watch(watch&&) noexcept = default;
-seastar::fsnotifier::watch& seastar::fsnotifier::watch::operator=(watch&&) noexcept = default;
+fsnotifier::watch::watch(watch&&) noexcept = default;
+fsnotifier::watch& fsnotifier::watch::operator=(watch&&) noexcept = default;
 
-seastar::fsnotifier::watch_token seastar::fsnotifier::watch::release() {
+fsnotifier::watch_token fsnotifier::watch::release() {
     _impl = {};
     return _token;
 }
 
-seastar::fsnotifier::watch::watch(shared_ptr<impl> impl, watch_token token)
+fsnotifier::watch::watch(shared_ptr<impl> impl, watch_token token)
     : _token(token)
     , _impl(std::move(impl))
 {}
 
-seastar::fsnotifier::fsnotifier()
+fsnotifier::fsnotifier()
     : _impl(make_shared<impl>())
 {}
 
-seastar::fsnotifier::~fsnotifier() = default;
+fsnotifier::~fsnotifier() = default;
 
-seastar::fsnotifier::fsnotifier(fsnotifier&&) = default;
-seastar::fsnotifier& seastar::fsnotifier::operator=(fsnotifier&&) = default;
+fsnotifier::fsnotifier(fsnotifier&&) = default;
+fsnotifier& fsnotifier::operator=(fsnotifier&&) = default;
 
-seastar::future<seastar::fsnotifier::watch> seastar::fsnotifier::create_watch(const sstring& path, flags events) {
+future<fsnotifier::watch> fsnotifier::create_watch(const sstring& path, flags events) {
     return _impl->create_watch(path, events).then([this](watch_token token) {
         return watch(_impl, token);
     });
 }
 
-seastar::future<std::vector<seastar::fsnotifier::event>> seastar::fsnotifier::wait() const {
+future<std::vector<fsnotifier::event>> fsnotifier::wait() const {
     return _impl->wait();
 }
 
-void seastar::fsnotifier::shutdown() {
+void fsnotifier::shutdown() {
     _impl->shutdown();
 }
 
-bool seastar::fsnotifier::active() const {
+bool fsnotifier::active() const {
     return _impl->active();
+}
+
 }
