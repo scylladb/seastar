@@ -28,24 +28,28 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/core/shared_ptr.hh>
 
-namespace seastar {
+namespace seastar::experimental {
 
-/**
- * Thin wrapper around inotify. (See http://man7.org/linux/man-pages/man7/inotify.7.html)
- * De-facto light-weight filesystem modification watch interface. 
- * Allows adding watches to files or directories for various modification 
- * events (see fsnotifier::flags). 
- * 
- * Presents a c++ wrapped buffered read of events, and
- * raii-handling of watches themselves. 
- * 
- * All definition are bit-matched with inotify, 
- * but watch points are raii guarded. 
- * 
- * Note that this impl does not (yet) handle
- * re-writing watches (adding to mask).
- * 
- */
+/// \defgroup fsnotifier FileSystem Notifier
+///
+/// Seastar provides an API which can be used to monitor filesystem modifications.
+///
+/// \addtogroup fsnotifier
+/// @{
+
+/// \brief Filesystem modification notifier.
+///
+/// This is a thin wrapper around inotify(see http://man7.org/linux/man-pages/man7/inotify.7.html),
+/// which is the de-facto light-weight filesystem modification watch
+/// interface in Linux and can be used to log filesystem activities,
+/// reload configurations, etc.
+///
+/// The wrapper provides a buffered read of events, and RAII handling
+/// of watches themselves.
+///
+/// \note Note that this is an experimental feature, and thus any tweaks that
+///       are backward incompatible can be made before finally freezing it.
+///       Besides, the impl currently does not (yet) handle re-writing watches.
 class fsnotifier {
     class impl;
     shared_ptr<impl> _impl;
@@ -53,6 +57,12 @@ public:
     class watch;
     friend class watch;
 
+    /// \brief Flags of events supported by \ref fsnotifier.
+    ///
+    /// \note Note that the flags are bit-matched with inotify and they can
+    ///       be calculated using the bitwise AND and bitwise OR operators
+    ///       (including the assignment form) directly to take intersection
+    ///       or union.
     enum class flags : uint32_t {
         access = IN_ACCESS,             // File was accessed (e.g., read(2), execve(2)).
         attrib = IN_ATTRIB,             // Metadata changed—for example, permissions, timestamps, extended attributes
@@ -80,26 +90,41 @@ public:
                                         // ensuring that the monitored object is a directory.
     };
 
+    /// \brief Token of a watch point.
     using watch_token = int32_t;
+    /// \brief Unique sequence number of associating related events.
+    ///
+    /// \note The sequence number is used to connect related events.
+    ///       Currently, it is used only for the rename events(i.e.,
+    ///       move_from and move_to), and is 0 for other types.
     using sequence_no = uint32_t;
 
-    /**
-     * Simple raii-wrapper around a watch token
-     * - i.e. watch identifier
-     */
+    /// \brief Simple RAII wrapper around a \ref fsnotifier::watch_token
+    ///
+    /// The events of the path will be unregistered automatically on
+    /// destruction of the \ref watch.
     class watch {
     public:
         ~watch();
         watch(watch&&) noexcept;
         watch& operator=(watch&&) noexcept;
 
+        /// Reset the watch point.
+        ///
+        /// \note Note that this operation won't unregister the event for
+        ///       the path, but simply releases resources used internally.
         watch_token release();
+
+        /// Cast this watch point to a watch token.
         operator watch_token() const {
             return _token;
         }
+
+        /// Get the token of this watch point.
         watch_token token() const {
             return _token;
         }
+
     private:
         friend class fsnotifier;
         watch(shared_ptr<impl>, watch_token);
@@ -113,11 +138,15 @@ public:
     fsnotifier(fsnotifier&&);
     fsnotifier& operator=(fsnotifier&&);
 
-    // create a watch point for given path, checking/producing 
-    // events specified in mask 
+    /// \brief Monitor events specified in mask for the give path.
+    ///
+    /// \param path path of the file or directory to monitor for.
+    /// \param mask events of interest.
+    /// \return a future that becomes ready when the underlying
+    ///         inotify_add_watch(2) call completes.
     future<watch> create_watch(const sstring& path, flags mask);
 
-    // a watch event. 
+    /// \brief A wrapper around inotify_event.
     struct event {
         // matches source watch
         watch_token id;
@@ -127,35 +156,46 @@ public:
         sstring name; // optional file name, in case of move_from/to
     };
 
-    // wait for events
+    /// Wait for events.
+    ///
+    /// \return a future that becomes ready when registered events occur.
     future<std::vector<event>> wait() const;
 
-    // shutdown notifier and abort any event wait.
-    // all watches are invalidated, and no new ones can be
-    // created.
+    /// Shutdown the notifier and abort any waiting events.
+    ///
+    /// \note After shutdown, all watches are invalidated,
+    ///       and no new ones can be created.
     void shutdown();
 
+    /// Check if the notifier is activated.
     bool active() const;
 
+    /// Equivalent to \ref active().
     operator bool() const {
         return active();
     }
 };
 
+/// Take the union of two events.
 inline fsnotifier::flags operator|(fsnotifier::flags a, fsnotifier::flags b) {
     return fsnotifier::flags(std::underlying_type_t<fsnotifier::flags>(a) | std::underlying_type_t<fsnotifier::flags>(b));
 }
 
+/// Take the union of two events, assignment form.
 inline void operator|=(fsnotifier::flags& a, fsnotifier::flags b) {
     a = (a | b);
 }
 
+/// Take the intersection of two events.
 inline fsnotifier::flags operator&(fsnotifier::flags a, fsnotifier::flags b) {
     return fsnotifier::flags(std::underlying_type_t<fsnotifier::flags>(a) & std::underlying_type_t<fsnotifier::flags>(b));
 }
 
+/// Take the intersection of two events, assignment form.
 inline void operator&=(fsnotifier::flags& a, fsnotifier::flags b) {
     a = (a & b);
 }
+
+/// @}
 
 }

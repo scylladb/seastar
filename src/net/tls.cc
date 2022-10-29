@@ -767,6 +767,8 @@ public:
             _timer.cancel();
         }
     private:
+        using fsnotifier = experimental::fsnotifier;
+
         // called from seastar::thread
         void rebuild(const std::vector<fsnotifier::event>& events) {
             for (auto& e : events) {
