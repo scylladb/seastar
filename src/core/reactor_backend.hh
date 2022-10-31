@@ -56,6 +56,7 @@ struct aio_general_context {
     void queue(internal::linux_abi::iocb* iocb);
     // submit all queued iocbs and return their count.
     size_t flush();
+    int cancel(internal::linux_abi::iocb* iocb);
 };
 
 class aio_storage_context {

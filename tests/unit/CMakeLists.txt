@@ -665,3 +665,7 @@ seastar_add_test (closeable
 
 seastar_add_test (pipe
   SOURCES pipe_test.cc)
+
+seastar_add_test (pollable_fd_close
+  SOURCES pollable_fd_close_test.cc
+)

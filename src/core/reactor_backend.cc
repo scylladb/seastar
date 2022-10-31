@@ -55,6 +55,9 @@ public:
     virtual void complete_with(ssize_t res) override {
         _pr.set_value();
     }
+    void complete_with_exception(std::exception_ptr&& ptr) {
+        _pr.set_exception(std::move(ptr));
+    }
     future<> get_future() {
         return _pr.get_future();
     }
@@ -337,6 +340,10 @@ size_t aio_general_context::flush() {
     return nr;
 }
 
+int aio_general_context::cancel(internal::linux_abi::iocb* iocb) {
+    return io_cancel(io_context, iocb, nullptr);
+}
+
 completion_with_iocb::completion_with_iocb(int fd, int events, void* user_data)
     : _iocb(make_poll_iocb(fd, events)) {
     set_user_data(_iocb, user_data);
@@ -536,12 +543,23 @@ void reactor_backend_aio::wait_and_process_events(const sigset_t* active_sigmask
     _preempting_io.service_preempting_io(); // clear task quota timer
 }
 
+class aio_pollable_fd_state;
+
+class aio_pollable_fd_state_completion : public pollable_fd_state_completion {
+    aio_pollable_fd_state& _state;
+public:
+    aio_pollable_fd_state_completion(aio_pollable_fd_state& state);
+    void complete_with(ssize_t res) override;
+};
+
 class aio_pollable_fd_state : public pollable_fd_state {
     internal::linux_abi::iocb _iocb_pollin;
-    pollable_fd_state_completion _completion_pollin;
+    aio_pollable_fd_state_completion _completion_pollin;
 
     internal::linux_abi::iocb _iocb_pollout;
-    pollable_fd_state_completion _completion_pollout;
+    aio_pollable_fd_state_completion _completion_pollout;
+
+    bool _in_forget = false;
 public:
     pollable_fd_state_completion* get_desc(int events) {
         if (events & POLLIN) {
@@ -557,11 +575,30 @@ public:
     }
     explicit aio_pollable_fd_state(file_desc fd, speculation speculate)
         : pollable_fd_state(std::move(fd), std::move(speculate))
+        , _completion_pollin(*this)
+        , _completion_pollout(*this)
     {}
     future<> get_completion_future(int events) {
         return get_desc(events)->get_future();
     }
+    void forget() noexcept {
+        _in_forget = true;
+    }
+    bool in_forget() const noexcept {
+        return _in_forget;
+    }
 };
+
+inline aio_pollable_fd_state_completion::aio_pollable_fd_state_completion(
+    aio_pollable_fd_state& state) : _state(state) {}
+
+inline void aio_pollable_fd_state_completion::complete_with(ssize_t res) {
+    if (__builtin_expect(!_state.in_forget(), true)) {
+        return pollable_fd_state_completion::complete_with(res);
+    }
+    // mimics epoll backend behaviour on forget.
+    return complete_with_exception(std::make_exception_ptr(broken_promise()));
+}
 
 future<> reactor_backend_aio::poll(pollable_fd_state& fd, int events) {
     try {
@@ -599,6 +636,11 @@ future<> reactor_backend_aio::readable_or_writeable(pollable_fd_state& fd) {
 
 void reactor_backend_aio::forget(pollable_fd_state& fd) noexcept {
     auto* pfd = static_cast<aio_pollable_fd_state*>(&fd);
+    pfd->forget();
+    _polling_io.flush();
+    _polling_io.cancel(pfd->get_iocb(POLLIN));
+    _polling_io.cancel(pfd->get_iocb(POLLOUT));
+    reap_kernel_completions();
     delete pfd;
     // ?
 }
@@ -1240,13 +1282,38 @@ class reactor_backend_uring final : public reactor_backend {
     file_desc _hrtimer_timerfd;
     preempt_io_context _preempt_io_context;
 
+    class uring_pollable_fd_state_completion: public pollable_fd_state_completion {
+    public:
+        void complete_with(ssize_t res) override {
+            if (__builtin_expect(res != -ECANCELED, true)) {
+                return pollable_fd_state_completion::complete_with(res);
+            }
+            // mimics epoll backend behaviour on forget.
+            return complete_with_exception(std::make_exception_ptr(broken_promise()));
+        }
+    };
+
+    class cancel_completion: public kernel_completion {
+    public:
+        void complete_with(ssize_t res) override {
+            // cancel completion does nothing
+            // uring_pollable_fd_state_completion does actual job
+        }
+    };
+
     class uring_pollable_fd_state : public pollable_fd_state {
-        pollable_fd_state_completion _completion_pollin;
-        pollable_fd_state_completion _completion_pollout;
+        uring_pollable_fd_state_completion _completion_pollin;
+        uring_pollable_fd_state_completion _completion_pollout;
+        cancel_completion                  _completion_cancel;
     public:
         explicit uring_pollable_fd_state(file_desc desc, speculation speculate)
                 : pollable_fd_state(std::move(desc), std::move(speculate)) {
         }
+
+        kernel_completion* get_cancel_completion() {
+            return &_completion_cancel;
+        }
+
         pollable_fd_state_completion* get_desc(int events) {
             if (events & POLLIN) {
                 return &_completion_pollin;
@@ -1341,6 +1408,14 @@ private:
         ::io_uring_sqe_set_data(sqe, static_cast<kernel_completion*>(ufd->get_desc(events)));
         _has_pending_submissions = true;
         return ufd->get_completion_future(events);
+    }
+
+    void cancel(pollable_fd_state& fd, int events) {
+        auto sqe = get_sqe();
+        auto ufd = static_cast<uring_pollable_fd_state*>(&fd);
+        ::io_uring_prep_cancel(sqe, static_cast<kernel_completion*>(ufd->get_desc(events)), 0);        
+        ::io_uring_sqe_set_data(sqe, ufd->get_cancel_completion());
+        _has_pending_submissions = true;
     }
 
     void submit_io_request(internal::io_request& req, io_completion* completion) {
@@ -1502,6 +1577,10 @@ public:
     }
     virtual void forget(pollable_fd_state& fd) noexcept override {
         auto* pfd = static_cast<uring_pollable_fd_state*>(&fd);
+        cancel(fd, POLLIN);
+        cancel(fd, POLLOUT);
+        do_flush_submission_ring();
+        reap_kernel_completions();
         delete pfd;
     }
     virtual future<std::tuple<pollable_fd, socket_address>> accept(pollable_fd_state& listenfd) override {
