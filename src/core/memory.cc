@@ -1676,9 +1676,10 @@ seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar
     auto total_mem = get_cpu_mem().nr_pages * page_size;
     it = fmt::format_to(it, "Dumping seastar memory diagnostics\n");
 
-    it = fmt::format_to(it, "Used memory:  {}\n", to_hr_size(total_mem - free_mem));
-    it = fmt::format_to(it, "Free memory:  {}\n", to_hr_size(free_mem));
-    it = fmt::format_to(it, "Total memory: {}\n\n", to_hr_size(total_mem));
+    it = fmt::format_to(it, "Used memory:   {}\n", to_hr_size(total_mem - free_mem));
+    it = fmt::format_to(it, "Free memory:   {}\n", to_hr_size(free_mem));
+    it = fmt::format_to(it, "Total memory:  {}\n", to_hr_size(total_mem));
+    it = fmt::format_to(it, "Hard failures: {}\n\n", alloc_stats::get(alloc_stats::types::failed_allocs));
 
     if (additional_diagnostics_producer) {
         additional_diagnostics_producer([&it] (std::string_view v) mutable {

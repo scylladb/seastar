@@ -197,6 +197,8 @@ SEASTAR_TEST_CASE(test_realloc_nullptr) {
     return make_ready_future<>();
 }
 
+void * volatile sink;
+
 SEASTAR_TEST_CASE(test_bad_alloc_throws) {
     // test that a large allocation throws bad_alloc
     auto stats = seastar::memory::stats();
@@ -204,9 +206,6 @@ SEASTAR_TEST_CASE(test_bad_alloc_throws) {
     // this allocation cannot be satisfied (at least when the seastar
     // allocator is used, which it is for this test)
     size_t size = stats.total_memory() * 2;
-
-    [[gnu::unused]]
-    void * volatile sink;
 
     auto failed_allocs = [&stats]() {
         return seastar::memory::stats().failed_allocations() - stats.failed_allocations();
@@ -237,7 +236,32 @@ SEASTAR_TEST_CASE(test_bad_alloc_throws) {
 
     return make_ready_future<>();
 }
-#endif
+
+SEASTAR_TEST_CASE(test_diagnostics_failures) {
+    // test that an allocation failure is reflected in the diagnostics
+    auto stats = seastar::memory::stats();
+
+    size_t size = stats.total_memory() * 2; // cannot be satisfied
+
+    // we expect that the failure is immediately reflected in the diagnostics
+    try {
+        sink = operator new(size);
+    } catch (const std::bad_alloc&) {}
+
+    auto report = memory::generate_memory_diagnostics_report();
+
+    // +1 because we caused one additional hard failure from the allocation above
+    auto expected = fmt::format("Hard failures: {}", stats.failed_allocations() + 1);
+
+    if (report.find(expected) == seastar::sstring::npos) {
+        BOOST_FAIL(fmt::format("Did not find expected message: {} in\n{}\n", expected, report));
+    }
+
+    return seastar::make_ready_future();
+}
+
+
+#endif // #ifndef SEASTAR_DEFAULT_ALLOCATOR
 
 SEASTAR_TEST_CASE(test_large_allocation_warning_off_by_one) {
 #ifndef SEASTAR_DEFAULT_ALLOCATOR
