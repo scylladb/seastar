@@ -214,3 +214,39 @@ BOOST_AUTO_TEST_CASE(test_nul_termination) {
         BOOST_REQUIRE(!strncmp(s1.c_str(), s2.c_str(), std::min(s1.size(), s2.size())));
     }
 }
+
+BOOST_AUTO_TEST_CASE(test_boost_lexical_cast) {
+    std::string std1 = "abcdefg";
+    sstring s1 = boost::lexical_cast<sstring>(std1);
+    BOOST_REQUIRE_EQUAL(s1, std1);
+
+    std::string std2 = "one two three\nfour five";
+    sstring s2 = boost::lexical_cast<sstring>(std2);
+    BOOST_REQUIRE_EQUAL(s2, std2);
+
+    std::string std3("a\0b", 3);
+    sstring s3 = boost::lexical_cast<sstring>(std3);
+    BOOST_REQUIRE_EQUAL(s3, std3);
+    BOOST_REQUIRE_EQUAL(s3.size(), 3);
+
+    sstring s4 = "abcdefg";
+    std::string std4 = boost::lexical_cast<std::string>(s4);
+    BOOST_REQUIRE_EQUAL(s4, std4);
+
+    sstring s5 = "one two three\nfour five";
+    std::string std5 = boost::lexical_cast<std::string>(s5);
+    BOOST_REQUIRE_EQUAL(s5, std5);    
+
+    sstring s6("a\0b", 3);
+    std::string std6 = boost::lexical_cast<std::string>(s6);
+    BOOST_REQUIRE_EQUAL(s6, std6);
+    BOOST_REQUIRE_EQUAL(std6.size(), 3);
+
+    char* cstr7 = std2.data();
+    sstring s7 = boost::lexical_cast<sstring>(cstr7);
+    BOOST_REQUIRE(!strncmp(cstr7, s7.c_str(), strlen(cstr7)));
+
+    const char* cstr8 = std2.c_str();
+    sstring s8 = boost::lexical_cast<sstring>(cstr8);
+    BOOST_REQUIRE(!strncmp(cstr8, s8.c_str(), strlen(cstr8)));
+}

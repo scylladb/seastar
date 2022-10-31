@@ -37,6 +37,7 @@
 #include <fmt/ostream.h>
 #include <seastar/util/std-compat.hh>
 #include <seastar/core/temporary_buffer.hh>
+#include <boost/lexical_cast.hpp>
 
 namespace seastar {
 
@@ -804,4 +805,24 @@ std::ostream& operator<<(std::ostream& os, const std::unordered_map<Key, T, Hash
     os << "}";
     return os;
 }
+}
+
+namespace boost {
+    template<typename Target, typename Source>
+    inline Target lexical_cast(const Source& s);
+
+    template<>
+    inline seastar::sstring lexical_cast(const std::string& s) {
+        return s;
+    }
+
+    template<>
+    inline seastar::sstring lexical_cast(const char* const& s) {
+        return s;
+    }
+
+    template<>
+    inline seastar::sstring lexical_cast(char* const& s) {
+        return s;
+    }
 }
