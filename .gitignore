@@ -10,3 +10,4 @@ cmake/Cooking.cmake
 tags
 .idea/
 .vscode/
+compile_commands.json
