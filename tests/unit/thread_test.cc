@@ -172,10 +172,10 @@ SEASTAR_TEST_CASE(test_thread_custom_stack_size) {
 // detect_stack_use_after_return=1 from the environment.
 #if defined(SEASTAR_THREAD_STACK_GUARDS) && defined(__x86_64__) && !defined(SEASTAR_ASAN_ENABLED)
 struct test_thread_custom_stack_size_failure : public seastar::testing::seastar_test {
-    const char* get_test_file() override { return __FILE__; }
-    const char* get_name() override { return "test_thread_custom_stack_size_failure"; }
-    int get_expected_failures() override { return 0; } \
-    seastar::future<> run_test_case() override;
+    const char* get_test_file() const override { return __FILE__; }
+    const char* get_name() const override { return "test_thread_custom_stack_size_failure"; }
+    int get_expected_failures() const override { return 0; } \
+    seastar::future<> run_test_case() const override;
 };
 
 static test_thread_custom_stack_size_failure test_thread_custom_stack_size_failure_instance;
@@ -213,7 +213,7 @@ static void bypass_stack_guard(int sig, siginfo_t* si, void* ctx) {
 
 // This test will fail with a regular stack size, because we only probe
 // around 10KiB of data, and the stack guard resides after 128'th KiB.
-seastar::future<> test_thread_custom_stack_size_failure::run_test_case() {
+seastar::future<> test_thread_custom_stack_size_failure::run_test_case() const {
     if (RUNNING_ON_VALGRIND) {
         return make_ready_future<>();
     }

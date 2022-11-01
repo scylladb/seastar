@@ -38,10 +38,10 @@ class seastar_test {
 public:
     seastar_test();
     virtual ~seastar_test() {}
-    virtual const char* get_test_file() = 0;
-    virtual const char* get_name() = 0;
-    virtual int get_expected_failures() { return 0; }
-    virtual future<> run_test_case() = 0;
+    virtual const char* get_test_file() const = 0;
+    virtual const char* get_name() const = 0;
+    virtual int get_expected_failures() const { return 0; }
+    virtual future<> run_test_case() const = 0;
     void run();
 };
 
