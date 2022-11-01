@@ -66,7 +66,7 @@ const std::vector<seastar_test*>& known_tests() {
     return *tests;
 }
 
-seastar_test::seastar_test() {
+seastar_test::seastar_test() noexcept {
     if (!tests) {
         tests = new std::vector<seastar_test*>();
     }

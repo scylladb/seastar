@@ -36,7 +36,7 @@ namespace testing {
 
 class seastar_test {
 public:
-    seastar_test();
+    seastar_test() noexcept;
     virtual ~seastar_test() {}
     virtual const char* get_test_file() = 0;
     virtual const char* get_name() = 0;
