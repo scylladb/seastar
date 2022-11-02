@@ -39,7 +39,7 @@
         } \
         void do_run_test_case() const; \
     }; \
-    static const name name ## _instance; \
+    static const name name ## _instance; /* NOLINT(cert-err58-cpp) */ \
     void name::do_run_test_case() const
 
 #define SEASTAR_THREAD_TEST_CASE(name) \
