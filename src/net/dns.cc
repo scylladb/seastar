@@ -810,7 +810,7 @@ private:
 
             for (;;) {
                 // check if we're already writing.
-                if (e.typ == type::tcp && !(e.avail & POLLOUT)) {
+                if (!(e.avail & POLLOUT)) {
                     dns_log.trace("Send already pending {}", fd);
                     errno = EWOULDBLOCK;
                     return -1;
