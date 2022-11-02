@@ -234,16 +234,19 @@ class statistics {
     size_t _free_memory;
     uint64_t _reclaims;
     uint64_t _large_allocs;
+    uint64_t _failed_allocs;
 
     uint64_t _foreign_mallocs;
     uint64_t _foreign_frees;
     uint64_t _foreign_cross_frees;
 private:
     statistics(uint64_t mallocs, uint64_t frees, uint64_t cross_cpu_frees,
-            uint64_t total_memory, uint64_t free_memory, uint64_t reclaims, uint64_t large_allocs,
+            uint64_t total_memory, uint64_t free_memory, uint64_t reclaims,
+            uint64_t large_allocs, uint64_t failed_allocs,
             uint64_t foreign_mallocs, uint64_t foreign_frees, uint64_t foreign_cross_frees)
         : _mallocs(mallocs), _frees(frees), _cross_cpu_frees(cross_cpu_frees)
-        , _total_memory(total_memory), _free_memory(free_memory), _reclaims(reclaims), _large_allocs(large_allocs)
+        , _total_memory(total_memory), _free_memory(free_memory), _reclaims(reclaims)
+        , _large_allocs(large_allocs), _failed_allocs(failed_allocs)
         , _foreign_mallocs(foreign_mallocs), _foreign_frees(foreign_frees)
         , _foreign_cross_frees(foreign_cross_frees) {}
 public:
@@ -266,6 +269,9 @@ public:
     uint64_t reclaims() const { return _reclaims; }
     /// Number of allocations which violated the large allocation threshold
     uint64_t large_allocations() const { return _large_allocs; }
+    /// Number of allocations which failed, i.e., where the required memory could not be obtained
+    /// even after reclaim was attempted
+    uint64_t failed_allocations() const { return _failed_allocs; }
     /// Number of foreign allocations
     uint64_t foreign_mallocs() const { return _foreign_mallocs; }
     /// Number of foreign frees

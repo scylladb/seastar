@@ -220,7 +220,8 @@ static thread_local bool is_reactor_thread = false;
 
 namespace alloc_stats {
 
-enum class types { allocs, frees, cross_cpu_frees, reclaims, large_allocs, foreign_mallocs, foreign_frees, foreign_cross_frees, enum_size };
+enum class types { allocs, frees, cross_cpu_frees, reclaims, large_allocs, failed_allocs,
+    foreign_mallocs, foreign_frees, foreign_cross_frees, enum_size };
 
 using stats_array = std::array<uint64_t, static_cast<std::size_t>(types::enum_size)>;
 using stats_atomic_array = std::array<std::atomic_uint64_t, static_cast<std::size_t>(types::enum_size)>;
@@ -1561,7 +1562,8 @@ void configure(std::vector<resource::memory> m, bool mbind,
 statistics stats() {
     return statistics{alloc_stats::get(alloc_stats::types::allocs), alloc_stats::get(alloc_stats::types::frees), alloc_stats::get(alloc_stats::types::cross_cpu_frees),
         cpu_mem.nr_pages * page_size, cpu_mem.nr_free_pages * page_size, alloc_stats::get(alloc_stats::types::reclaims), alloc_stats::get(alloc_stats::types::large_allocs),
-        alloc_stats::get(alloc_stats::types::foreign_mallocs), alloc_stats::get(alloc_stats::types::foreign_frees), alloc_stats::get(alloc_stats::types::foreign_cross_frees)};
+        alloc_stats::get(alloc_stats::types::failed_allocs), alloc_stats::get(alloc_stats::types::foreign_mallocs), alloc_stats::get(alloc_stats::types::foreign_frees),
+        alloc_stats::get(alloc_stats::types::foreign_cross_frees)};
 }
 
 size_t free_memory() {
@@ -1674,9 +1676,10 @@ seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar
     auto total_mem = get_cpu_mem().nr_pages * page_size;
     it = fmt::format_to(it, "Dumping seastar memory diagnostics\n");
 
-    it = fmt::format_to(it, "Used memory:  {}\n", to_hr_size(total_mem - free_mem));
-    it = fmt::format_to(it, "Free memory:  {}\n", to_hr_size(free_mem));
-    it = fmt::format_to(it, "Total memory: {}\n\n", to_hr_size(total_mem));
+    it = fmt::format_to(it, "Used memory:   {}\n", to_hr_size(total_mem - free_mem));
+    it = fmt::format_to(it, "Free memory:   {}\n", to_hr_size(free_mem));
+    it = fmt::format_to(it, "Total memory:  {}\n", to_hr_size(total_mem));
+    it = fmt::format_to(it, "Hard failures: {}\n\n", alloc_stats::get(alloc_stats::types::failed_allocs));
 
     if (additional_diagnostics_producer) {
         additional_diagnostics_producer([&it] (std::string_view v) mutable {
@@ -1796,6 +1799,8 @@ void maybe_dump_memory_diagnostics(size_t size) {
 }
 
 void on_allocation_failure(size_t size) {
+    alloc_stats::increment(alloc_stats::types::failed_allocs);
+
     maybe_dump_memory_diagnostics(size);
 
     if (!abort_on_alloc_failure_suppressed
@@ -2267,7 +2272,7 @@ void configure(std::vector<resource::memory> m, bool mbind, std::optional<std::s
 }
 
 statistics stats() {
-    return statistics{0, 0, 0, 1 << 30, 1 << 30, 0, 0, 0, 0, 0};
+    return statistics{0, 0, 0, 1 << 30, 1 << 30, 0, 0, 0, 0, 0, 0};
 }
 
 size_t free_memory() {
