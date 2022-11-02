@@ -1442,17 +1442,15 @@ dns_resolver::impl::do_sendv(ares_socket_t fd, const iovec * vec, int len) {
 
 
             // check if we're already writing.
-            if (e.typ == type::tcp) {
-                if (!(e.avail & POLLOUT)) {
-                    dns_log.trace("Send already pending {}", fd);
-                    errno = EWOULDBLOCK;
-                    return -1;
-                }
+            if (!(e.avail & POLLOUT)) {
+                dns_log.trace("Send already pending {}", fd);
+                errno = EWOULDBLOCK;
+                return -1;
+            }
 
-                if (!e.tcp.socket) {
-                    errno = ENOTCONN;
-                    return -1;
-                }
+            if (e.typ == type::tcp && !e.tcp.socket) {
+                errno = ENOTCONN;
+                return -1;
             }
 
 #if ARES_VERSION >= 0x012200
