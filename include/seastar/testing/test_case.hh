@@ -32,5 +32,5 @@
         const char* get_name() const override { return #name; } \
         seastar::future<> run_test_case() const override; \
     }; \
-    static const name name ## _instance; \
+    static const name name ## _instance; /* NOLINT(cert-err58-cpp) */ \
     seastar::future<> name::run_test_case() const
