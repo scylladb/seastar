@@ -1,0 +1,144 @@
+/*
+ * This file is open source software, licensed to you under the terms
+ * of the Apache License, Version 2.0 (the "License").  See the NOTICE file
+ * distributed with this work for additional information regarding copyright
+ * ownership.  You may not use this file except in compliance with the License.
+ *
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing,
+ * software distributed under the License is distributed on an
+ * "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+ * KIND, either express or implied.  See the License for the
+ * specific language governing permissions and limitations
+ * under the License.
+ */
+
+/*
+ * Copyright (C) 2022 Kefu Chai ( tchaikov@gmail.com )
+ */
+
+#include <seastar/core/fstream.hh>
+#include <seastar/core/internal/buffer_allocator.hh>
+#include <seastar/core/io_queue.hh>
+#include <seastar/core/polymorphic_temporary_buffer.hh>
+#include <seastar/core/reactor.hh>
+#include <seastar/util/process.hh>
+
+namespace seastar::experimental {
+
+namespace {
+class pipe_data_source_impl final : public data_source_impl {
+    static constexpr std::size_t buffer_size = 8192;
+    struct buffer_allocator : public internal::buffer_allocator {
+        temporary_buffer<char> allocate_buffer() override {
+            return make_temporary_buffer<char>(memory::malloc_allocator, buffer_size);
+        }
+    };
+    pollable_fd _fd;
+    buffer_allocator _ba;
+public:
+    explicit pipe_data_source_impl(pollable_fd fd)
+        : _fd(std::move(fd)) {}
+    static auto from_fd(int fd) {
+        return std::make_unique<pipe_data_source_impl>(pollable_fd(file_desc::from_fd(fd)));
+    }
+    future<temporary_buffer<char>> get() override {
+        return _fd.read_some(&_ba);
+    }
+    future<> close() override {
+        _fd.close();
+        return make_ready_future();
+    }
+};
+
+class pipe_data_sink_impl final : public data_sink_impl {
+    const int _fd;
+    io_queue& _io_queue;
+    const size_t _buffer_size;
+public:
+    explicit pipe_data_sink_impl(int fd)
+        : _fd(fd)
+        , _io_queue(engine().get_io_queue(0))
+        , _buffer_size(file_input_stream_options{}.buffer_size) {}
+    static auto from_fd(int fd) {
+        return std::make_unique<pipe_data_sink_impl>(fd);
+    }
+    future<> put(temporary_buffer<char> buf) override {
+        size_t buf_size = buf.size();
+        auto req = internal::io_request::make_write(_fd, 0, buf.get(), buf_size, false);
+        return _io_queue.submit_io_write(default_priority_class(), buf_size, std::move(req), nullptr).then(
+            [this, buf = std::move(buf), buf_size] (size_t written) mutable {
+                if (written < buf_size) {
+                    buf.trim_front(written);
+                    return put(std::move(buf));
+                }
+                return make_ready_future();
+            });
+    }
+    future<> put(net::packet data) override {
+        return do_with(data.release(), [this] (std::vector<temporary_buffer<char>>& bufs) {
+            return do_for_each(bufs, [this] (temporary_buffer<char>& buf) {
+                return put(buf.share());
+            });
+        });
+    }
+    future<> close() override {
+        ::close(_fd);
+        return make_ready_future();
+    }
+    size_t buffer_size() const noexcept override {
+        return _buffer_size;
+    }
+};
+}
+
+process::process(create_tag, pid_t pid, int stdin, int stdout, int stderr)
+    : _pid(pid)
+    , _stdin(stdin)
+    , _stdout(stdout)
+    , _stderr(stderr) {}
+
+future<process::wait_status> process::wait() {
+    return engine().waitpid(_pid).then([] (int wstatus) -> wait_status {
+        if (WIFEXITED(wstatus)) {
+            return wait_exited{WEXITSTATUS(wstatus)};
+        } else {
+            assert(WIFSIGNALED(wstatus));
+            return wait_signaled{WTERMSIG(wstatus)};
+        }
+    });
+}
+
+future<process> process::spawn(const std::filesystem::path& pathname,
+                               spawn_parameters params) {
+    assert(!params.argv.empty());
+    return engine().spawn(pathname.native(), std::move(params.argv), std::move(params.env)).then(
+            [] (std::tuple<pid_t, int, int, int> result) {
+        auto [pid, stdin_pipe, stdout_pipe, stderr_pipe] = result;
+        return make_ready_future<process>(create_tag{}, pid, stdin_pipe, stdout_pipe, stderr_pipe);
+    });
+}
+
+future<process> process::spawn(const std::filesystem::path& pathname) {
+    return spawn(pathname, {{pathname.native()}, {}});
+}
+
+output_stream<char> process::stdin() {
+    assert(_stdin >= 0);
+    return output_stream<char>(data_sink(pipe_data_sink_impl::from_fd(_stdin)));
+}
+
+input_stream<char> process::stdout() {
+    assert(_stdout >= 0);
+    return input_stream<char>(data_source(pipe_data_source_impl::from_fd(_stdout)));
+}
+
+input_stream<char> process::stderr() {
+    assert(_stderr >= 0);
+    return input_stream<char>(data_source(pipe_data_source_impl::from_fd(_stderr)));
+}
+
+}

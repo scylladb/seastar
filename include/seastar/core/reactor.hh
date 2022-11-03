@@ -532,7 +532,13 @@ public:
     future<> chmod(std::string_view name, file_permissions permissions) noexcept;
 
     future<int> inotify_add_watch(int fd, std::string_view path, uint32_t flags);
-    
+
+    future<std::tuple<pid_t, int, int, int>>
+    spawn(std::string_view pathname,
+          std::vector<sstring> argv,
+          std::vector<sstring> env = {});
+    future<int> waitpid(pid_t pid);
+
     int run() noexcept;
     void exit(int ret);
     future<> when_started() { return _start_promise.get_future(); }
