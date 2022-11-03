@@ -230,9 +230,10 @@ SEASTAR_TEST_CASE(test_bad_alloc_throws) {
     stats = seastar::memory::stats();
     void *p = malloc(1);
     BOOST_REQUIRE(p);
-    BOOST_REQUIRE_EQUAL(realloc(p, size), nullptr);
+    void *p2 = realloc(p, size);
+    BOOST_REQUIRE_EQUAL(p2, nullptr);
     BOOST_CHECK_EQUAL(failed_allocs(), 1);
-    free(p);
+    free(p2 ?: p);
 
     return make_ready_future<>();
 }
