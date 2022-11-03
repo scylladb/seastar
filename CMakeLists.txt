@@ -612,6 +612,7 @@ add_library (seastar STATIC
   include/seastar/util/noncopyable_function.hh
   include/seastar/util/optimized_optional.hh
   include/seastar/util/print_safe.hh
+  include/seastar/util/process.hh
   include/seastar/util/program-options.hh
   include/seastar/util/read_first_line.hh
   include/seastar/util/reference_wrapper.hh
@@ -703,6 +704,7 @@ add_library (seastar STATIC
   src/util/exceptions.cc
   src/util/file.cc
   src/util/log.cc
+  src/util/process.cc
   src/util/program-options.cc
   src/util/read_first_line.cc
   src/util/tmp_file.cc
