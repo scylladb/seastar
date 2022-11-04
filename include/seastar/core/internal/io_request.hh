@@ -37,66 +37,66 @@ class io_request {
 public:
     enum class operation { read, readv, write, writev, fdatasync, recv, recvmsg, send, sendmsg, accept, connect, poll_add, poll_remove, cancel };
 private:
-    operation _op;
+    const operation _op;
     // the upper layers give us void pointers, but storing void pointers here is just
     // dangerous. The constructors seem to be happy to convert other pointers to void*,
     // even if they are marked as explicit, and then you end up losing approximately 3 hours
     // and 15 minutes (hypothetically, of course), trying to chase the weirdest bug.
     // Let's store a char* for safety, and cast it back to void* in the accessor.
     struct read_op {
-        int fd;
-        uint64_t pos;
-        char* addr;
-        size_t size;
-        bool nowait_works;
+        const int fd;
+        const uint64_t pos;
+        char* const addr;
+        const size_t size;
+        const bool nowait_works;
     };
     struct readv_op {
-        int fd;
-        uint64_t pos;
-        ::iovec* iovec;
-        size_t iov_len;
-        bool nowait_works;
+        const int fd;
+        const uint64_t pos;
+        ::iovec* const iovec;
+        const size_t iov_len;
+        const bool nowait_works;
     };
     struct recv_op {
-        int fd;
-        char* addr;
-        size_t size;
-        int flags;
+        const int fd;
+        char* const addr;
+        const size_t size;
+        const int flags;
     };
     struct recvmsg_op {
-        int fd;
-        ::msghdr* msghdr;
-        int flags;
+        const int fd;
+        ::msghdr* const msghdr;
+        const int flags;
     };
     using send_op = recv_op;
     using sendmsg_op = recvmsg_op;
     using write_op = read_op;
     using writev_op = readv_op;
     struct fdatasync_op {
-        int fd;
+        const int fd;
     };
     struct accept_op {
-        int fd;
-        ::sockaddr* sockaddr;
-        socklen_t* socklen_ptr;
-        int flags;
+        const int fd;
+        ::sockaddr* const sockaddr;
+        socklen_t* const socklen_ptr;
+        const int flags;
     };
     struct connect_op {
-        int fd;
-        ::sockaddr* sockaddr;
-        socklen_t socklen;
+        const int fd;
+        ::sockaddr* const sockaddr;
+        const socklen_t socklen;
     };
     struct poll_add_op {
-        int fd;
-        int events;
+        const int fd;
+        const int events;
     };
     struct poll_remove_op {
-        int fd;
-        char* addr;
+        const int fd;
+        const char* const addr;
     };
     struct cancel_op {
         int fd;
-        char* addr;
+        char* const addr;
     };
     union {
         read_op _read;
@@ -264,6 +264,16 @@ public:
     }
     static io_request make_cancel(int fd, void *addr) {
         return io_request(operation_constant<operation::cancel>{}, fd, addr);
+    }
+
+    io_request(io_request&& other) noexcept
+        : _op(other._op) {
+        std::memcpy(this, &other, sizeof(*this));
+    }
+
+    io_request& operator=(io_request&& other) noexcept {
+        std::memcpy(this, &other, sizeof(*this));
+        return *this;
     }
 
     bool is_read() const {
