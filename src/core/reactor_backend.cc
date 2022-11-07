@@ -60,7 +60,7 @@ public:
     }
 };
 
-void prepare_iocb(io_request& req, io_completion* desc, iocb& iocb) {
+void prepare_iocb(const io_request& req, io_completion* desc, iocb& iocb) {
     switch (req.opcode()) {
     case io_request::operation::fdatasync:
         iocb = make_fdsync_iocb(req.as<io_request::operation::fdatasync>().fd);
@@ -178,7 +178,7 @@ aio_storage_context::submit_work() {
     bool did_work = false;
 
     _submission_queue.resize(0);
-    size_t to_submit = _r._io_sink.drain([this] (internal::io_request& req, io_completion* desc) -> bool {
+    size_t to_submit = _r._io_sink.drain([this] (const internal::io_request& req, io_completion* desc) -> bool {
         if (!_iocb_pool.has_capacity()) {
             return false;
         }
@@ -1351,7 +1351,7 @@ private:
         return ufd->get_completion_future(events);
     }
 
-    void submit_io_request(internal::io_request& req, io_completion* completion) {
+    void submit_io_request(const internal::io_request& req, io_completion* completion) {
         auto sqe = get_sqe();
         using o = internal::io_request::operation;
         switch (req.opcode()) {
@@ -1426,7 +1426,7 @@ private:
 
     // Returns true if any work was done
     bool queue_pending_file_io() {
-        return _r._io_sink.drain([&] (internal::io_request& req, io_completion* completion) -> bool {
+        return _r._io_sink.drain([&] (const internal::io_request& req, io_completion* completion) -> bool {
             submit_io_request(req, completion);
             return true;
         });

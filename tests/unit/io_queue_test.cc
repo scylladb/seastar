@@ -52,13 +52,13 @@ struct fake_file {
         return internal::io_request::make_writev(0, idx, vecs, false);
     }
 
-    void execute_write_req(internal::io_request& rq, io_completion* desc) {
+    void execute_write_req(const internal::io_request& rq, io_completion* desc) {
         const auto& op = rq.as<internal::io_request::operation::write>();
         data[op.pos] = *(reinterpret_cast<int*>(op.addr));
         desc->complete_with(op.size);
     }
 
-    void execute_writev_req(internal::io_request& rq, io_completion* desc) {
+    void execute_writev_req(const internal::io_request& rq, io_completion* desc) {
         size_t len = 0;
         const auto& op = rq.as<internal::io_request::operation::writev>();
         for (unsigned i = 0; i < op.iov_len; i++) {
@@ -103,7 +103,7 @@ SEASTAR_THREAD_TEST_CASE(test_basic_flow) {
 
     seastar::sleep(std::chrono::milliseconds(500)).get();
     tio.queue.poll_io_queue();
-    tio.sink.drain([&file] (internal::io_request& rq, io_completion* desc) -> bool {
+    tio.sink.drain([&file] (const internal::io_request& rq, io_completion* desc) -> bool {
         file.execute_write_req(rq, desc);
         return true;
     });
@@ -145,7 +145,7 @@ static void do_test_large_request_flow(part_flaw flaw) {
     for (int i = 0; i < 3; i++) {
         seastar::sleep(std::chrono::milliseconds(500)).get();
         tio.queue.poll_io_queue();
-        tio.sink.drain([&file, i, flaw] (internal::io_request& rq, io_completion* desc) -> bool {
+        tio.sink.drain([&file, i, flaw] (const internal::io_request& rq, io_completion* desc) -> bool {
             if (i == 1) {
                 if (flaw == part_flaw::partial) {
                     const auto& op = rq.as<internal::io_request::operation::writev>();
@@ -308,7 +308,7 @@ SEASTAR_THREAD_TEST_CASE(test_io_cancellation) {
 
     seastar::sleep(std::chrono::milliseconds(500)).get();
     tio.queue.poll_io_queue();
-    tio.sink.drain([&file] (internal::io_request& rq, io_completion* desc) -> bool {
+    tio.sink.drain([&file] (const internal::io_request& rq, io_completion* desc) -> bool {
         file.execute_write_req(rq, desc);
         return true;
     });
