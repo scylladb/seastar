@@ -72,6 +72,7 @@ bool filesystem_has_good_aio_support(sstring directory, bool verbose) {
     auto bufsize = 4096;
     auto ctxsw = 0;
     auto buf = aligned_alloc(4096, 4096);
+    auto del = defer([&] () noexcept { ::free(buf); });
     for (int i = 0; i < nr; ++i) {
         struct iocb cmd;
         cmd = make_write_iocb(fd.get(), bufsize*i, buf, bufsize);
