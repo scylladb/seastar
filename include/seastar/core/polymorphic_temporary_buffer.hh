@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include <seastar/core/memory.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/util/std-compat.hh>
 
