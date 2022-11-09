@@ -254,7 +254,7 @@ endif()
 
 set (dpdk_args
   # gcc 10 defaults to -fno-common, which dpdk is not prepared for
-  "EXTRA_CFLAGS=-Wno-error -fcommon"
+  "EXTRA_CFLAGS=-Wno-error -fcommon -fpie"
   O=<BINARY_DIR>
   DESTDIR=<INSTALL_DIR>
   T=${dpdk_quadruple})
