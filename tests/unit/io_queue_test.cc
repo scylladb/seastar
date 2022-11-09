@@ -52,16 +52,18 @@ struct fake_file {
         return internal::io_request::make_writev(0, idx, vecs, false);
     }
 
-    void execute_write_req(internal::io_request& rq, io_completion* desc) {
-        data[rq.pos()] = *(reinterpret_cast<int*>(rq.address()));
-        desc->complete_with(rq.size());
+    void execute_write_req(const internal::io_request& rq, io_completion* desc) {
+        const auto& op = rq.as<internal::io_request::operation::write>();
+        data[op.pos] = *(reinterpret_cast<int*>(op.addr));
+        desc->complete_with(op.size);
     }
 
-    void execute_writev_req(internal::io_request& rq, io_completion* desc) {
+    void execute_writev_req(const internal::io_request& rq, io_completion* desc) {
         size_t len = 0;
-        for (unsigned i = 0; i < rq.iov_len(); i++) {
-            data[rq.pos() + i] = *(reinterpret_cast<int*>(rq.iov()[i].iov_base));
-            len += rq.iov()[i].iov_len;
+        const auto& op = rq.as<internal::io_request::operation::writev>();
+        for (unsigned i = 0; i < op.iov_len; i++) {
+            data[op.pos + i] = *(reinterpret_cast<int*>(op.iovec[i].iov_base));
+            len += op.iovec[i].iov_len;
         }
         desc->complete_with(len);
     }
@@ -101,7 +103,7 @@ SEASTAR_THREAD_TEST_CASE(test_basic_flow) {
 
     seastar::sleep(std::chrono::milliseconds(500)).get();
     tio.queue.poll_io_queue();
-    tio.sink.drain([&file] (internal::io_request& rq, io_completion* desc) -> bool {
+    tio.sink.drain([&file] (const internal::io_request& rq, io_completion* desc) -> bool {
         file.execute_write_req(rq, desc);
         return true;
     });
@@ -143,10 +145,11 @@ static void do_test_large_request_flow(part_flaw flaw) {
     for (int i = 0; i < 3; i++) {
         seastar::sleep(std::chrono::milliseconds(500)).get();
         tio.queue.poll_io_queue();
-        tio.sink.drain([&file, i, flaw] (internal::io_request& rq, io_completion* desc) -> bool {
+        tio.sink.drain([&file, i, flaw] (const internal::io_request& rq, io_completion* desc) -> bool {
             if (i == 1) {
                 if (flaw == part_flaw::partial) {
-                    rq.iov()[0].iov_len /= 2;
+                    const auto& op = rq.as<internal::io_request::operation::writev>();
+                    op.iovec[0].iov_len /= 2;
                 }
                 if (flaw == part_flaw::error) {
                     desc->complete_with(-EIO);
@@ -305,7 +308,7 @@ SEASTAR_THREAD_TEST_CASE(test_io_cancellation) {
 
     seastar::sleep(std::chrono::milliseconds(500)).get();
     tio.queue.poll_io_queue();
-    tio.sink.drain([&file] (internal::io_request& rq, io_completion* desc) -> bool {
+    tio.sink.drain([&file] (const internal::io_request& rq, io_completion* desc) -> bool {
         file.execute_write_req(rq, desc);
         return true;
     });
@@ -316,13 +319,15 @@ SEASTAR_THREAD_TEST_CASE(test_io_cancellation) {
 SEASTAR_TEST_CASE(test_request_buffer_split) {
     auto ensure = [] (const std::vector<internal::io_request::part>& parts, const internal::io_request& req, int idx, uint64_t pos, size_t size, uintptr_t mem) {
         BOOST_REQUIRE(parts[idx].req.opcode() == req.opcode());
-        BOOST_REQUIRE_EQUAL(parts[idx].req.fd(), req.fd());
-        BOOST_REQUIRE_EQUAL(parts[idx].req.pos(), pos);
-        BOOST_REQUIRE_EQUAL(parts[idx].req.size(), size);
-        BOOST_REQUIRE_EQUAL(parts[idx].req.address(), reinterpret_cast<void*>(mem));
-        BOOST_REQUIRE_EQUAL(parts[idx].req.nowait_works(), req.nowait_works());
+        const auto& op = req.as<internal::io_request::operation::read>();
+        const auto& sub_op = parts[idx].req.as<internal::io_request::operation::read>();
+        BOOST_REQUIRE_EQUAL(sub_op.fd, op.fd);
+        BOOST_REQUIRE_EQUAL(sub_op.pos, pos);
+        BOOST_REQUIRE_EQUAL(sub_op.size, size);
+        BOOST_REQUIRE_EQUAL(sub_op.addr, reinterpret_cast<void*>(mem));
+        BOOST_REQUIRE_EQUAL(sub_op.nowait_works, op.nowait_works);
         BOOST_REQUIRE_EQUAL(parts[idx].iovecs.size(), 0);
-        BOOST_REQUIRE_EQUAL(parts[idx].size, parts[idx].req.size());
+        BOOST_REQUIRE_EQUAL(parts[idx].size, sub_op.size);
     };
 
     // No split
@@ -360,9 +365,10 @@ static void show_request(const internal::io_request& req, void* buf_off, std::st
         return;
     }
 
-    seastar_logger.trace("{}{} iovecs on req:", pfx, req.iov_len());
-    for (unsigned i = 0; i < req.iov_len(); i++) {
-        seastar_logger.trace("{}  base={} len={}", pfx, reinterpret_cast<uintptr_t>(req.iov()[i].iov_base) - reinterpret_cast<uintptr_t>(buf_off), req.iov()[i].iov_len);
+    const auto& op = req.as<internal::io_request::operation::readv>();
+    seastar_logger.trace("{}{} iovecs on req:", pfx, op.iov_len);
+    for (unsigned i = 0; i < op.iov_len; i++) {
+        seastar_logger.trace("{}  base={} len={}", pfx, reinterpret_cast<uintptr_t>(op.iovec[i].iov_base) - reinterpret_cast<uintptr_t>(buf_off), op.iovec[i].iov_len);
     }
 }
 
@@ -418,15 +424,17 @@ SEASTAR_TEST_CASE(test_request_iovec_split) {
 
     auto ensure = [] (const std::vector<internal::io_request::part>& parts, const internal::io_request& req, int idx, uint64_t pos) {
         BOOST_REQUIRE(parts[idx].req.opcode() == req.opcode());
-        BOOST_REQUIRE_EQUAL(parts[idx].req.fd(), req.fd());
-        BOOST_REQUIRE_EQUAL(parts[idx].req.pos(), pos);
-        BOOST_REQUIRE_EQUAL(parts[idx].req.iov_len(), parts[idx].iovecs.size());
-        BOOST_REQUIRE_EQUAL(parts[idx].req.nowait_works(), req.nowait_works());
+        const auto& op = req.as<internal::io_request::operation::writev>();
+        const auto& sub_op = parts[idx].req.as<internal::io_request::operation::writev>();
+        BOOST_REQUIRE_EQUAL(sub_op.fd, op.fd);
+        BOOST_REQUIRE_EQUAL(sub_op.pos, pos);
+        BOOST_REQUIRE_EQUAL(sub_op.iov_len, parts[idx].iovecs.size());
+        BOOST_REQUIRE_EQUAL(sub_op.nowait_works, op.nowait_works);
         BOOST_REQUIRE_EQUAL(parts[idx].size, internal::iovec_len(parts[idx].iovecs));
 
         for (unsigned iov = 0; iov < parts[idx].iovecs.size(); iov++) {
-            BOOST_REQUIRE_EQUAL(parts[idx].req.iov()[iov].iov_base, parts[idx].iovecs[iov].iov_base);
-            BOOST_REQUIRE_EQUAL(parts[idx].req.iov()[iov].iov_len, parts[idx].iovecs[iov].iov_len);
+            BOOST_REQUIRE_EQUAL(sub_op.iovec[iov].iov_base, parts[idx].iovecs[iov].iov_base);
+            BOOST_REQUIRE_EQUAL(sub_op.iovec[iov].iov_len, parts[idx].iovecs[iov].iov_len);
         }
     };
 
