@@ -41,7 +41,6 @@
 namespace seastar {
 
 namespace httpd {
-class connection;
 
 /**
  * A request received from a client.
@@ -69,13 +68,10 @@ struct request {
     sstring _method;
     sstring _url;
     sstring _version;
-    int http_version_major;
-    int http_version_minor;
     ctclass content_type_class;
     size_t content_length = 0;
     std::unordered_map<sstring, sstring, case_insensitive_hash, case_insensitive_cmp> _headers;
     std::unordered_map<sstring, sstring> query_parameters;
-    connection* connection_ptr;
     parameters param;
     sstring content; // deprecated: use content_stream instead
     /*
