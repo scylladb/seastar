@@ -365,7 +365,6 @@ class output_stream final {
 
 private:
     size_t available() const noexcept { return _end - _begin; }
-    size_t possibly_available() const noexcept { return _size - _begin; }
     future<> split_and_put(temporary_buffer<CharType> buf) noexcept;
     future<> put(temporary_buffer<CharType> buf) noexcept;
     void poll_flush() noexcept;
