@@ -963,11 +963,13 @@ future<> check_http_reply (std::vector<sstring>&& req_parts, std::vector<std::st
     });
 };
 
-SEASTAR_TEST_CASE(test_streamed_content) {
-    return seastar::async([] {
+static future<> test_basic_content(bool streamed) {
+    return seastar::async([streamed] {
         loopback_connection_factory lcf;
         http_server server("test");
-        server.set_content_streaming(true);
+        if (streamed) {
+            server.set_content_streaming(true);
+        }
         loopback_socket_impl lsi(lcf);
         httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
         future<> client = seastar::async([&lsi] {
@@ -1029,13 +1031,26 @@ SEASTAR_TEST_CASE(test_streamed_content) {
             output.close().get();
         });
 
-        auto handler = new echo_stream_handler();
+        handler_base* handler;
+        if (streamed) {
+            handler = new echo_stream_handler();
+        } else {
+            handler = new echo_string_handler();
+        }
         server._routes.put(GET, "/test", handler);
         server.do_accepts(0).get();
 
         client.get();
         server.stop().get();
     });
+}
+
+SEASTAR_TEST_CASE(test_string_content) {
+    return test_basic_content(false);
+}
+
+SEASTAR_TEST_CASE(test_stream_content) {
+    return test_basic_content(true);
 }
 
 SEASTAR_TEST_CASE(test_not_implemented_encoding) {
@@ -1045,80 +1060,6 @@ SEASTAR_TEST_CASE(test_not_implemented_encoding) {
         "a\r\n1234521345\r\n",
         "0\r\n\r\n"
     }, {"501 Not Implemented", "Encodings other than \"chunked\" are not implemented (received encoding: \"gzip, chunked\")"}, false, new echo_string_handler());
-}
-
-SEASTAR_TEST_CASE(test_string_content) {
-    return seastar::async([] {
-        loopback_connection_factory lcf;
-        http_server server("test");
-        loopback_socket_impl lsi(lcf);
-        httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
-        future<> client = seastar::async([&lsi] {
-            connected_socket c_socket = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get0();
-            input_stream<char> input(c_socket.input());
-            output_stream<char> output(c_socket.output());
-
-            output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\nContent-Length: 20\r\n\r\n")).get();
-            output.flush().get();
-            output.write(sstring("1234567890")).get();
-            output.flush().get();
-            output.write(sstring("1234521345")).get();
-            output.flush().get();
-            auto resp = input.read().get0();
-            BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("12345678901234521345"), std::string::npos);
-
-            output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\nContent-Length: 14\r\n\r\n")).get();
-            output.flush().get();
-            output.write(sstring("second")).get();
-            output.flush().get();
-            output.write(sstring(" request")).get();
-            output.flush().get();
-            resp = input.read().get0();
-            BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("second request"), std::string::npos);
-
-            output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\n\r\n")).get();
-            output.flush().get();
-            // content length assumed to be 0
-            resp = input.read().get0();
-            BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("200 OK"), std::string::npos);
-
-            output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\nContent-Length: 3\r\n\r\ntwo"
-                                 "GET /test HTTP/1.1\r\nHost: test\r\nContent-Length: 8\r\n\r\nrequests")).get();
-            output.flush().get();
-            resp = input.read().get0();
-            BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("two"), std::string::npos);
-            if (std::string(resp.get(), resp.size()).find("requests") == std::string::npos) {
-                resp = input.read().get0();
-            }
-            BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("requests"), std::string::npos);
-
-            output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\nTransfer-Encoding: chunked\r\n\r\n")).get();
-            output.write(sstring("a\r\n1234567890\r\n")).get();
-            output.write(sstring("a\r\n1234521345\r\n")).get();
-            output.write(sstring("0\r\n\r\n")).get();
-            output.flush().get();
-            resp = input.read().get0();
-            BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("12345678901234521345"), std::string::npos);
-
-            output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\nTransfer-Encoding: chunked\r\n\r\n")).get();
-            output.write(sstring("B\r\nsecond\r\nreq\r\n")).get();
-            output.write(sstring("4\r\nuest\r\n")).get();
-            output.write(sstring("0\r\n\r\n")).get();
-            output.flush().get();
-            resp = input.read().get0();
-            BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("second\r\nrequest"), std::string::npos);
-
-            input.close().get();
-            output.close().get();
-        });
-
-        auto handler = new echo_string_handler();
-        server._routes.put(GET, "/test", handler);
-        server.do_accepts(0).get();
-
-        client.get();
-        server.stop().get();
-    });
 }
 
 SEASTAR_TEST_CASE(test_full_chunk_format) {
