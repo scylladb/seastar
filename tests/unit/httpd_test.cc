@@ -23,8 +23,10 @@
 #include <seastar/http/response_parser.hh>
 #include <sstream>
 #include <seastar/core/shared_future.hh>
+#include <seastar/http/client.hh>
 #include <seastar/http/url.hh>
 #include <seastar/util/later.hh>
+#include <seastar/util/short_streams.hh>
 
 using namespace seastar;
 using namespace httpd;
@@ -974,61 +976,61 @@ static future<> test_basic_content(bool streamed) {
         httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
         future<> client = seastar::async([&lsi] {
             connected_socket c_socket = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get0();
-            input_stream<char> input(c_socket.input());
-            output_stream<char> output(c_socket.output());
+            http::experimental::connection conn(std::move(c_socket));
 
-            output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\nContent-Length: 20\r\n\r\n")).get();
-            output.flush().get();
-            output.write(sstring("1234567890")).get();
-            output.flush().get();
-            output.write(sstring("1234521345")).get();
-            output.flush().get();
-            auto resp = input.read().get0();
-            BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("12345678901234521345"), std::string::npos);
-
-            output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\nContent-Length: 14\r\n\r\n")).get();
-            output.flush().get();
-            output.write(sstring("second")).get();
-            output.flush().get();
-            output.write(sstring(" request")).get();
-            output.flush().get();
-            resp = input.read().get0();
-            BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("second request"), std::string::npos);
-
-            output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\n\r\n")).get();
-            output.flush().get();
-            // content length assumed to be 0
-            resp = input.read().get0();
-            BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("200 OK"), std::string::npos);
-
-            output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\nContent-Length: 3\r\n\r\ntwo"
-                                 "GET /test HTTP/1.1\r\nHost: test\r\nContent-Length: 8\r\n\r\nrequests")).get();
-            output.flush().get();
-            resp = input.read().get0();
-            BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("two"), std::string::npos);
-            if (std::string(resp.get(), resp.size()).find("requests") == std::string::npos) {
-                resp = input.read().get0();
+            {
+                fmt::print("Simple request test\n");
+                auto req = http::request::make("GET", "test", "/test");
+                auto resp = conn.make_request(std::move(req)).get0();
+                BOOST_REQUIRE_EQUAL(resp._status, http::reply::status_type::ok);
+                BOOST_REQUIRE_EQUAL(resp._headers["Content-Length"], "0");
             }
-            BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("requests"), std::string::npos);
 
-            output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\nTransfer-Encoding: chunked\r\n\r\n")).get();
-            output.write(sstring("a\r\n1234567890\r\n")).get();
-            output.write(sstring("a\r\n1234521345\r\n")).get();
-            output.write(sstring("0\r\n\r\n")).get();
-            output.flush().get();
-            resp = input.read().get0();
-            BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("12345678901234521345"), std::string::npos);
+            {
+                fmt::print("Request with body test\n");
+                auto req = http::request::make("GET", "test", "/test");
+                req.write_body("txt", sstring("12345 78901\t34521345"));
+                auto resp = conn.make_request(std::move(req)).get0();
+                BOOST_REQUIRE_EQUAL(resp._status, http::reply::status_type::ok);
+                BOOST_REQUIRE_EQUAL(resp._headers["Content-Length"], "20");
+                auto in = conn.in(resp);
+                sstring body = util::read_entire_stream_contiguous(in).get0();
+                BOOST_REQUIRE_EQUAL(body, sstring("12345 78901\t34521345"));
+            }
 
-            output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\nTransfer-Encoding: chunked\r\n\r\n")).get();
-            output.write(sstring("B\r\nsecond\r\nreq\r\n")).get();
-            output.write(sstring("4\r\nuest\r\n")).get();
-            output.write(sstring("0\r\n\r\n")).get();
-            output.flush().get();
-            resp = input.read().get0();
-            BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("second\r\nrequest"), std::string::npos);
+            {
+                fmt::print("Request with chunked body\n");
+                auto req = http::request::make("GET", "test", "/test");
+                req.write_body("txt", [] (auto&& out) -> future<> {
+                    return seastar::async([out = std::move(out)] mutable {
+                        out.write(sstring("req")).get();
+                        out.write(sstring("1234\r\n7890")).get();
+                        out.flush().get();
+                        out.close().get();
+                    });
+                });
+                auto resp = conn.make_request(std::move(req)).get0();
+                BOOST_REQUIRE_EQUAL(resp._status, http::reply::status_type::ok);
+                BOOST_REQUIRE_EQUAL(resp._headers["Content-Length"], "13");
+                auto in = conn.in(resp);
+                sstring body = util::read_entire_stream_contiguous(in).get0();
+                BOOST_REQUIRE_EQUAL(body, sstring("req1234\r\n7890"));
+            }
 
-            input.close().get();
-            output.close().get();
+            {
+                fmt::print("Request with expect-continue\n");
+                auto req = http::request::make("GET", "test", "/test");
+                req.write_body("txt", sstring("foobar"));
+                req.set_expects_continue();
+                auto resp = conn.make_request(std::move(req)).get0();
+                BOOST_REQUIRE_EQUAL(resp._status, http::reply::status_type::ok);
+                BOOST_REQUIRE_EQUAL(resp._headers["Content-Length"], "6");
+                auto in = conn.in(resp);
+                sstring body = util::read_entire_stream_contiguous(in).get0();
+                BOOST_REQUIRE_EQUAL(body, sstring("foobar"));
+            }
+
+            conn.close().get();
         });
 
         handler_base* handler;
