@@ -325,23 +325,6 @@ void connection::shutdown() {
     _fd.shutdown_output();
 }
 
-future<> connection::write_reply_headers(
-        std::unordered_map<sstring, sstring>::iterator hi) {
-    if (hi == _resp->_headers.end()) {
-        return make_ready_future<>();
-    }
-    return _write_buf.write(hi->first.data(), hi->first.size()).then(
-            [this] {
-                return _write_buf.write(": ", 2);
-            }).then([hi, this] {
-        return _write_buf.write(hi->second.data(), hi->second.size());
-    }).then([this] {
-        return _write_buf.write("\r\n", 2);
-    }).then([hi, this] () mutable {
-        return write_reply_headers(++hi);
-    });
-}
-
 short connection::hex_to_byte(char c) {
     if (c >='a' && c <= 'z') {
         return c - 'a' + 10;

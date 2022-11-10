@@ -96,7 +96,6 @@ public:
     void set_headers(reply& resp);
 
     future<> start_response();
-    future<> write_reply_headers(std::unordered_map<sstring, sstring>::iterator hi);
 
     static short hex_to_byte(char c);
 
