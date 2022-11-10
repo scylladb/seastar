@@ -32,6 +32,7 @@
 #include <seastar/core/print.hh>
 #include <seastar/http/httpd.hh>
 #include <seastar/http/common.hh>
+#include <seastar/http/response_parser.hh>
 #include <seastar/core/loop.hh>
 
 namespace seastar {
@@ -171,6 +172,13 @@ static const sstring& to_string(reply::status_type status) {
 
 std::ostream& operator<<(std::ostream& os, reply::status_type st) {
     return os << status_strings::to_string(st);
+}
+
+reply::reply(http_response&& resp)
+        : _status(static_cast<status_type>(resp._status_code))
+        , _headers(std::move(resp._headers))
+        , _version(std::move(resp._version))
+{
 }
 
 sstring reply::response_line() {

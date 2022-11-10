@@ -39,6 +39,8 @@
 
 namespace seastar {
 
+struct http_response;
+
 namespace httpd {
 
 class connection;
@@ -110,9 +112,14 @@ struct reply {
     sstring _content;
 
     sstring _response_line;
+    std::unordered_map<sstring, sstring> trailing_headers;
+    std::unordered_map<sstring, sstring> chunk_extensions;
+
     reply()
             : _status(status_type::ok) {
     }
+
+    explicit reply(http_response&&);
 
     reply& add_header(const sstring& h, const sstring& value) {
         _headers[h] = value;
