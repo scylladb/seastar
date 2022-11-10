@@ -138,7 +138,7 @@ public:
      * @param req the http request
      * @param rep the http reply
      */
-    future<std::unique_ptr<reply> > handle(const sstring& path, std::unique_ptr<request> req, std::unique_ptr<reply> rep);
+    future<std::unique_ptr<reply> > handle(const sstring& path, std::unique_ptr<http::request> req, std::unique_ptr<reply> rep);
 
     /**
      * Search and return an exact match
@@ -243,7 +243,7 @@ public:
  * @param params the parameters object
  * @param param the parameter to look for
  */
-void verify_param(const httpd::request& req, const sstring& param);
+void verify_param(const http::request& req, const sstring& param);
 
 /**
  * The handler_registration object facilitates registration and auto

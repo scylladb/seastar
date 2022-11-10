@@ -69,7 +69,7 @@ class connection : public boost::intrusive::list_base_hook<> {
     static constexpr size_t limit = 4096;
     using tmp_buf = temporary_buffer<char>;
     http_request_parser _parser;
-    std::unique_ptr<request> _req;
+    std::unique_ptr<http::request> _req;
     std::unique_ptr<reply> _resp;
     // null element marks eof
     queue<std::unique_ptr<reply>> _replies { 10 };
@@ -112,17 +112,17 @@ public:
     /**
      * Add a single query parameter to the parameter list
      */
-    static void add_param(request& req, const std::string_view& param);
+    static void add_param(http::request& req, const std::string_view& param);
 
     /**
      * Set the query parameters in the request objects.
      * query param appear after the question mark and are separated
      * by the ampersand sign
      */
-    static sstring set_query_param(request& req);
+    static sstring set_query_param(http::request& req);
 
-    future<bool> generate_reply(std::unique_ptr<request> req);
-    void generate_error_reply_and_close(std::unique_ptr<request> req, reply::status_type status, const sstring& msg);
+    future<bool> generate_reply(std::unique_ptr<http::request> req);
+    void generate_error_reply_and_close(std::unique_ptr<http::request> req, reply::status_type status, const sstring& msg);
 
     future<> write_body();
 

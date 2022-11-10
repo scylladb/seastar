@@ -31,7 +31,7 @@ using namespace httpd;
 class handl : public httpd::handler_base {
 public:
     virtual future<std::unique_ptr<reply> > handle(const sstring& path,
-            std::unique_ptr<request> req, std::unique_ptr<reply> rep) {
+            std::unique_ptr<http::request> req, std::unique_ptr<reply> rep) {
         rep->done("html");
         return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
     }
@@ -190,7 +190,7 @@ SEASTAR_TEST_CASE(test_formatter)
 }
 
 SEASTAR_TEST_CASE(test_decode_url) {
-    request req;
+    http::request req;
     req._url = "/a?q=%23%24%23";
     sstring url = http_server::connection::set_query_param(req);
     BOOST_REQUIRE_EQUAL(url, "/a");
@@ -208,7 +208,7 @@ SEASTAR_TEST_CASE(test_routes) {
     routes route;
     route.add(operation_type::GET, url("/api").remainder("path"), h1);
     route.add(operation_type::GET, url("/"), h2);
-    std::unique_ptr<request> req = std::make_unique<request>();
+    std::unique_ptr<http::request> req = std::make_unique<http::request>();
     std::unique_ptr<reply> rep = std::make_unique<reply>();
 
     auto f1 =
@@ -216,7 +216,7 @@ SEASTAR_TEST_CASE(test_routes) {
                     [] (std::unique_ptr<reply> rep) {
                         BOOST_REQUIRE_EQUAL((int )rep->_status, (int )reply::status_type::ok);
                     });
-    req.reset(new request);
+    req.reset(new http::request);
     rep.reset(new reply);
 
     auto f2 =
@@ -224,13 +224,13 @@ SEASTAR_TEST_CASE(test_routes) {
                     [] (std::unique_ptr<reply> rep) {
                         BOOST_REQUIRE_EQUAL((int )rep->_status, (int )reply::status_type::ok);
                     });
-    req.reset(new request);
+    req.reset(new http::request);
     rep.reset(new reply);
     auto f3 =
             route.handle("/api/abc", std::move(req), std::move(rep)).then(
                     [] (std::unique_ptr<reply> rep) {
                     });
-    req.reset(new request);
+    req.reset(new http::request);
     rep.reset(new reply);
     auto f4 =
             route.handle("/ap", std::move(req), std::move(rep)).then(
@@ -282,15 +282,15 @@ SEASTAR_TEST_CASE(test_json_path) {
         return "";
     });
 
-    auto f1 = route->handle("/my/path/value1/text", std::make_unique<request>(), std::make_unique<reply>()).then([res1, route] (auto f) {
+    auto f1 = route->handle("/my/path/value1/text", std::make_unique<http::request>(), std::make_unique<reply>()).then([res1, route] (auto f) {
         BOOST_REQUIRE_EQUAL(*res1, true);
     });
 
-    auto f2 = route->handle("/my/path/value2/text1", std::make_unique<request>(), std::make_unique<reply>()).then([res2, route] (auto f) {
+    auto f2 = route->handle("/my/path/value2/text1", std::make_unique<http::request>(), std::make_unique<reply>()).then([res2, route] (auto f) {
         BOOST_REQUIRE_EQUAL(*res2, true);
     });
 
-    auto f3 = route->handle("/my/path/value3/text2/text3", std::make_unique<request>(), std::make_unique<reply>()).then([res3, route] (auto f) {
+    auto f3 = route->handle("/my/path/value3/text2/text3", std::make_unique<http::request>(), std::make_unique<reply>()).then([res3, route] (auto f) {
         BOOST_REQUIRE_EQUAL(*res3, true);
     });
 
@@ -334,7 +334,7 @@ public:
 };
 
 future<> test_transformer_stream(std::stringstream& ss, content_replace& cr, std::vector<sstring>&& buffer_parts) {
-    std::unique_ptr<seastar::httpd::request> req = std::make_unique<seastar::httpd::request>();
+    std::unique_ptr<seastar::http::request> req = std::make_unique<seastar::http::request>();
     ss.str("");
     req->_headers["Host"] = "localhost";
     output_stream_options opts;
@@ -353,7 +353,7 @@ SEASTAR_TEST_CASE(test_transformer) {
     return do_with(std::stringstream(), content_replace("json"), [] (std::stringstream& ss, content_replace& cr) {
         output_stream_options opts;
         opts.trim_to_size = true;
-        return do_with(output_stream<char>(cr.transform(std::make_unique<seastar::httpd::request>(), "html", output_stream<char>(memory_data_sink(ss), 32000, opts))),
+        return do_with(output_stream<char>(cr.transform(std::make_unique<seastar::http::request>(), "html", output_stream<char>(memory_data_sink(ss), 32000, opts))),
                 [] (output_stream<char>& os) {
             return os.write(sstring("hello-{{Protocol}}-xyz-{{Host}}")).then([&os] {
                 return os.close();
@@ -518,7 +518,7 @@ public:
                         test_handler(http_server& server, std::function<future<>(output_stream<char> &&)>&& write_func) : _server(server), _write_func(write_func) {
                         }
                         future<std::unique_ptr<reply>> handle(const sstring& path,
-                                std::unique_ptr<request> req, std::unique_ptr<reply> rep) override {
+                                std::unique_ptr<http::request> req, std::unique_ptr<reply> rep) override {
                             rep->write_body("json", std::move(_write_func));
                             count++;
                             _all_message_sent.set_value();
@@ -586,7 +586,7 @@ public:
                         test_handler(http_server& server, const std::vector<std::tuple<bool, size_t>>& tests) : _server(server), _tests(tests) {
                         }
                         future<std::unique_ptr<reply>> handle(const sstring& path,
-                                std::unique_ptr<request> req, std::unique_ptr<reply> rep) override {
+                                std::unique_ptr<http::request> req, std::unique_ptr<reply> rep) override {
                             rep->write_body("txt", make_writer(std::get<size_t>(_tests[count]), std::get<bool>(_tests[count])));
                             count++;
                             if (count == _tests.size()) {
@@ -734,7 +734,7 @@ public:
     json_test_handler(std::function<future<>(output_stream<char> &&)>&& write_func) : _write_func(write_func) {
     }
     future<std::unique_ptr<reply>> handle(const sstring& path,
-            std::unique_ptr<request> req, std::unique_ptr<reply> rep) override {
+            std::unique_ptr<http::request> req, std::unique_ptr<reply> rep) override {
         rep->write_body("json", _write_func);
         return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
     }
@@ -875,8 +875,8 @@ SEASTAR_TEST_CASE(test_unparsable_request) {
 struct echo_stream_handler : public handler_base {
     echo_stream_handler() = default;
     future<std::unique_ptr<reply>> handle(const sstring& path,
-            std::unique_ptr<request> req, std::unique_ptr<reply> rep) override {
-        return do_with(std::move(req), std::move(rep), sstring(), [] (std::unique_ptr<request>& req, std::unique_ptr<reply>& rep, sstring& rep_content) {
+            std::unique_ptr<http::request> req, std::unique_ptr<reply> rep) override {
+        return do_with(std::move(req), std::move(rep), sstring(), [] (std::unique_ptr<http::request>& req, std::unique_ptr<reply>& rep, sstring& rep_content) {
             return do_until([&req] { return req->content_stream->eof(); }, [&req, &rep_content] {
                 return req->content_stream->read().then([&rep_content] (temporary_buffer<char> tmp) {
                     rep_content += to_sstring(std::move(tmp));
@@ -907,7 +907,7 @@ struct echo_stream_handler : public handler_base {
 struct echo_string_handler : public handler_base {
     echo_string_handler() = default;
     future<std::unique_ptr<reply>> handle(const sstring& path,
-            std::unique_ptr<request> req, std::unique_ptr<reply> rep) override {
+            std::unique_ptr<http::request> req, std::unique_ptr<reply> rep) override {
         for (auto it : req->chunk_extensions) {
             req->content += it.first;
             if (it.second != "") {
@@ -1166,7 +1166,7 @@ SEASTAR_TEST_CASE(test_bad_chunk_length) {
 }
 
 SEASTAR_TEST_CASE(case_insensitive_header) {
-    std::unique_ptr<seastar::httpd::request> req = std::make_unique<seastar::httpd::request>();
+    std::unique_ptr<seastar::http::request> req = std::make_unique<seastar::http::request>();
     req->_headers["conTEnt-LengtH"] = "17";
     BOOST_REQUIRE_EQUAL(req->get_header("content-length"), "17");
     BOOST_REQUIRE_EQUAL(req->get_header("Content-Length"), "17");

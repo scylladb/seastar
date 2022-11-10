@@ -40,7 +40,7 @@
 
 namespace seastar {
 
-namespace httpd {
+namespace http {
 
 /**
  * A request received from a client.
@@ -72,7 +72,7 @@ struct request {
     size_t content_length = 0;
     std::unordered_map<sstring, sstring, case_insensitive_hash, case_insensitive_cmp> _headers;
     std::unordered_map<sstring, sstring> query_parameters;
-    parameters param;
+    httpd::parameters param;
     sstring content; // deprecated: use content_stream instead
     /*
      * The handler should read the contents of this stream till reaching eof (i.e., the end of this request's content). Failing to do so
@@ -151,5 +151,9 @@ struct request {
 };
 
 } // namespace httpd
+
+namespace httpd {
+using request [[deprecated("Use http::request instead")]] = http::request;
+}
 
 }

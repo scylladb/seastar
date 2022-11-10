@@ -39,7 +39,7 @@ directory_handler::directory_handler(const sstring& doc_root,
 }
 
 future<std::unique_ptr<reply>> directory_handler::handle(const sstring& path,
-        std::unique_ptr<request> req, std::unique_ptr<reply> rep) {
+        std::unique_ptr<http::request> req, std::unique_ptr<reply> rep) {
     sstring full_path = doc_root + req->param["path"];
     auto h = this;
     return engine().file_type(full_path).then(
@@ -75,7 +75,7 @@ sstring file_interaction_handler::get_extension(const sstring& file) {
     return extension;
 }
 
-output_stream<char> file_interaction_handler::get_stream(std::unique_ptr<request> req,
+output_stream<char> file_interaction_handler::get_stream(std::unique_ptr<http::request> req,
         const sstring& extension, output_stream<char>&& s) {
     if (transformer) {
         return transformer->transform(std::move(req), extension, std::move(s));
@@ -84,7 +84,7 @@ output_stream<char> file_interaction_handler::get_stream(std::unique_ptr<request
 }
 
 future<std::unique_ptr<reply>> file_interaction_handler::read(
-        sstring file_name, std::unique_ptr<request> req,
+        sstring file_name, std::unique_ptr<http::request> req,
         std::unique_ptr<reply> rep) {
     sstring extension = get_extension(file_name);
     rep->write_body(extension, [req = std::move(req), extension, file_name, this] (output_stream<char>&& s) mutable {
@@ -104,7 +104,7 @@ future<std::unique_ptr<reply>> file_interaction_handler::read(
     return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
 }
 
-bool file_interaction_handler::redirect_if_needed(const request& req,
+bool file_interaction_handler::redirect_if_needed(const http::request& req,
         reply& rep) const {
     if (req._url.length() == 0 || req._url.back() != '/') {
         rep.set_status(reply::status_type::moved_permanently);
@@ -116,7 +116,7 @@ bool file_interaction_handler::redirect_if_needed(const request& req,
 }
 
 future<std::unique_ptr<reply>> file_handler::handle(const sstring& path,
-        std::unique_ptr<request> req, std::unique_ptr<reply> rep) {
+        std::unique_ptr<http::request> req, std::unique_ptr<reply> rep) {
     if (force_path && redirect_if_needed(*req.get(), *rep.get())) {
         return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
     }

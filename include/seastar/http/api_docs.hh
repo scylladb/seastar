@@ -126,7 +126,7 @@ public:
     }
 
     future<std::unique_ptr<reply>> handle(const sstring& path,
-            std::unique_ptr<request> req, std::unique_ptr<reply> rep) override {
+            std::unique_ptr<http::request> req, std::unique_ptr<reply> rep) override {
         rep->_content = json::formatter::to_json(_docs);
         rep->done("json");
         return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
@@ -238,7 +238,7 @@ class api_docs_20 {
     std::vector<doc_entry> _definitions;
 
 public:
-    future<> write(output_stream<char>&&, std::unique_ptr<request> req);
+    future<> write(output_stream<char>&&, std::unique_ptr<http::request> req);
 
     void add_api(doc_entry&& f) {
         _apis.emplace_back(std::move(f));
@@ -259,7 +259,7 @@ public:
     }
 
     future<std::unique_ptr<reply>> handle(const sstring& path,
-            std::unique_ptr<request> req, std::unique_ptr<reply> rep) override {
+            std::unique_ptr<http::request> req, std::unique_ptr<reply> rep) override {
         rep->write_body("json", [this, req = std::move(req)] (output_stream<char>&& os) mutable {
             return _docs.write(std::move(os), std::move(req));
         });

@@ -198,7 +198,7 @@ public:
                 std::move(out), std::move(key_value))) {}
 };
 
-output_stream<char> content_replace::transform(std::unique_ptr<request> req,
+output_stream<char> content_replace::transform(std::unique_ptr<http::request> req,
             const sstring& extension, output_stream<char>&& s) {
     sstring host = req->get_header("Host");
     if (host == "" || (this->extension != "" && extension != this->extension)) {

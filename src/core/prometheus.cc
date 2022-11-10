@@ -664,7 +664,7 @@ class metrics_handler : public handler_base  {
      * It returns true if a metric should be included, or false otherwise.
      * The filters are created from the request query parameters.
      */
-    std::function<bool(const mi::labels_type&)> make_filter(const httpd::request& req) {
+    std::function<bool(const mi::labels_type&)> make_filter(const http::request& req) {
         std::unordered_map<sstring, std::regex> matcher;
         auto labels = mi::get_local_impl()->get_labels();
         for (auto&& qp : req.query_parameters) {
@@ -687,7 +687,7 @@ public:
     metrics_handler(config ctx) : _ctx(ctx) {}
 
     future<std::unique_ptr<httpd::reply>> handle(const sstring& path,
-        std::unique_ptr<httpd::request> req, std::unique_ptr<httpd::reply> rep) override {
+        std::unique_ptr<http::request> req, std::unique_ptr<httpd::reply> rep) override {
         sstring metric_family_name = req->get_query_param("__name__");
         bool prefix = trim_asterisk(metric_family_name);
         bool show_help = req->get_query_param("__help__") != "false";
