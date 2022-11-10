@@ -70,7 +70,7 @@ sstring http_server_control::generate_server_name() {
 
 future<> connection::do_response_loop() {
     return _replies.pop_eventually().then(
-        [this] (std::unique_ptr<reply> resp) {
+        [this] (std::unique_ptr<http::reply> resp) {
             if (!resp) {
                 // eof
                 return make_ready_future<>();
@@ -90,7 +90,7 @@ future<> connection::start_response() {
                 _server._respond_errors++;
                 _done = true;
                 _replies.abort(std::make_exception_ptr(std::logic_error("Unknown exception during body creation")));
-                _replies.push(std::unique_ptr<reply>());
+                _replies.push(std::unique_ptr<http::reply>());
                 f.ignore_ready_future();
                 return make_ready_future<>();
             }
@@ -102,7 +102,7 @@ future<> connection::start_response() {
                 // we should close it, so the client will disconnect
                 _done = true;
                 _replies.abort(std::make_exception_ptr(std::logic_error("Unknown exception during body creation")));
-                _replies.push(std::unique_ptr<reply>());
+                _replies.push(std::unique_ptr<http::reply>());
                 f.ignore_ready_future();
                 return make_ready_future<>();
             } else {
@@ -113,7 +113,7 @@ future<> connection::start_response() {
                 // flush failed. just close the connection
                 _done = true;
                 _replies.abort(std::make_exception_ptr(std::logic_error("Unknown exception during body creation")));
-                _replies.push(std::unique_ptr<reply>());
+                _replies.push(std::unique_ptr<http::reply>());
                 f.ignore_ready_future();
             }
             _resp.reset();
@@ -210,8 +210,8 @@ set_request_content(std::unique_ptr<http::request> req, input_stream<char>* cont
     }
 }
 
-void connection::generate_error_reply_and_close(std::unique_ptr<http::request> req, reply::status_type status, const sstring& msg) {
-    auto resp = std::make_unique<reply>();
+void connection::generate_error_reply_and_close(std::unique_ptr<http::request> req, http::reply::status_type status, const sstring& msg) {
+    auto resp = std::make_unique<http::reply>();
     // TODO: Handle HTTP/2.0 when it releases
     resp->set_version(req->_version);
     resp->set_status(status, msg);
@@ -237,7 +237,7 @@ future<> connection::read_one() {
                 // we might have failed to parse even the version
                 req->_version = "1.1";
             }
-            generate_error_reply_and_close(std::move(req), reply::status_type::bad_request, "Can't parse the request");
+            generate_error_reply_and_close(std::move(req), http::reply::status_type::bad_request, "Can't parse the request");
             return make_ready_future<>();
         }
 
@@ -247,24 +247,24 @@ future<> connection::read_one() {
 
         if (req->content_length > content_length_limit) {
             auto msg = format("Content length limit ({}) exceeded: {}", content_length_limit, req->content_length);
-            generate_error_reply_and_close(std::move(req), reply::status_type::payload_too_large, std::move(msg));
+            generate_error_reply_and_close(std::move(req), http::reply::status_type::payload_too_large, std::move(msg));
             return make_ready_future<>();
         }
 
         sstring encoding = req->get_header("Transfer-Encoding");
         if (encoding.size() && !http::request::case_insensitive_cmp()(encoding, "chunked")){
             //TODO: add "identity", "gzip"("x-gzip"), "compress"("x-compress"), and "deflate" encodings and their combinations
-            generate_error_reply_and_close(std::move(req), reply::status_type::not_implemented, format("Encodings other than \"chunked\" are not implemented (received encoding: \"{}\")", encoding));
+            generate_error_reply_and_close(std::move(req), http::reply::status_type::not_implemented, format("Encodings other than \"chunked\" are not implemented (received encoding: \"{}\")", encoding));
             return make_ready_future<>();
         }
 
         auto maybe_reply_continue = [this, req = std::move(req)] () mutable {
             if (req->_version == "1.1" && http::request::case_insensitive_cmp()(req->get_header("Expect"), "100-continue")){
                 return _replies.not_full().then([req = std::move(req), this] () mutable {
-                    auto continue_reply = std::make_unique<reply>();
+                    auto continue_reply = std::make_unique<http::reply>();
                     set_headers(*continue_reply);
                     continue_reply->set_version(req->_version);
-                    continue_reply->set_status(reply::status_type::continue_).done();
+                    continue_reply->set_status(http::reply::status_type::continue_).done();
                     this->_replies.push(std::move(continue_reply));
                     return make_ready_future<std::unique_ptr<http::request>>(std::move(req));
                 });
@@ -397,13 +397,13 @@ future<> connection::write_body() {
             _resp->_content.size());
 }
 
-void connection::set_headers(reply& resp) {
+void connection::set_headers(http::reply& resp) {
     resp._headers["Server"] = "Seastar httpd";
     resp._headers["Date"] = _server._date;
 }
 
 future<bool> connection::generate_reply(std::unique_ptr<http::request> req) {
-    auto resp = std::make_unique<reply>();
+    auto resp = std::make_unique<http::reply>();
     resp->set_version(req->_version);
     set_headers(*resp);
     bool keep_alive = req->should_keep_alive();
@@ -415,7 +415,7 @@ future<bool> connection::generate_reply(std::unique_ptr<http::request> req) {
     sstring version = req->_version;
     return _server._routes.handle(url, std::move(req), std::move(resp)).
     // Caller guarantees enough room
-    then([this, keep_alive , version = std::move(version)](std::unique_ptr<reply> rep) {
+    then([this, keep_alive , version = std::move(version)](std::unique_ptr<http::reply> rep) {
         rep->set_version(version).done();
         this->_replies.push(std::move(rep));
         return make_ready_future<bool>(!keep_alive);

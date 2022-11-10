@@ -35,7 +35,7 @@
 
 namespace seastar {
 
-namespace httpd {
+namespace http {
 
 namespace status_strings {
 
@@ -226,7 +226,7 @@ void reply::write_body(const sstring& content_type, sstring content) {
     done(content_type);
 }
 
-future<> reply::write_reply_to_connection(connection& con) {
+future<> reply::write_reply_to_connection(httpd::connection& con) {
     add_header("Transfer-Encoding", "chunked");
     return con.out().write(response_line()).then([this, &con] () mutable {
         return write_reply_headers(con);
@@ -238,7 +238,7 @@ future<> reply::write_reply_to_connection(connection& con) {
 
 }
 
-future<> reply::write_reply_headers(connection& con) {
+future<> reply::write_reply_headers(httpd::connection& con) {
     return do_for_each(_headers, [&con](auto& h) {
         return con.out().write(h.first + ": " + h.second + "\r\n");
     });

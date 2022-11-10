@@ -44,6 +44,10 @@ namespace httpd {
 class connection;
 class routes;
 
+}
+
+namespace http {
+
 /**
  * A reply to be sent to a client.
  */
@@ -190,14 +194,18 @@ struct reply {
     void write_body(const sstring& content_type, sstring content);
 
 private:
-    future<> write_reply_to_connection(connection& con);
-    future<> write_reply_headers(connection& connection);
+    future<> write_reply_to_connection(httpd::connection& con);
+    future<> write_reply_headers(httpd::connection& connection);
 
     noncopyable_function<future<>(output_stream<char>&&)> _body_writer;
-    friend class routes;
-    friend class connection;
+    friend class httpd::routes;
+    friend class httpd::connection;
 };
 
-} // namespace httpd
+} // namespace http
+
+namespace httpd {
+using reply [[deprecated("Use http::reply instead")]] = http::reply;
+}
 
 }

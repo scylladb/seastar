@@ -40,11 +40,11 @@ using namespace httpd;
 
 class handl : public httpd::handler_base {
 public:
-    virtual future<std::unique_ptr<reply> > handle(const sstring& path,
-            std::unique_ptr<http::request> req, std::unique_ptr<reply> rep) {
+    virtual future<std::unique_ptr<http::reply> > handle(const sstring& path,
+            std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) {
         rep->_content = "hello";
         rep->done("html");
-        return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
+        return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
     }
 };
 

@@ -30,16 +30,16 @@ using namespace httpd;
 
 class handl : public httpd::handler_base {
 public:
-    virtual future<std::unique_ptr<reply> > handle(const sstring& path,
-            std::unique_ptr<http::request> req, std::unique_ptr<reply> rep) {
+    virtual future<std::unique_ptr<http::reply> > handle(const sstring& path,
+            std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) {
         rep->done("html");
-        return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
+        return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
     }
 };
 
 SEASTAR_TEST_CASE(test_reply)
 {
-    reply r;
+    http::reply r;
     r.set_content_type("txt");
     BOOST_REQUIRE_EQUAL(r._headers["Content-Type"], sstring("text/plain"));
     return make_ready_future<>();
@@ -209,34 +209,34 @@ SEASTAR_TEST_CASE(test_routes) {
     route.add(operation_type::GET, url("/api").remainder("path"), h1);
     route.add(operation_type::GET, url("/"), h2);
     std::unique_ptr<http::request> req = std::make_unique<http::request>();
-    std::unique_ptr<reply> rep = std::make_unique<reply>();
+    std::unique_ptr<http::reply> rep = std::make_unique<http::reply>();
 
     auto f1 =
             route.handle("/api", std::move(req), std::move(rep)).then(
-                    [] (std::unique_ptr<reply> rep) {
-                        BOOST_REQUIRE_EQUAL((int )rep->_status, (int )reply::status_type::ok);
+                    [] (std::unique_ptr<http::reply> rep) {
+                        BOOST_REQUIRE_EQUAL((int )rep->_status, (int )http::reply::status_type::ok);
                     });
     req.reset(new http::request);
-    rep.reset(new reply);
+    rep.reset(new http::reply);
 
     auto f2 =
             route.handle("/", std::move(req), std::move(rep)).then(
-                    [] (std::unique_ptr<reply> rep) {
-                        BOOST_REQUIRE_EQUAL((int )rep->_status, (int )reply::status_type::ok);
+                    [] (std::unique_ptr<http::reply> rep) {
+                        BOOST_REQUIRE_EQUAL((int )rep->_status, (int )http::reply::status_type::ok);
                     });
     req.reset(new http::request);
-    rep.reset(new reply);
+    rep.reset(new http::reply);
     auto f3 =
             route.handle("/api/abc", std::move(req), std::move(rep)).then(
-                    [] (std::unique_ptr<reply> rep) {
+                    [] (std::unique_ptr<http::reply> rep) {
                     });
     req.reset(new http::request);
-    rep.reset(new reply);
+    rep.reset(new http::reply);
     auto f4 =
             route.handle("/ap", std::move(req), std::move(rep)).then(
-                    [] (std::unique_ptr<reply> rep) {
+                    [] (std::unique_ptr<http::reply> rep) {
                         BOOST_REQUIRE_EQUAL((int )rep->_status,
-                                            (int )reply::status_type::not_found);
+                                            (int )http::reply::status_type::not_found);
                     });
     return when_all(std::move(f1), std::move(f2), std::move(f3), std::move(f4))
             .then([] (std::tuple<future<>, future<>, future<>, future<>> fs) {
@@ -282,15 +282,15 @@ SEASTAR_TEST_CASE(test_json_path) {
         return "";
     });
 
-    auto f1 = route->handle("/my/path/value1/text", std::make_unique<http::request>(), std::make_unique<reply>()).then([res1, route] (auto f) {
+    auto f1 = route->handle("/my/path/value1/text", std::make_unique<http::request>(), std::make_unique<http::reply>()).then([res1, route] (auto f) {
         BOOST_REQUIRE_EQUAL(*res1, true);
     });
 
-    auto f2 = route->handle("/my/path/value2/text1", std::make_unique<http::request>(), std::make_unique<reply>()).then([res2, route] (auto f) {
+    auto f2 = route->handle("/my/path/value2/text1", std::make_unique<http::request>(), std::make_unique<http::reply>()).then([res2, route] (auto f) {
         BOOST_REQUIRE_EQUAL(*res2, true);
     });
 
-    auto f3 = route->handle("/my/path/value3/text2/text3", std::make_unique<http::request>(), std::make_unique<reply>()).then([res3, route] (auto f) {
+    auto f3 = route->handle("/my/path/value3/text2/text3", std::make_unique<http::request>(), std::make_unique<http::reply>()).then([res3, route] (auto f) {
         BOOST_REQUIRE_EQUAL(*res3, true);
     });
 
@@ -517,12 +517,12 @@ public:
                     public:
                         test_handler(http_server& server, std::function<future<>(output_stream<char> &&)>&& write_func) : _server(server), _write_func(write_func) {
                         }
-                        future<std::unique_ptr<reply>> handle(const sstring& path,
-                                std::unique_ptr<http::request> req, std::unique_ptr<reply> rep) override {
+                        future<std::unique_ptr<http::reply>> handle(const sstring& path,
+                                std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) override {
                             rep->write_body("json", std::move(_write_func));
                             count++;
                             _all_message_sent.set_value();
-                            return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
+                            return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
                         }
                         future<> wait_for_message() {
                             return _all_message_sent.get_future();
@@ -585,14 +585,14 @@ public:
                     public:
                         test_handler(http_server& server, const std::vector<std::tuple<bool, size_t>>& tests) : _server(server), _tests(tests) {
                         }
-                        future<std::unique_ptr<reply>> handle(const sstring& path,
-                                std::unique_ptr<http::request> req, std::unique_ptr<reply> rep) override {
+                        future<std::unique_ptr<http::reply>> handle(const sstring& path,
+                                std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) override {
                             rep->write_body("txt", make_writer(std::get<size_t>(_tests[count]), std::get<bool>(_tests[count])));
                             count++;
                             if (count == _tests.size()) {
                                 _all_message_sent.set_value();
                             }
-                            return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
+                            return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
                         }
                         future<> wait_for_message() {
                             return _all_message_sent.get_future();
@@ -733,10 +733,10 @@ class json_test_handler : public handler_base {
 public:
     json_test_handler(std::function<future<>(output_stream<char> &&)>&& write_func) : _write_func(write_func) {
     }
-    future<std::unique_ptr<reply>> handle(const sstring& path,
-            std::unique_ptr<http::request> req, std::unique_ptr<reply> rep) override {
+    future<std::unique_ptr<http::reply>> handle(const sstring& path,
+            std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) override {
         rep->write_body("json", _write_func);
-        return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
+        return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
     }
 };
 
@@ -874,9 +874,9 @@ SEASTAR_TEST_CASE(test_unparsable_request) {
  *  */
 struct echo_stream_handler : public handler_base {
     echo_stream_handler() = default;
-    future<std::unique_ptr<reply>> handle(const sstring& path,
-            std::unique_ptr<http::request> req, std::unique_ptr<reply> rep) override {
-        return do_with(std::move(req), std::move(rep), sstring(), [] (std::unique_ptr<http::request>& req, std::unique_ptr<reply>& rep, sstring& rep_content) {
+    future<std::unique_ptr<http::reply>> handle(const sstring& path,
+            std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) override {
+        return do_with(std::move(req), std::move(rep), sstring(), [] (std::unique_ptr<http::request>& req, std::unique_ptr<http::reply>& rep, sstring& rep_content) {
             return do_until([&req] { return req->content_stream->eof(); }, [&req, &rep_content] {
                 return req->content_stream->read().then([&rep_content] (temporary_buffer<char> tmp) {
                     rep_content += to_sstring(std::move(tmp));
@@ -895,7 +895,7 @@ struct echo_stream_handler : public handler_base {
                     }
                 }
                 rep->write_body("txt", rep_content);
-                return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
+                return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
             });
         });
     }
@@ -906,8 +906,8 @@ struct echo_stream_handler : public handler_base {
  *  */
 struct echo_string_handler : public handler_base {
     echo_string_handler() = default;
-    future<std::unique_ptr<reply>> handle(const sstring& path,
-            std::unique_ptr<http::request> req, std::unique_ptr<reply> rep) override {
+    future<std::unique_ptr<http::reply>> handle(const sstring& path,
+            std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) override {
         for (auto it : req->chunk_extensions) {
             req->content += it.first;
             if (it.second != "") {
@@ -921,7 +921,7 @@ struct echo_string_handler : public handler_base {
             }
         }
         rep->write_body("txt", req->content);
-        return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
+        return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
     }
 };
 

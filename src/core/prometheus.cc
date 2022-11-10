@@ -686,8 +686,8 @@ class metrics_handler : public handler_base  {
 public:
     metrics_handler(config ctx) : _ctx(ctx) {}
 
-    future<std::unique_ptr<httpd::reply>> handle(const sstring& path,
-        std::unique_ptr<http::request> req, std::unique_ptr<httpd::reply> rep) override {
+    future<std::unique_ptr<http::reply>> handle(const sstring& path,
+        std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) override {
         sstring metric_family_name = req->get_query_param("__name__");
         bool prefix = trim_asterisk(metric_family_name);
         bool show_help = req->get_query_param("__help__") != "false";
@@ -706,7 +706,7 @@ public:
                 });
             });
         });
-        return make_ready_future<std::unique_ptr<httpd::reply>>(std::move(rep));
+        return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
     }
 };
 

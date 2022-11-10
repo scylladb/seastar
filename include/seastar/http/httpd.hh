@@ -47,11 +47,14 @@
 
 namespace seastar {
 
+namespace http {
+struct reply;
+}
+
 namespace httpd {
 
 class http_server;
 class http_stats;
-struct reply;
 
 using namespace std::chrono_literals;
 
@@ -70,9 +73,9 @@ class connection : public boost::intrusive::list_base_hook<> {
     using tmp_buf = temporary_buffer<char>;
     http_request_parser _parser;
     std::unique_ptr<http::request> _req;
-    std::unique_ptr<reply> _resp;
+    std::unique_ptr<http::reply> _resp;
     // null element marks eof
-    queue<std::unique_ptr<reply>> _replies { 10 };
+    queue<std::unique_ptr<http::reply>> _replies { 10 };
     bool _done = false;
 public:
     [[deprecated("use connection(http_server&, connected_socket&&)")]]
@@ -93,7 +96,7 @@ public:
     future<> respond();
     future<> do_response_loop();
 
-    void set_headers(reply& resp);
+    void set_headers(http::reply& resp);
 
     future<> start_response();
 
@@ -122,7 +125,7 @@ public:
     static sstring set_query_param(http::request& req);
 
     future<bool> generate_reply(std::unique_ptr<http::request> req);
-    void generate_error_reply_and_close(std::unique_ptr<http::request> req, reply::status_type status, const sstring& msg);
+    void generate_error_reply_and_close(std::unique_ptr<http::request> req, http::reply::status_type status, const sstring& msg);
 
     future<> write_body();
 
