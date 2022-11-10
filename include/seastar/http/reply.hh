@@ -215,6 +215,8 @@ private:
     friend class httpd::connection;
 };
 
+std::ostream& operator<<(std::ostream& os, reply::status_type st);
+
 } // namespace http
 
 namespace httpd {
