@@ -1731,7 +1731,7 @@ public:
     my_service(const std::string& str) : _str(str) { }
     seastar::future<> run() {
         std::cerr << "running on " << seastar::engine().cpu_id() <<
-            ", _str = " << _str << \n";
+            ", _str = " << _str << "\n";
         return seastar::make_ready_future<>();
     }
     seastar::future<> stop() {
