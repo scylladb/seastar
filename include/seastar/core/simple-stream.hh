@@ -133,6 +133,7 @@ private:
             size -= this_size;
         }
     }
+
     fragmented_memory_output_stream(Iterator it, simple_memory_output_stream bv, size_t size)
         : _it(it), _current(bv), _size(size) { }
 public:
@@ -148,6 +149,7 @@ public:
     void skip(size_t size) {
         for_each_fragment(size, [] (auto) { });
     }
+
     memory_output_stream<Iterator> write_substream(size_t size) {
         if (size > _size) {
             throw std::out_of_range("serialization buffer overflow");
@@ -322,10 +324,11 @@ class simple_memory_input_stream {
 
     const char* _p = nullptr;
     size_t _size = 0;
+    size_t _initial_size = 0;
 public:
     using has_with_stream = std::false_type;
     simple_memory_input_stream() = default;
-    simple_memory_input_stream(const char* p, size_t size) : _p(p), _size(size) {}
+    simple_memory_input_stream(const char* p, size_t size) : _p(p), _size(size), _initial_size(size) {}
 
     const char* begin() const { return _p; }
 
@@ -367,6 +370,11 @@ public:
     size_t size() const {
         return _size;
     }
+
+    [[gnu::always_inline]]
+    size_t position() const {
+        return _initial_size - _size;
+    }
 };
 
 template<typename Iterator>
@@ -377,6 +385,7 @@ class fragmented_memory_input_stream {
     Iterator _it;
     simple _current;
     size_t _size;
+    size_t _initial_size;
 private:
     template<typename Func>
     //requires requires(Func f, view bv) { { f(bv) } -> void; }
@@ -396,15 +405,18 @@ private:
         }
     }
     fragmented_memory_input_stream(Iterator it, simple bv, size_t size)
-        : _it(it), _current(bv), _size(size) { }
+        : _it(it), _current(bv), _size(size), _initial_size(size) { }
     friend class fragmented_memory_output_stream<Iterator>;
 public:
     using has_with_stream = std::false_type;
     using iterator_type = Iterator;
     fragmented_memory_input_stream(Iterator it, size_t size)
-        : _it(it), _size(size) {
+        : _it(it), _size(size), _initial_size(size) {
     }
 
+    size_t position() const {
+        return _initial_size - _size;
+    }
     void skip(size_t size) {
         for_each_fragment(size, [] (auto) { });
     }
@@ -543,6 +555,13 @@ public:
         } else {
             _fragmented.~fragmented_type();
         }
+    }
+
+    [[gnu::always_inline]]
+    size_t position() const {
+        return with_stream([] (auto& stream) {
+            return stream.position();
+        });
     }
 
     [[gnu::always_inline]]
