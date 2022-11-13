@@ -376,6 +376,9 @@ const bool metric_disabled = false;
 
 
 histogram& histogram::operator+=(const histogram& c) {
+    if (c.sample_count == 0) {
+        return *this;
+    }
     for (size_t i = 0; i < c.buckets.size(); i++) {
         if (buckets.size() <= i) {
             buckets.push_back(c.buckets[i]);
