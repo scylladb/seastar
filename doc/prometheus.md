@@ -12,15 +12,47 @@ See the Seastar configuration documentation on how to change the default configu
 Seastar would reply based on the content type header, so pointing your browser to:
 `http://localhost:9180/metrics/` will return a text representation of the metrics with their documentation.
 
-## Querying sub set of the metrics
-Seastar supports specifying querying a specific metric or a metrics group that share the same prefix.
+Starting from Prometheus 2.0, the binary protocol is no longer supported.
+While seastar still supports the binary protocol, it would be deprecated in a future release.
 
-This is support by both protocols versions.
+## Querying subset of the metrics
+Seastar supports querying for a subset of the metrics by their names and labels.
 
-For example to get all the http metrics in a text format, point your browser to:
-`http://localhost:9180/metrics?name=http*` note the asterisk symbol following the http. The Seastar Prometheus API only supports prefix matching.
+### Filtering by a metric name
+Use the `__name__` query parameter to select according to a metric name or a prefix.
 
-To query for only the http requests served metric, point your browser to `http://localhost:9180/metrics?name=httpd_requests_served`
+For example, to get all the http metrics, point your browser to:
+`http://localhost:9180/metrics?__name__=http*` note the asterisk symbol following the http.
+Filtering by name only supports prefix matching.
+
+To query for only the http requests served metric, point your browser to `http://localhost:9180/metrics?__name__=httpd_requests_served`
+
+### Filtering by a label value
+The Prometheus protocol uses labels to differentiate the characteristics of the thing that is being measured.
+For example, in Seastar, it is common to report each metric per shard and add a `shard` label to the metric.
+
+You can filter by any label using regular expressions. If you use multiple labels in your query, all conditions should be met.
+A missing label is considered an empty string. The expression should match the entire label value,
+to match a missing label, you can use `label=` or `label=^$`.
+
+Here are a few examples:
+
+To return all metrics from shard 1 or shard 0:
+http://localhost:9180/metrics?shard=1|0
+
+To get all metrics without a `service` label:
+http://localhost:9180/metrics?service=
+
+To get all metrics with a `service` label equals `prometheus` and from shard `0`:
+http://localhost:9180/service=prometheus&shard=0
+
+## Remove the help lines
+Sending the help associated with each metric on each request is an overhead.
+Prometheus itself does not use those help lines.
+Seastar supports an option to remove those lines from the metrics output using the `__help__` query parameter.
+To remove the help lines set `__help__=false`
+for example:
+`http://localhost:9180/metrics?__help__=false`
 
 ### Configuring the Prometheus server for picking specific metrics
 The [Prometheus configuration](https://prometheus.io/docs/prometheus/1.8/configuration/configuration/) describes the general Prometheus configuration.
@@ -35,6 +67,6 @@ For example, the following scrap config, will query for all the http metrics:
       honor_labels: true
       metrics_path: /metrics
       params:
-        name: 'http*'
+        __name__: ['http*']
 ``` 
 

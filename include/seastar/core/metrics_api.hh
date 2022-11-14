@@ -324,6 +324,7 @@ class impl {
     config _config;
     bool _dirty = true;
     shared_ptr<metric_metadata> _metadata;
+    std::set<sstring> _labels;
     std::vector<std::vector<metric_function>> _current_metrics;
 public:
     value_map& get_value_map() {
@@ -354,6 +355,10 @@ public:
 
     void dirty() {
         _dirty = true;
+    }
+
+    const std::set<sstring>& get_labels() const noexcept {
+        return _labels;
     }
 };
 
