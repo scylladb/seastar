@@ -82,6 +82,12 @@ struct reducer_traits<T, Ptr, decltype(std::declval<T>().get(), void())> : publi
 ///     It may have a get() method which returns a value of type U which holds the result of reduction.
 /// \return Th reduced value wrapped in a future.
 ///     If the reducer has no get() method then this function returns future<>.
+/// \note map-reduce() schedules all invocations of both \c mapper and \c reduce
+///       on the current shard. If you want to run a function on all shards in
+///       parallel, have a look at \ref smp::invoke_on_all() instead, or combine
+///       map_reduce() with \ref smp::submit_to().
+///       Sharded services have their own \ref sharded::map_reduce() which
+///       map-reduces across all shards.
 
 // TODO: specialize for non-deferring reducer
 template <typename Iterator, typename Mapper, typename Reducer>
@@ -152,6 +158,13 @@ map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Reducer&& r)
 /// \param reduce binary function for merging two result values from \c mapper
 ///
 /// \return equivalent to \c reduce(reduce(initial, mapper(obj0)), mapper(obj1)) ...
+///
+/// \note map-reduce() schedules all invocations of both \c mapper and \c reduce
+///       on the current shard. If you want to run a function on all shards in
+///       parallel, have a look at \ref smp::invoke_on_all() instead, or combine
+///       map_reduce() with \ref smp::submit_to().
+///       Sharded services have their own \ref sharded::map_reduce() which
+///       map-reduces across all shards.
 template <typename Iterator, typename Mapper, typename Initial, typename Reduce>
 SEASTAR_CONCEPT( requires requires (Iterator i, Mapper mapper, Initial initial, Reduce reduce) {
      *i++;
@@ -223,6 +236,13 @@ map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Initial initial, Reduc
 /// \param reduce binary function for merging two result values from \c mapper
 ///
 /// \return equivalent to \c reduce(reduce(initial, mapper(obj0)), mapper(obj1)) ...
+///
+/// \note map-reduce() schedules all invocations of both \c mapper and \c reduce
+///       on the current shard. If you want to run a function on all shards in
+///       parallel, have a look at \ref smp::invoke_on_all() instead, or combine
+///       map_reduce() with \ref smp::submit_to().
+///       Sharded services have their own \ref sharded::map_reduce() which
+///       map-reduces across all shards.
 template <typename Range, typename Mapper, typename Initial, typename Reduce>
 SEASTAR_CONCEPT( requires requires (Range range, Mapper mapper, Initial initial, Reduce reduce) {
      std::begin(range);

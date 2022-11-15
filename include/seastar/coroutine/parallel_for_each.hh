@@ -53,6 +53,10 @@ namespace seastar::coroutine {
 /// ```
 ///
 /// Safe for use with lambda coroutines.
+///
+/// \note parallel_for_each() schedules all invocations of \c func on the
+///       current shard. If you want to run a function on all shards in parallel,
+///       have a look at \ref smp::invoke_on_all() instead.
 template <typename Func>
 // constaints for Func are defined at the parallel_for_each constructor
 class [[nodiscard("must co_await an parallel_for_each() object")]] parallel_for_each final : continuation_base<> {
