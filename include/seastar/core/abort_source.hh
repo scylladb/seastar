@@ -133,7 +133,7 @@ public:
         ||  requires (Func f) { { f() } noexcept -> std::same_as<void>; }
     )
     [[nodiscard]]
-    optimized_optional<subscription> subscribe(Func&& f) noexcept(std::is_nothrow_move_constructible_v<Func>) {
+    optimized_optional<subscription> subscribe(Func&& f) {
         if (abort_requested()) {
             return { };
         }
