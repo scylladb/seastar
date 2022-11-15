@@ -215,10 +215,10 @@ reactor::rename_priority_class(io_priority_class pc, sstring new_name) noexcept 
     return pc.rename(std::move(new_name));
 }
 
-future<> reactor::update_shares_for_queues(io_priority_class pc, uint32_t shares) {
-    return parallel_for_each(_io_queues, [pc, shares] (auto& queue) {
-        return queue.second->update_shares_for_class(pc, shares);
-    });
+void reactor::update_shares_for_queues(io_priority_class pc, uint32_t shares) {
+    for (auto&& q : _io_queues) {
+        q.second->update_shares_for_class(pc, shares);
+    }
 }
 
 future<> reactor::update_bandwidth_for_queues(io_priority_class pc, uint64_t bandwidth) {
@@ -229,12 +229,10 @@ future<> reactor::update_bandwidth_for_queues(io_priority_class pc, uint64_t ban
     });
 }
 
-future<> reactor::rename_queues(io_priority_class pc, sstring new_name) noexcept {
-    return futurize_invoke([this, pc, new_name = std::move(new_name)] {
-        for (auto&& queue : _io_queues) {
-            queue.second->rename_priority_class(pc, new_name);
-        }
-    });
+void reactor::rename_queues(io_priority_class pc, sstring new_name) {
+    for (auto&& queue : _io_queues) {
+        queue.second->rename_priority_class(pc, new_name);
+    }
 }
 
 future<std::tuple<pollable_fd, socket_address>>
