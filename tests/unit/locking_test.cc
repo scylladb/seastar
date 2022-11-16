@@ -22,6 +22,7 @@
 
 #include <chrono>
 
+#include <exception>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/core/do_with.hh>
@@ -31,6 +32,7 @@
 #include <seastar/core/shared_mutex.hh>
 #include <seastar/util/alloc_failure_injector.hh>
 #include <boost/range/irange.hpp>
+#include <stdexcept>
 
 using namespace seastar;
 using namespace std::chrono_literals;
@@ -301,4 +303,120 @@ SEASTAR_THREAD_TEST_CASE(test_shared_mutex_failed_lock) {
 
     seastar::memory::local_failure_injector().cancel();
 #endif // SEASTAR_ENABLE_ALLOC_FAILURE_INJECTION
+}
+
+struct expected_exception : public std::exception {
+    int value;
+    expected_exception(int v) noexcept : value(v) {}
+};
+
+struct moved_exception : public std::exception {
+    int count;
+    moved_exception(int c) noexcept : count(c) {}
+};
+
+struct throw_on_move {
+    int value;
+    int delay;
+    int count = 0;
+
+    throw_on_move(int v, int d = 0) noexcept : value(v), delay(d) {}
+    throw_on_move(const throw_on_move& o) = default;
+    throw_on_move(throw_on_move&& o)
+        : value(o.value)
+        , delay(o.delay)
+        , count(o.count + 1)
+    {
+        if (count >= delay) {
+            throw moved_exception(count);
+        }
+    }
+};
+
+SEASTAR_THREAD_TEST_CASE(test_with_shared_typed_return_nothrow_move_func) {
+    shared_mutex sm;
+
+    auto expected = 42;
+    auto res = with_shared(sm, [expected] {
+        return expected;
+    }).get0();
+    BOOST_REQUIRE_EQUAL(res, expected);
+
+    try {
+        with_shared(sm, [expected] {
+            if (expected == 42) {
+                throw expected_exception(expected);
+            }
+            return expected;
+        }).get();
+        BOOST_FAIL("No exception was thrown");
+    } catch (const expected_exception& e) {
+        BOOST_REQUIRE_EQUAL(e.value, expected);
+    } catch (const std::exception& e) {
+        BOOST_FAIL(format("Unexpected exception type: {}", e.what()));
+    }
+}
+
+SEASTAR_THREAD_TEST_CASE(test_with_shared_typed_return_throwing_move_func) {
+    shared_mutex sm;
+
+    int expected_value = 42;
+    bool done = false;
+    for (int move_delay = 0; !done; move_delay++) {
+        try {
+            auto res = with_shared(sm, [exp = throw_on_move(expected_value, move_delay)] {
+                auto expected = std::move(exp);
+                return expected.value;
+            }).get();
+            BOOST_REQUIRE_EQUAL(res, expected_value);
+            done = true;
+        } catch (const moved_exception& e) {
+        } catch (const std::exception& e) {
+            BOOST_FAIL(format("Unexpected exception type: {}", e.what()));
+        }
+    }
+}
+
+SEASTAR_THREAD_TEST_CASE(test_with_lock_typed_return_nothrow_move_func) {
+    shared_mutex sm;
+
+    auto expected = 42;
+    auto res = with_lock(sm, [expected] {
+        return expected;
+    }).get0();
+    BOOST_REQUIRE_EQUAL(res, expected);
+
+    try {
+        with_lock(sm, [expected] {
+            if (expected == 42) {
+                throw expected_exception(expected);
+            }
+            return expected;
+        }).get();
+        BOOST_FAIL("No exception was thrown");
+    } catch (const expected_exception& e) {
+        BOOST_REQUIRE_EQUAL(e.value, expected);
+    } catch (const std::exception& e) {
+        BOOST_FAIL(format("Unexpected exception type: {}", e.what()));
+    }
+}
+
+SEASTAR_THREAD_TEST_CASE(test_with_lock_typed_return_throwing_move_func) {
+    shared_mutex sm;
+
+    int expected_value = 42;
+    bool done = false;
+    for (int move_delay = 0; !done; move_delay++) {
+        try {
+            auto res = with_lock(sm, [exp = throw_on_move(expected_value, move_delay)] {
+                auto expected = std::move(exp);
+                return expected.value;
+            }).get();
+            BOOST_REQUIRE_EQUAL(res, expected_value);
+            done = true;
+        } catch (const moved_exception& e) {
+        } catch (const std::exception& e) {
+            BOOST_FAIL(format("Unexpected exception type: {}", e.what()));
+        }
+    }
 }

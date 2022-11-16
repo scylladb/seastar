@@ -193,7 +193,7 @@ with_shared(shared_mutex& sm, Func&& func) noexcept {
             });
         });
     } catch (...) {
-        return current_exception_as_future();
+        return futurize<std::invoke_result_t<Func>>::current_exception_as_future();
     }
 }
 
@@ -247,7 +247,7 @@ with_lock(shared_mutex& sm, Func&& func) noexcept {
             });
         });
     } catch (...) {
-        return current_exception_as_future();
+        return futurize<std::invoke_result_t<Func>>::current_exception_as_future();
     }
 }
 
