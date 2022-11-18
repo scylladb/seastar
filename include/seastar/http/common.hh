@@ -76,6 +76,13 @@ enum operation_type {
  */
 operation_type str2type(const sstring& type);
 
+/**
+ * Translate the operation type to command string
+ * @param type the string GET or POST
+ * @return the command string "GET" or "POST"
+ */
+sstring type2str(operation_type type);
+
 }
 
 }

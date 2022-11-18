@@ -51,6 +51,31 @@ operation_type str2type(const sstring& type) {
     return GET;
 }
 
+sstring type2str(operation_type type) {
+    if (type == DELETE) {
+        return "DELETE";
+    }
+    if (type == POST) {
+        return "POST";
+    }
+    if (type == PUT) {
+        return "PUT";
+    }
+    if (type == HEAD) {
+        return "HEAD";
+    }
+    if (type == OPTIONS) {
+        return "OPTIONS";
+    }
+    if (type == TRACE) {
+        return "TRACE";
+    }
+    if (type == CONNECT) {
+        return "CONNECT";
+    }
+    return "GET";
+}
+
 }
 
 namespace http {
