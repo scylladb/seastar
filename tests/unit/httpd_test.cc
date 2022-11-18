@@ -1245,3 +1245,24 @@ SEASTAR_TEST_CASE(test_url_encode_decode) {
 
     return make_ready_future<>();
 }
+
+SEASTAR_TEST_CASE(test_url_param_encode_decode) {
+    http::request to_send;
+    to_send._url = "/foo/bar";
+    to_send.query_parameters["a"] = "a+a*a";
+    to_send.query_parameters["b"] = "b/b\%b";
+
+    http::request to_recv;
+    to_recv._url = to_send.format_url();
+    sstring url = to_recv.parse_query_param();
+
+    BOOST_REQUIRE_EQUAL(url, to_send._url);
+    BOOST_REQUIRE_EQUAL(to_recv.query_parameters.size(), to_send.query_parameters.size());
+    for (const auto& p : to_send.query_parameters) {
+        auto it = to_recv.query_parameters.find(p.first);
+        BOOST_REQUIRE(it != to_recv.query_parameters.end());
+        BOOST_REQUIRE_EQUAL(it->second, p.second);
+    }
+
+    return make_ready_future<>();
+}
