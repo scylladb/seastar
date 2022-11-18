@@ -14,7 +14,7 @@
 
 namespace seastar {
 
-namespace httpd {
+namespace http {
 
 namespace mime_types {
 
@@ -29,5 +29,14 @@ const char* extension_to_type(const sstring& extension);
 } // namespace mime_types
 
 } // namespace httpd
+
+namespace httpd {
+namespace mime_types {
+[[deprecated("Use http::mime_types::extension_to_type instead")]]
+inline const char* extension_to_type(const sstring& extension) {
+    return http::mime_types::extension_to_type(extension);
+}
+}
+}
 
 }

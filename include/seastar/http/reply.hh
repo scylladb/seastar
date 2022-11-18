@@ -160,7 +160,7 @@ struct reply {
      * that would have been used if it was a file: e.g. html, txt, json etc'
      */
     reply& set_content_type(const sstring& content_type = "html") {
-        set_mime_type(httpd::mime_types::extension_to_type(content_type));
+        set_mime_type(http::mime_types::extension_to_type(content_type));
         return *this;
     }
 
