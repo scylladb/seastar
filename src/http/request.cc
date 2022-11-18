@@ -20,9 +20,45 @@
  */
 
 #include <seastar/http/request.hh>
+#include <seastar/http/url.hh>
 
 namespace seastar {
 namespace http {
+
+void request::add_param(const std::string_view& param) {
+    size_t split = param.find('=');
+
+    if (split >= param.length() - 1) {
+        sstring key;
+        if (http::internal::url_decode(param.substr(0,split) , key)) {
+            query_parameters[key] = "";
+        }
+    } else {
+        sstring key;
+        sstring value;
+        if (http::internal::url_decode(param.substr(0,split), key)
+                && http::internal::url_decode(param.substr(split + 1), value)) {
+            query_parameters[key] = value;
+        }
+    }
+
+}
+
+sstring request::parse_query_param() {
+    size_t pos = _url.find('?');
+    if (pos == sstring::npos) {
+        return _url;
+    }
+    size_t curr = pos + 1;
+    size_t end_param;
+    std::string_view url = _url;
+    while ((end_param = _url.find('&', curr)) != sstring::npos) {
+        add_param(url.substr(curr, end_param - curr) );
+        curr = end_param + 1;
+    }
+    add_param(url.substr(curr));
+    return _url.substr(0, pos);
+}
 
 } // http namespace
 } // seastar namespace

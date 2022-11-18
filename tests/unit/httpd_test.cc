@@ -192,11 +192,11 @@ SEASTAR_TEST_CASE(test_formatter)
 SEASTAR_TEST_CASE(test_decode_url) {
     http::request req;
     req._url = "/a?q=%23%24%23";
-    sstring url = http_server::connection::set_query_param(req);
+    sstring url = req.parse_query_param();
     BOOST_REQUIRE_EQUAL(url, "/a");
     BOOST_REQUIRE_EQUAL(req.get_query_param("q"), "#$#");
     req._url = "/a?a=%23%24%23&b=%22%26%22";
-    http_server::connection::set_query_param(req);
+    req.parse_query_param();
     BOOST_REQUIRE_EQUAL(req.get_query_param("a"), "#$#");
     BOOST_REQUIRE_EQUAL(req.get_query_param("b"), "\"&\"");
     return make_ready_future<>();

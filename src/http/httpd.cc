@@ -38,7 +38,6 @@
 #include <seastar/http/httpd.hh>
 #include <seastar/http/internal/content_source.hh>
 #include <seastar/http/reply.hh>
-#include <seastar/http/url.hh>
 #include <seastar/util/short_streams.hh>
 #include <seastar/util/log.hh>
 
@@ -304,41 +303,6 @@ void connection::shutdown() {
     _fd.shutdown_output();
 }
 
-void connection::add_param(http::request& req, const std::string_view& param) {
-    size_t split = param.find('=');
-
-    if (split >= param.length() - 1) {
-        sstring key;
-        if (http::internal::url_decode(param.substr(0,split) , key)) {
-            req.query_parameters[key] = "";
-        }
-    } else {
-        sstring key;
-        sstring value;
-        if (http::internal::url_decode(param.substr(0,split), key)
-                && http::internal::url_decode(param.substr(split + 1), value)) {
-            req.query_parameters[key] = value;
-        }
-    }
-
-}
-
-sstring connection::set_query_param(http::request& req) {
-    size_t pos = req._url.find('?');
-    if (pos == sstring::npos) {
-        return req._url;
-    }
-    size_t curr = pos + 1;
-    size_t end_param;
-    std::string_view url = req._url;
-    while ((end_param = req._url.find('&', curr)) != sstring::npos) {
-        add_param(req, url.substr(curr, end_param - curr) );
-        curr = end_param + 1;
-    }
-    add_param(req, url.substr(curr));
-    return req._url.substr(0, pos);
-}
-
 output_stream<char>& connection::out() {
     return _write_buf;
 }
@@ -373,7 +337,7 @@ future<bool> connection::generate_reply(std::unique_ptr<http::request> req) {
         resp->_headers["Connection"] = "Keep-Alive";
     }
 
-    sstring url = set_query_param(*req.get());
+    sstring url = req->parse_query_param();
     sstring version = req->_version;
     return _server._routes.handle(url, std::move(req), std::move(resp)).
     // Caller guarantees enough room

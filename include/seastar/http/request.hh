@@ -148,6 +148,17 @@ struct request {
             return it == _headers.end() || !case_insensitive_cmp()(it->second, "close");
         }
     }
+
+    /**
+     * Set the query parameters in the request objects.
+     * Returns the URL path part, i.e. -- without the query paremters
+     * query param appear after the question mark and are separated
+     * by the ampersand sign
+     */
+    sstring parse_query_param();
+
+private:
+    void add_param(const std::string_view& param);
 };
 
 } // namespace httpd

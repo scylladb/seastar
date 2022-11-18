@@ -100,18 +100,6 @@ public:
 
     future<> start_response();
 
-    /**
-     * Add a single query parameter to the parameter list
-     */
-    static void add_param(http::request& req, const std::string_view& param);
-
-    /**
-     * Set the query parameters in the request objects.
-     * query param appear after the question mark and are separated
-     * by the ampersand sign
-     */
-    static sstring set_query_param(http::request& req);
-
     future<bool> generate_reply(std::unique_ptr<http::request> req);
     void generate_error_reply_and_close(std::unique_ptr<http::request> req, http::reply::status_type status, const sstring& msg);
 
