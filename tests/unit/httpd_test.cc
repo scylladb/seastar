@@ -873,7 +873,8 @@ SEASTAR_TEST_CASE(test_unparsable_request) {
 }
 
 struct echo_handler : public handler_base {
-    echo_handler() = default;
+    bool chunked_reply;
+    echo_handler(bool chunked_reply_) : handler_base(), chunked_reply(chunked_reply_) {}
 
     future<std::unique_ptr<http::reply>> do_handle(std::unique_ptr<http::request>& req, std::unique_ptr<http::reply>& rep, sstring& content) {
         for (auto it : req->chunk_extensions) {
@@ -888,7 +889,19 @@ struct echo_handler : public handler_base {
                 content += to_sstring(": ") + it.second;
             }
         }
-        rep->write_body("txt", content);
+        if (!chunked_reply) {
+            rep->write_body("txt", content);
+        } else {
+            rep->write_body("txt", [ c = content ] (output_stream<char>&& out) {
+                return do_with(std::move(out), [ c = std::move(c) ] (output_stream<char>& out) {
+                    return out.write(std::move(c)).then([&out] {
+                        return out.flush().then([&out] {
+                            return out.close();
+                        });
+                    });
+                });
+            });
+        }
         return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
     }
 };
@@ -897,7 +910,7 @@ struct echo_handler : public handler_base {
  * A request handler that responds with the same body that was used in the request using the requests content_stream
  *  */
 struct echo_stream_handler : public echo_handler {
-    echo_stream_handler() = default;
+    echo_stream_handler(bool chunked_reply = false) : echo_handler(chunked_reply) {}
     future<std::unique_ptr<http::reply>> handle(const sstring& path,
             std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) override {
         return do_with(std::move(req), std::move(rep), sstring(), [this] (std::unique_ptr<http::request>& req, std::unique_ptr<http::reply>& rep, sstring& rep_content) {
@@ -916,7 +929,7 @@ struct echo_stream_handler : public echo_handler {
  * Same handler as above, but without using streams
  *  */
 struct echo_string_handler : public echo_handler {
-    echo_string_handler() = default;
+    echo_string_handler(bool chunked_reply = false) : echo_handler(chunked_reply) {}
     future<std::unique_ptr<http::reply>> handle(const sstring& path,
             std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) override {
         return this->do_handle(req, rep, req->content);
@@ -960,8 +973,8 @@ future<> check_http_reply (std::vector<sstring>&& req_parts, std::vector<std::st
     });
 };
 
-static future<> test_basic_content(bool streamed) {
-    return seastar::async([streamed] {
+static future<> test_basic_content(bool streamed, bool chunked_reply) {
+    return seastar::async([streamed, chunked_reply] {
         loopback_connection_factory lcf;
         http_server server("test");
         if (streamed) {
@@ -969,7 +982,7 @@ static future<> test_basic_content(bool streamed) {
         }
         loopback_socket_impl lsi(lcf);
         httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
-        future<> client = seastar::async([&lsi] {
+        future<> client = seastar::async([&lsi, chunked_reply] {
             connected_socket c_socket = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get0();
             http::experimental::connection conn(std::move(c_socket));
 
@@ -978,7 +991,15 @@ static future<> test_basic_content(bool streamed) {
                 auto req = http::request::make("GET", "test", "/test");
                 auto resp = conn.make_request(std::move(req)).get0();
                 BOOST_REQUIRE_EQUAL(resp._status, http::reply::status_type::ok);
-                BOOST_REQUIRE_EQUAL(resp._headers["Content-Length"], "0");
+                if (!chunked_reply) {
+                    BOOST_REQUIRE_EQUAL(resp._headers["Content-Length"], "0");
+                } else {
+                    // If response is chunked it will contain the single termination
+                    // zero-sized chunk that still needs to be read out
+                    auto in = conn.in(resp);
+                    sstring body = util::read_entire_stream_contiguous(in).get0();
+                    BOOST_REQUIRE_EQUAL(body, "");
+                }
             }
 
             {
@@ -987,7 +1008,9 @@ static future<> test_basic_content(bool streamed) {
                 req.write_body("txt", sstring("12345 78901\t34521345"));
                 auto resp = conn.make_request(std::move(req)).get0();
                 BOOST_REQUIRE_EQUAL(resp._status, http::reply::status_type::ok);
-                BOOST_REQUIRE_EQUAL(resp._headers["Content-Length"], "20");
+                if (!chunked_reply) {
+                    BOOST_REQUIRE_EQUAL(resp._headers["Content-Length"], "20");
+                }
                 auto in = conn.in(resp);
                 sstring body = util::read_entire_stream_contiguous(in).get0();
                 BOOST_REQUIRE_EQUAL(body, sstring("12345 78901\t34521345"));
@@ -1006,7 +1029,9 @@ static future<> test_basic_content(bool streamed) {
                 });
                 auto resp = conn.make_request(std::move(req)).get0();
                 BOOST_REQUIRE_EQUAL(resp._status, http::reply::status_type::ok);
-                BOOST_REQUIRE_EQUAL(resp._headers["Content-Length"], "13");
+                if (!chunked_reply) {
+                    BOOST_REQUIRE_EQUAL(resp._headers["Content-Length"], "13");
+                }
                 auto in = conn.in(resp);
                 sstring body = util::read_entire_stream_contiguous(in).get0();
                 BOOST_REQUIRE_EQUAL(body, sstring("req1234\r\n7890"));
@@ -1019,7 +1044,9 @@ static future<> test_basic_content(bool streamed) {
                 req.set_expects_continue();
                 auto resp = conn.make_request(std::move(req)).get0();
                 BOOST_REQUIRE_EQUAL(resp._status, http::reply::status_type::ok);
-                BOOST_REQUIRE_EQUAL(resp._headers["Content-Length"], "6");
+                if (!chunked_reply) {
+                    BOOST_REQUIRE_EQUAL(resp._headers["Content-Length"], "6");
+                }
                 auto in = conn.in(resp);
                 sstring body = util::read_entire_stream_contiguous(in).get0();
                 BOOST_REQUIRE_EQUAL(body, sstring("foobar"));
@@ -1030,9 +1057,9 @@ static future<> test_basic_content(bool streamed) {
 
         handler_base* handler;
         if (streamed) {
-            handler = new echo_stream_handler();
+            handler = new echo_stream_handler(chunked_reply);
         } else {
-            handler = new echo_string_handler();
+            handler = new echo_string_handler(chunked_reply);
         }
         server._routes.put(GET, "/test", handler);
         server.do_accepts(0).get();
@@ -1043,11 +1070,19 @@ static future<> test_basic_content(bool streamed) {
 }
 
 SEASTAR_TEST_CASE(test_string_content) {
-    return test_basic_content(false);
+    return test_basic_content(false, false);
+}
+
+SEASTAR_TEST_CASE(test_string_content_chunked) {
+    return test_basic_content(false, true);
 }
 
 SEASTAR_TEST_CASE(test_stream_content) {
-    return test_basic_content(true);
+    return test_basic_content(true, false);
+}
+
+SEASTAR_TEST_CASE(test_stream_content_chunked) {
+    return test_basic_content(true, true);
 }
 
 SEASTAR_TEST_CASE(test_not_implemented_encoding) {
