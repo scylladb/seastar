@@ -872,33 +872,41 @@ SEASTAR_TEST_CASE(test_unparsable_request) {
     });
 }
 
+struct echo_handler : public handler_base {
+    echo_handler() = default;
+
+    future<std::unique_ptr<http::reply>> do_handle(std::unique_ptr<http::request>& req, std::unique_ptr<http::reply>& rep, sstring& content) {
+        for (auto it : req->chunk_extensions) {
+            content += it.first;
+            if (it.second != "") {
+                content += to_sstring("=") + it.second;
+            }
+        }
+        for (auto it : req->trailing_headers) {
+            content += it.first;
+            if (it.second != "") {
+                content += to_sstring(": ") + it.second;
+            }
+        }
+        rep->write_body("txt", content);
+        return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
+    }
+};
+
 /*
  * A request handler that responds with the same body that was used in the request using the requests content_stream
  *  */
-struct echo_stream_handler : public handler_base {
+struct echo_stream_handler : public echo_handler {
     echo_stream_handler() = default;
     future<std::unique_ptr<http::reply>> handle(const sstring& path,
             std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) override {
-        return do_with(std::move(req), std::move(rep), sstring(), [] (std::unique_ptr<http::request>& req, std::unique_ptr<http::reply>& rep, sstring& rep_content) {
+        return do_with(std::move(req), std::move(rep), sstring(), [this] (std::unique_ptr<http::request>& req, std::unique_ptr<http::reply>& rep, sstring& rep_content) {
             return do_until([&req] { return req->content_stream->eof(); }, [&req, &rep_content] {
                 return req->content_stream->read().then([&rep_content] (temporary_buffer<char> tmp) {
                     rep_content += to_sstring(std::move(tmp));
                 });
-            }).then([&req, &rep, &rep_content] {
-                for (auto it : req->chunk_extensions) {
-                    rep_content += it.first;
-                    if (it.second != "") {
-                        rep_content += to_sstring("=") + it.second;
-                    }
-                }
-                for (auto it : req->trailing_headers) {
-                    rep_content += it.first;
-                    if (it.second != "") {
-                        rep_content += to_sstring(": ") + it.second;
-                    }
-                }
-                rep->write_body("txt", rep_content);
-                return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
+            }).then([&req, &rep, &rep_content, this] {
+                return this->do_handle(req, rep, rep_content);
             });
         });
     }
@@ -907,24 +915,11 @@ struct echo_stream_handler : public handler_base {
 /*
  * Same handler as above, but without using streams
  *  */
-struct echo_string_handler : public handler_base {
+struct echo_string_handler : public echo_handler {
     echo_string_handler() = default;
     future<std::unique_ptr<http::reply>> handle(const sstring& path,
             std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) override {
-        for (auto it : req->chunk_extensions) {
-            req->content += it.first;
-            if (it.second != "") {
-                req->content += to_sstring("=") + it.second;
-            }
-        }
-        for (auto it : req->trailing_headers) {
-            req->content += it.first;
-            if (it.second != "") {
-                req->content += to_sstring(": ") + it.second;
-            }
-        }
-        rep->write_body("txt", req->content);
-        return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
+        return this->do_handle(req, rep, req->content);
     }
 };
 
