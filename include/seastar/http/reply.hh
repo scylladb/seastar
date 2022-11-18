@@ -119,6 +119,19 @@ struct reply {
         return *this;
     }
 
+    /**
+     * Search for the first header of a given name
+     * @param name the header name
+     * @return a pointer to the header value, if it exists or empty string
+     */
+    sstring get_header(const sstring& name) const {
+        auto res = _headers.find(name);
+        if (res == _headers.end()) {
+            return "";
+        }
+        return res->second;
+    }
+
     reply& set_version(const sstring& version) {
         _version = version;
         return *this;
