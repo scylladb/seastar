@@ -13,6 +13,7 @@
 #include <seastar/core/do_with.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/core/when_all.hh>
+#include <seastar/core/manual_clock.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include "loopback_socket.hh"
@@ -24,6 +25,7 @@
 #include <sstream>
 #include <seastar/core/shared_future.hh>
 #include <seastar/util/later.hh>
+#include <seastar/util/defer.hh>
 
 using namespace seastar;
 using namespace httpd;
@@ -1217,4 +1219,81 @@ SEASTAR_TEST_CASE(test_shared_future) {
     });
 
     return std::move(fut).discard_result();
+}
+
+static auto graceful_stop_tester(bool blocking) {
+    return seastar::async([blocking] {
+        loopback_connection_factory lcf;
+        http_server server("test");
+        auto stop_server = seastar::defer([&server]() noexcept {
+            yield().get();
+            server.stop().get();
+        });
+
+        loopback_socket_impl lsi(lcf);
+        httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
+
+        auto handler = new echo_string_handler();
+        server._routes.put(GET, "/test", handler);
+        server.do_accepts(0).get();
+
+        promise<> client_block;
+
+        auto client = async([&lsi, &client_block] () {
+            connected_socket c_socket = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get0();
+            input_stream<char> input(c_socket.input());
+            output_stream<char> output(c_socket.output());
+
+            auto stop_server = seastar::defer([&input, &output]() noexcept {
+                input.close().get();
+                output.close().get();
+            });
+
+            try{
+                output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\nContent-Length: 20\r\n\r\n")).get();
+                output.flush().get();
+                output.write(sstring("1234567890")).get();
+                output.flush().get();
+                output.write(sstring("1234521345")).get();
+                output.flush().get();
+                auto resp = input.read().get0();
+                BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("12345678901234521345"), std::string::npos);
+            }catch(...) {
+                BOOST_TEST_MESSAGE("client exception " << std::current_exception());
+            }
+
+            client_block.get_future().get();
+        });
+
+        yield().get();
+
+        using namespace std::chrono_literals;
+
+        auto graceful_stop = async([blocking, &server] () {
+            auto f = server.graceful_pre_stop<manual_clock>(200ms);
+            f.then_wrapped([blocking](auto f){
+                BOOST_REQUIRE(blocking == f.failed());
+                return f;
+            }).handle_exception([](auto e){}).get();
+        });
+
+        if (blocking) {
+            manual_clock::advance(200ms);
+            yield().get();
+        }
+
+        client_block.set_value();
+        yield().get();
+
+        client.get();
+        graceful_stop.get();
+    });
+}
+
+SEASTAR_TEST_CASE(test_graceful_stop_nowait) {
+    return graceful_stop_tester(false);
+}
+
+SEASTAR_TEST_CASE(test_graceful_stop_timeout) {
+    return graceful_stop_tester(true);
 }

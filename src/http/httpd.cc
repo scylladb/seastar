@@ -23,8 +23,10 @@
 #include <seastar/core/app-template.hh>
 #include <seastar/core/circular_buffer.hh>
 #include <seastar/core/distributed.hh>
+#include <seastar/core/shared_future.hh>
 #include <seastar/core/queue.hh>
 #include <seastar/core/when_all.hh>
+#include <seastar/core/with_timeout.hh>
 #include <seastar/core/metrics.hh>
 #include <seastar/core/print.hh>
 #include <iostream>
@@ -473,6 +475,9 @@ future<> http_server::listen(socket_address addr) {
     return listen(addr, lo);
 }
 future<> http_server::stop() {
+    if (_tasks_done.has_value()) {
+        return std::move(*_tasks_done);
+    }
     future<> tasks_done = _task_gate.close();
     for (auto&& l : _listeners) {
         l.abort_accept();
