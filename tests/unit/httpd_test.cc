@@ -23,6 +23,7 @@
 #include <seastar/http/response_parser.hh>
 #include <sstream>
 #include <seastar/core/shared_future.hh>
+#include <seastar/http/url.hh>
 #include <seastar/util/later.hh>
 
 using namespace seastar;
@@ -1217,4 +1218,30 @@ SEASTAR_TEST_CASE(test_shared_future) {
     });
 
     return std::move(fut).discard_result();
+}
+
+SEASTAR_TEST_CASE(test_url_encode_decode) {
+    sstring encoded, decoded;
+    bool ok;
+
+    sstring all_valid = "~abcdefghijklmnopqrstuvwhyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ_0123456789.";
+    encoded = http::internal::url_encode(all_valid);
+    ok = http::internal::url_decode(encoded, decoded);
+    BOOST_REQUIRE_EQUAL(ok, true);
+    BOOST_REQUIRE_EQUAL(decoded, all_valid);
+    BOOST_REQUIRE_EQUAL(all_valid, encoded);
+
+    sstring some_invalid = "a?/!@#$%^&*()[]=.\\ \tZ";
+    encoded = http::internal::url_encode(some_invalid);
+    ok = http::internal::url_decode(encoded, decoded);
+    BOOST_REQUIRE_EQUAL(ok, true);
+    BOOST_REQUIRE_EQUAL(decoded, some_invalid);
+    for (size_t i = 0; i < encoded.length(); i++) {
+        if (encoded[i] != '%' && encoded[i] != '+') {
+            auto f = std::find(std::begin(all_valid), std::end(all_valid), encoded[i]);
+            BOOST_REQUIRE_NE(f, std::end(all_valid));
+        }
+    }
+
+    return make_ready_future<>();
 }
