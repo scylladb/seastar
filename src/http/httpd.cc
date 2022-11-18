@@ -38,6 +38,7 @@
 #include <seastar/http/httpd.hh>
 #include <seastar/http/internal/content_source.hh>
 #include <seastar/http/reply.hh>
+#include <seastar/http/url.hh>
 #include <seastar/util/short_streams.hh>
 #include <seastar/util/log.hh>
 
@@ -140,28 +141,6 @@ future<> connection::start_response() {
 connection::~connection() {
     --_server._current_connections;
     _server._connections.erase(_server._connections.iterator_to(*this));
-}
-
-bool connection::url_decode(const std::string_view& in, sstring& out) {
-    size_t pos = 0;
-    sstring buff(in.length(), 0);
-    for (size_t i = 0; i < in.length(); ++i) {
-        if (in[i] == '%') {
-            if (i + 3 <= in.size()) {
-                buff[pos++] = hexstr_to_char(in, i + 1);
-                i += 2;
-            } else {
-                return false;
-            }
-        } else if (in[i] == '+') {
-            buff[pos++] = ' ';
-        } else {
-            buff[pos++] = in[i];
-        }
-    }
-    buff.resize(pos);
-    out = buff;
-    return true;
 }
 
 void connection::on_new_connection() {
@@ -325,36 +304,19 @@ void connection::shutdown() {
     _fd.shutdown_output();
 }
 
-short connection::hex_to_byte(char c) {
-    if (c >='a' && c <= 'z') {
-        return c - 'a' + 10;
-    } else if (c >='A' && c <= 'Z') {
-        return c - 'A' + 10;
-    }
-    return c - '0';
-}
-
-/**
- * Convert a hex encoded 2 bytes substring to char
- */
-char connection::hexstr_to_char(const std::string_view& in, size_t from) {
-
-    return static_cast<char>(hex_to_byte(in[from]) * 16 + hex_to_byte(in[from + 1]));
-}
-
 void connection::add_param(http::request& req, const std::string_view& param) {
     size_t split = param.find('=');
 
     if (split >= param.length() - 1) {
         sstring key;
-        if (url_decode(param.substr(0,split) , key)) {
+        if (http::internal::url_decode(param.substr(0,split) , key)) {
             req.query_parameters[key] = "";
         }
     } else {
         sstring key;
         sstring value;
-        if (url_decode(param.substr(0,split), key)
-                && url_decode(param.substr(split + 1), value)) {
+        if (http::internal::url_decode(param.substr(0,split), key)
+                && http::internal::url_decode(param.substr(split + 1), value)) {
             req.query_parameters[key] = value;
         }
     }

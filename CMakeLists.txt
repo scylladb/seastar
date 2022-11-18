@@ -671,6 +671,7 @@ add_library (seastar STATIC
   src/http/reply.cc
   src/http/routes.cc
   src/http/transformers.cc
+  src/http/url.cc
   src/json/formatter.cc
   src/json/json_elements.cc
   src/net/arp.cc
