@@ -23,8 +23,15 @@
 
 #include <unordered_map>
 #include <seastar/core/sstring.hh>
+#include <seastar/core/iostream.hh>
 
 namespace seastar {
+
+namespace http {
+namespace internal {
+output_stream<char> make_http_chunked_output_stream(output_stream<char>& out);
+} // internal namespace
+} // http namespace
 
 namespace httpd {
 

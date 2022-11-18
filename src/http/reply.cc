@@ -31,6 +31,7 @@
 #include <seastar/http/reply.hh>
 #include <seastar/core/print.hh>
 #include <seastar/http/httpd.hh>
+#include <seastar/http/common.hh>
 #include <seastar/core/loop.hh>
 
 namespace seastar {
@@ -172,50 +173,6 @@ sstring reply::response_line() {
     return "HTTP/" + _version + status_strings::to_string(_status);
 }
 
-class http_chunked_data_sink_impl : public data_sink_impl {
-    output_stream<char>& _out;
-
-    future<> write_size(size_t s) {
-        auto req = format("{:x}\r\n", s);
-        return _out.write(req);
-    }
-public:
-    http_chunked_data_sink_impl(output_stream<char>& out) : _out(out) {
-    }
-    virtual future<> put(net::packet data)  override { abort(); }
-    using data_sink_impl::put;
-    virtual future<> put(temporary_buffer<char> buf) override {
-        if (buf.size() == 0) {
-            // size 0 buffer should be ignored, some server
-            // may consider it an end of message
-            return make_ready_future<>();
-        }
-        auto size = buf.size();
-        return write_size(size).then([this, buf = std::move(buf)] () mutable {
-            return _out.write(buf.get(), buf.size());
-        }).then([this] () mutable {
-            return _out.write("\r\n", 2);
-        });
-    }
-    virtual future<> close() override {
-        return  make_ready_future<>();
-    }
-};
-
-class http_chunked_data_sink : public data_sink {
-public:
-    http_chunked_data_sink(output_stream<char>& out)
-        : data_sink(std::make_unique<http_chunked_data_sink_impl>(
-                out)) {}
-};
-
-static output_stream<char> make_http_chunked_output_stream(output_stream<char>& out) {
-    output_stream_options opts;
-    opts.trim_to_size = true;
-    return output_stream<char>(http_chunked_data_sink(out), 32000, opts);
-}
-
-
 void reply::write_body(const sstring& content_type, noncopyable_function<future<>(output_stream<char>&&)>&& body_writer) {
     set_content_type(content_type);
     _body_writer  = std::move(body_writer);
@@ -233,7 +190,7 @@ future<> reply::write_reply_to_connection(httpd::connection& con) {
     }).then([&con] () mutable {
         return con.out().write("\r\n", 2);
     }).then([this, &con] () mutable {
-        return _body_writer(make_http_chunked_output_stream(con.out()));
+        return _body_writer(http::internal::make_http_chunked_output_stream(con.out()));
     });
 
 }
