@@ -444,16 +444,16 @@ private:
     future<> do_connect(pollable_fd_state& pfd, socket_address& sa);
 
     future<size_t>
-    do_read_some(pollable_fd_state& fd, void* buffer, size_t size);
+    do_read(pollable_fd_state& fd, void* buffer, size_t size);
     future<size_t>
-    do_read_some(pollable_fd_state& fd, const std::vector<iovec>& iov);
+    do_recvmsg(pollable_fd_state& fd, const std::vector<iovec>& iov);
     future<temporary_buffer<char>>
     do_read_some(pollable_fd_state& fd, internal::buffer_allocator* ba);
 
     future<size_t>
-    do_write_some(pollable_fd_state& fd, const void* buffer, size_t size);
+    do_send(pollable_fd_state& fd, const void* buffer, size_t size);
     future<size_t>
-    do_write_some(pollable_fd_state& fd, net::packet& p);
+    do_sendmsg(pollable_fd_state& fd, net::packet& p);
 
     future<temporary_buffer<char>>
     do_recv_some(pollable_fd_state& fd, internal::buffer_allocator* ba);
@@ -511,7 +511,7 @@ public:
 
     future<> posix_connect(pollable_fd pfd, socket_address sa, socket_address local);
 
-    future<> write_all(pollable_fd_state& fd, const void* buffer, size_t size);
+    future<> send_all(pollable_fd_state& fd, const void* buffer, size_t size);
 
     future<file> open_file_dma(std::string_view name, open_flags flags, file_open_options options = {}) noexcept;
     future<file> open_directory(std::string_view name) noexcept;
@@ -612,7 +612,7 @@ private:
     void unregister_poller(pollfn* p);
     void replace_poller(pollfn* old, pollfn* neww);
     void register_metrics();
-    future<> write_all_part(pollable_fd_state& fd, const void* buffer, size_t size, size_t completed);
+    future<> send_all_part(pollable_fd_state& fd, const void* buffer, size_t size, size_t completed);
 
     future<> fdatasync(int fd) noexcept;
 

@@ -625,13 +625,13 @@ void reactor_backend_aio::shutdown(pollable_fd_state& fd, int how) {
 }
 
 future<size_t>
-reactor_backend_aio::read_some(pollable_fd_state& fd, void* buffer, size_t len) {
-    return _r.do_read_some(fd, buffer, len);
+reactor_backend_aio::read(pollable_fd_state& fd, void* buffer, size_t len) {
+    return _r.do_read(fd, buffer, len);
 }
 
 future<size_t>
-reactor_backend_aio::read_some(pollable_fd_state& fd, const std::vector<iovec>& iov) {
-    return _r.do_read_some(fd, iov);
+reactor_backend_aio::recvmsg(pollable_fd_state& fd, const std::vector<iovec>& iov) {
+    return _r.do_recvmsg(fd, iov);
 }
 
 future<temporary_buffer<char>>
@@ -640,13 +640,13 @@ reactor_backend_aio::read_some(pollable_fd_state& fd, internal::buffer_allocator
 }
 
 future<size_t>
-reactor_backend_aio::write_some(pollable_fd_state& fd, const void* buffer, size_t len) {
-    return _r.do_write_some(fd, buffer, len);
+reactor_backend_aio::send(pollable_fd_state& fd, const void* buffer, size_t len) {
+    return _r.do_send(fd, buffer, len);
 }
 
 future<size_t>
-reactor_backend_aio::write_some(pollable_fd_state& fd, net::packet& p) {
-    return _r.do_write_some(fd, p);
+reactor_backend_aio::sendmsg(pollable_fd_state& fd, net::packet& p) {
+    return _r.do_sendmsg(fd, p);
 }
 
 future<temporary_buffer<char>>
@@ -1001,13 +1001,13 @@ void reactor_backend_epoll::shutdown(pollable_fd_state& fd, int how) {
 }
 
 future<size_t>
-reactor_backend_epoll::read_some(pollable_fd_state& fd, void* buffer, size_t len) {
-    return _r.do_read_some(fd, buffer, len);
+reactor_backend_epoll::read(pollable_fd_state& fd, void* buffer, size_t len) {
+    return _r.do_read(fd, buffer, len);
 }
 
 future<size_t>
-reactor_backend_epoll::read_some(pollable_fd_state& fd, const std::vector<iovec>& iov) {
-    return _r.do_read_some(fd, iov);
+reactor_backend_epoll::recvmsg(pollable_fd_state& fd, const std::vector<iovec>& iov) {
+    return _r.do_recvmsg(fd, iov);
 }
 
 future<temporary_buffer<char>>
@@ -1016,13 +1016,13 @@ reactor_backend_epoll::read_some(pollable_fd_state& fd, internal::buffer_allocat
 }
 
 future<size_t>
-reactor_backend_epoll::write_some(pollable_fd_state& fd, const void* buffer, size_t len) {
-    return _r.do_write_some(fd, buffer, len);
+reactor_backend_epoll::send(pollable_fd_state& fd, const void* buffer, size_t len) {
+    return _r.do_send(fd, buffer, len);
 }
 
 future<size_t>
-reactor_backend_epoll::write_some(pollable_fd_state& fd, net::packet& p) {
-    return _r.do_write_some(fd, p);
+reactor_backend_epoll::sendmsg(pollable_fd_state& fd, net::packet& p) {
+    return _r.do_sendmsg(fd, p);
 }
 
 future<temporary_buffer<char>>
@@ -1112,12 +1112,12 @@ reactor_backend_osv::recv(pollable_fd_state& fd, void* buffer, size_t len) {
 }
 
 future<size_t>
-reactor_backend_osv::read_some(pollable_fd_state& fd, void* buffer, size_t len) {
+reactor_backend_osv::read(pollable_fd_state& fd, void* buffer, size_t len) {
     return engine().do_read_some(fd, buffer, len);
 }
 
 future<size_t>
-reactor_backend_osv::read_some(pollable_fd_state& fd, const std::vector<iovec>& iov) {
+reactor_backend_osv::recvmsg(pollable_fd_state& fd, const std::vector<iovec>& iov) {
     return engine().do_read_some(fd, iov);
 }
 
@@ -1127,13 +1127,18 @@ reactor_backend_osv::read_some(pollable_fd_state& fd, internal::buffer_allocator
 }
 
 future<size_t>
-reactor_backend_osv::write_some(pollable_fd_state& fd, const void* buffer, size_t len) {
-    return engine().do_write_some(fd, buffer, len);
+reactor_backend_osv::send(pollable_fd_state& fd, const void* buffer, size_t len) {
+    return engine().do_send(fd, buffer, len);
 }
 
 future<size_t>
-reactor_backend_osv::write_some(pollable_fd_state& fd, net::packet& p) {
-    return engine().do_write_some(fd, p);
+reactor_backend_osv::sendmsg(pollable_fd_state& fd, net::packet& p) {
+    return engine().do_sendmsg(fd, p);
+}
+
+future<temporary_buffer<char>>
+reactor_backend_osv::recv_some(pollable_fd_state& fd, internal::buffer_allocator* ba) {
+    return engine().do_recv_some(fd, p);
 }
 
 void
@@ -1628,7 +1633,7 @@ public:
     virtual void shutdown(pollable_fd_state& fd, int how) override {
         fd.fd.shutdown(how);
     }
-    virtual future<size_t> read_some(pollable_fd_state& fd, void* buffer, size_t len) override {
+    virtual future<size_t> read(pollable_fd_state& fd, void* buffer, size_t len) override {
         if (fd.take_speculation(POLLIN)) {
             try {
                 auto r = fd.fd.read(buffer, len);
@@ -1668,7 +1673,7 @@ public:
         auto req = internal::io_request::make_read(fd.fd.get(), -1, buffer, len, false);
         return submit_request(std::move(desc), std::move(req));
     }
-    virtual future<size_t> read_some(pollable_fd_state& fd, const std::vector<iovec>& iov) override {
+    virtual future<size_t> recvmsg(pollable_fd_state& fd, const std::vector<iovec>& iov) override {
         if (fd.take_speculation(POLLIN)) {
             ::msghdr mh = {};
             mh.msg_iov = const_cast<iovec*>(iov.data());
@@ -1769,7 +1774,7 @@ public:
             return submit_request(std::move(desc), std::move(req));
         });
     }
-    virtual future<size_t> write_some(pollable_fd_state& fd, net::packet& p) final {
+    virtual future<size_t> sendmsg(pollable_fd_state& fd, net::packet& p) final {
         if (fd.take_speculation(EPOLLOUT)) {
             static_assert(offsetof(iovec, iov_base) == offsetof(net::fragment, base) &&
                 sizeof(iovec::iov_base) == sizeof(net::fragment::base) &&
@@ -1827,7 +1832,7 @@ public:
         auto req = internal::io_request::make_sendmsg(fd.fd.get(), desc->msghdr(), MSG_NOSIGNAL);
         return submit_request(std::move(desc), std::move(req));
     }
-    virtual future<size_t> write_some(pollable_fd_state& fd, const void* buffer, size_t len) override {
+    virtual future<size_t> send(pollable_fd_state& fd, const void* buffer, size_t len) override {
         if (fd.take_speculation(EPOLLOUT)) {
             try {
                 auto r = fd.fd.send(buffer, len, MSG_NOSIGNAL | MSG_DONTWAIT);
