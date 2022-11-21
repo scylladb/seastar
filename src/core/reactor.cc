@@ -1904,42 +1904,33 @@ reactor::make_pipe() {
     });
 }
 
-future<std::tuple<pid_t, int, int, int>>
+future<std::tuple<pid_t, file_desc, file_desc, file_desc>>
 reactor::spawn(std::string_view pathname,
                std::vector<sstring> argv,
                std::vector<sstring> env) {
+    return when_all_succeed(make_pipe(),
+                            make_pipe(),
+                            make_pipe()).then_unpack([pathname = sstring(pathname),
+                                                      argv = std::move(argv),
+                                                      env = std::move(env), this] (std::tuple<file_desc, file_desc> cin_pipe,
+                                                                                   std::tuple<file_desc, file_desc> cout_pipe,
+                                                                                   std::tuple<file_desc, file_desc> cerr_pipe) {
     return do_with(pid_t{},
-                   std::array<int, 2>{-1, -1},
-                   std::array<int, 2>{-1, -1},
-                   std::array<int, 2>{-1, -1},
-                   sstring(pathname),
+                   std::move(cin_pipe),
+                   std::move(cout_pipe),
+                   std::move(cerr_pipe),
+                   std::move(pathname),
                    posix_spawn_file_actions_t{},
                    posix_spawnattr_t{},
                    std::move(argv),
                    std::move(env),
                    [this](auto& child_pid, auto& cin_pipe, auto& cout_pipe, auto& cerr_pipe, auto& pathname, auto& actions, auto& attr, auto& argv, auto& env) {
-        auto create_cin_pipe = _thread_pool->submit<syscall_result<int>>([&cin_pipe] {
-            return wrap_syscall<int>(::pipe2(cin_pipe.data(), O_NONBLOCK));
-        });
-        auto create_cout_pipe = _thread_pool->submit<syscall_result<int>>([&cout_pipe] {
-            return wrap_syscall<int>(::pipe2(cout_pipe.data(), O_NONBLOCK));
-        });
-        auto create_cerr_pipe = _thread_pool->submit<syscall_result<int>>([&cerr_pipe] {
-            return wrap_syscall<int>(::pipe2(cerr_pipe.data(), O_NONBLOCK));
-        });
         static constexpr int pipefd_read_end = 0;
         static constexpr int pipefd_write_end = 1;
-        return when_all_succeed(std::move(create_cin_pipe),
-                                std::move(create_cout_pipe),
-                                std::move(create_cerr_pipe)).then_unpack([] (syscall_result<int> cin_ret,
-                                                                             syscall_result<int> cout_ret,
-                                                                             syscall_result<int> cerr_ret) {
-            for (auto& ret : {cin_ret, cout_ret, cerr_ret}) {
-                ret.throw_if_error();
-            }
-        }).then([&child_pid, &cin_pipe, &cout_pipe, &cerr_pipe, &pathname, &actions, &attr, &argv, &env, this] {
+        // Allocating memory for spawn {file actions,attributes} objects can throw, hence the futurize_invoke
+        return futurize_invoke([&child_pid, &cin_pipe, &cout_pipe, &cerr_pipe, &pathname, &actions, &attr, &argv, &env, this] {
             // the args and envs parameters passed to posix_spawn() should be array of pointers, and
-            // last one should be a null pointer.
+            // the last one should be a null pointer.
             std::vector<const char*> argvp;
             std::transform(argv.cbegin(), argv.cend(), std::back_inserter(argvp),
                            [](auto& s) { return s.c_str(); });
@@ -1954,29 +1945,19 @@ reactor::spawn(std::string_view pathname,
             r = ::posix_spawn_file_actions_init(&actions);
             throw_pthread_error(r);
             // the child process does not write to stdin
-            r = ::posix_spawn_file_actions_addclose(&actions, cin_pipe[pipefd_write_end]);
-            throw_pthread_error(r);
+            std::get<pipefd_write_end>(cin_pipe).spawn_actions_add_close(&actions);
             // the child process does not read from stdout
-            r = ::posix_spawn_file_actions_addclose(&actions, cout_pipe[pipefd_read_end]);
-            throw_pthread_error(r);
+            std::get<pipefd_read_end>(cout_pipe).spawn_actions_add_close(&actions);
             // the child process does not read from stderr
-            r = ::posix_spawn_file_actions_addclose(&actions, cerr_pipe[pipefd_read_end]);
-            throw_pthread_error(r);
+            std::get<pipefd_read_end>(cerr_pipe).spawn_actions_add_close(&actions);
             // redirect stdin, stdout and stderr to cin_pipe, cout_pipe and cerr_pipe respectively
-            r = ::posix_spawn_file_actions_adddup2(&actions, cin_pipe[pipefd_read_end], STDIN_FILENO);
-            throw_pthread_error(r);
-            r = ::posix_spawn_file_actions_adddup2(&actions, cout_pipe[pipefd_write_end], STDOUT_FILENO);
-            throw_pthread_error(r);
-            r = ::posix_spawn_file_actions_adddup2(&actions, cerr_pipe[pipefd_write_end], STDERR_FILENO);
-            throw_pthread_error(r);
+            std::get<pipefd_read_end>(cin_pipe).spawn_actions_add_dup2(&actions, STDIN_FILENO);
+            std::get<pipefd_write_end>(cout_pipe).spawn_actions_add_dup2(&actions, STDOUT_FILENO);
+            std::get<pipefd_write_end>(cerr_pipe).spawn_actions_add_dup2(&actions, STDERR_FILENO);
             // after dup2() the interesting ends of pipes, close them
-            r = ::posix_spawn_file_actions_addclose(&actions, cin_pipe[pipefd_read_end]);
-            throw_pthread_error(r);
-            r = ::posix_spawn_file_actions_addclose(&actions, cout_pipe[pipefd_write_end]);
-            throw_pthread_error(r);
-            r = ::posix_spawn_file_actions_addclose(&actions, cerr_pipe[pipefd_write_end]);
-            throw_pthread_error(r);
-
+            std::get<pipefd_read_end>(cin_pipe).spawn_actions_add_close(&actions);
+            std::get<pipefd_write_end>(cout_pipe).spawn_actions_add_close(&actions);
+            std::get<pipefd_write_end>(cerr_pipe).spawn_actions_add_close(&actions);
             r = ::posix_spawnattr_init(&attr);
             throw_pthread_error(r);
             // make sure the following signals are not ignored by the child process
@@ -2006,23 +1987,12 @@ reactor::spawn(std::string_view pathname,
             posix_spawnattr_destroy(&attr);
         }).then([&child_pid, &cin_pipe, &cout_pipe, &cerr_pipe] (syscall_result<int> ret) {
             throw_pthread_error(ret.result);
-            // after spawning the child, parent does not need to access these fds anymore.
-            // the child process does.
-            ::close(cin_pipe[pipefd_read_end]);
-            ::close(cout_pipe[pipefd_write_end]);
-            ::close(cerr_pipe[pipefd_write_end]);
-            return make_ready_future<std::tuple<pid_t, int, int, int>>(child_pid,
-                                                                       cin_pipe[pipefd_write_end],
-                                                                       cout_pipe[pipefd_read_end],
-                                                                       cerr_pipe[pipefd_read_end]);
-        }).handle_exception([&cin_pipe, &cout_pipe, &cerr_pipe] (std::exception_ptr e) {
-            for (auto pipe : {cin_pipe, cout_pipe, cerr_pipe}) {
-               if (pipe[0] >= 0) {
-                    ::close(pipe[pipefd_read_end]);
-                    ::close(pipe[pipefd_write_end]);
-                }
-            }
-            return make_exception_future<std::tuple<pid_t, int, int, int>>(std::move(e));
+            return make_ready_future<std::tuple<pid_t, file_desc, file_desc, file_desc>>(
+                    child_pid,
+                    std::get<pipefd_write_end>(std::move(cin_pipe)),
+                    std::get<pipefd_read_end>(std::move(cout_pipe)),
+                    std::get<pipefd_read_end>(std::move(cerr_pipe)));
+            });
         });
     });
 }

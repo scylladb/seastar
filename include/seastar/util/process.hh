@@ -69,7 +69,7 @@ class process {
     /// \returns a \c process instance representing the spawned subprocess
     static future<process> spawn(const std::filesystem::path& pathname);
 public:
-    process(create_tag, pid_t pid, int stdin, int stdout, int stderr);
+    process(create_tag, pid_t pid, file_desc&& stdin, file_desc&& stdout, file_desc&& stderr);
     /// Return an writable stream which provides input from the child process
     output_stream<char> stdin();
     /// Return an writable stream which provides stdout output from the child process
@@ -89,9 +89,9 @@ public:
     future<wait_status> wait();
 private:
     const pid_t _pid;
-    const int _stdin;
-    const int _stdout;
-    const int _stderr;
+    file_desc _stdin;
+    file_desc _stdout;
+    file_desc _stderr;
 
     friend future<process> spawn_process(const std::filesystem::path&,
                                          spawn_parameters);
