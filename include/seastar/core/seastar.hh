@@ -391,12 +391,11 @@ future<uint64_t> fs_free(std::string_view name) noexcept;
 /// @}
 
 namespace experimental {
-/// \defgroup subprocess-module Subprocess Management
+/// \defgroup interprocess-module Interprocess Communication
 ///
-/// Seastar provides a simple subprocess management API to
-/// spawn and interact with a subprocess.
+/// Seastar provides a set of APIs for interprocess communicate
 ///
-/// \addtogroup subprocess-module
+/// \addtogroup interprocess-module
 /// @{
 
 /// Spawn a subprocess
