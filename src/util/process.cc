@@ -66,6 +66,7 @@ public:
     static auto from_fd(int fd) {
         return std::make_unique<pipe_data_sink_impl>(fd);
     }
+    using data_sink_impl::put;
     future<> put(temporary_buffer<char> buf) override {
         size_t buf_size = buf.size();
         auto req = internal::io_request::make_write(_fd, 0, buf.get(), buf_size, false);
