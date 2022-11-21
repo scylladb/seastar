@@ -1120,9 +1120,7 @@ template <typename Func, typename Return, typename... T>
 concept ApplyReturns = InvokeReturns<Func, Return, T...>;
 
 template <typename Func, typename... T>
-concept InvokeReturnsAnyFuture = requires (Func f, T... args) {
-    requires is_future<decltype(f(std::forward<T>(args)...))>::value;
-};
+concept InvokeReturnsAnyFuture = Future<std::invoke_result_t<Func, T...>>;
 
 // Deprecated alias
 template <typename Func, typename... T>
