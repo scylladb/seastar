@@ -1891,6 +1891,19 @@ reactor::inotify_add_watch(int fd, std::string_view path, uint32_t flags) {
     });
 }
 
+future<std::tuple<file_desc, file_desc>>
+reactor::make_pipe() {
+    return do_with(std::array<int, 2>{}, [this] (auto& pipe) {
+        return _thread_pool->submit<syscall_result<int>>([&pipe] {
+            return wrap_syscall<int>(::pipe2(pipe.data(), O_NONBLOCK));
+        }).then([&pipe] (syscall_result<int> ret) {
+            ret.throw_if_error();
+            return make_ready_future<std::tuple<file_desc, file_desc>>(file_desc::from_fd(pipe[0]),
+                                                                       file_desc::from_fd(pipe[1]));
+        });
+    });
+}
+
 future<std::tuple<pid_t, int, int, int>>
 reactor::spawn(std::string_view pathname,
                std::vector<sstring> argv,
@@ -4483,6 +4496,10 @@ void set_idle_cpu_handler(idle_cpu_handler&& handler) {
 }
 
 namespace experimental {
+future<std::tuple<file_desc, file_desc>> make_pipe() {
+    return engine().make_pipe();
+}
+
 future<process> spawn_process(const std::filesystem::path& pathname,
                               spawn_parameters params) {
     return process::spawn(pathname, std::move(params));

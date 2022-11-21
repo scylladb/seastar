@@ -49,6 +49,7 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/file-types.hh>
+#include <seastar/core/posix.hh>
 #include <seastar/util/bool_class.hh>
 #include <seastar/util/std-compat.hh>
 #include "./internal/api-level.hh"
@@ -394,9 +395,15 @@ namespace experimental {
 /// \defgroup interprocess-module Interprocess Communication
 ///
 /// Seastar provides a set of APIs for interprocess communicate
-///
+
 /// \addtogroup interprocess-module
 /// @{
+
+/// Create a pipe using \c pipe2
+///
+/// \return a tuple of \c file_desc, the first one for reading from the pipe, the second
+/// for writing to it.
+future<std::tuple<file_desc, file_desc>> make_pipe();
 
 /// Spawn a subprocess
 ///
