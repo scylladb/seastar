@@ -31,6 +31,12 @@ class reply;
 
 namespace experimental {
 
+/**
+ * \brief Class connection represents an HTTP connection over a given transport
+ *
+ * Check the demos/http_client_demo.cc for usage example
+ */
+
 class connection {
     connected_socket _fd;
     input_stream<char> _read_buf;
