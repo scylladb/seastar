@@ -450,7 +450,7 @@ future<> do_for_each_impl(Iterator begin, Iterator end, AsyncAction action) {
 ///         \c action failed.
 template<typename Iterator, typename AsyncAction>
 SEASTAR_CONCEPT( requires requires (Iterator i, AsyncAction aa) {
-    { futurize_invoke(aa, *i) } -> std::same_as<future<>>;
+    { futurize_invoke(aa, *i) } -> Future<>;
 } )
 inline
 future<> do_for_each(Iterator begin, Iterator end, AsyncAction action) noexcept {
@@ -474,7 +474,7 @@ future<> do_for_each(Iterator begin, Iterator end, AsyncAction action) noexcept 
 ///         \c action failed.
 template<typename Container, typename AsyncAction>
 SEASTAR_CONCEPT( requires requires (Container c, AsyncAction aa) {
-    { futurize_invoke(aa, *std::begin(c)) } -> std::same_as<future<>>;
+    { futurize_invoke(aa, *std::begin(c)) } -> Future<>;
     std::end(c);
 } )
 inline
@@ -553,7 +553,7 @@ public:
 ///       current shard. If you want to run a function on all shards in parallel,
 ///       have a look at \ref smp::invoke_on_all() instead.
 template <typename Iterator, typename Sentinel, typename Func>
-SEASTAR_CONCEPT( requires (requires (Func f, Iterator i) { { f(*i) } -> std::same_as<future<>>; { i++ }; } && (std::same_as<Sentinel, Iterator> || std::sentinel_for<Sentinel, Iterator>)))
+SEASTAR_CONCEPT( requires (requires (Func f, Iterator i) { { f(*i) } -> Future<>; { i++ }; } && (std::same_as<Sentinel, Iterator> || std::sentinel_for<Sentinel, Iterator>)))
 // We use a conjunction with std::same_as<Sentinel, Iterator> because std::sentinel_for requires Sentinel to be semiregular,
 // which implies that it requires Sentinel to be default-constructible, which is unnecessarily strict in below's context and could
 // break legacy code, for which it holds that Sentinel equals Iterator.
@@ -627,7 +627,7 @@ parallel_for_each_impl(Range&& range, Func&& func) {
 
 template <typename Range, typename Func>
 SEASTAR_CONCEPT( requires requires (Func f, Range r) {
-    { f(*std::begin(r)) } -> std::same_as<future<>>;
+    { f(*std::begin(r)) } -> Future<>;
     std::end(r);
 } )
 inline
@@ -659,7 +659,7 @@ parallel_for_each(Range&& range, Func&& func) noexcept {
 ///       current shard. If you want to run a function on all shards in parallel,
 ///       have a look at \ref smp::invoke_on_all() instead.
 template <typename Iterator, typename Sentinel, typename Func>
-SEASTAR_CONCEPT( requires (requires (Func f, Iterator i) { { f(*i) } -> std::same_as<future<>>; { i++ }; } && (std::same_as<Sentinel, Iterator> || std::sentinel_for<Sentinel, Iterator>) ) )
+SEASTAR_CONCEPT( requires (requires (Func f, Iterator i) { { f(*i) } -> Future<>; { i++ }; } && (std::same_as<Sentinel, Iterator> || std::sentinel_for<Sentinel, Iterator>) ) )
 // We use a conjunction with std::same_as<Sentinel, Iterator> because std::sentinel_for requires Sentinel to be semiregular,
 // which implies that it requires Sentinel to be default-constructible, which is unnecessarily strict in below's context and could
 // break legacy code, for which it holds that Sentinel equals Iterator.
