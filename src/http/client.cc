@@ -78,7 +78,7 @@ future<> connection::send_request_head(request& req) {
     }
 
     return _write_buf.write(req.request_line()).then([this, &req] {
-        return req.write_request_headers(_write_buf).then([this, &req] {
+        return req.write_request_headers(_write_buf).then([this] {
             return _write_buf.write("\r\n", 2);
         });
     });
@@ -88,7 +88,7 @@ future<reply> connection::recv_reply() {
     http_response_parser parser;
     return do_with(std::move(parser), [this] (auto& parser) {
         parser.init();
-        return _read_buf.consume(parser).then([this, &parser] {
+        return _read_buf.consume(parser).then([&parser] {
             if (parser.eof()) {
                 throw std::runtime_error("Invalid response");
             }

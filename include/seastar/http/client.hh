@@ -26,8 +26,8 @@ namespace seastar {
 
 namespace http {
 
-class request;
-class reply;
+struct request;
+struct reply;
 
 namespace experimental {
 
