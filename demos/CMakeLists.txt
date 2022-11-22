@@ -119,3 +119,6 @@ seastar_add_demo (file
 
 seastar_add_demo (tutorial_examples
   SOURCES tutorial_examples.cc)
+
+seastar_add_demo (http_client
+  SOURCES http_client_demo.cc)

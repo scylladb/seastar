@@ -12,7 +12,7 @@
 
 namespace seastar {
 
-namespace httpd {
+namespace http {
 namespace mime_types {
 
 struct mapping {
@@ -45,6 +45,6 @@ const char* extension_to_type(const sstring& extension)
 
 } // namespace mime_types
 
-} // httpd
+} // http
 
 }

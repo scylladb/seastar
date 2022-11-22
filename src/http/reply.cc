@@ -31,54 +31,56 @@
 #include <seastar/http/reply.hh>
 #include <seastar/core/print.hh>
 #include <seastar/http/httpd.hh>
+#include <seastar/http/common.hh>
+#include <seastar/http/response_parser.hh>
 #include <seastar/core/loop.hh>
 
 namespace seastar {
 
-namespace httpd {
+namespace http {
 
 namespace status_strings {
 
-const sstring continue_ = " 100 Continue\r\n";
-const sstring switching_protocols = " 101 Switching Protocols\r\n";
-const sstring ok = " 200 OK\r\n";
-const sstring created = " 201 Created\r\n";
-const sstring accepted = " 202 Accepted\r\n";
-const sstring nonauthoritative_information = " 203 Non-Authoritative Information\r\n";
-const sstring no_content = " 204 No Content\r\n";
-const sstring reset_content = " 205 Reset Content\r\n";
-const sstring multiple_choices = " 300 Multiple Choices\r\n";
-const sstring moved_permanently = " 301 Moved Permanently\r\n";
-const sstring moved_temporarily = " 302 Moved Temporarily\r\n";
-const sstring see_other = " 303 See Other\r\n";
-const sstring not_modified = " 304 Not Modified\r\n";
-const sstring use_proxy = " 305 Use Proxy\r\n";
-const sstring temporary_redirect = " 307 Temporary Redirect\r\n";
-const sstring bad_request = " 400 Bad Request\r\n";
-const sstring unauthorized = " 401 Unauthorized\r\n";
-const sstring payment_required = " 402 Payment Required\r\n";
-const sstring forbidden = " 403 Forbidden\r\n";
-const sstring not_found = " 404 Not Found\r\n";
-const sstring method_not_allowed = " 405 Method Not Allowed\r\n";
-const sstring not_acceptable = " 406 Not Acceptable\r\n";
-const sstring request_timeout = " 408 Request Timeout\r\n";
-const sstring conflict = " 409 Conflict\r\n";
-const sstring gone = " 410 Gone\r\n";
-const sstring length_required = " 411 Length Required\r\n";
-const sstring payload_too_large = " 413 Payload Too Large\r\n";
-const sstring uri_too_long = " 414 URI Too Long\r\n";
-const sstring unsupported_media_type = " 415 Unsupported Media Type\r\n";
-const sstring expectation_failed = " 417 Expectation Failed\r\n";
-const sstring unprocessable_entity = " 422 Unprocessable Entity\r\n";
-const sstring upgrade_required = " 426 Upgrade Required\r\n";
-const sstring too_many_requests = " 429 Too Many Requests\r\n";
-const sstring internal_server_error = " 500 Internal Server Error\r\n";
-const sstring not_implemented = " 501 Not Implemented\r\n";
-const sstring bad_gateway = " 502 Bad Gateway\r\n";
-const sstring service_unavailable = " 503 Service Unavailable\r\n";
-const sstring gateway_timeout = " 504 Gateway Timeout\r\n";
-const sstring http_version_not_supported = " 505 HTTP Version Not Supported\r\n";
-const sstring insufficient_storage = " 507 Insufficient Storage\r\n";
+const sstring continue_ = "100 Continue";
+const sstring switching_protocols = "101 Switching Protocols";
+const sstring ok = "200 OK";
+const sstring created = "201 Created";
+const sstring accepted = "202 Accepted";
+const sstring nonauthoritative_information = "203 Non-Authoritative Information";
+const sstring no_content = "204 No Content";
+const sstring reset_content = "205 Reset Content";
+const sstring multiple_choices = "300 Multiple Choices";
+const sstring moved_permanently = "301 Moved Permanently";
+const sstring moved_temporarily = "302 Moved Temporarily";
+const sstring see_other = "303 See Other";
+const sstring not_modified = "304 Not Modified";
+const sstring use_proxy = "305 Use Proxy";
+const sstring temporary_redirect = "307 Temporary Redirect";
+const sstring bad_request = "400 Bad Request";
+const sstring unauthorized = "401 Unauthorized";
+const sstring payment_required = "402 Payment Required";
+const sstring forbidden = "403 Forbidden";
+const sstring not_found = "404 Not Found";
+const sstring method_not_allowed = "405 Method Not Allowed";
+const sstring not_acceptable = "406 Not Acceptable";
+const sstring request_timeout = "408 Request Timeout";
+const sstring conflict = "409 Conflict";
+const sstring gone = "410 Gone";
+const sstring length_required = "411 Length Required";
+const sstring payload_too_large = "413 Payload Too Large";
+const sstring uri_too_long = "414 URI Too Long";
+const sstring unsupported_media_type = "415 Unsupported Media Type";
+const sstring expectation_failed = "417 Expectation Failed";
+const sstring unprocessable_entity = "422 Unprocessable Entity";
+const sstring upgrade_required = "426 Upgrade Required";
+const sstring too_many_requests = "429 Too Many Requests";
+const sstring internal_server_error = "500 Internal Server Error";
+const sstring not_implemented = "501 Not Implemented";
+const sstring bad_gateway = "502 Bad Gateway";
+const sstring service_unavailable = "503 Service Unavailable";
+const sstring gateway_timeout = "504 Gateway Timeout";
+const sstring http_version_not_supported = "505 HTTP Version Not Supported";
+const sstring insufficient_storage = "507 Insufficient Storage";
 
 static const sstring& to_string(reply::status_type status) {
     switch (status) {
@@ -168,53 +170,20 @@ static const sstring& to_string(reply::status_type status) {
 }
 } // namespace status_strings
 
+std::ostream& operator<<(std::ostream& os, reply::status_type st) {
+    return os << status_strings::to_string(st);
+}
+
+reply::reply(http_response&& resp)
+        : _status(static_cast<status_type>(resp._status_code))
+        , _headers(std::move(resp._headers))
+        , _version(std::move(resp._version))
+{
+}
+
 sstring reply::response_line() {
-    return "HTTP/" + _version + status_strings::to_string(_status);
+    return "HTTP/" + _version + " " + status_strings::to_string(_status) + "\r\n";
 }
-
-class http_chunked_data_sink_impl : public data_sink_impl {
-    output_stream<char>& _out;
-
-    future<> write_size(size_t s) {
-        auto req = format("{:x}\r\n", s);
-        return _out.write(req);
-    }
-public:
-    http_chunked_data_sink_impl(output_stream<char>& out) : _out(out) {
-    }
-    virtual future<> put(net::packet data)  override { abort(); }
-    using data_sink_impl::put;
-    virtual future<> put(temporary_buffer<char> buf) override {
-        if (buf.size() == 0) {
-            // size 0 buffer should be ignored, some server
-            // may consider it an end of message
-            return make_ready_future<>();
-        }
-        auto size = buf.size();
-        return write_size(size).then([this, buf = std::move(buf)] () mutable {
-            return _out.write(buf.get(), buf.size());
-        }).then([this] () mutable {
-            return _out.write("\r\n", 2);
-        });
-    }
-    virtual future<> close() override {
-        return  make_ready_future<>();
-    }
-};
-
-class http_chunked_data_sink : public data_sink {
-public:
-    http_chunked_data_sink(output_stream<char>& out)
-        : data_sink(std::make_unique<http_chunked_data_sink_impl>(
-                out)) {}
-};
-
-static output_stream<char> make_http_chunked_output_stream(output_stream<char>& out) {
-    output_stream_options opts;
-    opts.trim_to_size = true;
-    return output_stream<char>(http_chunked_data_sink(out), 32000, opts);
-}
-
 
 void reply::write_body(const sstring& content_type, noncopyable_function<future<>(output_stream<char>&&)>&& body_writer) {
     set_content_type(content_type);
@@ -226,19 +195,19 @@ void reply::write_body(const sstring& content_type, sstring content) {
     done(content_type);
 }
 
-future<> reply::write_reply_to_connection(connection& con) {
+future<> reply::write_reply_to_connection(httpd::connection& con) {
     add_header("Transfer-Encoding", "chunked");
     return con.out().write(response_line()).then([this, &con] () mutable {
         return write_reply_headers(con);
     }).then([&con] () mutable {
         return con.out().write("\r\n", 2);
     }).then([this, &con] () mutable {
-        return _body_writer(make_http_chunked_output_stream(con.out()));
+        return _body_writer(http::internal::make_http_chunked_output_stream(con.out()));
     });
 
 }
 
-future<> reply::write_reply_headers(connection& con) {
+future<> reply::write_reply_headers(httpd::connection& con) {
     return do_for_each(_headers, [&con](auto& h) {
         return con.out().write(h.first + ": " + h.second + "\r\n");
     });

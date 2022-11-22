@@ -40,11 +40,11 @@ using namespace httpd;
 
 class handl : public httpd::handler_base {
 public:
-    virtual future<std::unique_ptr<reply> > handle(const sstring& path,
-            std::unique_ptr<request> req, std::unique_ptr<reply> rep) {
+    virtual future<std::unique_ptr<http::reply> > handle(const sstring& path,
+            std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) {
         rep->_content = "hello";
         rep->done("html");
-        return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
+        return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
     }
 };
 
@@ -52,7 +52,7 @@ void set_routes(routes& r) {
     function_handler* h1 = new function_handler([](const_req req) {
         return "hello";
     });
-    function_handler* h2 = new function_handler([](std::unique_ptr<request> req) {
+    function_handler* h2 = new function_handler([](std::unique_ptr<http::request> req) {
         return make_ready_future<json::json_return_type>("json-future");
     });
     r.add(operation_type::GET, url("/"), h1);

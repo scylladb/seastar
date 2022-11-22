@@ -140,7 +140,7 @@ future<> connection::read_http_upgrade_request() {
             _done = true;
             return make_ready_future<>();
         }
-        std::unique_ptr<httpd::request> req = _http_parser.get_parsed_request();
+        std::unique_ptr<http::request> req = _http_parser.get_parsed_request();
         if (_http_parser.failed()) {
             return make_exception_future<>(websocket::exception("Incorrect upgrade request"));
         }

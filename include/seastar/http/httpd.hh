@@ -47,11 +47,14 @@
 
 namespace seastar {
 
+namespace http {
+struct reply;
+}
+
 namespace httpd {
 
 class http_server;
 class http_stats;
-struct reply;
 
 using namespace std::chrono_literals;
 
@@ -69,10 +72,10 @@ class connection : public boost::intrusive::list_base_hook<> {
     static constexpr size_t limit = 4096;
     using tmp_buf = temporary_buffer<char>;
     http_request_parser _parser;
-    std::unique_ptr<request> _req;
-    std::unique_ptr<reply> _resp;
+    std::unique_ptr<http::request> _req;
+    std::unique_ptr<http::reply> _resp;
     // null element marks eof
-    queue<std::unique_ptr<reply>> _replies { 10 };
+    queue<std::unique_ptr<http::reply>> _replies { 10 };
     bool _done = false;
 public:
     [[deprecated("use connection(http_server&, connected_socket&&)")]]
@@ -93,37 +96,12 @@ public:
     future<> respond();
     future<> do_response_loop();
 
-    void set_headers(reply& resp);
+    void set_headers(http::reply& resp);
 
     future<> start_response();
-    future<> write_reply_headers(std::unordered_map<sstring, sstring>::iterator hi);
 
-    static short hex_to_byte(char c);
-
-    /**
-     * Convert a hex encoded 2 bytes substring to char
-     */
-    static char hexstr_to_char(const std::string_view& in, size_t from);
-
-    /**
-     * URL_decode a substring and place it in the given out sstring
-     */
-    static bool url_decode(const std::string_view& in, sstring& out);
-
-    /**
-     * Add a single query parameter to the parameter list
-     */
-    static void add_param(request& req, const std::string_view& param);
-
-    /**
-     * Set the query parameters in the request objects.
-     * query param appear after the question mark and are separated
-     * by the ampersand sign
-     */
-    static sstring set_query_param(request& req);
-
-    future<bool> generate_reply(std::unique_ptr<request> req);
-    void generate_error_reply_and_close(std::unique_ptr<request> req, reply::status_type status, const sstring& msg);
+    future<bool> generate_reply(std::unique_ptr<http::request> req);
+    void generate_error_reply_and_close(std::unique_ptr<http::request> req, http::reply::status_type status, const sstring& msg);
 
     future<> write_body();
 

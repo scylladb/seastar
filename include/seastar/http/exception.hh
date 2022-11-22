@@ -35,7 +35,7 @@ namespace httpd {
  */
 class base_exception : public std::exception {
 public:
-    base_exception(const std::string& msg, reply::status_type status)
+    base_exception(const std::string& msg, http::reply::status_type status)
             : _msg(msg), _status(status) {
     }
 
@@ -43,7 +43,7 @@ public:
         return _msg.c_str();
     }
 
-    reply::status_type status() const {
+    http::reply::status_type status() const {
         return _status;
     }
 
@@ -52,7 +52,7 @@ public:
     }
 private:
     std::string _msg;
-    reply::status_type _status;
+    http::reply::status_type _status;
 
 };
 
@@ -62,7 +62,7 @@ private:
 class redirect_exception : public base_exception {
 public:
     redirect_exception(const std::string& url)
-            : base_exception("", reply::status_type::moved_permanently), url(
+            : base_exception("", http::reply::status_type::moved_permanently), url(
                     url) {
     }
     std::string url;
@@ -74,7 +74,7 @@ public:
 class not_found_exception : public base_exception {
 public:
     not_found_exception(const std::string& msg = "Not found")
-            : base_exception(msg, reply::status_type::not_found) {
+            : base_exception(msg, http::reply::status_type::not_found) {
     }
 };
 
@@ -85,7 +85,7 @@ public:
 class bad_request_exception : public base_exception {
 public:
     bad_request_exception(const std::string& msg)
-            : base_exception(msg, reply::status_type::bad_request) {
+            : base_exception(msg, http::reply::status_type::bad_request) {
     }
 };
 
@@ -115,7 +115,7 @@ public:
 class server_error_exception : public base_exception {
 public:
     server_error_exception(const std::string& msg)
-            : base_exception(msg, reply::status_type::internal_server_error) {
+            : base_exception(msg, http::reply::status_type::internal_server_error) {
     }
 };
 
@@ -135,10 +135,10 @@ public:
     json_exception(std::exception_ptr e) {
 	std::ostringstream exception_description;
 	exception_description << e;
-	set(exception_description.str(), reply::status_type::internal_server_error);
+	set(exception_description.str(), http::reply::status_type::internal_server_error);
     }
 private:
-    void set(const std::string& msg, reply::status_type code) {
+    void set(const std::string& msg, http::reply::status_type code) {
         register_params();
         _msg = msg;
         _code = (int) code;

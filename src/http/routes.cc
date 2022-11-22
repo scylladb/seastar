@@ -31,7 +31,7 @@ namespace httpd {
 
 using namespace std;
 
-void verify_param(const request& req, const sstring& param) {
+void verify_param(const http::request& req, const sstring& param) {
     if (req.get_query_param(param) == "") {
         throw missing_param_exception(param);
     }
@@ -54,8 +54,8 @@ routes::~routes() {
 
 }
 
-std::unique_ptr<reply> routes::exception_reply(std::exception_ptr eptr) {
-    auto rep = std::make_unique<reply>();
+std::unique_ptr<http::reply> routes::exception_reply(std::exception_ptr eptr) {
+    auto rep = std::make_unique<http::reply>();
     try {
         // go over the register exception handler
         // if one of them handle the exception, return.
@@ -73,7 +73,7 @@ std::unique_ptr<reply> routes::exception_reply(std::exception_ptr eptr) {
     } catch (const base_exception& e) {
         rep->set_status(e.status(), json_exception(e).to_json());
     } catch (...) {
-        rep->set_status(reply::status_type::internal_server_error,
+        rep->set_status(http::reply::status_type::internal_server_error,
                 json_exception(std::current_exception()).to_json());
     }
 
@@ -81,7 +81,7 @@ std::unique_ptr<reply> routes::exception_reply(std::exception_ptr eptr) {
     return rep;
 }
 
-future<std::unique_ptr<reply> > routes::handle(const sstring& path, std::unique_ptr<request> req, std::unique_ptr<reply> rep) {
+future<std::unique_ptr<http::reply> > routes::handle(const sstring& path, std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) {
     handler_base* handler = get_handler(str2type(req->_method),
             normalize_url(path), req->param);
     if (handler != nullptr) {
@@ -92,19 +92,19 @@ future<std::unique_ptr<reply> > routes::handle(const sstring& path, std::unique_
             auto r =  handler->handle(path, std::move(req), std::move(rep));
             return r.handle_exception(_general_handler);
         } catch (const redirect_exception& _e) {
-            rep.reset(new reply());
+            rep.reset(new http::reply());
             rep->add_header("Location", _e.url).set_status(_e.status()).done(
                     "json");
         } catch (...) {
             rep = exception_reply(std::current_exception());
         }
     } else {
-        rep.reset(new reply());
+        rep.reset(new http::reply());
         json_exception ex(not_found_exception("Not found"));
-        rep->set_status(reply::status_type::not_found, ex.to_json()).done(
+        rep->set_status(http::reply::status_type::not_found, ex.to_json()).done(
                 "json");
     }
-    return make_ready_future<std::unique_ptr<reply>>(std::move(rep));
+    return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
 }
 
 sstring routes::normalize_url(const sstring& url) {

@@ -49,7 +49,7 @@ doc_entry get_file_reader(sstring file_name) {
     };
 }
 
-future<> api_docs_20::write(output_stream<char>&& os, std::unique_ptr<request> req) {
+future<> api_docs_20::write(output_stream<char>&& os, std::unique_ptr<http::request> req) {
     return do_with(output_stream<char>(_transform.transform(std::move(req), "", std::move(os))), [this] (output_stream<char>& os) {
         return do_for_each(_apis, [&os](doc_entry& api) {
             return api(os);

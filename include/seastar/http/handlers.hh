@@ -31,7 +31,7 @@ namespace seastar {
 
 namespace httpd {
 
-typedef const httpd::request& const_req;
+typedef const http::request& const_req;
 
 /**
  * handlers holds the logic for serving an incoming request.
@@ -48,8 +48,8 @@ public:
      * @param req the original request
      * @param rep the reply
      */
-    virtual future<std::unique_ptr<reply> > handle(const sstring& path,
-            std::unique_ptr<request> req, std::unique_ptr<reply> rep) = 0;
+    virtual future<std::unique_ptr<http::reply> > handle(const sstring& path,
+            std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) = 0;
 
     virtual ~handler_base() = default;
 

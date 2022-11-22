@@ -138,7 +138,7 @@ public:
      * @param req the http request
      * @param rep the http reply
      */
-    future<std::unique_ptr<reply> > handle(const sstring& path, std::unique_ptr<request> req, std::unique_ptr<reply> rep);
+    future<std::unique_ptr<http::reply> > handle(const sstring& path, std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep);
 
     /**
      * Search and return an exact match
@@ -179,7 +179,7 @@ private:
     //default Handler -- for any HTTP Method and Path (/*)
     handler_base* _default_handler = nullptr;
 public:
-    using exception_handler_fun = std::function<std::unique_ptr<reply>(std::exception_ptr eptr)>;
+    using exception_handler_fun = std::function<std::unique_ptr<http::reply>(std::exception_ptr eptr)>;
     using exception_handler_id = size_t;
 private:
     std::map<exception_handler_id, exception_handler_fun> _exceptions;
@@ -204,7 +204,7 @@ public:
         _exceptions.erase(id);
     }
 
-    std::unique_ptr<reply> exception_reply(std::exception_ptr eptr);
+    std::unique_ptr<http::reply> exception_reply(std::exception_ptr eptr);
 
     routes();
 
@@ -243,7 +243,7 @@ public:
  * @param params the parameters object
  * @param param the parameter to look for
  */
-void verify_param(const httpd::request& req, const sstring& param);
+void verify_param(const http::request& req, const sstring& param);
 
 /**
  * The handler_registration object facilitates registration and auto

@@ -137,14 +137,14 @@ public:
         eof,
         done,
     };
-    std::unique_ptr<httpd::request> _req;
+    std::unique_ptr<http::request> _req;
     sstring _field_name;
     sstring _value;
     state _state;
 public:
     void init() {
         init_base();
-        _req.reset(new httpd::request());
+        _req.reset(new http::request());
         _state = state::eof;
         %% write init;
     }

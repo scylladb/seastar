@@ -41,7 +41,7 @@ namespace httpd {
  */
 class content_replace : public file_transformer {
 public:
-    virtual output_stream<char> transform(std::unique_ptr<request> req,
+    virtual output_stream<char> transform(std::unique_ptr<http::request> req,
             const sstring& extension, output_stream<char>&& s);
     /**
      * the constructor get the file extension the replace would work on.
