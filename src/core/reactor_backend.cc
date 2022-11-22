@@ -550,18 +550,27 @@ class aio_pollable_fd_state : public pollable_fd_state {
 
     internal::linux_abi::iocb _iocb_pollout;
     pollable_fd_state_completion _completion_pollout;
+
+    internal::linux_abi::iocb _iocb_pollrdhup;
+    pollable_fd_state_completion _completion_pollrdhup;
 public:
     pollable_fd_state_completion* get_desc(int events) {
         if (events & POLLIN) {
             return &_completion_pollin;
         }
-        return &_completion_pollout;
+        if (events & POLLOUT) {
+            return &_completion_pollout;
+        }
+        return &_completion_pollrdhup;
     }
     internal::linux_abi::iocb* get_iocb(int events) {
         if (events & POLLIN) {
             return &_iocb_pollin;
         }
-        return &_iocb_pollout;
+        if (events & POLLOUT) {
+            return &_iocb_pollout;
+        }
+        return &_iocb_pollrdhup;
     }
     explicit aio_pollable_fd_state(file_desc fd, speculation speculate)
         : pollable_fd_state(std::move(fd), std::move(speculate))
@@ -603,6 +612,10 @@ future<> reactor_backend_aio::writeable(pollable_fd_state& fd) {
 
 future<> reactor_backend_aio::readable_or_writeable(pollable_fd_state& fd) {
     return poll(fd, POLLIN|POLLOUT);
+}
+
+future<> reactor_backend_aio::poll_rdhup(pollable_fd_state& fd) {
+    return poll(fd, POLLRDHUP);
 }
 
 void reactor_backend_aio::forget(pollable_fd_state& fd) noexcept {
@@ -834,8 +847,9 @@ reactor_backend_epoll::wait_and_process(int timeout, const sigset_t* active_sigm
             // send/recv/accept/connect handle the specific error.
             evt.events = pfd->events_requested;
         }
-        auto events = evt.events & (EPOLLIN | EPOLLOUT);
+        auto events = evt.events & (EPOLLIN | EPOLLOUT | EPOLLRDHUP);
         auto events_to_remove = events & ~pfd->events_requested;
+        complete_epoll_event(*pfd, events, EPOLLRDHUP);
         if (pfd->events_rw) {
             // accept() signals normal completions via EPOLLIN, but errors (due to shutdown())
             // via EPOLLOUT|EPOLLHUP, so we have to wait for both EPOLLIN and EPOLLOUT with the
@@ -860,12 +874,16 @@ reactor_backend_epoll::wait_and_process(int timeout, const sigset_t* active_sigm
 class epoll_pollable_fd_state : public pollable_fd_state {
     pollable_fd_state_completion _pollin;
     pollable_fd_state_completion _pollout;
+    pollable_fd_state_completion _pollrdhup;
 
     pollable_fd_state_completion* get_desc(int events) {
         if (events & EPOLLIN) {
             return &_pollin;
         }
-        return &_pollout;
+        if (events & EPOLLOUT) {
+            return &_pollout;
+        }
+        return &_pollrdhup;
     }
 public:
     explicit epoll_pollable_fd_state(file_desc fd, speculation speculate)
@@ -977,6 +995,10 @@ future<> reactor_backend_epoll::writeable(pollable_fd_state& fd) {
 
 future<> reactor_backend_epoll::readable_or_writeable(pollable_fd_state& fd) {
     return get_epoll_future(fd, EPOLLIN | EPOLLOUT);
+}
+
+future<> reactor_backend_epoll::poll_rdhup(pollable_fd_state& fd) {
+    return get_epoll_future(fd, POLLRDHUP);
 }
 
 void reactor_backend_epoll::forget(pollable_fd_state& fd) noexcept {
@@ -1256,6 +1278,7 @@ class reactor_backend_uring final : public reactor_backend {
     class uring_pollable_fd_state : public pollable_fd_state {
         pollable_fd_state_completion _completion_pollin;
         pollable_fd_state_completion _completion_pollout;
+        pollable_fd_state_completion _completion_pollrdhup;
     public:
         explicit uring_pollable_fd_state(file_desc desc, speculation speculate)
                 : pollable_fd_state(std::move(desc), std::move(speculate)) {
@@ -1263,8 +1286,10 @@ class reactor_backend_uring final : public reactor_backend {
         pollable_fd_state_completion* get_desc(int events) {
             if (events & POLLIN) {
                 return &_completion_pollin;
-            } else {
+            } else if (events & POLLOUT) {
                 return &_completion_pollout;
+            } else {
+                return &_completion_pollrdhup;
             }
         }
         future<> get_completion_future(int events) {
@@ -1534,6 +1559,9 @@ public:
     }
     virtual future<> readable_or_writeable(pollable_fd_state& fd) override {
         return poll(fd, POLLIN | POLLOUT);
+    }
+    virtual future<> poll_rdhup(pollable_fd_state& fd) override {
+        return poll(fd, POLLRDHUP);
     }
     virtual void forget(pollable_fd_state& fd) noexcept override {
         auto* pfd = static_cast<uring_pollable_fd_state*>(&fd);

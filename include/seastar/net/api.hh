@@ -243,6 +243,19 @@ public:
     explicit operator bool() const noexcept {
         return static_cast<bool>(_csi);
     }
+    /// Waits for the peer of this socket to disconnect
+    ///
+    /// \return future that resolves when the peer closes connection or shuts it down
+    /// for writing or when local socket is called \ref shutdown_input().
+    ///
+    /// Note, that when the returned future is resolved for whatever reason socket
+    /// may still be readable from, so the caller may want to wait for both events
+    /// -- this one and EOF from read.
+    ///
+    /// Calling it several times per socket is not allowed (undefined behavior)
+    ///
+    /// \see poll(2) about POLLRDHUP for more details
+    future<> wait_input_shutdown();
 };
 /// @}
 

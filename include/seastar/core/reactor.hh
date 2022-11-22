@@ -674,6 +674,7 @@ public:
     future<> readable(pollable_fd_state& fd);
     future<> writeable(pollable_fd_state& fd);
     future<> readable_or_writeable(pollable_fd_state& fd);
+    future<> poll_rdhup(pollable_fd_state& fd);
     void enable_timer(steady_clock_type::time_point when) noexcept;
     /// Sets the "Strict DMA" flag.
     ///

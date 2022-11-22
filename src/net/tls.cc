@@ -1637,6 +1637,9 @@ public:
     future<std::optional<session_dn>> get_distinguished_name() {
         return _session->get_distinguished_name();
     }
+    future<> wait_input_shutdown() override {
+        return _session->socket().wait_input_shutdown();
+    }
 };
 
 

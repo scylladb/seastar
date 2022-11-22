@@ -316,6 +316,7 @@ private:
         tcp& _tcp;
         connection* _conn = nullptr;
         promise<> _connect_done;
+        std::optional<promise<>> _fin_recvd_promise = promise<>();
         ipaddr _local_ip;
         ipaddr _foreign_ip;
         uint16_t _local_port;
@@ -430,6 +431,7 @@ private:
         void input_handle_other_state(tcp_hdr* th, packet p);
         void output_one(bool data_retransmit = false);
         future<> wait_for_data();
+        future<> wait_input_shutdown();
         void abort_reader() noexcept;
         future<> wait_for_all_data_acked();
         future<> wait_send_available();
@@ -691,6 +693,9 @@ public:
         }
         future<> wait_for_data() {
             return _tcb->wait_for_data();
+        }
+        future<> wait_input_shutdown() {
+            return _tcb->wait_input_shutdown();
         }
         packet read() {
             return _tcb->read();
@@ -1521,6 +1526,10 @@ void tcp<InetTraits>::tcb::input_handle_other_state(tcp_hdr* th, packet p) {
 
     // 4.8 eighth, check the FIN bit
     if (th->f_fin) {
+        if (_fin_recvd_promise) {
+            _fin_recvd_promise->set_value();
+            _fin_recvd_promise.reset();
+        }
         if (in_state(CLOSED | LISTEN | SYN_SENT)) {
             // Do not process the FIN if the state is CLOSED, LISTEN or SYN-SENT
             // since the SEG.SEQ cannot be validated; drop the segment and return.
@@ -1735,12 +1744,24 @@ future<> tcp<InetTraits>::tcb::wait_for_data() {
 }
 
 template <typename InetTraits>
+future<> tcp<InetTraits>::tcb::wait_input_shutdown() {
+    if (!_fin_recvd_promise) {
+        return make_ready_future<>();
+    }
+    return _fin_recvd_promise->get_future();
+}
+
+template <typename InetTraits>
 void
 tcp<InetTraits>::tcb::abort_reader() noexcept {
     if (_rcv._data_received_promise) {
         _rcv._data_received_promise->set_exception(
                 std::make_exception_ptr(std::system_error(ECONNABORTED, std::system_category())));
         _rcv._data_received_promise = std::nullopt;
+    }
+    if (_fin_recvd_promise) {
+        _fin_recvd_promise->set_value();
+        _fin_recvd_promise.reset();
     }
 }
 
