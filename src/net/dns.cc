@@ -829,6 +829,8 @@ private:
                 auto bytes = p.len();
                 auto f = make_ready_future();
 
+                use(fd);
+
                 switch (e.typ) {
                 case type::tcp:
                     if (!e.tcp.out) {
@@ -837,8 +839,27 @@ private:
                     f = e.tcp.out->write(std::move(p));
                     break;
                 case type::udp:
-                    f = e.udp.channel.send(e.udp.dst, std::move(p));
-                    break;
+                    // always chain UDP sends
+                    e.udp.f = e.udp.f.finally([&e, p = std::move(p)]() mutable {
+                        return e.udp.channel.send(e.udp.dst, std::move(p));;
+                    }).finally([fd, me = shared_from_this()] {
+                        me->release(fd);
+                    });
+                    // if we have a fast-fail, give error.
+                    if (e.udp.f.failed()) {
+                        try {
+                            e.udp.f.get();
+                        } catch (std::system_error& e) {
+                            errno = e.code().value();
+                        } catch (...) {
+                        }
+                        e.udp.f = make_ready_future<>();
+                        return -1;
+                    }
+                    // c-ares does _not_ use non-blocking retry for udp sockets. We just pretend
+                    // all is fine even though we have no idea. Barring stack/adapter failure it
+                    // is close to the same guarantee a "normal" message send would have anyway.
+                    return bytes;
                 default:
                     return -1;
                 }
@@ -846,7 +867,6 @@ private:
                 if (!f.available()) {
                     dns_log.trace("Send {} unavailable.", fd);
                     e.avail &= ~POLLOUT;
-                    use(fd);
                     // FIXME: future is discarded
                     (void)f.then_wrapped([me = shared_from_this(), &e, bytes, fd](future<> f) {
                         try {
@@ -859,13 +879,14 @@ private:
                         me->poll_sockets();
                         me->release(fd);
                     });
-                    // c-ares does _not_ use non-blocking retry for udp sockets. We just pretend
-                    // all is fine even though we have no idea. Barring stack/adapter failure it
-                    // is close to the same guarantee a "normal" message send would have anyway.
+
                     // For tcp we also pretend we're done, to make sure we don't have to deal with
                     // matching sent data
                     return bytes;
                 }
+
+                release(fd);
+
                 if (f.failed()) {
                     try {
                         f.get();
@@ -912,6 +933,7 @@ private:
         net::udp_channel channel;
         std::optional<net::udp_datagram> in;;
         socket_address dst;
+        future<> f = make_ready_future<>();
     };
     struct sock_entry {
         union {
@@ -965,7 +987,7 @@ private:
     }
 
 
-    typedef std::unordered_map<ares_socket_t, sock_entry> socket_map;
+    using socket_map = std::unordered_map<ares_socket_t, sock_entry>;
 
     friend struct dns_call;
 
