@@ -1020,7 +1020,7 @@ static future<> test_basic_content(bool streamed, bool chunked_reply) {
                 fmt::print("Request with chunked body\n");
                 auto req = http::request::make("GET", "test", "/test");
                 req.write_body("txt", [] (auto&& out) -> future<> {
-                    return seastar::async([out = std::move(out)] mutable {
+                    return seastar::async([out = std::move(out)] () mutable {
                         out.write(sstring("req")).get();
                         out.write(sstring("1234\r\n7890")).get();
                         out.flush().get();
