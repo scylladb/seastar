@@ -25,10 +25,12 @@
 #include <seastar/core/print.hh>
 #include <seastar/core/memory.hh>
 #include <seastar/util/std-compat.hh>
+#include <seastar/util/later.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/core/abort_source.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/thread.hh>
+#include <seastar/core/when_all.hh>
 
 #include <seastar/net/posix-stack.hh>
 
@@ -111,4 +113,114 @@ SEASTAR_TEST_CASE(test_file_desc_fdinfo) {
     auto info = fd.fdinfo();
     BOOST_REQUIRE_EQUAL(info.substr(0, 8), "socket:[");
     return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(socket_on_close_test) {
+    return seastar::async([&] {
+        listen_options lo;
+        lo.reuse_address = true;
+        server_socket ss = seastar::listen(ipv4_addr("127.0.0.1", 12345), lo);
+
+        bool server_closed = false;
+        bool client_notified = false;
+
+        auto client = seastar::async([&] {
+            connected_socket cln = connect(ipv4_addr("127.0.0.1", 12345)).get0();
+
+            auto close_wait_fiber = cln.wait_input_shutdown().then([&] {
+                BOOST_REQUIRE_EQUAL(server_closed, true);
+                client_notified = true;
+                fmt::print("Client: server closed\n");
+            });
+
+            auto out = cln.output();
+            auto in = cln.input();
+
+            while (!client_notified) {
+                fmt::print("Client: -> message\n");
+                out.write("hello").get();
+                out.flush().get();
+                seastar::sleep(std::chrono::milliseconds(250)).get();
+                fmt::print("Client: <- message\n");
+                auto buf = in.read().get0();
+                if (!buf) {
+                    fmt::print("Client: server eof\n");
+                    break;
+                }
+                seastar::sleep(std::chrono::milliseconds(250)).get();
+            }
+
+            out.close().get();
+            in.close().get();
+            close_wait_fiber.get();
+        });
+
+        auto server = seastar::async([&] {
+            accept_result acc = ss.accept().get0();
+            auto out = acc.connection.output();
+            auto in = acc.connection.input();
+
+            for (int i = 0; i < 3; i++) {
+                auto buf = in.read().get();
+                BOOST_REQUIRE_EQUAL(client_notified, false);
+                out.write(std::move(buf)).get();
+                out.flush().get();
+                fmt::print("Server: served\n");
+            }
+
+            server_closed = true;
+            fmt::print("Server: closing\n");
+            out.close().get();
+            in.close().get();
+        });
+
+        when_all(std::move(client), std::move(server)).discard_result().get();
+    });
+}
+
+SEASTAR_TEST_CASE(socket_on_close_local_shutdown_test) {
+    return seastar::async([&] {
+        listen_options lo;
+        lo.reuse_address = true;
+        server_socket ss = seastar::listen(ipv4_addr("127.0.0.1", 12345), lo);
+
+        bool server_closed = false;
+        bool client_notified = false;
+
+        auto client = seastar::async([&] {
+            connected_socket cln = connect(ipv4_addr("127.0.0.1", 12345)).get0();
+
+            auto close_wait_fiber = cln.wait_input_shutdown().then([&] {
+                BOOST_REQUIRE_EQUAL(server_closed, false);
+                client_notified = true;
+                fmt::print("Client: socket closed\n");
+            });
+
+            auto out = cln.output();
+            cln.shutdown_input();
+
+            auto fin = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+            do {
+                seastar::yield().get();
+            } while (!client_notified && std::chrono::steady_clock::now() < fin);
+            BOOST_REQUIRE_EQUAL(client_notified, true);
+
+            out.write("hello").get();
+            out.flush().get();
+            out.close().get();
+
+            close_wait_fiber.get();
+        });
+
+        auto server = seastar::async([&] {
+            accept_result acc = ss.accept().get0();
+            auto in = acc.connection.input();
+            auto buf = in.read().get();
+            server_closed = true;
+            fmt::print("Server: closing\n");
+            in.close().get();
+        });
+
+        when_all(std::move(client), std::move(server)).discard_result().get();
+    });
 }

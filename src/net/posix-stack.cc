@@ -266,6 +266,9 @@ public:
     socket_address local_address() const noexcept override {
         return _ops->local_address(_fd.get_file_desc());
     }
+    future<> wait_input_shutdown() override {
+        return _fd.poll_rdhup();
+    }
 
     friend class posix_server_socket_impl;
     friend class posix_ap_server_socket_impl;

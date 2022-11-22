@@ -193,6 +193,10 @@ public:
         // dummy
         return {};
     }
+    future<> wait_input_shutdown() override {
+        abort(); // No tests use this
+        return make_ready_future<>();
+    }
 };
 
 class loopback_server_socket_impl : public net::server_socket_impl {

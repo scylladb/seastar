@@ -443,6 +443,10 @@ future<> pollable_fd_state::writeable() {
     return engine().writeable(*this);
 }
 
+future<> pollable_fd_state::poll_rdhup() {
+    return engine().poll_rdhup(*this);
+}
+
 future<> pollable_fd_state::readable_or_writeable() {
     return engine().readable_or_writeable(*this);
 }
@@ -1038,6 +1042,10 @@ future<> reactor::writeable(pollable_fd_state& fd) {
 
 future<> reactor::readable_or_writeable(pollable_fd_state& fd) {
     return _backend->readable_or_writeable(fd);
+}
+
+future<> reactor::poll_rdhup(pollable_fd_state& fd) {
+    return _backend->poll_rdhup(fd);
 }
 
 void reactor::set_strict_dma(bool value) {
