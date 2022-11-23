@@ -39,7 +39,7 @@ struct printer {
         if (buf.empty()) {
             return make_ready_future<consumption_result<char>>(stop_consuming(std::move(buf)));
         }
-        fmt::print("{}", buf);
+        fmt::print("{}", sstring(buf.get(), buf.size()));
         return make_ready_future<consumption_result<char>>(continue_consuming());
     }
 };
@@ -73,7 +73,7 @@ int main(int ac, char** av) {
             if (body != "") {
                 future<file> f = open_file_dma(body, open_flags::ro);
                 req.write_body("txt", [ f = std::move(f) ] (output_stream<char>&& out) mutable {
-                    return seastar::async([f = std::move(f), out = std::move(out)] mutable {
+                    return seastar::async([f = std::move(f), out = std::move(out)] () mutable {
                         auto in = make_file_input_stream(f.get0());
                         copy(in, out).get();
                         out.flush().get();
