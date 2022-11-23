@@ -553,7 +553,7 @@ public:
 ///       current shard. If you want to run a function on all shards in parallel,
 ///       have a look at \ref smp::invoke_on_all() instead.
 template <typename Iterator, typename Sentinel, typename Func>
-SEASTAR_CONCEPT( requires (requires (Func f, Iterator i) { { f(*i) } -> Future<>; { i++ }; } && (std::same_as<Sentinel, Iterator> || std::sentinel_for<Sentinel, Iterator>)))
+SEASTAR_CONCEPT( requires (requires (Func f, Iterator i) { { f(*i) } -> Future<>; { ++i }; } && (std::same_as<Sentinel, Iterator> || std::sentinel_for<Sentinel, Iterator>)))
 // We use a conjunction with std::same_as<Sentinel, Iterator> because std::sentinel_for requires Sentinel to be semiregular,
 // which implies that it requires Sentinel to be default-constructible, which is unnecessarily strict in below's context and could
 // break legacy code, for which it holds that Sentinel equals Iterator.
