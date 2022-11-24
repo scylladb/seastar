@@ -40,6 +40,7 @@
 #include <system_error>
 #include <pthread.h>
 #include <signal.h>
+#include <spawn.h>
 #include <memory>
 #include <chrono>
 #include <sys/uio.h>
@@ -62,6 +63,9 @@ inline void throw_system_error_on(bool condition, const char* what_arg = "");
 
 template <typename T>
 inline void throw_kernel_error(T r);
+
+template <typename T>
+inline void throw_pthread_error(T r);
 
 struct mmap_deleter {
     size_t _size;
@@ -338,6 +342,15 @@ public:
         return map(size, PROT_READ, MAP_PRIVATE, offset);
     }
 
+    void spawn_actions_add_close(posix_spawn_file_actions_t* actions) {
+        auto r = ::posix_spawn_file_actions_addclose(actions, _fd);
+        throw_pthread_error(r);
+    }
+
+    void spawn_actions_add_dup2(posix_spawn_file_actions_t* actions, int newfd) {
+        auto r = ::posix_spawn_file_actions_adddup2(actions, _fd, newfd);
+        throw_pthread_error(r);
+    }
 private:
     file_desc(int fd) : _fd(fd) {}
  };

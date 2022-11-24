@@ -42,8 +42,8 @@ class pipe_data_source_impl final : public data_source_impl {
 public:
     explicit pipe_data_source_impl(pollable_fd fd)
         : _fd(std::move(fd)) {}
-    static auto from_fd(int fd) {
-        return std::make_unique<pipe_data_source_impl>(pollable_fd(file_desc::from_fd(fd)));
+    static auto from_fd(file_desc&& fd) {
+        return std::make_unique<pipe_data_source_impl>(pollable_fd(std::move(fd)));
     }
     future<temporary_buffer<char>> get() override {
         return _fd.read_some(&_ba);
@@ -55,21 +55,21 @@ public:
 };
 
 class pipe_data_sink_impl final : public data_sink_impl {
-    const int _fd;
+    file_desc _fd;
     io_queue& _io_queue;
     const size_t _buffer_size;
 public:
-    explicit pipe_data_sink_impl(int fd)
-        : _fd(fd)
+    explicit pipe_data_sink_impl(file_desc&& fd)
+        : _fd(std::move(fd))
         , _io_queue(engine().get_io_queue(0))
         , _buffer_size(file_input_stream_options{}.buffer_size) {}
-    static auto from_fd(int fd) {
-        return std::make_unique<pipe_data_sink_impl>(fd);
+    static auto from_fd(file_desc&& fd) {
+        return std::make_unique<pipe_data_sink_impl>(std::move(fd));
     }
     using data_sink_impl::put;
     future<> put(temporary_buffer<char> buf) override {
         size_t buf_size = buf.size();
-        auto req = internal::io_request::make_write(_fd, 0, buf.get(), buf_size, false);
+        auto req = internal::io_request::make_write(_fd.get(), 0, buf.get(), buf_size, false);
         return _io_queue.submit_io_write(default_priority_class(), buf_size, std::move(req), nullptr).then(
             [this, buf = std::move(buf), buf_size] (size_t written) mutable {
                 if (written < buf_size) {
@@ -87,7 +87,7 @@ public:
         });
     }
     future<> close() override {
-        ::close(_fd);
+        _fd.close();
         return make_ready_future();
     }
     size_t buffer_size() const noexcept override {
@@ -96,11 +96,11 @@ public:
 };
 }
 
-process::process(create_tag, pid_t pid, int stdin, int stdout, int stderr)
+process::process(create_tag, pid_t pid, file_desc&& stdin, file_desc&& stdout, file_desc&& stderr)
     : _pid(pid)
-    , _stdin(stdin)
-    , _stdout(stdout)
-    , _stderr(stderr) {}
+    , _stdin(std::move(stdin))
+    , _stdout(std::move(stdout))
+    , _stderr(std::move(stderr)) {}
 
 future<process::wait_status> process::wait() {
     return engine().waitpid(_pid).then([] (int wstatus) -> wait_status {
@@ -117,9 +117,9 @@ future<process> process::spawn(const std::filesystem::path& pathname,
                                spawn_parameters params) {
     assert(!params.argv.empty());
     return engine().spawn(pathname.native(), std::move(params.argv), std::move(params.env)).then(
-            [] (std::tuple<pid_t, int, int, int> result) {
-        auto [pid, stdin_pipe, stdout_pipe, stderr_pipe] = result;
-        return make_ready_future<process>(create_tag{}, pid, stdin_pipe, stdout_pipe, stderr_pipe);
+            [] (std::tuple<pid_t, file_desc, file_desc, file_desc> result) {
+        auto& [pid, stdin_pipe, stdout_pipe, stderr_pipe] = result;
+        return make_ready_future<process>(create_tag{}, pid, std::move(stdin_pipe), std::move(stdout_pipe), std::move(stderr_pipe));
     });
 }
 
@@ -128,18 +128,15 @@ future<process> process::spawn(const std::filesystem::path& pathname) {
 }
 
 output_stream<char> process::stdin() {
-    assert(_stdin >= 0);
-    return output_stream<char>(data_sink(pipe_data_sink_impl::from_fd(_stdin)));
+    return output_stream<char>(data_sink(pipe_data_sink_impl::from_fd(std::move(_stdin))));
 }
 
 input_stream<char> process::stdout() {
-    assert(_stdout >= 0);
-    return input_stream<char>(data_source(pipe_data_source_impl::from_fd(_stdout)));
+    return input_stream<char>(data_source(pipe_data_source_impl::from_fd(std::move(_stdout))));
 }
 
 input_stream<char> process::stderr() {
-    assert(_stderr >= 0);
-    return input_stream<char>(data_source(pipe_data_source_impl::from_fd(_stderr)));
+    return input_stream<char>(data_source(pipe_data_source_impl::from_fd(std::move(_stderr))));
 }
 
 }
