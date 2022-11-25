@@ -220,10 +220,13 @@ void report_failed_future(future_state_base::any&& state) noexcept {
 
 void with_allow_abandoned_failed_futures(unsigned count, noncopyable_function<void ()> func) {
     auto before = engine()._abandoned_failed_futures;
+    auto old_level = seastar_logger.level();
+    seastar_logger.set_level(log_level::error);
     func();
     auto after = engine()._abandoned_failed_futures;
     assert(after - before == count);
     engine()._abandoned_failed_futures = before;
+    seastar_logger.set_level(old_level);
 }
 
 namespace {
