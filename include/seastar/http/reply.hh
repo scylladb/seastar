@@ -231,3 +231,7 @@ using reply [[deprecated("Use http::reply instead")]] = http::reply;
 }
 
 }
+
+#if FMT_VERSION >= 90000
+template <> struct fmt::formatter<seastar::http::reply::status_type> : fmt::ostream_formatter {};
+#endif
