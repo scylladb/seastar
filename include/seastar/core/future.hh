@@ -1551,7 +1551,7 @@ public:
     /// the return value of then(), itself as a future; this allows then()
     /// calls to be chained.
     ///
-    /// This member function is only available is the payload is std::tuple;
+    /// This member function is only available when the payload is std::tuple;
     /// The tuple elements are passed as individual arguments to `func`, which
     /// must have the same arity as the tuple.
     ///
