@@ -116,9 +116,8 @@ future<process::wait_status> process::wait() {
 future<process> process::spawn(const std::filesystem::path& pathname,
                                spawn_parameters params) {
     assert(!params.argv.empty());
-    return engine().spawn(pathname.native(), std::move(params.argv), std::move(params.env)).then(
-            [] (std::tuple<pid_t, file_desc, file_desc, file_desc> result) {
-        auto& [pid, stdin_pipe, stdout_pipe, stderr_pipe] = result;
+    return engine().spawn(pathname.native(), std::move(params.argv), std::move(params.env)).then_unpack(
+            [] (pid_t pid, file_desc stdin_pipe, file_desc stdout_pipe, file_desc stderr_pipe) {
         return make_ready_future<process>(create_tag{}, pid, std::move(stdin_pipe), std::move(stdout_pipe), std::move(stderr_pipe));
     });
 }
