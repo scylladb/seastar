@@ -22,6 +22,7 @@
 
 #include <functional>
 #include <unordered_set>
+#include <map>
 
 #include <boost/any.hpp>
 
