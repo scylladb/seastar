@@ -21,6 +21,7 @@
 
 #include <exception>
 #include <numeric>
+#include <ranges>
 
 #include <seastar/core/circular_buffer.hh>
 #include <seastar/core/future-util.hh>
