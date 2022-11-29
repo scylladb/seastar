@@ -80,7 +80,7 @@ public:
         , _small_buffer_zeroes(seastar::temporary_buffer<char>(small_buffer_size))
     {
         auto& eng = testing::local_random_engine;
-        auto dist = std::uniform_int_distribution<char>();
+        auto dist = std::uniform_int_distribution<int>(0, std::numeric_limits<char>::max());
 
         std::generate_n(_small_buffer_random.get_write(), small_buffer_size, [&] { return dist(eng); });
         for (auto i = 0u; i < large_buffer_size / seastar::rpc::snd_buf::chunk_size; i++) {

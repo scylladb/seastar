@@ -530,7 +530,7 @@ private:
                             return max_concurrent_for_each(pos.begin(), pos.end(), 64, [this, bufsize] (auto pos) mutable {
                                 auto bufptr = allocate_aligned_buffer<char>(bufsize, 4096);
                                 auto buf = bufptr.get();
-                                std::uniform_int_distribution<char> fill('@', '~');
+                                std::uniform_int_distribution<int> fill('@', '~');
                                 memset(buf, fill(random_generator), bufsize);
                                 pos = pos * bufsize;
                                 return _file.dma_write(pos, buf, bufsize).finally([this, bufptr = std::move(bufptr), pos] {
