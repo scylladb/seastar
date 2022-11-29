@@ -67,7 +67,7 @@ future<> demo_with_file() {
     fmt::print("Demonstrating with_file():\n");
     return tmp_dir::do_with_thread([] (tmp_dir& t) {
         auto rnd = std::mt19937(std::random_device()());
-        auto dist = std::uniform_int_distribution<char>(0, std::numeric_limits<char>::max());
+        auto dist = std::uniform_int_distribution<int>(0, std::numeric_limits<char>::max());
         auto wbuf = temporary_buffer<char>::aligned(aligned_size, aligned_size);
         sstring meta_filename = (t.get_path() / "meta_file").native();
         sstring data_filename = (t.get_path() / "data_file").native();
@@ -109,7 +109,7 @@ future<> demo_with_file_close_on_failure() {
     fmt::print("\nDemonstrating with_file_close_on_failure():\n");
     return tmp_dir::do_with_thread([] (tmp_dir& t) {
         auto rnd = std::mt19937(std::random_device()());
-        auto dist = std::uniform_int_distribution<char>(0, std::numeric_limits<char>::max());
+        auto dist = std::uniform_int_distribution<int>(0, std::numeric_limits<char>::max());
         auto wbuf = temporary_buffer<char>::aligned(aligned_size, aligned_size);
         sstring meta_filename = (t.get_path() / "meta_file").native();
         sstring data_filename = (t.get_path() / "data_file").native();
@@ -175,7 +175,7 @@ future<> demo_with_io_intent() {
         auto f = open_file_dma(filename, open_flags::rw | open_flags::create).get0();
 
         auto rnd = std::mt19937(std::random_device()());
-        auto dist = std::uniform_int_distribution<char>(0, std::numeric_limits<char>::max());
+        auto dist = std::uniform_int_distribution<int>(0, std::numeric_limits<char>::max());
 
         auto wbuf = temporary_buffer<char>::aligned(aligned_size, aligned_size);
         fmt::print("  writing random data into {}\n", filename);

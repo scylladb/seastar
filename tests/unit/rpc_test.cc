@@ -966,7 +966,7 @@ void test_compressor(std::function<std::unique_ptr<seastar::rpc::compressor>()> 
     };
 
     auto& eng = testing::local_random_engine;
-    auto dist = std::uniform_int_distribution<char>();
+    auto dist = std::uniform_int_distribution<int>(0, std::numeric_limits<char>::max());
 
     auto snd = snd_buf(1);
     *snd.front().get_write() = 'a';

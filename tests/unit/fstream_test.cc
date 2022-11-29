@@ -284,7 +284,7 @@ SEASTAR_TEST_CASE(test_consume_unaligned_file_large) {
 SEASTAR_TEST_CASE(test_input_stream_esp_around_eof) {
     return tmp_dir::do_with_thread([] (tmp_dir& t) {
         auto flen = uint64_t(5341);
-        auto rdist = std::uniform_int_distribution<char>();
+        auto rdist = std::uniform_int_distribution<int>(0, std::numeric_limits<char>::max());
         auto reng = testing::local_random_engine;
         auto data = boost::copy_range<std::vector<uint8_t>>(
                 boost::irange<uint64_t>(0, flen)
