@@ -18,7 +18,7 @@ jobs:
       - checkout
       - run: git submodule sync
       - run: git submodule update --init
-      - run: echo 'docker run --pids-limit -1 --security-opt seccomp=unconfined --network host --user "$(id -u):$(id -g)" --rm -v $PWD:$PWD -w $PWD  docker.io/scylladb/seastar-toolchain:2022-06-14 "$@"' > run; chmod +x run
+      - run: echo 'docker run --pids-limit -1 --security-opt seccomp=unconfined --network host --user "$(id -u):$(id -g)" --rm -v $PWD:$PWD -w $PWD  docker.io/scylladb/seastar-toolchain:latest "$@"' > run; chmod +x run
       - run:
           command: |
             ./run ./configure.py --compiler << parameters.compiler >> --c++-standard << parameters.standard >>
@@ -32,6 +32,6 @@ workflows:
       - build_and_test:
           matrix:
             parameters:
-              compiler: ["clang++-12", "g++-11"]
+              compiler: ["clang++-15", "g++-12"]
               standard: ["20", "17"]
               mode: ["dev", "debug", "release"]
