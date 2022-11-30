@@ -31,6 +31,12 @@
 
 #include <boost/intrusive/parent_from_member.hpp>
 
+#if defined(__GNUC__) && !defined(__clang__) && (__GNUC__ >= 12)
+// to silence the false alarm from GCC 12, see
+// https://gcc.gnu.org/bugzilla/show_bug.cgi?id=105204
+#define SEASTAR_IGNORE_USE_AFTER_FREE
+#endif
+
 namespace seastar {
 
 // This header defines two shared pointer facilities, lw_shared_ptr<> and
@@ -290,7 +296,12 @@ public:
     lw_shared_ptr(std::nullptr_t) noexcept : lw_shared_ptr() {}
     lw_shared_ptr(const lw_shared_ptr& x) noexcept : _p(x._p) {
         if (_p) {
+#pragma GCC diagnostic push
+#ifdef SEASTAR_IGNORE_USE_AFTER_FREE
+#pragma GCC diagnostic ignored "-Wuse-after-free"
+#endif
             ++_p->_count;
+#pragma GCC diagnostic pop
         }
     }
     lw_shared_ptr(lw_shared_ptr&& x) noexcept  : _p(x._p) {
@@ -298,9 +309,14 @@ public:
     }
     [[gnu::always_inline]]
     ~lw_shared_ptr() {
+#pragma GCC diagnostic push
+#ifdef SEASTAR_IGNORE_USE_AFTER_FREE
+#pragma GCC diagnostic ignored "-Wuse-after-free"
+#endif
         if (_p && !--_p->_count) {
             accessors<T>::dispose(_p);
         }
+#pragma GCC diagnostic pop
     }
     lw_shared_ptr& operator=(const lw_shared_ptr& x) noexcept {
         if (_p != x._p) {
@@ -534,9 +550,14 @@ public:
         x._p = nullptr;
     }
     ~shared_ptr() {
+#pragma GCC diagnostic push
+#ifdef SEASTAR_IGNORE_USE_AFTER_FREE
+#pragma GCC diagnostic ignored "-Wuse-after-free"
+#endif
         if (_b && !--_b->count) {
             delete _b;
         }
+#pragma GCC diagnostic pop
     }
     shared_ptr& operator=(const shared_ptr& x) noexcept {
         if (this != &x) {
