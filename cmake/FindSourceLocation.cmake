@@ -21,17 +21,24 @@
 #
 
 include (CheckCXXSourceCompiles)
-include(CMakePushCheckState)
+include (CheckCXXSourceRuns)
+include (CMakePushCheckState)
 
-file (READ ${CMAKE_CURRENT_LIST_DIR}/code_tests/Source_location_test.cc _source_location_test_code)
 cmake_push_check_state ()
+file (READ ${CMAKE_CURRENT_LIST_DIR}/code_tests/Source_location_test.cc _source_location_test_code)
 set(CMAKE_REQUIRED_FLAGS "${CMAKE_CXX${CMAKE_CXX_STANDARD}_STANDARD_COMPILE_OPTION}")
 check_cxx_source_compiles ("${_source_location_test_code}" CxxSourceLocation_SUPPORTED)
+
+file (READ ${CMAKE_CURRENT_LIST_DIR}/code_tests/Source_location_default_argument.cc _source_location_test_code)
+set(CMAKE_REQUIRED_FLAGS "${CMAKE_CXX${CMAKE_CXX_STANDARD}_STANDARD_COMPILE_OPTION}")
+# see also https://cplusplus.github.io/CWG/issues/2631.html
+check_cxx_source_runs ("${_source_location_test_code}" CxxSourceLocation_IMPLEMENTS_CWG2631)
 cmake_pop_check_state ()
 
 if (NOT (TARGET SourceLocation::source_location))
   add_library (SourceLocation::source_location INTERFACE IMPORTED)
-  if  (NOT CxxSourceLocation_SUPPORTED)
+  if  ((NOT CxxSourceLocation_SUPPORTED) OR
+       (NOT CxxSourceLocation_IMPLEMENTS_CWG2631))
     set_target_properties (SourceLocation::source_location
       PROPERTIES
         INTERFACE_COMPILE_DEFINITIONS SEASTAR_BROKEN_SOURCE_LOCATION)
