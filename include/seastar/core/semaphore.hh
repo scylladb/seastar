@@ -31,6 +31,10 @@
 #include <seastar/core/timed_out_error.hh>
 #include <seastar/core/abort_on_expiry.hh>
 
+#ifdef SEASTAR_DEBUG
+#define SEASTAR_SEMAPHORE_DEBUG
+#endif
+
 namespace seastar {
 
 namespace internal {
@@ -125,6 +129,9 @@ struct named_semaphore_exception_factory {
     named_semaphore_aborted aborted() const noexcept;
 };
 
+template<typename ExceptionFactory, typename Clock>
+class semaphore_units;
+
 /// \brief Counted resource guard.
 ///
 /// This is a standard computer science semaphore, adapted
@@ -154,6 +161,24 @@ public:
 private:
     ssize_t _count;
     std::exception_ptr _ex;
+#ifdef SEASTAR_SEMAPHORE_DEBUG
+    size_t _outstanding_units = 0;
+
+    void assert_not_held() const noexcept {
+        assert(!_outstanding_units && "semaphore moved with outstanding units");
+    }
+    void add_outstanding_units(size_t n) {
+        _outstanding_units += n;
+    }
+    void sub_outstanding_units(size_t n) {
+        _outstanding_units -= n;
+    }
+#else   // SEASTAR_SEMAPHORE_DEBUG
+    void assert_not_held() const noexcept {}
+    void add_outstanding_units(size_t) {}
+    void sub_outstanding_units(size_t) {}
+#endif  // SEASTAR_SEMAPHORE_DEBUG
+
     struct entry {
         promise<> pr;
         size_t nr;
@@ -191,6 +216,8 @@ private:
     bool may_proceed(size_t nr) const noexcept {
         return has_available_units(nr) && _wait_list.empty();
     }
+
+    friend class semaphore_units<ExceptionFactory, Clock>;
 public:
     /// Returns the maximum number of units the semaphore counter can hold
     static constexpr size_t max_counter() noexcept {
@@ -214,6 +241,27 @@ public:
     {
         static_assert(std::is_nothrow_move_constructible_v<expiry_handler>);
     }
+
+    basic_semaphore(const basic_semaphore&) = delete;
+    basic_semaphore(basic_semaphore&& o) noexcept
+        : _count(std::exchange(o._count, 0))
+        , _ex(std::move(o._ex))
+        , _wait_list(std::move(o._wait_list))
+    {
+        o.assert_not_held();
+    }
+
+    basic_semaphore& operator=(basic_semaphore&& o) noexcept {
+        if (this != &o) {
+            o.assert_not_held();
+            assert_not_held();
+            _count = std::exchange(o._count, 0);
+            _ex = std::move(o._ex);
+            _wait_list = std::move(o._wait_list);
+        }
+        return *this;
+    }
+
     /// Waits until at least a specific number of units are available in the
     /// counter, and reduces the counter by that amount of units.
     ///
@@ -433,9 +481,11 @@ class semaphore_units {
     basic_semaphore<ExceptionFactory, Clock>* _sem;
     size_t _n;
 
-    semaphore_units(basic_semaphore<ExceptionFactory, Clock>* sem, size_t n) noexcept : _sem(sem), _n(n) {}
+    semaphore_units(basic_semaphore<ExceptionFactory, Clock>* sem, size_t n) noexcept : _sem(sem), _n(n) {
+        _sem->add_outstanding_units(n);
+    }
 public:
-    semaphore_units() noexcept : semaphore_units(nullptr, 0) {}
+    semaphore_units() noexcept : _sem(nullptr), _n(0) {}
     semaphore_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t n) noexcept : semaphore_units(&sem, n) {}
     semaphore_units(semaphore_units&& o) noexcept : _sem(o._sem), _n(std::exchange(o._n, 0)) {
     }
@@ -460,12 +510,14 @@ public:
             throw std::invalid_argument("Cannot take more units than those protected by the semaphore");
         }
         _n -= units;
+        _sem->sub_outstanding_units(units);
         _sem->signal(units);
         return _n;
     }
     /// Return ownership of all units. The semaphore will be signaled by the number of units returned.
     void return_all() noexcept {
         if (_n) {
+            _sem->sub_outstanding_units(_n);
             _sem->signal(_n);
             _n = 0;
         }
@@ -474,6 +526,7 @@ public:
     ///
     /// \return the number of units held
     size_t release() noexcept {
+        _sem->sub_outstanding_units(_n);
         return std::exchange(_n, 0);
     }
     /// Splits this instance into a \ref semaphore_units object holding the specified amount of units.
@@ -489,6 +542,11 @@ public:
             throw std::invalid_argument("Cannot take more units than those protected by the semaphore");
         }
         _n -= units;
+        // `units` are split into a new `semaphore_units` object.
+        // since none are returned to the semaphore we subtract the
+        // outstanding units here to balance their eventual addition by the
+        // `semaphore_units` ctor.
+        _sem->sub_outstanding_units(units);
         return semaphore_units(_sem, units);
     }
     /// The inverse of split(), in which the units held by the specified \ref semaphore_units
@@ -498,7 +556,9 @@ public:
     /// \return the updated semaphore_units object
     void adopt(semaphore_units&& other) noexcept {
         assert(other._sem == _sem);
-        _n += other.release();
+        auto o = other.release();
+        _sem->add_outstanding_units(o);
+        _n += o;
     }
 
     /// Returns the number of units held
