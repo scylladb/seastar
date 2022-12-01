@@ -28,7 +28,7 @@ using namespace seastar;
 using namespace seastar::experimental;
 
 SEASTAR_TEST_CASE(test_spawn_success) {
-    return spawn_process("/usr/bin/true").then([] (auto process) {
+    return spawn_process("/bin/true").then([] (auto process) {
         return process.wait();
     }).then([] (auto wstatus) {
         auto* exit_status = std::get_if<process::wait_exited>(&wstatus);
@@ -38,7 +38,7 @@ SEASTAR_TEST_CASE(test_spawn_success) {
 }
 
 SEASTAR_TEST_CASE(test_spawn_failure) {
-    return spawn_process("/usr/bin/false").then([] (auto process) {
+    return spawn_process("/bin/false").then([] (auto process) {
         return process.wait();
     }).then([] (auto wstatus) {
         auto* exit_status = std::get_if<process::wait_exited>(&wstatus);
@@ -59,7 +59,7 @@ SEASTAR_TEST_CASE(test_spawn_program_does_not_exist) {
 }
 
 SEASTAR_TEST_CASE(test_spawn_echo) {
-    const char* echo_cmd = "/usr/bin/echo";
+    const char* echo_cmd = "/bin/echo";
     return spawn_process(echo_cmd, {.argv = {echo_cmd, "-n", "hello", "world"}}).then([] (auto process) {
         auto stdout = process.stdout();
         return do_with(std::move(process), std::move(stdout), bool(true), [](auto& p, auto& stdout, auto& matched) {
@@ -91,7 +91,7 @@ SEASTAR_TEST_CASE(test_spawn_echo) {
 
 SEASTAR_TEST_CASE(test_spawn_input) {
     static const sstring text = "hello world\n";
-    return spawn_process("/usr/bin/cat").then([] (auto process) {
+    return spawn_process("/bin/cat").then([] (auto process) {
         auto stdin = process.stdin();
         auto stdout = process.stdout();
         return do_with(std::move(process), std::move(stdin), std::move(stdout), [](auto& p, auto& stdin, auto& stdout) {
