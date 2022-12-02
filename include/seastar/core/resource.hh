@@ -87,6 +87,7 @@ struct topology_holder {};
 struct configuration {
     optional<size_t> total_memory;
     optional<size_t> reserve_memory;  // if total_memory not specified
+    size_t reserve_additional_memory;
     optional<size_t> cpus;
     optional<cpuset> cpu_set;
     bool assign_orphan_cpus = false;
