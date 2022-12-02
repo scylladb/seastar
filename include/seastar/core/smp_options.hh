@@ -96,6 +96,11 @@ struct smp_options : public program_options::option_group {
     /// * \ref reactor_options::abort_on_seastar_bad_alloc
     /// * \ref reactor_options::dump_memory_diagnostics_on_alloc_failure_kind
     seastar::memory_allocator memory_allocator = memory_allocator::seastar;
+
+    /// \cond internal
+    /// Additional memory reserved to OS (added to the default value or the value specified by \ref reserve_memory).
+    size_t reserve_additional_memory = 0;
+    /// \endcond
 public:
     smp_options(program_options::option_group* parent_group);
 };

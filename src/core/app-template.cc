@@ -51,6 +51,7 @@ seastar_options_from_config(app_template::config cfg) {
     opts.auto_handle_sigint_sigterm = std::move(cfg.auto_handle_sigint_sigterm);
     opts.reactor_opts.task_quota_ms.set_default_value(cfg.default_task_quota / 1ms);
     opts.reactor_opts.max_networking_io_control_blocks.set_default_value(cfg.max_networking_aio_io_control_blocks);
+    opts.smp_opts.reserve_additional_memory = cfg.reserve_additional_memory;
     return opts;
 }
 
