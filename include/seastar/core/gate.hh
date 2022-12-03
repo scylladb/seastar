@@ -25,6 +25,10 @@
 #include <seastar/util/std-compat.hh>
 #include <exception>
 
+#ifdef SEASTAR_DEBUG
+#define SEASTAR_GATE_HOLDER_DEBUG
+#endif
+
 namespace seastar {
 
 /// \addtogroup fiber-module
@@ -47,14 +51,32 @@ public:
 class gate {
     size_t _count = 0;
     std::optional<promise<>> _stopped;
+
+#ifdef SEASTAR_GATE_HOLDER_DEBUG
+    size_t _holders = 0;
+
+    void assert_not_held_when_moved() const noexcept {
+        assert(!_holders && "gate moved with outstanding holders");
+    }
+    void assert_not_held_when_destroyed() const noexcept {
+        assert(!_holders && "gate destroyed with outstanding holders");
+    }
+#else   // SEASTAR_GATE_HOLDER_DEBUG
+    void assert_not_held_when_moved() const noexcept {}
+    void assert_not_held_when_destroyed() const noexcept {}
+#endif  // SEASTAR_GATE_HOLDER_DEBUG
+
 public:
     gate() = default;
     gate(const gate&) = delete;
     gate(gate&& x) noexcept
-        : _count(std::exchange(x._count, 0)), _stopped(std::exchange(x._stopped, std::nullopt)) {}
+        : _count(std::exchange(x._count, 0)), _stopped(std::exchange(x._stopped, std::nullopt)) {
+        x.assert_not_held_when_moved();
+    }
     gate& operator=(gate&& x) noexcept {
         if (this != &x) {
             assert(!_count && "gate reassigned with outstanding requests");
+            x.assert_not_held_when_moved();
             _count = std::exchange(x._count, 0);
             _stopped = std::exchange(x._stopped, std::nullopt);
         }
@@ -62,6 +84,7 @@ public:
     }
     ~gate() {
         assert(!_count && "gate destroyed with outstanding requests");
+        assert_not_held_when_destroyed();
     }
     /// Tries to register an in-progress request.
     ///
@@ -152,6 +175,7 @@ public:
         /// May throw \ref gate_closed_exception if the gate is already closed.
         explicit holder(gate& g) : _g(&g) {
             _g->enter();
+            debug_hold_gate();
         }
 
         /// Construct a \ref holder by copying another \c holder.
@@ -162,6 +186,7 @@ public:
         holder(const holder& x) noexcept : _g(x._g) {
             if (_g) {
                 _g->_count++;
+                debug_hold_gate();
             }
         }
 
@@ -187,6 +212,7 @@ public:
                 _g = x._g;
                 if (_g) {
                     _g->_count++;
+                    debug_hold_gate();
                 }
             }
             return *this;
@@ -208,9 +234,24 @@ public:
         void release() noexcept {
             if (_g) {
                 _g->leave();
+                debug_release_gate();
                 _g = nullptr;
             }
         }
+
+    private:
+#ifdef SEASTAR_GATE_HOLDER_DEBUG
+        void debug_hold_gate() noexcept {
+            ++_g->_holders;
+        }
+
+        void debug_release_gate() noexcept {
+            --_g->_holders;
+        }
+#else   // SEASTAR_GATE_HOLDER_DEBUG
+        void debug_hold_gate() noexcept {}
+        void debug_release_gate() noexcept {}
+#endif  // SEASTAR_GATE_HOLDER_DEBUG
     };
 
     /// Get a RAII-based gate::holder object that \ref enter "enter()s"
