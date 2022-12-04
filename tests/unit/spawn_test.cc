@@ -22,10 +22,13 @@
 #include <seastar/core/reactor.hh>
 #include <seastar/core/seastar.hh>
 #include <seastar/testing/test_case.hh>
+#include <seastar/util/log.hh>
 #include <seastar/util/process.hh>
 
 using namespace seastar;
 using namespace seastar::experimental;
+
+static seastar::logger testlog("testlog");
 
 SEASTAR_TEST_CASE(test_spawn_success) {
     return spawn_process("/bin/true").then([] (auto process) {
@@ -97,8 +100,14 @@ SEASTAR_TEST_CASE(test_spawn_input) {
         return do_with(std::move(process), std::move(stdin), std::move(stdout), [](auto& p, auto& stdin, auto& stdout) {
             return stdin.write(text).then([&stdin] {
                 return stdin.flush();
+            }).handle_exception_type([] (std::system_error& e) {
+                testlog.error("failed to write to stdin: {}", e);
+                return make_exception_future<>(std::move(e));
             }).then([&stdout] {
                 return stdout.read_exactly(text.size());
+            }).handle_exception_type([] (std::system_error& e) {
+                testlog.error("failed to read from stdout: {}", e);
+                return make_exception_future<temporary_buffer<char>>(std::move(e));
             }).then([] (temporary_buffer<char> echo) {
                 BOOST_CHECK_EQUAL(sstring(echo.get(), echo.size()), text);
             }).finally([&p] {
