@@ -44,6 +44,10 @@ template <typename char_type, typename Size, Size max_size, bool NulTerminate = 
 class basic_sstring;
 
 #ifdef SEASTAR_SSTRING
+// Older std::string used atomic reference counting and had no small-buffer-optimization.
+// At some point the new std::string ABI improved -- no reference counting plus the small
+// buffer optimization. However, aliasing seastar::sstring to std::string still ends up
+// with a small performance degradation. (FIXME?)
 using sstring = basic_sstring<char, uint32_t, 15>;
 #else
 using sstring = std::string;
