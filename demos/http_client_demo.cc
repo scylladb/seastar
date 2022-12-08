@@ -30,6 +30,7 @@
 #include <seastar/http/reply.hh>
 #include <seastar/net/inet_address.hh>
 #include <seastar/net/dns.hh>
+#include <seastar/net/tls.hh>
 
 using namespace seastar;
 namespace bpo = boost::program_options;
@@ -47,6 +48,7 @@ struct printer {
 int main(int ac, char** av) {
     app_template app;
     app.add_options()
+            ("https", bpo::bool_switch(), "Use HTTPS on port 443 (if off -- use HTTP on port 80)")
             ("host", bpo::value<std::string>(), "Host to connect")
             ("path", bpo::value<std::string>(), "Path to query upon")
             ("method", bpo::value<std::string>()->default_value("GET"), "Method to use")
@@ -60,14 +62,26 @@ int main(int ac, char** av) {
         auto path = config["path"].as<std::string>();
         auto method = config["method"].as<std::string>();
         auto body = config.count("file") == 0 ? std::string("") : config["file"].as<std::string>();
+        auto https = config["https"].as<bool>();
 
         return seastar::async([=] {
             net::hostent e = net::dns::get_host_by_name(host, net::inet_address::family::INET).get0();
-            socket_address local = socket_address(::sockaddr_in{AF_INET, INADDR_ANY, {0}});
-            ipv4_addr addr(e.addr_list.front(), 80);
-            fmt::print("{} {}:80{}\n", method, e.addr_list.front(), path);
-            connected_socket s = connect(make_ipv4_address(addr), local, transport::TCP).get0();
+            auto make_socket = [=] () -> connected_socket {
+                if (!https) {
+                    socket_address local = socket_address(::sockaddr_in{AF_INET, INADDR_ANY, {0}});
+                    ipv4_addr addr(e.addr_list.front(), 80);
+                    fmt::print("{} {}:80{}\n", method, e.addr_list.front(), path);
+                    return connect(make_ipv4_address(addr), local, transport::TCP).get0();
+                } else {
+                    auto certs = ::make_shared<tls::certificate_credentials>();
+                    certs->set_system_trust().get();
+                    socket_address remote = socket_address(e.addr_list.front(), 443);
+                    fmt::print("{} {}:443{}\n", method, e.addr_list.front(), path);
+                    return tls::connect(certs, remote, host).get0();
+                }
+            };
 
+            connected_socket s = make_socket();
             http::experimental::connection conn(std::move(s));
             auto req = http::request::make(method, host, path);
             if (body != "") {
