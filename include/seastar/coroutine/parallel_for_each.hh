@@ -30,13 +30,13 @@
 
 namespace seastar::coroutine {
 
-/// Invoke a function on all elements in a range in paralell and wait for all futures to complete in a coroutine.
+/// Invoke a function on all elements in a range in parallel and wait for all futures to complete in a coroutine.
 ///
 /// `parallel_for_each` can be used to launch a function concurrently
 /// on all elements in a given range and wait for all of them to complete.
 /// Waiting is performend by `co_await` and returns a future.
 ///
-/// If one or more of the function invocations resolves to an exception
+/// If one or more of the function invocations resolve to an exception
 /// then the one of the exceptions is re-thrown.
 /// All of the futures are waited for, even in the case of exceptions.
 ///
