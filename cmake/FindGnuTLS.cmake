@@ -53,14 +53,15 @@ find_package_handle_standard_args (GnuTLS
     GnuTLS_INCLUDE_DIR
   VERSION_VAR GnuTLS_VERSION)
 
-set (GnuTLS_LIBRARIES ${GnuTLS_LIBRARY})
-set (GnuTLS_INCLUDE_DIRS ${GnuTLS_INCLUDE_DIR})
+if (GnuTLS_FOUND)
+  set (GnuTLS_LIBRARIES ${GnuTLS_LIBRARY})
+  set (GnuTLS_INCLUDE_DIRS ${GnuTLS_INCLUDE_DIR})
+  if (NOT (TARGET GnuTLS::gnutls))
+    add_library (GnuTLS::gnutls UNKNOWN IMPORTED)
 
-if (GnuTLS_FOUND AND NOT (TARGET GnuTLS::gnutls))
-  add_library (GnuTLS::gnutls UNKNOWN IMPORTED)
-
-  set_target_properties (GnuTLS::gnutls
-    PROPERTIES
-      IMPORTED_LOCATION ${GnuTLS_LIBRARY}
-      INTERFACE_INCLUDE_DIRECTORIES ${GnuTLS_INCLUDE_DIRS})
+    set_target_properties (GnuTLS::gnutls
+      PROPERTIES
+        IMPORTED_LOCATION ${GnuTLS_LIBRARY}
+        INTERFACE_INCLUDE_DIRECTORIES ${GnuTLS_INCLUDE_DIRS})
+  endif ()
 endif ()
