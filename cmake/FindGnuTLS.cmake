@@ -22,19 +22,24 @@
 
 find_package (PkgConfig REQUIRED)
 
-pkg_search_module (GnuTLS_PC gnutls)
+pkg_search_module (GnuTLS IMPORTED_TARGET GLOBAL gnutls)
 
-find_library (GnuTLS_LIBRARY
-  NAMES gnutls
-  HINTS
-    ${GnuTLS_PC_LIBDIR}
-    ${GnuTLS_PC_LIBRARY_DIRS})
+if (GnuTLS_FOUND)
+  add_library(GnuTLS::gnutls INTERFACE IMPORTED)
+  target_link_libraries(GnuTLS::gnutls INTERFACE PkgConfig::GnuTLS)
+  set(GnuTLS_LIBRARY ${GnuTLS_LIBRARIES})
+  set(GnuTLS_INCLUDE_DIR ${GnuTLS_INCLUDE_DIRS})
+endif ()
 
-find_path (GnuTLS_INCLUDE_DIR
-  NAMES gnutls/gnutls.h
-  HINTS
-    ${GnuTLS_PC_INCLUDEDIR}
-    ${GnuTLS_PC_INCLUDE_DIRS})
+if (NOT GnuTLS_LIBRARY)
+  find_library (GnuTLS_LIBRARY
+    NAMES gnutls)
+endif ()
+
+if (NOT GnuTLS_INCLUDE_DIR)
+  find_path (GnuTLS_INCLUDE_DIR
+    NAMES gnutls/gnutls.h)
+endif ()
 
 mark_as_advanced (
   GnuTLS_LIBRARY
@@ -46,7 +51,7 @@ find_package_handle_standard_args (GnuTLS
   REQUIRED_VARS
     GnuTLS_LIBRARY
     GnuTLS_INCLUDE_DIR
-  VERSION_VAR GnuTLS_PC_VERSION)
+  VERSION_VAR GnuTLS_VERSION)
 
 set (GnuTLS_LIBRARIES ${GnuTLS_LIBRARY})
 set (GnuTLS_INCLUDE_DIRS ${GnuTLS_INCLUDE_DIR})
