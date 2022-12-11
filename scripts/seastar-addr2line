@@ -173,6 +173,9 @@ if args.test:
         ('#0 0x14d24642  (/jenkins/workspace/scylla-enterprise/dtest-debug/scylla/.ccm/scylla-repository/1a5173bd45d01697d98ba2a7645f5d86afb2d0be/scylla/libexec/scylla+0x14d24642)',
                 {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None,
                  'addresses': [{'path': '/jenkins/workspace/scylla-enterprise/dtest-debug/scylla/.ccm/scylla-repository/1a5173bd45d01697d98ba2a7645f5d86afb2d0be/scylla/libexec/scylla', 'addr': '0x14d24642'}]}),
+        ('    #1 0xd8d910f  (/home/myhome/.dtest/dtest-84j9064d/test/node1/bin/scylla+0xd8d910f) (BuildId: 05a1d3d58d2b07e526decdad717e71a4590be2e0)',
+                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None,
+                 'addresses': [{'path': '/home/myhome/.dtest/dtest-84j9064d/test/node1/bin/scylla', 'addr': '0xd8d910f'}]}),
 
         ('Apr 28 11:42:58 ip-172-31-2-154.ec2.internal scylla[10612]: Reactor stalled for 260 ms on shard 20.', None),
         ('Apr 28 11:42:58 ip-172-31-2-154.ec2.internal scylla[10612]: Backtrace:', None),
