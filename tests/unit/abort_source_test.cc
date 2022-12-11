@@ -161,3 +161,16 @@ SEASTAR_THREAD_TEST_CASE(test_sleep_abortable_with_exception) {
     }
     BOOST_REQUIRE(caught_exception);
 }
+
+SEASTAR_THREAD_TEST_CASE(test_destroy_with_moved_subscriptions) {
+    auto as = std::make_unique<abort_source>();
+    int aborted = 0;
+    auto sub1 = as->subscribe([&] () noexcept { ++aborted; });
+    auto sub2 = std::move(sub1);
+    optimized_optional<abort_source::subscription> sub3;
+    sub3 = std::move(sub2);
+    auto sub4 = as->subscribe([&] () noexcept { ++aborted; });
+    sub4 = std::move(sub3);
+    as.reset();
+    BOOST_REQUIRE_EQUAL(aborted, 0);
+}

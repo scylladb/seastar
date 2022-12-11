@@ -87,9 +87,7 @@ public:
         subscription& operator=(subscription&& other) noexcept(std::is_nothrow_move_assignable<subscription_callback_type>::value) {
             if (this != &other) {
                 _target = std::move(other._target);
-                if (is_linked()) {
-                    subscription_list_type::node_algorithms::unlink(this_ptr());
-                }
+                unlink();
                 subscription_list_type::node_algorithms::swap_nodes(other.this_ptr(), this_ptr());
             }
             return *this;
