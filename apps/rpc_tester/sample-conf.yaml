@@ -5,7 +5,7 @@ server:
 jobs:
   - name: # any parseable string
     type: rpc
-    verb: # string, one of: echo, write
+    verb: # string, one of: echo, vecho, write
     parallelism: # number of verbs to send simultaneously
     shares: # sched group shares (100 by default)
     payload: # number of bytes in the payload for write verb, accepts kB suffix

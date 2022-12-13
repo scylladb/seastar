@@ -394,6 +394,13 @@ public:
             payload_t payload;
             payload.resize(_cfg.payload / sizeof(payload_t::value_type), 0);
             _call = [this, payload = std::move(payload)] (unsigned x) { return call_write(x, payload); };
+        } else if (_cfg.verb == "vecho") {
+            _call = [this] (unsigned x) {
+                fmt::print("{}.{} send echo\n", this_shard_id(), x);
+                return call_echo(x).then([x] {
+                        fmt::print("{}.{} got response\n", this_shard_id(), x);
+                });
+            };
         } else {
             throw std::runtime_error("unknown verb");
         }
