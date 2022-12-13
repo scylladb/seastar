@@ -22,19 +22,24 @@
 
 find_package (PkgConfig REQUIRED)
 
-pkg_check_modules (c-ares_PC libcares)
+pkg_check_modules (c-ares IMPORTED_TARGET GLOBAL libcares)
 
-find_library (c-ares_LIBRARY
-  NAMES cares
-  HINTS
-    ${c-ares_PC_LIBDIR}
-    ${c-ares_PC_LIBRARY_DIRS})
+if (c-ares_FOUND)
+  add_library (c-ares::cares INTERFACE IMPORTED)
+  target_link_libraries (c-ares::cares INTERFACE PkgConfig::c-ares)
+  set(c-ares_LIBRARY ${c-ares_LIBRARIES})
+  set(c-ares_INCLUDE_DIR ${c-ares_INCLUDE_DIRS})
+endif ()
 
-find_path (c-ares_INCLUDE_DIR
-  NAMES ares_dns.h
-  HINTS
-    ${c-ares_PC_INCLUDEDIR}
-    ${c-ares_PC_INCLUDE_DIRS})
+if (NOT c-cares_LIBRARY)
+  find_library (c-ares_LIBRARY
+    NAMES cares)
+endif ()
+
+if (NOT c-ares_INCLUDE_DIR)
+  find_path (c-ares_INCLUDE_DIR
+    NAMES ares_dns.h)
+endif ()
 
 mark_as_advanced (
   c-ares_LIBRARY
@@ -48,14 +53,15 @@ find_package_handle_standard_args (c-ares
     c-ares_INCLUDE_DIR
   VERSION_VAR c-ares_PC_VERSION)
 
-set (c-ares_LIBRARIES ${c-ares_LIBRARY})
-set (c-ares_INCLUDE_DIRS ${c-ares_INCLUDE_DIR})
+if (c-ares_FOUND)
+  set (c-ares_LIBRARIES ${c-ares_LIBRARY})
+  set (c-ares_INCLUDE_DIRS ${c-ares_INCLUDE_DIR})
+  if (NOT (TARGET c-ares::cares))
+    add_library (c-ares::cares UNKNOWN IMPORTED)
 
-if (c-ares_FOUND AND NOT (TARGET c-ares::cares))
-  add_library (c-ares::cares UNKNOWN IMPORTED)
-
-  set_target_properties (c-ares::cares
-    PROPERTIES
-      IMPORTED_LOCATION ${c-ares_LIBRARY}
-      INTERFACE_INCLUDE_DIRECTORIES ${c-ares_INCLUDE_DIRS})
+    set_target_properties (c-ares::cares
+      PROPERTIES
+        IMPORTED_LOCATION ${c-ares_LIBRARY}
+        INTERFACE_INCLUDE_DIRECTORIES ${c-ares_INCLUDE_DIRS})
+  endif ()
 endif ()
