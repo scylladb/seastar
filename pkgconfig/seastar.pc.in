@@ -29,7 +29,7 @@ fmt_libs=$<TARGET_LINKER_FILE:fmt::fmt>
 lksctp_tools_cflags=-I$<JOIN:@lksctp-tools_INCLUDE_DIRS@, -I>
 lksctp_tools_libs=$<JOIN:@lksctp-tools_LIBRARIES@, >
 liburing_cflags=$<$<BOOL:@Seastar_IO_URING@>:-I$<JOIN:$<TARGET_PROPERTY:URING::uring,INTERFACE_INCLUDE_DIRECTORIES>, -I>>
-liburing_libs=$<$<BOOL:@Seastar_IO_URING@>:$<TARGET_LINKER_FILE:URING::uring>>
+liburing_libs=$<$<BOOL:@Seastar_IO_URING@>:$<JOIN:@URING_LIBARIES@, >
 numactl_cflags=-I$<JOIN:@numactl_INCLUDE_DIRS@, -I>
 numactl_libs=$<JOIN:@numactl_LIBRARIES@, >
 
