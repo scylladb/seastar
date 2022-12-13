@@ -178,6 +178,7 @@ struct job_config {
     std::optional<duration_range> exec_time_range;
     std::optional<std::chrono::duration<double>> sleep_time;
     std::optional<duration_range> sleep_time_range;
+    std::optional<std::chrono::duration<double>> timeout;
     size_t payload;
 
     bool client = false;
@@ -236,6 +237,9 @@ struct convert<job_config> {
             cfg.client = true;
             if (node["sleep_time"]) {
                 cfg.sleep_time = node["sleep_time"].as<duration_time>().time;
+            }
+            if (node["timeout"]) {
+                cfg.timeout = node["timeout"].as<duration_time>().time;
             }
         } else if (cfg.type == "cpu") {
             if (node["execution_time"]) {
@@ -369,7 +373,12 @@ class job_rpc : public job {
     accumulator_type _latencies;
 
     future<> call_echo(unsigned dummy) {
-        return _rpc.make_client<uint64_t(uint64_t)>(rpc_verb::ECHO)(*_client, dummy).discard_result();
+        auto cln = _rpc.make_client<uint64_t(uint64_t)>(rpc_verb::ECHO);
+        if (_cfg.timeout) {
+            return cln(*_client, std::chrono::duration_cast<seastar::rpc::rpc_clock_type::duration>(*_cfg.timeout), dummy).discard_result();
+        } else {
+            return cln(*_client, dummy).discard_result();
+        }
     }
 
     future<> call_write(unsigned dummy, const payload_t& pl) {
@@ -399,6 +408,8 @@ public:
                 fmt::print("{}.{} send echo\n", this_shard_id(), x);
                 return call_echo(x).then([x] {
                         fmt::print("{}.{} got response\n", this_shard_id(), x);
+                }).handle_exception([x] (auto ex) {
+                        fmt::print("{}.{} got error {}\n", this_shard_id(), x, ex);
                 });
             };
         } else {
