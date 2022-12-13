@@ -234,6 +234,9 @@ struct convert<job_config> {
             cfg.verb = node["verb"].as<std::string>();
             cfg.payload = node["payload"].as<byte_size>().size;
             cfg.client = true;
+            if (node["sleep_time"]) {
+                cfg.sleep_time = node["sleep_time"].as<duration_time>().time;
+            }
         } else if (cfg.type == "cpu") {
             if (node["execution_time"]) {
                 cfg.exec_time = node["execution_time"].as<duration_time>().time;
@@ -405,6 +408,12 @@ public:
         co.isolation_cookie = _cfg.sg_name;
         _client = std::make_unique<rpc_protocol::client>(_rpc, co, _caddr);
         return parallel_for_each(boost::irange(0u, _cfg.parallelism), [this] (auto dummy) {
+          auto f = make_ready_future<>();
+          if (_cfg.sleep_time) {
+              // Do initial small delay to de-synchronize fibers
+              f = seastar::sleep(std::chrono::duration_cast<std::chrono::nanoseconds>(*_cfg.sleep_time / _cfg.parallelism * dummy));
+          }
+          return std::move(f).then([this, dummy] {
             return do_until([this] {
                 return std::chrono::steady_clock::now() > _stop;
             }, [this, dummy] {
@@ -413,8 +422,15 @@ public:
                 return _call(dummy).then([this, start = now] {
                     std::chrono::microseconds lat = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start);
                     _latencies(lat.count());
+                }).then([this] {
+                    if (_cfg.sleep_time) {
+                        return seastar::sleep(std::chrono::duration_cast<std::chrono::nanoseconds>(*_cfg.sleep_time));
+                    } else {
+                        return make_ready_future<>();
+                    }
                 });
             });
+          });
         }).finally([this] {
             return _client->stop();
         });

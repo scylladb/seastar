@@ -9,6 +9,7 @@ jobs:
     parallelism: # number of verbs to send simultaneously
     shares: # sched group shares (100 by default)
     payload: # number of bytes in the payload for write verb, accepts kB suffix
+    sleep_time: # optional inactivity pause between sending messages
   - name:
     type: cpu
     execution_time: # time in [0-9]+[mun]?s format
