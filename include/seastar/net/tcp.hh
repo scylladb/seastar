@@ -1163,6 +1163,7 @@ void tcp<InetTraits>::tcb::input_handle_syn_sent_state(tcp_hdr* th, packet p) {
         // reset", drop the segment, enter CLOSED state, delete TCB, and
         // return.  Otherwise (no ACK) drop the segment and return.
         if (acceptable) {
+            _connect_done.set_exception(tcp_refused_error());
             return do_reset();
         } else {
             return;
