@@ -178,6 +178,7 @@ struct job_config {
     std::optional<duration_range> exec_time_range;
     std::optional<std::chrono::duration<double>> sleep_time;
     std::optional<duration_range> sleep_time_range;
+    std::optional<std::chrono::duration<double>> timeout;
     size_t payload;
 
     bool client = false;
@@ -234,6 +235,12 @@ struct convert<job_config> {
             cfg.verb = node["verb"].as<std::string>();
             cfg.payload = node["payload"].as<byte_size>().size;
             cfg.client = true;
+            if (node["sleep_time"]) {
+                cfg.sleep_time = node["sleep_time"].as<duration_time>().time;
+            }
+            if (node["timeout"]) {
+                cfg.timeout = node["timeout"].as<duration_time>().time;
+            }
         } else if (cfg.type == "cpu") {
             if (node["execution_time"]) {
                 cfg.exec_time = node["execution_time"].as<duration_time>().time;
@@ -366,7 +373,12 @@ class job_rpc : public job {
     accumulator_type _latencies;
 
     future<> call_echo(unsigned dummy) {
-        return _rpc.make_client<uint64_t(uint64_t)>(rpc_verb::ECHO)(*_client, dummy).discard_result();
+        auto cln = _rpc.make_client<uint64_t(uint64_t)>(rpc_verb::ECHO);
+        if (_cfg.timeout) {
+            return cln(*_client, std::chrono::duration_cast<seastar::rpc::rpc_clock_type::duration>(*_cfg.timeout), dummy).discard_result();
+        } else {
+            return cln(*_client, dummy).discard_result();
+        }
     }
 
     future<> call_write(unsigned dummy, const payload_t& pl) {
@@ -391,6 +403,15 @@ public:
             payload_t payload;
             payload.resize(_cfg.payload / sizeof(payload_t::value_type), 0);
             _call = [this, payload = std::move(payload)] (unsigned x) { return call_write(x, payload); };
+        } else if (_cfg.verb == "vecho") {
+            _call = [this] (unsigned x) {
+                fmt::print("{}.{} send echo\n", this_shard_id(), x);
+                return call_echo(x).then([x] {
+                        fmt::print("{}.{} got response\n", this_shard_id(), x);
+                }).handle_exception([x] (auto ex) {
+                        fmt::print("{}.{} got error {}\n", this_shard_id(), x, ex);
+                });
+            };
         } else {
             throw std::runtime_error("unknown verb");
         }
@@ -405,6 +426,12 @@ public:
         co.isolation_cookie = _cfg.sg_name;
         _client = std::make_unique<rpc_protocol::client>(_rpc, co, _caddr);
         return parallel_for_each(boost::irange(0u, _cfg.parallelism), [this] (auto dummy) {
+          auto f = make_ready_future<>();
+          if (_cfg.sleep_time) {
+              // Do initial small delay to de-synchronize fibers
+              f = seastar::sleep(std::chrono::duration_cast<std::chrono::nanoseconds>(*_cfg.sleep_time / _cfg.parallelism * dummy));
+          }
+          return std::move(f).then([this, dummy] {
             return do_until([this] {
                 return std::chrono::steady_clock::now() > _stop;
             }, [this, dummy] {
@@ -413,8 +440,15 @@ public:
                 return _call(dummy).then([this, start = now] {
                     std::chrono::microseconds lat = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() - start);
                     _latencies(lat.count());
+                }).then([this] {
+                    if (_cfg.sleep_time) {
+                        return seastar::sleep(std::chrono::duration_cast<std::chrono::nanoseconds>(*_cfg.sleep_time));
+                    } else {
+                        return make_ready_future<>();
+                    }
                 });
             });
+          });
         }).finally([this] {
             return _client->stop();
         });
