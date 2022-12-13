@@ -23,12 +23,16 @@
 
 find_package (PkgConfig REQUIRED)
 
-pkg_search_module (valgrind_PC valgrind)
+pkg_search_module (valgrind IMPORTED_TARGET GLOBAL valgrind)
 
-find_path (Valgrind_INCLUDE_DIR
-  NAMES valgrind/valgrind.h
-  HINTS
-    ${valgrind_PC_INCLUDEDIR})
+if (valgrind_FOUND)
+  set (valgrind_INCLUDE_DIR ${valgrind_INCLUDE_DIRS})
+endif ()
+
+if (NOT Valgrind_INCLUDE_DIR)
+  find_path (Valgrind_INCLUDE_DIR
+    NAMES valgrind/valgrind.h)
+endif ()
 
 mark_as_advanced (
   Valgrind_INCLUDE_DIR)
@@ -39,12 +43,14 @@ find_package_handle_standard_args (Valgrind
   REQUIRED_VARS
     Valgrind_INCLUDE_DIR)
 
-set (Valgrind_INCLUDE_DIRS ${Valgrind_INCLUDE_DIR})
+if (Valgrind_FOUND)
+  set (Valgrind_INCLUDE_DIRS ${Valgrind_INCLUDE_DIR})
 
-if (Valgrind_FOUND AND NOT (TARGET Valgrind::valgrind))
-  add_library (Valgrind::valgrind INTERFACE IMPORTED)
+  if (NOT (TARGET Valgrind::valgrind))
+    add_library (Valgrind::valgrind INTERFACE IMPORTED)
 
-  set_target_properties (Valgrind::valgrind
-    PROPERTIES
-      INTERFACE_INCLUDE_DIRECTORIES ${Valgrind_INCLUDE_DIRS})
+    set_target_properties (Valgrind::valgrind
+      PROPERTIES
+        INTERFACE_INCLUDE_DIRECTORIES ${Valgrind_INCLUDE_DIRS})
+  endif ()
 endif ()
