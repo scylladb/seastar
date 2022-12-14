@@ -2006,9 +2006,19 @@ static auto next_waitpid_timeout(std::chrono::milliseconds this_timeout) {
     return this_timeout + step_timeout;
 }
 
+#ifndef __NR_pidfd_open
+
+#  if defined(__alpha__)
+#    define __NR_pidfd_open 544
+#  else
+#    define __NR_pidfd_open 434
+#  endif
+
+#endif
+
 future<int> reactor::waitpid(pid_t pid) {
     return _thread_pool->submit<syscall_result<int>>([pid] {
-        return wrap_syscall<int>(syscall(SYS_pidfd_open, pid, O_NONBLOCK));
+        return wrap_syscall<int>(syscall(__NR_pidfd_open, pid, O_NONBLOCK));
     }).then([pid, this] (syscall_result<int> pidfd) {
         if (pidfd.result == -1) {
             // pidfd_open() was introduced in linux 5.3, so the pidfd.error could be ENOSYS on
