@@ -879,6 +879,20 @@ struct hash<seastar::shared_ptr<T>> : private hash<T*> {
 
 }
 
+namespace fmt {
+
+template<typename T>
+const void* ptr(const seastar::lw_shared_ptr<T>& p) {
+    return p.get();
+}
+
+template<typename T>
+const void* ptr(const seastar::shared_ptr<T>& p) {
+    return p.get();
+}
+
+}
+
 namespace seastar {
 
 template<typename T>
