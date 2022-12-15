@@ -113,6 +113,14 @@ future<process::wait_status> process::wait() {
     });
 }
 
+void process::terminate() {
+    engine().kill(_pid, SIGTERM);
+}
+
+void process::kill() {
+    engine().kill(_pid, SIGKILL);
+}
+
 future<process> process::spawn(const std::filesystem::path& pathname,
                                spawn_parameters params) {
     assert(!params.argv.empty());

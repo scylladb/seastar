@@ -2071,6 +2071,11 @@ future<int> reactor::waitpid(pid_t pid) {
     });
 }
 
+void reactor::kill(pid_t pid, int sig) {
+    auto ret = wrap_syscall<int>(::kill(pid, sig));
+    ret.throw_if_error();
+}
+
 future<stat_data>
 reactor::file_stat(std::string_view pathname, follow_symlink follow) noexcept {
     // Allocating memory for a sstring can throw, hence the futurize_invoke

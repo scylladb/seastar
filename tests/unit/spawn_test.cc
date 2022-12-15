@@ -116,3 +116,23 @@ SEASTAR_TEST_CASE(test_spawn_input) {
         });
     });
 }
+
+SEASTAR_TEST_CASE(test_spawn_kill) {
+    const char* sleep_cmd = "/bin/sleep";
+    // sleep for 10s, but terminate it right away.
+    return spawn_process(sleep_cmd, {.argv = {sleep_cmd, "10"}}).then([] (auto process) {
+        auto start = std::chrono::high_resolution_clock::now();
+        return do_with(std::move(process), [](auto& p) {
+            p.terminate();
+            return p.wait();
+        }).then([start](experimental::process::wait_status wait_status) {
+            auto* wait_signaled = std::get_if<experimental::process::wait_signaled>(&wait_status);
+            BOOST_REQUIRE(wait_signaled != nullptr);
+            BOOST_CHECK_EQUAL(wait_signaled->terminating_signal, SIGTERM);
+            // sleep should be terminated in 10ms
+            auto end = std::chrono::high_resolution_clock::now();
+            auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+            BOOST_CHECK_LE(ms, 10);
+        });
+    });
+}

@@ -87,6 +87,11 @@ public:
     ///
     /// \returns the exit status
     future<wait_status> wait();
+    /// Stop the process using SIGTERM
+    void terminate();
+    /// Force the process to exit using SIGKILL
+    void kill();
+
 private:
     const pid_t _pid;
     file_desc _stdin;
