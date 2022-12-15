@@ -89,6 +89,12 @@ sstring request::parse_query_param() {
 void request::write_body(const sstring& content_type, sstring content) {
     set_content_type(content_type);
     content_length = content.size();
+    this->content = std::move(content).release();
+}
+
+void request::write_body(const sstring& content_type, temporary_buffer<char> content) {
+    set_content_type(content_type);
+    content_length = content.size();
     this->content = std::move(content);
 }
 

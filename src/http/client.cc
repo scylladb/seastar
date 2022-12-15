@@ -44,7 +44,7 @@ future<> connection::write_body(request& req) {
             return _write_buf.write("0\r\n\r\n");
         });
     } else if (!req.content.empty()) {
-        return _write_buf.write(req.content);
+        return _write_buf.write(req.content.get(), req.content.size());
     } else {
         return make_ready_future<>();
     }

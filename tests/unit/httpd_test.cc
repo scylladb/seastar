@@ -932,7 +932,10 @@ struct echo_string_handler : public echo_handler {
     echo_string_handler(bool chunked_reply = false) : echo_handler(chunked_reply) {}
     future<std::unique_ptr<http::reply>> handle(const sstring& path,
             std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) override {
-        return this->do_handle(req, rep, req->content);
+        return do_with(std::move(req), std::move(rep), sstring(), [this] (std::unique_ptr<http::request>& req, std::unique_ptr<http::reply>& rep, sstring& req_content) {
+            req_content = to_sstring(std::move(req->content));
+            return this->do_handle(req, rep, req_content);
+        });
     }
 };
 

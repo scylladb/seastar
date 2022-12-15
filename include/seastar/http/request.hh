@@ -76,7 +76,8 @@ struct request {
     std::unordered_map<sstring, sstring, case_insensitive_hash, case_insensitive_cmp> _headers;
     std::unordered_map<sstring, sstring> query_parameters;
     httpd::parameters param;
-    sstring content; // server-side deprecated: use content_stream instead
+    temporary_buffer<char> content; // server-side deprecated: use content_stream instead
+
     /*
      * The handler should read the contents of this stream till reaching eof (i.e., the end of this request's content). Failing to do so
      * will force the server to close this connection, and the client will not be able to reuse this connection for the next request.
@@ -194,6 +195,17 @@ struct request {
      * with any additional information that is needed to send the message.
      */
     void write_body(const sstring& content_type, sstring content);
+
+    /**
+     * \brief Write a buffer as the body
+     *
+     * \param content_type - is used to choose the content type of the body. Use the file extension
+     *  you would have used for such a content, (i.e. "txt", "html", "json", etc')
+     * \param content - the message content.
+     * This would set the the content, conent length and content type of the message along
+     * with any additional information that is needed to send the message.
+     */
+    void write_body(const sstring& content_type, temporary_buffer<char> content);
 
     /**
      * \brief Use an output stream to write the message body
