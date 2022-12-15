@@ -539,6 +539,7 @@ public:
           std::vector<sstring> argv,
           std::vector<sstring> env = {});
     future<int> waitpid(pid_t pid);
+    void kill(pid_t pid, int sig);
 
     int run() noexcept;
     void exit(int ret);
