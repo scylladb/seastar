@@ -66,6 +66,7 @@ struct reply {
         nonauthoritative_information = 203, //!< nonauthoritative_information
         no_content = 204, //!< no_content
         reset_content = 205, //!< reset_content
+        partial_content = 206, //! partial_content
         multiple_choices = 300, //!< multiple_choices
         moved_permanently = 301, //!< moved_permanently
         moved_temporarily = 302, //!< moved_temporarily

@@ -49,6 +49,7 @@ const sstring accepted = "202 Accepted";
 const sstring nonauthoritative_information = "203 Non-Authoritative Information";
 const sstring no_content = "204 No Content";
 const sstring reset_content = "205 Reset Content";
+const sstring partial_content = "206 Partial Content";
 const sstring multiple_choices = "300 Multiple Choices";
 const sstring moved_permanently = "301 Moved Permanently";
 const sstring moved_temporarily = "302 Moved Temporarily";
@@ -100,6 +101,8 @@ static const sstring& to_string(reply::status_type status) {
         return no_content;
     case reply::status_type::reset_content:
         return reset_content;
+    case reply::status_type::partial_content:
+        return partial_content;
     case reply::status_type::multiple_choices:
         return multiple_choices;
     case reply::status_type::moved_permanently:
