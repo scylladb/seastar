@@ -25,7 +25,7 @@
 #include <seastar/util/later.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
-#include <../../src/core/stall_detector.hh>
+#include <seastar/core/stall_detector.hh>
 #include <atomic>
 #include <chrono>
 
