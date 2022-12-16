@@ -992,7 +992,7 @@ static future<> test_basic_content(bool streamed, bool chunked_reply) {
                 auto resp = conn.make_request(std::move(req)).get0();
                 BOOST_REQUIRE_EQUAL(resp._status, http::reply::status_type::ok);
                 if (!chunked_reply) {
-                    BOOST_REQUIRE_EQUAL(resp._headers["Content-Length"], "0");
+                    BOOST_REQUIRE_EQUAL(resp.content_length, 0);
                 } else {
                     // If response is chunked it will contain the single termination
                     // zero-sized chunk that still needs to be read out
@@ -1009,7 +1009,7 @@ static future<> test_basic_content(bool streamed, bool chunked_reply) {
                 auto resp = conn.make_request(std::move(req)).get0();
                 BOOST_REQUIRE_EQUAL(resp._status, http::reply::status_type::ok);
                 if (!chunked_reply) {
-                    BOOST_REQUIRE_EQUAL(resp._headers["Content-Length"], "20");
+                    BOOST_REQUIRE_EQUAL(resp.content_length, 20);
                 }
                 auto in = conn.in(resp);
                 sstring body = util::read_entire_stream_contiguous(in).get0();
@@ -1030,7 +1030,7 @@ static future<> test_basic_content(bool streamed, bool chunked_reply) {
                 auto resp = conn.make_request(std::move(req)).get0();
                 BOOST_REQUIRE_EQUAL(resp._status, http::reply::status_type::ok);
                 if (!chunked_reply) {
-                    BOOST_REQUIRE_EQUAL(resp._headers["Content-Length"], "13");
+                    BOOST_REQUIRE_EQUAL(resp.content_length, 13);
                 }
                 auto in = conn.in(resp);
                 sstring body = util::read_entire_stream_contiguous(in).get0();
@@ -1045,7 +1045,7 @@ static future<> test_basic_content(bool streamed, bool chunked_reply) {
                 auto resp = conn.make_request(std::move(req)).get0();
                 BOOST_REQUIRE_EQUAL(resp._status, http::reply::status_type::ok);
                 if (!chunked_reply) {
-                    BOOST_REQUIRE_EQUAL(resp._headers["Content-Length"], "6");
+                    BOOST_REQUIRE_EQUAL(resp.content_length, 6);
                 }
                 auto in = conn.in(resp);
                 sstring body = util::read_entire_stream_contiguous(in).get0();

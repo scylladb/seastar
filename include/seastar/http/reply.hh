@@ -110,6 +110,7 @@ struct reply {
      * The content to be sent in the reply.
      */
     sstring _content;
+    size_t content_length = 0; // valid when received via client connection
 
     sstring _response_line;
     std::unordered_map<sstring, sstring> trailing_headers;
