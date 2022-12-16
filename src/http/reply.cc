@@ -179,6 +179,8 @@ reply::reply(http_response&& resp)
         , _headers(std::move(resp._headers))
         , _version(std::move(resp._version))
 {
+    sstring length_header = get_header("Content-Length");
+    content_length = strtol(length_header.c_str(), nullptr, 10);
 }
 
 sstring reply::response_line() {

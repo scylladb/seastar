@@ -122,9 +122,7 @@ input_stream<char> connection::in(reply& rep) {
         return input_stream<char>(data_source(std::make_unique<httpd::internal::chunked_source_impl>(_read_buf, rep.chunk_extensions, rep.trailing_headers)));
     }
 
-    sstring length_header = rep.get_header("Content-Length");
-    auto content_length = strtol(length_header.c_str(), nullptr, 10);
-    return input_stream<char>(data_source(std::make_unique<httpd::internal::content_length_source_impl>(_read_buf, content_length)));
+    return input_stream<char>(data_source(std::make_unique<httpd::internal::content_length_source_impl>(_read_buf, rep.content_length)));
 }
 
 future<> connection::close() {
