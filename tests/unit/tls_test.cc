@@ -159,7 +159,7 @@ SEASTAR_TEST_CASE(test_x509_client_with_builder_system_trust_multiple) {
 }
 
 SEASTAR_TEST_CASE(test_x509_client_with_priority_strings) {
-    static std::vector<sstring> prios( { "NONE:+VERS-TLS-ALL:+MAC-ALL:+RSA:+AES-128-CBC:+SIGN-ALL:+COMP-NULL",
+    static std::vector<sstring> prios( {
         "NORMAL:+ARCFOUR-128", // means normal ciphers plus ARCFOUR-128.
         "SECURE128:-VERS-SSL3.0:+COMP-DEFLATE", // means that only secure ciphers are enabled, SSL3.0 is disabled, and libz compression enabled.
         "SECURE256:+SECURE128",
