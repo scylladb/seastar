@@ -356,3 +356,23 @@ BOOST_AUTO_TEST_CASE(chunked_fifo_iterator) {
         BOOST_REQUIRE(std::equal(fifo.begin(), fifo.end(), reference.begin(), reference.end()));
     }
 }
+
+BOOST_AUTO_TEST_CASE(chunked_fifo_const_iterator) {
+    constexpr auto items_per_chunk = 8;
+    auto fifo = chunked_fifo<int, items_per_chunk>{};
+    auto reference = std::deque<int>{};
+
+    BOOST_REQUIRE(fifo.cbegin() == fifo.cend());
+
+    for (int i = 0; i < items_per_chunk * 4; ++i) {
+        fifo.push_back(i);
+        reference.push_back(i);
+        BOOST_REQUIRE(std::equal(fifo.cbegin(), fifo.cend(), reference.cbegin(), reference.cend()));
+    }
+
+    for (int i = 0; i < items_per_chunk * 2; ++i) {
+        fifo.pop_front();
+        reference.pop_front();
+        BOOST_REQUIRE(std::equal(fifo.cbegin(), fifo.cend(), reference.cbegin(), reference.cend()));
+    }
+}
