@@ -27,14 +27,15 @@ pkg_check_modules (c-ares IMPORTED_TARGET GLOBAL libcares)
 if (c-ares_FOUND)
   add_library (c-ares::cares INTERFACE IMPORTED)
   target_link_libraries (c-ares::cares INTERFACE PkgConfig::c-ares)
-  set(c-ares_LIBRARY ${c-ares_LIBRARIES})
   set(c-ares_INCLUDE_DIR ${c-ares_INCLUDE_DIRS})
 endif ()
 
-if (NOT c-cares_LIBRARY)
-  find_library (c-ares_LIBRARY
-    NAMES cares)
-endif ()
+# for the full path of libcares
+find_library (c-ares_LIBRARY
+   NAMES cares
+   HINTS
+     ${c-ares_LIBDIR}
+     ${c-ares_LIBRARY_DIRS})
 
 if (NOT c-ares_INCLUDE_DIR)
   find_path (c-ares_INCLUDE_DIR
