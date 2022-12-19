@@ -27,12 +27,12 @@
 #include <boost/any.hpp>
 
 #include <seastar/core/future.hh>
+#include <seastar/core/internal/api-level.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/net/socket_defs.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/net/api.hh>
-#include "../core/internal/api-level.hh"
 
 namespace seastar {
 

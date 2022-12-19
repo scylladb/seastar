@@ -24,7 +24,7 @@
 #pragma once
 
 #include <seastar/core/future.hh>
-#include "../core/internal/api-level.hh"
+#include <seastar/core/internal/api-level.hh>
 
 namespace seastar {
 
