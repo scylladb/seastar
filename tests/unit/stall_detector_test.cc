@@ -19,13 +19,13 @@
  * Copyright (C) 2018 ScyllaDB Ltd.
  */
 
+#include <seastar/core/internal/stall_detector.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/thread_cputime_clock.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/util/later.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
-#include <../../src/core/stall_detector.hh>
 #include <atomic>
 #include <chrono>
 
