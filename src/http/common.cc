@@ -83,6 +83,14 @@ namespace internal {
 
 static constexpr size_t default_body_sink_buffer_size = 32000;
 
+// Data sinks below are running "on top" of socket output stream and provide
+// reliable and handy way of generating request bodies according to selected
+// encoding type and content-length.
+//
+// Respectively, both .close() methods should not close the underlying stream,
+// because the socket in question may continue being in use for keep-alive
+// connections, and closing it would just break the keep-alive-ness
+
 class http_chunked_data_sink_impl : public data_sink_impl {
     output_stream<char>& _out;
 
