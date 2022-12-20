@@ -134,6 +134,53 @@ output_stream<char> make_http_chunked_output_stream(output_stream<char>& out) {
     return output_stream<char>(http_chunked_data_sink(out), default_body_sink_buffer_size, opts);
 }
 
+class http_content_length_data_sink_impl : public data_sink_impl {
+    output_stream<char>& _out;
+    const size_t _limit;
+    size_t& _bytes_written;
+
+public:
+    http_content_length_data_sink_impl(output_stream<char>& out, size_t& len)
+            : _out(out)
+            , _limit(std::exchange(len, 0))
+            , _bytes_written(len)
+    {
+    }
+    virtual future<> put(net::packet data)  override { abort(); }
+    using data_sink_impl::put;
+    virtual future<> put(temporary_buffer<char> buf) override {
+        if (buf.size() == 0 || _bytes_written == _limit) {
+            return make_ready_future<>();
+        }
+
+        auto size = buf.size();
+        if (_bytes_written + size > _limit) {
+            return make_exception_future<>(std::runtime_error(format("body conent length overflow: want {} limit {}", _bytes_written + buf.size(), _limit)));
+        }
+
+        return _out.write(buf.get(), size).then([this, size] {
+            _bytes_written += size;
+        });
+    }
+    virtual future<> close() override {
+        return make_ready_future<>();
+    }
+};
+
+class http_content_length_data_sink : public data_sink {
+public:
+    http_content_length_data_sink(output_stream<char>& out, size_t& len)
+        : data_sink(std::make_unique<http_content_length_data_sink_impl>(out, len))
+    {
+    }
+};
+
+output_stream<char> make_http_content_length_output_stream(output_stream<char>& out, size_t& len) {
+    output_stream_options opts;
+    opts.trim_to_size = true;
+    return output_stream<char>(http_content_length_data_sink(out, len), default_body_sink_buffer_size, opts);
+}
+
 }
 }
 
