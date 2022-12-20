@@ -27,14 +27,12 @@ pkg_search_module (LibUring IMPORTED_TARGET GLOBAL liburing)
 if (LibUring_FOUND)
   add_library (URING::uring INTERFACE IMPORTED)
   target_link_libraries (URING::uring INTERFACE PkgConfig::LibUring)
-  set (URING_LIBRARY ${LibUring_LIBRARIES})
   set (URING_INCLUDE_DIR ${LibUring_INCLUDE_DIRS})
 endif ()
 
-if (NOT URING_LIBRARY)
-  find_library (URING_LIBRARY
-    NAMES uring)
-endif ()
+find_library (URING_LIBRARY
+  NAMES uring
+  HINTS ${URING_LIBDIR})
 
 if (NOT URING_INCLUDE_DIR)
   find_path (URING_INCLUDE_DIR
