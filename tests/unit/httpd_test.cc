@@ -1017,6 +1017,54 @@ static future<> test_basic_content(bool streamed, bool chunked_reply) {
             }
 
             {
+                fmt::print("Request with content-length body\n");
+                auto req = http::request::make("GET", "test", "/test");
+                req.write_body("txt", 12, [] (output_stream<char>&& out) {
+                    return seastar::async([out = std::move(out)] () mutable {
+                        out.write(sstring("1234567890")).get();
+                        out.write(sstring("AB")).get();
+                        out.flush().get();
+                        out.close().get();
+                    });
+                });
+                auto resp = conn.make_request(std::move(req)).get0();
+                BOOST_REQUIRE_EQUAL(resp._status, http::reply::status_type::ok);
+                if (!chunked_reply) {
+                    BOOST_REQUIRE_EQUAL(resp.content_length, 12);
+                }
+                auto in = conn.in(resp);
+                sstring body = util::read_entire_stream_contiguous(in).get0();
+                BOOST_REQUIRE_EQUAL(body, sstring("1234567890AB"));
+            }
+
+            {
+                const size_t size = 128*1024;
+                fmt::print("Request with {}-kbytes content-length body\n", size >> 10);
+                temporary_buffer<char> jumbo(size);
+                temporary_buffer<char> jumbo_copy(size);
+                for (size_t i = 0; i < size; i++) {
+                    jumbo.get_write()[i] = 'a' + i % ('z' - 'a');
+                    jumbo_copy.get_write()[i] = jumbo[i];
+                }
+                auto req = http::request::make("GET", "test", "/test");
+                req.write_body("txt", size, [jumbo = std::move(jumbo)] (output_stream<char>&& out) mutable {
+                    return seastar::async([out = std::move(out), jumbo = std::move(jumbo)] () mutable {
+                        out.write(jumbo.get(), jumbo.size()).get();
+                        out.flush().get();
+                        out.close().get();
+                    });
+                });
+                auto resp = conn.make_request(std::move(req)).get0();
+                BOOST_REQUIRE_EQUAL(resp._status, http::reply::status_type::ok);
+                if (!chunked_reply) {
+                    BOOST_REQUIRE_EQUAL(resp.content_length, size);
+                }
+                auto in = conn.in(resp);
+                sstring body = util::read_entire_stream_contiguous(in).get0();
+                BOOST_REQUIRE_EQUAL(body, to_sstring(std::move(jumbo_copy)));
+            }
+
+            {
                 fmt::print("Request with chunked body\n");
                 auto req = http::request::make("GET", "test", "/test");
                 req.write_body("txt", [] (auto&& out) -> future<> {
@@ -1050,6 +1098,35 @@ static future<> test_basic_content(bool streamed, bool chunked_reply) {
                 auto in = conn.in(resp);
                 sstring body = util::read_entire_stream_contiguous(in).get0();
                 BOOST_REQUIRE_EQUAL(body, sstring("foobar"));
+            }
+
+            {
+                fmt::print("Request with incomplete content-length body\n");
+                auto req = http::request::make("GET", "test", "/test");
+                req.write_body("txt", 12, [] (output_stream<char>&& out) {
+                    return seastar::async([out = std::move(out)] () mutable {
+                        out.write(sstring("1234567890A")).get();
+                        out.flush().get();
+                        out.close().get();
+                    });
+                });
+                BOOST_REQUIRE_THROW(conn.make_request(std::move(req)).get0(), std::runtime_error);
+            }
+
+            {
+                bool callback_completed = false;
+                fmt::print("Request with too large content-length body\n");
+                auto req = http::request::make("GET", "test", "/test");
+                req.write_body("txt", 12, [&callback_completed] (output_stream<char>&& out) {
+                    return seastar::async([out = std::move(out), &callback_completed] () mutable {
+                        out.write(sstring("1234567890ABC")).get();
+                        out.flush().get();
+                        out.close().get();
+                        callback_completed = true;
+                    });
+                });
+                BOOST_REQUIRE_NE(callback_completed, true); // should throw early
+                BOOST_REQUIRE_THROW(conn.make_request(std::move(req)).get0(), std::runtime_error);
             }
 
             conn.close().get();
