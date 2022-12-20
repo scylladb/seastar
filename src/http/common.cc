@@ -81,6 +81,8 @@ sstring type2str(operation_type type) {
 namespace http {
 namespace internal {
 
+static constexpr size_t default_body_sink_buffer_size = 32000;
+
 class http_chunked_data_sink_impl : public data_sink_impl {
     output_stream<char>& _out;
 
@@ -121,7 +123,7 @@ public:
 output_stream<char> make_http_chunked_output_stream(output_stream<char>& out) {
     output_stream_options opts;
     opts.trim_to_size = true;
-    return output_stream<char>(http_chunked_data_sink(out), 32000, opts);
+    return output_stream<char>(http_chunked_data_sink(out), default_body_sink_buffer_size, opts);
 }
 
 }
