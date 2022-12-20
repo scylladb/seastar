@@ -79,6 +79,16 @@ public:
     input_stream<char> in(reply& rep);
 
     /**
+     * \brief Skips the reply body (if any)
+     *
+     * Can be called if the caller doesn't need the body contents of the reply (i.e. --
+     * only needs status and/or headers).
+     *
+     * Mutually exclusive with the \ref in(reply& rep) one.
+     */
+    future<> skip_body(reply& rep);
+
+    /**
      * \brief Closes the connection
      *
      * Connection must be closed regardless of whether there was an exception making the

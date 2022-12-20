@@ -1003,6 +1003,17 @@ static future<> test_basic_content(bool streamed, bool chunked_reply) {
             }
 
             {
+                fmt::print("Skip reply body test\n");
+                auto req = http::request::make("GET", "test", "/test");
+                req.write_body("txt", sstring("12345"));
+                auto resp = conn.make_request(std::move(req)).get0();
+                BOOST_REQUIRE_EQUAL(resp._status, http::reply::status_type::ok);
+                conn.skip_body(resp).get();
+                // in fact, this case is to make sure that _next_ cases won't collect
+                // garbage from the client connection
+            }
+
+            {
                 fmt::print("Request with body test\n");
                 auto req = http::request::make("GET", "test", "/test");
                 req.write_body("txt", sstring("12345 78901\t34521345"));

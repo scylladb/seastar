@@ -26,6 +26,7 @@
 #include <seastar/http/reply.hh>
 #include <seastar/http/response_parser.hh>
 #include <seastar/http/internal/content_source.hh>
+#include <seastar/util/short_streams.hh>
 
 namespace seastar {
 namespace http {
@@ -123,6 +124,12 @@ input_stream<char> connection::in(reply& rep) {
     }
 
     return input_stream<char>(data_source(std::make_unique<httpd::internal::content_length_source_impl>(_read_buf, rep.content_length)));
+}
+
+future<> connection::skip_body(reply& rep) {
+    return do_with(in(rep), [] (auto& in) {
+        return util::skip_entire_stream(in);
+    });
 }
 
 future<> connection::close() {
