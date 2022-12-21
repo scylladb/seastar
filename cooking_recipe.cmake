@@ -136,9 +136,23 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
 elseif (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
   set (boost_toolset clang)
 else ()
-  # let bootstrap.sh decide this.
-  set (boost_toolset "")
+  set(boost_toolset "cook_cxx")
 endif ()
+set (boost_user_config "${CMAKE_CURRENT_BINARY_DIR}/cook_boost.jam")
+if (CMAKE_C_FLAGS)
+  string (JOIN " <cflags>" boost_cflags
+    "<cflags>${CMAKE_C_FLAGS}")
+endif ()
+if (CMAKE_CXX_FLAGS)
+  string (JOIN " <cxxflags>" boost_cxxflags
+    "<cxxflags>${CMAKE_CXX_FLAGS}")
+endif ()
+file (WRITE "${boost_user_config}"
+  "using ${boost_toolset}"
+  " : " # toolset's version
+  " : ${CMAKE_CXX_COMPILER}"
+  " : ${boost_cflags}${boost_cxxflags} <cxxflags>-std=c++${CMAKE_CXX_STANDARD}"
+  " ;\n")
 
 cooking_ingredient (Boost
   EXTERNAL_PROJECT_ARGS
@@ -157,7 +171,9 @@ cooking_ingredient (Boost
       -j ${build_concurrency_factor}
       --layout=system
       --build-dir=<BINARY_DIR>
+      --user-config=${boost_user_config}
       install
+      toolset=${boost_toolset}
       variant=debug
       link=shared
       threading=multi
