@@ -24,9 +24,16 @@ find_package (PkgConfig REQUIRED)
 
 pkg_search_module (yaml-cpp yaml-cpp)
 
-find_library (yaml-cpp_LIBRARY
+find_library (yaml-cpp_LIBRARY_RELEASE
  NAMES yaml-cpp
  HINTS ${yaml-cpp_LIBDIR})
+
+find_library (yaml-cpp_LIBRARY_DEBUG
+ NAMES yaml-cppd
+ HINTS ${yaml-cpp_LIBDIR})
+
+include (SelectLibraryConfigurations)
+select_library_configurations (yaml-cpp)
 
 if (NOT yaml-cpp_INCLUDE_DIR)
  find_path (yaml-cpp_INCLUDE_DIR
@@ -35,7 +42,8 @@ if (NOT yaml-cpp_INCLUDE_DIR)
 endif ()
 
 mark_as_advanced (
-  yaml-cpp_LIBRARY
+  yaml-cpp_LIBRARY_RELEASE
+  yaml-cpp_LIBRARY_DEBUG
   yaml-cpp_INCLUDE_DIR)
 
 include (FindPackageHandleStandardArgs)
@@ -54,7 +62,19 @@ if (yaml-cpp_FOUND)
 
     set_target_properties (yaml-cpp::yaml-cpp
       PROPERTIES
-        IMPORTED_LOCATION ${yaml-cpp_LIBRARY}
         INTERFACE_INCLUDE_DIRECTORIES ${yaml-cpp_INCLUDE_DIRS})
+    if (EXISTS "${yaml-cpp_LIBRARY}")
+      set_target_properties (yaml-cpp::yaml-cpp
+        PROPERTIES
+          IMPORTED_LOCATION "${yaml-cpp_LIBRARY}")
+    endif ()
+    foreach (build "RELEASE" "DEBUG")
+      if (yaml-cpp_LIBRARY_${build})
+        set_property (TARGET yaml-cpp::yaml-cpp APPEND PROPERTY
+          IMPORTED_CONFIGURATIONS "${build}")
+        set_target_properties (yaml-cpp::yaml-cpp PROPERTIES
+          IMPORTED_LOCATION_${build} "${yaml-cpp_LIBRARY_${build}}")
+      endif ()
+    endforeach ()
   endif ()
 endif ()
