@@ -215,13 +215,12 @@ cooking_ingredient (lksctp-tools
     INSTALL_COMMAND ${make_command} install)
 
 cooking_ingredient (yaml-cpp
-  REQUIRES Boost
   CMAKE_ARGS
     -DYAML_CPP_BUILD_TESTS=OFF
-    -DBUILD_SHARED_LIBS=ON
+    -DYAML_BUILD_SHARED_LIBS=ON
   EXTERNAL_PROJECT_ARGS
-    URL https://github.com/jbeder/yaml-cpp/archive/yaml-cpp-0.5.3.tar.gz
-    URL_MD5 2bba14e6a7f12c7272f87d044e4a7211)
+    URL https://github.com/jbeder/yaml-cpp/archive/yaml-cpp-0.7.0.tar.gz
+    URL_MD5 74d646a3cc1b5d519829441db96744f0)
 
 ##
 ## Public dependencies.
