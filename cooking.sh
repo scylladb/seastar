@@ -162,8 +162,10 @@ EOF
 }
 
 parse_assignment() {
-    IFS='=' read -ra parts <<< "${1}"
-    export "${parts[0]}"="${parts[1]}"
+    local var
+    local value
+    IFS='=' read -r var value <<< "${1}"
+    export "${var}"="${value}"
 }
 
 yell_include_exclude_mutually_exclusive() {
