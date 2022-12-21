@@ -225,7 +225,12 @@ def configure_mode(mode):
         for ingredient in ingredients_to_cook:
             inclusion_arguments.extend(['-i', ingredient])
 
-        ARGS = seastar_cmake.COOKING_BASIC_ARGS + inclusion_arguments + ['-d', BUILD_PATH, '--']
+        ARGS = seastar_cmake.COOKING_BASIC_ARGS + inclusion_arguments
+        if args.user_cflags:
+            ARGS += ['-s', f'CXXFLAGS={args.user_cflags}']
+        if args.user_ldflags:
+            ARGS += ['-s', f'LDFLAGS={args.user_ldflags}']
+        ARGS += ['-d', BUILD_PATH, '--']
         dir = seastar_cmake.ROOT_PATH
     else:
         # When building without cooked dependencies, we can invoke cmake directly. We can't call
