@@ -133,8 +133,8 @@ cooking_ingredient (zlib
 
 cooking_ingredient (Boost
   EXTERNAL_PROJECT_ARGS
-    URL https://boostorg.jfrog.io/artifactory/main/release/1.77.0/source/boost_1_77_0.tar.bz2
-    URL_HASH SHA256=fc9f85fc030e233142908241af7a846e60630aa7388de9a5fafb1f3a26840854
+    URL https://boostorg.jfrog.io/artifactory/main/release/1.81.0/source/boost_1_81_0.tar.bz2
+    URL_HASH SHA256=71feeed900fbccca04a3b4f2f84a7c217186f28a940ed8b7ed4725986baf99fa
     PATCH_COMMAND
       ./bootstrap.sh
       --prefix=<INSTALL_DIR>
