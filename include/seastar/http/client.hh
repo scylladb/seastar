@@ -20,6 +20,7 @@
  */
 
 #include <seastar/net/api.hh>
+#include <seastar/http/reply.hh>
 #include <seastar/core/iostream.hh>
 
 namespace seastar {
@@ -91,6 +92,64 @@ private:
     future<std::optional<reply>> maybe_wait_for_continue(request& req);
     future<> write_body(request& rq);
     future<reply> recv_reply();
+};
+
+/**
+ * \brief Class client wraps communications using HTTP protocol
+ *
+ * The class allows making HTTP requests and handling replies. It's up to the caller to
+ * provide a transport, though for simple cases the class provides out-of-the-box
+ * facilities.
+ *
+ * The main benefit client provides against \ref connection is the transparent support
+ * for Keep-Alive transport sockets.
+ */
+
+class client {
+    socket_address _addr;
+    using connection_ptr = seastar::shared_ptr<connection>;
+
+    future<connection_ptr> get_connection();
+    future<> put_connection(connection_ptr con, bool can_cache);
+
+    template <typename Fn>
+    SEASTAR_CONCEPT( requires std::invocable<Fn, connection&> )
+    auto with_connection(Fn&& fn);
+
+public:
+    using reply_handler = noncopyable_function<future<>(const reply&, input_stream<char>&& body)>;
+    /**
+     * \brief Construct a simple client
+     *
+     * This creates a simple client that connects to provided address via plain (non-TLS)
+     * socket
+     *
+     * \param addr -- host address to connect to
+     *
+     */
+    explicit client(socket_address addr);
+
+    /**
+     * \brief Send the request and handle the response
+     *
+     * Sends the provided request to the server and calls the provided callback to handle
+     * the response when it arrives. If the reply's status code is not equals the expected
+     * value, the handler is not called and the method resolves with exceptional future.
+     * Otherwise returns the handler's future
+     *
+     * \param req -- request to be sent
+     * \param handle -- the response handler
+     * \param expected -- the expected reply status code
+     *
+     */
+    future<> make_request(request req, reply_handler handle, reply::status_type expected = reply::status_type::ok);
+
+    /**
+     * \brief Closes the client
+     *
+     * Client must be closed before destruction unconditionally
+     */
+    future<> close();
 };
 
 } // experimental namespace

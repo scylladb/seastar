@@ -21,6 +21,7 @@
 
 #include <seastar/core/loop.hh>
 #include <seastar/core/when_all.hh>
+#include <seastar/core/reactor.hh>
 #include <seastar/http/client.hh>
 #include <seastar/http/request.hh>
 #include <seastar/http/reply.hh>
@@ -137,6 +138,52 @@ input_stream<char> connection::in(reply& rep) {
 
 future<> connection::close() {
     return when_all(_read_buf.close(), _write_buf.close()).discard_result();
+}
+
+client::client(socket_address addr)
+        : _addr(std::move(addr))
+{
+}
+
+future<client::connection_ptr> client::get_connection() {
+    return seastar::connect(_addr, {}, transport::TCP).then([] (connected_socket cs) {
+        auto con = seastar::make_shared<connection>(std::move(cs));
+        return make_ready_future<connection_ptr>(std::move(con));
+    });
+}
+
+future<> client::put_connection(connection_ptr con, bool can_cache) {
+    return con->close().finally([con] {});
+}
+
+template <typename Fn>
+SEASTAR_CONCEPT( requires std::invocable<Fn, connection&> )
+auto client::with_connection(Fn&& fn) {
+    return get_connection().then([this, fn = std::move(fn)] (connection_ptr con) mutable {
+        return fn(*con).then_wrapped([this, con = std::move(con)] (auto f) mutable {
+            return put_connection(std::move(con), !f.failed()).then([f = std::move(f)] () mutable {
+                return std::move(f);
+            });
+        });
+    });
+}
+
+future<> client::make_request(request req, reply_handler handle, reply::status_type expected) {
+    return with_connection([req = std::move(req), handle = std::move(handle), expected] (connection& con) mutable {
+        return con.make_request(std::move(req)).then([&con, expected, handle = std::move(handle)] (reply rep) mutable {
+            if (rep._status != expected) {
+                return make_exception_future<>(std::runtime_error(format("request finished with {}", rep._status)));
+            }
+
+            return do_with(std::move(rep), [&con, handle = std::move(handle)] (auto& rep) mutable {
+                return handle(rep, con.in(rep));
+            });
+        });
+    });
+}
+
+future<> client::close() {
+    return make_ready_future<>();
 }
 
 } // experimental namespace
