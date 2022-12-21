@@ -22,6 +22,7 @@
 #include <seastar/core/loop.hh>
 #include <seastar/core/when_all.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/net/tls.hh>
 #include <seastar/http/client.hh>
 #include <seastar/http/request.hh>
 #include <seastar/http/reply.hh>
@@ -140,13 +141,51 @@ future<> connection::close() {
     return when_all(_read_buf.close(), _write_buf.close()).discard_result();
 }
 
+class basic_connection_factory : public connection_factory {
+    socket_address _addr;
+public:
+    explicit basic_connection_factory(socket_address addr)
+            : _addr(std::move(addr))
+    {
+    }
+    virtual future<connected_socket> make() override {
+        return seastar::connect(_addr, {}, transport::TCP);
+    }
+};
+
 client::client(socket_address addr)
-        : _addr(std::move(addr))
+        : client(std::make_unique<basic_connection_factory>(std::move(addr)))
+{
+}
+
+class tls_connection_factory : public connection_factory {
+    socket_address _addr;
+    shared_ptr<tls::certificate_credentials> _creds;
+    sstring _host;
+public:
+    tls_connection_factory(socket_address addr, shared_ptr<tls::certificate_credentials> creds, sstring host)
+            : _addr(std::move(addr))
+            , _creds(std::move(creds))
+            , _host(std::move(host))
+    {
+    }
+    virtual future<connected_socket> make() override {
+        return tls::connect(_creds, _addr, _host);
+    }
+};
+
+client::client(socket_address addr, shared_ptr<tls::certificate_credentials> creds, sstring host)
+        : client(std::make_unique<tls_connection_factory>(std::move(addr), std::move(creds), std::move(host)))
+{
+}
+
+client::client(std::unique_ptr<connection_factory> f)
+        : _new_connections(std::move(f))
 {
 }
 
 future<client::connection_ptr> client::get_connection() {
-    return seastar::connect(_addr, {}, transport::TCP).then([] (connected_socket cs) {
+    return _new_connections->make().then([] (connected_socket cs) {
         auto con = seastar::make_shared<connection>(std::move(cs));
         return make_ready_future<connection_ptr>(std::move(con));
     });

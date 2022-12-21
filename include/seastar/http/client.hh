@@ -25,6 +25,8 @@
 
 namespace seastar {
 
+namespace tls { class certificate_credentials; }
+
 namespace http {
 
 struct request;
@@ -95,6 +97,26 @@ private:
 };
 
 /**
+ * \brief Factory that provides transport for \ref client
+ *
+ * This customization point allows callers provide its own transport for client. The
+ * client code calls factory when it needs more connections to the server and maintains
+ * the pool of re-usable sockets internally
+ */
+
+class connection_factory {
+public:
+    /**
+     * \brief Make a \ref connected_socket
+     *
+     * The implementations of this method should return ready-to-use socket that will
+     * be used by \ref client as transport for its http connections
+     */
+    virtual future<connected_socket> make() = 0;
+    virtual ~connection_factory() {}
+};
+
+/**
  * \brief Class client wraps communications using HTTP protocol
  *
  * The class allows making HTTP requests and handling replies. It's up to the caller to
@@ -106,7 +128,7 @@ private:
  */
 
 class client {
-    socket_address _addr;
+    std::unique_ptr<connection_factory> _new_connections;
     using connection_ptr = seastar::shared_ptr<connection>;
 
     future<connection_ptr> get_connection();
@@ -128,6 +150,31 @@ public:
      *
      */
     explicit client(socket_address addr);
+
+    /**
+     * \brief Construct a secure client
+     *
+     * This creates a client that connects to provided address via TLS socket with
+     * given credentials. In simple words -- this makes an HTTPS client
+     *
+     * \param addr -- host address to connect to
+     * \param creds -- credentials
+     * \param host -- optional host name
+     *
+     */
+    client(socket_address addr, shared_ptr<tls::certificate_credentials> creds, sstring host = {});
+
+    /**
+     * \brief Construct a client with connection factory
+     *
+     * This creates a client that uses factory to get \ref connected_socket that is then
+     * used as transport. The client may withdraw more than one socket from the factory and
+     * may re-use the sockets on its own
+     *
+     * \param f -- the factory pointer
+     *
+     */
+    explicit client(std::unique_ptr<connection_factory> f);
 
     /**
      * \brief Send the request and handle the response
