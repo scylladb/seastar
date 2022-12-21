@@ -30,6 +30,7 @@
 #include <seastar/http/internal/content_source.hh>
 
 namespace seastar {
+logger http_log("http");
 namespace http {
 namespace experimental {
 
@@ -140,7 +141,10 @@ input_stream<char> connection::in(reply& rep) {
 
 future<> connection::close() {
     return when_all(_read_buf.close(), _write_buf.close()).discard_result().then([this] {
-        return std::move(_closed);
+        auto la = _fd.local_address();
+        return std::move(_closed).then([la = std::move(la)] {
+            http_log.trace("destroyed connection {}", la);
+        });
     });
 }
 
@@ -191,10 +195,12 @@ future<client::connection_ptr> client::get_connection() {
     if (!_pool.empty()) {
         connection_ptr con = _pool.front().shared_from_this();
         _pool.pop_front();
+        http_log.trace("pop http connection {} from pool", con->_fd.local_address());
         return make_ready_future<connection_ptr>(con);
     }
 
     return _new_connections->make().then([] (connected_socket cs) {
+        http_log.trace("created new http connection {}", cs.local_address());
         auto con = seastar::make_shared<connection>(std::move(cs));
         return make_ready_future<connection_ptr>(std::move(con));
     });
@@ -202,10 +208,12 @@ future<client::connection_ptr> client::get_connection() {
 
 future<> client::put_connection(connection_ptr con, bool can_cache) {
     if (can_cache) {
+        http_log.trace("push http connection {} to pool", con->_fd.local_address());
         _pool.push_back(*con);
         return make_ready_future<>();
     }
 
+    http_log.trace("dropping connection {}", con->_fd.local_address());
     return con->close().finally([con] {});
 }
 
@@ -242,6 +250,7 @@ future<> client::close() {
 
     connection_ptr con = _pool.front().shared_from_this();
     _pool.pop_front();
+    http_log.trace("closing connection {}", con->_fd.local_address());
     return con->close().then([this, con] {
         return close();
     });
