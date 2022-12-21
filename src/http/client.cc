@@ -185,6 +185,13 @@ client::client(std::unique_ptr<connection_factory> f)
 }
 
 future<client::connection_ptr> client::get_connection() {
+    if (!_pool.empty()) {
+        connection_ptr con = _pool.front().shared_from_this();
+        _pool.pop_front();
+        con->_pooled = {};
+        return make_ready_future<connection_ptr>(con);
+    }
+
     return _new_connections->make().then([] (connected_socket cs) {
         auto con = seastar::make_shared<connection>(std::move(cs));
         return make_ready_future<connection_ptr>(std::move(con));
@@ -192,6 +199,12 @@ future<client::connection_ptr> client::get_connection() {
 }
 
 future<> client::put_connection(connection_ptr con, bool can_cache) {
+    if (can_cache) {
+        _pool.push_back(*con);
+        con->_pooled = std::move(con); // this keeps connection alive
+        return make_ready_future<>();
+    }
+
     return con->close().finally([con] {});
 }
 
@@ -222,7 +235,16 @@ future<> client::make_request(request req, reply_handler handle, reply::status_t
 }
 
 future<> client::close() {
-    return make_ready_future<>();
+    if (_pool.empty()) {
+        return make_ready_future<>();
+    }
+
+    connection_ptr con = _pool.front().shared_from_this();
+    _pool.pop_front();
+    con->_pooled = {};
+    return con->close().then([this, con] {
+        return close();
+    });
 }
 
 } // experimental namespace

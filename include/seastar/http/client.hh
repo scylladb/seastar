@@ -19,9 +19,12 @@
  * Copyright (C) 2022 Scylladb, Ltd.
  */
 
+#include <boost/intrusive/list.hpp>
 #include <seastar/net/api.hh>
 #include <seastar/http/reply.hh>
 #include <seastar/core/iostream.hh>
+
+namespace bi = boost::intrusive;
 
 namespace seastar {
 
@@ -40,10 +43,15 @@ namespace experimental {
  * Check the demos/http_client_demo.cc for usage example
  */
 
-class connection {
+class connection : public enable_shared_from_this<connection> {
+    friend class client;
+    using hook_t = bi::list_member_hook<bi::link_mode<bi::auto_unlink>>;
+
     connected_socket _fd;
     input_stream<char> _read_buf;
     output_stream<char> _write_buf;
+    hook_t _hook;
+    seastar::shared_ptr<connection> _pooled; // temporary
 
 public:
     /**
@@ -128,7 +136,11 @@ public:
  */
 
 class client {
+    using connections_list_t = bi::list<connection, bi::member_hook<connection, typename connection::hook_t, &connection::_hook>, bi::constant_time_size<false>>;
+
     std::unique_ptr<connection_factory> _new_connections;
+    connections_list_t _pool;
+
     using connection_ptr = seastar::shared_ptr<connection>;
 
     future<connection_ptr> get_connection();
