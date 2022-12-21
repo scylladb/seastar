@@ -242,7 +242,7 @@ cooking_ingredient (cryptopp
     BUILD_COMMAND <DISABLE>
     INSTALL_COMMAND
       ${CMAKE_COMMAND} -E chdir <SOURCE_DIR>
-      ${CMAKE_COMMAND} -E env CXX=${CMAKE_CXX_COMPILER} ${make_command} install-lib PREFIX=<INSTALL_DIR>)
+      ${CMAKE_COMMAND} -E env CXX=${CMAKE_CXX_COMPILER} CXXFLAGS=${CMAKE_CXX_FLAGS} ${make_command} static install-lib PREFIX=<INSTALL_DIR>)
 
 
 # Use the "native" profile that DPDK defines in `dpdk/config`, but in `dpdk_configure.cmake` we override
