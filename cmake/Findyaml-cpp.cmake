@@ -22,19 +22,11 @@
 
 find_package (PkgConfig REQUIRED)
 
-pkg_search_module (yaml-cpp IMPORTED_TARGET GLOBAL yaml-cpp)
+pkg_search_module (yaml-cpp yaml-cpp)
 
-if (yaml-cpp_FOUND)
-  add_library (yaml-cpp::yaml-cpp INTERFACE IMPORTED)
-  target_link_libraries (yaml-cpp::yaml-cpp INTERFACE PkgConfig::yaml-cpp)
-  set (yaml-cpp_LIBRARY ${yaml-cpp_LIBRARIES})
-  set (yaml-cpp_INCLUDE_DIR ${yaml-cpp_INCLUDE_DIRS})
-endif ()
-
-if (NOT yaml-cpp_LIBRARY)
-  find_library (yaml-cpp_LIBRARY
-   NAMES yaml-cpp)
-endif ()
+find_library (yaml-cpp_LIBRARY
+ NAMES yaml-cpp
+ HINTS ${yaml-cpp_LIBDIR})
 
 if (NOT yaml-cpp_INCLUDE_DIR)
  find_path (yaml-cpp_INCLUDE_DIR
