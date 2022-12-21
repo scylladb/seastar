@@ -51,7 +51,7 @@ class connection : public enable_shared_from_this<connection> {
     input_stream<char> _read_buf;
     output_stream<char> _write_buf;
     hook_t _hook;
-    seastar::shared_ptr<connection> _pooled; // temporary
+    future<> _closed;
 
 public:
     /**

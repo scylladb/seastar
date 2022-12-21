@@ -37,6 +37,7 @@ connection::connection(connected_socket&& fd)
         : _fd(std::move(fd))
         , _read_buf(_fd.input())
         , _write_buf(_fd.output())
+        , _closed(_fd.wait_input_shutdown().finally([me = shared_from_this()] {}))
 {
 }
 
@@ -138,7 +139,9 @@ input_stream<char> connection::in(reply& rep) {
 }
 
 future<> connection::close() {
-    return when_all(_read_buf.close(), _write_buf.close()).discard_result();
+    return when_all(_read_buf.close(), _write_buf.close()).discard_result().then([this] {
+        return std::move(_closed);
+    });
 }
 
 class basic_connection_factory : public connection_factory {
@@ -188,7 +191,6 @@ future<client::connection_ptr> client::get_connection() {
     if (!_pool.empty()) {
         connection_ptr con = _pool.front().shared_from_this();
         _pool.pop_front();
-        con->_pooled = {};
         return make_ready_future<connection_ptr>(con);
     }
 
@@ -201,7 +203,6 @@ future<client::connection_ptr> client::get_connection() {
 future<> client::put_connection(connection_ptr con, bool can_cache) {
     if (can_cache) {
         _pool.push_back(*con);
-        con->_pooled = std::move(con); // this keeps connection alive
         return make_ready_future<>();
     }
 
@@ -241,7 +242,6 @@ future<> client::close() {
 
     connection_ptr con = _pool.front().shared_from_this();
     _pool.pop_front();
-    con->_pooled = {};
     return con->close().then([this, con] {
         return close();
     });
