@@ -236,12 +236,14 @@ cooking_ingredient (c-ares
     INSTALL_COMMAND ${make_command} install)
 
 cooking_ingredient (cryptopp
-  CMAKE_ARGS
-    -DCMAKE_INSTALL_LIBDIR=<INSTALL_DIR>/lib
-    -DBUILD_TESTING=OFF
   EXTERNAL_PROJECT_ARGS
-    URL https://github.com/weidai11/cryptopp/archive/CRYPTOPP_5_6_5.tar.gz
-    URL_MD5 88224d9c0322f63aa1fb5b8ae78170f0)
+    URL https://github.com/weidai11/cryptopp/archive/CRYPTOPP_8_7_0.tar.gz
+    URL_MD5 69b11e59094c10d437f295f11e51c16a
+    CONFIGURE_COMMAND <DISABLE>
+    BUILD_COMMAND <DISABLE>
+    INSTALL_COMMAND
+      ${CMAKE_COMMAND} -E chdir <SOURCE_DIR>
+      ${CMAKE_COMMAND} -E env CXX=${CMAKE_CXX_COMPILER} ${make_command} install-lib PREFIX=<INSTALL_DIR>)
 
 
 # Use the "native" profile that DPDK defines in `dpdk/config`, but in `dpdk_configure.cmake` we override
