@@ -131,6 +131,15 @@ cooking_ingredient (zlib
 ## Private and private/public dependencies.
 ##
 
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  set (boost_toolset gcc)
+elseif (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+  set (boost_toolset clang)
+else ()
+  # let bootstrap.sh decide this.
+  set (boost_toolset "")
+endif ()
+
 cooking_ingredient (Boost
   EXTERNAL_PROJECT_ARGS
     URL https://boostorg.jfrog.io/artifactory/main/release/1.81.0/source/boost_1_81_0.tar.bz2
@@ -139,6 +148,7 @@ cooking_ingredient (Boost
       ./bootstrap.sh
       --prefix=<INSTALL_DIR>
       --with-libraries=atomic,chrono,date_time,filesystem,program_options,system,test,thread
+      --with-toolset=${boost_toolset}
     CONFIGURE_COMMAND <DISABLE>
     BUILD_COMMAND <DISABLE>
     INSTALL_COMMAND
