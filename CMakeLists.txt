@@ -40,6 +40,10 @@ project (Seastar
   VERSION 1.0
   LANGUAGES CXX)
 
+if (POLICY CMP0135)
+  cmake_policy (SET CMP0135 NEW)
+endif ()
+
 # generic boolean values passed as string, potentially from configure.py
 set (True_STRING_VALUES "ON" "yes" "Yes" "YES" "true" "True" "TRUE")
 set (False_STRING_VALUES "OFF" "no" "No" "NO" "false" "False" "FALSE")
