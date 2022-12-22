@@ -202,3 +202,19 @@ BOOST_AUTO_TEST_CASE(test_const_release) {
     do_test_release<const A>();
     do_test_release<const A_esft>();
 }
+
+BOOST_AUTO_TEST_CASE(test_nullptr_compare) {
+    seastar::shared_ptr<int> ptr;
+    BOOST_REQUIRE(ptr == nullptr);
+    BOOST_REQUIRE(nullptr == ptr);
+    ptr = seastar::make_shared<int>(0);
+    BOOST_REQUIRE(ptr != nullptr);
+    BOOST_REQUIRE(nullptr != ptr);
+
+    seastar::lw_shared_ptr<int> lptr;
+    BOOST_REQUIRE(lptr == nullptr);
+    BOOST_REQUIRE(nullptr == lptr);
+    lptr = seastar::make_lw_shared<int>(0);
+    BOOST_REQUIRE(lptr != nullptr);
+    BOOST_REQUIRE(nullptr != lptr);
+}

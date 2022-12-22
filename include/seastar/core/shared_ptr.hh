@@ -739,6 +739,20 @@ operator==(std::nullptr_t, const shared_ptr<T>& y) {
     return nullptr == y.get();
 }
 
+template <typename T>
+inline
+bool
+operator==(const lw_shared_ptr<T>& x, std::nullptr_t) {
+    return x.get() == nullptr;
+}
+
+template <typename T>
+inline
+bool
+operator==(std::nullptr_t, const lw_shared_ptr<T>& y) {
+    return nullptr == y.get();
+}
+
 template <typename T, typename U>
 inline
 bool
@@ -757,6 +771,20 @@ template <typename T>
 inline
 bool
 operator!=(std::nullptr_t, const shared_ptr<T>& y) {
+    return nullptr != y.get();
+}
+
+template <typename T>
+inline
+bool
+operator!=(const lw_shared_ptr<T>& x, std::nullptr_t) {
+    return x.get() != nullptr;
+}
+
+template <typename T>
+inline
+bool
+operator!=(std::nullptr_t, const lw_shared_ptr<T>& y) {
     return nullptr != y.get();
 }
 
