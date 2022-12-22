@@ -162,8 +162,10 @@ EOF
 }
 
 parse_assignment() {
-    IFS='=' read -ra parts <<< "${1}"
-    export "${parts[0]}"="${parts[1]}"
+    local var
+    local value
+    IFS='=' read -r var value <<< "${1}"
+    export "${var}"="${value}"
 }
 
 yell_include_exclude_mutually_exclusive() {
@@ -558,10 +560,21 @@ endfunction ()
 function (_cooking_determine_common_cmake_args output)
   string (REPLACE ";" ":::" prefix_path_with_colons "${CMAKE_PREFIX_PATH}")
 
-  set (${output}
+  if (CMAKE_CXX_FLAGS)
+    list(APPEND cmake_args -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS})
+  endif ()
+  if (CMAKE_C_FLAGS)
+    list(APPEND cmake_args -DCMAKE_C_FLAGS=${CMAKE_C_FLAGS})
+  endif ()
+
+  list (APPEND cmake_args
     -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
     -DCMAKE_PREFIX_PATH=${prefix_path_with_colons}
     -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+    -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+    -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER})
+
+  set (${output} ${cmake_args}
     PARENT_SCOPE)
 endfunction ()
 
