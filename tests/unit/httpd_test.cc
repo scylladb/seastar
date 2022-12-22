@@ -480,7 +480,7 @@ public:
     }
 
     static future<> run_test(std::function<future<>(output_stream<char> &&)>&& write_func, std::function<bool(size_t, http_consumer&)> reader) {
-        return do_with(loopback_connection_factory(), foreign_ptr<shared_ptr<http_server>>(make_shared<http_server>("test")),
+        return do_with(loopback_connection_factory(1), foreign_ptr<shared_ptr<http_server>>(make_shared<http_server>("test")),
                 [reader, &write_func] (loopback_connection_factory& lcf, auto& server) {
             return do_with(loopback_socket_impl(lcf), [&server, &lcf, reader, &write_func](loopback_socket_impl& lsi) {
                 httpd::http_server_tester::listeners(*server).emplace_back(lcf.get_server_socket());
@@ -543,7 +543,7 @@ public:
         });
     }
     static future<> run(std::vector<std::tuple<bool, size_t>> tests) {
-        return do_with(loopback_connection_factory(), foreign_ptr<shared_ptr<http_server>>(make_shared<http_server>("test")),
+        return do_with(loopback_connection_factory(1), foreign_ptr<shared_ptr<http_server>>(make_shared<http_server>("test")),
                 [tests] (loopback_connection_factory& lcf, auto& server) {
             return do_with(loopback_socket_impl(lcf), [&server, &lcf, tests](loopback_socket_impl& lsi) {
                 httpd::http_server_tester::listeners(*server).emplace_back(lcf.get_server_socket());
@@ -745,7 +745,7 @@ public:
 
 SEASTAR_TEST_CASE(content_length_limit) {
     return seastar::async([] {
-        loopback_connection_factory lcf;
+        loopback_connection_factory lcf(1);
         http_server server("test");
         server.set_content_length_limit(11);
         loopback_socket_impl lsi(lcf);
@@ -787,7 +787,7 @@ SEASTAR_TEST_CASE(content_length_limit) {
 
 SEASTAR_TEST_CASE(test_100_continue) {
     return seastar::async([] {
-        loopback_connection_factory lcf;
+        loopback_connection_factory lcf(1);
         http_server server("test");
         server.set_content_length_limit(11);
         loopback_socket_impl lsi(lcf);
@@ -844,7 +844,7 @@ SEASTAR_TEST_CASE(test_100_continue) {
 SEASTAR_TEST_CASE(test_unparsable_request) {
     // Test if a message that cannot be parsed as a http request is being replied with a 400 Bad Request response
     return seastar::async([] {
-        loopback_connection_factory lcf;
+        loopback_connection_factory lcf(1);
         http_server server("test");
         loopback_socket_impl lsi(lcf);
         httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
@@ -942,7 +942,7 @@ struct echo_string_handler : public echo_handler {
  * */
 future<> check_http_reply (std::vector<sstring>&& req_parts, std::vector<std::string>&& resp_parts, bool stream, handler_base* handl) {
     return seastar::async([req_parts = std::move(req_parts), resp_parts = std::move(resp_parts), stream, handl] {
-        loopback_connection_factory lcf;
+        loopback_connection_factory lcf(1);
         http_server server("test");
         server.set_content_streaming(stream);
         loopback_socket_impl lsi(lcf);
@@ -975,7 +975,7 @@ future<> check_http_reply (std::vector<sstring>&& req_parts, std::vector<std::st
 
 static future<> test_basic_content(bool streamed, bool chunked_reply) {
     return seastar::async([streamed, chunked_reply] {
-        loopback_connection_factory lcf;
+        loopback_connection_factory lcf(1);
         http_server server("test");
         if (streamed) {
             server.set_content_streaming(true);
@@ -1149,7 +1149,7 @@ SEASTAR_TEST_CASE(case_insensitive_header) {
 }
 
 SEASTAR_THREAD_TEST_CASE(multiple_connections) {
-    loopback_connection_factory lcf;
+    loopback_connection_factory lcf(1);
     http_server server("test");
     httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
     socket_address addr{ipv4_addr()};

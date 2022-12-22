@@ -222,10 +222,13 @@ public:
 
 class loopback_connection_factory {
     unsigned _shard = 0;
+    unsigned _shards_count;
     std::vector<lw_shared_ptr<queue<connected_socket>>> _pending;
 public:
-    loopback_connection_factory() {
-        _pending.resize(smp::count);
+    explicit loopback_connection_factory(unsigned shards_count = smp::count)
+            : _shards_count(shards_count)
+    {
+        _pending.resize(shards_count);
     }
     server_socket get_server_socket() {
        if (!_pending[this_shard_id()]) {
@@ -243,7 +246,7 @@ public:
         return connected_socket(std::make_unique<loopback_connected_socket_impl>(std::move(b2), b1));
     }
     unsigned next_shard() {
-        return _shard++ % smp::count;
+        return _shard++ % _shards_count;
     }
     void destroy_shard(unsigned shard) {
         _pending[shard] = nullptr;
