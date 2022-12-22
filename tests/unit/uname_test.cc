@@ -23,7 +23,7 @@
 #define BOOST_TEST_MODULE core
 
 #include <boost/test/included/unit_test.hpp>
-#include "../../src/core/uname.hh"
+#include <seastar/core/internal/uname.hh>
 
 using namespace seastar::internal;
 

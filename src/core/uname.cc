@@ -20,7 +20,7 @@
  * Copyright (C) 2019 ScyllaDB
  */
 
-#include "uname.hh"
+#include <seastar/core/internal/uname.hh>
 #include <regex>
 #include <boost/algorithm/cxx11/any_of.hpp>
 #include <sys/utsname.h>

@@ -21,12 +21,12 @@
 #include "core/reactor_backend.hh"
 #include "core/thread_pool.hh"
 #include "core/syscall_result.hh"
-#include "uname.hh"
+#include <seastar/core/internal/buffer_allocator.hh>
+#include <seastar/util/internal/iovec_utils.hh>
+#include <seastar/core/internal/uname.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/reactor.hh>
-#include <seastar/core/internal/buffer_allocator.hh>
 #include <seastar/util/defer.hh>
-#include <seastar/util/internal/iovec_utils.hh>
 #include <seastar/util/read_first_line.hh>
 
 #include <chrono>

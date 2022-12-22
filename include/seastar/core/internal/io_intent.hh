@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include <utility>
 #include <boost/intrusive/list.hpp>
 #include <boost/intrusive/slist.hpp>
 

@@ -33,6 +33,8 @@
 #define min min    /* prevent xfs.h from defining min() as a macro */
 #include <xfs/xfs.h>
 #undef min
+#include <seastar/core/internal/read_state.hh>
+#include <seastar/core/internal/uname.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/file.hh>
 #include <seastar/core/report_exception.hh>
@@ -44,8 +46,6 @@
 #include "core/file-impl.hh"
 #include "core/syscall_result.hh"
 #include "core/thread_pool.hh"
-#include "core/uname.hh"
-#include "seastar/core/internal/read_state.hh"
 
 namespace seastar {
 

@@ -19,7 +19,10 @@
  * Copyright 2021 ScyllaDB
  */
 
+#include <cstring>
+#include <seastar/core/align.hh>
 #include <seastar/core/internal/io_intent.hh>
+#include <seastar/core/temporary_buffer.hh>
 
 namespace seastar {
 namespace internal {

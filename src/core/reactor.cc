@@ -56,8 +56,9 @@
 #include <seastar/core/thread_cputime_clock.hh>
 #include <seastar/core/abort_on_ebadf.hh>
 #include <seastar/core/io_queue.hh>
-#include <seastar/core/internal/io_desc.hh>
 #include <seastar/core/internal/buffer_allocator.hh>
+#include <seastar/core/internal/io_desc.hh>
+#include <seastar/core/internal/uname.hh>
 #include <seastar/core/scheduling_specific.hh>
 #include <seastar/core/smp_options.hh>
 #include <seastar/util/log.hh>
@@ -68,7 +69,6 @@
 #include "core/thread_pool.hh"
 #include "syscall_work_queue.hh"
 #include "cgroup.hh"
-#include "uname.hh"
 #include <cassert>
 #include <cmath>
 #include <unistd.h>
@@ -134,10 +134,10 @@
 
 #include <seastar/util/defer.hh>
 #include <seastar/core/alien.hh>
+#include <seastar/core/internal/stall_detector.hh>
 #include <seastar/core/metrics.hh>
 #include <seastar/core/execution_stage.hh>
 #include <seastar/core/exception_hacks.hh>
-#include "stall_detector.hh"
 #include <seastar/util/memory_diagnostics.hh>
 #include <seastar/util/internal/iovec_utils.hh>
 #include <seastar/util/internal/magic.hh>
