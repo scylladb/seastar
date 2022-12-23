@@ -231,12 +231,14 @@ public:
         _pending.resize(shards_count);
     }
     server_socket get_server_socket() {
+       assert(this_shard_id() < _shards_count);
        if (!_pending[this_shard_id()]) {
            _pending[this_shard_id()] = make_lw_shared<queue<connected_socket>>(10);
        }
        return server_socket(std::make_unique<loopback_server_socket_impl>(_pending[this_shard_id()]));
     }
     future<> make_new_server_connection(foreign_ptr<lw_shared_ptr<loopback_buffer>> b1, lw_shared_ptr<loopback_buffer> b2) {
+        assert(this_shard_id() < _shards_count);
         if (!_pending[this_shard_id()]) {
             _pending[this_shard_id()] = make_lw_shared<queue<connected_socket>>(10);
         }
@@ -249,11 +251,14 @@ public:
         return _shard++ % _shards_count;
     }
     void destroy_shard(unsigned shard) {
+        assert(shard < _shards_count);
         _pending[shard] = nullptr;
     }
     future<> destroy_all_shards() {
-        return smp::invoke_on_all([this] () {
-            destroy_shard(this_shard_id());
+        return parallel_for_each(boost::irange(0u, _shards_count), [this](shard_id shard) {
+            return smp::submit_to(shard, [this] {
+                destroy_shard(this_shard_id());
+            });
         });
     }
 };
