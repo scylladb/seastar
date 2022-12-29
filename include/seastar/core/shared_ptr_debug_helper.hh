@@ -62,6 +62,9 @@ public:
         check();
         return _counter--;
     }
+    void migrate_to_this_cpu() {
+        _cpu = std::this_thread::get_id();
+    }
 private:
     void check() const {
         if (__builtin_expect(_cpu != std::this_thread::get_id(), false)) {

@@ -360,6 +360,15 @@ public:
         }
     }
 
+#ifdef SEASTAR_DEBUG_SHARED_PTR
+    void migrate_to_this_cpu() {
+        _p->_count.migrate_to_this_cpu();
+    }
+#else
+    void migrate_to_this_cpu() {
+    }
+#endif
+
     operator lw_shared_ptr<const T>() const noexcept {
         return lw_shared_ptr<const T>(_p);
     }
