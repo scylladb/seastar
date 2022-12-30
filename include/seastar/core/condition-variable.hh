@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include "abort_source.hh"
 #include <boost/intrusive/list.hpp>
 
 #include <seastar/core/timer.hh>
@@ -28,6 +29,7 @@
 #   include <seastar/core/coroutine.hh>
 #endif
 #include <seastar/core/loop.hh>
+#include <seastar/core/abort_source.hh>
 
 namespace seastar {
 
@@ -76,6 +78,7 @@ private:
     };
 
     struct promise_waiter : public waiter, public promise<> {
+        optimized_optional<abort_source::subscription> sub;
         void signal() noexcept override {
             set_value();
             // note: we self-delete in either case we are woken
@@ -87,6 +90,18 @@ private:
             promise<>::set_exception(std::move(ep));
             // see comment above
             delete this;
+        }
+        // Subscribe to the abort_source.
+        // If abort was already requested, calls set_exception
+        // and the latter destroys the object,
+        // so subscribe should be called after get_future and add_waiter.
+        void subscribe(abort_source& as) noexcept {
+            sub = as.subscribe([this] (const std::optional<std::exception_ptr>& opt_ex) noexcept {
+                set_exception(opt_ex.value_or(std::make_exception_ptr(abort_requested_exception())));
+            });
+            if (!sub) {
+                set_exception(as.get_exception());
+            }
         }
     };
 
@@ -219,6 +234,27 @@ public:
         return f;
     }
 
+    /// Waits until condition variable is signaled, or if aborted via an \ref abort_source,
+    /// may wake up without condition been met
+    ///
+    /// \return a future that becomes ready when \ref signal() is called
+    ///         If abort is requested, return the abort exception.
+    ///         If the condition variable was \ref broken() will return \ref broken_condition_variable
+    ///         exception.
+    future<> wait(abort_source& as) noexcept {
+        if (as.abort_requested()) {
+            return make_exception_future<>(as.get_exception());
+        }
+        if (check_and_consume_signal()) {
+            return make_ready_future();
+        }
+        auto* w = new promise_waiter;
+        auto f = w->get_future();
+        add_waiter(*w);
+        w->subscribe(as);
+        return f;
+    }
+
     /// Waits until condition variable is signaled or timeout is reached
     ///
     /// \param timeout time point at which wait will exit with a timeout
@@ -266,6 +302,24 @@ public:
     future<> wait(Pred&& pred) noexcept {
         return do_until(std::forward<Pred>(pred), [this] {
             return wait();
+        });
+    }
+
+    /// Waits until abort is requested or condition variable is notified and pred() == true,
+    /// otherwise wait again.
+    ///
+    /// \param pred predicate that checks that awaited condition is true
+    ///
+    /// \return a future that becomes ready when \ref signal() is called
+    ///         If the condition variable was \ref broken(), may contain an exception.
+    template<typename Pred>
+    SEASTAR_CONCEPT( requires seastar::InvokeReturns<Pred, bool> )
+    future<> wait(abort_source& as, Pred&& pred) noexcept {
+        if (as.abort_requested()) {
+            return make_exception_future<>(as.get_exception());
+        }
+        return do_until(std::forward<Pred>(pred), [this, &as] {
+            return wait(as);
         });
     }
 
