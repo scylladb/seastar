@@ -233,12 +233,12 @@ public:
         }
         struct timeout_waiter : public promise_waiter, public timer<Clock> {};
 
-        auto w = std::make_unique<timeout_waiter>();
+        auto w = new timeout_waiter;
         auto f = w->get_future();
 
-        w->set_callback(std::bind(&waiter::timeout, w.get()));
+        w->set_callback(std::bind(&waiter::timeout, w));
         w->arm(timeout);
-        add_waiter(*w.release());
+        add_waiter(*w);
         return f;
     }
 
