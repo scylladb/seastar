@@ -203,9 +203,17 @@ function (set_option_if_package_is_found option_name package_name)
   endif ()
 endfunction ()
 
+# When Seastar is a top-level project, enable the non-library targets by default.
+# If it is embedded with `add_subdirectory`, disable them.
+if (CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
+  set (Seastar_MASTER_PROJECT ON)
+else ()
+  set (Seastar_MASTER_PROJECT OFF)
+endif ()
+
 option (Seastar_APPS
   "Enable application targets."
-  ON)
+  ${Seastar_MASTER_PROJECT})
 
 set (Seastar_CXX_FLAGS
   ""
@@ -215,11 +223,11 @@ set (Seastar_CXX_FLAGS
 
 option (Seastar_DEMOS
   "Enable demonstration targets."
-  ON)
+  ${Seastar_MASTER_PROJECT})
 
 option (Seastar_DOCS
   "Enable documentation targets."
-  ON)
+  ${Seastar_MASTER_PROJECT})
 
 option (Seastar_DPDK
   "Enable DPDK support."
@@ -265,7 +273,7 @@ set (Seastar_LD_FLAGS
 
 option (Seastar_INSTALL
   "Install targets."
-  ON)
+  ${Seastar_MASTER_PROJECT})
 
 option (Seastar_NUMA
   "Enable NUMA support."
@@ -273,7 +281,7 @@ option (Seastar_NUMA
 
 option (Seastar_TESTING
   "Enable testing targets."
-  ON)
+  ${Seastar_MASTER_PROJECT})
 
 option (Seastar_COMPRESS_DEBUG
   "Compress debug info."
@@ -345,15 +353,6 @@ set (Seastar_DEBUG_SHARED_PTR
   CACHE
   STRING
   "Enable shared_ptr debugging. Can be ON, OFF or DEFAULT (which enables it for Debug and Sanitize)")
-
-# When Seastar is embedded with `add_subdirectory`, disable the non-library targets.
-if (NOT (CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR))
-  set (Seastar_APPS OFF)
-  set (Seastar_DEMOS OFF)
-  set (Seastar_DOCS OFF)
-  set (Seastar_INSTALL OFF)
-  set (Seastar_TESTING OFF)
-endif ()
 
 #
 # Useful (non-cache) variables.
