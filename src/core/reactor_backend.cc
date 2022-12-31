@@ -1910,6 +1910,7 @@ public:
                     if (size_t(*r) == buffer.size()) {
                         fd.speculate_epoll(EPOLLIN);
                     }
+                    buffer.trim(*r);
                     return make_ready_future<temporary_buffer<char>>(std::move(buffer));
                 }
             } catch (...) {
