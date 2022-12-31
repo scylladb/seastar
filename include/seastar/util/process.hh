@@ -33,6 +33,7 @@
 #include <vector>
 #include <fmt/format.h>
 #include <seastar/core/iostream.hh>
+#include <seastar/core/posix.hh>
 #include <seastar/core/sstring.hh>
 
 namespace seastar::experimental {
