@@ -194,7 +194,7 @@ aio_storage_context::submit_work() {
     });
 
     if (__builtin_expect(_r._kernel_page_cache, false)) {
-        // linux-aio is not asynchrous when the page cache is used,
+        // linux-aio is not asynchronous when the page cache is used,
         // so we don't want to call io_submit() from the reactor thread.
         //
         // Pretend that all aio failed with EAGAIN and submit them
