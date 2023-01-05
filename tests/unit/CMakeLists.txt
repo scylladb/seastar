@@ -544,6 +544,7 @@ function(seastar_gen_mtls_certs)
   find_program(OPENSSL openssl)
 
   set(SUBJECT "/C=GB/ST=London/L=London/O=Redpanda Data/OU=Core/CN=redpanda.com")
+  set(EXTENSION "subjectAltName = IP:127.0.0.1")
   set(CLIENT1_SUBJECT "/C=GB/ST=London/L=London/O=Redpanda Data/OU=Core/CN=client1.org")
   set(CLIENT2_SUBJECT "/C=GB/ST=London/L=London/O=Redpanda Data/OU=Core/CN=client2.org")
 
@@ -552,7 +553,7 @@ function(seastar_gen_mtls_certs)
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
   )
   add_custom_command(OUTPUT mtls_ca.crt
-    COMMAND ${OPENSSL} req -new -x509 -sha256 -key mtls_ca.key -out mtls_ca.crt -subj ${SUBJECT}
+    COMMAND ${OPENSSL} req -new -x509 -sha256 -key mtls_ca.key -out mtls_ca.crt -subj ${SUBJECT} -addext ${EXTENSION}
     DEPENDS mtls_ca.key
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
   )
@@ -634,8 +635,16 @@ add_custom_target(tls_files
   DEPENDS ${out_tls_certificate_files}
 )
 
+add_custom_command (
+  DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/https-server.py
+  OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/https-server.py
+  COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/https-server.py ${CMAKE_CURRENT_BINARY_DIR})
+
+add_custom_target (https_server
+  DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/https-server.py)
+
 seastar_add_test (tls
-  DEPENDS tls_files testcrt othercrt mtls_certs
+  DEPENDS tls_files testcrt othercrt mtls_certs https_server
   SOURCES tls_test.cc
   LIBRARIES Boost::filesystem
   WORKING_DIRECTORY ${Seastar_BINARY_DIR})
