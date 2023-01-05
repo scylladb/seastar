@@ -104,6 +104,8 @@ static future<> connect_to_ssl_addr(::shared_ptr<tls::certificate_credentials> c
     }).discard_result();
 }
 
+#if SEASTAR_TESTING_WITH_NETWORKING
+
 static const auto google_name = "www.google.com";
 
 // broken out from below. to allow pre-lookup
@@ -197,6 +199,7 @@ SEASTAR_TEST_CASE(test_x509_client_with_priority_strings_fail) {
         return make_ready_future<>();
     });
 }
+#endif // SEASTAR_TESTING_WITH_NETWORKING
 
 SEASTAR_TEST_CASE(test_failed_connect) {
     tls::credentials_builder b;

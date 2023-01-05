@@ -119,7 +119,9 @@ function (seastar_add_test name)
       PRIVATE ${libraries})
 
     target_compile_definitions (${executable_target}
-      PRIVATE SEASTAR_TESTING_MAIN)
+      PRIVATE
+        SEASTAR_TESTING_MAIN
+        SEASTAR_TESTING_WITH_NETWORKING=$<BOOL:${Seastar_ENABLE_TESTS_ACCESSING_INTERNET}>)
 
     if ((Seastar_STACK_GUARDS STREQUAL "ON") OR
         ((Seastar_STACK_GUARDS STREQUAL "DEFAULT") AND
