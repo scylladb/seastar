@@ -60,14 +60,13 @@ action trim_trailing_whitespace_and_store_value {
 }
 
 action assign_field {
-    if (_rsp->_headers.count(_field_name)) {
+    auto [iter, inserted] = _rsp->_headers.try_emplace(_field_name, std::move(_value));
+    if (!inserted) {
         // RFC 7230, section 3.2.2.  Field Parsing:
         // A recipient MAY combine multiple header fields with the same field name into one
         // "field-name: field-value" pair, without changing the semantics of the message,
         // by appending each subsequent field value to the combined field value in order, separated by a comma.
-        _rsp->_headers[_field_name] += sstring(",") + std::move(_value);
-    } else {
-        _rsp->_headers[_field_name] = std::move(_value);
+        iter->second += sstring(",") + std::move(_value);
     }
 }
 
