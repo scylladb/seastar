@@ -137,4 +137,16 @@ public:
     }
 };
 
+inline void trim_trailing_spaces_and_tabs(sstring& str) {
+    auto data = str.data();
+    size_t i;
+    for (i = str.size(); i > 0; --i) {
+        auto c = data[i-1];
+        if (!(c == ' ' || c == '\t')) {
+            break;
+        }
+    }
+    str.resize(i);
+}
+
 }
