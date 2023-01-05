@@ -177,7 +177,7 @@ bool
 aio_storage_context::submit_work() {
     bool did_work = false;
 
-    _submission_queue.resize(0);
+    _submission_queue.clear();
     size_t to_submit = _r._io_sink.drain([this] (const internal::io_request& req, io_completion* desc) -> bool {
         if (!_iocb_pool.has_capacity()) {
             return false;
