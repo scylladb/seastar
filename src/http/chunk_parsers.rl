@@ -154,23 +154,14 @@ action mark {
     g.mark_start(p);
 }
 
-action move {
-    g.mark_end(p);
-    g.mark_start(p);
-}
-
 action store_field_name {
     _field_name = str();
 }
 
-action no_mark_store_value {
-    _value = get_str();
+action trim_trailing_whitespace_and_store_value {
+    _value = str();
+    trim_trailing_spaces_and_tabs(_value);
     g.mark_start(nullptr);
-}
-
-action checkpoint {
-    g.mark_end(p);
-    g.mark_start(p);
 }
 
 action assign_field {
@@ -196,17 +187,19 @@ tchar = alpha | digit | '-' | '!' | '#' | '$' | '%' | '&' | '\'' | '*'
 sp = ' ';
 ht = '\t';
 sp_ht = sp | ht;
-ows = sp_ht*;
-rws = sp_ht+;
 
 obs_text = 0x80..0xFF; # defined in RFC 7230, Section 3.2.6.
-field_vchars = (graph | obs_text)+ %checkpoint;
-field_content = (field_vchars ows)*;
+field_vchar = (graph | obs_text);
+# RFC 9110, Section 5.5 allows single ' '/'\t' separators between
+# field_vchar words. We are less strict and allow any number of spaces
+# between words.
+# Trailing spaces are trimmed in postprocessing.
+field_content = (field_vchar | sp_ht)*;
 
 field = tchar+ >mark %store_field_name;
-value = field_content >mark %no_mark_store_value;
-header_1st = field ':' ows value crlf %assign_field;
-header_cont = rws value crlf %extend_field;
+value = field_content >mark %trim_trailing_whitespace_and_store_value;
+header_1st = field ':' sp_ht* <: value crlf %assign_field;
+header_cont = (sp_ht+ <: value crlf) %extend_field;
 header = header_1st header_cont*;
 main := header* crlf @done;
 

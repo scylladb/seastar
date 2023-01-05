@@ -60,19 +60,10 @@ action store_value {
     _value = str();
 }
 
-action no_mark_store_value {
-    _value = get_str();
+action trim_trailing_whitespace_and_store_value {
+    _value = str();
+    trim_trailing_spaces_and_tabs(_value);
     g.mark_start(nullptr);
-}
-
-action checkpoint {
-    // Needs a start to be marked beforehand.
-    // Used to mark the candidate end of value string. Can be moved furhter by repetitive use
-    // of this action.
-    // To store the string that ends on the last checkpoint (instead of the last processed character)
-    // use %no_mark_store_value instead of %store_value
-    g.mark_end(p);
-    g.mark_start(p);
 }
 
 action assign_field {
@@ -116,14 +107,18 @@ uri = (any - sp)+ >mark %store_uri;
 http_version = 'HTTP/' (digit '.' digit) >mark %store_version;
 
 obs_text = 0x80..0xFF; # defined in RFC 7230, Section 3.2.6.
-field_vchars = (graph | obs_text)+ %checkpoint;
-field_content = (field_vchars sp_ht*)*;
+field_vchar = (graph | obs_text);
+# RFC 9110, Section 5.5 allows single ' '/'\t' separators between
+# field_vchar words. We are less strict and allow any number of spaces
+# between words.
+# Trailing spaces are trimmed in postprocessing.
+field_content = (field_vchar | sp_ht)*;
 
 field = tchar+ >mark %store_field_name;
-value = field_content >mark %no_mark_store_value;
+value = field_content >mark %trim_trailing_whitespace_and_store_value;
 start_line = ((operation sp uri sp http_version) -- crlf) crlf;
-header_1st = (field ':' sp_ht* value crlf) %assign_field;
-header_cont = (sp_ht+ value crlf) %extend_field;
+header_1st = (field ':' sp_ht* <: value crlf) %assign_field;
+header_cont = (sp_ht+ <: value crlf) %extend_field;
 header = header_1st header_cont*;
 main := start_line header* (crlf @done);
 
