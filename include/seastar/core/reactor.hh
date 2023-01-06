@@ -361,7 +361,6 @@ private:
 private:
     static std::chrono::nanoseconds calculate_poll_time();
     static void block_notifier(int);
-    size_t handle_aio_error(internal::linux_abi::iocb* iocb, int ec);
     bool flush_pending_aio();
     steady_clock_type::time_point next_pending_aio() const noexcept;
     bool reap_kernel_completions();
