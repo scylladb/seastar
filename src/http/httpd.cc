@@ -28,6 +28,7 @@
 #include <seastar/core/metrics.hh>
 #include <seastar/core/print.hh>
 #include <iostream>
+#include <charconv>
 #include <algorithm>
 #include <unordered_map>
 #include <queue>
@@ -82,6 +83,12 @@ future<> connection::do_response_loop() {
         });
 }
 
+static sstring size_to_sstring(size_t x) {
+    sstring::value_type tmp[sizeof(x) * 3 + 2];
+    auto res = std::to_chars(std::begin(tmp), std::end(tmp), x);
+    return sstring(tmp, res.ptr);
+}
+
 future<> connection::start_response() {
     if (_resp->_body_writer) {
         return _resp->write_reply_to_connection(*this).then_wrapped([this] (auto f) {
@@ -121,7 +128,7 @@ future<> connection::start_response() {
         });
     }
     set_headers(*_resp);
-    _resp->_headers["Content-Length"] = to_sstring(
+    _resp->_headers["Content-Length"] = size_to_sstring(
             _resp->_content.size());
     return _write_buf.write(_resp->_response_line.data(),
             _resp->_response_line.size()).then([this] {
