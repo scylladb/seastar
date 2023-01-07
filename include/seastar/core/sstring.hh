@@ -604,8 +604,11 @@ string_type uninitialized_string(size_t size) {
         return string_type(typename string_type::initialized_later(), size);
     } else {
         string_type ret;
-        // FIXME: use __resize_default_init if available
+#ifdef __cpp_lib_string_resize_and_overwrite
+        ret.resize_and_overwrite(size, [](string_type::value_type*, string_type::size_type n) { return n; });
+#else
         ret.resize(size);
+#endif
         return ret;
     }
 }
