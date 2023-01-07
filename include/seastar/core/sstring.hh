@@ -33,7 +33,6 @@
 #include <istream>
 #include <ostream>
 #include <functional>
-#include <cstdio>
 #include <type_traits>
 #include <fmt/ostream.h>
 #include <seastar/util/concepts.hh>
@@ -709,64 +708,11 @@ static String make_sstring(Args&&... args)
 
 namespace internal {
 template <typename string_type, typename T>
-string_type to_sstring_sprintf(T value, const char* fmt) {
-    char tmp[sizeof(value) * 3 + 2];
-    auto len = std::sprintf(tmp, fmt, value);
-    using ch_type = typename string_type::value_type;
-#pragma GCC diagnostic push
-    // GCC warns that the following line may read more than the size tmp,
-    // not realizing that the size of tmp was calculated as the maximum
-    // possible value of "len" (for the types and formats we use it for).
-#pragma GCC diagnostic ignored "-Wpragmas"
-#pragma GCC diagnostic ignored "-Wunknown-warning-option"
-#pragma GCC diagnostic ignored "-Wstringop-overread"
-    return string_type(reinterpret_cast<ch_type*>(tmp), len);
-#pragma GCC diagnostic pop
-}
-
-template <typename string_type>
-string_type to_sstring(int value) {
-    return to_sstring_sprintf<string_type>(value, "%d");
-}
-
-template <typename string_type>
-string_type to_sstring(unsigned value) {
-    return to_sstring_sprintf<string_type>(value, "%u");
-}
-
-template <typename string_type>
-string_type to_sstring(long value) {
-    return to_sstring_sprintf<string_type>(value, "%ld");
-}
-
-template <typename string_type>
-string_type to_sstring(unsigned long value) {
-    return to_sstring_sprintf<string_type>(value, "%lu");
-}
-
-template <typename string_type>
-string_type to_sstring(long long value) {
-    return to_sstring_sprintf<string_type>(value, "%lld");
-}
-
-template <typename string_type>
-string_type to_sstring(unsigned long long value) {
-    return to_sstring_sprintf<string_type>(value, "%llu");
-}
-
-template <typename string_type>
-string_type to_sstring(float value) {
-    return to_sstring_sprintf<string_type>(value, "%g");
-}
-
-template <typename string_type>
-string_type to_sstring(double value) {
-    return to_sstring_sprintf<string_type>(value, "%g");
-}
-
-template <typename string_type>
-string_type to_sstring(long double value) {
-    return to_sstring_sprintf<string_type>(value, "%Lg");
+string_type to_sstring(T value) {
+    auto size = fmt::formatted_size("{}", value);
+    auto formatted = uninitialized_string<string_type>(size);
+    fmt::format_to(formatted.data(), "{}", value);
+    return formatted;
 }
 
 template <typename string_type>
