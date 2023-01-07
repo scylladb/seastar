@@ -668,3 +668,13 @@ seastar_add_test (pipe
 
 seastar_add_test (spawn
   SOURCES spawn_test.cc)
+
+if (Seastar_BENCHMARK)
+  find_package (Benchmark REQUIRED)
+
+  add_executable (sstring_benchmark
+    sstring_benchmark.cc)
+  target_link_libraries (sstring_benchmark
+    seastar_private
+    Benchmark::benchmark)
+endif ()

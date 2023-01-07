@@ -275,6 +275,10 @@ option (Seastar_TESTING
   "Enable testing targets."
   ON)
 
+include (CMakeDependentOption)
+cmake_dependent_option (Seastar_BENCHMARK "Enable benchmark testings" OFF
+   "Seastar_TESTING" OFF)
+
 option (Seastar_COMPRESS_DEBUG
   "Compress debug info."
   ON)
