@@ -618,15 +618,10 @@ operator+(const char(&s)[N], const basic_sstring<char_type, size_type, Max, NulT
     return ret;
 }
 
+template <typename T>
 static inline
-size_t str_len() {
-    return 0;
-}
-
-template <typename First, typename... Tail>
-static inline
-size_t str_len(const First& first, const Tail&... tail) {
-    return std::string_view(first).size() + str_len(tail...);
+size_t constexpr str_len(const T& s) {
+    return std::string_view(s).size();
 }
 
 template <typename char_type, typename size_type, size_type max_size>
@@ -686,7 +681,7 @@ char* copy_str_to(char* dst, const Head& head, const Tail&... tail) {
 template <typename String = sstring, typename... Args>
 static String make_sstring(Args&&... args)
 {
-    String ret = uninitialized_string<String>(str_len(args...));
+    String ret = uninitialized_string<String>((str_len(args) + ...));
     copy_str_to(ret.data(), args...);
     return ret;
 }
