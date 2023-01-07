@@ -666,23 +666,19 @@ struct hash<seastar::basic_sstring<char_type, size_type, max_size, NulTerminate>
 
 namespace seastar {
 
+template <typename T>
 static inline
-char* copy_str_to(char* dst) {
-    return dst;
-}
-
-template <typename Head, typename... Tail>
-static inline
-char* copy_str_to(char* dst, const Head& head, const Tail&... tail) {
-    std::string_view v(head);
-    return copy_str_to(std::copy(v.begin(), v.end(), dst), tail...);
+void copy_str_to(char*& dst, const T& s) {
+    std::string_view v(s);
+    dst = std::copy(v.begin(), v.end(), dst);
 }
 
 template <typename String = sstring, typename... Args>
 static String make_sstring(Args&&... args)
 {
     String ret = uninitialized_string<String>((str_len(args) + ...));
-    copy_str_to(ret.data(), args...);
+    auto dst = ret.data();
+    (copy_str_to(dst, args), ...);
     return ret;
 }
 
