@@ -23,11 +23,12 @@
 
 #include <functional>
 #include <limits>
+#include <map>
+#include <type_traits>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/metrics_registration.hh>
 #include <boost/lexical_cast.hpp>
-#include <map>
 #include <seastar/core/metrics_types.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/bool_class.hh>
@@ -402,25 +403,14 @@ public:
 
 instance_id_type shard();
 
-template<typename T, typename En = std::true_type>
-struct is_callable;
-
-template<typename T>
-struct is_callable<T, typename std::integral_constant<bool, !std::is_void<std::invoke_result_t<T>>::value>::type> : public std::true_type {
-};
-
-template<typename T>
-struct is_callable<T, typename std::enable_if<std::is_fundamental<T>::value, std::true_type>::type> : public std::false_type {
-};
-
-template<typename T, typename = std::enable_if_t<is_callable<T>::value>>
+template<typename T, typename = std::enable_if_t<std::is_invocable_v<T>>>
 metric_function make_function(T val, data_type dt) {
     return [dt, val] {
         return metric_value(val(), dt);
     };
 }
 
-template<typename T, typename = std::enable_if_t<!is_callable<T>::value>>
+template<typename T, typename = std::enable_if_t<!std::is_invocable_v<T>>>
 metric_function make_function(T& val, data_type dt) {
     return [dt, &val] {
         return metric_value(val, dt);
