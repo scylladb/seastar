@@ -207,19 +207,16 @@ aio_storage_context::submit_work() {
         to_submit = 0;
     }
 
-    size_t submitted = 0;
-    while (to_submit > submitted) {
-        auto nr = to_submit - submitted;
-        auto iocbs = _submission_queue.data() + submitted;
+    size_t nr_consumed = 0;
+    for (auto iocbs = _submission_queue.data(), end = iocbs + to_submit; iocbs < end; iocbs += nr_consumed) {
+        auto nr = end - iocbs;
         auto r = io_submit(_io_context, nr, iocbs);
-        size_t nr_consumed;
         if (r == -1) {
             nr_consumed = handle_aio_error(iocbs[0], errno);
         } else {
             nr_consumed = size_t(r);
         }
         did_work = true;
-        submitted += nr_consumed;
     }
 
     if (need_to_retry() && !retry_in_progress()) {
