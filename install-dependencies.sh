@@ -166,6 +166,7 @@ arch_packages=(
     filesystem
     valgrind
     openssl
+    liburing
 )
 
 opensuse_packages=(
