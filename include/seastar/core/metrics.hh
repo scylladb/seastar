@@ -405,7 +405,7 @@ instance_id_type shard();
 
 template<typename T, typename = std::enable_if_t<std::is_invocable_v<T>>>
 metric_function make_function(T val, data_type dt) {
-    return [dt, val] {
+    return [dt, val = std::move(val)] {
         return metric_value(val(), dt);
     };
 }
