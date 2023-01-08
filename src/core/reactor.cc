@@ -1922,7 +1922,7 @@ reactor::spawn(std::string_view pathname,
                                                       argv = std::move(argv),
                                                       env = std::move(env), this] (std::tuple<file_desc, file_desc> cin_pipe,
                                                                                    std::tuple<file_desc, file_desc> cout_pipe,
-                                                                                   std::tuple<file_desc, file_desc> cerr_pipe) {
+                                                                                   std::tuple<file_desc, file_desc> cerr_pipe) mutable {
         return do_with(pid_t{},
                        std::move(cin_pipe),
                        std::move(cout_pipe),
