@@ -214,3 +214,27 @@ BOOST_AUTO_TEST_CASE(test_nul_termination) {
         BOOST_REQUIRE(!strncmp(s1.c_str(), s2.c_str(), std::min(s1.size(), s2.size())));
     }
 }
+
+BOOST_AUTO_TEST_CASE(test_resize_and_overwrite) {
+    static constexpr size_t new_size = 42;
+    static constexpr char pattern = 's';
+    {
+        // the size of new content is identical to the specified count
+        sstring s;
+        s.resize_and_overwrite(new_size, [](char* buf, size_t n) {
+            memset(buf, pattern, n);
+            return n;
+        });
+        BOOST_CHECK_EQUAL(s, sstring(new_size, pattern));
+    }
+    {
+        // the size of new content is smaller than the specified count
+        static constexpr size_t smaller_size = new_size / 2;
+        sstring s;
+        s.resize_and_overwrite(new_size, [](char* buf, size_t n) {
+            memset(buf, pattern, smaller_size);
+            return smaller_size;
+        });
+        BOOST_CHECK_EQUAL(s, sstring(smaller_size, pattern));
+    }
+}
