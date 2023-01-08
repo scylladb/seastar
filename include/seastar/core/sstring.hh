@@ -23,6 +23,7 @@
 
 #include <stdint.h>
 #include <algorithm>
+#include <cassert>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -35,6 +36,7 @@
 #include <cstdio>
 #include <type_traits>
 #include <fmt/ostream.h>
+#include <seastar/util/concepts.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/core/temporary_buffer.hh>
 
@@ -319,6 +321,22 @@ public:
         std::copy(s, s + n, ret.begin() + size());
         *this = std::move(ret);
         return *this;
+    }
+
+    /**
+     *  Resize string and use the specified @c op to modify the content and the length
+     *  @param n  new size
+     *  @param op the function object used for setting the new content of the string
+     */
+    template <class Operation>
+    SEASTAR_CONCEPT( requires std::is_invocable_r<size_t, Operation, char_type*, size_t>::value )
+    void resize_and_overwrite(size_t n, Operation op) {
+        if (n > size()) {
+            *this = basic_sstring(initialized_later(), n);
+        }
+        size_t r = std::move(op)(data(), n);
+        assert(r <= n);
+        resize(r);
     }
 
     /**
