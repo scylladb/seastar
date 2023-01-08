@@ -481,7 +481,7 @@ future<size_t> pollable_fd_state::recvmsg(struct msghdr *msg) {
         speculate_epoll(EPOLLIN);
         return make_ready_future<size_t>(*r);
     });
-};
+}
 
 future<size_t> pollable_fd_state::sendmsg(struct msghdr* msg) {
     maybe_no_more_send();
