@@ -854,7 +854,7 @@ reactor::task_queue::task_queue(unsigned id, sstring name, float shares)
         , _reciprocal_shares_times_2_power_32((uint64_t(1) << 32) / _shares)
         , _id(id)
         , _ts(now())
-        , _name(name) {
+        , _name(std::move(name)) {
     register_stats();
 }
 
