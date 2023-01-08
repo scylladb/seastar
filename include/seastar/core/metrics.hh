@@ -445,7 +445,7 @@ extern label shard_label;
  */
 template<typename T>
 impl::metric_definition_impl make_gauge(metric_name_type name,
-        T&& val, description d=description(), std::vector<label_instance> labels = {}) {
+        T&& val, description d = description(), std::vector<label_instance> labels = {}) {
     return {name, {impl::data_type::GAUGE, "gauge"}, make_function(std::forward<T>(val), impl::data_type::GAUGE), d, labels};
 }
 
@@ -483,7 +483,7 @@ impl::metric_definition_impl make_gauge(metric_name_type name,
 template<typename T>
 [[deprecated("Use make_counter()")]]
 impl::metric_definition_impl make_derive(metric_name_type name,
-        T&& val, description d=description(), std::vector<label_instance> labels = {}) {
+        T&& val, description d = description(), std::vector<label_instance> labels = {}) {
     return make_counter(std::move(name), std::forward<T>(val), std::move(d), std::move(labels));
 }
 
@@ -531,7 +531,7 @@ impl::metric_definition_impl make_derive(metric_name_type name, description d, s
  */
 template<typename T>
 impl::metric_definition_impl make_counter(metric_name_type name,
-        T&& val, description d=description(), std::vector<label_instance> labels = {}) {
+        T&& val, description d = description(), std::vector<label_instance> labels = {}) {
     auto type = impl::counter_type_traits<std::remove_reference_t<T>>::type;
     return {name, {type, "counter"}, make_function(std::forward<T>(val), type), d, labels};
 }
@@ -573,7 +573,7 @@ impl::metric_definition_impl make_counter(metric_name_type name, description d, 
 template<typename T>
 [[deprecated("Use make_counter()")]]
 impl::metric_definition_impl make_absolute(metric_name_type name,
-        T&& val, description d=description(), std::vector<label_instance> labels = {}) {
+        T&& val, description d = description(), std::vector<label_instance> labels = {}) {
     return make_counter(std::move(name), std::forward<T>(val), std::move(d), std::move(labels));
 }
 
@@ -585,7 +585,7 @@ impl::metric_definition_impl make_absolute(metric_name_type name,
  */
 template<typename T>
 impl::metric_definition_impl make_histogram(metric_name_type name,
-        T&& val, description d=description(), std::vector<label_instance> labels = {}) {
+        T&& val, description d = description(), std::vector<label_instance> labels = {}) {
     return  {name, {impl::data_type::HISTOGRAM, "histogram"}, make_function(std::forward<T>(val), impl::data_type::HISTOGRAM), d, labels};
 }
 
@@ -636,7 +636,7 @@ impl::metric_definition_impl make_summary(metric_name_type name,
 
 template<typename T>
 impl::metric_definition_impl make_total_bytes(metric_name_type name,
-        T&& val, description d=description(), std::vector<label_instance> labels = {},
+        T&& val, description d = description(), std::vector<label_instance> labels = {},
         instance_id_type = impl::shard()) {
     return make_counter(name, std::forward<T>(val), d, labels).set_type("total_bytes");
 }
@@ -650,7 +650,7 @@ impl::metric_definition_impl make_total_bytes(metric_name_type name,
 
 template<typename T>
 impl::metric_definition_impl make_current_bytes(metric_name_type name,
-        T&& val, description d=description(), std::vector<label_instance> labels = {},
+        T&& val, description d = description(), std::vector<label_instance> labels = {},
         instance_id_type = impl::shard()) {
     return make_gauge(name, std::forward<T>(val), d, labels).set_type("bytes");
 }
@@ -664,7 +664,7 @@ impl::metric_definition_impl make_current_bytes(metric_name_type name,
 
 template<typename T>
 impl::metric_definition_impl make_queue_length(metric_name_type name,
-        T&& val, description d=description(), std::vector<label_instance> labels = {},
+        T&& val, description d = description(), std::vector<label_instance> labels = {},
         instance_id_type = impl::shard()) {
     return make_gauge(name, std::forward<T>(val), d, labels).set_type("queue_length");
 }
@@ -678,7 +678,7 @@ impl::metric_definition_impl make_queue_length(metric_name_type name,
 
 template<typename T>
 impl::metric_definition_impl make_total_operations(metric_name_type name,
-        T&& val, description d=description(), std::vector<label_instance> labels = {},
+        T&& val, description d = description(), std::vector<label_instance> labels = {},
         instance_id_type = impl::shard()) {
     return make_counter(name, std::forward<T>(val), d, labels).set_type("total_operations");
 }
