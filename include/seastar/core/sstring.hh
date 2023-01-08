@@ -23,6 +23,7 @@
 
 #include <stdint.h>
 #include <algorithm>
+#include <cassert>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -35,6 +36,7 @@
 #include <cstdio>
 #include <type_traits>
 #include <fmt/ostream.h>
+#include <seastar/util/concepts.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/core/temporary_buffer.hh>
 
@@ -322,6 +324,22 @@ public:
     }
 
     /**
+     *  Resize string and use the specified @c op to modify the content and the length
+     *  @param n  new size
+     *  @param op the function object used for setting the new content of the string
+     */
+    template <class Operation>
+    SEASTAR_CONCEPT( requires std::is_invocable_r<size_t, Operation, char_type*, size_t>::value )
+    void resize_and_overwrite(size_t n, Operation op) {
+        if (n > size()) {
+            *this = basic_sstring(initialized_later(), n);
+        }
+        size_t r = std::move(op)(data(), n);
+        assert(r <= n);
+        resize(r);
+    }
+
+    /**
      *  Resize string.
      *  @param n  new size.
      *  @param c  if n greater than current size character to fill newly allocated space with.
@@ -592,18 +610,25 @@ public:
 template <typename char_type, typename Size, Size max_size, bool NulTerminate>
 constexpr Size basic_sstring<char_type, Size, max_size, NulTerminate>::npos;
 
-template <typename string_type = sstring>
-string_type uninitialized_string(size_t size) {
-    string_type ret;
-    // FIXME: use __resize_default_init if available
-    ret.resize(size);
-    return ret;
+namespace internal {
+template <class T> struct is_sstring : std::false_type {};
+template <typename char_type, typename Size, Size max_size, bool NulTerminate>
+struct is_sstring<basic_sstring<char_type, Size, max_size, NulTerminate>> : std::true_type {};
 }
 
-template <typename char_type, typename Size, Size max_size, bool NulTerminate>
-basic_sstring<char_type, Size, max_size, NulTerminate> uninitialized_string(size_t size) {
-    using sstring_type = basic_sstring<char_type, Size, max_size, NulTerminate>;
-    return sstring_type(sstring_type::initialized_later(), size);
+template <typename string_type = sstring>
+string_type uninitialized_string(size_t size) {
+    if constexpr (internal::is_sstring<string_type>::value) {
+        return string_type(typename string_type::initialized_later(), size);
+    } else {
+        string_type ret;
+#ifdef __cpp_lib_string_resize_and_overwrite
+        ret.resize_and_overwrite(size, [](string_type::value_type*, string_type::size_type n) { return n; });
+#else
+        ret.resize(size);
+#endif
+        return ret;
+    }
 }
 
 template <typename char_type, typename size_type, size_type Max, size_type N, bool NulTerminate>
