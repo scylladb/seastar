@@ -980,40 +980,48 @@ static future<> test_basic_content(bool streamed, bool chunked_reply) {
         if (streamed) {
             server.set_content_streaming(true);
         }
-        loopback_socket_impl lsi(lcf);
         httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
-        future<> client = seastar::async([&lsi, chunked_reply] {
-            connected_socket c_socket = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get0();
-            http::experimental::connection conn(std::move(c_socket));
+        future<> client = seastar::async([&lcf, chunked_reply] {
+            class connection_factory : public http::experimental::connection_factory {
+                loopback_socket_impl lsi;
+            public:
+                explicit connection_factory(loopback_connection_factory& f) : lsi(f) {}
+                virtual future<connected_socket> make() override {
+                    return lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr()));
+                }
+            };
+            auto cln = http::experimental::client(std::make_unique<connection_factory>(lcf));
 
             {
                 fmt::print("Simple request test\n");
                 auto req = http::request::make("GET", "test", "/test");
-                auto resp = conn.make_request(std::move(req)).get0();
-                BOOST_REQUIRE_EQUAL(resp._status, http::reply::status_type::ok);
-                if (!chunked_reply) {
-                    BOOST_REQUIRE_EQUAL(resp.content_length, 0);
-                } else {
-                    // If response is chunked it will contain the single termination
-                    // zero-sized chunk that still needs to be read out
-                    auto in = conn.in(resp);
-                    sstring body = util::read_entire_stream_contiguous(in).get0();
-                    BOOST_REQUIRE_EQUAL(body, "");
-                }
+                cln.make_request(std::move(req), [&] (const http::reply& resp, input_stream<char>&& in) {
+                    if (chunked_reply) {
+                        // need to drop empty chunk
+                        return seastar::async([in = std::move(in)] () mutable {
+                            util::skip_entire_stream(in).get();
+                        });
+                    }
+                    return make_ready_future<>();
+                }).get();
+                // in fact, this case is to make sure that _next_ cases won't collect
+                // garbage from the client connection
             }
 
             {
                 fmt::print("Request with body test\n");
                 auto req = http::request::make("GET", "test", "/test");
                 req.write_body("txt", sstring("12345 78901\t34521345"));
-                auto resp = conn.make_request(std::move(req)).get0();
-                BOOST_REQUIRE_EQUAL(resp._status, http::reply::status_type::ok);
-                if (!chunked_reply) {
-                    BOOST_REQUIRE_EQUAL(resp.content_length, 20);
-                }
-                auto in = conn.in(resp);
-                sstring body = util::read_entire_stream_contiguous(in).get0();
-                BOOST_REQUIRE_EQUAL(body, sstring("12345 78901\t34521345"));
+                cln.make_request(std::move(req), [&] (const http::reply& resp, input_stream<char>&& in) {
+                    BOOST_REQUIRE_EQUAL(resp._status, http::reply::status_type::ok);
+                    if (!chunked_reply) {
+                        BOOST_REQUIRE_EQUAL(resp.content_length, 20);
+                    }
+                    return seastar::async([in = std::move(in)] () mutable {
+                        sstring body = util::read_entire_stream_contiguous(in).get0();
+                        BOOST_REQUIRE_EQUAL(body, sstring("12345 78901\t34521345"));
+                    });
+                }).get();
             }
 
             {
@@ -1027,14 +1035,15 @@ static future<> test_basic_content(bool streamed, bool chunked_reply) {
                         out.close().get();
                     });
                 });
-                auto resp = conn.make_request(std::move(req)).get0();
-                BOOST_REQUIRE_EQUAL(resp._status, http::reply::status_type::ok);
-                if (!chunked_reply) {
-                    BOOST_REQUIRE_EQUAL(resp.content_length, 12);
-                }
-                auto in = conn.in(resp);
-                sstring body = util::read_entire_stream_contiguous(in).get0();
-                BOOST_REQUIRE_EQUAL(body, sstring("1234567890AB"));
+                cln.make_request(std::move(req), [&] (const http::reply& resp, input_stream<char>&& in) {
+                    if (!chunked_reply) {
+                        BOOST_REQUIRE_EQUAL(resp.content_length, 12);
+                    }
+                    return seastar::async([in = std::move(in)] () mutable {
+                        sstring body = util::read_entire_stream_contiguous(in).get0();
+                        BOOST_REQUIRE_EQUAL(body, sstring("1234567890AB"));
+                    });
+                }).get();
             }
 
             {
@@ -1054,14 +1063,15 @@ static future<> test_basic_content(bool streamed, bool chunked_reply) {
                         out.close().get();
                     });
                 });
-                auto resp = conn.make_request(std::move(req)).get0();
-                BOOST_REQUIRE_EQUAL(resp._status, http::reply::status_type::ok);
-                if (!chunked_reply) {
-                    BOOST_REQUIRE_EQUAL(resp.content_length, size);
-                }
-                auto in = conn.in(resp);
-                sstring body = util::read_entire_stream_contiguous(in).get0();
-                BOOST_REQUIRE_EQUAL(body, to_sstring(std::move(jumbo_copy)));
+                cln.make_request(std::move(req), [chunked_reply, size, jumbo_copy = std::move(jumbo_copy)] (const http::reply& resp, input_stream<char>&& in) mutable {
+                    if (!chunked_reply) {
+                        BOOST_REQUIRE_EQUAL(resp.content_length, size);
+                    }
+                    return seastar::async([in = std::move(in), jumbo_copy = std::move(jumbo_copy)] () mutable {
+                        sstring body = util::read_entire_stream_contiguous(in).get0();
+                        BOOST_REQUIRE_EQUAL(body, to_sstring(std::move(jumbo_copy)));
+                    });
+                }).get();
             }
 
             {
@@ -1075,14 +1085,16 @@ static future<> test_basic_content(bool streamed, bool chunked_reply) {
                         out.close().get();
                     });
                 });
-                auto resp = conn.make_request(std::move(req)).get0();
-                BOOST_REQUIRE_EQUAL(resp._status, http::reply::status_type::ok);
-                if (!chunked_reply) {
-                    BOOST_REQUIRE_EQUAL(resp.content_length, 13);
-                }
-                auto in = conn.in(resp);
-                sstring body = util::read_entire_stream_contiguous(in).get0();
-                BOOST_REQUIRE_EQUAL(body, sstring("req1234\r\n7890"));
+                cln.make_request(std::move(req), [&] (const http::reply& resp, input_stream<char>&& in) {
+                    BOOST_REQUIRE_EQUAL(resp._status, http::reply::status_type::ok);
+                    if (!chunked_reply) {
+                        BOOST_REQUIRE_EQUAL(resp.content_length, 13);
+                    }
+                    return seastar::async([in = std::move(in)] () mutable {
+                        sstring body = util::read_entire_stream_contiguous(in).get0();
+                        BOOST_REQUIRE_EQUAL(body, sstring("req1234\r\n7890"));
+                    });
+                }).get0();
             }
 
             {
@@ -1090,14 +1102,16 @@ static future<> test_basic_content(bool streamed, bool chunked_reply) {
                 auto req = http::request::make("GET", "test", "/test");
                 req.write_body("txt", sstring("foobar"));
                 req.set_expects_continue();
-                auto resp = conn.make_request(std::move(req)).get0();
-                BOOST_REQUIRE_EQUAL(resp._status, http::reply::status_type::ok);
-                if (!chunked_reply) {
-                    BOOST_REQUIRE_EQUAL(resp.content_length, 6);
-                }
-                auto in = conn.in(resp);
-                sstring body = util::read_entire_stream_contiguous(in).get0();
-                BOOST_REQUIRE_EQUAL(body, sstring("foobar"));
+                cln.make_request(std::move(req), [&] (const http::reply& resp, input_stream<char>&& in) {
+                    BOOST_REQUIRE_EQUAL(resp._status, http::reply::status_type::ok);
+                    if (!chunked_reply) {
+                        BOOST_REQUIRE_EQUAL(resp.content_length, 6);
+                    }
+                    return seastar::async([in = std::move(in)] () mutable {
+                        sstring body = util::read_entire_stream_contiguous(in).get0();
+                        BOOST_REQUIRE_EQUAL(body, sstring("foobar"));
+                    });
+                }).get();
             }
 
             {
@@ -1110,7 +1124,10 @@ static future<> test_basic_content(bool streamed, bool chunked_reply) {
                         out.close().get();
                     });
                 });
-                BOOST_REQUIRE_THROW(conn.make_request(std::move(req)).get0(), std::runtime_error);
+                BOOST_REQUIRE_THROW(cln.make_request(std::move(req), [] (const auto& resp, auto&& in) {
+                    BOOST_REQUIRE(false); // should throw before handling response
+                    return make_ready_future<>();
+                }).get0(), std::runtime_error);
             }
 
             {
@@ -1126,10 +1143,13 @@ static future<> test_basic_content(bool streamed, bool chunked_reply) {
                     });
                 });
                 BOOST_REQUIRE_NE(callback_completed, true); // should throw early
-                BOOST_REQUIRE_THROW(conn.make_request(std::move(req)).get0(), std::runtime_error);
+                BOOST_REQUIRE_THROW(cln.make_request(std::move(req), [] (const auto& resp, auto&& in) {
+                    BOOST_REQUIRE(false); // should throw before handling response
+                    return make_ready_future<>();
+                }).get0(), std::runtime_error);
             }
 
-            conn.close().get();
+            cln.close().get();
         });
 
         handler_base* handler;
