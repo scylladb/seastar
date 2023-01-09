@@ -22,24 +22,27 @@
 
 find_package (PkgConfig REQUIRED)
 
-pkg_check_modules (c-ares IMPORTED_TARGET GLOBAL libcares)
+pkg_check_modules (PC_c-ares IMPORTED_TARGET GLOBAL libcares)
 
-if (c-ares_FOUND)
+if (PC_c-ares_FOUND AND NOT (TARGET c-ares::cares))
   add_library (c-ares::cares INTERFACE IMPORTED)
-  target_link_libraries (c-ares::cares INTERFACE PkgConfig::c-ares)
-  set(c-ares_INCLUDE_DIR ${c-ares_INCLUDE_DIRS})
+  target_link_libraries (c-ares::cares INTERFACE PkgConfig::PC_c-ares)
+  set(c-ares_INCLUDE_DIR ${PC_c-ares_INCLUDE_DIRS})
 endif ()
 
 # for the full path of libcares
 find_library (c-ares_LIBRARY
-   NAMES cares
-   HINTS
-     ${c-ares_LIBDIR}
-     ${c-ares_LIBRARY_DIRS})
+  NAMES cares
+  HINTS
+    ${PC_c-ares_LIBDIR}
+    ${PC_c-ares_LIBRARY_DIRS})
 
 if (NOT c-ares_INCLUDE_DIR)
   find_path (c-ares_INCLUDE_DIR
-    NAMES ares_dns.h)
+    NAMES ares_dns.h
+    HINTS
+      ${PC_c-ares_INCLUDEDIR}
+      ${PC_c-ares_INCLUDE_DIRS})
 endif ()
 
 mark_as_advanced (
@@ -52,7 +55,7 @@ find_package_handle_standard_args (c-ares
   REQUIRED_VARS
     c-ares_LIBRARY
     c-ares_INCLUDE_DIR
-  VERSION_VAR c-ares_PC_VERSION)
+  VERSION_VAR PC_c-ares_VERSION)
 
 if (c-ares_FOUND)
   set (c-ares_LIBRARIES ${c-ares_LIBRARY})
