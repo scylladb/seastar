@@ -66,23 +66,16 @@ int main(int ac, char** av) {
 
         return seastar::async([=] {
             net::hostent e = net::dns::get_host_by_name(host, net::inet_address::family::INET).get0();
-            auto make_socket = [=] () -> connected_socket {
-                if (!https) {
-                    socket_address local = socket_address(::sockaddr_in{AF_INET, INADDR_ANY, {0}});
-                    ipv4_addr addr(e.addr_list.front(), 80);
-                    fmt::print("{} {}:80{}\n", method, e.addr_list.front(), path);
-                    return connect(make_ipv4_address(addr), local, transport::TCP).get0();
-                } else {
-                    auto certs = ::make_shared<tls::certificate_credentials>();
-                    certs->set_system_trust().get();
-                    socket_address remote = socket_address(e.addr_list.front(), 443);
-                    fmt::print("{} {}:443{}\n", method, e.addr_list.front(), path);
-                    return tls::connect(certs, remote, host).get0();
-                }
-            };
-
-            connected_socket s = make_socket();
-            http::experimental::connection conn(std::move(s));
+            std::unique_ptr<http::experimental::client> cln;
+            if (https) {
+                auto certs = ::make_shared<tls::certificate_credentials>();
+                certs->set_system_trust().get();
+                fmt::print("{} {}:443{}\n", method, e.addr_list.front(), path);
+                cln = std::make_unique<http::experimental::client>(socket_address(e.addr_list.front(), 443), std::move(certs), host);
+            } else {
+                fmt::print("{} {}:80{}\n", method, e.addr_list.front(), path);
+                cln = std::make_unique<http::experimental::client>(socket_address(e.addr_list.front(), 80));
+            }
             auto req = http::request::make(method, host, path);
             if (body != "") {
                 future<file> f = open_file_dma(body, open_flags::ro);
@@ -96,14 +89,15 @@ int main(int ac, char** av) {
                     });
                 });
             }
-            http::reply rep = conn.make_request(std::move(req)).get0();
+            cln->make_request(std::move(req), [] (const http::reply& rep, input_stream<char>&& in) {
+                fmt::print("Reply status {}\n--------8<--------\n", rep._status);
+                return seastar::async([in = std::move(in)] () mutable {
+                    in.consume(printer{}).get();
+                    in.close().get();
+                });
+            }).get();
 
-            fmt::print("Reply status {}\n--------8<--------\n", rep._status);
-            auto in = conn.in(rep);
-            in.consume(printer{}).get();
-            in.close().get();
-
-            conn.close().get();
+            cln->close().get();
         }).handle_exception([](auto ep) {
             fmt::print("Error: {}", ep);
         });
