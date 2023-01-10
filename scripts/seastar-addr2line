@@ -227,7 +227,7 @@ if args.test:
     ]
     parser = BacktraceResolver.BacktraceParser()
     for line, expected in data:
-        res = parser(line.strip())
+        res = parser(line.strip() + '\n')
         assert res == expected, f"{line}:\nExpected {expected}\nBut got  {res}"
     exit(0)
 
@@ -250,4 +250,4 @@ with BacktraceResolver(executable=args.executable, before_lines=args.before, con
         verbose=args.verbose, cmd_path=args.addr2line) as resolve:
     p = re.compile(r'\W+')
     for line in lines:
-        resolve(line.strip())
+        resolve(line.strip() + '\n')
