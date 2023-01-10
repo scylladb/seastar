@@ -283,6 +283,11 @@ option (Seastar_TESTING
   "Enable testing targets."
   ${Seastar_MASTER_PROJECT})
 
+include (CMakeDependentOption)
+cmake_dependent_option (Seastar_ENABLE_TESTS_ACCESSING_INTERNET
+  "Enable tests accessing internet." ON
+  "Seastar_TESTING" OFF)
+
 option (Seastar_COMPRESS_DEBUG
   "Compress debug info."
   ON)
