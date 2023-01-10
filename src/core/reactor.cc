@@ -1162,9 +1162,14 @@ void cpu_stall_detector::report_suppressions(sched_clock::time_point now) {
             buf.append("\n");
             buf.flush();
         }
-        _reported = 0;
-        _minute_mark = now;
+        reset_suppression_state(now);
     }
+}
+
+void
+cpu_stall_detector::reset_suppression_state(sched_clock::time_point now) {
+    _reported = 0;
+    _minute_mark = now;
 }
 
 void cpu_stall_detector_posix_timer::arm_timer() {
@@ -1385,6 +1390,7 @@ reactor::set_stall_detector_report_function(std::function<void ()> report) {
     auto cfg = _cpu_stall_detector->get_config();
     cfg.report = std::move(report);
     _cpu_stall_detector->update_config(std::move(cfg));
+    _cpu_stall_detector->reset_suppression_state(reactor::now());
 }
 
 std::function<void ()>

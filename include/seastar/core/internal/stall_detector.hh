@@ -76,6 +76,7 @@ private:
     void maybe_report();
     virtual void arm_timer() = 0;
     void report_suppressions(sched_clock::time_point now);
+    void reset_suppression_state(sched_clock::time_point now);
 public:
     using clock_type = thread_cputime_clock;
 public:
