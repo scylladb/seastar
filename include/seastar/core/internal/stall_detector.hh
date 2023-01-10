@@ -155,6 +155,11 @@ private:
         void skip(uint64_t bytes_to_skip) {
             _tail += bytes_to_skip;
         }
+        // skip all the remaining data in the buffer, as-if calling read until
+        // have_data returns false (but much faster)
+        void skip_all() {
+            _tail = _head;
+        }
         bool have_data() const {
             return _head != _tail;
         }
