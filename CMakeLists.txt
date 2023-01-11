@@ -894,6 +894,10 @@ if (Seastar_HEAP_PROFILING)
       SOURCE "src/core/memory.cc"
       PROPERTY
       COMPILE_DEFINITIONS SEASTAR_HEAPPROF)
+    set_property (
+      SOURCE "src/core/reactor.cc"
+      PROPERTY
+      COMPILE_DEFINITIONS SEASTAR_HEAPPROF)
 endif ()
 
 if (Seastar_DEFERRED_ACTION_REQUIRE_NOEXCEPT)
