@@ -675,13 +675,16 @@ resources allocate(configuration& c) {
     auto cpuset_procs = c.cpu_set ? c.cpu_set->size() : nr_processing_units(c);
     auto procs = c.cpus.value_or(cpuset_procs);
     ret.cpus.reserve(procs);
+    // limit memory address to fit in 36-bit, see core/memory.cc:Memory map
+    constexpr size_t max_mem_per_proc = 1UL << 36;
+    auto mem_per_proc = std::min(mem / procs, max_mem_per_proc);
     if (c.cpu_set) {
         for (auto cpuid : *c.cpu_set) {
-            ret.cpus.push_back(cpu{cpuid, {{mem / procs, 0}}});
+            ret.cpus.push_back(cpu{cpuid, {{mem_per_proc, 0}}});
         }
     } else {
         for (unsigned i = 0; i < procs; ++i) {
-            ret.cpus.push_back(cpu{i, {{mem / procs, 0}}});
+            ret.cpus.push_back(cpu{i, {{mem_per_proc, 0}}});
         }
     }
 
