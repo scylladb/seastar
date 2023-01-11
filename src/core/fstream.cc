@@ -324,17 +324,9 @@ private:
     }
 };
 
-class file_data_source : public data_source {
-public:
-    file_data_source(file f, uint64_t offset, uint64_t len, file_input_stream_options options)
-        : data_source(std::make_unique<file_data_source_impl>(
-                std::move(f), offset, len, options)) {}
-};
-
-
 input_stream<char> make_file_input_stream(
         file f, uint64_t offset, uint64_t len, file_input_stream_options options) {
-    return input_stream<char>(file_data_source(std::move(f), offset, len, std::move(options)));
+    return input_stream<char>(std::move(f).as_data_source(offset, len, std::move(options)));
 }
 
 input_stream<char> make_file_input_stream(
@@ -503,7 +495,8 @@ inline namespace and_newer {
 
 future<data_sink> make_file_data_sink(file f, file_output_stream_options options) noexcept {
     try {
-        return make_ready_future<data_sink>(std::make_unique<file_data_sink_impl>(f, options));
+        auto cf = f;
+        return make_ready_future<data_sink>(std::move(cf).as_data_sink(std::move(options)));
     } catch (...) {
         return f.close().then_wrapped([ex = std::current_exception(), f] (future<> fut) mutable {
             if (fut.failed()) {
@@ -532,6 +525,14 @@ future<output_stream<char>> make_file_output_stream(file f, file_output_stream_o
 }
 
 }
+}
+
+data_sink file_impl::make_data_sink(file me, file_output_stream_options opts) {
+    return data_sink(std::make_unique<file_data_sink_impl>(std::move(me), std::move(opts)));
+}
+
+data_source file_impl::make_data_source(file me, uint64_t off, uint64_t len, file_input_stream_options opts) {
+    return data_source(std::make_unique<file_data_source_impl>(std::move(me), off, len, std::move(opts)));
 }
 
 /*

@@ -88,6 +88,11 @@ class file;
 class file_impl;
 class io_intent;
 class file_handle;
+class data_sink;
+class data_source;
+
+struct file_input_stream_options;
+struct file_output_stream_options;
 
 // A handle that can be transported across shards and used to
 // create a dup(2)-like `file` object referring to the same underlying file
@@ -146,6 +151,9 @@ public:
     virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc, io_intent*) {
         return dma_read_bulk(offset, range_size, pc);
     }
+
+    virtual data_sink make_data_sink(file me, file_output_stream_options o);
+    virtual data_source make_data_source(file me, uint64_t off, uint64_t len, file_input_stream_options o);
 
     friend class reactor;
 };
@@ -556,6 +564,12 @@ public:
     /// \note Use on read-only files.
     ///
     file_handle dup();
+
+    /// @private
+    data_sink as_data_sink(file_output_stream_options o) &&;
+    /// @private
+    data_source as_data_source(uint64_t off, uint64_t len, file_input_stream_options o) &&;
+
 private:
     future<temporary_buffer<uint8_t>>
     dma_read_bulk_impl(uint64_t offset, size_t range_size, const io_priority_class& pc, io_intent* intent) noexcept;

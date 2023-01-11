@@ -39,6 +39,7 @@
 #include <seastar/core/file.hh>
 #include <seastar/core/report_exception.hh>
 #include <seastar/core/linux-aio.hh>
+#include <seastar/core/fstream.hh>
 #include <seastar/util/later.hh>
 #include <seastar/util/internal/magic.hh>
 #include <seastar/util/internal/iovec_utils.hh>
@@ -1271,6 +1272,16 @@ file::dma_read_impl(uint64_t aligned_pos, uint8_t* aligned_buffer, size_t aligne
 seastar::file_handle
 file::dup() {
     return seastar::file_handle(_file_impl->dup());
+}
+
+data_sink file::as_data_sink(file_output_stream_options opts) && {
+    auto& impl = *_file_impl;
+    return impl.make_data_sink(std::move(*this), std::move(opts));
+}
+
+data_source file::as_data_source(uint64_t off, uint64_t len, file_input_stream_options opts) && {
+    auto& impl = *_file_impl;
+    return impl.make_data_source(std::move(*this), off, len, std::move(opts));
 }
 
 file_impl* file_impl::get_file_impl(file& f) {
