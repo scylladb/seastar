@@ -22,22 +22,19 @@
 
 find_package (PkgConfig REQUIRED)
 
-pkg_search_module (LibUring IMPORTED_TARGET GLOBAL liburing)
-
-if (LibUring_FOUND)
-  add_library (URING::uring INTERFACE IMPORTED)
-  target_link_libraries (URING::uring INTERFACE PkgConfig::LibUring)
-  set (URING_INCLUDE_DIR ${LibUring_INCLUDE_DIRS})
-endif ()
+pkg_check_modules (PC_URING QUIET liburing)
 
 find_library (URING_LIBRARY
   NAMES uring
-  HINTS ${URING_LIBDIR})
+  HINTS
+    ${PC_URING_LIBDIR}
+    ${PC_URING_LIBRARY_DIRS})
 
-if (NOT URING_INCLUDE_DIR)
-  find_path (URING_INCLUDE_DIR
-    NAMES liburing.h)
-endif ()
+find_path (URING_INCLUDE_DIR
+  NAMES liburing.h
+  HINTS
+    ${PC_URING_INCLUDEDIR}
+    ${PC_URING_INCLUDE_DIRS})
 
 if (URING_INCLUDE_DIR)
   include (CheckStructHasMember)
@@ -61,7 +58,7 @@ find_package_handle_standard_args (LibUring
     URING_LIBRARY
     URING_INCLUDE_DIR
     HAVE_IOURING_FEATURES
-  VERSION_VAR LibUring_VERSION)
+  VERSION_VAR PC_URING_VERSION)
 
 if (LibUring_FOUND)
   set (URING_LIBRARIES ${URING_LIBRARY})

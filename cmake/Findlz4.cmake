@@ -22,24 +22,19 @@
 
 find_package (PkgConfig REQUIRED)
 
-pkg_search_module (lz4 IMPORTED_TARGET GLOBAL liblz4)
+pkg_search_module (PC_lz4 QUIET liblz4)
 
-if (liblz4_FOUND)
-  add_library (lz4::lz4 INTERFACE IMPORTED)
-  target_link_libraries (lz4::lz4 INTERFACE PkgConfig::liblz4)
-  set (lz4_LIBRARY ${lz4_LIBRARIES})
-  set (lz4_INCLUDE_DIR ${lz4_INCLUDE_DIRS})
-endif ()
+find_library (lz4_LIBRARY
+  NAMES lz4
+  HINTS
+    ${PC_lz4_LIBDIR}
+    ${PC_lz4_LIBRARY_DIRS})
 
-if (NOT lz4_LIBRARY)
-  find_library (lz4_LIBRARY
-    NAMES lz4)
-endif ()
-
-if (NOT lz4_INCLUDE_DIR)
-  find_path (lz4_INCLUDE_DIR
-    NAMES lz4.h)
-endif ()
+find_path (lz4_INCLUDE_DIR
+  NAMES lz4.h
+  HINTS
+    ${PC_lz4_INCLUDEDIR}
+    ${PC_lz4_INCLUDE_DIRS})
 
 mark_as_advanced (
   lz4_LIBRARY
