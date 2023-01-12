@@ -23,16 +23,13 @@
 
 find_package (PkgConfig REQUIRED)
 
-pkg_search_module (valgrind IMPORTED_TARGET GLOBAL valgrind)
+pkg_check_modules (PC_valgrind QUIET valgrind)
 
-if (valgrind_FOUND)
-  set (valgrind_INCLUDE_DIR ${valgrind_INCLUDE_DIRS})
-endif ()
-
-if (NOT Valgrind_INCLUDE_DIR)
-  find_path (Valgrind_INCLUDE_DIR
-    NAMES valgrind/valgrind.h)
-endif ()
+find_path (Valgrind_INCLUDE_DIR
+  NAMES valgrind/valgrind.h
+  HINTS
+    ${PC_valgrind_INCLUDEDIR}
+    ${PC_valgrind_INCLUDE_DIRS})
 
 mark_as_advanced (
   Valgrind_INCLUDE_DIR)

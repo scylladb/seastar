@@ -22,24 +22,29 @@
 
 find_package (PkgConfig REQUIRED)
 
-pkg_search_module (yaml-cpp yaml-cpp)
+pkg_search_module (PC_yaml-cpp QUIET yaml-cpp)
 
 find_library (yaml-cpp_LIBRARY_RELEASE
  NAMES yaml-cpp
- HINTS ${yaml-cpp_LIBDIR})
+ HINTS
+   ${PC_yaml-cpp_LIBDIR}
+   ${PC_yaml-cpp_LIBRARY_DIRS})
 
 find_library (yaml-cpp_LIBRARY_DEBUG
  NAMES yaml-cppd
- HINTS ${yaml-cpp_LIBDIR})
+ HINTS
+   ${PC_yaml-cpp_LIBDIR}
+   ${PC_yaml-cpp_LIBRARY_DIRS})
 
 include (SelectLibraryConfigurations)
 select_library_configurations (yaml-cpp)
 
-if (NOT yaml-cpp_INCLUDE_DIR)
- find_path (yaml-cpp_INCLUDE_DIR
-    NAMES yaml-cpp/yaml.h
-    PATH_SUFFIXES yaml-cpp)
-endif ()
+find_path (yaml-cpp_INCLUDE_DIR
+  NAMES yaml-cpp/yaml.h
+  PATH_SUFFIXES yaml-cpp
+  HINTS
+    ${PC_yaml-cpp_INCLUDEDIR}
+    ${PC_yaml-cpp_INCLUDE_DIRS})
 
 mark_as_advanced (
   yaml-cpp_LIBRARY_RELEASE

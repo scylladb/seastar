@@ -22,24 +22,19 @@
 
 find_package (PkgConfig REQUIRED)
 
-pkg_search_module (hwloc IMPORTED_TARGET GLOBAL hwloc)
+pkg_search_module (PC_hwloc QUIET hwloc)
 
-if (hwloc_FOUND)
-  add_library (hwloc::hwloc INTERFACE IMPORTED)
-  target_link_libraries (hwloc::hwloc INTERFACE PkgConfig::hwloc)
-  set (hwloc_LIBRARY ${hwloc_LIBRARIES})
-  set (hwloc_INCLUDE_DIR ${hwloc_INCLUDE_DIRS})
-endif ()
+find_library (hwloc_LIBRARY
+  NAMES hwloc
+  HINTS
+    ${PC_hwloc_LIBDIR}
+    ${PC_hwloc_LIBRARY_DIRS})
 
-if (NOT hwloc_LIBRARY)
-  find_library (hwloc_LIBRARY
-    NAMES hwloc)
-endif ()
-
-if (NOT hwloc_INCLUDE_DIR)
-  find_path (hwloc_INCLUDE_DIR
-    NAMES hwloc.h)
-endif ()
+find_path (hwloc_INCLUDE_DIR
+  NAMES hwloc.h
+  HINTS
+    ${PC_hwloc_INCLUDEDIR}
+    ${PC_hwloc_INCLUDE_DIRS})
 
 mark_as_advanced (
   hwloc_LIBRARY
