@@ -1767,7 +1767,7 @@ seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar
     return it;
 }
 
-void maybe_dump_memory_diagnostics(size_t size) {
+void maybe_dump_memory_diagnostics(size_t size, bool is_aborting) {
     if (report_on_alloc_failure_suppressed) {
         return;
     }
@@ -1792,6 +1792,11 @@ void maybe_dump_memory_diagnostics(size_t size) {
             break;
     }
 
+    if (is_aborting) {
+        // if we are about to abort, always report the memory diagnositics at error level
+        lvl = log_level::error;
+    }
+
     logger::lambda_log_writer writer([] (seastar::internal::log_buf::inserter_iterator it) {
         return do_dump_memory_diagnostics(it);
     });
@@ -1801,10 +1806,12 @@ void maybe_dump_memory_diagnostics(size_t size) {
 void on_allocation_failure(size_t size) {
     alloc_stats::increment(alloc_stats::types::failed_allocs);
 
-    maybe_dump_memory_diagnostics(size);
+    bool will_abort = !abort_on_alloc_failure_suppressed
+            && abort_on_allocation_failure.load(std::memory_order_relaxed);
 
-    if (!abort_on_alloc_failure_suppressed
-            && abort_on_allocation_failure.load(std::memory_order_relaxed)) {
+    maybe_dump_memory_diagnostics(size, will_abort);
+
+    if (will_abort) {
         seastar_logger.error("Failed to allocate {} bytes", size);
         abort();
     }
