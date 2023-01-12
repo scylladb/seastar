@@ -18,12 +18,16 @@
 #
 # Copyright (C) 2017 ScyllaDB
 
-import argparse
+import bisect
 import collections
 import re
 import sys
 import subprocess
 from enum import Enum
+from typing import Any
+
+# special binary path/module indicating that the address is from the kernel
+KERNEL_MODULE = '<kernel>'
 
 class Addr2Line:
 
@@ -83,6 +87,87 @@ class Addr2Line:
         self._input.stdin.flush()
         return self._read_resolved_address()
 
+class KernelResolver:
+    """A resolver for kernel addresses which tries to read from /proc/kallsyms."""
+
+    LAST_SYMBOL_MAX_SIZE = 1024
+
+    def __init__(self):
+        syms : list[tuple[int, str]] = []
+        ksym_re = re.compile(r'(?P<addr>[0-9a-f]+) (?P<type>.+) (?P<name>\S+)')
+        warnings_left = 10
+
+        self.error = None
+
+        try:
+            f = open('/proc/kallsyms', 'r')
+        except OSError as e:
+            self.error = f'Cannot open /proc/kallsyms: {e}'
+            print(self.error)
+            return
+
+        try:
+            for line in f:
+                m = ksym_re.match(line)
+                if not m:
+                    if warnings_left > 0: # don't spam too much
+                        print(f'WARNING: /proc/kallsyms regex match failure: {line.strip()}', file=sys.stdout)
+                        warnings_left -= 1
+                else:
+                    syms.append((int(m.group('addr'), 16), m.group('name')))
+        finally:
+            f.close()
+
+        if not syms:
+            # make empty kallsyms (?) an error so we can assum len >= 1 below
+            self.error = 'kallsyms was empty'
+            print(self.error)
+            return
+
+        syms.sort()
+
+        if syms[-1][0] == 0:
+            # zero values for all symbols means that kptr_restrict blocked you
+            # from seeing the kernel symbol addresses
+            print('kallsyms is restricted, set /proc/sys/kernel/kptr_restrict to 0 to decode')
+            self.error = 'kallsyms is restricted'
+            return
+
+        # split because bisect can't take a key func before 3.10
+        self.sym_addrs : tuple[int]
+        self.sym_names : tuple[str]
+        self.sym_addrs, self.sym_names = zip(*syms) # type: ignore
+
+
+    def __call__(self, addrstr):
+        if self.error:
+            return addrstr + '\n'
+
+        sa = self.sym_addrs
+        sn = self.sym_names
+        slen = len(sa)
+        address = int(addrstr, 16)
+        idx = bisect.bisect_right(sa, address) - 1
+        assert -1 <= idx < slen
+        if idx == -1:
+            return f'{addrstr} ({sa[0] - address} bytes before first symbol)\n'
+        if idx == slen - 1:
+            # We can easily detect symbol addresses which are too small: they fall before
+            # the first symbol in kallsyms, but for too large it is harder: we can't really
+            # distinguish between an address that is in the *very last* function in the symbol map
+            # and one which is beyond that, since kallsyms doesn't include symbol size. Instead
+            # we use a bit of a quick and dirty heuristic: if the symbol is *far enough* beyond
+            # the last symbol we assume it is not valid. Most likely, the overwhelming majority
+            # of cases are invalid (e.g., due to KASLR) as the final symbol in the map is usually
+            # something obscure.
+            lastsym = sa[-1]
+            if address - lastsym > self.LAST_SYMBOL_MAX_SIZE:
+                return f'{addrstr} ({address - lastsym} bytes after last symbol)\n'
+        saddr = sa[idx]
+        assert saddr <= address
+        return f'{sn[idx]}+0x{address - saddr:x}\n'
+
+
 class BacktraceResolver(object):
 
     class BacktraceParser(object):
@@ -99,10 +184,21 @@ class BacktraceResolver(object):
             self.oneline_re = re.compile(f"^((?:.*(?:(?:at|backtrace):?|:))?(?:\s+))?({token}(?:\s+{token})*)(?:\).*|\s*)$", flags=re.IGNORECASE)
             self.address_re = re.compile(full_addr_match, flags=re.IGNORECASE)
             self.syslog_re = re.compile(f"^(?:#\d+\s+)(?P<addr>{addr})(?:.*\s+)\({ignore_addr_match}\)\s*$", flags=re.IGNORECASE)
+            self.kernel_re = re.compile(fr'^kernel callstack: (?P<addrs>(?:{addr}\s*)+)$')
             self.asan_re = re.compile(f"^(?:.*\s+)\({full_addr_match}\)(\s+\(BuildId: [0-9a-fA-F]+\))?$", flags=re.IGNORECASE)
             self.asan_ignore_re = re.compile(f"^=.*$", flags=re.IGNORECASE)
             self.generic_re = re.compile(f"^(?:.*\s+){full_addr_match}\s*$", flags=re.IGNORECASE)
             self.separator_re = re.compile('^\W*-+\W*$')
+
+
+        def split_addresses(self, addrstring: str, default_path=None):
+            addresses : list[dict[str, Any]] = []
+            for obj in addrstring.split():
+                m = re.match(self.address_re, obj)
+                assert m, f'addr did not match address regex: {obj}'
+                #print(f"  >>> '{obj}': address {m.groups()}")
+                addresses.append({'path': m.group(1) or default_path, 'addr': m.group(2)})
+            return addresses
 
         def __call__(self, line):
             def get_prefix(s):
@@ -110,18 +206,25 @@ class BacktraceResolver(object):
                     s = s.strip()
                 return s or None
 
+            # order here is important: the kernel callstack regex
+            # needs to come first since it is more specific and would
+            # otherwise be matched by the online regex which comes next
+            m = self.kernel_re.match(line)
+            if m:
+                return {
+                    'type': self.Type.ADDRESS,
+                    'prefix': 'kernel callstack: ',
+                    'addresses' : self.split_addresses(m.group('addrs'), KERNEL_MODULE)
+                }
+
             m = re.match(self.oneline_re, line)
             if m:
                 #print(f">>> '{line}': oneline {m.groups()}")
-                ret = {'type': self.Type.ADDRESS}
-                ret['prefix'] = get_prefix(m.group(1))
-                addresses = []
-                for obj in m.group(2).split():
-                    m = re.match(self.address_re, obj)
-                    #print(f"  >>> '{obj}': address {m.groups()}")
-                    addresses.append({'path': m.group('path'), 'addr': m.group('addr')})
-                ret['addresses'] = addresses
-                return ret
+                return {
+                    'type': self.Type.ADDRESS,
+                    'prefix': get_prefix(m.group(1)),
+                    'addresses': self.split_addresses(m.group(2))
+                }
 
             m = re.match(self.syslog_re, line)
             if m:
@@ -180,7 +283,11 @@ class BacktraceResolver(object):
 
     def _get_resolver_for_module(self, module):
         if not module in self._known_modules:
-            self._known_modules[module] = Addr2Line(module, self._concise, self._cmd_path)
+            if module == KERNEL_MODULE:
+                resolver = KernelResolver()
+            else:
+                resolver = Addr2Line(module, self._concise, self._cmd_path)
+            self._known_modules[module] = resolver
         return self._known_modules[module]
 
     def __enter__(self):

@@ -224,11 +224,29 @@ if args.test:
                 {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': 'libc.so.6', 'addr': '0x00007fd2dab4f950'}]}),
         ('#2 0x00000000015c4cd3  n/a (/path/to/scylla + 0x15c4cd3)',
                 {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': '/path/to/scylla', 'addr': '0x00000000015c4cd3'}]}),
+
+        ('kernel callstack: ', None),
+        ('kernel callstack: 0xffffffffffffff80',
+            {
+                'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
+                'prefix': 'kernel callstack: ',
+                'addresses': [{'path': '<kernel>', 'addr': '0xffffffffffffff80'}]
+            }
+        ),
+        ('kernel callstack: 0xffffffffffffff80 0xffffffffaf15ccca',
+            {
+                'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
+                'prefix': 'kernel callstack: ',
+                'addresses': [{'path': '<kernel>', 'addr': '0xffffffffffffff80'}, {'path': '<kernel>', 'addr': '0xffffffffaf15ccca'}]
+            }
+        )
     ]
     parser = BacktraceResolver.BacktraceParser()
     for line, expected in data:
         res = parser(line.strip() + '\n')
         assert res == expected, f"{line}:\nExpected {expected}\nBut got  {res}"
+    if args.verbose:
+        print(f'All {len(data)} tests passed successfully.')
     exit(0)
 
 if args.addresses and args.file:

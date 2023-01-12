@@ -68,7 +68,7 @@ protected:
     cpu_stall_detector_config _config;
     seastar::metrics::metric_groups _metrics;
     friend reactor;
-    virtual bool reap_event_and_check_spuriousness() {
+    virtual bool is_spurious_signal() {
         return false;
     }
     virtual void maybe_report_kernel_trace() {}
@@ -76,6 +76,7 @@ private:
     void maybe_report();
     virtual void arm_timer() = 0;
     void report_suppressions(sched_clock::time_point now);
+    void reset_suppression_state(sched_clock::time_point now);
 public:
     using clock_type = thread_cputime_clock;
 public:
@@ -109,6 +110,10 @@ class cpu_stall_detector_linux_perf_event : public cpu_stall_detector {
     struct ::perf_event_mmap_page* _mmap;
     char* _data_area;
     size_t _data_area_mask;
+    // after the detector has been armed (i.e., _enabled is true), this
+    // is the moment at or after which the next signal is expected to occur
+    // and can be used for detecting spurious signals
+    sched_clock::time_point _next_signal_time{};
 private:
     class data_area_reader {
         cpu_stall_detector_linux_perf_event& _p;
@@ -150,6 +155,11 @@ private:
         void skip(uint64_t bytes_to_skip) {
             _tail += bytes_to_skip;
         }
+        // skip all the remaining data in the buffer, as-if calling read until
+        // have_data returns false (but much faster)
+        void skip_all() {
+            _tail = _head;
+        }
         bool have_data() const {
             return _head != _tail;
         }
@@ -160,7 +170,7 @@ public:
     ~cpu_stall_detector_linux_perf_event();
     virtual void arm_timer() override;
     virtual void start_sleep() override;
-    virtual bool reap_event_and_check_spuriousness() override;
+    virtual bool is_spurious_signal() override;
     virtual void maybe_report_kernel_trace() override;
 };
 

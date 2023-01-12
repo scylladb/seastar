@@ -1129,14 +1129,17 @@ void cpu_stall_detector::maybe_report() {
 //
 // We can do it a cheaper if we don't report suppressed backtraces.
 void cpu_stall_detector::on_signal() {
-    if (reap_event_and_check_spuriousness()) {
-        return;
-    }
     auto tasks_processed = engine().tasks_processed();
     auto last_seen = _last_tasks_processed_seen.load(std::memory_order_relaxed);
     if (!last_seen) {
         return; // stall detector in not active
-    } else if (last_seen == tasks_processed) { // no task was processed - report
+    } else if (last_seen == tasks_processed) {
+        // we defer to the check of spuriousness to inside this unlikely condition
+        // since the check itself can be costly, involving a syscall (reactor::now())
+        if (is_spurious_signal()) {
+            return;
+        }
+        // no task was processed - report unless supressed
         maybe_report();
         _report_at <<= 1;
     } else {
@@ -1159,9 +1162,14 @@ void cpu_stall_detector::report_suppressions(sched_clock::time_point now) {
             buf.append("\n");
             buf.flush();
         }
-        _reported = 0;
-        _minute_mark = now;
+        reset_suppression_state(now);
     }
+}
+
+void
+cpu_stall_detector::reset_suppression_state(sched_clock::time_point now) {
+    _reported = 0;
+    _minute_mark = now;
 }
 
 void cpu_stall_detector_posix_timer::arm_timer() {
@@ -1217,11 +1225,27 @@ cpu_stall_detector_linux_perf_event::~cpu_stall_detector_linux_perf_event() {
 
 void
 cpu_stall_detector_linux_perf_event::arm_timer() {
-    uint64_t ns = (_threshold * _report_at + _slack) / 1ns;
+    auto period = _threshold * _report_at + _slack;
+    uint64_t ns =  period / 1ns;
+    _next_signal_time = reactor::now() + period;
+    
+    // clear out any existing records in the ring buffer, so when we get interrupted next time
+    // we have only the stack associated with that interrupt, and so we don't overflow.
+    data_area_reader(*this).skip_all();
     if (__builtin_expect(_enabled && _current_period == ns, 1)) {
         // Common case - we're re-arming with the same period, the counter
         // is already enabled.
-        _fd.ioctl(PERF_EVENT_IOC_RESET, 0);
+
+        // We want to set the next interrupt to ns from now, and somewhat oddly the
+        // way to do this is PERF_EVENT_IOC_PERIOD, even with the same period as
+        // already configured, see the code at:
+        //
+        // https://elixir.bootlin.com/linux/v5.15.86/source/kernel/events/core.c#L5636
+        //
+        // Ths change is intentional: kernel commit bad7192b842c83e580747ca57104dd51fe08c223
+        // so we can resumably rely on it.
+        _fd.ioctl(PERF_EVENT_IOC_PERIOD, ns);
+
     } else {
         // Uncommon case - we're moving from disabled to enabled, or changing
         // the period. Issue more calls and be careful.
@@ -1241,12 +1265,12 @@ cpu_stall_detector_linux_perf_event::start_sleep() {
 }
 
 bool
-cpu_stall_detector_linux_perf_event::reap_event_and_check_spuriousness() {
-    struct read_format {
-        uint64_t value;
-    } buf;
-    _fd.read(&buf, sizeof(read_format));
-    return buf.value < _current_period;
+cpu_stall_detector_linux_perf_event::is_spurious_signal() {
+    // If the current time is before the expected signal time, it is
+    // probably a spurious signal. One reason this could occur is that
+    // PERF_EVENT_IOC_PERIOD does not reset the current overflow point
+    // on kernels prior to 3.14 (or 3.7 on Arm).
+    return reactor::now() < _next_signal_time;
 }
 
 void
@@ -1370,6 +1394,7 @@ reactor::set_stall_detector_report_function(std::function<void ()> report) {
     auto cfg = _cpu_stall_detector->get_config();
     cfg.report = std::move(report);
     _cpu_stall_detector->update_config(std::move(cfg));
+    _cpu_stall_detector->reset_suppression_state(reactor::now());
 }
 
 std::function<void ()>
