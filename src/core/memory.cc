@@ -1692,7 +1692,7 @@ seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar
     }
 
     it = fmt::format_to(it, "Small pools:\n");
-    it = fmt::format_to(it, "objsz\tspansz\tusedobj\tmemory\tunused\twst%\n");
+    it = fmt::format_to(it, "objsz spansz usedobj memory unused wst%\n");
     for (unsigned i = 0; i < get_cpu_mem().small_pools.nr_small_pools; i++) {
         auto& sp = get_cpu_mem().small_pools[i];
         // We don't use pools too small to fit a free_object, so skip these, they
@@ -1720,7 +1720,7 @@ seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar
         const auto unused = free_objs * sp.object_size();
         const auto wasted_percent = memory ? unused * 100 / memory : 0;
         it = fmt::format_to(it,
-                "{}\t{}\t{}\t{}\t{}\t{}\n",
+                "{:>5}  {:>5}   {:>5}  {:>5}  {:>5} {:>4}\n",
                 sp.object_size(),
                 to_hr_size(sp._span_sizes.preferred * page_size),
                 to_hr_number(use_count),
@@ -1728,8 +1728,8 @@ seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar
                 to_hr_size(unused),
                 unsigned(wasted_percent));
     }
-    it = fmt::format_to(it, "Page spans:\n");
-    it = fmt::format_to(it, "index\tsize\tfree\tused\tspans\n");
+    it = fmt::format_to(it, "\nPage spans:\n");
+    it = fmt::format_to(it, "index  size  free  used spans\n");
 
     std::array<uint32_t, cpu_pages::nr_span_lists> span_size_histogram;
     span_size_histogram.fill(0);
@@ -1756,7 +1756,7 @@ seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar
         const auto total_spans = span_size_histogram[i];
         const auto total_pages = total_spans * (1 << i);
         it = fmt::format_to(it,
-                "{}\t{}\t{}\t{}\t{}\n",
+                "{:>5} {:>5} {:>5} {:>5} {:>5}\n",
                 i,
                 to_hr_size((uint64_t(1) << i) * page_size),
                 to_hr_size(free_pages * page_size),
