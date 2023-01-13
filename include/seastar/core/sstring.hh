@@ -765,7 +765,7 @@ std::ostream& operator<<(std::ostream& os, const std::unordered_map<Key, T, Hash
         } else {
             first = false;
         }
-        os << "{ " << elem.first << " -> " << elem.second << "}";
+        os << "{" << elem.first << " -> " << elem.second << "}";
     }
     os << "}";
     return os;
