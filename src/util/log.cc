@@ -231,18 +231,20 @@ static internal::log_buf::inserter_iterator print_boot_timestamp(internal::log_b
 static internal::log_buf::inserter_iterator print_real_timestamp(internal::log_buf::inserter_iterator it) {
     struct a_second {
         time_t t;
-        std::string s;
+        std::array<char, 32> static_buf; // big enough to hold '2023-01-14 15:06:33'
+        internal::log_buf buf{static_buf.data(), static_buf.size()};
     };
     static thread_local a_second this_second;
     using clock = std::chrono::system_clock;
     auto n = clock::now();
     auto t = clock::to_time_t(n);
     if (this_second.t != t) {
-        this_second.s = fmt::format("{:%Y-%m-%d %T}", fmt::localtime(t));
         this_second.t = t;
+        this_second.buf.clear();
+        fmt::format_to(this_second.buf.back_insert_begin(), "{:%Y-%m-%d %T}", fmt::localtime(t));
     }
     auto ms = (n - clock::from_time_t(t)) / 1ms;
-    return fmt::format_to(it, "{},{:03d}", this_second.s, ms);
+    return fmt::format_to(it, "{},{:03d}", this_second.buf.view(), ms);
 }
 
 static internal::log_buf::inserter_iterator (*print_timestamp)(internal::log_buf::inserter_iterator) = print_no_timestamp;
