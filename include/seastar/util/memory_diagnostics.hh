@@ -21,9 +21,13 @@
 
 #pragma once
 
+#include <seastar/core/sstring.hh>
 #include <seastar/util/noncopyable_function.hh>
 
 namespace seastar {
+
+enum class log_level;
+
 namespace memory {
 
 /// \brief The kind of allocation failures to dump diagnostics report for.
@@ -74,12 +78,22 @@ using memory_diagnostics_writer = noncopyable_function<void(std::string_view)>;
 ///     the output.
 void set_additional_diagnostics_producer(noncopyable_function<void(memory_diagnostics_writer)> producer);
 
-/// Manually generate a diagnostics report
+/// Generate and return a diagnostics report as a string.
 ///
 /// Note that contrary to the automated report generation (triggered by
 /// allocation failure), this method does allocate memory and can fail in
 /// low-memory conditions.
 sstring generate_memory_diagnostics_report();
+
+namespace internal {
+/// Log the memory diagnostics to the internal logger in the same way as
+/// during an allocation failure, at the given log level. These reports
+/// are not rate limited, unlike the internally generated reports which
+/// are limited to 1 per 10 seconds.
+///
+/// This method attempts to avoid any allocations.
+void log_memory_diagnostics_report(log_level lvl);
+}
 
 } // namespace memory
 } // namespace seastar
