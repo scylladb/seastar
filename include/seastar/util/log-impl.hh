@@ -101,6 +101,10 @@ public:
     /// allocated buffer. log_buf doesn't take ownership of the buffer.
     log_buf(char* external_buf, size_t size) noexcept;
     ~log_buf();
+    /// Clear the buffer, setting its position back to the start, but does not
+    /// free any buffers (after this called, size is zero, capacity is unchanged).
+    /// Any existing iterators are invalidated.
+    void clear() { _current = _begin; }
     /// Create an output iterator which allows writing into the buffer.
     inserter_iterator back_insert_begin() noexcept { return inserter_iterator(*this); }
     /// The amount of data written so far.
