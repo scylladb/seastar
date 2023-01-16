@@ -104,13 +104,14 @@ private:
     std::exception_ptr _ex;
 
     void do_request_abort(std::optional<std::exception_ptr> ex) noexcept {
-        assert(_subscriptions);
-        _ex = ex.value_or(get_default_exception());
-        auto subs = std::exchange(_subscriptions, std::nullopt);
-        while (!subs->empty()) {
-            subscription& s = subs->front();
-            s.unlink();
-            s.on_abort(ex);
+        if (_subscriptions) {
+            _ex = ex.value_or(get_default_exception());
+            auto subs = std::exchange(_subscriptions, std::nullopt);
+            while (!subs->empty()) {
+                subscription& s = subs->front();
+                s.unlink();
+                s.on_abort(ex);
+            }
         }
     }
 
