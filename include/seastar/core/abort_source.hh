@@ -186,6 +186,23 @@ public:
     virtual std::exception_ptr get_default_exception() const noexcept {
         return make_exception_ptr(abort_requested_exception());
     }
+
+    friend class scope_abort_source;
+};
+
+/// Extension of \ref abort_source that allows to build an internal tree of \c abort_sources,
+/// where calling \ref request_abort() on parent object propagates to all of its descendants.
+/// Parent-child relation is created on child construction.
+/// Both child and parent must be owned by the same shard.
+class scope_abort_source : public abort_source {
+private:
+    optimized_optional<subscription> _parent_subscription;
+public:
+    scope_abort_source(abort_source& parent) {
+        _parent_subscription = parent.subscribe([this, &parent] () noexcept {
+            request_abort_ex(parent._ex);
+        });
+    }
 };
 
 /// @}
