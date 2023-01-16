@@ -104,8 +104,11 @@ private:
     std::exception_ptr _ex;
 
     void do_request_abort(std::optional<std::exception_ptr> ex) noexcept {
-        assert(_subscriptions);
+        if (_ex) {
+            return;
+        }
         _ex = ex.value_or(get_default_exception());
+        assert(_ex);
         auto subs = std::exchange(_subscriptions, std::nullopt);
         while (!subs->empty()) {
             subscription& s = subs->front();
@@ -145,7 +148,6 @@ public:
     /// Requests that the target operation be aborted. Current subscriptions
     /// are invoked inline with this call with a disengaged optional<std::exception_ptr>,
     /// and no new ones can be registered.
-    /// Must be called exactly once, otherwise the program will be aborted.
     void request_abort() noexcept {
         do_request_abort(std::nullopt);
     }
@@ -153,7 +155,6 @@ public:
     /// Requests that the target operation be aborted with a given \c exception_ptr.
     /// Current subscriptions are invoked inline with this exception,
     /// and no new ones can be registered.
-    /// Must be called exactly once, otherwise the program will be aborted.
     void request_abort_ex(std::exception_ptr ex) noexcept {
         do_request_abort(std::make_optional(std::move(ex)));
     }
@@ -161,7 +162,6 @@ public:
     /// Requests that the target operation be aborted with a given \c Exception object.
     /// Current subscriptions are invoked inline with this exception, converted to std::exception_ptr,
     /// and no new ones can be registered.
-    /// Must be called exactly once, otherwise the program will be aborted.
     template <typename Exception>
     void request_abort_ex(Exception&& e) noexcept {
         do_request_abort(std::make_optional(std::make_exception_ptr(std::forward<Exception>(e))));
