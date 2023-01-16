@@ -24,6 +24,7 @@
 #include <seastar/core/smp.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/util/memory_diagnostics.hh>
+#include <seastar/util/log.hh>
 
 #include <memory>
 #include <new>
@@ -257,6 +258,41 @@ SEASTAR_TEST_CASE(test_diagnostics_failures) {
     if (report.find(expected) == seastar::sstring::npos) {
         BOOST_FAIL(fmt::format("Did not find expected message: {} in\n{}\n", expected, report));
     }
+
+    return seastar::make_ready_future();
+}
+
+template <typename Func>
+SEASTAR_CONCEPT(requires requires (Func fn) { fn(); })
+void check_function_allocation(const char* name, size_t expected_allocs, Func f) {
+    auto before = seastar::memory::stats();
+    f();
+    auto after = seastar::memory::stats();
+
+    BOOST_TEST_INFO("After function: " << name);
+    BOOST_REQUIRE_EQUAL(expected_allocs, after.mallocs() - before.mallocs());
+}
+
+SEASTAR_TEST_CASE(test_diagnostics_allocation) {
+
+    check_function_allocation("empty", 0, []{});
+
+    check_function_allocation("operator new", 1, []{
+        // note that many pairs of malloc/free-alikes can just be optimized 
+        // away, but not operator new(size_t), per the standard
+        void * volatile p = operator new(1);
+        operator delete(p);
+    });
+
+    // The meat of this test. Dump the diagnostics report to the log and ensure it
+    // doesn't allocate. Doing it lots is important because it may alloc only occasionally:
+    // a real example being the optimized timestamp logging which (used to) make an allocation
+    // only once a second.
+    check_function_allocation("log_memory_diagnostics_report", 0, [&]{
+        for (int i = 0; i < 1000; i++) {
+            seastar::memory::internal::log_memory_diagnostics_report(log_level::info);
+        }
+    });
 
     return seastar::make_ready_future();
 }

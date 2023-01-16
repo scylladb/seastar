@@ -96,3 +96,27 @@ SEASTAR_TEST_CASE(log_buf_insert_iterator_format_to) {
     BOOST_REQUIRE_EQUAL(p[pos++], '\n');
     return make_ready_future<>();
 }
+
+SEASTAR_TEST_CASE(log_buf_clear) {
+    internal::log_buf buf;
+
+    auto it = buf.back_insert_begin();
+
+    fmt::format_to(it, "abcd");
+
+    BOOST_CHECK_EQUAL(buf.view(), "abcd");
+    auto cap_before = buf.capacity();
+    buf.clear();
+    BOOST_CHECK_EQUAL(cap_before, buf.capacity());
+    BOOST_CHECK_EQUAL(0, buf.size());
+
+    fmt::format_to(it, "uuvvwwxxyyzz");
+
+    BOOST_CHECK_EQUAL(buf.view(), "uuvvwwxxyyzz");
+    cap_before = buf.capacity();
+    buf.clear();
+    BOOST_CHECK_EQUAL(cap_before, buf.capacity());
+    BOOST_CHECK_EQUAL(0, buf.size());
+
+    return make_ready_future<>();
+}

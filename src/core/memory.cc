@@ -1767,6 +1767,18 @@ seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar
     return it;
 }
 
+void dump_memory_diagnostics(log_level lvl, logger::rate_limit& rate_limit) {
+    logger::lambda_log_writer writer([] (seastar::internal::log_buf::inserter_iterator it) {
+        return do_dump_memory_diagnostics(it);
+    });
+    seastar_memory_logger.log(lvl, rate_limit, writer);
+}
+
+void internal::log_memory_diagnostics_report(log_level lvl) {
+    logger::rate_limit rl{std::chrono::seconds(0)}; // never limit for explicit dump requests
+    dump_memory_diagnostics(lvl, rl);
+}
+
 void maybe_dump_memory_diagnostics(size_t size, bool is_aborting) {
     if (report_on_alloc_failure_suppressed) {
         return;
@@ -1776,8 +1788,6 @@ void maybe_dump_memory_diagnostics(size_t size, bool is_aborting) {
     if (seastar_memory_logger.is_enabled(log_level::debug)) {
         seastar_memory_logger.debug("Failed to allocate {} bytes at {}", size, current_backtrace());
     }
-
-    static thread_local logger::rate_limit rate_limit(std::chrono::seconds(10));
 
     auto lvl = log_level::debug;
     switch (dump_diagnostics_on_alloc_failure_kind.load(std::memory_order_relaxed)) {
@@ -1797,10 +1807,10 @@ void maybe_dump_memory_diagnostics(size_t size, bool is_aborting) {
         lvl = log_level::error;
     }
 
-    logger::lambda_log_writer writer([] (seastar::internal::log_buf::inserter_iterator it) {
-        return do_dump_memory_diagnostics(it);
-    });
-    seastar_memory_logger.log(lvl, rate_limit, writer);
+    static thread_local logger::rate_limit rate_limit(std::chrono::seconds(10));
+    dump_memory_diagnostics(lvl, rate_limit);
+
+
 }
 
 void on_allocation_failure(size_t size) {
