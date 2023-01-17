@@ -73,6 +73,22 @@ struct client_info {
     typename std::add_const<T>::type& retrieve_auxiliary(const sstring& key) const {
         return const_cast<client_info*>(this)->retrieve_auxiliary<typename std::add_const<T>::type>(key);
     }
+    template <typename T>
+    T* retrieve_auxiliary_opt(const sstring& key) noexcept {
+        auto it = user_data.find(key);
+        if (it == user_data.end()) {
+            return nullptr;
+        }
+        return &boost::any_cast<T&>(it->second);
+    }
+    template <typename T>
+    const T* retrieve_auxiliary_opt(const sstring& key) const noexcept {
+        auto it = user_data.find(key);
+        if (it == user_data.end()) {
+            return nullptr;
+        }
+        return &boost::any_cast<const T&>(it->second);
+    }
 };
 
 class error : public std::runtime_error {
