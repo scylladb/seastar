@@ -192,6 +192,8 @@ struct request {
      * \param content - the message content.
      * This would set the the content, conent length and content type of the message along
      * with any additional information that is needed to send the message.
+     *
+     * This method is good to be used if the body is available as a contiguous buffer.
      */
     void write_body(const sstring& content_type, sstring content);
 
@@ -207,10 +209,36 @@ struct request {
      *   The function should take ownership of the stream while using it and must close the stream when it
      *   is done.
      *
-     * Message would use chunked transfer encoding in the reply.
+     * This method can be used to write body of unknown or hard to evaluate length. For example,
+     * when sending the contents of some other input_stream or when the body is available as a
+     * collection of memory buffers. Message would use chunked transfer encoding.
      *
      */
     void write_body(const sstring& content_type, noncopyable_function<future<>(output_stream<char>&&)>&& body_writer);
+
+    /**
+     * \brief Use an output stream to write the message body
+     *
+     * When a handler needs to use an output stream it should call this method
+     * with a function.
+     *
+     * \param content_type - is used to choose the content type of the body. Use the file extension
+     *  you would have used for such a content, (i.e. "txt", "html", "json", etc')
+     * \param len - known in advance content length
+     * \param body_writer - a function that accept an output stream and use that stream to write the body.
+     *   The function should take ownership of the stream while using it and must close the stream when it
+     *   is done.
+     *
+     * This method is to be used when the body is not available of a single contiguous buffer, but the
+     * size of it is known and it's desirable to provide it to the server, or when the server strongly
+     * requires the content-length header for any reason.
+     *
+     * Message would use plain encoding in the the reply with Content-Length header set accordingly.
+     * If the body_writer doesn't generate enough bytes into the stream or tries to put more data into
+     * the stream, sending the request would resolve with exceptional future.
+     *
+     */
+    void write_body(const sstring& content_type, size_t len, noncopyable_function<future<>(output_stream<char>&&)>&& body_writer);
 
     /**
      * \brief Make request send Expect header

@@ -98,6 +98,12 @@ void request::write_body(const sstring& content_type, noncopyable_function<futur
     this->body_writer = std::move(body_writer);
 }
 
+void request::write_body(const sstring& content_type, size_t len, noncopyable_function<future<>(output_stream<char>&&)>&& body_writer) {
+    set_content_type(content_type);
+    content_length = len;
+    this->body_writer = std::move(body_writer);
+}
+
 void request::set_expects_continue() {
     _headers["Expect"] = "100-continue";
 }

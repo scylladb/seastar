@@ -30,6 +30,9 @@ namespace seastar {
 namespace http {
 namespace internal {
 output_stream<char> make_http_chunked_output_stream(output_stream<char>& out);
+// The len parameter defines the maximum number of bytes to be written. After the
+// stream is closed, the len is updated with the actual number of bytes written.
+output_stream<char> make_http_content_length_output_stream(output_stream<char>& out, size_t& len);
 } // internal namespace
 } // http namespace
 
