@@ -1641,6 +1641,16 @@ SEASTAR_TEST_CASE(test_warn_on_broken_promise_with_no_future) {
     return make_ready_future<>();
 }
 
+SEASTAR_TEST_CASE(test_destroy_promise_after_state_take_value) {
+    future<> f = make_ready_future<>();
+    auto p = std::make_unique<seastar::promise<>>();
+    f = p->get_future();
+    p->set_value();
+    auto g = f.then([] {});
+    p.reset();
+    return g;
+}
+
 SEASTAR_THREAD_TEST_CASE(test_exception_future_with_backtrace) {
     int counter = 0;
     auto inner = [&] (bool return_exception) mutable {

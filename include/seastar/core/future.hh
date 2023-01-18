@@ -1395,7 +1395,7 @@ private:
         // other build modes.
 #ifdef SEASTAR_DEBUG
         if (_state.available()) {
-            tws->set_state(std::move(_state));
+            tws->set_state(get_available_state_ref());
             ::seastar::schedule(tws);
             return;
         }
