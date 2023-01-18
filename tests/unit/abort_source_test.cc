@@ -181,3 +181,16 @@ SEASTAR_THREAD_TEST_CASE(test_request_abort_twice) {
     as.request_abort();
     BOOST_REQUIRE_THROW(as.check(), std::runtime_error);
 }
+
+SEASTAR_THREAD_TEST_CASE(test_scope_abort_source) {
+    abort_source as;
+    scope_abort_source sas{as};
+    auto expected_message = "expected";
+    as.request_abort_ex(std::runtime_error(expected_message));
+    BOOST_REQUIRE_THROW(sas.check(), std::runtime_error);
+    try {
+        sas.check();
+    } catch (const std::runtime_error& e) {
+        BOOST_REQUIRE_EQUAL(e.what(), expected_message);
+    }
+}
