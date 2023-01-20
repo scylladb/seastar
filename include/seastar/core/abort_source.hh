@@ -63,13 +63,13 @@ public:
 
         explicit subscription(abort_source& as, subscription_callback_type target)
                 : _target(std::move(target)) {
-            as._subscriptions->push_back(*this);
+            as._subscriptions.push_back(*this);
         }
 
         struct naive_cb_tag {}; // to disambiguate constructors
         explicit subscription(naive_cb_tag, abort_source& as, naive_subscription_callback_type naive_cb)
                 : _target([cb = std::move(naive_cb)] (const std::optional<std::exception_ptr>&) noexcept { cb(); }) {
-            as._subscriptions->push_back(*this);
+            as._subscriptions.push_back(*this);
         }
 
         void on_abort(const std::optional<std::exception_ptr>& ex) noexcept {
@@ -100,7 +100,7 @@ public:
 
 private:
     using subscription_list_type = bi::list<subscription, bi::constant_time_size<false>>;
-    std::optional<subscription_list_type> _subscriptions = subscription_list_type();
+    subscription_list_type _subscriptions;
     std::exception_ptr _ex;
 
     void do_request_abort(std::optional<std::exception_ptr> ex) noexcept {
@@ -109,9 +109,9 @@ private:
         }
         _ex = ex.value_or(get_default_exception());
         assert(_ex);
-        auto subs = std::exchange(_subscriptions, std::nullopt);
-        while (!subs->empty()) {
-            subscription& s = subs->front();
+        auto subs = std::move(_subscriptions);
+        while (!subs.empty()) {
+            subscription& s = subs.front();
             s.unlink();
             s.on_abort(ex);
         }
