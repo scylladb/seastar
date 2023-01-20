@@ -169,7 +169,7 @@ public:
 
     /// Returns whether an abort has been requested.
     bool abort_requested() const noexcept {
-        return !_subscriptions;
+        return bool(_ex);
     }
 
 
