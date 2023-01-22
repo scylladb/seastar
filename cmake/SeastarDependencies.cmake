@@ -89,7 +89,6 @@ macro (seastar_find_dependencies)
     fmt
     lz4
     # Private and private/public dependencies.
-    Concepts
     GnuTLS
     LibUring
     LinuxMembarrier
