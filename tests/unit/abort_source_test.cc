@@ -21,6 +21,7 @@
 
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
+#include <seastar/testing/random.hh>
 
 #include <seastar/core/gate.hh>
 #include <seastar/core/sleep.hh>
@@ -183,4 +184,112 @@ SEASTAR_THREAD_TEST_CASE(test_abort_source_move) {
     as1.request_abort();
     BOOST_REQUIRE(as1.abort_requested());
     BOOST_REQUIRE_EQUAL(aborted, 1);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_abort_on_any) {
+    std::default_random_engine random_engine(testing::local_random_engine());
+    std::uniform_int_distribution<> dist(0, 1);
+    std::array<abort_source, 2> ass;
+    auto awe = abort_on_any(ass[0], ass[1]);
+    auto& as = awe.abort_source();
+    BOOST_REQUIRE(!as.abort_requested());
+
+    int aborted = 0;
+    std::optional<std::exception_ptr> aborted_ex;
+    auto sub = as.subscribe([&] (const std::optional<std::exception_ptr>& opt_ex) noexcept {
+        BOOST_REQUIRE(!aborted);
+        ++aborted;
+        aborted_ex = opt_ex;
+    });
+    BOOST_REQUIRE(bool(sub));
+
+    int idx = dist(random_engine);
+    ass[idx].request_abort_ex(std::runtime_error("expected"));
+    BOOST_REQUIRE(as.abort_requested());
+    BOOST_REQUIRE_THROW(as.check(), std::runtime_error);
+
+    BOOST_REQUIRE_EQUAL(aborted, 1);
+    BOOST_REQUIRE(aborted_ex);
+    BOOST_REQUIRE_THROW(std::rethrow_exception(*aborted_ex), std::runtime_error);
+
+    ass[idx ^ 1].request_abort();
+    BOOST_REQUIRE(as.abort_requested());
+    BOOST_REQUIRE_THROW(as.check(), std::runtime_error);
+    BOOST_REQUIRE_EQUAL(aborted, 1);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_abort_on_any_three) {
+    std::default_random_engine random_engine(testing::local_random_engine());
+    std::uniform_int_distribution<> dist(0, 2);
+    std::array<abort_source, 3> ass;
+    auto awe = abort_on_any(ass[0], ass[1], ass[2]);
+    auto& as = awe.abort_source();
+    BOOST_REQUIRE(!as.abort_requested());
+
+    int aborted = 0;
+    std::optional<std::exception_ptr> aborted_ex;
+    auto sub = as.subscribe([&] (const std::optional<std::exception_ptr>& opt_ex) noexcept {
+        BOOST_REQUIRE(!aborted);
+        ++aborted;
+        aborted_ex = opt_ex;
+    });
+    BOOST_REQUIRE(bool(sub));
+
+    int idx = dist(random_engine);
+    ass[idx].request_abort_ex(std::runtime_error("expected"));
+    BOOST_REQUIRE(as.abort_requested());
+    BOOST_REQUIRE_THROW(as.check(), std::runtime_error);
+
+    BOOST_REQUIRE_EQUAL(aborted, 1);
+    BOOST_REQUIRE(aborted_ex);
+    BOOST_REQUIRE_THROW(std::rethrow_exception(*aborted_ex), std::runtime_error);
+
+    ass[(idx + 1) % 3].request_abort();
+    BOOST_REQUIRE(as.abort_requested());
+    BOOST_REQUIRE_THROW(as.check(), std::runtime_error);
+    BOOST_REQUIRE_EQUAL(aborted, 1);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_abort_on_any_already_aborted) {
+    std::default_random_engine random_engine(testing::local_random_engine());
+    std::uniform_int_distribution<> dist(0, 1);
+    std::array<abort_source, 2> ass;
+
+    int idx = dist(random_engine);
+    ass[idx].request_abort_ex(std::runtime_error("expected"));
+
+    auto awe = abort_on_any(ass[0], ass[1]);
+    auto& as = awe.abort_source();
+    BOOST_REQUIRE(as.abort_requested());
+    BOOST_REQUIRE_THROW(as.check(), std::runtime_error);
+
+    auto sub = as.subscribe([&] (const std::optional<std::exception_ptr>& opt_ex) noexcept {
+    });
+    BOOST_REQUIRE(!sub);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_abort_on_any_move) {
+    std::default_random_engine random_engine(testing::local_random_engine());
+    std::uniform_int_distribution<> dist(0, 1);
+    std::array<abort_source, 2> ass;
+    auto awe0 = abort_on_any(ass[0], ass[1]);
+
+    int aborted = 0;
+    std::optional<std::exception_ptr> aborted_ex;
+    auto sub = awe0.abort_source().subscribe([&] (const std::optional<std::exception_ptr>& opt_ex) noexcept {
+        ++aborted;
+        aborted_ex = opt_ex;
+    });
+    BOOST_REQUIRE(bool(sub));
+
+    auto awe1 = std::move(awe0);
+    auto& as = awe1.abort_source();
+
+    int idx = dist(random_engine);
+    ass[idx].request_abort_ex(std::runtime_error("expected"));
+    BOOST_REQUIRE(as.abort_requested());
+    BOOST_REQUIRE_THROW(as.check(), std::runtime_error);
+    BOOST_REQUIRE_EQUAL(aborted, 1);
+    BOOST_REQUIRE(aborted_ex);
+    BOOST_REQUIRE_THROW(std::rethrow_exception(*aborted_ex), std::runtime_error);
 }
