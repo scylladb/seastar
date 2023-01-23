@@ -247,6 +247,63 @@ public:
     }
 };
 
+template <typename... AbortSources>
+class abort_on_all {
+    static constexpr size_t size = sizeof...(AbortSources);
+
+    std::array<seastar::abort_source*, size> _ass;
+    std::array<optimized_optional<seastar::abort_source::subscription>, size> _subs;
+    abort_source _as;
+    int _aborted = 0;
+private:
+    void do_subscribe() {
+        for (size_t i = 0; i < size; i++) {
+            if (_as.abort_requested()) {
+                _subs[i] = {};
+                continue;
+            }
+            auto callback = [this] (const std::optional<std::exception_ptr>& opt_ex) noexcept {
+                if (++_aborted >= size && !_as.abort_requested()) {
+                    _as.request_abort_ex(opt_ex.value_or(std::make_exception_ptr(abort_requested_exception())));
+                }
+            };
+            _subs[i] = _ass[i]->subscribe(callback);
+            if (!_subs[i]) {
+                auto opt_ex = std::make_optional(_ass[i]->get_exception());
+                callback(opt_ex);
+            }
+        }
+    }
+public:
+    abort_on_all() = default;
+
+    abort_on_all(AbortSources&... sources)
+        : _ass({&sources...})
+    {
+        do_subscribe();
+    }
+    abort_on_all(abort_on_all&& o)
+        : _ass(std::move(o._ass))
+        , _as(std::move(o._as))
+        , _aborted(std::exchange(o._aborted, 0))
+    {
+        do_subscribe();
+    }
+    abort_on_all& operator=(abort_on_all&& o) {
+        if (this != &o) {
+            _ass = std::move(o._ass);
+            _as = std::move(o._as);
+            _aborted = std::exchange(o._aborted, 0);
+            do_subscribe();
+        }
+        return *this;
+    }
+
+    seastar::abort_source& abort_source() noexcept {
+        return _as;
+    }
+};
+
 /// @}
 
 }
