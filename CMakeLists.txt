@@ -40,6 +40,7 @@ project (Seastar
   VERSION 1.0
   LANGUAGES CXX)
 
+cmake_policy (SET CMP0090 NEW)
 if (POLICY CMP0135)
   cmake_policy (SET CMP0135 NEW)
 endif ()
