@@ -185,6 +185,12 @@ public:
     virtual std::exception_ptr get_default_exception() const noexcept {
         return make_exception_ptr(abort_requested_exception());
     }
+
+    /// Returns the exception_ptr abort was requested with
+    /// or nullptr if no abort was requested.
+    std::exception_ptr get_exception() const noexcept {
+        return _ex;
+    }
 };
 
 /// @}
