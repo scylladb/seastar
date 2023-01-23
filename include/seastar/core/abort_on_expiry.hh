@@ -50,7 +50,7 @@ public:
     abort_on_expiry(abort_on_expiry&&) = delete;
 
     /// \returns abort source associated with the timeout
-    seastar::abort_source& abort_source() {
+    seastar::abort_source& abort_source() noexcept {
         return _as;
     }
 };
