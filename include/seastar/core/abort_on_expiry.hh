@@ -24,6 +24,7 @@
 #include <seastar/core/abort_source.hh>
 #include <seastar/core/timer.hh>
 #include <seastar/core/lowres_clock.hh>
+#include <seastar/core/sleep.hh>
 
 namespace seastar {
 
@@ -36,6 +37,7 @@ template<typename Clock = lowres_clock>
 class abort_on_expiry {
     timer<Clock> _tr;
     seastar::abort_source _as;
+    optimized_optional<seastar::abort_source::subscription> _sub;
 public:
     using clock = Clock;
     using time_point = typename Clock::time_point;
@@ -46,6 +48,25 @@ public:
         _as.request_abort();
     }) {
         _tr.arm(timeout);
+    }
+    /// Creates a timer and an abort source associated with it,
+    /// chained to an external abort_source.
+    /// When either the timer reaches timeout point or abort is requested
+    /// via the external abort_source, it triggers an abort autimatically.
+    abort_on_expiry(time_point timeout, seastar::abort_source& as) noexcept
+    {
+        _sub = as.subscribe([this] (const std::optional<std::exception_ptr>& opt_ex) noexcept {
+            _tr.cancel();
+            _as.request_abort_ex(opt_ex.value_or(_as.get_default_exception()));
+        });
+        if (__builtin_expect(bool(_sub), true)) {
+            _tr.set_callback([this] {
+                _as.request_abort_ex(std::make_exception_ptr(sleep_aborted()));
+            });
+            _tr.arm(timeout);
+        } else {
+            _as.request_abort_ex(as.get_exception());
+        }
     }
     abort_on_expiry(abort_on_expiry&&) = delete;
 

@@ -184,3 +184,29 @@ SEASTAR_THREAD_TEST_CASE(test_abort_on_expiry) {
     manual_clock::advance(2ms);
     BOOST_REQUIRE_THROW(aoe.abort_source().check(), abort_requested_exception);
 }
+
+SEASTAR_THREAD_TEST_CASE(test_abort_on_expiry_chaining_timeout) {
+    abort_source as;
+    auto aoe = abort_on_expiry<manual_clock>(manual_clock::now() + 1ms, as);
+    BOOST_REQUIRE(!aoe.abort_source().abort_requested());
+    manual_clock::advance(2ms);
+    BOOST_REQUIRE_THROW(aoe.abort_source().check(), sleep_aborted);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_abort_on_expiry_chaining_external_abort) {
+    abort_source as;
+    auto aoe = abort_on_expiry<manual_clock>(manual_clock::now() + 1ms, as);
+    BOOST_REQUIRE(!aoe.abort_source().abort_requested());
+    as.request_abort();
+    BOOST_REQUIRE_THROW(aoe.abort_source().check(), abort_requested_exception);
+    manual_clock::advance(2ms);
+    BOOST_REQUIRE_THROW(aoe.abort_source().check(), abort_requested_exception);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_abort_on_expiry_chain_already_aborted) {
+    abort_source as;
+    as.request_abort_ex(std::make_exception_ptr(std::runtime_error("aborted")));
+    auto aoe = abort_on_expiry<manual_clock>(manual_clock::now() + 1ms, as);
+    BOOST_REQUIRE(aoe.abort_source().abort_requested());
+    BOOST_REQUIRE_THROW(aoe.abort_source().check(), std::runtime_error);
+}
