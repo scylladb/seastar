@@ -174,3 +174,13 @@ SEASTAR_THREAD_TEST_CASE(test_destroy_with_moved_subscriptions) {
     as.reset();
     BOOST_REQUIRE_EQUAL(aborted, 0);
 }
+
+SEASTAR_THREAD_TEST_CASE(test_abort_source_move) {
+    auto as0 = abort_source();
+    int aborted = 0;
+    auto sub = as0.subscribe([&] () noexcept { ++aborted; });
+    auto as1 = std::move(as0);
+    as1.request_abort();
+    BOOST_REQUIRE(as1.abort_requested());
+    BOOST_REQUIRE_EQUAL(aborted, 1);
+}
