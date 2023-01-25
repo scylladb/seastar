@@ -33,6 +33,7 @@
 #include <filesystem>
 #include <sys/poll.h>
 #include <sys/syscall.h>
+#include <sys/resource.h>
 
 #ifdef SEASTAR_HAVE_URING
 #include <liburing.h>
@@ -1246,11 +1247,25 @@ have_md_devices() {
     return false;
 }
 
+static size_t mlock_limit() {
+    struct ::rlimit lim;
+    int r = ::getrlimit(RLIMIT_MEMLOCK, &lim);
+    if (r == -1) {
+        return 0; // assume the worst; this is advisory anyway
+    }
+    return lim.rlim_cur;
+}
+
 static
 bool
 detect_io_uring() {
     if (!kernel_uname().whitelisted({"5.17"}) && have_md_devices()) {
         // Older kernels fall back to workqueues for RAID devices
+        return false;
+    }
+    if (!kernel_uname().whitelisted({"5.12"}) && mlock_limit() < (8 << 20)) {
+        // Older kernels lock about 32k/vcpu for the ring itself. Require 8MB of
+        // locked memory to be safe (8MB is what newer kernels and newer systemd provide)
         return false;
     }
     auto ring_opt = try_create_uring(1, false);
