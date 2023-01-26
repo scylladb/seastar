@@ -146,7 +146,7 @@ class [[nodiscard("must co_await an all() object")]] all {
         using type = std::byte[std::max({sizeof(intermediate_task<idx>)...})];
     };
     using continuation_storage = generate_aligned_union<std::make_index_sequence<std::tuple_size_v<tuple>>>;
-    using coroutine_handle_t = SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<void>;
+    using coroutine_handle_t = std::coroutine_handle<void>;
 private:
     tuple _futures;
 private:

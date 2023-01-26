@@ -60,7 +60,7 @@ namespace seastar::coroutine {
 template <typename Func>
 // constaints for Func are defined at the parallel_for_each constructor
 class [[nodiscard("must co_await an parallel_for_each() object")]] parallel_for_each final : continuation_base<> {
-    using coroutine_handle_t = SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<void>;
+    using coroutine_handle_t = std::coroutine_handle<void>;
 
     Func _func;
     boost::container::small_vector<future<>, 5> _futures;
@@ -151,7 +151,7 @@ public:
     }
 
     template<typename T>
-    void await_suspend(SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<T> h) {
+    void await_suspend(std::coroutine_handle<T> h) {
         _when_ready = h;
         _waiting_task = &h.promise();
         resume_or_set_callback();

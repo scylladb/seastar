@@ -22,6 +22,7 @@
 #pragma once
 
 #include <seastar/core/coroutine.hh>
+#include <coroutine>
 
 namespace seastar {
 
@@ -40,7 +41,7 @@ struct exception_awaiter {
     }
 
     template<typename U>
-    void await_suspend(SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<U> hndl) noexcept {
+    void await_suspend(std::coroutine_handle<U> hndl) noexcept {
         hndl.promise().set_exception(std::move(eptr));
         hndl.destroy();
     }

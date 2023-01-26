@@ -92,7 +92,7 @@ private:
 
 #ifdef SEASTAR_COROUTINES_ENABLED
     struct [[nodiscard("must co_await a when() call")]] awaiter : public waiter, private seastar::task {
-        using handle_type = SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<void>;
+        using handle_type = std::coroutine_handle<void>;
 
         condition_variable* _cv;
         handle_type _when_ready;
@@ -107,7 +107,7 @@ private:
             return _cv->check_and_consume_signal();
         }
         template<typename T>
-        void await_suspend(SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<T> h) {
+        void await_suspend(std::coroutine_handle<T> h) {
             _when_ready = h;
             _waiting_task = &h.promise();
             _cv->add_waiter(*this);
@@ -144,7 +144,7 @@ private:
             , _timeout(timeout)
         {}
         template<typename T>
-        void await_suspend(SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<T> h) {
+        void await_suspend(std::coroutine_handle<T> h) {
             awaiter::await_suspend(std::move(h));
             this->set_callback(std::bind(&waiter::timeout, this));
             this->arm(_timeout);
