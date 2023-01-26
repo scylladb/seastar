@@ -21,6 +21,8 @@
 
 #pragma once
 
+#include <cstddef>
+
 namespace seastar {
 
 static constexpr size_t KB = 1 << 10;
