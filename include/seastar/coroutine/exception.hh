@@ -21,8 +21,9 @@
 
 #pragma once
 
-#include <seastar/core/coroutine.hh>
+#include <seastar/core/future.hh>
 #include <coroutine>
+#include <exception>
 
 namespace seastar {
 
