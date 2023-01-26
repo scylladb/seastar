@@ -24,14 +24,15 @@
 #include <seastar/core/reactor.hh>
 #include <seastar/core/distributed.hh>
 #include <seastar/core/print.hh>
+#include <seastar/core/units.hh>
 
 using namespace seastar;
 using namespace net;
 using namespace std::chrono_literals;
 
-static int rx_msg_size = 4 * 1024;
-static int tx_msg_total_size = 100 * 1024 * 1024;
-static int tx_msg_size = 4 * 1024;
+static int rx_msg_size = 4_KiB;
+static int tx_msg_total_size = 100_MiB;
+static int tx_msg_size = 4_KiB;
 static int tx_msg_nr = tx_msg_total_size / tx_msg_size;
 static std::string str_txbuf(tx_msg_size, 'X');
 
@@ -192,7 +193,7 @@ public:
             fmt::print(std::cout, "========== {} ============\n", _test);
             fmt::print(std::cout, "Server: {}\n", _server_addr);
             fmt::print(std::cout, "Connections: {}\n", _concurrent_connections);
-            fmt::print(std::cout, "Bytes Received(MiB): {}\n", _processed_bytes/1024/1024);
+            fmt::print(std::cout, "Bytes Received(MiB): {}\n", _processed_bytes / 1_MiB);
             fmt::print(std::cout, "Total Time(Secs): {}\n", secs);
             fmt::print(std::cout, "Bandwidth(Gbits/Sec): {}\n",
                 static_cast<double>((_processed_bytes * 8)) / (1000 * 1000 * 1000) / secs);
