@@ -27,7 +27,7 @@
 #include <boost/functional/hash.hpp>
 /*!
  * \file metrics_api.hh
- * \brief header file for metric API layer (like promehteus or collectd)
+ * \brief header file for metric API layer (like prometheus or collectd)
  *
  *
  *
