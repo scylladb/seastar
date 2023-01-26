@@ -25,7 +25,6 @@
 #include <optional>
 #include <utility>
 #include <seastar/core/future.hh>
-#include <seastar/core/std-coroutine.hh>
 #include <seastar/util/attribute-compat.hh>
 
 namespace seastar::coroutine::experimental {
@@ -47,11 +46,11 @@ enum class buffer_size_t : size_t;
 
 namespace internal {
 
-using SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle;
-using SEASTAR_INTERNAL_COROUTINE_NAMESPACE::suspend_never;
-using SEASTAR_INTERNAL_COROUTINE_NAMESPACE::suspend_always;
-using SEASTAR_INTERNAL_COROUTINE_NAMESPACE::suspend_never;
-using SEASTAR_INTERNAL_COROUTINE_NAMESPACE::noop_coroutine;
+using std::coroutine_handle;
+using std::suspend_never;
+using std::suspend_always;
+using std::suspend_never;
+using std::noop_coroutine;
 
 template<typename T>
 using next_value_t = std::optional<T>;

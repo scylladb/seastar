@@ -70,7 +70,7 @@ public:
     }
 
     template<typename T>
-    void await_suspend(SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<T> hndl) noexcept {
+    void await_suspend(std::coroutine_handle<T> hndl) noexcept {
         auto& t = hndl.promise();
         t.set_scheduling_group(_switch_to_sg);
         _task = &t;

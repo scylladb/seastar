@@ -30,7 +30,7 @@ namespace seastar::coroutine {
 namespace internal {
 
 struct maybe_yield_awaiter final : task {
-    using coroutine_handle_t = SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<void>;
+    using coroutine_handle_t = std::coroutine_handle<void>;
 
     coroutine_handle_t when_ready;
     task* main_coroutine_task;
@@ -40,7 +40,7 @@ struct maybe_yield_awaiter final : task {
     }
 
     template <typename T>
-    void await_suspend(SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<T> h) {
+    void await_suspend(std::coroutine_handle<T> h) {
         when_ready = h;
         main_coroutine_task = &h.promise(); // for waiting_task()
         schedule(this);

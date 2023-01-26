@@ -42,7 +42,7 @@ public:
     }
 
     template<typename U>
-    void await_suspend(SEASTAR_INTERNAL_COROUTINE_NAMESPACE::coroutine_handle<U> hndl) noexcept {
+    void await_suspend(std::coroutine_handle<U> hndl) noexcept {
         if (!CheckPreempt || !_future.available()) {
             _future.set_coroutine(hndl.promise());
         } else {
