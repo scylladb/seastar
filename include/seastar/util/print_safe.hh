@@ -61,6 +61,23 @@ void print_safe(const char *str) noexcept {
     print_safe(str, strlen(str));
 }
 
+// Fills a buffer with a hexadecimal representation of an integer
+// and returns a pointer to the first character.
+// For example, convert_hex_safe(buf, 4, uint16_t(12)) fills the buffer with "   c".
+template<typename Integral>
+SEASTAR_CONCEPT( requires std::is_integral_v<Integral> )
+char* convert_hex_safe(char *buf, size_t bufsz, Integral n) noexcept {
+    const char *digits = "0123456789abcdef";
+    memset(buf, ' ', bufsz);
+    auto* p = buf + bufsz;
+    do {
+        assert(p > buf);
+        *--p = digits[n & 0xf];
+        n >>= 4;
+    } while (n);
+    return p;
+}
+
 // Fills a buffer with a zero-padded hexadecimal representation of an integer.
 // For example, convert_zero_padded_hex_safe(buf, 4, uint16_t(12)) fills the buffer with "000c".
 template<typename Integral>
