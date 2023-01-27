@@ -22,10 +22,13 @@
 #pragma once
 
 #include <seastar/util/concepts.hh>
-#include <stdio.h>
+#include <cassert>
+#include <cstring>
 #if __cplusplus > 201703L
 #include <concepts>
 #endif
+#include <stdio.h>
+#include <unistd.h>
 
 namespace seastar {
 
@@ -64,11 +67,11 @@ void print_safe(const char *str) noexcept {
 // Fills a buffer with a hexadecimal representation of an integer
 // and returns a pointer to the first character.
 // For example, convert_hex_safe(buf, 4, uint16_t(12)) fills the buffer with "   c".
-template<typename Integral>
-SEASTAR_CONCEPT( requires std::is_integral_v<Integral> )
+template<typename Integral, char Padding = ' '>
+SEASTAR_CONCEPT( requires std::integral<Integral> )
 char* convert_hex_safe(char *buf, size_t bufsz, Integral n) noexcept {
     const char *digits = "0123456789abcdef";
-    memset(buf, ' ', bufsz);
+    memset(buf, Padding, bufsz);
     auto* p = buf + bufsz;
     do {
         assert(p > buf);
@@ -83,14 +86,7 @@ char* convert_hex_safe(char *buf, size_t bufsz, Integral n) noexcept {
 template<typename Integral>
 SEASTAR_CONCEPT( requires std::integral<Integral> )
 void convert_zero_padded_hex_safe(char *buf, size_t bufsz, Integral n) noexcept {
-    const char *digits = "0123456789abcdef";
-    memset(buf, '0', bufsz);
-    unsigned i = bufsz;
-    while (n) {
-        assert(i > 0);
-        buf[--i] = digits[n & 0xf];
-        n >>= 4;
-    }
+    convert_hex_safe<'0'>(buf, bufsz, n);
 }
 
 // Prints zero-padded hexadecimal representation of an integer to stderr.
