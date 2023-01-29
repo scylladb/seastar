@@ -23,6 +23,7 @@
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/core/metrics.hh>
 #include <seastar/core/metrics_api.hh>
+#include <seastar/core/relabel_config.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/scheduling.hh>
 #include <seastar/core/sleep.hh>
@@ -167,4 +168,152 @@ SEASTAR_THREAD_TEST_CASE(test_renaming_io_priority_classes) {
     bool name1_found = label_vals.find(sstring(name1)) != label_vals.end();
     bool name2_found = label_vals.find(sstring(name2)) != label_vals.end();
     BOOST_REQUIRE((name1_found && !name2_found) || (name2_found && !name1_found));
+}
+
+int count_by_label(const std::string& label) {
+    seastar::foreign_ptr<seastar::metrics::impl::values_reference> values = seastar::metrics::impl::get_values();
+    int count = 0;
+    for (auto&& md : (*values->metadata)) {
+        for (auto&& mi : md.metrics) {
+            if (label == "" || mi.id.labels().find(label) != mi.id.labels().end()) {
+                count++;
+            }
+        }
+    }
+    return count;
+}
+
+int count_by_fun(std::function<bool(const seastar::metrics::impl::metric_info&)> f) {
+    seastar::foreign_ptr<seastar::metrics::impl::values_reference> values = seastar::metrics::impl::get_values();
+    int count = 0;
+    for (auto&& md : (*values->metadata)) {
+        for (auto&& mi : md.metrics) {
+            if (f(mi)) {
+                count++;
+            }
+        }
+    }
+    return count;
+}
+
+SEASTAR_THREAD_TEST_CASE(test_relabel_add_labels) {
+    using namespace seastar::metrics;
+    namespace sm = seastar::metrics;
+    sm::metric_groups app_metrics;
+    app_metrics.add_group("test", {
+        sm::make_gauge("gauge_1", sm::description("gague 1"), [] { return 0; }),
+        sm::make_counter("counter_1", sm::description("counter 1"), [] { return 1; })
+    });
+
+    std::vector<sm::relabel_config> rl(1);
+    rl[0].source_labels = {"__name__"};
+    rl[0].target_label = "level";
+    rl[0].replacement = "1";
+    rl[0].expr = "test_counter_.*";
+
+    sm::metric_relabeling_result success = sm::set_relabel_configs(rl).get();
+    BOOST_CHECK_EQUAL(success.metrics_relabeled_due_to_collision, 0);
+    BOOST_CHECK_EQUAL(count_by_label("level"), 1);
+    app_metrics.add_group("test", {
+        sm::make_counter("counter_2", sm::description("counter 2"), [] { return 2; })
+    });
+    BOOST_CHECK_EQUAL(count_by_label("level"), 2);
+    sm::set_relabel_configs({}).get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_relabel_drop_label_prevent_runtime_conflicts) {
+    using namespace seastar::metrics;
+    namespace sm = seastar::metrics;
+    sm::metric_groups app_metrics;
+    app_metrics.add_group("test2", {
+        sm::make_gauge("gauge_1", sm::description("gague 1"), { sm::label_instance("g", "1")}, [] { return 0; }),
+        sm::make_counter("counter_1", sm::description("counter 1"), [] { return 0; }),
+        sm::make_counter("counter_1", sm::description("counter 1"), { sm::label_instance("lev", "2")}, [] { return 0; })
+    });
+    BOOST_CHECK_EQUAL(count_by_label("lev"), 1);
+
+    std::vector<sm::relabel_config> rl(1);
+    rl[0].source_labels = {"lev"};
+    rl[0].expr = "2";
+    rl[0].target_label = "lev";
+    rl[0].action = sm::relabel_config::relabel_action::drop_label;
+    // Dropping the lev label would cause a conflict, but not crash the system
+    sm::metric_relabeling_result success = sm::set_relabel_configs(rl).get();
+    BOOST_CHECK_EQUAL(success.metrics_relabeled_due_to_collision, 1);
+    BOOST_CHECK_EQUAL(count_by_label("lev"), 0);
+    BOOST_CHECK_EQUAL(count_by_label("err"), 1);
+
+    //reseting all the labels to their original state
+    success = sm::set_relabel_configs({}).get();
+    BOOST_CHECK_EQUAL(success.metrics_relabeled_due_to_collision, 0);
+    BOOST_CHECK_EQUAL(count_by_label("lev"), 1);
+    BOOST_CHECK_EQUAL(count_by_label("err"), 0);
+    sm::set_relabel_configs({}).get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_relabel_enable_disable_skip_when_empty) {
+    using namespace seastar::metrics;
+    namespace sm = seastar::metrics;
+    sm::metric_groups app_metrics;
+    app_metrics.add_group("test3", {
+        sm::make_gauge("gauge_1", sm::description("gague 1"), { sm::label_instance("lev3", "3")}, [] { return 0; }),
+        sm::make_counter("counter_1", sm::description("counter 1"), { sm::label_instance("lev3", "3")}, [] { return 0; }),
+        sm::make_counter("counter_2", sm::description("counter 2"), { sm::label_instance("lev3", "3")}, [] { return 0; })
+    });
+    std::vector<sm::relabel_config> rl(2);
+    rl[0].source_labels = {"__name__"};
+    rl[0].action = sm::relabel_config::relabel_action::drop;
+
+    rl[1].source_labels = {"lev3"};
+    rl[1].expr = "3";
+    rl[1].action = sm::relabel_config::relabel_action::keep;
+    // We just disable all metrics besides those mark as lev3
+    sm::metric_relabeling_result success = sm::set_relabel_configs(rl).get();
+    BOOST_CHECK_EQUAL(success.metrics_relabeled_due_to_collision, 0);
+    BOOST_CHECK_EQUAL(count_by_label(""), 3);
+    BOOST_CHECK_EQUAL(count_by_fun([](const seastar::metrics::impl::metric_info& mi) {
+        return mi.should_skip_when_empty == sm::skip_when_empty::yes;
+    }), 0);
+
+    std::vector<sm::relabel_config> rl2(3);
+    rl2[0].source_labels = {"__name__"};
+    rl2[0].action = sm::relabel_config::relabel_action::drop;
+
+    rl2[1].source_labels = {"lev3"};
+    rl2[1].expr = "3";
+    rl2[1].action = sm::relabel_config::relabel_action::keep;
+
+    rl2[2].source_labels = {"__name__"};
+    rl2[2].expr = "test3.*";
+    rl2[2].action = sm::relabel_config::relabel_action::skip_when_empty;
+
+    success = sm::set_relabel_configs(rl2).get();
+    BOOST_CHECK_EQUAL(success.metrics_relabeled_due_to_collision, 0);
+    BOOST_CHECK_EQUAL(count_by_label(""), 3);
+    BOOST_CHECK_EQUAL(count_by_fun([](const seastar::metrics::impl::metric_info& mi) {
+        return mi.should_skip_when_empty == sm::skip_when_empty::yes;
+    }), 3);
+    // clear the configuration
+    success = sm::set_relabel_configs({}).get();
+    app_metrics.add_group("test3", {
+        sm::make_counter("counter_3", sm::description("counter 2"), { sm::label_instance("lev3", "3")}, [] { return 0; })(sm::skip_when_empty::yes)
+    });
+    std::vector<sm::relabel_config> rl3(3);
+    rl3[0].source_labels = {"__name__"};
+    rl3[0].action = sm::relabel_config::relabel_action::drop;
+
+    rl3[1].source_labels = {"lev3"};
+    rl3[1].expr = "3";
+    rl3[1].action = sm::relabel_config::relabel_action::keep;
+
+    rl3[2].source_labels = {"__name__"};
+    rl3[2].expr = "test3.*";
+    rl3[2].action = sm::relabel_config::relabel_action::report_when_empty;
+
+    success = sm::set_relabel_configs(rl3).get();
+    BOOST_CHECK_EQUAL(success.metrics_relabeled_due_to_collision, 0);
+    BOOST_CHECK_EQUAL(count_by_fun([](const seastar::metrics::impl::metric_info& mi) {
+        return mi.should_skip_when_empty == sm::skip_when_empty::yes;
+    }), 0);
+    sm::set_relabel_configs({}).get();
 }
