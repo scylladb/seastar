@@ -138,6 +138,8 @@ struct scheduling_group_key_config {
     std::type_index type_index;
     /// A function that will be called for each newly allocated value
     std::function<void (void*)> constructor;
+    /// A function that will be called for each value after the scheduling group is renamed.
+    std::function<void (void*)> rename;
     /// A function that will be called for each element that is about
     /// to be dealocated.
     std::function<void (void*)> destructor;

@@ -4633,6 +4633,20 @@ reactor::allocate_scheduling_group_specific_data(scheduling_group sg, scheduling
 }
 
 future<>
+reactor::rename_scheduling_group_specific_data(scheduling_group sg) {
+    return with_scheduling_group(sg, [this, sg] {
+        auto& sg_data = _scheduling_group_specific_data;
+        auto& this_sg = sg_data.per_scheduling_group_data[sg._id];
+        for (size_t i = 0; i < sg_data.scheduling_group_key_configs.size(); ++i) {
+            auto &c = sg_data.scheduling_group_key_configs[i];
+            if (c.rename) {
+                (c.rename)(this_sg.specific_vals[i]);
+            }
+        }
+    });
+}
+
+future<>
 reactor::init_scheduling_group(seastar::scheduling_group sg, sstring name, float shares) {
     auto& sg_data = _scheduling_group_specific_data;
     auto& this_sg = sg_data.per_scheduling_group_data[sg._id];
@@ -4779,6 +4793,7 @@ rename_scheduling_group(scheduling_group sg, sstring new_name) noexcept {
     }
     return smp::invoke_on_all([sg, new_name] {
         engine()._task_queues[sg._id]->rename(new_name);
+        return engine().rename_scheduling_group_specific_data(sg);
     });
 }
 

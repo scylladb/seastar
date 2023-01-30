@@ -429,6 +429,7 @@ private:
     void account_runtime(task_queue& tq, sched_clock::duration runtime);
     void account_idle(sched_clock::duration idletime);
     void allocate_scheduling_group_specific_data(scheduling_group sg, scheduling_group_key key);
+    future<> rename_scheduling_group_specific_data(scheduling_group sg);
     future<> init_scheduling_group(scheduling_group sg, sstring name, float shares);
     future<> init_new_scheduling_group_key(scheduling_group_key key, scheduling_group_key_config cfg);
     future<> destroy_scheduling_group(scheduling_group sg) noexcept;
