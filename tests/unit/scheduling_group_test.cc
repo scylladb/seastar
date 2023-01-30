@@ -282,3 +282,66 @@ SEASTAR_THREAD_TEST_CASE(sg_count) {
     }
     BOOST_REQUIRE_EQUAL(internal::scheduling_group_count(), max_scheduling_groups());
 }
+
+SEASTAR_THREAD_TEST_CASE(sg_rename_callback) {
+    // Tests that all sg-local values receive the rename() callback when scheduling groups
+    // are renamed.
+
+    struct value {
+        uint64_t _id = 0; // Used to check that the value only receives a rename(), not a reconstruction.
+        std::string _sg_name;
+
+        value(const value&) = delete;
+        value& operator=(const value&) = delete;
+
+        value() {
+            rename();
+        }
+        void rename() {
+            _sg_name = current_scheduling_group().name();
+        }
+    };
+
+    scheduling_group_key_config key_conf = make_scheduling_group_key_config<value>();
+    key_conf.rename = [] (void* ptr) {
+        reinterpret_cast<value*>(ptr)->rename();
+    };
+
+    std::vector<scheduling_group_key> keys;
+    for (size_t i = 0; i < 3; ++i) {
+        keys.push_back(scheduling_group_key_create(key_conf).get0());
+    }
+
+    std::vector<scheduling_group> sgs;
+    const auto destroy_sgs = defer([&sgs] () noexcept {
+        for (auto sg : sgs) {
+           destroy_scheduling_group(sg).get0();
+        }
+    });
+    for (size_t s = 0; s < 3; ++s) {
+        sgs.push_back(create_scheduling_group(fmt::format("sg-old-{}", s), 1000).get0());
+    }
+
+    smp::invoke_on_all([&sgs, &keys] () {
+        for (size_t s = 0; s < std::size(sgs); ++s) {
+            for (size_t k = 0; k < std::size(keys); ++k) {
+                BOOST_REQUIRE_EQUAL(sgs[s].get_specific<value>(keys[k])._sg_name, fmt::format("sg-old-{}", s));
+                sgs[s].get_specific<value>(keys[k])._id = 1;
+            }
+        }
+    }).get0();
+
+    for (size_t s = 0; s < std::size(sgs); ++s) {
+        rename_scheduling_group(sgs[s], fmt::format("sg-new-{}", s)).get0();
+    }
+
+    smp::invoke_on_all([&sgs, &keys] () {
+        for (size_t s = 0; s < std::size(sgs); ++s) {
+            for (size_t k = 0; k < std::size(keys); ++k) {
+                BOOST_REQUIRE_EQUAL(sgs[s].get_specific<value>(keys[k])._sg_name, fmt::format("sg-new-{}", s));
+                // Checks that the value only saw a rename(), not a reconstruction.
+                BOOST_REQUIRE_EQUAL(sgs[s].get_specific<value>(keys[k])._id, 1);
+            }
+        }
+    }).get0();
+}
