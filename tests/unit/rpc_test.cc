@@ -110,6 +110,7 @@ public:
             }
         } server_rcv = {}, server_snd = {}, client_rcv = {}, client_snd = {};
         error connect_kind = error::none;
+        std::chrono::microseconds connect_delay = std::chrono::microseconds(0);
     };
 private:
     config _cfg;
@@ -134,6 +135,10 @@ public:
 
     error connect_error() override {
         return _cfg.connect_kind;
+    }
+
+    std::chrono::microseconds connect_delay() override {
+        return _cfg.connect_delay;
     }
 };
 
