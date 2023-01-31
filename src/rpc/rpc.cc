@@ -269,7 +269,7 @@ namespace rpc {
           _outgoing_queue.push_back(d);
           _outgoing_queue_size++;
           auto deleter = [this, it = _outgoing_queue.iterator_to(d)] {
-              // Front entry is most likely (unless _negotiated is unresolved) sitting
+              // Front entry is most likely (unless _negotiated is unresolved, check enqueue_zero_frame()) sitting
               // inside send_entry() continuations and thus it cannot be cancelled.
               if (it != _outgoing_queue.begin()) {
                   withdraw(it);
@@ -713,6 +713,29 @@ namespace rpc {
       }
   }
 
+  // This is the enlightened copy of the connection::send() method. Its intention is to
+  // keep a dummy entry in front of the queue while connect+negotiate is happenning so
+  // that all subsequent entries could abort on timeout or explicit cancellation.
+  void client::enqueue_zero_frame() {
+      if (_error) {
+          return;
+      }
+
+      auto p = std::make_unique<outgoing_entry>(snd_buf(0));
+      auto& d = *p;
+      _outgoing_queue.push_back(d);
+
+      // Make it in the background. Even if the client is stopped it will pick
+      // up all the entries hanging around
+      (void)std::exchange(_outgoing_queue_ready, d.done.get_future()).then_wrapped([p = std::move(p)] (auto f) mutable {
+          if (f.failed()) {
+              f.ignore_ready_future();
+          } else {
+              p->done.set_value();
+          }
+      });
+  }
+
   client::client(const logger& l, void* s, client_options ops, socket socket, const socket_address& addr, const socket_address& local)
   : rpc::connection(l, s), _socket(std::move(socket)), _server_addr(addr), _local_addr(local), _options(ops) {
        _socket.set_reuseaddr(ops.reuseaddr);
@@ -811,6 +834,7 @@ namespace rpc {
               _stopped.set_value();
           });
       });
+      enqueue_zero_frame();
   }
 
   client::client(const logger& l, void* s, const socket_address& addr, const socket_address& local)
