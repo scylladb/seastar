@@ -509,9 +509,9 @@ resources allocate(configuration& c) {
 #endif
     size_t mem = calculate_memory(c, std::min(available_memory,
                                               cgroup::memory_limit()));
-    unsigned available_procs = hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_PU);
     unsigned procs = c.cpus;
-    if (procs > available_procs) {
+    if (unsigned available_procs = hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_PU);
+        procs > available_procs) {
         throw std::runtime_error(format("insufficient processing units: needed {} available {}", procs, available_procs));
     }
     if (procs == 0) {
