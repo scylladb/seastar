@@ -512,7 +512,7 @@ resources allocate(configuration& c) {
     size_t mem = calculate_memory(c, std::min(available_memory,
                                               cgroup::memory_limit()));
     unsigned available_procs = hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_PU);
-    unsigned procs = c.cpus.value_or(available_procs);
+    unsigned procs = c.cpus;
     if (procs > available_procs) {
         throw std::runtime_error(format("insufficient processing units: needed {} available {}", procs, available_procs));
     }
@@ -672,8 +672,7 @@ resources allocate(configuration& c) {
 
     auto available_memory = ::sysconf(_SC_PAGESIZE) * size_t(::sysconf(_SC_PHYS_PAGES));
     auto mem = calculate_memory(c, available_memory);
-    auto cpuset_procs = c.cpu_set ? c.cpu_set->size() : nr_processing_units(c);
-    auto procs = c.cpus.value_or(cpuset_procs);
+    auto procs = c.cpus;
     ret.cpus.reserve(procs);
     // limit memory address to fit in 36-bit, see core/memory.cc:Memory map
     constexpr size_t max_mem_per_proc = 1UL << 36;
