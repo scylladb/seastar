@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include <seastar/util/concepts.hh>
 #include <seastar/util/noncopyable_function.hh>
 #include <seastar/util/optimized_optional.hh>
 #include <seastar/util/std-compat.hh>
