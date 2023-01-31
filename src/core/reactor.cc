@@ -4119,7 +4119,6 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
         nr_cpus = cpu_set.size();
     }
     smp::count = nr_cpus;
-    logger::set_shard_field_width(std::ceil(std::log10(smp::count)));
     std::vector<reactor*> reactors(nr_cpus);
     if (smp_opts.memory) {
         rc.total_memory = parse_memory_size(smp_opts.memory.get_value());
@@ -4191,6 +4190,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
 #endif
 
     auto resources = resource::allocate(rc);
+    logger::set_shard_field_width(std::ceil(std::log10(smp::count)));
     std::vector<resource::cpu> allocations = std::move(resources.cpus);
     if (thread_affinity) {
         smp::pin(allocations[0].cpu_id);
