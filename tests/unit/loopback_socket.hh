@@ -27,6 +27,7 @@
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/queue.hh>
 #include <seastar/core/loop.hh>
+#include <seastar/core/sleep.hh>
 #include <seastar/core/do_with.hh>
 #include <seastar/net/stack.hh>
 #include <seastar/core/sharded.hh>
@@ -41,6 +42,7 @@ struct loopback_error_injector {
     virtual error client_rcv_error() { return error::none; }
     virtual error client_snd_error() { return error::none; }
     virtual error connect_error()    { return error::none; }
+    virtual std::chrono::microseconds connect_delay() { return std::chrono::microseconds(0); }
 };
 
 class loopback_buffer {
@@ -299,7 +301,15 @@ public:
                 return make_foreign(b2);
             });
         }).then([this] (foreign_ptr<lw_shared_ptr<loopback_buffer>> b2) {
-            return _factory.make_new_client_connection(_b1, std::move(b2));
+            if (_error_injector) {
+                auto delay = _error_injector->connect_delay();
+                if (delay != std::chrono::microseconds(0)) {
+                    return seastar::sleep(delay).then([this, b2 = std::move(b2)] () mutable {
+                        return _factory.make_new_client_connection(_b1, std::move(b2));
+                    });
+                }
+            }
+            return make_ready_future<connected_socket>(_factory.make_new_client_connection(_b1, std::move(b2)));
         });
     }
     virtual void set_reuseaddr(bool reuseaddr) override {}
