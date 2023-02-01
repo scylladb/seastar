@@ -1169,6 +1169,20 @@ if (Seastar_APPS)
   add_subdirectory (apps ${exclude})
 endif ()
 
+if (CMAKE_BUILD_TYPE STREQUAL "Dev")
+  include (CheckHeaders)
+  add_custom_target (checkheaders)
+  foreach (lib seastar seastar_testing seastar_perf_testing)
+    if (TARGET ${lib})
+      seastar_check_self_contained (${lib}
+        INCLUDE "\\.hh$"
+        # impl.hh headers are internal implementations of .hh, so they are not
+        # compilable. let's exclude them from the files to be checked.
+        EXCLUDE "_impl.hh$|-impl.hh$")
+    endif ()
+  endforeach ()
+endif ()
+
 #
 # Installation and export.
 #
