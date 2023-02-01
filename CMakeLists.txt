@@ -956,8 +956,7 @@ if (Seastar_IO_URING)
 endif ()
 
 if (Seastar_LD_FLAGS)
-  # In newer versions of CMake, there is `target_link_options`.
-  target_link_libraries (seastar
+  target_link_options (seastar
     PRIVATE ${Seastar_LD_FLAGS})
 endif ()
 
