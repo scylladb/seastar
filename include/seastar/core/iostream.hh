@@ -291,6 +291,11 @@ public:
     template <typename Consumer>
     SEASTAR_CONCEPT(requires InputStreamConsumer<Consumer, CharType> || ObsoleteInputStreamConsumer<Consumer, CharType>)
     future<> consume(Consumer& c) noexcept(std::is_nothrow_move_constructible_v<Consumer>);
+    /// Returns true if the end-of-file flag is set on the stream.
+    /// Note that the eof flag is only set after a previous attempt to read
+    /// from the stream noticed the end of the stream. In other words, it is
+    /// possible that eof() returns false but read() will return an empty
+    /// buffer. Checking eof() again after the read will return true.
     bool eof() const noexcept { return _eof; }
     /// Returns some data from the stream, or an empty buffer on end of
     /// stream.
