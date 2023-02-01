@@ -50,6 +50,8 @@ In any private file, to include a private header file (one in the `src` director
 #include "core/future_impl.hh"
 ```
 
+Header files in Seastar must be self-contained, i.e., each can be included without having to include specific other headers first. To verify that your change did not break this property, run `ninja checkheaders` in the build directory.
+
 ## Braced blocks
 
 All nested scopes are braced, even when the language allows omitting the braces (such as an if-statement), this makes patches simpler and is more consistent. The opening brace is merged with the line that opens the scope (class definition, function definition, if statement, etc.) and the body is indented.
