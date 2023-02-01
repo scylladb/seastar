@@ -26,6 +26,9 @@
 #include <seastar/core/abortable_fifo.hh>
 #include <seastar/core/abort_on_expiry.hh>
 #include <seastar/core/timed_out_error.hh>
+#include <exception>
+#include <optional>
+#include <tuple>
 
 namespace seastar {
 

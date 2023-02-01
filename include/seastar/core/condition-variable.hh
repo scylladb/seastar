@@ -28,6 +28,9 @@
 #   include <seastar/core/coroutine.hh>
 #endif
 #include <seastar/core/loop.hh>
+#include <chrono>
+#include <exception>
+#include <functional>
 
 namespace seastar {
 

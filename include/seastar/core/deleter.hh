@@ -22,8 +22,8 @@
 #pragma once
 
 #include <memory>
+#include <cassert>
 #include <cstdlib>
-#include <assert.h>
 #include <type_traits>
 
 namespace seastar {

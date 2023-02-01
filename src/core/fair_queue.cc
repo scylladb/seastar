@@ -28,8 +28,9 @@
 #include <seastar/util/noncopyable_function.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/metrics.hh>
-#include <queue>
 #include <chrono>
+#include <functional>
+#include <queue>
 #include <unordered_set>
 
 #include "fmt/format.h"

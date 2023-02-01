@@ -21,7 +21,7 @@
 
 #pragma once
 
-#include <assert.h>
+#include <cassert>
 #include <atomic>
 #include <cstdlib>
 #include <cstring>

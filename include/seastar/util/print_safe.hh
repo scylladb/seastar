@@ -23,6 +23,7 @@
 
 #include <seastar/util/concepts.hh>
 #include <cassert>
+#include <cerrno>
 #include <cstring>
 #if __cplusplus > 201703L
 #include <concepts>
