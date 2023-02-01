@@ -20,6 +20,10 @@
  */
 #pragma once
 
+#if __has_include(<concepts>)
+#include <concepts>
+#endif
+
 #if defined(__cpp_concepts) && __cpp_concepts >= 201907 && \
     defined(__cpp_lib_concepts) && __cpp_lib_concepts >= 201907
 
