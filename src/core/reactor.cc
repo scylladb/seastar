@@ -4088,9 +4088,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
 
     resource::configuration rc;
 
-    smp::count = 1;
     smp::_tmain = std::this_thread::get_id();
-    auto nr_cpus = resource::nr_processing_units(rc);
     resource::cpuset cpu_set = get_current_cpuset();
 
     if (smp_opts.cpuset) {
@@ -4114,13 +4112,12 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     }
 
     if (smp_opts.smp) {
-        nr_cpus = smp_opts.smp.get_value();
+        smp::count = smp_opts.smp.get_value();
     } else {
-        nr_cpus = cpu_set.size();
+        smp::count = cpu_set.size();
     }
-    smp::count = nr_cpus;
     logger::set_shard_field_width(std::ceil(std::log10(smp::count)));
-    std::vector<reactor*> reactors(nr_cpus);
+    std::vector<reactor*> reactors(smp::count);
     if (smp_opts.memory) {
         rc.total_memory = parse_memory_size(smp_opts.memory.get_value());
 #ifdef SEASTAR_HAVE_DPDK
