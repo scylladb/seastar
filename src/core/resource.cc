@@ -502,6 +502,14 @@ resources allocate(configuration& c) {
         }
         abort();
     }
+    unsigned procs = c.cpus;
+    if (unsigned available_procs = hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_PU);
+        procs > available_procs) {
+        throw std::runtime_error(format("insufficient processing units: needed {} available {}", procs, available_procs));
+    }
+    if (procs == 0) {
+        throw std::runtime_error("number of processing units must be positive");
+    }
     auto machine_depth = hwloc_get_type_depth(topology, HWLOC_OBJ_MACHINE);
     assert(hwloc_get_nbobjs_by_depth(topology, machine_depth) == 1);
     auto machine = hwloc_get_obj_by_depth(topology, machine_depth, 0);
@@ -512,14 +520,6 @@ resources allocate(configuration& c) {
 #endif
     size_t mem = calculate_memory(c, std::min(available_memory,
                                               cgroup::memory_limit()));
-    unsigned procs = c.cpus;
-    if (unsigned available_procs = hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_PU);
-        procs > available_procs) {
-        throw std::runtime_error(format("insufficient processing units: needed {} available {}", procs, available_procs));
-    }
-    if (procs == 0) {
-        throw std::runtime_error("number of processing units must be positive");
-    }
     // limit memory address to fit in 36-bit, see core/memory.cc:Memory map
     constexpr size_t max_mem_per_proc = 1UL << 36;
     auto mem_per_proc = std::min(align_down<size_t>(mem / procs, 2 << 20), max_mem_per_proc);
