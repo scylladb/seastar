@@ -436,9 +436,6 @@ void impl::add_registration(const metric_id& id, const metric_type& type, metric
             throw std::runtime_error("registering metrics " + name + " registered with different type.");
         }
         metric[rm->info().id.labels()] = rm;
-        for (auto&& i : rm->info().id.labels()) {
-            _labels.insert(i.first);
-        }
     } else {
         _value_map[name].info().type = type.base_type;
         _value_map[name].info().d = d;
@@ -446,6 +443,9 @@ void impl::add_registration(const metric_id& id, const metric_type& type, metric
         _value_map[name].info().name = id.full_name();
         _value_map[name].info().aggregate_labels = aggregate_labels;
         _value_map[name][rm->info().id.labels()] = rm;
+    }
+    for (auto&& i : rm->info().id.labels()) {
+        _labels.insert(i.first);
     }
     dirty();
 }
@@ -488,7 +488,9 @@ future<metric_relabeling_result> impl::set_relabel_configs(const std::vector<rel
                 conflicts.metrics_relabeled_due_to_collision++;
                 rm->info().id.labels()["err"] = id;
             }
-
+            for (auto&& i : rm->info().id.labels()) {
+                _labels.insert(i.first);
+            }
             family.second[lb] = rm;
         }
     }
