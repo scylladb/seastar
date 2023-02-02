@@ -979,8 +979,7 @@ cpu_pages::try_foreign_free(void* ptr) {
 }
 
 void cpu_pages::shrink(void* ptr, size_t new_size) {
-    auto obj_cpu = object_cpu_id(ptr);
-    assert(obj_cpu == cpu_id);
+    assert(object_cpu_id(ptr) == cpu_id);
     page* span = to_page(ptr);
     if (span->pool) {
         return;
