@@ -42,7 +42,7 @@ Seastar supports gcc and clang. Ports to other compilers are
 welcome.
 
 The last two major releases of a compiler are supported (e.g.
-gcc 9 and gcc 10). Patches to support older versions are welcome,
+gcc 11 and gcc 12). Patches to support older versions are welcome,
 as long as they don't require onerous compromises.
 
 Deprecation

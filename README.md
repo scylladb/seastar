@@ -35,6 +35,10 @@ then compile:
 $ ninja -C build/release
 ```
 
+In case there are compilation issues, especially like ```g++: internal compiler error: Killed (program cc1plus)``` 
+try giving more memory to gcc, either by limiting the amount of threads ( -j1 ) and/or allowing at least 4g ram to your
+machine.
+
 If you're missing a dependency of Seastar, then it is possible to have the configuration process fetch a version of the dependency locally for development.
 
 For example, to fetch `fmt` locally, configure Seastar like this:
