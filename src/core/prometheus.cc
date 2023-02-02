@@ -82,9 +82,11 @@ static void add_name(std::ostream& s, const sstring& name, const std::map<sstrin
 
     if (!labels.empty()) {
         for (auto l : labels) {
-            s << delimiter;
-            s << l.first  << "=\"" << l.second << '"';
-            delimiter = ",";
+            if (!boost::algorithm::starts_with(l.first, "__")) {
+                s << delimiter;
+                s << l.first  << "=\"" << l.second << '"';
+                delimiter = ",";
+            }
         }
     }
     s << "} ";
