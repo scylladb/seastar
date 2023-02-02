@@ -223,6 +223,9 @@ size_t calculate_memory(const configuration& c, size_t available_memory, float p
     if (!c.total_memory.has_value()) {
         return available_memory;
     }
+    if (*c.total_memory < c.reserve_additional_memory) {
+        throw std::runtime_error(format("insufficient total memory: reserve {} total {}", c.reserve_additional_memory, *c.total_memory));
+    }
     size_t needed_memory = *c.total_memory - c.reserve_additional_memory;
     if (needed_memory > available_memory) {
         throw std::runtime_error(format("insufficient physical memory: needed {} available {}", needed_memory, available_memory));
