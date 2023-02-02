@@ -74,7 +74,7 @@ public:
         /// This can be used when the application allocates some of its memory using the
         /// seastar allocator, and some using the system allocator, in particular when it
         /// uses the mmap system call with MAP_ANONYMOUS which is not overridden in seastar.
-        size_t reserve_additional_memory = 0;
+        size_t reserve_additional_memory_per_shard = 0;
         config() {}
     };
 

@@ -98,8 +98,8 @@ struct smp_options : public program_options::option_group {
     seastar::memory_allocator memory_allocator = memory_allocator::seastar;
 
     /// \cond internal
-    /// Additional memory reserved to OS (added to the default value or the value specified by \ref reserve_memory).
-    size_t reserve_additional_memory = 0;
+    /// Additional memory reserved to OS for each shard (added to the default value or the value specified by \ref reserve_memory).
+    size_t reserve_additional_memory_per_shard = 0;
     /// \endcond
 public:
     smp_options(program_options::option_group* parent_group);
