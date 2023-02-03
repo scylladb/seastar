@@ -488,7 +488,9 @@ class semaphore_units {
     size_t _n;
 
     semaphore_units(basic_semaphore<ExceptionFactory, Clock>* sem, size_t n) noexcept : _sem(sem), _n(n) {
+      if (_n) {
         _sem->add_outstanding_units(n);
+      }
     }
 public:
     semaphore_units() noexcept : _sem(nullptr), _n(0) {}
