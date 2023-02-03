@@ -284,21 +284,21 @@ SEASTAR_THREAD_TEST_CASE(test_semaphore_units_splitting) {
 
 SEASTAR_THREAD_TEST_CASE(test_semaphore_units_return) {
     auto sm = semaphore(3);
-    auto units = get_units(sm, 3, 1min).get0();
-    BOOST_REQUIRE_EQUAL(units.count(), 3);
+    auto units = std::make_unique<semaphore_units<>>(get_units(sm, 3, 1min).get0());
+    BOOST_REQUIRE_EQUAL(units->count(), 3);
     BOOST_REQUIRE_EQUAL(sm.available_units(), 0);
-    BOOST_REQUIRE_EQUAL(units.return_units(1), 2);
-    BOOST_REQUIRE_EQUAL(units.count(), 2);
+    BOOST_REQUIRE_EQUAL(units->return_units(1), 2);
+    BOOST_REQUIRE_EQUAL(units->count(), 2);
     BOOST_REQUIRE_EQUAL(sm.available_units(), 1);
-    units.~semaphore_units();
+    units.reset();
     BOOST_REQUIRE_EQUAL(sm.available_units(), 3);
 
-    units = get_units(sm, 2, 1min).get0();
+    units = std::make_unique<semaphore_units<>>(get_units(sm, 2, 1min).get0());
     BOOST_REQUIRE_EQUAL(sm.available_units(), 1);
-    BOOST_REQUIRE_THROW(units.return_units(10), std::invalid_argument);
+    BOOST_REQUIRE_THROW(units->return_units(10), std::invalid_argument);
     BOOST_REQUIRE_EQUAL(sm.available_units(), 1);
-    units.return_all();
-    BOOST_REQUIRE_EQUAL(units.count(), 0);
+    units->return_all();
+    BOOST_REQUIRE_EQUAL(units->count(), 0);
     BOOST_REQUIRE_EQUAL(sm.available_units(), 3);
 }
 
