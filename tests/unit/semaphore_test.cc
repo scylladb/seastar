@@ -289,16 +289,21 @@ SEASTAR_THREAD_TEST_CASE(test_semaphore_invalid_units_splitting) {
 
 SEASTAR_THREAD_TEST_CASE(test_semaphore_units_return) {
     auto sm = semaphore(3);
+    {
+    // FIXME: indentation
     auto units = get_units(sm, 3, 1min).get0();
     BOOST_REQUIRE_EQUAL(units.count(), 3);
     BOOST_REQUIRE_EQUAL(sm.available_units(), 0);
     BOOST_REQUIRE_EQUAL(units.return_units(1), 2);
     BOOST_REQUIRE_EQUAL(units.count(), 2);
     BOOST_REQUIRE_EQUAL(sm.available_units(), 1);
-    units.~semaphore_units();
+    }
     BOOST_REQUIRE_EQUAL(sm.available_units(), 3);
+}
 
-    units = get_units(sm, 2, 1min).get0();
+SEASTAR_THREAD_TEST_CASE(test_semaphore_units_invalid_return) {
+    auto sm = semaphore(3);
+    auto units = get_units(sm, 2, 1min).get0();
     BOOST_REQUIRE_EQUAL(sm.available_units(), 1);
     BOOST_REQUIRE_THROW(units.return_units(10), std::invalid_argument);
     BOOST_REQUIRE_EQUAL(sm.available_units(), 1);
