@@ -535,8 +535,11 @@ public:
     ///
     /// \return the number of units held
     size_t release() noexcept {
-        _sem->sub_outstanding_units(_n);
-        return std::exchange(_n, 0);
+        auto ret = std::exchange(_n, 0);
+        if (__builtin_expect(ret != 0, true)) {
+            _sem->sub_outstanding_units(ret);
+        }
+        return ret;
     }
     /// Splits this instance into a \ref semaphore_units object holding the specified amount of units.
     /// This object will continue holding the remaining units.

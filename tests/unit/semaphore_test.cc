@@ -467,3 +467,11 @@ SEASTAR_THREAD_TEST_CASE(test_units_after_sem_destroy) {
     sem.reset();
     units.return_units(0);
 }
+
+SEASTAR_THREAD_TEST_CASE(test_release_units_after_sem_destroy) {
+    auto sem = std::make_unique<semaphore>(1);
+    auto units = get_units(*sem, 1).get();
+    units.release();
+    sem.reset();
+    units.release();
+}
