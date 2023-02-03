@@ -573,8 +573,10 @@ public:
     void adopt(semaphore_units&& other) noexcept {
         assert(other._sem == _sem);
         auto o = other.release();
+      if (__builtin_expect(o != 0, true)) {
         _sem->add_outstanding_units(o);
         _n += o;
+      }
     }
 
     /// Returns the number of units held
