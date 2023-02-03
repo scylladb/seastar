@@ -513,14 +513,14 @@ public:
     ///
     /// \return the number of remaining units
     size_t return_units(size_t units) {
-      if (__builtin_expect(units != 0, true)) {
-        if (units > _n) {
-            throw std::invalid_argument("Cannot take more units than those protected by the semaphore");
+        if (__builtin_expect(units != 0, true)) {
+            if (units > _n) {
+                throw std::invalid_argument("Cannot take more units than those protected by the semaphore");
+            }
+            _n -= units;
+            _sem->sub_outstanding_units(units);
+            _sem->signal(units);
         }
-        _n -= units;
-        _sem->sub_outstanding_units(units);
-        _sem->signal(units);
-      }
         return _n;
     }
     /// Return ownership of all units. The semaphore will be signaled by the number of units returned.
