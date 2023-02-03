@@ -31,6 +31,7 @@
 #include <seastar/core/map_reduce.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/shared_mutex.hh>
+#include <seastar/core/with_timeout.hh>
 #include <boost/range/irange.hpp>
 
 using namespace seastar;
@@ -442,4 +443,21 @@ SEASTAR_THREAD_TEST_CASE(test_semaphore_abort_before_wait) {
     sem.signal();
     BOOST_CHECK_THROW(fut1.get(), semaphore_aborted);
     BOOST_REQUIRE_EQUAL(x, 0);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_reassigned_units_are_returned) {
+    auto sem0 = semaphore(1);
+    auto sem1 = semaphore(1);
+    auto units = get_units(sem0, 1).get();
+    auto wait = sem0.wait(1);
+    BOOST_REQUIRE(!wait.available());
+    // reassign `units`
+    // currently held units should be returned to `sem0`
+    // and resolve the `wait` future.
+    units = get_units(sem1, 1).get();
+    try {
+        with_timeout(lowres_clock::now() + 1s, std::move(wait)).get();
+    } catch (const timed_out_error&) {
+        BOOST_FAIL("units were not returned when reassigned");
+    }
 }
