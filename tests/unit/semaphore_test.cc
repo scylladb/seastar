@@ -445,3 +445,17 @@ SEASTAR_THREAD_TEST_CASE(test_semaphore_move_with_outstanding_units) {
     units.reset();
     BOOST_REQUIRE_EQUAL(sem1->current(), 1);
 }
+
+SEASTAR_THREAD_TEST_CASE(test_reassigned_units_are_returned) {
+    auto sem0 = semaphore(1);
+    auto sem1 = semaphore(1);
+    auto units = get_units(sem0, 1).get();
+    auto wait = sem0.wait(1);
+    BOOST_REQUIRE(!wait.available());
+    units = get_units(sem1, 1).get();
+    timer t([] { abort(); });
+    t.arm(1s);
+    // will hang if units are not returned when reassigned
+    wait.get();
+    t.cancel();
+}
