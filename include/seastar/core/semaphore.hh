@@ -555,12 +555,14 @@ public:
         if (units > _n) {
             throw std::invalid_argument("Cannot take more units than those protected by the semaphore");
         }
+      if (units) {
         _n -= units;
         // `units` are split into a new `semaphore_units` object.
         // since none are returned to the semaphore we subtract the
         // outstanding units here to balance their eventual addition by the
         // `semaphore_units` ctor.
         _sem->sub_outstanding_units(units);
+      }
         return semaphore_units(_sem, units);
     }
     /// The inverse of split(), in which the units held by the specified \ref semaphore_units
