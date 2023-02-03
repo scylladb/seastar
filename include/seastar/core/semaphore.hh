@@ -262,6 +262,12 @@ public:
         return *this;
     }
 
+#ifdef SEASTAR_SEMAPHORE_DEBUG
+    ~basic_semaphore() {
+        assert(!_outstanding_units && "semaphore destroyed with outstanding units");
+    }
+#endif
+
     /// Waits until at least a specific number of units are available in the
     /// counter, and reduces the counter by that amount of units.
     ///
