@@ -24,7 +24,6 @@
 #include <seastar/core/alien.hh>
 #include <seastar/core/scollectd.hh>
 #include <seastar/core/metrics_api.hh>
-#include <boost/program_options.hpp>
 #include <seastar/core/print.hh>
 #include <seastar/util/log.hh>
 #include <seastar/util/log-cli.hh>
