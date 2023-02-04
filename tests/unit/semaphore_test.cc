@@ -72,7 +72,7 @@ SEASTAR_THREAD_TEST_CASE(test_semaphore_2) {
     sleep(10ms).get();
     BOOST_REQUIRE_EQUAL(x, 0);
     sem = std::nullopt;
-    BOOST_CHECK_THROW(fut.get(), broken_promise);
+    BOOST_CHECK_THROW(fut.get(), broken_semaphore);
 }
 
 SEASTAR_TEST_CASE(test_semaphore_timeout_1) {
@@ -447,4 +447,21 @@ SEASTAR_THREAD_TEST_CASE(test_reassigned_units_are_returned) {
     // will hang if units are not returned when reassigned
     wait.get();
     t.cancel();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_destroy_semaphore_during_wait) {
+    auto sem = std::make_unique<semaphore>(0);
+    auto wait = sem->wait(1);
+    BOOST_REQUIRE(!wait.available());
+    sem.reset();
+    BOOST_REQUIRE_THROW(wait.get(), broken_semaphore);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_destroy_semaphore_during_wait_with_ensured_space) {
+    auto sem = std::make_unique<semaphore>(0);
+    sem->ensure_space_for_waiters(2);
+    auto wait = sem->wait(1);
+    BOOST_REQUIRE(!wait.available());
+    sem.reset();
+    BOOST_REQUIRE_THROW(wait.get(), broken_semaphore);
 }

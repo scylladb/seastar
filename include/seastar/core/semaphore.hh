@@ -214,6 +214,13 @@ public:
     {
         static_assert(std::is_nothrow_move_constructible_v<expiry_handler>);
     }
+    basic_semaphore(basic_semaphore&&) = default;
+    basic_semaphore& operator=(basic_semaphore&&) = default;
+
+    ~basic_semaphore() {
+        broken();
+    }
+
     /// Waits until at least a specific number of units are available in the
     /// counter, and reduces the counter by that amount of units.
     ///
