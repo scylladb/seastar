@@ -39,10 +39,6 @@
 #include <seastar/util/backtrace.hh>
 #include <seastar/util/std-compat.hh>
 
-#if __cplusplus > 201703L
-#include <concepts>
-#endif
-
 namespace seastar {
 
 struct nested_exception : public std::exception {
