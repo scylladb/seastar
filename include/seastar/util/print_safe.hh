@@ -24,9 +24,6 @@
 #include <seastar/util/concepts.hh>
 #include <cassert>
 #include <cstring>
-#if __cplusplus > 201703L
-#include <concepts>
-#endif
 #include <stdio.h>
 #include <unistd.h>
 
