@@ -26,6 +26,7 @@
 #include <stdexcept>
 #include <exception>
 #include <optional>
+#include <memory>
 #include <seastar/core/timer.hh>
 #include <seastar/core/abortable_fifo.hh>
 #include <seastar/core/timed_out_error.hh>
@@ -288,31 +289,36 @@ private:
 #endif  // SEASTAR_SEMAPHORE_DEBUG
 
     struct entry {
-        promise<> pr;
+        struct promise {
+            virtual ~promise() {};
+            virtual void set_value() noexcept = 0;
+            virtual void set_exception(std::exception_ptr) noexcept = 0;
+        };
+        std::unique_ptr<promise> pr;
         size_t nr;
         std::optional<abort_on_expiry<clock>> timer;
-        entry(promise<>&& pr_, size_t nr_) noexcept : pr(std::move(pr_)), nr(nr_) {}
+        entry(std::unique_ptr<promise> pr_, size_t nr_) noexcept : pr(std::move(pr_)), nr(nr_) {}
     };
     struct expiry_handler {
         basic_semaphore& sem;
         void operator()(entry& e) noexcept {
             if (e.timer) {
                 try {
-                    e.pr.set_exception(sem.timeout());
+                    e.pr->set_exception(std::make_exception_ptr(sem.timeout()));
                 } catch (...) {
-                    e.pr.set_exception(semaphore_timed_out());
+                    e.pr->set_exception(std::make_exception_ptr(semaphore_timed_out()));
                 }
             } else if (sem._ex) {
-                e.pr.set_exception(sem._ex);
+                e.pr->set_exception(sem._ex);
             } else {
                 if constexpr (internal::has_aborted<exception_factory>::value) {
                     try {
-                        e.pr.set_exception(static_cast<exception_factory>(sem).aborted());
+                        e.pr->set_exception(std::make_exception_ptr(static_cast<exception_factory>(sem).aborted()));
                     } catch (...) {
-                        e.pr.set_exception(semaphore_aborted());
+                        e.pr->set_exception(std::make_exception_ptr(semaphore_aborted()));
                     }
                 } else {
-                    e.pr.set_exception(semaphore_aborted());
+                    e.pr->set_exception(std::make_exception_ptr(semaphore_aborted()));
                 }
             }
         }
@@ -377,6 +383,15 @@ public:
         broken();
     }
 
+private:
+    struct wait_promise : public entry::promise {
+        promise<> pr;
+        future<> get_future() noexcept { return pr.get_future(); }
+        virtual void set_value() noexcept override { pr.set_value(); }
+        virtual void set_exception(std::exception_ptr ex) noexcept override { pr.set_exception(std::move(ex)); }
+    };
+
+public:
     /// Waits until at least a specific number of units are available in the
     /// counter, and reduces the counter by that amount of units.
     ///
@@ -412,8 +427,9 @@ public:
             return make_exception_future(_ex);
         }
         try {
-            entry& e = _wait_list.emplace_back(promise<>(), nr);
-            auto f = e.pr.get_future();
+            auto pr = std::make_unique<wait_promise>();
+            auto f = pr->get_future();
+            entry& e = _wait_list.emplace_back(std::move(pr), nr);
             if (timeout != time_point::max()) {
                 e.timer.emplace(timeout);
                 abort_source& as = e.timer->abort_source();
@@ -447,9 +463,10 @@ public:
             return make_exception_future(_ex);
         }
         try {
-            entry& e = _wait_list.emplace_back(promise<>(), nr);
+            auto pr = std::make_unique<wait_promise>();
             // taking future here since make_back_abortable may expire the entry
-            auto f = e.pr.get_future();
+            auto f = pr->get_future();
+            _wait_list.emplace_back(std::move(pr), nr);
             _wait_list.make_back_abortable(as);
             return f;
         } catch (...) {
@@ -490,7 +507,7 @@ public:
         while (!_wait_list.empty() && has_available_units(_wait_list.front().nr)) {
             auto& x = _wait_list.front();
             _count -= x.nr;
-            x.pr.set_value();
+            x.pr->set_value();
             _wait_list.pop_front();
         }
     }
@@ -586,7 +603,7 @@ basic_semaphore<ExceptionFactory, Clock>::broken(std::exception_ptr xp) noexcept
     _count = 0;
     while (!_wait_list.empty()) {
         auto& x = _wait_list.front();
-        x.pr.set_exception(xp);
+        x.pr->set_exception(xp);
         _wait_list.pop_front();
     }
 }
