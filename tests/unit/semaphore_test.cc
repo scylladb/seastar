@@ -72,7 +72,7 @@ SEASTAR_THREAD_TEST_CASE(test_semaphore_2) {
     sleep(10ms).get();
     BOOST_REQUIRE_EQUAL(x, 0);
     sem = std::nullopt;
-    BOOST_CHECK_THROW(fut.get(), broken_promise);
+    BOOST_CHECK_THROW(fut.get(), broken_semaphore);
 }
 
 SEASTAR_TEST_CASE(test_semaphore_timeout_1) {
