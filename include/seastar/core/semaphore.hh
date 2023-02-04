@@ -130,7 +130,115 @@ struct named_semaphore_exception_factory {
 };
 
 template<typename ExceptionFactory, typename Clock>
-class semaphore_units;
+class basic_semaphore;
+
+template<typename ExceptionFactory = semaphore_default_exception_factory, typename Clock = typename timer<>::clock>
+class semaphore_units {
+    basic_semaphore<ExceptionFactory, Clock>* _sem;
+    size_t _n;
+
+    semaphore_units(basic_semaphore<ExceptionFactory, Clock>* sem, size_t n) noexcept : _sem(sem), _n(n) {
+      if (_n) {
+        _sem->add_outstanding_units(n);
+      }
+    }
+public:
+    semaphore_units() noexcept : _sem(nullptr), _n(0) {}
+    semaphore_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t n) noexcept : semaphore_units(&sem, n) {}
+    semaphore_units(semaphore_units&& o) noexcept : _sem(o._sem), _n(std::exchange(o._n, 0)) {
+    }
+    semaphore_units& operator=(semaphore_units&& o) noexcept {
+        return_all();
+        _sem = o._sem;
+        _n = std::exchange(o._n, 0);
+        return *this;
+    }
+    semaphore_units(const semaphore_units&) = delete;
+    ~semaphore_units() noexcept {
+        return_all();
+    }
+    /// Return ownership of some units to the semaphore. The semaphore will be signaled by the number of units returned.
+    ///
+    /// \param units number of units to subtract.
+    ///
+    /// \note throws exception if \c units is more than those protected by the semaphore
+    ///
+    /// \return the number of remaining units
+    size_t return_units(size_t units) {
+        if (__builtin_expect(units != 0, true)) {
+            if (units > _n) {
+                throw std::invalid_argument("Cannot take more units than those protected by the semaphore");
+            }
+            _n -= units;
+            _sem->sub_outstanding_units(units);
+            _sem->signal(units);
+        }
+        return _n;
+    }
+    /// Return ownership of all units. The semaphore will be signaled by the number of units returned.
+    void return_all() noexcept {
+        if (_n) {
+            _sem->sub_outstanding_units(_n);
+            _sem->signal(_n);
+            _n = 0;
+        }
+    }
+    /// Releases ownership of the units. The semaphore will not be signalled.
+    ///
+    /// \return the number of units held
+    size_t release() noexcept {
+        auto ret = std::exchange(_n, 0);
+        if (__builtin_expect(ret != 0, true)) {
+            _sem->sub_outstanding_units(ret);
+        }
+        return ret;
+    }
+    /// Splits this instance into a \ref semaphore_units object holding the specified amount of units.
+    /// This object will continue holding the remaining units.
+    ///
+    /// \param units number of units to subtract.
+    ///
+    /// \note throws exception if \c units is more than those protected by the semaphore
+    ///
+    /// \return semaphore_units holding the specified number of units
+    semaphore_units split(size_t units) {
+        if (units > _n) {
+            throw std::invalid_argument("Cannot take more units than those protected by the semaphore");
+        }
+        if (units) {
+            _n -= units;
+            // `units` are split into a new `semaphore_units` object.
+            // since none are returned to the semaphore we subtract the
+            // outstanding units here to balance their eventual addition by the
+            // `semaphore_units` ctor.
+            _sem->sub_outstanding_units(units);
+        }
+        return semaphore_units(_sem, units);
+    }
+    /// The inverse of split(), in which the units held by the specified \ref semaphore_units
+    /// object are merged into the current one. The function assumes (and asserts) that both
+    /// are associated with the same \ref semaphore.
+    ///
+    /// \return the updated semaphore_units object
+    void adopt(semaphore_units&& other) noexcept {
+        assert(other._sem == _sem);
+        auto o = other.release();
+        if (__builtin_expect(o != 0, true)) {
+            _sem->add_outstanding_units(o);
+            _n += o;
+        }
+    }
+
+    /// Returns the number of units held
+    size_t count() const noexcept {
+        return _n;
+    }
+
+    /// Returns true iff there any units held
+    explicit operator bool() const noexcept {
+        return _n != 0;
+    }
+};
 
 /// \brief Counted resource guard.
 ///
@@ -482,114 +590,6 @@ basic_semaphore<ExceptionFactory, Clock>::broken(std::exception_ptr xp) noexcept
         _wait_list.pop_front();
     }
 }
-
-template<typename ExceptionFactory = semaphore_default_exception_factory, typename Clock = typename timer<>::clock>
-class semaphore_units {
-    basic_semaphore<ExceptionFactory, Clock>* _sem;
-    size_t _n;
-
-    semaphore_units(basic_semaphore<ExceptionFactory, Clock>* sem, size_t n) noexcept : _sem(sem), _n(n) {
-      if (_n) {
-        _sem->add_outstanding_units(n);
-      }
-    }
-public:
-    semaphore_units() noexcept : _sem(nullptr), _n(0) {}
-    semaphore_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t n) noexcept : semaphore_units(&sem, n) {}
-    semaphore_units(semaphore_units&& o) noexcept : _sem(o._sem), _n(std::exchange(o._n, 0)) {
-    }
-    semaphore_units& operator=(semaphore_units&& o) noexcept {
-        return_all();
-        _sem = o._sem;
-        _n = std::exchange(o._n, 0);
-        return *this;
-    }
-    semaphore_units(const semaphore_units&) = delete;
-    ~semaphore_units() noexcept {
-        return_all();
-    }
-    /// Return ownership of some units to the semaphore. The semaphore will be signaled by the number of units returned.
-    ///
-    /// \param units number of units to subtract.
-    ///
-    /// \note throws exception if \c units is more than those protected by the semaphore
-    ///
-    /// \return the number of remaining units
-    size_t return_units(size_t units) {
-        if (__builtin_expect(units != 0, true)) {
-            if (units > _n) {
-                throw std::invalid_argument("Cannot take more units than those protected by the semaphore");
-            }
-            _n -= units;
-            _sem->sub_outstanding_units(units);
-            _sem->signal(units);
-        }
-        return _n;
-    }
-    /// Return ownership of all units. The semaphore will be signaled by the number of units returned.
-    void return_all() noexcept {
-        if (_n) {
-            _sem->sub_outstanding_units(_n);
-            _sem->signal(_n);
-            _n = 0;
-        }
-    }
-    /// Releases ownership of the units. The semaphore will not be signalled.
-    ///
-    /// \return the number of units held
-    size_t release() noexcept {
-        auto ret = std::exchange(_n, 0);
-        if (__builtin_expect(ret != 0, true)) {
-            _sem->sub_outstanding_units(ret);
-        }
-        return ret;
-    }
-    /// Splits this instance into a \ref semaphore_units object holding the specified amount of units.
-    /// This object will continue holding the remaining units.
-    ///
-    /// \param units number of units to subtract.
-    ///
-    /// \note throws exception if \c units is more than those protected by the semaphore
-    ///
-    /// \return semaphore_units holding the specified number of units
-    semaphore_units split(size_t units) {
-        if (units > _n) {
-            throw std::invalid_argument("Cannot take more units than those protected by the semaphore");
-        }
-        if (units) {
-            _n -= units;
-            // `units` are split into a new `semaphore_units` object.
-            // since none are returned to the semaphore we subtract the
-            // outstanding units here to balance their eventual addition by the
-            // `semaphore_units` ctor.
-            _sem->sub_outstanding_units(units);
-        }
-        return semaphore_units(_sem, units);
-    }
-    /// The inverse of split(), in which the units held by the specified \ref semaphore_units
-    /// object are merged into the current one. The function assumes (and asserts) that both
-    /// are associated with the same \ref semaphore.
-    ///
-    /// \return the updated semaphore_units object
-    void adopt(semaphore_units&& other) noexcept {
-        assert(other._sem == _sem);
-        auto o = other.release();
-        if (__builtin_expect(o != 0, true)) {
-            _sem->add_outstanding_units(o);
-            _n += o;
-        }
-    }
-
-    /// Returns the number of units held
-    size_t count() const noexcept {
-        return _n;
-    }
-
-    /// Returns true iff there any units held
-    explicit operator bool() const noexcept {
-        return _n != 0;
-    }
-};
 
 /// \brief Take units from semaphore temporarily
 ///
