@@ -267,6 +267,7 @@ public:
     using clock = typename timer<Clock>::clock;
     using time_point = typename timer<Clock>::time_point;
     using exception_factory = ExceptionFactory;
+    using semaphore_units = seastar::semaphore_units<ExceptionFactory, Clock>;
 private:
     ssize_t _count;
     std::exception_ptr _ex;
@@ -331,7 +332,7 @@ private:
         return has_available_units(nr) && _wait_list.empty();
     }
 
-    friend class semaphore_units<ExceptionFactory, Clock>;
+    friend class seastar::semaphore_units<ExceptionFactory, Clock>;
 public:
     /// Returns the maximum number of units the semaphore counter can hold
     static constexpr size_t max_counter() noexcept {
@@ -490,6 +491,118 @@ public:
     future<> wait(duration timeout, size_t nr = 1) noexcept {
         return wait(clock::now() + timeout, nr);
     }
+
+private:
+    struct units_promise : public entry::promise {
+        promise<semaphore_units> pr;
+        basic_semaphore& sem;
+        size_t nr;
+        units_promise(basic_semaphore& sem_, size_t nr_) noexcept : sem(sem_), nr(nr_) {}
+        future<semaphore_units> get_future() noexcept { return pr.get_future(); }
+        virtual void set_value() noexcept override { pr.set_value(semaphore_units(sem, nr)); }
+        virtual void set_exception(std::exception_ptr ex) noexcept override { pr.set_exception(std::move(ex)); }
+    };
+
+public:
+    /// Waits until at least a specific number of units are available in the
+    /// counter, and reduces the counter by that amount of units.
+    ///
+    /// \note Waits are serviced in FIFO order, though if several are awakened
+    ///       at once, they may be reordered by the scheduler.
+    ///
+    /// \param nr Amount of units to wait for (default 1).
+    /// \return a future holding \ref semaphore_units that becomes ready when sufficient units are available
+    ///         to satisfy the request.  If the semaphore was \ref broken(), may
+    ///         contain an exception.
+    future<semaphore_units> get_units(size_t nr = 1) noexcept {
+        return get_units(time_point::max(), nr);
+    }
+    /// Waits until at least a specific number of units are available in the
+    /// counter, and reduces the counter by that amount of units.  If the request
+    /// cannot be satisfied in time, the request is aborted.
+    ///
+    /// \note Waits are serviced in FIFO order, though if several are awakened
+    ///       at once, they may be reordered by the scheduler.
+    ///
+    /// \param timeout expiration time.
+    /// \param nr Amount of units to wait for (default 1).
+    /// \return a future holding \ref semaphore_units that becomes ready when sufficient units are available
+    ///         to satisfy the request.  On timeout, the future contains a
+    ///         \ref semaphore_timed_out exception.  If the semaphore was
+    ///         \ref broken(), may contain a \ref broken_semaphore exception.
+    future<semaphore_units> get_units(time_point timeout, size_t nr = 1) noexcept {
+        if (may_proceed(nr)) {
+            _count -= nr;
+            return make_ready_future<semaphore_units>(*this, nr);
+        }
+        if (_ex) {
+            return make_exception_future<semaphore_units>(_ex);
+        }
+        try {
+            auto pr = std::make_unique<units_promise>(*this, nr);
+            auto f = pr->get_future();
+            entry& e = _wait_list.emplace_back(std::move(pr), nr);
+            if (timeout != time_point::max()) {
+                e.timer.emplace(timeout);
+                abort_source& as = e.timer->abort_source();
+                _wait_list.make_back_abortable(as);
+            }
+            return f;
+        } catch (...) {
+            return current_exception_as_future<semaphore_units>();
+        }
+    }
+
+    /// Waits until at least a specific number of units are available in the
+    /// counter, and reduces the counter by that amount of units.  If the request
+    /// cannot be satisfied in time, the request is aborted.
+    ///
+    /// \note Waits are serviced in FIFO order, though if several are awakened
+    ///       at once, they may be reordered by the scheduler.
+    ///
+    /// \param timeout how long to wait.
+    /// \param nr Amount of units to wait for (default 1).
+    /// \return a future holding \ref semaphore_units that becomes ready when sufficient units are available
+    ///         to satisfy the request.  On timeout, the future contains a
+    ///         \ref semaphore_timed_out exception.  If the semaphore was
+    ///         \ref broken(), may contain a \ref broken_semaphore exception.
+    future<semaphore_units> get_units(duration timeout, size_t nr = 1) noexcept {
+        return get_units(clock::now() + timeout, nr);
+    }
+
+    /// Waits until at least a specific number of units are available in the
+    /// counter, and reduces the counter by that amount of units.  The request
+    /// can be aborted using an \ref abort_source.
+    ///
+    /// \note Waits are serviced in FIFO order, though if several are awakened
+    ///       at once, they may be reordered by the scheduler.
+    ///
+    /// \param as abort source.
+    /// \param nr Amount of units to wait for (default 1).
+    /// \return a future holding \ref semaphore_units that becomes ready when sufficient units are available
+    ///         to satisfy the request.  On abort, the future contains a
+    ///         \ref semaphore_aborted exception.  If the semaphore was
+    ///         \ref broken(), may contain a \ref broken_semaphore exception.
+    future<semaphore_units> get_units(abort_source& as, size_t nr = 1) noexcept {
+        if (may_proceed(nr)) {
+            _count -= nr;
+            return make_ready_future<semaphore_units>(*this, nr);
+        }
+        if (_ex) {
+            return make_exception_future<semaphore_units>(_ex);
+        }
+        try {
+            auto pr = std::make_unique<units_promise>(*this, nr);
+            // taking future here since make_back_abortable may expire the entry
+            auto f = pr->get_future();
+            _wait_list.emplace_back(std::move(pr), nr);
+            _wait_list.make_back_abortable(as);
+            return f;
+        } catch (...) {
+            return current_exception_as_future<semaphore_units>();
+        }
+    }
+
     /// Deposits a specified number of units into the counter.
     ///
     /// The counter is incremented by the specified number of units.
@@ -628,9 +741,7 @@ basic_semaphore<ExceptionFactory, Clock>::broken(std::exception_ptr xp) noexcept
 template<typename ExceptionFactory, typename Clock = typename timer<>::clock>
 future<semaphore_units<ExceptionFactory, Clock>>
 get_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units) noexcept {
-    return sem.wait(units).then([&sem, units] {
-        return semaphore_units<ExceptionFactory, Clock>{ sem, units };
-    });
+    return sem.get_units(units);
 }
 
 /// \brief Take units from semaphore temporarily with time bound on wait
@@ -651,9 +762,7 @@ get_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units) noexcept 
 template<typename ExceptionFactory, typename Clock = typename timer<>::clock>
 future<semaphore_units<ExceptionFactory, Clock>>
 get_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units, typename basic_semaphore<ExceptionFactory, Clock>::time_point timeout) noexcept {
-    return sem.wait(timeout, units).then([&sem, units] {
-        return semaphore_units<ExceptionFactory, Clock>{ sem, units };
-    });
+    return sem.get_units(timeout, units);
 }
 
 /// \brief Take units from semaphore temporarily with time bound on wait
@@ -675,9 +784,7 @@ get_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units, typename 
 template<typename ExceptionFactory, typename Clock>
 future<semaphore_units<ExceptionFactory, Clock>>
 get_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units, typename basic_semaphore<ExceptionFactory, Clock>::duration timeout) noexcept {
-    return sem.wait(timeout, units).then([&sem, units] {
-        return semaphore_units<ExceptionFactory, Clock>{ sem, units };
-    });
+    return sem.get_units(timeout, units);
 }
 
 /// \brief Take units from semaphore temporarily with an \ref abort_source
@@ -699,9 +806,7 @@ get_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units, typename 
 template<typename ExceptionFactory, typename Clock>
 future<semaphore_units<ExceptionFactory, Clock>>
 get_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units, abort_source& as) noexcept {
-    return sem.wait(as, units).then([&sem, units] {
-        return semaphore_units<ExceptionFactory, Clock>{ sem, units };
-    });
+    return sem.get_units(as, units);
 }
 
 /// \brief Try to take units from semaphore temporarily
