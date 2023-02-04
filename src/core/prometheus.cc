@@ -22,8 +22,6 @@
 #include <seastar/core/prometheus.hh>
 #include <sstream>
 
-#include <seastar/core/scollectd_api.hh>
-#include "core/scollectd-impl.hh"
 #include <seastar/core/metrics_api.hh>
 #include <seastar/http/function_handlers.hh>
 #include <boost/algorithm/string/replace.hpp>
