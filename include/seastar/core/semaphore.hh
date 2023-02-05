@@ -21,6 +21,8 @@
 
 #pragma once
 
+#include <boost/intrusive/list.hpp>
+
 #include <seastar/core/future.hh>
 #include <seastar/core/chunked_fifo.hh>
 #include <stdexcept>
@@ -29,7 +31,7 @@
 #include <seastar/core/timer.hh>
 #include <seastar/core/abortable_fifo.hh>
 #include <seastar/core/timed_out_error.hh>
-#include <seastar/core/abort_on_expiry.hh>
+#include <seastar/core/abort_source.hh>
 
 namespace seastar {
 
@@ -125,6 +127,110 @@ struct named_semaphore_exception_factory {
     named_semaphore_aborted aborted() const noexcept;
 };
 
+template<typename ExceptionFactory, typename Clock>
+class basic_semaphore;
+
+namespace internal {
+
+template<typename ExceptionFactory, typename Clock>
+class semaphore_waiter : public boost::intrusive::list_base_hook<boost::intrusive::link_mode<boost::intrusive::auto_unlink>> {
+public:
+    using basic_semaphore = seastar::basic_semaphore<ExceptionFactory, Clock>;
+    using timer = typename seastar::timer<Clock>;
+    using time_point = typename seastar::timer<Clock>::time_point;
+
+private:
+    basic_semaphore* _sem;
+    size_t _nr;
+    std::variant<optimized_optional<abort_source::subscription>, timer> _aborter;
+
+public:
+    semaphore_waiter() noexcept : _sem(nullptr), _nr(0) {}
+    semaphore_waiter(basic_semaphore& sem, size_t nr) noexcept
+        : _sem(&sem), _nr(nr)
+    {
+        sem.add_waiter(*this);
+    }
+    semaphore_waiter(basic_semaphore& sem, size_t nr, time_point timeout) noexcept
+        : _sem(&sem), _nr(nr)
+    {
+        set_timeout(timeout);
+        sem.add_waiter(*this);
+    }
+    semaphore_waiter(basic_semaphore& sem, size_t nr, abort_source& as) noexcept
+        : _sem(&sem), _nr(nr)
+    {
+        subscribe(as);
+        sem.add_waiter(*this);
+    }
+    virtual ~semaphore_waiter() = default;
+
+    void init(basic_semaphore& sem, size_t nr) noexcept {
+        _sem = &sem;
+        _nr = nr;
+        sem.add_waiter(*this);
+    }
+
+private:
+    friend basic_semaphore;
+
+    virtual void set_value() noexcept = 0;
+    virtual void set_exception(std::exception_ptr) noexcept = 0;
+
+    void subscribe(abort_source& as) noexcept {
+        _aborter.template emplace<optimized_optional<abort_source::subscription>>(as.subscribe([this] (const std::optional<std::exception_ptr>& opt_ex) noexcept {
+            std::exception_ptr ex;
+            try {
+                if (opt_ex) {
+                    ex = *opt_ex;
+                } else if (_sem) {
+                    if (_sem->_ex) {
+                        ex = _sem->_ex;
+                    } else if constexpr (internal::has_aborted<ExceptionFactory>::value) {
+                        ex = std::make_exception_ptr(_sem->aborted());
+                    }
+                }
+            } catch (...) {
+            }
+            abort(ex ? std::move(ex) : std::make_exception_ptr(semaphore_aborted()));
+        }));
+        assert(std::get<optimized_optional<abort_source::subscription>>(_aborter));
+    }
+    void set_timeout(time_point timeout) noexcept {
+        if (timeout == time_point::max()) {
+            return;
+        }
+        _aborter.template emplace<timer>([this] () {
+            std::exception_ptr ex;
+            try {
+                if (_sem) {
+                    ex = std::make_exception_ptr(_sem->timeout());
+                }
+            } catch (...) {
+            }
+            abort(ex ? std::move(ex) : std::make_exception_ptr(semaphore_timed_out()));
+        });
+        auto& tmr = std::get<timer>(_aborter);
+        tmr.arm(timeout);
+    }
+    void abort(std::exception_ptr ex) noexcept {
+        set_exception(std::move(ex));
+    }
+
+public:
+    const basic_semaphore* sem() const noexcept {
+        return _sem;
+    }
+    basic_semaphore* sem() noexcept {
+        return _sem;
+    }
+    size_t nr() const noexcept {
+        return _nr;
+    }
+};
+
+} // namespace internal
+
 /// \brief Counted resource guard.
 ///
 /// This is a standard computer science semaphore, adapted
@@ -151,40 +257,18 @@ public:
     using clock = typename timer<Clock>::clock;
     using time_point = typename timer<Clock>::time_point;
     using exception_factory = ExceptionFactory;
+    using semaphore_waiter = seastar::internal::semaphore_waiter<ExceptionFactory, Clock>;
 private:
     ssize_t _count;
     std::exception_ptr _ex;
-    struct entry {
-        promise<> pr;
-        size_t nr;
-        std::optional<abort_on_expiry<clock>> timer;
-        entry(promise<>&& pr_, size_t nr_) noexcept : pr(std::move(pr_)), nr(nr_) {}
-    };
-    struct expiry_handler {
-        basic_semaphore& sem;
-        void operator()(entry& e) noexcept {
-            if (e.timer) {
-                try {
-                    e.pr.set_exception(sem.timeout());
-                } catch (...) {
-                    e.pr.set_exception(semaphore_timed_out());
-                }
-            } else if (sem._ex) {
-                e.pr.set_exception(sem._ex);
-            } else {
-                if constexpr (internal::has_aborted<exception_factory>::value) {
-                    try {
-                        e.pr.set_exception(static_cast<exception_factory>(sem).aborted());
-                    } catch (...) {
-                        e.pr.set_exception(semaphore_aborted());
-                    }
-                } else {
-                    e.pr.set_exception(semaphore_aborted());
-                }
-            }
-        }
-    };
-    internal::abortable_fifo<entry, expiry_handler> _wait_list;
+    boost::intrusive::list<semaphore_waiter, boost::intrusive::constant_time_size<false>> _wait_list;
+
+    void add_waiter(semaphore_waiter& w) {
+        _wait_list.push_back(w);
+    }
+
+    friend semaphore_waiter;
+public:
     bool has_available_units(size_t nr) const noexcept {
         return _count >= 0 && (static_cast<size_t>(_count) >= nr);
     }
@@ -204,23 +288,60 @@ public:
     /// \param count number of initial units present in the counter.
     basic_semaphore(size_t count) noexcept(std::is_nothrow_default_constructible_v<exception_factory>)
         : exception_factory()
-        , _count(count),
-        _wait_list(expiry_handler{*this})
+        , _count(count)
     {}
     basic_semaphore(size_t count, exception_factory&& factory) noexcept(std::is_nothrow_move_constructible_v<exception_factory>)
         : exception_factory(std::move(factory))
         , _count(count)
-        , _wait_list(expiry_handler{*this})
-    {
-        static_assert(std::is_nothrow_move_constructible_v<expiry_handler>);
+    {}
+    basic_semaphore(basic_semaphore&&) noexcept = default;
+    basic_semaphore& operator=(basic_semaphore&& o) noexcept {
+        broken();
+        _count = std::exchange(o._count, 0);
+        _ex = std::exchange(o._ex, nullptr);
+        _wait_list = std::move(o._wait_list);
     }
-    basic_semaphore(basic_semaphore&&) = default;
-    basic_semaphore& operator=(basic_semaphore&&) = default;
 
     ~basic_semaphore() {
         broken();
     }
 
+private:
+    struct waiter : public semaphore_waiter {
+        using semaphore_waiter::semaphore_waiter;
+
+        promise<> pr;
+
+        future<> get_future() noexcept { return pr.get_future(); }
+        virtual void set_value() noexcept override {
+            pr.set_value();
+            // note: we self-delete in either case we are woken
+            // up. See usage below: only the resulting future
+            // state is required once we've left the _wait_list
+            delete this;
+        }
+        virtual void set_exception(std::exception_ptr ex) noexcept override {
+            pr.set_exception(std::move(ex));
+            // note: we self-delete in either case we are woken
+            // up. See usage below: only the resulting future
+            // state is required once we've left the _wait_list
+            delete this;
+        }
+    };
+
+    boost::intrusive::list<waiter, boost::intrusive::constant_time_size<false>> _waiters_freelist;
+
+    waiter* new_waiter(basic_semaphore& sem, size_t nr) {
+        if (_waiters_freelist.empty()) {
+            return new waiter(sem, nr);
+        }
+        auto& w = _waiters_freelist.front();
+        _waiters_freelist.pop_front();
+        w.init(sem, nr);
+        return &w;
+    }
+
+public:
     /// Waits until at least a specific number of units are available in the
     /// counter, and reduces the counter by that amount of units.
     ///
@@ -232,7 +353,19 @@ public:
     ///         to satisfy the request.  If the semaphore was \ref broken(), may
     ///         contain an exception.
     future<> wait(size_t nr = 1) noexcept {
-        return wait(time_point::max(), nr);
+        if (may_proceed(nr)) {
+            _count -= nr;
+            return make_ready_future<>();
+        }
+        if (_ex) {
+            return make_exception_future(_ex);
+        }
+        try {
+            auto* w = new_waiter(*this, nr);
+            return w->get_future();
+        } catch (...) {
+            return current_exception_as_future();
+        }
     }
     /// Waits until at least a specific number of units are available in the
     /// counter, and reduces the counter by that amount of units.  If the request
@@ -255,17 +388,20 @@ public:
         if (_ex) {
             return make_exception_future(_ex);
         }
-        try {
-            entry& e = _wait_list.emplace_back(promise<>(), nr);
-            auto f = e.pr.get_future();
-            if (timeout != time_point::max()) {
-                e.timer.emplace(timeout);
-                abort_source& as = e.timer->abort_source();
-                _wait_list.make_back_abortable(as);
+        if (Clock::now() >= timeout) {
+            try {
+                return make_exception_future(this->timeout());
+            } catch (...) {
+                return make_exception_future(semaphore_timed_out());
             }
+        }
+        try {
+            auto* w = new_waiter(*this, nr);
+            w->set_timeout(timeout);
+            auto f = w->get_future();
             return f;
         } catch (...) {
-            return make_exception_future(std::current_exception());
+            return current_exception_as_future();
         }
     }
 
@@ -290,14 +426,24 @@ public:
         if (_ex) {
             return make_exception_future(_ex);
         }
+        if (as.abort_requested()) {
+            if constexpr (internal::has_aborted<ExceptionFactory>::value) {
+                try {
+                    return make_exception_future(this->aborted());
+                } catch (...) {
+                    return make_exception_future(semaphore_aborted());
+                }
+            } else {
+                return make_exception_future(semaphore_aborted());
+            }
+        }
         try {
-            entry& e = _wait_list.emplace_back(promise<>(), nr);
-            // taking future here since make_back_abortable may expire the entry
-            auto f = e.pr.get_future();
-            _wait_list.make_back_abortable(as);
+            auto* w = new_waiter(*this, nr);
+            w->subscribe(as);
+            auto f = w->get_future();
             return f;
         } catch (...) {
-            return make_exception_future(std::current_exception());
+            return current_exception_as_future();
         }
     }
 
@@ -331,11 +477,12 @@ public:
             return;
         }
         _count += nr;
-        while (!_wait_list.empty() && has_available_units(_wait_list.front().nr)) {
+        while (!_wait_list.empty() && has_available_units(_wait_list.front().nr())) {
             auto& x = _wait_list.front();
-            _count -= x.nr;
-            x.pr.set_value();
-            _wait_list.pop_front();
+            _count -= x.nr();
+            // set_value sets the promise value
+            // and deletes the object
+            x.set_value();
         }
     }
 
@@ -417,7 +564,10 @@ public:
 
     /// Reserve memory for waiters so that wait() will not throw.
     void ensure_space_for_waiters(size_t n) {
-        _wait_list.reserve(n);
+        while (n--) {
+            auto* w = new waiter();
+            _waiters_freelist.push_back(*w);
+        }
     }
 };
 
@@ -430,8 +580,14 @@ basic_semaphore<ExceptionFactory, Clock>::broken(std::exception_ptr xp) noexcept
     _count = 0;
     while (!_wait_list.empty()) {
         auto& x = _wait_list.front();
-        x.pr.set_exception(xp);
-        _wait_list.pop_front();
+        // set_exception passes the exception to the promise->future
+        // and deletes the object
+        x.set_exception(xp);
+    }
+    while (!_waiters_freelist.empty()) {
+        auto* p = &_waiters_freelist.front();
+        _waiters_freelist.pop_front();
+        delete p;
     }
 }
 
