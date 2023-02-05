@@ -480,3 +480,25 @@ SEASTAR_THREAD_TEST_CASE(test_destroy_semaphore_during_wait_with_ensured_space) 
     sem.reset();
     BOOST_REQUIRE_THROW(wait.get(), broken_semaphore);
 }
+
+SEASTAR_THREAD_TEST_CASE(test_move_semaphore_during_wait) {
+    auto sem0 = semaphore(0);
+    auto wait = sem0.wait(1);
+    BOOST_REQUIRE(!wait.available());
+    auto sem1 = std::move(sem0);
+    sem1.signal(1);
+    BOOST_REQUIRE_NO_THROW(wait.get());
+}
+
+SEASTAR_THREAD_TEST_CASE(test_move_reassign_semaphore_during_wait) {
+    auto sem0 = semaphore(0);
+    auto wait0 = sem0.wait(1);
+    BOOST_REQUIRE(!wait0.available());
+    auto sem1 = semaphore(0);
+    auto wait1 = sem1.wait(1);
+    BOOST_REQUIRE(!wait1.available());
+    sem0 = std::move(sem1);
+    BOOST_REQUIRE_THROW(wait0.get(), broken_semaphore);
+    sem0.signal(1);
+    BOOST_REQUIRE_NO_THROW(wait1.get());
+}
