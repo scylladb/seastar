@@ -28,6 +28,7 @@
 #include <seastar/core/posix.hh>
 #include <seastar/core/reactor_config.hh>
 #include <seastar/core/resource.hh>
+#include <seastar/core/lowres_clock.hh>
 #include <boost/lockfree/spsc_queue.hpp>
 #include <boost/thread/barrier.hpp>
 #include <boost/range/irange.hpp>
