@@ -25,7 +25,6 @@
 #include <optional>
 #include <utility>
 #include <seastar/core/future.hh>
-#include <seastar/util/attribute-compat.hh>
 
 namespace seastar::coroutine::experimental {
 
