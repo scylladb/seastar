@@ -216,13 +216,13 @@ namespace coroutine {
 /// If constructed from a future, co_await-ing it will bypass
 /// checking if the task quota is depleted, which means that
 /// a ready future will be handled immediately.
-template<typename... T> struct SEASTAR_NODISCARD without_preemption_check : public seastar::future<T...> {
+template<typename... T> struct [[nodiscard]] without_preemption_check : public seastar::future<T...> {
     explicit without_preemption_check(seastar::future<T...>&& f) noexcept : seastar::future<T...>(std::move(f)) {}
 };
-template<typename T> struct SEASTAR_NODISCARD without_preemption_check<T> : public seastar::future<T> {
+template<typename T> struct [[nodiscard]] without_preemption_check<T> : public seastar::future<T> {
     explicit without_preemption_check(seastar::future<T>&& f) noexcept : seastar::future<T>(std::move(f)) {}
 };
-template<> struct SEASTAR_NODISCARD without_preemption_check<> : public seastar::future<> {
+template<> struct [[nodiscard]] without_preemption_check<> : public seastar::future<> {
     explicit without_preemption_check(seastar::future<>&& f) noexcept : seastar::future<>(std::move(f)) {}
 };
 

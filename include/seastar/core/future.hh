@@ -31,7 +31,6 @@
 #include <cstdlib>
 #include <seastar/core/function_traits.hh>
 #include <seastar/util/critical_alloc_section.hh>
-#include <seastar/util/attribute-compat.hh>
 #include <seastar/util/concepts.hh>
 #include <seastar/util/noncopyable_function.hh>
 #include <seastar/util/backtrace.hh>
@@ -1346,7 +1345,7 @@ task* continuation_base_with_promise<Promise, T SEASTAR_ELLIPSIS>::waiting_task(
 ///           A list with two or more types is deprecated; use
 ///           \c future<std::tuple<T...>> instead.
 template <typename SEASTAR_ELLIPSIS T>
-class SEASTAR_NODISCARD future : private internal::future_base {
+class [[nodiscard]] future : private internal::future_base {
     using future_state = seastar::future_state<internal::future_stored_type_t<T SEASTAR_ELLIPSIS>>;
     future_state _state;
     static constexpr bool copy_noexcept = future_state::copy_noexcept;

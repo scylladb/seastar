@@ -28,7 +28,7 @@ namespace seastar {
 namespace internal {
 
 template <bool CheckPreempt, typename T>
-class SEASTAR_NODISCARD as_future_awaiter {
+class [[nodiscard]] as_future_awaiter {
     seastar::future<T> _future;
 
 public:
@@ -83,7 +83,7 @@ namespace coroutine {
 /// returns true.  Use \ref coroutine::as_future_without_preemption_check
 /// to disable preemption checking.
 template<typename T = void>
-class SEASTAR_NODISCARD as_future : public seastar::internal::as_future_awaiter<true, T> {
+class [[nodiscard]] as_future : public seastar::internal::as_future_awaiter<true, T> {
 public:
     explicit as_future(seastar::future<T>&& f) noexcept : seastar::internal::as_future_awaiter<true, T>(std::move(f)) {}
 };
@@ -96,7 +96,7 @@ public:
 /// However, it bypasses checking if the task quota is depleted, which means that
 /// a ready `future` will be handled immediately.
 template<typename T = void>
-class SEASTAR_NODISCARD as_future_without_preemption_check : public seastar::internal::as_future_awaiter<false, T> {
+class [[nodiscard]] as_future_without_preemption_check : public seastar::internal::as_future_awaiter<false, T> {
 public:
     explicit as_future_without_preemption_check(seastar::future<T>&& f) noexcept : seastar::internal::as_future_awaiter<false, T>(std::move(f)) {}
 };
