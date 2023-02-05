@@ -1007,8 +1007,10 @@ template <typename ExceptionFactory, typename Func, typename Clock = typename ti
 inline
 futurize_t<std::invoke_result_t<Func>>
 with_semaphore(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units, Func&& func) noexcept {
-    return get_units(sem, units).then([func = std::forward<Func>(func)] (auto units) mutable {
-        return futurize_invoke(std::forward<Func>(func)).finally([units = std::move(units)] {});
+    return sem.wait(units).then([&sem, units, func = std::forward<Func>(func)] () mutable {
+        return futurize_invoke(std::forward<Func>(func)).finally([&sem, units] {
+            sem.signal(units);
+        });
     });
 }
 
@@ -1041,8 +1043,10 @@ template <typename ExceptionFactory, typename Clock, typename Func>
 inline
 futurize_t<std::invoke_result_t<Func>>
 with_semaphore(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units, typename basic_semaphore<ExceptionFactory, Clock>::duration timeout, Func&& func) noexcept {
-    return get_units(sem, units, timeout).then([func = std::forward<Func>(func)] (auto units) mutable {
-        return futurize_invoke(std::forward<Func>(func)).finally([units = std::move(units)] {});
+    return sem.wait(units, timeout).then([&sem, units, func = std::forward<Func>(func)] () mutable {
+        return futurize_invoke(std::forward<Func>(func)).finally([&sem, units] {
+            sem.signal(units);
+        });
     });
 }
 
