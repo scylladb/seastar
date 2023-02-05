@@ -130,6 +130,9 @@ struct named_semaphore_exception_factory {
 template<typename ExceptionFactory, typename Clock>
 class basic_semaphore;
 
+template<typename ExceptionFactory, typename Clock>
+class semaphore_units;
+
 namespace internal {
 
 template<typename ExceptionFactory, typename Clock>
@@ -229,27 +232,92 @@ public:
     }
 };
 
+template<typename ExceptionFactory, typename Clock>
+class semaphore_units_handle : public boost::intrusive::list_base_hook<boost::intrusive::link_mode<boost::intrusive::auto_unlink>> {
+    using basic_semaphore = seastar::basic_semaphore<ExceptionFactory, Clock>;
+    using semaphore_units = seastar::semaphore_units<ExceptionFactory, Clock>;
+
+    semaphore_units* _units;
+
+    friend semaphore_units;
+public:
+    semaphore_units_handle() noexcept : _units(nullptr) {}
+    semaphore_units_handle(semaphore_units* units) noexcept {
+        track(units);
+    }
+    semaphore_units& units() noexcept {
+        return *_units;
+    }
+    void track(semaphore_units* units) noexcept {
+        _units = units;
+        if (!is_linked()) {
+            units->sem()->track(*this);
+        }
+    }
+    void set_exception(std::exception_ptr ex) noexcept {
+        assert(_units->_handle == this);
+        _units->set_exception(std::move(ex));
+    }
+};
+
 } // namespace internal
 
 template<typename ExceptionFactory = semaphore_default_exception_factory, typename Clock = typename timer<>::clock>
 class semaphore_units {
 public:
     using basic_semaphore = seastar::basic_semaphore<ExceptionFactory, Clock>;
+    using semaphore_units_handle = seastar::internal::semaphore_units_handle<ExceptionFactory, Clock>;
 
 private:
-    basic_semaphore* _sem;
-    size_t _n;
+    basic_semaphore* _sem = nullptr;
+    size_t _n = 0;
+    semaphore_units_handle* _handle = nullptr;
+    std::function<void(semaphore_units_handle*)> _deleter;
+    std::exception_ptr _ex;
 
-    semaphore_units(basic_semaphore* sem, size_t n) noexcept : _sem(sem), _n(n) {}
+    semaphore_units(basic_semaphore* sem, size_t n, semaphore_units_handle* handle, std::function<void(semaphore_units_handle*)> deleter) noexcept
+        : _sem(sem), _n(n), _handle(handle), _deleter(std::move(deleter))
+    {
+        if (_handle) {
+            _handle->track(this);
+        }
+    }
+
+    void reset_handle() noexcept {
+        if (_handle) {
+            assert(_handle->_units == this);
+            _deleter(_handle);
+            _handle = nullptr;
+        }
+    }
+
+    void set_exception(std::exception_ptr&& ex) noexcept {
+        _ex = std::move(ex);
+        release();
+    }
+
+    friend semaphore_units_handle;
 public:
-    semaphore_units() noexcept : semaphore_units(nullptr, 0) {}
-    semaphore_units(basic_semaphore& sem, size_t n) noexcept : semaphore_units(&sem, n) {}
-    semaphore_units(semaphore_units&& o) noexcept : _sem(o._sem), _n(std::exchange(o._n, 0)) {
+    semaphore_units() = default;
+    semaphore_units(basic_semaphore& sem, size_t n)
+        : semaphore_units(&sem, n, new semaphore_units_handle(), [] (semaphore_units_handle* p) { delete p; })
+    {}
+    semaphore_units(basic_semaphore& sem, size_t n, semaphore_units_handle* handle, std::function<void(semaphore_units_handle*)> deleter) noexcept
+        : semaphore_units(&sem, n, handle, std::move(deleter))
+    {}
+    semaphore_units(semaphore_units&& o) noexcept
+        : semaphore_units(std::exchange(o._sem, nullptr), std::exchange(o._n, 0), std::exchange(o._handle, nullptr), std::move(o._deleter))
+    {
     }
     semaphore_units& operator=(semaphore_units&& o) noexcept {
         return_all();
-        _sem = o._sem;
+        _sem = std::exchange(o._sem, nullptr);
         _n = std::exchange(o._n, 0);
+        _handle = std::exchange(o._handle, nullptr);
+        _deleter = std::move(o._deleter);
+        if (_handle) {
+            _handle->track(this);
+        }
         return *this;
     }
     semaphore_units(const semaphore_units&) = delete;
@@ -268,11 +336,15 @@ public:
             throw std::invalid_argument("Cannot take more units than those protected by the semaphore");
         }
         _n -= units;
+        if (!_n) {
+            reset_handle();
+        }
         _sem->signal(units);
         return _n;
     }
     /// Return ownership of all units. The semaphore will be signaled by the number of units returned.
     void return_all() noexcept {
+        reset_handle();
         if (_n) {
             _sem->signal(_n);
             _n = 0;
@@ -282,6 +354,7 @@ public:
     ///
     /// \return the number of units held
     size_t release() noexcept {
+        reset_handle();
         return std::exchange(_n, 0);
     }
     /// Splits this instance into a \ref semaphore_units object holding the specified amount of units.
@@ -297,7 +370,10 @@ public:
             throw std::invalid_argument("Cannot take more units than those protected by the semaphore");
         }
         _n -= units;
-        return semaphore_units(_sem, units);
+        if (!_n) {
+            return semaphore_units(_sem, units, std::exchange(_handle, nullptr), std::move(_deleter));
+        }
+        return semaphore_units(_sem, units, new semaphore_units_handle(), [] (semaphore_units_handle* p) { delete p; });
     }
     /// The inverse of split(), in which the units held by the specified \ref semaphore_units
     /// object are merged into the current one. The function assumes (and asserts) that both
@@ -306,6 +382,14 @@ public:
     /// \return the updated semaphore_units object
     void adopt(semaphore_units&& other) noexcept {
         assert(other._sem == _sem);
+        if (!_handle) {
+            _handle = std::exchange(other._handle, nullptr);
+            if (_handle) {
+                _handle->track(this);
+            } else {
+                assert(other.count());
+            }
+        }
         _n += other.release();
     }
 
@@ -317,6 +401,18 @@ public:
     /// Returns true iff there any units held
     explicit operator bool() const noexcept {
         return _n != 0;
+    }
+
+    basic_semaphore* sem() noexcept {
+        return _sem;
+    }
+
+    void set_semaphore(basic_semaphore& sem) noexcept {
+        _sem = &sem;
+    }
+
+    const std::exception_ptr& get_exception() const noexcept {
+        return _ex;
     }
 };
 
@@ -348,6 +444,7 @@ public:
     using exception_factory = ExceptionFactory;
     using semaphore_waiter = seastar::internal::semaphore_waiter<ExceptionFactory, Clock>;
     using semaphore_units = seastar::semaphore_units<ExceptionFactory, Clock>;
+    using semaphore_units_handle = seastar::internal::semaphore_units_handle<ExceptionFactory, Clock>;
 private:
     ssize_t _count;
     std::exception_ptr _ex;
@@ -384,12 +481,27 @@ public:
         : exception_factory(std::move(factory))
         , _count(count)
     {}
-    basic_semaphore(basic_semaphore&&) noexcept = default;
+    basic_semaphore(basic_semaphore&& o) noexcept
+        : _count(std::exchange(o._count, 0))
+        , _ex(std::exchange(o._ex, nullptr))
+        , _wait_list(std::move(o._wait_list))
+        , _waiters_freelist(std::move(o._waiters_freelist))
+        , _outstanding_units(std::move(o._outstanding_units))
+    {
+        for (auto& h : _outstanding_units) {
+            h.units().set_semaphore(*this);
+        }
+    }
     basic_semaphore& operator=(basic_semaphore&& o) noexcept {
         broken();
         _count = std::exchange(o._count, 0);
         _ex = std::exchange(o._ex, nullptr);
         _wait_list = std::move(o._wait_list);
+        _waiters_freelist = std::move(o._waiters_freelist);
+        _outstanding_units = std::move(o._outstanding_units);
+        for (auto& h : _outstanding_units) {
+            h.units().set_semaphore(*this);
+        }
     }
 
     ~basic_semaphore() {
@@ -555,18 +667,17 @@ public:
     }
 
 private:
-    struct units_waiter : public semaphore_waiter {
+    struct units_waiter : public semaphore_waiter, semaphore_units_handle {
         using semaphore_waiter::semaphore_waiter;
 
         promise<semaphore_units> pr;
 
         future<semaphore_units> get_future() noexcept { return pr.get_future(); }
         virtual void set_value() noexcept override {
-            pr.set_value(semaphore_units(*this->sem(), this->nr()));
-            // note: we self-delete in either case we are woken
-            // up. See usage below: only the resulting future
-            // state is required once we've left the _wait_list
-            delete this;
+            semaphore_waiter::unlink();
+            pr.set_value(semaphore_units(*this->sem(), this->nr(),
+                    dynamic_cast<semaphore_units_handle*>(this),
+                    [this] (semaphore_units_handle*) { delete this; }));
         }
         virtual void set_exception(std::exception_ptr ex) noexcept override {
             pr.set_exception(std::move(ex));
@@ -577,6 +688,13 @@ private:
         }
     };
 
+    boost::intrusive::list<semaphore_units_handle, boost::intrusive::constant_time_size<false>> _outstanding_units;
+
+    void track(semaphore_units_handle& h) {
+        _outstanding_units.push_back(h);
+    }
+
+    friend semaphore_units_handle;
 public:
     /// Waits until at least a specific number of units are available in the
     /// counter, and reduces the counter by that amount of units.
@@ -589,14 +707,14 @@ public:
     ///         to satisfy the request.  If the semaphore was \ref broken(), may
     ///         contain an exception.
     future<semaphore_units> get_units(size_t nr = 1) noexcept {
-        if (may_proceed(nr)) {
-            _count -= nr;
-            return make_ready_future<semaphore_units>(*this, nr);
-        }
-        if (_ex) {
-            return make_exception_future<semaphore_units>(_ex);
-        }
         try {
+            if (may_proceed(nr)) {
+                _count -= nr;
+                return make_ready_future<semaphore_units>(*this, nr);
+            }
+            if (_ex) {
+                return make_exception_future<semaphore_units>(_ex);
+            }
             auto w = new units_waiter(*this, nr);
             auto f = w->get_future();
             return f;
@@ -618,21 +736,22 @@ public:
     ///         \ref semaphore_timed_out exception.  If the semaphore was
     ///         \ref broken(), may contain a \ref broken_semaphore exception.
     future<semaphore_units> get_units(time_point timeout, size_t nr = 1) noexcept {
-        if (may_proceed(nr)) {
-            _count -= nr;
-            return make_ready_future<semaphore_units>(*this, nr);
-        }
-        if (_ex) {
-            return make_exception_future<semaphore_units>(_ex);
-        }
-        if (Clock::now() >= timeout) {
-            try {
-                return make_exception_future<semaphore_units>(this->timeout());
-            } catch (...) {
-                return make_exception_future<semaphore_units>(semaphore_timed_out());
-            }
-        }
         try {
+            if (may_proceed(nr)) {
+                _count -= nr;
+                return make_ready_future<semaphore_units>(*this, nr);
+            }
+            if (_ex) {
+                return make_exception_future<semaphore_units>(_ex);
+            }
+            if (Clock::now() >= timeout) {
+                try {
+                    return make_exception_future<semaphore_units>(this->timeout());
+                } catch (...) {
+                    return make_exception_future<semaphore_units>(semaphore_timed_out());
+                }
+            }
+
             auto w = new units_waiter(*this, nr, timeout);
             auto f = w->get_future();
             return f;
@@ -824,6 +943,12 @@ basic_semaphore<ExceptionFactory, Clock>::broken(std::exception_ptr xp) noexcept
         auto* p = &_waiters_freelist.front();
         _waiters_freelist.pop_front();
         delete p;
+    }
+    while (!_outstanding_units.empty()) {
+        auto& h = _outstanding_units.front();
+        // set_exception passes the exception to the semaphore_units
+        // and deletes the object
+        h.set_exception(xp);
     }
 }
 
