@@ -24,6 +24,7 @@
 #include <seastar/http/httpd.hh>
 #include <seastar/core/metrics.hh>
 #include <seastar/util/std-compat.hh>
+#include <optional>
 
 namespace seastar {
 

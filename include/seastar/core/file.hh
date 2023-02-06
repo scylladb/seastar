@@ -35,6 +35,11 @@
 #include <linux/fs.h>
 #include <sys/uio.h>
 #include <unistd.h>
+#include <chrono>
+#include <concepts>
+#include <cstdint>
+#include <functional>
+#include <optional>
 
 namespace seastar {
 

@@ -25,6 +25,7 @@
 #include <limits>
 #include <map>
 #include <type_traits>
+#include <variant>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/metrics_registration.hh>

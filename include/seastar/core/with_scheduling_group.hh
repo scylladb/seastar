@@ -24,6 +24,9 @@
 
 #include <seastar/core/future.hh>
 #include <seastar/core/make_task.hh>
+#include <concepts>
+#include <tuple>
+#include <utility>
 
 namespace seastar {
 

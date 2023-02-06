@@ -22,6 +22,7 @@
 #pragma once
 
 #include <seastar/core/semaphore.hh>
+#include <cstddef>
 
 namespace seastar {
 

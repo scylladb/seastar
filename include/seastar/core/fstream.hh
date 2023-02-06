@@ -34,6 +34,7 @@
 #include <seastar/core/iostream.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/internal/api-level.hh>
+#include <cstdint>
 
 namespace seastar {
 

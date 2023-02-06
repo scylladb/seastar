@@ -23,13 +23,16 @@
 
 #include <seastar/core/future.hh>
 #include <seastar/core/chunked_fifo.hh>
-#include <stdexcept>
-#include <exception>
-#include <optional>
 #include <seastar/core/timer.hh>
 #include <seastar/core/abortable_fifo.hh>
 #include <seastar/core/timed_out_error.hh>
 #include <seastar/core/abort_on_expiry.hh>
+#include <cassert>
+#include <exception>
+#include <optional>
+#include <stdexcept>
+#include <stdexcept>
+#include <utility>
 
 #ifdef SEASTAR_DEBUG
 #define SEASTAR_SEMAPHORE_DEBUG

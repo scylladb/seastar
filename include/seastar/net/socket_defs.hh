@@ -20,14 +20,15 @@
  */
 #pragma once
 
-#include <iosfwd>
-#include <array>
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <netinet/ip.h>
 #include <seastar/net/byteorder.hh>
 #include <seastar/net/unix_address.hh>
+#include <array>
 #include <cassert>
+#include <functional>
+#include <iosfwd>
 
 namespace seastar {
 

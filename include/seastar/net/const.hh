@@ -21,6 +21,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 namespace seastar {
 
 namespace net {

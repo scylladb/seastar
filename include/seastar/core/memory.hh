@@ -24,7 +24,10 @@
 #include <seastar/core/resource.hh>
 #include <seastar/core/bitops.hh>
 #include <new>
+#include <cstdint>
 #include <functional>
+#include <optional>
+#include <string>
 #include <vector>
 
 namespace seastar {

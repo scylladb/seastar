@@ -23,6 +23,7 @@
 #include <seastar/core/scheduling.hh>
 #include <seastar/core/map_reduce.hh>
 #include <array>
+#include <typeindex>
 #include <vector>
 
 #pragma once

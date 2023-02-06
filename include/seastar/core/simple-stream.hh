@@ -20,8 +20,13 @@
  */
 
 #pragma once
+
 #include <seastar/core/sstring.hh>
 #include <seastar/util/variant_utils.hh>
+#include <algorithm>
+#include <cstddef>
+#include <stdexcept>
+#include <type_traits>
 
 namespace seastar {
 

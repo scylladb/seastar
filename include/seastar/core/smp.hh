@@ -32,6 +32,7 @@
 #include <boost/thread/barrier.hpp>
 #include <boost/range/irange.hpp>
 #include <deque>
+#include <optional>
 #include <thread>
 
 /// \file

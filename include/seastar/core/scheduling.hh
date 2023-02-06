@@ -22,6 +22,7 @@
 #pragma once
 
 #include <chrono>
+#include <functional>
 #include <typeindex>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/function_traits.hh>

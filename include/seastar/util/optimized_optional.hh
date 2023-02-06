@@ -24,8 +24,9 @@
 #include <seastar/util/concepts.hh>
 #include <seastar/util/std-compat.hh>
 
-#include <type_traits>
 #include <iostream>
+#include <memory>
+#include <type_traits>
 
 namespace seastar {
 

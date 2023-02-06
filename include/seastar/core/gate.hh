@@ -23,7 +23,10 @@
 
 #include <seastar/core/future.hh>
 #include <seastar/util/std-compat.hh>
+#include <cassert>
 #include <exception>
+#include <optional>
+#include <utility>
 
 #ifdef SEASTAR_DEBUG
 #define SEASTAR_GATE_HOLDER_DEBUG

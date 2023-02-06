@@ -22,6 +22,7 @@
 #pragma once
 
 #include <seastar/util/program-options.hh>
+#include <string>
 
 /// \file
 

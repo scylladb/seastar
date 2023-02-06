@@ -21,13 +21,14 @@
 
 #pragma once
 
-#include <chrono>
-#include <seastar/util/std-compat.hh>
-#include <atomic>
-#include <functional>
 #include <seastar/core/future.hh>
-#include <seastar/core/timer-set.hh>
 #include <seastar/core/scheduling.hh>
+#include <seastar/core/timer-set.hh>
+#include <seastar/util/std-compat.hh>
+#include <boost/intrusive/list.hpp>
+#include <atomic>
+#include <chrono>
+#include <functional>
 
 /// \file
 

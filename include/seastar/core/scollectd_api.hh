@@ -6,6 +6,7 @@
 
 #include <seastar/core/scollectd.hh>
 #include <seastar/core/metrics_api.hh>
+#include <vector>
 
 namespace seastar {
 
