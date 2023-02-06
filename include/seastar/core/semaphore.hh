@@ -30,6 +30,7 @@
 #include <seastar/core/abortable_fifo.hh>
 #include <seastar/core/timed_out_error.hh>
 #include <seastar/core/abort_on_expiry.hh>
+#include <seastar/core/shared_ptr.hh>
 
 namespace seastar {
 
@@ -125,6 +126,9 @@ struct named_semaphore_exception_factory {
     named_semaphore_aborted aborted() const noexcept;
 };
 
+template<typename ExceptionFactory, typename Clock>
+class semaphore_units;
+
 /// \brief Counted resource guard.
 ///
 /// This is a standard computer science semaphore, adapted
@@ -151,9 +155,16 @@ public:
     using clock = typename timer<Clock>::clock;
     using time_point = typename timer<Clock>::time_point;
     using exception_factory = ExceptionFactory;
+    using semaphore_units = seastar::semaphore_units<ExceptionFactory, Clock>;
 private:
-    ssize_t _count;
-    std::exception_ptr _ex;
+    struct state : public enable_lw_shared_from_this<state> {
+        basic_semaphore* sem;
+        ssize_t count;
+        std::exception_ptr ex;
+
+        state(basic_semaphore& sem_, ssize_t count_) noexcept : sem(&sem_), count(count_) {}
+    };
+    lw_shared_ptr<state> _state;
     struct entry {
         promise<> pr;
         size_t nr;
@@ -169,8 +180,8 @@ private:
                 } catch (...) {
                     e.pr.set_exception(semaphore_timed_out());
                 }
-            } else if (sem._ex) {
-                e.pr.set_exception(sem._ex);
+            } else if (sem._state->ex) {
+                e.pr.set_exception(sem._state->ex);
             } else {
                 if constexpr (internal::has_aborted<exception_factory>::value) {
                     try {
@@ -186,15 +197,17 @@ private:
     };
     internal::abortable_fifo<entry, expiry_handler> _wait_list;
     bool has_available_units(size_t nr) const noexcept {
-        return _count >= 0 && (static_cast<size_t>(_count) >= nr);
+        return _state->count >= 0 && (static_cast<size_t>(_state->count) >= nr);
     }
     bool may_proceed(size_t nr) const noexcept {
         return has_available_units(nr) && _wait_list.empty();
     }
+
+    friend semaphore_units;
 public:
     /// Returns the maximum number of units the semaphore counter can hold
     static constexpr size_t max_counter() noexcept {
-        return std::numeric_limits<decltype(_count)>::max();
+        return std::numeric_limits<decltype(_state->count)>::max();
     }
 
     /// Constructs a semaphore object with a specific number of units
@@ -204,17 +217,25 @@ public:
     /// \param count number of initial units present in the counter.
     basic_semaphore(size_t count) noexcept(std::is_nothrow_default_constructible_v<exception_factory>)
         : exception_factory()
-        , _count(count),
-        _wait_list(expiry_handler{*this})
+        , _state(make_lw_shared<state>(*this, count))
+        , _wait_list(expiry_handler{*this})
     {}
     basic_semaphore(size_t count, exception_factory&& factory) noexcept(std::is_nothrow_move_constructible_v<exception_factory>)
         : exception_factory(std::move(factory))
-        , _count(count)
+        , _state(make_lw_shared<state>(*this, count))
         , _wait_list(expiry_handler{*this})
     {
         static_assert(std::is_nothrow_move_constructible_v<expiry_handler>);
     }
-    basic_semaphore(basic_semaphore&&) = default;
+    basic_semaphore(basic_semaphore&& o) noexcept
+        : exception_factory(std::move(o))
+        , _state(std::move(o._state))
+        , _wait_list(std::move(o._wait_list))
+    {
+        if (_state->sem) {
+            _state->sem = this;
+        }
+    }
     basic_semaphore& operator=(basic_semaphore&&) = default;
 
     ~basic_semaphore() {
@@ -249,11 +270,11 @@ public:
     ///         \ref broken(), may contain a \ref broken_semaphore exception.
     future<> wait(time_point timeout, size_t nr = 1) noexcept {
         if (may_proceed(nr)) {
-            _count -= nr;
+            _state->count -= nr;
             return make_ready_future<>();
         }
-        if (_ex) {
-            return make_exception_future(_ex);
+        if (_state->ex) {
+            return make_exception_future(_state->ex);
         }
         try {
             entry& e = _wait_list.emplace_back(promise<>(), nr);
@@ -284,11 +305,11 @@ public:
     ///         \ref broken(), may contain a \ref broken_semaphore exception.
     future<> wait(abort_source& as, size_t nr = 1) noexcept {
         if (may_proceed(nr)) {
-            _count -= nr;
+            _state->count -= nr;
             return make_ready_future<>();
         }
-        if (_ex) {
-            return make_exception_future(_ex);
+        if (_state->ex) {
+            return make_exception_future(_state->ex);
         }
         try {
             entry& e = _wait_list.emplace_back(promise<>(), nr);
@@ -327,13 +348,13 @@ public:
     ///
     /// \param nr Number of units to deposit (default 1).
     void signal(size_t nr = 1) noexcept {
-        if (_ex) {
+        if (_state->ex) {
             return;
         }
-        _count += nr;
+        _state->count += nr;
         while (!_wait_list.empty() && has_available_units(_wait_list.front().nr)) {
             auto& x = _wait_list.front();
-            _count -= x.nr;
+            _state->count -= x.nr;
             x.pr.set_value();
             _wait_list.pop_front();
         }
@@ -347,10 +368,10 @@ public:
     ///
     /// \param nr Amount of units to consume (default 1).
     void consume(size_t nr = 1) noexcept {
-        if (_ex) {
+        if (_state->ex) {
             return;
         }
-        _count -= nr;
+        _state->count -= nr;
     }
 
     /// Attempts to reduce the counter value by a specified number of units.
@@ -365,7 +386,7 @@ public:
     /// \return `true` if the counter had sufficient units, and was decremented.
     bool try_wait(size_t nr = 1) noexcept {
         if (may_proceed(nr)) {
-            _count -= nr;
+            _state->count -= nr;
             return true;
         } else {
             return false;
@@ -374,13 +395,13 @@ public:
     /// Returns the number of units available in the counter.
     ///
     /// Does not take into account any waiters.
-    size_t current() const noexcept { return std::max(_count, ssize_t(0)); }
+    size_t current() const noexcept { return std::max(_state->count, ssize_t(0)); }
 
     /// Returns the number of available units.
     ///
     /// Takes into account units consumed using \ref consume() and therefore
     /// may return a negative value.
-    ssize_t available_units() const noexcept { return _count; }
+    ssize_t available_units() const noexcept { return _state->count; }
 
     /// Returns the current number of waiters
     size_t waiters() const noexcept { return _wait_list.size(); }
@@ -426,8 +447,11 @@ inline
 void
 basic_semaphore<ExceptionFactory, Clock>::broken(std::exception_ptr xp) noexcept {
     static_assert(std::is_nothrow_copy_constructible_v<std::exception_ptr>);
-    _ex = xp;
-    _count = 0;
+    if (_state) {
+        _state->ex = xp;
+        _state->count = 0;
+        _state->sem = nullptr;
+    }
     while (!_wait_list.empty()) {
         auto& x = _wait_list.front();
         x.pr.set_exception(xp);
@@ -437,24 +461,34 @@ basic_semaphore<ExceptionFactory, Clock>::broken(std::exception_ptr xp) noexcept
 
 template<typename ExceptionFactory = semaphore_default_exception_factory, typename Clock = typename timer<>::clock>
 class semaphore_units {
-    basic_semaphore<ExceptionFactory, Clock>* _sem;
-    size_t _n;
-
-    semaphore_units(basic_semaphore<ExceptionFactory, Clock>* sem, size_t n) noexcept : _sem(sem), _n(n) {}
 public:
-    semaphore_units() noexcept : semaphore_units(nullptr, 0) {}
-    semaphore_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t n) noexcept : semaphore_units(&sem, n) {}
-    semaphore_units(semaphore_units&& o) noexcept : _sem(o._sem), _n(std::exchange(o._n, 0)) {
+    using basic_semaphore = seastar::basic_semaphore<ExceptionFactory, Clock>;
+
+private:
+    using state = typename basic_semaphore::state;
+
+    lw_shared_ptr<state> _state;
+    size_t _n = 0;
+
+    semaphore_units(lw_shared_ptr<state> state, size_t n) noexcept : _state(std::move(state)), _n(n) {}
+public:
+    semaphore_units() = default;
+    semaphore_units(basic_semaphore& sem, size_t n) noexcept : semaphore_units(sem._state, n) {}
+    semaphore_units(semaphore_units&& o) noexcept : _state(std::move(o._state)), _n(std::exchange(o._n, 0)) {
     }
     semaphore_units& operator=(semaphore_units&& o) noexcept {
-        return_all();
-        _sem = o._sem;
+        if (!broken()) {
+            return_all();
+        }
+        _state = std::move(o._state);
         _n = std::exchange(o._n, 0);
         return *this;
     }
     semaphore_units(const semaphore_units&) = delete;
     ~semaphore_units() noexcept {
+      if (!broken()) {
         return_all();
+      }
     }
     /// Return ownership of some units to the semaphore. The semaphore will be signaled by the number of units returned.
     ///
@@ -467,14 +501,16 @@ public:
         if (units > _n) {
             throw std::invalid_argument("Cannot take more units than those protected by the semaphore");
         }
+        check();
         _n -= units;
-        _sem->signal(units);
+        _state->sem->signal(units);
         return _n;
     }
     /// Return ownership of all units. The semaphore will be signaled by the number of units returned.
-    void return_all() noexcept {
+    void return_all() {
+        check();
         if (_n) {
-            _sem->signal(_n);
+            _state->sem->signal(_n);
             _n = 0;
         }
     }
@@ -496,8 +532,9 @@ public:
         if (units > _n) {
             throw std::invalid_argument("Cannot take more units than those protected by the semaphore");
         }
+        check();
         _n -= units;
-        return semaphore_units(_sem, units);
+        return semaphore_units(_state, units);
     }
     /// The inverse of split(), in which the units held by the specified \ref semaphore_units
     /// object are merged into the current one. The function assumes (and asserts) that both
@@ -505,7 +542,7 @@ public:
     ///
     /// \return the updated semaphore_units object
     void adopt(semaphore_units&& other) noexcept {
-        assert(other._sem == _sem);
+        assert(other._state == _state);
         _n += other.release();
     }
 
@@ -517,6 +554,20 @@ public:
     /// Returns true iff there any units held
     explicit operator bool() const noexcept {
         return _n != 0;
+    }
+
+    bool broken() const noexcept {
+        return !_state || !_state->sem;
+    }
+
+    void check() const {
+        if (broken()) {
+            std::rethrow_exception(get_exception());
+        }
+    }
+
+    std::exception_ptr get_exception() const noexcept {
+        return _state ? _state->ex : std::make_exception_ptr(std::runtime_error("Uninitialized semaphore_units"));
     }
 };
 
