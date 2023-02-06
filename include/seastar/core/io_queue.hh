@@ -28,6 +28,10 @@
 #include <seastar/core/future.hh>
 #include <seastar/core/internal/io_request.hh>
 #include <seastar/util/spinlock.hh>
+#include <chrono>
+#include <memory>
+#include <vector>
+#include <sys/uio.h>
 
 struct io_queue_for_tests;
 

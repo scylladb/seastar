@@ -26,6 +26,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 
 namespace seastar {
 namespace internal {

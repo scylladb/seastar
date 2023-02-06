@@ -27,11 +27,12 @@
 #include <seastar/core/circular_buffer.hh>
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/util/shared_token_bucket.hh>
-#include <functional>
-#include <queue>
 #include <chrono>
-#include <unordered_set>
+#include <cstdint>
+#include <functional>
 #include <optional>
+#include <queue>
+#include <unordered_set>
 
 namespace bi = boost::intrusive;
 

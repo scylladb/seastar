@@ -40,6 +40,11 @@
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/core/scattered_message.hh>
 #include <seastar/util/std-compat.hh>
+#include <algorithm>
+#include <memory>
+#include <optional>
+#include <variant>
+#include <vector>
 
 namespace bi = boost::intrusive;
 

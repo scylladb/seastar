@@ -37,6 +37,7 @@
 #include <cstring>
 #include <cassert>
 #include <stdexcept>
+#include <string_view>
 #include <unistd.h>
 #include <vector>
 #include <queue>

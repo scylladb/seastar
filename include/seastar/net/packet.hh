@@ -24,12 +24,15 @@
 #include <seastar/core/deleter.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/net/const.hh>
-#include <vector>
-#include <cassert>
-#include <algorithm>
-#include <iosfwd>
 #include <seastar/util/std-compat.hh>
+#include <algorithm>
+#include <cassert>
+#include <cstdint>
 #include <functional>
+#include <iosfwd>
+#include <memory>
+#include <optional>
+#include <vector>
 
 namespace seastar {
 

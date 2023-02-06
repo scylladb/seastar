@@ -23,6 +23,7 @@
 
 #include <execinfo.h>
 #include <iosfwd>
+#include <memory>
 #include <variant>
 #include <boost/container/static_vector.hpp>
 

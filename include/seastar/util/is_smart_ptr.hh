@@ -22,6 +22,7 @@
 #pragma once
 
 #include <memory> // for std::unique_ptr
+#include <type_traits>
 
 namespace seastar {
 

@@ -21,14 +21,17 @@
 
 #pragma once
 
+#include <assert.h>
+#include <atomic>
+#include <cstdlib>
+#include <cstring>
+#include <functional>
+#include <memory>
+#include <stdexcept>
+#include <type_traits>
+#include <utility>
 #include <seastar/core/task.hh>
 #include <seastar/core/thread_impl.hh>
-#include <stdexcept>
-#include <atomic>
-#include <memory>
-#include <type_traits>
-#include <assert.h>
-#include <cstdlib>
 #include <seastar/core/function_traits.hh>
 #include <seastar/util/critical_alloc_section.hh>
 #include <seastar/util/concepts.hh>

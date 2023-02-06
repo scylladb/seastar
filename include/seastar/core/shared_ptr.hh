@@ -22,14 +22,14 @@
 #pragma once
 
 #include <seastar/core/shared_ptr_debug_helper.hh>
-#include <utility>
-#include <type_traits>
-#include <functional>
-#include <ostream>
 #include <seastar/util/is_smart_ptr.hh>
 #include <seastar/util/indirect.hh>
-
 #include <boost/intrusive/parent_from_member.hpp>
+#include <functional>
+#include <memory>
+#include <ostream>
+#include <type_traits>
+#include <utility>
 
 #if defined(__GNUC__) && !defined(__clang__) && (__GNUC__ >= 12)
 // to silence the false alarm from GCC 12, see

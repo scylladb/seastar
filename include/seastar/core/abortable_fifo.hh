@@ -21,12 +21,13 @@
 
 #pragma once
 
+#include <seastar/core/abort_source.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/chunked_fifo.hh>
-#include <stdexcept>
 #include <exception>
 #include <memory>
-#include <seastar/core/abort_source.hh>
+#include <optional>
+#include <stdexcept>
 
 namespace seastar {
 

@@ -23,11 +23,13 @@
 
 #include <seastar/core/future.hh>
 #include <seastar/core/posix.hh>
-#include <vector>
-#include <tuple>
 #include <seastar/core/internal/io_desc.hh>
 #include <seastar/util/bool_class.hh>
 #include <boost/intrusive_ptr.hpp>
+#include <cstdint>
+#include <vector>
+#include <tuple>
+#include <sys/uio.h>
 
 namespace seastar {
 

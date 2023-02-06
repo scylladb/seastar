@@ -24,6 +24,7 @@
 #include <seastar/core/scollectd.hh>
 #include <seastar/core/metrics_api.hh>
 #include <seastar/net/api.hh>
+#include <chrono>
 
 namespace seastar {
 

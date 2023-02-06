@@ -23,6 +23,8 @@
 
 #include <seastar/core/future.hh>
 #include <seastar/core/chunked_fifo.hh>
+#include <cassert>
+#include <utility>
 
 namespace seastar {
 

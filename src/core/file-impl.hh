@@ -23,9 +23,12 @@
 
 #include <seastar/core/file.hh>
 #include <seastar/core/shared_ptr.hh>
-
-#include <deque>
 #include <atomic>
+#include <deque>
+#include <functional>
+#include <memory>
+#include <vector>
+#include <sys/uio.h>
 
 namespace seastar {
 class io_queue;

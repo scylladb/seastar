@@ -21,7 +21,10 @@
 
 #pragma once
 
+
 #include <seastar/util/std-compat.hh>
+#include <exception>
+#include <string_view>
 
 namespace seastar {
 

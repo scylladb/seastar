@@ -24,6 +24,8 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/core/print.hh>
 
+#include <fmt/format.h>
+
 #include <boost/any.hpp>
 #include <boost/intrusive/list.hpp>
 

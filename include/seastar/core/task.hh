@@ -21,9 +21,10 @@
 
 #pragma once
 
-#include <memory>
 #include <seastar/core/scheduling.hh>
 #include <seastar/util/backtrace.hh>
+#include <memory>
+#include <utility>
 
 namespace seastar {
 
