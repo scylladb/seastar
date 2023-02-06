@@ -493,7 +493,6 @@ target_sources (seastar
   include/seastar/core/gate.hh
   include/seastar/core/iostream-impl.hh
   include/seastar/core/iostream.hh
-  include/seastar/util/later.hh
   include/seastar/core/layered_file.hh
   include/seastar/core/linux-aio.hh
   include/seastar/core/loop.hh
@@ -617,6 +616,7 @@ target_sources (seastar
   include/seastar/util/gcc6-concepts.hh
   include/seastar/util/indirect.hh
   include/seastar/util/is_smart_ptr.hh
+  include/seastar/util/later.hh
   include/seastar/util/lazy.hh
   include/seastar/util/log-cli.hh
   include/seastar/util/log-impl.hh
