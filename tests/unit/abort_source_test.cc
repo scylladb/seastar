@@ -174,3 +174,10 @@ SEASTAR_THREAD_TEST_CASE(test_destroy_with_moved_subscriptions) {
     as.reset();
     BOOST_REQUIRE_EQUAL(aborted, 0);
 }
+
+SEASTAR_THREAD_TEST_CASE(test_request_abort_twice) {
+    abort_source as;
+    as.request_abort_ex(std::runtime_error(""));
+    as.request_abort();
+    BOOST_REQUIRE_THROW(as.check(), std::runtime_error);
+}

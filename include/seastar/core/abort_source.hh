@@ -63,13 +63,13 @@ public:
 
         explicit subscription(abort_source& as, subscription_callback_type target)
                 : _target(std::move(target)) {
-            as._subscriptions->push_back(*this);
+            as._subscriptions.push_back(*this);
         }
 
         struct naive_cb_tag {}; // to disambiguate constructors
         explicit subscription(naive_cb_tag, abort_source& as, naive_subscription_callback_type naive_cb)
                 : _target([cb = std::move(naive_cb)] (const std::optional<std::exception_ptr>&) noexcept { cb(); }) {
-            as._subscriptions->push_back(*this);
+            as._subscriptions.push_back(*this);
         }
 
         void on_abort(const std::optional<std::exception_ptr>& ex) noexcept {
@@ -100,15 +100,18 @@ public:
 
 private:
     using subscription_list_type = bi::list<subscription, bi::constant_time_size<false>>;
-    std::optional<subscription_list_type> _subscriptions = subscription_list_type();
+    subscription_list_type _subscriptions;
     std::exception_ptr _ex;
 
     void do_request_abort(std::optional<std::exception_ptr> ex) noexcept {
-        assert(_subscriptions);
+        if (_ex) {
+            return;
+        }
         _ex = ex.value_or(get_default_exception());
-        auto subs = std::exchange(_subscriptions, std::nullopt);
-        while (!subs->empty()) {
-            subscription& s = subs->front();
+        assert(_ex);
+        auto subs = std::move(_subscriptions);
+        while (!subs.empty()) {
+            subscription& s = subs.front();
             s.unlink();
             s.on_abort(ex);
         }
@@ -145,7 +148,6 @@ public:
     /// Requests that the target operation be aborted. Current subscriptions
     /// are invoked inline with this call with a disengaged optional<std::exception_ptr>,
     /// and no new ones can be registered.
-    /// Must be called exactly once, otherwise the program will be aborted.
     void request_abort() noexcept {
         do_request_abort(std::nullopt);
     }
@@ -153,7 +155,6 @@ public:
     /// Requests that the target operation be aborted with a given \c exception_ptr.
     /// Current subscriptions are invoked inline with this exception,
     /// and no new ones can be registered.
-    /// Must be called exactly once, otherwise the program will be aborted.
     void request_abort_ex(std::exception_ptr ex) noexcept {
         do_request_abort(std::make_optional(std::move(ex)));
     }
@@ -161,7 +162,6 @@ public:
     /// Requests that the target operation be aborted with a given \c Exception object.
     /// Current subscriptions are invoked inline with this exception, converted to std::exception_ptr,
     /// and no new ones can be registered.
-    /// Must be called exactly once, otherwise the program will be aborted.
     template <typename Exception>
     void request_abort_ex(Exception&& e) noexcept {
         do_request_abort(std::make_optional(std::make_exception_ptr(std::forward<Exception>(e))));
@@ -169,7 +169,7 @@ public:
 
     /// Returns whether an abort has been requested.
     bool abort_requested() const noexcept {
-        return !_subscriptions;
+        return bool(_ex);
     }
 
 
