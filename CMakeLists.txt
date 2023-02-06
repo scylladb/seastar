@@ -449,14 +449,16 @@ seastar_generate_ragel (
   IN_FILE ${CMAKE_CURRENT_SOURCE_DIR}/src/http/response_parser.rl
   OUT_FILE ${Seastar_GEN_BINARY_DIR}/include/seastar/http/response_parser.hh)
 
+add_library (seastar STATIC)
 if (Seastar_DPDK)
-  set (seastar_dpdk_obj seastar-dpdk.o)
+  target_sources (seastar
+    PRIVATE
+    seastar-dpdk.o)
 endif ()
-
-add_library (seastar STATIC
+target_sources (seastar
+  PRIVATE
   ${http_chunk_parsers_file}
   ${http_request_parser_file}
-  ${seastar_dpdk_obj}
   include/seastar/core/abort_source.hh
   include/seastar/core/alien.hh
   include/seastar/core/align.hh
