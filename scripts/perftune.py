@@ -263,7 +263,7 @@ def auto_detect_irq_mask(cpu_mask, cores_per_irq_core):
     * up to 4 CPU cores (on x86 this would translate to 8 CPU threads): use a single CPU thread out of allowed
     * up to 16 CPU cores: use a single CPU core out of allowed
     * more than 16 CPU cores: use a single CPU core for each 16 CPU cores and distribute them evenly among all
-      present NUMA nodes.
+      present NUMA nodes. We will also make sure all NUMA nodes have exactly the same amount of IRQ cores.
 
     An AutodetectError exception is raised if 'cpu_mask' is defined in a way that there is a different number of threads
     and/or cores among different NUMA nodes. In such a case a user needs to provide
@@ -314,7 +314,7 @@ def auto_detect_irq_mask(cpu_mask, cores_per_irq_core):
         # Big machine.
         # Let's allocate a full core out of every cores_per_irq_core cores.
         # Let's distribute IRQ cores among present NUMA nodes
-        num_irq_cores = math.ceil(num_cores / cores_per_irq_core)
+        num_irq_cores = len(numa_ids_list) * math.ceil(num_cores0 / cores_per_irq_core)
         hwloc_args = []
         numa_cores_count = {n: 0 for n in numa_ids_list}
         added_cores = 0
