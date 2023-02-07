@@ -63,7 +63,6 @@
 #include <seastar/core/smp_options.hh>
 #include <seastar/util/log.hh>
 #include <seastar/util/read_first_line.hh>
-#include "core/file-impl.hh"
 #include "core/reactor_backend.hh"
 #include "core/syscall_result.hh"
 #include "core/thread_pool.hh"

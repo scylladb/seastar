@@ -43,8 +43,6 @@
 #include <sys/statfs.h>
 #include <fcntl.h>
 
-#include "core/file-impl.hh"
-
 using namespace seastar;
 namespace fs = std::filesystem;
 
