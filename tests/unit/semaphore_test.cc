@@ -290,13 +290,12 @@ SEASTAR_THREAD_TEST_CASE(test_semaphore_invalid_units_splitting) {
 SEASTAR_THREAD_TEST_CASE(test_semaphore_units_return) {
     auto sm = semaphore(3);
     {
-    // FIXME: indentation
-    auto units = get_units(sm, 3, 1min).get0();
-    BOOST_REQUIRE_EQUAL(units.count(), 3);
-    BOOST_REQUIRE_EQUAL(sm.available_units(), 0);
-    BOOST_REQUIRE_EQUAL(units.return_units(1), 2);
-    BOOST_REQUIRE_EQUAL(units.count(), 2);
-    BOOST_REQUIRE_EQUAL(sm.available_units(), 1);
+        auto units = get_units(sm, 3, 1min).get0();
+        BOOST_REQUIRE_EQUAL(units.count(), 3);
+        BOOST_REQUIRE_EQUAL(sm.available_units(), 0);
+        BOOST_REQUIRE_EQUAL(units.return_units(1), 2);
+        BOOST_REQUIRE_EQUAL(units.count(), 2);
+        BOOST_REQUIRE_EQUAL(sm.available_units(), 1);
     }
     BOOST_REQUIRE_EQUAL(sm.available_units(), 3);
 }
