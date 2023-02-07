@@ -257,10 +257,10 @@ class TestCommands(MemcacheTest):
 
     @slow
     def test_expiry_at_epoch_time(self):
-        expiry = int(time.time()) + 1
+        expiry = int(time.time()) + 2
         self.assertEqual(call('set key 0 %d 5\r\nhello\r\n' % expiry), b'STORED\r\n')
         self.assertEqual(call('get key\r\n'), b'VALUE key 0 5\r\nhello\r\nEND\r\n')
-        time.sleep(2)
+        time.sleep(3)
         self.assertEqual(call('get key\r\n'), b'END\r\n')
 
     def test_multiple_keys_in_get(self):
