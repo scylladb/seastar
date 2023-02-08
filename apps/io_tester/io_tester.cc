@@ -956,12 +956,26 @@ int main(int ac, char** av) {
             YAML::Node doc = YAML::LoadFile(yaml);
             auto reqs = doc.as<std::vector<job_config>>();
 
-            parallel_for_each(reqs, [] (auto& r) {
-                return seastar::create_scheduling_group(r.name, r.shard_info.shares).then([&r] (seastar::scheduling_group sg) {
-                    r.shard_info.scheduling_group = sg;
-                    r.shard_info.io_class = io_priority_class::register_one(r.name, r.shard_info.shares);
+            struct sched_class {
+                seastar::scheduling_group sg;
+                seastar::io_priority_class iop;
+            };
+            std::unordered_map<std::string, sched_class> sched_classes;
+
+            parallel_for_each(reqs, [&sched_classes] (auto& r) {
+                return seastar::create_scheduling_group(r.name, r.shard_info.shares).then([&r, &sched_classes] (seastar::scheduling_group sg) {
+                    sched_classes.insert(std::make_pair(r.name, sched_class {
+                        .sg = sg,
+                        .iop = io_priority_class::register_one(r.name, r.shard_info.shares),
+                    }));
                 });
             }).get();
+
+            for (job_config& r : reqs) {
+                auto& sc = sched_classes.at(r.name);
+                r.shard_info.scheduling_group = sc.sg;
+                r.shard_info.io_class = sc.iop;
+            }
 
             if (*st_type == directory_entry_type::block_device) {
                 uint64_t off = 0;
