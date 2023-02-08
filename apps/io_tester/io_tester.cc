@@ -166,6 +166,7 @@ struct shard_info {
     unsigned parallelism = 0;
     unsigned rps = 0;
     unsigned shares = 10;
+    std::string sched_class = "";
     uint64_t request_size = 4 << 10;
     uint64_t bandwidth = 0;
     std::chrono::duration<float> think_time = 0ms;
@@ -770,6 +771,8 @@ struct convert<shard_info> {
 
         if (node["shares"]) {
             sl.shares = node["shares"].as<unsigned>();
+        } else if (node["class"]) {
+            sl.sched_class = node["class"].as<std::string>();
         }
         if (node["bandwidth"]) {
             sl.bandwidth = node["bandwidth"].as<byte_size>().size;
@@ -963,6 +966,10 @@ int main(int ac, char** av) {
             std::unordered_map<std::string, sched_class> sched_classes;
 
             parallel_for_each(reqs, [&sched_classes] (auto& r) {
+                if (r.shard_info.sched_class != "") {
+                    return make_ready_future<>();
+                }
+
                 return seastar::create_scheduling_group(r.name, r.shard_info.shares).then([&r, &sched_classes] (seastar::scheduling_group sg) {
                     sched_classes.insert(std::make_pair(r.name, sched_class {
                         .sg = sg,
@@ -972,7 +979,9 @@ int main(int ac, char** av) {
             }).get();
 
             for (job_config& r : reqs) {
-                auto& sc = sched_classes.at(r.name);
+                auto cname = r.shard_info.sched_class != "" ? r.shard_info.sched_class : r.name;
+                fmt::print("Job {} -> sched class {}\n", r.name, cname);
+                auto& sc = sched_classes.at(cname);
                 r.shard_info.scheduling_group = sc.sg;
                 r.shard_info.io_class = sc.iop;
             }
