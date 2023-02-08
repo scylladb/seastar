@@ -165,6 +165,7 @@ public:
 struct shard_info {
     unsigned parallelism = 0;
     unsigned rps = 0;
+    unsigned limit = std::numeric_limits<unsigned>::max();
     unsigned shares = 10;
     uint64_t request_size = 4 << 10;
     uint64_t bandwidth = 0;
@@ -261,7 +262,7 @@ private:
         return parallel_for_each(boost::irange(0u, parallelism), [this, stop] (auto dummy) mutable {
             auto bufptr = allocate_aligned_buffer<char>(this->req_size(), _alignment);
             auto buf = bufptr.get();
-            return do_until([stop] { return std::chrono::steady_clock::now() > stop; }, [this, buf, stop] () mutable {
+            return do_until([this, stop] { return std::chrono::steady_clock::now() > stop || requests() > limit(); }, [this, buf, stop] () mutable {
                 auto start = std::chrono::steady_clock::now();
                 return issue_request(buf, nullptr).then([this, start, stop] (auto size) {
                     auto now = std::chrono::steady_clock::now();
@@ -282,7 +283,7 @@ private:
                 auto pause = std::chrono::duration_cast<std::chrono::microseconds>(1s) / rps;
                 auto pause_dist = _config.options.pause_fn(pause);
                 return seastar::sleep((pause / parallelism) * dummy).then([this, buf, stop, pause = pause_dist.get(), &intent, &in_flight] () mutable {
-                    return do_until([stop] { return std::chrono::steady_clock::now() > stop; }, [this, buf, stop, pause, &intent, &in_flight] () mutable {
+                    return do_until([this, stop] { return std::chrono::steady_clock::now() > stop || requests() > limit(); }, [this, buf, stop, pause, &intent, &in_flight] () mutable {
                         auto start = std::chrono::steady_clock::now();
                         in_flight++;
                         return issue_request(buf, &intent).then_wrapped([this, start, pause, stop, &in_flight] (auto size_f) {
@@ -405,6 +406,10 @@ protected:
 
     unsigned rps() const {
         return _config.shard_info.rps;
+    }
+
+    unsigned limit() const noexcept {
+        return _config.shard_info.limit;
     }
 
     unsigned shares() const {
@@ -765,6 +770,9 @@ struct convert<shard_info> {
         }
         if (node["rps"]) {
             sl.rps = node["rps"].as<unsigned>();
+        }
+        if (node["limit"]) {
+            sl.limit = node["limit"].as<unsigned>();
         }
 
         if (node["shares"]) {
