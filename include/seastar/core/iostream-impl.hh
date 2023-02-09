@@ -423,7 +423,7 @@ future<> output_stream<CharType>::do_flush() noexcept {
             return _fd.flush();
         });
     } else {
-        return make_ready_future<>();
+        return _fd.flush();
     }
 }
 
