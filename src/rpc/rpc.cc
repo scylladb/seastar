@@ -727,7 +727,7 @@ namespace rpc {
 
       // Make it in the background. Even if the client is stopped it will pick
       // up all the entries hanging around
-      (void)std::exchange(_outgoing_queue_ready, d.done.get_future()).then_wrapped([this, p = std::move(p)] (auto f) mutable {
+      (void)std::exchange(_outgoing_queue_ready, d.done.get_future()).then_wrapped([p = std::move(p)] (auto f) mutable {
           if (f.failed()) {
               f.ignore_ready_future();
           } else {
