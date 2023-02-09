@@ -129,10 +129,14 @@ SEASTAR_TEST_CASE(test_spawn_kill) {
             auto* wait_signaled = std::get_if<experimental::process::wait_signaled>(&wait_status);
             BOOST_REQUIRE(wait_signaled != nullptr);
             BOOST_CHECK_EQUAL(wait_signaled->terminating_signal, SIGTERM);
-            // sleep should be terminated in 10ms
             auto end = std::chrono::high_resolution_clock::now();
             auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-            BOOST_CHECK_LE(ms, 10);
+            // sleep should be terminated in 10ms.
+            // pidfd_open(2) may fail and thus p.wait() falls back to
+            // waitpid(2) with backoff (at least 20ms).
+            // the minimal backoff is added to 10ms, so the test can pass on 
+            // older kernels as well.
+            BOOST_CHECK_LE(ms, 10 + 20);
         });
     });
 }
