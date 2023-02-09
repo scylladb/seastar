@@ -432,8 +432,6 @@ class client : public rpc::connection, public weakly_referencable<client> {
             }
         };
     };
-
-    void enqueue_zero_frame();
 public:
     template<typename Reply, typename Func>
     struct reply_handler final : reply_handler_base {
