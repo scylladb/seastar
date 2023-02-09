@@ -110,6 +110,7 @@ public:
             }
         } server_rcv = {}, server_snd = {}, client_rcv = {}, client_snd = {};
         error connect_kind = error::none;
+        std::chrono::microseconds connect_delay = std::chrono::microseconds(0);
     };
 private:
     config _cfg;
@@ -134,6 +135,10 @@ public:
 
     error connect_error() override {
         return _cfg.connect_kind;
+    }
+
+    std::chrono::microseconds connect_delay() override {
+        return _cfg.connect_delay;
     }
 };
 
@@ -1454,4 +1459,42 @@ SEASTAR_TEST_CASE(test_client_info) {
     BOOST_REQUIRE_EQUAL(const_info.retrieve_auxiliary_opt<int>("missing"), nullptr);
 
     return make_ready_future<>();
+}
+
+void send_messages_and_check_timeouts(rpc_test_env<>& env, test_rpc_proto::client& cln) {
+    env.register_handler(1, [](int v) {
+        return seastar::sleep(std::chrono::seconds(v)).then([v] {
+            return make_ready_future<int>(v);
+        });
+    }).get();
+
+    auto call = env.proto().template make_client<int(int)>(1);
+    auto start = std::chrono::steady_clock::now();
+    auto f1 = call(cln, std::chrono::milliseconds(400), 3).finally([start] {
+        auto end = std::chrono::steady_clock::now();
+        BOOST_REQUIRE(end - start < std::chrono::seconds(1));
+    });
+    auto f2 = call(cln, std::chrono::milliseconds(600), 3).finally([start] {
+        auto end = std::chrono::steady_clock::now();
+        BOOST_REQUIRE(end - start < std::chrono::seconds(1));
+    });
+    BOOST_REQUIRE_THROW(f1.get0(), seastar::rpc::timeout_error);
+    BOOST_REQUIRE_THROW(f2.get0(), seastar::rpc::timeout_error);
+}
+
+SEASTAR_TEST_CASE(test_rpc_send_timeout) {
+    rpc_test_config cfg;
+    return rpc_test_env<>::do_with_thread(cfg, [] (auto& env, auto& cln) {
+        send_messages_and_check_timeouts(env, cln);
+    });
+}
+
+SEASTAR_TEST_CASE(test_rpc_send_timeout_on_connect) {
+    rpc_test_config cfg;
+    rpc_loopback_error_injector::config ecfg;
+    ecfg.connect_delay = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::seconds(5));
+    cfg.inject_error = ecfg;
+    return rpc_test_env<>::do_with_thread(cfg, [] (auto& env, auto& cln) {
+        send_messages_and_check_timeouts(env, cln);
+    });
 }
