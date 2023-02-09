@@ -311,11 +311,25 @@ set (Seastar_TEST_TIMEOUT
   STRING
   "Maximum allowed time for a test to run, in seconds.")
 
+option (BUILD_SHARED_LIBS
+  "Build seastar library as shared libraries instead of static"
+  OFF)
 # We set the following environment variables
-# * ASAN_OPTIONS=disable_coredump=0:abort_on_error=1:detect_stack_use_after_return=1
+# * ASAN_OPTIONS=disable_coredump=0:abort_on_error=1:detect_stack_use_after_return=1:verify_asan_link_order=0
 #   By default asan disables core dumps because they used to be
 #   huge. This is no longer the case since the shadow memory is
 #   excluded, so it is safe to enable them.
+#   Also, by default, to make sure it works as expected, asan
+#   verifies if the asan dynamic runtime is the first DSO in the
+#   initial library list by calling dl_iterate_phdr(3). But
+#   Seastar provides this symbol, and its implementation references
+#   some static variables. So if Seastar is built as a shared
+#   library, this causes a chicken and egg problem. On one hard,
+#   ASan tries to reference a symbol which is in turn provided by
+#   yet another shared library which is not necessariy ready its
+#   static variables yet. And this leads leads to a segfault. So,
+#   we have to disable this check when "BUILD_SHARED_LIBS" is
+#   enabled.
 # * UBSAN_OPTIONS=halt_on_error=1:abort_on_error=1
 #   Fail the test if any undefined behavior is found and use abort
 #   instead of exit. Using abort is what causes core dumps to be
@@ -323,17 +337,20 @@ set (Seastar_TEST_TIMEOUT
 # * BOOST_TEST_CATCH_SYSTEM_ERRORS=no
 #   Normally the boost test library handles SIGABRT and prevents core
 #   dumps from being produced.
-
 # This works great with clang and gcc 10.2, but unfortunately not any
 # previous gcc.
-set (Seastar_USE_AFTER_RETURN "")
+set (Seastar_ASAN_OPTIONS "disable_coredump=0:abort_on_error=1")
 if ((NOT (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")) OR
     (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 10.2))
-  set (Seastar_USE_AFTER_RETURN ":detect_stack_use_after_return=1")
+  string (APPEND Seastar_ASAN_OPTIONS ":detect_stack_use_after_return=1")
+endif ()
+if (BUILD_SHARED_LIBS)
+  string (APPEND Seastar_ASAN_OPTIONS ":verify_asan_link_order=0")
 endif ()
 
+
 set (Seastar_TEST_ENVIRONMENT
-  "ASAN_OPTIONS=disable_coredump=0:abort_on_error=1${Seastar_USE_AFTER_RETURN};UBSAN_OPTIONS=halt_on_error=1:abort_on_error=1;BOOST_TEST_CATCH_SYSTEM_ERRORS=no"
+  "ASAN_OPTIONS=${Seastar_ASAN_OPTIONS};UBSAN_OPTIONS=halt_on_error=1:abort_on_error=1;BOOST_TEST_CATCH_SYSTEM_ERRORS=no"
   CACHE
   STRING
   "Environment variables for running tests")
@@ -453,7 +470,7 @@ if (Seastar_DPDK)
   set (seastar_dpdk_obj seastar-dpdk.o)
 endif ()
 
-add_library (seastar STATIC
+add_library (seastar
   ${http_chunk_parsers_file}
   ${http_request_parser_file}
   ${seastar_dpdk_obj}
@@ -741,12 +758,14 @@ target_include_directories (seastar
     ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 set (Seastar_PRIVATE_CXX_FLAGS
-  -fvisibility=hidden
   -UNDEBUG
   -Wall
   -Werror
   -Wno-array-bounds # Disabled because of https://gcc.gnu.org/bugzilla/show_bug.cgi?id=93437
   -Wno-error=deprecated-declarations)
+if (NOT BUILD_SHARED_LIBS)
+  list (APPEND Seastar_PRIVATE_CXX_FLAGS -fvisibility=hidden)
+endif ()
 
 if (Seastar_COMPRESS_DEBUG)
   # -gz doesn't imply -g, so it is safe to add it regardless of debug
