@@ -103,6 +103,7 @@ function (seastar_add_test name)
     elseif (parsed_args_KIND STREQUAL "BOOST")
       list (APPEND libraries
         Boost::unit_test_framework
+        Boost::dynamic_linking
         seastar_private)
 
       if (NOT (Seastar_JENKINS STREQUAL ""))
@@ -141,13 +142,13 @@ function (seastar_add_test name)
         OUTPUT_NAME ${name}_test)
 
     add_dependencies (unit_tests ${executable_target})
-    set (forwarded_args COMMAND ${executable_target} ${args})
+    set (forwarded_args COMMAND ${CMAKE_COMMAND} -E env "${Seastar_TEST_ENVIRONMENT}" $<TARGET_FILE:${executable_target}> ${args})
   else ()
     if (NOT (parsed_args_KIND STREQUAL "CUSTOM"))
       message (FATAL_ERROR "SOURCES are required for ${parsed_args_KIND} tests")
     endif ()
 
-    set (forwarded_args COMMAND ${parsed_args_RUN_ARGS})
+    set (forwarded_args COMMAND ${CMAKE_COMMAND} -E env "${Seastar_TEST_ENVIRONMENT}" ${parsed_args_RUN_ARGS})
   endif ()
 
   #
@@ -174,8 +175,7 @@ function (seastar_add_test name)
 
   set_tests_properties (Seastar.unit.${name}
     PROPERTIES
-      TIMEOUT ${Seastar_TEST_TIMEOUT}
-      ENVIRONMENT "${Seastar_TEST_ENVIRONMENT}")
+      TIMEOUT ${Seastar_TEST_TIMEOUT})
 endfunction ()
 
 #
@@ -250,15 +250,18 @@ seastar_add_test (checked_ptr
   SOURCES checked_ptr_test.cc)
 
 seastar_add_test (chunked_fifo
+  KIND BOOST
   SOURCES chunked_fifo_test.cc)
 
 seastar_add_test (chunk_parsers
   SOURCES chunk_parsers_test.cc)
 
 seastar_add_test (circular_buffer
+  KIND BOOST
   SOURCES circular_buffer_test.cc)
 
 seastar_add_test (circular_buffer_fixed_capacity
+  KIND BOOST
   SOURCES circular_buffer_fixed_capacity_test.cc)
 
 seastar_add_test (condition_variable
@@ -274,9 +277,11 @@ seastar_add_test (coroutines
   SOURCES coroutines_test.cc)
 
 seastar_add_test (defer
+  KIND BOOST
   SOURCES defer_test.cc)
 
 seastar_add_test (deleter
+  KIND BOOST
   SOURCES deleter_test.cc)
 
 seastar_add_app_test (directory

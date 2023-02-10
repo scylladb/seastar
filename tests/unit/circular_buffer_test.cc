@@ -22,7 +22,7 @@
 
 #define BOOST_TEST_MODULE core
 
-#include <boost/test/included/unit_test.hpp>
+#include <boost/test/unit_test.hpp>
 #include <stdlib.h>
 #include <chrono>
 #include <deque>

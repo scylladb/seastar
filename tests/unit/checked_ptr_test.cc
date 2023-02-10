@@ -22,7 +22,7 @@
 
 #define BOOST_TEST_MODULE core
 
-#include <boost/test/included/unit_test.hpp>
+#include <boost/test/unit_test.hpp>
 #include <seastar/core/checked_ptr.hh>
 #include <seastar/core/weak_ptr.hh>
 

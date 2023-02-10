@@ -24,7 +24,7 @@
 #include <seastar/util/program-options.hh>
 
 #include <boost/program_options.hpp>
-#include <boost/test/included/unit_test.hpp>
+#include <boost/test/unit_test.hpp>
 
 #include <initializer_list>
 #include <vector>

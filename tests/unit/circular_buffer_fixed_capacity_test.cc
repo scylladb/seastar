@@ -22,7 +22,7 @@
 
 #define BOOST_TEST_MODULE core
 
-#include <boost/test/included/unit_test.hpp>
+#include <boost/test/unit_test.hpp>
 #include <deque>
 #include <random>
 #include <seastar/core/circular_buffer_fixed_capacity.hh>
