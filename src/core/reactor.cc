@@ -1967,6 +1967,15 @@ reactor::spawn(std::string_view pathname,
                 // the child process does not read from stderr
                 std::get<pipefd_read_end>(cerr_pipe).spawn_actions_add_close(&actions);
                 // redirect stdin, stdout and stderr to cin_pipe, cout_pipe and cerr_pipe respectively
+                if (std::get<pipefd_read_end>(cin_pipe).get() == STDIN_FILENO) {
+                    seastar_logger.info("cin_pipe read_end equals to STDIN");
+                }
+                if (std::get<pipefd_write_end>(cout_pipe).get() == STDOUT_FILENO) {
+                    seastar_logger.info("cout_pipe write_end equals to STDOUT");
+                }
+                if (std::get<pipefd_write_end>(cerr_pipe).get() == STDOUT_FILENO) {
+                    seastar_logger.info("cerr_pipe write_end equals to STDERR");
+                }
                 std::get<pipefd_read_end>(cin_pipe).spawn_actions_add_dup2(&actions, STDIN_FILENO);
                 std::get<pipefd_write_end>(cout_pipe).spawn_actions_add_dup2(&actions, STDOUT_FILENO);
                 std::get<pipefd_write_end>(cerr_pipe).spawn_actions_add_dup2(&actions, STDERR_FILENO);
