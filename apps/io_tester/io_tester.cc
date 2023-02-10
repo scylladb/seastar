@@ -900,6 +900,20 @@ public:
         });
     }
 
+    void emit_one_metrics(YAML::Emitter& out, sstring m_name) {
+        const auto& values = seastar::metrics::impl::get_value_map();
+        const auto& mf = values.find(m_name);
+        assert(mf != values.end());
+        for (auto&& mi : mf->second) {
+            out << YAML::Key << m_name << YAML::Value << mi.second->get_function()().d();
+            break; // only one out there
+        }
+    }
+
+    void emit_reactor_metrics(YAML::Emitter& out) {
+        emit_one_metrics(out, "reactor_io_latency_goal_violation_sec");
+    }
+
     future<> emit_results(YAML::Emitter& out) {
         return _finished.wait(_cl.size()).then([this, &out] {
             for (auto& cl: _cl) {
@@ -908,6 +922,10 @@ public:
                 cl->emit_results(out);
                 out << YAML::EndMap;
             }
+            out << YAML::Key << "stats";
+            out << YAML::BeginMap;
+            emit_reactor_metrics(out);
+            out << YAML::EndMap;
             return make_ready_future<>();
         });
     }
