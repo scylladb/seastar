@@ -618,7 +618,7 @@ class dpdk_qp : public net::qp {
          */
         static void set_cluster_offload_info(const packet& p, const dpdk_qp& qp, rte_mbuf* head) {
             // Handle TCP checksum offload
-            auto oi = p.offload_info();
+            auto oi = p.get_offload_info();
             if (oi.needs_ip_csum) {
                 head->ol_flags |= PKT_TX_IP_CKSUM;
                 // TODO: Take a VLAN header into an account here
