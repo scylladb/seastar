@@ -334,6 +334,7 @@ private:
     task_queue* _at_destroy_tasks;
     sched_clock::duration _task_quota;
     sched_clock::duration _io_latency_goal;
+    sched_clock::duration _io_latency_goal_violation_time = {};
     task* _current_task = nullptr;
     /// Handler that will be called when there is no task to execute on cpu.
     /// It represents a low priority work.

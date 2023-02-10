@@ -2491,6 +2491,9 @@ void reactor::register_metrics() {
             // total_operations value:DERIVE:0:U
             sm::make_counter("io_threaded_fallbacks", std::bind(&thread_pool::operation_count, _thread_pool.get()),
                     sm::description("Total number of io-threaded-fallbacks operations")),
+            sm::make_counter("io_latency_goal_violation_sec", [this] () -> double {
+                return std::chrono::duration_cast<std::chrono::duration<double>>(this->_io_latency_goal_violation_time).count();
+            }, sm::description("Total time reactor left IO queues without polling above the expected IO latency goal")),
 
     });
 
@@ -2721,9 +2724,19 @@ class reactor::io_queue_submission_pollfn final : public reactor::pollfn {
     // the future
     timer<> _nearest_wakeup { [this] { _armed = false; } };
     bool _armed = false;
+    steady_clock_type::time_point _last_poll;
 public:
-    io_queue_submission_pollfn(reactor& r) : _r(r) {}
+    io_queue_submission_pollfn(reactor& r)
+        : _r(r)
+        , _last_poll(steady_clock_type::now())
+    {}
     virtual bool poll() final override {
+        auto now = steady_clock_type::now();
+        auto delta = now - _last_poll;
+        _last_poll = now;
+        if (delta > _r._io_latency_goal) {
+            _r._io_latency_goal_violation_time += delta - _r._io_latency_goal;
+        }
         return _r.flush_pending_aio();
     }
     virtual bool pure_poll() override final {
@@ -2743,6 +2756,7 @@ public:
         if (_armed) {
             _nearest_wakeup.cancel();
             _armed = false;
+            _last_poll = steady_clock_type::now();
         }
     }
 };
