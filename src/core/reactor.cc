@@ -4248,6 +4248,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     //     also pre-resize()-d in advance)
 
     auto alloc_io_queues = [&ioq_topology, &disk_config] (shard_id shard) {
+        engine()._io_latency_goal = std::chrono::duration_cast<sched_clock::duration>(disk_config.latency_goal());
         for (auto& topo : ioq_topology) {
             auto& io_info = topo.second;
             auto group_idx = io_info.shard_to_group[shard];
