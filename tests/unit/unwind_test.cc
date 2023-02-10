@@ -21,7 +21,7 @@
 
 #define BOOST_TEST_MODULE core
 
-#include <boost/test/included/unit_test.hpp>
+#include <boost/test/unit_test.hpp>
 #include <pthread.h>
 #include <seastar/core/posix.hh>
 #include <seastar/util/backtrace.hh>

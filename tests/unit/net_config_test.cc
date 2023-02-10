@@ -22,7 +22,7 @@
 #define BOOST_TEST_MODULE core
 
 #include <seastar/net/config.hh>
-#include <boost/test/included/unit_test.hpp>
+#include <boost/test/unit_test.hpp>
 #include <exception>
 #include <sstream>
 
