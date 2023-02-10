@@ -3705,10 +3705,8 @@ smp_options::smp_options(program_options::option_group* parent_group)
     , lock_memory(*this, "lock-memory", {}, "lock all memory (prevents swapping)")
     , thread_affinity(*this, "thread-affinity", true, "pin threads to their cpus (disable for overprovisioning)")
 #ifdef SEASTAR_HAVE_HWLOC
-    , num_io_queues(*this, "num-io-queues", {}, "Number of IO queues. Each IO unit will be responsible for a fraction of the IO requests. Defaults to the number of threads")
     , num_io_groups(*this, "num-io-groups", {}, "Number of IO groups. Each IO group will be responsible for a fraction of the IO requests. Defaults to the number of NUMA nodes")
 #else
-    , num_io_queues(*this, "num-io-queues", program_options::unused{})
     , num_io_groups(*this, "num-io-groups", program_options::unused{})
 #endif
     , io_properties_file(*this, "io-properties-file", {}, "path to a YAML file describing the characteristics of the I/O Subsystem")
@@ -3916,8 +3914,6 @@ public:
             if (!_num_io_groups) {
                 throw std::runtime_error("num-io-groups must be greater than zero");
             }
-        } else if (smp_opts.num_io_queues) {
-            seastar_logger.warn("the --num-io-queues option is deprecated, switch to --num-io-groups instead");
         }
         if (smp_opts.io_properties_file && smp_opts.io_properties) {
             throw std::runtime_error("Both io-properties and io-properties-file specified. Don't know which to trust!");

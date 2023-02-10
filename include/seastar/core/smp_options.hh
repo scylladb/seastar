@@ -56,12 +56,6 @@ struct smp_options : public program_options::option_group {
     ///
     /// Default: \p true.
     program_options::value<bool> thread_affinity;
-    /// \brief Number of IO queues.
-    ///
-    /// Each IO unit will be responsible for a fraction of the IO requests.
-    /// Defaults to the number of threads
-    /// \note Unused when seastar is compiled without \p HWLOC support.
-    program_options::value<unsigned> num_io_queues;
     /// \brief Number of IO groups.
     ///
     /// Each IO group will be responsible for a fraction of the IO requests.
