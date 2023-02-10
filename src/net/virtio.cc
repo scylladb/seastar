@@ -605,7 +605,7 @@ qp::txq::post(circular_buffer<packet>& pb) {
 
         pb.pop_front();
         // Handle TCP checksum offload
-        auto oi = p.offload_info();
+        auto oi = p.get_offload_info();
         if (_dev._dev->hw_features().tx_csum_l4_offload) {
             auto eth_hdr_len = sizeof(eth_hdr);
             auto ip_hdr_len = oi.ip_hdr_len;

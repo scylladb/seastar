@@ -315,7 +315,7 @@ private:
     void linearize(size_t at_frag, size_t desired_size);
     bool allocate_headroom(size_t size);
 public:
-    struct offload_info offload_info() const noexcept { return _impl->_offload_info; }
+    struct offload_info get_offload_info() const noexcept { return _impl->_offload_info; }
     struct offload_info& offload_info_ref() noexcept { return _impl->_offload_info; }
     void set_offload_info(struct offload_info oi) noexcept { _impl->_offload_info = oi; }
 };
