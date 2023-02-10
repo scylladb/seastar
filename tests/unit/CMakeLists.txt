@@ -142,13 +142,13 @@ function (seastar_add_test name)
         OUTPUT_NAME ${name}_test)
 
     add_dependencies (unit_tests ${executable_target})
-    set (forwarded_args COMMAND ${executable_target} ${args})
+    set (forwarded_args COMMAND ${CMAKE_COMMAND} -E env "${Seastar_TEST_ENVIRONMENT}" $<TARGET_FILE:${executable_target}> ${args})
   else ()
     if (NOT (parsed_args_KIND STREQUAL "CUSTOM"))
       message (FATAL_ERROR "SOURCES are required for ${parsed_args_KIND} tests")
     endif ()
 
-    set (forwarded_args COMMAND ${parsed_args_RUN_ARGS})
+    set (forwarded_args COMMAND ${CMAKE_COMMAND} -E env "${Seastar_TEST_ENVIRONMENT}" ${parsed_args_RUN_ARGS})
   endif ()
 
   #
@@ -175,8 +175,7 @@ function (seastar_add_test name)
 
   set_tests_properties (Seastar.unit.${name}
     PROPERTIES
-      TIMEOUT ${Seastar_TEST_TIMEOUT}
-      ENVIRONMENT "${Seastar_TEST_ENVIRONMENT}")
+      TIMEOUT ${Seastar_TEST_TIMEOUT})
 endfunction ()
 
 #
