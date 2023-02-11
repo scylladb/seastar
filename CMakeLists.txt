@@ -830,7 +830,8 @@ target_compile_options (seastar
 
 target_compile_definitions(seastar
   PUBLIC
-  SEASTAR_API_LEVEL=${Seastar_API_LEVEL})
+  SEASTAR_API_LEVEL=${Seastar_API_LEVEL}
+  $<$<BOOL:${BUILD_SHARED_LIBS}>:SEASTAR_BUILD_SHARED_LIBS>)
 
 target_compile_features(seastar
   PUBLIC

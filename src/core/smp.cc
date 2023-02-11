@@ -31,6 +31,13 @@ namespace seastar {
 
 extern logger seastar_logger;
 
+#ifdef SEASTAR_BUILD_SHARED_LIBS
+shard_id* internal::this_shard_id_ptr() noexcept {
+    static thread_local shard_id g_this_shard_id;
+    return &g_this_shard_id;
+}
+#endif
+
 void smp_message_queue::work_item::process() {
     schedule(this);
 }
