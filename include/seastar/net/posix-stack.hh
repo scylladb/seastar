@@ -27,6 +27,7 @@
 #include <seastar/core/polymorphic_temporary_buffer.hh>
 #include <seastar/core/internal/buffer_allocator.hh>
 #include <seastar/util/program-options.hh>
+#include <seastar/util/tls.hh>
 
 namespace seastar {
 
@@ -140,8 +141,8 @@ class posix_ap_server_socket_impl : public server_socket_impl {
     };
     using sockets_map_t = std::unordered_map<protocol_and_socket_address, promise<accept_result>>;
     using conn_map_t = std::unordered_multimap<protocol_and_socket_address, connection>;
-    static thread_local sockets_map_t sockets;
-    static thread_local conn_map_t conn_q;
+    static thread_local SEASTAR_GLOBAL_DYNAMIC_TLS sockets_map_t sockets;
+    static thread_local SEASTAR_GLOBAL_DYNAMIC_TLS conn_map_t conn_q;
     int _protocol;
     socket_address _sa;
     std::pmr::polymorphic_allocator<char>* _allocator;

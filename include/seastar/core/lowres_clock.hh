@@ -23,6 +23,7 @@
 
 #include <seastar/core/cacheline.hh>
 #include <seastar/core/timer.hh>
+#include <seastar/util/tls.hh>
 
 #include <cstdint>
 
@@ -60,7 +61,7 @@ public:
     static constexpr bool is_steady = true;
 private:
     // Use inline variable to prevent the compiler from introducing an initialization guard
-    inline static thread_local time_point _now;
+    inline static thread_local SEASTAR_GLOBAL_DYNAMIC_TLS time_point _now;
 public:
     ///
     /// \note Outside of a Seastar application, the result is undefined.
@@ -90,7 +91,7 @@ public:
     static constexpr bool is_steady = false;
 private:
     // Use inline variable to prevent the compiler from introducing an initialization guard
-    inline static thread_local time_point _now;
+    inline static thread_local SEASTAR_GLOBAL_DYNAMIC_TLS time_point _now;
     friend class lowres_clock; // for updates
 public:
     ///

@@ -21,6 +21,7 @@
 
 #pragma once
 #include <atomic>
+#include <seastar/util/tls.hh>
 
 namespace seastar {
 
@@ -36,7 +37,7 @@ struct preemption_monitor {
 
 inline const preemption_monitor*& get_need_preempt_var() {
     static preemption_monitor bootstrap_preemption_monitor;
-    static thread_local const preemption_monitor* g_need_preempt = &bootstrap_preemption_monitor;
+    static thread_local SEASTAR_GLOBAL_DYNAMIC_TLS const preemption_monitor* g_need_preempt = &bootstrap_preemption_monitor;
     return g_need_preempt;
 }
 

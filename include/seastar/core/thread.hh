@@ -32,6 +32,7 @@
 #include <type_traits>
 #include <chrono>
 #include <seastar/util/std-compat.hh>
+#include <seastar/util/tls.hh>
 #include <ucontext.h>
 #include <boost/intrusive/list.hpp>
 
@@ -109,7 +110,7 @@ class thread_context final : private task {
         &thread_context::_all_link>,
         boost::intrusive::constant_time_size<false>>;
 
-    static thread_local all_thread_list _all_threads;
+    static thread_local SEASTAR_GLOBAL_DYNAMIC_TLS all_thread_list _all_threads;
 private:
     static void s_main(int lo, int hi); // all parameters MUST be 'int' for makecontext
     void setup(size_t stack_size);
@@ -142,7 +143,7 @@ public:
 /// becomes ready.
 class thread {
     std::unique_ptr<thread_context> _context;
-    static thread_local thread* _current;
+    static thread_local SEASTAR_GLOBAL_DYNAMIC_TLS thread* _current;
 public:
     /// \brief Constructs a \c thread object that does not represent a thread
     /// of execution.

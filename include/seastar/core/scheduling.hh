@@ -27,7 +27,7 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/core/function_traits.hh>
 #include <seastar/util/concepts.hh>
-
+#include <seastar/util/tls.hh>
 /// \file
 
 namespace seastar {
@@ -330,7 +330,7 @@ inline
 scheduling_group*
 current_scheduling_group_ptr() noexcept {
     // Slow unless constructor is constexpr
-    static thread_local scheduling_group sg;
+    static thread_local SEASTAR_GLOBAL_DYNAMIC_TLS scheduling_group sg;
     return &sg;
 }
 

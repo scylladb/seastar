@@ -41,6 +41,7 @@
 #include <seastar/core/scheduling.hh>
 #include <seastar/util/backtrace.hh>
 #include <seastar/util/log.hh>
+#include <seastar/util/tls.hh>
 
 namespace bi = boost::intrusive;
 
@@ -544,7 +545,7 @@ class protocol_base;
 
 class server {
 private:
-    static thread_local std::unordered_map<streaming_domain_type, server*> _servers;
+    static thread_local SEASTAR_GLOBAL_DYNAMIC_TLS std::unordered_map<streaming_domain_type, server*> _servers;
 
 public:
     class connection : public rpc::connection, public enable_shared_from_this<connection> {

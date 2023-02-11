@@ -22,6 +22,7 @@
 #include <boost/range/adaptor/filtered.hpp>
 #include <seastar/core/scheduling.hh>
 #include <seastar/core/map_reduce.hh>
+#include <seastar/util/tls.hh>
 #include <array>
 #include <typeindex>
 #include <vector>
@@ -48,7 +49,7 @@ struct scheduling_group_specific_thread_local_data {
 
 inline
 scheduling_group_specific_thread_local_data** get_scheduling_group_specific_thread_local_data_ptr() noexcept {
-    static thread_local scheduling_group_specific_thread_local_data* data;
+    static thread_local SEASTAR_GLOBAL_DYNAMIC_TLS scheduling_group_specific_thread_local_data* data;
     return &data;
 }
 inline

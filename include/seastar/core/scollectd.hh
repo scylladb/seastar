@@ -38,6 +38,7 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/util/log.hh>
 #include <seastar/util/program-options.hh>
+#include <seastar/util/tls.hh>
 
 #include <seastar/core/metrics_api.hh>
 
@@ -299,7 +300,7 @@ using description = seastar::metrics::description;
 static constexpr unsigned max_collectd_field_text_len = 63;
 
 class type_instance_id {
-    static thread_local unsigned _next_truncated_idx;
+    static thread_local SEASTAR_GLOBAL_DYNAMIC_TLS unsigned _next_truncated_idx;
 
     /// truncate a given field to the maximum allowed length
     void truncate(sstring& field, const char* field_desc);

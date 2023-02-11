@@ -25,6 +25,7 @@
 #include <seastar/util/log-impl.hh>
 #include <seastar/core/lowres_clock.hh>
 #include <seastar/util/std-compat.hh>
+#include <seastar/util/tls.hh>
 
 #include <unordered_map>
 #include <exception>
@@ -88,7 +89,7 @@ class logger {
     static std::atomic<bool> _ostream;
     static std::atomic<bool> _syslog;
     static unsigned _shard_field_width;
-    static inline thread_local bool silent = false;
+    static inline thread_local SEASTAR_GLOBAL_DYNAMIC_TLS bool silent = false;
 
 public:
     class log_writer {

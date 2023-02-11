@@ -28,6 +28,7 @@
 #include <seastar/core/posix.hh>
 #include <seastar/core/reactor_config.hh>
 #include <seastar/core/resource.hh>
+#include <seastar/util/tls.hh>
 #include <boost/lockfree/spsc_queue.hpp>
 #include <boost/thread/barrier.hpp>
 #include <boost/range/irange.hpp>
@@ -54,14 +55,10 @@ namespace internal {
 
 unsigned smp_service_group_id(smp_service_group ssg) noexcept;
 
-#ifdef SEASTAR_BUILD_SHARED_LIBS
-shard_id* this_shard_id_ptr() noexcept;
-#else
 inline shard_id* this_shard_id_ptr() noexcept {
-    static thread_local shard_id g_this_shard_id;
+    static thread_local SEASTAR_GLOBAL_DYNAMIC_TLS shard_id g_this_shard_id;
     return &g_this_shard_id;
 }
-#endif
 
 }
 
@@ -311,8 +308,8 @@ class smp : public std::enable_shared_from_this<smp> {
       void operator()(smp_message_queue** qs) const;
     };
     std::unique_ptr<smp_message_queue*[], qs_deleter> _qs_owner;
-    static thread_local smp_message_queue**_qs;
-    static thread_local std::thread::id _tmain;
+    static thread_local SEASTAR_GLOBAL_DYNAMIC_TLS smp_message_queue**_qs;
+    static thread_local SEASTAR_GLOBAL_DYNAMIC_TLS std::thread::id _tmain;
     bool _using_dpdk = false;
 
     template <typename Func>
