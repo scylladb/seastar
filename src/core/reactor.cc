@@ -517,6 +517,14 @@ future<size_t> pollable_fd_state::sendto(socket_address addr, const void* buf, s
 
 namespace internal {
 
+#ifdef SEASTAR_BUILD_SHARED_LIBS
+const preemption_monitor*& get_need_preempt_var() {
+    static preemption_monitor bootstrap_preemption_monitor;
+    static thread_local const preemption_monitor* g_need_preempt = &bootstrap_preemption_monitor;
+    return g_need_preempt;
+}
+#endif
+
 void set_need_preempt_var(const preemption_monitor* np) {
     get_need_preempt_var() = np;
 }
@@ -646,6 +654,11 @@ bool timer<Clock>::cancel() noexcept {
 template class timer<steady_clock_type>;
 template class timer<lowres_clock>;
 template class timer<manual_clock>;
+
+#ifdef SEASTAR_BUILD_SHARED_LIBS
+thread_local lowres_clock::time_point lowres_clock::_now;
+thread_local lowres_system_clock::time_point lowres_system_clock::_now;
+#endif
 
 reactor::signals::signals() : _pending_signals(0) {
 }
@@ -4679,10 +4692,30 @@ reactor::destroy_scheduling_group(scheduling_group sg) noexcept {
 
 }
 
+#ifdef SEASTAR_BUILD_SHARED_LIBS
+namespace internal {
+
+scheduling_group_specific_thread_local_data** get_scheduling_group_specific_thread_local_data_ptr() noexcept {
+    static thread_local scheduling_group_specific_thread_local_data* data;
+    return &data;
+}
+
+}
+#endif
+
 void
 internal::no_such_scheduling_group(scheduling_group sg) {
     throw std::invalid_argument(format("The scheduling group does not exist ({})", internal::scheduling_group_index(sg)));
 }
+
+#ifdef SEASTAR_BUILD_SHARED_LIBS
+scheduling_group*
+internal::current_scheduling_group_ptr() noexcept {
+    // Slow unless constructor is constexpr
+    static thread_local scheduling_group sg;
+    return &sg;
+}
+#endif
 
 const sstring&
 scheduling_group::name() const noexcept {

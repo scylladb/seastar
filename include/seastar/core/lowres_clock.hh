@@ -59,8 +59,12 @@ public:
     using time_point = std::chrono::time_point<lowres_clock, duration>;
     static constexpr bool is_steady = true;
 private:
+#ifdef SEASTAR_BUILD_SHARED_LIBS
+    static thread_local time_point _now;
+#else
     // Use inline variable to prevent the compiler from introducing an initialization guard
     inline static thread_local time_point _now;
+#endif
 public:
     ///
     /// \note Outside of a Seastar application, the result is undefined.
@@ -89,8 +93,12 @@ public:
     using time_point = std::chrono::time_point<lowres_system_clock, duration>;
     static constexpr bool is_steady = false;
 private:
+#ifdef SEASTAR_BUILD_SHARED_LIBS
+    static thread_local time_point _now;
+#else
     // Use inline variable to prevent the compiler from introducing an initialization guard
     inline static thread_local time_point _now;
+#endif
     friend class lowres_clock; // for updates
 public:
     ///

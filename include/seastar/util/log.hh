@@ -88,7 +88,11 @@ class logger {
     static std::atomic<bool> _ostream;
     static std::atomic<bool> _syslog;
     static unsigned _shard_field_width;
+#ifdef SEASTAR_BUILD_SHARED_LIBS
+    static thread_local bool silent;
+#else
     static inline thread_local bool silent = false;
+#endif
 
 public:
     class log_writer {

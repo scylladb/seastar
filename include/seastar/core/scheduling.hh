@@ -326,6 +326,10 @@ scheduling_group_from_index(unsigned index) noexcept {
     return scheduling_group(index);
 }
 
+#ifdef SEASTAR_BUILD_SHARED_LIBS
+scheduling_group*
+current_scheduling_group_ptr() noexcept;
+#else
 inline
 scheduling_group*
 current_scheduling_group_ptr() noexcept {
@@ -333,7 +337,7 @@ current_scheduling_group_ptr() noexcept {
     static thread_local scheduling_group sg;
     return &sg;
 }
-
+#endif
 }
 /// \endcond
 

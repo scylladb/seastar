@@ -46,11 +46,15 @@ struct scheduling_group_specific_thread_local_data {
     std::vector<scheduling_group_key_config> scheduling_group_key_configs;
 };
 
+#ifdef SEASTAR_BUILD_SHARED_LIBS
+scheduling_group_specific_thread_local_data** get_scheduling_group_specific_thread_local_data_ptr() noexcept;
+#else
 inline
 scheduling_group_specific_thread_local_data** get_scheduling_group_specific_thread_local_data_ptr() noexcept {
     static thread_local scheduling_group_specific_thread_local_data* data;
     return &data;
 }
+#endif
 inline
 scheduling_group_specific_thread_local_data& get_scheduling_group_specific_thread_local_data() noexcept {
     return **get_scheduling_group_specific_thread_local_data_ptr();
