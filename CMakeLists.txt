@@ -324,12 +324,12 @@ option (BUILD_SHARED_LIBS
 #   initial library list by calling dl_iterate_phdr(3). But
 #   Seastar provides this symbol, and its implementation references
 #   some static variables. So if Seastar is built as a shared
-#   library, this causes a chicken and egg problem. On one hard,
-#   ASan tries to reference a symbol which is in turn provided by
-#   yet another shared library which is not necessariy ready its
-#   static variables yet. And this leads leads to a segfault. So,
-#   we have to disable this check when "BUILD_SHARED_LIBS" is
-#   enabled.
+#   library, this causes a chicken and egg problem. In other words,
+#   ASan is loaded first, and it tries to reference a symbol which
+#   is in turn provided by another shared library which is not
+#   necessariy ready its static variables yet. And this leads leads
+#   to a segfault. So, we have to disable this check when
+#   "BUILD_SHARED_LIBS" is enabled.
 # * UBSAN_OPTIONS=halt_on_error=1:abort_on_error=1
 #   Fail the test if any undefined behavior is found and use abort
 #   instead of exit. Using abort is what causes core dumps to be
