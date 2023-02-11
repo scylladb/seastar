@@ -34,11 +34,15 @@ struct preemption_monitor {
     std::atomic<uint32_t> tail;
 };
 
+#ifdef SEASTAR_BUILD_SHARED_LIBS
+const preemption_monitor*& get_need_preempt_var();
+#else
 inline const preemption_monitor*& get_need_preempt_var() {
     static preemption_monitor bootstrap_preemption_monitor;
     static thread_local const preemption_monitor* g_need_preempt = &bootstrap_preemption_monitor;
     return g_need_preempt;
 }
+#endif
 
 void set_need_preempt_var(const preemption_monitor* pm);
 

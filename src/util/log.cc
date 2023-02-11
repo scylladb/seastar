@@ -281,6 +281,9 @@ std::ostream* logger::_out = &std::cerr;
 std::atomic<bool> logger::_ostream = { true };
 std::atomic<bool> logger::_syslog = { false };
 unsigned logger::_shard_field_width = 1;
+#ifdef SEASTAR_BUILD_SHARED_LIBS
+thread_local bool logger::silent = false;
+#endif
 
 logger::logger(sstring name) : _name(std::move(name)) {
     global_logger_registry().register_logger(this);
