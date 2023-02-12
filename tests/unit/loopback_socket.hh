@@ -54,6 +54,7 @@ private:
     queue<temporary_buffer<char>> _q{1};
     loopback_error_injector* _error_injector;
     type _type;
+    promise<> _shutdown;
 public:
     loopback_buffer(loopback_error_injector* error_injection, type t) : _error_injector(error_injection), _type(t) {}
     future<> push(temporary_buffer<char>&& b) {
@@ -89,8 +90,16 @@ public:
         return _q.pop_eventually();
     }
     void shutdown() noexcept {
+        if (!_aborted) {
+            // it can be called by both -- reader and writer socket impls
+            _shutdown.set_value();
+        }
         _aborted = true;
         _q.abort(std::make_exception_ptr(std::system_error(EPIPE, std::system_category())));
+    }
+
+    future<> wait_input_shutdown() {
+        return _shutdown.get_future();
     }
 };
 
@@ -194,8 +203,7 @@ public:
         return {};
     }
     future<> wait_input_shutdown() override {
-        abort(); // No tests use this
-        return make_ready_future<>();
+        return _rx->wait_input_shutdown();
     }
 };
 

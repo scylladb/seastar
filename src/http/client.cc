@@ -21,6 +21,8 @@
 
 #include <seastar/core/loop.hh>
 #include <seastar/core/when_all.hh>
+#include <seastar/core/reactor.hh>
+#include <seastar/net/tls.hh>
 #include <seastar/http/client.hh>
 #include <seastar/http/request.hh>
 #include <seastar/http/reply.hh>
@@ -28,6 +30,7 @@
 #include <seastar/http/internal/content_source.hh>
 
 namespace seastar {
+logger http_log("http");
 namespace http {
 namespace experimental {
 
@@ -35,6 +38,7 @@ connection::connection(connected_socket&& fd)
         : _fd(std::move(fd))
         , _read_buf(_fd.input())
         , _write_buf(_fd.output())
+        , _closed(_fd.wait_input_shutdown().finally([me = shared_from_this()] {}))
 {
 }
 
@@ -136,7 +140,120 @@ input_stream<char> connection::in(reply& rep) {
 }
 
 future<> connection::close() {
-    return when_all(_read_buf.close(), _write_buf.close()).discard_result();
+    return when_all(_read_buf.close(), _write_buf.close()).discard_result().then([this] {
+        auto la = _fd.local_address();
+        return std::move(_closed).then([la = std::move(la)] {
+            http_log.trace("destroyed connection {}", la);
+        });
+    });
+}
+
+class basic_connection_factory : public connection_factory {
+    socket_address _addr;
+public:
+    explicit basic_connection_factory(socket_address addr)
+            : _addr(std::move(addr))
+    {
+    }
+    virtual future<connected_socket> make() override {
+        return seastar::connect(_addr, {}, transport::TCP);
+    }
+};
+
+client::client(socket_address addr)
+        : client(std::make_unique<basic_connection_factory>(std::move(addr)))
+{
+}
+
+class tls_connection_factory : public connection_factory {
+    socket_address _addr;
+    shared_ptr<tls::certificate_credentials> _creds;
+    sstring _host;
+public:
+    tls_connection_factory(socket_address addr, shared_ptr<tls::certificate_credentials> creds, sstring host)
+            : _addr(std::move(addr))
+            , _creds(std::move(creds))
+            , _host(std::move(host))
+    {
+    }
+    virtual future<connected_socket> make() override {
+        return tls::connect(_creds, _addr, _host);
+    }
+};
+
+client::client(socket_address addr, shared_ptr<tls::certificate_credentials> creds, sstring host)
+        : client(std::make_unique<tls_connection_factory>(std::move(addr), std::move(creds), std::move(host)))
+{
+}
+
+client::client(std::unique_ptr<connection_factory> f)
+        : _new_connections(std::move(f))
+{
+}
+
+future<client::connection_ptr> client::get_connection() {
+    if (!_pool.empty()) {
+        connection_ptr con = _pool.front().shared_from_this();
+        _pool.pop_front();
+        http_log.trace("pop http connection {} from pool", con->_fd.local_address());
+        return make_ready_future<connection_ptr>(con);
+    }
+
+    return _new_connections->make().then([] (connected_socket cs) {
+        http_log.trace("created new http connection {}", cs.local_address());
+        auto con = seastar::make_shared<connection>(std::move(cs));
+        return make_ready_future<connection_ptr>(std::move(con));
+    });
+}
+
+future<> client::put_connection(connection_ptr con, bool can_cache) {
+    if (can_cache) {
+        http_log.trace("push http connection {} to pool", con->_fd.local_address());
+        _pool.push_back(*con);
+        return make_ready_future<>();
+    }
+
+    http_log.trace("dropping connection {}", con->_fd.local_address());
+    return con->close().finally([con] {});
+}
+
+template <typename Fn>
+SEASTAR_CONCEPT( requires std::invocable<Fn, connection&> )
+auto client::with_connection(Fn&& fn) {
+    return get_connection().then([this, fn = std::move(fn)] (connection_ptr con) mutable {
+        return fn(*con).then_wrapped([this, con = std::move(con)] (auto f) mutable {
+            return put_connection(std::move(con), !f.failed()).then([f = std::move(f)] () mutable {
+                return std::move(f);
+            });
+        });
+    });
+}
+
+future<> client::make_request(request req, reply_handler handle, reply::status_type expected) {
+    return with_connection([req = std::move(req), handle = std::move(handle), expected] (connection& con) mutable {
+        return con.make_request(std::move(req)).then([&con, expected, handle = std::move(handle)] (reply rep) mutable {
+            if (rep._status != expected) {
+                return make_exception_future<>(std::runtime_error(format("request finished with {}", rep._status)));
+            }
+
+            return do_with(std::move(rep), [&con, handle = std::move(handle)] (auto& rep) mutable {
+                return handle(rep, con.in(rep));
+            });
+        });
+    });
+}
+
+future<> client::close() {
+    if (_pool.empty()) {
+        return make_ready_future<>();
+    }
+
+    connection_ptr con = _pool.front().shared_from_this();
+    _pool.pop_front();
+    http_log.trace("closing connection {}", con->_fd.local_address());
+    return con->close().then([this, con] {
+        return close();
+    });
 }
 
 } // experimental namespace
