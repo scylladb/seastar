@@ -629,7 +629,6 @@ add_library (seastar
   include/seastar/util/defer.hh
   include/seastar/util/eclipse.hh
   include/seastar/util/function_input_iterator.hh
-  include/seastar/util/gcc6-concepts.hh
   include/seastar/util/indirect.hh
   include/seastar/util/is_smart_ptr.hh
   include/seastar/util/lazy.hh
