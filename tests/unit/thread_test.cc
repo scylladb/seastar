@@ -147,7 +147,7 @@ SEASTAR_TEST_CASE(test_asan_false_positive) {
 }
 #endif
 
-SEASTAR_THREAD_TEST_CASE_EXPECTED_FAILURES(abc, 2) {
+SEASTAR_THREAD_TEST_CASE(abc, *boost::unit_test::expected_failures(2)) {
     BOOST_TEST(false);
     BOOST_TEST(false);
 }
