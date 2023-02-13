@@ -178,7 +178,7 @@ struct test_thread_custom_stack_size_failure : public seastar::testing::seastar_
 
 static test_thread_custom_stack_size_failure test_thread_custom_stack_size_failure_instance(
     "test_thread_custom_stack_size_failure",
-    __FILE__);
+    __FILE__, __LINE__);
 static thread_local volatile bool stack_guard_bypassed = false;
 
 static int get_mprotect_flags(void* ctx) {

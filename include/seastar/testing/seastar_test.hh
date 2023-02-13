@@ -37,15 +37,19 @@ namespace testing {
 class seastar_test {
     std::string _test_name;
     std::string _test_file;
+    int _test_line;
     int _expected_failures;
 public:
-    seastar_test(const char* test_name, const char* test_file, int expected_failures = 0);
+    seastar_test(const char* test_name, const char* test_file, int test_line, int expected_failures = 0);
     virtual ~seastar_test() {}
     const std::string& get_test_file() const {
         return _test_file;
     }
     const std::string& get_name() const {
         return _test_name;
+    }
+    int get_line_number() const {
+        return _test_line;
     }
     int get_expected_failures() const {
         return _expected_failures;

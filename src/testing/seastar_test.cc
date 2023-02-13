@@ -66,9 +66,10 @@ const std::vector<seastar_test*>& known_tests() {
     return *tests;
 }
 
-seastar_test::seastar_test(const char* test_name, const char* test_file, int expected_failures)
+seastar_test::seastar_test(const char* test_name, const char* test_file, int test_line, int expected_failures)
     : _test_name(test_name)
     , _test_file(test_file)
+    , _test_line(test_line)
     , _expected_failures(expected_failures) {
     if (!tests) {
         tests = new std::vector<seastar_test*>();

@@ -35,7 +35,7 @@ static bool init_unit_test_suite() {
 
     for (seastar_test* test : tests) {
         ts.add(boost::unit_test::make_test_case([test] { test->run(); }, test->get_name(),
-                                                test->get_test_file(), 0),
+                                                test->get_test_file(), test->get_line_number()),
                                                 test->get_expected_failures(), 0);
     }
 

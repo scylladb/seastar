@@ -31,5 +31,5 @@
         using seastar::testing::seastar_test::seastar_test; \
         seastar::future<> run_test_case() const override; \
     }; \
-    static const name name ## _instance(#name, __FILE__); /* NOLINT(cert-err58-cpp) */ \
+    static const name name ## _instance(#name, __FILE__, __LINE__); /* NOLINT(cert-err58-cpp) */ \
     seastar::future<> name::run_test_case() const
