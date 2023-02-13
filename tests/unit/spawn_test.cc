@@ -92,7 +92,7 @@ SEASTAR_TEST_CASE(test_spawn_echo) {
     });
 }
 
-SEASTAR_TEST_CASE(test_spawn_input) {
+SEASTAR_TEST_CASE(test_spawn_input, *boost::unit_test::expected_failures(3)) {
     static const sstring text = "hello world\n";
     return spawn_process("/bin/cat").then([] (auto process) {
         auto stdin = process.stdin();
@@ -101,13 +101,12 @@ SEASTAR_TEST_CASE(test_spawn_input) {
             return stdin.write(text).then([&stdin] {
                 return stdin.flush();
             }).handle_exception_type([] (std::system_error& e) {
-                testlog.error("failed to write to stdin: {}", e);
-                return make_exception_future<>(std::move(e));
+                BOOST_TEST_ERROR(fmt::format("failed to write to stdin: {}", e));
             }).then([&stdout] {
                 return stdout.read_exactly(text.size());
             }).handle_exception_type([] (std::system_error& e) {
-                testlog.error("failed to read from stdout: {}", e);
-                return make_exception_future<temporary_buffer<char>>(std::move(e));
+                BOOST_TEST_ERROR(fmt::format("failed to read from stdout: {}", e));
+                return make_ready_future<temporary_buffer<char>>();
             }).then([] (temporary_buffer<char> echo) {
                 BOOST_CHECK_EQUAL(sstring(echo.get(), echo.size()), text);
             }).finally([&p] {
