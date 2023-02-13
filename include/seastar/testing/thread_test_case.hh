@@ -29,9 +29,7 @@
 
 #define SEASTAR_THREAD_TEST_CASE_EXPECTED_FAILURES(name, failures) \
     struct name : public seastar::testing::seastar_test { \
-        const char* get_test_file() const override { return __FILE__; } \
-        const char* get_name() const override { return #name; } \
-        int get_expected_failures() const override { return failures; } \
+        using seastar::testing::seastar_test::seastar_test; \
         seastar::future<> run_test_case() const override { \
             return seastar::async([this] { \
                 do_run_test_case(); \
@@ -39,7 +37,7 @@
         } \
         void do_run_test_case() const; \
     }; \
-    static const name name ## _instance; /* NOLINT(cert-err58-cpp) */ \
+    static const name name ## _instance(#name, __FILE__, failures); /* NOLINT(cert-err58-cpp) */ \
     void name::do_run_test_case() const
 
 #define SEASTAR_THREAD_TEST_CASE(name) \

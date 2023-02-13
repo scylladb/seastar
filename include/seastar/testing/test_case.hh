@@ -28,9 +28,8 @@
 
 #define SEASTAR_TEST_CASE(name) \
     struct name : public seastar::testing::seastar_test { \
-        const char* get_test_file() const override { return __FILE__; } \
-        const char* get_name() const override { return #name; } \
+        using seastar::testing::seastar_test::seastar_test; \
         seastar::future<> run_test_case() const override; \
     }; \
-    static const name name ## _instance; /* NOLINT(cert-err58-cpp) */ \
+    static const name name ## _instance(#name, __FILE__); /* NOLINT(cert-err58-cpp) */ \
     seastar::future<> name::run_test_case() const
