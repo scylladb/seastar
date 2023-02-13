@@ -52,29 +52,15 @@ void seastar_test::run() {
     });
 }
 
-// We store a pointer because tests are registered from dynamic initializers,
-// so we must ensure that 'tests' is initialized before any dynamic initializer.
-// I use a primitive type, which is guaranteed to be initialized before any
-// dynamic initializer and lazily allocate the factor.
-
-static std::vector<seastar_test*>* tests = nullptr;
-
-const std::vector<seastar_test*>& known_tests() {
-    if (!tests) {
-        throw std::runtime_error("No tests registered");
-    }
-    return *tests;
+seastar_test::seastar_test(const char* test_name, const char* test_file, int test_line, int expected_failures) {
+    : _test_file{test_file} {
+    auto test = boost::unit_test::make_test_case([this] { run(); }, test_name, test_file, test_line);
+    boost::unit_test::framework::current_auto_test_suite().add(test, expected_failures);
 }
 
-seastar_test::seastar_test(const char* test_name, const char* test_file, int test_line, int expected_failures)
-    : _test_name(test_name)
-    , _test_file(test_file)
-    , _test_line(test_line)
-    , _expected_failures(expected_failures) {
-    if (!tests) {
-        tests = new std::vector<seastar_test*>();
-    }
-    tests->push_back(this);
+const std::string& seastar_test::get_name() {
+    const auto& current_test = boost::unit_test::framework::current_test_unit();
+    return current_test.p_name.get();
 }
 
 namespace exception_predicate {
