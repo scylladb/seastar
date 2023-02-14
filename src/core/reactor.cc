@@ -4151,7 +4151,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     if (smp_opts.reserve_memory) {
         rc.reserve_memory = parse_memory_size(smp_opts.reserve_memory.get_value());
     }
-    rc.reserve_additional_memory = smp_opts.reserve_additional_memory;
+    rc.reserve_additional_memory_per_shard = smp_opts.reserve_additional_memory_per_shard;
     std::optional<std::string> hugepages_path;
     if (smp_opts.hugepages) {
         hugepages_path = smp_opts.hugepages.get_value();

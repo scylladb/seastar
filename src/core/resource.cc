@@ -212,7 +212,8 @@ namespace resource {
 size_t calculate_memory(const configuration& c, size_t available_memory, float panic_factor = 1) {
     size_t default_reserve_memory = std::max<size_t>(1536 * 1024 * 1024, 0.07 * available_memory) * panic_factor;
     auto reserve = c.reserve_memory.value_or(default_reserve_memory);
-    reserve += c.reserve_additional_memory;
+    auto reserve_additional = c.reserve_additional_memory_per_shard * c.cpus;
+    reserve += reserve_additional;
     size_t min_memory = 500'000'000;
     if (available_memory >= reserve + min_memory) {
         available_memory -= reserve;
@@ -220,11 +221,17 @@ size_t calculate_memory(const configuration& c, size_t available_memory, float p
         // Allow starting up even in low memory configurations (e.g. 2GB boot2docker VM)
         available_memory = min_memory;
     }
-    size_t mem = c.total_memory ? *c.total_memory - c.reserve_additional_memory : available_memory;
-    if (mem > available_memory) {
-        throw std::runtime_error(format("insufficient physical memory: needed {} available {}", mem, available_memory));
+    if (!c.total_memory.has_value()) {
+        return available_memory;
     }
-    return mem;
+    if (*c.total_memory < reserve_additional) {
+        throw std::runtime_error(format("insufficient total memory: reserve {} total {}", reserve_additional, *c.total_memory));
+    }
+    size_t needed_memory = *c.total_memory - reserve_additional;
+    if (needed_memory > available_memory) {
+        throw std::runtime_error(format("insufficient physical memory: needed {} available {}", needed_memory, available_memory));
+    }
+    return needed_memory;
 }
 
 io_queue_topology::io_queue_topology() {
@@ -499,6 +506,14 @@ resources allocate(configuration& c) {
         }
         abort();
     }
+    unsigned procs = c.cpus;
+    if (unsigned available_procs = hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_PU);
+        procs > available_procs) {
+        throw std::runtime_error(format("insufficient processing units: needed {} available {}", procs, available_procs));
+    }
+    if (procs == 0) {
+        throw std::runtime_error("number of processing units must be positive");
+    }
     auto machine_depth = hwloc_get_type_depth(topology, HWLOC_OBJ_MACHINE);
     assert(hwloc_get_nbobjs_by_depth(topology, machine_depth) == 1);
     auto machine = hwloc_get_obj_by_depth(topology, machine_depth, 0);
@@ -509,14 +524,6 @@ resources allocate(configuration& c) {
 #endif
     size_t mem = calculate_memory(c, std::min(available_memory,
                                               cgroup::memory_limit()));
-    unsigned procs = c.cpus;
-    if (unsigned available_procs = hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_PU);
-        procs > available_procs) {
-        throw std::runtime_error(format("insufficient processing units: needed {} available {}", procs, available_procs));
-    }
-    if (procs == 0) {
-        throw std::runtime_error("number of processing units must be positive");
-    }
     // limit memory address to fit in 36-bit, see core/memory.cc:Memory map
     constexpr size_t max_mem_per_proc = 1UL << 36;
     auto mem_per_proc = std::min(align_down<size_t>(mem / procs, 2 << 20), max_mem_per_proc);
