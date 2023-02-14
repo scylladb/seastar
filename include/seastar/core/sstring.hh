@@ -24,6 +24,9 @@
 #include <stdint.h>
 #include <algorithm>
 #include <cassert>
+#if __has_include(<compare>)
+#include <compare>
+#endif
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -574,9 +577,16 @@ public:
     bool operator!=(const basic_sstring& x) const noexcept {
         return !operator==(x);
     }
+#if __cpp_lib_three_way_comparison
+    constexpr std::strong_ordering operator<=>(const auto& x) const noexcept {
+        int cmp = compare(x);
+        return cmp <=> 0;
+    }
+#else
     bool operator<(const basic_sstring& x) const noexcept {
         return compare(x) < 0;
     }
+#endif
     basic_sstring operator+(const basic_sstring& x) const {
         basic_sstring ret(initialized_later(), size() + x.size());
         std::copy(begin(), end(), ret.begin());
