@@ -579,8 +579,7 @@ public:
     }
 #if __cpp_lib_three_way_comparison
     constexpr std::strong_ordering operator<=>(const auto& x) const noexcept {
-        int cmp = compare(x);
-        return cmp <=> 0;
+        return compare(x) <=> 0;
     }
 #else
     bool operator<(const basic_sstring& x) const noexcept {
