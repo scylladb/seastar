@@ -23,6 +23,7 @@
 
 #include <seastar/util/concepts.hh>
 #include <cassert>
+#include <cerrno>
 #include <cstring>
 #include <stdio.h>
 #include <unistd.h>

@@ -33,6 +33,14 @@
 #define min min    /* prevent xfs.h from defining min() as a macro */
 #include <xfs/xfs.h>
 #undef min
+#include <algorithm>
+#include <atomic>
+#include <deque>
+#include <filesystem>
+#include <functional>
+#include <memory>
+#include <optional>
+#include <vector>
 #include <seastar/core/internal/read_state.hh>
 #include <seastar/core/internal/uname.hh>
 #include <seastar/core/reactor.hh>

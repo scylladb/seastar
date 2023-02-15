@@ -24,6 +24,10 @@
 #include <seastar/core/reactor.hh>
 #include <seastar/core/metrics.hh>
 #include <seastar/core/prefetch.hh>
+#include <atomic>
+#include <iterator>
+#include <memory>
+#include <vector>
 
 namespace seastar {
 namespace alien {

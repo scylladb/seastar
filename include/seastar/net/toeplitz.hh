@@ -43,6 +43,8 @@
 
 #pragma once
 
+#include <cstdint>
+#include <string_view>
 #include <vector>
 
 namespace seastar {
@@ -78,13 +80,12 @@ static inline uint32_t
 toeplitz_hash(rss_key_type key, const T& data)
 {
 	uint32_t hash = 0, v;
-	u_int i, b;
 
 	/* XXXRW: Perhaps an assertion about key length vs. data length? */
 
 	v = (key[0]<<24) + (key[1]<<16) + (key[2] <<8) + key[3];
-	for (i = 0; i < data.size(); i++) {
-		for (b = 0; b < 8; b++) {
+	for (unsigned i = 0; i < data.size(); i++) {
+		for (unsigned b = 0; b < 8; b++) {
 			if (data[i] & (1<<(7-b)))
 				hash ^= v;
 			v <<= 1;

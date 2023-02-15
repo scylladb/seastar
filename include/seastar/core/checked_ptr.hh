@@ -25,6 +25,7 @@
 /// \brief Contains a seastar::checked_ptr class implementation.
 
 #include <exception>
+#include <memory>
 #include <seastar/util/concepts.hh>
 
 /// \namespace seastar

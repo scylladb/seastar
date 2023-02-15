@@ -54,6 +54,10 @@
 #include <seastar/util/bool_class.hh>
 #include <seastar/util/std-compat.hh>
 #include "./internal/api-level.hh"
+#include <cstdint>
+#include <filesystem>
+#include <optional>
+#include <string_view>
 
 namespace seastar {
 

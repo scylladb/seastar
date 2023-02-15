@@ -25,6 +25,10 @@
 #include <seastar/core/internal/io_request.hh>
 #include <seastar/util/concepts.hh>
 
+#include <cstddef>
+#include <type_traits>
+#include <utility>
+
 namespace seastar {
 
 class io_completion;
