@@ -150,6 +150,7 @@ class fair_queue::priority_class_data {
     capacity_t _accumulated = 0;
     capacity_t _pure_accumulated = 0;
     fair_queue_entry::container_list_t _queue;
+    unsigned _capacity_claim = 0;
     bool _queued = false;
     bool _plugged = true;
 
@@ -266,6 +267,11 @@ auto fair_queue::grab_pending_capacity(const fair_queue_entry& ent) noexcept -> 
     }
 
     _pending.reset();
+    if (_oversubscribed) {
+        _pending = *_oversubscribed;
+        _oversubscribed.reset();
+    }
+
     return grab_result::grabbed;
 }
 
@@ -282,6 +288,12 @@ auto fair_queue::grab_capacity(const fair_queue_entry& ent) noexcept -> grab_res
     }
 
     return grab_result::grabbed;
+}
+
+void fair_queue::oversubscribe_capacity(capacity_t cap) noexcept {
+    assert(_pending);
+    capacity_t want_head = _group.grab_capacity(cap);
+    _oversubscribed.emplace(want_head, cap);
 }
 
 void fair_queue::register_priority_class(class_id id, uint32_t shares) {
@@ -326,6 +338,9 @@ fair_queue_ticket fair_queue::resources_currently_executing() const {
     return _resources_executing;
 }
 
+static constexpr uint64_t oversubscribe_start = 12000;
+static constexpr uint64_t oversubscribe_stop = 8000;
+
 void fair_queue::queue(class_id id, fair_queue_entry& ent) noexcept {
     priority_class_data& pc = *_priority_classes[id];
     // We need to return a future in this function on which the caller can wait.
@@ -335,8 +350,12 @@ void fair_queue::queue(class_id id, fair_queue_entry& ent) noexcept {
         push_priority_class_from_idle(pc);
     }
     pc._queue.push_back(ent);
+    pc._capacity_claim += pc._shares;
     _resources_queued += ent._ticket;
     _requests_queued++;
+    if (pc._capacity_claim >= oversubscribe_start) {
+        _oversubscribing++;
+    }
 }
 
 void fair_queue::notify_request_finished(fair_queue_ticket desc) noexcept {
@@ -384,6 +403,12 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         auto& req = h._queue.front();
         auto gr = grab_capacity(req);
         if (gr == grab_result::pending) {
+            if (_oversubscribing > 0 && !_oversubscribed) {
+                auto cap = _group.ticket_capacity(req._ticket);
+                if (cap > 0) {
+                    oversubscribe_capacity(cap);
+                }
+            }
             break;
         }
 
@@ -396,6 +421,10 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         _last_accumulated = std::max(h._accumulated, _last_accumulated);
         pop_priority_class(h);
         h._queue.pop_front();
+        h._capacity_claim -= h._shares;
+        if (h._capacity_claim < oversubscribe_stop) {
+            _oversubscribing--;
+        }
 
         _resources_executing += req._ticket;
         _resources_queued -= req._ticket;
