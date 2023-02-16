@@ -242,6 +242,12 @@ void set_reclaim_hook(
 /// currently alive on this shard.
 void set_abort_on_allocation_failure(bool enabled);
 
+/// \brief Determine the abort on allocation failure mode.
+///
+/// Return true if the global abort on allocation failure behavior
+/// is enabled, or false otherwise. Always returns false if the
+/// default (system) allocator is being used.
+bool is_abort_on_allocation_failure();
 
 class statistics;
 

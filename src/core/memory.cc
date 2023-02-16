@@ -1608,6 +1608,10 @@ void set_abort_on_allocation_failure(bool enabled) {
     abort_on_allocation_failure.store(enabled, std::memory_order_seq_cst);
 }
 
+bool is_abort_on_allocation_failure() {
+    return abort_on_allocation_failure;
+}
+
 void set_dump_memory_diagnostics_on_alloc_failure_kind(alloc_failure_kind kind) {
     dump_diagnostics_on_alloc_failure_kind.store(kind, std::memory_order_seq_cst);
 }
@@ -2277,6 +2281,9 @@ void set_abort_on_allocation_failure(bool enabled) {
         seastar_logger.warn("Seastar compiled with default allocator, will not abort on bad_alloc");
     }
 }
+
+bool is_abort_on_allocation_failure() {
+    return false;
 }
 
 reclaimer::reclaimer(std::function<reclaiming_result ()> reclaim, reclaimer_scope) {
