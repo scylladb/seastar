@@ -198,6 +198,20 @@ SEASTAR_TEST_CASE(test_realloc_nullptr) {
     return make_ready_future<>();
 }
 
+SEASTAR_TEST_CASE(test_enable_abort_on_oom) {
+    bool original = seastar::memory::is_abort_on_allocation_failure();
+
+    seastar::memory::set_abort_on_allocation_failure(false);
+    BOOST_CHECK(!seastar::memory::is_abort_on_allocation_failure());
+
+    seastar::memory::set_abort_on_allocation_failure(true);
+    BOOST_CHECK(seastar::memory::is_abort_on_allocation_failure());
+
+    seastar::memory::set_abort_on_allocation_failure(original);
+
+    return make_ready_future<>();
+}
+
 void * volatile sink;
 
 SEASTAR_TEST_CASE(test_bad_alloc_throws) {
