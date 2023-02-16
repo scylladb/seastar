@@ -139,6 +139,8 @@ static constexpr size_t huge_page_size =
 void configure(std::vector<resource::memory> m, bool mbind,
         std::optional<std::string> hugetlbfs_path = {});
 
+// A deprecated alias for set_abort_on_allocation_failure(true).
+[[deprecated("use set_abort_on_allocation_failure(true) instead")]]
 void enable_abort_on_allocation_failure();
 
 class disable_abort_on_alloc_failure_temporarily {
@@ -222,6 +224,24 @@ void set_reclaim_hook(
         std::function<void (std::function<void ()>)> hook);
 
 /// \endcond
+
+/// \brief Set the global state of the abort on allocation failure behavior.
+///
+/// If enabled, an allocation failure (i.e., the requested memory
+/// could not be allocated even after reclaim was attempted), will
+/// generally result in `abort()` being called. If disabled, the
+/// failure is reported to the caller, e.g., by throwing a
+/// `std::bad_alloc` for C++ allocations such as new, or returning
+/// a null pointer from malloc.
+///
+/// Note that even if the global state is set to enabled, the
+/// `disable_abort_on_alloc_failure_temporarily` class may override
+/// the behavior tepmorarily on a given shard. That is, abort only
+/// occurs if abort is globablly enabled on this shard _and_ there
+/// are no `disable_abort_on_alloc_failure_temporarily` objects
+/// currently alive on this shard.
+void set_abort_on_allocation_failure(bool enabled);
+
 
 class statistics;
 
