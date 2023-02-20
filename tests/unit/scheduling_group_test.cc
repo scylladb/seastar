@@ -346,3 +346,38 @@ SEASTAR_THREAD_TEST_CASE(sg_rename_callback) {
         }
     }).get0();
 }
+
+SEASTAR_THREAD_TEST_CASE(sg_create_with_destroy_tasks) {
+    struct nada{};
+
+    engine().at_destroy([] {}); // nothing really
+
+    scheduling_group_key_config sg_conf = make_scheduling_group_key_config<nada>();
+    scheduling_group_key_create(sg_conf).get();
+}
+
+SEASTAR_THREAD_TEST_CASE(sg_create_check_unique_constructor_invocation) {
+    static thread_local std::set<unsigned> groups;
+
+    // check we don't run constructor in same sched group more than once.
+    struct check {
+        check() {
+            auto sg = current_scheduling_group();
+            auto id = internal::scheduling_group_index(sg);
+            BOOST_REQUIRE(groups.count(id) == 0);
+            groups.emplace(id);
+        }
+    };
+
+    smp::invoke_on_all([] () {
+        groups.clear();
+    }).get0();
+
+    scheduling_group_key_config key1_conf = make_scheduling_group_key_config<check>();
+    scheduling_group_key_create(key1_conf).get0();
+
+    // clean out data for ASAN.
+    smp::invoke_on_all([] () {
+        groups = {};
+    }).get0();
+}
