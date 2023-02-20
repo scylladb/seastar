@@ -69,6 +69,7 @@ shared_backtrace task::get_backtrace() const {
 }
 
 void schedule(task* t) noexcept;
+void schedule_checked(task* t) noexcept;
 void schedule_urgent(task* t) noexcept;
 
 }

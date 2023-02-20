@@ -345,3 +345,12 @@ SEASTAR_THREAD_TEST_CASE(sg_rename_callback) {
         }
     }).get0();
 }
+
+SEASTAR_THREAD_TEST_CASE(sg_create_with_destroy_tasks) {
+    struct nada{};
+
+    engine().at_destroy([] {}); // nothing really
+
+    scheduling_group_key_config sg_conf = make_scheduling_group_key_config<nada>();
+    scheduling_group_key_create(sg_conf).get();
+}
