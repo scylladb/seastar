@@ -44,7 +44,7 @@ auto
 schedule_in_group(scheduling_group sg, Func func) noexcept {
     static_assert(std::is_nothrow_move_constructible_v<Func>);
     auto tsk = make_task(sg, std::move(func));
-    schedule(tsk);
+    schedule_checked(tsk);
     return tsk->get_future();
 }
 

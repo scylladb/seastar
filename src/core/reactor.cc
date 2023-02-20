@@ -3769,6 +3769,14 @@ void schedule(task* t) noexcept {
     engine().add_task(t);
 }
 
+void schedule_checked(task* t) noexcept {
+    if (t->group().is_at_exit()) {
+        // trying to schedule a task in at_destroy. Not allowed
+        on_internal_error(seastar_logger, "Cannot schedule tasks in at_destroy queue. Use reactor::at_destroy.");
+    }
+    engine().add_task(t);
+}
+
 void schedule_urgent(task* t) noexcept {
     engine().add_urgent_task(t);
 }
@@ -4856,9 +4864,17 @@ reactor::init_new_scheduling_group_key(scheduling_group_key key, scheduling_grou
     return parallel_for_each(_task_queues, [this, cfg, key] (std::unique_ptr<task_queue>& tq) {
         if (tq) {
             scheduling_group sg = scheduling_group(tq->_id);
-            return with_scheduling_group(sg, [this, key, sg] () {
+            if (tq.get() == _at_destroy_tasks) {
+                // fake the group by assuming it here
+                auto curr = current_scheduling_group();
+                auto cleanup = defer([curr] () noexcept { *internal::current_scheduling_group_ptr() = curr; });
+                *internal::current_scheduling_group_ptr() = sg;
                 allocate_scheduling_group_specific_data(sg, key);
-            });
+            } else {
+                return with_scheduling_group(sg, [this, key, sg] () {
+                    allocate_scheduling_group_specific_data(sg, key);
+                });
+            }
         }
         return make_ready_future();
     });
