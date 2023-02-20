@@ -280,9 +280,10 @@ else()
   set (dpdk_quadruple ${CMAKE_SYSTEM_PROCESSOR}-native-linuxapp-gcc)
 endif()
 
+# gcc 10 defaults to -fno-common, which dpdk is not prepared for
+set (dpdk_extra_cflags "-Wno-error -fcommon -fpie")
 set (dpdk_args
-  # gcc 10 defaults to -fno-common, which dpdk is not prepared for
-  "EXTRA_CFLAGS=-Wno-error -fcommon -fpie"
+  "EXTRA_CFLAGS=${dpdk_extra_cflags}"
   O=<BINARY_DIR>
   DESTDIR=<INSTALL_DIR>
   T=${dpdk_quadruple})
