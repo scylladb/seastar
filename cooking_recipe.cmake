@@ -282,6 +282,10 @@ endif()
 
 # gcc 10 defaults to -fno-common, which dpdk is not prepared for
 set (dpdk_extra_cflags "-Wno-error -fcommon -fpie")
+if (BUILD_SHARED_LIBS)
+  string (APPEND dpdk_extra_cflags " -fPIC")
+endif ()
+
 set (dpdk_args
   "EXTRA_CFLAGS=${dpdk_extra_cflags}"
   O=<BINARY_DIR>
