@@ -26,6 +26,11 @@ list (APPEND CMAKE_MODULE_PATH
   ${CMAKE_CURRENT_SOURCE_DIR}/cmake
   ${CMAKE_CURRENT_BINARY_DIR})
 
+cmake_policy (SET CMP0090 NEW)
+if (POLICY CMP0135)
+  cmake_policy (SET CMP0135 NEW)
+endif ()
+
 include (Cooking OPTIONAL)
 
 # This variable impacts the way DPDK is configured by cmake-cooking (if DPDK is enabled), so its definition needs to
@@ -39,11 +44,6 @@ set (Seastar_DPDK_MACHINE
 project (Seastar
   VERSION 1.0
   LANGUAGES CXX)
-
-cmake_policy (SET CMP0090 NEW)
-if (POLICY CMP0135)
-  cmake_policy (SET CMP0135 NEW)
-endif ()
 
 # generic boolean values passed as string, potentially from configure.py
 set (True_STRING_VALUES "ON" "yes" "Yes" "YES" "true" "True" "TRUE")
