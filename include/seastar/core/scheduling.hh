@@ -296,6 +296,7 @@ public:
     bool operator==(scheduling_group x) const noexcept { return _id == x._id; }
     bool operator!=(scheduling_group x) const noexcept { return _id != x._id; }
     bool is_main() const noexcept { return _id == 0; }
+    bool is_at_exit() const noexcept { return _id == 1; }
     template<typename T>
     /**
      * Returnes a reference to this scheduling group specific value
