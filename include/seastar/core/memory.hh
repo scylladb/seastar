@@ -95,9 +95,11 @@ namespace seastar {
 ///
 /// Often, the best way to debug an allocation failure is a coredump. This
 /// feature allows dumping core on allocation failures, containing the stack of
-/// the failed allocation, by means of aborting. To enable set the
-/// `abort_on_seastar_bad_alloc` configuration option or the respective command
-/// line flag.
+/// the failed allocation, by means of aborting. To enable this behavior, set
+/// `abort_on_seastar_bad_alloc` in `reactor_options` or pass the
+/// `--abort-on-seastar-bad-alloc` command line flag. Additionally, applications
+/// may enable or disable this functionality globally at runtime by calling
+/// `set_abort_on_allocation_failure()`.
 ///
 /// ### Dump diagnostics report
 ///
