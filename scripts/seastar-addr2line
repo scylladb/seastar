@@ -24,6 +24,7 @@ import sys
 
 from addr2line import BacktraceResolver
 
+
 class StdinBacktraceIterator(object):
     """
     Read stdin char-by-char and stop when when user pressed Ctrl+D or the
@@ -54,21 +55,164 @@ class StdinBacktraceIterator(object):
         return iter(lines)
 
 
-description='Massage and pass addresses to the real addr2line for symbol lookup.'
-epilog='''
+def do_test(verbose):
+    data = [
+        ('---', {'type': BacktraceResolver.BacktraceParser.Type.SEPARATOR}),
+
+        ('0x12f34',
+         {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
+          'prefix': None,
+          'addresses': [{'path': None, 'addr': '0x12f34'}]}),
+        ('0xa1234 0xb4567',
+         {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
+          'prefix': None,
+          'addresses': [{'path': None, 'addr': '0xa1234'}, {'path': None, 'addr': '0xb4567'}]}),
+        ('	0xa1234 /my/path+0xb4567',
+         {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
+          'prefix': None,
+          'addresses': [{'path': None, 'addr': '0xa1234'}, {'path': '/my/path', 'addr': '0xb4567'}]}),
+        ('/my/path+0x12f34',
+         {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
+          'prefix': None,
+          'addresses': [{'path': '/my/path', 'addr': '0x12f34'}]}),
+        (' /my/path+0x12f34',
+         {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
+          'prefix': None,
+          'addresses': [{'path': '/my/path', 'addr': '0x12f34'}]}),
+
+        ('Some prefix 0x12f34',
+         {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
+          'prefix': None,
+          'addresses': [{'path': None, 'addr': '0x12f34'}]}),
+        ('Some prefix /my/path+0x12f34',
+         {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
+          'prefix': None,
+          'addresses': [{'path': '/my/path', 'addr': '0x12f34'}]}),
+
+        ('Reactor stalled on shard 1. Backtrace: 0x12f34',
+         {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
+          'prefix': 'Reactor stalled on shard 1. Backtrace:',
+          'addresses': [{'path': None, 'addr': '0x12f34'}]}),
+        ('Reactor stalled on shard 1. Backtrace: 0xa1234 0xb5678',
+         {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
+          'prefix': 'Reactor stalled on shard 1. Backtrace:',
+          'addresses': [{'path': None, 'addr': '0xa1234'}, {'path': None, 'addr': '0xb5678'}]}),
+        ('Reactor stalled on shard 1. Backtrace: /my/path+0xabcd',
+         {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
+          'prefix': 'Reactor stalled on shard 1. Backtrace:',
+          'addresses': [{'path': '/my/path', 'addr': '0xabcd'}]}),
+
+        ('Expected partition_end(), but got end of stream, at 0xa1234 0xb5678 /my/path+0xabcd',
+         {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
+          'prefix': 'Expected partition_end(), but got end of stream, at',
+          'addresses': [{'path': None, 'addr': '0xa1234'}, {'path': None, 'addr': '0xb5678'}, {'path': '/my/path', 'addr': '0xabcd'}]}),
+
+        ('==16118==ERROR: AddressSanitizer: heap-use-after-free on address 0x60700019c710 at pc 0x000014d24643 bp 0x7ffc51f72220 sp 0x7ffc51f72218', None),
+        ('READ of size 8 at 0x60700019c710 thread T0', None),
+        ('#0 0x14d24642  (/jenkins/workspace/scylla-enterprise/dtest-debug/scylla/.ccm/scylla-repository/1a5173bd45d01697d98ba2a7645f5d86afb2d0be/scylla/libexec/scylla+0x14d24642)',
+         {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
+          'prefix': None,
+          'addresses': [{'path': '/jenkins/workspace/scylla-enterprise/dtest-debug/scylla/.ccm/scylla-repository/1a5173bd45d01697d98ba2a7645f5d86afb2d0be/scylla/libexec/scylla', 'addr': '0x14d24642'}]}),
+        ('    #1 0xd8d910f  (/home/myhome/.dtest/dtest-84j9064d/test/node1/bin/scylla+0xd8d910f) (BuildId: 05a1d3d58d2b07e526decdad717e71a4590be2e0)',
+         {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
+          'prefix': None,
+          'addresses': [{'path': '/home/myhome/.dtest/dtest-84j9064d/test/node1/bin/scylla', 'addr': '0xd8d910f'}]}),
+
+        ('Apr 28 11:42:58 ip-172-31-2-154.ec2.internal scylla[10612]: Reactor stalled for 260 ms on shard 20.', None),
+        ('Apr 28 11:42:58 ip-172-31-2-154.ec2.internal scylla[10612]: Backtrace:', None),
+        ('Apr 28 11:42:58 ip-172-31-2-154.ec2.internal scylla[10612]: 0x0000000003163dc2',
+         {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
+          'prefix': 'Apr 28 11:42:58 ip-172-31-2-154.ec2.internal scylla[10612]:',
+          'addresses': [{'path': None, 'addr': '0x0000000003163dc2'}]}),
+
+        ('seastar::internal::backtraced<std::runtime_error> (throw_with_backtrace_exception_logging Backtrace: 0x42bc95 /lib64/libc.so.6+0x281e1 0x412cfd)',
+         {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
+          'prefix': 'seastar::internal::backtraced<std::runtime_error> (throw_with_backtrace_exception_logging Backtrace:',
+          'addresses': [{'path': None, 'addr': '0x42bc95'}, {'path': '/lib64/libc.so.6', 'addr': '0x281e1'}, {'path': None, 'addr': '0x412cfd'}]}),
+        ('seastar::nested_exception: seastar::internal::backtraced<std::runtime_error> (inner Backtrace: 0x42bc95 /lib64/libc.so.6+0x281e1 0x412cfd) (while cleaning up after unknown_obj)',
+         {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
+          'prefix': 'seastar::nested_exception: seastar::internal::backtraced<std::runtime_error> (inner Backtrace:',
+          'addresses': [{'path': None, 'addr': '0x42bc95'}, {'path': '/lib64/libc.so.6', 'addr': '0x281e1'}, {'path': None, 'addr': '0x412cfd'}]}),
+        ('seastar::nested_exception: seastar::internal::backtraced<std::runtime_error> (inner Backtrace: 0x42bc95 /lib64/libc.so.6+0x281e1 0x412cfd) '
+         '(while cleaning up after seastar::internal::backtraced<std::runtime_error> (outer Backtrace: 0x1234 /lib64/libc.so.6+0x5678 0xabcd))',
+         {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
+          'prefix': 'seastar::nested_exception: seastar::internal::backtraced<std::runtime_error> (inner Backtrace: 0x42bc95 /lib64/libc.so.6+0x281e1 0x412cfd)'
+          ' (while cleaning up after seastar::internal::backtraced<std::runtime_error> (outer Backtrace:',
+          'addresses': [{'path': None, 'addr': '0x1234'}, {'path': '/lib64/libc.so.6', 'addr': '0x5678'}, {'path': None, 'addr': '0xabcd'}]}),
+
+        ("2022-04-15T06:19:24+00:00 gemini-1tb-10h-master-db-node-c0c7fc43-4 !    INFO | "
+         "scylla: sstables/consumer.hh:610: future<> data_consumer::continuous_data_consumer"
+         "<sstables::index_consume_entry_context<sstables::index_consumer>>::fast_forward_to"
+         "(size_t, size_t) [StateProcessor = sstables::index_consume_entry_context"
+         "<sstables::index_consumer>]: Assertion `begin >= _stream_position.position' failed.", None),
+        ('2022-04-15T06:19:24+00:00 gemini-1tb-10h-master-db-node-c0c7fc43-4 !    INFO |   Backtrace:', None),
+        ('2022-04-15T06:19:24+00:00 gemini-1tb-10h-master-db-node-c0c7fc43-4 !    INFO |   0x199d312',
+         {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
+          'prefix': None,
+          'addresses': [{'path': None, 'addr': '0x199d312'}]}),
+        ('2022-04-15T06:19:24+00:00 gemini-1tb-10h-master-db-node-c0c7fc43-4 !    INFO |   (throw_with_backtrace_exception_logging Backtrace: 0x42bc95 /lib64/libc.so.6+0x281e1 0x412cfd)',
+         {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
+          'prefix': '2022-04-15T06:19:24+00:00 gemini-1tb-10h-master-db-node-c0c7fc43-4 !    INFO |   (throw_with_backtrace_exception_logging Backtrace:',
+          'addresses': [{'path': None, 'addr': '0x42bc95'}, {'path': '/lib64/libc.so.6', 'addr': '0x281e1'}, {'path': None, 'addr': '0x412cfd'}]}),
+
+        ('[2022-04-19T23:09:28.311Z] Segmentation fault on shard 1.', None),
+        ('[2022-04-19T23:09:28.311Z] Backtrace:', None),
+        ('[2022-04-19T23:09:28.311Z]   0x461bbb8',
+         {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
+          'prefix': None,
+          'addresses': [{'path': None, 'addr': '0x461bbb8'}]}),
+        ('[2022-04-19T23:09:28.311Z]   /lib64/libpthread.so.0+0x92a4',
+         {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
+          'prefix': None,
+          'addresses': [{'path': '/lib64/libpthread.so.0', 'addr': '0x92a4'}]}),
+
+        ('#0 0x19c01681 (/path/to/scylla+0xdeadbeef)',
+         {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
+          'prefix': None,
+          'addresses': [{'path': '/path/to/scylla', 'addr': '0x19c01681'}]}),
+        ('#1 0x00007fd2dab4f950 abort (libc.so.6 + 0x26950)',
+         {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
+          'prefix': None,
+          'addresses': [{'path': 'libc.so.6', 'addr': '0x00007fd2dab4f950'}]}),
+        ('#2 0x00000000015c4cd3  n/a (/path/to/scylla + 0x15c4cd3)',
+         {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
+          'prefix': None,
+          'addresses': [{'path': '/path/to/scylla', 'addr': '0x00000000015c4cd3'}]}),
+
+        ('kernel callstack: ', None),
+        ('kernel callstack: 0xffffffffffffff80',
+         {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
+          'prefix': 'kernel callstack: ',
+          'addresses': [{'path': '<kernel>', 'addr': '0xffffffffffffff80'}]}),
+        ('kernel callstack: 0xffffffffffffff80 0xffffffffaf15ccca',
+         {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
+          'prefix': 'kernel callstack: ',
+          'addresses': [{'path': '<kernel>', 'addr': '0xffffffffffffff80'}, {'path': '<kernel>', 'addr': '0xffffffffaf15ccca'}]})
+    ]
+    parser = BacktraceResolver.BacktraceParser()
+    for line, expected in data:
+        res = parser(line.strip() + '\n')
+        assert res == expected, f"{line}:\nExpected {expected}\nBut got  {res}"
+    if verbose:
+        print(f'All {len(data)} tests passed successfully.')
+
+
+def main():
+    description = 'Massage and pass addresses to the real addr2line for symbol lookup.'
+    epilog = '''
 There are three operational modes:
   1) If -f is specified input will be read from FILE
   2) If -f is omitted and there are ADDRESS args they will be read as input
   3) If -f is omitted and there are no ADDRESS args input will be read from stdin
 '''
 
-cmdline_parser = argparse.ArgumentParser(
-    description=description,
-    epilog=epilog,
-    formatter_class=argparse.RawDescriptionHelpFormatter,
-)
+    cmdline_parser = argparse.ArgumentParser(
+        description=description,
+        epilog=epilog,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
 
-cmdline_parser.add_argument(
+    cmdline_parser.add_argument(
         '-e',
         '--executable',
         type=str,
@@ -77,7 +221,7 @@ cmdline_parser.add_argument(
         dest='executable',
         help='The executable where the addresses originate from')
 
-cmdline_parser.add_argument(
+    cmdline_parser.add_argument(
         '-f',
         '--file',
         type=str,
@@ -86,7 +230,7 @@ cmdline_parser.add_argument(
         dest='file',
         help='The file containing the addresses')
 
-cmdline_parser.add_argument(
+    cmdline_parser.add_argument(
         '-b',
         '--before',
         type=int,
@@ -96,7 +240,7 @@ cmdline_parser.add_argument(
         ' Set to 0 to print only resolved backtraces.'
         ' Set to -1 to print all non-backtrace lines. Default is 1.')
 
-cmdline_parser.add_argument(
+    cmdline_parser.add_argument(
         '-m',
         '--match',
         type=str,
@@ -105,7 +249,7 @@ cmdline_parser.add_argument(
         ' The amount of non-backtrace lines considered can be set with --before.'
         ' By default no matching is performed.')
 
-cmdline_parser.add_argument(
+    cmdline_parser.add_argument(
         '-a',
         '--addr2line',
         type=str,
@@ -114,7 +258,7 @@ cmdline_parser.add_argument(
         help='The path or name of the addr2line command, which should behave as and '
         'accept the same options as binutils addr2line or llvm-addr2line.')
 
-cmdline_parser.add_argument(
+    cmdline_parser.add_argument(
         '-v',
         '--verbose',
         action='store_true',
@@ -122,147 +266,49 @@ cmdline_parser.add_argument(
         help='Make resolved backtraces verbose, prepend to each line the module'
         ' it originates from, as well as the address being resolved')
 
-cmdline_parser.add_argument(
+    cmdline_parser.add_argument(
         '-t',
         '--test',
         action='store_true',
         default=False,
         help='Self-test')
 
-cmdline_parser.add_argument(
+    cmdline_parser.add_argument(
         'addresses',
         type=str,
         metavar='ADDRESS',
         nargs='*',
         help='Addresses to parse')
 
-args = cmdline_parser.parse_args()
+    args = cmdline_parser.parse_args()
 
-if args.test:
-    data = [
-        ('---', {'type': BacktraceResolver.BacktraceParser.Type.SEPARATOR}),
+    if args.test():
+        do_test(args.verbose)
+        return
 
-        ('0x12f34', {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': None, 'addr': '0x12f34'}]}),
-        ('0xa1234 0xb4567', {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': None, 'addr': '0xa1234'},{'path': None, 'addr': '0xb4567'}]}),
-        ('	0xa1234 /my/path+0xb4567', {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': None, 'addr': '0xa1234'},{'path': '/my/path', 'addr': '0xb4567'}]}),
-        ('/my/path+0x12f34', {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': '/my/path', 'addr': '0x12f34'}]}),
-        (' /my/path+0x12f34', {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': '/my/path', 'addr': '0x12f34'}]}),
+    if args.addresses and args.file:
+        print("Cannot use both -f and ADDRESS")
+        cmdline_parser.print_help()
 
-        ('Some prefix 0x12f34', {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': None, 'addr': '0x12f34'}]}),
-        ('Some prefix /my/path+0x12f34', {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': '/my/path', 'addr': '0x12f34'}]}),
-
-        ('Reactor stalled on shard 1. Backtrace: 0x12f34',
-                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': 'Reactor stalled on shard 1. Backtrace:',
-                 'addresses': [{'path': None, 'addr': '0x12f34'}]}),
-        ('Reactor stalled on shard 1. Backtrace: 0xa1234 0xb5678',
-                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': 'Reactor stalled on shard 1. Backtrace:',
-                 'addresses': [{'path': None, 'addr': '0xa1234'}, {'path': None, 'addr': '0xb5678'}]}),
-        ('Reactor stalled on shard 1. Backtrace: /my/path+0xabcd',
-                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': 'Reactor stalled on shard 1. Backtrace:',
-                 'addresses': [{'path': '/my/path', 'addr': '0xabcd'}]}),
-
-        ('Expected partition_end(), but got end of stream, at 0xa1234 0xb5678 /my/path+0xabcd',
-                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': 'Expected partition_end(), but got end of stream, at',
-                 'addresses': [{'path': None, 'addr': '0xa1234'}, {'path': None, 'addr': '0xb5678'}, {'path': '/my/path', 'addr': '0xabcd'}]}),
-
-        ('==16118==ERROR: AddressSanitizer: heap-use-after-free on address 0x60700019c710 at pc 0x000014d24643 bp 0x7ffc51f72220 sp 0x7ffc51f72218', None),
-        ('READ of size 8 at 0x60700019c710 thread T0', None),
-        ('#0 0x14d24642  (/jenkins/workspace/scylla-enterprise/dtest-debug/scylla/.ccm/scylla-repository/1a5173bd45d01697d98ba2a7645f5d86afb2d0be/scylla/libexec/scylla+0x14d24642)',
-                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None,
-                 'addresses': [{'path': '/jenkins/workspace/scylla-enterprise/dtest-debug/scylla/.ccm/scylla-repository/1a5173bd45d01697d98ba2a7645f5d86afb2d0be/scylla/libexec/scylla', 'addr': '0x14d24642'}]}),
-        ('    #1 0xd8d910f  (/home/myhome/.dtest/dtest-84j9064d/test/node1/bin/scylla+0xd8d910f) (BuildId: 05a1d3d58d2b07e526decdad717e71a4590be2e0)',
-                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None,
-                 'addresses': [{'path': '/home/myhome/.dtest/dtest-84j9064d/test/node1/bin/scylla', 'addr': '0xd8d910f'}]}),
-
-        ('Apr 28 11:42:58 ip-172-31-2-154.ec2.internal scylla[10612]: Reactor stalled for 260 ms on shard 20.', None),
-        ('Apr 28 11:42:58 ip-172-31-2-154.ec2.internal scylla[10612]: Backtrace:', None),
-        ('Apr 28 11:42:58 ip-172-31-2-154.ec2.internal scylla[10612]: 0x0000000003163dc2',
-                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': 'Apr 28 11:42:58 ip-172-31-2-154.ec2.internal scylla[10612]:',
-                 'addresses': [{'path': None, 'addr': '0x0000000003163dc2'}]}),
-
-        ('seastar::internal::backtraced<std::runtime_error> (throw_with_backtrace_exception_logging Backtrace: 0x42bc95 /lib64/libc.so.6+0x281e1 0x412cfd)',
-                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': 'seastar::internal::backtraced<std::runtime_error> (throw_with_backtrace_exception_logging Backtrace:',
-                 'addresses': [{'path': None, 'addr': '0x42bc95'}, {'path': '/lib64/libc.so.6', 'addr': '0x281e1'}, {'path': None, 'addr': '0x412cfd'}]}),
-        ('seastar::nested_exception: seastar::internal::backtraced<std::runtime_error> (inner Backtrace: 0x42bc95 /lib64/libc.so.6+0x281e1 0x412cfd) (while cleaning up after unknown_obj)',
-                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': 'seastar::nested_exception: seastar::internal::backtraced<std::runtime_error> (inner Backtrace:',
-                 'addresses': [{'path': None, 'addr': '0x42bc95'}, {'path': '/lib64/libc.so.6', 'addr': '0x281e1'}, {'path': None, 'addr': '0x412cfd'}]}),
-        ('seastar::nested_exception: seastar::internal::backtraced<std::runtime_error> (inner Backtrace: 0x42bc95 /lib64/libc.so.6+0x281e1 0x412cfd) '
-         '(while cleaning up after seastar::internal::backtraced<std::runtime_error> (outer Backtrace: 0x1234 /lib64/libc.so.6+0x5678 0xabcd))',
-                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
-                 'prefix': 'seastar::nested_exception: seastar::internal::backtraced<std::runtime_error> (inner Backtrace: 0x42bc95 /lib64/libc.so.6+0x281e1 0x412cfd)'
-                           ' (while cleaning up after seastar::internal::backtraced<std::runtime_error> (outer Backtrace:',
-                 'addresses': [{'path': None, 'addr': '0x1234'}, {'path': '/lib64/libc.so.6', 'addr': '0x5678'}, {'path': None, 'addr': '0xabcd'}]}),
-
-        ("2022-04-15T06:19:24+00:00 gemini-1tb-10h-master-db-node-c0c7fc43-4 !    INFO | "
-         "scylla: sstables/consumer.hh:610: future<> data_consumer::continuous_data_consumer"
-         "<sstables::index_consume_entry_context<sstables::index_consumer>>::fast_forward_to"
-         "(size_t, size_t) [StateProcessor = sstables::index_consume_entry_context"
-         "<sstables::index_consumer>]: Assertion `begin >= _stream_position.position' failed.", None),
-        ('2022-04-15T06:19:24+00:00 gemini-1tb-10h-master-db-node-c0c7fc43-4 !    INFO |   Backtrace:', None),
-        ('2022-04-15T06:19:24+00:00 gemini-1tb-10h-master-db-node-c0c7fc43-4 !    INFO |   0x199d312',
-                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
-                 'prefix': None,
-                 'addresses': [{'path': None, 'addr': '0x199d312'}]}),
-        ('2022-04-15T06:19:24+00:00 gemini-1tb-10h-master-db-node-c0c7fc43-4 !    INFO |   (throw_with_backtrace_exception_logging Backtrace: 0x42bc95 /lib64/libc.so.6+0x281e1 0x412cfd)',
-                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
-                 'prefix': '2022-04-15T06:19:24+00:00 gemini-1tb-10h-master-db-node-c0c7fc43-4 !    INFO |   (throw_with_backtrace_exception_logging Backtrace:',
-                 'addresses': [{'path': None, 'addr': '0x42bc95'}, {'path': '/lib64/libc.so.6', 'addr': '0x281e1'}, {'path': None, 'addr': '0x412cfd'}]}),
-
-        ('[2022-04-19T23:09:28.311Z] Segmentation fault on shard 1.', None),
-        ('[2022-04-19T23:09:28.311Z] Backtrace:', None),
-        ('[2022-04-19T23:09:28.311Z]   0x461bbb8',
-                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': None, 'addr': '0x461bbb8'}]}),
-        ('[2022-04-19T23:09:28.311Z]   /lib64/libpthread.so.0+0x92a4',
-                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': '/lib64/libpthread.so.0', 'addr': '0x92a4'}]}),
-
-        ('#0 0x19c01681 (/path/to/scylla+0xdeadbeef)',
-                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': '/path/to/scylla', 'addr': '0x19c01681'}]}),
-        ('#1 0x00007fd2dab4f950 abort (libc.so.6 + 0x26950)',
-                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': 'libc.so.6', 'addr': '0x00007fd2dab4f950'}]}),
-        ('#2 0x00000000015c4cd3  n/a (/path/to/scylla + 0x15c4cd3)',
-                {'type': BacktraceResolver.BacktraceParser.Type.ADDRESS, 'prefix': None, 'addresses': [{'path': '/path/to/scylla', 'addr': '0x00000000015c4cd3'}]}),
-
-        ('kernel callstack: ', None),
-        ('kernel callstack: 0xffffffffffffff80',
-            {
-                'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
-                'prefix': 'kernel callstack: ',
-                'addresses': [{'path': '<kernel>', 'addr': '0xffffffffffffff80'}]
-            }
-        ),
-        ('kernel callstack: 0xffffffffffffff80 0xffffffffaf15ccca',
-            {
-                'type': BacktraceResolver.BacktraceParser.Type.ADDRESS,
-                'prefix': 'kernel callstack: ',
-                'addresses': [{'path': '<kernel>', 'addr': '0xffffffffffffff80'}, {'path': '<kernel>', 'addr': '0xffffffffaf15ccca'}]
-            }
-        )
-    ]
-    parser = BacktraceResolver.BacktraceParser()
-    for line, expected in data:
-        res = parser(line.strip() + '\n')
-        assert res == expected, f"{line}:\nExpected {expected}\nBut got  {res}"
-    if args.verbose:
-        print(f'All {len(data)} tests passed successfully.')
-    exit(0)
-
-if args.addresses and args.file:
-    print("Cannot use both -f and ADDRESS")
-    cmdline_parser.print_help()
-
-
-if args.file:
-    lines = open(args.file, 'r')
-elif args.addresses:
-    lines = args.addresses
-else:
-    if sys.stdin.isatty():
-        lines = StdinBacktraceIterator()
+    if args.file:
+        lines = open(args.file, 'r')
+    elif args.addresses:
+        lines = args.addresses
     else:
-        lines = sys.stdin
+        if sys.stdin.isatty():
+            lines = StdinBacktraceIterator()
+        else:
+            lines = sys.stdin
 
-with BacktraceResolver(executable=args.executable, before_lines=args.before, context_re=args.match,
-        verbose=args.verbose, cmd_path=args.addr2line) as resolve:
-    p = re.compile(r'\W+')
-    for line in lines:
-        resolve(line.strip() + '\n')
+    with BacktraceResolver(executable=args.executable,
+                           before_lines=args.before,
+                           context_re=args.match,
+                           verbose=args.verbose,
+                           cmd_path=args.addr2line) as resolve:
+        p = re.compile(r'\W+')
+        for line in lines:
+            resolve(line.strip() + '\n')
+
+
+if __name__ == '__main__':
+    main()
