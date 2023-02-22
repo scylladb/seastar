@@ -19,11 +19,8 @@
 # Copyright (C) 2017 ScyllaDB
 
 import argparse
-import collections
 import re
 import sys
-import subprocess
-from enum import Enum
 
 from addr2line import BacktraceResolver
 
