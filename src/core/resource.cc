@@ -32,6 +32,7 @@
 #include "cgroup.hh"
 #include <seastar/util/log.hh>
 #include <seastar/core/io_queue.hh>
+#include <seastar/core/units.hh>
 
 #include <boost/range/adaptor/map.hpp>
 #include <boost/range/algorithm/copy.hpp>
@@ -210,11 +211,11 @@ optional<T> read_setting_V1V2_as(std::string cg1_path, std::string cg2_fname) {
 namespace resource {
 
 size_t calculate_memory(const configuration& c, size_t available_memory, float panic_factor = 1) {
-    size_t default_reserve_memory = std::max<size_t>(1536 * 1024 * 1024, 0.07 * available_memory) * panic_factor;
+    size_t default_reserve_memory = std::max<size_t>(1.5 * GB, 0.07 * available_memory) * panic_factor;
     auto reserve = c.reserve_memory.value_or(default_reserve_memory);
     auto reserve_additional = c.reserve_additional_memory_per_shard * c.cpus;
     reserve += reserve_additional;
-    size_t min_memory = 500'000'000;
+    size_t min_memory = 500_MiB;
     if (available_memory >= reserve + min_memory) {
         available_memory -= reserve;
     } else {
