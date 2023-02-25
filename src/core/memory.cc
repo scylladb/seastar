@@ -1548,9 +1548,9 @@ void configure(std::vector<resource::memory> m, bool mbind,
 
             if (r == -1) {
                 char err[1000] = {};
-                strerror_r(errno, err, sizeof(err));
+                char *msg = strerror_r(errno, err, sizeof(err));
                 std::cerr << "WARNING: unable to mbind shard memory; performance may suffer: "
-                        << err << std::endl;
+                        << msg << std::endl;
             }
         }
 #endif
