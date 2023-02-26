@@ -1,3 +1,4 @@
+include (CheckSymbolExists)
 include (CMakePushCheckState)
 
 cmake_push_check_state (RESET)

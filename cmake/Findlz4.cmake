@@ -46,15 +46,10 @@ find_package_handle_standard_args (lz4
   REQUIRED_VARS
     lz4_LIBRARY
     lz4_INCLUDE_DIR
-  VERSION_VAR lz4_VERSION)
+  VERSION_VAR PC_lz4_VERSION)
 
 if (lz4_FOUND)
   set (CMAKE_REQUIRED_LIBRARIES ${lz4_LIBRARY})
-  include (CheckSymbolExists)
-
-  check_symbol_exists (LZ4_compress_default
-    ${lz4_INCLUDE_DIR}/lz4.h
-    lz4_HAVE_COMPRESS_DEFAULT)
 
   set (lz4_LIBRARIES ${lz4_LIBRARY})
   set (lz4_INCLUDE_DIRS ${lz4_INCLUDE_DIR})

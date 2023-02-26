@@ -986,10 +986,6 @@ if (Seastar_NUMA)
     PRIVATE numactl::numactl)
 endif ()
 
-if (lz4_HAVE_COMPRESS_DEFAULT)
-  list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_HAVE_LZ4_COMPRESS_DEFAULT)
-endif ()
-
 seastar_supports_flag ("-Werror=unused-result" ErrorUnused_FOUND)
 if (ErrorUnused_FOUND)
   if (Seastar_UNUSED_RESULT_ERROR)
