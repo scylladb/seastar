@@ -21,6 +21,7 @@
 
 #include <seastar/rpc/lz4_compressor.hh>
 #include <seastar/core/byteorder.hh>
+#include <lz4.h>
 
 namespace seastar {
 
