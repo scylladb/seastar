@@ -46,7 +46,7 @@ find_package_handle_standard_args (lz4
   REQUIRED_VARS
     lz4_LIBRARY
     lz4_INCLUDE_DIR
-  VERSION_VAR lz4_VERSION)
+  VERSION_VAR PC_lz4_VERSION)
 
 if (lz4_FOUND)
   set (CMAKE_REQUIRED_LIBRARIES ${lz4_LIBRARY})
