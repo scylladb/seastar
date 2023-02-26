@@ -139,12 +139,7 @@ snd_buf lz4_compressor::compress(size_t head_space, snd_buf data) {
         auto src_size = data.size;
         auto src = reusable_buffer_decompressed_data.prepare(data.bufs, data.size);
 
-#ifdef SEASTAR_HAVE_LZ4_COMPRESS_DEFAULT
         auto size = LZ4_compress_default(src, dst + head_space, src_size, LZ4_compressBound(src_size));
-#else
-        // Safe since output buffer is sized properly.
-        auto size = LZ4_compress(src, dst + head_space, src_size);
-#endif
         if (size == 0) {
             throw std::runtime_error("RPC frame LZ4 compression failure");
         }
