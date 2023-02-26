@@ -560,6 +560,8 @@ endfunction ()
 function (_cooking_determine_common_cmake_args output)
   string (REPLACE ";" ":::" prefix_path_with_colons "${CMAKE_PREFIX_PATH}")
 
+  set (cmake_args "-G" "${CMAKE_GENERATOR}")
+
   if (CMAKE_CXX_FLAGS)
     list(APPEND cmake_args -DCMAKE_CXX_FLAGS=${CMAKE_CXX_FLAGS})
   endif ()
