@@ -175,6 +175,7 @@ arch_packages=(
     make
     meson
     python-pyelftools
+    protobuf
     libtool
     cmake
     yaml-cpp
@@ -221,6 +222,7 @@ opensuse_packages=(
     ragel
     xfsprogs-devel
     yaml-cpp-devel
+    protobuf-devel
     libtool
     stow
     openssl
