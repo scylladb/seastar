@@ -95,9 +95,11 @@ namespace seastar {
 ///
 /// Often, the best way to debug an allocation failure is a coredump. This
 /// feature allows dumping core on allocation failures, containing the stack of
-/// the failed allocation, by means of aborting. To enable set the
-/// `abort_on_seastar_bad_alloc` configuration option or the respective command
-/// line flag.
+/// the failed allocation, by means of aborting. To enable this behavior, set
+/// `abort_on_seastar_bad_alloc` in `reactor_options` or pass the
+/// `--abort-on-seastar-bad-alloc` command line flag. Additionally, applications
+/// may enable or disable this functionality globally at runtime by calling
+/// `set_abort_on_allocation_failure()`.
 ///
 /// ### Dump diagnostics report
 ///
@@ -139,6 +141,8 @@ static constexpr size_t huge_page_size =
 void configure(std::vector<resource::memory> m, bool mbind,
         std::optional<std::string> hugetlbfs_path = {});
 
+// A deprecated alias for set_abort_on_allocation_failure(true).
+[[deprecated("use set_abort_on_allocation_failure(true) instead")]]
 void enable_abort_on_allocation_failure();
 
 class disable_abort_on_alloc_failure_temporarily {
@@ -222,6 +226,30 @@ void set_reclaim_hook(
         std::function<void (std::function<void ()>)> hook);
 
 /// \endcond
+
+/// \brief Set the global state of the abort on allocation failure behavior.
+///
+/// If enabled, an allocation failure (i.e., the requested memory
+/// could not be allocated even after reclaim was attempted), will
+/// generally result in `abort()` being called. If disabled, the
+/// failure is reported to the caller, e.g., by throwing a
+/// `std::bad_alloc` for C++ allocations such as new, or returning
+/// a null pointer from malloc.
+///
+/// Note that even if the global state is set to enabled, the
+/// `disable_abort_on_alloc_failure_temporarily` class may override
+/// the behavior tepmorarily on a given shard. That is, abort only
+/// occurs if abort is globablly enabled on this shard _and_ there
+/// are no `disable_abort_on_alloc_failure_temporarily` objects
+/// currently alive on this shard.
+void set_abort_on_allocation_failure(bool enabled);
+
+/// \brief Determine the abort on allocation failure mode.
+///
+/// Return true if the global abort on allocation failure behavior
+/// is enabled, or false otherwise. Always returns false if the
+/// default (system) allocator is being used.
+bool is_abort_on_allocation_failure();
 
 class statistics;
 

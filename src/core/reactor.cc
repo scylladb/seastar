@@ -4205,7 +4205,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     }
 
     if (reactor_opts.abort_on_seastar_bad_alloc) {
-        memory::enable_abort_on_allocation_failure();
+        memory::set_abort_on_allocation_failure(true);
     }
 
     if (reactor_opts.dump_memory_diagnostics_on_alloc_failure_kind) {
