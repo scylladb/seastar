@@ -52,10 +52,10 @@ current_file = ''
 
 spacing = "    "
 def getitem(d, key, name):
-    if key in d:
-        return d[key]
-    else:
-        raise Exception("'" + key + "' not found in " + name)
+    item = d.get(key)
+    if item is None:
+        raise Exception(f"'{key}' not found in {name}")
+    return item
 
 def fprint(f, *args):
     for arg in args:
