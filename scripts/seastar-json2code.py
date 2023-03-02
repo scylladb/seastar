@@ -213,14 +213,14 @@ def is_model_valid(name, model):
     for var in properties:
         type = getitem(properties[var], "type", name + ":" + var)
         if type == "array":
-            items = getitem(properties[var], "items", name + ":" + var);
+            items = getitem(properties[var], "items", name + ":" + var)
             try :
                 type = getitem(items, "type", name + ":" + var + ":items")
             except Exception as e:
                 try:
                     type = getitem(items, "$ref", name + ":" + var + ":items")
                 except:
-                    raise e;
+                    raise e
         if type not in valid_vars:
             if type not in model:
                 raise Exception("Unknown type '" + type + "' in Model '" + name + "'")
