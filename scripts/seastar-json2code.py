@@ -188,7 +188,7 @@ def add_path(f, path, details):
             else:
                 param_type = get_parameter_by_name(details, param)
                 if ("allowMultiple" in param_type and
-                    param_type["allowMultiple"] == True):
+                    param_type["allowMultiple"]):
                     fprintln(f, spacing, '  ->pushparam("', param, '",true)')
                 else:
                     fprintln(f, spacing, '  ->pushparam("', param, '")')
@@ -444,7 +444,7 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
                     path_param, is_url = clean_param(vals.pop())
                     if path_param == "":
                         continue
-                    if first == True:
+                    if first:
                         first = False
                     else:
                         fprint(ccfile, "\n,")
@@ -453,7 +453,7 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
                     else:
                         path_param_type = get_parameter_by_name(oper, path_param)
                         if ("allowMultiple" in path_param_type and
-                            path_param_type["allowMultiple"] == True):
+                            path_param_type["allowMultiple"]):
                             fprint(ccfile, '{', '"', path_param , '", path_description::url_component_type::PARAM_UNTIL_END_OF_PATH', '}')
                         else:
                             fprint(ccfile, '{', '"', path_param , '", path_description::url_component_type::PARAM', '}')
@@ -469,7 +469,7 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
                 if "parameters" in oper:
                     for param in oper["parameters"]:
                         if is_required_query_param(param):
-                            if first == True:
+                            if first:
                                 first = False
                             else:
                                 fprint(ccfile, "\n,")
