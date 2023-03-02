@@ -260,8 +260,8 @@ def create_enum_wrapper(model_name, name, values):
     enum_name = model_name + "_" + name
     res =  "  enum class " + enum_name + " {"
     for enum_entry in values:
-        res = res +  "  " + enum_entry + ", "
-    res = res +   "NUM_ITEMS};\n"
+        res = res + "  " + enum_entry + ", "
+    res = res +  "NUM_ITEMS};\n"
     wrapper = name + "_wrapper"
     res = res + Template("""  struct $wrapper : public json::jsonable  {
         $wrapper() = default;
@@ -278,7 +278,7 @@ def create_enum_wrapper(model_name, name, values):
     switch(_v) {
     """).substitute({'wrapper' : wrapper})
     for enum_entry in values:
-        res = res +  "      case T::" + enum_entry + ": v = " + enum_name + "::" + enum_entry + "; break;\n"
+        res = res + "      case T::" + enum_entry + ": v = " + enum_name + "::" + enum_entry + "; break;\n"
     res = res + Template("""      default: v = $enum_name::NUM_ITEMS;
         }
     }
@@ -511,7 +511,7 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
     hfile.close()
 
 def remove_leading_comma(data):
-    return re.sub(r'^\s*,','', data)
+    return re.sub(r'^\s*,', '', data)
 
 def format_as_json_object(data):
     return "{" + remove_leading_comma(data) + "}"
