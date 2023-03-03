@@ -52,10 +52,10 @@ current_file = ''
 
 spacing = "    "
 def getitem(d, key, name):
-    if key in d:
-        return d[key]
-    else:
-        raise Exception("'" + key + "' not found in " + name)
+    item = d.get(key)
+    if item is None:
+        raise Exception(f"'{key}' not found in {name}")
+    return item
 
 def fprint(f, *args):
     for arg in args:
@@ -188,7 +188,7 @@ def add_path(f, path, details):
             else:
                 param_type = get_parameter_by_name(details, param)
                 if ("allowMultiple" in param_type and
-                    param_type["allowMultiple"] == True):
+                    param_type["allowMultiple"]):
                     fprintln(f, spacing, '  ->pushparam("', param, '",true)')
                 else:
                     fprintln(f, spacing, '  ->pushparam("', param, '")')
@@ -213,14 +213,14 @@ def is_model_valid(name, model):
     for var in properties:
         type = getitem(properties[var], "type", name + ":" + var)
         if type == "array":
-            items = getitem(properties[var], "items", name + ":" + var);
+            items = getitem(properties[var], "items", name + ":" + var)
             try :
                 type = getitem(items, "type", name + ":" + var + ":items")
             except Exception as e:
                 try:
                     type = getitem(items, "$ref", name + ":" + var + ":items")
                 except:
-                    raise e;
+                    raise e
         if type not in valid_vars:
             if type not in model:
                 raise Exception("Unknown type '" + type + "' in Model '" + name + "'")
@@ -260,8 +260,8 @@ def create_enum_wrapper(model_name, name, values):
     enum_name = model_name + "_" + name
     res =  "  enum class " + enum_name + " {"
     for enum_entry in values:
-        res = res +  "  " + enum_entry + ", "
-    res = res +   "NUM_ITEMS};\n"
+        res = res + "  " + enum_entry + ", "
+    res = res +  "NUM_ITEMS};\n"
     wrapper = name + "_wrapper"
     res = res + Template("""  struct $wrapper : public json::jsonable  {
         $wrapper() = default;
@@ -278,7 +278,7 @@ def create_enum_wrapper(model_name, name, values):
     switch(_v) {
     """).substitute({'wrapper' : wrapper})
     for enum_entry in values:
-        res = res +  "      case T::" + enum_entry + ": v = " + enum_name + "::" + enum_entry + "; break;\n"
+        res = res + "      case T::" + enum_entry + ": v = " + enum_name + "::" + enum_entry + "; break;\n"
     res = res + Template("""      default: v = $enum_name::NUM_ITEMS;
         }
     }
@@ -444,7 +444,7 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
                     path_param, is_url = clean_param(vals.pop())
                     if path_param == "":
                         continue
-                    if first == True:
+                    if first:
                         first = False
                     else:
                         fprint(ccfile, "\n,")
@@ -453,7 +453,7 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
                     else:
                         path_param_type = get_parameter_by_name(oper, path_param)
                         if ("allowMultiple" in path_param_type and
-                            path_param_type["allowMultiple"] == True):
+                            path_param_type["allowMultiple"]):
                             fprint(ccfile, '{', '"', path_param , '", path_description::url_component_type::PARAM_UNTIL_END_OF_PATH', '}')
                         else:
                             fprint(ccfile, '{', '"', path_param , '", path_description::url_component_type::PARAM', '}')
@@ -469,7 +469,7 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
                 if "parameters" in oper:
                     for param in oper["parameters"]:
                         if is_required_query_param(param):
-                            if first == True:
+                            if first:
                                 first = False
                             else:
                                 fprint(ccfile, "\n,")
@@ -511,7 +511,7 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
     hfile.close()
 
 def remove_leading_comma(data):
-    return re.sub(r'^\s*,','', data)
+    return re.sub(r'^\s*,', '', data)
 
 def format_as_json_object(data):
     return "{" + remove_leading_comma(data) + "}"
