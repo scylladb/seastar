@@ -88,7 +88,6 @@ macro (seastar_find_dependencies)
     # Public dependencies.
     Boost
     c-ares
-    cryptopp
     dpdk # No version information published.
     fmt
     lz4
@@ -122,8 +121,6 @@ macro (seastar_find_dependencies)
       unit_test_framework)
   seastar_set_dep_args (c-ares REQUIRED
     VERSION 1.13)
-  seastar_set_dep_args (cryptopp REQUIRED
-    VERSION 5.6.5)
   seastar_set_dep_args (dpdk
     OPTION ${Seastar_DPDK})
   seastar_set_dep_args (fmt REQUIRED

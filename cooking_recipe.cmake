@@ -252,17 +252,6 @@ cooking_ingredient (c-ares
     BUILD_COMMAND <DISABLE>
     INSTALL_COMMAND ${make_command} install)
 
-cooking_ingredient (cryptopp
-  EXTERNAL_PROJECT_ARGS
-    URL https://github.com/weidai11/cryptopp/archive/CRYPTOPP_8_7_0.tar.gz
-    URL_MD5 69b11e59094c10d437f295f11e51c16a
-    CONFIGURE_COMMAND <DISABLE>
-    BUILD_IN_SOURCE ON
-    BUILD_COMMAND
-      ${CMAKE_COMMAND} -E env CXX=${CMAKE_CXX_COMPILER} CXXFLAGS=${CMAKE_CXX_FLAGS} ${make_command} static
-    INSTALL_COMMAND
-      ${CMAKE_COMMAND} -E env CXX=${CMAKE_CXX_COMPILER} CXXFLAGS=${CMAKE_CXX_FLAGS} ${make_command} install-lib PREFIX=<INSTALL_DIR>)
-
 set (dpdk_args
   --default-library=static
   -Dc_args="-Wno-error"

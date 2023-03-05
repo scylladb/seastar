@@ -30,11 +30,8 @@
 #include <random>
 #include <stdexcept>
 #include <system_error>
-
-#define CRYPTOPP_ENABLE_NAMESPACE_WEAK 1
-#include <cryptopp/md5.h>
+#include <gnutls/crypto.h>
 #endif
-
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/queue.hh>
 #include <seastar/core/semaphore.hh>
@@ -2092,8 +2089,14 @@ tcp_seq tcp<InetTraits>::tcb::get_isn() {
     hash[0] = _local_ip.ip;
     hash[1] = _foreign_ip.ip;
     hash[2] = (_local_port << 16) + _foreign_port;
-    hash[3] = _isn_secret.key[15];
-    CryptoPP::Weak::MD5::Transform(hash, _isn_secret.key);
+    gnutls_hash_hd_t md5_hash_handle;
+    // GnuTLS digests do not init at all, so this should never fail.
+    gnutls_hash_init(&md5_hash_handle, GNUTLS_DIG_MD5);
+    gnutls_hash(md5_hash_handle, hash, 3 * sizeof(hash[0]));
+    gnutls_hash(md5_hash_handle, _isn_secret.key, sizeof(_isn_secret.key));
+    // reuse "hash" for the output of digest
+    assert(sizeof(hash) == gnutls_hash_get_len(GNUTLS_DIG_MD5));
+    gnutls_hash_deinit(md5_hash_handle, hash);
     auto seq = hash[0];
     auto m = duration_cast<microseconds>(clock_type::now().time_since_epoch());
     seq += m.count() / 4;

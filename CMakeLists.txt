@@ -784,7 +784,6 @@ target_link_libraries (seastar
     Boost::program_options
     Boost::thread
     c-ares::cares
-    cryptopp::cryptopp
     fmt::fmt
     lz4::lz4
     SourceLocation::source_location
@@ -1313,7 +1312,6 @@ if (Seastar_INSTALL)
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindSourceLocation.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindStdAtomic.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findc-ares.cmake
-      ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findcryptopp.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Finddpdk.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findhwloc.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findlksctp-tools.cmake

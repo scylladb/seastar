@@ -22,8 +22,6 @@ boost_program_options_libs=@Boost_PROGRAM_OPTIONS_LIBRARY@
 boost_thread_libs=${boost_system_libs} @Boost_THREAD_LIBRARY@
 c_ares_cflags=-I$<JOIN:@c-ares_INCLUDE_DIRS@, -I>
 c_ares_libs=$<JOIN:@c-ares_LIBRARIES@, >
-cryptopp_cflags=-I$<JOIN:@cryptopp_INCLUDE_DIRS@, -I>
-cryptopp_libs=$<JOIN:@cryptopp_LIBRARIES@, >
 fmt_cflags=-I$<JOIN:$<TARGET_PROPERTY:fmt::fmt,INTERFACE_INCLUDE_DIRECTORIES>, -I>
 fmt_libs=$<TARGET_LINKER_FILE:fmt::fmt>
 lksctp_tools_cflags=-I$<JOIN:@lksctp-tools_INCLUDE_DIRS@, -I>
@@ -40,6 +38,6 @@ seastar_libs=${libdir}/$<TARGET_FILE_NAME:seastar> @Seastar_SPLIT_DWARF_FLAG@ $<
 Requires: liblz4 >= 1.7.3
 Requires.private: gnutls >= 3.2.26, hwloc >= 1.11.2, $<$<BOOL:@Seastar_IO_URING@>:liburing $<ANGLE-R>= 2.0, >yaml-cpp >= 0.5.1
 Conflicts:
-Cflags: ${boost_cflags} ${c_ares_cflags} ${cryptopp_cflags} ${fmt_cflags} ${liburing_cflags} ${lksctp_tools_cflags} ${numactl_cflags} ${seastar_cflags}
-Libs: ${seastar_libs} ${boost_program_options_libs} ${boost_thread_libs} ${c_ares_libs} ${cryptopp_libs} ${fmt_libs}
+Cflags: ${boost_cflags} ${c_ares_cflags} ${fmt_cflags} ${liburing_cflags} ${lksctp_tools_cflags} ${numactl_cflags} ${seastar_cflags}
+Libs: ${seastar_libs} ${boost_program_options_libs} ${boost_thread_libs} ${c_ares_libs} ${fmt_libs}
 Libs.private: ${dl_libs} ${rt_libs} ${boost_thread_libs} ${lksctp_tools_libs} ${liburing_libs} ${numactl_libs} ${stdatomic_libs} ${dpdk_libs}
