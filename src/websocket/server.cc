@@ -19,23 +19,16 @@
  * Copyright 2021 ScyllaDB
  */
 
-#include <cryptopp/sha.h>
-#include <cryptopp/filters.h>
-#include <cryptopp/base64.h>
-
 #include <seastar/websocket/server.hh>
 #include <seastar/core/gate.hh>
 #include <seastar/core/loop.hh>
+#include <seastar/util/defer.hh>
 #include <seastar/util/log.hh>
 #include <seastar/core/scattered_message.hh>
 #include <seastar/core/byteorder.hh>
 #include <seastar/http/request.hh>
-
-#ifndef CRYPTOPP_NO_GLOBAL_BYTE
-namespace CryptoPP {
-using byte = unsigned char;
-}
-#endif
+#include <gnutls/crypto.h>
+#include <gnutls/gnutls.h>
 
 namespace seastar::experimental::websocket {
 
@@ -132,14 +125,24 @@ future<> connection::process() {
 }
 
 static std::string sha1_base64(std::string_view source) {
-    // CryptoPP insists on freeing the pointers by itself...
-    // It's leaky, but `read_http_upgrade_request` is a one-shot operation
-    // per handshake, so the real risk is not particularly great.
-    CryptoPP::SHA1 sha1;
-    std::string hash;
-    CryptoPP::StringSource(reinterpret_cast<const CryptoPP::byte*>(source.data()), source.size(),
-            true, new CryptoPP::HashFilter(sha1, new CryptoPP::Base64Encoder(new CryptoPP::StringSink(hash), false)));
-    return hash;
+    unsigned char hash[20];
+    assert(sizeof(hash) == gnutls_hash_get_len(GNUTLS_DIG_SHA1));
+    if (int ret = gnutls_hash_fast(GNUTLS_DIG_SHA1, source.data(), source.size(), hash);
+        ret != GNUTLS_E_SUCCESS) {
+        throw websocket::exception(fmt::format("gnutls_hash_fast: {}", gnutls_strerror(ret)));
+    }
+    gnutls_datum_t hash_data{
+        .data = hash,
+        .size = sizeof(hash),
+    };
+    gnutls_datum_t base64_encoded;
+    if (int ret = gnutls_base64_encode2(&hash_data, &base64_encoded);
+        ret != GNUTLS_E_SUCCESS) {
+        throw websocket::exception(fmt::format("gnutls_base64_encode2: {}", gnutls_strerror(ret)));
+    }
+    auto free_base64_encoded = defer([&] () noexcept { gnutls_free(base64_encoded.data); });
+    // base64_encoded.data is "unsigned char *"
+    return std::string(reinterpret_cast<const char*>(base64_encoded.data), base64_encoded.size);
 }
 
 future<> connection::read_http_upgrade_request() {

@@ -4,7 +4,7 @@ systemctl restart network
 echo nameserver 8.8.8.8 > /etc/resolv.conf
 useradd -m -p "" -g wheel seastar
 chage -d 0 seastar
-yum install -y gcc gcc-c++ libaio-devel ninja-build ragel hwloc-devel numactl-devel libpciaccess-devel cryptopp-devel boost-devel kernel-devel libxml2-devel zlib-devel libasan libubsan git wget python3 tar pciutils xterm
+yum install -y gcc gcc-c++ libaio-devel ninja-build ragel hwloc-devel numactl-devel libpciaccess-devel boost-devel kernel-devel libxml2-devel zlib-devel libasan libubsan git wget python3 tar pciutils xterm
 cd /root
 wget http://dpdk.org/browse/dpdk/snapshot/dpdk-2.0.0.tar.gz
 tar -xpf dpdk-2.0.0.tar.gz

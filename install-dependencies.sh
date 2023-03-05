@@ -74,7 +74,6 @@ redhat_packages=(
     hwloc-devel
     numactl-devel
     libpciaccess-devel
-    cryptopp-devel
     libxml2-devel
     xfsprogs-devel
     gnutls-devel
@@ -205,7 +204,6 @@ opensuse_packages=(
     libboost_test1_66_0-devel
     libboost_thread1_66_0
     libboost_thread1_66_0-devel
-    libcryptopp-devel
     libboost_atomic1_66_0
     libboost_atomic1_66_0-devel
     libboost_date_time1_66_0
