@@ -1926,14 +1926,12 @@ void* realloc(void* ptr, size_t size) {
         // If ptr is a null pointer, the behavior is the same as calling std::malloc(new_size).
         return malloc(size);
     } else if (!is_seastar_memory(ptr)) {
-        // we can't realloc foreign memory on a shard
-        if (is_reactor_thread) {
-            abort();
-        }
         // original_realloc_func might be null when previous ctor allocates
         if (original_realloc_func) {
             return original_realloc_func(ptr, size);
         }
+        // we can't realloc foreign memory without the original libc function
+        abort();
     }
     // if we're here, it's a non-null seastar memory ptr
     // or original functions aren't available.
