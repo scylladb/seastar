@@ -70,6 +70,8 @@ bool url_decode(const std::string_view& in, sstring& out) {
             } else {
                 return false;
             }
+        } else if (in[i] == '+') {
+            buff[pos++] = ' ';
         } else {
             buff[pos++] = in[i];
         }
