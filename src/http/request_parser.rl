@@ -28,8 +28,6 @@
 
 namespace seastar {
 
-using namespace httpd;
-
 %% machine request;
 
 %%{

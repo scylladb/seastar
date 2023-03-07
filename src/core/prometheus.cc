@@ -632,7 +632,7 @@ future<> write_text_representation(output_stream<char>& out, const config& ctx, 
     });
 }
 
-class metrics_handler : public handler_base  {
+class metrics_handler : public httpd::handler_base  {
     sstring _prefix;
     config _ctx;
     static std::function<bool(const mi::labels_type&)> _true_function;
@@ -714,13 +714,13 @@ std::function<bool(const mi::labels_type&)> metrics_handler::_true_function = []
     return true;
 };
 
-future<> add_prometheus_routes(http_server& server, config ctx) {
-    server._routes.put(GET, "/metrics", new metrics_handler(ctx));
+future<> add_prometheus_routes(httpd::http_server& server, config ctx) {
+    server._routes.put(httpd::GET, "/metrics", new metrics_handler(ctx));
     return make_ready_future<>();
 }
 
-future<> add_prometheus_routes(distributed<http_server>& server, config ctx) {
-    return server.invoke_on_all([ctx](http_server& s) {
+future<> add_prometheus_routes(distributed<httpd::http_server>& server, config ctx) {
+    return server.invoke_on_all([ctx](httpd::http_server& s) {
         return add_prometheus_routes(s, ctx);
     });
 }
