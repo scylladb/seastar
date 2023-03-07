@@ -68,9 +68,9 @@ public:
     expected_exception() : runtime_error("expected") {}
 };
 
-#ifdef __clang__
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wself-move"
+#if defined(__clang__) || (defined(__GNUC__) && __GNUC__ >= 13)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wself-move"
 #endif
 SEASTAR_TEST_CASE(test_self_move) {
     future_state<std::tuple<std::unique_ptr<int>>> s1;
@@ -104,8 +104,8 @@ SEASTAR_TEST_CASE(test_self_move) {
 
     return make_ready_future<>();
 }
-#ifdef __clang__
-#pragma clang diagnostic pop
+#if defined(__clang__) || (defined(__GNUC__) && __GNUC__ >= 13)
+#pragma GCC diagnostic pop
 #endif
 
 static subscription<int> get_empty_subscription(std::function<future<> (int)> func) {
