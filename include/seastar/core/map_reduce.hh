@@ -186,7 +186,7 @@ map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Initial initial, Reduc
     while (begin != end) {
         ret = futurize_invoke(s->mapper, *begin++).then_wrapped([s = s.get(), ret = std::move(ret)] (auto f) mutable {
             try {
-                s->result = s->reduce(std::move(s->result), std::move(f.get0()));
+                s->result = s->reduce(std::move(s->result), f.get0());
                 return std::move(ret);
             } catch (...) {
                 return std::move(ret).then_wrapped([ex = std::current_exception()] (auto f) {
