@@ -30,22 +30,32 @@
 #include <seastar/util/std-compat.hh>
 #include <seastar/testing/entry_point.hh>
 
+#define SEASTAR_TEST_INVOKE(func, ...) func(__VA_ARGS__)
+
+namespace boost::unit_test::decorator {
+
+class collector_t;
+
+}
+
 namespace seastar {
 
 namespace testing {
 
 class seastar_test {
+    const std::string _test_file;
 public:
-    seastar_test();
+    seastar_test(const char* test_name, const char* test_file, int test_line);
+    seastar_test(const char* test_name, const char* test_file, int test_line,
+                 boost::unit_test::decorator::collector_t& decorators);
     virtual ~seastar_test() {}
-    virtual const char* get_test_file() const = 0;
-    virtual const char* get_name() const = 0;
-    virtual int get_expected_failures() const { return 0; }
+    const std::string& get_test_file() const {
+        return _test_file;
+    }
+    static const std::string& get_name();
     virtual future<> run_test_case() const = 0;
     void run();
 };
-
-const std::vector<seastar_test*>& known_tests();
 
 // BOOST_REQUIRE_EXCEPTION predicates
 namespace exception_predicate {

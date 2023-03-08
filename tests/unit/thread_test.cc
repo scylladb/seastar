@@ -147,7 +147,7 @@ SEASTAR_TEST_CASE(test_asan_false_positive) {
 }
 #endif
 
-SEASTAR_THREAD_TEST_CASE_EXPECTED_FAILURES(abc, 2) {
+SEASTAR_THREAD_TEST_CASE(abc, *boost::unit_test::expected_failures(2)) {
     BOOST_TEST(false);
     BOOST_TEST(false);
 }
@@ -172,13 +172,13 @@ SEASTAR_TEST_CASE(test_thread_custom_stack_size) {
 // detect_stack_use_after_return=1 from the environment.
 #if defined(SEASTAR_THREAD_STACK_GUARDS) && defined(__x86_64__) && !defined(SEASTAR_ASAN_ENABLED)
 struct test_thread_custom_stack_size_failure : public seastar::testing::seastar_test {
-    const char* get_test_file() const override { return __FILE__; }
-    const char* get_name() const override { return "test_thread_custom_stack_size_failure"; }
-    int get_expected_failures() const override { return 0; } \
+    using seastar::testing::seastar_test::seastar_test;
     seastar::future<> run_test_case() const override;
 };
 
-static test_thread_custom_stack_size_failure test_thread_custom_stack_size_failure_instance;
+static test_thread_custom_stack_size_failure test_thread_custom_stack_size_failure_instance(
+    "test_thread_custom_stack_size_failure",
+    __FILE__, __LINE__);
 static thread_local volatile bool stack_guard_bypassed = false;
 
 static int get_mprotect_flags(void* ctx) {

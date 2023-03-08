@@ -29,21 +29,7 @@ namespace seastar {
 namespace testing {
 
 static bool init_unit_test_suite() {
-    const auto& tests = known_tests();
     auto&& ts = boost::unit_test::framework::master_test_suite();
-    ts.p_name.set(tests.size() ? (tests)[0]->get_test_file() : "seastar-tests");
-
-    for (seastar_test* test : tests) {
-#if BOOST_VERSION > 105800
-        ts.add(boost::unit_test::make_test_case([test] { test->run(); }, test->get_name(),
-                                                test->get_test_file(), 0),
-                                                test->get_expected_failures(), 0);
-#else
-        ts.add(boost::unit_test::make_test_case([test] { test->run(); }, test->get_name()),
-                                                test->get_expected_failures(), 0);
-#endif
-    }
-
     return global_test_runner().start(ts.argc, ts.argv);
 }
 

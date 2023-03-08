@@ -25,22 +25,38 @@
 #include <seastar/core/future.hh>
 #include <seastar/core/thread.hh>
 
+#include <boost/preprocessor/control/iif.hpp>
+#include <boost/preprocessor/comparison/equal.hpp>
+#include <boost/preprocessor/variadic/size.hpp>
+
 #include <seastar/testing/seastar_test.hh>
 
-#define SEASTAR_THREAD_TEST_CASE_EXPECTED_FAILURES(name, failures) \
-    struct name : public seastar::testing::seastar_test { \
-        const char* get_test_file() const override { return __FILE__; } \
-        const char* get_name() const override { return #name; } \
-        int get_expected_failures() const override { return failures; } \
-        seastar::future<> run_test_case() const override { \
-            return seastar::async([this] { \
-                do_run_test_case(); \
-            }); \
-        } \
-        void do_run_test_case() const; \
-    }; \
-    static const name name ## _instance; /* NOLINT(cert-err58-cpp) */ \
+#define SEASTAR_THREAD_TEST_CASE_WITH_DECO(name, decorators) \
+    struct name : public seastar::testing::seastar_test {    \
+        using seastar::testing::seastar_test::seastar_test;  \
+        seastar::future<> run_test_case() const override {   \
+            return seastar::async([this] {                   \
+                do_run_test_case();                          \
+            });                                              \
+        }                                                    \
+        void do_run_test_case() const;                       \
+    };                                                       \
+    static const name name ## _instance(                     \
+        #name,                                               \
+        __FILE__,                                            \
+        __LINE__,                                            \
+        decorators); /* NOLINT(cert-err58-cpp) */            \
     void name::do_run_test_case() const
 
-#define SEASTAR_THREAD_TEST_CASE(name) \
-    SEASTAR_THREAD_TEST_CASE_EXPECTED_FAILURES(name, 0)
+#define SEASTAR_THREAD_TEST_CASE_WITHOUT_DECO(name)          \
+    SEASTAR_THREAD_TEST_CASE_WITH_DECO(                      \
+        name,                                                \
+        boost::unit_test::decorator::collector_t::instance())
+
+#define SEASTAR_THREAD_TEST_CASE(...)                               \
+    SEASTAR_TEST_INVOKE(                                            \
+        BOOST_PP_IIF(                                               \
+            BOOST_PP_EQUAL(BOOST_PP_VARIADIC_SIZE(__VA_ARGS__), 1), \
+            SEASTAR_THREAD_TEST_CASE_WITHOUT_DECO,                  \
+            SEASTAR_THREAD_TEST_CASE_WITH_DECO),                    \
+        __VA_ARGS__)
