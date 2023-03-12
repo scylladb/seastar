@@ -258,10 +258,8 @@ def resolve_model_order(data):
 
 def create_enum_wrapper(model_name, name, values):
     enum_name = model_name + "_" + name
-    res = "  enum class " + enum_name + " {"
-    for enum_entry in values:
-        res = res + "  " + enum_entry + ", "
-    res = res + "NUM_ITEMS};\n"
+    res = Template("""  enum class $enum_name { $enumerators, NUM_ITEMS };
+""").substitute(enum_name=enum_name, enumerators=", ".join(values))
     wrapper = name + "_wrapper"
     res = res + Template("""  struct $wrapper : public json::jsonable  {
         $wrapper() = default;
