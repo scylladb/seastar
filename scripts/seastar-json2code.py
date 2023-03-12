@@ -116,14 +116,13 @@ def type_change(param, member):
 
 
 
-def print_ind_comment(f, ind, *params):
+def print_ind_comment(f, ind, comment):
     fprintln(f, ind, "/**")
-    for s in params:
-        fprintln(f, ind, " * ", s)
+    fprintln(f, ind, " * ", comment)
     fprintln(f, ind, " */")
 
-def print_comment(f, *params):
-    print_ind_comment(f, spacing, *params)
+def print_comment(f, comment):
+    print_ind_comment(f, spacing, comment)
 
 def print_copyrights(f):
     fprintln(f, "/*")
