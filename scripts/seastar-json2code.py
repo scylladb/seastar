@@ -5,7 +5,7 @@
 #    https://github.com/OAI/OpenAPI-Specification/blob/master/versions/1.2.md
 # And the 2.0 format
 #    https://github.com/OAI/OpenAPI-Specification/blob/master/versions/2.0.md
-# 
+#
 # Swagger 2.0 is not only different in its structure (apis have moved, and
 # models are now under definitions) It also moved from multiple file structure
 # to a single file.
@@ -214,7 +214,7 @@ def is_model_valid(name, model):
         type = getitem(properties[var], "type", name + ":" + var)
         if type == "array":
             items = getitem(properties[var], "items", name + ":" + var)
-            try :
+            try:
                 type = getitem(items, "type", name + ":" + var + ":items")
             except Exception as e:
                 try:
@@ -258,10 +258,10 @@ def resolve_model_order(data):
 
 def create_enum_wrapper(model_name, name, values):
     enum_name = model_name + "_" + name
-    res =  "  enum class " + enum_name + " {"
+    res = "  enum class " + enum_name + " {"
     for enum_entry in values:
         res = res + "  " + enum_entry + ", "
-    res = res +  "NUM_ITEMS};\n"
+    res = res + "NUM_ITEMS};\n"
     wrapper = name + "_wrapper"
     res = res + Template("""  struct $wrapper : public json::jsonable  {
         $wrapper() = default;
@@ -519,7 +519,7 @@ def format_as_json_object(data):
 def check_for_models(data, param):
     model_name = param.replace(".json", ".def.json")
     if not os.path.isfile(model_name):
-        return 
+        return
     try:
         with open(model_name) as myfile:
             json_data = myfile.read()
