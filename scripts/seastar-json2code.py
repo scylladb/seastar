@@ -20,6 +20,7 @@ import re
 import glob
 import argparse
 import os
+import textwrap
 from string import Template
 
 parser = argparse.ArgumentParser(description="""Generate C++ class for json
@@ -256,68 +257,120 @@ def resolve_model_order(data):
             models.add(model_name)
     return res
 
+
+def not_first():
+    '''
+    Returns True when gets called for the first time, False otherwise
+
+    used as the predicate parameter of textwrap.indent(), so the first
+    line is not indented. this helps to preserve the Python code's logical
+    indention in the template, and allows us to put something like::
+
+      blah = textwrap.indent("""\
+           foo bar
+               blah blah
+           foo bar
+    """
+    '''
+    _is_first = True
+
+    def should_indent(_):
+        nonlocal _is_first
+        first = _is_first
+        _is_first = False
+        return not first
+    return should_indent
+
+
 def create_enum_wrapper(model_name, name, values):
-    enum_name = model_name + "_" + name
-    res = Template("""  enum class $enum_name { $enumerators, NUM_ITEMS };
-""").substitute(enum_name=enum_name, enumerators=", ".join(values))
+    enum_name = f"{model_name}_{name}"
     wrapper = name + "_wrapper"
-    res = res + Template("""  struct $wrapper : public json::jsonable  {
-        $wrapper() = default;
-        virtual std::string to_json() const {
-            switch(v) {
-        """).substitute({'wrapper' : wrapper})
-    for enum_entry in values:
-        res = res + "      case " + enum_name + "::" + enum_entry + ": return \"\\\"" + enum_entry + "\\\"\";\n"
-    res = res + Template("""      default: return \"\\\"Unknown\\\"\";
+
+    def indent_body(s, level):
+        return textwrap.indent(s, level * '    ', not_first())
+
+    case_clauses = "\n".join(
+        Template('''case $enum_name::$enum_entry: return "\\"$enum_entry\\"";''').substitute(
+            enum_name=enum_name, enum_entry=enum_entry) for enum_entry in values)
+    res = Template("""\
+    virtual std::string to_json() const {
+        switch(v) {
+        $case_clauses
+        default: return "\\"Unknown\\"";
         }
-     }
+    }""").substitute(wrapper=wrapper,
+                     case_clauses=indent_body(case_clauses, 2))
+
+    case_clauses = "\n".join(
+        Template("""case T::$enum_entry: v = $enum_name::$enum_entry; break;""").substitute(
+            enum_name=enum_name, enum_entry=enum_entry) for enum_entry in values)
+    res += Template("""
     template<class T>
-    $wrapper (const T& _v) {
-    switch(_v) {
-    """).substitute({'wrapper' : wrapper})
-    for enum_entry in values:
-        res = res + "      case T::" + enum_entry + ": v = " + enum_name + "::" + enum_entry + "; break;\n"
-    res = res + Template("""      default: v = $enum_name::NUM_ITEMS;
+    $wrapper(const T& _v) {
+        switch(_v) {
+        $case_clauses
+        default: v = $enum_name::NUM_ITEMS;
         }
-    }
+    }""").substitute(wrapper=wrapper,
+                     case_clauses=indent_body(case_clauses, 2),
+                     enum_name=enum_name)
+
+    case_clauses = "\n".join(
+        Template('''case $enum_name::$enum_entry: return T::$enum_entry;''').substitute(
+            enum_name=enum_name, enum_entry=enum_entry) for enum_entry in values)
+    res += Template("""
     template<class T>
     operator T() const {
         switch(v) {
-    """).substitute({'enum_name': enum_name})
-    for enum_entry in values:
-        res = res + "      case " + enum_name + "::" + enum_entry + ": return T::" + enum_entry + ";\n"
-    return res + Template("""      default: return T::$value;
-          }
+        $case_clauses
+        default: return T::$value;
         }
-        typedef typename std::underlying_type<$enum_name>::type pos_type;
-        $wrapper& operator++() {
+    }""").substitute(case_clauses=indent_body(case_clauses, 2),
+                     enum_name=enum_name,
+                     value=values[0])
+
+    res += Template("""
+    typedef typename std::underlying_type<$enum_name>::type pos_type;
+    $wrapper& operator++() {
         v = static_cast<$enum_name>(static_cast<pos_type>(v) + 1);
-            return *this;
-        }
-        $wrapper & operator++(int) {
-            return ++(*this);
-        }
-        bool operator==(const  $wrapper& c) const {
-            return v == c.v;
-        }
-        bool operator!=(const $wrapper& c) const {
-            return v != c.v;
-        }
-        bool operator<=(const $wrapper& c) const {
-            return static_cast<pos_type>(v) <= static_cast<pos_type>(c.v);
-        }
-        static $wrapper begin() {
-            return $wrapper ($enum_name::$value);
-        }
-        static $wrapper end() {
-            return $wrapper ($enum_name::NUM_ITEMS);
-        }
-        static boost::integer_range<$wrapper> all_items() {
-            return boost::irange(begin(), end());
-        }
-        $enum_name v;
+        return *this;
+    }
+    $wrapper & operator++(int) {
+        return ++(*this);
+    }
+    bool operator==(const  $wrapper& c) const {
+        return v == c.v;
+    }
+    bool operator!=(const $wrapper& c) const {
+        return v != c.v;
+    }
+    bool operator<=(const $wrapper& c) const {
+        return static_cast<pos_type>(v) <= static_cast<pos_type>(c.v);
+    }
+    static $wrapper begin() {
+        return $wrapper($enum_name::$value);
+    }
+    static $wrapper end() {
+        return $wrapper($enum_name::NUM_ITEMS);
+    }
+    static boost::integer_range<$wrapper> all_items() {
+        return boost::irange(begin(), end());
+    }
+    $enum_name v;""").substitute(enum_name=enum_name,
+                                 wrapper=wrapper,
+                                 value=values[0])
+    enum_wrapper = Template("""
+    enum class $enum_name { $enumerators, NUM_ITEMS };
+    struct $wrapper : public json::jsonable {
+        $wrapper() = default;
+        $body
     };
-    """).substitute({'enum_name': enum_name, 'wrapper' : wrapper, 'value':values[0]})
+    """).substitute(enum_name=enum_name,
+                    enumerators=", ".join(values),
+                    wrapper=wrapper,
+                    body=indent_body(res, 1).lstrip())
+    return enum_wrapper.lstrip('\n')
+
 
 def to_operation(opr, data):
     data["method"] = opr.upper()
