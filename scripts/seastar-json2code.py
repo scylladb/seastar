@@ -407,6 +407,9 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
     open_namespace(hfile, "httpd")
     open_namespace(hfile, api_name)
 
+    def indent(s):
+        return textwrap.indent(s.rstrip(), '        ', not_first())
+
     if "models" in data:
         models_order = resolve_model_order(data["models"])
         for model_name in models_order:
@@ -422,44 +425,44 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
                 if "description" in member:
                     print_comment(hfile, member["description"])
                 if "enum" in member:
-                    enum_name = model_name + "_" + member_name
                     fprintln(hfile, create_enum_wrapper(model_name, member_name, member["enum"]))
-                    fprintln(hfile, "  ", config.jsonns, "::json_element<",
-                           member_name, "_wrapper> ",
-                           member_name, ";\n")
+                    fprintln(hfile, f"    {config.jsonns}::json_element<{member_name}_wrapper> {member_name};\n")
                 else:
-                    fprintln(hfile, "  ", config.jsonns, "::",
-                           type_change(member["type"], member), " ",
-                           member_name, ";\n")
-                member_init += "  add(&" + member_name + ',"'
-                member_init += member_name + '");\n'
-                member_assignment += "  " + member_name + " = " + "e." + member_name + ";\n"
-                member_copy += "  e." + member_name + " = " + member_name + ";\n"
-            fprintln(hfile, "void register_params() {")
-            fprintln(hfile, member_init)
-            fprintln(hfile, '}')
+                    type_name = type_change(member["type"], member)
+                    fprintln(hfile, f"    {config.jsonns}::{type_name} {member_name};\n")
+                member_init += f'add(&{member_name}, "{member_name}");\n'
+                member_assignment += f'{member_name} = e.{member_name};\n'
+                member_copy += f'e.{member_name} = {member_name} ;\n'
 
-            fprintln(hfile, model_name, '() {')
-            fprintln(hfile, '  register_params();')
-            fprintln(hfile, '}')
-            fprintln(hfile, model_name, '(const ' + model_name + ' & e) {')
-            fprintln(hfile, '  register_params();')
-            fprintln(hfile, member_assignment)
-            fprintln(hfile, '}')
-            fprintln(hfile, "template<class T>")
-            fprintln(hfile, model_name, "& operator=(const ", "T& e) {")
-            fprintln(hfile, member_assignment)
-            fprintln(hfile, "  return *this;")
-            fprintln(hfile, "}")
-            fprintln(hfile, model_name, "& operator=(const ", model_name, "& e) {")
-            fprintln(hfile, member_assignment)
-            fprintln(hfile, "  return *this;")
-            fprintln(hfile, "}")
-            fprintln(hfile, "template<class T>")
-            fprintln(hfile, model_name, "& update(T& e) {")
-            fprintln(hfile, member_copy)
-            fprintln(hfile, "  return *this;")
-            fprintln(hfile, "}")
+            functions = Template('''
+    void register_params() {
+        $member_init
+    }
+    $model_name() {
+        register_params();
+    }
+    $model_name(const $model_name& e) {
+        register_params();
+        $member_assignment
+    }
+    template<class T>
+    $model_name& operator=(const T& e) {
+        $member_assignment
+        return *this;
+    }
+    $model_name& operator=(const $model_name& e) {
+        $member_assignment
+        return *this;
+    }
+    template<class T>
+    $model_name& update(T& e) {
+        $member_copy
+        return *this;
+    }''').substitute(model_name=model_name,
+                     member_init=indent(member_init),
+                     member_assignment=indent(member_assignment),
+                     member_copy=indent(member_copy))
+            fprintln(hfile, functions.lstrip('\n'))
             fprintln(hfile, "};\n\n")
 
  #   print_ind_comment(hfile, "", "Initialize the path")
@@ -470,7 +473,7 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
         if "operations" in item:
             for oper in item["operations"]:
                 if "summary" in oper:
-                    print_comment(hfile, oper["summary"])
+                    print_ind_comment(hfile, '', oper["summary"])
 
                 param_starts = path.find("{")
                 base_url = path
@@ -512,9 +515,13 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
                 first = True
                 enum_definitions = ""
                 if "enum" in oper:
-                    enum_definitions = ("namespace ns_" + oper["nickname"] + " {\n" +
-                                       create_enum_wrapper(oper["nickname"], "return_type", oper["enum"]) +
-                                       "}\n")
+                    nickname = oper["nickname"]
+                    enum_wrapper = create_enum_wrapper(nickname, "return_type", oper["enum"])
+                    enum_definitions = Template('''
+namespace ns_$nickname {
+$enum_wrapper
+}
+''').substitute(nickname=nickname, enum_wrapper=enum_wrapper.rstrip())
                 funcs = ""
                 if "parameters" in oper:
                     for param in oper["parameters"]:
