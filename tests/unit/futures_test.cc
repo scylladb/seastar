@@ -758,6 +758,48 @@ SEASTAR_TEST_CASE(test_map_reduce0_lifetime) {
     });
 }
 
+SEASTAR_TEST_CASE(test_map_reduce1_lifetime) {
+    struct map {
+        bool destroyed = false;
+        ~map() {
+            destroyed = true;
+        }
+        auto operator()(long x) {
+            return yield().then([this, x] {
+                BOOST_REQUIRE(!destroyed);
+                return x;
+            });
+        }
+    };
+    struct reduce {
+        long res = 0;
+        bool destroyed = false;
+        ~reduce() {
+            BOOST_TEST_MESSAGE("~reduce()");
+            destroyed = true;
+        }
+        auto operator()(long x) {
+            return yield().then([this, x] {
+                BOOST_REQUIRE(!destroyed);
+                res += x;
+                return make_ready_future<>();
+            });
+        }
+        auto get() {
+            return sleep(std::chrono::milliseconds(10)).then([this] {
+                BOOST_REQUIRE(!destroyed);
+                return res;
+            });
+        }
+    };
+    long n = 10;
+    return map_reduce(boost::make_counting_iterator<long>(0), boost::make_counting_iterator<long>(n),
+                      map{}, reduce{}).then([n] (long res) {
+        long expected = (n * (n - 1)) / 2;
+        BOOST_REQUIRE_EQUAL(res, expected);
+    });
+}
+
 // This test doesn't actually test anything - it just waits for the future
 // returned by sleep to complete. However, a bug we had in sleep() caused
 // this test to fail the sanitizer in the debug build, so this is a useful

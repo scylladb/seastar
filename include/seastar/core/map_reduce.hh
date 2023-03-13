@@ -52,7 +52,7 @@ template <typename T, typename Ptr>
 struct reducer_with_get_traits<T, Ptr, true> {
     using future_type = decltype(std::declval<T>().get());
     static future_type maybe_call_get(future<> f, Ptr r) {
-        return f.then([r = std::move(r)] () mutable {
+        return f.then([r = r.get()] {
             return r->reducer.get();
         }).then_wrapped([r] (future_type f) {
             return f;
