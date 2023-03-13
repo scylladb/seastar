@@ -92,7 +92,7 @@ SEASTAR_TEST_CASE(test_spawn_echo) {
     });
 }
 
-SEASTAR_TEST_CASE(test_spawn_input, *boost::unit_test::expected_failures(3)) {
+SEASTAR_TEST_CASE(test_spawn_input) {
     static const sstring text = "hello world\n";
     return spawn_process("/bin/cat").then([] (auto process) {
         auto stdin = process.stdin();
