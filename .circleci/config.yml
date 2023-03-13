@@ -22,7 +22,7 @@ jobs:
       - run:
           command: |
             ./run ./configure.py --compiler << parameters.compiler >> --c++-standard << parameters.standard >>
-            if [ << parameters.standard >> = "dev" ]; then
+            if [ << parameters.mode >> = "dev" ]; then
               ./run ninja -C build/<< parameters.mode >> all checkheaders
             else
               ./run ninja -C build/<< parameters.mode >>
