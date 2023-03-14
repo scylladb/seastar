@@ -42,7 +42,7 @@ struct reducer_with_get_traits<T, Ptr, false> {
     using result_type = decltype(std::declval<T>().get());
     using future_type = future<result_type>;
     static future_type maybe_call_get(future<> f, Ptr r) {
-        return f.then([r = std::move(r)] () mutable {
+        return f.then([r = std::move(r)] {
             return make_ready_future<result_type>(std::move(r->reducer).get());
         });
     }
