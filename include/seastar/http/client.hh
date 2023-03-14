@@ -19,6 +19,8 @@
  * Copyright (C) 2022 Scylladb, Ltd.
  */
 
+#pragma once
+
 #include <boost/intrusive/list.hpp>
 #include <seastar/net/api.hh>
 #include <seastar/http/reply.hh>
