@@ -1341,10 +1341,26 @@ cpu_stall_detector_linux_perf_event::try_make(cpu_stall_detector_config cfg) {
 
 
 std::unique_ptr<cpu_stall_detector> make_cpu_stall_detector(cpu_stall_detector_config cfg) {
+    bool was_eaccess_failure = false;
     try {
-        return cpu_stall_detector_linux_perf_event::try_make(cfg);
+        try {
+            return cpu_stall_detector_linux_perf_event::try_make(cfg);
+        } catch (std::system_error& e) {
+            // This failure occurs when /proc/sys/kernel/perf_event_paranoid is set
+            // to 2 or higher, and is expected since most distributions set it to that
+            // way as of 2023. In this case we log a different message and only at INFO
+            // level on shard 0.
+            was_eaccess_failure = e.code() == std::error_code(EACCES, std::system_category());
+            throw;
+        }
     } catch (...) {
-        seastar_logger.warn("Creation of perf_event based stall detector failed, falling back to posix timer: {}", std::current_exception());
+        if (was_eaccess_failure) {
+            seastar_logger.info0("Perf-based stall detector creation failed (EACCESS), "
+                    "try setting /proc/sys/kernel/perf_event_paranoid to 1 or less to "
+                    "enable kernel backtraces: falling back to posix timer.");
+        } else {
+            seastar_logger.warn("Creation of perf_event based stall detector failed: falling back to posix timer: {}", std::current_exception());
+        }
         return std::make_unique<cpu_stall_detector_posix_timer>(cfg);
     }
 }
