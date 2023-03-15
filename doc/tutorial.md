@@ -379,7 +379,7 @@ Seastar coroutines work, using lambda coroutines as continuations can result in 
 take one of the following approaches:
 
 1. Use lambda coroutines as arguments to functions that explicitly claim support for them
-2. Wrap lambda coroutines with seastar::coroutine::lambda(), and ensure the lambda coroutine is fully awaited within the statement it is defined in.
+2. Wrap lambda coroutines with `seastar::coroutine::lambda()`, and ensure the lambda coroutine is fully awaited within the statement it is defined in.
 
 An example of wrapping a lambda coroutine is:
 
@@ -399,11 +399,11 @@ future<> foo() {
 ```
 
 Notes:
-1. seastar::future::then() accepts a continuation
-2. We wrap the argument to seastar::future::then() with seastar::coroutine::lambda()
-3. We ensure evaluation of the lambda completes within the same expression using the outer co_await.
+1. `seastar::future::then()` accepts a continuation
+2. We wrap the argument to `seastar::future::then()` with `seastar::coroutine::lambda()`
+3. We ensure evaluation of the lambda completes within the same expression using the outer `co_await`.
 
-More information can be found in lambda-coroutine-fiasco.md.
+More information can be found in `lambda-coroutine-fiasco.md`.
 
 ## Generators in coroutines
 
