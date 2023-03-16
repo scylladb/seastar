@@ -99,7 +99,7 @@ SEASTAR_TEST_CASE(test_spawn_input) {
         auto stdout = process.stdout();
         return do_with(std::move(process), std::move(stdin), std::move(stdout), [](auto& p, auto& stdin, auto& stdout) {
             return stdin.write(text).then([&stdin] {
-                return stdin.flush();
+                return stdin.close();
             }).handle_exception_type([] (std::system_error& e) {
                 BOOST_TEST_ERROR(fmt::format("failed to write to stdin: {}", e));
             }).then([&stdout] {
@@ -110,7 +110,11 @@ SEASTAR_TEST_CASE(test_spawn_input) {
             }).then([] (temporary_buffer<char> echo) {
                 BOOST_CHECK_EQUAL(sstring(echo.get(), echo.size()), text);
             }).finally([&p] {
-                return p.wait().discard_result();
+                return p.wait().then([](process::wait_status wstatus) {
+                    auto* exit_status = std::get_if<process::wait_exited>(&wstatus);
+                    BOOST_REQUIRE(exit_status != nullptr);
+                    BOOST_CHECK_EQUAL(exit_status->exit_code, EXIT_SUCCESS);
+                 });
             });
         });
     });
@@ -133,7 +137,7 @@ SEASTAR_TEST_CASE(test_spawn_kill) {
             // sleep should be terminated in 10ms.
             // pidfd_open(2) may fail and thus p.wait() falls back to
             // waitpid(2) with backoff (at least 20ms).
-            // the minimal backoff is added to 10ms, so the test can pass on 
+            // the minimal backoff is added to 10ms, so the test can pass on
             // older kernels as well.
             BOOST_CHECK_LE(ms, 10 + 20);
         });
