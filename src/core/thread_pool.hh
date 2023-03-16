@@ -34,7 +34,7 @@ class thread_pool {
     syscall_work_queue inter_thread_wq;
     posix_thread _worker_thread;
     std::atomic<bool> _stopped = { false };
-    std::atomic<bool> _main_thread_idle = { false };
+    std::atomic<int64_t> _main_thread_idle = 0; // non-negative when idle
 public:
     explicit thread_pool(reactor* r, sstring thread_name);
     ~thread_pool();
@@ -52,11 +52,17 @@ public:
     //
     // Simple release-acquire won't do because we also need to serialize all writes that happens
     // before the syscall thread loads this value, so we'll need full seq_cst.
-    void enter_interrupt_mode() { _main_thread_idle.store(true, std::memory_order_seq_cst); }
+    void enter_interrupt_mode() {
+        auto new_val = std::abs(_main_thread_idle.load(std::memory_order_relaxed)) + 1;
+        _main_thread_idle.store(new_val, std::memory_order_seq_cst);
+    }
     // When we exit interrupt mode, however, we can safely used relaxed order. If any reordering
     // takes place, we'll get an extra signal and complete will be called one extra time, which is
     // harmless.
-    void exit_interrupt_mode() { _main_thread_idle.store(false, std::memory_order_relaxed); }
+    void exit_interrupt_mode() {
+        auto new_val = -std::abs(_main_thread_idle.load(std::memory_order_relaxed));
+        _main_thread_idle.store(new_val, std::memory_order_relaxed);
+    }
 
 #else
 public:
