@@ -61,7 +61,7 @@ int entry_point(int argc, char** argv) {
 #endif
 
     const int boost_exit_code = ::boost::unit_test::unit_test_main(&init_unit_test_suite, argc, argv);
-    const int seastar_exit_code = seastar::testing::global_test_runner().finalize();
+    const int seastar_exit_code = seastar::testing::global_test_runner().finalize(boost_exit_code);
     if (boost_exit_code) {
         return boost_exit_code;
     }

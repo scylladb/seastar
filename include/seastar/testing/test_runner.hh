@@ -56,7 +56,7 @@ public:
     ~test_runner();
     void run_sync(std::function<future<>()> task);
     // Returns the return value of the underlying `seastar::app::run()`.
-    int finalize();
+    int finalize(int exit_code = 0);
 };
 
 test_runner& global_test_runner();

@@ -32,7 +32,13 @@ namespace testing {
 
 static test_runner instance;
 
-struct stop_execution : public std::exception {};
+struct stop_execution : public std::exception {
+    int exit_code = 0;
+    explicit stop_execution(int ec) noexcept
+        : std::exception()
+        , exit_code(ec)
+    {}
+};
 
 test_runner::~test_runner() {
     finalize();
@@ -90,8 +96,11 @@ void test_runner::start_thread(int ac, char** av) {
                 try {
                     auto func = _task.take();
                     return func();
-                } catch (const stop_execution&) {
+                } catch (const stop_execution& se) {
                     _done = true;
+                    if (se.exit_code) {
+                        _exit(se.exit_code);
+                    }
                     return make_ready_future<>();
                 }
               }).or_terminate();
@@ -144,9 +153,9 @@ test_runner::run_sync(std::function<future<>()> task) {
     }
 }
 
-int test_runner::finalize() {
+int test_runner::finalize(int exit_code) {
     if (_thread) {
-        _task.interrupt(stop_execution());
+        _task.interrupt(stop_execution(exit_code));
         _thread->join();
         _thread = nullptr;
     }
