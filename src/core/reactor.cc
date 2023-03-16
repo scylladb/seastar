@@ -1986,6 +1986,11 @@ reactor::spawn(std::string_view pathname,
                 std::get<pipefd_read_end>(cin_pipe).spawn_actions_add_close(&actions);
                 std::get<pipefd_write_end>(cout_pipe).spawn_actions_add_close(&actions);
                 std::get<pipefd_write_end>(cerr_pipe).spawn_actions_add_close(&actions);
+                // tools like "cat" expect a fd opened in blocking mode when performing I/O
+                std::get<pipefd_read_end>(cin_pipe).template ioctl<int>(FIONBIO, 0);
+                std::get<pipefd_write_end>(cout_pipe).template ioctl<int>(FIONBIO, 0);
+                std::get<pipefd_write_end>(cerr_pipe).template ioctl<int>(FIONBIO, 0);
+
                 r = ::posix_spawnattr_init(&attr);
                 throw_pthread_error(r);
                 // make sure the following signals are not ignored by the child process
