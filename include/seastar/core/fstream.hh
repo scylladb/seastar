@@ -97,34 +97,6 @@ struct file_output_stream_options {
     ::seastar::io_priority_class io_priority_class = default_priority_class();
 };
 
-SEASTAR_INCLUDE_API_V2 namespace api_v2 {
-
-/// Create an output_stream for writing starting at the position zero of a
-/// newly created file.
-/// NOTE: flush() should be the last thing to be called on a file output stream.
-[[deprecated("use Seastar_API_LEVEL=3 instead")]]
-output_stream<char> make_file_output_stream(
-        file file,
-        uint64_t buffer_size = 8192);
-
-/// Create an output_stream for writing starting at the position zero of a
-/// newly created file.
-/// NOTE: flush() should be the last thing to be called on a file output stream.
-[[deprecated("use Seastar_API_LEVEL=3 instead")]]
-output_stream<char> make_file_output_stream(
-        file file,
-        file_output_stream_options options);
-
-/// Create a data_sink for writing starting at the position zero of a
-/// newly created file.
-[[deprecated("use Seastar_API_LEVEL=3 instead")]]
-data_sink make_file_data_sink(file, file_output_stream_options);
-
-}
-
-SEASTAR_INCLUDE_API_V3 namespace api_v3 {
-inline namespace and_newer {
-
 /// Create an output_stream for writing starting at the position zero of a
 /// newly created file.
 /// NOTE: flush() should be the last thing to be called on a file output stream.
@@ -145,8 +117,5 @@ future<output_stream<char>> make_file_output_stream(
 /// newly created file.
 /// Closes the file if the sink creation fails.
 future<data_sink> make_file_data_sink(file, file_output_stream_options) noexcept;
-
-}
-}
 
 }

@@ -72,11 +72,11 @@ set (Seastar_API_LEVEL
   "6"
   CACHE
   STRING
-  "Seastar compatibility API level (2=server_socket::accept() returns accept_result, 3=make_file_output_stream(), make_file_data_sink() returns future<...>, 4=when_all_succeed returns future<std::tuple<>>, 5=future<T>::get() returns T&&), 6=future is not variadic")
+  "Seastar compatibility API level (3=make_file_output_stream(), make_file_data_sink() returns future<...>, 4=when_all_succeed returns future<std::tuple<>>, 5=future<T>::get() returns T&&), 6=future is not variadic")
 
 set_property (CACHE Seastar_API_LEVEL
   PROPERTY
-  STRINGS 2 3 4 5 6)
+  STRINGS 3 4 5 6)
 
 set (Seastar_SCHEDULING_GROUPS_COUNT
   "16"
