@@ -56,7 +56,7 @@ SEASTAR_THREAD_TEST_CASE(test_notify_modify_close_delete) {
         | fsnotifier::flags::close
     ).get0();
 
-    auto os = api_v3::and_newer::make_file_output_stream(f).get0();
+    auto os = make_file_output_stream(f).get0();
     os.write("kossa").get();
     os.flush().get();
 
@@ -89,7 +89,7 @@ SEASTAR_THREAD_TEST_CASE(test_notify_overwrite) {
 
     auto write_file = [](fs::path& p, sstring content) {
         auto f = open_file_dma(p.native(), open_flags::create|open_flags::rw).get0();
-        auto os = api_v3::and_newer::make_file_output_stream(f).get0();
+        auto os = make_file_output_stream(f).get0();
         os.write(content).get();
         os.flush().get();
         os.close().get();

@@ -53,7 +53,7 @@ int main(int ac, char** av) {
             foso.buffer_size = buffer_size;
             foso.preallocation_size = 32 << 20;
             foso.write_behind = concurrency;
-            return api_v3::and_newer::make_file_output_stream(f, foso).then([=] (output_stream<char>&& os) {
+            return make_file_output_stream(f, foso).then([=] (output_stream<char>&& os) {
                 return do_with(std::move(os), std::move(f), unsigned(0), [=] (output_stream<char>& os, file& f, unsigned& completed) {
                     auto start = std::chrono::steady_clock::now();
                     return repeat([=, &os, &completed] {

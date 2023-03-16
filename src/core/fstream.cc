@@ -472,35 +472,6 @@ public:
     virtual size_t buffer_size() const noexcept override { return _options.buffer_size; }
 };
 
-SEASTAR_INCLUDE_API_V2 namespace api_v2 {
-
-data_sink make_file_data_sink(file f, file_output_stream_options options) {
-    return data_sink(std::make_unique<file_data_sink_impl>(std::move(f), options));
-}
-
-output_stream<char> make_file_output_stream(file f, size_t buffer_size) {
-    file_output_stream_options options;
-    options.buffer_size = buffer_size;
-// Don't generate a deprecation warning for the unsafe functions calling each other.
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    return api_v2::make_file_output_stream(std::move(f), options);
-#pragma GCC diagnostic pop
-}
-
-output_stream<char> make_file_output_stream(file f, file_output_stream_options options) {
-// Don't generate a deprecation warning for the unsafe functions calling each other.
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    return output_stream<char>(api_v2::make_file_data_sink(std::move(f), options));
-#pragma GCC diagnostic pop
-}
-
-}
-
-SEASTAR_INCLUDE_API_V3 namespace api_v3 {
-inline namespace and_newer {
-
 future<data_sink> make_file_data_sink(file f, file_output_stream_options options) noexcept {
     try {
         return make_ready_future<data_sink>(std::make_unique<file_data_sink_impl>(f, options));
@@ -522,16 +493,13 @@ future<data_sink> make_file_data_sink(file f, file_output_stream_options options
 future<output_stream<char>> make_file_output_stream(file f, size_t buffer_size) noexcept {
     file_output_stream_options options;
     options.buffer_size = buffer_size;
-    return api_v3::and_newer::make_file_output_stream(std::move(f), options);
+    return make_file_output_stream(std::move(f), options);
 }
 
 future<output_stream<char>> make_file_output_stream(file f, file_output_stream_options options) noexcept {
-    return api_v3::and_newer::make_file_data_sink(std::move(f), options).then([] (data_sink&& ds) {
+    return make_file_data_sink(std::move(f), options).then([] (data_sink&& ds) {
         return output_stream<char>(std::move(ds));
     });
-}
-
-}
 }
 
 /*

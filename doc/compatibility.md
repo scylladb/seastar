@@ -107,7 +107,7 @@ API Level History
 |Level|Introduced |Mandatory|Description                                   |
 |:---:|:---------:|:-------:| -------------------------------------------- |
 | 2   |  2019-07  | 2020-04 | Non-variadic futures in socket::accept()     |
-| 3   |  2020-05  |         | make_file_data_sink() closes file and returns a future<>  |
+| 3   |  2020-05  | 2023-03 | make_file_data_sink() closes file and returns a future<>  |
 | 4   |  2020-06  |         | Non-variadic futures in when_all_succeed()   |
 
 
