@@ -40,8 +40,8 @@ static int dl_iterate_phdr_callback(struct dl_phdr_info *info, size_t size, void
     for (int i = 0; i < info->dlpi_phnum; i++) {
         const auto hdr = info->dlpi_phdr[i];
 
-        // Only account loadable, executable (text) segments
-        if (hdr.p_type == PT_LOAD && (hdr.p_flags & PF_X) == PF_X) {
+        // Only account loadable segments
+        if (hdr.p_type == PT_LOAD) {
             total_size += hdr.p_memsz;
         }
     }
