@@ -69,8 +69,8 @@ enum opcodes {
 
 struct frame_header {
     static constexpr uint8_t FIN = 7;
-    static constexpr uint8_t RSV1 = 6; 
-    static constexpr uint8_t RSV2 = 5; 
+    static constexpr uint8_t RSV1 = 6;
+    static constexpr uint8_t RSV2 = 5;
     static constexpr uint8_t RSV3 = 4;
     static constexpr uint8_t MASKED = 7;
 
@@ -129,7 +129,7 @@ class websocket_parser {
     using buff_t = temporary_buffer<char>;
     // What parser is currently doing.
     parsing_state _state;
-    // State of connection - can be valid, closed or should be closed 
+    // State of connection - can be valid, closed or should be closed
     // due to error.
     connection_state _cstate;
     sstring _buffer;
@@ -151,11 +151,11 @@ class websocket_parser {
         for (uint64_t i = 0, j = 0; i < n; ++i, j = (j + 1) % 4) {
             payload[i] ^= static_cast<char>(((_masking_key << (j * 8)) >> 24));
         }
-    } 
+    }
 public:
     websocket_parser() : _state(parsing_state::flags_and_payload_data),
                          _cstate(connection_state::valid),
-                         _payload_length(0), 
+                         _payload_length(0),
                          _masking_key(0) {}
     future<consumption_result_t> operator()(temporary_buffer<char> data);
     bool is_valid() { return _cstate == connection_state::valid; }
@@ -208,8 +208,8 @@ class connection : public boost::intrusive::list_base_hook<> {
             return data->push_eventually(temporary_buffer<char>{std::move(f.base), f.size});
         }
 
-        size_t buffer_size() const noexcept override { 
-            return data->max_size(); 
+        size_t buffer_size() const noexcept override {
+            return data->max_size();
         }
 
         virtual future<> close() override {
@@ -278,7 +278,7 @@ public:
     void shutdown();
 
     future<> close();
-    
+
 protected:
     future<> read_loop();
     future<> read_one();

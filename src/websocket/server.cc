@@ -204,8 +204,8 @@ future<websocket_parser::consumption_result_t> websocket_parser::operator()(
 
                 // https://datatracker.ietf.org/doc/html/rfc6455#section-5.1
                 // We must close the connection if data isn't masked.
-                if ((!_header->masked) || 
-                        // RSVX must be 0 
+                if ((!_header->masked) ||
+                        // RSVX must be 0
                         (_header->rsv1 | _header->rsv2 | _header->rsv3) ||
                         // Opcode must be known.
                         (!_header->is_opcode_known())) {
@@ -239,7 +239,7 @@ future<websocket_parser::consumption_result_t> websocket_parser::operator()(
                 }
                 _masking_key = be32toh(*(uint32_t const *)(input + offset));
                 _buffer = {};
-            }                
+            }
             _state = parsing_state::payload;
         } else {
             _buffer.append(data.get(), data.size());
@@ -252,7 +252,7 @@ future<websocket_parser::consumption_result_t> websocket_parser::operator()(
             remove_mask(data, data.size());
             _result = std::move(data);
             return websocket_parser::stop(buff_t(0));
-        } else { 
+        } else {
             _result = data.clone();
             remove_mask(_result, _payload_length);
             data.trim_front(_payload_length);
@@ -363,7 +363,7 @@ future<> connection::send_data(opcodes opcode, temporary_buffer<char>&& buff) {
     msg.append(std::move(buff));
     return _write_buf.write(std::move(msg)).then([this] {
         return _write_buf.flush();
-    }); 
+    });
 }
 
 future<> connection::response_loop() {
