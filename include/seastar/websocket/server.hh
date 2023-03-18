@@ -302,8 +302,7 @@ class server {
     std::vector<server_socket> _listeners;
     boost::intrusive::list<connection> _connections;
     std::map<std::string, handler_t> _handlers;
-    future<> _accept_fut = make_ready_future<>();
-    bool _stopped = false;
+    gate _task_gate;
 public:
     /*!
      * \brief listen for a WebSocket connection on given address
@@ -328,8 +327,8 @@ public:
 
     friend class connection;
 protected:
-    void do_accepts(int which);
-    future<> do_accept_one(int which);
+    void accept(server_socket &listener);
+    future<stop_iteration> accept_one(server_socket &listener);
 };
 
 /// }@
