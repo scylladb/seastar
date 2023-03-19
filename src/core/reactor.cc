@@ -2403,7 +2403,6 @@ void reactor::at_exit(noncopyable_function<future<> ()> func) {
 
 future<> reactor::run_exit_tasks() {
     _stop_requested.broadcast();
-    _stopping = true;
     stop_aio_eventfd_loop();
     return do_for_each(_exit_funcs.rbegin(), _exit_funcs.rend(), [] (auto& func) {
         return func();
@@ -2413,11 +2412,12 @@ future<> reactor::run_exit_tasks() {
 void reactor::stop() {
     assert(_id == 0);
     _smp->cleanup_cpu();
-    if (!_stopping) {
+    if (!std::exchange(_stopping, true)) {
         // Run exit tasks locally and then stop all other engines
         // in the background and wait on semaphore for all to complete.
         // Finally, set _stopped on cpu 0.
-        (void)run_exit_tasks().then([this] {
+        (void)drain().then([this] {
+          return run_exit_tasks().then([this] {
             return do_with(semaphore(0), [this] (semaphore& sem) {
                 // Stop other cpus asynchronously, signal when done.
                 (void)smp::invoke_on_others(0, [] {
@@ -2432,6 +2432,7 @@ void reactor::stop() {
                     _stopped = true;
                 });
             });
+          });
         });
     }
 }
@@ -2963,6 +2964,30 @@ void reactor::add_urgent_task(task* t) noexcept {
     if (was_empty) {
         activate(*q);
     }
+}
+
+void reactor::run_in_background(future<> f) {
+    try {
+        // _backgroud_gate closed in reactor::close()
+        (void)with_gate(_background_gate, [f = std::move(f)] () mutable {
+            return f.handle_exception([] (std::exception_ptr ex) {
+                seastar_logger.warn("Ignored background task failure: {}", std::move(ex));
+            });
+        });
+    } catch (...) {
+        // Swallow gate_closed_exception in particular
+        seastar_logger.error("run_in_background: {}", std::current_exception());
+    }
+}
+
+future<> reactor::drain() {
+    seastar_logger.debug("reactor::drain");
+    return smp::invoke_on_all([] {
+        if (engine()._background_gate.is_closed()) {
+            return make_ready_future<>();
+        }
+        return engine()._background_gate.close();
+    });
 }
 
 void
