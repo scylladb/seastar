@@ -2628,9 +2628,11 @@ void
 manual_clock::advance(manual_clock::duration d) noexcept {
     _now.fetch_add(d.count());
     if (local_engine) {
-        schedule_urgent(make_task(default_scheduling_group(), &manual_clock::expire_timers));
         // Expire timers on all cores in the background.
-        (void)smp::invoke_on_all(&manual_clock::expire_timers);
+        local_engine->run_in_background([] {
+            schedule_urgent(make_task(default_scheduling_group(), &manual_clock::expire_timers));
+            return smp::invoke_on_all(&manual_clock::expire_timers);
+        });
     }
 }
 
