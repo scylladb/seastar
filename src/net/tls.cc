@@ -1206,9 +1206,20 @@ public:
             throw std::system_error(res, glts_errorc);
         }
         if (status & GNUTLS_CERT_INVALID) {
-            throw verification_error(
-                    cert_status_to_string(gnutls_certificate_type_get(*this),
-                            status));
+            auto stat_str = cert_status_to_string(gnutls_certificate_type_get(*this), status);
+            auto dn = extract_dn_information();
+
+            // If possible, include issuer/subject info on the cert that failed verification.
+            if (dn) {
+                std::stringstream ss;
+                ss << stat_str;
+                if (stat_str.back() != ' ') {
+                    ss << ' ';
+                } 
+                ss << "(Issuer=[" << dn->issuer << "], Subject=[" << dn->subject << "])";
+                stat_str = ss.str();
+            }
+            throw verification_error(stat_str);
         }
         if (_creds->_dn_callback) {
             // if the user registered a DN (Distinguished Name) callback

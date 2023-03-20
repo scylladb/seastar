@@ -665,13 +665,16 @@ SEASTAR_TEST_CASE(test_simple_server_default_dhparams) {
 #endif
 
 SEASTAR_TEST_CASE(test_x509_client_server_cert_validation_fail) {
-    // Load a real trust authority here, which out certs are _not_ signed with.
+    // Load a real trust authority here, which our certs are _not_ signed with.
     return run_echo_test(message, 1, certfile("tls-ca-bundle.pem"), {}).then([] {
             BOOST_FAIL("Should have gotten validation error");
     }).handle_exception([](auto ep) {
         try {
             std::rethrow_exception(ep);
-        } catch (tls::verification_error&) {
+        } catch (tls::verification_error& e) {
+            // Verify exception contains info on subject/issuer
+            BOOST_REQUIRE_NE(sstring(e.what()).find("Issuer"), sstring::npos);
+            BOOST_REQUIRE_NE(sstring(e.what()).find("Subject"), sstring::npos);
             // ok.
         } catch (...) {
             BOOST_FAIL("Unexpected exception");
