@@ -344,7 +344,6 @@ SEASTAR_TEST_CASE(test_input_stream_esp_around_eof) {
     });
 }
 
-#if SEASTAR_API_LEVEL >= 3
 SEASTAR_TEST_CASE(without_api_prefix) {
     return tmp_dir::do_with_thread([](tmp_dir& t) {
         auto filename = (t.get_path() / "testfile.tmp").native();
@@ -354,7 +353,6 @@ SEASTAR_TEST_CASE(without_api_prefix) {
         out.close().get();
     });
 }
-#endif
 
 SEASTAR_TEST_CASE(file_handle_test) {
     return tmp_dir::do_with_thread([] (tmp_dir& t) {
