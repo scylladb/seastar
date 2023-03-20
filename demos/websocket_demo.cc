@@ -59,7 +59,7 @@ int main(int argc, char** argv) {
             });
             ws.listen(socket_address(ipv4_addr("127.0.0.1", 8123)));
             std::cout << "Listening on 127.0.0.1:8123 for 1 hour (interruptible, hit Ctrl-C to stop)..." << std::endl;
-            seastar::sleep_abortable(std::chrono::hours(1)).get();
+            seastar::sleep_abortable(std::chrono::hours(1)).handle_exception([](auto ignored) {}).get();
             std::cout << "Stopping the server, deepest thanks to all clients, hope we meet again" << std::endl;
         });
     });
