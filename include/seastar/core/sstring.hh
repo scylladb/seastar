@@ -784,6 +784,11 @@ std::ostream& operator<<(std::ostream& os, const std::unordered_map<Key, T, Hash
 #if FMT_VERSION >= 90000
 
 template <typename char_type, typename Size, Size max_size, bool NulTerminate>
-struct fmt::formatter<seastar::basic_sstring<char_type, Size, max_size, NulTerminate>> : fmt::ostream_formatter {};
+struct fmt::formatter<seastar::basic_sstring<char_type, Size, max_size, NulTerminate>> : fmt::formatter<std::basic_string_view<char_type>> {
+    template <typename FormatContext>
+    auto format(const ::seastar::basic_sstring<char_type, Size, max_size, NulTerminate>& s, FormatContext& ctx) const {
+        return formatter<std::basic_string_view<char_type>>::format(s, ctx);
+    }
+};
 
 #endif
