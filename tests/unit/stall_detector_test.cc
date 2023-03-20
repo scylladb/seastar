@@ -172,3 +172,16 @@ SEASTAR_THREAD_TEST_CASE(spin_in_kernel) {
     // doing 128K mmaps
     test_spin_with_body("kernel", [] { mmap_populate(128 * 1024); });
 }
+
+SEASTAR_THREAD_TEST_CASE(lowres_clock_is_not_stale) {
+    std::atomic<unsigned> reports{};
+    temporary_stall_detector_settings tsds(10ms, [&] { ++reports; });
+    spin_some_cooperatively(1ms);  // apply stall detector settings
+    spin(100ms);
+    auto before_poll = lowres_clock::now();
+    thread::yield();
+    auto after_poll = lowres_clock::now();
+    auto delta = after_poll - before_poll;
+    BOOST_REQUIRE(delta < 10ms);
+}
+

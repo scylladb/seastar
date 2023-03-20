@@ -1137,6 +1137,8 @@ void cpu_stall_detector::on_signal() {
         // no task was processed - report unless supressed
         maybe_report();
         _report_at <<= 1;
+        // Both lowres clocks could become outdated after a reactor stall.
+        lowres_clock::update();
     } else {
         _last_tasks_processed_seen.store(tasks_processed, std::memory_order_relaxed);
     }
