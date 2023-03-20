@@ -36,7 +36,7 @@ int main(int argc, char** argv) {
     seastar::app_template app;
     app.run(argc, argv, [] () -> seastar::future<> {
         return async([] {
-            static websocket::server ws;
+            websocket::server ws;
             ws.register_handler("echo", [] (input_stream<char>& in,
                         output_stream<char>& out) {
                 return repeat([&in, &out]() {
@@ -54,7 +54,7 @@ int main(int argc, char** argv) {
                     });
                 });
             });
-            auto d = defer([] () noexcept {
+            auto d = defer([&ws] () noexcept {
                 ws.stop().get();
             });
             ws.listen(socket_address(ipv4_addr("127.0.0.1", 8123)));
