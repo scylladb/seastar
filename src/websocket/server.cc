@@ -111,9 +111,13 @@ future<> server::stop() {
         l.abort_accept();
     }
 
+    for (auto&& c : _connections) {
+        c.shutdown_input();
+    }
+
     return _task_gate.close().finally([this] {
         return parallel_for_each(_connections, [] (connection& conn) {
-            return conn.close().handle_exception([] (auto ignored) {});
+            return conn.close(true).handle_exception([] (auto ignored) {});
         });
     });
 }
@@ -335,6 +339,10 @@ future<> connection::read_loop() {
     });
 }
 
+void connection::shutdown_input() {
+    _fd.shutdown_input();
+}
+
 future<> connection::close(bool send_close) {
     return [this, send_close]() {
         if (send_close) {
@@ -345,7 +353,7 @@ future<> connection::close(bool send_close) {
     }().finally([this] {
         _done = true;
         return when_all_succeed(_input.close(), _output.close()).discard_result().finally([this] {
-            shutdown();
+            _fd.shutdown_output();
         });
     });
 }
@@ -386,16 +394,6 @@ future<> connection::response_loop() {
     }).finally([this]() {
         return _write_buf.close();
     });
-}
-
-void connection::shutdown() {
-    wlogger.debug("Shutting down");
-    _fd.shutdown_input();
-    _fd.shutdown_output();
-}
-
-future<> connection::close() {
-    return this->close(true);
 }
 
 bool server::is_handler_registered(std::string const& name) {

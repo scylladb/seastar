@@ -218,8 +218,6 @@ class connection : public boost::intrusive::list_base_hook<> {
         }
     };
 
-    future<> close(bool send_close);
-
     /*!
      * \brief This function processess received PING frame.
      * https://datatracker.ietf.org/doc/html/rfc6455#section-5.5.2
@@ -275,9 +273,8 @@ public:
     /*!
      * \brief close the socket
      */
-    void shutdown();
-
-    future<> close();
+    void shutdown_input();
+    future<> close(bool send_close = true);
 
 protected:
     future<> read_loop();
