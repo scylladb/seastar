@@ -26,10 +26,10 @@
 #include <map>
 #include <type_traits>
 #include <variant>
+#include <fmt/format.h>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/metrics_registration.hh>
-#include <boost/lexical_cast.hpp>
 #include <seastar/core/metrics_types.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/bool_class.hh>
@@ -161,8 +161,8 @@ public:
      * \brief create a label_instance
      * label instance consists of key and value.
      * The key is an sstring.
-     * T - the value type can be any type that can be lexical_cast to string
-     * (ie. if it support the redirection operator for stringstream).
+     * T - the value type can be any type that can be fmt::format'ed to string
+     * (ie. if it provides fmt::format<T> specialization).
      *
      * All primitive types are supported so all the following examples are valid:
      * label_instance a("smp_queue", 1)
@@ -170,7 +170,7 @@ public:
      * label_instance a("internal_id", -1)
      */
     template<typename T>
-    label_instance(const sstring& key, T v) : _key(key), _value(boost::lexical_cast<std::string>(v)){}
+    label_instance(const sstring& key, T v) : _key(key), _value(fmt::to_string(v)){}
 
     /*!
      * \brief returns the label key
