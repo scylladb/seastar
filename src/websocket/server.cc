@@ -19,13 +19,17 @@
  * Copyright 2021 ScyllaDB
  */
 
-#include <seastar/websocket/server.hh>
-#include <seastar/util/log.hh>
 #include <cryptopp/sha.h>
 #include <cryptopp/filters.h>
 #include <cryptopp/base64.h>
+
+#include <seastar/websocket/server.hh>
+#include <seastar/core/gate.hh>
+#include <seastar/core/loop.hh>
+#include <seastar/util/log.hh>
 #include <seastar/core/scattered_message.hh>
 #include <seastar/core/byteorder.hh>
+#include <seastar/http/request.hh>
 
 #ifndef CRYPTOPP_NO_GLOBAL_BYTE
 namespace CryptoPP {
@@ -64,7 +68,7 @@ websocket_parser::buff_t websocket_parser::result() {
 
 void server::listen(socket_address addr, listen_options lo) {
     _listeners.push_back(seastar::listen(addr, lo));
-    do_accepts(_listeners.size() - 1);
+    accept(_listeners.back());
 }
 void server::listen(socket_address addr) {
     listen_options lo;
@@ -72,38 +76,48 @@ void server::listen(socket_address addr) {
     return listen(addr, lo);
 }
 
-void server::do_accepts(int which) {
-    _accept_fut = do_until(
-            [this] { return _stopped; },
-            [this, which] { return do_accept_one(which); });
+void server::accept(server_socket &listener) {
+    (void)try_with_gate(_task_gate, [this, &listener]() {
+        return repeat([this, &listener]() {
+            return accept_one(listener);
+        });
+    }).handle_exception_type([](const gate_closed_exception &e) {});
 }
 
-future<> server::do_accept_one(int which) {
-    return _listeners[which].accept().then([this] (accept_result ar) mutable {
+future<stop_iteration> server::accept_one(server_socket &listener) {
+    return listener.accept().then([this](accept_result ar) {
         auto conn = std::make_unique<connection>(*this, std::move(ar.connection));
-        // Tracked by _connections
-        (void)conn->process().finally([conn = std::move(conn)] {
-            wlogger.debug("Connection is finished");
-        });
-    }).handle_exception_type([] (const std::system_error &e) {
+        (void)try_with_gate(_task_gate, [conn = std::move(conn)]() mutable {
+            return conn->process().finally([conn = std::move(conn)] {
+                wlogger.debug("Connection is finished");
+            });
+        }).handle_exception_type([](const gate_closed_exception &e) {});
+        return make_ready_future<stop_iteration>(stop_iteration::no);
+    }).handle_exception_type([](const std::system_error &e) {
         // We expect a ECONNABORTED when server::stop is called,
         // no point in warning about that.
         if (e.code().value() != ECONNABORTED) {
             wlogger.error("accept failed: {}", e);
         }
-    }).handle_exception([] (std::exception_ptr ex) {
-        wlogger.error("accept failed: {}", ex);
+        return make_ready_future<stop_iteration>(stop_iteration::yes);
+    }).handle_exception([](std::exception_ptr ex) {
+        wlogger.info("accept failed: {}", ex);
+        return make_ready_future<stop_iteration>(stop_iteration::yes);
     });
 }
 
 future<> server::stop() {
-    _stopped = true;
     for (auto&& l : _listeners) {
         l.abort_accept();
     }
-    return _accept_fut.finally([this] {
+
+    for (auto&& c : _connections) {
+        c.shutdown_input();
+    }
+
+    return _task_gate.close().finally([this] {
         return parallel_for_each(_connections, [] (connection& conn) {
-            return conn.close().handle_exception([] (auto ignored) {});
+            return conn.close(true).handle_exception([] (auto ignored) {});
         });
     });
 }
@@ -204,8 +218,8 @@ future<websocket_parser::consumption_result_t> websocket_parser::operator()(
 
                 // https://datatracker.ietf.org/doc/html/rfc6455#section-5.1
                 // We must close the connection if data isn't masked.
-                if ((!_header->masked) || 
-                        // RSVX must be 0 
+                if ((!_header->masked) ||
+                        // RSVX must be 0
                         (_header->rsv1 | _header->rsv2 | _header->rsv3) ||
                         // Opcode must be known.
                         (!_header->is_opcode_known())) {
@@ -239,7 +253,7 @@ future<websocket_parser::consumption_result_t> websocket_parser::operator()(
                 }
                 _masking_key = be32toh(*(uint32_t const *)(input + offset));
                 _buffer = {};
-            }                
+            }
             _state = parsing_state::payload;
         } else {
             _buffer.append(data.get(), data.size());
@@ -252,7 +266,7 @@ future<websocket_parser::consumption_result_t> websocket_parser::operator()(
             remove_mask(data, data.size());
             _result = std::move(data);
             return websocket_parser::stop(buff_t(0));
-        } else { 
+        } else {
             _result = data.clone();
             remove_mask(_result, _payload_length);
             data.trim_front(_payload_length);
@@ -325,6 +339,10 @@ future<> connection::read_loop() {
     });
 }
 
+void connection::shutdown_input() {
+    _fd.shutdown_input();
+}
+
 future<> connection::close(bool send_close) {
     return [this, send_close]() {
         if (send_close) {
@@ -335,7 +353,7 @@ future<> connection::close(bool send_close) {
     }().finally([this] {
         _done = true;
         return when_all_succeed(_input.close(), _output.close()).discard_result().finally([this] {
-            shutdown();
+            _fd.shutdown_output();
         });
     });
 }
@@ -363,7 +381,7 @@ future<> connection::send_data(opcodes opcode, temporary_buffer<char>&& buff) {
     msg.append(std::move(buff));
     return _write_buf.write(std::move(msg)).then([this] {
         return _write_buf.flush();
-    }); 
+    });
 }
 
 future<> connection::response_loop() {
@@ -376,16 +394,6 @@ future<> connection::response_loop() {
     }).finally([this]() {
         return _write_buf.close();
     });
-}
-
-void connection::shutdown() {
-    wlogger.debug("Shutting down");
-    _fd.shutdown_input();
-    _fd.shutdown_output();
-}
-
-future<> connection::close() {
-    return this->close(true);
 }
 
 bool server::is_handler_registered(std::string const& name) {
