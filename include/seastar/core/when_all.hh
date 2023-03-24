@@ -344,11 +344,7 @@ struct tuple_to_future;
 
 template<typename... Elements>
 struct tuple_to_future<std::tuple<Elements...>> {
-#if SEASTAR_API_LEVEL < 4
-    using value_type = when_all_succeed_tuple<Elements...>;
-#else
     using value_type = std::tuple<Elements...>;
-#endif
     using type = future<value_type>;
     using promise_type = promise<value_type>;
 
@@ -363,41 +359,6 @@ struct tuple_to_future<std::tuple<Elements...>> {
         return seastar::make_exception_future<value_type>(std::move(excp));
     }
 };
-
-#if SEASTAR_API_LEVEL < 4
-
-template<typename Element>
-struct tuple_to_future<std::tuple<Element>> {
-    using type = future<Element>;
-    using promise_type = promise<Element>;
-
-    // Element comes from a future, so we know it is nothrow move
-    // constructible. `future` also has a static assertion to that effect.
-
-    static auto make_ready(std::tuple<Element> t) noexcept {
-        return make_ready_future<Element>(std::get<0>(std::move(t)));
-    }
-
-    static auto make_failed(std::exception_ptr excp) noexcept {
-        return seastar::make_exception_future<Element>(std::move(excp));
-    }
-};
-
-template<>
-struct tuple_to_future<std::tuple<>> {
-    using type = future<>;
-    using promise_type = promise<>;
-
-    static auto make_ready(std::tuple<> t) noexcept {
-        return make_ready_future<>();
-    }
-
-    static auto make_failed(std::exception_ptr excp) noexcept {
-        return seastar::make_exception_future<>(std::move(excp));
-    }
-};
-
-#endif
 
 template<typename... Futures>
 class extract_values_from_futures_tuple {
