@@ -239,31 +239,19 @@ struct future_stored_type;
 
 template <>
 struct future_stored_type<> {
-#if SEASTAR_API_LEVEL < 5
-    using type = std::tuple<>;
-#else
     using type = monostate;
-#endif
 };
 
 template <typename T>
 struct future_stored_type<T> {
-#if SEASTAR_API_LEVEL < 5
-    using type = std::tuple<T>;
-#else
     using type = std::conditional_t<std::is_void_v<T>, internal::monostate, T>;
-#endif
 };
 
 template <typename... T>
 using future_stored_type_t = typename future_stored_type<T...>::type;
 
 template<typename T>
-#if SEASTAR_API_LEVEL < 5
-using future_tuple_type_t = T;
-#else
 using future_tuple_type_t = std::conditional_t<std::is_same_v<T, monostate>, std::tuple<>, std::tuple<T>>;
-#endif
 
 // It doesn't seem to be possible to use std::tuple_element_t with an empty tuple. There is an static_assert in it that
 // fails the build even if it is in the non enabled side of std::conditional.
@@ -581,11 +569,7 @@ struct future_for_get_promise_marker {};
 template <typename T>
 struct future_state :  public future_state_base, private internal::uninitialized_wrapper<T> {
     static constexpr bool copy_noexcept = std::is_nothrow_copy_constructible<T>::value;
-#if SEASTAR_API_LEVEL < 5
-    static constexpr bool has_trivial_move_and_destroy = internal::is_tuple_effectively_trivially_move_constructible_and_destructible<T>;
-#else
     static constexpr bool has_trivial_move_and_destroy = internal::is_trivially_move_constructible_and_destructible<T>::value;
-#endif
     static_assert(std::is_nothrow_move_constructible<T>::value,
                   "Types must be no-throw move constructible");
     static_assert(std::is_nothrow_destructible<T>::value,
@@ -693,11 +677,7 @@ struct future_state :  public future_state_base, private internal::uninitialized
     }
 
     get0_return_type get0() {
-#if SEASTAR_API_LEVEL < 5
-        return get0(std::move(*this).get());
-#else
         return std::move(*this).get();
-#endif
     }
 };
 
@@ -1388,11 +1368,7 @@ public:
     /// Equivalent to: \c std::get<0>(f.get()).
     using get0_return_type = typename future_state::get0_return_type;
     get0_return_type get0() {
-#if SEASTAR_API_LEVEL < 5
-        return future_state::get0(get());
-#else
         return (get0_return_type)get();
-#endif
     }
 
     /// Wait for the future to be available (in a seastar::thread)
@@ -1500,14 +1476,10 @@ private:
                 pr.set_exception(static_cast<future_state_base&&>(std::move(state)));
             } else {
                 futurator::satisfy_with_result_of(std::move(pr), [&func, &state] {
-#if SEASTAR_API_LEVEL < 5
-                    return std::apply(func, std::move(state).get_value());
-#else
                     // clang thinks that "state" is not used, below, for future<>.
                     // Make it think it is used to avoid an unused-lambda-capture warning.
                     (void)state;
                     return internal::future_invoke(func, std::move(state).get_value());
-#endif
                 });
             }
         });
@@ -1522,11 +1494,7 @@ private:
         if (failed()) {
             return futurator::make_exception_future(static_cast<future_state_base&&>(get_available_state_ref()));
         } else if (available()) {
-#if SEASTAR_API_LEVEL < 5
-            return futurator::apply(std::forward<Func>(func), get_available_state_ref().take_value());
-#else
             return futurator::invoke(std::forward<Func>(func), get_available_state_ref().take_value());
-#endif
         }
 #endif
         return then_impl_nrvo<Func, Result>(std::forward<Func>(func));
@@ -1924,7 +1892,6 @@ struct futurize : public internal::futurize_base<T> {
         return type(ready_future_marker(), value);
     }
 
-#if SEASTAR_API_LEVEL >= 5
     /// Convert the tuple representation into a future
     static type from_tuple(value_type&& value) {
         return type(ready_future_marker(), std::move(value));
@@ -1933,7 +1900,6 @@ struct futurize : public internal::futurize_base<T> {
     static type from_tuple(const value_type& value) {
         return type(ready_future_marker(), value);
     }
-#endif
 private:
     /// Forwards the result of, or exception thrown by, func() to the
     /// promise. This avoids creating a future if func() doesn't
