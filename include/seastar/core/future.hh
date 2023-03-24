@@ -1203,42 +1203,6 @@ auto future_invoke(Func&& func, T&& v) {
     }
 }
 
-// This is a customization point for future::then()'s implementation.
-// It behaves differently when the future value type is a when_all_succeed_tuple
-// instantiation, indicating we need to unpack the tuple into multiple lambda
-// arguments.
-//
-// Note: since the removal of API level 3, there is no special case, just
-// the generic one.
-template <typename Future>
-struct call_then_impl;
-
-// Generic case - the input is not a future<when_all_succeed_tuple<...>>, so
-// we just forward everything to future::then_impl.
-template <typename... T>
-struct call_then_impl<future<T...>> {
-    template <typename Func>
-    using result_type = typename future_result<Func, T...>::future_type;
-
-    template <typename Func>
-    using func_type = typename future_result<Func, T...>::func_type;
-
-    template <typename Func>
-    static result_type<Func> run(future<T...>& fut, Func&& func) noexcept {
-        return fut.then_impl(std::forward<Func>(func));
-    }
-};
-
-template <typename Func, typename... Args>
-using call_then_impl_result_type = typename call_then_impl<future<Args...>>::template result_type<Func>;
-
-SEASTAR_CONCEPT(
-template <typename Func, typename... Args>
-concept CanInvokeWhenAllSucceed = requires {
-    typename call_then_impl_result_type<Func, Args...>;
-};
-)
-
 template <typename Func, typename... T>
 struct result_of_apply {
     // no "type" member if not a function call signature or not a tuple
@@ -1306,7 +1270,6 @@ class [[nodiscard]] future : private internal::future_base {
     using future_state = seastar::future_state<internal::future_stored_type_t<T SEASTAR_ELLIPSIS>>;
     future_state _state;
     static constexpr bool copy_noexcept = future_state::copy_noexcept;
-    using call_then_impl = internal::call_then_impl<future>;
 
 private:
     // This constructor creates a future that is not ready but has no
@@ -1475,19 +1438,15 @@ public:
     ///               unless it has failed.
     /// \return a \c future representing the return value of \c func, applied
     ///         to the eventual value of this future.
-    template <typename Func, typename Result = futurize_t<typename call_then_impl::template result_type<Func>>>
-    SEASTAR_CONCEPT( requires std::invocable<Func, T SEASTAR_ELLIPSIS> || internal::CanInvokeWhenAllSucceed<Func, T SEASTAR_ELLIPSIS>)
+    template <typename Func, typename Result = typename internal::future_result<Func, T SEASTAR_ELLIPSIS>::future_type>
+    SEASTAR_CONCEPT( requires std::invocable<Func, T SEASTAR_ELLIPSIS>
+                 || (std::same_as<std::tuple<void>, std::tuple<T SEASTAR_ELLIPSIS>> && std::invocable<Func>) )
     Result
     then(Func&& func) noexcept {
-        // The implementation of then() is customized via the call_then_impl helper
-        // template, in order to special case the results of when_all_succeed().
-        // when_all_succeed() used to return a variadic future, which is deprecated, so
-        // now it returns a when_all_succeed_tuple, which we intercept in call_then_impl,
-        // and treat it as a variadic future.
 #ifndef SEASTAR_TYPE_ERASE_MORE
-        return call_then_impl::run(*this, std::move(func));
+        return then_impl(std::move(func));
 #else
-        using func_type = typename call_then_impl::template func_type<Func>;
+        using func_type = typename internal::future_result<Func, T SEASTAR_ELLIPSIS>::func_type;
         noncopyable_function<func_type> ncf;
         {
             memory::scoped_critical_alloc_section _;
@@ -1495,7 +1454,7 @@ public:
                 return futurize_invoke(func, std::forward<decltype(args)>(args)...);
             });
         }
-        return call_then_impl::run(*this, std::move(ncf));
+        return then_impl(std::move(ncf));
 #endif
     }
 
@@ -1876,8 +1835,6 @@ private:
     friend future<U...> current_exception_as_future() noexcept;
     template <typename... U, typename V>
     friend void internal::set_callback(future<U...>&&, V*) noexcept;
-    template <typename Future>
-    friend struct internal::call_then_impl;
     /// \endcond
 };
 
