@@ -77,11 +77,7 @@ SEASTAR_TEST_CASE(test_self_move) {
     s1.set(std::make_unique<int>(42));
     s1 = std::move(s1); // no crash, but the value of s1 is not defined.
 
-#if SEASTAR_API_LEVEL < 5
-    future_state<std::tuple<std::unique_ptr<int>>> s2;
-#else
     future_state<std::unique_ptr<int>> s2;
-#endif
     s2.set(std::make_unique<int>(42));
     std::swap(s2, s2);
     BOOST_REQUIRE_EQUAL(*std::move(s2).get0(), 42);
@@ -1259,9 +1255,6 @@ SEASTAR_TEST_CASE(test_futurize_from_tuple) {
     future<int> fut1 = futurize<int>::from_tuple(v1);
     future<> fut2 = futurize<void>::from_tuple(v2);
     BOOST_REQUIRE(fut1.get0() == std::get<0>(v1));
-#if SEASTAR_API_LEVEL < 5
-    BOOST_REQUIRE(fut2.get() == v2);
-#endif
     return make_ready_future<>();
 }
 

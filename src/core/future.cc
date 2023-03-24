@@ -35,11 +35,7 @@ static_assert(std::is_nothrow_move_constructible<future_state<std::tuple<int>>>:
 static_assert(sizeof(future_state<std::tuple<>>) <= 8, "future_state<std::tuple<>> is too large");
 static_assert(sizeof(future_state<std::tuple<long>>) <= 16, "future_state<std::tuple<long>> is too large");
 static_assert(future_state<std::tuple<>>::has_trivial_move_and_destroy, "future_state<std::tuple<>> not trivial");
-#if SEASTAR_API_LEVEL < 5
-static_assert(future_state<std::tuple<long>>::has_trivial_move_and_destroy, "future_state<std::tuple<long>> not trivial");
-#else
 static_assert(future_state<long>::has_trivial_move_and_destroy, "future_state<long> not trivial");
-#endif
 
 // We need to be able to move and copy std::exception_ptr in and out
 // of future/promise/continuations without that producing a new
