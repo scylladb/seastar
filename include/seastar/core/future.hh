@@ -786,25 +786,6 @@ struct continuation final : continuation_base_with_promise<Promise, T SEASTAR_EL
     [[no_unique_address]] Wrapper _wrapper;
 };
 
-#if SEASTAR_API_LEVEL < 4
-
-// This is an internal future<> payload for seastar::when_all_succeed(). It is used
-// to return a variadic future (when two or more of its input futures were non-void),
-// but with variadic futures deprecated and soon gone this is no longer possible.
-//
-// Instead, we use this tuple type, and future::then() knows to unpack it.
-//
-// The whole thing is temporary for a transition period.
-template <typename... T>
-struct when_all_succeed_tuple : std::tuple<T...> {
-    using std::tuple<T...>::tuple;
-    when_all_succeed_tuple(std::tuple<T...>&& t)
-            noexcept(std::is_nothrow_move_constructible<std::tuple<T...>>::value)
-            : std::tuple<T...>(std::move(t)) {}
-};
-
-#endif
-
 namespace internal {
 
 template <typename... T>
@@ -1226,6 +1207,9 @@ auto future_invoke(Func&& func, T&& v) {
 // It behaves differently when the future value type is a when_all_succeed_tuple
 // instantiation, indicating we need to unpack the tuple into multiple lambda
 // arguments.
+//
+// Note: since the removal of API level 3, there is no special case, just
+// the generic one.
 template <typename Future>
 struct call_then_impl;
 
@@ -1244,32 +1228,6 @@ struct call_then_impl<future<T...>> {
         return fut.then_impl(std::forward<Func>(func));
     }
 };
-
-#if SEASTAR_API_LEVEL < 4
-
-// Special case: we unpack the tuple before calling the function
-template <typename... T>
-struct call_then_impl<future<when_all_succeed_tuple<T...>>> {
-    template <typename Func>
-    using result_type = futurize_t<std::invoke_result_t<Func,  T&&...>>;
-
-    template <typename Func>
-    using func_type = result_type<Func> (T&&...);
-
-    using was_tuple = when_all_succeed_tuple<T...>;
-    using std_tuple = std::tuple<T...>;
-
-    template <typename Func>
-    static auto run(future<was_tuple>& fut, Func&& func) noexcept {
-        // constructing func in the lambda can throw, but there's nothing we can do
-        // about it, similar to #84.
-        return fut.then_impl([func = std::forward<Func>(func)] (was_tuple&& t) mutable {
-            return std::apply(func, static_cast<std_tuple&&>(std::move(t)));
-        });
-    }
-};
-
-#endif
 
 template <typename Func, typename... Args>
 using call_then_impl_result_type = typename call_then_impl<future<Args...>>::template result_type<Func>;
