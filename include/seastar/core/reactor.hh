@@ -135,7 +135,8 @@ class reactor_stall_sampler;
 class cpu_stall_detector;
 class buffer_allocator;
 
-template <typename Func> // signature: bool ()
+template <typename Func>
+SEASTAR_CONCEPT( requires std::is_invocable_r_v<bool, Func> )
 std::unique_ptr<pollfn> make_pollfn(Func&& func);
 
 class poller {
@@ -144,7 +145,8 @@ class poller {
     class deregistration_task;
     registration_task* _registration_task = nullptr;
 public:
-    template <typename Func> // signature: bool ()
+    template <typename Func>
+    SEASTAR_CONCEPT( requires std::is_invocable_r_v<bool, Func> )
     static poller simple(Func&& poll) {
         return poller(make_pollfn(std::forward<Func>(poll)));
     }
@@ -698,7 +700,8 @@ public:
     std::function<void ()> get_stall_detector_report_function() const;
 };
 
-template <typename Func> // signature: bool ()
+template <typename Func>
+SEASTAR_CONCEPT( requires std::is_invocable_r_v<bool, Func> )
 inline
 std::unique_ptr<seastar::pollfn>
 internal::make_pollfn(Func&& func) {
