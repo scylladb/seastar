@@ -365,13 +365,13 @@ future<> connection::send_data(opcodes opcode, temporary_buffer<char>&& buff) {
     header[0] += opcode;
 
     if ((126 <= buff.size()) && (buff.size() <= std::numeric_limits<uint16_t>::max())) {
-        header[1] = '\x7e';
+        header[1] = 0x7E;
         write_be<uint16_t>(header + 2, buff.size());
-        header_size = 3;
+        header_size += sizeof(uint16_t);
     } else if (std::numeric_limits<uint16_t>::max() < buff.size()) {
-        header[1] = '\x7e';
+        header[1] = 0x7F;
         write_be<uint64_t>(header + 2, buff.size());
-        header_size = 10;
+        header_size += sizeof(uint64_t);
     } else {
         header[1] = uint8_t(buff.size());
     }
