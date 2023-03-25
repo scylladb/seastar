@@ -58,11 +58,6 @@ opcodes websocket_parser::opcode() const {
 }
 
 websocket_parser::buff_t websocket_parser::result() {
-    _payload_length = 0;
-    _masking_key = 0;
-    _state = parsing_state::flags_and_payload_data;
-    _cstate = connection_state::valid;
-    _header.reset(nullptr);
     return std::move(_result);
 }
 
