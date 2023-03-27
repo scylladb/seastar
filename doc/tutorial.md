@@ -412,12 +412,25 @@ another asynchronously. From the consumer of the view's perspective, it can retr
 the return value of the coroutine. From the coroutine's perspective, it is able to produce the elements multiple times
 using `co_yield` without "leaving" the coroutine. A function producing a sequence of values can be named "generator".
 But unlike the regular coroutine which returns a single `seastar::future<T>`, a generator should return
-`seastar::coroutine::experimental::generator<T>`. Please note, `generator<T>` is still at its early stage of developing,
-the public interface this template is subject to change before it is stablized enough.
+`seastar::coroutine::experimental::generator<T, Container>`. Where `T` is the type of the elements, while `Container` 
+is a template, which is used to store the elements. Because, underneath of Seastar's generator implementation, a 
+bounded buffer is used for holding the elements not yet retrieved by the consumer, there is a design decision to make -- 
+what kind of container should be used, and what its maximum size should be. To define the bounded buffer, developers
+need to:
 
-Example
+1. specify the type of the container's type by via the second template parameter of the `generator`
+2. specify the size of the bounded buffer by passing the size as the first parameter of the generator coroutine.
+   The type of the size have to be `seastar::coroutine::experimental::buffer_size_t`.
+
+But there is an exception, if the buffer's size is one, we assume that the programmer is likely to use `std::optional`
+for the bounded buffer, so it's not required to pass the maximum size of the buffer as the first parameter in this case.
+But if a coroutine uses `std::optional` as its buffer, and its function sigature still lists the size as its first 
+parameter, it will not break anything. As this parameter will just be ignored by the underlying implementation. 
+
+Following is an example
 
 ```cpp
+#include <seastar/core/circular_buffer.hh>
 #include <seastar/core/coroutine.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/coroutine/generator.hh>
@@ -426,7 +439,7 @@ seastar::future<Preprocessed> prepare_ingredients(Ingredients&&);
 seastar::future<Dish> cook_a_dish(Preprocessed&&);
 seastar::future<> consume_a_dish(Dish&&);
 
-seastar::coroutine::experimental::generator<Dish>
+seastar::coroutine::experimental::generator<Dish, seastar::circular_buffer>
 make_dishes(coroutine::experimental::buffer_size_t max_dishes_on_table,
             Ingredients&& ingredients) {
     while (ingredients) {
@@ -447,10 +460,16 @@ seastar::future<> have_a_dinner(unsigned max_dishes_on_table) {
 
 In this hypothetical kitchen, a chef and a diner are working in parallel. Instead of preparing
 all dishes beforehand, the chef cooks the dishes while the diner is consuming them one after another.
-Under most circumstances, neither the chef or the diner is blocked by its peer. But if the diner
+Under most circumstances, neither the chef or the diner is blocked by its peer. The dishes are buffered
+using the specified `seastar::circular_buffer<Dish>`. But if the diner
 is too slow so that there are `max_dishes_on_table` dishes left on the table, the chef would wait
-until the number of dishes is less than this setting. And, apparently, if there is no dishes on the
-table, the diner would wait for new ones to be prepared by the chef.
+until the number of dishes is less than this setting. Please note, as explained above, despite that this
+parameter is not referenced by the coroutine's body, it is actually passed to the generator's promise
+constructor, which in turn creates the buffer, as we are not using `std::optional` here. On the other hand,
+apparently, if there is no dishes on the table, the diner would wait for new ones to be prepared by the chef. 
+
+Please note, `generator<T, Container>` is still at its early stage of developing,
+the public interface this template is subject to change before it is stablized enough.
 
 ## Exceptions in coroutines
 
