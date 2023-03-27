@@ -333,7 +333,8 @@ public:
     }
     generator(const generator&) = delete;
     generator(generator&& other) noexcept
-        : _coro{std::exchange(other._coro, {})} {}
+        : _coro{std::exchange(other._coro, {})}
+        , _buffer_capacity{other._buffer_capacity} {}
     generator& operator=(generator&& other) noexcept {
         if (std::addressof(other) != this) {
             auto old_coro = std::exchange(_coro, std::exchange(other._coro, {}));
