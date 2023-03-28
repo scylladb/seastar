@@ -84,14 +84,14 @@ char* convert_hex_safe(char *buf, size_t bufsz, Integral n) noexcept {
 template<typename Integral>
 SEASTAR_CONCEPT( requires std::integral<Integral> )
 void convert_zero_padded_hex_safe(char *buf, size_t bufsz, Integral n) noexcept {
-    convert_hex_safe<'0'>(buf, bufsz, n);
+    convert_hex_safe<Integral, '0'>(buf, bufsz, n);
 }
 
 // Prints zero-padded hexadecimal representation of an integer to stderr.
 // For example, print_zero_padded_hex_safe(uint16_t(12)) prints "000c".
 // Async-signal safe.
 template<typename Integral>
-SEASTAR_CONCEPT ( requires std::signed_integral<Integral> )
+SEASTAR_CONCEPT ( requires std::unsigned_integral<Integral> )
 void print_zero_padded_hex_safe(Integral n) noexcept {
     char buf[sizeof(n) * 2];
     convert_zero_padded_hex_safe(buf, sizeof(buf), n);
