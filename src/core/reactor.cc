@@ -797,7 +797,7 @@ public:
     }
 };
 
-static void print_with_backtrace(backtrace_buffer& buf, bool oneline) noexcept {
+static void print_with_backtrace(backtrace_buffer& buf, bool oneline, bool decoded) noexcept {
     if (local_engine) {
         buf.append(" on shard ");
         buf.append_decimal(this_shard_id());
@@ -812,12 +812,16 @@ static void print_with_backtrace(backtrace_buffer& buf, bool oneline) noexcept {
         buf.append("\n");
     }
     buf.flush();
+    if (decoded) {
+        print_safe("\nDecoded:\n");
+        print_decoded_backtrace();
+    }
 }
 
-static void print_with_backtrace(const char* cause, bool oneline = false) noexcept {
+static void print_with_backtrace(const char* cause, bool oneline = false, bool decoded = false) noexcept {
     backtrace_buffer buf;
     buf.append(cause);
-    print_with_backtrace(buf, oneline);
+    print_with_backtrace(buf, oneline, decoded);
 }
 
 // Installs signal handler stack for current thread.
@@ -1362,7 +1366,7 @@ void cpu_stall_detector::generate_trace() {
     buf.append("Reactor stalled for ");
     buf.append_decimal(uint64_t(delta / 1ms));
     buf.append(" ms");
-    print_with_backtrace(buf, _config.oneline);
+    print_with_backtrace(buf, _config.oneline, false);
     maybe_report_kernel_trace();
 }
 
@@ -3013,12 +3017,14 @@ void reactor::service_highres_timer() noexcept {
     });
 }
 
+static bool print_decoded_backtrace_on_abort = false;
+
 int reactor::run() noexcept {
     try {
         return do_run();
     } catch (const std::exception& e) {
         seastar_logger.error(e.what());
-        print_with_backtrace("exception running reactor main loop");
+        print_with_backtrace("exception running reactor main loop", false, print_decoded_backtrace_on_abort);
         _exit(1);
     }
 }
@@ -3704,6 +3710,7 @@ reactor_options::reactor_options(program_options::option_group* parent_group)
     , heapprof(*this, "heapprof", program_options::unused{})
 #endif
     , no_handle_interrupt(*this, "no-handle-interrupt", "ignore SIGINT (for gdb)")
+    , print_decoded_backtrace_on_abort(*this, "print-decoded-backtrace-on-abort", false, "Print decoded backtrace on abort. For use in testing and development, not in production.")
 {
 }
 
@@ -3874,12 +3881,12 @@ static void reraise_signal(int signo) {
 }
 
 static void sigsegv_action() noexcept {
-    print_with_backtrace("Segmentation fault");
+    print_with_backtrace("Segmentation fault", false, print_decoded_backtrace_on_abort);
     reraise_signal(SIGSEGV);
 }
 
 static void sigabrt_action() noexcept {
-    print_with_backtrace("Aborting");
+    print_with_backtrace("Aborting", false, print_decoded_backtrace_on_abort);
     reraise_signal(SIGABRT);
 }
 
@@ -4076,6 +4083,8 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     (void)sigsegv_action;
 #endif
     install_oneshot_signal_handler<SIGABRT, sigabrt_action>();
+
+    print_decoded_backtrace_on_abort = reactor_opts.print_decoded_backtrace_on_abort.get_value();
 
 #ifdef SEASTAR_HAVE_DPDK
     const auto* native_stack = dynamic_cast<const net::native_stack_options*>(reactor_opts.network_stack.get_selected_candidate_opts());

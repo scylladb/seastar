@@ -157,6 +157,9 @@ struct reactor_options : public program_options::option_group {
     bool _auto_handle_sigint_sigterm = true;
     /// \endcond
 
+    /// \brief On abort, print a decoded backtrace in addition to the regular
+    /// backtrace. For use in testing and development, not in production.
+    program_options::value<bool> print_decoded_backtrace_on_abort;
 public:
     /// \cond internal
     reactor_options(program_options::option_group* parent_group);
