@@ -236,4 +236,6 @@ throw_with_backtrace(Args&&... args) {
     std::rethrow_exception(make_backtraced_exception_ptr<Exc>(std::forward<Args>(args)...));
 };
 
+void print_decoded_backtrace();
+
 }

@@ -30,7 +30,8 @@
 #include <seastar/core/print.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/reactor.hh>
-
+#include "libbacktrace.h"
+#include <seastar/util/print_safe.hh>
 
 namespace seastar {
 
@@ -182,5 +183,42 @@ bool tasktrace::operator==(const tasktrace& o) const noexcept {
 }
 
 tasktrace::~tasktrace() {}
+
+static void libbacktrace_error_cb(void *data, const char *errmsg, int errnum) {
+    if (errnum < 0) {
+        // No debug info available.
+        return;
+    }
+
+    print_safe("error handling backtrace: ");
+    print_safe(errmsg);
+    if (errnum > 0) {
+        print_safe(": ");
+        print_decimal_safe(static_cast<unsigned>(errnum));
+    }
+    print_safe("\n");
+}
+
+static int libbacktrace_print_cb(void *data, uintptr_t pc, const char *filename, int lineno, const char *function) {
+    if (pc == uintptr_t(-1)) {
+        return 0;
+    }
+    print_zero_padded_hex_safe(pc);
+    print_safe(" ");
+    print_safe(function ? function : "???");
+    if (filename) {
+        print_safe(" ");
+        print_safe(filename);
+        print_safe(":");
+        print_decimal_safe(static_cast<unsigned>(lineno));
+    }
+    print_safe("\n");
+    return 0;
+}
+
+void print_decoded_backtrace() {
+    static struct backtrace_state *state = backtrace_create_state(nullptr, 0, libbacktrace_error_cb, nullptr);
+    backtrace_full(state, 0, libbacktrace_print_cb, libbacktrace_error_cb, nullptr);
+}
 
 } // namespace seastar
