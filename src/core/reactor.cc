@@ -803,14 +803,14 @@ static void print_with_backtrace(backtrace_buffer& buf, bool oneline) noexcept {
         buf.append_decimal(this_shard_id());
     }
 
-  if (!oneline) {
-    buf.append(".\nBacktrace:\n");
-    buf.append_backtrace();
-  } else {
-    buf.append(". Backtrace:");
-    buf.append_backtrace_oneline();
-    buf.append("\n");
-  }
+    if (!oneline) {
+        buf.append(".\nBacktrace:\n");
+        buf.append_backtrace();
+    } else {
+        buf.append(". Backtrace:");
+        buf.append_backtrace_oneline();
+        buf.append("\n");
+    }
     buf.flush();
 }
 
