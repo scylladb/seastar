@@ -1,3 +1,6 @@
 [submodule "dpdk"]
 	path = dpdk
 	url = ../dpdk
+[submodule "libbacktrace"]
+	path = libbacktrace
+	url = https://github.com/ianlancetaylor/libbacktrace
