@@ -397,6 +397,7 @@ find_package (ragel 6.10 REQUIRED)
 find_package (Threads REQUIRED)
 find_package (PthreadSetName REQUIRED)
 find_package (Valgrind REQUIRED)
+find_package (libbacktrace REQUIRED)
 
 #
 # Code generation helpers.
@@ -789,6 +790,7 @@ target_link_libraries (seastar
     lksctp-tools::lksctp-tools
     rt::rt
     yaml-cpp::yaml-cpp
+    libbacktrace
     "$<BUILD_INTERFACE:Valgrind::valgrind>"
     Threads::Threads)
 
