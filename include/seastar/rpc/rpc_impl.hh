@@ -499,21 +499,17 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
     return shelper{xt, xsig};
 }
 
-template<typename Serializer, typename SEASTAR_ELLIPSIS RetTypes>
-inline future<> reply(wait_type, future<RetTypes SEASTAR_ELLIPSIS>&& ret, int64_t msg_id, shared_ptr<server::connection> client,
+template<typename Serializer, typename RetTypes>
+inline future<> reply(wait_type, future<RetTypes>&& ret, int64_t msg_id, shared_ptr<server::connection> client,
         std::optional<rpc_clock_type::time_point> timeout) {
     if (!client->error()) {
         snd_buf data;
         try {
-#if SEASTAR_API_LEVEL < 6
-            if constexpr (sizeof...(RetTypes) == 0) {
-#else
             if constexpr (std::is_void_v<RetTypes>) {
-#endif
                 ret.get();
                 data = std::invoke(marshall<Serializer>, std::ref(client->template serializer<Serializer>()), 12);
             } else {
-                data = std::invoke(marshall<Serializer, const RetTypes& SEASTAR_ELLIPSIS>, std::ref(client->template serializer<Serializer>()), 12, std::move(ret.get0()));
+                data = std::invoke(marshall<Serializer, const RetTypes&>, std::ref(client->template serializer<Serializer>()), 12, std::move(ret.get0()));
             }
         } catch (std::exception& ex) {
             uint32_t len = std::strlen(ex.what());

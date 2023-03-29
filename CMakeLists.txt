@@ -76,7 +76,7 @@ set (Seastar_API_LEVEL
 
 set_property (CACHE Seastar_API_LEVEL
   PROPERTY
-  STRINGS 5 6)
+  STRINGS 6)
 
 set (Seastar_SCHEDULING_GROUPS_COUNT
   "16"

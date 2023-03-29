@@ -32,21 +32,11 @@
 #define SEASTAR_INCLUDE_API_V6
 #endif
 
-#if SEASTAR_API_LEVEL == 5
-#define SEASTAR_INCLUDE_API_V5 inline
-#else
-#define SEASTAR_INCLUDE_API_V5
-#endif
 
 // Declare them here so we don't have to use the macros everywhere
 namespace seastar {
-    SEASTAR_INCLUDE_API_V5 namespace api_v5 {
-        inline namespace and_newer {
-        }
-    }
     SEASTAR_INCLUDE_API_V6 namespace api_v6 {
         inline namespace and_newer {
-            using namespace api_v5::and_newer;
         }
     }
 }
