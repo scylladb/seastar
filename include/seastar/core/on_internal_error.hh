@@ -38,14 +38,17 @@ bool set_abort_on_internal_error(bool do_abort) noexcept;
 /// Report an internal error
 ///
 /// Depending on the value passed to set_abort_on_internal_error, this
-/// will either log to \p logger and abort or throw a std::runtime_error.
+/// will either abort or throw a std::runtime_error.
+/// In both cases an error will be logged with \p logger, containing
+/// \p reason and the current backtrace.
 [[noreturn]] void on_internal_error(logger& logger, std::string_view reason);
 
 /// Report an internal error
 ///
 /// Depending on the value passed to set_abort_on_internal_error, this
-/// will either log to \p logger and abort or throw the passed-in
-/// \p ex.
+/// will either abort or throw the passed-in \p ex.
+/// In both cases an error will be logged with \p logger, containing
+/// \p ex and the current backtrace.
 /// This overload cannot attach a backtrace to the exception, so if the
 /// caller wishes to have one attached they have to do it themselves.
 [[noreturn]] void on_internal_error(logger& logger, std::exception_ptr ex);
