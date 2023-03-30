@@ -4288,13 +4288,13 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
                 if (!iog) {
                     struct io_queue::config qcfg = disk_config.generate_config(topo.first, io_info.groups.size());
                     iog = std::make_shared<io_group>(std::move(qcfg));
-                    seastar_logger.debug("allocate {} IO group", group_idx);
+                    seastar_logger.debug("allocate {} IO group, dev {}", group_idx, topo.first);
                 }
                 group = iog;
             }
 
             io_info.queues[shard] = std::make_unique<io_queue>(std::move(group), engine()._io_sink);
-            seastar_logger.debug("attached {} queue to {} IO group", shard, group_idx);
+            seastar_logger.debug("attached {} queue to {} IO group, dev {}", shard, group_idx, topo.first);
         }
     };
 
