@@ -171,7 +171,7 @@ private:
 
 class io_group {
 public:
-    explicit io_group(io_queue::config io_cfg);
+    explicit io_group(io_queue::config io_cfg, unsigned nr_queues);
     ~io_group();
     struct priority_class_data;
 

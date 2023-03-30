@@ -569,15 +569,15 @@ static void maybe_warn_latency_goal_auto_adjust(const fair_group& fg, const io_q
     seastar_logger.log(lvl, "IO queue uses {:.2f}ms latency goal for device {}", goal.count() * 1000, cfg.devid);
 }
 
-io_group::io_group(io_queue::config io_cfg)
+io_group::io_group(io_queue::config io_cfg, unsigned nr_queues)
     : _config(std::move(io_cfg))
     , _allocated_on(this_shard_id())
 {
     auto fg_cfg = make_fair_group_config(_config);
-    _fgs.push_back(std::make_unique<fair_group>(fg_cfg));
+    _fgs.push_back(std::make_unique<fair_group>(fg_cfg, nr_queues));
     maybe_warn_latency_goal_auto_adjust(*_fgs.back(), io_cfg);
     if (_config.duplex) {
-        _fgs.push_back(std::make_unique<fair_group>(fg_cfg));
+        _fgs.push_back(std::make_unique<fair_group>(fg_cfg, nr_queues));
         maybe_warn_latency_goal_auto_adjust(*_fgs.back(), io_cfg);
     }
 
