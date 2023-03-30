@@ -29,6 +29,7 @@
 #include <seastar/core/posix.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/util/later.hh>
+#include <stdexcept>
 
 using namespace seastar;
 
@@ -53,10 +54,10 @@ int main(int argc, char** argv)
         // wait until the seastar engine is ready
         int r = ::eventfd_read(engine_ready_fd, &result);
         if (r < 0) {
-            return -EINVAL;
+            throw std::runtime_error("failed to wait for seastar engine");
         }
         if (result != ENGINE_READY) {
-            return -EINVAL;
+            throw std::runtime_error("seastar failed to sent us the ready message");
         }
         std::vector<std::future<int>> counts;
         for (auto i : boost::irange(0u, smp::count)) {
