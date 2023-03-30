@@ -777,16 +777,17 @@ void io_queue::register_stats(sstring name, priority_class_data& pc) {
     auto owner_l = sm::shard_label(this_shard_id());
     auto mnt_l = sm::label("mountpoint")(mountpoint());
     auto class_l = sm::label("class")(name);
+    auto group_l = sm::label("iogroup")(to_sstring(_group->_allocated_on));
 
     std::vector<sm::metric_definition> metrics;
     for (auto&& m : pc.metrics()) {
-        m(owner_l)(mnt_l)(class_l);
+        m(owner_l)(mnt_l)(class_l)(group_l);
         metrics.emplace_back(std::move(m));
     }
 
     for (auto&& s : _streams) {
         for (auto&& m : s.metrics(pc.fq_class())) {
-            m(owner_l)(mnt_l)(class_l)(sm::label("stream")(s.label()));
+            m(owner_l)(mnt_l)(class_l)(group_l)(sm::label("stream")(s.label()));
             metrics.emplace_back(std::move(m));
         }
     }
