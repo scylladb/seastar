@@ -98,10 +98,11 @@ fair_group::fair_group(config cfg, unsigned nr_queues)
                         std::max<capacity_t>(cfg.rate_factor * fixed_point_factor * token_bucket_t::rate_cast(cfg.rate_limit_duration).count(), ticket_capacity(fair_queue_ticket(cfg.limit_min_weight, cfg.limit_min_size))),
                         ticket_capacity(fair_queue_ticket(cfg.min_weight, cfg.min_size))
                        )
+        , _per_tick_threshold(_token_bucket.limit() / nr_queues)
 {
     assert(_cost_capacity.is_non_zero());
-    seastar_logger.info("Created fair group {} for {} queues, capacity rate {}, limit {}, rate {} (factor {}), threshold {}", cfg.label, nr_queues,
-            _cost_capacity, _token_bucket.limit(), _token_bucket.rate(), cfg.rate_factor, _token_bucket.threshold());
+    seastar_logger.info("Created fair group {} for {} queues, capacity rate {}, limit {}, rate {} (factor {}), threshold {}, per tick grab {}", cfg.label, nr_queues,
+            _cost_capacity, _token_bucket.limit(), _token_bucket.rate(), cfg.rate_factor, _token_bucket.threshold(), _per_tick_threshold);
 
     if (cfg.rate_factor * fixed_point_factor > _token_bucket.max_rate) {
         throw std::runtime_error("Fair-group rate_factor is too large");
@@ -374,7 +375,7 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
     capacity_t dispatched = 0;
     boost::container::small_vector<priority_class_ptr, 2> preempt;
 
-    while (!_handles.empty() && (dispatched < _group.maximum_capacity() / smp::count)) {
+    while (!_handles.empty() && (dispatched < _group.per_tick_grab_threshold())) {
         priority_class_data& h = *_handles.top();
         if (h._queue.empty()) {
             pop_priority_class(h);

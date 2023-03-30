@@ -209,6 +209,7 @@ private:
 
     const fair_queue_ticket _cost_capacity;
     token_bucket_t _token_bucket;
+    const capacity_t _per_tick_threshold;
 
 public:
 
@@ -245,6 +246,7 @@ public:
 
     fair_queue_ticket cost_capacity() const noexcept { return _cost_capacity; }
     capacity_t maximum_capacity() const noexcept { return _token_bucket.limit(); }
+    capacity_t per_tick_grab_threshold() const noexcept { return _per_tick_threshold; }
     capacity_t grab_capacity(capacity_t cap) noexcept;
     clock_type::time_point replenished_ts() const noexcept { return _token_bucket.replenished_ts(); }
     void release_capacity(capacity_t cap) noexcept;
