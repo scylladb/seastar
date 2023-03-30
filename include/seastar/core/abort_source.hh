@@ -29,6 +29,7 @@
 
 #include <exception>
 #include <optional>
+#include <type_traits>
 #include <utility>
 
 namespace bi = boost::intrusive;
@@ -131,10 +132,9 @@ public:
     ///          the lifetime of the callback \c f, if \ref abort_requested() is \c false. Otherwise,
     ///          returns a disengaged \ref optimized_optional.
     template <typename Func>
-    SEASTAR_CONCEPT(requires
-            requires (Func f, const std::optional<std::exception_ptr>& opt_ex) { { f(opt_ex) } noexcept -> std::same_as<void>; }
-        ||  requires (Func f) { { f() } noexcept -> std::same_as<void>; }
-    )
+    SEASTAR_CONCEPT(
+        requires (std::is_nothrow_invocable_r_v<void, Func, const std::optional<std::exception_ptr>&> ||
+                  std::is_nothrow_invocable_r_v<void, Func>))
     [[nodiscard]]
     optimized_optional<subscription> subscribe(Func&& f) {
         if (abort_requested()) {

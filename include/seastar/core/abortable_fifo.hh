@@ -28,6 +28,7 @@
 #include <memory>
 #include <optional>
 #include <stdexcept>
+#include <type_traits>
 
 namespace seastar {
 
@@ -35,9 +36,7 @@ namespace internal {
 
 SEASTAR_CONCEPT(
     template <typename Aborter, typename T>
-    concept aborter = requires (Aborter abort, T& t) {
-        { abort(t) } noexcept -> std::same_as<void>;
-    };
+    concept aborter = std::is_nothrow_invocable_r_v<void, Aborter, T&>;
 )
 
 // This class satisfies 'aborter' concept and is used by default
