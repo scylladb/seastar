@@ -4288,7 +4288,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
                 if (!iog) {
                     struct io_queue::config qcfg = disk_config.generate_config(topo.first, io_info.groups.size());
                     iog = std::make_shared<io_group>(std::move(qcfg));
-                    seastar_logger.debug("allocate {} IO group, dev {}", group_idx, topo.first);
+                    seastar_logger.debug("allocate {} IO group with {} queues, dev {}", group_idx, io_info.shards_in_group[group_idx], topo.first);
                 }
                 group = iog;
             }
