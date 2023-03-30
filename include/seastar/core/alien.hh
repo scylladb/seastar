@@ -201,7 +201,7 @@ template<typename Func, typename T = internal::return_type_t<Func>>
 std::future<T> submit_to(instance& instance, unsigned shard, Func func) {
     std::promise<T> pr;
     auto fut = pr.get_future();
-    run_on(instance, shard, [pr = std::move(pr), func = std::move(func)] () mutable {
+    run_on(instance, shard, [pr = std::move(pr), func = std::move(func)] () mutable noexcept {
         // std::future returned via std::promise above.
         (void)func().then_wrapped([pr = std::move(pr)] (auto&& result) mutable {
             try {
