@@ -33,6 +33,8 @@
 #include <seastar/core/cacheline.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/metrics_registration.hh>
+#include <seastar/util/concepts.hh>
+#include <type_traits>
 
 /// \file
 
@@ -140,6 +142,7 @@ extern instance* default_instance;
 ///          interested to the return value. Please use \c submit_to() instead, if
 ///          \c func throws.
 template <typename Func>
+SEASTAR_CONCEPT(requires std::is_nothrow_invocable_r_v<void, Func>)
 void run_on(instance& instance, unsigned shard, Func func) {
     instance._qs[shard].submit(std::move(func));
 }
@@ -194,10 +197,11 @@ template <typename Func> using return_type_t = typename return_type_of<Func>::ty
 /// \return whatever \c func returns, as a \c std::future<>
 /// \note the caller must keep the returned future alive until \c func returns
 template<typename Func, typename T = internal::return_type_t<Func>>
+SEASTAR_CONCEPT(requires std::invocable<Func>)
 std::future<T> submit_to(instance& instance, unsigned shard, Func func) {
     std::promise<T> pr;
     auto fut = pr.get_future();
-    run_on(instance, shard, [pr = std::move(pr), func = std::move(func)] () mutable {
+    run_on(instance, shard, [pr = std::move(pr), func = std::move(func)] () mutable noexcept {
         // std::future returned via std::promise above.
         (void)func().then_wrapped([pr = std::move(pr)] (auto&& result) mutable {
             try {
