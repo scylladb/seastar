@@ -145,12 +145,12 @@ private:
 #endif
 
 public:
-    shared_token_bucket(T rate, T limit, T threshold, bool add_replenish_iffset = true) noexcept
+    shared_token_bucket(T rate, T limit, T threshold, bool add_replenish_offset = true) noexcept
             : _replenish_rate(std::min(rate, max_rate))
             , _replenish_limit(limit)
             , _replenish_threshold(std::clamp(threshold, (T)1, limit))
             // pretend it was replenished yesterday to spot overflows early
-            , _replenished(Clock::now() - std::chrono::hours(add_replenish_iffset ? 24 : 0))
+            , _replenished(Clock::now() - std::chrono::hours(add_replenish_offset ? 24 : 0))
             , _rovers(_replenish_limit)
     {}
 
