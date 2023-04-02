@@ -219,12 +219,12 @@ class connection : public boost::intrusive::list_base_hook<> {
     };
 
     /*!
-     * \brief This function processess received PING frame.
+     * \brief This function processes received PING frame.
      * https://datatracker.ietf.org/doc/html/rfc6455#section-5.5.2
      */
     future<> handle_ping();
     /*!
-     * \brief This function processess received PONG frame.
+     * \brief This function processes received PONG frame.
      * https://datatracker.ietf.org/doc/html/rfc6455#section-5.5.3
      */
     future<> handle_pong();
