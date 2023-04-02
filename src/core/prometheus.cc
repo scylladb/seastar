@@ -94,7 +94,7 @@ static void add_name(std::ostream& s, const sstring& name, const std::map<sstrin
 /*!
  * \brief iterator for metric family
  *
- * In prometheus, a single shard collecct all the data from the other
+ * In prometheus, a single shard collects all the data from the other
  * shards and report it.
  *
  * Each shard returns a value_copy struct that has a vector of vector values (a vector per metric family)
