@@ -327,7 +327,7 @@ option (BUILD_SHARED_LIBS
 #   library, this causes a chicken and egg problem. In other words,
 #   ASan is loaded first, and it tries to reference a symbol which
 #   is in turn provided by another shared library which is not
-#   necessariy ready its static variables yet. And this leads leads
+#   necessarily ready its static variables yet. And this leads leads
 #   to a segfault. So, we have to disable this check when
 #   "BUILD_SHARED_LIBS" is enabled.
 # * UBSAN_OPTIONS=halt_on_error=1:abort_on_error=1
