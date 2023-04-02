@@ -155,7 +155,7 @@ public:
 
         auto size = buf.size();
         if (_bytes_written + size > _limit) {
-            return make_exception_future<>(std::runtime_error(format("body conent length overflow: want {} limit {}", _bytes_written + buf.size(), _limit)));
+            return make_exception_future<>(std::runtime_error(format("body content length overflow: want {} limit {}", _bytes_written + buf.size(), _limit)));
         }
 
         return _out.write(buf.get(), size).then([this, size] {
