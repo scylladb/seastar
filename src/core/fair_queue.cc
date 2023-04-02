@@ -402,7 +402,7 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         _requests_executing++;
         _requests_queued--;
 
-        // Usually the cost of request is tens to hundreeds of thousands. However, for
+        // Usually the cost of request is tens to hundreds of thousands. However, for
         // unrestricted queue it can be as low as 2k. With large enough shares this
         // has chances to be translated into zero cost which, in turn, will make the
         // class show no progress and monopolize the queue.
