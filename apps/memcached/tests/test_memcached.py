@@ -572,7 +572,7 @@ def wait_for_memcache_udp(timeout=4):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="memcache protocol tests")
-    parser.add_argument('--server', '-s', action="store", help="server adddress in <host>:<port> format", default="localhost:11211")
+    parser.add_argument('--server', '-s', action="store", help="server address in <host>:<port> format", default="localhost:11211")
     parser.add_argument('--udp', '-U', action="store_true", help="Use UDP protocol")
     parser.add_argument('--fast',  action="store_true", help="Run only fast tests")
     args = parser.parse_args()
