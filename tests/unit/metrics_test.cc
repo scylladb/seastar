@@ -243,7 +243,7 @@ SEASTAR_THREAD_TEST_CASE(test_relabel_drop_label_prevent_runtime_conflicts) {
     BOOST_CHECK_EQUAL(count_by_label("lev"), 0);
     BOOST_CHECK_EQUAL(count_by_label("err"), 1);
 
-    //reseting all the labels to their original state
+    //resetting all the labels to their original state
     success = sm::set_relabel_configs({}).get();
     BOOST_CHECK_EQUAL(success.metrics_relabeled_due_to_collision, 0);
     BOOST_CHECK_EQUAL(count_by_label("lev"), 1);
