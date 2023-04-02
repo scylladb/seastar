@@ -234,7 +234,7 @@ make_scheduling_group_key_config(ConstructorArgs... args) {
 future<scheduling_group_key> scheduling_group_key_create(scheduling_group_key_config cfg) noexcept;
 
 /**
- * Returnes a reference to the given scheduling group specific value
+ * Returns a reference to the given scheduling group specific value
  * @tparam T - the type of the scheduling specific type (cannot be deduced)
  * @param sg - the scheduling group which it's specific value to retrieve
  * @param key - the key of the value to retrieve.
@@ -262,7 +262,7 @@ public:
     bool is_main() const noexcept { return _id == 0; }
     template<typename T>
     /**
-     * Returnes a reference to this scheduling group specific value
+     * Returns a reference to this scheduling group specific value
      * @tparam T - the type of the scheduling specific type (cannot be deduced)
      * @param key - the key of the value to retrieve.
      * @return A reference to this scheduling specific value.
