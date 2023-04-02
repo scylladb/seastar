@@ -7,7 +7,7 @@ https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API/Writing_WebSocke
 
 ## Handlers
 
-A WebSocket server needs a user-defined handler in order to be functiomal. WebSocket specification defines a concept of subprotocols, and Seastar WebSocket server allows registering a single handler per subprotocol.
+A WebSocket server needs a user-defined handler in order to be functional. WebSocket specification defines a concept of subprotocols, and Seastar WebSocket server allows registering a single handler per subprotocol.
 
 Each subprotocol has a unique name and is expected to be sent by the connecting client during handshake,
 by sending a `Sec-Websocket-Protocol` header with the chosen value.
