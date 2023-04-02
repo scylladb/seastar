@@ -39,7 +39,7 @@ class generator;
 /// the buffered generator does not wait for its caller to consume every single
 /// produced values. Instead, it puts the produced values into an internal
 /// buffer, before the buffer is full or the generator is suspended. This helps
-/// to alleviate the problem of pingpong between the generator coroutine and
+/// to alleviate the problem of ping pong between the generator coroutine and
 /// its caller.
 enum class buffer_size_t : size_t;
 
