@@ -244,7 +244,7 @@ struct request {
      * \brief Make request send Expect header
      *
      * When set, the connection::make_request will send the Expect header and will wait for the
-     * server resply before tranferring the body
+     * server reply before tranferring the body
      *
      */
     void set_expects_continue();
