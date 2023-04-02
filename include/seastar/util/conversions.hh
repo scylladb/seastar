@@ -30,7 +30,7 @@ namespace seastar {
 // Convert a string to a memory size, allowing binary SI
 // suffixes (intentionally, even though SI suffixes are
 // decimal, to follow existing usage). A string matched
-// by following BNF is accetped:
+// by following BNF is accepted:
 //
 // memory_size ::= <digit>+ <suffix>? "i"? "B"?
 // suffix ::= ("k" | "K" | "M" | "G" | "T")
