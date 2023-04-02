@@ -70,7 +70,7 @@ struct path_description;
 /**
  * routes object do the request dispatching according to the url.
  * It uses two decision mechanism exact match, if a url matches exactly
- * (an optional leading slash is permitted) it is choosen
+ * (an optional leading slash is permitted) it is chosen
  * If not, the matching rules are used.
  * matching rules are evaluated by their insertion order
  */
