@@ -80,7 +80,7 @@ using value_tuple_for_non_void_futures = typename value_tuple_for_non_void_futur
 
 }
 
-/// Wait for serveral futures to complete in a coroutine.
+/// Wait for several futures to complete in a coroutine.
 ///
 /// `all` can be used to launch several computations concurrently
 /// and wait for all of them to complete. Computations are provided
