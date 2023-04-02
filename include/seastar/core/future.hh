@@ -70,7 +70,7 @@ struct nested_exception : public std::exception {
 ///
 /// \brief
 /// The normal way of working with futures is to chain continuations
-/// to them.  A continuation is a block of code (usually a lamdba)
+/// to them.  A continuation is a block of code (usually a lambda)
 /// that is called when the future is assigned a value (the future
 /// is resolved); the continuation can then access the actual value.
 ///
