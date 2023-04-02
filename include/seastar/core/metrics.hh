@@ -64,7 +64,7 @@ namespace seastar {
  * 2. A metric could be a single value either a reference or a function
  *
  * To add metrics definition to class A do the following:
- * * Add a metrics_group memeber to A
+ * * Add a metrics_group member to A
  * * Add a a set_metrics() method that would be called in the constructor.
  *
  *
