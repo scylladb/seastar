@@ -181,7 +181,7 @@ inline unsigned long scheduling_group_key_id(scheduling_group_key key) noexcept 
 
  * @tparam ConstructorType - the constructor type or in other words the type to be constructed
  * @tparam Tuple - T params tuple type (should be deduced)
- * @tparam size_t...Idx - a sequence of indexes in order to access the typpels members in compile time.
+ * @tparam size_t...Idx - a sequence of indexes in order to access the typpels members at compile time.
  * (should be deduced)
  *
  * @param pre_allocated_mem - a pointer to the pre allocated memory chunk that will hold the
