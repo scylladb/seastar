@@ -995,7 +995,7 @@ xfs_concurrency_from_kernel_version() {
             // Can append, but not concurrently
             return 1;
     }
-    // Cannot append at all; need ftrucnate().
+    // Cannot append at all; need ftruncate().
     return 0;
 }
 
