@@ -864,7 +864,7 @@ class NetPerfTuner(PerfTunerBase):
                       mlx5_comp<queue idx>@<bla-bla>
           - VIRTIO: virtioN-[input|output].D
 
-        So, we will try to filter the etries in /proc/interrupts for IRQs we've got from get_all_irqs_one()
+        So, we will try to filter the entries in /proc/interrupts for IRQs we've got from get_all_irqs_one()
         according to the patterns above.
 
         If as a result all IRQs are filtered out (if there are no IRQs with the names from the patterns above) then
