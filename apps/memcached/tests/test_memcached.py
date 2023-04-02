@@ -86,7 +86,7 @@ def udp_call_for_fragments(msg, timeout=1):
         content = data[8:]
 
         if n_determined and n_determined != n:
-            raise Exception('Inconsitent number of total messages, %d and %d' % (n_determined, n))
+            raise Exception('Inconsistent number of total messages, %d and %d' % (n_determined, n))
         n_determined = n
 
         if req_id != this_req_id:
