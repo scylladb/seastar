@@ -908,7 +908,7 @@ public:
     /// Return the owner-shard of this pointer.
     ///
     /// The owner shard of the pointer can change as a result of
-    /// move-assigment or a call to reset().
+    /// move-assignment or a call to reset().
     unsigned get_owner_shard() const noexcept { return _cpu; }
     /// Checks whether the wrapped pointer is non-null.
     operator bool() const noexcept(noexcept(static_cast<bool>(_value))) { return static_cast<bool>(_value); }

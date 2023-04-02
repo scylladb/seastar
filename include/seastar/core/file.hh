@@ -202,7 +202,7 @@ public:
     file(const file& x) = default;
     /// Moves a file object.
     file(file&& x) noexcept : _file_impl(std::move(x._file_impl)) {}
-    /// Assigns a file object.  After assignent, the destination and source refer
+    /// Assigns a file object.  After assignment, the destination and source refer
     /// to the same underlying file.
     ///
     /// \param x file object to assign to `this`.
