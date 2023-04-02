@@ -55,7 +55,7 @@ DHCP can be selected per network device, so it would also be perfectly valid to 
 
 
 ## Multiple devices
-Configuration formay for multiple devices is a comma separated lists of single devices with added YAML brackets, eg:
+Configuration format for multiple devices is a comma separated lists of single devices with added YAML brackets, eg:
 
 ```
 {virbr0: { ip: 192.168.100.10, gateway: 192.168.100.1, netmask: 255.255.255.0 } , virbr1: { dhcp: true } }
