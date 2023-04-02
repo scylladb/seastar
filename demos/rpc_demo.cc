@@ -193,7 +193,7 @@ int main(int ac, char** av) {
                 (void)test13(*client, *c).then_wrapped([](future<> f) {
                     try {
                         f.get();
-                        fmt::print("test13 shold not get here\n");
+                        fmt::print("test13 should not get here\n");
                     } catch(rpc::canceled_error&) {
                         fmt::print("test13 canceled\n");
                     } catch(...) {
@@ -204,7 +204,7 @@ int main(int ac, char** av) {
                 (void)test13(*client, *c).then_wrapped([](future<> f) {
                     try {
                         f.get();
-                        fmt::print("test13 shold not get here\n");
+                        fmt::print("test13 should not get here\n");
                     } catch(rpc::canceled_error&) {
                         fmt::print("test13 canceled\n");
                     } catch(...) {
@@ -215,7 +215,7 @@ int main(int ac, char** av) {
                 (void)test_message_to_big(*client, uninitialized_string(10'000'001)).then_wrapped([](future<> f) {
                     try {
                         f.get();
-                        fmt::print("test message to big shold not get here\n");
+                        fmt::print("test message to big should not get here\n");
                     } catch(std::runtime_error& err) {
                         fmt::print("test message to big get error {}\n", err.what());
                     } catch(...) {
