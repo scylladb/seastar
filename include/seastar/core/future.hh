@@ -159,8 +159,8 @@ struct future_state_base;
 /// is useful when it is determined that no I/O needs to be performed
 /// to perform a computation (for example, because the data is cached
 /// in some buffer).
-template <typename... T, typename... A>
-future<T...> make_ready_future(A&&... value) noexcept;
+template <typename T = void, typename... A>
+future<T> make_ready_future(A&&... value) noexcept;
 
 /// \brief Creates a \ref future in an available, failed state.
 ///
@@ -168,23 +168,26 @@ future<T...> make_ready_future(A&&... value) noexcept;
 /// state.  This is useful when no I/O needs to be performed to perform
 /// a computation (for example, because the connection is closed and
 /// we cannot read from it).
-template <typename... T>
-future<T...> make_exception_future(std::exception_ptr&& value) noexcept;
+template <typename T = void>
+future<T> make_exception_future(std::exception_ptr&& value) noexcept;
 
-template <typename... T>
-future<T...> make_exception_future(const std::exception_ptr& ex) noexcept {
-    return make_exception_future<T...>(std::exception_ptr(ex));
+template <typename T = void, typename Exception>
+future<T> make_exception_future(Exception&& ex) noexcept;
+
+template <typename T = void>
+future<T> make_exception_future(const std::exception_ptr& ex) noexcept {
+    return make_exception_future<T>(std::exception_ptr(ex));
 }
 
-template <typename... T>
-future<T...> make_exception_future(std::exception_ptr& ex) noexcept {
-    return make_exception_future<T...>(static_cast<const std::exception_ptr&>(ex));
+template <typename T = void>
+future<T> make_exception_future(std::exception_ptr& ex) noexcept {
+    return make_exception_future<T>(static_cast<const std::exception_ptr&>(ex));
 }
 
-template <typename... T>
-future<T...> make_exception_future(const std::exception_ptr&& ex) noexcept {
+template <typename T = void>
+future<T> make_exception_future(const std::exception_ptr&& ex) noexcept {
     // as ex is const, we cannot move it, but can copy it.
-    return make_exception_future<T...>(std::exception_ptr(ex));
+    return make_exception_future<T>(std::exception_ptr(ex));
 }
 
 /// \cond internal
@@ -213,11 +216,11 @@ struct broken_promise : std::logic_error {
 /// This is equivalent to
 /// make_exception_future(std::current_exception()), but expands to
 /// less code.
-template <typename... T>
-future<T...> current_exception_as_future() noexcept;
+template <typename T = void>
+future<T> current_exception_as_future() noexcept;
 
 extern template
-future<> current_exception_as_future() noexcept;
+future<void> current_exception_as_future() noexcept;
 
 namespace internal {
 template <class T = void>
@@ -537,8 +540,8 @@ public:
     }
     template <typename U>
     friend struct future_state;
-    template <typename... U>
-    friend future<U...> current_exception_as_future() noexcept;
+    template <typename U>
+    friend future<U> current_exception_as_future() noexcept;
     template <typename U>
     friend class future;
     template <typename T>
@@ -748,8 +751,8 @@ struct continuation final : continuation_base_with_promise<Promise, T> {
 
 namespace internal {
 
-template <typename... T>
-future<T...> make_exception_future(future_state_base&& state) noexcept;
+template <typename T = void>
+future<T> make_exception_future(future_state_base&& state) noexcept;
 
 template <typename... T, typename U>
 void set_callback(future<T...>&& fut, U* callback) noexcept;
@@ -1761,16 +1764,16 @@ private:
     friend struct futurize;
     template <typename U>
     friend class internal::promise_base_with_type;
-    template <typename... U, typename... A>
-    friend future<U...> make_ready_future(A&&... value) noexcept;
-    template <typename... U>
-    friend future<U...> make_exception_future(std::exception_ptr&& ex) noexcept;
-    template <typename... U, typename Exception>
-    friend future<U...> make_exception_future(Exception&& ex) noexcept;
-    template <typename... U>
-    friend future<U...> internal::make_exception_future(future_state_base&& state) noexcept;
-    template <typename... U>
-    friend future<U...> current_exception_as_future() noexcept;
+    template <typename U, typename... A>
+    friend future<U> make_ready_future(A&&... value) noexcept;
+    template <typename U>
+    friend future<U> make_exception_future(std::exception_ptr&& ex) noexcept;
+    template <typename U, typename Exception>
+    friend future<U> make_exception_future(Exception&& ex) noexcept;
+    template <typename U>
+    friend future<U> internal::make_exception_future(future_state_base&& state) noexcept;
+    template <typename U>
+    friend future<U> current_exception_as_future() noexcept;
     template <typename... U, typename V>
     friend void internal::set_callback(future<U...>&&, V*) noexcept;
     /// \endcond
@@ -1904,27 +1907,27 @@ void promise<T>::move_it(promise&& x) noexcept {
     }
 }
 
-template <typename... T, typename... A>
+template <typename T, typename... A>
 inline
-future<T...> make_ready_future(A&&... value) noexcept {
-    return future<T...>(ready_future_marker(), std::forward<A>(value)...);
+future<T> make_ready_future(A&&... value) noexcept {
+    return future<T>(ready_future_marker(), std::forward<A>(value)...);
 }
 
-template <typename... T>
+template <typename T>
 inline
-future<T...> make_exception_future(std::exception_ptr&& ex) noexcept {
-    return future<T...>(exception_future_marker(), std::move(ex));
+future<T> make_exception_future(std::exception_ptr&& ex) noexcept {
+    return future<T>(exception_future_marker(), std::move(ex));
 }
 
-template <typename... T>
+template <typename T>
 inline
-future<T...> internal::make_exception_future(future_state_base&& state) noexcept {
-    return future<T...>(exception_future_marker(), std::move(state));
+future<T> internal::make_exception_future(future_state_base&& state) noexcept {
+    return future<T>(exception_future_marker(), std::move(state));
 }
 
-template <typename... T>
-future<T...> current_exception_as_future() noexcept {
-    return future<T...>(future_state_base::current_exception_future_marker());
+template <typename T>
+future<T> current_exception_as_future() noexcept {
+    return future<T>(future_state_base::current_exception_future_marker());
 }
 
 void log_exception_trace() noexcept;
@@ -1935,16 +1938,16 @@ void log_exception_trace() noexcept;
 /// state.  This no I/O needs to be performed to perform a computation
 /// (for example, because the connection is closed and we cannot read
 /// from it).
-template <typename... T, typename Exception>
+template <typename T, typename Exception>
 inline
-future<T...> make_exception_future(Exception&& ex) noexcept {
+future<T> make_exception_future(Exception&& ex) noexcept {
     log_exception_trace();
-    return make_exception_future<T...>(std::make_exception_ptr(std::forward<Exception>(ex)));
+    return make_exception_future<T>(std::make_exception_ptr(std::forward<Exception>(ex)));
 }
 
-template <typename... T, typename Exception>
-future<T...> make_exception_future_with_backtrace(Exception&& ex) noexcept {
-    return make_exception_future<T...>(make_backtraced_exception_ptr<Exception>(std::forward<Exception>(ex)));
+template <typename T, typename Exception>
+future<T> make_exception_future_with_backtrace(Exception&& ex) noexcept {
+    return make_exception_future<T>(make_backtraced_exception_ptr<Exception>(std::forward<Exception>(ex)));
 }
 
 /// @}
