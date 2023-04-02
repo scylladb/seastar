@@ -58,7 +58,7 @@ namespace seastar::coroutine {
 ///       current shard. If you want to run a function on all shards in parallel,
 ///       have a look at \ref smp::invoke_on_all() instead.
 template <typename Func>
-// constaints for Func are defined at the parallel_for_each constructor
+// constraints for Func are defined at the parallel_for_each constructor
 class [[nodiscard("must co_await an parallel_for_each() object")]] parallel_for_each final : continuation_base<> {
     using coroutine_handle_t = std::coroutine_handle<void>;
 
