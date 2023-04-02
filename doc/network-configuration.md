@@ -21,7 +21,7 @@ eth0: {port_index: 0, ip: 192.168.100.10, gateway: 192.168.100.1, netmask: 255.2
 ```
 
 Please note that device name - eth0 above, is not used by DPDK itself, it remains only for configuration consistency. 
-The hardware configuration has to be specied in the same way across all network devices, so for example if pci_address is specified for one network device, port_index cannot be specified for any other.
+The hardware configuration has to be specified in the same way across all network devices, so for example if pci_address is specified for one network device, port_index cannot be specified for any other.
 
 
 ## Non-DPDK access
