@@ -92,7 +92,7 @@ public:
     float normalize(fair_queue_ticket axis) const noexcept;
 
     /*
-     * For both dimentions checks if the first rover is ahead of the
+     * For both dimensions checks if the first rover is ahead of the
      * second and returns the difference. If behind returns zero.
      */
     friend fair_queue_ticket wrapping_difference(const fair_queue_ticket& a, const fair_queue_ticket& b) noexcept;
