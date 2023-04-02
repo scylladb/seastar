@@ -40,7 +40,7 @@ namespace seastar {
 /// produced by ExceptionFactory::timeout(). By default it is \ref timed_out_error exception.
 ///
 /// Note that timing out doesn't cancel any tasks associated with the original future.
-/// It also doesn't cancel the callback registerred on it.
+/// It also doesn't cancel the callback registered on it.
 ///
 /// \param f future to wait for
 /// \param timeout time point after which the returned future should be failed
