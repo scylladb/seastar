@@ -84,7 +84,7 @@ static future<> connect_to_ssl_addr(::shared_ptr<tls::certificate_credentials> c
                                 }).then([&buffer]() -> future<std::optional<bool>> {
                                     if (buffer.empty()) {
                                         // # 1127 google servers have a (pretty short) timeout between connect and expected first
-                                        // write. If we are delayed inbetween connect and write above (cert verification, scheduling
+                                        // write. If we are delayed in between connect and write above (cert verification, scheduling
                                         // solar spots or just time sharing on AWS) we could get a short read here. Just retry.
                                         // If we get an actual error, it is either on protocol level (exception) or HTTP error.
                                         return make_ready_future<std::optional<bool>>(std::nullopt);
