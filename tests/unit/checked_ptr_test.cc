@@ -70,7 +70,7 @@ BOOST_AUTO_TEST_CASE(test_checked_ptr_is_empty_when_default_initialized) {
     BOOST_REQUIRE(!bool(cp));
 }
 
-BOOST_AUTO_TEST_CASE(test_checked_ptr_is_empty_when_nullptr_initialized_nakes_ptr) {
+BOOST_AUTO_TEST_CASE(test_checked_ptr_is_empty_when_nullptr_initialized_naked_ptr) {
     seastar::checked_ptr<int*> cp = nullptr;
     BOOST_REQUIRE(!bool(cp));
 }
