@@ -63,7 +63,7 @@ public:
 /// is provided, which causes all current waiters to stop waiting,
 /// with an exceptional future returned.  This allows causing all
 /// fibers that are blocked on a condition variable to continue.
-/// This issimilar to POSIX's `pthread_cancel()`, with \ref wait()
+/// This is similar to POSIX's `pthread_cancel()`, with \ref wait()
 /// acting as a cancellation point.
 
 class condition_variable {
