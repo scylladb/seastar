@@ -1682,7 +1682,7 @@ void dpdk_device::init_port_fini()
     }
 
     /* need to defer initialize xstats since NIC specific xstat entries
-       show up only after port initization */
+       show up only after port initialization */
     _xstats.start();
 
     _stats_collector.set_callback([&] {
