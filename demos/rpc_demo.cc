@@ -135,7 +135,7 @@ int main(int ac, char** av) {
             auto test9 = myrpc.make_client<long (long a, long b)>(9); // do not send optional
             auto test9_1 = myrpc.make_client<long (long a, long b, int c)>(9); // send optional
             auto test9_2 = myrpc.make_client<long (long a, long b, int c, long d)>(9); // send more data than handler expects
-            auto test10 = myrpc.make_client<long ()>(10); // receive less then replied
+            auto test10 = myrpc.make_client<long ()>(10); // receive less than replied
             auto test10_1 = myrpc.make_client<future<rpc::tuple<long, int>> ()>(10); // receive all
             auto test11 = myrpc.make_client<future<rpc::tuple<long, rpc::optional<int>>> ()>(11); // receive more then replied
             auto test12 = myrpc.make_client<void (int sleep_ms, sstring payload)>(12); // large payload vs. server limits
