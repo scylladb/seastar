@@ -113,7 +113,7 @@ namespace seastar {
 
 namespace dpdk {
 
-/******************* Net device related constatns *****************************/
+/******************* Net device related constants *****************************/
 static constexpr uint16_t default_ring_size      = 512;
 
 // 
