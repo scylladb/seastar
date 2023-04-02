@@ -4357,7 +4357,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
         auto allocation = allocations[i];
         create_thread([this, smp_tmain, inited, &reactors_registered, &smp_queues_constructed, &smp_opts, &reactor_opts, &reactors, hugepages_path, i, allocation, assign_io_queues, alloc_io_queues, thread_affinity, heapprof_enabled, mbind, backend_selector, reactor_cfg] {
           try {
-            // initialize thread_locals that are equal across all reacto threads of this smp instance
+            // initialize thread_locals that are equal across all reactor threads of this smp instance
             smp::_tmain = smp_tmain;
             auto thread_name = seastar::format("reactor-{}", i);
             pthread_setname_np(pthread_self(), thread_name.c_str());
