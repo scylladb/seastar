@@ -541,7 +541,7 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def _get_irqs(self):
         """
-        Return the iteratable value with all IRQs to be configured.
+        Return the iterable value with all IRQs to be configured.
         """
         pass
 
