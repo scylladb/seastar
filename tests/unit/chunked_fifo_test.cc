@@ -58,7 +58,7 @@ BOOST_AUTO_TEST_CASE(chunked_fifo_small) {
     BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
     BOOST_REQUIRE_EQUAL(fifo.empty(), false);
     BOOST_REQUIRE_EQUAL(fifo.front(), 57);
-    // check miscelleneous methods (at least they shouldn't crash)
+    // check miscellaneous methods (at least they shouldn't crash)
     fifo.clear();
     fifo.shrink_to_fit();
     fifo.reserve(1);
