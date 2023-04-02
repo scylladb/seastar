@@ -258,7 +258,7 @@ namespace tls {
     /**
      * Intentionally "primitive", and more importantly, copyable
      * container for certificate credentials options.
-     * The intendend use case is to be able to use across shards,
+     * The intended use case is to be able to use across shards,
      * at, say, initialization of tls objects
      *
      * Note that loading invalid objects (malformed certs etc) will
