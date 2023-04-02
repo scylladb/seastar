@@ -208,7 +208,7 @@ public:
         if (!_read_buffers.empty() && !_read_buffers.front()._ready.available()) {
             try_increase_read_ahead();
         }
-        issue_read_aheads(1);
+        issue_readaheads(1);
         auto ret = std::move(_read_buffers.front());
         _read_buffers.pop_front();
         update_history_consumed(ret._size);
@@ -242,7 +242,7 @@ public:
                 ignore_read_future(std::move(front._ready));
                 n -= front._size;
                 dropped += front._size;
-                _reactor._io_stats.fstream_read_aheads_discarded += 1;
+                _reactor._io_stats.fstream_readaheads_discarded += 1;
                 _reactor._io_stats.fstream_read_ahead_discarded_bytes += front._size;
                 _read_buffers.pop_front();
             }
@@ -259,7 +259,7 @@ public:
         return _done->get_future().then([this] {
             uint64_t dropped = 0;
             for (auto&& c : _read_buffers) {
-                _reactor._io_stats.fstream_read_aheads_discarded += 1;
+                _reactor._io_stats.fstream_readaheads_discarded += 1;
                 _reactor._io_stats.fstream_read_ahead_discarded_bytes += c._size;
                 dropped += c._size;
                 ignore_read_future(std::move(c._ready));
@@ -269,7 +269,7 @@ public:
         });
     }
 private:
-    void issue_read_aheads(unsigned additional = 0) {
+    void issue_readaheads(unsigned additional = 0) {
         if (_done) {
             return;
         }

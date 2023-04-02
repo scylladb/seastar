@@ -2533,7 +2533,7 @@ void reactor::register_metrics() {
                 description(
                         "Counts the number of bytes read from disk that could not be satisfied from read-ahead buffers, and had to block."
                         " Indicates short streams, or incorrect read ahead configuration.")),
-        make_counter("fstream_reads_aheads_discarded", _io_stats.fstream_read_aheads_discarded,
+        make_counter("fstream_reads_aheads_discarded", _io_stats.fstream_readaheads_discarded,
                 description(
                         "Counts the number of times a buffer that was read ahead of time and was discarded because it was not needed, wasting disk bandwidth."
                         " Indicates over-eager read ahead configuration.")),
