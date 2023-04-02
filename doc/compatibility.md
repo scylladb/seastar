@@ -142,5 +142,5 @@ If API_LEVEL is 1:
  - `api_v1` namespace is inlined into the `seastar` namespace
 
 After a transition period:
- - everthing in `api_v1` is dropped
+ - everything in `api_v1` is dropped
  - `api_v2` is removed, and its contents is placed in the parent namespace
