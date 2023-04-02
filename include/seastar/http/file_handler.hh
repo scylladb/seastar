@@ -127,7 +127,7 @@ public:
      * @param doc_root the root directory to search the file from.
      * @param transformer an optional file transformer
      * For example if the root is '/usr/mgmt/public' and the path parameter
-     * will be '/css/style.css' the file wil be /usr/mgmt/public/css/style.css'
+     * will be '/css/style.css' the file will be /usr/mgmt/public/css/style.css'
      */
     explicit directory_handler(const sstring& doc_root,
             file_transformer* transformer = nullptr);
