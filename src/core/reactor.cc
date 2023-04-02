@@ -1243,7 +1243,7 @@ cpu_stall_detector_linux_perf_event::arm_timer() {
         // https://elixir.bootlin.com/linux/v5.15.86/source/kernel/events/core.c#L5636
         //
         // Ths change is intentional: kernel commit bad7192b842c83e580747ca57104dd51fe08c223
-        // so we can resumably rely on it.
+        // so we can presumably rely on it.
         _fd.ioctl(PERF_EVENT_IOC_PERIOD, ns);
 
     } else {
