@@ -47,7 +47,7 @@ struct prefetcher {
     }
 };
 
-// LOC is a locality from __buitin_prefetch() gcc documentation:
+// LOC is a locality from __builtin_prefetch() gcc documentation:
 // "The value locality must be a compile-time constant integer between zero and three. A value of
 //  zero means that the data has no temporal locality, so it need not be left in the cache after
 //  the access. A value of three means that the data has a high degree of temporal locality and
