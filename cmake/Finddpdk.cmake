@@ -334,7 +334,7 @@ if (dpdk_FOUND AND NOT (TARGET dpdk::dpdk))
     PROPERTIES
       IMPORTED_LOCATION ${dpdk_ETHDEV_LIBRARY}
       INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR}
-      INTERACE_LINK_LIBRARIES dpdk::eal)
+      INTERFACE_LINK_LIBRARIES dpdk::eal)
 
   #
   # mempool
