@@ -101,7 +101,7 @@ future<> rename_scheduling_group(scheduling_group sg, sstring new_name) noexcept
  * \ref scheduling_group being created.
  *
  * @note is is recommended to use @ref make_scheduling_group_key_config in order to
- * create and configure this syructure. The only reason that one might want to not use
+ * create and configure this structure. The only reason that one might want to not use
  * this method is because of a need for specific intervention in the construction or
  * destruction of the value. Even then, it is recommended to first create the configuration
  * with @ref make_scheduling_group_key_config and only the change it.
