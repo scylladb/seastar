@@ -909,7 +909,7 @@ Note that this is merely a convention suggested by Seastar, and unfortunately no
 
 > It would be nice if future versions of C++ could help us catch incorrect uses of references. Perhaps we could have a tag for a special kind of reference, an "immediate reference" which a function can use use immediately (i.e, before returning a future), but cannot be captured into a continuation.
 
-With this convention in place, it is easy to write complex asynchronous functions functions like `slow_op` which pass the object around, by reference, until the asynchronous operation is done. But how does the caller ensure that the object lives until the returned future is resolved? The following is *wrong*:
+With this convention in place, it is easy to write complex asynchronous functions like `slow_op` which pass the object around, by reference, until the asynchronous operation is done. But how does the caller ensure that the object lives until the returned future is resolved? The following is *wrong*:
 ```cpp
 seastar::future<> f() {
     T obj; // wrong! will be destroyed too soon!
