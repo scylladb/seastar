@@ -408,7 +408,7 @@ void impl::run() {
 
     // note we're doing this unsynced since we assume
     // all registrations to this instance will be done on the
-    // same cpu, and without interuptions (no wait-states)
+    // same cpu, and without interruptions (no wait-states)
 
     auto& values = vals->values;
     auto metadata = vals->metadata;
