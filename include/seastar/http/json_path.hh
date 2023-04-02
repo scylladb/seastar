@@ -136,7 +136,7 @@ struct path_description {
      * until the end of the url.
      * This is useful for situation like file path with
      * a rule like /file/{path} and a url /file/etc/hosts.
-     * path should be equal to /ets/hosts and not only /etc
+     * path should be equal to /etc/hosts and not only /etc
      * @return the current path description
      */
     path_description* pushparam(const sstring& param,
