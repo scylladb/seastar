@@ -191,7 +191,7 @@ inline unsigned long scheduling_group_key_id(scheduling_group_key key) noexcept 
  * time.
  *
  * @note this function was not intended to be called by users and it is only a utility function
- * for suporting \ref make_scheduling_group_key_config
+ * for supporting \ref make_scheduling_group_key_config
  */
 template<typename ConstructorType, typename Tuple, size_t...Idx>
 void apply_constructor(void* pre_allocated_mem, Tuple args, std::index_sequence<Idx...>) {
