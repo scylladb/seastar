@@ -93,7 +93,7 @@ struct nested_exception : public std::exception {
 ///
 /// If a future is consumed by future::then before the future is
 /// ready, a continuation is dynamically allocated. The continuation
-/// also has a future_state<T>, but unlinke a future it is never
+/// also has a future_state<T>, but unlike a future it is never
 /// moved.
 ///
 /// After a future creates a continuation, the corresponding promise
