@@ -195,7 +195,7 @@ public:
     /*!
      * \brief write an object to the output stream
      *
-     * The defult implementation uses the to_json
+     * The default implementation uses the to_json
      * Object implementation override it.
      */
     virtual future<> write(output_stream<char>& s) const {

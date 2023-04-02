@@ -34,7 +34,7 @@ virbr0: { ip: 192.168.100.10, gateway: 192.168.100.1, netmask: 255.255.255.0 }
 ## Other hardware related options
 
 There are other hardware related optional options, some of the are common for both DPDK and non-DPDK mode
-- lro ( large receive offload ), boolean, deafult true
+- lro ( large receive offload ), boolean, default true
 - tso ( tcp segmentation offload ), boolean, default true
 - ufo ( udp fragmentation offload ), boolean, default true
 - hw-fc ( hardware flow control ), boolean, default true,
