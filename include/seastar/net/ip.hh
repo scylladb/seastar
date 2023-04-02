@@ -290,7 +290,7 @@ private:
         ipv4_packet_merger data;
         clock_type::time_point rx_time;
         uint32_t mem_size = 0;
-        // fragment with MF == 0 inidates it is the last fragment
+        // fragment with MF == 0 indicates it is the last fragment
         bool last_frag_received = false;
 
         packet get_assembled_packet(ethernet_address from, ethernet_address to);
