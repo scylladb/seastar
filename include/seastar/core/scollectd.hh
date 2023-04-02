@@ -64,7 +64,7 @@ namespace seastar {
  *  `<type_instance>` is a distinguisher for metric parts of the type, e.g. "idle", "user", "kernel"
  *  -> cpu/0/usage/idle | cpu/0/usage/user | cpu/0/usage/kernel
  *
- *  Each type instance can bind an arbitrary number of values, ech representing some aspect in turn of the instance.
+ *  Each type instance can bind an arbitrary number of values, each representing some aspect in turn of the instance.
  *  The structure and interpretation is up to the producer/consumer
  *
  * There is a single "scollectd" instance per cpu, and values should be bound locally
