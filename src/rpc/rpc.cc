@@ -244,7 +244,7 @@ namespace rpc {
       // - make pit.done resolve it->next (some time later)
       // - resolve "it"'s continuation right now
       //
-      // The latter is achieved by resolving pit.done immediatelly, the former
+      // The latter is achieved by resolving pit.done immediately, the former
       // by moving it.done into pit.done. For simplicity (verging on obscurity?)
       // both done's are just swapped and "it" resolves its new promise
 
