@@ -98,7 +98,7 @@ static void add_name(std::ostream& s, const sstring& name, const std::map<sstrin
  * shards and report it.
  *
  * Each shard returns a value_copy struct that has a vector of vector values (a vector per metric family)
- * and a vector of metadata (and insdie it a vector of metric metadata)
+ * and a vector of metadata (and inside it a vector of metric metadata)
  *
  * The metrics are sorted by the metric family name.
  *
