@@ -388,7 +388,7 @@ public:
                 continue;
             }
             auto& metadata = metric_family->metadata->at(pos_in_metric_per_shard);
-            // the the name is different, that means that on this shard, the metric family
+            // the name is different, that means that on this shard, the metric family
             // does not exist, because everything is sorted by metric family name, this is fine.
             if (metadata.mf.name == name()) {
                 const mi::value_vector& values = metric_family->values[pos_in_metric_per_shard];

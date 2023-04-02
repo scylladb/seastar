@@ -120,7 +120,7 @@ public:
             auto beg = it_next->first;
             auto end = beg + p.len();
 
-            // Merge the the second segment into first segment if possible
+            // Merge the second segment into first segment if possible
             if (seg_beg <= beg && beg <= seg_end && seg_end < end) {
                 // Merge two segments, trim front of second segment
                 auto trim = seg_end - beg;

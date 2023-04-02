@@ -691,7 +691,7 @@ consume_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units) noexc
 /// \brief Runs a function protected by a semaphore
 ///
 /// Acquires a \ref semaphore, runs a function, and releases
-/// the semaphore, returning the the return value of the function,
+/// the semaphore, returning the return value of the function,
 /// as a \ref future.
 ///
 /// \param sem The semaphore to be held while the \c func is
@@ -721,7 +721,7 @@ with_semaphore(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units, Func
 /// \brief Runs a function protected by a semaphore with time bound on wait
 ///
 /// If possible, acquires a \ref semaphore, runs a function, and releases
-/// the semaphore, returning the the return value of the function,
+/// the semaphore, returning the return value of the function,
 /// as a \ref future.
 ///
 /// If the semaphore can't be acquired within the specified timeout, returns

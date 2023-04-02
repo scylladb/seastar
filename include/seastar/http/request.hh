@@ -190,7 +190,7 @@ struct request {
      * \param content_type - is used to choose the content type of the body. Use the file extension
      *  you would have used for such a content, (i.e. "txt", "html", "json", etc')
      * \param content - the message content.
-     * This would set the the content, content length and content type of the message along
+     * This would set the content, content length and content type of the message along
      * with any additional information that is needed to send the message.
      *
      * This method is good to be used if the body is available as a contiguous buffer.
@@ -233,7 +233,7 @@ struct request {
      * size of it is known and it's desirable to provide it to the server, or when the server strongly
      * requires the content-length header for any reason.
      *
-     * Message would use plain encoding in the the reply with Content-Length header set accordingly.
+     * Message would use plain encoding in the reply with Content-Length header set accordingly.
      * If the body_writer doesn't generate enough bytes into the stream or tries to put more data into
      * the stream, sending the request would resolve with exceptional future.
      *
