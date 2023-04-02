@@ -1477,7 +1477,7 @@ public:
                         std::bind(&session::wait_for_eof, this)).finally([me = shared_from_this()] {});
         // note moved finally clause above. It is theorethically possible
         // that we could complete do_shutdown just before the close calls 
-        // below, get pre-empted, have "close()" finish, get freed, and 
+        // below, get preempted, have "close()" finish, get freed, and 
         // then call wait_for_eof on stale pointer.
     }
     void close() noexcept {
