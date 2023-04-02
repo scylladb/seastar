@@ -476,7 +476,7 @@ future<size_t> pollable_fd_state::recvmsg(struct msghdr *msg) {
         // recvmsg() call when we hit the empty queue condition, so it may
         // hurt request-response workload in which the queue is empty when we
         // initially enter recvmsg(). If that turns out to be a problem, we can
-        // improve speculation by using recvmmsg().
+        // improve speculation by using recvmsg().
         speculate_epoll(EPOLLIN);
         return make_ready_future<size_t>(*r);
     });
