@@ -33,7 +33,7 @@ using namespace std;
  * Search for the end of the url parameter.
  * @param url the url to search
  * @param ind the position in the url
- * @param entire_path when set to true, take all the reminaing url
+ * @param entire_path when set to true, take all the remaining url
  * when set to false, search for the next slash
  * @return the position in the url of the end of the parameter
  */
