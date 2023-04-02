@@ -186,7 +186,7 @@ inline unsigned long scheduling_group_key_id(scheduling_group_key key) noexcept 
  *
  * @param pre_allocated_mem - a pointer to the pre allocated memory chunk that will hold the
  * the initialized object.
- * @param args - A tupple that holds the prarameters for the constructor
+ * @param args - A tupple that holds the parameters for the constructor
  * @param idx_seq - An index sequence that will be used to access the members of the tuple in compile
  * time.
  *

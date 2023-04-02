@@ -155,7 +155,7 @@ struct request {
 
     /**
      * Set the query parameters in the request objects.
-     * Returns the URL path part, i.e. -- without the query paremters
+     * Returns the URL path part, i.e. -- without the query parameters
      * query param appear after the question mark and are separated
      * by the ampersand sign
      */
