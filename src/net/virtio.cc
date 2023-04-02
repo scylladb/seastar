@@ -334,7 +334,7 @@ private:
 
     void kick() {
         bool need_kick = true;
-        // Make sure we see the fresh _idx value writen before kick.
+        // Make sure we see the fresh _idx value written before kick.
         std::atomic_thread_fence(std::memory_order_seq_cst);
         if (_config.event_index) {
             uint16_t avail_idx = _avail._shared->_idx.load(std::memory_order_relaxed);
