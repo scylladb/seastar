@@ -53,7 +53,7 @@ struct histogram {
     std::vector<histogram_bucket> buckets; // Ordered in increasing order of upper_bound, +Inf bucket is optional.
 
     /*!
-     * \brief Addition assigning a historgram
+     * \brief Addition assigning a histogram
      *
      * The histogram must match the buckets upper bounds
      * or an exception will be thrown
@@ -61,7 +61,7 @@ struct histogram {
     histogram& operator+=(const histogram& h);
 
     /*!
-     * \brief Addition historgrams
+     * \brief Addition histograms
      *
      * Add two histograms and return the result as a new histogram
      * The histogram must match the buckets upper bounds
@@ -70,7 +70,7 @@ struct histogram {
     histogram operator+(const histogram& h) const;
 
     /*!
-     * \brief Addition historgrams
+     * \brief Addition histograms
      *
      * Add two histograms and return the result as a new histogram
      * The histogram must match the buckets upper bounds
