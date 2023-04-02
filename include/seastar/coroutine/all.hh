@@ -85,7 +85,7 @@ using value_tuple_for_non_void_futures = typename value_tuple_for_non_void_futur
 /// `all` can be used to launch several computations concurrently
 /// and wait for all of them to complete. Computations are provided
 /// as callable objects (typically lambda coroutines) that are invoked
-/// by `all`. Waiting is performend by `co_await` and returns a tuple
+/// by `all`. Waiting is performed by `co_await` and returns a tuple
 /// of values, one for each non-void future.
 ///
 /// If one or more of the function objects throws an exception, or if one

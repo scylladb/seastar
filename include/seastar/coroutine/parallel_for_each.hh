@@ -34,7 +34,7 @@ namespace seastar::coroutine {
 ///
 /// `parallel_for_each` can be used to launch a function concurrently
 /// on all elements in a given range and wait for all of them to complete.
-/// Waiting is performend by `co_await` and returns a future.
+/// Waiting is performed by `co_await` and returns a future.
 ///
 /// If one or more of the function invocations resolve to an exception
 /// then the one of the exceptions is re-thrown.
