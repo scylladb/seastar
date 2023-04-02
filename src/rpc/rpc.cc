@@ -716,7 +716,7 @@ namespace rpc {
   }
 
   // This is the enlightened copy of the connection::send() method. Its intention is to
-  // keep a dummy entry in front of the queue while connect+negotiate is happenning so
+  // keep a dummy entry in front of the queue while connect+negotiate is happening so
   // that all subsequent entries could abort on timeout or explicit cancellation.
   void client::enqueue_zero_frame() {
       if (_error) {
