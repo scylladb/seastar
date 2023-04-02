@@ -113,7 +113,7 @@ SEASTAR_TEST_CASE(test_simple_coroutines) {
     }), 17);
 }
 
-SEASTAR_TEST_CASE(test_abandond_coroutine) {
+SEASTAR_TEST_CASE(test_abandoned_coroutine) {
     std::optional<future<int>> f;
     {
         auto p1 = promise<>();
