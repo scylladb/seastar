@@ -248,7 +248,7 @@ struct marshall_one {
 
 template <typename Serializer, typename Output, typename... T>
 inline void do_marshall(Serializer& serializer, Output& out, const T&... args) {
-    // C++ guarantees that brace-initialization expressions are evaluted in order
+    // C++ guarantees that brace-initialization expressions are evaluated in order
     (void)std::initializer_list<int>{(marshall_one<Serializer, Output>::template helper<T>::doit(serializer, out, args), 1)...};
 }
 
