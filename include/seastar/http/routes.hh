@@ -53,7 +53,7 @@ public:
 
     /**
      * Adds a parameter that matches untill the end of the URL.
-     * @param param the parmaeter name
+     * @param param the parameter name
      * @return the current url
      */
     url& remainder(const sstring& param) {
