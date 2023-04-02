@@ -76,7 +76,7 @@ namespace seastar {
 /// \cond internal
 namespace internal {
 
-// Execution wraps lreferences in reference_wrapper so that the caller is forced
+// Execution wraps references in reference_wrapper so that the caller is forced
 // to use seastar::ref(). Then when the function is actually called the
 // reference is unwrapped. However, we need to distinguish between functions
 // which argument is lvalue reference and functions that take
