@@ -1298,7 +1298,7 @@ SEASTAR_THREAD_TEST_CASE(test_dn_name_handling) {
     // - mtls_client2.crt - second client certificate
     //
     // The test runs server that uses mtls_server.crt.
-    // The server accepts two incomming connections, first one uses mtls_client1.crt
+    // The server accepts two incoming connections, first one uses mtls_client1.crt
     // and the second one uses mtls_client2.crt. Every client sends a short string
     // that server receives and tries to find it in the DN string.
 
