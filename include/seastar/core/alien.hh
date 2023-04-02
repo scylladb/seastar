@@ -53,7 +53,7 @@ class message_queue {
         reactor* remote;
     };
     using lf_queue_base = boost::lockfree::queue<work_item*>;
-    // use inheritence to control placement order
+    // use inheritance to control placement order
     struct lf_queue : lf_queue_remote, lf_queue_base {
         lf_queue(reactor* remote)
             : lf_queue_remote{remote}, lf_queue_base{batch_size} {}
