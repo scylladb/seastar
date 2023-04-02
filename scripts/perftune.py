@@ -1388,8 +1388,8 @@ class DiskPerfTuner(PerfTunerBase):
                     else:
                         break
 
-                controler_path_str = functools.reduce(lambda x, y : os.path.join(x, y), controller_path_parts)
-                disk2irqs[device] = learn_all_irqs_one(controler_path_str, self.__irqs2procline, 'blkif')
+                controller_path_str = functools.reduce(lambda x, y : os.path.join(x, y), controller_path_parts)
+                disk2irqs[device] = learn_all_irqs_one(controller_path_str, self.__irqs2procline, 'blkif')
 
         return disk2irqs
 
