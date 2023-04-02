@@ -111,7 +111,7 @@ std::ostream& operator<<(std::ostream& out, const simple_backtrace& b) {
     char delim[2] = {'\0', '\0'};
     for (auto f : b._frames) {
         out << delim << f;
-        delim[0] = b.delimeter();
+        delim[0] = b.delimiter();
     }
     return out;
 }
