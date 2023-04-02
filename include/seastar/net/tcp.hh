@@ -787,7 +787,7 @@ tcp<InetTraits>::tcp(inet_type& inet)
     _metrics.add_group("tcp", {
         sm::make_counter("linearizations", [] { return tcp_packet_merger::linearizations(); },
                         sm::description("Counts a number of times a buffer linearization was invoked during the buffers merge process. "
-                                        "Divide it by a total TCP receive packet rate to get an average number of lineraizations per TCP packet."))
+                                        "Divide it by a total TCP receive packet rate to get an average number of linearizations per TCP packet."))
     });
 
     _inet.register_packet_provider([this, tcb_polled = 0u] () mutable {

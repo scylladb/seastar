@@ -73,7 +73,7 @@ ipv4::ipv4(interface* netif)
         //
         sm::make_counter("linearizations", [] { return ipv4_packet_merger::linearizations(); },
                         sm::description("Counts a number of times a buffer linearization was invoked during buffers merge process. "
-                                        "Divide it by a total IPv4 receive packet rate to get an average number of lineraizations per packet."))
+                                        "Divide it by a total IPv4 receive packet rate to get an average number of linearizations per packet."))
     });
     _frag_timer.set_callback([this] { frag_timeout(); });
 }
