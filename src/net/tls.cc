@@ -1475,7 +1475,7 @@ public:
         return with_semaphore(_out_sem, 1,
                         std::bind(&session::do_shutdown, this)).then(
                         std::bind(&session::wait_for_eof, this)).finally([me = shared_from_this()] {});
-        // note moved finally clause above. It is theorethically possible
+        // note moved finally clause above. It is theoretically possible
         // that we could complete do_shutdown just before the close calls 
         // below, get preempted, have "close()" finish, get freed, and 
         // then call wait_for_eof on stale pointer.

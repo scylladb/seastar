@@ -155,7 +155,7 @@ public:
         // (set explicitly lest we forget).
         // We only do querying dns server really async.
         // Reading hosts files is done by c-ares internally
-        // and with normal fread calls. Thus they theorectically
+        // and with normal fread calls. Thus they theoretically
         // block. This can potentially be an issue for some application
         // and if so, we need to revisit this. For now, assume
         // it won't block us in any measurable way.
