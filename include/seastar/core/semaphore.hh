@@ -561,7 +561,7 @@ public:
 ///         the units are returned to the semaphore.
 ///
 /// \note The caller must guarantee that \c sem is valid as long as
-///      \ref seaphore_units object is alive.
+///      \ref semaphore_units object is alive.
 ///
 /// \related semaphore
 template<typename ExceptionFactory, typename Clock = typename timer<>::clock>
@@ -584,7 +584,7 @@ get_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units) noexcept 
 ///         If a timeout is reached before units are granted, returns an exceptional future holding \ref semaphore_timed_out.
 ///
 /// \note The caller must guarantee that \c sem is valid as long as
-///      \ref seaphore_units object is alive.
+///      \ref semaphore_units object is alive.
 ///
 /// \related semaphore
 template<typename ExceptionFactory, typename Clock = typename timer<>::clock>
@@ -608,7 +608,7 @@ get_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units, typename 
 ///         If a timeout is reached before units are granted, returns an exceptional future holding \ref semaphore_timed_out.
 ///
 /// \note The caller must guarantee that \c sem is valid as long as
-///      \ref seaphore_units object is alive.
+///      \ref semaphore_units object is alive.
 ///
 /// \related semaphore
 template<typename ExceptionFactory, typename Clock>
@@ -632,7 +632,7 @@ get_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units, typename 
 ///         If get_units is aborted before units are granted, returns an exceptional future holding \ref semaphore_aborted.
 ///
 /// \note The caller must guarantee that \c sem is valid as long as
-///      \ref seaphore_units object is alive.
+///      \ref semaphore_units object is alive.
 ///
 /// \related semaphore
 template<typename ExceptionFactory, typename Clock>
@@ -657,7 +657,7 @@ get_units(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units, abort_sou
 ///         the units are returned to the semaphore.
 ///
 /// \note The caller must guarantee that \c sem is valid as long as
-///      \ref seaphore_units object is alive.
+///      \ref semaphore_units object is alive.
 ///
 /// \related semaphore
 template<typename ExceptionFactory, typename Clock = typename timer<>::clock>
