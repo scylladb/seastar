@@ -133,7 +133,7 @@ Option details:
 -g GENERATOR (=${generator})
 
     Use the named CMake generator for building all ingredients and the project.
-    An example generator is "Unix Makfiles".
+    An example generator is "Unix Makefiles".
 
 -s VAR=VALUE
 
