@@ -449,7 +449,7 @@ struct future_state_base {
         }
         void move_it(any&& x) noexcept {
 #ifdef __GLIBCXX__
-            // Unfortunally gcc cannot fully optimize the regular
+            // Unfortunately gcc cannot fully optimize the regular
             // implementation:
             // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=95014
             // Given what we know about the libstdc++ implementation
