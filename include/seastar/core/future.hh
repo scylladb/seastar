@@ -1338,7 +1338,7 @@ public:
     /// Wait for the future to be available (in a seastar::thread)
     ///
     /// When called from a seastar::thread, this function blocks the
-    /// thread until the future is availble. Other threads and
+    /// thread until the future is available. Other threads and
     /// continuations continue to execute; only the thread is blocked.
     void wait() noexcept {
         if (_state.available()) {
@@ -1357,7 +1357,7 @@ public:
 
     /// \brief Checks whether the future has failed.
     ///
-    /// \return \c true if the future is availble and has failed.
+    /// \return \c true if the future is available and has failed.
     [[gnu::always_inline]]
     bool failed() const noexcept {
         return _state.failed();
