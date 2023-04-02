@@ -145,7 +145,7 @@ struct scheduling_group_key_config {
  * A class that is intended to encapsulate the scheduling group specific
  * key and "hide" it implementation concerns and details.
  *
- * @note this object can be copied accross shards and scheduling groups.
+ * @note this object can be copied across shards and scheduling groups.
  */
 class scheduling_group_key {
 public:
