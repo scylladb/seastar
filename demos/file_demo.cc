@@ -200,7 +200,7 @@ future<> demo_with_io_intent() {
         bool cancelled = false;
         try {
             f2.get();
-            // The file::dma_write doesn't preemt, but if it
+            // The file::dma_write doesn't preempt, but if it
             // suddenly will, the 2nd write will pass before
             // the intent would be cancelled
             fmt::print("    2nd write won the race with cancellation\n");

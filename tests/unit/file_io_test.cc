@@ -879,7 +879,7 @@ SEASTAR_TEST_CASE(test_intent) {
         if (cancelled) {
             BOOST_REQUIRE(rbuf.get()[512] == 'a');
         } else {
-            // The file::dma_write doesn't preemt, but if it
+            // The file::dma_write doesn't preempt, but if it
             // suddenly will, the 2nd write will pass before
             // the intent would be cancelled
             BOOST_TEST_WARN(0, "Write won the race with cancellation");
