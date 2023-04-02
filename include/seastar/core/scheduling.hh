@@ -135,7 +135,7 @@ struct scheduling_group_key_config {
     /// A function that will be called for each value after the scheduling group is renamed.
     std::function<void (void*)> rename;
     /// A function that will be called for each element that is about
-    /// to be dealocated.
+    /// to be deallocated.
     std::function<void (void*)> destructor;
 
 };
@@ -184,7 +184,7 @@ inline unsigned long scheduling_group_key_id(scheduling_group_key key) noexcept 
  * @tparam size_t...Idx - a sequence of indexes in order to access the typpels members in compile time.
  * (should be deduced)
  *
- * @param pre_alocated_mem - a pointer to the pre allocated memory chunk that will hold the
+ * @param pre_allocated_mem - a pointer to the pre allocated memory chunk that will hold the
  * the initialized object.
  * @param args - A tupple that holds the prarameters for the constructor
  * @param idx_seq - An index sequence that will be used to access the members of the tuple in compile
@@ -194,8 +194,8 @@ inline unsigned long scheduling_group_key_id(scheduling_group_key key) noexcept 
  * for suporting \ref make_scheduling_group_key_config
  */
 template<typename ConstructorType, typename Tuple, size_t...Idx>
-void apply_constructor(void* pre_alocated_mem, Tuple args, std::index_sequence<Idx...>) {
-    new (pre_alocated_mem) ConstructorType(std::get<Idx>(args)...);
+void apply_constructor(void* pre_allocated_mem, Tuple args, std::index_sequence<Idx...>) {
+    new (pre_allocated_mem) ConstructorType(std::get<Idx>(args)...);
 }
 }
 
