@@ -201,7 +201,7 @@ SEASTAR_THREAD_TEST_CASE(test_relabel_add_labels) {
     namespace sm = seastar::metrics;
     sm::metric_groups app_metrics;
     app_metrics.add_group("test", {
-        sm::make_gauge("gauge_1", sm::description("gague 1"), [] { return 0; }),
+        sm::make_gauge("gauge_1", sm::description("gauge 1"), [] { return 0; }),
         sm::make_counter("counter_1", sm::description("counter 1"), [] { return 1; })
     });
 
@@ -226,7 +226,7 @@ SEASTAR_THREAD_TEST_CASE(test_relabel_drop_label_prevent_runtime_conflicts) {
     namespace sm = seastar::metrics;
     sm::metric_groups app_metrics;
     app_metrics.add_group("test2", {
-        sm::make_gauge("gauge_1", sm::description("gague 1"), { sm::label_instance("g", "1")}, [] { return 0; }),
+        sm::make_gauge("gauge_1", sm::description("gauge 1"), { sm::label_instance("g", "1")}, [] { return 0; }),
         sm::make_counter("counter_1", sm::description("counter 1"), [] { return 0; }),
         sm::make_counter("counter_1", sm::description("counter 1"), { sm::label_instance("lev", "2")}, [] { return 0; })
     });
@@ -256,7 +256,7 @@ SEASTAR_THREAD_TEST_CASE(test_relabel_enable_disable_skip_when_empty) {
     namespace sm = seastar::metrics;
     sm::metric_groups app_metrics;
     app_metrics.add_group("test3", {
-        sm::make_gauge("gauge_1", sm::description("gague 1"), { sm::label_instance("lev3", "3")}, [] { return 0; }),
+        sm::make_gauge("gauge_1", sm::description("gauge 1"), { sm::label_instance("lev3", "3")}, [] { return 0; }),
         sm::make_counter("counter_1", sm::description("counter 1"), { sm::label_instance("lev3", "3")}, [] { return 0; }),
         sm::make_counter("counter_2", sm::description("counter 2"), { sm::label_instance("lev3", "3")}, [] { return 0; })
     });
