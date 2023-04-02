@@ -55,7 +55,7 @@ void parallel_for_each_state::wait_for_one() noexcept {
         _incomplete.pop_back();
     }
 
-    // If there's an incompelete future, wait for it.
+    // If there's an incomplete future, wait for it.
     if (!_incomplete.empty()) {
         internal::set_callback(std::move(_incomplete.back()), static_cast<continuation_base<>*>(this));
         // This future's state will be collected in run_and_dispose(), so we can drop it.
