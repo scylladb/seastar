@@ -47,7 +47,7 @@ public:
         bool insert = true;
         auto beg = offset;
         auto end = beg + p.len();
-        // Fisrt, try to merge the packet with existing segment
+        // First, try to merge the packet with existing segment
         for (auto it = map.begin(); it != map.end();) {
             auto& seg_pkt = it->second;
             auto seg_beg = it->first;
