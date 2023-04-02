@@ -152,7 +152,7 @@ the `--c++-standard` configure option, e.g., `--c++-standard=17`,
 or if using CMake directly, by setting on the `CMAKE_CXX_STANDARD` CMake
 variable.
 
-See the [compatibity statement](doc/compatibility.md) for more information.
+See the [compatibility statement](doc/compatibility.md) for more information.
 
 Getting started
 ---------------
