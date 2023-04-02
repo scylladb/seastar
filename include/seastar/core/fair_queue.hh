@@ -81,7 +81,7 @@ public:
     /// The normalization function itself is an implementation detail, but one can expect either weight or
     /// size to have more or less relative importance depending on which of the dimensions in the
     /// denominator is relatively higher. For example, given this request a, and two other requests
-    /// b and c, such that that c has the same \c weight but a higher \c size than b, one can expect
+    /// b and c, such that c has the same \c weight but a higher \c size than b, one can expect
     /// the \c size component of this request to play a larger role.
     ///
     /// It is legal for the numerator to have one of the quantities set to zero, in which case only
