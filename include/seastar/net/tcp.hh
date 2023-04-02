@@ -381,7 +381,7 @@ private:
             size_t data_size = 0;
             tcp_packet_merger out_of_order;
             std::optional<promise<>> _data_received_promise;
-            // The maximun memory buffer size allowed for receiving
+            // The maximum memory buffer size allowed for receiving
             // Currently, it is the same as default receive window size when window scaling is enabled
             size_t max_receive_buf_size = 3737600;
         } _rcv;
