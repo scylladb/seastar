@@ -654,7 +654,7 @@ append_challenged_posix_file_impl::~append_challenged_posix_file_impl() {
     // If the file has not been closed we risk having running tasks
     // that will try to access freed memory.
     //
-    // It is safe to destory it if nothing is queued.
+    // It is safe to destroy it if nothing is queued.
     // Note that posix_file_impl::~posix_file_impl auto-closes the file descriptor.
     assert(_q.empty() && (_logical_size == _committed_size || _closing_state == state::closed));
 }
