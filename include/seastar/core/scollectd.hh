@@ -498,7 +498,7 @@ public:
 
 /**
  * Template wrapper for type_id values, deriving type_id string
- * from the known_types enum, for auto-completetion joy.
+ * from the known_types enum, for auto-completion joy.
  */
 template<known_type Type>
 struct typed_value_impl: public typed_value {
