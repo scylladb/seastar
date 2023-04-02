@@ -147,7 +147,7 @@ public:
      *
      * where K is the scalar value <= 1.0 (also configured)
      *
-     * Bandwidth is bytes time derivatite, iops is ops time derivative, i.e.
+     * Bandwidth is bytes time derivative, iops is ops time derivative, i.e.
      * Bx = d(bx)/dt, Ox = d(ox)/dt. Then the formula turns into
      *
      *   d(bw/Bw_max + br/Br_max + ow/Ow_max + or/Or_max)/dt <= K
