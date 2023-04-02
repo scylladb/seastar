@@ -900,7 +900,7 @@ public:
 
 bool reactor_backend_epoll::reap_kernel_completions() {
     // epoll does not have a separate submission stage, and just
-    // calls epoll_ctl everytime it needs, so this method and
+    // calls epoll_ctl every time it needs, so this method and
     // kernel_submit_work are essentially the same. Ordering also
     // doesn't matter much. wait_and_process is actually completing,
     // but we prefer to call it in kernel_submit_work because the
