@@ -4582,7 +4582,7 @@ reactor::calculate_poll_time() {
     // In a non-virtualized environment, select a poll time
     // that is competitive with halt/unhalt.
     //
-    // In a virutalized environment, IPIs are slow and dominate
+    // In a virtualized environment, IPIs are slow and dominate
     // sleep/wake (mprotect/tgkill), so increase poll time to reduce
     // so we don't sleep in a request/reply workload
     return virtualized() ? 2000us : 200us;
