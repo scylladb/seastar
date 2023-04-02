@@ -206,7 +206,7 @@ public:
     /// cannot be moved safely, so disable move operations.
     sharded(sharded&& other) = delete;
     sharded& operator=(sharded&& other) = delete;
-    /// Destroyes a \c sharded object.  Must not be in a started state.
+    /// Destroys a \c sharded object.  Must not be in a started state.
     ~sharded();
 
     /// Starts \c Service by constructing an instance on every logical core
