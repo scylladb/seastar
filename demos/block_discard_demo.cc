@@ -51,7 +51,7 @@ int main(int ac, char** av) {
         return open_file_dma(filepath, open_flags::rw | open_flags::create).then([] (file f) {
             auto ft = new file_test{std::move(f)};
 
-            // Discard asynchronously, siganl when done.
+            // Discard asynchronously, signal when done.
             (void)ft->f.stat().then([ft] (struct stat st) mutable {
                 assert(S_ISBLK(st.st_mode));
                 auto offset = 0;
