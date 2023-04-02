@@ -1496,7 +1496,7 @@ public:
                 } catch (...) {
                 }
                 // make sure to wait for handshake attempt to leave semaphores. Must be in same order as
-                // handshake aqcuire, because in worst case, we get here while a reader is attempting
+                // handshake acquire, because in worst case, we get here while a reader is attempting
                 // re-handshake.
                 return with_semaphore(_in_sem, 1, [this] {
                     return with_semaphore(_out_sem, 1, [] {});
