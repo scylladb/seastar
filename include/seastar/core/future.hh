@@ -490,7 +490,7 @@ struct future_state_base {
     future_state_base(std::exception_ptr&& ex) noexcept : _u(std::move(ex)) { }
     future_state_base(future_state_base&& x) noexcept : _u(std::move(x._u)) { }
 
-    // We never need to destruct this polymorphicly, so we can make it
+    // We never need to destruct this polymorphically, so we can make it
     // protected instead of virtual.
 protected:
     struct current_exception_future_marker {};
@@ -770,7 +770,7 @@ protected:
 
     void clear() noexcept;
 
-    // We never need to destruct this polymorphicly, so we can make it
+    // We never need to destruct this polymorphically, so we can make it
     // protected instead of virtual
     ~promise_base() noexcept {
         clear();
