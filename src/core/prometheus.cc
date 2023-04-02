@@ -467,10 +467,10 @@ metric_family_range get_range(const metrics_families_per_shard& mf, const sstrin
     if (metric_family_name == "") {
         return metric_family_range(mf);
     }
-    auto upper_bount_prefix = metric_family_name;
-    ++upper_bount_prefix.back();
+    auto upper_bound_prefix = metric_family_name;
+    ++upper_bound_prefix.back();
     if (prefix) {
-        return metric_family_range(mf.lower_bound(metric_family_name), mf.lower_bound(upper_bount_prefix));
+        return metric_family_range(mf.lower_bound(metric_family_name), mf.lower_bound(upper_bound_prefix));
     }
     auto lb = mf.lower_bound(metric_family_name);
     if (lb.end() || lb->name() != metric_family_name) {
