@@ -100,9 +100,9 @@ struct resource_limits {
     size_t max_memory = rpc_semaphore::max_counter(); ///< Maximum amount of memory that may be consumed by all requests
     /// Configures isolation for a connection based on its isolation cookie. May throw,
     /// in which case the connection will be terminated.
-    using syncronous_isolation_function = std::function<isolation_config (sstring isolation_cookie)>;
+    using synchronous_isolation_function = std::function<isolation_config (sstring isolation_cookie)>;
     using asynchronous_isolation_function = std::function<future<isolation_config> (sstring isolation_cookie)>;
-    using isolation_function_alternatives = std::variant<syncronous_isolation_function, asynchronous_isolation_function>;
+    using isolation_function_alternatives = std::variant<synchronous_isolation_function, asynchronous_isolation_function>;
     isolation_function_alternatives isolate_connection = default_isolate_connection;
 };
 

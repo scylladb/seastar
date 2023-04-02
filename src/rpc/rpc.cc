@@ -906,7 +906,7 @@ namespace rpc {
               struct isolation_function_visitor {
                   isolation_function_visitor(const sstring& isolation_cookie) :
                         _isolation_cookie(isolation_cookie) { }
-                  future<isolation_config> operator() (resource_limits::syncronous_isolation_function f) const {
+                  future<isolation_config> operator() (resource_limits::synchronous_isolation_function f) const {
                       return futurize_invoke(f, _isolation_cookie);
                   }
                   future<isolation_config> operator() (resource_limits::asynchronous_isolation_function f) const {
