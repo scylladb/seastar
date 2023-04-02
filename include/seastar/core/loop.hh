@@ -444,7 +444,7 @@ future<> do_for_each_impl(Iterator begin, Iterator end, AsyncAction action) {
 /// invocation to complete before calling the next one.
 ///
 /// \param begin an \c InputIterator designating the beginning of the range
-/// \param end an \c InputIterator designating the endof the range
+/// \param end an \c InputIterator designating the end of the range
 /// \param action a callable, taking a reference to objects from the range
 ///               as a parameter, and returning a \c future<> that resolves
 ///               when it is acceptable to process the next item.
