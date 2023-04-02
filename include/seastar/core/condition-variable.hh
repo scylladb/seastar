@@ -186,7 +186,7 @@ private:
     bool check_and_consume_signal() noexcept;
 public:
     /// Constructs a condition_variable object.
-    /// Initialzie the semaphore with a default value of 0 to ensure
+    /// Initialize the semaphore with a default value of 0 to ensure
     /// the first call to wait() before signal() won't be waken up immediately.
     condition_variable() noexcept = default;
     condition_variable(condition_variable&& rhs) noexcept = default;
