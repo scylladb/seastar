@@ -424,7 +424,7 @@ extern const bool metric_disabled;
 extern label shard_label;
 
 /*
- * The metrics definition are defined to be compatible with collectd metrics defintion.
+ * The metrics definition are defined to be compatible with collectd metrics definition.
  * Typically you should used gauge or derived.
  */
 
