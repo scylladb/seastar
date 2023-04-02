@@ -206,7 +206,7 @@ public:
  *
  * sm::make_queue_length("send_batch_queue_length", _last_snt_batch, {smp_owner(cpuid)})
  *
- * where cpuid in this case is unsiged.
+ * where cpuid in this case is unsigned.
  */
 class label {
     sstring key;
