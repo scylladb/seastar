@@ -213,7 +213,7 @@ public:
 
     /// logs to desired level if enabled, otherwise we ignore the log line
     ///
-    /// \param fmt - {fmt} style format string (implictly converted to struct logger::format_info)
+    /// \param fmt - {fmt} style format string (implicitly converted to struct logger::format_info)
     ///              or a logger::format_info passed down the call chain.
     /// \param args - args to print string
     ///
@@ -245,7 +245,7 @@ public:
     /// Where $N is the number of messages dropped.
     ///
     /// \param rl - the \ref rate_limit to apply to this log
-    /// \param fmt - {fmt} style format string (implictly converted to struct logger::format_info)
+    /// \param fmt - {fmt} style format string (implicitly converted to struct logger::format_info)
     ///              or a logger::format_info passed down the call chain.
     /// \param args - args to print string
     ///
@@ -319,7 +319,7 @@ public:
     /// Log with error tag:
     /// ERROR  %Y-%m-%d %T,%03d [shard 0] - "your msg" \n
     ///
-    /// \param fmt - {fmt} style format string (implictly converted to struct logger::format_info)
+    /// \param fmt - {fmt} style format string (implicitly converted to struct logger::format_info)
     ///              or a logger::format_info passed down the call chain.
     /// \param args - args to print string
     ///
@@ -330,7 +330,7 @@ public:
     /// Log with warning tag:
     /// WARN  %Y-%m-%d %T,%03d [shard 0] - "your msg" \n
     ///
-    /// \param fmt - {fmt} style format string (implictly converted to struct logger::format_info)
+    /// \param fmt - {fmt} style format string (implicitly converted to struct logger::format_info)
     ///              or a logger::format_info passed down the call chain.
     /// \param args - args to print string
     ///
@@ -341,7 +341,7 @@ public:
     /// Log with info tag:
     /// INFO  %Y-%m-%d %T,%03d [shard 0] - "your msg" \n
     ///
-    /// \param fmt - {fmt} style format string (implictly converted to struct logger::format_info)
+    /// \param fmt - {fmt} style format string (implicitly converted to struct logger::format_info)
     ///              or a logger::format_info passed down the call chain.
     /// \param args - args to print string
     ///
@@ -352,7 +352,7 @@ public:
     /// Log with info tag on shard zero only:
     /// INFO  %Y-%m-%d %T,%03d [shard 0] - "your msg" \n
     ///
-    /// \param fmt - {fmt} style format string (implictly converted to struct logger::format_info)
+    /// \param fmt - {fmt} style format string (implicitly converted to struct logger::format_info)
     ///              or a logger::format_info passed down the call chain.
     /// \param args - args to print string
     ///
@@ -365,7 +365,7 @@ public:
     /// Log with debug tag:
     /// DEBUG  %Y-%m-%d %T,%03d [shard 0] - "your msg" \n
     ///
-    /// \param fmt - {fmt} style format string (implictly converted to struct logger::format_info)
+    /// \param fmt - {fmt} style format string (implicitly converted to struct logger::format_info)
     ///              or a logger::format_info passed down the call chain.
     /// \param args - args to print string
     ///
@@ -376,7 +376,7 @@ public:
     /// Log with trace tag:
     /// TRACE  %Y-%m-%d %T,%03d [shard 0] - "your msg" \n
     ///
-    /// \param fmt - {fmt} style format string (implictly converted to struct logger::format_info)
+    /// \param fmt - {fmt} style format string (implicitly converted to struct logger::format_info)
     ///              or a logger::format_info passed down the call chain.
     /// \param args - args to print string
     ///
