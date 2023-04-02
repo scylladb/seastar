@@ -771,7 +771,7 @@ SEASTAR_TEST_CASE(test_many_large_message_x509_client_server) {
     });
 }
 
-SEASTAR_THREAD_TEST_CASE(test_close_timout) {
+SEASTAR_THREAD_TEST_CASE(test_close_timeout) {
     tls::credentials_builder b;
 
     b.set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).get();
