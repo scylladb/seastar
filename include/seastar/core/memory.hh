@@ -285,7 +285,7 @@ public:
     uint64_t mallocs() const { return _mallocs; }
     /// Total number of memory deallocations calls since the system was started.
     uint64_t frees() const { return _frees; }
-    /// Total number of memory deallocations that occured on a different lcore
+    /// Total number of memory deallocations that occurred on a different lcore
     /// than the one on which they were allocated.
     uint64_t cross_cpu_frees() const { return _cross_cpu_frees; }
     /// Total number of objects which were allocated but not freed.
