@@ -118,12 +118,12 @@ int main(int ac, char** av) {
             engine().at_exit([&prometheus_server, server, pport] {
                 return [pport, &prometheus_server] {
                     if (pport) {
-                        std::cout << "Stoppping Prometheus server" << std::endl;
+                        std::cout << "Stopping Prometheus server" << std::endl;
                         return prometheus_server.stop();
                     }
                     return make_ready_future<>();
                 }().finally([server] {
-                    std::cout << "Stoppping HTTP server" << std::endl;
+                    std::cout << "Stopping HTTP server" << std::endl;
                     return server->stop();
                 });
             });
