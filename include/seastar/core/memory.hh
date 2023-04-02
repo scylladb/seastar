@@ -238,7 +238,7 @@ void set_reclaim_hook(
 ///
 /// Note that even if the global state is set to enabled, the
 /// `disable_abort_on_alloc_failure_temporarily` class may override
-/// the behavior tepmorarily on a given shard. That is, abort only
+/// the behavior temporarily on a given shard. That is, abort only
 /// occurs if abort is globally enabled on this shard _and_ there
 /// are no `disable_abort_on_alloc_failure_temporarily` objects
 /// currently alive on this shard.
