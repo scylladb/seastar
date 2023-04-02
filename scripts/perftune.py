@@ -616,7 +616,7 @@ class NetPerfTuner(PerfTunerBase):
     def slaves(self, nic):
         """
         Returns an iterator for all slaves of the nic.
-        If agrs.nic is not a bonding interface an attempt to use the returned iterator
+        If args.nics is not a bonding interface an attempt to use the returned iterator
         will immediately raise a StopIteration exception - use __dev_is_bond_iface() check to avoid this.
         """
         return iter(self.__slaves[nic])
