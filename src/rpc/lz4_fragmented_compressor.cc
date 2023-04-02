@@ -47,7 +47,7 @@ std::unique_ptr<rpc::compressor> lz4_fragmented_compressor::factory::negotiate(s
 
 // Compressed message format:
 // The message consists of one or more data chunks each preceeded by a 4 byte header.
-// The value of the header detrmines the size of the chunk:
+// The value of the header determines the size of the chunk:
 // - most significant bit is cleared: intermediate chunk, 31 least significant bits
 //   contain the compressed size of the chunk (i.e. how it appears on wire), the
 //   decompressed size is 32 kB.
