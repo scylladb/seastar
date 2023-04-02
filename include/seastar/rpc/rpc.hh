@@ -130,7 +130,7 @@ struct client_options {
 // server on the shard. Stream domain parameter is here to help with that.
 // Different servers on all shards logically belonging to the same service should
 // belong to the same streaming domain. Only one server on each shard can belong to
-// a particulr streaming domain.
+// a particular streaming domain.
 class streaming_domain_type {
     uint64_t _id;
 public:
