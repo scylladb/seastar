@@ -211,6 +211,25 @@ metric_value metric_value::operator+(const metric_value& c) {
     return res;
 }
 
+metric_value& metric_value::avg(const metric_value& c, size_t count) {
+    switch (_type) {
+    case data_type::HISTOGRAM:
+        break;
+    default:
+        // metric_value as average, to keep from overflow when adding new number c
+        // to the current average u, assuming we already had count steps
+        // we use the exponential moving average approach where alpha is calculated as
+        // alpha = count/(count + 1)
+        double alpha = double(count) / (count + 1.0);
+        std::get<double>(u) *= alpha;
+        std::get<double>(u) += std::get<double>(c.u) * (1.0 - alpha);
+        break;
+    }
+    return *this;
+}
+bool metric_value::operator<(const metric_value& c) const noexcept {
+    return (_type != data_type::HISTOGRAM) && (std::get<double>(u) < std::get<double>(c.u));
+}
 void metric_value::ulong_conversion_error(double d) {
     throw std::range_error(format("cannot convert double value {} to unsigned long", d));
 }
@@ -221,7 +240,8 @@ metric_definition_impl::metric_definition_impl(
         metric_function f,
         description d,
         std::vector<label_instance> _labels,
-        std::vector<label> _aggregate_labels)
+        std::vector<label> _aggregate_labels,
+        aggregate_function_type ag_function)
         : name(name), type(type), f(f)
         , d(d), enabled(true) {
     for (auto i: _labels) {
@@ -230,7 +250,7 @@ metric_definition_impl::metric_definition_impl(
     if (labels.find(shard_label.name()) == labels.end()) {
         labels[shard_label.name()] = shard();
     }
-    aggregate(_aggregate_labels);
+    aggregate(_aggregate_labels, ag_function);
 }
 
 metric_definition_impl& metric_definition_impl::operator ()(bool _enabled) {
@@ -253,8 +273,9 @@ metric_definition_impl& metric_definition_impl::set_type(const sstring& type_nam
     return *this;
 }
 
-metric_definition_impl& metric_definition_impl::aggregate(const std::vector<label>& _labels) noexcept {
+metric_definition_impl& metric_definition_impl::aggregate(const std::vector<label>& _labels, aggregate_function_type ag_function) noexcept {
     aggregate_labels.reserve(_labels.size());
+    aggregate_function = ag_function;
     std::transform(_labels.begin(), _labels.end(),std::back_inserter(aggregate_labels),
             [](const label& l) { return l.name(); });
     return *this;
@@ -279,7 +300,7 @@ metric_groups_impl& metric_groups_impl::add_metric(group_name_type name, const m
 
     metric_id id(name, md._impl->name, md._impl->labels);
 
-    get_local_impl()->add_registration(id, md._impl->type, md._impl->f, md._impl->d, md._impl->enabled, md._impl->_skip_when_empty, md._impl->aggregate_labels);
+    get_local_impl()->add_registration(id, md._impl->type, md._impl->f, md._impl->d, md._impl->enabled, md._impl->_skip_when_empty, md._impl->aggregate_labels, md._impl->aggregate_function);
 
     _registration.push_back(id);
     return *this;
@@ -420,7 +441,7 @@ std::vector<std::vector<metric_function>>& impl::functions() {
     return _current_metrics;
 }
 
-void impl::add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled, skip_when_empty skip, const std::vector<std::string>& aggregate_labels) {
+void impl::add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled, skip_when_empty skip, const std::vector<std::string>& aggregate_labels, aggregate_function_type ag_function) {
     auto rm = ::seastar::make_shared<registered_metric>(id, f, enabled, skip);
     for (auto&& rl : _relabel_configs) {
         apply_relabeling(rl, rm->info());
@@ -445,6 +466,7 @@ void impl::add_registration(const metric_id& id, const metric_type& type, metric
         _value_map[name].info().inherit_type = type.type_name;
         _value_map[name].info().name = id.full_name();
         _value_map[name].info().aggregate_labels = aggregate_labels;
+        _value_map[name].info().aggregate_function = ag_function;
         _value_map[name][rm->info().id.labels()] = rm;
     }
     dirty();
