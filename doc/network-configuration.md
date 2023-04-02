@@ -25,7 +25,7 @@ The hardware configuration has to be specied in the same way across all network 
 
 
 ## Non-DPDK access
-When there is no pci_address neither port_index defined then Non-DPDK access is assumed provided by libvirt deamon (see native-stack.md), eg:
+When there is no pci_address neither port_index defined then Non-DPDK access is assumed provided by libvirt daemon (see native-stack.md), eg:
 
 ```
 virbr0: { ip: 192.168.100.10, gateway: 192.168.100.1, netmask: 255.255.255.0 }
