@@ -223,7 +223,7 @@ class append_challenged_posix_file_impl final : public posix_file_impl, public e
 
     const bool _sloppy_size = false;
     const uint64_t _sloppy_size_hint;
-    // Fulfiled when _done and I/O is complete
+    // Fulfilled when _done and I/O is complete
     promise<> _completed;
 private:
     void commit_size(uint64_t size) noexcept;
