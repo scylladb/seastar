@@ -923,7 +923,7 @@ qp_osv::qp_osv(device *dev, osv::assigned_virtio &virtio,
     }
 
     // TODO: save bits from "subset" in _hw_features?
-//    bool _mergeable_bufs = subset & VIRTIO_NET_F_MRG_RXBUF;
+//    bool _mergable_bufs = subset & VIRTIO_NET_F_MRG_RXBUF;
 //    bool _status = subset & VIRTIO_NET_F_STATUS;
 //    bool _tso_ecn = subset & VIRTIO_NET_F_GUEST_ECN;
 //    bool _host_tso_ecn = subset & VIRTIO_NET_F_HOST_ECN;
