@@ -102,7 +102,7 @@ SEASTAR_THREAD_TEST_CASE(test_queue_pop_eventually) {
     BOOST_REQUIRE(pusher_done);
     BOOST_REQUIRE(popped == pushed);
     BOOST_REQUIRE(popper_done);
-    testlog.info("Pushed and popped {} elemements in {}us, {:.3f} elements/us", pushed, elapsed_us, double(pushed) / elapsed_us);
+    testlog.info("Pushed and popped {} elements in {}us, {:.3f} elements/us", pushed, elapsed_us, double(pushed) / elapsed_us);
 }
 
 #ifdef SEASTAR_ENABLE_ALLOC_FAILURE_INJECTION
