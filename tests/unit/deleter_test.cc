@@ -56,7 +56,7 @@ BOOST_AUTO_TEST_CASE(test_deleter_append_does_not_free_shared_object) {
             deleter del3 = make_object_deleter(std::move(obj3));
             del1.append(std::move(del3));
         }
-        // since deleter tested still holds references to first two objects, last objec should be deleted
+        // since deleter tested still holds references to first two objects, last object should be deleted
         BOOST_REQUIRE(TestObject::deletions_called == 1);
     }
     BOOST_REQUIRE(TestObject::deletions_called == 3);
