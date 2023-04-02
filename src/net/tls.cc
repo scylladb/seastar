@@ -610,7 +610,7 @@ future<> tls::credentials_builder::set_system_trust() {
     // And we probably _don't want to get into the guessing game
     // of where the system trust cert chains are, since this is
     // super distro dependent, and usually compiled into the library.
-    // Pretent it is raining, and just set a flag.
+    // Pretend it is raining, and just set a flag.
     // Leave the function returning future, so if we change our
     // minds and want to do explicit loading, we can...
     _blobs.emplace(system_trust, true);
