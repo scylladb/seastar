@@ -561,7 +561,7 @@ public:
         future<feature_map> negotiate(feature_map requested);
         future<> send_unknown_verb_reply(std::optional<rpc_clock_type::time_point> timeout, int64_t msg_id, uint64_t type);
     public:
-        connection(server& s, connected_socket&& fd, socket_address&& addr, const logger& l, void* seralizer, connection_id id);
+        connection(server& s, connected_socket&& fd, socket_address&& addr, const logger& l, void* serializer, connection_id id);
         future<> process();
         future<> respond(int64_t msg_id, snd_buf&& data, std::optional<rpc_clock_type::time_point> timeout);
         client_info& info() { return _info; }
