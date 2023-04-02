@@ -1233,7 +1233,7 @@ small_pool::~small_pool() {
 }
 
 // Should not throw in case of running out of memory to avoid infinite recursion,
-// becaue throwing std::bad_alloc requires allocation. __cxa_allocate_exception
+// because throwing std::bad_alloc requires allocation. __cxa_allocate_exception
 // falls back to the emergency pool in case malloc() returns nullptr.
 void*
 small_pool::allocate() {

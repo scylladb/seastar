@@ -221,7 +221,7 @@ int main(int ac, char** av) {
            return http_clients->stop().then([http_clients] {
                // FIXME: If we call engine().exit(0) here to exit when
                // requests are done. The tcp connection will not be closed
-               // properly, becasue we exit too earily and the FIN packets are
+               // properly, because we exit too earily and the FIN packets are
                // not exchanged.
                 delete http_clients;
                 return make_ready_future<int>(0);

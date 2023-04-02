@@ -102,7 +102,7 @@ public:
         }
 
         // Second, merge adjacent segments after this packet has been merged,
-        // becasue this packet might fill a "whole" and make two adjacent
+        // because this packet might fill a "whole" and make two adjacent
         // segments mergable
         for (auto it = map.begin(); it != map.end();) {
             // The first segment
