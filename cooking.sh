@@ -83,7 +83,7 @@ Option details:
     Instead of reading the recipe in a file called `cooking_recipe.cmake`, follow the recipe
     in the named file.
 
-    If the recipe file is a relative path, it is interpretted relative to the source directory
+    If the recipe file is a relative path, it is interpreted relative to the source directory
     of the project.
 
 -e INGREDIENT
