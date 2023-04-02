@@ -80,7 +80,7 @@ SEASTAR_TEST_CASE(system_clock_sanity) {
 
     //
     // Check two out of three samples in order to account for the possibility that the high-resolution clock backing
-    // the low-resoltuion clock was captured in the range of the 990th to 999th millisecond of the second. This would
+    // the low-resolution clock was captured in the range of the 990th to 999th millisecond of the second. This would
     // make the low-resolution clock and the high-resolution clock disagree on the current second.
     //
 

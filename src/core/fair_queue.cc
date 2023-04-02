@@ -205,7 +205,7 @@ void fair_queue::push_priority_class_from_idle(priority_class_data& pc) noexcept
     if (!pc._queued) {
         // Don't let the newcomer monopolize the disk for more than tau
         // duration. For this estimate how many capacity units can be
-        // accumulated with the current class shares per rate resulution
+        // accumulated with the current class shares per rate resolution
         // and scale it up to tau.
         capacity_t max_deviation = fair_group::fixed_point_factor / pc._shares * fair_group::token_bucket_t::rate_cast(_config.tau).count();
         // On start this deviation can go to negative values, so not to
