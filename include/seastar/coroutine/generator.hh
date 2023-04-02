@@ -36,7 +36,7 @@ class generator;
 ///
 /// the value of a `buffer_size_t` specifies the size of the buffer holding the
 /// values produced by the generator coroutine. Unlike its unbuffered variant,
-/// the bufferred generator does not wait for its caller to consume every single
+/// the buffered generator does not wait for its caller to consume every single
 /// produced values. Instead, it puts the produced values into an internal
 /// buffer, before the buffer is full or the generator is suspended. This helps
 /// to alleviate the problem of pingpong between the generator coroutine and
