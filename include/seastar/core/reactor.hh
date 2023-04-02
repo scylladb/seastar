@@ -699,7 +699,7 @@ public:
     /// such as tmpfs or aufs (used in some Docker setups).
     ///
     /// When false, file I/O operations can fall back to buffered I/O if
-    /// DMA is not available.  This can result in dramatic reducation in
+    /// DMA is not available.  This can result in dramatic reduction in
     /// performance and an increase in memory consumption.
     void set_strict_dma(bool value);
     void set_bypass_fsync(bool value);
