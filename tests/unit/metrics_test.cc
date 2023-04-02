@@ -73,7 +73,7 @@ static std::set<seastar::sstring> get_label_values(seastar::sstring metric_name,
     return labels;
 }
 
-SEASTAR_THREAD_TEST_CASE(test_renaming_scheuling_groups) {
+SEASTAR_THREAD_TEST_CASE(test_renaming_scheduling_groups) {
     // this seams a little bit out of place but the
     // renaming functionality is primarily for statistics
     // otherwise those classes could have just been reused
