@@ -118,7 +118,7 @@ struct scheduling_group_key_config {
      * It does not contain the right alignment and allocation sizes
      * neither the correct construction or destruction logic, but only
      * the indication for the intended type which is used in debug mode
-     * to make sure that the correct type is reffered to when accessing
+     * to make sure that the correct type is referred to when accessing
      * the value.
      * @param type_info - the type information class (create with typeid(T)).
      */
