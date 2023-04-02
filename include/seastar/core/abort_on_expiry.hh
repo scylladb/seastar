@@ -41,7 +41,7 @@ public:
     using time_point = typename Clock::time_point;
     /// Creates a timer and an abort source associated with it
     /// When the timer reaches timeout point it triggers an
-    /// abort autimatically
+    /// abort automatically
     abort_on_expiry(time_point timeout) : _tr([this] {
         _as.request_abort();
     }) {
