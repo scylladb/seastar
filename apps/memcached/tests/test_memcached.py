@@ -325,7 +325,7 @@ class TestCommands(MemcacheTest):
         self.assertNoKey("key2")
 
     @slow
-    def test_memcache_does_not_crash_when_flushing_with_already_expred_items(self):
+    def test_memcache_does_not_crash_when_flushing_with_already_expired_items(self):
         self.assertEqual(call('set key1 0 2 5\r\nhello\r\n'), b'STORED\r\n')
         time.sleep(1)
         self.assertEqual(call('flush_all\r\n'), b'OK\r\n')
