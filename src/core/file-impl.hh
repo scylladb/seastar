@@ -100,7 +100,7 @@ public:
     virtual future<> allocate(uint64_t position, uint64_t length) noexcept override;
     future<uint64_t> size() noexcept override;
     // close() never fails. It just reports errors and swallows them.
-    // The user must call flush() first if they care aout stable storage semantics.
+    // The user must call flush() first if they care about stable storage semantics.
     virtual future<> close() noexcept override;
     virtual std::unique_ptr<seastar::file_handle_impl> dup() override;
     virtual subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next) override;
