@@ -469,7 +469,7 @@ constructor, which in turn creates the buffer, as we are not using `std::optiona
 apparently, if there is no dishes on the table, the diner would wait for new ones to be prepared by the chef. 
 
 Please note, `generator<T, Container>` is still at its early stage of developing,
-the public interface this template is subject to change before it is stablized enough.
+the public interface this template is subject to change before it is stabilized enough.
 
 ## Exceptions in coroutines
 
