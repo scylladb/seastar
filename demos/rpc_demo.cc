@@ -139,8 +139,8 @@ int main(int ac, char** av) {
             auto test10_1 = myrpc.make_client<future<rpc::tuple<long, int>> ()>(10); // receive all
             auto test11 = myrpc.make_client<future<rpc::tuple<long, rpc::optional<int>>> ()>(11); // receive more then replied
             auto test12 = myrpc.make_client<void (int sleep_ms, sstring payload)>(12); // large payload vs. server limits
-            auto test_nohandler = myrpc.make_client<void ()>(100000000); // non existing verb
-            auto test_nohandler_nowait = myrpc.make_client<rpc::no_wait_type ()>(100000000); // non existing verb, no_wait call
+            auto test_nohandler = myrpc.make_client<void ()>(100000000); // nonexistent verb
+            auto test_nohandler_nowait = myrpc.make_client<rpc::no_wait_type ()>(100000000); // nonexistent verb, no_wait call
             rpc::client_options co;
             if (compress) {
                 co.compressor_factory = &mc;
