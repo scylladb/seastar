@@ -707,7 +707,7 @@ public:
     std::chrono::milliseconds get_blocked_reactor_notify_ms() const;
     /// For testing, sets the stall reporting function which is called when
     /// a stall is detected (and not suppressed). Setting the function also
-    /// resets the supression state.
+    /// resets the suppression state.
     void set_stall_detector_report_function(std::function<void ()> report);
     std::function<void ()> get_stall_detector_report_function() const;
 };
