@@ -1709,7 +1709,7 @@ seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar
         }
 
         // For the small pools, there are two types of free objects:
-        // Pool freelist objects are poitned to by sp._free and their count is sp._free_count
+        // Pool freelist objects are pointed to by sp._free and their count is sp._free_count
         // Span freelist objects are those removed from the pool freelist when that list
         // becomes too large: they are instead attached to the spans allocated to this
         // pool. To count this second category, we iterate over the spans below.
