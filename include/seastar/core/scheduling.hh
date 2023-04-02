@@ -227,7 +227,7 @@ make_scheduling_group_key_config(ConstructorArgs... args) {
 /**
  * Returns a future that holds a scheduling key and resolves when this key can be used
  * to access the scheduling group specific value it represents.
- * @param cfg - A \ref scheduling_group_key_config object (by recomendation: initialized with
+ * @param cfg - A \ref scheduling_group_key_config object (by recommendation: initialized with
  * \ref make_scheduling_group_key_config )
  * @return A future containing \ref scheduling_group_key for the newly created specific value.
  */
