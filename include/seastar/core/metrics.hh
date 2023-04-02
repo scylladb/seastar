@@ -198,7 +198,7 @@ public:
  * Typically, the same Label name is used in multiple places.
  * label is a label factory, you create it once, and use it to create the label_instance.
  *
- * In the example we would like to label the smp_queue with with the queue owner
+ * In the example we would like to label the smp_queue with the queue owner
  *
  * seastar::metrics::label smp_owner("smp_owner");
  *
