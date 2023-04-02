@@ -166,7 +166,7 @@ public:
      *
      * where {w, s} is the ticket value if a request and sum summarizes the
      * ticket values from all the requests seen so far, {W, S} is the ticket
-     * value that corresonds to a virtual summary of Or_max requests of
+     * value that corresponds to a virtual summary of Or_max requests of
      * Br_max size total.
      */
 
