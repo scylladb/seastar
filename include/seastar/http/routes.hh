@@ -194,7 +194,7 @@ public:
      * std::rethrow_exception(eptr);
      * and catch only the exception it handles
      */
-    exception_handler_id register_exeption_handler(exception_handler_fun fun) {
+    exception_handler_id register_exception_handler(exception_handler_fun fun) {
         auto current = _exception_id++;
         _exceptions[current] = fun;
         return current;
