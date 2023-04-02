@@ -117,7 +117,7 @@ template void promise_base::make_ready<promise_base::urgent::yes>() noexcept;
 }
 
 template
-future<> current_exception_as_future() noexcept;
+future<void> current_exception_as_future() noexcept;
 
 /**
  * engine_exit() exits the reactor. It should be given a pointer to the
