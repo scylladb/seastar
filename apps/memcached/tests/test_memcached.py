@@ -164,7 +164,7 @@ class TcpSpecificTests(MemcacheTest):
         self.assertEqual(recv_all(s), b'')
         s.close()
 
-    def test_unsuccesful_parsing_does_not_leave_data_behind(self):
+    def test_unsuccessful_parsing_does_not_leave_data_behind(self):
         with tcp_connection() as conn:
             self.assertEqual(conn('set key 0 0 5\r\nhello\r\n'), b'STORED\r\n')
             self.assertRegex(conn('delete a b c\r\n'), b'^(CLIENT_)?ERROR.*\r\n$')
