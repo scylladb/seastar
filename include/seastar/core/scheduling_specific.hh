@@ -126,7 +126,7 @@ T& scheduling_group_get_specific(scheduling_group_key key) noexcept {
  * A map reduce over all values of a specific scheduling group data.
  * @param mapper -  A functor SomeType(SpecificValType&) or SomeType(SpecificValType) that maps
  * the specific data to a value of any type.
- * @param reducer - A functor of of type ConvetibleToInitial(Initial, MapperReurnType) that reduces
+ * @param reducer - A functor of of type ConvertibleToInitial(Initial, MapperReurnType) that reduces
  * a value of type Initial and of the mapper return type to a value of type convertible to Initial.
  * @param initial_val - the initial value to pass in the first call to the reducer.
  * @param key - the key to the specific data that the mapper should act upon.
@@ -160,7 +160,7 @@ map_reduce_scheduling_group_specific(Mapper mapper, Reducer reducer,
 
 /**
  * A reduce over all values of a specific scheduling group data.
- * @param reducer - A functor of of type ConvetibleToInitial(Initial, SpecificValType) that reduces
+ * @param reducer - A functor of of type ConvertibleToInitial(Initial, SpecificValType) that reduces
  * a value of type Initial and of the sg specific data type to a value of type convertible to Initial.
  * @param initial_val - the initial value to pass in the first call to the reducer.
  * @param key - the key to the specific data that the mapper should act upon.
