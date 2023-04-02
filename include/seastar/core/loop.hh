@@ -321,7 +321,7 @@ public:
 /// Invokes given action until it fails or given condition evaluates to true or fails.
 ///
 /// \param stop_cond a callable taking no arguments, returning a boolean that
-///                  evalutes to true when you don't want to call \c action
+///                  evaluates to true when you don't want to call \c action
 ///                  any longer. If \c stop_cond fails, the exception is propagated
 //                   in the returned future.
 /// \param action a callable taking no arguments, returning a future<>.  Will
