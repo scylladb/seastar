@@ -384,7 +384,7 @@ public:
     /// Returns summary of individual execution stage usage statistics
     ///
     /// \returns a vector of the stats of the individual per-scheduling group
-    ///     executation stages. Each element in the vector is a pair composed of
+    ///     execution stages. Each element in the vector is a pair composed of
     ///     the scheduling group and the stats for the respective execution
     ///     stage. Scheduling groups that have had no respective calls enqueued
     ///     yet are omitted.
