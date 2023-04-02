@@ -23,7 +23,7 @@ to emphasize stall backtraces that are frequent and long.
 Each node in the printed output is preceded with [level#index pct%],
 where `level` is the level of that node in the graph (0 are root nodes),
 `index` is the index in the parent node's list of callers/callees, and
-`pct` is the percantage of this link's `total` time relative to
+`pct` is the percentage of this link's `total` time relative to
 its siblings.
 
 When given an executable, addresses are decoding using `addr2line`
