@@ -99,7 +99,7 @@ protected:
     /**
      * read a file from the disk and return it in the replay.
      * @param file the full path to a file on the disk
-     * @param req the reuest
+     * @param req the request
      * @param rep the reply
      */
     future<std::unique_ptr<http::reply> > read(sstring file,
