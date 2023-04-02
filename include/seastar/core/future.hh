@@ -455,7 +455,7 @@ struct future_state_base {
             // Given what we know about the libstdc++ implementation
             // (see the comment in take_exception), we can just
             // memmove and zero x.  We use memmove to guarantee
-            // vaild results if &x == this.
+            // valid results if &x == this.
             memmove(static_cast<void*>(this), &x, sizeof(any));
             x.st = state::invalid;
 #else
