@@ -34,7 +34,7 @@ extern logger seastar_logger;
 
 // A counter that is only comfortable being incremented on the cpu
 // it was created on.  Useful for verifying that a shared_ptr
-// or lw_shared_ptr isn't misued across cores.
+// or lw_shared_ptr isn't misused across cores.
 class debug_shared_ptr_counter_type {
     long _counter = 0;
     std::thread::id _cpu = std::this_thread::get_id();
