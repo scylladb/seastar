@@ -79,7 +79,7 @@ struct path_description {
     //
     enum class url_component_type {
         PARAM, // a normal path parameter (starts with / and end with / or end of path)
-        PARAM_UNTIL_END_OF_PATH, // a parameter that contains all the path entil its end
+        PARAM_UNTIL_END_OF_PATH, // a parameter that contains all the path until its end
         FIXED_STRING, // a fixed string inside the path, must be a full match and does not count
                       // as a parameter
     };
