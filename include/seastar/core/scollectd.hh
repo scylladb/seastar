@@ -859,6 +859,6 @@ typed_value::typed_value(const type_id& tid, const scollectd::type_instance& ti,
 
 // Send a message packet (string)
 future<> send_notification(const type_instance_id & id, const sstring & msg);
-};
+}
 
 }

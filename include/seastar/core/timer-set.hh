@@ -251,4 +251,4 @@ public:
         return Timer::clock::now();
     }
 };
-};
+}
