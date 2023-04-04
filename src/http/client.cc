@@ -28,6 +28,7 @@
 #include <seastar/http/reply.hh>
 #include <seastar/http/response_parser.hh>
 #include <seastar/http/internal/content_source.hh>
+#include <seastar/util/short_streams.hh>
 
 namespace seastar {
 logger http_log("http");
@@ -233,7 +234,18 @@ future<> client::make_request(request req, reply_handler handle, reply::status_t
     return with_connection([req = std::move(req), handle = std::move(handle), expected] (connection& con) mutable {
         return con.make_request(std::move(req)).then([&con, expected, handle = std::move(handle)] (reply rep) mutable {
             if (rep._status != expected) {
-                return make_exception_future<>(std::runtime_error(format("request finished with {}", rep._status)));
+                if (!http_log.is_enabled(log_level::debug)) {
+                    return make_exception_future<>(std::runtime_error(format("request finished with {}", rep._status)));
+                }
+
+                return do_with(std::move(rep), [&con] (auto& rep) mutable {
+                    return do_with(con.in(rep), [&rep] (auto& in) mutable {
+                        return util::read_entire_stream_contiguous(in).then([&rep] (auto message) {
+                            http_log.debug("request finished with {}: {}", rep._status, message);
+                            return make_exception_future<>(std::runtime_error(format("request finished with {}", rep._status)));
+                        });
+                    });
+                });
             }
 
             return do_with(std::move(rep), [&con, handle = std::move(handle)] (auto& rep) mutable {
