@@ -567,7 +567,7 @@ options::options(program_options::option_group* parent_group)
              "Default log level for log messages. Valid values are trace, debug, info, warn, error."
              )
     , logger_log_level(*this, "logger-log-level",
-             {{}},
+             log_level_map{},
              "Map of logger name to log level. The format is \"NAME0=LEVEL0[:NAME1=LEVEL1:...]\". "
              "Valid logger names can be queried with --help-loggers. "
              "Valid values for levels are trace, debug, info, warn, error. "
