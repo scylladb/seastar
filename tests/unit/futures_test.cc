@@ -2012,3 +2012,27 @@ SEASTAR_TEST_CASE(test_make_exception_future) {
 
     return make_ready_future<>();
 }
+
+// Reproduce use-after-free similar to #1514
+SEASTAR_TEST_CASE(test_run_in_background) {
+    engine().run_in_background([] {
+        return sleep(1ms).then([] {
+            return smp::invoke_on_all([] {
+                return sleep(1ms);
+            });
+        });
+    });
+    return make_ready_future<>();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_manual_clock_advance) {
+    bool expired = false;
+    auto t = timer<manual_clock>([&] {
+        expired = true;
+    });
+    t.arm(2ms);
+    manual_clock::advance(1ms);
+    BOOST_REQUIRE(!expired);
+    manual_clock::advance(1ms);
+    BOOST_REQUIRE(expired);
+}

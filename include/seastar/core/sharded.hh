@@ -29,6 +29,7 @@
 #include <seastar/core/do_with.hh>
 #include <seastar/util/concepts.hh>
 #include <seastar/util/log.hh>
+#include <seastar/core/reactor.hh>
 #include <boost/iterator/counting_iterator.hpp>
 #include <functional>
 #if __has_include(<concepts>)
@@ -845,7 +846,10 @@ private:
         // `destroy()` is called from the destructor and other
         // synchronous methods (like `reset()`), that have no way to
         // wait for this future.
-        (void)destroy_on(std::move(p), cpu);
+        auto f = destroy_on(std::move(p), cpu);
+        if (!f.available() || f.failed()) {
+            engine().run_in_background(std::move(f));
+        }
     }
 
     static future<> destroy_on(PtrType p, unsigned cpu) noexcept {

@@ -52,6 +52,7 @@
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/core/thread_cputime_clock.hh>
 #include <seastar/core/timer.hh>
+#include <seastar/core/gate.hh>
 #include <seastar/net/api.hh>
 #include <seastar/util/eclipse.hh>
 #include <seastar/util/log.hh>
@@ -361,6 +362,7 @@ private:
     bool _have_aio_fsync = false;
     bool _kernel_page_cache = false;
     std::atomic<bool> _dying{false};
+    gate _background_gate;
 private:
     static std::chrono::nanoseconds calculate_poll_time();
     static void block_notifier(int);
@@ -565,6 +567,16 @@ public:
 
     void add_task(task* t) noexcept;
     void add_urgent_task(task* t) noexcept;
+
+    void run_in_background(future<> f);
+
+    template <typename Func>
+    void run_in_background(Func&& func) {
+        run_in_background(futurize_invoke(std::forward<Func>(func)));
+    }
+
+    // Waits for all background tasks on all shards
+    static future<> drain();
 
     /// Set a handler that will be called when there is no task to execute on cpu.
     /// Handler should do a low priority work.
