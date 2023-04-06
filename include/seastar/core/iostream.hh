@@ -439,6 +439,26 @@ private:
     friend class reactor;
 };
 
+/// \brief Helper for ensuring an output_stream is flushed and closed after \c func is called.
+///
+/// The \c out rvalue is moved into stable location and is passed to \c func.
+///
+/// \param out A stream to work on
+/// \param func A function that uses the stream
+/// \returns the future returned by \c func, or an exceptional future if either flushing
+/// or closing the \c out failed.
+template <typename Func, typename CharType, typename Result = typename internal::future_result<Func, output_stream<CharType>&>::future_type>
+SEASTAR_CONCEPT( requires std::invocable<Func, output_stream<CharType>&> && std::is_nothrow_move_constructible_v<Func> )
+Result with_output_stream(output_stream<CharType>&& out, Func&& func) noexcept {
+    static_assert(std::is_nothrow_move_constructible_v<Func>, "Func's move constructor must not throw");
+    return do_with(std::move(out), [func = std::forward<Func>(func)] (output_stream<CharType>& out) mutable {
+        return futurize_invoke(std::forward<Func>(func), out).finally([&out] {
+            // output_stream::close() flushes the stream, no need in dedicated flushing here
+            return out.close();
+        });
+    });
+}
+
 /*!
  * \brief copy all the content from the input stream to the output stream
  */

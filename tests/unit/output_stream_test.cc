@@ -157,3 +157,105 @@ SEASTAR_THREAD_TEST_CASE(test_simple_write) {
     BOOST_REQUIRE_EQUAL(buf.size(), 1);
     BOOST_REQUIRE_EQUAL(sstring(buf.front().get(), buf.front().size()), value);
 }
+
+class data_sink_assertions final : public data_sink_impl {
+    size_t _total_bytes = 0;
+    size_t _expected_bytes;
+    bool _flushed = false;
+    bool _closed = false;
+    std::exception_ptr _flush_ex;
+public:
+    data_sink_assertions(size_t total_bytes, std::exception_ptr flush_ex = nullptr) : _expected_bytes(total_bytes), _flush_ex(std::move(flush_ex)) {}
+
+    virtual future<> put(net::packet p) override {
+        assert(false);
+        return make_ready_future<>();
+    }
+
+    virtual future<> put(temporary_buffer<char> buf) {
+        _total_bytes += buf.size();
+        return make_ready_future<>();
+    }
+
+    virtual future<> put(std::vector<temporary_buffer<char>> data) {
+        assert(false);
+        return make_ready_future<>();
+    }
+
+    virtual future<> flush() override {
+        if (_flush_ex) {
+            return make_exception_future<>(_flush_ex);
+        }
+        _flushed = true;
+        return make_ready_future<>();
+    }
+
+    virtual future<> close() override {
+        _closed = true;
+        return make_ready_future<>();
+    }
+
+    virtual ~data_sink_assertions() {
+        BOOST_REQUIRE_EQUAL(_total_bytes, _expected_bytes);
+        if (!_flush_ex) {
+            BOOST_REQUIRE(_flushed);
+        }
+        BOOST_REQUIRE(_closed);
+    }
+};
+
+SEASTAR_THREAD_TEST_CASE(test_with_output_stream_norm) {
+    auto out = output_stream<char>(data_sink(std::make_unique<data_sink_assertions>(4)), 8);
+    with_output_stream(std::move(out), [] (output_stream<char>& out) -> future<int> {
+        return async([&out] {
+            out.write("1").get();
+            out.write("2").get();
+            out.write("3").get();
+            out.write("4").get();
+        }).then([] {
+            return make_ready_future<int>(42);
+        });
+    }).then([] (int res) {
+        BOOST_REQUIRE_EQUAL(res, 42);
+    }).get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_with_output_stream_throw_func) {
+    struct func_exception : public std::exception {};
+    auto out = output_stream<char>(data_sink(std::make_unique<data_sink_assertions>(0)), 8);
+    with_output_stream(std::move(out), [] (output_stream<char>& out) {
+        return make_exception_future<>(func_exception{});
+    }).then_wrapped([] (auto fut) {
+        BOOST_REQUIRE_THROW(fut.get(), func_exception);
+    }).get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_with_output_stream_throw_flush) {
+    struct flush_exception : public std::exception {};
+    auto out = output_stream<char>(data_sink(std::make_unique<data_sink_assertions>(1, make_exception_ptr(flush_exception{}))), 8);
+    with_output_stream(std::move(out), [] (output_stream<char>& out) {
+        return out.write("a");
+    }).then_wrapped([] (auto fut) {
+        BOOST_REQUIRE_THROW(fut.get(), flush_exception);
+    }).get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_with_output_stream_throw_func_and_flush) {
+    // In this case func_ and flush_ exceptions would nest
+    struct func_exception : public std::exception {};
+    struct flush_exception : public std::exception {};
+    auto out = output_stream<char>(data_sink(std::make_unique<data_sink_assertions>(0, make_exception_ptr(flush_exception{}))), 8);
+    with_output_stream(std::move(out), [] (output_stream<char>& out) {
+        return make_exception_future<>(func_exception{});
+    }).then_wrapped([] (auto fut) {
+        try {
+            fut.get();
+            BOOST_REQUIRE(false);
+        } catch (seastar::nested_exception& ex) {
+            BOOST_REQUIRE_THROW(std::rethrow_exception(ex.inner), flush_exception);
+            BOOST_REQUIRE_THROW(ex.rethrow_nested(), func_exception);
+        } catch (...) {
+            BOOST_REQUIRE(false);
+        }
+    }).get();
+}
