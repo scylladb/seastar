@@ -34,13 +34,9 @@ module;
 #include <algorithm>
 
 #include <fmt/core.h>
-#if FMT_VERSION >= 60000
 #include <fmt/chrono.h>
 #include <fmt/color.h>
 #include <fmt/ostream.h>
-#elif FMT_VERSION >= 50000
-#include <fmt/time.h>
-#endif
 #include <boost/any.hpp>
 #include <boost/lexical_cast.hpp>
 #include <boost/program_options.hpp>
@@ -100,7 +96,6 @@ template <> struct formatter<wrapped_log_level> {
         };
         int index = static_cast<int>(wll.level);
         std::string_view name = text[index];
-#if FMT_VERSION >= 60000
         static seastar::array_map<text_style, nr_levels> style = {
             { int(log_level::debug), fg(terminal_color::green)  },
             { int(log_level::info),  fg(terminal_color::white)  },
@@ -112,7 +107,6 @@ template <> struct formatter<wrapped_log_level> {
             return fmt::format_to(ctx.out(), "{}",
                 fmt::format(style[index], "{}", name));
         }
-#endif
         return fmt::format_to(ctx.out(), "{}", name);
     }
 };
