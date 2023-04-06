@@ -19,9 +19,6 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifndef CONVERSIONS_CC_
-#define CONVERSIONS_CC_
-
 #include <seastar/util/conversions.hh>
 #include <seastar/core/print.hh>
 #include <boost/algorithm/string.hpp>
@@ -61,4 +58,3 @@ size_t parse_memory_size(std::string_view s) {
 
 }
 
-#endif /* CONVERSIONS_CC_ */
