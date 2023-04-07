@@ -271,13 +271,35 @@ public:
      * Alignment is HW dependent but use 4KB alignment to be on the safe side as
      * explained above.
      *
+     * ATTN: The method is going to be deprecated
+     *
      * @return number of bytes actually read
      *         or exceptional future in case of I/O error
      */
     template <typename CharType>
     future<size_t>
-    dma_read(uint64_t aligned_pos, CharType* aligned_buffer, size_t aligned_len, const io_priority_class& pc = default_priority_class(), io_intent* intent = nullptr) noexcept {
+    dma_read(uint64_t aligned_pos, CharType* aligned_buffer, size_t aligned_len, const io_priority_class& pc, io_intent* intent = nullptr) noexcept {
         return dma_read_impl(aligned_pos, reinterpret_cast<uint8_t*>(aligned_buffer), aligned_len, pc, intent);
+    }
+
+    /**
+     * Perform a single DMA read operation.
+     *
+     * @param aligned_pos offset to begin reading at (should be aligned)
+     * @param aligned_buffer output buffer (should be aligned)
+     * @param aligned_len number of bytes to read (should be aligned)
+     * @param intent the IO intention confirmation (\ref seastar::io_intent)
+     *
+     * Alignment is HW dependent but use 4KB alignment to be on the safe side as
+     * explained above.
+     *
+     * @return number of bytes actually read
+     *         or exceptional future in case of I/O error
+     */
+    template <typename CharType>
+    future<size_t>
+    dma_read(uint64_t aligned_pos, CharType* aligned_buffer, size_t aligned_len, io_intent* intent = nullptr) noexcept {
+        return dma_read_impl(aligned_pos, reinterpret_cast<uint8_t*>(aligned_buffer), aligned_len, default_priority_class(), intent);
     }
 
     /**
@@ -293,12 +315,36 @@ public:
      *
      * This function doesn't require any alignment for both "pos" and "len"
      *
+     * ATTN: The method is going to be deprecated
+     *
      * @note size of the returned buffer may be smaller than "len" if EOF is
      *       reached or in case of I/O error.
      */
     template <typename CharType>
-    future<temporary_buffer<CharType>> dma_read(uint64_t pos, size_t len, const io_priority_class& pc = default_priority_class(), io_intent* intent = nullptr) noexcept {
+    future<temporary_buffer<CharType>> dma_read(uint64_t pos, size_t len, const io_priority_class& pc, io_intent* intent = nullptr) noexcept {
         return dma_read_impl(pos, len, pc, intent).then([] (temporary_buffer<uint8_t> t) {
+            return temporary_buffer<CharType>(reinterpret_cast<CharType*>(t.get_write()), t.size(), t.release());
+        });
+    }
+
+    /**
+     * Read the requested amount of bytes starting from the given offset.
+     *
+     * @param pos offset to begin reading from
+     * @param len number of bytes to read
+     * @param intent the IO intention confirmation (\ref seastar::io_intent)
+     *
+     * @return temporary buffer containing the requested data.
+     *         or exceptional future in case of I/O error
+     *
+     * This function doesn't require any alignment for both "pos" and "len"
+     *
+     * @note size of the returned buffer may be smaller than "len" if EOF is
+     *       reached or in case of I/O error.
+     */
+    template <typename CharType>
+    future<temporary_buffer<CharType>> dma_read(uint64_t pos, size_t len, io_intent* intent = nullptr) noexcept {
+        return dma_read_impl(pos, len, default_priority_class(), intent).then([] (temporary_buffer<uint8_t> t) {
             return temporary_buffer<CharType>(reinterpret_cast<CharType*>(t.get_write()), t.size(), t.release());
         });
     }
@@ -315,6 +361,8 @@ public:
      * @param pc the IO priority class under which to queue this operation
      * @param intent the IO intention confirmation (\ref seastar::io_intent)
      *
+     * ATTN: The method is going to be deprecated
+     *
      * @return temporary buffer containing the read data
      *        or exceptional future in case an error, holding:
      *        end_of_file_error if EOF is reached, file_io_error or
@@ -322,8 +370,28 @@ public:
      */
     template <typename CharType>
     future<temporary_buffer<CharType>>
-    dma_read_exactly(uint64_t pos, size_t len, const io_priority_class& pc = default_priority_class(), io_intent* intent = nullptr) noexcept {
+    dma_read_exactly(uint64_t pos, size_t len, const io_priority_class& pc, io_intent* intent = nullptr) noexcept {
         return dma_read_exactly_impl(pos, len, pc, intent).then([] (temporary_buffer<uint8_t> t) {
+            return temporary_buffer<CharType>(reinterpret_cast<CharType*>(t.get_write()), t.size(), t.release());
+        });
+    }
+
+    /**
+     * Read the exact amount of bytes.
+     *
+     * @param pos offset in a file to begin reading from
+     * @param len number of bytes to read
+     * @param intent the IO intention confirmation (\ref seastar::io_intent)
+     *
+     * @return temporary buffer containing the read data
+     *        or exceptional future in case an error, holding:
+     *        end_of_file_error if EOF is reached, file_io_error or
+     *        std::system_error in case of I/O error.
+     */
+    template <typename CharType>
+    future<temporary_buffer<CharType>>
+    dma_read_exactly(uint64_t pos, size_t len, io_intent* intent = nullptr) noexcept {
+        return dma_read_exactly_impl(pos, len, default_priority_class(), intent).then([] (temporary_buffer<uint8_t> t) {
             return temporary_buffer<CharType>(reinterpret_cast<CharType*>(t.get_write()), t.size(), t.release());
         });
     }
@@ -336,10 +404,25 @@ public:
     /// \param pc the IO priority class under which to queue this operation
     /// \param intent the IO intention confirmation (\ref seastar::io_intent)
     ///
+    /// ATTN: The method is going to be deprecated
+    ///
     /// \return a future representing the number of bytes actually read.  A short
     ///         read may happen due to end-of-file or an I/O error.
-    future<size_t> dma_read(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc = default_priority_class(), io_intent* intent = nullptr) noexcept {
+    future<size_t> dma_read(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent = nullptr) noexcept {
         return dma_read_impl(pos, std::move(iov), pc, intent);
+    }
+
+    /// Performs a DMA read into the specified iovec.
+    ///
+    /// \param pos offset to read from.  Must be aligned to \ref disk_read_dma_alignment.
+    /// \param iov vector of address/size pairs to read into.  Addresses must be
+    ///            aligned.
+    /// \param intent the IO intention confirmation (\ref seastar::io_intent)
+    ///
+    /// \return a future representing the number of bytes actually read.  A short
+    ///         read may happen due to end-of-file or an I/O error.
+    future<size_t> dma_read(uint64_t pos, std::vector<iovec> iov, io_intent* intent = nullptr) noexcept {
+        return dma_read_impl(pos, std::move(iov), default_priority_class(), intent);
     }
 
     /// Performs a DMA write from the specified buffer.
@@ -351,11 +434,28 @@ public:
     /// \param pc the IO priority class under which to queue this operation
     /// \param intent the IO intention confirmation (\ref seastar::io_intent)
     ///
+    /// ATTN: The method is going to be deprecated
+    ///
     /// \return a future representing the number of bytes actually written.  A short
     ///         write may happen due to an I/O error.
     template <typename CharType>
-    future<size_t> dma_write(uint64_t pos, const CharType* buffer, size_t len, const io_priority_class& pc = default_priority_class(), io_intent* intent = nullptr) noexcept {
+    future<size_t> dma_write(uint64_t pos, const CharType* buffer, size_t len, const io_priority_class& pc, io_intent* intent = nullptr) noexcept {
         return dma_write_impl(pos, reinterpret_cast<const uint8_t*>(buffer), len, pc, intent);
+    }
+
+    /// Performs a DMA write from the specified buffer.
+    ///
+    /// \param pos offset to write into.  Must be aligned to \ref disk_write_dma_alignment.
+    /// \param buffer aligned address of buffer to read from.  Buffer must exists
+    ///               until the future is made ready.
+    /// \param len number of bytes to write.  Must be aligned.
+    /// \param intent the IO intention confirmation (\ref seastar::io_intent)
+    ///
+    /// \return a future representing the number of bytes actually written.  A short
+    ///         write may happen due to an I/O error.
+    template <typename CharType>
+    future<size_t> dma_write(uint64_t pos, const CharType* buffer, size_t len, io_intent* intent = nullptr) noexcept {
+        return dma_write_impl(pos, reinterpret_cast<const uint8_t*>(buffer), len, default_priority_class(), intent);
     }
 
     /// Performs a DMA write to the specified iovec.
@@ -366,10 +466,25 @@ public:
     /// \param pc the IO priority class under which to queue this operation
     /// \param intent the IO intention confirmation (\ref seastar::io_intent)
     ///
+    /// ATTN: The method is going to be deprecated
+    ///
     /// \return a future representing the number of bytes actually written.  A short
     ///         write may happen due to an I/O error.
-    future<size_t> dma_write(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc = default_priority_class(), io_intent* intent = nullptr) noexcept {
+    future<size_t> dma_write(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent = nullptr) noexcept {
         return dma_write_impl(pos, std::move(iov), pc, intent);
+    }
+
+    /// Performs a DMA write to the specified iovec.
+    ///
+    /// \param pos offset to write into.  Must be aligned to \ref disk_write_dma_alignment.
+    /// \param iov vector of address/size pairs to write from.  Addresses must be
+    ///            aligned.
+    /// \param intent the IO intention confirmation (\ref seastar::io_intent)
+    ///
+    /// \return a future representing the number of bytes actually written.  A short
+    ///         write may happen due to an I/O error.
+    future<size_t> dma_write(uint64_t pos, std::vector<iovec> iov, io_intent* intent = nullptr) noexcept {
+        return dma_write_impl(pos, std::move(iov), default_priority_class(), intent);
     }
 
     /// Causes any previously written data to be made stable on persistent storage.
@@ -543,6 +658,8 @@ public:
      * @param pc the IO priority class under which to queue this operation
      * @param intent the IO intention confirmation (\ref seastar::io_intent)
      *
+     * ATTN: The method is going to be deprecated
+     *
      * @return temporary buffer containing the read data bulk.
      *        or exceptional future holding:
      *        system_error exception in case of I/O error or eof_error when
@@ -550,8 +667,30 @@ public:
      */
     template <typename CharType>
     future<temporary_buffer<CharType>>
-    dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc = default_priority_class(), io_intent* intent = nullptr) noexcept {
+    dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc, io_intent* intent = nullptr) noexcept {
         return dma_read_bulk_impl(offset, range_size, pc, intent).then([] (temporary_buffer<uint8_t> t) {
+            return temporary_buffer<CharType>(reinterpret_cast<CharType*>(t.get_write()), t.size(), t.release());
+        });
+    }
+
+    /**
+     * Read a data bulk containing the provided addresses range that starts at
+     * the given offset and ends at either the address aligned to
+     * dma_alignment (4KB) or at the file end.
+     *
+     * @param offset starting address of the range the read bulk should contain
+     * @param range_size size of the addresses range
+     * @param intent the IO intention confirmation (\ref seastar::io_intent)
+     *
+     * @return temporary buffer containing the read data bulk.
+     *        or exceptional future holding:
+     *        system_error exception in case of I/O error or eof_error when
+     *        "offset" is beyond EOF.
+     */
+    template <typename CharType>
+    future<temporary_buffer<CharType>>
+    dma_read_bulk(uint64_t offset, size_t range_size, io_intent* intent = nullptr) noexcept {
+        return dma_read_bulk_impl(offset, range_size, default_priority_class(), intent).then([] (temporary_buffer<uint8_t> t) {
             return temporary_buffer<CharType>(reinterpret_cast<CharType*>(t.get_write()), t.size(), t.release());
         });
     }
