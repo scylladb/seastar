@@ -674,8 +674,13 @@ reactor::signals::signal_handler::signal_handler(int signo, noncopyable_function
 
 void
 reactor::signals::handle_signal(int signo, noncopyable_function<void ()>&& handler) {
-    _signal_handlers.emplace(std::piecewise_construct,
-        std::make_tuple(signo), std::make_tuple(signo, std::move(handler)));
+    signal_handler h(signo, std::move(handler));
+    auto [_, inserted] =  _signal_handlers.insert_or_assign(signo, std::move(h));
+    if (!inserted) {
+        // since we register the same handler to OS for all signals, we could
+        // skip sigaction when a handler has already been registered before.
+        return;
+    }
 
     struct sigaction sa;
     sa.sa_sigaction = [](int sig, siginfo_t *info, void *p) {
