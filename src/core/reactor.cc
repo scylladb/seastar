@@ -2427,6 +2427,7 @@ void reactor::stop() {
                 // Stop other cpus asynchronously, signal when done.
                 (void)smp::invoke_on_others(0, [] {
                     engine()._smp->cleanup_cpu();
+                    engine()._stopping = true;
                     return engine().run_exit_tasks().then([] {
                         engine()._stopped = true;
                     });
