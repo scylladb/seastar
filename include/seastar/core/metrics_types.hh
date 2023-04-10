@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <vector>
 #include <seastar/util/modules.hh>
+#include <optional>
 #endif
 
 namespace seastar {
@@ -42,7 +43,21 @@ struct histogram_bucket {
     uint64_t count = 0; // number of events.
     double upper_bound = 0;      // Inclusive.
 };
-
+/*!
+ * \brief native histogram specific information
+ *
+ * Native histograms (also known as sparse histograms) are an experimental Prometheus feature.
+ */
+struct native_histogram_info {
+    // schema defines the bucket schema. Currently, valid numbers are -4 <= n <= 8.
+    // They are all for base-2 bucket schemas, where 1 is a bucket boundary in each case, and
+    // then each power of two is divided into 2^n logarithmic buckets.
+    // Or in other words, each bucket boundary is the previous boundary times 2^(2^-n).
+    // In the future, more bucket schemas may be added using numbers < -4 or > 8.
+    int32_t schema;
+    // min_id is the first bucket id of a given schema.
+    int32_t min_id;
+};
 
 /*!
  * \brief Histogram data type
@@ -82,6 +97,8 @@ struct histogram {
      */
     histogram operator+(histogram&& h) const;
 
+    // Native histograms are an experimental Prometheus feature.
+    std::optional<native_histogram_info> native_histogram;
 };
 
 SEASTAR_MODULE_EXPORT_END
