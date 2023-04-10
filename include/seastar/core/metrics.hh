@@ -21,18 +21,22 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <functional>
 #include <limits>
 #include <map>
 #include <type_traits>
 #include <variant>
 #include <fmt/format.h>
+#endif
+#include "future.hh"
 #include <seastar/core/sstring.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/core/metrics_types.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/bool_class.hh>
+#include <seastar/util/modules.hh>
 
 /*! \file metrics.hh
  *  \brief header for metrics creation.
@@ -93,6 +97,8 @@ namespace seastar {
  */
 
 namespace metrics {
+
+SEASTAR_MODULE_EXPORT_BEGIN
 
 class double_registration : public std::runtime_error {
 public:
@@ -244,6 +250,7 @@ public:
         return key;
     }
 };
+SEASTAR_MODULE_EXPORT_END
 
 /*!
  * \namespace impl

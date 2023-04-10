@@ -19,6 +19,21 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
+#ifdef SEASTAR_MODULE
+module;
+#endif
+
+#include <fstream>
+#include <cstdlib>
+#include <chrono>
+#include <iostream>
+#include <fmt/format.h>
+#include <boost/program_options.hpp>
+#include <boost/make_shared.hpp>
+
+#ifdef SEASTAR_MODULE
+module seastar;
+#else
 #include <seastar/core/app-template.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/alien.hh>
@@ -28,12 +43,8 @@
 #include <seastar/util/log.hh>
 #include <seastar/util/log-cli.hh>
 #include <seastar/net/native-stack.hh>
-#include <boost/program_options.hpp>
-#include <boost/make_shared.hpp>
-#include <fstream>
-#include <cstdlib>
-
 #include "program_options.hh"
+#endif
 
 namespace seastar {
 

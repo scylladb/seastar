@@ -18,6 +18,36 @@
 /*
  * Copyright 2019 ScyllaDB
  */
+#ifdef SEASTAR_MODULE
+module;
+#endif
+
+#include <compare>
+#include <atomic>
+#include <cassert>
+#include <chrono>
+#include <filesystem>
+#include <thread>
+#include <utility>
+#include <fcntl.h>
+#include <signal.h>
+#include <sys/epoll.h>
+#include <sys/poll.h>
+#include <sys/syscall.h>
+#include <sys/resource.h>
+#include <boost/container/small_vector.hpp>
+
+#ifdef SEASTAR_HAVE_URING
+#include <liburing.h>
+#endif
+
+#ifdef HAVE_OSV
+#include <osv/newpoll.hh>
+#endif
+
+#ifdef SEASTAR_MODULE
+module seastar;
+#else
 #include "core/reactor_backend.hh"
 #include "core/thread_pool.hh"
 #include "core/syscall_result.hh"
@@ -28,19 +58,6 @@
 #include <seastar/core/reactor.hh>
 #include <seastar/util/defer.hh>
 #include <seastar/util/read_first_line.hh>
-
-#include <chrono>
-#include <filesystem>
-#include <sys/poll.h>
-#include <sys/syscall.h>
-#include <sys/resource.h>
-
-#ifdef SEASTAR_HAVE_URING
-#include <liburing.h>
-#endif
-
-#ifdef HAVE_OSV
-#include <osv/newpoll.hh>
 #endif
 
 namespace seastar {

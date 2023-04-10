@@ -21,9 +21,12 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <seastar/core/memory.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/util/std-compat.hh>
+#include <seastar/util/modules.hh>
+#endif
 
 namespace seastar {
 
@@ -31,6 +34,7 @@ namespace seastar {
 ///
 /// \param allocator allocator to use when allocating the temporary_buffer
 /// \param size      size of the temporary buffer
+SEASTAR_MODULE_EXPORT
 template <typename CharType>
 temporary_buffer<CharType> make_temporary_buffer(std::pmr::polymorphic_allocator<CharType>* allocator, std::size_t size) {
     if (allocator == memory::malloc_allocator) {

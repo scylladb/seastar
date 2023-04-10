@@ -21,11 +21,16 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <type_traits>
+#include <seastar/util/modules.hh>
+#endif
 
 namespace seastar {
+
+SEASTAR_MODULE_EXPORT_BEGIN
 
 /// \addtogroup fileio-module
 /// @{
@@ -136,5 +141,7 @@ inline constexpr file_permissions operator&(file_permissions a, file_permissions
 }
 
 /// @}
+
+SEASTAR_MODULE_EXPORT_END
 
 } // namespace seastar

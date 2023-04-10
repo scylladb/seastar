@@ -21,18 +21,23 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <boost/intrusive/list.hpp>
+#include <chrono>
+#include <exception>
+#include <functional>
+#endif
 
 #include <seastar/core/timer.hh>
 #ifdef SEASTAR_COROUTINES_ENABLED
 #   include <seastar/core/coroutine.hh>
 #endif
 #include <seastar/core/loop.hh>
-#include <chrono>
-#include <exception>
-#include <functional>
+#include <seastar/util/modules.hh>
 
 namespace seastar {
+
+SEASTAR_MODULE_EXPORT_BEGIN
 
 /// \addtogroup fiber-module
 /// @{
@@ -395,5 +400,7 @@ public:
 };
 
 /// @}
+
+SEASTAR_MODULE_EXPORT_END
 
 }

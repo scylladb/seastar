@@ -21,12 +21,17 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <seastar/core/future.hh>
 #include <seastar/core/chunked_fifo.hh>
+#include <seastar/util/modules.hh>
 #include <cassert>
 #include <utility>
+#endif
 
 namespace seastar {
+
+SEASTAR_MODULE_EXPORT_BEGIN
 
 /// \addtogroup fiber-module
 /// @{
@@ -254,5 +259,6 @@ with_lock(shared_mutex& sm, Func&& func) noexcept {
 }
 
 /// @}
+SEASTAR_MODULE_EXPORT_END
 
 }

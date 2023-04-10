@@ -21,8 +21,11 @@
 
 #pragma once
 
-#include <seastar/net/stack.hh>
+#ifndef SEASTAR_MODULE
 #include <iostream>
+#endif
+
+#include <seastar/net/stack.hh>
 #include <seastar/net/inet_address.hh>
 
 namespace seastar {

@@ -21,23 +21,27 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <boost/container/small_vector.hpp>
+#include <chrono>
+#include <memory>
+#include <vector>
+#include <sys/uio.h>
+#endif
 #include <seastar/core/sstring.hh>
 #include <seastar/core/fair_queue.hh>
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/internal/io_request.hh>
 #include <seastar/util/spinlock.hh>
-#include <chrono>
-#include <memory>
-#include <vector>
-#include <sys/uio.h>
+#include <seastar/util/modules.hh>
 
 struct io_queue_for_tests;
 
 namespace seastar {
 
 #if SEASTAR_API_LEVEL < 7
+SEASTAR_MODULE_EXPORT
 class io_priority_class;
 
 [[deprecated("Use io_priority_class.rename")]]
@@ -45,6 +49,7 @@ future<>
 rename_priority_class(io_priority_class pc, sstring new_name);
 #endif
 
+SEASTAR_MODULE_EXPORT
 class io_intent;
 
 namespace internal {

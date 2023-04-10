@@ -21,13 +21,17 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <seastar/core/timer.hh>
+#include <seastar/util/modules.hh>
 
 #include <atomic>
 #include <chrono>
+#endif
 
 namespace seastar {
 
+SEASTAR_MODULE_EXPORT
 class manual_clock {
 public:
     using rep = int64_t;

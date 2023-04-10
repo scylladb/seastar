@@ -21,11 +21,15 @@
 
 #pragma once
 
+#include <seastar/util/modules.hh>
 #include <seastar/util/used_size.hh>
 #include <seastar/util/concepts.hh>
+
+#ifndef SEASTAR_MODULE
 #include <utility>
 #include <type_traits>
 #include <functional>
+#endif
 
 namespace seastar {
 
@@ -98,6 +102,7 @@ struct is_nothrow_if_object<> {
 
 /// A clone of \c std::function, but only invokes the move constructor
 /// of the contained function.
+SEASTAR_MODULE_EXPORT
 template <typename Ret, typename... Args, bool Noexcept>
 class noncopyable_function<Ret (Args...) noexcept(Noexcept)> : private internal::noncopyable_function_base {
     using call_type = Ret (*)(const noncopyable_function* func, Args...);

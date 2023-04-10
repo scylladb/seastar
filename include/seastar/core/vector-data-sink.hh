@@ -21,10 +21,14 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <seastar/core/iostream.hh>
+#include <seastar/util/modules.hh>
+#endif
 
 namespace seastar {
 
+SEASTAR_MODULE_EXPORT
 class vector_data_sink final : public data_sink_impl {
 public:
     using vector_type = std::vector<net::packet>;

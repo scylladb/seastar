@@ -21,6 +21,10 @@
 
 #pragma once
 
+#include <seastar/util/modules.hh>
+
+#ifndef SEASTAR_MODULE
+
 #include <optional>
 #include <string_view>
 #include <variant>
@@ -62,17 +66,25 @@ namespace std::pmr {
 #endif
 
 #if defined(__cpp_lib_source_location) && !defined(SEASTAR_BROKEN_SOURCE_LOCATION)
-namespace seastar::compat {
-using source_location = std::source_location;
-}
+// good
 #elif __has_include(<experimental/source_location>) && !defined(SEASTAR_BROKEN_SOURCE_LOCATION)
 #include <experimental/source_location>
-namespace seastar::compat {
-using source_location = std::experimental::source_location;
-}
 #else
 #include <seastar/util/source_location-compat.hh>
-namespace seastar::compat {
-using source_location = seastar::internal::source_location;
-}
 #endif
+
+#endif // !defined(SEASTAR_MODULE)
+
+namespace seastar::compat {
+SEASTAR_MODULE_EXPORT_BEGIN
+
+#if defined(__cpp_lib_source_location) && !defined(SEASTAR_BROKEN_SOURCE_LOCATION)
+using source_location = std::source_location;
+#elif __has_include(<experimental/source_location>) && !defined(SEASTAR_BROKEN_SOURCE_LOCATION)
+using source_location = std::experimental::source_location;
+#else
+using source_location = seastar::internal::source_location;
+#endif
+
+SEASTAR_MODULE_EXPORT_END
+}

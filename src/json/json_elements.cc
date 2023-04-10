@@ -19,13 +19,22 @@
  * Copyright 2015 Cloudius Systems
  */
 
-#include <seastar/core/loop.hh>
-#include <seastar/core/print.hh>
-#include <seastar/json/json_elements.hh>
+#ifdef SEASTAR_MODULE
+module;
+#endif
+
 #include <string.h>
 #include <string>
 #include <vector>
 #include <sstream>
+
+#ifdef SEASTAR_MODULE
+module seastar;
+#else
+#include <seastar/core/loop.hh>
+#include <seastar/core/print.hh>
+#include <seastar/json/json_elements.hh>
+#endif
 
 namespace seastar {
 

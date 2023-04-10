@@ -19,15 +19,26 @@
  * Copyright (C) 2016 ScyllaDB.
  */
 
-#include <seastar/core/metrics.hh>
-#include <seastar/core/metrics_api.hh>
-#include <seastar/core/relabel_config.hh>
-#include <seastar/core/reactor.hh>
+#ifdef SEASTAR_MODULE
+module;
+#endif
+
+#include <memory>
+#include <regex>
+#include <random>
 #include <boost/range/algorithm.hpp>
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/range/algorithm_ext/erase.hpp>
-#include <random>
+
+#ifdef SEASTAR_MODULE
+module seastar;
+#else
+#include <seastar/core/metrics.hh>
+#include <seastar/core/metrics_api.hh>
+#include <seastar/core/relabel_config.hh>
+#include <seastar/core/reactor.hh>
+#endif
 
 namespace seastar {
 extern seastar::logger seastar_logger;

@@ -23,11 +23,13 @@
 
 #include <seastar/http/handlers.hh>
 #include <seastar/core/iostream.hh>
+#include <seastar/util/modules.hh>
 
 namespace seastar {
 
 namespace httpd {
 
+SEASTAR_MODULE_EXPORT_BEGIN
 /**
  * This is a base class for file transformer.
  *
@@ -167,6 +169,7 @@ private:
     bool force_path;
 };
 
+SEASTAR_MODULE_EXPORT_END
 }
 
 }

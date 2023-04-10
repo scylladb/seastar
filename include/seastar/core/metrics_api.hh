@@ -22,9 +22,12 @@
 #pragma once
 
 #include <seastar/core/metrics.hh>
-#include <unordered_map>
+#include <seastar/util/modules.hh>
 #include <seastar/core/sharded.hh>
+#ifndef SEASTAR_MODULE
+#include <unordered_map>
 #include <boost/functional/hash.hpp>
+#endif
 
 /*!
  * \file metrics_api.hh
@@ -61,6 +64,8 @@ struct hash<seastar::metrics::impl::labels_type> {
 
 namespace seastar {
 namespace metrics {
+
+SEASTAR_MODULE_EXPORT
 struct relabel_config;
 
 /*!
@@ -74,6 +79,7 @@ struct relabel_config;
  * Non zero value indicates there were name collisions.
  *
  */
+SEASTAR_MODULE_EXPORT
 struct metric_relabeling_result {
     size_t metrics_relabeled_due_to_collision;
 };

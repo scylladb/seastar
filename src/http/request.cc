@@ -19,9 +19,21 @@
  * Copyright (C) 2022 Scylladb, Ltd.
  */
 
+#ifdef SEASTAR_MODULE
+module;
+#endif
+
+#include <cassert>
+#include <string_view>
+#include <utility>
+
+#ifdef SEASTAR_MODULE
+module seastar;
+#else
 #include <seastar/http/request.hh>
 #include <seastar/http/url.hh>
 #include <seastar/http/common.hh>
+#endif
 
 namespace seastar {
 namespace http {

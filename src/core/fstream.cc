@@ -19,6 +19,22 @@
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
+#ifdef SEASTAR_MODULE
+module;
+#endif
+
+#include <fmt/format.h>
+#include <fmt/ostream.h>
+#include <malloc.h>
+#include <string.h>
+#include <cassert>
+#include <ratio>
+#include <optional>
+#include <utility>
+
+#ifdef SEASTAR_MODULE
+module seastar;
+#else
 #include <seastar/core/fstream.hh>
 #include <seastar/core/align.hh>
 #include <seastar/core/circular_buffer.hh>
@@ -26,10 +42,7 @@
 #include <seastar/core/reactor.hh>
 #include <seastar/core/when_all.hh>
 #include <seastar/core/io_intent.hh>
-#include <fmt/format.h>
-#include <fmt/ostream.h>
-#include <malloc.h>
-#include <string.h>
+#endif
 
 namespace seastar {
 

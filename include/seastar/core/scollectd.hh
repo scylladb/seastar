@@ -21,6 +21,7 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <type_traits>
 #include <utility>
 #include <functional>
@@ -31,6 +32,7 @@
 #include <string>
 #include <tuple>
 #include <chrono>
+#endif
 
 #include <seastar/core/future.hh>
 #include <seastar/net/byteorder.hh>
@@ -38,7 +40,7 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/util/log.hh>
 #include <seastar/util/program-options.hh>
-
+#include <seastar/util/modules.hh>
 #include <seastar/core/metrics_api.hh>
 
 namespace seastar {
@@ -283,7 +285,7 @@ struct typed {
 };
 
 template<typename T>
-static inline typed<T> make_typed(data_type type, T&& t) {
+inline typed<T> make_typed(data_type type, T&& t) {
     return typed<T>(type, std::forward<T>(t));
 }
 

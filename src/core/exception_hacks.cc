@@ -52,14 +52,23 @@
 // entirely. By calling the callback with old version of dl_phdr_info from
 // our dl_iterate_phdr we can effectively make libgcc callback thread safe.
 
+#ifdef SEASTAR_MODULE
+module;
+#endif
+
 #include <link.h>
 #include <dlfcn.h>
 #include <assert.h>
 #include <vector>
 #include <cstddef>
+
+#ifdef SEASTAR_MODULE
+module seastar;
+#else
 #include <seastar/core/exception_hacks.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/util/backtrace.hh>
+#endif
 
 namespace seastar {
 using dl_iterate_fn = int (*) (int (*callback) (struct dl_phdr_info *info, size_t size, void *data), void *data);
@@ -138,7 +147,7 @@ int dl_iterate_phdr(int (*callback) (struct dl_phdr_info *info, size_t size, voi
 extern "C"
 [[gnu::visibility("default")]]
 [[gnu::used]]
-int _Unwind_RaiseException(struct _Unwind_Exception *h) {
+int _Unwind_RaiseException(struct ::_Unwind_Exception *h) {
     using throw_fn =  int (*)(void *);
     static throw_fn org = nullptr;
 

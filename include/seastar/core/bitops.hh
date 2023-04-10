@@ -21,11 +21,16 @@
 
 #pragma once
 
+#include <seastar/util/concepts.hh>
+#include <seastar/util/modules.hh>
+#ifndef SEASTAR_MODULE
 #include <limits>
 #include <type_traits>
-#include <seastar/util/concepts.hh>
+#endif
 
 namespace seastar {
+
+SEASTAR_MODULE_EXPORT_BEGIN
 
 inline
 constexpr unsigned count_leading_zeros(unsigned x) {
@@ -71,5 +76,7 @@ SEASTAR_CONCEPT( requires std::is_integral_v<T> )
 inline constexpr unsigned log2floor(T n) {
     return std::numeric_limits<T>::digits - count_leading_zeros(n) - 1;
 }
+
+SEASTAR_MODULE_EXPORT_END
 
 }

@@ -35,20 +35,25 @@
 
 #pragma once
 
-#include <boost/intrusive/slist.hpp>
 #include <seastar/core/future.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/core/scattered_message.hh>
 #include <seastar/util/std-compat.hh>
+#include <seastar/util/modules.hh>
+#ifndef SEASTAR_MODULE
+#include <boost/intrusive/slist.hpp>
 #include <algorithm>
 #include <memory>
 #include <optional>
 #include <variant>
 #include <vector>
+#endif
 
 namespace bi = boost::intrusive;
 
 namespace seastar {
+
+SEASTAR_MODULE_EXPORT_BEGIN
 
 namespace net { class packet; }
 
@@ -445,6 +450,7 @@ private:
 template <typename CharType>
 future<> copy(input_stream<CharType>&, output_stream<CharType>&);
 
+SEASTAR_MODULE_EXPORT_END
 }
 
 #include "iostream-impl.hh"

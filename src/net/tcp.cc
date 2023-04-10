@@ -19,12 +19,23 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
+#ifdef SEASTAR_MODULE
+module;
+#include <compare>
+#include <atomic>
+#include <cassert>
+#include <cstdint>
+#include <memory>
+#include <utility>
+module seastar;
+#else
 #include <seastar/net/tcp.hh>
 #include <seastar/net/tcp-stack.hh>
 #include <seastar/net/ip.hh>
 #include <seastar/core/align.hh>
 #include <seastar/core/future.hh>
 #include "net/native-stack-impl.hh"
+#endif
 
 namespace seastar {
 

@@ -21,6 +21,17 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
+#include <iostream>
+#include <algorithm>
+#include <unordered_map>
+#include <queue>
+#include <bitset>
+#include <limits>
+#include <cctype>
+#include <vector>
+#include <boost/intrusive/list.hpp>
+#endif
 #include <seastar/http/request_parser.hh>
 #include <seastar/http/request.hh>
 #include <seastar/core/seastar.hh>
@@ -32,15 +43,7 @@
 #include <seastar/core/gate.hh>
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/util/std-compat.hh>
-#include <iostream>
-#include <algorithm>
-#include <unordered_map>
-#include <queue>
-#include <bitset>
-#include <limits>
-#include <cctype>
-#include <vector>
-#include <boost/intrusive/list.hpp>
+#include <seastar/util/modules.hh>
 #include <seastar/http/routes.hh>
 #include <seastar/net/tls.hh>
 #include <seastar/core/shared_ptr.hh>
@@ -48,16 +51,20 @@
 namespace seastar {
 
 namespace http {
+SEASTAR_MODULE_EXPORT
 struct reply;
 }
 
 namespace httpd {
 
+SEASTAR_MODULE_EXPORT
 class http_server;
+SEASTAR_MODULE_EXPORT
 class http_stats;
 
 using namespace std::chrono_literals;
 
+SEASTAR_MODULE_EXPORT_BEGIN
 class http_stats {
     metrics::metric_groups _metric_groups;
 public:
@@ -222,7 +229,7 @@ public:
     future<> listen(socket_address addr, listen_options lo);
     distributed<http_server>& server();
 };
-
+SEASTAR_MODULE_EXPORT_END
 }
 
 }

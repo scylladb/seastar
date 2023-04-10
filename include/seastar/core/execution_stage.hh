@@ -32,12 +32,15 @@
 #include <seastar/util/noncopyable_function.hh>
 #include <seastar/util/tuple_utils.hh>
 #include <seastar/util/std-compat.hh>
+#include <seastar/util/modules.hh>
+#ifndef SEASTAR_MODULE
 #include <fmt/format.h>
 #include <fmt/ostream.h>
 #include <vector>
 #include <boost/range/irange.hpp>
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/container/static_vector.hpp>
+#endif
 
 namespace seastar {
 
@@ -118,6 +121,7 @@ std::reference_wrapper<T> unwrap_for_es(reference_wrapper_for_es<T> ref) {
 /// \endcond
 
 /// Base execution stage class
+SEASTAR_MODULE_EXPORT
 class execution_stage {
 public:
     struct stats {
@@ -446,6 +450,7 @@ struct concrete_execution_stage_helper<Ret, std::tuple<Args...>> {
 /// \param fn function to be executed by the stage
 /// \return concrete_execution_stage
 ///
+SEASTAR_MODULE_EXPORT
 template<typename Function>
 auto make_execution_stage(const sstring& name, scheduling_group sg, Function&& fn) {
     using traits = function_traits<Function>;
@@ -485,6 +490,7 @@ auto make_execution_stage(const sstring& name, scheduling_group sg, Function&& f
 /// \param fn function to be executed by the stage
 /// \return concrete_execution_stage
 ///
+SEASTAR_MODULE_EXPORT
 template<typename Function>
 auto make_execution_stage(const sstring& name, Function&& fn) {
     return make_execution_stage(name, scheduling_group(), std::forward<Function>(fn));
@@ -513,6 +519,7 @@ auto make_execution_stage(const sstring& name, Function&& fn) {
 /// \param name unique name of the execution stage
 /// \param fn member function to be executed by the stage
 /// \return concrete_execution_stage
+SEASTAR_MODULE_EXPORT
 template<typename Ret, typename Object, typename... Args>
 concrete_execution_stage<Ret, Object*, Args...>
 make_execution_stage(const sstring& name, scheduling_group sg, Ret (Object::*fn)(Args...)) {

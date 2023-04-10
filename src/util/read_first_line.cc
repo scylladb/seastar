@@ -1,5 +1,12 @@
+#ifdef SEASTAR_MODULE
+module;
+#include <filesystem>
+#include <fcntl.h>
+module seastar;
+#else
 #include <seastar/core/posix.hh>
 #include <seastar/util/read_first_line.hh>
+#endif
 
 namespace seastar {
 

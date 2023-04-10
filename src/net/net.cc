@@ -20,15 +20,24 @@
  *
  */
 
+#ifdef SEASTAR_MODULE
+module;
+#endif
+
 #include <boost/asio/ip/address_v4.hpp>
 #include <boost/algorithm/string.hpp>
-#include <seastar/net/net.hh>
 #include <utility>
+
+#ifdef SEASTAR_MODULE
+module seastar;
+#else
+#include <seastar/net/net.hh>
 #include <seastar/net/toeplitz.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/metrics.hh>
 #include <seastar/core/print.hh>
 #include <seastar/net/inet_address.hh>
+#endif
 
 namespace seastar {
 

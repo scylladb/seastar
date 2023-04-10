@@ -22,24 +22,27 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <atomic>
 #include <deque>
 #include <future>
 #include <memory>
-
+#include <type_traits>
 #include <boost/lockfree/queue.hpp>
+#endif
 
 #include <seastar/core/future.hh>
 #include <seastar/core/cacheline.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/util/concepts.hh>
-#include <type_traits>
+#include <seastar/util/modules.hh>
 
 /// \file
 
 namespace seastar {
 
+SEASTAR_MODULE_EXPORT
 class reactor;
 
 /// \brief Integration with non-seastar applications.
@@ -114,6 +117,7 @@ struct qs_deleter {
 /// system, there is just one instance, but for in-process clustering testing
 /// there may be more than one. Function such as run_on() direct messages to
 /// and (instance, shard) tuple.
+SEASTAR_MODULE_EXPORT
 class instance {
     using qs = std::unique_ptr<message_queue[], internal::qs_deleter>;
 public:
@@ -141,6 +145,7 @@ extern instance* default_instance;
 ///          message queue managed by the shard executing the alien thread which is
 ///          interested to the return value. Please use \c submit_to() instead, if
 ///          \c func throws.
+SEASTAR_MODULE_EXPORT
 template <typename Func>
 SEASTAR_CONCEPT(requires std::is_nothrow_invocable_r_v<void, Func>)
 void run_on(instance& instance, unsigned shard, Func func) {
@@ -196,6 +201,7 @@ template <typename Func> using return_type_t = typename return_type_of<Func>::ty
 ///          the caller must guarantee that it will survive the call.
 /// \return whatever \c func returns, as a \c std::future<>
 /// \note the caller must keep the returned future alive until \c func returns
+SEASTAR_MODULE_EXPORT
 template<typename Func, typename T = internal::return_type_t<Func>>
 SEASTAR_CONCEPT(requires std::invocable<Func>)
 std::future<T> submit_to(instance& instance, unsigned shard, Func func) {

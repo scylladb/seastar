@@ -19,15 +19,27 @@
  * Copyright (C) 2017 ScyllaDB
  */
 
-#include <seastar/core/linux-aio.hh>
-#include <seastar/core/print.hh>
-#include <unistd.h>
-#include <sys/syscall.h>
+#ifdef SEASTAR_MODULE
+module;
+#endif
+
+#include <compare>
 #include <atomic>
 #include <algorithm>
-#include <errno.h>
-#include <string.h>
+#include <cerrno>
+#include <cstring>
+#include <stdexcept>
+#include <fmt/format.h>
+#include <unistd.h>
+#include <sys/syscall.h>
 #include <valgrind/valgrind.h>
+
+#ifdef SEASTAR_MODULE
+module seastar;
+#else
+#include <seastar/core/linux-aio.hh>
+#include <seastar/core/print.hh>
+#endif
 
 namespace seastar {
 

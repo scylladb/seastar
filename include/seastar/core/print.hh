@@ -21,13 +21,16 @@
 
 #pragma once
 
+#include <seastar/core/sstring.hh>
+#include <seastar/util/modules.hh>
+#ifndef SEASTAR_MODULE
 #include <fmt/ostream.h>
 #include <fmt/printf.h>
 #include <iostream>
 #include <iomanip>
 #include <chrono>
 #include <sstream>
-#include <seastar/core/sstring.hh>
+#endif
 
 #if 0
 inline
@@ -40,6 +43,7 @@ operator<<(std::ostream& os, const void* ptr) {
 }
 #endif
 
+SEASTAR_MODULE_EXPORT
 inline
 std::ostream&
 operator<<(std::ostream&& os, const void* ptr) {

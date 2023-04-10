@@ -21,10 +21,14 @@
 
 #pragma once
 
+#include "modules.hh"
+#ifndef SEASTAR_MODULE
 #include <type_traits>
 #include <utility>
-
+#endif
+#include <seastar/util/modules.hh>
 #include <seastar/util/concepts.hh>
+
 
 #ifdef SEASTAR_DEFERRED_ACTION_REQUIRE_NOEXCEPT
 #define SEASTAR_DEFERRED_ACTION_NOEXCEPT noexcept
@@ -64,6 +68,7 @@ public:
     void cancel() { _cancelled = true; }
 };
 
+SEASTAR_MODULE_EXPORT
 template <typename Func>
 SEASTAR_CONCEPT( requires deferrable_action<Func> )
 inline

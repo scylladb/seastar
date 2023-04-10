@@ -20,7 +20,10 @@
  */
 
 #pragma once
+#ifndef SEASTAR_MODULE
 #include <atomic>
+#include <seastar/util/modules.hh>
+#endif
 
 namespace seastar {
 
@@ -48,6 +51,7 @@ void set_need_preempt_var(const preemption_monitor* pm);
 
 }
 
+SEASTAR_MODULE_EXPORT
 inline bool need_preempt() noexcept {
 #ifndef SEASTAR_DEBUG
     // prevent compiler from eliminating loads in a loop

@@ -21,6 +21,7 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <stdint.h>
 #include <algorithm>
 #include <cassert>
@@ -38,11 +39,15 @@
 #include <functional>
 #include <type_traits>
 #include <fmt/ostream.h>
+#endif
 #include <seastar/util/concepts.hh>
 #include <seastar/util/std-compat.hh>
+#include <seastar/util/modules.hh>
 #include <seastar/core/temporary_buffer.hh>
 
 namespace seastar {
+
+SEASTAR_MODULE_EXPORT_BEGIN
 
 template <typename char_type, typename Size, Size max_size, bool NulTerminate = true>
 class basic_sstring;
@@ -57,12 +62,15 @@ using sstring = basic_sstring<char, uint32_t, 15>;
 using sstring = std::string;
 #endif
 
+SEASTAR_MODULE_EXPORT_END
+
 namespace internal {
 [[noreturn]] void throw_bad_alloc();
 [[noreturn]] void throw_sstring_overflow();
 [[noreturn]] void throw_sstring_out_of_range();
 }
 
+SEASTAR_MODULE_EXPORT
 template <typename char_type, typename Size, Size max_size, bool NulTerminate>
 class basic_sstring {
     static_assert(
@@ -630,6 +638,7 @@ template <typename char_type, typename Size, Size max_size, bool NulTerminate>
 struct is_sstring<basic_sstring<char_type, Size, max_size, NulTerminate>> : std::true_type {};
 }
 
+SEASTAR_MODULE_EXPORT
 template <typename string_type = sstring>
 string_type uninitialized_string(size_t size) {
     if constexpr (internal::is_sstring<string_type>::value) {
@@ -645,6 +654,7 @@ string_type uninitialized_string(size_t size) {
     }
 }
 
+SEASTAR_MODULE_EXPORT
 template <typename char_type, typename size_type, size_type Max, size_type N, bool NulTerminate>
 inline
 basic_sstring<char_type, size_type, Max, NulTerminate>
@@ -663,6 +673,7 @@ size_t constexpr str_len(const T& s) {
     return std::string_view(s).size();
 }
 
+SEASTAR_MODULE_EXPORT
 template <typename char_type, typename size_type, size_type max_size>
 inline
 void swap(basic_sstring<char_type, size_type, max_size>& x,
@@ -671,6 +682,7 @@ void swap(basic_sstring<char_type, size_type, max_size>& x,
     return x.swap(y);
 }
 
+SEASTAR_MODULE_EXPORT
 template <typename char_type, typename size_type, size_type max_size, bool NulTerminate, typename char_traits>
 inline
 std::basic_ostream<char_type, char_traits>&
@@ -679,6 +691,7 @@ operator<<(std::basic_ostream<char_type, char_traits>& os,
     return os.write(s.begin(), s.size());
 }
 
+SEASTAR_MODULE_EXPORT
 template <typename char_type, typename size_type, size_type max_size, bool NulTerminate, typename char_traits>
 inline
 std::basic_istream<char_type, char_traits>&
@@ -694,6 +707,7 @@ operator>>(std::basic_istream<char_type, char_traits>& is,
 
 namespace std {
 
+SEASTAR_MODULE_EXPORT
 template <typename char_type, typename size_type, size_type max_size, bool NulTerminate>
 struct hash<seastar::basic_sstring<char_type, size_type, max_size, NulTerminate>> {
     size_t operator()(const seastar::basic_sstring<char_type, size_type, max_size, NulTerminate>& s) const {
@@ -753,6 +767,8 @@ string_type to_sstring(T value) {
 }
 
 namespace std {
+
+SEASTAR_MODULE_EXPORT
 template <typename T>
 inline
 std::ostream& operator<<(std::ostream& os, const std::vector<T>& v) {
@@ -770,6 +786,7 @@ std::ostream& operator<<(std::ostream& os, const std::vector<T>& v) {
     return os;
 }
 
+SEASTAR_MODULE_EXPORT
 template <typename Key, typename T, typename Hash, typename KeyEqual, typename Allocator>
 std::ostream& operator<<(std::ostream& os, const std::unordered_map<Key, T, Hash, KeyEqual, Allocator>& v) {
     bool first = true;
@@ -789,6 +806,7 @@ std::ostream& operator<<(std::ostream& os, const std::unordered_map<Key, T, Hash
 
 #if FMT_VERSION >= 90000
 
+SEASTAR_MODULE_EXPORT
 template <typename char_type, typename Size, Size max_size, bool NulTerminate>
 struct fmt::formatter<seastar::basic_sstring<char_type, Size, max_size, NulTerminate>> : fmt::formatter<std::basic_string_view<char_type>> {
     template <typename FormatContext>

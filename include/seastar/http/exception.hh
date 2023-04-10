@@ -20,13 +20,17 @@
  */
 
 #pragma once
+
 #include <seastar/util/log.hh>
+#include <seastar/util/modules.hh>
 #include <seastar/http/reply.hh>
 #include <seastar/json/json_elements.hh>
 
 namespace seastar {
 
 namespace httpd {
+
+SEASTAR_MODULE_EXPORT_BEGIN
 
 /**
  * The base_exception is a base for all http exception.
@@ -145,6 +149,7 @@ private:
     }
 };
 
+SEASTAR_MODULE_EXPORT_END
 }
 
 }

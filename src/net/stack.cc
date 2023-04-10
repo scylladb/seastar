@@ -19,8 +19,21 @@
  * Copyright 2015 Cloudius Systems
  */
 
+#ifdef SEASTAR_MODULE
+module;
+#endif
+
+#include <memory>
+#include <type_traits>
+#include <utility>
+#include <vector>
+
+#ifdef SEASTAR_MODULE
+module seastar;
+#else
 #include <seastar/net/stack.hh>
 #include <seastar/net/inet_address.hh>
+#endif
 
 namespace seastar {
 

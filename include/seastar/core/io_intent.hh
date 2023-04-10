@@ -21,9 +21,12 @@
 
 #pragma once
 
-#include <boost/container/small_vector.hpp>
 #include <seastar/core/internal/io_intent.hh>
 #include <seastar/core/io_priority_class.hh>
+#include <seastar/util/modules.hh>
+#ifndef SEASTAR_MODULE
+#include <boost/container/small_vector.hpp>
+#endif
 
 namespace seastar {
 
@@ -37,6 +40,7 @@ namespace seastar {
 ///
 /// If no intent is provided, then the request is processed till its
 /// completion be it success or error
+SEASTAR_MODULE_EXPORT
 class io_intent {
     struct intents_for_queue {
         dev_t dev;

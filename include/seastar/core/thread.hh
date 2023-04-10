@@ -22,6 +22,7 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <seastar/core/thread_impl.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/do_with.hh>
@@ -32,8 +33,10 @@
 #include <type_traits>
 #include <chrono>
 #include <seastar/util/std-compat.hh>
+#include <seastar/util/modules.hh>
 #include <ucontext.h>
 #include <boost/intrusive/list.hpp>
+#endif
 
 /// \defgroup thread-module Seastar threads
 ///
@@ -70,7 +73,7 @@ namespace seastar {
 
 /// \addtogroup thread-module
 /// @{
-
+SEASTAR_MODULE_EXPORT_BEGIN
 class thread;
 class thread_attributes;
 
@@ -81,7 +84,7 @@ public:
     // For stack_size 0, a default value will be used (128KiB when writing this comment)
     size_t stack_size = 0;
 };
-
+SEASTAR_MODULE_EXPORT_END
 
 /// \cond internal
 extern thread_local jmp_buf_link g_unthreaded_context;
@@ -133,7 +136,7 @@ public:
 
 /// \endcond
 
-
+SEASTAR_MODULE_EXPORT
 /// \brief thread - stateful thread of execution
 ///
 /// Threads allow using seastar APIs in a blocking manner,
@@ -214,6 +217,7 @@ thread::join() {
     return _context->_done.get_future();
 }
 
+SEASTAR_MODULE_EXPORT_BEGIN
 /// Executes a callable in a seastar thread.
 ///
 /// Runs a block of code in a threaded context,
@@ -282,4 +286,5 @@ async(Func&& func, Args&&... args) noexcept {
 }
 /// @}
 
+SEASTAR_MODULE_EXPORT_END
 }

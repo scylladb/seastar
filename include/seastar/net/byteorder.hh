@@ -21,11 +21,14 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <arpa/inet.h>  // for ntohs() and friends
 #include <iosfwd>
 #include <utility>
+#endif
 
 #include <seastar/core/unaligned.hh>
+#include <seastar/util/modules.hh>
 
 namespace seastar {
 

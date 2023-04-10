@@ -29,6 +29,8 @@
 #include <seastar/core/io_priority_class.hh>
 #include <seastar/core/file-types.hh>
 #include <seastar/util/std-compat.hh>
+#include <seastar/util/modules.hh>
+#ifndef SEASTAR_MODULE
 #include <system_error>
 #include <sys/statvfs.h>
 #include <sys/ioctl.h>
@@ -40,8 +42,11 @@
 #include <cstdint>
 #include <functional>
 #include <optional>
+#endif
 
 namespace seastar {
+
+SEASTAR_MODULE_EXPORT_BEGIN
 
 /// \addtogroup fileio-module
 /// @{
@@ -860,5 +865,7 @@ public:
         return "cancelled";
     }
 };
+
+SEASTAR_MODULE_EXPORT_END
 
 }

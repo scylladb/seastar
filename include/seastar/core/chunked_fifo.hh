@@ -21,8 +21,11 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <memory>
 #include <algorithm>
+#include <seastar/util/modules.hh>
+#endif
 
 namespace seastar {
 
@@ -82,6 +85,7 @@ namespace seastar {
 // uses move/copy constructors instead of move/copy assignments, which are
 // less efficient.
 
+SEASTAR_MODULE_EXPORT
 template <typename T, size_t items_per_chunk = 128>
 class chunked_fifo {
     static_assert((items_per_chunk & (items_per_chunk - 1)) == 0,

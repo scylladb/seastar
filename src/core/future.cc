@@ -19,11 +19,21 @@
  * Copyright (C) 2020 ScyllaDB
  */
 
+#ifdef SEASTAR_MODULE
+module;
+#include <cassert>
+#include <exception>
+#include <tuple>
+#include <type_traits>
+#include <utility>
+module seastar;
+#else
 #include <seastar/core/future.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/report_exception.hh>
 #include <seastar/util/backtrace.hh>
+#endif
 
 namespace seastar {
 

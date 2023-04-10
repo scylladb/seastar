@@ -20,13 +20,25 @@
  * Copyright 2020 ScyllaDB
  */
 
+#ifdef SEASTAR_MODULE
+module;
+#endif
+
+#include <cstdint>
+#include <deque>
+#include <filesystem>
 #include <iostream>
 #include <list>
-#include <deque>
+#include <vector>
+#include <sys/statvfs.h>
 
+#ifdef SEASTAR_MODULE
+module seastar;
+#else
 #include <seastar/core/reactor.hh>
 #include <seastar/core/seastar.hh>
 #include <seastar/util/file.hh>
+#endif
 
 namespace seastar {
 

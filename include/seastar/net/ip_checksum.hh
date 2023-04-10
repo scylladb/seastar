@@ -22,9 +22,12 @@
 #pragma once
 
 #include <seastar/net/packet.hh>
+#include <seastar/util/modules.hh>
+#ifndef SEASTAR_MODULE
 #include <cstdint>
 #include <cstddef>
 #include <arpa/inet.h>
+#endif
 
 namespace seastar {
 

@@ -27,12 +27,16 @@
  * it possible to inherit from this type to
  */
 
+#ifndef SEASTAR_MODULE
 #include <type_traits>
 #include <functional>
 #include <cstddef>
+#include <seastar/util/modules.hh>
+#endif
 
 namespace seastar {
 
+SEASTAR_MODULE_EXPORT
 template <typename T>
 class enum_hash {
     static_assert(std::is_enum<T>::value, "must be an enum");

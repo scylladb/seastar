@@ -21,9 +21,11 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <chrono>
 #include <time.h>
 #include <cassert>
+#endif
 
 namespace seastar {
 

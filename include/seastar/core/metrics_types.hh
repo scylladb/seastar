@@ -21,12 +21,16 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <cstdint>
 #include <vector>
+#include <seastar/util/modules.hh>
+#endif
 
 namespace seastar {
 namespace metrics {
 
+SEASTAR_MODULE_EXPORT_BEGIN
 
 /*!
  * \brief Histogram bucket type
@@ -79,6 +83,8 @@ struct histogram {
     histogram operator+(histogram&& h) const;
 
 };
+
+SEASTAR_MODULE_EXPORT_END
 
 }
 

@@ -19,8 +19,27 @@
  * Copyright 2019 ScyllaDB
  */
 
+#ifdef SEASTAR_MODULE
+module;
+#endif
 
+#include <compare>
+#include <atomic>
+#include <cassert>
+#include <array>
+#include <chrono>
+#include <cstdint>
+#include <mutex>
+#include <utility>
+#include <fmt/format.h>
+#include <fmt/ostream.h>
 #include <boost/intrusive/parent_from_member.hpp>
+#include <boost/container/small_vector.hpp>
+#include <sys/uio.h>
+
+#ifdef SEASTAR_MODULE
+module seastar;
+#else
 #include <seastar/core/file.hh>
 #include <seastar/core/fair_queue.hh>
 #include <seastar/core/io_queue.hh>
@@ -33,11 +52,7 @@
 #include <seastar/core/internal/io_sink.hh>
 #include <seastar/core/io_priority_class.hh>
 #include <seastar/util/log.hh>
-#include <chrono>
-#include <mutex>
-#include <array>
-#include <fmt/format.h>
-#include <fmt/ostream.h>
+#endif
 
 namespace seastar {
 

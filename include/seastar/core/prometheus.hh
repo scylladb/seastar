@@ -21,14 +21,19 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <seastar/http/httpd.hh>
 #include <seastar/core/metrics.hh>
 #include <seastar/util/std-compat.hh>
+#include <seastar/util/modules.hh>
 #include <optional>
+#endif
 
 namespace seastar {
 
 namespace prometheus {
+
+SEASTAR_MODULE_EXPORT_BEGIN
 
 /*!
  * Holds prometheus related configuration
@@ -48,5 +53,6 @@ future<> start(httpd::http_server_control& http_server, config ctx);
 future<> add_prometheus_routes(distributed<httpd::http_server>& server, config ctx);
 future<> add_prometheus_routes(httpd::http_server& server, config ctx);
 /// @}
+SEASTAR_MODULE_EXPORT_END
 }
 }

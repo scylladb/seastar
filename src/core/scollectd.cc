@@ -19,6 +19,14 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
+#ifdef SEASTAR_MODULE
+module;
+#endif
+
+#include <cassert>
+#include <chrono>
+#include <cmath>
+#include <cstdint>
 #include <functional>
 #include <unordered_map>
 #include <forward_list>
@@ -28,6 +36,9 @@
 #include <iostream>
 #include <unordered_map>
 
+#ifdef SEASTAR_MODULE
+module seastar;
+#else
 #include <seastar/core/seastar.hh>
 #include <seastar/core/scollectd_api.hh>
 #include <seastar/core/metrics_api.hh>
@@ -35,6 +46,7 @@
 #include <seastar/core/print.hh>
 
 #include "core/scollectd-impl.hh"
+#endif
 
 namespace seastar {
 

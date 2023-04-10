@@ -19,11 +19,18 @@
  * Copyright 2015 Cloudius Systems
  */
 
+#ifdef SEASTAR_MODULE
+module;
+#include <exception>
+#include <memory>
+module seastar;
+#else
 #include <seastar/http/routes.hh>
 #include <seastar/http/reply.hh>
 #include <seastar/http/request.hh>
 #include <seastar/http/exception.hh>
 #include <seastar/http/json_path.hh>
+#endif
 
 namespace seastar {
 

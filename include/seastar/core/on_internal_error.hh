@@ -23,10 +23,15 @@
 
 
 #include <seastar/util/std-compat.hh>
+#include <seastar/util/modules.hh>
+#ifndef SEASTAR_MODULE
 #include <exception>
 #include <string_view>
+#endif
 
 namespace seastar {
+
+SEASTAR_MODULE_EXPORT_BEGIN
 
 class logger;
 
@@ -67,4 +72,5 @@ void on_internal_error_noexcept(logger& logger, std::string_view reason) noexcep
 /// This overload can be used to replace assert().
 [[noreturn]] void on_fatal_internal_error(logger& logger, std::string_view reason) noexcept;
 
+SEASTAR_MODULE_EXPORT_END
 }

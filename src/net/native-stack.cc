@@ -19,6 +19,32 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
+#ifdef SEASTAR_MODULE
+module;
+#endif
+
+#include <cassert>
+#include <chrono>
+#include <fstream>
+#include <functional>
+#include <map>
+#include <memory>
+#include <optional>
+#include <queue>
+
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <arpa/inet.h>
+#include <unistd.h>
+
+#ifdef HAVE_OSV
+#include <osv/firmware.hh>
+#include <gnu/libc-version.h>
+#endif
+
+#ifdef SEASTAR_MODULE
+module seastar;
+#else
 #include <seastar/net/native-stack.hh>
 #include "net/native-stack-impl.hh"
 #include <seastar/net/net.hh>
@@ -32,16 +58,7 @@
 #include <seastar/net/dhcp.hh>
 #include <seastar/net/config.hh>
 #include <seastar/core/reactor.hh>
-#include <memory>
-#include <queue>
-#include <fstream>
-#ifdef HAVE_OSV
-#include <osv/firmware.hh>
-#include <gnu/libc-version.h>
 #endif
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <unistd.h>
 
 namespace seastar {
 

@@ -28,11 +28,13 @@
 // Similar to libstdc++'s std::deque, except that it uses a single level
 // store, and so is more efficient for simple stored items.
 
+#ifndef SEASTAR_MODULE
 #include <type_traits>
 #include <cstddef>
 #include <iterator>
 #include <utility>
-
+#include <seastar/util/modules.hh>
+#endif
 
 /// \file
 
@@ -45,6 +47,7 @@ namespace seastar {
 ///
 /// \tparam T type of objects stored in the container; must be noexcept move enabled
 /// \tparam Capacity maximum number of objects that can be stored in the container; must be a power of 2
+SEASTAR_MODULE_EXPORT
 template <typename T, size_t Capacity>
 class circular_buffer_fixed_capacity {
     size_t _begin = 0;

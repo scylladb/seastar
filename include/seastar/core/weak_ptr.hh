@@ -21,7 +21,10 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <boost/intrusive/list.hpp>
+#include <seastar/util/modules.hh>
+#endif
 
 namespace seastar {
 
@@ -37,6 +40,7 @@ namespace seastar {
 /// the to-be-referenced object.
 ///
 /// \see weakly_referencable
+SEASTAR_MODULE_EXPORT
 template<typename T>
 class weak_ptr {
     template<typename U>

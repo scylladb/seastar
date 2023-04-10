@@ -46,10 +46,14 @@
 // cause the sanitizer not to generate runtime alignment checks for this
 // access.
 
+#ifndef SEASTAR_MODULE
 #include <type_traits>
+#include <seastar/util/modules.hh>
+#endif
 
 namespace seastar {
 
+SEASTAR_MODULE_EXPORT
 template <typename T>
 struct unaligned {
     // This is made to support only simple types, so it is fine to

@@ -23,12 +23,15 @@
 
 #include <seastar/core/resource.hh>
 #include <seastar/core/bitops.hh>
+#include <seastar/util/modules.hh>
+#ifndef SEASTAR_MODULE
 #include <new>
 #include <cstdint>
 #include <functional>
 #include <optional>
 #include <string>
 #include <vector>
+#endif
 
 namespace seastar {
 
@@ -227,6 +230,8 @@ void set_reclaim_hook(
 
 /// \endcond
 
+SEASTAR_MODULE_EXPORT_BEGIN
+
 /// \brief Set the global state of the abort on allocation failure behavior.
 ///
 /// If enabled, an allocation failure (i.e., the requested memory
@@ -405,6 +410,8 @@ public:
     scoped_heap_profiling() noexcept;
     ~scoped_heap_profiling();
 };
+
+SEASTAR_MODULE_EXPORT_END
 
 }
 }
