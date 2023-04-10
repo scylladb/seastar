@@ -111,6 +111,7 @@ public:
         float rate_factor = 1.0;
         std::chrono::duration<double> rate_limit_duration = std::chrono::milliseconds(1);
         size_t block_count_limit_min = 1;
+        std::optional<std::chrono::duration<double>> stall_threshold;
     };
 
     io_queue(io_group_ptr group, internal::io_sink& sink);
@@ -167,6 +168,7 @@ public:
 private:
     static fair_queue::config make_fair_queue_config(const config& cfg, sstring label);
     void register_stats(sstring name, priority_class_data& pc);
+    friend void report_queue_stall(std::string, std::chrono::duration<double>, const io_queue&, const priority_class_data&);
 };
 
 class io_group {

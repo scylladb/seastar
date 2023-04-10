@@ -65,6 +65,11 @@ struct reactor_options : public program_options::option_group {
     ///
     /// Default: 1.5 * task_quota_ms value
     program_options::value<double> io_latency_goal_ms;
+    /// \brief Threshold in milliseconds over which delayed request is
+    /// notified into logs
+    ///
+    /// Default: off
+    program_options::value<double> io_delay_notify_ms;
     /// \brief Maximum number of task backlog to allow.
     ///
     /// When the number of tasks grow above this, we stop polling (e.g. I/O)

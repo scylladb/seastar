@@ -104,6 +104,38 @@ class io_queue::priority_class_data {
     std::chrono::duration<double> _starvation_time;
     io_queue::clock_type::time_point _activated;
 
+    struct stall_detector {
+        std::chrono::duration<double> current;
+        std::chrono::duration<double> min;
+        timer<lowres_clock> lower;
+
+        // Each second lower the threshold by 0.1 ms
+        static constexpr auto lower_step = std::chrono::microseconds(100);
+        static constexpr auto lower_period = std::chrono::seconds(1);
+
+        stall_detector(std::chrono::duration<double> val)
+                : current(val)
+                , min(val)
+        {
+            lower.set_callback([this] {
+                if (current >= min + lower_step) {
+                    current -= lower_step;
+                }
+            });
+            lower.arm_periodic(lower_period);
+        }
+
+        bool should_report(std::chrono::duration<double> lat) {
+            if (lat < current) {
+                return false;
+            }
+
+            current += current;
+            return true;
+        }
+    };
+    std::optional<stall_detector> _stall_detector;
+
     io_group::priority_class_data& _group;
     size_t _replenish_head;
     timer<lowres_clock> _replenish;
@@ -141,6 +173,11 @@ public:
         , _group(pg)
         , _replenish([this] { try_to_replenish(); })
     {
+        if (q.get_config().stall_threshold) {
+            auto thresh = *q.get_config().stall_threshold;
+            io_log.debug("Configuring {:.3f}ms as stall threshold", std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(thresh).count());
+            _stall_detector.emplace(thresh);
+        }
     }
     priority_class_data(const priority_class_data&) = delete;
     priority_class_data(priority_class_data&&) = delete;
@@ -153,6 +190,10 @@ public:
     }
 
     void on_dispatch(io_direction_and_length dnl, std::chrono::duration<double> lat) noexcept {
+        if (_stall_detector && _stall_detector->should_report(lat)) {
+            report_queue_stall("dispatch", lat, _queue, *this);
+        }
+
         _rwstat[dnl.rw_idx()].add(dnl.length());
         _queue_time = lat;
         _total_queue_time += lat;
@@ -177,6 +218,10 @@ public:
     }
 
     void on_complete(std::chrono::duration<double> lat) noexcept {
+        if (_stall_detector && _stall_detector->should_report(lat)) {
+            report_queue_stall("execute", lat, _queue, *this);
+        }
+
         _total_execution_time += lat;
         _nr_executing--;
         if (_nr_executing == 0 && _nr_queued != 0) {
@@ -199,7 +244,19 @@ public:
 
     std::vector<seastar::metrics::impl::metric_definition_impl> metrics();
     metrics::metric_groups metric_groups;
+    friend void report_queue_stall(std::string, std::chrono::duration<double>, const io_queue&, const priority_class_data&);
 };
+
+void report_queue_stall(std::string reason, std::chrono::duration<double> lat, const io_queue& queue, const io_queue::priority_class_data& pc) {
+    io_log.warn("Request took {:.3f}ms to {} in class {}", std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(lat).count(), reason, pc._pc.get_name());
+    io_log.warn("  IO queue: queued={} executing={}", queue._queued_requests, queue._requests_executing);
+    for (const auto& pc_data : queue._priority_classes) {
+        if (!pc_data) {
+            continue;
+        }
+        io_log.warn("    PC {}: queued={} executing={} shares={}", pc_data->_pc.get_name(), pc_data->_nr_queued, pc_data->_nr_executing, pc_data->_shares);
+    }
+}
 
 class io_desc_read_write final : public io_completion {
     io_queue& _ioq;

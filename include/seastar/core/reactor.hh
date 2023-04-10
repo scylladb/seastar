@@ -394,6 +394,8 @@ public:
     void handle_signal(int signo, noncopyable_function<void ()>&& handler);
     void wakeup();
 
+    auto get_io_latency_goal() const noexcept { return _io_latency_goal; }
+
 private:
     class signals {
     public:
