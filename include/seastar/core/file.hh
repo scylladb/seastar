@@ -93,6 +93,8 @@ class file;
 class file_impl;
 class io_intent;
 class file_handle;
+class file_data_sink_impl;
+class file_data_source_impl;
 
 // A handle that can be transported across shards and used to
 // create a dup(2)-like `file` object referring to the same underlying file
@@ -731,6 +733,8 @@ private:
 
     friend class reactor;
     friend class file_impl;
+    friend class file_data_sink_impl;
+    friend class file_data_source_impl;
 };
 
 /// \brief Helper for ensuring a file is closed after \c func is called.
