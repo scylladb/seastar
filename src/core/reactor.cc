@@ -4789,6 +4789,10 @@ scheduling_group::name() const noexcept {
     return engine()._task_queues[_id]->_name;
 }
 
+float scheduling_group::get_shares() const noexcept {
+    return engine()._task_queues[_id]->_shares;
+}
+
 void
 scheduling_group::set_shares(float shares) noexcept {
     engine()._task_queues[_id]->set_shares(shares);
