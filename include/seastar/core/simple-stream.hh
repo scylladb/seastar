@@ -23,12 +23,17 @@
 
 #include <seastar/core/sstring.hh>
 #include <seastar/util/variant_utils.hh>
+#include <seastar/util/modules.hh>
+#ifndef SEASTAR_MODULE
 #include <algorithm>
 #include <cstddef>
 #include <stdexcept>
 #include <type_traits>
+#endif
 
 namespace seastar {
+
+SEASTAR_MODULE_EXPORT_BEGIN
 
 class measuring_output_stream {
     size_t _size = 0;
@@ -590,6 +595,8 @@ public:
     friend decltype(auto) with_serialized_stream(Stream& stream, StreamVisitor&& visitor);
 };
 
+SEASTAR_MODULE_EXPORT_END
+
 inline simple_memory_input_stream simple_memory_output_stream::to_input_stream() const {
     return simple_memory_input_stream(_p, _size);
 }
@@ -624,21 +631,24 @@ inline memory_input_stream<Iterator> memory_output_stream<Iterator>::to_input_st
 // Using with_stream() there is at most one dynamic dispatch per such
 // function, instead of one per each skip() and deserialize() call.
 
+SEASTAR_MODULE_EXPORT_BEGIN
 template<typename Stream, typename StreamVisitor, typename = std::enable_if_t<Stream::has_with_stream::value>>
 [[gnu::always_inline]]
- static inline decltype(auto)
+ inline decltype(auto)
  with_serialized_stream(Stream& stream, StreamVisitor&& visitor) {
     return stream.with_stream(std::forward<StreamVisitor>(visitor));
 }
 
 template<typename Stream, typename StreamVisitor, typename = std::enable_if_t<!Stream::has_with_stream::value>, typename = void>
 [[gnu::always_inline]]
- static inline decltype(auto)
+ inline decltype(auto)
  with_serialized_stream(Stream& stream, StreamVisitor&& visitor) {
     return visitor(stream);
 }
 
 using simple_input_stream = simple_memory_input_stream;
 using simple_output_stream = simple_memory_output_stream;
+
+SEASTAR_MODULE_EXPORT_END
 
 }

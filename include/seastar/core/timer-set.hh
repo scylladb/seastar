@@ -13,13 +13,15 @@
 
 #pragma once
 
-#include <boost/intrusive/list.hpp>
 #include <seastar/core/bitset-iter.hh>
+#ifndef SEASTAR_MODULE
+#include <boost/intrusive/list.hpp>
 #include <array>
 #include <bitset>
 #include <chrono>
 #include <limits>
 #include <memory>
+#endif
 
 namespace seastar {
 

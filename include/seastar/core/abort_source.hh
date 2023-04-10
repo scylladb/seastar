@@ -22,19 +22,24 @@
 #pragma once
 
 #include <seastar/util/concepts.hh>
+#include <seastar/util/modules.hh>
 #include <seastar/util/noncopyable_function.hh>
 #include <seastar/util/optimized_optional.hh>
 #include <seastar/util/std-compat.hh>
-#include <boost/intrusive/list.hpp>
 
+#ifndef SEASTAR_MODULE
+#include <boost/intrusive/list.hpp>
 #include <exception>
 #include <optional>
 #include <type_traits>
 #include <utility>
+#endif
 
 namespace bi = boost::intrusive;
 
 namespace seastar {
+
+SEASTAR_MODULE_EXPORT_BEGIN
 
 /// \addtogroup fiber-module
 /// @{
@@ -190,5 +195,7 @@ public:
 };
 
 /// @}
+
+SEASTAR_MODULE_EXPORT_END
 
 }

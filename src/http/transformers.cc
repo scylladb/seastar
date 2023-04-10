@@ -19,11 +19,21 @@
  * Copyright 2015 Cloudius Systems
  */
 
+#ifdef SEASTAR_MODULE
+module;
+#endif
+
+#include <boost/algorithm/string/replace.hpp>
+#include <list>
+#include <memory>
+
+#ifdef SEASTAR_MODULE
+module seastar;
+#else
 #include <seastar/core/do_with.hh>
 #include <seastar/core/loop.hh>
-#include <boost/algorithm/string/replace.hpp>
 #include <seastar/http/transformers.hh>
-#include <list>
+#endif
 
 namespace seastar {
 

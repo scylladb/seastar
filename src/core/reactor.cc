@@ -19,76 +19,55 @@
  * Copyright 2014 Cloudius Systems
  */
 
-#define __user /* empty */  // for xfs includes, below
+#ifdef SEASTAR_MODULE
+module;
+#endif
+
+#include <compare>
+#include <atomic>
+#include <cassert>
+#include <chrono>
+#include <cmath>
+#include <exception>
+#include <filesystem>
+#include <fstream>
+#include <regex>
+#include <thread>
 
 #include <cinttypes>
 #include <spawn.h>
 #include <sys/syscall.h>
 #include <sys/vfs.h>
 #include <sys/statfs.h>
+#include <sys/statvfs.h>
 #include <sys/time.h>
 #include <sys/resource.h>
+#include <sys/socket.h>
 #include <sys/inotify.h>
 #include <sys/wait.h>
-#include <fmt/ranges.h>
-#include <seastar/core/task.hh>
-#include <seastar/core/reactor.hh>
-#include <seastar/core/memory.hh>
-#include <seastar/core/posix.hh>
-#include <seastar/core/sleep.hh>
-#include <seastar/net/packet.hh>
-#include <seastar/net/stack.hh>
-#include <seastar/net/posix-stack.hh>
-#include <seastar/net/native-stack.hh>
-#include <seastar/core/resource.hh>
-#include <seastar/core/print.hh>
-#include "core/scollectd-impl.hh"
-#include <seastar/util/conversions.hh>
-#include <seastar/util/process.hh>
-#include <seastar/core/loop.hh>
-#include <seastar/core/when_all.hh>
-#include <seastar/core/with_scheduling_group.hh>
-#include <seastar/core/thread.hh>
-#include <seastar/core/make_task.hh>
-#include <seastar/core/systemwide_memory_barrier.hh>
-#include <seastar/core/report_exception.hh>
-#include <seastar/core/stall_sampler.hh>
-#include <seastar/core/thread_cputime_clock.hh>
-#include <seastar/core/abort_on_ebadf.hh>
-#include <seastar/core/io_queue.hh>
-#include <seastar/core/internal/buffer_allocator.hh>
-#include <seastar/core/internal/io_desc.hh>
-#include <seastar/core/internal/uname.hh>
-#include <seastar/core/scheduling_specific.hh>
-#include <seastar/core/smp_options.hh>
-#include <seastar/util/log.hh>
-#include <seastar/util/read_first_line.hh>
-#include "core/reactor_backend.hh"
-#include "core/syscall_result.hh"
-#include "core/thread_pool.hh"
-#include "syscall_work_queue.hh"
-#include "cgroup.hh"
-#include <cassert>
-#include <cmath>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/eventfd.h>
 #include <sys/poll.h>
+#include <netinet/in.h>
 #include <boost/lexical_cast.hpp>
 #include <boost/thread/barrier.hpp>
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/split.hpp>
+#include <boost/container/small_vector.hpp>
 #include <boost/iterator/counting_iterator.hpp>
+#include <boost/intrusive/list.hpp>
+#include <boost/range/adaptor/transformed.hpp>
+#include <boost/range/adaptor/map.hpp>
+#include <boost/range/irange.hpp>
 #include <boost/range/numeric.hpp>
 #include <boost/range/algorithm/sort.hpp>
 #include <boost/range/algorithm/remove_if.hpp>
 #include <boost/range/algorithm/find_if.hpp>
 #include <boost/algorithm/clamp.hpp>
-#include <boost/range/adaptor/transformed.hpp>
-#include <boost/range/adaptor/map.hpp>
 #include <boost/version.hpp>
-#include <atomic>
 #include <dirent.h>
+#define __user /* empty */  // for xfs includes, below
 #include <linux/types.h> // for xfs, below
 #include <sys/ioctl.h>
 #include <linux/perf_event.h>
@@ -96,20 +75,8 @@
 #define min min    /* prevent xfs.h from defining min() as a macro */
 #include <xfs/xfs.h>
 #undef min
-#ifdef SEASTAR_HAVE_DPDK
-#include <seastar/core/dpdk_rte.hh>
-#include <rte_lcore.h>
-#include <rte_launch.h>
-#endif
-#include <seastar/core/prefetch.hh>
-#include <exception>
-#include <regex>
-#include <fstream>
-#ifdef __GNUC__
-#include <iostream>
-#include <system_error>
-#include <cxxabi.h>
-#endif
+#include <fmt/ostream.h>
+#include <fmt/ranges.h>
 
 #ifdef SEASTAR_SHUFFLE_TASK_QUEUE
 #include <random>
@@ -118,9 +85,6 @@
 #include <sys/mman.h>
 #include <sys/utsname.h>
 #include <linux/falloc.h>
-#include <seastar/util/backtrace.hh>
-#include <seastar/util/spinlock.hh>
-#include <seastar/util/print_safe.hh>
 #include <sys/sdt.h>
 
 #ifdef HAVE_OSV
@@ -131,21 +95,79 @@
 #include <xmmintrin.h>
 #endif
 
-#include <seastar/util/defer.hh>
-#include <seastar/core/alien.hh>
-#include <seastar/core/internal/stall_detector.hh>
-#include <seastar/core/metrics.hh>
-#include <seastar/core/execution_stage.hh>
-#include <seastar/core/exception_hacks.hh>
-#include <seastar/util/memory_diagnostics.hh>
-#include <seastar/util/internal/iovec_utils.hh>
-#include <seastar/util/internal/magic.hh>
+#ifdef SEASTAR_HAVE_DPDK
+#include <rte_lcore.h>
+#include <rte_launch.h>
+#endif
+#ifdef __GNUC__
+#include <iostream>
+#include <system_error>
+#include <cxxabi.h>
+#endif
 
 #include <yaml-cpp/yaml.h>
 
 #ifdef SEASTAR_TASK_HISTOGRAM
 #include <typeinfo>
 #endif
+
+#ifdef SEASTAR_MODULE
+module seastar;
+#else
+#include <seastar/core/abort_on_ebadf.hh>
+#include <seastar/core/alien.hh>
+#include <seastar/core/exception_hacks.hh>
+#include <seastar/core/execution_stage.hh>
+#include <seastar/core/io_queue.hh>
+#include <seastar/core/loop.hh>
+#include <seastar/core/make_task.hh>
+#include <seastar/core/memory.hh>
+#include <seastar/core/metrics.hh>
+#include <seastar/core/posix.hh>
+#include <seastar/core/prefetch.hh>
+#include <seastar/core/print.hh>
+#include <seastar/core/reactor.hh>
+#include <seastar/core/report_exception.hh>
+#include <seastar/core/resource.hh>
+#include <seastar/core/scheduling_specific.hh>
+#include <seastar/core/sleep.hh>
+#include <seastar/core/smp_options.hh>
+#include <seastar/core/stall_sampler.hh>
+#include <seastar/core/systemwide_memory_barrier.hh>
+#include <seastar/core/task.hh>
+#include <seastar/core/thread.hh>
+#include <seastar/core/thread_cputime_clock.hh>
+#include <seastar/core/when_all.hh>
+#include <seastar/core/with_scheduling_group.hh>
+#include <seastar/core/internal/buffer_allocator.hh>
+#include <seastar/core/internal/io_desc.hh>
+#include <seastar/core/internal/uname.hh>
+#include <seastar/core/internal/stall_detector.hh>
+#include <seastar/net/native-stack.hh>
+#include <seastar/net/packet.hh>
+#include <seastar/net/posix-stack.hh>
+#include <seastar/net/stack.hh>
+#include <seastar/util/backtrace.hh>
+#include <seastar/util/conversions.hh>
+#include <seastar/util/defer.hh>
+#include <seastar/util/log.hh>
+#include <seastar/util/memory_diagnostics.hh>
+#include <seastar/util/print_safe.hh>
+#include <seastar/util/process.hh>
+#include <seastar/util/read_first_line.hh>
+#include <seastar/util/spinlock.hh>
+#include <seastar/util/internal/iovec_utils.hh>
+#include <seastar/util/internal/magic.hh>
+#include "core/scollectd-impl.hh"
+#include "core/reactor_backend.hh"
+#include "core/syscall_result.hh"
+#include "core/thread_pool.hh"
+#include "syscall_work_queue.hh"
+#include "cgroup.hh"
+#ifdef SEASTAR_HAVE_DPDK
+#include <seastar/core/dpdk_rte.hh>
+#endif
+#endif // SEASTAR_MODULE
 
 namespace seastar {
 

@@ -43,9 +43,11 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <cstdint>
 #include <string_view>
 #include <vector>
+#endif
 
 namespace seastar {
 
@@ -76,7 +78,7 @@ static constexpr uint8_t default_rsskey_52bytes_v[] = {
 static constexpr rss_key_type default_rsskey_52bytes{default_rsskey_52bytes_v, sizeof(default_rsskey_52bytes_v)};
 
 template<typename T>
-static inline uint32_t
+inline uint32_t
 toeplitz_hash(rss_key_type key, const T& data)
 {
 	uint32_t hash = 0, v;

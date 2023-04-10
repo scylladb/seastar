@@ -22,10 +22,13 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
+#include <unordered_map>
+#endif
 #include <seastar/net/net.hh>
 #include <seastar/core/byteorder.hh>
 #include <seastar/net/ethernet.hh>
-#include <unordered_map>
+#include <seastar/util/modules.hh>
 
 namespace seastar {
 

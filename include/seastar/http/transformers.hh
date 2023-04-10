@@ -23,6 +23,7 @@
 
 #include <seastar/http/handlers.hh>
 #include <seastar/http/file_handler.hh>
+#include <seastar/util/modules.hh>
 
 namespace seastar {
 
@@ -39,6 +40,7 @@ namespace httpd {
  * It could be extend if we will need it
  *
  */
+SEASTAR_MODULE_EXPORT
 class content_replace : public file_transformer {
 public:
     virtual output_stream<char> transform(std::unique_ptr<http::request> req,

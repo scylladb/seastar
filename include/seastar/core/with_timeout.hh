@@ -23,11 +23,14 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <chrono>
 
 #include <seastar/core/future.hh>
 #include <seastar/core/timed_out_error.hh>
 #include <seastar/core/timer.hh>
+#include <seastar/util/modules.hh>
+#endif
 
 namespace seastar {
 
@@ -46,6 +49,7 @@ namespace seastar {
 /// \param timeout time point after which the returned future should be failed
 ///
 /// \return a future which will be either resolved with f or a timeout exception
+SEASTAR_MODULE_EXPORT
 template<typename ExceptionFactory = default_timeout_exception_factory, typename Clock, typename Duration, typename... T>
 future<T...> with_timeout(std::chrono::time_point<Clock, Duration> timeout, future<T...> f) {
     if (f.available()) {

@@ -19,12 +19,15 @@
  * Copyright (C) 2019 Scylla DB Ltd
  */
 
+#ifndef SEASTAR_MODULE
 #include <boost/range/adaptor/filtered.hpp>
 #include <seastar/core/scheduling.hh>
 #include <seastar/core/map_reduce.hh>
+#include <seastar/util/modules.hh>
 #include <array>
 #include <typeindex>
 #include <vector>
+#endif
 
 #pragma once
 
@@ -85,6 +88,8 @@ T* scheduling_group_get_specific_ptr(scheduling_group sg, scheduling_group_key k
 }
 
 }
+
+SEASTAR_MODULE_EXPORT_BEGIN
 
 /**
  * Returns a reference to the given scheduling group specific data.
@@ -190,5 +195,7 @@ reduce_scheduling_group_specific(Reducer reducer, Initial initial_val, schedulin
             | boost::adaptors::filtered(std::mem_fn(&per_scheduling_group::queue_is_initialized)),
             mapper, std::move(initial_val), reducer);
 }
+
+SEASTAR_MODULE_EXPORT_END
 
 }

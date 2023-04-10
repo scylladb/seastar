@@ -19,14 +19,30 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#include <random>
+#ifdef SEASTAR_MODULE
+module;
+#endif
 
-#include <sys/socket.h>
+#include <cassert>
+#include <chrono>
+#include <cstring>
+#include <functional>
+#include <random>
+#include <variant>
+
+#include <unistd.h>
 #include <linux/if.h>
 #include <linux/netlink.h>
 #include <linux/rtnetlink.h>
+#include <arpa/inet.h>
 #include <net/route.h>
+#include <netinet/tcp.h>
+#include <netinet/sctp.h>
+#include <sys/socket.h>
 
+#ifdef SEASTAR_MODULE
+module seastar;
+#else
 #include <seastar/core/loop.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/net/posix-stack.hh>
@@ -35,8 +51,7 @@
 #include <seastar/net/api.hh>
 #include <seastar/net/inet_address.hh>
 #include <seastar/util/std-compat.hh>
-#include <netinet/tcp.h>
-#include <netinet/sctp.h>
+#endif
 
 namespace std {
 

@@ -19,6 +19,19 @@
  * Copyright 2019 ScyllaDB
  */
 
+#ifdef SEASTAR_MODULE
+module;
+#endif
+
+#include <algorithm>
+#include <atomic>
+#include <deque>
+#include <filesystem>
+#include <functional>
+#include <memory>
+#include <optional>
+#include <vector>
+
 #define __user /* empty */  // for xfs includes, below
 
 #include <sys/syscall.h>
@@ -33,14 +46,10 @@
 #define min min    /* prevent xfs.h from defining min() as a macro */
 #include <xfs/xfs.h>
 #undef min
-#include <algorithm>
-#include <atomic>
-#include <deque>
-#include <filesystem>
-#include <functional>
-#include <memory>
-#include <optional>
-#include <vector>
+
+#ifdef SEASTAR_MODULE
+module seastar;
+#else
 #include <seastar/core/internal/read_state.hh>
 #include <seastar/core/internal/uname.hh>
 #include <seastar/core/reactor.hh>
@@ -54,6 +63,7 @@
 #include "core/file-impl.hh"
 #include "core/syscall_result.hh"
 #include "core/thread_pool.hh"
+#endif
 
 namespace seastar {
 

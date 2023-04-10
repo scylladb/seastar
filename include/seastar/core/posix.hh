@@ -21,8 +21,7 @@
 
 #pragma once
 
-#include <seastar/core/sstring.hh>
-#include "abort_on_ebadf.hh"
+#ifndef SEASTAR_MODULE
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
 #include <sys/ioctl.h>
@@ -36,7 +35,6 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <signal.h>
-#include <signal.h>
 #include <spawn.h>
 #include <unistd.h>
 #include <utility>
@@ -46,11 +44,16 @@
 #include <functional>
 #include <memory>
 #include <set>
-
+#endif
+#include "abort_on_ebadf.hh"
+#include <seastar/core/sstring.hh>
 #include <seastar/net/socket_defs.hh>
 #include <seastar/util/std-compat.hh>
+#include <seastar/util/modules.hh>
 
 namespace seastar {
+
+SEASTAR_MODULE_EXPORT_BEGIN
 
 /// \file
 /// \defgroup posix-support POSIX Support
@@ -360,9 +363,9 @@ private:
 
 namespace posix {
 
-static constexpr unsigned rcv_shutdown = 0x1;
-static constexpr unsigned snd_shutdown = 0x2;
-static inline constexpr unsigned shutdown_mask(int how) { return how + 1; }
+constexpr unsigned rcv_shutdown = 0x1;
+constexpr unsigned snd_shutdown = 0x2;
+inline constexpr unsigned shutdown_mask(int how) { return how + 1; }
 
 /// Converts a duration value to a `timespec`
 ///
@@ -513,4 +516,5 @@ std::set<unsigned> get_current_cpuset();
 
 /// @}
 
+SEASTAR_MODULE_EXPORT_END
 }

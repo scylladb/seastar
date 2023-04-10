@@ -122,3 +122,13 @@ seastar_add_demo (tutorial_examples
 
 seastar_add_demo (http_client
   SOURCES http_client_demo.cc)
+
+if (Seastar_MODULE)
+  add_executable (hello_cxx_module)
+  target_sources (hello_cxx_module
+    PRIVATE
+      hello-cxx-module.cc)
+  target_link_libraries (hello_cxx_module
+    PRIVATE
+      seastar-module)
+endif ()

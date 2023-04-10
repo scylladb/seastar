@@ -19,9 +19,16 @@
  * Copyright (C) 2021 ScyllaDB
  */
 
+#ifdef SEASTAR_MODULE
+module;
+#include <utility>
+#include <vector>
+module seastar;
+#else
 #include <seastar/core/future.hh>
 #include <seastar/core/iostream.hh>
 #include <seastar/core/temporary_buffer.hh>
+#endif
 
 namespace seastar {
 

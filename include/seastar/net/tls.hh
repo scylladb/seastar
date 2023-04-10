@@ -20,11 +20,12 @@
  */
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <functional>
 #include <unordered_set>
 #include <map>
-
 #include <boost/any.hpp>
+#endif
 
 #include <seastar/core/future.hh>
 #include <seastar/core/internal/api-level.hh>
@@ -33,6 +34,7 @@
 #include <seastar/net/socket_defs.hh>
 #include <seastar/net/inet_address.hh>
 #include <seastar/util/std-compat.hh>
+#include <seastar/util/modules.hh>
 #include <seastar/net/api.hh>
 
 namespace seastar {
@@ -53,7 +55,9 @@ class socket_address;
  * with OpenSSL or similar.
  *
  */
+SEASTAR_MODULE_EXPORT
 namespace tls {
+
     enum class x509_crt_format {
         DER,
         PEM,
@@ -408,4 +412,3 @@ namespace tls {
     std::ostream& operator<<(std::ostream&, subject_alt_name_type);
 }
 }
-

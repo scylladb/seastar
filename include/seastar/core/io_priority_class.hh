@@ -21,15 +21,21 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <seastar/core/sstring.hh>
 #include <seastar/core/future.hh>
+#include <seastar/util/modules.hh>
 
 #include <array>
 #include <mutex>
+#endif
 
 namespace seastar {
 
 class io_queue;
+
+SEASTAR_MODULE_EXPORT_BEGIN
+
 using io_priority_class_id = unsigned;
 
 #if SEASTAR_API_LEVEL < 7
@@ -102,6 +108,8 @@ private:
 const io_priority_class& default_priority_class();
 
 #endif
+
+SEASTAR_MODULE_EXPORT_END
 
 namespace internal {
 #if SEASTAR_API_LEVEL >= 7

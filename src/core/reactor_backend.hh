@@ -27,6 +27,9 @@
 #include <seastar/core/internal/poll.hh>
 #include <seastar/core/linux-aio.hh>
 #include <seastar/core/cacheline.hh>
+#include <seastar/util/modules.hh>
+
+#ifndef SEASTAR_MODULE
 #include <fmt/ostream.h>
 #include <sys/time.h>
 #include <signal.h>
@@ -38,6 +41,7 @@
 
 #ifdef HAVE_OSV
 #include <osv/newpoll.hh>
+#endif
 #endif
 
 namespace seastar {

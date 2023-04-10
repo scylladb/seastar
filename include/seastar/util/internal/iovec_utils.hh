@@ -19,7 +19,9 @@
  * Copyright (C) 2022 ScyllaDB.
  */
 
+#ifndef SEASTAR_MODULE
 #include <sys/types.h>
+#endif
 
 #pragma once
 

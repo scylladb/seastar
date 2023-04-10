@@ -57,6 +57,11 @@
 #include <seastar/util/eclipse.hh>
 #include <seastar/util/log.hh>
 #include <seastar/util/std-compat.hh>
+#include <seastar/util/modules.hh>
+#include "internal/pollable_fd.hh"
+#include "internal/poll.hh"
+
+#ifndef SEASTAR_MODULE
 #include <boost/container/static_vector.hpp>
 #include <boost/lockfree/spsc_queue.hpp>
 #include <boost/next_prior.hpp>
@@ -84,8 +89,6 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netinet/ip.h>
-#include "internal/pollable_fd.hh"
-#include "internal/poll.hh"
 
 #ifdef HAVE_OSV
 #include <osv/sched.hh>
@@ -93,7 +96,9 @@
 #include <osv/condvar.h>
 #include <osv/newpoll.hh>
 #endif
+#endif
 
+struct statfs;
 struct _Unwind_Exception;
 
 namespace seastar {
@@ -104,6 +109,7 @@ namespace alien {
 class message_queue;
 class instance;
 }
+SEASTAR_MODULE_EXPORT
 class reactor;
 
 }
@@ -171,6 +177,7 @@ void increase_thrown_exceptions_counter() noexcept;
 
 class kernel_completion;
 class io_queue;
+SEASTAR_MODULE_EXPORT
 class io_intent;
 class disk_config_params;
 
@@ -182,6 +189,7 @@ public:
     virtual void set_exception(std::exception_ptr eptr) noexcept = 0;
 };
 
+SEASTAR_MODULE_EXPORT
 class reactor {
 private:
     struct task_queue;
@@ -734,10 +742,12 @@ internal::make_pollfn(Func&& func) {
 extern __thread reactor* local_engine;
 extern __thread size_t task_quota;
 
+SEASTAR_MODULE_EXPORT
 inline reactor& engine() {
     return *local_engine;
 }
 
+SEASTAR_MODULE_EXPORT
 inline bool engine_is_ready() {
     return local_engine != nullptr;
 }

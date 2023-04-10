@@ -149,6 +149,11 @@ set (CMAKE_CXX_STANDARD
   STRING
   "C++ standard to build with.")
 
+include (CMakeDependentOption)
+cmake_dependent_option (Seastar_MODULE
+  "Build a C++20 module instead of a traditional library" OFF
+  "CMAKE_VERSION VERSION_GREATER_EQUAL 3.26;CMAKE_CXX_STANDARD GREATER_EQUAL 20" OFF)
+
 set (CMAKE_C_FLAGS_SANITIZE
   "-Os -g"
   CACHE
@@ -812,6 +817,10 @@ endif ()
 set( MEMORYCHECK_COMMAND_OPTIONS "--error-exitcode=1 --leak-check=no --trace-children=yes" )
 include (CTest)
 
+if (Seastar_MODULE)
+  include (CxxModulesRules)
+  add_subdirectory (src)
+endif ()
 #
 # We want asserts enabled on all modes, but cmake defaults to passing
 # -DNDEBUG in some modes. We add -UNDEBUG to our private options to

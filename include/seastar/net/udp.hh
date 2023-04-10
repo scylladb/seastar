@@ -22,12 +22,16 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <unordered_map>
 #include <assert.h>
+#endif
+
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/net/api.hh>
 #include <seastar/net/const.hh>
 #include <seastar/net/net.hh>
+#include <seastar/util/modules.hh>
 
 namespace seastar {
 

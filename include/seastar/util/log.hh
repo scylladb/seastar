@@ -25,7 +25,9 @@
 #include <seastar/util/log-impl.hh>
 #include <seastar/core/lowres_clock.hh>
 #include <seastar/util/std-compat.hh>
+#include <seastar/util/modules.hh>
 
+#ifndef SEASTAR_MODULE
 #include <unordered_map>
 #include <exception>
 #include <iosfwd>
@@ -33,12 +35,14 @@
 #include <mutex>
 #include <boost/lexical_cast.hpp>
 #include <fmt/format.h>
-
+#endif
 
 /// \addtogroup logging
 /// @{
 
 namespace seastar {
+
+SEASTAR_MODULE_EXPORT_BEGIN
 
 /// \brief log level used with \see {logger}
 /// used with the logger.do_log method.
@@ -55,6 +59,8 @@ enum class log_level {
 
 std::ostream& operator<<(std::ostream& out, log_level level);
 std::istream& operator>>(std::istream& in, log_level& level);
+
+SEASTAR_MODULE_EXPORT_END
 }
 
 // Boost doesn't auto-deduce the existence of the streaming operators for some reason
@@ -66,7 +72,7 @@ seastar::log_level lexical_cast(const std::string& source);
 }
 
 namespace seastar {
-
+SEASTAR_MODULE_EXPORT_BEGIN
 class logger;
 class logger_registry;
 
@@ -515,6 +521,8 @@ struct logging_settings final {
 /// Shortcut for configuring the logging system all at once.
 ///
 void apply_logging_settings(const logging_settings&);
+
+SEASTAR_MODULE_EXPORT_END
 
 /// \cond internal
 

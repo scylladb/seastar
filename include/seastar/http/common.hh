@@ -21,7 +21,10 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <unordered_map>
+#endif
+
 #include <seastar/core/sstring.hh>
 #include <seastar/core/iostream.hh>
 
@@ -38,6 +41,7 @@ output_stream<char> make_http_content_length_output_stream(output_stream<char>& 
 
 namespace httpd {
 
+SEASTAR_MODULE_EXPORT_BEGIN
 
 class parameters {
     std::unordered_map<sstring, sstring> params;
@@ -88,4 +92,5 @@ sstring type2str(operation_type type);
 
 }
 
+SEASTAR_MODULE_EXPORT_END
 }

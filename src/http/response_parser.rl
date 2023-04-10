@@ -19,11 +19,17 @@
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
-#include <seastar/core/ragel.hh>
+#ifndef SEASTAR_MODULE
 #include <memory>
 #include <unordered_map>
+#endif
+
+#include <seastar/core/ragel.hh>
+#include <seastar/util/modules.hh>
 
 namespace seastar {
+
+SEASTAR_MODULE_EXPORT_BEGIN
 
 struct http_response {
     sstring _version;
@@ -176,5 +182,5 @@ public:
         return _state == state::error;
     }
 };
-
+SEASTAR_MODULE_EXPORT_END
 }

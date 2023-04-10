@@ -19,8 +19,20 @@
  * Copyright (C) 2019 ScyllaDB Ltd.
  */
 
+
+#ifdef SEASTAR_MODULE
+module;
+#include <atomic>
+#include <cassert>
+#include <cstdint>
+#include <array>
+#include <pthread.h>
+#include <signal.h>
+module seastar;
+#else
 #include <seastar/core/reactor.hh>
 #include "core/thread_pool.hh"
+#endif
 
 namespace seastar {
 

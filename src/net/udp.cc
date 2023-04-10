@@ -19,9 +19,21 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
+#ifdef SEASTAR_MODULE
+module;
+#include <cstdint>
+#include <utility>
+#include <cstring>
+#include <exception>
+#include <system_error>
+#include <optional>
+#include <memory>
+module seastar;
+#else
 #include <seastar/net/ip.hh>
 #include <seastar/net/stack.hh>
 #include <seastar/net/inet_address.hh>
+#endif
 
 namespace seastar {
 

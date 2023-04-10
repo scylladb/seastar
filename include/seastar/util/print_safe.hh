@@ -21,15 +21,20 @@
 
 #pragma once
 
-#include <seastar/util/concepts.hh>
+#ifndef SEASTAR_MODULE
 #include <cassert>
 #include <cerrno>
 #include <cstring>
 #include <stdio.h>
 #include <unistd.h>
+#endif
+
+#include <seastar/util/concepts.hh>
+#include <seastar/util/modules.hh>
 
 namespace seastar {
 
+SEASTAR_MODULE_EXPORT_BEGIN
 //
 // Collection of async-signal safe printing functions.
 //
@@ -125,5 +130,5 @@ void print_decimal_safe(Integral n) noexcept {
     auto len = convert_decimal_safe(buf, i, n);
     print_safe(buf, len);
 }
-
+SEASTAR_MODULE_EXPORT_END
 }

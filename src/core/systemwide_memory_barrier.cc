@@ -19,9 +19,10 @@
  * Copyright 2015 Scylla DB
  */
 
-#include <seastar/core/systemwide_memory_barrier.hh>
-#include <seastar/core/cacheline.hh>
-#include <seastar/util/log.hh>
+#ifdef SEASTAR_MODULE
+module;
+#endif
+
 #include <sys/mman.h>
 #include <unistd.h>
 #include <cassert>
@@ -32,6 +33,14 @@
 #include <linux/membarrier.h>
 #include <sys/syscall.h>
 #include <unistd.h>
+#endif
+
+#ifdef SEASTAR_MODULE
+module seastar;
+#else
+#include <seastar/core/systemwide_memory_barrier.hh>
+#include <seastar/core/cacheline.hh>
+#include <seastar/util/log.hh>
 #endif
 
 namespace seastar {

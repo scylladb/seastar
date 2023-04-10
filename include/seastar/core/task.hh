@@ -23,11 +23,15 @@
 
 #include <seastar/core/scheduling.hh>
 #include <seastar/util/backtrace.hh>
+
+#ifndef SEASTAR_MODULE
 #include <memory>
 #include <utility>
+#endif
 
 namespace seastar {
 
+SEASTAR_MODULE_EXPORT
 class task {
 protected:
     scheduling_group _sg;
@@ -68,7 +72,10 @@ shared_backtrace task::get_backtrace() const {
 #endif
 }
 
+SEASTAR_MODULE_EXPORT_BEGIN
+
 void schedule(task* t) noexcept;
 void schedule_urgent(task* t) noexcept;
 
+SEASTAR_MODULE_EXPORT_END
 }

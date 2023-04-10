@@ -33,11 +33,15 @@
 // transfer_pass1() simply moves the objects and destroys the source, and
 // transfer_pass2() does nothing.
 
+#ifndef SEASTAR_MODULE
 #include <memory>
 #include <type_traits>
 #include <utility>
+#include <seastar/util/modules.hh>
+#endif
 
 namespace seastar {
+SEASTAR_MODULE_EXPORT_BEGIN
 
 template <typename T, typename Alloc>
 inline
@@ -70,6 +74,6 @@ transfer_pass2(Alloc& a, T* from, T*,
         typename std::enable_if<!std::is_nothrow_move_constructible<T>::value>::type* = nullptr) {
     std::allocator_traits<Alloc>::destroy(a, from);
 }
-
+SEASTAR_MODULE_EXPORT_END
 }
 

@@ -29,14 +29,19 @@
 // on sector boundaries.  The adapters in this file provide a byte stream
 // interface to files, while retaining the zero-copy characteristics of
 // seastar files.
-
 #include <seastar/core/file.hh>
 #include <seastar/core/iostream.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/internal/api-level.hh>
+#include <seastar/util/modules.hh>
+
+#ifndef SEASTAR_MODULE
 #include <cstdint>
+#endif
 
 namespace seastar {
+
+SEASTAR_MODULE_EXPORT_BEGIN
 
 class file_input_stream_history {
     static constexpr uint64_t window_size = 4 * 1024 * 1024;
@@ -121,5 +126,7 @@ future<output_stream<char>> make_file_output_stream(
 /// newly created file.
 /// Closes the file if the sink creation fails.
 future<data_sink> make_file_data_sink(file, file_output_stream_options) noexcept;
+
+SEASTAR_MODULE_EXPORT_END
 
 }

@@ -28,12 +28,20 @@
 // Distributed under the Boost Software License, Version 1.0. (See accompanying
 // file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
 //
+
+#ifdef SEASTAR_MODULE
+module;
+#include <iostream>
+#include <utility>
+module seastar;
+#else
 #include <seastar/http/reply.hh>
 #include <seastar/core/print.hh>
 #include <seastar/http/httpd.hh>
 #include <seastar/http/common.hh>
 #include <seastar/http/response_parser.hh>
 #include <seastar/core/loop.hh>
+#endif
 
 namespace seastar {
 

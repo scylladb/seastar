@@ -19,7 +19,10 @@
  * Copyright 2021 ScyllaDB
  */
 
+#ifndef SEASTAR_MODULE
 #include <cstring>
+#endif
+
 #include <seastar/core/align.hh>
 #include <seastar/core/internal/io_intent.hh>
 #include <seastar/core/temporary_buffer.hh>

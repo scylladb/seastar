@@ -24,6 +24,7 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <iterator>
 #include <cstddef>
 #include <type_traits>
@@ -32,6 +33,8 @@
 #include <utility>
 #include <seastar/core/future.hh>
 #include <seastar/core/shared_ptr.hh>
+#include <seastar/util/modules.hh>
+#endif
 
 namespace seastar {
 
@@ -70,6 +73,7 @@ public:
 /// \param end an \c InputIterator designating the end of the range of futures
 /// \return a \c when_any_result of all the futures in the input; when
 ///         ready, at least one of the contained futures (the one indicated by index) will be ready.
+SEASTAR_MODULE_EXPORT
 template <class FutureIterator>
 SEASTAR_CONCEPT( requires requires (FutureIterator i) { { *i++ }; requires is_future<std::remove_reference_t<decltype(*i)>>::value; } )
 auto when_any(FutureIterator begin, FutureIterator end) noexcept
@@ -142,6 +146,7 @@ when_any_impl(std::index_sequence<I...>, Futures&&... futs) noexcept
 /// \return a \c when_any_result containing a tuple of all futures
 ///  and and index; when ready, at least one of the contained futures
 ///  (the one indicated by index) will be ready.
+SEASTAR_MODULE_EXPORT
 template <class... FutOrFuncs>
 auto when_any(FutOrFuncs&&... fut_or_funcs) noexcept
 {

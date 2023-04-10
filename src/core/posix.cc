@@ -19,11 +19,28 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
+#ifdef SEASTAR_MODULE
+module;
+#endif
+
+#include <memory>
+#include <cassert>
+#include <set>
+#include <vector>
+#include <functional>
+#include <fmt/format.h>
+#include <stdlib.h>
+#include <unistd.h>
+#include <sys/mman.h>
+#include <sys/inotify.h>
+
+#ifdef SEASTAR_MODULE
+module seastar;
+#else
 #include <seastar/core/posix.hh>
 #include <seastar/core/align.hh>
 #include <seastar/util/critical_alloc_section.hh>
-#include <sys/mman.h>
-#include <sys/inotify.h>
+#endif
 
 namespace seastar {
 

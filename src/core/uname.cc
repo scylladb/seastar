@@ -20,11 +20,22 @@
  * Copyright (C) 2019 ScyllaDB
  */
 
-#include <seastar/core/internal/uname.hh>
+#ifdef SEASTAR_MODULE
+module;
+#endif
+
+#include <memory>
+#include <optional>
 #include <regex>
 #include <boost/algorithm/cxx11/any_of.hpp>
 #include <sys/utsname.h>
 #include <iostream>
+
+#ifdef SEASTAR_MODULE
+module seastar;
+#else
+#include <seastar/core/internal/uname.hh>
+#endif
 
 namespace seastar {
 

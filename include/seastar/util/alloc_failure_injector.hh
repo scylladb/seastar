@@ -21,11 +21,15 @@
 
 #pragma once
 
+#include "modules.hh"
+#ifndef SEASTAR_MODULE
 #include <limits>
 #include <cstdint>
 #include <functional>
+#endif
 #include <seastar/util/noncopyable_function.hh>
 #include <seastar/util/critical_alloc_section.hh>
+#include <seastar/util/modules.hh>
 
 namespace seastar {
 namespace memory {
@@ -46,6 +50,7 @@ namespace memory {
 ///             // expected
 ///         }
 ///     }
+SEASTAR_MODULE_EXPORT
 class alloc_failure_injector {
     uint64_t _alloc_count = 0;
     uint64_t _fail_at = std::numeric_limits<uint64_t>::max();
@@ -95,6 +100,7 @@ extern thread_local alloc_failure_injector the_alloc_failure_injector;
 /// \endcond
 
 /// \brief Return the shard-local \ref alloc_failure_injector instance.
+SEASTAR_MODULE_EXPORT
 inline
 alloc_failure_injector& local_failure_injector() {
     return the_alloc_failure_injector;
@@ -114,6 +120,7 @@ struct [[deprecated("Use scoped_critical_section instead")]] disable_failure_gua
 };
 
 /// \brief Marks a point in code which should be considered for failure injection.
+SEASTAR_MODULE_EXPORT
 inline
 void on_alloc_point() {
 #ifdef SEASTAR_ENABLE_ALLOC_FAILURE_INJECTION
@@ -126,6 +133,7 @@ void on_alloc_point() {
 /// Initially, allocations start to fail immediately. In each
 /// subsequent run the failures start one allocation later. This
 /// returns when func is run and no allocation failures are detected.
+SEASTAR_MODULE_EXPORT
 void with_allocation_failures(noncopyable_function<void()> func);
 
 }

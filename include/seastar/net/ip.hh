@@ -22,6 +22,7 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <boost/asio/ip/address_v4.hpp>
 #include <arpa/inet.h>
 #include <unordered_map>
@@ -30,6 +31,8 @@
 #include <map>
 #include <list>
 #include <chrono>
+#endif
+
 #include <seastar/core/array_map.hh>
 #include <seastar/net/byteorder.hh>
 #include <seastar/core/byteorder.hh>
@@ -41,6 +44,7 @@
 #include <seastar/net/toeplitz.hh>
 #include <seastar/net/udp.hh>
 #include <seastar/core/metrics_registration.hh>
+#include <seastar/util/modules.hh>
 
 #include "ipv4_address.hh"
 #include "ipv6_address.hh"

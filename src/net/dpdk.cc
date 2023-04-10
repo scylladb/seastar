@@ -20,31 +20,14 @@
  */
 #ifdef SEASTAR_HAVE_DPDK
 
+#ifdef SEASTAR_MODULE
+module;
+#endif
+
 #include <cinttypes>
-#include <seastar/core/posix.hh>
-#include "core/vla.hh"
-#include <seastar/core/reactor.hh>
-#include <seastar/net/virtio-interface.hh>
-#include <seastar/core/stream.hh>
-#include <seastar/core/circular_buffer.hh>
-#include <seastar/core/align.hh>
-#include <seastar/core/sstring.hh>
-#include <seastar/core/memory.hh>
-#include <seastar/core/metrics.hh>
-#include <seastar/util/function_input_iterator.hh>
-#include <seastar/util/transform_iterator.hh>
 #include <atomic>
 #include <vector>
 #include <queue>
-#include <seastar/util/std-compat.hh>
-#include <boost/preprocessor.hpp>
-#include <seastar/net/ip.hh>
-#include <seastar/net/const.hh>
-#include <seastar/core/dpdk_rte.hh>
-#include <seastar/net/dpdk.hh>
-#include <seastar/net/toeplitz.hh>
-#include <seastar/net/native-stack.hh>
-
 #include <getopt.h>
 #include <malloc.h>
 
@@ -57,6 +40,32 @@
 #include <rte_cycles.h>
 #include <rte_memzone.h>
 #include <rte_vfio.h>
+
+#include <boost/preprocessor.hpp>
+
+#ifdef SEASTAR_MODULE
+module seastar;
+#else
+#include <seastar/core/posix.hh>
+#include <seastar/core/reactor.hh>
+#include <seastar/net/virtio-interface.hh>
+#include <seastar/core/stream.hh>
+#include <seastar/core/circular_buffer.hh>
+#include <seastar/core/align.hh>
+#include <seastar/core/sstring.hh>
+#include <seastar/core/memory.hh>
+#include <seastar/core/metrics.hh>
+#include <seastar/util/function_input_iterator.hh>
+#include <seastar/util/transform_iterator.hh>
+#include <seastar/util/std-compat.hh>
+#include <seastar/net/ip.hh>
+#include <seastar/net/const.hh>
+#include <seastar/core/dpdk_rte.hh>
+#include <seastar/net/dpdk.hh>
+#include <seastar/net/toeplitz.hh>
+#include <seastar/net/native-stack.hh>
+#include "core/vla.hh"
+#endif
 
 #if RTE_VERSION <= RTE_VERSION_NUM(2,0,0,16)
 
@@ -2301,7 +2310,17 @@ std::unique_ptr<net::device> create_dpdk_net_device(
 }
 
 #else
+
+#ifdef SEASTAR_MODULE
+module;
+#endif
+
+#ifdef SEASTAR_MODULE
+module seastar;
+#else
 #include <seastar/net/dpdk.hh>
+#endif
+
 #endif // SEASTAR_HAVE_DPDK
 
 namespace seastar::net {

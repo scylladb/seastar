@@ -20,12 +20,24 @@
  * Copyright (C) 2022 Kefu Chai ( tchaikov@gmail.com )
  */
 
+#ifdef SEASTAR_MODULE
+module;
+#include <cassert>
+#include <csignal>
+#include <cstdint>
+#include <filesystem>
+#include <memory>
+#include <vector>
+#include <utility>
+module seastar;
+#else
 #include <seastar/core/fstream.hh>
 #include <seastar/core/internal/buffer_allocator.hh>
 #include <seastar/core/io_queue.hh>
 #include <seastar/core/polymorphic_temporary_buffer.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/util/process.hh>
+#endif
 
 namespace seastar::experimental {
 

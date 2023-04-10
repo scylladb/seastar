@@ -21,14 +21,18 @@
 
 #pragma once
 
+#include <seastar/util/modules.hh>
+#ifndef SEASTAR_MODULE
 #include <utility>
 #include <boost/intrusive/list.hpp>
 #include <boost/intrusive/slist.hpp>
+#endif
 
 namespace bi = boost::intrusive;
 
 namespace seastar {
 
+SEASTAR_MODULE_EXPORT
 class io_intent;
 
 namespace internal {

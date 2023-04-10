@@ -19,9 +19,18 @@
  * Copyright (C) 2018 ScyllaDB
  */
 
+#ifdef SEASTAR_MODULE
+module;
+#endif
+
+#include <boost/range/irange.hpp>
+
+#ifdef SEASTAR_MODULE
+module seastar;
+#else
 #include <seastar/core/sharded.hh>
 #include <seastar/core/loop.hh>
-#include <boost/range/irange.hpp>
+#endif
 
 namespace seastar {
 

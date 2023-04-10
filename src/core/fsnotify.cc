@@ -19,10 +19,24 @@
  * Copyright 2020 ScyllaDB Ltd.
  */
 
+#ifdef SEASTAR_MODULE
+
+module;
+
+#include <cerrno>
+#include <cstdint>
+#include <stdexcept>
+#include <vector>
+#include <sys/inotify.h>
+
+module seastar;
+
+#else
 #include <seastar/core/internal/pollable_fd.hh>
 #include <seastar/core/posix.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/fsnotify.hh>
+#endif
 
 namespace seastar::experimental {
 

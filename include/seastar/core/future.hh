@@ -21,6 +21,7 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <cassert>
 #include <atomic>
 #include <cstdlib>
@@ -30,6 +31,8 @@
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
+#endif
+
 #include <seastar/core/task.hh>
 #include <seastar/core/thread_impl.hh>
 #include <seastar/core/function_traits.hh>
@@ -38,6 +41,7 @@
 #include <seastar/util/noncopyable_function.hh>
 #include <seastar/util/backtrace.hh>
 #include <seastar/util/std-compat.hh>
+#include <seastar/util/modules.hh>
 
 namespace seastar {
 
@@ -141,7 +145,7 @@ struct nested_exception : public std::exception {
 
 /// \addtogroup future-module
 /// @{
-
+SEASTAR_MODULE_EXPORT_BEGIN
 template <class T = void>
 class promise;
 
@@ -189,7 +193,7 @@ future<T> make_exception_future(const std::exception_ptr&& ex) noexcept {
     // as ex is const, we cannot move it, but can copy it.
     return make_exception_future<T>(std::exception_ptr(ex));
 }
-
+SEASTAR_MODULE_EXPORT_END
 /// \cond internal
 void engine_exit(std::exception_ptr eptr = {});
 
@@ -207,6 +211,7 @@ void with_allow_abandoned_failed_futures(unsigned count, noncopyable_function<vo
 /// continuation is destroyed before setting any value or exception, an
 /// exception of `broken_promise` type is propagated to that abandoned
 /// continuation.
+SEASTAR_MODULE_EXPORT
 struct broken_promise : std::logic_error {
     broken_promise();
 };
@@ -216,9 +221,11 @@ struct broken_promise : std::logic_error {
 /// This is equivalent to
 /// make_exception_future(std::current_exception()), but expands to
 /// less code.
+SEASTAR_MODULE_EXPORT
 template <typename T = void>
 future<T> current_exception_as_future() noexcept;
 
+SEASTAR_MODULE_EXPORT
 extern template
 future<void> current_exception_as_future() noexcept;
 
@@ -401,6 +408,7 @@ static constexpr bool is_tuple_effectively_trivially_move_constructible_and_dest
 //
 
 // non templated base class to reduce code duplication
+SEASTAR_MODULE_EXPORT
 struct future_state_base {
     static_assert(sizeof(std::exception_ptr) == sizeof(void*), "exception_ptr not a pointer");
     enum class state : uintptr_t {
@@ -900,6 +908,7 @@ private:
 /// \tparam T A list of types to be carried as the result of the associated future.
 ///           A list with two or more types is deprecated; use
 ///           \c promise<std::tuple<T...>> instead.
+SEASTAR_MODULE_EXPORT
 template <typename T>
 class promise : private internal::promise_base_with_type<T> {
     using future_state = typename internal::promise_base_with_type<T>::future_state;
@@ -1011,6 +1020,7 @@ template <typename... T> struct is_future<future<T...>> : std::true_type {};
 /// \brief Converts a type to a future type, if it isn't already.
 ///
 /// \return Result in member type 'type'.
+SEASTAR_MODULE_EXPORT
 template <typename T>
 struct futurize;
 
@@ -1209,6 +1219,7 @@ task* continuation_base_with_promise<Promise, T>::waiting_task() noexcept {
 ///           failure, an exception).
 ///           A list with two or more types is deprecated; use
 ///           \c future<std::tuple<T...>> instead.
+SEASTAR_MODULE_EXPORT
 template <typename T>
 class [[nodiscard]] future : private internal::future_base {
     using future_state = seastar::future_state<internal::future_stored_type_t<T>>;
@@ -1898,6 +1909,7 @@ void promise<T>::move_it(promise&& x) noexcept {
     }
 }
 
+SEASTAR_MODULE_EXPORT_BEGIN
 template <typename T, typename... A>
 inline
 future<T> make_ready_future(A&&... value) noexcept {
@@ -1909,6 +1921,7 @@ inline
 future<T> make_exception_future(std::exception_ptr&& ex) noexcept {
     return future<T>(exception_future_marker(), std::move(ex));
 }
+SEASTAR_MODULE_EXPORT_END
 
 template <typename T>
 inline
@@ -1916,6 +1929,7 @@ future<T> internal::make_exception_future(future_state_base&& state) noexcept {
     return future<T>(exception_future_marker(), std::move(state));
 }
 
+SEASTAR_MODULE_EXPORT_BEGIN
 template <typename T>
 future<T> current_exception_as_future() noexcept {
     return future<T>(future_state_base::current_exception_future_marker());
@@ -1940,6 +1954,7 @@ template <typename T, typename Exception>
 future<T> make_exception_future_with_backtrace(Exception&& ex) noexcept {
     return make_exception_future<T>(make_backtraced_exception_ptr<Exception>(std::forward<Exception>(ex)));
 }
+SEASTAR_MODULE_EXPORT_END
 
 /// @}
 

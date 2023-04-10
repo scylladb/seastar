@@ -52,6 +52,45 @@
 // Spans have a size that is a power-of-two and are naturally aligned (aka buddy
 // allocator)
 
+#ifdef SEASTAR_MODULE
+module;
+#endif
+
+#include <cassert>
+#include <unordered_set>
+#include <iostream>
+#include <optional>
+#include <thread>
+#include <memory_resource>
+
+#include <fmt/format.h>
+#include <fmt/ostream.h>
+
+#include <boost/container/static_vector.hpp>
+
+#include <dlfcn.h>
+
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
+#include <new>
+#include <cstdint>
+#include <algorithm>
+#include <limits>
+#include <cassert>
+#include <atomic>
+#include <mutex>
+#include <functional>
+#include <cstring>
+#include <boost/intrusive/list.hpp>
+#include <sys/mman.h>
+
+#ifdef SEASTAR_HAVE_NUMA
+#include <numaif.h>
+#endif
+#endif // !defined(SEASTAR_DEFAULT_ALLOCATOR)
+
+#ifdef SEASTAR_MODULE
+module seastar;
+#else
 #include <seastar/core/cacheline.hh>
 #include <seastar/core/memory.hh>
 #include <seastar/core/print.hh>
@@ -60,11 +99,14 @@
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/log.hh>
 #include <seastar/core/aligned_buffer.hh>
-#include <unordered_set>
-#include <iostream>
-#include <thread>
-
-#include <dlfcn.h>
+#ifndef SEASTAR_DEFAULT_ALLOCATOR
+#include <seastar/core/bitops.hh>
+#include <seastar/core/align.hh>
+#include <seastar/core/posix.hh>
+#include <seastar/core/shared_ptr.hh>
+#include <seastar/util/backtrace.hh>
+#endif
+#endif
 
 namespace seastar {
 
@@ -132,28 +174,6 @@ __thread volatile int critical_alloc_section = 0;
 }
 
 #ifndef SEASTAR_DEFAULT_ALLOCATOR
-
-#include <seastar/core/bitops.hh>
-#include <seastar/core/align.hh>
-#include <seastar/core/posix.hh>
-#include <seastar/core/shared_ptr.hh>
-#include <new>
-#include <cstdint>
-#include <algorithm>
-#include <limits>
-#include <cassert>
-#include <atomic>
-#include <mutex>
-#include <seastar/util/std-compat.hh>
-#include <functional>
-#include <cstring>
-#include <boost/intrusive/list.hpp>
-#include <sys/mman.h>
-#include <seastar/util/backtrace.hh>
-
-#ifdef SEASTAR_HAVE_NUMA
-#include <numaif.h>
-#endif
 
 namespace seastar {
 
@@ -1781,9 +1801,11 @@ void dump_memory_diagnostics(log_level lvl, logger::rate_limit& rate_limit) {
     seastar_memory_logger.log(lvl, rate_limit, writer);
 }
 
-void internal::log_memory_diagnostics_report(log_level lvl) {
+namespace internal {
+void log_memory_diagnostics_report(log_level lvl) {
     logger::rate_limit rl{std::chrono::seconds(0)}; // never limit for explicit dump requests
     dump_memory_diagnostics(lvl, rl);
+}
 }
 
 void maybe_dump_memory_diagnostics(size_t size, bool is_aborting) {
@@ -2078,6 +2100,7 @@ void* throw_if_null(void* ptr) {
     return ptr;
 }
 
+extern "C++"
 [[gnu::visibility("default")]]
 void* operator new(size_t size) {
     trigger_error_injector();
@@ -2087,6 +2110,7 @@ void* operator new(size_t size) {
     return throw_if_null(allocate(size));
 }
 
+extern "C++"
 [[gnu::visibility("default")]]
 void* operator new[](size_t size) {
     trigger_error_injector();
@@ -2096,6 +2120,7 @@ void* operator new[](size_t size) {
     return throw_if_null(allocate(size));
 }
 
+extern "C++"
 [[gnu::visibility("default")]]
 void operator delete(void* ptr) throw () {
     if (ptr) {
@@ -2103,6 +2128,7 @@ void operator delete(void* ptr) throw () {
     }
 }
 
+extern "C++"
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr) throw () {
     if (ptr) {
@@ -2110,6 +2136,7 @@ void operator delete[](void* ptr) throw () {
     }
 }
 
+extern "C++"
 [[gnu::visibility("default")]]
 void operator delete(void* ptr, size_t size) throw () {
     if (ptr) {
@@ -2117,6 +2144,7 @@ void operator delete(void* ptr, size_t size) throw () {
     }
 }
 
+extern "C++"
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr, size_t size) throw () {
     if (ptr) {
@@ -2124,6 +2152,7 @@ void operator delete[](void* ptr, size_t size) throw () {
     }
 }
 
+extern "C++"
 [[gnu::visibility("default")]]
 void* operator new(size_t size, std::nothrow_t) throw () {
     if (try_trigger_error_injector()) {
@@ -2135,6 +2164,7 @@ void* operator new(size_t size, std::nothrow_t) throw () {
     return allocate(size);
 }
 
+extern "C++"
 [[gnu::visibility("default")]]
 void* operator new[](size_t size, std::nothrow_t) throw () {
     if (size == 0) {
@@ -2143,6 +2173,7 @@ void* operator new[](size_t size, std::nothrow_t) throw () {
     return allocate(size);
 }
 
+extern "C++"
 [[gnu::visibility("default")]]
 void operator delete(void* ptr, std::nothrow_t) throw () {
     if (ptr) {
@@ -2150,6 +2181,7 @@ void operator delete(void* ptr, std::nothrow_t) throw () {
     }
 }
 
+extern "C++"
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr, std::nothrow_t) throw () {
     if (ptr) {
@@ -2157,6 +2189,7 @@ void operator delete[](void* ptr, std::nothrow_t) throw () {
     }
 }
 
+extern "C++"
 [[gnu::visibility("default")]]
 void operator delete(void* ptr, size_t size, std::nothrow_t) throw () {
     if (ptr) {
@@ -2164,6 +2197,7 @@ void operator delete(void* ptr, size_t size, std::nothrow_t) throw () {
     }
 }
 
+extern "C++"
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr, size_t size, std::nothrow_t) throw () {
     if (ptr) {
@@ -2173,6 +2207,7 @@ void operator delete[](void* ptr, size_t size, std::nothrow_t) throw () {
 
 #ifdef __cpp_aligned_new
 
+extern "C++"
 [[gnu::visibility("default")]]
 void* operator new(size_t size, std::align_val_t a) {
     trigger_error_injector();
@@ -2180,6 +2215,7 @@ void* operator new(size_t size, std::align_val_t a) {
     return throw_if_null(ptr);
 }
 
+extern "C++"
 [[gnu::visibility("default")]]
 void* operator new[](size_t size, std::align_val_t a) {
     trigger_error_injector();
@@ -2187,6 +2223,7 @@ void* operator new[](size_t size, std::align_val_t a) {
     return throw_if_null(ptr);
 }
 
+extern "C++"
 [[gnu::visibility("default")]]
 void* operator new(size_t size, std::align_val_t a, const std::nothrow_t&) noexcept {
     if (try_trigger_error_injector()) {
@@ -2195,6 +2232,7 @@ void* operator new(size_t size, std::align_val_t a, const std::nothrow_t&) noexc
     return allocate_aligned(size_t(a), size);
 }
 
+extern "C++"
 [[gnu::visibility("default")]]
 void* operator new[](size_t size, std::align_val_t a, const std::nothrow_t&) noexcept {
     if (try_trigger_error_injector()) {
@@ -2203,7 +2241,7 @@ void* operator new[](size_t size, std::align_val_t a, const std::nothrow_t&) noe
     return allocate_aligned(size_t(a), size);
 }
 
-
+extern "C++"
 [[gnu::visibility("default")]]
 void operator delete(void* ptr, std::align_val_t a) noexcept {
     if (ptr) {
@@ -2211,6 +2249,7 @@ void operator delete(void* ptr, std::align_val_t a) noexcept {
     }
 }
 
+extern "C++"
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr, std::align_val_t a) noexcept {
     if (ptr) {
@@ -2218,6 +2257,7 @@ void operator delete[](void* ptr, std::align_val_t a) noexcept {
     }
 }
 
+extern "C++"
 [[gnu::visibility("default")]]
 void operator delete(void* ptr, size_t size, std::align_val_t a) noexcept {
     if (ptr) {
@@ -2225,6 +2265,7 @@ void operator delete(void* ptr, size_t size, std::align_val_t a) noexcept {
     }
 }
 
+extern "C++"
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr, size_t size, std::align_val_t a) noexcept {
     if (ptr) {
@@ -2232,6 +2273,7 @@ void operator delete[](void* ptr, size_t size, std::align_val_t a) noexcept {
     }
 }
 
+extern "C++"
 [[gnu::visibility("default")]]
 void operator delete(void* ptr, std::align_val_t a, const std::nothrow_t&) noexcept {
     if (ptr) {
@@ -2239,6 +2281,7 @@ void operator delete(void* ptr, std::align_val_t a, const std::nothrow_t&) noexc
     }
 }
 
+extern "C++"
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr, std::align_val_t a, const std::nothrow_t&) noexcept {
     if (ptr) {

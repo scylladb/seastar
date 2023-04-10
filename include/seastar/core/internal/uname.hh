@@ -22,10 +22,13 @@
 
 #pragma once
 
+#include <seastar/util/modules.hh>
+#include <seastar/util/std-compat.hh>
+#ifndef SEASTAR_MODULE
 #include <string>
 #include <initializer_list>
-#include <seastar/util/std-compat.hh>
 #include <iosfwd>
+#endif
 
 namespace seastar {
 

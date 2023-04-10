@@ -19,14 +19,26 @@
 /*
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
+#ifdef SEASTAR_MODULE
+module;
+#endif
 
+#include <ucontext.h>
+#include <setjmp.h>
+#include <stdint.h>
+#include <valgrind/valgrind.h>
+#include <algorithm>
+#include <exception>
+#include <utility>
+#include <boost/intrusive/list.hpp>
+
+#ifdef SEASTAR_MODULE
+module seastar;
+#else
 #include <seastar/core/thread.hh>
 #include <seastar/core/posix.hh>
 #include <seastar/core/reactor.hh>
-#include <ucontext.h>
-#include <algorithm>
-
-#include <valgrind/valgrind.h>
+#endif
 
 /// \cond internal
 

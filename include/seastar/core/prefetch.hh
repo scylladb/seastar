@@ -21,14 +21,19 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <algorithm>
 #include <atomic>
 #include <boost/mpl/range_c.hpp>
 #include <boost/mpl/for_each.hpp>
 #include <seastar/core/align.hh>
 #include <seastar/core/cacheline.hh>
+#include <seastar/util/modules.hh>
+#endif
 
 namespace seastar {
+
+SEASTAR_MODULE_EXPORT_BEGIN
 
 template <size_t N, int RW, int LOC>
 struct prefetcher;
@@ -112,5 +117,6 @@ template<size_t L, size_t C, typename T, int LOC = 3>
 void prefetchw_n(T** pptr) {
     boost::mpl::for_each< boost::mpl::range_c<size_t,0,C> >( [pptr] (size_t x) { prefetchw<L, LOC>(*(pptr + x)); } );
 }
+SEASTAR_MODULE_EXPORT_END
 
 }

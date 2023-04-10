@@ -21,10 +21,13 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <memory>
 #include <cassert>
 #include <cstdlib>
 #include <type_traits>
+#include <seastar/util/modules.hh>
+#endif
 
 namespace seastar {
 
@@ -44,6 +47,7 @@ namespace seastar {
 ///  - decrementing a reference count somewhere
 ///
 /// A deleter performs its action from its destructor.
+SEASTAR_MODULE_EXPORT
 class deleter final {
 public:
     /// \cond internal
@@ -158,6 +162,8 @@ object_deleter_impl<Object>* make_object_deleter_impl(deleter next, Object obj) 
 }
 /// \endcond
 
+
+SEASTAR_MODULE_EXPORT_BEGIN
 /// Makes a \ref deleter that encapsulates the action of
 /// destroying an object, as well as running another deleter.  The input
 /// object is moved to the deleter, and destroyed when the deleter is destroyed.
@@ -181,6 +187,7 @@ deleter
 make_deleter(Object o) {
     return make_deleter(deleter(), std::move(o));
 }
+SEASTAR_MODULE_EXPORT_END
 
 /// \cond internal
 struct free_deleter_impl final : deleter::impl {
@@ -233,6 +240,7 @@ void deleter::append(deleter d) {
     d._impl = nullptr;
 }
 
+SEASTAR_MODULE_EXPORT_BEGIN
 /// Makes a deleter that calls \c std::free() when it is destroyed.
 ///
 /// \param obj object to free.
@@ -275,6 +283,7 @@ deleter
 make_object_deleter(deleter d, T&& obj) {
     return deleter{make_object_deleter_impl(std::move(d), std::move(obj))};
 }
+SEASTAR_MODULE_EXPORT_END
 
 /// @}
 

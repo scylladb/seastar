@@ -21,18 +21,22 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
+#include <boost/program_options/variables_map.hpp>
+#include <unordered_map>
+#endif
+
 #include <seastar/http/matchrules.hh>
 #include <seastar/http/handlers.hh>
 #include <seastar/http/common.hh>
 #include <seastar/http/reply.hh>
-
-#include <boost/program_options/variables_map.hpp>
-#include <unordered_map>
+#include <seastar/util/modules.hh>
 
 namespace seastar {
 
 namespace httpd {
 
+SEASTAR_MODULE_EXPORT_BEGIN
 /**
  * The url helps defining a route.
  */
@@ -294,6 +298,7 @@ public:
     ~rule_registration();
 };
 
+SEASTAR_MODULE_EXPORT_END
 }
 
 }

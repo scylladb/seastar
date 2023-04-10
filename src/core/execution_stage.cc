@@ -19,10 +19,17 @@
  * Copyright (C) 2018 ScyllaDB Ltd.
  */
 
+#ifdef SEASTAR_MODULE
+module;
+#include <algorithm>
+#include <stdexcept>
+module seastar;
+#else
 #include <seastar/core/execution_stage.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/make_task.hh>
 #include <seastar/util/defer.hh>
+#endif
 
 namespace seastar {
 

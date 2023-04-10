@@ -19,15 +19,40 @@
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
-#include <unistd.h>
+#ifdef SEASTAR_MODULE
+module;
+#endif
+
+#include <iostream>
+#include <map>
+#include <memory>
+#include <regex>
+#include <string>
+#include <string_view>
+#include <system_error>
+#include <chrono>
+#include <algorithm>
+
 #include <fmt/core.h>
 #if FMT_VERSION >= 60000
 #include <fmt/chrono.h>
 #include <fmt/color.h>
+#include <fmt/ostream.h>
 #elif FMT_VERSION >= 50000
 #include <fmt/time.h>
 #endif
+#include <boost/any.hpp>
+#include <boost/lexical_cast.hpp>
+#include <boost/program_options.hpp>
+#include <boost/range/adaptor/map.hpp>
+#include <cxxabi.h>
+#include <syslog.h>
+#include <unistd.h>
 
+
+#ifdef SEASTAR_MODULE
+module seastar;
+#else
 #include <seastar/util/log.hh>
 #include <seastar/core/smp.hh>
 #include <seastar/util/log-cli.hh>
@@ -37,22 +62,9 @@
 #include <seastar/core/future.hh>
 #include <seastar/core/print.hh>
 
-#include <boost/any.hpp>
-#include <boost/lexical_cast.hpp>
-#include <boost/range/adaptor/map.hpp>
-#include <cxxabi.h>
-#include <syslog.h>
-
-#include <iostream>
-#include <map>
-#include <regex>
-#include <string>
-#include <string_view>
-#include <system_error>
-#include <chrono>
-#include <algorithm>
 
 #include "core/program_options.hh"
+#endif
 
 using namespace std::chrono_literals;
 

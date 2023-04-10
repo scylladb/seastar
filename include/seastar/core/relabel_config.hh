@@ -18,10 +18,15 @@
 /*
  * Copyright 2022 ScyllaDB
  */
+#ifndef SEASTAR_MODULE
 #include <regex>
+#endif
+#include <seastar/util/modules.hh>
 
 namespace seastar {
 namespace metrics {
+
+SEASTAR_MODULE_EXPORT_BEGIN
 
 /*!
  * \brief a wrapper class around regex with the original expr
@@ -97,5 +102,8 @@ struct relabel_config {
  * \brief a helper function to translate a string to relabel_config::relabel_action enum values
  */
 relabel_config::relabel_action relabel_config_action(const std::string& action);
+
+SEASTAR_MODULE_EXPORT_END
+
 }
 }

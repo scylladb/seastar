@@ -19,10 +19,18 @@
  * Copyright 2017 ScyllaDB
  */
 
+#ifdef SEASTAR_MODULE
+module;
+#include <cstdint>
+#include <new>
+#include <utility>
+module seastar;
+#else
 #include <seastar/util/alloc_failure_injector.hh>
 #include <seastar/util/backtrace.hh>
 #include <seastar/util/log.hh>
 #include <seastar/util/defer.hh>
+#endif
 
 namespace seastar {
 namespace memory {

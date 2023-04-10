@@ -30,10 +30,14 @@
 #include <seastar/util/concepts.hh>
 #include <seastar/util/log.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/util/modules.hh>
+
+#ifndef SEASTAR_MODULE
 #include <boost/iterator/counting_iterator.hpp>
 #include <functional>
 #if __has_include(<concepts>)
 #include <concepts>
+#endif
 #endif
 
 /// \defgroup smp-module Multicore
@@ -48,11 +52,15 @@
 
 namespace seastar {
 
+SEASTAR_MODULE_EXPORT_BEGIN
+
 template <typename Func, typename... Param>
 class sharded_parameter;
 
 template <typename Service>
 class sharded;
+
+SEASTAR_MODULE_EXPORT_END
 
 namespace internal {
 
@@ -100,6 +108,8 @@ using sharded_unwrap_t = typename sharded_unwrap<T>::type;
 
 /// \addtogroup smp-module
 /// @{
+
+SEASTAR_MODULE_EXPORT_BEGIN
 
 template <typename T>
 class sharded;
@@ -553,7 +563,7 @@ private:
 /// \example sharded_parameter_demo.cc
 ///
 /// Example use of \ref sharded_parameter.
-
+SEASTAR_MODULE_EXPORT_END
 /// @}
 
 template <typename Service>
@@ -810,9 +820,9 @@ inline bool sharded<Service>::local_is_initialized() const noexcept {
            _instances[this_shard_id()].service;
 }
 
+SEASTAR_MODULE_EXPORT_BEGIN
 /// \addtogroup smp-module
 /// @{
-
 /// Smart pointer wrapper which makes it safe to move across CPUs.
 ///
 /// \c foreign_ptr<> is a smart pointer wrapper which, unlike
@@ -966,5 +976,7 @@ foreign_ptr<T> make_foreign(T ptr) {
 
 template<typename T>
 struct is_smart_ptr<foreign_ptr<T>> : std::true_type {};
+
+SEASTAR_MODULE_EXPORT_END
 
 }

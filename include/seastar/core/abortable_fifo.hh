@@ -24,11 +24,15 @@
 #include <seastar/core/abort_source.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/chunked_fifo.hh>
+#include <seastar/util/modules.hh>
+
+#ifndef SEASTAR_MODULE
 #include <exception>
 #include <memory>
 #include <optional>
 #include <stdexcept>
 #include <type_traits>
+#endif
 
 namespace seastar {
 

@@ -19,11 +19,34 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
+#ifdef SEASTAR_MODULE
+module;
+#endif
+
+#include <atomic>
+#include <algorithm>
+#include <cassert>
+#include <cstring>
+#include <memory>
+#include <queue>
+#include <string>
+#include <vector>
+#include <fcntl.h>
+#include <seastar/net/virtio-interface.hh>
+#include <linux/vhost.h>
+#include <linux/if_tun.h>
+#include <net/if.h>
+#ifdef HAVE_OSV
+#include <osv/virtio-assign.hh>
+#endif
+
+#ifdef SEASTAR_MODULE
+module seastar;
+#else
 #include <seastar/net/virtio.hh>
 #include <seastar/core/posix.hh>
 #include <seastar/core/internal/pollable_fd.hh>
 #include "core/vla.hh"
-#include <seastar/net/virtio-interface.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/stream.hh>
 #include <seastar/core/circular_buffer.hh>
@@ -31,18 +54,9 @@
 #include <seastar/core/metrics.hh>
 #include <seastar/util/function_input_iterator.hh>
 #include <seastar/util/transform_iterator.hh>
-#include <atomic>
-#include <vector>
-#include <queue>
-#include <fcntl.h>
-#include <linux/vhost.h>
-#include <linux/if_tun.h>
 #include <seastar/net/ip.hh>
 #include <seastar/net/const.hh>
 #include <seastar/net/native-stack.hh>
-
-#ifdef HAVE_OSV
-#include <osv/virtio-assign.hh>
 #endif
 
 namespace seastar {

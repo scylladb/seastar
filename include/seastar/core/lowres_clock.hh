@@ -21,15 +21,20 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <seastar/core/cacheline.hh>
 #include <seastar/core/timer.hh>
+#include <seastar/util/modules.hh>
 
 #include <cstdint>
 
 #include <atomic>
 #include <chrono>
+#endif
 
 namespace seastar {
+
+SEASTAR_MODULE_EXPORT_BEGIN
 
 //
 // Forward declarations.
@@ -119,5 +124,6 @@ public:
 
 extern template class timer<lowres_clock>;
 
+SEASTAR_MODULE_EXPORT_END
 }
 

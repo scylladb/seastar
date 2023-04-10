@@ -21,19 +21,25 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <string>
 #include <vector>
 #include <time.h>
 #include <sstream>
+#endif
+
 #include <seastar/core/do_with.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/json/formatter.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/iostream.hh>
+#include <seastar/util/modules.hh>
 
 namespace seastar {
 
 namespace json {
+
+SEASTAR_MODULE_EXPORT_BEGIN
 
 /**
  * The base class for all json element.
@@ -355,6 +361,7 @@ std::function<future<>(output_stream<char>&&)> stream_object(T val) {
     };
 }
 
+SEASTAR_MODULE_EXPORT_END
 }
 
 }

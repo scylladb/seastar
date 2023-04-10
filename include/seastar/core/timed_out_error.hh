@@ -22,10 +22,14 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <exception>
+#include <seastar/util/modules.hh>
+#endif
 
 namespace seastar {
 
+SEASTAR_MODULE_EXPORT
 class timed_out_error : public std::exception {
 public:
     virtual const char* what() const noexcept {
@@ -33,6 +37,7 @@ public:
     }
 };
 
+SEASTAR_MODULE_EXPORT
 struct default_timeout_exception_factory {
     static auto timeout() {
         return timed_out_error();

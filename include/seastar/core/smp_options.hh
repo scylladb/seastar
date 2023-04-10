@@ -21,12 +21,17 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <seastar/util/program-options.hh>
+#include <seastar/util/modules.hh>
 #include <string>
+#endif
 
 /// \file
 
 namespace seastar {
+
+SEASTAR_MODULE_EXPORT_BEGIN
 
 enum class memory_allocator {
     /// Seastar's own allocator, optimized for its shard-per core design.
@@ -100,4 +105,5 @@ public:
     smp_options(program_options::option_group* parent_group);
 };
 
+SEASTAR_MODULE_EXPORT_END
 }

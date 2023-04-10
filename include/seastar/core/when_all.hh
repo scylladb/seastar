@@ -22,16 +22,19 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <seastar/core/future.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/util/tuple_utils.hh>
 #include <seastar/util/critical_alloc_section.hh>
+#include <seastar/util/modules.hh>
 #include <cstddef>
 #include <exception>
 #include <tuple>
 #include <type_traits>
 #include <utility>
 #include <vector>
+#endif
 
 namespace seastar {
 
@@ -247,6 +250,7 @@ when_all_impl(Futs&&... futs) noexcept {
 /// \param fut_or_funcs futures or functions that return futures
 /// \return an \c std::tuple<> of all futures returned; when ready,
 ///         all contained futures will be ready as well.
+SEASTAR_MODULE_EXPORT
 template <typename... FutOrFuncs>
 inline auto when_all(FutOrFuncs&&... fut_or_funcs) noexcept {
     return internal::when_all_impl(futurize_invoke_if_func(std::forward<FutOrFuncs>(fut_or_funcs))...);
@@ -315,6 +319,7 @@ do_when_all(FutureIterator begin, FutureIterator end) noexcept {
 /// \param end an \c InputIterator designating the end of the range of futures
 /// \return an \c std::vector<> of all the futures in the input; when
 ///         ready, all contained futures will be ready as well.
+SEASTAR_MODULE_EXPORT
 template <typename FutureIterator>
 SEASTAR_CONCEPT( requires requires (FutureIterator i) { { *i++ }; requires is_future<std::remove_reference_t<decltype(*i)>>::value; } )
 inline
@@ -489,6 +494,7 @@ inline auto when_all_succeed_impl(Futures&&... futures) noexcept {
 ///
 /// \param fut_or_funcs futures or functions that return futures
 /// \return future containing values of futures returned by funcs
+SEASTAR_MODULE_EXPORT
 template <typename... FutOrFuncs>
 inline auto when_all_succeed(FutOrFuncs&&... fut_or_funcs) noexcept {
     return internal::when_all_succeed_impl(futurize_invoke_if_func(std::forward<FutOrFuncs>(fut_or_funcs))...);
@@ -504,6 +510,7 @@ inline auto when_all_succeed(FutOrFuncs&&... fut_or_funcs) noexcept {
 /// \param begin an \c InputIterator designating the beginning of the range of futures
 /// \param end an \c InputIterator designating the end of the range of futures
 /// \return an \c std::vector<> of all the valus in the input
+SEASTAR_MODULE_EXPORT
 template <typename FutureIterator, typename = typename std::iterator_traits<FutureIterator>::value_type>
 SEASTAR_CONCEPT( requires requires (FutureIterator i) {
      *i++;

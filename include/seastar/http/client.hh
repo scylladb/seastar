@@ -21,14 +21,19 @@
 
 #pragma once
 
+#ifndef SEASTAR_MODULE
 #include <boost/intrusive/list.hpp>
+#endif
 #include <seastar/net/api.hh>
 #include <seastar/http/reply.hh>
 #include <seastar/core/iostream.hh>
+#include <seastar/util/modules.hh>
 
 namespace bi = boost::intrusive;
 
 namespace seastar {
+
+SEASTAR_MODULE_EXPORT_BEGIN
 
 namespace tls { class certificate_credentials; }
 
@@ -217,4 +222,5 @@ public:
 
 } // http namespace
 
+SEASTAR_MODULE_EXPORT_END
 } // seastar namespace

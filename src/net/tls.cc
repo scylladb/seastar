@@ -19,11 +19,30 @@
  * Copyright 2015 Cloudius Systems
  */
 
-#include <gnutls/gnutls.h>
-#include <gnutls/x509.h>
+#ifdef SEASTAR_MODULE
+module;
+#endif
+
+#include <filesystem>
 #include <stdexcept>
 #include <system_error>
+#include <memory>
+#include <chrono>
 
+#include <netinet/in.h>
+#include <sys/stat.h>
+#include <gnutls/gnutls.h>
+#include <gnutls/x509.h>
+
+#include <boost/any.hpp>
+#include <boost/range/iterator_range.hpp>
+#include <boost/range/adaptor/map.hpp>
+
+#include <fmt/core.h>
+
+#ifdef SEASTAR_MODULE
+module seastar;
+#else
 #include <seastar/core/loop.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/seastar.hh>
@@ -39,10 +58,7 @@
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/variant_utils.hh>
 #include <seastar/core/fsnotify.hh>
-
-#include <boost/range/iterator_range.hpp>
-#include <boost/range/adaptor/map.hpp>
-
+#endif
 
 namespace seastar {
 
