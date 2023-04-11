@@ -273,7 +273,7 @@ invoke_func_with_gate(gate& g, Func&& func) noexcept {
     return futurize_invoke(std::forward<Func>(func)).finally([&g] { g.leave(); });
 }
 
-} // namespace intgernal
+} // namespace internal
 
 /// Executes the function \c func making sure the gate \c g is properly entered
 /// and later on, properly left.
