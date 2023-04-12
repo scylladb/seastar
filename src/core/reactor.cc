@@ -2408,6 +2408,7 @@ void reactor::at_exit(noncopyable_function<future<> ()> func) {
 
 future<> reactor::run_exit_tasks() {
     _stop_requested.broadcast();
+    _stopping = true;
     stop_aio_eventfd_loop();
     return do_for_each(_exit_funcs.rbegin(), _exit_funcs.rend(), [] (auto& func) {
         return func();
