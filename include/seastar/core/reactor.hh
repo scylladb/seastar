@@ -208,6 +208,7 @@ private:
     friend class reactor_backend_uring;
     friend class reactor_backend_selector;
     friend class io_queue; // for aio statistics
+    friend class fair_queue;
     friend struct reactor_options;
     friend class aio_storage_context;
 public:
@@ -229,6 +230,9 @@ public:
         uint64_t fstream_read_bytes_blocked = 0;
         uint64_t fstream_read_aheads_discarded = 0;
         uint64_t fstream_read_ahead_discarded_bytes = 0;
+        uint64_t io_queue_stop_dispatch_drained = 0;
+        uint64_t io_queue_stop_dispatch_local_threshold = 0;
+        uint64_t io_queue_stop_dispatch_pending_capacity = 0;
     };
     /// Scheduling statistics.
     struct sched_stats {

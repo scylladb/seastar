@@ -2480,6 +2480,9 @@ void reactor::register_metrics() {
             sm::make_total_bytes("aio_bytes_write", _io_stats.aio_write_bytes, sm::description("Total aio-writes bytes")),
             sm::make_counter("aio_outsizes", _io_stats.aio_outsizes, sm::description("Total number of aio operations that exceed IO limit")),
             sm::make_counter("aio_errors", _io_stats.aio_errors, sm::description("Total aio errors")),
+            sm::make_counter("io_queue_stop_dispatch_drained", _io_stats.io_queue_stop_dispatch_drained, sm::description("How many times queue was drained")),
+            sm::make_counter("io_queue_stop_dispatch_local_threshold", _io_stats.io_queue_stop_dispatch_local_threshold, sm::description("How many times queue throttled itself")),
+            sm::make_counter("io_queue_stop_dispatch_pending_capacity", _io_stats.io_queue_stop_dispatch_pending_capacity, sm::description("How many times queue hit shared capacity limit")),
             // total_operations value:DERIVE:0:U
             sm::make_counter("fsyncs", _fsyncs, sm::description("Total number of fsync operations")),
             // total_operations value:DERIVE:0:U

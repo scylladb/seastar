@@ -377,10 +377,12 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
 
     while (true) {
         if (_handles.empty()) {
+            engine()._io_stats.io_queue_stop_dispatch_drained++;
             break;
         }
 
         if (dispatched >= _group.per_tick_grab_threshold()) {
+            engine()._io_stats.io_queue_stop_dispatch_local_threshold++;
             break;
         }
 
@@ -393,6 +395,7 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         auto& req = h._queue.front();
         auto gr = grab_capacity(req);
         if (gr == grab_result::pending) {
+            engine()._io_stats.io_queue_stop_dispatch_pending_capacity++;
             break;
         }
 
