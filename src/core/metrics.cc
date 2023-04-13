@@ -211,8 +211,8 @@ metric_value metric_value::operator+(const metric_value& c) {
     return res;
 }
 
-void metric_value::ulong_conversion_error(double d) {
-    throw std::range_error(format("cannot convert double value {} to unsigned long", d));
+void metric_value::ulong_conversion_error(double d, const char* ctype) {
+    seastar_logger.warn("cannot convert double value {} to {}", d, ctype);
 }
 
 metric_definition_impl::metric_definition_impl(

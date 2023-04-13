@@ -297,26 +297,18 @@ public:
         return std::get<double>(u);
     }
 
+    /// Returns an unsigned uint64_t value rounded and trimmed to
+    /// [0,9223372036854775807]
+    ///
+    /// Note that the maximum value fits in signed int64_t
     uint64_t ui() const {
-        auto d = std::get<double>(u);
-        if (d >= 0 && d <= double(std::numeric_limits<long>::max())) {
-            return lround(d);
-        } else {
-            // double value is out of range or NaN or Inf
-            ulong_conversion_error(d);
-            return 0;
-        }
+        return dtoi<uint64_t>("unsigned long");
     }
 
+    /// Returns a signed int64_t value rounded and trimmed to
+    /// [-9223372036854775808,9223372036854775807]
     int64_t i() const {
-        auto d = std::get<double>(u);
-        if (d >= double(std::numeric_limits<long>::min()) && d <= double(std::numeric_limits<long>::max())) {
-            return lround(d);
-        } else {
-            // double value is out of range or NaN or Inf
-            ulong_conversion_error(d);
-            return 0;
-        }
+        return dtoi<int64_t>("signed long");
     }
 
     metric_value()
@@ -357,7 +349,23 @@ public:
                 ((_type == data_type::COUNTER || _type == data_type::REAL_COUNTER) && d() == 0);
     }
 private:
-    static void ulong_conversion_error(double d);
+    static void ulong_conversion_error(double d, const char* ctype);
+
+    template <typename T>
+    T dtoi(const char* ctype) const noexcept {
+        auto d = std::get<double>(u);
+        if (d <= double(std::numeric_limits<T>::min())) [[unlikely]] {
+            ulong_conversion_error(d, ctype);
+            return std::numeric_limits<T>::min();
+        }
+        // Limit maximum value to the signed maximum
+        // since lround converts to signed long
+        if (d >= double(std::numeric_limits<int64_t>::max())) [[unlikely]] {
+            ulong_conversion_error(d, ctype);
+            return std::numeric_limits<int64_t>::max();
+        }
+        return lround(d);
+    }
 };
 
 using metric_function = std::function<metric_value()>;

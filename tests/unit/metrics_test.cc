@@ -20,6 +20,7 @@
  * Copyright (C) 2019 ScyllaDB.
  */
 
+#include <limits>
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/core/metrics.hh>
 #include <seastar/core/metrics_api.hh>
@@ -316,4 +317,34 @@ SEASTAR_THREAD_TEST_CASE(test_relabel_enable_disable_skip_when_empty) {
         return mi.should_skip_when_empty == sm::skip_when_empty::yes;
     }), 0);
     sm::set_relabel_configs({}).get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_out_of_range_metric) {
+    using namespace seastar::metrics::impl;
+
+    auto v = metric_value(0, data_type::GAUGE);
+    BOOST_CHECK_EQUAL(v.ui(), 0ULL);
+    BOOST_CHECK_EQUAL(v.i(), 0LL);
+
+    v = metric_value(-1, data_type::GAUGE);
+    BOOST_CHECK_EQUAL(v.ui(), 0ULL);
+    BOOST_CHECK_EQUAL(v.i(), -1LL);
+
+    auto signed_min = std::numeric_limits<int64_t>::min();
+    v = metric_value(signed_min, data_type::GAUGE);
+    BOOST_CHECK_EQUAL(v.ui(), 0ULL);
+    BOOST_CHECK_EQUAL(v.i(), signed_min);
+
+    v = metric_value(double(signed_min) * 2, data_type::GAUGE);
+    BOOST_CHECK_EQUAL(v.ui(), 0ULL);
+    BOOST_CHECK_EQUAL(v.i(), signed_min);
+
+    auto signed_max = std::numeric_limits<int64_t>::max();
+    v = metric_value(signed_max, data_type::GAUGE);
+    BOOST_CHECK_EQUAL(v.ui(), signed_max);
+    BOOST_CHECK_EQUAL(v.i(), signed_max);
+
+    v = metric_value(double(signed_max) * 2, data_type::GAUGE);
+    BOOST_CHECK_EQUAL(v.ui(), signed_max);
+    BOOST_CHECK_EQUAL(v.i(), signed_max);
 }
