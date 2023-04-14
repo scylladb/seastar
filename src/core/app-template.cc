@@ -146,6 +146,18 @@ app_template::configuration_reader app_template::get_default_configuration_reade
     };
 }
 
+void app_template::reread_config() {
+    bpo::variables_map configuration;
+    try {
+        _conf_reader(configuration);
+    } catch (...) {
+        fmt::print("error re-reading config: {}\n\n", std::current_exception());
+        return;
+    }
+    program_options::variables_map_extracting_visitor visitor(configuration);
+    _opts.mutate_live(visitor);
+}
+
 void app_template::set_configuration_reader(configuration_reader conf_reader) {
     _conf_reader = conf_reader;
 }
@@ -282,6 +294,10 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
             // set scollectd use the metrics configuration, so the later
             // need to be set first
             scollectd::configure( _opts.scollectd_opts);
+        });
+    }).then([this] {
+        engine().handle_signal(SIGHUP, [this] {
+            reread_config();
         });
     }).then(
         std::move(func)

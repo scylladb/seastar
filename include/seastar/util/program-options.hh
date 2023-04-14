@@ -372,6 +372,11 @@ public:
     /// * When visiting a selection value, only the nested group belonging to
     ///   the selected value is visited afterwards.
     void mutate(options_mutator& mutator);
+    /// Run-time mutate the content of this option group by the visitor.
+    ///
+    /// Similar to \ref mutate() but performs value live-update which's often
+    /// a lambda function that does some complex update
+    void mutate_live(options_mutator& mutator);
 };
 
 /// A basic configuration option value.
@@ -389,6 +394,7 @@ public:
 private:
     virtual void do_describe(options_descriptor& descriptor) const = 0;
     virtual void do_mutate(options_mutator& mutator) = 0;
+    virtual void do_mutate_live(options_mutator& mutator) {} // not live-updateable by default
 
 public:
     basic_value(option_group& group, bool used, std::string name, std::string description);
@@ -405,6 +411,7 @@ public:
 
     void describe(options_descriptor& descriptor) const;
     void mutate(options_mutator& mutator);
+    void mutate_live(options_mutator& mutator);
 };
 
 /// A configuration option value.

@@ -160,6 +160,12 @@ public:
     int run_deprecated(int ac, char ** av, std::function<void ()>&& func) noexcept;
 
     void set_configuration_reader(configuration_reader conf_reader);
+    /// This method makes seastar re-read its configuration file and update
+    /// live-updateable options accordingly. By default this function is
+    /// installed as a handler for HUP signal, but if re-assigning it with
+    /// reactor::handle_signal(), mind calling it by hand as seastar handlers
+    /// are not stackable.
+    void reread_config();
 
     /// Obtains an alien::instance object that can be used to send messages
     /// to Seastar shards from non-Seastar threads.
