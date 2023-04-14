@@ -3776,7 +3776,9 @@ reactor_options::reactor_options(program_options::option_group* parent_group)
     , relaxed_dma(*this, "relaxed-dma", "allow using buffered I/O if DMA is not available (reduces performance)")
     , linux_aio_nowait(*this, "linux-aio-nowait", aio_nowait_supported,
                 "use the Linux NOWAIT AIO feature, which reduces reactor stalls due to aio (autodetected)")
-    , unsafe_bypass_fsync(*this, "unsafe-bypass-fsync", false, "Bypass fsync(), may result in data loss. Use for testing on consumer drives")
+    , unsafe_bypass_fsync(*this, "unsafe-bypass-fsync", false, "Bypass fsync(), may result in data loss. Use for testing on consumer drives",
+            update_option_on_all_shards<bool>([] (auto v) { engine().set_bypass_fsync(v); })
+    )
     , kernel_page_cache(*this, "kernel-page-cache", false,
                 "Use the kernel page cache. This disables DMA (O_DIRECT)."
                 " Useful for short-lived functional tests with a small data set.")

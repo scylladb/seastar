@@ -97,7 +97,7 @@ struct reactor_options : public program_options::option_group {
     ///
     /// Use for testing on consumer drives.
     /// Default: \p false.
-    program_options::value<bool> unsafe_bypass_fsync;
+    program_options::updateable_value<bool> unsafe_bypass_fsync;
     /// \brief Use the kernel page cache.
     ///
     /// This disables DMA (O_DIRECT). Useful for short-lived functional tests
