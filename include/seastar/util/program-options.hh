@@ -24,6 +24,7 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/core/print.hh>
 #include <seastar/util/modules.hh>
+#include <seastar/util/noncopyable_function.hh>
 
 #ifndef SEASTAR_MODULE
 #include <fmt/format.h>
@@ -434,7 +435,14 @@ private:
             _defaulted = false;
         }
     }
+
+protected:
     void do_set_value(T value, bool defaulted) {
+        _value = std::move(value);
+        _defaulted = defaulted;
+    }
+
+    void do_set_value(std::optional<T> value, bool defaulted) {
         _value = std::move(value);
         _defaulted = defaulted;
     }
@@ -464,6 +472,61 @@ public:
     T& get_value() { return _value.value(); }
     void set_default_value(T value) { do_set_value(std::move(value), true); }
     void set_value(T value) { do_set_value(std::move(value), false); }
+};
+
+template <typename T = std::monostate>
+class updateable_value : public value<T> {
+    std::optional<T> _default_value;
+    bool _locked = false;
+
+public:
+    class lock {
+        updateable_value* _v;
+
+    public:
+        lock(updateable_value& v) : _v(&v) {
+            _v->_locked = true;
+        }
+        ~lock() {
+            if (_v != nullptr) {
+                _v->_locked = false;
+            }
+        }
+        lock(const lock&) = delete;
+        lock(lock&& o) noexcept : _v(std::exchange(o._v, nullptr)) {}
+    };
+
+private:
+    noncopyable_function<void(const updateable_value&, lock)> _update;
+
+    virtual void do_mutate_live(options_mutator& mutator) override {
+        if (_locked) {
+            return;
+        }
+
+        T val;
+        if (mutator.visit_value(val)) {
+            value<T>::do_set_value(std::move(val), false);
+            _update(*this, lock(*this));
+        } else if (!value<T>::defaulted()) {
+            value<T>::do_set_value(_default_value, true);
+            _update(*this, lock(*this));
+        }
+    }
+
+public:
+    /// Construct a value.
+    ///
+    /// \param group - the group containing this value
+    /// \param name - the name of this value
+    /// \param default_value - the default value, can be unset
+    /// \param description - the description of the value
+    updateable_value(option_group& group, std::string name, std::optional<T> default_value, std::string description, noncopyable_function<void(const updateable_value&, lock)> update)
+        : value<T>(group, std::move(name), default_value, std::move(description))
+        , _default_value(std::move(default_value))
+        , _update(std::move(update))
+    { }
+    updateable_value(updateable_value&&) = default;
 };
 
 /// A switch-style configuration option value.
