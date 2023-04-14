@@ -106,6 +106,8 @@ public:
         /// You can adjust the behavior of SIGINT/SIGTERM by installing signal handlers
         /// via reactor::handle_signal().
         bool auto_handle_sigint_sigterm = true;
+        /// Path to seastar.conf file
+        program_options::value<std::string> config_file;
         /// Configuration options for the reactor.
         reactor_options reactor_opts;
         /// Configuration for the metrics sub-system.
