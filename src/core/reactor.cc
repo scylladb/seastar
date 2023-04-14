@@ -185,6 +185,9 @@ module seastar;
 
 namespace seastar {
 
+thread_local uint64_t fresh_task_id = 1;
+thread_local uint64_t current_task_id = 0;
+
 static_assert(posix::shutdown_mask(SHUT_RD) == posix::rcv_shutdown);
 static_assert(posix::shutdown_mask(SHUT_WR) == posix::snd_shutdown);
 static_assert(posix::shutdown_mask(SHUT_RDWR) == (posix::snd_shutdown | posix::rcv_shutdown));
@@ -2589,7 +2592,10 @@ void reactor::run_tasks(task_queue& tq) {
         STAP_PROBE(seastar, reactor_run_tasks_single_start);
         internal::task_histogram_add_task(*tsk);
         _current_task = tsk;
-        tsk->run_and_dispose();
+        {
+            auto st = switch_task(0, tsk->_id);
+            tsk->run_and_dispose();
+        }
         _current_task = nullptr;
         STAP_PROBE(seastar, reactor_run_tasks_single_end);
         ++tq._tasks_processed;

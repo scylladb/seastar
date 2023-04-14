@@ -220,6 +220,7 @@ class concrete_execution_stage final : public execution_stage {
 
     struct work_item {
         input_type _in;
+        task_id _task_id;
         promise_type _ready;
 
         work_item(typename internal::wrap_for_es<Args>::type... args) : _in(std::move(args)...) { }
@@ -244,7 +245,10 @@ private:
             auto wi_in = std::move(wi._in);
             auto wi_ready = std::move(wi._ready);
             _queue.pop_front();
-            futurize<ReturnType>::apply(_function, unwrap(std::move(wi_in))).forward_to(std::move(wi_ready));
+            {
+                auto st = switch_task(11, wi._task_id);
+                futurize<ReturnType>::apply(_function, unwrap(std::move(wi_in))).forward_to(std::move(wi_ready));
+            }
             _stats.function_calls_executed++;
 
             if (internal::scheduler_need_preempt()) {

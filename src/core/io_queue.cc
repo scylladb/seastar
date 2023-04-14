@@ -219,6 +219,8 @@ class io_desc_read_write final : public io_completion {
     promise<size_t> _pr;
     iovec_keeper _iovs;
     uint64_t _dispatched_polls;
+    task_id _task_id;
+    uint64_t _io_id;
 
 public:
     io_desc_read_write(io_queue& ioq, io_queue::priority_class_data& pc, stream_id stream, io_direction_and_length dnl, fair_queue_entry::capacity_t cap, iovec_keeper iovs)
@@ -243,6 +245,7 @@ public:
 
     virtual void complete(size_t res) noexcept override {
         io_log.trace("dev {} : req {} complete", _ioq.dev_id(), fmt::ptr(this));
+        task_event(5, _io_id, _task_id);
         auto now = io_queue::clock_type::now();
         auto delay = std::chrono::duration_cast<std::chrono::duration<double>>(now - _ts);
         _pclass.on_complete(delay);
@@ -266,6 +269,9 @@ public:
     }
 
     future<size_t> get_future() {
+        static thread_local uint64_t io_id = 0;
+        _io_id = io_id++;
+        task_event(4, _io_id);
         return _pr.get_future();
     }
 

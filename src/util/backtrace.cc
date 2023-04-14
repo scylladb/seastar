@@ -194,4 +194,110 @@ bool tasktrace::operator==(const tasktrace& o) const noexcept {
 
 tasktrace::~tasktrace() {}
 
+thread_local tracer g_tracer;
+
+struct tracer::impl {
+    std::optional<future<>> _loop;
+    server_socket _ss;
+    std::optional<connected_socket> _conn;
+    tracer* _parent;
+    condition_variable _cv;
+    bool _stopping = false;
+
+    size_t queued() {
+        auto t = _parent->_tail; 
+        auto h = _parent->_head; 
+        if (h > t) {
+            return h - t;
+        } else {
+            return _parent->_buf.size() - (t - h);
+        }
+    }
+
+    impl(tracer* p) : _parent(p) {}
+
+    future<> handle() {
+        auto out = _conn->output(_parent->_buf.size() * sizeof(_parent->_buf[0]));
+        while (true) {
+            co_await _cv.when([&] {return queued() >= 1024 || _stopping;});
+            if (_stopping) {
+                break;
+            }
+            auto t = _parent->_tail;
+            auto h = _parent->_head;
+            if (h > t) {
+                auto base = t;
+                auto size = h - t;
+                co_await out.write((char*)(&_parent->_buf[base]), sizeof(_parent->_buf[0]) * size);
+            } else {
+                auto base = t;
+                auto size = _parent->_buf.size() - t;
+                co_await out.write((char*)(&_parent->_buf[base]), sizeof(_parent->_buf[0]) * size);
+                base = 0;
+                size = h;
+                co_await out.write((char*)(&_parent->_buf[base]), sizeof(_parent->_buf[0]) * size);
+            }
+            if (h == t) {
+                std::cerr << "OVERFULL\n";
+            }
+            _parent->_tail = (h > 0) ? (h - 1) : (_parent->_buf.size() - 1);
+        }
+    }
+
+    void commit() {
+        _cv.signal();
+    }
+
+    future<> run_loop() {
+        listen_options lo;
+        lo.reuse_address = true;
+        auto addr = socket_address(uint16_t(12345));
+        _ss = seastar::listen(addr, lo);
+        while (true) {
+            accept_result ar = co_await _ss.accept();
+            _conn = std::move(ar.connection);
+            try {
+                co_await handle();
+            } catch(...) { 
+            }
+            _conn->shutdown_input();
+            _conn->shutdown_output();
+            _conn = {};
+        }
+    }
+
+    void start() {
+        _loop = run_loop();
+    }
+
+    future<> stop() {
+        _stopping = true;
+        try {
+            _ss.abort_accept();
+            if (_conn) {
+                _conn->shutdown_input();
+                _conn->shutdown_output();
+            }
+            _cv.signal();
+        } catch (...) {
+        }
+        return std::move(*std::exchange(_loop, std::nullopt));
+    }
+};
+
+tracer::tracer() : _buf(buffer_size), _impl(new impl(this)) {
+}
+
+void tracer::start() {
+    _impl->start();
+}
+
+future<> tracer::stop() {
+    return _impl->stop();
+}
+
+void tracer::commit() {
+    _impl->commit();
+}
+
 } // namespace seastar
