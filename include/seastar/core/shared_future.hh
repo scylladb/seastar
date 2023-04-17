@@ -44,24 +44,28 @@ struct with_clock {};
 template <typename... T>
 struct future_option_traits;
 
-template <typename Clock, typename... T>
-struct future_option_traits<with_clock<Clock>, T...> {
+template <typename Clock, typename T>
+struct future_option_traits<with_clock<Clock>, T> {
     using clock_type = Clock;
 
-    template<template <typename...> class Class>
-    struct parametrize {
-        using type = Class<T...>;
-    };
+    using future_type = future<T>;
+    using promise_type = promise<T>;
 };
 
-template <typename... T>
-struct future_option_traits {
-    using clock_type = lowres_clock;
+template <typename Clock>
+struct future_option_traits<with_clock<Clock>> {
+    using clock_type = Clock;
 
-    template<template <typename...> class Class>
-    struct parametrize {
-        using type = Class<T...>;
-    };
+    using future_type = future<>;
+    using promise_type = promise<>;
+};
+
+template <typename T>
+struct future_option_traits<T> : public future_option_traits<with_clock<lowres_clock>, T> {
+};
+
+template <>
+struct future_option_traits<> : future_option_traits<void> {
 };
 
 /// \endcond
@@ -105,9 +109,9 @@ class shared_future {
 public:
     using clock = typename options::clock_type;
     using time_point = typename clock::time_point;
-    using future_type = typename future_option_traits<T...>::template parametrize<future>::type;
-    using promise_type = typename future_option_traits<T...>::template parametrize<promise>::type;
-    using value_tuple_type = typename future_option_traits<T...>::template parametrize<std::tuple>::type;
+    using future_type = typename future_option_traits<T...>::future_type;
+    using promise_type = typename future_option_traits<T...>::promise_type;
+    using value_tuple_type = typename future_type::tuple_type;
 private:
     /// \cond internal
     class shared_state : public enable_lw_shared_from_this<shared_state> {
