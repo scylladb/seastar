@@ -1380,7 +1380,7 @@ public:
     ///         to the eventual value of this future.
     template <typename Func, typename Result = typename internal::future_result<Func, T>::future_type>
     SEASTAR_CONCEPT( requires std::invocable<Func, T>
-                 || (std::same_as<std::tuple<void>, std::tuple<T>> && std::invocable<Func>) )
+                 || (std::same_as<void, T> && std::invocable<Func>) )
     Result
     then(Func&& func) noexcept {
 #ifndef SEASTAR_TYPE_ERASE_MORE
