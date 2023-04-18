@@ -750,8 +750,6 @@ SEASTAR_TEST_CASE(test_as_future_preemption) {
     BOOST_REQUIRE_THROW(f0.get(), std::runtime_error);
 }
 
-#ifndef __clang__
-
 template<template<typename> class Container>
 coroutine::experimental::generator<int, Container>
 fibonacci_sequence(coroutine::experimental::buffer_size_t size, unsigned count) {
@@ -892,8 +890,6 @@ SEASTAR_TEST_CASE(test_async_generator_throws_from_consumer_buffered) {
 SEASTAR_TEST_CASE(test_async_generator_throws_from_consumer_unbuffered) {
     return test_async_generator_throws_from_consumer<std::optional>();
 }
-
-#endif
 
 SEASTAR_TEST_CASE(test_lambda_coroutine_in_continuation) {
     auto dist = std::uniform_real_distribution<>(0.0, 1.0);
