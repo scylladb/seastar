@@ -376,13 +376,15 @@ logger::do_log(log_level level, log_writer& writer) {
     }
 }
 
-void logger::failed_to_log(std::exception_ptr ex, format_info fmt) noexcept
+void logger::failed_to_log(std::exception_ptr ex,
+                           fmt::string_view fmt,
+                           compat::source_location loc) noexcept
 {
     try {
-        lambda_log_writer writer([ex = std::move(ex), fmt = std::move(fmt)] (internal::log_buf::inserter_iterator it) {
-            it = fmt::format_to(it, "{}:{} @{}: failed to log message", fmt.loc.file_name(), fmt.loc.line(), fmt.loc.function_name());
-            if (!fmt.format.empty()) {
-                it = fmt::format_to(it, ": fmt='{}'", fmt.format);
+        lambda_log_writer writer([ex = std::move(ex), fmt, loc] (internal::log_buf::inserter_iterator it) {
+            it = fmt::format_to(it, "{}:{} @{}: failed to log message", loc.file_name(), loc.line(), loc.function_name());
+            if (fmt.size() > 0) {
+                it = fmt::format_to(it, ": fmt='{}'", fmt);
             }
             return fmt::format_to(it, ": {}", ex);
         });

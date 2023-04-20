@@ -184,7 +184,17 @@ BOOST_AUTO_TEST_CASE(format_error_test) {
     l.set_ostream(log_msg);
 
     const char* fmt = "bad format string: {}";
+#ifdef SEASTAR_LOGGER_COMPILE_TIME_FMT
+    // {fmt} v8.0 and up comes with compile-time format string checking, so
+    // malformed format_string passed to `logger.error(format_string, args)`
+    // can be identified at compile time. but a runtime variable passed to
+    // `logger.error(msg)` cannot be considered as a format string anymore
+    // when compiled with {fmt} v8.0 and up. so we have to test with a runtime
+    // format string here
+    l.error(fmt::runtime(fmt));
+#else
     l.error(fmt);
+#endif
 
     BOOST_TEST_MESSAGE(log_msg.str());
     BOOST_REQUIRE_NE(log_msg.str().find(__builtin_FILE()), std::string::npos);
