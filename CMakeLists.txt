@@ -400,6 +400,10 @@ find_package (Threads REQUIRED)
 find_package (PthreadSetName REQUIRED)
 find_package (Valgrind REQUIRED)
 
+cmake_dependent_option (Seastar_LOGGER_COMPILE_TIME_FMT
+  "Enable the compile-time {fmt} check when formatting logging messages" ON
+  "fmt_VERSION VERSION_GREATER_EQUAL 8.0.0" OFF)
+
 #
 # Code generation helpers.
 #
@@ -937,6 +941,11 @@ endif ()
 if (Seastar_ALLOC_PAGE_SIZE)
   target_compile_definitions (seastar
     PUBLIC SEASTAR_OVERRIDE_ALLOCATOR_PAGE_SIZE=${Seastar_ALLOC_PAGE_SIZE})
+endif ()
+
+if (Seastar_LOGGER_COMPILE_TIME_FMT)
+  target_compile_definitions (seastar
+    PUBLIC SEASTAR_LOGGER_COMPILE_TIME_FMT)
 endif ()
 
 target_compile_definitions (seastar

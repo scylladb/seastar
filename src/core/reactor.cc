@@ -626,7 +626,11 @@ static bool sched_debug() {
 
 template <typename... Args>
 void
+#if SEASTAR_LOGGER_COMPILE_TIME_FMT
+sched_print(fmt::format_string<Args...> fmt, Args&&... args) {
+#else
 sched_print(const char* fmt, Args&&... args) {
+#endif
     if (sched_debug()) {
         sched_logger.trace(fmt, std::forward<Args>(args)...);
     }
@@ -3183,7 +3187,7 @@ int reactor::run() noexcept {
     try {
         return do_run();
     } catch (const std::exception& e) {
-        seastar_logger.error(e.what());
+        seastar_logger.error("{}", e.what());
         print_with_backtrace("exception running reactor main loop");
         _exit(1);
     }
@@ -4532,7 +4536,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
             engine().configure(reactor_opts);
             engine().do_run();
           } catch (const std::exception& e) {
-              seastar_logger.error(e.what());
+              seastar_logger.error("{}", e.what());
               _exit(1);
           }
         });
@@ -4543,7 +4547,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     try {
         allocate_reactor(0, backend_selector, reactor_cfg);
     } catch (const std::exception& e) {
-        seastar_logger.error(e.what());
+        seastar_logger.error("{}", e.what());
         _exit(1);
     }
 

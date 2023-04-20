@@ -21,6 +21,7 @@
 #pragma once
 
 #include <seastar/core/sstring.hh>
+#include <seastar/util/backtrace.hh>
 #include <seastar/util/concepts.hh>
 #include <seastar/util/log-impl.hh>
 #include <seastar/core/lowres_clock.hh>
@@ -33,7 +34,9 @@
 #include <iosfwd>
 #include <atomic>
 #include <mutex>
+#include <type_traits>
 #include <boost/lexical_cast.hpp>
+#include <fmt/core.h>
 #include <fmt/format.h>
 #endif
 
@@ -120,6 +123,57 @@ public:
 
     /// \cond internal
     /// \brief used to hold the log format string and the caller's source_location.
+#ifdef SEASTAR_LOGGER_COMPILE_TIME_FMT
+    template<typename... Args>
+    struct format_info {
+        /// implicitly construct format_info from a constant format string
+        /// \param fmt - {fmt} style format string
+        template<
+            typename S,
+            std::enable_if_t<std::is_convertible_v<const S&, std::string_view>, int> = 0>
+        FMT_CONSTEVAL inline format_info(const S& format,
+                           compat::source_location loc = compat::source_location::current()) noexcept
+            : format(format)
+            , loc(loc)
+        {}
+        /// construct format_info from an instance of \c format_string
+        ///
+        /// this constructor is used by other printers which print to logger
+        /// \param s a format_string
+        inline format_info(fmt::format_string<Args...> s,
+                           compat::source_location loc = compat::source_location::current()) noexcept
+            : format(s)
+            , loc(loc)
+        {}
+#if FMT_VERSION >= 100000
+        using runtime_format_string_t = fmt::runtime_format_string<char>;
+#else
+        using runtime_format_string_t = fmt::basic_runtime<char>;
+#endif
+        inline format_info(runtime_format_string_t s,
+                           compat::source_location loc = compat::source_location::current()) noexcept
+            : format(s)
+            , loc(loc)
+        {}
+        /// implicitly construct format_info with no format string.
+        FMT_CONSTEVAL format_info() noexcept
+            : format_info("")
+        {}
+        fmt::format_string<Args...> format;
+        compat::source_location loc;
+    };
+#ifdef __cpp_lib_type_identity
+    template <typename T>
+    using type_identity_t = typename std::type_identity<T>::type;
+#else
+    template <typename T> struct type_identity { using type = T; };
+    template <typename T> using type_identity_t = typename type_identity<T>::type;
+#endif
+    template <typename... Args>
+    using format_info_t = format_info<type_identity_t<Args>...>;
+#else  // SEASTAR_LOGGER_COMPILE_TIME_FMT
+    /// \cond internal
+    /// \brief used to hold the log format string and the caller's source_location.
     struct format_info {
         /// implicitly construct format_info from a const char* format string.
         /// \param fmt - {fmt} style format string
@@ -141,12 +195,19 @@ public:
         std::string_view format;
         compat::source_location loc;
     };
+    // to reduce the number of #ifdefs, let's be compatible with the templated
+    // format_info
+    template <typename...>
+    using format_info_t = format_info;
+#endif // SEASTAR_LOGGER_COMPILE_TIME_FMT
 
 private:
 
     // We can't use an std::function<> as it potentially allocates.
     void do_log(log_level level, log_writer& writer);
-    void failed_to_log(std::exception_ptr ex, format_info fmt) noexcept;
+    void failed_to_log(std::exception_ptr ex,
+                       fmt::string_view fmt,
+                       compat::source_location loc) noexcept;
 
     class silencer {
     public:
@@ -224,19 +285,19 @@ public:
     /// \param args - args to print string
     ///
     template <typename... Args>
-    void log(log_level level, format_info fmt, Args&&... args) noexcept {
+    void log(log_level level, format_info_t<Args...> fmt, Args&&... args) noexcept {
         if (is_enabled(level)) {
             try {
                 lambda_log_writer writer([&] (internal::log_buf::inserter_iterator it) {
-#if FMT_VERSION >= 80000
-                    return fmt::format_to(it, fmt::runtime(fmt.format), std::forward<Args>(args)...);
-#else
+#if defined(SEASTAR_LOGGER_COMPILE_TIME_FMT) || FMT_VERSION < 80000
                     return fmt::format_to(it, fmt.format, std::forward<Args>(args)...);
+#else
+                    return fmt::format_to(it, fmt::runtime(fmt.format), std::forward<Args>(args)...);
 #endif
                 });
                 do_log(level, writer);
             } catch (...) {
-                failed_to_log(std::current_exception(), std::move(fmt));
+                failed_to_log(std::current_exception(), fmt::string_view(fmt.format), fmt.loc);
             }
         }
     }
@@ -256,7 +317,7 @@ public:
     /// \param args - args to print string
     ///
     template <typename... Args>
-    void log(log_level level, rate_limit& rl, format_info fmt, Args&&... args) noexcept {
+    void log(log_level level, rate_limit& rl, format_info_t<Args...> fmt, Args&&... args) noexcept {
         if (is_enabled(level) && rl.check()) {
             try {
                 lambda_log_writer writer([&] (internal::log_buf::inserter_iterator it) {
@@ -271,7 +332,7 @@ public:
                 });
                 do_log(level, writer);
             } catch (...) {
-                failed_to_log(std::current_exception(), std::move(fmt));
+                failed_to_log(std::current_exception(), fmt::string_view(fmt.format), fmt.loc);
             }
         }
     }
@@ -286,12 +347,12 @@ public:
     /// avoid any allocations. The \arg writer will be passed a
     /// internal::log_buf::inserter_iterator that allows it to write into the log
     /// buffer directly, avoiding the use of any intermediary buffers.
-    void log(log_level level, log_writer& writer, format_info fmt = {}) noexcept {
+    void log(log_level level, log_writer& writer, format_info_t<> fmt = {}) noexcept {
         if (is_enabled(level)) {
             try {
                 do_log(level, writer);
             } catch (...) {
-                failed_to_log(std::current_exception(), std::move(fmt));
+                failed_to_log(std::current_exception(), "", fmt.loc);
             }
         }
     }
@@ -305,7 +366,7 @@ public:
     /// internal::log_buf::inserter_iterator that allows it to write into the log
     /// buffer directly, avoiding the use of any intermediary buffers.
     /// This is rate-limited version, see \ref rate_limit.
-    void log(log_level level, rate_limit& rl, log_writer& writer, format_info fmt = {}) noexcept {
+    void log(log_level level, rate_limit& rl, log_writer& writer, format_info_t<> fmt = {}) noexcept {
         if (is_enabled(level) && rl.check()) {
             try {
                 lambda_log_writer writer_wrapper([&] (internal::log_buf::inserter_iterator it) {
@@ -316,7 +377,7 @@ public:
                 });
                 do_log(level, writer_wrapper);
             } catch (...) {
-                failed_to_log(std::current_exception(), std::move(fmt));
+                failed_to_log(std::current_exception(), "", fmt.loc);
             }
         }
     }
@@ -330,7 +391,7 @@ public:
     /// \param args - args to print string
     ///
     template <typename... Args>
-    void error(format_info fmt, Args&&... args) noexcept {
+    void error(format_info_t<Args...> fmt, Args&&... args) noexcept {
         log(log_level::error, std::move(fmt), std::forward<Args>(args)...);
     }
     /// Log with warning tag:
@@ -341,7 +402,7 @@ public:
     /// \param args - args to print string
     ///
     template <typename... Args>
-    void warn(format_info fmt, Args&&... args) noexcept {
+    void warn(format_info_t<Args...> fmt, Args&&... args) noexcept {
         log(log_level::warn, std::move(fmt), std::forward<Args>(args)...);
     }
     /// Log with info tag:
@@ -352,7 +413,7 @@ public:
     /// \param args - args to print string
     ///
     template <typename... Args>
-    void info(format_info fmt, Args&&... args) noexcept {
+    void info(format_info_t<Args...> fmt, Args&&... args) noexcept {
         log(log_level::info, std::move(fmt), std::forward<Args>(args)...);
     }
     /// Log with info tag on shard zero only:
@@ -363,7 +424,7 @@ public:
     /// \param args - args to print string
     ///
     template <typename... Args>
-    void info0(format_info fmt, Args&&... args) noexcept {
+    void info0(format_info_t<Args...> fmt, Args&&... args) noexcept {
         if (is_shard_zero()) {
             log(log_level::info, std::move(fmt), std::forward<Args>(args)...);
         }
@@ -376,7 +437,7 @@ public:
     /// \param args - args to print string
     ///
     template <typename... Args>
-    void debug(format_info fmt, Args&&... args) noexcept {
+    void debug(format_info_t<Args...> fmt, Args&&... args) noexcept {
         log(log_level::debug, std::move(fmt), std::forward<Args>(args)...);
     }
     /// Log with trace tag:
@@ -387,7 +448,7 @@ public:
     /// \param args - args to print string
     ///
     template <typename... Args>
-    void trace(format_info fmt, Args&&... args) noexcept {
+    void trace(format_info_t<Args...> fmt, Args&&... args) noexcept {
         log(log_level::trace, std::move(fmt), std::forward<Args>(args)...);
     }
 
