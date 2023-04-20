@@ -610,7 +610,10 @@ private:
     server_options _options;
     bool _shutdown = false;
     uint64_t _next_client_id = 1;
+    timer<lowres_clock> _stop_watchdog;
     uint32_t _handlers_running = 0;
+
+    void warn_stuck_handler();
 
 public:
     server(protocol_base* proto, const socket_address& addr, resource_limits memory_limit = resource_limits());

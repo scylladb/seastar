@@ -1124,7 +1124,7 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
   {}
 
   server::server(protocol_base* proto, server_socket ss, resource_limits limits, server_options opts)
-          : _proto(proto), _ss(std::move(ss)), _limits(limits), _resources_available(limits.max_memory), _options(opts)
+          : _proto(proto), _ss(std::move(ss)), _limits(limits), _resources_available(limits.max_memory), _options(opts), _stop_watchdog([this] { warn_stuck_handler(); })
   {
       if (_options.streaming_domain) {
           if (_servers.find(*_options.streaming_domain) != _servers.end()) {
@@ -1190,10 +1190,11 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
   }
 
   future<> server::stop() {
+      _stop_watchdog.arm(std::chrono::minutes(1));
       return when_all(
           shutdown(),
           _reply_gate.close()
-      ).discard_result();
+      ).discard_result().finally([this] { _stop_watchdog.cancel(); });
   }
 
   void server::abort_connection(connection_id id) {
@@ -1221,6 +1222,17 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
 
   isolation_config default_isolate_connection(sstring isolation_cookie) {
       return isolation_config{};
+  }
+
+  void server::warn_stuck_handler() {
+      std::vector<uint64_t> ids;
+      ids.reserve(_handlers_running);
+      _proto->with_handlers([&ids] (auto msg_id, auto& handler) {
+          if (handler.use_gate.get_count() != 0) {
+              ids.push_back(msg_id);
+          }
+      });
+      seastar_logger.warn("Server cannot stop for too long, {} handlers are running: {{{}}}", _handlers_running, fmt::join(ids, ","));
   }
 
 }
