@@ -610,6 +610,7 @@ private:
     server_options _options;
     bool _shutdown = false;
     uint64_t _next_client_id = 1;
+    uint32_t _handlers_running = 0;
 
 public:
     server(protocol_base* proto, const socket_address& addr, resource_limits memory_limit = resource_limits());
@@ -653,6 +654,10 @@ public:
     gate& reply_gate() {
         return _reply_gate;
     }
+
+    void handler_enter() noexcept { _handlers_running++; }
+    void handler_leave() noexcept { _handlers_running--; }
+
     friend connection;
     friend client;
 };
