@@ -82,3 +82,6 @@ seastar_add_test (smp_submit_to
 
 seastar_add_test (coroutine
   SOURCES coroutine_perf.cc)
+
+seastar_add_test (allocator
+  SOURCES allocator_perf.cc)
