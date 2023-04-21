@@ -23,6 +23,7 @@
 
 #include <seastar/core/resource.hh>
 #include <seastar/core/bitops.hh>
+#include <seastar/util/backtrace.hh>
 #include <seastar/util/modules.hh>
 #ifndef SEASTAR_MODULE
 #include <new>
@@ -405,13 +406,50 @@ public:
     void operator=(scoped_large_allocation_warning_disable&&) = delete;
 };
 
-/// Enable/disable heap profiling.
+/// @brief Describes an allocation location in the code.
+///
+/// The location is identified by its backtrace. One allocation_site can
+/// represent many allocations at the same location. `count` and `size`
+/// represent the cumulative sum of all allocations at the location.
+struct allocation_site {
+    mutable size_t count = 0; /// number of live objects allocated at backtrace.
+    mutable size_t size = 0; /// amount of bytes in live objects allocated at backtrace.
+    mutable const allocation_site* next = nullptr; // TODO: remove
+    simple_backtrace backtrace; /// call site for this allocation
+
+    bool operator==(const allocation_site& o) const {
+        return backtrace == o.backtrace;
+    }
+
+    bool operator!=(const allocation_site& o) const {
+        return !(*this == o);
+    }
+};
+
+/// @brief If memory profiling is on returns the current memory live set
+/// @return a vector of \ref allocation_site
+std::vector<allocation_site> memory_profile();
+
+/// @brief Copies the current sampled set of allocation_sites into the
+/// array pointed to by the output parameter
+///
+/// Copies up to \p size elements of the current sampled set of allocation
+/// sites into the output array, which must have length at least \p size.
+///
+/// Returns amount of copied elements. This method does not allocate so it
+/// is a useful alternative to \ref sampled_memory_profile() when one wants
+/// to avoid allocating (e.g.: under OOM conditions).
+///
+/// @param output array to copy the allocation sites to
+/// @param size the size of the array pointed to by \p output
+/// @return number of \ref allocation_site copied to the vector
+size_t memory_profile(allocation_site* output, size_t size);
+
+/// Enable heap profiling
 ///
 /// In order to use heap profiling you have to define
 /// `SEASTAR_HEAPPROF`.
-/// Heap profiling data is not currently exposed via an API for
-/// inspection, instead it was designed to be inspected from a
-/// debugger.
+///
 /// For an example script that makes use of the heap profiling data
 /// see [scylla-gdb.py] (https://github.com/scylladb/scylla/blob/e1b22b6a4c56b4f1d0adf65d1a11db4bcb51fe7d/scylla-gdb.py#L1439)
 /// This script can generate either textual representation of the data,
@@ -419,7 +457,11 @@ public:
 /// [example flame graph](https://user-images.githubusercontent.com/1389273/72920437-f0cf8a80-3d51-11ea-92f0-f3dbeb698871.png)).
 void set_heap_profiling_enabled(bool);
 
-/// Enable heap profiling for the duration of the scope.
+/// Checks whether heap profiling is currently enabled
+/// @return true if heap profiling is enabled, false otherwise
+bool get_heap_profiling_enabled();
+
+/// @brief Enable heap profiling for the duration of the scope.
 ///
 /// For more information about heap profiling see
 /// \ref set_heap_profiling_enabled().
@@ -432,4 +474,15 @@ public:
 SEASTAR_MODULE_EXPORT_END
 
 }
+}
+
+namespace std {
+
+template<>
+struct hash<seastar::memory::allocation_site> {
+    size_t operator()(const seastar::memory::allocation_site& bi) const {
+        return std::hash<seastar::simple_backtrace>()(bi.backtrace);
+    }
+};
+
 }

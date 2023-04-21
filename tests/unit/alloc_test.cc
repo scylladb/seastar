@@ -329,6 +329,42 @@ SEASTAR_TEST_CASE(test_diagnostics_allocation) {
     return seastar::make_ready_future();
 }
 
+#ifdef SEASTAR_HEAPPROF
+
+SEASTAR_TEST_CASE(test_sampled_profile_collection)
+{
+    BOOST_REQUIRE(!seastar::memory::get_heap_profiling_enabled());
+    seastar::memory::set_heap_profiling_enabled(true);
+    BOOST_REQUIRE(seastar::memory::get_heap_profiling_enabled());
+
+    {
+        auto stats = seastar::memory::memory_profile();
+        BOOST_REQUIRE_EQUAL(stats.size(), 0);
+    }
+
+    volatile char* ptr = static_cast<char*>(malloc(10));
+    *ptr = 'c'; // to prevent compiler from considering this a dead allocation and optimizing it out
+
+    {
+        auto stats = seastar::memory::memory_profile();
+        BOOST_REQUIRE_EQUAL(stats.size(), 1);
+        BOOST_REQUIRE_EQUAL(stats[0].size, 32); // 10 + 8 falls into 32 byte pool
+    }
+
+    free((void*)ptr);
+
+    {
+        auto stats = seastar::memory::memory_profile();
+        BOOST_REQUIRE_EQUAL(stats.size(), 0);
+    }
+
+    // Needed for now because we can't differentiate between sampled allocations and non-sampled ones
+    seastar::memory::set_heap_profiling_enabled(false);
+
+    return seastar::make_ready_future();
+}
+
+#endif // SEASTAR_HEAPPROF
 
 #endif // #ifndef SEASTAR_DEFAULT_ALLOCATOR
 

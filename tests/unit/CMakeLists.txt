@@ -132,6 +132,12 @@ function (seastar_add_test name)
           SEASTAR_THREAD_STACK_GUARDS)
     endif ()
 
+    if (Seastar_HEAP_PROFILING)
+      target_compile_definitions (${executable_target}
+        PRIVATE
+          SEASTAR_HEAPPROF)
+    endif ()
+
     target_include_directories (${executable_target}
       PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
