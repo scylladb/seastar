@@ -331,35 +331,225 @@ SEASTAR_TEST_CASE(test_diagnostics_allocation) {
 
 #ifdef SEASTAR_HEAPPROF
 
-SEASTAR_TEST_CASE(test_sampled_profile_collection)
+// small wrapper to disincentivize gcc from unrolling the loop
+[[gnu::noinline]]
+char* malloc_wrapper(size_t size) {
+    auto ret = static_cast<char*>(malloc(size));
+    *ret = 'c'; // to prevent compiler from considering this a dead allocation and optimizing it out
+    return ret;
+}
+
+namespace seastar::memory {
+std::ostream& operator<<(std::ostream& os, const allocation_site& site) {
+    os << "allocation_site[count: " << site.count << ", size: " << site.size << "]";
+    return os;
+}
+}
+
+SEASTAR_TEST_CASE(test_sampled_profile_collection_small)
 {
-    BOOST_REQUIRE(!seastar::memory::get_heap_profiling_enabled());
-    seastar::memory::set_heap_profiling_enabled(true);
-    BOOST_REQUIRE(seastar::memory::get_heap_profiling_enabled());
-
     {
-        auto stats = seastar::memory::memory_profile();
+        auto stats = seastar::memory::sampled_memory_profile();
         BOOST_REQUIRE_EQUAL(stats.size(), 0);
     }
 
-    volatile char* ptr = static_cast<char*>(malloc(10));
-    *ptr = 'c'; // to prevent compiler from considering this a dead allocation and optimizing it out
+    std::size_t count = 100;
+    std::vector<volatile char*> ptrs(count);
+
+    seastar::memory::set_heap_profiling_sampling_rate(100);
+
+#ifdef __clang__
+    #pragma nounroll
+#endif
+    for (std::size_t i = 0; i < count / 2; ++i) {
+        ptrs[i] = malloc_wrapper(10);
+    }
+
+#ifdef __clang__
+    #pragma nounroll
+#endif
+    for (std::size_t i = count / 2; i < count; ++i) {
+        ptrs[i] = malloc_wrapper(10);
+    }
+
+    auto get_samples = []() {
+        auto stats0 = seastar::memory::sampled_memory_profile();
+        auto stats1 = seastar::memory::sampled_memory_profile();
+
+        // two back-to-back copies of the sample should have the same value
+        BOOST_CHECK_EQUAL(stats0, stats1);
+
+        // check that we get the same value from the raw array iterface
+        std::vector<seastar::memory::allocation_site> stats2(stats0.size());
+        auto sz2 = seastar::memory::sampled_memory_profile(stats2.data(), stats2.size());
+        BOOST_CHECK_EQUAL(stats0.size(), sz2);
+        BOOST_CHECK_EQUAL(stats0, stats2);
+
+        // check with +1 size, we expect to still only get size elements
+        std::vector<seastar::memory::allocation_site> stats3(stats0.size() + 1);
+        auto sz3 = seastar::memory::sampled_memory_profile(stats3.data(), stats3.size());
+        BOOST_CHECK_EQUAL(stats0.size(), sz3);
+        stats3.resize(sz3);
+        BOOST_CHECK_EQUAL(stats0, stats3);
+
+        return stats0;
+    };
+
+    // NB: the test framework allocates
+    seastar::memory::set_heap_profiling_sampling_rate(0);
 
     {
-        auto stats = seastar::memory::memory_profile();
+        auto stats = get_samples();
+        BOOST_REQUIRE_EQUAL(stats.size(), 2);
+        BOOST_REQUIRE_EQUAL(stats[0].size, stats[0].count * 100);
+    }
+
+    seastar::memory::set_heap_profiling_sampling_rate(100);
+
+    for (auto ptr : ptrs) {
+        free((void*)ptr);
+    }
+
+    seastar::memory::set_heap_profiling_sampling_rate(0);
+
+    {
+        auto stats = get_samples();
+        BOOST_REQUIRE_EQUAL(stats.size(), 0);
+    }
+
+    return seastar::make_ready_future();
+}
+
+SEASTAR_TEST_CASE(test_sampled_profile_collection_large)
+{
+    {
+        auto stats = seastar::memory::sampled_memory_profile();
+        BOOST_REQUIRE_EQUAL(stats.size(), 0);
+    }
+
+    std::size_t count = 100;
+    std::vector<volatile char*> ptrs(count);
+
+    seastar::memory::set_heap_profiling_sampling_rate(1000000);
+
+#ifdef __clang__
+    #pragma nounroll
+#endif
+    for (std::size_t i = 0; i < count / 2; ++i) {
+        ptrs[i] = malloc_wrapper(100000);
+    }
+
+#ifdef __clang__
+    #pragma nounroll
+#endif
+    for (std::size_t i = count / 2; i < count; ++i) {
+        ptrs[i] = malloc_wrapper(100000);
+    }
+
+    // NB: the test framework allocate
+    seastar::memory::set_heap_profiling_sampling_rate(0);
+
+    {
+        auto stats = seastar::memory::sampled_memory_profile();
+        BOOST_REQUIRE_EQUAL(stats.size(), 2);
+        BOOST_REQUIRE_EQUAL(stats[0].size, stats[0].count * 1000000);
+    }
+
+    seastar::memory::set_heap_profiling_sampling_rate(1000000);
+
+    for (auto ptr : ptrs) {
+        free((void*)ptr);
+    }
+
+    seastar::memory::set_heap_profiling_sampling_rate(0);
+
+    {
+        auto stats = seastar::memory::sampled_memory_profile();
+        // NOTE this is because right now the tracking structure doesn't delete call sites ever
+        BOOST_REQUIRE_EQUAL(stats.size(), 0);
+    }
+
+    return seastar::make_ready_future();
+}
+
+SEASTAR_TEST_CASE(test_change_sample_rate)
+{
+    {
+        auto stats = seastar::memory::sampled_memory_profile();
+        BOOST_REQUIRE_EQUAL(stats.size(), 0);
+    }
+
+    std::size_t sample_rate = 100;
+    std::size_t count = 10000;
+    std::vector<volatile char*> ptrs(count);
+
+    seastar::memory::set_heap_profiling_sampling_rate(sample_rate);
+
+#ifdef __clang__
+    #pragma nounroll
+#endif
+    for (std::size_t i = 0; i < count; ++i) {
+        ptrs[i] = malloc_wrapper(10);
+    }
+
+    // NB: the test framework allocates
+    seastar::memory::set_heap_profiling_sampling_rate(0);
+
+    size_t last_alloc_size = 0;
+    {
+        auto stats = seastar::memory::sampled_memory_profile();
         BOOST_REQUIRE_EQUAL(stats.size(), 1);
-        BOOST_REQUIRE_EQUAL(stats[0].size, 32); // 10 + 8 falls into 32 byte pool
+        last_alloc_size = stats[0].size;
+        BOOST_REQUIRE_EQUAL(stats[0].size, stats[0].count * sample_rate);
     }
 
-    free((void*)ptr);
+    seastar::memory::set_heap_profiling_sampling_rate(sample_rate);
+
+    size_t free_iter = 0;
+    // free some of the allocations to check size changes
+    for (size_t i = 0; i < count / 4; ++i, ++free_iter) {
+        free((void*)ptrs[free_iter]);
+    }
+
+    seastar::memory::set_heap_profiling_sampling_rate(0);
 
     {
-        auto stats = seastar::memory::memory_profile();
-        BOOST_REQUIRE_EQUAL(stats.size(), 0);
+        auto stats = seastar::memory::sampled_memory_profile();
+        BOOST_REQUIRE_EQUAL(stats.size(), 1);
+        BOOST_REQUIRE_EQUAL(stats[0].size, stats[0].count * sample_rate);
+        BOOST_REQUIRE_NE(stats[0].size, last_alloc_size);
+        BOOST_REQUIRE_GT(stats[0].size, 0);
+        last_alloc_size = stats[0].size;
     }
 
-    // Needed for now because we can't differentiate between sampled allocations and non-sampled ones
-    seastar::memory::set_heap_profiling_enabled(false);
+    // now increase the sampling rate with outstanding allocations from the old rate
+    seastar::memory::set_heap_profiling_sampling_rate(sample_rate * 100);
+
+    for (size_t i = 0; i < count / 4; ++i, ++free_iter) {
+        free((void*)ptrs[free_iter]);
+    }
+
+    seastar::memory::set_heap_profiling_sampling_rate(0);
+
+    {
+        auto stats = seastar::memory::sampled_memory_profile();
+        BOOST_REQUIRE_EQUAL(stats.size(), 1);
+        BOOST_REQUIRE_LT(stats[0].size, last_alloc_size); // should not have underflowed
+    }
+
+    seastar::memory::set_heap_profiling_sampling_rate(sample_rate);
+
+    // free the rest
+    for (size_t i = 0; i < count / 2; ++i, ++free_iter) {
+        free((void*)ptrs[free_iter]);
+    }
+
+    seastar::memory::set_heap_profiling_sampling_rate(0);
+
+    {
+        auto stats = seastar::memory::sampled_memory_profile();
+        BOOST_REQUIRE_EQUAL(stats.size(), 0);
+    }
 
     return seastar::make_ready_future();
 }
