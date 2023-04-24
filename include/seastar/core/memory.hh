@@ -414,8 +414,13 @@ public:
 struct allocation_site {
     mutable size_t count = 0; /// number of live objects allocated at backtrace.
     mutable size_t size = 0; /// amount of bytes in live objects allocated at backtrace.
-    mutable const allocation_site* next = nullptr; // TODO: remove
     simple_backtrace backtrace; /// call site for this allocation
+
+    // All allocation sites are linked to each other. This can be used for easy
+    // iteration across them in gdb scripts where it's difficult to work with
+    // the C++ data structures.
+    mutable const allocation_site* next = nullptr; // next allocation site in the chain
+    mutable const allocation_site* prev = nullptr; // previous allocation site in the chain
 
     bool operator==(const allocation_site& o) const {
         return backtrace == o.backtrace;
