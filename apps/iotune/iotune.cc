@@ -496,7 +496,7 @@ public:
     }
 
     future<> stop() {
-        return _file.close();
+        return _file ? _file.close() : make_ready_future<>();
     }
 };
 
