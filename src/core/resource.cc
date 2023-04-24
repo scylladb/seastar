@@ -243,6 +243,7 @@ io_queue_topology::~io_queue_topology() {
 io_queue_topology::io_queue_topology(io_queue_topology&& o)
     : queues(std::move(o.queues))
     , shard_to_group(std::move(o.shard_to_group))
+    , shards_in_group(std::move(o.shards_in_group))
     , groups(std::move(o.groups))
     , lock() // unused until now, so just initialize
 { }
@@ -380,6 +381,7 @@ allocate_io_queues(hwloc_topology_t topology, std::vector<cpu> cpus, std::unorde
 
     io_queue_topology ret;
     ret.shard_to_group.resize(cpus.size());
+    ret.shards_in_group.resize(cpus.size(), 0); // worst case
 
     if (num_io_groups == 0) {
         num_io_groups = numa_nodes.size();
@@ -412,7 +414,9 @@ allocate_io_queues(hwloc_topology_t topology, std::vector<cpu> cpus, std::unorde
     std::unordered_map<unsigned, std::vector<unsigned>> node_coordinators;
     for (auto&& cs : cpu_sets()) {
         auto io_coordinator = find_shard(hwloc_bitmap_first(cs));
-        ret.shard_to_group[io_coordinator] = nr_groups++;
+        unsigned group_idx = nr_groups++;
+        ret.shard_to_group[io_coordinator] = group_idx;
+        ret.shards_in_group[group_idx]++;
 
         auto node_id = node_of_shard(io_coordinator);
         if (node_coordinators.count(node_id) == 0) {
@@ -439,7 +443,9 @@ allocate_io_queues(hwloc_topology_t topology, std::vector<cpu> cpus, std::unorde
             }
             auto idx = cid_idx++ % node_coordinators.at(my_node).size();
             auto io_coordinator = node_coordinators.at(my_node)[idx];
-            ret.shard_to_group[remaining_shard] = ret.shard_to_group[io_coordinator];
+            unsigned group_idx = ret.shard_to_group[io_coordinator];
+            ret.shard_to_group[remaining_shard] = group_idx;
+            ret.shards_in_group[group_idx]++;
         }
     }
 
@@ -663,10 +669,12 @@ allocate_io_queues(configuration c, std::vector<cpu> cpus) {
     unsigned nr_cpus = unsigned(cpus.size());
     ret.queues.resize(nr_cpus);
     ret.shard_to_group.resize(nr_cpus);
+    ret.shards_in_group.resize(1, 0);
     ret.groups.resize(1);
 
     for (unsigned shard = 0; shard < nr_cpus; ++shard) {
         ret.shard_to_group[shard] = 0;
+        ret.shards_in_group[0]++;
     }
     return ret;
 }

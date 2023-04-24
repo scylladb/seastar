@@ -105,6 +105,7 @@ struct memory {
 struct io_queue_topology {
     std::vector<std::unique_ptr<io_queue>> queues;
     std::vector<unsigned> shard_to_group;
+    std::vector<unsigned> shards_in_group;
     std::vector<std::shared_ptr<io_group>> groups;
 
     util::spinlock lock;

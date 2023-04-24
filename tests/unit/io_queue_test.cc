@@ -76,7 +76,7 @@ struct io_queue_for_tests {
     timer<> kicker;
 
     io_queue_for_tests()
-        : group(std::make_shared<io_group>(io_queue::config{0}))
+        : group(std::make_shared<io_group>(io_queue::config{0}, 1))
         , sink()
         , queue(group, sink)
         , kicker([this] { kick(); })

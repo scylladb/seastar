@@ -81,7 +81,7 @@ class test_env {
     }
 public:
     test_env(unsigned capacity)
-        : _fg(fg_config(capacity))
+        : _fg(fg_config(capacity), 1)
         , _fq(_fg, fq_config())
     {}
 
