@@ -1533,25 +1533,125 @@ public:
         result_t dn = extract_dn_information();
         return make_ready_future<result_t>(std::move(dn));
     }
+    future<std::vector<subject_alt_name>> get_alt_name_information(std::unordered_set<subject_alt_name_type> types) {
+        using result_t = std::vector<subject_alt_name>;
+
+        if (_error) {
+            return make_exception_future<result_t>(_error);
+        }
+        if (_shutdown) {
+            return make_exception_future<result_t>(std::system_error(ENOTCONN, std::system_category()));
+        }
+        if (!_connected) {
+            return handshake().then([this, types = std::move(types)]() mutable {
+               return get_alt_name_information(std::move(types));
+            });
+        }
+
+        auto peer = get_peer_certificate();
+        if (!peer) {
+            return make_ready_future<result_t>();
+        }
+
+        return futurize_invoke([&] {
+            result_t res;
+        	for (auto i = 0u; ; i++) {
+                size_t size = 0;
+
+                auto err = gnutls_x509_crt_get_subject_alt_name(peer.get(), i, nullptr, &size, nullptr);
+
+                if (err == GNUTLS_E_REQUESTED_DATA_NOT_AVAILABLE) {
+                    break;
+                }
+                if (err != GNUTLS_E_SHORT_MEMORY_BUFFER) {
+                    gtls_chk(err); // will throw
+                }
+                sstring buf;
+                buf.resize(size);
+
+                err = gnutls_x509_crt_get_subject_alt_name(peer.get(), i, buf.data(), &size, nullptr);
+                if (err < 0) {
+                    gtls_chk(err); // will throw
+                }
+
+                static_assert(int(subject_alt_name_type::dnsname) == GNUTLS_SAN_DNSNAME);
+                static_assert(int(subject_alt_name_type::rfc822name) == GNUTLS_SAN_RFC822NAME);
+                static_assert(int(subject_alt_name_type::uri) == GNUTLS_SAN_URI);
+                static_assert(int(subject_alt_name_type::ipaddress) == GNUTLS_SAN_IPADDRESS);
+                static_assert(int(subject_alt_name_type::othername) == GNUTLS_SAN_OTHERNAME);
+                static_assert(int(subject_alt_name_type::dn) == GNUTLS_SAN_DN);
+
+                subject_alt_name v;
+
+                v.type = subject_alt_name_type(err);
+
+                if (!types.empty() && !types.count(v.type)) {
+                    continue;
+                }
+
+                switch (v.type) {
+                    case subject_alt_name_type::ipaddress:
+                    {
+                        union {
+                            char c;
+                            ::in_addr in;
+                            ::in6_addr in6;
+                        } tmp;
+
+                        memcpy(&tmp.c, buf.data(), size);
+                        if (size == sizeof(::in_addr)) {
+                            v.value = net::inet_address(tmp.in);
+                        } else if (size == sizeof(::in6_addr)) {
+                            v.value = net::inet_address(tmp.in6);
+                        } else {
+                            throw std::runtime_error(fmt::format("Unexpected size {} for ipaddress alt name value", size));
+                        }
+                        break;
+                    }
+                    default:
+                        // data we get back is null-terminated.
+                        while (buf.back() == 0) {
+                            buf.resize(buf.size() - 1);
+                        }
+                        v.value = std::move(buf);
+                        break;
+                }
+
+                res.emplace_back(std::move(v));
+        	}
+            return res;
+        });
+    }
 
     struct session_ref;
 private:
 
-    std::optional<session_dn> extract_dn_information() const {
-        unsigned int list_size;
+    using x509_ctr_ptr = std::unique_ptr<gnutls_x509_crt_int, void (*)(gnutls_x509_crt_t)>;
+
+    x509_ctr_ptr get_peer_certificate() const {
+        unsigned int list_size = 0;
         const gnutls_datum_t* client_cert_list = gnutls_certificate_get_peers(*this, &list_size);
-        if (list_size == 0) {
+        if (client_cert_list && list_size > 0) {
+            gnutls_x509_crt_t peer_leaf_cert = nullptr;
+            gtls_chk(gnutls_x509_crt_init(&peer_leaf_cert));
+
+            x509_ctr_ptr res(peer_leaf_cert, &gnutls_x509_crt_deinit);
+            gtls_chk(gnutls_x509_crt_import(peer_leaf_cert, &(client_cert_list[0]), GNUTLS_X509_FMT_DER));
+            return res;
+        }
+        return x509_ctr_ptr(nullptr, &gnutls_x509_crt_deinit);
+    }
+
+    std::optional<session_dn> extract_dn_information() const {
+        auto peer_leaf_cert = get_peer_certificate();
+        if (!peer_leaf_cert) {
             return std::nullopt;
         }
-        gnutls_x509_crt_t peer_leaf_cert;
-        gtls_chk(gnutls_x509_crt_init(&peer_leaf_cert));
-        gtls_chk(gnutls_x509_crt_import(peer_leaf_cert, &(client_cert_list[0]), GNUTLS_X509_FMT_DER));
-        auto [ec, subject] = get_gtls_string(gnutls_x509_crt_get_dn, peer_leaf_cert);
-        auto [ec2, issuer] = get_gtls_string(gnutls_x509_crt_get_issuer_dn, peer_leaf_cert);
+        auto [ec, subject] = get_gtls_string(gnutls_x509_crt_get_dn, peer_leaf_cert.get());
+        auto [ec2, issuer] = get_gtls_string(gnutls_x509_crt_get_issuer_dn, peer_leaf_cert.get());
         if (ec || ec2) {
             throw std::runtime_error("error while extracting certificate DN strings");
         }
-        gnutls_x509_crt_deinit(peer_leaf_cert);
         return session_dn{.subject=subject, .issuer=issuer};
     }
 
@@ -1647,6 +1747,9 @@ public:
     }
     future<std::optional<session_dn>> get_distinguished_name() {
         return _session->get_distinguished_name();
+    }
+    future<std::vector<subject_alt_name>> get_alt_name_information(std::unordered_set<subject_alt_name_type> types) {
+        return _session->get_alt_name_information(std::move(types));
     }
     future<> wait_input_shutdown() override {
         return _session->socket().wait_input_shutdown();
@@ -1787,18 +1890,26 @@ server_socket tls::listen(shared_ptr<server_credentials> creds, server_socket ss
     return server_socket(std::move(ssls));
 }
 
-future<std::optional<session_dn>> tls::get_dn_information(connected_socket& socket) {
+static tls::tls_connected_socket_impl* get_tls_socket(connected_socket& socket) {
     auto impl = net::get_impl::maybe_get_ptr(socket);
     if (impl == nullptr) {
         // the socket is not yet created or moved from
         throw std::system_error(ENOTCONN, std::system_category());
     }
-    auto tls_impl = dynamic_cast<tls_connected_socket_impl*>(impl);
+    auto tls_impl = dynamic_cast<tls::tls_connected_socket_impl*>(impl);
     if (!tls_impl) {
         // bad cast here means that we're dealing with wrong socket type
         throw std::invalid_argument("Not a TLS socket");
     }
-    return tls_impl->get_distinguished_name();
+    return tls_impl;
+}
+
+future<std::optional<session_dn>> tls::get_dn_information(connected_socket& socket) {
+    return get_tls_socket(socket)->get_distinguished_name();
+}
+
+future<std::vector<tls::subject_alt_name>> tls::get_alt_name_information(connected_socket& socket, std::unordered_set<subject_alt_name_type> types) {
+    return get_tls_socket(socket)->get_alt_name_information(std::move(types));
 }
 
 }

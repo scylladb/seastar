@@ -31,6 +31,7 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/net/socket_defs.hh>
+#include <seastar/net/inet_address.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/net/api.hh>
 
@@ -354,6 +355,38 @@ namespace tls {
      * system_error exception will be thrown.
      */
     future<std::optional<session_dn>> get_dn_information(connected_socket& socket);
+
+    /**
+     * Subject alt name types. 
+    */
+    enum class subject_alt_name_type {
+        dnsname = 1, // string value representing a 'DNS' entry
+        rfc822name, // string value representing an 'email' entry 
+        uri, // string value representing an 'uri' entry
+        ipaddress, // inet_address value representing an 'IP' entry
+        othername, // string value 
+        dn, // string value 
+    };
+
+    // Subject alt name entry
+    struct subject_alt_name {
+        using value_type = std::variant<
+            sstring,
+            net::inet_address
+        >;
+        subject_alt_name_type type;
+        value_type value;
+    };
+
+    /**
+     * Returns the alt name entries of matching types, or all entries if 'types' is empty
+     * The values are extracted from the client authentication certificate, if available.
+     * If no certificate authentication is used in the connection, en empty list is returned.
+     * 
+     * If the socket is not connected a system_error exception will be thrown.
+     * If the socket is not a TLS socket an exception will be thrown.
+    */
+    future<std::vector<subject_alt_name>> get_alt_name_information(connected_socket& socket, std::unordered_set<subject_alt_name_type> types = {});
 }
 }
 
