@@ -116,7 +116,7 @@ extern "C"
 [[gnu::used]]
 [[gnu::no_sanitize_address]]
 int dl_iterate_phdr(int (*callback) (struct dl_phdr_info *info, size_t size, void *data), void *data) {
-    if (!seastar::local_engine || !seastar::phdrs_cache) {
+    if (!seastar::phdrs_cache || !seastar::local_engine) {
         // Cache is not yet populated, pass through to original function
         return seastar::dl_iterate_phdr_org()(callback, data);
     }
