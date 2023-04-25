@@ -488,6 +488,18 @@ function(seastar_add_certgen name)
   if (NOT CERT_EMAIL)
     set(CERT_EMAIL postmaster@${CERT_DOMAIN})
   endif()
+  if (NOT CERT_ALT_EMAIL_1)
+    set(CERT_ALT_EMAIL_1 alt1@${CERT_DOMAIN})
+  endif()
+  if (NOT CERT_ALT_EMAIL_2)
+    set(CERT_ALT_EMAIL_2 alt2@${CERT_DOMAIN})
+  endif()
+  if (NOT CERT_ALT_IP_1)
+    set(CERT_ALT_IP_1 127.0.0.1)
+  endif()
+  if (NOT CERT_ALT_DNS)
+    set(CERT_ALT_DNS ${CERT_COMMON})
+  endif()
   if (NOT CERT_WIDTH)
     set(CERT_WIDTH 4096)
   endif()
@@ -520,7 +532,7 @@ function(seastar_add_certgen name)
   )
   add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${CERT_REQ}"
     COMMAND ${OPENSSL} req -new -key ${CERT_PRIVKEY} -out ${CERT_REQ} -config ${CERT_NAME}.cfg
-    DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/${CERT_PRIVKEY}"
+    DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/${CERT_PRIVKEY}" "${CMAKE_CURRENT_BINARY_DIR}/${CERT_NAME}.cfg"
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
   )
 
@@ -530,13 +542,14 @@ function(seastar_add_certgen name)
   )
   add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${CERT_CAROOT}"
     COMMAND ${OPENSSL} req -x509 -new -nodes -key ${CERT_CAPRIVKEY} -days ${CERT_DAYS} -config ${CERT_NAME}.cfg -out ${CERT_CAROOT}
-    DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/${CERT_CAPRIVKEY}"
+    DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/${CERT_CAPRIVKEY}" "${CMAKE_CURRENT_BINARY_DIR}/${CERT_NAME}.cfg"
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
   )
 
+  
   add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${CERT_CERT}"
-    COMMAND ${OPENSSL} x509 -req -in ${CERT_REQ} -CA ${CERT_CAROOT} -CAkey ${CERT_CAPRIVKEY} -CAcreateserial -out ${CERT_CERT} -days ${CERT_DAYS}
-    DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/${CERT_REQ}"  "${CMAKE_CURRENT_BINARY_DIR}/${CERT_CAROOT}"
+    COMMAND ${OPENSSL} x509 -req -in ${CERT_REQ} -CA ${CERT_CAROOT} -CAkey ${CERT_CAPRIVKEY} -CAcreateserial -out ${CERT_CERT} -days ${CERT_DAYS} -extensions req_ext -extfile ${CERT_NAME}.cfg
+    DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/${CERT_REQ}"  "${CMAKE_CURRENT_BINARY_DIR}/${CERT_CAROOT}" "${CMAKE_CURRENT_BINARY_DIR}/${CERT_NAME}.cfg"
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
   )
 
