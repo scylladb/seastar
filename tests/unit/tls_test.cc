@@ -1174,6 +1174,7 @@ SEASTAR_THREAD_TEST_CASE(test_closed_write) {
     b.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
     b.set_dh_level();
     b.set_system_trust().get();
+    b.set_client_auth(tls::client_auth::REQUIRE);
 
     auto creds = b.build_certificate_credentials();
     auto serv = b.build_server_credentials();
@@ -1365,3 +1366,71 @@ SEASTAR_THREAD_TEST_CASE(test_dn_name_handling) {
     fetch_dn("client1.org", client1_creds);
     fetch_dn("client2.org", client2_creds);
 }
+
+SEASTAR_THREAD_TEST_CASE(test_alt_names) {
+    tls::credentials_builder b;
+
+    b.set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).get();
+    b.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
+    b.set_client_auth(tls::client_auth::REQUIRE);
+
+    auto creds = b.build_certificate_credentials();
+    auto serv = b.build_server_credentials();
+
+    ::listen_options opts;
+    opts.reuse_address = true;
+    opts.set_fixed_cpu(this_shard_id());
+
+    auto addr = ::make_ipv4_address( {0x7f000001, 4712});
+    auto server = tls::listen(serv, addr, opts);
+
+    {
+        auto sa = server.accept();
+        auto c = tls::connect(creds, addr).get0();
+        auto s = sa.get0();
+
+        auto in = s.connection.input();
+        output_stream<char> out(c.output().detach(), 1024);
+        out.write("nils").get();
+
+        auto falt_names = tls::get_alt_name_information(s.connection);
+
+        auto fout = out.flush();
+        auto fin = in.read();
+
+        fout.get();
+
+        auto alt_names = falt_names.get();
+        fin.get();
+
+        in.close().get();
+        out.close().get();
+
+        s.connection.shutdown_input();
+        s.connection.shutdown_output();
+
+        c.shutdown_input();
+        c.shutdown_output();
+
+        auto ensure_alt_name = [&](tls::subject_alt_name_type type, size_t min_count) {
+            for (auto& v : alt_names) {
+                if (type != v.type) {
+                    continue;
+                }
+                std::visit([&](auto& val) {
+                    BOOST_TEST_MESSAGE(fmt::format("Alt name type: {}: {}", int(type), val).c_str());
+                }, v.value);
+                if (--min_count == 0) {
+                    return;
+                }
+            }
+            BOOST_FAIL("Missing " + std::to_string(min_count) + " alt name attributes of type " + std::to_string(int(type)));
+        };
+
+        ensure_alt_name(tls::subject_alt_name_type::ipaddress, 1);
+        ensure_alt_name(tls::subject_alt_name_type::rfc822name, 2);
+        ensure_alt_name(tls::subject_alt_name_type::dnsname, 1);
+    }
+
+}
+
