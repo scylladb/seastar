@@ -410,9 +410,8 @@ SEASTAR_TEST_CASE(test_abort_accept_after_handshake) {
         b.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
 
         auto c = tls::connect(b.build_certificate_credentials(), addr).get0();
-        server.abort_accept(); // should not affect the socket we got.
-
         auto s = sa.get0();
+        server.abort_accept(); // should not affect the socket we got.
         auto out = c.output();
         auto in = s.connection.input();
 
