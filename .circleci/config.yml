@@ -35,6 +35,6 @@ workflows:
       - build_and_test:
           matrix:
             parameters:
-              compiler: ["clang++-15", "g++-12"]
+              compiler: ["clang++-17", "g++-13"]
               standard: ["20", "17"]
               mode: ["dev", "debug", "release"]
