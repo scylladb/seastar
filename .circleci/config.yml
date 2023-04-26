@@ -12,7 +12,7 @@ jobs:
         description: mode to build and test with
         type: string
     machine:
-      image:  ubuntu-2004:202201-02
+      image:  ubuntu-2204:2023.04.2
     resource_class: large
     steps:
       - checkout
