@@ -41,7 +41,7 @@ add_test (
 set_tests_properties (Seastar.app.memcached.memcached
   PROPERTIES
     TIMEOUT ${Seastar_TEST_TIMEOUT}
-    ENVIRONMENT ${Seastar_TEST_ENVIRONMENT})
+    ENVIRONMENT "${Seastar_TEST_ENVIRONMENT}")
 
 add_executable (app_memcached_test_ascii
   test_ascii_parser.cc)
@@ -74,4 +74,4 @@ add_test (
 set_tests_properties (Seastar.app.memcached.ascii
   PROPERTIES
     TIMEOUT ${Seastar_TEST_TIMEOUT}
-    ENVIRONMENT ${Seastar_TEST_ENVIRONMENT})
+    ENVIRONMENT "${Seastar_TEST_ENVIRONMENT}")
