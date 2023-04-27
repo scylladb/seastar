@@ -472,6 +472,34 @@ SEASTAR_TEST_CASE(test_sampled_profile_collection_large)
     return seastar::make_ready_future();
 }
 
+SEASTAR_TEST_CASE(test_sampled_profile_collection_max_sites)
+{
+    std::size_t count = 1010;
+    std::vector<volatile char*> ptrs(count);
+
+    seastar::memory::set_heap_profiling_sampling_rate(100);
+
+    #pragma GCC unroll 1010
+    for (std::size_t i = 0; i < count; ++i) {
+        volatile char* ptr = static_cast<char*>(malloc(1000));
+        *ptr = 'c'; // to prevent compiler from considering this a dead allocation and optimizing it out
+        ptrs[i] = ptr;
+    }
+
+    seastar::memory::set_heap_profiling_sampling_rate(0);
+
+    {
+        auto stats = seastar::memory::sampled_memory_profile();
+        BOOST_REQUIRE_EQUAL(stats.size(), 1000);
+    }
+
+    for (auto ptr : ptrs) {
+        free((void*)ptr);
+    }
+
+    return seastar::make_ready_future();
+}
+
 SEASTAR_TEST_CASE(test_change_sample_rate)
 {
     {
@@ -553,6 +581,7 @@ SEASTAR_TEST_CASE(test_change_sample_rate)
 
     return seastar::make_ready_future();
 }
+
 
 #endif // SEASTAR_HEAPPROF
 
