@@ -98,4 +98,11 @@ private:
 
 const io_priority_class& default_priority_class();
 
+namespace internal {
+struct maybe_priority_class_ref {
+    const io_priority_class& pc;
+    explicit maybe_priority_class_ref(const io_priority_class& p) noexcept : pc(p) {}
+};
+}
+
 } // namespace seastar

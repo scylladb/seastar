@@ -323,6 +323,9 @@ namespace internal {
 priority_class::priority_class(const io_priority_class& pc) noexcept : _id(pc.id())
 { }
 
+priority_class::priority_class(internal::maybe_priority_class_ref pc) noexcept : priority_class(pc.pc)
+{ }
+
 cancellable_queue::cancellable_queue(cancellable_queue&& o) noexcept
         : _first(std::exchange(o._first, nullptr))
         , _rest(std::move(o._rest)) {

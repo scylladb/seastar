@@ -66,10 +66,12 @@ using io_group_ptr = std::shared_ptr<io_group>;
 using iovec_keeper = std::vector<::iovec>;
 
 namespace internal {
+struct maybe_priority_class_ref;
 class priority_class {
     unsigned _id;
 public:
     explicit priority_class(const io_priority_class& pc) noexcept;
+    explicit priority_class(internal::maybe_priority_class_ref pc) noexcept;
     unsigned id() const noexcept { return _id; }
 };
 }

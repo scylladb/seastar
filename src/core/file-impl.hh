@@ -154,18 +154,26 @@ private:
      *         pos is at or beyond EOF.
      * @throw appropriate exception in case of I/O error.
      */
-    future<temporary_buffer<uint8_t>>
-    read_maybe_eof(uint64_t pos, size_t len, const io_priority_class& pc, io_intent* intent);
+    future<temporary_buffer<uint8_t>> read_maybe_eof(uint64_t pos, size_t len, internal::maybe_priority_class_ref pc, io_intent* intent);
+    future<size_t> read_dma_one(uint64_t pos, void* buffer, size_t len, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
+        return read_dma(pos, buffer, len, pc.pc, intent);
+    }
 
 protected:
-    future<size_t> do_write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept;
-    future<size_t> do_write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept;
-    future<size_t> do_read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept;
-    future<size_t> do_read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept;
-    future<temporary_buffer<uint8_t>> do_dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc, io_intent* intent) noexcept;
+    future<size_t> do_write_dma(uint64_t pos, const void* buffer, size_t len, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept;
+    future<size_t> do_write_dma(uint64_t pos, std::vector<iovec> iov, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept;
+    future<size_t> do_read_dma(uint64_t pos, void* buffer, size_t len, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept;
+    future<size_t> do_read_dma(uint64_t pos, std::vector<iovec> iov, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept;
+    future<temporary_buffer<uint8_t>> do_dma_read_bulk(uint64_t offset, size_t range_size, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept;
 };
 
 class posix_file_real_impl final : public posix_file_impl {
+    future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept;
+    future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept;
+    future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept;
+    future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept;
+    future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept;
+
 public:
     posix_file_real_impl(int fd, open_flags of, file_open_options options, const internal::fs_info& fsi, dev_t device_id)
         : posix_file_impl(fd, of, std::move(options), device_id, fsi) {}
@@ -173,13 +181,23 @@ public:
             uint32_t memory_dma_alignment, uint32_t disk_read_dma_alignment, uint32_t disk_write_dma_alignment, uint32_t disk_overwrite_dma_alignment, bool nowait_works)
         : posix_file_impl(fd, of, refcount, device_id, memory_dma_alignment, disk_read_dma_alignment, disk_write_dma_alignment, disk_overwrite_dma_alignment, nowait_works) {}
     using posix_file_impl::read_dma;
-    virtual future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept override;
-    virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept override;
+    virtual future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept override {
+        return read_dma(pos, buffer, len, internal::maybe_priority_class_ref(pc), intent);
+    }
+    virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept override {
+        return read_dma(pos, std::move(iov), internal::maybe_priority_class_ref(pc), intent);
+    }
     using posix_file_impl::write_dma;
-    virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept override;
-    virtual future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept override;
+    virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept override {
+        return write_dma(pos, buffer, len, internal::maybe_priority_class_ref(pc), intent);
+    }
+    virtual future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept override {
+        return write_dma(pos, std::move(iov), internal::maybe_priority_class_ref(pc), intent);
+    }
     using posix_file_impl::dma_read_bulk;
-    virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc, io_intent* intent) noexcept override;
+    virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc, io_intent* intent) noexcept override {
+        return dma_read_bulk(offset, range_size, internal::maybe_priority_class_ref(pc), intent);
+    }
 };
 
 // The Linux XFS implementation is challenged wrt. append: a write that changes
@@ -262,14 +280,33 @@ private:
 public:
     append_challenged_posix_file_impl(int fd, open_flags, file_open_options options, const internal::fs_info& fsi, dev_t device_id);
     ~append_challenged_posix_file_impl() override;
+private:
+    future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept;
+    future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept;
+    future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept;
+    future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept;
+    future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept;
+
+public:
     using posix_file_impl::read_dma;
-    virtual future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept override;
-    virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept override;
+    virtual future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept override {
+        return read_dma(pos, buffer, len, internal::maybe_priority_class_ref(pc), intent);
+    }
+    virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept override {
+        return read_dma(pos, std::move(iov), internal::maybe_priority_class_ref(pc), intent);
+    }
     using posix_file_impl::write_dma;
-    virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept override;
-    virtual future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept override;
+    virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept override {
+        return write_dma(pos, buffer, len, internal::maybe_priority_class_ref(pc), intent);
+    }
+    virtual future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept override {
+        return write_dma(pos, std::move(iov), internal::maybe_priority_class_ref(pc), intent);
+    }
     using posix_file_impl::dma_read_bulk;
-    virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc, io_intent* intent) noexcept override;
+    virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc, io_intent* intent) noexcept override {
+        return dma_read_bulk(offset, range_size, internal::maybe_priority_class_ref(pc), intent);
+    }
+
     future<> flush() noexcept override;
     future<struct stat> stat() noexcept override;
     future<> truncate(uint64_t length) noexcept override;
@@ -279,6 +316,12 @@ public:
 };
 
 class blockdev_file_impl final : public posix_file_impl {
+    future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept;
+    future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept;
+    future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept;
+    future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept;
+    future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept;
+
 public:
     blockdev_file_impl(int fd, open_flags, file_open_options options, dev_t device_id, size_t block_size);
     future<> truncate(uint64_t length) noexcept override;
@@ -286,13 +329,24 @@ public:
     future<uint64_t> size() noexcept override;
     virtual future<> allocate(uint64_t position, uint64_t length) noexcept override;
     using posix_file_impl::read_dma;
-    virtual future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept override;
-    virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept override;
+    virtual future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept override {
+        return read_dma(pos, buffer, len, internal::maybe_priority_class_ref(pc), intent);
+    }
+    virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept override {
+        return read_dma(pos, std::move(iov), internal::maybe_priority_class_ref(pc), intent);
+    }
     using posix_file_impl::write_dma;
-    virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept override;
-    virtual future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept override;
+    virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept override {
+        return write_dma(pos, buffer, len, internal::maybe_priority_class_ref(pc), intent);
+    }
+    virtual future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept override {
+        return write_dma(pos, std::move(iov), internal::maybe_priority_class_ref(pc), intent);
+    }
     using posix_file_impl::dma_read_bulk;
-    virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc, io_intent* intent) noexcept override;
+    virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc, io_intent* intent) noexcept override {
+        return dma_read_bulk(offset, range_size, internal::maybe_priority_class_ref(pc), intent);
+    }
+
 };
 
 }
