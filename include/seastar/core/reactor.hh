@@ -135,6 +135,7 @@ namespace internal {
 class reactor_stall_sampler;
 class cpu_stall_detector;
 class buffer_allocator;
+class priority_class;
 
 template <typename Func>
 SEASTAR_CONCEPT( requires std::is_invocable_r_v<bool, Func> )
@@ -491,11 +492,12 @@ public:
 
     [[deprecated("Use io_priority_class.update_shares")]]
     future<> update_shares_for_class(io_priority_class pc, uint32_t shares);
-    /// @private
-    future<> update_bandwidth_for_queues(io_priority_class pc, uint64_t bandwidth);
 
     [[deprecated("Use io_priority_class.rename")]]
     static future<> rename_priority_class(io_priority_class pc, sstring new_name) noexcept;
+
+    /// @private
+    future<> update_bandwidth_for_queues(internal::priority_class pc, uint64_t bandwidth);
     /// @private
     void rename_queues(internal::priority_class pc, sstring new_name);
     /// @private

@@ -225,10 +225,10 @@ void reactor::update_shares_for_queues(internal::priority_class pc, uint32_t sha
     }
 }
 
-future<> reactor::update_bandwidth_for_queues(io_priority_class pc, uint64_t bandwidth) {
+future<> reactor::update_bandwidth_for_queues(internal::priority_class pc, uint64_t bandwidth) {
     return smp::invoke_on_all([pc, bandwidth = bandwidth / _num_io_groups] {
         return parallel_for_each(engine()._io_queues, [pc, bandwidth] (auto& queue) {
-            return queue.second->update_bandwidth_for_class(internal::priority_class(pc), bandwidth);
+            return queue.second->update_bandwidth_for_class(pc, bandwidth);
         });
     });
 }
@@ -4800,6 +4800,12 @@ scheduling_group::set_shares(float shares) noexcept {
     engine().update_shares_for_queues(internal::priority_class(*this), shares);
 #endif
 }
+
+#if SEASTAR_API_LEVEL >= 7
+future<> scheduling_group::update_io_bandwidth(uint64_t bandwidth) const {
+    return engine().update_bandwidth_for_queues(internal::priority_class(*this), bandwidth);
+}
+#endif
 
 future<scheduling_group>
 create_scheduling_group(sstring name, float shares) noexcept {

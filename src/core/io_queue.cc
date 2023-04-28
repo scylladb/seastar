@@ -695,7 +695,7 @@ future<> io_priority_class::update_shares(uint32_t shares) const {
 }
 
 future<> io_priority_class::update_bandwidth(uint64_t bandwidth) const {
-    return engine().update_bandwidth_for_queues(*this, bandwidth);
+    return engine().update_bandwidth_for_queues(internal::priority_class(*this), bandwidth);
 }
 
 bool io_priority_class::rename_registered(sstring new_name) {
