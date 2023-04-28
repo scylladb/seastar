@@ -102,6 +102,7 @@ namespace internal {
 struct maybe_priority_class_ref {
     const io_priority_class& pc;
     explicit maybe_priority_class_ref(const io_priority_class& p) noexcept : pc(p) {}
+    maybe_priority_class_ref() noexcept : pc(default_priority_class()) {}
 };
 }
 

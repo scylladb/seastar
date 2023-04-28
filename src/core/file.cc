@@ -1169,9 +1169,9 @@ future<uint64_t> file::get_inode_lifetime_hint() noexcept {
 }
 
 future<temporary_buffer<uint8_t>>
-file::dma_read_bulk_impl(uint64_t offset, size_t range_size, const io_priority_class& pc, io_intent* intent) noexcept {
+file::dma_read_bulk_impl(uint64_t offset, size_t range_size, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
   try {
-    return _file_impl->dma_read_bulk(offset, range_size, pc, intent);
+    return _file_impl->dma_read_bulk(offset, range_size, pc.pc, intent);
   } catch (...) {
     return current_exception_as_future<temporary_buffer<uint8_t>>();
   }
@@ -1217,33 +1217,33 @@ future<> file::flush() noexcept {
   }
 }
 
-future<size_t> file::dma_write_impl(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept {
+future<size_t> file::dma_write_impl(uint64_t pos, std::vector<iovec> iov, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
   try {
-    return _file_impl->write_dma(pos, std::move(iov), pc, intent);
+    return _file_impl->write_dma(pos, std::move(iov), pc.pc, intent);
   } catch (...) {
     return current_exception_as_future<size_t>();
   }
 }
 
 future<size_t>
-file::dma_write_impl(uint64_t pos, const uint8_t* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept {
+file::dma_write_impl(uint64_t pos, const uint8_t* buffer, size_t len, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
   try {
-    return _file_impl->write_dma(pos, buffer, len, pc, intent);
+    return _file_impl->write_dma(pos, buffer, len, pc.pc, intent);
   } catch (...) {
     return current_exception_as_future<size_t>();
   }
 }
 
-future<size_t> file::dma_read_impl(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept {
+future<size_t> file::dma_read_impl(uint64_t pos, std::vector<iovec> iov, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
   try {
-    return _file_impl->read_dma(pos, std::move(iov), pc, intent);
+    return _file_impl->read_dma(pos, std::move(iov), pc.pc, intent);
   } catch (...) {
     return current_exception_as_future<size_t>();
   }
 }
 
 future<temporary_buffer<uint8_t>>
-file::dma_read_exactly_impl(uint64_t pos, size_t len, const io_priority_class& pc, io_intent* intent) noexcept {
+file::dma_read_exactly_impl(uint64_t pos, size_t len, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
     return dma_read_impl(pos, len, pc, intent).then([len](auto buf) {
         if (buf.size() < len) {
             throw eof_error();
@@ -1254,7 +1254,7 @@ file::dma_read_exactly_impl(uint64_t pos, size_t len, const io_priority_class& p
 }
 
 future<temporary_buffer<uint8_t>>
-file::dma_read_impl(uint64_t pos, size_t len, const io_priority_class& pc, io_intent* intent) noexcept {
+file::dma_read_impl(uint64_t pos, size_t len, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
     return dma_read_bulk_impl(pos, len, pc, intent).then([len](temporary_buffer<uint8_t> buf) {
         if (len < buf.size()) {
             buf.trim(len);
@@ -1265,9 +1265,9 @@ file::dma_read_impl(uint64_t pos, size_t len, const io_priority_class& pc, io_in
 }
 
 future<size_t>
-file::dma_read_impl(uint64_t aligned_pos, uint8_t* aligned_buffer, size_t aligned_len, const io_priority_class& pc, io_intent* intent) noexcept {
+file::dma_read_impl(uint64_t aligned_pos, uint8_t* aligned_buffer, size_t aligned_len, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
   try {
-    return _file_impl->read_dma(aligned_pos, aligned_buffer, aligned_len, pc, intent);
+    return _file_impl->read_dma(aligned_pos, aligned_buffer, aligned_len, pc.pc, intent);
   } catch (...) {
     return current_exception_as_future<size_t>();
   }

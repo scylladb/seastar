@@ -281,7 +281,7 @@ public:
     template <typename CharType>
     future<size_t>
     dma_read(uint64_t aligned_pos, CharType* aligned_buffer, size_t aligned_len, const io_priority_class& pc, io_intent* intent = nullptr) noexcept {
-        return dma_read_impl(aligned_pos, reinterpret_cast<uint8_t*>(aligned_buffer), aligned_len, pc, intent);
+        return dma_read_impl(aligned_pos, reinterpret_cast<uint8_t*>(aligned_buffer), aligned_len, internal::maybe_priority_class_ref(pc), intent);
     }
 
     /**
@@ -301,7 +301,7 @@ public:
     template <typename CharType>
     future<size_t>
     dma_read(uint64_t aligned_pos, CharType* aligned_buffer, size_t aligned_len, io_intent* intent = nullptr) noexcept {
-        return dma_read_impl(aligned_pos, reinterpret_cast<uint8_t*>(aligned_buffer), aligned_len, default_priority_class(), intent);
+        return dma_read_impl(aligned_pos, reinterpret_cast<uint8_t*>(aligned_buffer), aligned_len, internal::maybe_priority_class_ref(), intent);
     }
 
     /**
@@ -324,7 +324,7 @@ public:
      */
     template <typename CharType>
     future<temporary_buffer<CharType>> dma_read(uint64_t pos, size_t len, const io_priority_class& pc, io_intent* intent = nullptr) noexcept {
-        return dma_read_impl(pos, len, pc, intent).then([] (temporary_buffer<uint8_t> t) {
+        return dma_read_impl(pos, len, internal::maybe_priority_class_ref(pc), intent).then([] (temporary_buffer<uint8_t> t) {
             return temporary_buffer<CharType>(reinterpret_cast<CharType*>(t.get_write()), t.size(), t.release());
         });
     }
@@ -346,7 +346,7 @@ public:
      */
     template <typename CharType>
     future<temporary_buffer<CharType>> dma_read(uint64_t pos, size_t len, io_intent* intent = nullptr) noexcept {
-        return dma_read_impl(pos, len, default_priority_class(), intent).then([] (temporary_buffer<uint8_t> t) {
+        return dma_read_impl(pos, len, internal::maybe_priority_class_ref(), intent).then([] (temporary_buffer<uint8_t> t) {
             return temporary_buffer<CharType>(reinterpret_cast<CharType*>(t.get_write()), t.size(), t.release());
         });
     }
@@ -373,7 +373,7 @@ public:
     template <typename CharType>
     future<temporary_buffer<CharType>>
     dma_read_exactly(uint64_t pos, size_t len, const io_priority_class& pc, io_intent* intent = nullptr) noexcept {
-        return dma_read_exactly_impl(pos, len, pc, intent).then([] (temporary_buffer<uint8_t> t) {
+        return dma_read_exactly_impl(pos, len, internal::maybe_priority_class_ref(pc), intent).then([] (temporary_buffer<uint8_t> t) {
             return temporary_buffer<CharType>(reinterpret_cast<CharType*>(t.get_write()), t.size(), t.release());
         });
     }
@@ -393,7 +393,7 @@ public:
     template <typename CharType>
     future<temporary_buffer<CharType>>
     dma_read_exactly(uint64_t pos, size_t len, io_intent* intent = nullptr) noexcept {
-        return dma_read_exactly_impl(pos, len, default_priority_class(), intent).then([] (temporary_buffer<uint8_t> t) {
+        return dma_read_exactly_impl(pos, len, internal::maybe_priority_class_ref(), intent).then([] (temporary_buffer<uint8_t> t) {
             return temporary_buffer<CharType>(reinterpret_cast<CharType*>(t.get_write()), t.size(), t.release());
         });
     }
@@ -411,7 +411,7 @@ public:
     /// \return a future representing the number of bytes actually read.  A short
     ///         read may happen due to end-of-file or an I/O error.
     future<size_t> dma_read(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent = nullptr) noexcept {
-        return dma_read_impl(pos, std::move(iov), pc, intent);
+        return dma_read_impl(pos, std::move(iov), internal::maybe_priority_class_ref(pc), intent);
     }
 
     /// Performs a DMA read into the specified iovec.
@@ -424,7 +424,7 @@ public:
     /// \return a future representing the number of bytes actually read.  A short
     ///         read may happen due to end-of-file or an I/O error.
     future<size_t> dma_read(uint64_t pos, std::vector<iovec> iov, io_intent* intent = nullptr) noexcept {
-        return dma_read_impl(pos, std::move(iov), default_priority_class(), intent);
+        return dma_read_impl(pos, std::move(iov), internal::maybe_priority_class_ref(), intent);
     }
 
     /// Performs a DMA write from the specified buffer.
@@ -442,7 +442,7 @@ public:
     ///         write may happen due to an I/O error.
     template <typename CharType>
     future<size_t> dma_write(uint64_t pos, const CharType* buffer, size_t len, const io_priority_class& pc, io_intent* intent = nullptr) noexcept {
-        return dma_write_impl(pos, reinterpret_cast<const uint8_t*>(buffer), len, pc, intent);
+        return dma_write_impl(pos, reinterpret_cast<const uint8_t*>(buffer), len, internal::maybe_priority_class_ref(pc), intent);
     }
 
     /// Performs a DMA write from the specified buffer.
@@ -457,7 +457,7 @@ public:
     ///         write may happen due to an I/O error.
     template <typename CharType>
     future<size_t> dma_write(uint64_t pos, const CharType* buffer, size_t len, io_intent* intent = nullptr) noexcept {
-        return dma_write_impl(pos, reinterpret_cast<const uint8_t*>(buffer), len, default_priority_class(), intent);
+        return dma_write_impl(pos, reinterpret_cast<const uint8_t*>(buffer), len, internal::maybe_priority_class_ref(), intent);
     }
 
     /// Performs a DMA write to the specified iovec.
@@ -473,7 +473,7 @@ public:
     /// \return a future representing the number of bytes actually written.  A short
     ///         write may happen due to an I/O error.
     future<size_t> dma_write(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent = nullptr) noexcept {
-        return dma_write_impl(pos, std::move(iov), pc, intent);
+        return dma_write_impl(pos, std::move(iov), internal::maybe_priority_class_ref(pc), intent);
     }
 
     /// Performs a DMA write to the specified iovec.
@@ -486,7 +486,7 @@ public:
     /// \return a future representing the number of bytes actually written.  A short
     ///         write may happen due to an I/O error.
     future<size_t> dma_write(uint64_t pos, std::vector<iovec> iov, io_intent* intent = nullptr) noexcept {
-        return dma_write_impl(pos, std::move(iov), default_priority_class(), intent);
+        return dma_write_impl(pos, std::move(iov), internal::maybe_priority_class_ref(), intent);
     }
 
     /// Causes any previously written data to be made stable on persistent storage.
@@ -670,7 +670,7 @@ public:
     template <typename CharType>
     future<temporary_buffer<CharType>>
     dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc, io_intent* intent = nullptr) noexcept {
-        return dma_read_bulk_impl(offset, range_size, pc, intent).then([] (temporary_buffer<uint8_t> t) {
+        return dma_read_bulk_impl(offset, range_size, internal::maybe_priority_class_ref(pc), intent).then([] (temporary_buffer<uint8_t> t) {
             return temporary_buffer<CharType>(reinterpret_cast<CharType*>(t.get_write()), t.size(), t.release());
         });
     }
@@ -692,7 +692,7 @@ public:
     template <typename CharType>
     future<temporary_buffer<CharType>>
     dma_read_bulk(uint64_t offset, size_t range_size, io_intent* intent = nullptr) noexcept {
-        return dma_read_bulk_impl(offset, range_size, default_priority_class(), intent).then([] (temporary_buffer<uint8_t> t) {
+        return dma_read_bulk_impl(offset, range_size, internal::maybe_priority_class_ref(), intent).then([] (temporary_buffer<uint8_t> t) {
             return temporary_buffer<CharType>(reinterpret_cast<CharType*>(t.get_write()), t.size(), t.release());
         });
     }
@@ -708,25 +708,25 @@ public:
     file_handle dup();
 private:
     future<temporary_buffer<uint8_t>>
-    dma_read_bulk_impl(uint64_t offset, size_t range_size, const io_priority_class& pc, io_intent* intent) noexcept;
+    dma_read_bulk_impl(uint64_t offset, size_t range_size, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept;
 
     future<size_t>
-    dma_write_impl(uint64_t pos, const uint8_t* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept;
+    dma_write_impl(uint64_t pos, const uint8_t* buffer, size_t len, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept;
 
     future<size_t>
-    dma_write_impl(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept;
+    dma_write_impl(uint64_t pos, std::vector<iovec> iov, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept;
 
     future<temporary_buffer<uint8_t>>
-    dma_read_impl(uint64_t pos, size_t len, const io_priority_class& pc, io_intent* intent) noexcept;
+    dma_read_impl(uint64_t pos, size_t len, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept;
 
     future<size_t>
-    dma_read_impl(uint64_t aligned_pos, uint8_t* aligned_buffer, size_t aligned_len, const io_priority_class& pc, io_intent* intent) noexcept;
+    dma_read_impl(uint64_t aligned_pos, uint8_t* aligned_buffer, size_t aligned_len, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept;
 
     future<size_t>
-    dma_read_impl(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept;
+    dma_read_impl(uint64_t pos, std::vector<iovec> iov, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept;
 
     future<temporary_buffer<uint8_t>>
-    dma_read_exactly_impl(uint64_t pos, size_t len, const io_priority_class& pc, io_intent* intent) noexcept;
+    dma_read_exactly_impl(uint64_t pos, size_t len, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept;
 
     future<uint64_t> get_lifetime_hint_impl(int op) noexcept;
     future<> set_lifetime_hint_impl(int op, uint64_t hint) noexcept;

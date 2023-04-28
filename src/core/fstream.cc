@@ -60,8 +60,8 @@ static inline T select_buffer_size(T configured_value, T maximum_value) noexcept
 }
 
 template <typename Options>
-inline const io_priority_class& get_io_priority(const Options& opts) {
-    return opts.io_priority_class;
+inline internal::maybe_priority_class_ref get_io_priority(const Options& opts) {
+    return internal::maybe_priority_class_ref(opts.io_priority_class);
 }
 
 class file_data_source_impl : public data_source_impl {
