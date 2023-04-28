@@ -118,6 +118,13 @@ protected:
 public:
     virtual ~file_impl() {}
 
+#if SEASTAR_API_LEVEL >= 7
+    virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, io_intent*) = 0;
+    virtual future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, io_intent*) = 0;
+    virtual future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, io_intent*) = 0;
+    virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, io_intent*) = 0;
+    virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, io_intent*) = 0;
+#else
     virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc) = 0;
     virtual future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc) = 0;
     virtual future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc) = 0;
@@ -139,6 +146,7 @@ public:
     virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc, io_intent*) {
         return dma_read_bulk(offset, range_size, pc);
     }
+#endif
 
     virtual future<> flush(void) = 0;
     virtual future<struct stat> stat(void) = 0;
@@ -261,6 +269,7 @@ public:
         return _file_impl->_write_max_length;
     }
 
+#if SEASTAR_API_LEVEL < 7
     /**
      * Perform a single DMA read operation.
      *
@@ -283,6 +292,7 @@ public:
     dma_read(uint64_t aligned_pos, CharType* aligned_buffer, size_t aligned_len, const io_priority_class& pc, io_intent* intent = nullptr) noexcept {
         return dma_read_impl(aligned_pos, reinterpret_cast<uint8_t*>(aligned_buffer), aligned_len, internal::maybe_priority_class_ref(pc), intent);
     }
+#endif
 
     /**
      * Perform a single DMA read operation.
@@ -304,6 +314,7 @@ public:
         return dma_read_impl(aligned_pos, reinterpret_cast<uint8_t*>(aligned_buffer), aligned_len, internal::maybe_priority_class_ref(), intent);
     }
 
+#if SEASTAR_API_LEVEL < 7
     /**
      * Read the requested amount of bytes starting from the given offset.
      *
@@ -328,6 +339,7 @@ public:
             return temporary_buffer<CharType>(reinterpret_cast<CharType*>(t.get_write()), t.size(), t.release());
         });
     }
+#endif
 
     /**
      * Read the requested amount of bytes starting from the given offset.
@@ -355,6 +367,7 @@ public:
     /// with \ref dma_read_exactly().
     class eof_error : public std::exception {};
 
+#if SEASTAR_API_LEVEL < 7
     /**
      * Read the exact amount of bytes.
      *
@@ -377,6 +390,7 @@ public:
             return temporary_buffer<CharType>(reinterpret_cast<CharType*>(t.get_write()), t.size(), t.release());
         });
     }
+#endif
 
     /**
      * Read the exact amount of bytes.
@@ -398,6 +412,7 @@ public:
         });
     }
 
+#if SEASTAR_API_LEVEL < 7
     /// Performs a DMA read into the specified iovec.
     ///
     /// \param pos offset to read from.  Must be aligned to \ref disk_read_dma_alignment.
@@ -413,6 +428,7 @@ public:
     future<size_t> dma_read(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent = nullptr) noexcept {
         return dma_read_impl(pos, std::move(iov), internal::maybe_priority_class_ref(pc), intent);
     }
+#endif
 
     /// Performs a DMA read into the specified iovec.
     ///
@@ -427,6 +443,7 @@ public:
         return dma_read_impl(pos, std::move(iov), internal::maybe_priority_class_ref(), intent);
     }
 
+#if SEASTAR_API_LEVEL < 7
     /// Performs a DMA write from the specified buffer.
     ///
     /// \param pos offset to write into.  Must be aligned to \ref disk_write_dma_alignment.
@@ -444,6 +461,7 @@ public:
     future<size_t> dma_write(uint64_t pos, const CharType* buffer, size_t len, const io_priority_class& pc, io_intent* intent = nullptr) noexcept {
         return dma_write_impl(pos, reinterpret_cast<const uint8_t*>(buffer), len, internal::maybe_priority_class_ref(pc), intent);
     }
+#endif
 
     /// Performs a DMA write from the specified buffer.
     ///
@@ -460,6 +478,7 @@ public:
         return dma_write_impl(pos, reinterpret_cast<const uint8_t*>(buffer), len, internal::maybe_priority_class_ref(), intent);
     }
 
+#if SEASTAR_API_LEVEL < 7
     /// Performs a DMA write to the specified iovec.
     ///
     /// \param pos offset to write into.  Must be aligned to \ref disk_write_dma_alignment.
@@ -475,6 +494,7 @@ public:
     future<size_t> dma_write(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent = nullptr) noexcept {
         return dma_write_impl(pos, std::move(iov), internal::maybe_priority_class_ref(pc), intent);
     }
+#endif
 
     /// Performs a DMA write to the specified iovec.
     ///
@@ -650,6 +670,7 @@ public:
     /// Returns a directory listing, given that this file object is a directory.
     subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next);
 
+#if SEASTAR_API_LEVEL < 7
     /**
      * Read a data bulk containing the provided addresses range that starts at
      * the given offset and ends at either the address aligned to
@@ -674,6 +695,7 @@ public:
             return temporary_buffer<CharType>(reinterpret_cast<CharType*>(t.get_write()), t.size(), t.release());
         });
     }
+#endif
 
     /**
      * Read a data bulk containing the provided addresses range that starts at

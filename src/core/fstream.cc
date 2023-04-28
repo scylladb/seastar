@@ -59,10 +59,17 @@ static inline T select_buffer_size(T configured_value, T maximum_value) noexcept
     }
 }
 
+#if SEASTAR_API_LEVEL >= 7
+template <typename Options>
+inline internal::maybe_priority_class_ref get_io_priority(const Options& opts) {
+    return internal::maybe_priority_class_ref{};
+}
+#else
 template <typename Options>
 inline internal::maybe_priority_class_ref get_io_priority(const Options& opts) {
     return internal::maybe_priority_class_ref(opts.io_priority_class);
 }
+#endif
 
 class file_data_source_impl : public data_source_impl {
     struct issued_read {

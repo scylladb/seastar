@@ -1171,7 +1171,11 @@ future<uint64_t> file::get_inode_lifetime_hint() noexcept {
 future<temporary_buffer<uint8_t>>
 file::dma_read_bulk_impl(uint64_t offset, size_t range_size, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
   try {
+#if SEASTAR_API_LEVEL >= 7
+    return _file_impl->dma_read_bulk(offset, range_size, intent);
+#else
     return _file_impl->dma_read_bulk(offset, range_size, pc.pc, intent);
+#endif
   } catch (...) {
     return current_exception_as_future<temporary_buffer<uint8_t>>();
   }
@@ -1219,7 +1223,11 @@ future<> file::flush() noexcept {
 
 future<size_t> file::dma_write_impl(uint64_t pos, std::vector<iovec> iov, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
   try {
+#if SEASTAR_API_LEVEL >= 7
+    return _file_impl->write_dma(pos, std::move(iov), intent);
+#else
     return _file_impl->write_dma(pos, std::move(iov), pc.pc, intent);
+#endif
   } catch (...) {
     return current_exception_as_future<size_t>();
   }
@@ -1228,7 +1236,11 @@ future<size_t> file::dma_write_impl(uint64_t pos, std::vector<iovec> iov, intern
 future<size_t>
 file::dma_write_impl(uint64_t pos, const uint8_t* buffer, size_t len, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
   try {
+#if SEASTAR_API_LEVEL >= 7
+    return _file_impl->write_dma(pos, buffer, len, intent);
+#else
     return _file_impl->write_dma(pos, buffer, len, pc.pc, intent);
+#endif
   } catch (...) {
     return current_exception_as_future<size_t>();
   }
@@ -1236,7 +1248,11 @@ file::dma_write_impl(uint64_t pos, const uint8_t* buffer, size_t len, internal::
 
 future<size_t> file::dma_read_impl(uint64_t pos, std::vector<iovec> iov, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
   try {
+#if SEASTAR_API_LEVEL >= 7
+    return _file_impl->read_dma(pos, std::move(iov), intent);
+#else
     return _file_impl->read_dma(pos, std::move(iov), pc.pc, intent);
+#endif
   } catch (...) {
     return current_exception_as_future<size_t>();
   }
@@ -1267,7 +1283,11 @@ file::dma_read_impl(uint64_t pos, size_t len, internal::maybe_priority_class_ref
 future<size_t>
 file::dma_read_impl(uint64_t aligned_pos, uint8_t* aligned_buffer, size_t aligned_len, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
   try {
+#if SEASTAR_API_LEVEL >= 7
+    return _file_impl->read_dma(aligned_pos, aligned_buffer, aligned_len, intent);
+#else
     return _file_impl->read_dma(aligned_pos, aligned_buffer, aligned_len, pc.pc, intent);
+#endif
   } catch (...) {
     return current_exception_as_future<size_t>();
   }

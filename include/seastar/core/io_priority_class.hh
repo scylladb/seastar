@@ -99,11 +99,16 @@ private:
 const io_priority_class& default_priority_class();
 
 namespace internal {
+#if SEASTAR_API_LEVEL >= 7
+struct maybe_priority_class_ref {
+};
+#else
 struct maybe_priority_class_ref {
     const io_priority_class& pc;
     explicit maybe_priority_class_ref(const io_priority_class& p) noexcept : pc(p) {}
     maybe_priority_class_ref() noexcept : pc(default_priority_class()) {}
 };
+#endif
 }
 
 } // namespace seastar

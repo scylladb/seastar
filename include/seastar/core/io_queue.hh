@@ -71,6 +71,7 @@ class priority_class {
     unsigned _id;
 public:
     explicit priority_class(const io_priority_class& pc) noexcept;
+    explicit priority_class(const scheduling_group& sg) noexcept;
     explicit priority_class(internal::maybe_priority_class_ref pc) noexcept;
     unsigned id() const noexcept { return _id; }
 };
