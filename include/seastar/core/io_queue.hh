@@ -75,7 +75,10 @@ private:
     boost::container::small_vector<fair_queue, 2> _streams;
     internal::io_sink& _sink;
 
+    friend struct ::io_queue_for_tests;
     priority_class_data& find_or_create_class(const io_priority_class& pc);
+    future<size_t> queue_request(const io_priority_class& pc, internal::io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept;
+    future<size_t> queue_one_request(const io_priority_class& pc, internal::io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept;
 
     // The fields below are going away, they are just here so we can implement deprecated
     // functions that used to be provided by the fair_queue and are going away (from both
@@ -123,13 +126,10 @@ public:
     future<size_t> submit_io_write(const io_priority_class& priority_class,
             size_t len, internal::io_request req, io_intent* intent, iovec_keeper iovs = {}) noexcept;
 
-    future<size_t> queue_request(const io_priority_class& pc, internal::io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept;
-    future<size_t> queue_one_request(const io_priority_class& pc, internal::io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept;
     void submit_request(io_desc_read_write* desc, internal::io_request req) noexcept;
     void cancel_request(queued_io_request& req) noexcept;
     void complete_cancelled_request(queued_io_request& req) noexcept;
     void complete_request(io_desc_read_write& desc) noexcept;
-
 
     [[deprecated("I/O queue users should not track individual requests, but resources (weight, size) passing through the queue")]]
     size_t queued_requests() const {
