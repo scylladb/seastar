@@ -90,17 +90,21 @@ struct io_queue_for_tests {
         }
     }
 
-    future<size_t> queue_request(const io_priority_class& pc, internal::io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
+    future<size_t> queue_request(internal::priority_class pc, internal::io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
         return queue.queue_request(pc, dnl, std::move(req), intent, std::move(iovs));
     }
 };
+
+internal::priority_class get_default_pc() {
+    return internal::priority_class(default_priority_class());
+}
 
 SEASTAR_THREAD_TEST_CASE(test_basic_flow) {
     io_queue_for_tests tio;
     fake_file file;
 
     auto val = std::make_unique<int>(42);
-    auto f = tio.queue_request(default_priority_class(), internal::io_direction_and_length(internal::io_direction_and_length::write_idx, 0), file.make_write_req(0, val.get()), nullptr, {})
+    auto f = tio.queue_request(get_default_pc(), internal::io_direction_and_length(internal::io_direction_and_length::write_idx, 0), file.make_write_req(0, val.get()), nullptr, {})
     .then([&file] (size_t len) {
         BOOST_REQUIRE(file.data[0] == 42);
     });
@@ -125,7 +129,7 @@ static void do_test_large_request_flow(part_flaw flaw) {
     auto limits = tio.queue.get_request_limits();
 
     std::vector<::iovec> vecs;
-    auto f = tio.queue_request(default_priority_class(), internal::io_direction_and_length(internal::io_direction_and_length::write_idx, limits.max_write * 3),
+    auto f = tio.queue_request(get_default_pc(), internal::io_direction_and_length(internal::io_direction_and_length::write_idx, limits.max_write * 3),
                     file.make_writev_req(0, values, 3, limits.max_write, vecs), nullptr, std::move(vecs))
     .then([&file, &values, &limits, flaw] (size_t len) {
         size_t expected = limits.max_write;
@@ -233,8 +237,8 @@ SEASTAR_THREAD_TEST_CASE(test_io_cancellation) {
     fake_file file;
 
     io_queue_for_tests tio;
-    io_priority_class pc0 = io_priority_class::register_one("a", 100);
-    io_priority_class pc1 = io_priority_class::register_one("b", 100);
+    auto pc0 = internal::priority_class(io_priority_class::register_one("a", 100));
+    auto pc1 = internal::priority_class(io_priority_class::register_one("b", 100));
 
     size_t idx = 0;
     int val = 100;
@@ -244,7 +248,7 @@ SEASTAR_THREAD_TEST_CASE(test_io_cancellation) {
     std::vector<future<>> finished;
     std::vector<future<>> cancelled;
 
-    auto queue_legacy_request = [&] (io_queue_for_tests& q, io_priority_class& pc) {
+    auto queue_legacy_request = [&] (io_queue_for_tests& q, internal::priority_class pc) {
         auto buf = std::make_unique<int>(val);
         auto f = q.queue_request(pc, internal::io_direction_and_length(internal::io_direction_and_length::write_idx, 0), file.make_write_req(idx, buf.get()), nullptr, {})
             .then([&file, idx, val, buf = std::move(buf)] (size_t len) {
@@ -256,7 +260,7 @@ SEASTAR_THREAD_TEST_CASE(test_io_cancellation) {
         val++;
     };
 
-    auto queue_live_request = [&] (io_queue_for_tests& q, io_priority_class& pc) {
+    auto queue_live_request = [&] (io_queue_for_tests& q, internal::priority_class pc) {
         auto buf = std::make_unique<int>(val);
         auto f = q.queue_request(pc, internal::io_direction_and_length(internal::io_direction_and_length::write_idx, 0), file.make_write_req(idx, buf.get()), &live, {})
             .then([&file, idx, val, buf = std::move(buf)] (size_t len) {
@@ -268,7 +272,7 @@ SEASTAR_THREAD_TEST_CASE(test_io_cancellation) {
         val++;
     };
 
-    auto queue_dead_request = [&] (io_queue_for_tests& q, io_priority_class& pc) {
+    auto queue_dead_request = [&] (io_queue_for_tests& q, internal::priority_class pc) {
         auto buf = std::make_unique<int>(val);
         auto f = q.queue_request(pc, internal::io_direction_and_length(internal::io_direction_and_length::write_idx, 0), file.make_write_req(idx, buf.get()), &dead, {})
             .then_wrapped([buf = std::move(buf)] (auto&& f) {

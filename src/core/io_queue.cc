@@ -85,7 +85,7 @@ struct io_group::priority_class_data {
 
 class io_queue::priority_class_data {
     io_queue& _queue;
-    const io_priority_class _pc;
+    const internal::priority_class _pc;
     uint32_t _shares;
     struct {
         size_t bytes = 0;
@@ -128,7 +128,7 @@ public:
         io_log.debug("Updated {} class bandwidth to {}MB/s", _pc.id(), bandwidth >> 20);
     }
 
-    priority_class_data(io_priority_class pc, uint32_t shares, io_queue& q, io_group::priority_class_data& pg)
+    priority_class_data(internal::priority_class pc, uint32_t shares, io_queue& q, io_group::priority_class_data& pg)
         : _queue(q)
         , _pc(pc)
         , _shares(shares)
@@ -319,6 +319,9 @@ public:
 };
 
 namespace internal {
+
+priority_class::priority_class(const io_priority_class& pc) noexcept : _id(pc.id())
+{ }
 
 cancellable_queue::cancellable_queue(cancellable_queue&& o) noexcept
         : _first(std::exchange(o._first, nullptr))
@@ -801,7 +804,7 @@ void io_queue::register_stats(sstring name, priority_class_data& pc) {
     pc.metric_groups = std::exchange(new_metrics, {});
 }
 
-io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_class& pc) {
+io_queue::priority_class_data& io_queue::find_or_create_class(internal::priority_class pc) {
     auto id = pc.id();
     if (id >= _priority_classes.size()) {
         _priority_classes.resize(id + 1);
@@ -835,7 +838,7 @@ io_queue::priority_class_data& io_queue::find_or_create_class(const io_priority_
     return *_priority_classes[id];
 }
 
-io_group::priority_class_data& io_group::find_or_create_class(io_priority_class pc) {
+io_group::priority_class_data& io_group::find_or_create_class(internal::priority_class pc) {
     std::lock_guard _(_lock);
 
     auto id = pc.id();
@@ -880,8 +883,8 @@ io_queue::request_limits io_queue::get_request_limits() const noexcept {
     return l;
 }
 
-future<size_t> io_queue::queue_one_request(const io_priority_class& pc, io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
-    return futurize_invoke([&pc, dnl = std::move(dnl), req = std::move(req), this, intent, iovs = std::move(iovs)] () mutable {
+future<size_t> io_queue::queue_one_request(internal::priority_class pc, io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
+    return futurize_invoke([pc = std::move(pc), dnl = std::move(dnl), req = std::move(req), this, intent, iovs = std::move(iovs)] () mutable {
         // First time will hit here, and then we create the class. It is important
         // that we create the shared pointer in the same shard it will be used at later.
         auto& pclass = find_or_create_class(pc);
@@ -900,11 +903,11 @@ future<size_t> io_queue::queue_one_request(const io_priority_class& pc, io_direc
     });
 }
 
-future<size_t> io_queue::queue_request(const io_priority_class& pc, io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
+future<size_t> io_queue::queue_request(internal::priority_class pc, io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
     size_t max_length = _group->_max_request_length[dnl.rw_idx()];
 
     if (__builtin_expect(dnl.length() <= max_length, true)) {
-        return queue_one_request(pc, dnl, std::move(req), intent, std::move(iovs));
+        return queue_one_request(std::move(pc), dnl, std::move(req), intent, std::move(iovs));
     }
 
     std::vector<internal::io_request::part> parts;
@@ -959,18 +962,18 @@ future<size_t> io_queue::queue_request(const io_priority_class& pc, io_direction
     });
 }
 
-future<size_t> io_queue::submit_io_read(const io_priority_class& pc, size_t len, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
+future<size_t> io_queue::submit_io_read(internal::priority_class pc, size_t len, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
     auto& r = engine();
     ++r._io_stats.aio_reads;
     r._io_stats.aio_read_bytes += len;
-    return queue_request(pc, io_direction_and_length(io_direction_read, len), std::move(req), intent, std::move(iovs));
+    return queue_request(std::move(pc), io_direction_and_length(io_direction_read, len), std::move(req), intent, std::move(iovs));
 }
 
-future<size_t> io_queue::submit_io_write(const io_priority_class& pc, size_t len, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
+future<size_t> io_queue::submit_io_write(internal::priority_class pc, size_t len, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
     auto& r = engine();
     ++r._io_stats.aio_writes;
     r._io_stats.aio_write_bytes += len;
-    return queue_request(pc, io_direction_and_length(io_direction_write, len), std::move(req), intent, std::move(iovs));
+    return queue_request(std::move(pc), io_direction_and_length(io_direction_write, len), std::move(req), intent, std::move(iovs));
 }
 
 void io_queue::poll_io_queue() {
@@ -1010,7 +1013,7 @@ io_queue::clock_type::time_point io_queue::next_pending_aio() const noexcept {
 }
 
 void
-io_queue::update_shares_for_class(const io_priority_class pc, size_t new_shares) {
+io_queue::update_shares_for_class(internal::priority_class pc, size_t new_shares) {
     auto& pclass = find_or_create_class(pc);
     pclass.update_shares(new_shares);
     for (auto&& s : _streams) {
@@ -1018,7 +1021,7 @@ io_queue::update_shares_for_class(const io_priority_class pc, size_t new_shares)
     }
 }
 
-future<> io_queue::update_bandwidth_for_class(const io_priority_class pc, uint64_t new_bandwidth) {
+future<> io_queue::update_bandwidth_for_class(internal::priority_class pc, uint64_t new_bandwidth) {
     return futurize_invoke([this, pc, new_bandwidth] {
         if (_group->_allocated_on == this_shard_id()) {
             auto& pclass = find_or_create_class(pc);
@@ -1028,7 +1031,7 @@ future<> io_queue::update_bandwidth_for_class(const io_priority_class pc, uint64
 }
 
 void
-io_queue::rename_priority_class(io_priority_class pc, sstring new_name) {
+io_queue::rename_priority_class(internal::priority_class pc, sstring new_name) {
     if (_priority_classes.size() > pc.id() &&
             _priority_classes[pc.id()]) {
         try {

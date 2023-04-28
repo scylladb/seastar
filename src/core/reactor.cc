@@ -221,21 +221,21 @@ reactor::rename_priority_class(io_priority_class pc, sstring new_name) noexcept 
 
 void reactor::update_shares_for_queues(io_priority_class pc, uint32_t shares) {
     for (auto&& q : _io_queues) {
-        q.second->update_shares_for_class(pc, shares);
+        q.second->update_shares_for_class(internal::priority_class(pc), shares);
     }
 }
 
 future<> reactor::update_bandwidth_for_queues(io_priority_class pc, uint64_t bandwidth) {
     return smp::invoke_on_all([pc, bandwidth = bandwidth / _num_io_groups] {
         return parallel_for_each(engine()._io_queues, [pc, bandwidth] (auto& queue) {
-            return queue.second->update_bandwidth_for_class(pc, bandwidth);
+            return queue.second->update_bandwidth_for_class(internal::priority_class(pc), bandwidth);
         });
     });
 }
 
 void reactor::rename_queues(io_priority_class pc, sstring new_name) {
     for (auto&& queue : _io_queues) {
-        queue.second->rename_priority_class(pc, new_name);
+        queue.second->rename_priority_class(internal::priority_class(pc), new_name);
     }
 }
 
