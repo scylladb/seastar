@@ -1220,7 +1220,7 @@ future<> file::flush() noexcept {
   }
 }
 
-future<size_t> file::dma_write(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept {
+future<size_t> file::dma_write_impl(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept {
   try {
     return _file_impl->write_dma(pos, std::move(iov), pc, intent);
   } catch (...) {
@@ -1237,7 +1237,7 @@ file::dma_write_impl(uint64_t pos, const uint8_t* buffer, size_t len, const io_p
   }
 }
 
-future<size_t> file::dma_read(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept {
+future<size_t> file::dma_read_impl(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept {
   try {
     return _file_impl->read_dma(pos, std::move(iov), pc, intent);
   } catch (...) {

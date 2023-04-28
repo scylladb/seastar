@@ -338,7 +338,9 @@ public:
     ///
     /// \return a future representing the number of bytes actually read.  A short
     ///         read may happen due to end-of-file or an I/O error.
-    future<size_t> dma_read(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc = default_priority_class(), io_intent* intent = nullptr) noexcept;
+    future<size_t> dma_read(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc = default_priority_class(), io_intent* intent = nullptr) noexcept {
+        return dma_read_impl(pos, std::move(iov), pc, intent);
+    }
 
     /// Performs a DMA write from the specified buffer.
     ///
@@ -366,7 +368,9 @@ public:
     ///
     /// \return a future representing the number of bytes actually written.  A short
     ///         write may happen due to an I/O error.
-    future<size_t> dma_write(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc = default_priority_class(), io_intent* intent = nullptr) noexcept;
+    future<size_t> dma_write(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc = default_priority_class(), io_intent* intent = nullptr) noexcept {
+        return dma_write_impl(pos, std::move(iov), pc, intent);
+    }
 
     /// Causes any previously written data to be made stable on persistent storage.
     ///
@@ -568,11 +572,17 @@ private:
     future<size_t>
     dma_write_impl(uint64_t pos, const uint8_t* buffer, size_t len, const io_priority_class& pc, io_intent* intent) noexcept;
 
+    future<size_t>
+    dma_write_impl(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept;
+
     future<temporary_buffer<uint8_t>>
     dma_read_impl(uint64_t pos, size_t len, const io_priority_class& pc, io_intent* intent) noexcept;
 
     future<size_t>
     dma_read_impl(uint64_t aligned_pos, uint8_t* aligned_buffer, size_t aligned_len, const io_priority_class& pc, io_intent* intent) noexcept;
+
+    future<size_t>
+    dma_read_impl(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent) noexcept;
 
     future<temporary_buffer<uint8_t>>
     dma_read_exactly_impl(uint64_t pos, size_t len, const io_priority_class& pc, io_intent* intent) noexcept;
