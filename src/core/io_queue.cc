@@ -320,8 +320,10 @@ public:
 
 namespace internal {
 
+#if SEASTAR_API_LEVEL < 7
 priority_class::priority_class(const io_priority_class& pc) noexcept : _id(pc.id())
 { }
+#endif
 
 priority_class::priority_class(const scheduling_group& sg) noexcept : _id(internal::scheduling_group_index(sg))
 { }
@@ -652,7 +654,7 @@ std::tuple<unsigned, sstring> get_class_info(io_priority_class_id pc) {
     auto sg = internal::scheduling_group_from_index(pc);
     return std::make_tuple(sg.get_shares(), sg.name());
 }
-#endif
+#else
 
 std::mutex io_priority_class::_register_lock;
 std::array<io_priority_class::class_info, io_priority_class::_max_classes> io_priority_class::_infos;
@@ -738,7 +740,6 @@ future<> io_priority_class::rename(sstring new_name) noexcept {
     });
 }
 
-#if SEASTAR_API_LEVEL < 7
 std::tuple<unsigned, sstring> get_class_info(io_priority_class_id pc) {
     const auto& ci = io_priority_class::_infos.at(pc);
     return std::make_tuple(ci.shares, ci.name);

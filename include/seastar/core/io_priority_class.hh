@@ -31,6 +31,8 @@ namespace seastar {
 
 class io_queue;
 using io_priority_class_id = unsigned;
+
+#if SEASTAR_API_LEVEL < 7
 // We could very well just add the name to the io_priority_class. However, because that
 // structure is passed along all the time - and sometimes we can't help but copy it, better keep
 // it lean. The name won't really be used for anything other than monitoring.
@@ -49,6 +51,7 @@ public:
         return _id;
     }
 
+    [[deprecated("Use scheduling_groups and API level >= 7")]]
     static io_priority_class register_one(sstring name, uint32_t shares);
 
     /// \brief Updates the current amount of shares for a given priority class
@@ -97,6 +100,8 @@ private:
 };
 
 const io_priority_class& default_priority_class();
+
+#endif
 
 namespace internal {
 #if SEASTAR_API_LEVEL >= 7

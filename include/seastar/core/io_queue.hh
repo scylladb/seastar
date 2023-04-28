@@ -37,11 +37,13 @@ struct io_queue_for_tests;
 
 namespace seastar {
 
+#if SEASTAR_API_LEVEL < 7
 class io_priority_class;
 
 [[deprecated("Use io_priority_class.rename")]]
 future<>
 rename_priority_class(io_priority_class pc, sstring new_name);
+#endif
 
 class io_intent;
 
@@ -70,7 +72,9 @@ struct maybe_priority_class_ref;
 class priority_class {
     unsigned _id;
 public:
+#if SEASTAR_API_LEVEL < 7
     explicit priority_class(const io_priority_class& pc) noexcept;
+#endif
     explicit priority_class(const scheduling_group& sg) noexcept;
     explicit priority_class(internal::maybe_priority_class_ref pc) noexcept;
     unsigned id() const noexcept { return _id; }

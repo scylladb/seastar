@@ -57,8 +57,10 @@
 
 namespace seastar {
 
+#if SEASTAR_API_LEVEL < 7
 static_assert(std::is_nothrow_copy_constructible_v<io_priority_class>);
 static_assert(std::is_nothrow_move_constructible_v<io_priority_class>);
+#endif
 
 namespace internal {
 

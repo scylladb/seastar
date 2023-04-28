@@ -204,9 +204,13 @@ shard_id reactor::cpu_id() const {
     return _id;
 }
 
+#if SEASTAR_API_LEVEL < 7
 io_priority_class
 reactor::register_one_priority_class(sstring name, uint32_t shares) {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     return io_priority_class::register_one(std::move(name), shares);
+#pragma GCC diagnostic pop
 }
 
 future<>
@@ -218,6 +222,7 @@ future<>
 reactor::rename_priority_class(io_priority_class pc, sstring new_name) noexcept {
     return pc.rename(std::move(new_name));
 }
+#endif
 
 void reactor::update_shares_for_queues(internal::priority_class pc, uint32_t shares) {
     for (auto&& q : _io_queues) {
@@ -1706,12 +1711,17 @@ reactor::reap_kernel_completions() {
     return _backend->reap_kernel_completions();
 }
 
+#if SEASTAR_API_LEVEL < 7
 const io_priority_class& default_priority_class() {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     static thread_local auto shard_default_class = [] {
         return io_priority_class::register_one("default", 1);
     }();
     return shard_default_class;
+#pragma GCC diagnostic pop
 }
+#endif
 
 namespace internal {
 
@@ -4833,10 +4843,12 @@ scheduling_group_key_create(scheduling_group_key_config cfg) noexcept {
     });
 }
 
+#if SEASTAR_API_LEVEL < 7
 future<>
 rename_priority_class(io_priority_class pc, sstring new_name) {
     return pc.rename(std::move(new_name));
 }
+#endif
 
 future<>
 destroy_scheduling_group(scheduling_group sg) noexcept {
