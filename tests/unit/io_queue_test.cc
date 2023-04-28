@@ -96,7 +96,7 @@ struct io_queue_for_tests {
 };
 
 internal::priority_class get_default_pc() {
-    return internal::priority_class(default_priority_class());
+    return internal::priority_class(current_scheduling_group());
 }
 
 SEASTAR_THREAD_TEST_CASE(test_basic_flow) {
@@ -237,8 +237,8 @@ SEASTAR_THREAD_TEST_CASE(test_io_cancellation) {
     fake_file file;
 
     io_queue_for_tests tio;
-    auto pc0 = internal::priority_class(io_priority_class::register_one("a", 100));
-    auto pc1 = internal::priority_class(io_priority_class::register_one("b", 100));
+    auto pc0 = internal::priority_class(create_scheduling_group("a", 100).get0());
+    auto pc1 = internal::priority_class(create_scheduling_group("b", 100).get0());
 
     size_t idx = 0;
     int val = 100;

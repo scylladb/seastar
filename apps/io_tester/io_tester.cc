@@ -174,7 +174,6 @@ struct shard_info {
     std::chrono::duration<float> think_after = 0ms;
     std::chrono::duration<float> execution_time = 1ms;
     seastar::scheduling_group scheduling_group = seastar::default_scheduling_group();
-    seastar::io_priority_class io_class = seastar::default_priority_class();
 };
 
 struct options {
@@ -211,7 +210,6 @@ protected:
     uint64_t _last_pos = 0;
     uint64_t _offset = 0;
 
-    io_priority_class _iop;
     seastar::scheduling_group _sg;
 
     size_t _data = 0;
@@ -232,7 +230,6 @@ public:
     class_data(job_config cfg)
         : _config(std::move(cfg))
         , _alignment(_config.shard_info.request_size >= 4096 ? 4096 : 512)
-        , _iop(cfg.shard_info.io_class)
         , _sg(cfg.shard_info.scheduling_group)
         , _latencies(extended_p_square_probabilities = quantiles)
         , _pos_distribution(0,  _config.file_size / _config.shard_info.request_size)
@@ -356,7 +353,7 @@ public:
     future<> start(sstring dir, directory_entry_type type) {
         return do_start(dir, type).then([this] {
             if (this_shard_id() == 0 && _config.shard_info.bandwidth != 0) {
-                return _iop.update_bandwidth(_config.shard_info.bandwidth);
+                return make_ready_future<>(); // FIXME _iop.update_bandwidth(_config.shard_info.bandwidth);
             } else {
                 return make_ready_future<>();
             }
@@ -631,7 +628,7 @@ public:
     read_io_class_data(job_config cfg) : io_class_data(std::move(cfg)) {}
 
     future<size_t> issue_request(char *buf, io_intent* intent) override {
-        auto f = _file.dma_read(this->get_pos(), buf, this->req_size(), _iop, intent);
+        auto f = _file.dma_read(this->get_pos(), buf, this->req_size(), intent);
         return on_io_completed(std::move(f));
     }
 };
@@ -641,7 +638,7 @@ public:
     write_io_class_data(job_config cfg) : io_class_data(std::move(cfg)) {}
 
     future<size_t> issue_request(char *buf, io_intent* intent) override {
-        auto f = _file.dma_write(this->get_pos(), buf, this->req_size(), _iop, intent);
+        auto f = _file.dma_write(this->get_pos(), buf, this->req_size(), intent);
         return on_io_completed(std::move(f));
     }
 };
@@ -969,7 +966,6 @@ int main(int ac, char** av) {
 
             struct sched_class {
                 seastar::scheduling_group sg;
-                seastar::io_priority_class iop;
             };
             std::unordered_map<std::string, sched_class> sched_classes;
 
@@ -981,7 +977,6 @@ int main(int ac, char** av) {
                 return seastar::create_scheduling_group(r.name, r.shard_info.shares).then([&r, &sched_classes] (seastar::scheduling_group sg) {
                     sched_classes.insert(std::make_pair(r.name, sched_class {
                         .sg = sg,
-                        .iop = io_priority_class::register_one(r.name, r.shard_info.shares),
                     }));
                 });
             }).get();
@@ -991,7 +986,6 @@ int main(int ac, char** av) {
                 fmt::print("Job {} -> sched class {}\n", r.name, cname);
                 auto& sc = sched_classes.at(cname);
                 r.shard_info.scheduling_group = sc.sg;
-                r.shard_info.io_class = sc.iop;
             }
 
             if (*st_type == directory_entry_type::block_device) {

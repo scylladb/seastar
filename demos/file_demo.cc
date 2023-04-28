@@ -189,7 +189,7 @@ future<> demo_with_io_intent() {
 
         io_intent intent;
         auto f1 = f.dma_write(0, wbuf_n.get(), half_aligned_size);
-        auto f2 = f.dma_write(half_aligned_size, wbuf_n.get() + half_aligned_size, half_aligned_size, default_priority_class(), &intent);
+        auto f2 = f.dma_write(half_aligned_size, wbuf_n.get() + half_aligned_size, half_aligned_size, &intent);
 
         fmt::print("  cancel the 2nd overwriting\n");
         intent.cancel();
