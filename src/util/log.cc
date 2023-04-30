@@ -322,7 +322,7 @@ logger::do_log(log_level level, log_writer& writer) {
     }
     auto print_once = [&] (internal::log_buf::inserter_iterator it) {
       if (local_engine) {
-          it = fmt::format_to(it, " [shard {:{}}]", this_shard_id(), _shard_field_width);
+          it = fmt::format_to(it, " [shard {:{}}/{}]", this_shard_id(), _shard_field_width, current_scheduling_group().name());
       }
       it = fmt::format_to(it, " {} - ", _name);
       return writer(it);
