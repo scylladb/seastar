@@ -164,6 +164,26 @@ SEASTAR_TEST_CASE(test_add_del_cookie)
     return make_ready_future<>();
 }
 
+SEASTAR_TEST_CASE(test_batch_del_cookie)
+{
+    parameters params;
+    routes rts;
+
+    auto* h1 = new handl();
+    rts.put(operation_type::GET, "/hello", h1);
+    auto* h2 = new handl();
+    rts.put(operation_type::GET, "/world", h2);
+    rts.clean_batch();
+    auto res1 = rts.get_handler(operation_type::GET, "/hello", params);
+    httpd::handler_base* nl = nullptr;
+    BOOST_REQUIRE_EQUAL(res1, nl);
+    auto res2 = rts.get_handler(operation_type::GET, "/world", params);
+    BOOST_REQUIRE_EQUAL(res2, nl);
+    delete h1;
+    delete h2;
+    return make_ready_future<>();
+}
+
 SEASTAR_TEST_CASE(test_formatter)
 {
     BOOST_REQUIRE_EQUAL(json::formatter::to_json(true), "true");

@@ -106,7 +106,9 @@ public:
      * @return it self
      */
     routes& add(match_rule* rule, operation_type type = GET) {
-        _rules[type][_rover++] = rule;
+        _rules[type][_rover] = rule;
+        _rules_batch.emplace_back(std::make_pair(type,_rules[type].find(_rover)));
+        _rover++;
         return *this;
     }
 
@@ -178,6 +180,8 @@ private:
     std::map<rule_cookie, match_rule*> _rules[NUM_OPERATION];
     //default Handler -- for any HTTP Method and Path (/*)
     handler_base* _default_handler = nullptr;
+    std::vector<std::pair<operation_type,std::unordered_map<sstring, handler_base*>::iterator>> _map_batch;
+    std::vector<std::pair<operation_type,std::map<rule_cookie, match_rule*>::iterator>> _rules_batch;
 public:
     using exception_handler_fun = std::function<std::unique_ptr<http::reply>(std::exception_ptr eptr)>;
     using exception_handler_id = size_t;
@@ -235,6 +239,11 @@ public:
      * @return the pointer to the rule
      */
     match_rule* del_cookie(rule_cookie cookie, operation_type type);
+
+    /**
+     * Del rules or matches based on the underlying batch.
+     */
+    void clean_batch();
 };
 
 /**

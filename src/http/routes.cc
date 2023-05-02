@@ -168,11 +168,27 @@ routes& routes::put(operation_type type, const sstring& url, handler_base* handl
     if (it.second == false) {
         throw std::runtime_error(format("Handler for {} already exists.", url));
     }
+    _map_batch.emplace_back(std::make_pair(type,it.first));
     return *this;
 }
 
 match_rule* routes::del_cookie(rule_cookie cookie, operation_type type) {
     return delete_rule_from(type, cookie, _rules);
+}
+
+void routes::clean_batch() {
+    if (!_map_batch.empty()) {
+        for (auto& it : _map_batch) {
+            _map[it.first].erase(it.second);
+        }
+    }
+    if (!_rules_batch.empty()) {
+        for (auto& it : _rules_batch) {
+            _rules[it.first].erase(it.second);
+        }
+    }
+    _map_batch.clear();
+    _rules_batch.clear();
 }
 
 void routes::add_alias(const path_description& old_path, const path_description& new_path) {
