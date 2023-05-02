@@ -690,7 +690,7 @@ future<> io_priority_class::update_shares(uint32_t shares) const {
     // Keep registered shares intact, just update the ones
     // on reactor queues
     return futurize_invoke([this, shares] {
-        engine().update_shares_for_queues(*this, shares);
+        engine().update_shares_for_queues(internal::priority_class(*this), shares);
     });
 }
 
@@ -733,7 +733,7 @@ future<> io_priority_class::rename(sstring new_name) noexcept {
         }
 
         return smp::invoke_on_all([this, new_name = std::move(new_name)] {
-            engine().rename_queues(*this, new_name);
+            engine().rename_queues(internal::priority_class(*this), new_name);
         });
     });
 }

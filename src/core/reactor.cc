@@ -219,9 +219,9 @@ reactor::rename_priority_class(io_priority_class pc, sstring new_name) noexcept 
     return pc.rename(std::move(new_name));
 }
 
-void reactor::update_shares_for_queues(io_priority_class pc, uint32_t shares) {
+void reactor::update_shares_for_queues(internal::priority_class pc, uint32_t shares) {
     for (auto&& q : _io_queues) {
-        q.second->update_shares_for_class(internal::priority_class(pc), shares);
+        q.second->update_shares_for_class(pc, shares);
     }
 }
 
@@ -233,9 +233,9 @@ future<> reactor::update_bandwidth_for_queues(io_priority_class pc, uint64_t ban
     });
 }
 
-void reactor::rename_queues(io_priority_class pc, sstring new_name) {
+void reactor::rename_queues(internal::priority_class pc, sstring new_name) {
     for (auto&& queue : _io_queues) {
-        queue.second->rename_priority_class(internal::priority_class(pc), new_name);
+        queue.second->rename_priority_class(pc, new_name);
     }
 }
 
@@ -4796,6 +4796,9 @@ float scheduling_group::get_shares() const noexcept {
 void
 scheduling_group::set_shares(float shares) noexcept {
     engine()._task_queues[_id]->set_shares(shares);
+#if SEASTAR_API_LEVEL >= 7
+    engine().update_shares_for_queues(internal::priority_class(*this), shares);
+#endif
 }
 
 future<scheduling_group>
@@ -4851,6 +4854,9 @@ rename_scheduling_group(scheduling_group sg, sstring new_name) noexcept {
     }
     return smp::invoke_on_all([sg, new_name] {
         engine()._task_queues[sg._id]->rename(new_name);
+#if SEASTAR_API_LEVEL >= 7
+        engine().rename_queues(internal::priority_class(sg), new_name);
+#endif
         return engine().rename_scheduling_group_specific_data(sg);
     });
 }
