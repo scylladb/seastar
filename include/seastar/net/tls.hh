@@ -387,6 +387,25 @@ namespace tls {
      * If the socket is not a TLS socket an exception will be thrown.
     */
     future<std::vector<subject_alt_name>> get_alt_name_information(connected_socket& socket, std::unordered_set<subject_alt_name_type> types = {});
+
+    std::ostream& operator<<(std::ostream&, const subject_alt_name::value_type&);
+    std::ostream& operator<<(std::ostream&, const subject_alt_name&);
+
+    /**
+     * Alt name to string. 
+     * Note: because naming of alternative names is inconsistent between tools,
+     * and because openssl is probably more popular when creating certs anyway,
+     * this routine will be inconsistent with both gnutls and openssl (though more
+     * in line with the latter) and name the constants as follows:
+     * 
+     * dnsname: "DNS"
+     * rfc822name: "EMAIL"
+     * uri: "URI"
+     * ipaddress "IP"
+     * othername: "OTHERNAME"
+     * dn: "DIRNAME"
+    */
+    std::ostream& operator<<(std::ostream&, subject_alt_name_type);
 }
 }
 
