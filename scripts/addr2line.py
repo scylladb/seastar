@@ -92,7 +92,7 @@ class KernelResolver:
 
     LAST_SYMBOL_MAX_SIZE = 1024
 
-    def __init__(self):
+    def __init__(self, kallsyms='/proc/kallsyms'):
         syms : list[tuple[int, str]] = []
         ksym_re = re.compile(r'(?P<addr>[0-9a-f]+) (?P<type>.+) (?P<name>\S+)')
         warnings_left = 10
@@ -100,9 +100,9 @@ class KernelResolver:
         self.error = None
 
         try:
-            f = open('/proc/kallsyms', 'r')
+            f = open(kallsyms, 'r')
         except OSError as e:
-            self.error = f'Cannot open /proc/kallsyms: {e}'
+            self.error = f'Cannot open {kallsyms}: {e}'
             print(self.error)
             return
 
@@ -111,7 +111,7 @@ class KernelResolver:
                 m = ksym_re.match(line)
                 if not m:
                     if warnings_left > 0: # don't spam too much
-                        print(f'WARNING: /proc/kallsyms regex match failure: {line.strip()}', file=sys.stdout)
+                        print(f'WARNING: {kallsyms} regex match failure: {line.strip()}', file=sys.stdout)
                         warnings_left -= 1
                 else:
                     syms.append((int(m.group('addr'), 16), m.group('name')))
@@ -262,8 +262,9 @@ class BacktraceResolver(object):
             #print(f">>> '{line}': None")
             return None
 
-    def __init__(self, executable, before_lines=1, context_re='', verbose=False, concise=False, cmd_path='addr2line'):
+    def __init__(self, executable, kallsyms='/proc/kallsyms', before_lines=1, context_re='', verbose=False, concise=False, cmd_path='addr2line'):
         self._executable = executable
+        self._kallsyms = kallsyms
         self._current_backtrace = []
         self._prefix = None
         self._before_lines = before_lines
@@ -284,7 +285,7 @@ class BacktraceResolver(object):
     def _get_resolver_for_module(self, module):
         if not module in self._known_modules:
             if module == KERNEL_MODULE:
-                resolver = KernelResolver()
+                resolver = KernelResolver(kallsyms=self._kallsyms)
             else:
                 resolver = Addr2Line(module, self._concise, self._cmd_path)
             self._known_modules[module] = resolver
