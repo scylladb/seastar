@@ -317,6 +317,13 @@ There are three operational modes:
         nargs='*',
         help='Addresses to parse')
 
+    cmdline_parser.add_argument(
+        '--kallsyms',
+        type=str,
+        metavar='KALLSYMS',
+        default='/proc/kallsyms',
+        help='Alternative path for kallsyms file to resolve kernel addresses')
+
     args = cmdline_parser.parse_args()
 
     if args.addresses and args.file:
@@ -334,6 +341,7 @@ There are three operational modes:
             lines = sys.stdin
 
     with BacktraceResolver(executable=args.executable,
+                           kallsyms=args.kallsyms,
                            before_lines=args.before,
                            context_re=args.match,
                            verbose=args.verbose,
