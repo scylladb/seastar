@@ -51,6 +51,23 @@
 // by size.  When spans are broken up or coalesced, they may move into new lists.
 // Spans have a size that is a power-of-two and are naturally aligned (aka buddy
 // allocator)
+//
+// If compiled with SEASTAR_HEAPPROF seastar features a sampling memory
+// profiler. Allocations are sampled at random (see `sampler` for the sampling
+// logic) and tracked. The sampled live set can be retrieved with
+// `sampled_memory_profile()`. Sampled allocations carry an extra
+// allocation_site pointer with them which is used on free to remove them from
+// the sampled live set.
+//
+// Large allocations are tracked via a pointer to the allocation_site which is
+// stored on the page structure. To check whether an allocation was sampled or
+// not this pointer is being looked at on free.
+//
+// Small allocations store an extra 8 bytes at the end of their allocation.
+// Sampled allocations are allocated in a separate set of small pools. Hence, to
+// check whether an allocation was sampled or not one only has to look at the
+// tag in pool.
+//
 
 #ifdef SEASTAR_MODULE
 module;
