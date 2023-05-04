@@ -80,7 +80,7 @@ int main(int ac, char** av) {
     app.add_options()("prometheus_address", bpo::value<sstring>()->default_value("0.0.0.0"), "Prometheus address");
     app.add_options()("prometheus_prefix", bpo::value<sstring>()->default_value("seastar_httpd"), "Prometheus metrics prefix");
 
-    return app.run_deprecated(ac, av, [&] {
+    return app.run(ac, av, [&] {
         return seastar::async([&] {
             seastar_apps_lib::stop_signal stop_signal;
             auto&& config = app.configuration();
@@ -129,6 +129,7 @@ int main(int ac, char** av) {
             });
 
             stop_signal.wait().get();
+            return 0;
         });
     });
 }
