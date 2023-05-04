@@ -238,3 +238,14 @@ BOOST_AUTO_TEST_CASE(test_resize_and_overwrite) {
         BOOST_CHECK_EQUAL(s, sstring(smaller_size, pattern));
     }
 }
+
+
+#ifdef __cpp_lib_three_way_comparison 
+
+BOOST_AUTO_TEST_CASE(test_compares_left_hand_not_string) {
+    // mostly a compile test for non-sstring left-hand-side
+    BOOST_REQUIRE("a" < sstring("b"));
+    BOOST_REQUIRE(std::string("a") < sstring("b"));
+}
+
+#endif

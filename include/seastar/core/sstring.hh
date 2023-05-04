@@ -673,6 +673,23 @@ operator<<(std::basic_ostream<char_type, char_traits>& os,
     return os.write(s.begin(), s.size());
 }
 
+#if __cpp_lib_three_way_comparison
+
+template <typename char_type, typename size_type, size_type max_size>
+std::strong_ordering
+operator<=>(const char_type* s1, const basic_sstring<char_type, size_type, max_size>& s2) {
+    return std::basic_string_view<char_type>(s1) <=> std::basic_string_view<char_type>(s2);
+}
+
+template <typename string_view_like, typename char_type, typename size_type, size_type max_size>
+SEASTAR_CONCEPT(requires std::convertible_to<std::basic_string_view<char_type>, string_view_like>)
+std::strong_ordering
+operator<=>(const string_view_like& s1, const basic_sstring<char_type, size_type, max_size>& s2) {
+    return std::basic_string_view<char_type>(s1) <=> std::basic_string_view<char_type>(s2);
+}
+
+#endif
+
 template <typename char_type, typename size_type, size_type max_size, bool NulTerminate, typename char_traits>
 inline
 std::basic_istream<char_type, char_traits>&
