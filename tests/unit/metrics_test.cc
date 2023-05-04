@@ -119,6 +119,7 @@ SEASTAR_THREAD_TEST_CASE(test_renaming_scheuling_groups) {
     BOOST_REQUIRE((name1_found && !name2_found) || (name2_found && !name1_found));
 }
 
+#if SEASTAR_API_LEVEL < 7
 SEASTAR_THREAD_TEST_CASE(test_renaming_io_priority_classes) {
     // this seams a little bit out of place but the
     // renaming functionality is primarily for statistics
@@ -169,6 +170,7 @@ SEASTAR_THREAD_TEST_CASE(test_renaming_io_priority_classes) {
     bool name2_found = label_vals.find(sstring(name2)) != label_vals.end();
     BOOST_REQUIRE((name1_found && !name2_found) || (name2_found && !name1_found));
 }
+#endif
 
 int count_by_label(const std::string& label) {
     seastar::foreign_ptr<seastar::metrics::impl::values_reference> values = seastar::metrics::impl::get_values();

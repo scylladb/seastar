@@ -587,16 +587,16 @@ SEASTAR_TEST_CASE(test_file_ioctl) {
 class test_layered_file : public layered_file_impl {
 public:
     explicit test_layered_file(file f) : layered_file_impl(std::move(f)) {}
-    virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc) override {
+    virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, io_intent*) override {
         abort();
     }
-    virtual future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc) override {
+    virtual future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, io_intent*) override {
         abort();
     }
-    virtual future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc) override {
+    virtual future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, io_intent*) override {
         abort();
     }
-    virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc) override {
+    virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, io_intent*) override {
         abort();
     }
     virtual future<> flush(void) override {
@@ -626,7 +626,7 @@ public:
     virtual subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next) override {
         abort();
     }
-    virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc) override {
+    virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, io_intent*) override {
         abort();
     }
 };
@@ -863,7 +863,7 @@ SEASTAR_TEST_CASE(test_intent) {
         std::fill(buf.get(), buf.get() + 1024, 'b');
         io_intent intent;
         auto f1 = f.dma_write(0, buf.get(), 512);
-        auto f2 = f.dma_write(512, buf.get(), 512, default_priority_class(), &intent);
+        auto f2 = f.dma_write(512, buf.get(), 512, &intent);
         intent.cancel();
 
         bool cancelled = false;

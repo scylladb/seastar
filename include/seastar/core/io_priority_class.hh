@@ -31,6 +31,8 @@ namespace seastar {
 
 class io_queue;
 using io_priority_class_id = unsigned;
+
+#if SEASTAR_API_LEVEL < 7
 // We could very well just add the name to the io_priority_class. However, because that
 // structure is passed along all the time - and sometimes we can't help but copy it, better keep
 // it lean. The name won't really be used for anything other than monitoring.
@@ -49,6 +51,7 @@ public:
         return _id;
     }
 
+    [[deprecated("Use scheduling_groups and API level >= 7")]]
     static io_priority_class register_one(sstring name, uint32_t shares);
 
     /// \brief Updates the current amount of shares for a given priority class
@@ -92,8 +95,25 @@ private:
     static constexpr unsigned _max_classes = 2048;
     static std::mutex _register_lock;
     static std::array<class_info, _max_classes> _infos;
+
+    friend std::tuple<unsigned, sstring> get_class_info(io_priority_class_id pc);
 };
 
 const io_priority_class& default_priority_class();
+
+#endif
+
+namespace internal {
+#if SEASTAR_API_LEVEL >= 7
+struct maybe_priority_class_ref {
+};
+#else
+struct maybe_priority_class_ref {
+    const io_priority_class& pc;
+    explicit maybe_priority_class_ref(const io_priority_class& p) noexcept : pc(p) {}
+    maybe_priority_class_ref() noexcept : pc(default_priority_class()) {}
+};
+#endif
+}
 
 } // namespace seastar

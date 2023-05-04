@@ -37,11 +37,13 @@ struct io_queue_for_tests;
 
 namespace seastar {
 
+#if SEASTAR_API_LEVEL < 7
 class io_priority_class;
 
 [[deprecated("Use io_priority_class.rename")]]
 future<>
 rename_priority_class(io_priority_class pc, sstring new_name);
+#endif
 
 class io_intent;
 
@@ -65,6 +67,20 @@ class io_group;
 using io_group_ptr = std::shared_ptr<io_group>;
 using iovec_keeper = std::vector<::iovec>;
 
+namespace internal {
+struct maybe_priority_class_ref;
+class priority_class {
+    unsigned _id;
+public:
+#if SEASTAR_API_LEVEL < 7
+    explicit priority_class(const io_priority_class& pc) noexcept;
+#endif
+    explicit priority_class(const scheduling_group& sg) noexcept;
+    explicit priority_class(internal::maybe_priority_class_ref pc) noexcept;
+    unsigned id() const noexcept { return _id; }
+};
+}
+
 class io_queue {
 public:
     class priority_class_data;
@@ -75,7 +91,10 @@ private:
     boost::container::small_vector<fair_queue, 2> _streams;
     internal::io_sink& _sink;
 
-    priority_class_data& find_or_create_class(const io_priority_class& pc);
+    friend struct ::io_queue_for_tests;
+    priority_class_data& find_or_create_class(internal::priority_class pc);
+    future<size_t> queue_request(internal::priority_class pc, internal::io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept;
+    future<size_t> queue_one_request(internal::priority_class pc, internal::io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept;
 
     // The fields below are going away, they are just here so we can implement deprecated
     // functions that used to be provided by the fair_queue and are going away (from both
@@ -118,18 +137,15 @@ public:
 
     stream_id request_stream(internal::io_direction_and_length dnl) const noexcept;
 
-    future<size_t> submit_io_read(const io_priority_class& priority_class,
+    future<size_t> submit_io_read(internal::priority_class priority_class,
             size_t len, internal::io_request req, io_intent* intent, iovec_keeper iovs = {}) noexcept;
-    future<size_t> submit_io_write(const io_priority_class& priority_class,
+    future<size_t> submit_io_write(internal::priority_class priority_class,
             size_t len, internal::io_request req, io_intent* intent, iovec_keeper iovs = {}) noexcept;
 
-    future<size_t> queue_request(const io_priority_class& pc, internal::io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept;
-    future<size_t> queue_one_request(const io_priority_class& pc, internal::io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept;
     void submit_request(io_desc_read_write* desc, internal::io_request req) noexcept;
     void cancel_request(queued_io_request& req) noexcept;
     void complete_cancelled_request(queued_io_request& req) noexcept;
     void complete_request(io_desc_read_write& desc) noexcept;
-
 
     [[deprecated("I/O queue users should not track individual requests, but resources (weight, size) passing through the queue")]]
     size_t queued_requests() const {
@@ -150,9 +166,9 @@ public:
     sstring mountpoint() const;
     dev_t dev_id() const noexcept;
 
-    void update_shares_for_class(io_priority_class pc, size_t new_shares);
-    future<> update_bandwidth_for_class(io_priority_class pc, uint64_t new_bandwidth);
-    void rename_priority_class(io_priority_class pc, sstring new_name);
+    void update_shares_for_class(internal::priority_class pc, size_t new_shares);
+    future<> update_bandwidth_for_class(internal::priority_class pc, uint64_t new_bandwidth);
+    void rename_priority_class(internal::priority_class pc, sstring new_name);
     void throttle_priority_class(const priority_class_data& pc) noexcept;
     void unthrottle_priority_class(const priority_class_data& pc) noexcept;
 
@@ -187,7 +203,7 @@ private:
     const shard_id _allocated_on;
 
     static fair_group::config make_fair_group_config(const io_queue::config& qcfg) noexcept;
-    priority_class_data& find_or_create_class(io_priority_class pc);
+    priority_class_data& find_or_create_class(internal::priority_class pc);
 };
 
 inline const io_queue::config& io_queue::get_config() const noexcept {

@@ -72,6 +72,8 @@ versions of the API. For example.
      server_socket::accept() API that returns a non-variadic
      future
    - Seastar_API_LEVEL=6 makes futures non-variadic
+   - Seastar_API_LEVEL=7 unifies CPU scheduling groups and IO priority classes
+     "while at it" file_impl API is forced to accept io_intent argument
 
 Applications can use an old API_LEVEL during a transition
 period, fix their code, and move to the new API_LEVEL.
@@ -111,6 +113,7 @@ API Level History
 | 4   |  2020-06  | 2023-03 | Non-variadic futures in when_all_succeed()   |
 | 5   |  2020-08  | 2023-03 | future::get() returns std::monostate() instead of void |
 | 6   |  2020-09  | 2023-03 | future<T> instead of future<T...>            |
+| 7   |  2023-05  |         | unified CPU/IO scheduling groups             |
 
 
 Note: The "mandatory" column indicates when backwards compatibility

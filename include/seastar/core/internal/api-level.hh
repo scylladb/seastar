@@ -23,7 +23,13 @@
 
 // For IDEs that don't see SEASTAR_API_LEVEL, generate a nice default
 #ifndef SEASTAR_API_LEVEL
-#define SEASTAR_API_LEVEL 6
+#define SEASTAR_API_LEVEL 7
+#endif
+
+#if SEASTAR_API_LEVEL == 7
+#define SEASTAR_INCLUDE_API_V7 inline
+#else
+#define SEASTAR_INCLUDE_API_V7
 #endif
 
 #if SEASTAR_API_LEVEL == 6
@@ -37,6 +43,11 @@
 namespace seastar {
     SEASTAR_INCLUDE_API_V6 namespace api_v6 {
         inline namespace and_newer {
+        }
+    }
+    SEASTAR_INCLUDE_API_V7 namespace api_v7 {
+        inline namespace and_newer {
+            using namespace api_v6::and_newer;
         }
     }
 }

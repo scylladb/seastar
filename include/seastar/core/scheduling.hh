@@ -283,6 +283,24 @@ public:
     /// \param shares number of shares allotted to the group. Use numbers
     ///               in the 1-1000 range.
     void set_shares(float shares) noexcept;
+
+    /// Returns the number of shares the group has
+    ///
+    /// Similarly to the \ref set_shares, the returned value is only relevant to
+    /// the calling shard
+    float get_shares() const noexcept;
+
+#if SEASTAR_API_LEVEL >= 7
+    /// \brief Updates the current IO bandwidth for a given scheduling group
+    ///
+    /// The bandwidth applied is NOT shard-local, instead it is applied so that
+    /// all shards cannot consume more bytes-per-second altogether
+    ///
+    /// \param bandwidth the new bandwidth value in bytes/second
+    /// \return a future that is ready when the bandwidth update is applied
+    future<> update_io_bandwidth(uint64_t bandwidth) const;
+#endif
+
     friend future<scheduling_group> create_scheduling_group(sstring name, float shares) noexcept;
     friend future<> destroy_scheduling_group(scheduling_group sg) noexcept;
     friend future<> rename_scheduling_group(scheduling_group sg, sstring new_name) noexcept;

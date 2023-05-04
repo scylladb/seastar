@@ -59,6 +59,18 @@ static inline T select_buffer_size(T configured_value, T maximum_value) noexcept
     }
 }
 
+#if SEASTAR_API_LEVEL >= 7
+template <typename Options>
+inline internal::maybe_priority_class_ref get_io_priority(const Options& opts) {
+    return internal::maybe_priority_class_ref{};
+}
+#else
+template <typename Options>
+inline internal::maybe_priority_class_ref get_io_priority(const Options& opts) {
+    return internal::maybe_priority_class_ref(opts.io_priority_class);
+}
+#endif
+
 class file_data_source_impl : public data_source_impl {
     struct issued_read {
         uint64_t _pos;
@@ -292,16 +304,16 @@ private:
             auto len = end - start;
             auto actual_size = std::min(end - _pos, _remain);
             _read_buffers.emplace_back(_pos, actual_size, futurize_invoke([&] {
-                    return _file.dma_read_bulk<char>(start, len, _options.io_priority_class, &_intent);
+                    return _file.dma_read_bulk_impl(start, len, get_io_priority(_options), &_intent);
             }).then_wrapped(
-                    [this, start, pos = _pos, remain = _remain] (future<temporary_buffer<char>> ret) {
+                    [this, start, pos = _pos, remain = _remain] (future<temporary_buffer<uint8_t>> ret) {
                 --_reads_in_progress;
                 if (_done && !_reads_in_progress) {
                     _done->set_value();
                 }
                 if (ret.failed()) {
                     // no games needed
-                    return ret;
+                    return make_exception_future<temporary_buffer<char>>(ret.get_exception());
                 } else {
                     // first or last buffer, need trimming
                     auto tmp = ret.get0();
@@ -315,7 +327,7 @@ private:
                     if (start < pos) {
                         tmp.trim_front(pos - start);
                     }
-                    return make_ready_future<temporary_buffer<char>>(std::move(tmp));
+                    return make_ready_future<temporary_buffer<char>>(temporary_buffer<char>(reinterpret_cast<char*>(tmp.get_write()), tmp.size(), tmp.release()));
                 }
             }));
             _remain -= end - _pos;
@@ -428,7 +440,7 @@ private:
             truncate = true;
         }
 
-        return _file.dma_write(pos, p, buf_size, _options.io_priority_class).then(
+        return _file.dma_write_impl(pos, reinterpret_cast<const uint8_t*>(p), buf_size, get_io_priority(_options), nullptr).then(
                 [this, pos, buf = std::move(buf), truncate, buf_size] (size_t size) mutable {
             // short write handling
             if (size < buf_size) {
