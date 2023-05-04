@@ -31,6 +31,7 @@
 #include <seastar/core/prometheus.hh>
 #include <seastar/core/print.hh>
 #include <seastar/net/inet_address.hh>
+#include <seastar/util/defer.hh>
 #include "../lib/stop_signal.hh"
 
 namespace bpo = boost::program_options;
@@ -85,6 +86,14 @@ int main(int ac, char** av) {
             seastar_apps_lib::stop_signal stop_signal;
             auto&& config = app.configuration();
             httpd::http_server_control prometheus_server;
+            bool prometheus_started = false;
+
+            auto stop_prometheus = defer([&] () noexcept {
+                if (prometheus_started) {
+                    std::cout << "Stoppping Prometheus server" << std::endl;  // This can throw, but won't.
+                    prometheus_server.stop().get();
+                }
+            });
 
             uint16_t pport = config["prometheus_port"].as<uint16_t>();
             if (pport) {
@@ -99,34 +108,31 @@ int main(int ac, char** av) {
 
                 prometheus::start(prometheus_server, pctx).get();
 
+                prometheus_started = true;
+
                 prometheus_server.listen(socket_address{prom_addr, pport}).handle_exception([prom_addr, pport] (auto ep) {
                     std::cerr << seastar::format("Could not start Prometheus API server on {}:{}: {}\n", prom_addr, pport, ep);
                     return make_exception_future<>(ep);
                 }).get();
+
             }
 
             uint16_t port = config["port"].as<uint16_t>();
             auto server = new http_server_control();
             auto rb = make_shared<api_registry_builder>("apps/httpd/");
             server->start().get();
+
+            auto stop_server = defer([&] () noexcept {
+                std::cout << "Stoppping HTTP server" << std::endl; // This can throw, but won't.
+                server->stop().get();
+            });
+
             server->set_routes(set_routes).get();
             server->set_routes([rb](routes& r){rb->set_api_doc(r);}).get();
             server->set_routes([rb](routes& r) {rb->register_function(r, "demo", "hello world application");}).get();
             server->listen(port).get();
 
             std::cout << "Seastar HTTP server listening on port " << port << " ...\n";
-            engine().at_exit([&prometheus_server, server, pport] {
-                return [pport, &prometheus_server] {
-                    if (pport) {
-                        std::cout << "Stoppping Prometheus server" << std::endl;
-                        return prometheus_server.stop();
-                    }
-                    return make_ready_future<>();
-                }().finally([server] {
-                    std::cout << "Stoppping HTTP server" << std::endl;
-                    return server->stop();
-                });
-            });
 
             stop_signal.wait().get();
             return 0;
