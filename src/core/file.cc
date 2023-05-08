@@ -180,7 +180,7 @@ posix_file_impl::posix_file_impl(int fd, open_flags f, std::atomic<unsigned>* re
 }
 
 future<>
-posix_file_impl::flush(void) noexcept {
+posix_file_impl::flush() noexcept {
     if ((_open_flags & open_flags::dsync) != open_flags{}) {
         return make_ready_future<>();
     }
@@ -322,7 +322,7 @@ posix_file_impl::close() noexcept {
 }
 
 future<uint64_t>
-blockdev_file_impl::size(void) noexcept {
+blockdev_file_impl::size() noexcept {
     return engine()._thread_pool->submit<syscall_result_extra<size_t>>([this] {
         uint64_t size;
         int ret = ::ioctl(_fd, BLKGETSIZE64, &size);

@@ -148,8 +148,8 @@ public:
     }
 #endif
 
-    virtual future<> flush(void) = 0;
-    virtual future<struct stat> stat(void) = 0;
+    virtual future<> flush() = 0;
+    virtual future<struct stat> stat() = 0;
     virtual future<> truncate(uint64_t length) = 0;
     virtual future<> discard(uint64_t offset, uint64_t length) = 0;
     virtual future<int> ioctl(uint64_t cmd, void* argp) noexcept;
@@ -157,7 +157,7 @@ public:
     virtual future<int> fcntl(int op, uintptr_t arg) noexcept;
     virtual future<int> fcntl_short(int op, uintptr_t arg) noexcept;
     virtual future<> allocate(uint64_t position, uint64_t length) = 0;
-    virtual future<uint64_t> size(void) = 0;
+    virtual future<uint64_t> size() = 0;
     virtual future<> close() = 0;
     virtual std::unique_ptr<file_handle_impl> dup();
     virtual subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next) = 0;

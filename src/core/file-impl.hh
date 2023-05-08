@@ -89,8 +89,8 @@ protected:
             bool nowait_works);
 public:
     virtual ~posix_file_impl() override;
-    future<> flush(void) noexcept override;
-    future<struct stat> stat(void) noexcept override;
+    future<> flush() noexcept override;
+    future<struct stat> stat() noexcept override;
     future<> truncate(uint64_t length) noexcept override;
     future<> discard(uint64_t offset, uint64_t length) noexcept override;
     future<int> ioctl(uint64_t cmd, void* argp) noexcept override;
