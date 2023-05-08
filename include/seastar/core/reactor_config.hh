@@ -93,6 +93,14 @@ struct reactor_options : public program_options::option_group {
     ///
     /// Default: \p true.
     program_options::value<bool> blocked_reactor_report_format_oneline;
+    /// \brief The sample rate for the reactor profiler.
+    ///
+    /// Default 100.
+    program_options::value<unsigned> profiler_sample_period_ms;
+    /// \brief Optionally enable the profiler.
+    ///
+    /// Default false.
+    program_options::value<bool> profiler_enabled;
     /// \brief Allow using buffered I/O if DMA is not available (reduces performance).
     program_options::value<> relaxed_dma;
     /// \brief Use the Linux NOWAIT AIO feature, which reduces reactor stalls due

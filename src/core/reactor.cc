@@ -155,6 +155,7 @@ module seastar;
 #include <seastar/core/when_all.hh>
 #include <seastar/core/with_scheduling_group.hh>
 #include <seastar/core/internal/buffer_allocator.hh>
+#include <seastar/core/internal/cpu_profiler.hh>
 #include <seastar/core/internal/io_desc.hh>
 #include <seastar/core/internal/uname.hh>
 #include <seastar/core/internal/stall_detector.hh>
@@ -1051,6 +1052,7 @@ reactor::reactor(std::shared_ptr<smp> smp, alien::instance& alien, unsigned id, 
 #endif
     , _cpu_started(0)
     , _cpu_stall_detector(internal::make_cpu_stall_detector())
+    , _cpu_profiler(internal::make_cpu_profiler())
     , _reuseport(posix_reuseport_detect())
     , _thread_pool(std::make_unique<thread_pool>(*this, seastar::format("syscall-{}", id))) {
     /*
@@ -1073,6 +1075,7 @@ reactor::reactor(std::shared_ptr<smp> smp, alien::instance& alien, unsigned id, 
     sigset_t mask;
     sigemptyset(&mask);
     sigaddset(&mask, internal::cpu_stall_detector::signal_number());
+    sigaddset(&mask, internal::cpu_profiler::signal_number());
     auto r = ::pthread_sigmask(SIG_UNBLOCK, &mask, NULL);
     assert(r == 0);
 #endif
@@ -1087,6 +1090,7 @@ reactor::~reactor() {
     sigset_t mask;
     sigemptyset(&mask);
     sigaddset(&mask, internal::cpu_stall_detector::signal_number());
+    sigaddset(&mask, internal::cpu_profiler::signal_number());
     auto r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
     assert(r == 0);
 
@@ -1583,9 +1587,33 @@ reactor::test::get_stall_detector_report_function() {
     return engine()._cpu_stall_detector->get_config().report;
 }
 
+bool reactor::get_cpu_profiler_enabled() {
+    return _cpu_profiler->is_enabled();
+}
+
+void reactor::set_cpu_profiler_enabled(bool b) {
+    _cpu_profiler->update_config({b, _cpu_profiler->period()});
+}
+
+std::chrono::nanoseconds reactor::get_cpu_profiler_period() {
+    return _cpu_profiler->period();
+}
+
+void reactor::set_cpu_profiler_period(std::chrono::nanoseconds ns) {
+    _cpu_profiler->update_config({_cpu_profiler->is_enabled(), ns});
+}
+
+size_t reactor::profiler_results(std::vector<cpu_profiler_trace>& results_buffer) {
+    return _cpu_profiler->results(results_buffer);
+}
+
 void
-reactor::block_notifier(int) {
-    engine()._cpu_stall_detector->on_signal();
+reactor::block_notifier(int signal) {
+    if(signal == internal::cpu_stall_detector::signal_number()) {
+        engine()._cpu_stall_detector->on_signal();
+    } else {
+        engine()._cpu_profiler->on_signal();
+    }
 }
 
 template <typename T, typename E, typename EnableFunc>
@@ -1675,6 +1703,11 @@ void reactor::configure(const reactor_options& opts) {
     csdc.stall_detector_reports_per_minute = opts.blocked_reactor_reports_per_minute.get_value();
     csdc.oneline = opts.blocked_reactor_report_format_oneline.get_value();
     _cpu_stall_detector->update_config(csdc);
+
+    internal::cpu_profiler_config prof_cfg;
+    prof_cfg.enabled = opts.profiler_enabled.get_value();
+    prof_cfg.period = std::chrono::milliseconds(opts.profiler_sample_period_ms.get_value());
+    _cpu_profiler->update_config(prof_cfg);
 
     _max_task_backlog = opts.max_task_backlog.get_value();
     _max_poll_time = opts.idle_poll_time_us.get_value() * 1us;
@@ -3370,10 +3403,24 @@ int reactor::do_run() {
     _task_quota_timer.timerfd_settime(0, its);
     auto& task_quote_itimerspec = its;
 
+    // Ensure that the same signal isn't being used more than once.
+    auto set_signal = [](sigset_t* mask, int s) {
+        assert(!sigismember(mask, s));
+        sigaddset(mask, s);
+    };
+
+    sigset_t block_mask;
+    sigemptyset(&block_mask);
+    set_signal(&block_mask, internal::cpu_stall_detector::signal_number());
+    set_signal(&block_mask, internal::cpu_profiler::signal_number());
+
     struct sigaction sa_block_notifier = {};
     sa_block_notifier.sa_handler = &reactor::block_notifier;
     sa_block_notifier.sa_flags = SA_RESTART;
+    sa_block_notifier.sa_mask = block_mask;
     auto r = sigaction(internal::cpu_stall_detector::signal_number(), &sa_block_notifier, nullptr);
+    assert(r == 0);
+    r = sigaction(internal::cpu_profiler::signal_number(), &sa_block_notifier, nullptr);
     assert(r == 0);
 
     bool idle = false;
@@ -3384,6 +3431,7 @@ int reactor::do_run() {
     std::function<bool()> pure_check_for_work = [this] () {
         return pure_poll_once() || have_more_tasks();
     };
+    _cpu_profiler->start();
     while (true) {
         run_some_tasks();
         if (_stopped) {
@@ -3437,7 +3485,9 @@ int reactor::do_run() {
                     _task_quota_timer.timerfd_settime(0, zero_itimerspec);
                     auto start_sleep = now();
                     _cpu_stall_detector->start_sleep();
+                    _cpu_profiler->stop();
                     sleep();
+                    _cpu_profiler->start();
                     _cpu_stall_detector->end_sleep();
                     // We may have slept for a while, so freshen idle_end
                     idle_end = now();
@@ -3451,6 +3501,7 @@ int reactor::do_run() {
             }
         }
     }
+    _cpu_profiler->stop();
     // To prevent ordering issues from rising, destroy the I/O queue explicitly at this point.
     // This is needed because the reactor is destroyed from the thread_local destructors. If
     // the I/O queue happens to use any other infrastructure that is also kept this way (for
@@ -3936,6 +3987,8 @@ reactor_options::reactor_options(program_options::option_group* parent_group)
     , blocked_reactor_notify_ms(*this, "blocked-reactor-notify-ms", 25, "threshold in miliseconds over which the reactor is considered blocked if no progress is made")
     , blocked_reactor_reports_per_minute(*this, "blocked-reactor-reports-per-minute", 5, "Maximum number of backtraces reported by stall detector per minute")
     , blocked_reactor_report_format_oneline(*this, "blocked-reactor-report-format-oneline", true, "Print a simplified backtrace on a single line")
+    , profiler_sample_period_ms(*this, "profiler-sample-period-ms", 100, "Profiler sample rate")
+    , profiler_enabled(*this, "profiler-enabled", false, "Enable the profiler")
     , relaxed_dma(*this, "relaxed-dma", "allow using buffered I/O if DMA is not available (reduces performance)")
     , linux_aio_nowait(*this, "linux-aio-nowait", aio_nowait_supported,
                 "use the Linux NOWAIT AIO feature, which reduces reactor stalls due to aio (autodetected)")
