@@ -271,7 +271,7 @@ cooking_ingredient (cryptopp
     INSTALL_COMMAND
       ${CMAKE_COMMAND} -E env CXX=${CMAKE_CXX_COMPILER} CXXFLAGS=${CMAKE_CXX_FLAGS} ${make_command} install-lib PREFIX=<INSTALL_DIR>)
 
-
+include(CMakeDetermineCCompiler)
 if(CMAKE_C_COMPILER_ID STREQUAL GNU)
   set(dpdk_toolchain "gcc")
 elseif(CMAKE_C_COMPILER_ID STREQUAL Clang)
@@ -301,6 +301,7 @@ set (dpdk_args
   "EXTRA_CFLAGS=${dpdk_extra_cflags}"
   O=<BINARY_DIR>
   DESTDIR=<INSTALL_DIR>
+  CC=${CMAKE_C_COMPILER}
   T=${dpdk_quadruple})
 
 cooking_ingredient (dpdk
