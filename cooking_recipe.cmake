@@ -272,12 +272,23 @@ cooking_ingredient (cryptopp
       ${CMAKE_COMMAND} -E env CXX=${CMAKE_CXX_COMPILER} CXXFLAGS=${CMAKE_CXX_FLAGS} ${make_command} install-lib PREFIX=<INSTALL_DIR>)
 
 
+if(CMAKE_C_COMPILER_ID STREQUAL GNU)
+  set(dpdk_toolchain "gcc")
+elseif(CMAKE_C_COMPILER_ID STREQUAL Clang)
+  set(dpdk_toolchain "clang")
+elseif(CMAKE_C_COMPILER_ID STREQUAL Intel)
+  set(dpdk_toolchain "icc")
+else()
+  message(FATAL_ERROR "not able to build DPDK: "
+    "unknown compiler \"${CMAKE_C_COMPILER_ID}\"")
+endif()
+
 # Use the "native" profile that DPDK defines in `dpdk/config`, but in `dpdk_configure.cmake` we override
 # CONFIG_RTE_MACHINE with `Seastar_DPDK_MACHINE`.
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
-  set (dpdk_quadruple arm64-armv8a-linuxapp-gcc)
+  set (dpdk_quadruple arm64-armv8a-linuxapp-${dpdk_toolchain})
 else()
-  set (dpdk_quadruple ${CMAKE_SYSTEM_PROCESSOR}-native-linuxapp-gcc)
+  set (dpdk_quadruple ${CMAKE_SYSTEM_PROCESSOR}-native-linuxapp-${dpdk_toolchain})
 endif()
 
 # gcc 10 defaults to -fno-common, which dpdk is not prepared for
