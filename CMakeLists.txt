@@ -677,6 +677,7 @@ add_library (seastar
   src/core/reactor_backend.cc
   src/core/thread_pool.cc
   src/core/app-template.cc
+  src/core/cpu_profiler.cc
   src/core/disk_params.cc
   src/core/dpdk_rte.cc
   src/core/exception_hacks.cc
