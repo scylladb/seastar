@@ -323,7 +323,9 @@ cooking_ingredient (liburing
   EXTERNAL_PROJECT_ARGS
     URL https://github.com/axboe/liburing/archive/liburing-2.1.tar.gz
     URL_MD5 78f13d9861b334b9a9ca0d12cf2a6d3c
-    CONFIGURE_COMMAND <SOURCE_DIR>/configure --prefix=<INSTALL_DIR>
+    CONFIGURE_COMMAND
+      ${CMAKE_COMMAND} -E env CC=${CMAKE_C_COMPILER} CXX=${CMAKE_CXX_COMPILER}
+      <SOURCE_DIR>/configure --prefix=<INSTALL_DIR>
     BUILD_COMMAND <DISABLE>
     BUILD_BYPRODUCTS "<SOURCE_DIR>/src/liburing.a"
     BUILD_IN_SOURCE ON
