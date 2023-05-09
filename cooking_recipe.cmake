@@ -121,8 +121,8 @@ cooking_ingredient (numactl
 
 cooking_ingredient (zlib
   EXTERNAL_PROJECT_ARGS
-    URL https://zlib.net/zlib-1.2.12.tar.gz
-    URL_MD5 5fc414a9726be31427b440b434d05f78
+    URL https://github.com/madler/zlib/releases/download/v1.2.13/zlib-1.2.13.tar.gz
+    URL_MD5 9b8aa094c4e5765dabf4da391f00d15c
     CONFIGURE_COMMAND <SOURCE_DIR>/configure --prefix=<INSTALL_DIR>
     BUILD_COMMAND <DISABLE>
     INSTALL_COMMAND ${make_command} install)
