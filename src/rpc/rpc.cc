@@ -1093,8 +1093,9 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
   }
 
   server::connection::connection(server& s, connected_socket&& fd, socket_address&& addr, const logger& l, void* serializer, connection_id id)
-      : rpc::connection(std::move(fd), l, serializer, id), _server(s) {
-      _info.addr = std::move(addr);
+          : rpc::connection(std::move(fd), l, serializer, id)
+          , _server(s)
+          , _info{.addr{std::move(addr)}, .server{s}, .conn_id{id}} {
   }
 
   future<> server::connection::deregister_this_stream() {

@@ -78,8 +78,12 @@ constexpr connection_id invalid_connection_id = connection_id::make_invalid_id()
 
 std::ostream& operator<<(std::ostream&, const connection_id&);
 
+class server;
+
 struct client_info {
     socket_address addr;
+    rpc::server& server;
+    connection_id conn_id;
     std::unordered_map<sstring, boost::any> user_data;
     template <typename T>
     void attach_auxiliary(const sstring& key, T&& object) {

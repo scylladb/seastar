@@ -1444,21 +1444,23 @@ SEASTAR_TEST_CASE(test_connection_id_format) {
 static_assert(std::is_same_v<decltype(rpc::tuple(1U, 1L)), rpc::tuple<unsigned, long>>, "rpc::tuple deduction guid not working");
 
 SEASTAR_TEST_CASE(test_client_info) {
-    rpc::client_info info;
-    const rpc::client_info& const_info = *const_cast<rpc::client_info*>(&info);
+    return rpc_test_env<>::do_with(rpc_test_config(), [] (rpc_test_env<>& env) {
+        rpc::client_info info{.server{env.server()}};
+        const rpc::client_info& const_info = *const_cast<rpc::client_info*>(&info);
 
-    info.attach_auxiliary("key", 0);
-    BOOST_REQUIRE_EQUAL(const_info.retrieve_auxiliary<int>("key"), 0);
-    info.retrieve_auxiliary<int>("key") = 1;
-    BOOST_REQUIRE_EQUAL(const_info.retrieve_auxiliary<int>("key"), 1);
+        info.attach_auxiliary("key", 0);
+        BOOST_REQUIRE_EQUAL(const_info.retrieve_auxiliary<int>("key"), 0);
+        info.retrieve_auxiliary<int>("key") = 1;
+        BOOST_REQUIRE_EQUAL(const_info.retrieve_auxiliary<int>("key"), 1);
 
-    BOOST_REQUIRE_EQUAL(info.retrieve_auxiliary_opt<int>("key"), &info.retrieve_auxiliary<int>("key"));
-    BOOST_REQUIRE_EQUAL(const_info.retrieve_auxiliary_opt<int>("key"), &const_info.retrieve_auxiliary<int>("key"));
+        BOOST_REQUIRE_EQUAL(info.retrieve_auxiliary_opt<int>("key"), &info.retrieve_auxiliary<int>("key"));
+        BOOST_REQUIRE_EQUAL(const_info.retrieve_auxiliary_opt<int>("key"), &const_info.retrieve_auxiliary<int>("key"));
 
-    BOOST_REQUIRE_EQUAL(info.retrieve_auxiliary_opt<int>("missing"), nullptr);
-    BOOST_REQUIRE_EQUAL(const_info.retrieve_auxiliary_opt<int>("missing"), nullptr);
+        BOOST_REQUIRE_EQUAL(info.retrieve_auxiliary_opt<int>("missing"), nullptr);
+        BOOST_REQUIRE_EQUAL(const_info.retrieve_auxiliary_opt<int>("missing"), nullptr);
 
-    return make_ready_future<>();
+        return make_ready_future<>();
+    });
 }
 
 void send_messages_and_check_timeouts(rpc_test_env<>& env, test_rpc_proto::client& cln) {
