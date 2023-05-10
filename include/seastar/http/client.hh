@@ -39,8 +39,22 @@ namespace tls { class certificate_credentials; }
 
 namespace http {
 
+namespace experimental { class client; }
 struct request;
 struct reply;
+
+namespace internal {
+
+class client_ref {
+    http::experimental::client* _c;
+public:
+    client_ref(http::experimental::client* c) noexcept;
+    ~client_ref();
+    client_ref(client_ref&& o) noexcept : _c(std::exchange(o._c, nullptr)) {}
+    client_ref(const client_ref&) = delete;
+};
+
+}
 
 namespace experimental {
 
@@ -59,6 +73,7 @@ class connection : public enable_shared_from_this<connection> {
     output_stream<char> _write_buf;
     hook_t _hook;
     future<> _closed;
+    internal::client_ref _ref;
 
 public:
     /**
@@ -67,7 +82,7 @@ public:
      * Construct the connection that will work over the provided \fd transport socket
      *
      */
-    connection(connected_socket&& fd);
+    connection(connected_socket&& fd, internal::client_ref cr);
 
     /**
      * \brief Send the request and wait for response

@@ -38,13 +38,24 @@ module seastar;
 namespace seastar {
 logger http_log("http");
 namespace http {
+namespace internal {
+
+client_ref::client_ref(http::experimental::client* c) noexcept : _c(c) {
+}
+
+client_ref::~client_ref() {
+}
+
+}
+
 namespace experimental {
 
-connection::connection(connected_socket&& fd)
+connection::connection(connected_socket&& fd, internal::client_ref cr)
         : _fd(std::move(fd))
         , _read_buf(_fd.input())
         , _write_buf(_fd.output())
         , _closed(_fd.wait_input_shutdown().finally([me = shared_from_this()] {}))
+        , _ref(std::move(cr))
 {
 }
 
@@ -205,9 +216,9 @@ future<client::connection_ptr> client::get_connection() {
         return make_ready_future<connection_ptr>(con);
     }
 
-    return _new_connections->make().then([] (connected_socket cs) {
+    return _new_connections->make().then([cr = internal::client_ref(this)] (connected_socket cs) mutable {
         http_log.trace("created new http connection {}", cs.local_address());
-        auto con = seastar::make_shared<connection>(std::move(cs));
+        auto con = seastar::make_shared<connection>(std::move(cs), std::move(cr));
         return make_ready_future<connection_ptr>(std::move(con));
     });
 }
