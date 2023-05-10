@@ -236,6 +236,22 @@ public:
      * Client must be closed before destruction unconditionally
      */
     future<> close();
+
+    /**
+     * \brief Returns the total number of connections
+     */
+
+    unsigned connections_nr() const noexcept {
+        return _nr_connections;
+    }
+
+    /**
+     * \brief Returns the number of idle connections
+     */
+
+    unsigned idle_connections_nr() const noexcept {
+        return _pool.size();
+    }
 };
 
 } // experimental namespace
