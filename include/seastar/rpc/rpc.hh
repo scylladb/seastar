@@ -623,6 +623,14 @@ public:
             f(*c.second);
         }
     }
+    /**
+     * Abort the given connection, causing it to stop receiving any further messages.
+     * It's safe to abort a connection from an RPC handler running on that connection.
+     * Does nothing if there is no connection with the given ID on this server.
+     *
+     * @param id the ID of the connection to abort.
+     */
+    void abort_connection(connection_id id);
     gate& reply_gate() {
         return _reply_gate;
     }

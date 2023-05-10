@@ -1184,6 +1184,19 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
       ).discard_result();
   }
 
+  void server::abort_connection(connection_id id) {
+      auto it = _conns.find(id);
+      if (it == _conns.end()) {
+          return;
+      }
+      try {
+          it->second->abort();
+      } catch (...) {
+          log_exception(*it->second, log_level::error,
+                        "fail to shutdown connection on user request", std::current_exception());
+      }
+  }
+
   std::ostream& operator<<(std::ostream& os, const connection_id& id) {
       fmt::print(os, "{:x}", id.id);
       return os;
