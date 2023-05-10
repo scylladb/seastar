@@ -158,9 +158,14 @@ public:
  */
 
 class client {
+    friend class http::internal::client_ref;
     using connections_list_t = bi::list<connection, bi::member_hook<connection, typename connection::hook_t, &connection::_hook>, bi::constant_time_size<false>>;
+    static constexpr unsigned default_max_connections = 100;
 
     std::unique_ptr<connection_factory> _new_connections;
+    unsigned _nr_connections = 0;
+    const unsigned _max_connections;
+    condition_variable _wait_con;
     connections_list_t _pool;
 
     using connection_ptr = seastar::shared_ptr<connection>;
@@ -208,7 +213,7 @@ public:
      * \param f -- the factory pointer
      *
      */
-    explicit client(std::unique_ptr<connection_factory> f);
+    explicit client(std::unique_ptr<connection_factory> f, unsigned max_connections = default_max_connections);
 
     /**
      * \brief Send the request and handle the response

@@ -41,9 +41,14 @@ namespace http {
 namespace internal {
 
 client_ref::client_ref(http::experimental::client* c) noexcept : _c(c) {
+    _c->_nr_connections++;
 }
 
 client_ref::~client_ref() {
+    if (_c != nullptr) {
+        _c->_nr_connections--;
+        _c->_wait_con.signal();
+    }
 }
 
 }
@@ -203,8 +208,9 @@ client::client(socket_address addr, shared_ptr<tls::certificate_credentials> cre
 {
 }
 
-client::client(std::unique_ptr<connection_factory> f)
+client::client(std::unique_ptr<connection_factory> f, unsigned max_connections)
         : _new_connections(std::move(f))
+        , _max_connections(max_connections)
 {
 }
 
@@ -214,6 +220,12 @@ future<client::connection_ptr> client::get_connection() {
         _pool.pop_front();
         http_log.trace("pop http connection {} from pool", con->_fd.local_address());
         return make_ready_future<connection_ptr>(con);
+    }
+
+    if (_nr_connections >= _max_connections) {
+        return _wait_con.wait().then([this] {
+            return get_connection();
+        });
     }
 
     return _new_connections->make().then([cr = internal::client_ref(this)] (connected_socket cs) mutable {
@@ -227,6 +239,7 @@ future<> client::put_connection(connection_ptr con, bool can_cache) {
     if (can_cache) {
         http_log.trace("push http connection {} to pool", con->_fd.local_address());
         _pool.push_back(*con);
+        _wait_con.signal();
         return make_ready_future<>();
     }
 
