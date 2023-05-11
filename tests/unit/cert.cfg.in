@@ -21,3 +21,6 @@ basicConstraints = CA:true
 # Extensions to add to a certificate request
 basicConstraints = CA:FALSE
 keyUsage = nonRepudiation, digitalSignature, keyEncipherment
+
+[req_ext]
+subjectAltName=email:@CERT_ALT_EMAIL_1@,email:@CERT_ALT_EMAIL_2@,IP:@CERT_ALT_IP_1@,DNS:@CERT_ALT_DNS@
