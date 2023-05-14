@@ -123,7 +123,7 @@ Implementation notes for API levels
 ===================================
 
 API levels are implemented by defining internal sub-namespaces
-for each API level: `seastar::api_v1`, `seatar::api_v2` etc. `#ifdef`s
+for each API level: `seastar::api_v1`, `seastar::api_v2` etc. `#ifdef`s
 are used to inline the user-selected API level namespace into the
 main `seastar` namespace, making it visible.
 
@@ -145,5 +145,5 @@ If API_LEVEL is 1:
  - `api_v1` namespace is inlined into the `seastar` namespace
 
 After a transition period:
- - everthing in `api_v1` is dropped
+ - everything in `api_v1` is dropped
  - `api_v2` is removed, and its contents is placed in the parent namespace

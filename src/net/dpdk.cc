@@ -113,7 +113,7 @@ namespace seastar {
 
 namespace dpdk {
 
-/******************* Net device related constatns *****************************/
+/******************* Net device related constants *****************************/
 static constexpr uint16_t default_ring_size      = 512;
 
 // 
@@ -1682,7 +1682,7 @@ void dpdk_device::init_port_fini()
     }
 
     /* need to defer initialize xstats since NIC specific xstat entries
-       show up only after port initization */
+       show up only after port initialization */
     _xstats.start();
 
     _stats_collector.set_callback([&] {

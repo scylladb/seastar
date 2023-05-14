@@ -94,11 +94,11 @@ static void add_name(std::ostream& s, const sstring& name, const std::map<sstrin
 /*!
  * \brief iterator for metric family
  *
- * In prometheus, a single shard collecct all the data from the other
+ * In prometheus, a single shard collects all the data from the other
  * shards and report it.
  *
  * Each shard returns a value_copy struct that has a vector of vector values (a vector per metric family)
- * and a vector of metadata (and insdie it a vector of metric metadata)
+ * and a vector of metadata (and inside it a vector of metric metadata)
  *
  * The metrics are sorted by the metric family name.
  *
@@ -388,7 +388,7 @@ public:
                 continue;
             }
             auto& metadata = metric_family->metadata->at(pos_in_metric_per_shard);
-            // the the name is different, that means that on this shard, the metric family
+            // the name is different, that means that on this shard, the metric family
             // does not exist, because everything is sorted by metric family name, this is fine.
             if (metadata.mf.name == name()) {
                 const mi::value_vector& values = metric_family->values[pos_in_metric_per_shard];
@@ -467,10 +467,10 @@ metric_family_range get_range(const metrics_families_per_shard& mf, const sstrin
     if (metric_family_name == "") {
         return metric_family_range(mf);
     }
-    auto upper_bount_prefix = metric_family_name;
-    ++upper_bount_prefix.back();
+    auto upper_bound_prefix = metric_family_name;
+    ++upper_bound_prefix.back();
     if (prefix) {
-        return metric_family_range(mf.lower_bound(metric_family_name), mf.lower_bound(upper_bount_prefix));
+        return metric_family_range(mf.lower_bound(metric_family_name), mf.lower_bound(upper_bound_prefix));
     }
     auto lb = mf.lower_bound(metric_family_name);
     if (lb.end() || lb->name() != metric_family_name) {

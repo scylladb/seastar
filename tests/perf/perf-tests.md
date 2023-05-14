@@ -61,7 +61,7 @@ protected:
     data_set _ds1;
     data_set _ds2;
 private:
-    static data_set perpare_data_set();
+    static data_set prepare_data_set();
 public:
     example()
         : _ds1(prepare_data_set())

@@ -610,7 +610,7 @@ future<> tls::credentials_builder::set_system_trust() {
     // And we probably _don't want to get into the guessing game
     // of where the system trust cert chains are, since this is
     // super distro dependent, and usually compiled into the library.
-    // Pretent it is raining, and just set a flag.
+    // Pretend it is raining, and just set a flag.
     // Leave the function returning future, so if we change our
     // minds and want to do explicit loading, we can...
     _blobs.emplace(system_trust, true);
@@ -1475,9 +1475,9 @@ public:
         return with_semaphore(_out_sem, 1,
                         std::bind(&session::do_shutdown, this)).then(
                         std::bind(&session::wait_for_eof, this)).finally([me = shared_from_this()] {});
-        // note moved finally clause above. It is theorethically possible
+        // note moved finally clause above. It is theoretically possible
         // that we could complete do_shutdown just before the close calls 
-        // below, get pre-empted, have "close()" finish, get freed, and 
+        // below, get preempted, have "close()" finish, get freed, and 
         // then call wait_for_eof on stale pointer.
     }
     void close() noexcept {
@@ -1496,7 +1496,7 @@ public:
                 } catch (...) {
                 }
                 // make sure to wait for handshake attempt to leave semaphores. Must be in same order as
-                // handshake aqcuire, because in worst case, we get here while a reader is attempting
+                // handshake acquire, because in worst case, we get here while a reader is attempting
                 // re-handshake.
                 return with_semaphore(_in_sem, 1, [this] {
                     return with_semaphore(_out_sem, 1, [] {});

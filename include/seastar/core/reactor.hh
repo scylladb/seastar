@@ -229,7 +229,7 @@ public:
         uint64_t fstream_read_bytes = 0;
         uint64_t fstream_reads_blocked = 0;
         uint64_t fstream_read_bytes_blocked = 0;
-        uint64_t fstream_read_aheads_discarded = 0;
+        uint64_t fstream_readaheads_discarded = 0;
         uint64_t fstream_read_ahead_discarded_bytes = 0;
     };
     /// Scheduling statistics.
@@ -269,7 +269,7 @@ private:
     static constexpr unsigned max_aio = max_aio_per_queue * max_queues;
     friend disk_config_params;
 
-    // Each mountpouint is controlled by its own io_queue, but ...
+    // Each mountpoint is controlled by its own io_queue, but ...
     std::unordered_map<dev_t, std::unique_ptr<io_queue>> _io_queues;
     // ... when dispatched all requests get into this single sink
     internal::io_sink _io_sink;
@@ -703,7 +703,7 @@ public:
     /// such as tmpfs or aufs (used in some Docker setups).
     ///
     /// When false, file I/O operations can fall back to buffered I/O if
-    /// DMA is not available.  This can result in dramatic reducation in
+    /// DMA is not available.  This can result in dramatic reduction in
     /// performance and an increase in memory consumption.
     void set_strict_dma(bool value);
     void set_bypass_fsync(bool value);
@@ -711,7 +711,7 @@ public:
     std::chrono::milliseconds get_blocked_reactor_notify_ms() const;
     /// For testing, sets the stall reporting function which is called when
     /// a stall is detected (and not suppressed). Setting the function also
-    /// resets the supression state.
+    /// resets the suppression state.
     void set_stall_detector_report_function(std::function<void ()> report);
     std::function<void ()> get_stall_detector_report_function() const;
 };

@@ -57,7 +57,7 @@ for example:
 ### Configuring the Prometheus server for picking specific metrics
 The [Prometheus configuration](https://prometheus.io/docs/prometheus/1.8/configuration/configuration/) describes the general Prometheus configuration.
 
-To specify a specific metric or metrics add a `metrics_path` to the scrap config in the prometheue.yml file
+To specify a specific metric or metrics add a `metrics_path` to the scrap config in the prometheus.yml file
 
 For example, the following scrap config, will query for all the http metrics:
 

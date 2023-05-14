@@ -350,7 +350,7 @@ SEASTAR_TEST_CASE(test_condition_variable_when_timeout) {
         }
     }();
 
-    // ensure we wake up waiter before timeuot
+    // ensure we wake up waiter before timeout
     ready = true;
     cv.signal();
 

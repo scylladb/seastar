@@ -100,8 +100,8 @@ future<> rename_scheduling_group(scheduling_group sg, sstring new_name) noexcept
  * value when it needs to be created, due to, for example, a new
  * \ref scheduling_group being created.
  *
- * @note is is recomended to use @ref make_scheduling_group_key_config in order to
- * create and configure this syructure. The only reason that one might want to not use
+ * @note is is recommended to use @ref make_scheduling_group_key_config in order to
+ * create and configure this structure. The only reason that one might want to not use
  * this method is because of a need for specific intervention in the construction or
  * destruction of the value. Even then, it is recommended to first create the configuration
  * with @ref make_scheduling_group_key_config and only the change it.
@@ -118,7 +118,7 @@ struct scheduling_group_key_config {
      * It does not contain the right alignment and allocation sizes
      * neither the correct construction or destruction logic, but only
      * the indication for the intended type which is used in debug mode
-     * to make sure that the correct type is reffered to when accessing
+     * to make sure that the correct type is referred to when accessing
      * the value.
      * @param type_info - the type information class (create with typeid(T)).
      */
@@ -135,7 +135,7 @@ struct scheduling_group_key_config {
     /// A function that will be called for each value after the scheduling group is renamed.
     std::function<void (void*)> rename;
     /// A function that will be called for each element that is about
-    /// to be dealocated.
+    /// to be deallocated.
     std::function<void (void*)> destructor;
 
 };
@@ -145,7 +145,7 @@ struct scheduling_group_key_config {
  * A class that is intended to encapsulate the scheduling group specific
  * key and "hide" it implementation concerns and details.
  *
- * @note this object can be copied accross shards and scheduling groups.
+ * @note this object can be copied across shards and scheduling groups.
  */
 class scheduling_group_key {
 public:
@@ -181,21 +181,21 @@ inline unsigned long scheduling_group_key_id(scheduling_group_key key) noexcept 
 
  * @tparam ConstructorType - the constructor type or in other words the type to be constructed
  * @tparam Tuple - T params tuple type (should be deduced)
- * @tparam size_t...Idx - a sequence of indexes in order to access the typpels members in compile time.
+ * @tparam size_t...Idx - a sequence of indexes in order to access the tuple type members at compile time.
  * (should be deduced)
  *
- * @param pre_alocated_mem - a pointer to the pre allocated memory chunk that will hold the
+ * @param pre_allocated_mem - a pointer to the pre allocated memory chunk that will hold the
  * the initialized object.
- * @param args - A tupple that holds the prarameters for the constructor
+ * @param args - A tuple that holds the parameters for the constructor
  * @param idx_seq - An index sequence that will be used to access the members of the tuple in compile
  * time.
  *
  * @note this function was not intended to be called by users and it is only a utility function
- * for suporting \ref make_scheduling_group_key_config
+ * for supporting \ref make_scheduling_group_key_config
  */
 template<typename ConstructorType, typename Tuple, size_t...Idx>
-void apply_constructor(void* pre_alocated_mem, Tuple args, std::index_sequence<Idx...>) {
-    new (pre_alocated_mem) ConstructorType(std::get<Idx>(args)...);
+void apply_constructor(void* pre_allocated_mem, Tuple args, std::index_sequence<Idx...>) {
+    new (pre_allocated_mem) ConstructorType(std::get<Idx>(args)...);
 }
 }
 
@@ -227,14 +227,14 @@ make_scheduling_group_key_config(ConstructorArgs... args) {
 /**
  * Returns a future that holds a scheduling key and resolves when this key can be used
  * to access the scheduling group specific value it represents.
- * @param cfg - A \ref scheduling_group_key_config object (by recomendation: initialized with
+ * @param cfg - A \ref scheduling_group_key_config object (by recommendation: initialized with
  * \ref make_scheduling_group_key_config )
  * @return A future containing \ref scheduling_group_key for the newly created specific value.
  */
 future<scheduling_group_key> scheduling_group_key_create(scheduling_group_key_config cfg) noexcept;
 
 /**
- * Returnes a reference to the given scheduling group specific value
+ * Returns a reference to the given scheduling group specific value
  * @tparam T - the type of the scheduling specific type (cannot be deduced)
  * @param sg - the scheduling group which it's specific value to retrieve
  * @param key - the key of the value to retrieve.
@@ -262,7 +262,7 @@ public:
     bool is_main() const noexcept { return _id == 0; }
     template<typename T>
     /**
-     * Returnes a reference to this scheduling group specific value
+     * Returns a reference to this scheduling group specific value
      * @tparam T - the type of the scheduling specific type (cannot be deduced)
      * @param key - the key of the value to retrieve.
      * @return A reference to this scheduling specific value.

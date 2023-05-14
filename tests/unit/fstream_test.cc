@@ -524,7 +524,7 @@ SEASTAR_TEST_CASE(test_fstream_slow_start) {
             return fstream_wrapper(make_file_input_stream(file(mock_file), 0, file_size, options));
         };
 
-        BOOST_TEST_MESSAGE("Reading file, no history, expectiong a slow start");
+        BOOST_TEST_MESSAGE("Reading file, no history, expecting a slow start");
         read_whole_file_with_slow_start(make_fstream());
         BOOST_TEST_MESSAGE("Reading file again, everything good so far, read at full speed");
         read_while_file_at_full_speed(make_fstream());

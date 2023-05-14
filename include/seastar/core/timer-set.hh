@@ -165,7 +165,7 @@ public:
      *  - the time_point passed to this function must not be lesser than
      *    the previous one passed to this function.
      *
-     * Postconditons:
+     * Postconditions:
      *  - all timers from the active set with Timer::get_timeout() <= now are moved
      *    to the expired set.
      */

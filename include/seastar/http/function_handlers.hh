@@ -49,7 +49,7 @@ typedef std::function<json::json_return_type(const_req req)> json_request_functi
 
 /**
  * A future_json_function is a function that returns a future json reponse.
- * Similiar to the json_request_function, using the json reponse is done
+ * Similar to the json_request_function, using the json reponse is done
  * implicitly.
  */
 typedef std::function<

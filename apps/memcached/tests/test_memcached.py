@@ -86,7 +86,7 @@ def udp_call_for_fragments(msg, timeout=1):
         content = data[8:]
 
         if n_determined and n_determined != n:
-            raise Exception('Inconsitent number of total messages, %d and %d' % (n_determined, n))
+            raise Exception('Inconsistent number of total messages, %d and %d' % (n_determined, n))
         n_determined = n
 
         if req_id != this_req_id:
@@ -164,7 +164,7 @@ class TcpSpecificTests(MemcacheTest):
         self.assertEqual(recv_all(s), b'')
         s.close()
 
-    def test_unsuccesful_parsing_does_not_leave_data_behind(self):
+    def test_unsuccessful_parsing_does_not_leave_data_behind(self):
         with tcp_connection() as conn:
             self.assertEqual(conn('set key 0 0 5\r\nhello\r\n'), b'STORED\r\n')
             self.assertRegex(conn('delete a b c\r\n'), b'^(CLIENT_)?ERROR.*\r\n$')
@@ -325,7 +325,7 @@ class TestCommands(MemcacheTest):
         self.assertNoKey("key2")
 
     @slow
-    def test_memcache_does_not_crash_when_flushing_with_already_expred_items(self):
+    def test_memcache_does_not_crash_when_flushing_with_already_expired_items(self):
         self.assertEqual(call('set key1 0 2 5\r\nhello\r\n'), b'STORED\r\n')
         time.sleep(1)
         self.assertEqual(call('flush_all\r\n'), b'OK\r\n')
@@ -572,7 +572,7 @@ def wait_for_memcache_udp(timeout=4):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="memcache protocol tests")
-    parser.add_argument('--server', '-s', action="store", help="server adddress in <host>:<port> format", default="localhost:11211")
+    parser.add_argument('--server', '-s', action="store", help="server address in <host>:<port> format", default="localhost:11211")
     parser.add_argument('--udp', '-U', action="store_true", help="Use UDP protocol")
     parser.add_argument('--fast',  action="store_true", help="Run only fast tests")
     args = parser.parse_args()

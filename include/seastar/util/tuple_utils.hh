@@ -113,7 +113,7 @@ struct tuple_map_types<MapClass, std::tuple<Elements...>> {
 /// \tparam FilterClass class template having an element value set to true for elements that
 ///                     should be present in the result
 /// \param t tuple to filter
-/// \return a tuple contaning elements which type passed the test
+/// \return a tuple containing elements which type passed the test
 template<template<typename> class FilterClass, typename... Elements>
 auto tuple_filter_by_type(const std::tuple<Elements...>& t) {
     using sequence = typename internal::tuple_filter<FilterClass, std::tuple<Elements...>,

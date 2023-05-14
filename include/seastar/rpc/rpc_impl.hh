@@ -248,7 +248,7 @@ struct marshall_one {
 
 template <typename Serializer, typename Output, typename... T>
 inline void do_marshall(Serializer& serializer, Output& out, const T&... args) {
-    // C++ guarantees that brace-initialization expressions are evaluted in order
+    // C++ guarantees that brace-initialization expressions are evaluated in order
     (void)std::initializer_list<int>{(marshall_one<Serializer, Output>::template helper<T>::doit(serializer, out, args), 1)...};
 }
 
@@ -723,7 +723,7 @@ template<typename T> T make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<
 
 template<typename Serializer, typename... Out>
 future<> sink_impl<Serializer, Out...>::operator()(const Out&... args) {
-    // note that we use remote serializer pointer, so if serailizer needs a state
+    // note that we use remote serializer pointer, so if serializer needs a state
     // it should have per-cpu one
     snd_buf data = marshall(this->_con->get()->template serializer<Serializer>(), 4, args...);
     static_assert(snd_buf::chunk_size >= 4, "send buffer chunk size is too small");

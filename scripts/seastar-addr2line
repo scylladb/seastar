@@ -28,8 +28,8 @@ from addr2line import BacktraceResolver
 
 class StdinBacktraceIterator(object):
     """
-    Read stdin char-by-char and stop when when user pressed Ctrl+D or the
-    Enter twice. Altough reading char-by-char is slow this won't be a
+    Read stdin char-by-char and stop when user pressed Ctrl+D or the
+    Enter twice. Although reading char-by-char is slow this won't be a
     problem here as backtraces shouldn't be huge.
     """
     def __iter__(self):

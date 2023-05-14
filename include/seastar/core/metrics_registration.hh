@@ -42,7 +42,7 @@
  *
  * };
  * \endcode
- * To define the metrics, include in your source file metircs.hh
+ * To define the metrics, include in your source file metrics.hh
  * @see metrics.hh for the definition for adding a metric.
  */
 

@@ -84,7 +84,7 @@ static future<> connect_to_ssl_addr(::shared_ptr<tls::certificate_credentials> c
                                 }).then([&buffer]() -> future<std::optional<bool>> {
                                     if (buffer.empty()) {
                                         // # 1127 google servers have a (pretty short) timeout between connect and expected first
-                                        // write. If we are delayed inbetween connect and write above (cert verification, scheduling
+                                        // write. If we are delayed in between connect and write above (cert verification, scheduling
                                         // solar spots or just time sharing on AWS) we could get a short read here. Just retry.
                                         // If we get an actual error, it is either on protocol level (exception) or HTTP error.
                                         return make_ready_future<std::optional<bool>>(std::nullopt);
@@ -771,7 +771,7 @@ SEASTAR_TEST_CASE(test_many_large_message_x509_client_server) {
     });
 }
 
-SEASTAR_THREAD_TEST_CASE(test_close_timout) {
+SEASTAR_THREAD_TEST_CASE(test_close_timeout) {
     tls::credentials_builder b;
 
     b.set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).get();
@@ -1299,7 +1299,7 @@ SEASTAR_THREAD_TEST_CASE(test_dn_name_handling) {
     // - mtls_client2.crt - second client certificate
     //
     // The test runs server that uses mtls_server.crt.
-    // The server accepts two incomming connections, first one uses mtls_client1.crt
+    // The server accepts two incoming connections, first one uses mtls_client1.crt
     // and the second one uses mtls_client2.crt. Every client sends a short string
     // that server receives and tries to find it in the DN string.
 

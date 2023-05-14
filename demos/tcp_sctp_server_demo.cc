@@ -117,7 +117,7 @@ public:
                     return make_ready_future();
                 }
                 auto cmd = std::string(buf.get(), buf.size());
-                // pingpong test
+                // ping pong test
                 if (cmd == str_ping) {
                     return _write_buf.write(str_pong).then([this] {
                         return _write_buf.flush();

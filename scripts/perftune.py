@@ -541,7 +541,7 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
     @abc.abstractmethod
     def _get_irqs(self):
         """
-        Return the iteratable value with all IRQs to be configured.
+        Return the iterable value with all IRQs to be configured.
         """
         pass
 
@@ -616,7 +616,7 @@ class NetPerfTuner(PerfTunerBase):
     def slaves(self, nic):
         """
         Returns an iterator for all slaves of the nic.
-        If agrs.nic is not a bonding interface an attempt to use the returned iterator
+        If args.nics is not a bonding interface an attempt to use the returned iterator
         will immediately raise a StopIteration exception - use __dev_is_bond_iface() check to avoid this.
         """
         return iter(self.__slaves[nic])
@@ -864,7 +864,7 @@ class NetPerfTuner(PerfTunerBase):
                       mlx5_comp<queue idx>@<bla-bla>
           - VIRTIO: virtioN-[input|output].D
 
-        So, we will try to filter the etries in /proc/interrupts for IRQs we've got from get_all_irqs_one()
+        So, we will try to filter the entries in /proc/interrupts for IRQs we've got from get_all_irqs_one()
         according to the patterns above.
 
         If as a result all IRQs are filtered out (if there are no IRQs with the names from the patterns above) then
@@ -1388,8 +1388,8 @@ class DiskPerfTuner(PerfTunerBase):
                     else:
                         break
 
-                controler_path_str = functools.reduce(lambda x, y : os.path.join(x, y), controller_path_parts)
-                disk2irqs[device] = learn_all_irqs_one(controler_path_str, self.__irqs2procline, 'blkif')
+                controller_path_str = functools.reduce(lambda x, y : os.path.join(x, y), controller_path_parts)
+                disk2irqs[device] = learn_all_irqs_one(controller_path_str, self.__irqs2procline, 'blkif')
 
         return disk2irqs
 

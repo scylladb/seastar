@@ -73,7 +73,7 @@ static std::set<seastar::sstring> get_label_values(seastar::sstring metric_name,
     return labels;
 }
 
-SEASTAR_THREAD_TEST_CASE(test_renaming_scheuling_groups) {
+SEASTAR_THREAD_TEST_CASE(test_renaming_scheduling_groups) {
     // this seams a little bit out of place but the
     // renaming functionality is primarily for statistics
     // otherwise those classes could have just been reused
@@ -85,7 +85,7 @@ SEASTAR_THREAD_TEST_CASE(test_renaming_scheuling_groups) {
     scheduling_group sg =  create_scheduling_group("hello", 111).get0();
     boost::integer_range<int> rng(0, 1000);
     // repeatedly change the group name back and forth in
-    // decresing time intervals to see if it generate double
+    // decreasing time intervals to see if it generate double
     //registration statistics errors.
     for (auto&& i : rng) {
         const char* name = i%2 ? name1 : name2;
@@ -137,7 +137,7 @@ SEASTAR_THREAD_TEST_CASE(test_renaming_io_priority_classes) {
 
     boost::integer_range<int> rng(0, 1000);
     // repeatedly change the group name back and forth in
-    // decresing time intervals to see if it generate double
+    // decreasing time intervals to see if it generate double
     //registration statistics errors.
     for (auto&& i : rng) {
         const char* name = i%2 ? name1 : name2;
@@ -203,7 +203,7 @@ SEASTAR_THREAD_TEST_CASE(test_relabel_add_labels) {
     namespace sm = seastar::metrics;
     sm::metric_groups app_metrics;
     app_metrics.add_group("test", {
-        sm::make_gauge("gauge_1", sm::description("gague 1"), [] { return 0; }),
+        sm::make_gauge("gauge_1", sm::description("gauge 1"), [] { return 0; }),
         sm::make_counter("counter_1", sm::description("counter 1"), [] { return 1; })
     });
 
@@ -228,7 +228,7 @@ SEASTAR_THREAD_TEST_CASE(test_relabel_drop_label_prevent_runtime_conflicts) {
     namespace sm = seastar::metrics;
     sm::metric_groups app_metrics;
     app_metrics.add_group("test2", {
-        sm::make_gauge("gauge_1", sm::description("gague 1"), { sm::label_instance("g", "1")}, [] { return 0; }),
+        sm::make_gauge("gauge_1", sm::description("gauge 1"), { sm::label_instance("g", "1")}, [] { return 0; }),
         sm::make_counter("counter_1", sm::description("counter 1"), [] { return 0; }),
         sm::make_counter("counter_1", sm::description("counter 1"), { sm::label_instance("lev", "2")}, [] { return 0; })
     });
@@ -245,7 +245,7 @@ SEASTAR_THREAD_TEST_CASE(test_relabel_drop_label_prevent_runtime_conflicts) {
     BOOST_CHECK_EQUAL(count_by_label("lev"), 0);
     BOOST_CHECK_EQUAL(count_by_label("err"), 1);
 
-    //reseting all the labels to their original state
+    //resetting all the labels to their original state
     success = sm::set_relabel_configs({}).get();
     BOOST_CHECK_EQUAL(success.metrics_relabeled_due_to_collision, 0);
     BOOST_CHECK_EQUAL(count_by_label("lev"), 1);
@@ -258,7 +258,7 @@ SEASTAR_THREAD_TEST_CASE(test_relabel_enable_disable_skip_when_empty) {
     namespace sm = seastar::metrics;
     sm::metric_groups app_metrics;
     app_metrics.add_group("test3", {
-        sm::make_gauge("gauge_1", sm::description("gague 1"), { sm::label_instance("lev3", "3")}, [] { return 0; }),
+        sm::make_gauge("gauge_1", sm::description("gauge 1"), { sm::label_instance("lev3", "3")}, [] { return 0; }),
         sm::make_counter("counter_1", sm::description("counter 1"), { sm::label_instance("lev3", "3")}, [] { return 0; }),
         sm::make_counter("counter_2", sm::description("counter 2"), { sm::label_instance("lev3", "3")}, [] { return 0; })
     });

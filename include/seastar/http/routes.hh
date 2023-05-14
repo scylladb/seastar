@@ -53,7 +53,7 @@ public:
 
     /**
      * Adds a parameter that matches untill the end of the URL.
-     * @param param the parmaeter name
+     * @param param the parameter name
      * @return the current url
      */
     url& remainder(const sstring& param) {
@@ -70,7 +70,7 @@ struct path_description;
 /**
  * routes object do the request dispatching according to the url.
  * It uses two decision mechanism exact match, if a url matches exactly
- * (an optional leading slash is permitted) it is choosen
+ * (an optional leading slash is permitted) it is chosen
  * If not, the matching rules are used.
  * matching rules are evaluated by their insertion order
  */
@@ -194,7 +194,7 @@ public:
      * std::rethrow_exception(eptr);
      * and catch only the exception it handles
      */
-    exception_handler_id register_exeption_handler(exception_handler_fun fun) {
+    exception_handler_id register_exception_handler(exception_handler_fun fun) {
         auto current = _exception_id++;
         _exceptions[current] = fun;
         return current;

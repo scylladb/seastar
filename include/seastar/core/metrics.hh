@@ -64,7 +64,7 @@ namespace seastar {
  * 2. A metric could be a single value either a reference or a function
  *
  * To add metrics definition to class A do the following:
- * * Add a metrics_group memeber to A
+ * * Add a metrics_group member to A
  * * Add a a set_metrics() method that would be called in the constructor.
  *
  *
@@ -198,7 +198,7 @@ public:
  * Typically, the same Label name is used in multiple places.
  * label is a label factory, you create it once, and use it to create the label_instance.
  *
- * In the example we would like to label the smp_queue with with the queue owner
+ * In the example we would like to label the smp_queue with the queue owner
  *
  * seastar::metrics::label smp_owner("smp_owner");
  *
@@ -206,7 +206,7 @@ public:
  *
  * sm::make_queue_length("send_batch_queue_length", _last_snt_batch, {smp_owner(cpuid)})
  *
- * where cpuid in this case is unsiged.
+ * where cpuid in this case is unsigned.
  */
 class label {
     sstring key;
@@ -424,7 +424,7 @@ extern const bool metric_disabled;
 extern label shard_label;
 
 /*
- * The metrics definition are defined to be compatible with collectd metrics defintion.
+ * The metrics definition are defined to be compatible with collectd metrics definition.
  * Typically you should used gauge or derived.
  */
 

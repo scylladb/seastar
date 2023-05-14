@@ -64,7 +64,7 @@ namespace seastar {
  *  `<type_instance>` is a distinguisher for metric parts of the type, e.g. "idle", "user", "kernel"
  *  -> cpu/0/usage/idle | cpu/0/usage/user | cpu/0/usage/kernel
  *
- *  Each type instance can bind an arbitrary number of values, ech representing some aspect in turn of the instance.
+ *  Each type instance can bind an arbitrary number of values, each representing some aspect in turn of the instance.
  *  The structure and interpretation is up to the producer/consumer
  *
  * There is a single "scollectd" instance per cpu, and values should be bound locally
@@ -498,7 +498,7 @@ public:
 
 /**
  * Template wrapper for type_id values, deriving type_id string
- * from the known_types enum, for auto-completetion joy.
+ * from the known_types enum, for auto-completion joy.
  */
 template<known_type Type>
 struct typed_value_impl: public typed_value {

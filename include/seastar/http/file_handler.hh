@@ -99,7 +99,7 @@ protected:
     /**
      * read a file from the disk and return it in the replay.
      * @param file the full path to a file on the disk
-     * @param req the reuest
+     * @param req the request
      * @param rep the reply
      */
     future<std::unique_ptr<http::reply> > read(sstring file,
@@ -127,7 +127,7 @@ public:
      * @param doc_root the root directory to search the file from.
      * @param transformer an optional file transformer
      * For example if the root is '/usr/mgmt/public' and the path parameter
-     * will be '/css/style.css' the file wil be /usr/mgmt/public/css/style.css'
+     * will be '/css/style.css' the file will be /usr/mgmt/public/css/style.css'
      */
     explicit directory_handler(const sstring& doc_root,
             file_transformer* transformer = nullptr);

@@ -101,7 +101,7 @@ struct convert<seastar::net::device_config> {
                     return s == item.first.as<std::string>();
                 })) {
                 throw seastar::net::config_exception(
-                    seastar::format("unsuppoted key {}", item.first.as<std::string>()));
+                    seastar::format("unsupported key {}", item.first.as<std::string>()));
             }
         }
 

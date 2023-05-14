@@ -46,7 +46,7 @@ public:
 // unknown (non std::exception) object or a runtime error which is
 // derived from std::exception, it chooses the type of thrown object
 // according to the bit in the `nesting_level` place in the
-// `tests_instance` paramter or in other words according to:
+// `tests_instance` parameter or in other words according to:
 // bool(test_instance & (1<<nesting_level))
 void exception_generator(uint32_t test_instance, int nesting_level) {
     try {

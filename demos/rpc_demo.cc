@@ -135,12 +135,12 @@ int main(int ac, char** av) {
             auto test9 = myrpc.make_client<long (long a, long b)>(9); // do not send optional
             auto test9_1 = myrpc.make_client<long (long a, long b, int c)>(9); // send optional
             auto test9_2 = myrpc.make_client<long (long a, long b, int c, long d)>(9); // send more data than handler expects
-            auto test10 = myrpc.make_client<long ()>(10); // receive less then replied
+            auto test10 = myrpc.make_client<long ()>(10); // receive less than replied
             auto test10_1 = myrpc.make_client<future<rpc::tuple<long, int>> ()>(10); // receive all
             auto test11 = myrpc.make_client<future<rpc::tuple<long, rpc::optional<int>>> ()>(11); // receive more then replied
             auto test12 = myrpc.make_client<void (int sleep_ms, sstring payload)>(12); // large payload vs. server limits
-            auto test_nohandler = myrpc.make_client<void ()>(100000000); // non existing verb
-            auto test_nohandler_nowait = myrpc.make_client<rpc::no_wait_type ()>(100000000); // non existing verb, no_wait call
+            auto test_nohandler = myrpc.make_client<void ()>(100000000); // nonexistent verb
+            auto test_nohandler_nowait = myrpc.make_client<rpc::no_wait_type ()>(100000000); // nonexistent verb, no_wait call
             rpc::client_options co;
             if (compress) {
                 co.compressor_factory = &mc;
@@ -193,7 +193,7 @@ int main(int ac, char** av) {
                 (void)test13(*client, *c).then_wrapped([](future<> f) {
                     try {
                         f.get();
-                        fmt::print("test13 shold not get here\n");
+                        fmt::print("test13 should not get here\n");
                     } catch(rpc::canceled_error&) {
                         fmt::print("test13 canceled\n");
                     } catch(...) {
@@ -204,7 +204,7 @@ int main(int ac, char** av) {
                 (void)test13(*client, *c).then_wrapped([](future<> f) {
                     try {
                         f.get();
-                        fmt::print("test13 shold not get here\n");
+                        fmt::print("test13 should not get here\n");
                     } catch(rpc::canceled_error&) {
                         fmt::print("test13 canceled\n");
                     } catch(...) {
@@ -215,7 +215,7 @@ int main(int ac, char** av) {
                 (void)test_message_to_big(*client, uninitialized_string(10'000'001)).then_wrapped([](future<> f) {
                     try {
                         f.get();
-                        fmt::print("test message to big shold not get here\n");
+                        fmt::print("test message to big should not get here\n");
                     } catch(std::runtime_error& err) {
                         fmt::print("test message to big get error {}\n", err.what());
                     } catch(...) {

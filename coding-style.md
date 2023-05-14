@@ -33,7 +33,7 @@ Think of the leading underscore as a shorthand for `this->`.
 Template parameters use `CamelCase`
 
 Note: because the Concept Technical Specification used CamelCase for concepts,
-some Seastar concepts alse use CamelCase. These will be gradually deprecated
+some Seastar concepts also use CamelCase. These will be gradually deprecated
 and replaced with snake_case names. New concepts should use snake_case.
 
 ## Including header files
@@ -68,7 +68,7 @@ void a_function() {
 
 An exception is namespaces -- the body is _not_ indented, to prevent files that are almost 100% whitespace left margin.
 
-When making a change, if you need to insert an indentation level, you can temporarily break the rules by insering a half-indent, so that the patch is easily reviewable:
+When making a change, if you need to insert an indentation level, you can temporarily break the rules by inserting a half-indent, so that the patch is easily reviewable:
 
 ```c++
 void a_function() {

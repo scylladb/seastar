@@ -85,7 +85,7 @@ void* internal::allocate_aligned_buffer_impl(size_t size, size_t align) {
 
 namespace memory {
 
-// We always create the logger object for memory disagnostics, even in
+// We always create the logger object for memory diagnostics, even in
 // in SEASTAR_DEFAULT_ALLOCATOR builds, though it only logs when the
 // seastar allocator is enabled.
 seastar::logger seastar_memory_logger("seastar_memory");
@@ -1233,7 +1233,7 @@ small_pool::~small_pool() {
 }
 
 // Should not throw in case of running out of memory to avoid infinite recursion,
-// becaue throwing std::bad_alloc requires allocation. __cxa_allocate_exception
+// because throwing std::bad_alloc requires allocation. __cxa_allocate_exception
 // falls back to the emergency pool in case malloc() returns nullptr.
 void*
 small_pool::allocate() {
@@ -1709,7 +1709,7 @@ seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar
         }
 
         // For the small pools, there are two types of free objects:
-        // Pool freelist objects are poitned to by sp._free and their count is sp._free_count
+        // Pool freelist objects are pointed to by sp._free and their count is sp._free_count
         // Span freelist objects are those removed from the pool freelist when that list
         // becomes too large: they are instead attached to the spans allocated to this
         // pool. To count this second category, we iterate over the spans below.
@@ -1810,7 +1810,7 @@ void maybe_dump_memory_diagnostics(size_t size, bool is_aborting) {
     }
 
     if (is_aborting) {
-        // if we are about to abort, always report the memory diagnositics at error level
+        // if we are about to abort, always report the memory diagnostics at error level
         lvl = log_level::error;
     }
 

@@ -1,5 +1,5 @@
 % The pandoc command line (see configure.py) can communicate variables to this
-% LaTeX skelaton, by using the "-V varname=value" command line parameter, and
+% LaTeX skeleton, by using the "-V varname=value" command line parameter, and
 % there are also some builtin variables defined by other options. With such a
 % variable, we can use "$varname$" for the value, and $if(varname)$...$endif$
 % for conditional code when this varname is defined.
@@ -48,7 +48,7 @@ $endif$
 
 % Indentation went out of style with Disco music... It is especially
 % inconvenient in text which includes a lot of code snippets, etc, which
-% causes a lot of indents not preceeded by a text paragraph. So replace
+% causes a lot of indents not preceded by a text paragraph. So replace
 % the indentation with increased spacing between paragraphs. Note that this
 % also makes the TOC more spacious, I'm not sure it's a great idea.
 \setlength{\parindent}{0pt}
@@ -60,7 +60,7 @@ $endif$
 \setlength{\itemsep}{0pt}\setlength{\parskip}{0pt}}
 
 % Fancy-formatted title, but take the author list and date (if set) from the
-% preable in the markdown file.
+% preamble in the markdown file.
 \title{\textbf{\fontsize{0.75cm}{1.5em}\selectfont Asynchronous Programming} \\ \textbf{\fontsize{0.75cm}{1.5em}\selectfont with} \\ \textbf{\fontsize{3cm}{1.5em}\selectfont Seastar}}
 \author{$for(author)$$author$$sep$ \and $endfor$}
 \date{$date$}

@@ -21,11 +21,11 @@ eth0: {port_index: 0, ip: 192.168.100.10, gateway: 192.168.100.1, netmask: 255.2
 ```
 
 Please note that device name - eth0 above, is not used by DPDK itself, it remains only for configuration consistency. 
-The hardware configuration has to be specied in the same way accross all network devices, so for example if pci_address is specified for one network device, port_index cannot be specified for any other.
+The hardware configuration has to be specified in the same way across all network devices, so for example if pci_address is specified for one network device, port_index cannot be specified for any other.
 
 
 ## Non-DPDK access
-When there is no pci_address neither port_index defined then Non-DPDK access is assumed provided by libvirt deamon (see native-stack.md), eg:
+When there is no pci_address neither port_index defined then Non-DPDK access is assumed provided by libvirt daemon (see native-stack.md), eg:
 
 ```
 virbr0: { ip: 192.168.100.10, gateway: 192.168.100.1, netmask: 255.255.255.0 }
@@ -34,7 +34,7 @@ virbr0: { ip: 192.168.100.10, gateway: 192.168.100.1, netmask: 255.255.255.0 }
 ## Other hardware related options
 
 There are other hardware related optional options, some of the are common for both DPDK and non-DPDK mode
-- lro ( large receive offload ), boolean, deafult true
+- lro ( large receive offload ), boolean, default true
 - tso ( tcp segmentation offload ), boolean, default true
 - ufo ( udp fragmentation offload ), boolean, default true
 - hw-fc ( hardware flow control ), boolean, default true,
@@ -55,7 +55,7 @@ DHCP can be selected per network device, so it would also be perfectly valid to 
 
 
 ## Multiple devices
-Configuration formay for multiple devices is a comma separated lists of single devices with added YAML brackets, eg:
+Configuration format for multiple devices is a comma separated lists of single devices with added YAML brackets, eg:
 
 ```
 {virbr0: { ip: 192.168.100.10, gateway: 192.168.100.1, netmask: 255.255.255.0 } , virbr1: { dhcp: true } }

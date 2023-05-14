@@ -184,7 +184,7 @@ class smp_message_queue {
     };
     using lf_queue_base = boost::lockfree::spsc_queue<work_item*,
                             boost::lockfree::capacity<queue_length>>;
-    // use inheritence to control placement order
+    // use inheritance to control placement order
     struct lf_queue : lf_queue_remote, lf_queue_base {
         lf_queue(reactor* remote) : lf_queue_remote{remote} {}
         void maybe_wakeup();

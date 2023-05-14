@@ -100,9 +100,9 @@ struct resource_limits {
     size_t max_memory = rpc_semaphore::max_counter(); ///< Maximum amount of memory that may be consumed by all requests
     /// Configures isolation for a connection based on its isolation cookie. May throw,
     /// in which case the connection will be terminated.
-    using syncronous_isolation_function = std::function<isolation_config (sstring isolation_cookie)>;
-    using asyncronous_isolation_function = std::function<future<isolation_config> (sstring isolation_cookie)>;
-    using isolation_function_alternatives = std::variant<syncronous_isolation_function, asyncronous_isolation_function>;
+    using synchronous_isolation_function = std::function<isolation_config (sstring isolation_cookie)>;
+    using asynchronous_isolation_function = std::function<future<isolation_config> (sstring isolation_cookie)>;
+    using isolation_function_alternatives = std::variant<synchronous_isolation_function, asynchronous_isolation_function>;
     isolation_function_alternatives isolate_connection = default_isolate_connection;
 };
 
@@ -130,7 +130,7 @@ struct client_options {
 // server on the shard. Stream domain parameter is here to help with that.
 // Different servers on all shards logically belonging to the same service should
 // belong to the same streaming domain. Only one server on each shard can belong to
-// a particulr streaming domain.
+// a particular streaming domain.
 class streaming_domain_type {
     uint64_t _id;
 public:
@@ -561,7 +561,7 @@ public:
         future<feature_map> negotiate(feature_map requested);
         future<> send_unknown_verb_reply(std::optional<rpc_clock_type::time_point> timeout, int64_t msg_id, uint64_t type);
     public:
-        connection(server& s, connected_socket&& fd, socket_address&& addr, const logger& l, void* seralizer, connection_id id);
+        connection(server& s, connected_socket&& fd, socket_address&& addr, const logger& l, void* serializer, connection_id id);
         future<> process();
         future<> respond(int64_t msg_id, snd_buf&& data, std::optional<rpc_clock_type::time_point> timeout);
         client_info& info() { return _info; }

@@ -14,7 +14,7 @@
  * KIND, either express or implied.  See the License for the
  * specific language governing permissions and limitations
  * under the License.// Custom "validator" that gets called by the internals of Boost.Test. This allows for reading associations into an
-// unordered map and for multiple occurances of the option name to appear and be merged.
+// unordered map and for multiple occurrences of the option name to appear and be merged.
  */
 /*
  * Copyright (C) 2017 ScyllaDB

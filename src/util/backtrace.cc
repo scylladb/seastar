@@ -59,7 +59,7 @@ static std::vector<shared_object> enumerate_shared_objects() {
 }
 
 static const std::vector<shared_object> shared_objects{enumerate_shared_objects()};
-static const shared_object uknown_shared_object{"", 0, std::numeric_limits<uintptr_t>::max()};
+static const shared_object unknown_shared_object{"", 0, std::numeric_limits<uintptr_t>::max()};
 
 bool operator==(const frame& a, const frame& b) noexcept {
     return a.so == b.so && a.addr == b.addr;
@@ -69,7 +69,7 @@ frame decorate(uintptr_t addr) noexcept {
     // If the shared-objects are not enumerated yet, or the enumeration
     // failed return the addr as-is with a dummy shared-object.
     if (shared_objects.empty()) {
-        return {&uknown_shared_object, addr};
+        return {&unknown_shared_object, addr};
     }
 
     auto it = std::find_if(shared_objects.begin(), shared_objects.end(), [&] (const shared_object& so) {
@@ -111,7 +111,7 @@ std::ostream& operator<<(std::ostream& out, const simple_backtrace& b) {
     char delim[2] = {'\0', '\0'};
     for (auto f : b._frames) {
         out << delim << f;
-        delim[0] = b.delimeter();
+        delim[0] = b.delimiter();
     }
     return out;
 }

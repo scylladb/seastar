@@ -210,7 +210,7 @@ struct reply {
      * \param content_type - is used to choose the content type of the body. Use the file extension
      *  you would have used for such a content, (i.e. "txt", "html", "json", etc')
      * \param content - the message content.
-     * This would set the the content and content type of the message along
+     * This would set the content and content type of the message along
      * with any additional information that is needed to send the message.
      */
     void write_body(const sstring& content_type, sstring content);

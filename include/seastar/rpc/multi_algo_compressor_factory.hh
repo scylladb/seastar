@@ -33,7 +33,7 @@ namespace rpc {
 // This is meta compressor factory. It gets an array of regular factories that
 // support one compression algorithm each and negotiates common compression algorithm
 // that is supported both by a client and a server. The order of algorithm preferences
-// is the order they appear in clien's list
+// is the order they appear in client's list
 class multi_algo_compressor_factory : public rpc::compressor::factory {
     std::vector<const rpc::compressor::factory*> _factories;
     sstring _features;

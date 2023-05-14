@@ -206,7 +206,7 @@ public:
     /// cannot be moved safely, so disable move operations.
     sharded(sharded&& other) = delete;
     sharded& operator=(sharded&& other) = delete;
-    /// Destroyes a \c sharded object.  Must not be in a started state.
+    /// Destroys a \c sharded object.  Must not be in a started state.
     ~sharded();
 
     /// Starts \c Service by constructing an instance on every logical core
@@ -908,7 +908,7 @@ public:
     /// Return the owner-shard of this pointer.
     ///
     /// The owner shard of the pointer can change as a result of
-    /// move-assigment or a call to reset().
+    /// move-assignment or a call to reset().
     unsigned get_owner_shard() const noexcept { return _cpu; }
     /// Checks whether the wrapped pointer is non-null.
     operator bool() const noexcept(noexcept(static_cast<bool>(_value))) { return static_cast<bool>(_value); }

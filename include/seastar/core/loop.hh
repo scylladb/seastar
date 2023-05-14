@@ -321,7 +321,7 @@ public:
 /// Invokes given action until it fails or given condition evaluates to true or fails.
 ///
 /// \param stop_cond a callable taking no arguments, returning a boolean that
-///                  evalutes to true when you don't want to call \c action
+///                  evaluates to true when you don't want to call \c action
 ///                  any longer. If \c stop_cond fails, the exception is propagated
 //                   in the returned future.
 /// \param action a callable taking no arguments, returning a future<>.  Will
@@ -444,7 +444,7 @@ future<> do_for_each_impl(Iterator begin, Iterator end, AsyncAction action) {
 /// invocation to complete before calling the next one.
 ///
 /// \param begin an \c InputIterator designating the beginning of the range
-/// \param end an \c InputIterator designating the endof the range
+/// \param end an \c InputIterator designating the end of the range
 /// \param action a callable, taking a reference to objects from the range
 ///               as a parameter, and returning a \c future<> that resolves
 ///               when it is acceptable to process the next item.

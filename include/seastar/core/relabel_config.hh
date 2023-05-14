@@ -74,7 +74,7 @@ public:
  *   drop_label  - remove the target label
  *
  * source_labels - a list of source labels, the labels are concatenated
- *                 with the separator and and the combine value is match to the regex.
+ *                 with the separator and the combine value is match to the regex.
  * target_label  - the labels to perform the action on when replacing a value or when dropping a label.
  * replacement   - the string to use when replacing a label value, regex group can be used.
  * expr          - a regular expression in a string format. Action would be taken if the regex

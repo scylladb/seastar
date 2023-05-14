@@ -100,7 +100,7 @@ public:
     virtual future<> allocate(uint64_t position, uint64_t length) noexcept override;
     future<uint64_t> size() noexcept override;
     // close() never fails. It just reports errors and swallows them.
-    // The user must call flush() first if they care aout stable storage semantics.
+    // The user must call flush() first if they care about stable storage semantics.
     virtual future<> close() noexcept override;
     virtual std::unique_ptr<seastar::file_handle_impl> dup() override;
     virtual subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next) override;
@@ -274,7 +274,7 @@ class append_challenged_posix_file_impl final : public posix_file_impl, public e
 
     const bool _sloppy_size = false;
     const uint64_t _sloppy_size_hint;
-    // Fulfiled when _done and I/O is complete
+    // Fulfilled when _done and I/O is complete
     promise<> _completed;
 private:
     void commit_size(uint64_t size) noexcept;

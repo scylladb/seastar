@@ -81,7 +81,7 @@ public:
     /// The normalization function itself is an implementation detail, but one can expect either weight or
     /// size to have more or less relative importance depending on which of the dimensions in the
     /// denominator is relatively higher. For example, given this request a, and two other requests
-    /// b and c, such that that c has the same \c weight but a higher \c size than b, one can expect
+    /// b and c, such that c has the same \c weight but a higher \c size than b, one can expect
     /// the \c size component of this request to play a larger role.
     ///
     /// It is legal for the numerator to have one of the quantities set to zero, in which case only
@@ -92,7 +92,7 @@ public:
     float normalize(fair_queue_ticket axis) const noexcept;
 
     /*
-     * For both dimentions checks if the first rover is ahead of the
+     * For both dimensions checks if the first rover is ahead of the
      * second and returns the difference. If behind returns zero.
      */
     friend fair_queue_ticket wrapping_difference(const fair_queue_ticket& a, const fair_queue_ticket& b) noexcept;
@@ -147,7 +147,7 @@ public:
      *
      * where K is the scalar value <= 1.0 (also configured)
      *
-     * Bandwidth is bytes time derivatite, iops is ops time derivative, i.e.
+     * Bandwidth is bytes time derivative, iops is ops time derivative, i.e.
      * Bx = d(bx)/dt, Ox = d(ox)/dt. Then the formula turns into
      *
      *   d(bw/Bw_max + br/Br_max + ow/Ow_max + or/Or_max)/dt <= K
@@ -166,7 +166,7 @@ public:
      *
      * where {w, s} is the ticket value if a request and sum summarizes the
      * ticket values from all the requests seen so far, {W, S} is the ticket
-     * value that corresonds to a virtual summary of Or_max requests of
+     * value that corresponds to a virtual summary of Or_max requests of
      * Br_max size total.
      */
 

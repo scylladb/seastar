@@ -70,7 +70,7 @@ struct nested_exception : public std::exception {
 ///
 /// \brief
 /// The normal way of working with futures is to chain continuations
-/// to them.  A continuation is a block of code (usually a lamdba)
+/// to them.  A continuation is a block of code (usually a lambda)
 /// that is called when the future is assigned a value (the future
 /// is resolved); the continuation can then access the actual value.
 ///
@@ -93,7 +93,7 @@ struct nested_exception : public std::exception {
 ///
 /// If a future is consumed by future::then before the future is
 /// ready, a continuation is dynamically allocated. The continuation
-/// also has a future_state<T>, but unlinke a future it is never
+/// also has a future_state<T>, but unlike a future it is never
 /// moved.
 ///
 /// After a future creates a continuation, the corresponding promise
@@ -449,13 +449,13 @@ struct future_state_base {
         }
         void move_it(any&& x) noexcept {
 #ifdef __GLIBCXX__
-            // Unfortunally gcc cannot fully optimize the regular
+            // Unfortunately gcc cannot fully optimize the regular
             // implementation:
             // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=95014
             // Given what we know about the libstdc++ implementation
             // (see the comment in take_exception), we can just
             // memmove and zero x.  We use memmove to guarantee
-            // vaild results if &x == this.
+            // valid results if &x == this.
             memmove(static_cast<void*>(this), &x, sizeof(any));
             x.st = state::invalid;
 #else
@@ -490,7 +490,7 @@ struct future_state_base {
     future_state_base(std::exception_ptr&& ex) noexcept : _u(std::move(ex)) { }
     future_state_base(future_state_base&& x) noexcept : _u(std::move(x._u)) { }
 
-    // We never need to destruct this polymorphicly, so we can make it
+    // We never need to destruct this polymorphically, so we can make it
     // protected instead of virtual.
 protected:
     struct current_exception_future_marker {};
@@ -770,7 +770,7 @@ protected:
 
     void clear() noexcept;
 
-    // We never need to destruct this polymorphicly, so we can make it
+    // We never need to destruct this polymorphically, so we can make it
     // protected instead of virtual
     ~promise_base() noexcept {
         clear();
@@ -1338,7 +1338,7 @@ public:
     /// Wait for the future to be available (in a seastar::thread)
     ///
     /// When called from a seastar::thread, this function blocks the
-    /// thread until the future is availble. Other threads and
+    /// thread until the future is available. Other threads and
     /// continuations continue to execute; only the thread is blocked.
     void wait() noexcept {
         if (_state.available()) {
@@ -1357,7 +1357,7 @@ public:
 
     /// \brief Checks whether the future has failed.
     ///
-    /// \return \c true if the future is availble and has failed.
+    /// \return \c true if the future is available and has failed.
     [[gnu::always_inline]]
     bool failed() const noexcept {
         return _state.failed();

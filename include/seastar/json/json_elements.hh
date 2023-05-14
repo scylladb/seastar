@@ -127,7 +127,7 @@ public:
     /**
      * The to_string return the value
      * formated as a json value
-     * @return the value foramted for json
+     * @return the value formatted for json
      */
     virtual std::string to_string() override
     {
@@ -187,7 +187,7 @@ class jsonable {
 public:
     virtual ~jsonable() = default;
     /**
-     * create a foramted string of the object.
+     * create a formatted string of the object.
      * @return the object formated.
      */
     virtual std::string to_json() const = 0;
@@ -195,7 +195,7 @@ public:
     /*!
      * \brief write an object to the output stream
      *
-     * The defult implementation uses the to_json
+     * The default implementation uses the to_json
      * Object implementation override it.
      */
     virtual future<> write(output_stream<char>& s) const {
@@ -224,7 +224,7 @@ struct json_base : public jsonable {
     json_base operator=(const json_base&) = delete;
 
     /**
-     * create a foramted string of the object.
+     * create a formatted string of the object.
      * @return the object formated.
      */
     virtual std::string to_json() const;

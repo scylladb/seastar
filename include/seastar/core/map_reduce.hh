@@ -129,7 +129,7 @@ map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Reducer&& r)
 /// operating on these objects, an initial value, and a
 /// binary function for reducing, map_reduce() will
 /// transform each object in the range, then invoke
-/// the the reducing function with the result.
+/// the reducing function with the result.
 ///
 /// Example:
 ///
@@ -207,7 +207,7 @@ map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Initial initial, Reduc
 /// operating on these objects, an initial value, and a
 /// binary function for reducing, map_reduce() will
 /// transform each object in the range, then invoke
-/// the the reducing function with the result.
+/// the reducing function with the result.
 ///
 /// Example:
 ///

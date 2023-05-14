@@ -119,7 +119,7 @@ class KernelResolver:
             f.close()
 
         if not syms:
-            # make empty kallsyms (?) an error so we can assum len >= 1 below
+            # make empty kallsyms (?) an error so we can assume len >= 1 below
             self.error = 'kallsyms was empty'
             print(self.error)
             return

@@ -23,7 +23,7 @@ to emphasize stall backtraces that are frequent and long.
 Each node in the printed output is preceded with [level#index pct%],
 where `level` is the level of that node in the graph (0 are root nodes),
 `index` is the index in the parent node's list of callers/callees, and
-`pct` is the percantage of this link's `total` time relative to
+`pct` is the percentage of this link's `total` time relative to
 its siblings.
 
 When given an executable, addresses are decoding using `addr2line`
@@ -342,7 +342,7 @@ for s in input:
     trace = trace[i + 6:]
     # The address_threshold typically indicates a library call
     # and the backtrace up-to and including it are usually of
-    # no interest as they all contain the stall backtrace geneneration code, e.g.:
+    # no interest as they all contain the stall backtrace generation code, e.g.:
     #  seastar::internal::cpu_stall_detector::generate_trace
     # void seastar::backtrace<seastar::backtrace_buffer::append_backtrace_oneline()::{lambda(seastar::frame)#1}>(seastar::backt>
     #  (inlined by) seastar::backtrace_buffer::append_backtrace_oneline() at ./build/release/seastar/./seastar/src/core/reactor.cc:771

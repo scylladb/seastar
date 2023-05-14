@@ -544,7 +544,7 @@ def parse_file(param, combined):
         try:
             # the passed data is not a valid json, so maybe its a swagger 2.0
             # snippet, format it as json and try again
-            # set_apis and check_for_models will create an object with a similiar format
+            # set_apis and check_for_models will create an object with a similar format
             # to a swagger 1.2 so the code generation would work
             data = set_apis(json.loads(format_as_json_object(json_data)))
             check_for_models(data, param)

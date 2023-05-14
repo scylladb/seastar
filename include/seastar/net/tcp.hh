@@ -178,7 +178,7 @@ struct tcp_option {
     uint8_t fill(void* h, const tcp_hdr* th, uint8_t option_size);
     uint8_t get_size(bool syn_on, bool ack_on);
 
-    // For option negotiattion
+    // For option negotiation
     bool _mss_received = false;
     bool _win_scale_received = false;
     bool _timestamps_received = false;
@@ -381,7 +381,7 @@ private:
             size_t data_size = 0;
             tcp_packet_merger out_of_order;
             std::optional<promise<>> _data_received_promise;
-            // The maximun memory buffer size allowed for receiving
+            // The maximum memory buffer size allowed for receiving
             // Currently, it is the same as default receive window size when window scaling is enabled
             size_t max_receive_buf_size = 3737600;
         } _rcv;
@@ -787,7 +787,7 @@ tcp<InetTraits>::tcp(inet_type& inet)
     _metrics.add_group("tcp", {
         sm::make_counter("linearizations", [] { return tcp_packet_merger::linearizations(); },
                         sm::description("Counts a number of times a buffer linearization was invoked during the buffers merge process. "
-                                        "Divide it by a total TCP receive packet rate to get an everage number of lineraizations per TCP packet."))
+                                        "Divide it by a total TCP receive packet rate to get an average number of linearizations per TCP packet."))
     });
 
     _inet.register_packet_provider([this, tcb_polled = 0u] () mutable {
@@ -1352,7 +1352,7 @@ void tcp<InetTraits>::tcb::input_handle_other_state(tcp_hdr* th, packet p) {
                         // Signal the waiter of this event
                         signal_all_data_acked();
                     } else {
-                        // Restart the timer becasue new data is acked.
+                        // Restart the timer because new data is acked.
                         start_retransmit_timer();
                     }
                 };
@@ -1393,7 +1393,7 @@ void tcp<InetTraits>::tcb::input_handle_other_state(tcp_hdr* th, packet p) {
                     // any intervening ACKs which move SND.UNA) as an
                     // indication that a segment has been lost.
                     //
-                    // So, here we reset dupacks to zero becasue this ACK moves
+                    // So, here we reset dupacks to zero because this ACK moves
                     // SND.UNA.
                     exit_fast_recovery();
                     set_retransmit_timer();
@@ -1498,7 +1498,7 @@ void tcp<InetTraits>::tcb::input_handle_other_state(tcp_hdr* th, packet p) {
         if (p.len()) {
             // Once the TCP takes responsibility for the data it advances
             // RCV.NXT over the data accepted, and adjusts RCV.WND as
-            // apporopriate to the current buffer availability.  The total of
+            // appropriate to the current buffer availability.  The total of
             // RCV.NXT and RCV.WND should not be reduced.
             _rcv.data_size += p.len();
             _rcv.data.push_back(std::move(p));
@@ -1542,7 +1542,7 @@ void tcp<InetTraits>::tcb::input_handle_other_state(tcp_hdr* th, packet p) {
             signal_data_received();
 
             // If this <FIN> packet contains data as well, we can ACK both data
-            // and <FIN> in a single packet, so canncel the previous ACK.
+            // and <FIN> in a single packet, so cancel the previous ACK.
             clear_delayed_ack();
             do_output = false;
             // Send ACK for the FIN!
@@ -1568,7 +1568,7 @@ void tcp<InetTraits>::tcb::input_handle_other_state(tcp_hdr* th, packet p) {
         }
     }
     if (do_output || (do_output_data && can_send())) {
-        // Since we will do output, we can canncel scheduled delayed ACK.
+        // Since we will do output, we can cancel scheduled delayed ACK.
         clear_delayed_ack();
         output();
     }

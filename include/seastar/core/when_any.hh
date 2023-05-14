@@ -140,7 +140,7 @@ when_any_impl(std::index_sequence<I...>, Futures&&... futs) noexcept
 ///
 /// \param fut_or_funcs futures or functions that return futures
 /// \return a \c when_any_result containing a tuple of all futures
-///  and and index; when ready, at least one of the contained futures
+///  and index; when ready, at least one of the contained futures
 ///  (the one indicated by index) will be ready.
 template <class... FutOrFuncs>
 auto when_any(FutOrFuncs&&... fut_or_funcs) noexcept

@@ -33,7 +33,7 @@ parser = sub_parser.add_parser('limits', help='Run limits test')
 parser.set_defaults(test_name='limits')
 parser.add_argument('--bw-reqsize', help='Bandwidth job request size in kbytes', type=int, default=64)
 parser.add_argument('--iops-reqsize', help='IOPS job request size in kbytes', type=int, default=4)
-parser.add_argument('--limit-ratio', help='Bandidth/IOPS fraction to test', type=int, default=2)
+parser.add_argument('--limit-ratio', help='Bandwidth/IOPS fraction to test', type=int, default=2)
 parser.add_argument('--parallelism', help='IO job parallelism', type=int, default=100)
 
 parser = sub_parser.add_parser('isolation', help='Run isolation test')
@@ -198,7 +198,7 @@ else:
 
 def mixed_show_stat_header():
     print('-' * 20 + '8<' + '-' * 20)
-    print('name           througput(kbs) iops lat95(us) queue-time(us) execution-time(us) K(bw) K(iops) K()')
+    print('name           throughput(kbs) iops lat95(us) queue-time(us) execution-time(us) K(bw) K(iops) K()')
 
 
 def mixed_run_and_show_results(m, ioprop):
@@ -260,7 +260,7 @@ def limits_make_ioprop(name, ioprop, changes):
 
 def limits_show_stat_header():
     print('-' * 20 + '8<' + '-' * 20)
-    print('name           througput(kbs) iops')
+    print('name           throughput(kbs) iops')
 
 
 def limits_run_and_show_results(m):
@@ -332,7 +332,7 @@ def run_isolation_test(args, ioprop):
 
 def class_limit_show_stat_header():
     print('-' * 20 + '8<' + '-' * 20)
-    print('name           througput(kbs)')
+    print('name           throughput(kbs)')
 
 
 def class_limit_run_and_show_results(m):

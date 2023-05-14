@@ -7,7 +7,7 @@ of a complex Seastar application.
 # Running I/O tester:
 
 I/O tester takes the same options as Seastar, and those options may be used
-to test the behavior of I/O under the circumnstances established by those
+to test the behavior of I/O under the circumstances established by those
 options. For instance, one may adjust the `--task-quota-ms` option to see
 if that affects higher percentile latencies.
 

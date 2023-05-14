@@ -206,7 +206,7 @@ void fair_queue::push_priority_class_from_idle(priority_class_data& pc) noexcept
     if (!pc._queued) {
         // Don't let the newcomer monopolize the disk for more than tau
         // duration. For this estimate how many capacity units can be
-        // accumulated with the current class shares per rate resulution
+        // accumulated with the current class shares per rate resolution
         // and scale it up to tau.
         capacity_t max_deviation = fair_group::fixed_point_factor / pc._shares * fair_group::token_bucket_t::rate_cast(_config.tau).count();
         // On start this deviation can go to negative values, so not to
@@ -403,7 +403,7 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         _requests_executing++;
         _requests_queued--;
 
-        // Usually the cost of request is tens to hundreeds of thousands. However, for
+        // Usually the cost of request is tens to hundreds of thousands. However, for
         // unrestricted queue it can be as low as 2k. With large enough shares this
         // has chances to be translated into zero cost which, in turn, will make the
         // class show no progress and monopolize the queue.

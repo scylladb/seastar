@@ -55,7 +55,7 @@ Actual negotiation looks like this:
 
 #### Connection ID
     feature_number: 2
-    uint64_t conenction_id  : RPC connection ID 
+    uint64_t connection_id  : RPC connection ID 
 
     Server assigns unique connection ID for each connection and sends it to a client using
     this feature.

@@ -32,7 +32,7 @@
 /// Please see:
 ///   - \ref future-module Documentation on futures and promises, which are
 ///          the seastar building blocks.
-///   - \ref future-util Utililty functions for working with futures
+///   - \ref future-util Utility functions for working with futures
 ///   - \ref memory-module Memory management
 ///   - \ref networking-module TCP/IP networking
 ///   - \ref fileio-module File Input/Output

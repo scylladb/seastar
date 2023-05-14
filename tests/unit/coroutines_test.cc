@@ -113,7 +113,7 @@ SEASTAR_TEST_CASE(test_simple_coroutines) {
     }), 17);
 }
 
-SEASTAR_TEST_CASE(test_abandond_coroutine) {
+SEASTAR_TEST_CASE(test_abandoned_coroutine) {
     std::optional<future<int>> f;
     {
         auto p1 = promise<>();
@@ -277,7 +277,7 @@ SEASTAR_TEST_CASE(test_preemption) {
         });
 
     // try to preempt 1000 times. 1 should be enough if not for
-    // task queue shaffling in debug mode which may cause co-routine
+    // task queue shuffling in debug mode which may cause co-routine
     // continuation to run first.
     while(preempted < 1000 && !x) {
         preempted += need_preempt(); 

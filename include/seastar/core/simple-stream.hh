@@ -454,7 +454,7 @@ concept bool StreamVisitor() {
 // simple is used.
 // By using a lot of [[gnu::always_inline]] attributes this class attempts to
 // make the compiler generate code with simple functions inlined
-// directly in the user of the intput_stream.
+// directly in the user of the input_stream.
 template<typename Iterator>
 class memory_input_stream {
 public:

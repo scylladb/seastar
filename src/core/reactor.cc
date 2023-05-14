@@ -481,7 +481,7 @@ future<size_t> pollable_fd_state::recvmsg(struct msghdr *msg) {
         // recvmsg() call when we hit the empty queue condition, so it may
         // hurt request-response workload in which the queue is empty when we
         // initially enter recvmsg(). If that turns out to be a problem, we can
-        // improve speculation by using recvmmsg().
+        // improve speculation by using recvmsg().
         speculate_epoll(EPOLLIN);
         return make_ready_future<size_t>(*r);
     });
@@ -1247,8 +1247,8 @@ cpu_stall_detector_linux_perf_event::arm_timer() {
         //
         // https://elixir.bootlin.com/linux/v5.15.86/source/kernel/events/core.c#L5636
         //
-        // Ths change is intentional: kernel commit bad7192b842c83e580747ca57104dd51fe08c223
-        // so we can resumably rely on it.
+        // This change is intentional: kernel commit bad7192b842c83e580747ca57104dd51fe08c223
+        // so we can presumably rely on it.
         _fd.ioctl(PERF_EVENT_IOC_PERIOD, ns);
 
     } else {
@@ -2487,7 +2487,7 @@ void reactor::register_metrics() {
                     sm::description("Total cpu busy time in milliseconds")),
             sm::make_counter("cpu_steal_time_ms", [this] () -> int64_t { return total_steal_time() / 1ms; },
                     sm::description("Total steal time, the time in which some other process was running while Seastar was not trying to run (not sleeping)."
-                                     "Because this is in userspace, some time that could be legitimally thought as steal time is not accounted as such. For example, if we are sleeping and can wake up but the kernel hasn't woken us up yet.")),
+                                     "Because this is in userspace, some time that could be legitimately thought as steal time is not accounted as such. For example, if we are sleeping and can wake up but the kernel hasn't woken us up yet.")),
             // total_operations value:DERIVE:0:U
             sm::make_counter("aio_reads", _io_stats.aio_reads, sm::description("Total aio-reads operations")),
 
@@ -2543,7 +2543,7 @@ void reactor::register_metrics() {
                 description(
                         "Counts the number of bytes read from disk that could not be satisfied from read-ahead buffers, and had to block."
                         " Indicates short streams, or incorrect read ahead configuration.")),
-        make_counter("fstream_reads_aheads_discarded", _io_stats.fstream_read_aheads_discarded,
+        make_counter("fstream_reads_aheads_discarded", _io_stats.fstream_readaheads_discarded,
                 description(
                         "Counts the number of times a buffer that was read ahead of time and was discarded because it was not needed, wasting disk bandwidth."
                         " Indicates over-eager read ahead configuration.")),
@@ -3735,7 +3735,7 @@ reactor_options::reactor_options(program_options::option_group* parent_group)
     , task_quota_ms(*this, "task-quota-ms", 0.5, "Max time (ms) between polls")
     , io_latency_goal_ms(*this, "io-latency-goal-ms", {}, "Max time (ms) io operations must take (1.5 * task-quota-ms if not set)")
     , max_task_backlog(*this, "max-task-backlog", 1000, "Maximum number of task backlog to allow; above this we ignore I/O")
-    , blocked_reactor_notify_ms(*this, "blocked-reactor-notify-ms", 25, "threshold in miliseconds over which the reactor is considered blocked if no progress is made")
+    , blocked_reactor_notify_ms(*this, "blocked-reactor-notify-ms", 25, "threshold in milliseconds over which the reactor is considered blocked if no progress is made")
     , blocked_reactor_reports_per_minute(*this, "blocked-reactor-reports-per-minute", 5, "Maximum number of backtraces reported by stall detector per minute")
     , blocked_reactor_report_format_oneline(*this, "blocked-reactor-report-format-oneline", true, "Print a simplified backtrace on a single line")
     , relaxed_dma(*this, "relaxed-dma", "allow using buffered I/O if DMA is not available (reduces performance)")
@@ -4367,7 +4367,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
         auto allocation = allocations[i];
         create_thread([this, smp_tmain, inited, &reactors_registered, &smp_queues_constructed, &smp_opts, &reactor_opts, &reactors, hugepages_path, i, allocation, assign_io_queues, alloc_io_queues, thread_affinity, heapprof_enabled, mbind, backend_selector, reactor_cfg] {
           try {
-            // initialize thread_locals that are equal across all reacto threads of this smp instance
+            // initialize thread_locals that are equal across all reactor threads of this smp instance
             smp::_tmain = smp_tmain;
             auto thread_name = seastar::format("reactor-{}", i);
             pthread_setname_np(pthread_self(), thread_name.c_str());
@@ -4592,7 +4592,7 @@ reactor::calculate_poll_time() {
     // In a non-virtualized environment, select a poll time
     // that is competitive with halt/unhalt.
     //
-    // In a virutalized environment, IPIs are slow and dominate
+    // In a virtualized environment, IPIs are slow and dominate
     // sleep/wake (mprotect/tgkill), so increase poll time to reduce
     // so we don't sleep in a request/reply workload
     return virtualized() ? 2000us : 200us;

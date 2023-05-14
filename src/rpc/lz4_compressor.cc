@@ -71,7 +71,7 @@ public:
         return _data.get();
     }
 
-    // Calls function fn passing to it a pointer to a temporary contigiuous max_size
+    // Calls function fn passing to it a pointer to a temporary contiguous max_size
     // buffer.
     // fn is supposed to return the actual size of the data.
     // with_reserved() returns an Output object (snd_buf or rcv_buf or compatible),

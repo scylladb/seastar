@@ -63,7 +63,7 @@ public:
 /// is provided, which causes all current waiters to stop waiting,
 /// with an exceptional future returned.  This allows causing all
 /// fibers that are blocked on a condition variable to continue.
-/// This issimilar to POSIX's `pthread_cancel()`, with \ref wait()
+/// This is similar to POSIX's `pthread_cancel()`, with \ref wait()
 /// acting as a cancellation point.
 
 class condition_variable {
@@ -186,7 +186,7 @@ private:
     bool check_and_consume_signal() noexcept;
 public:
     /// Constructs a condition_variable object.
-    /// Initialzie the semaphore with a default value of 0 to enusre
+    /// Initialize the semaphore with a default value of 0 to ensure
     /// the first call to wait() before signal() won't be waken up immediately.
     condition_variable() noexcept = default;
     condition_variable(condition_variable&& rhs) noexcept = default;

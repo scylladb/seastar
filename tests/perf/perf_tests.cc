@@ -178,7 +178,7 @@ static inline std::ostream& operator<<(std::ostream& os, duration d)
     if (value < 1'000) {
         os << fmt::format("{:.3f}ns", value);
     } else if (value < 1'000'000) {
-        // fmt hasn't discovered unicode yet so we are stuck with uicroseconds
+        // fmt hasn't discovered unicode yet so we are stuck with u for microseconds
         // See: https://github.com/fmtlib/fmt/issues/628
         os << fmt::format("{:.3f}us", value / 1'000);
     } else if (value < 1'000'000'000) {

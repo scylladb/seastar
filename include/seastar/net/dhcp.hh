@@ -68,7 +68,7 @@ public:
      * inoperable, most likely quite less efficient.
      *
      * Please note that this does _not_ modify the ipv4 object bound.
-     * It only makes queries and records replys for the related NIC.
+     * It only makes queries and records replies for the related NIC.
      * It is up to caller to use the returned information as he se fit.
      */
     result_type discover(const steady_clock_type::duration & = default_timeout);

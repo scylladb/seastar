@@ -106,7 +106,7 @@ macro (seastar_find_dependencies)
 
   # `unit_test_framework` is not required in the case we are building Seastar
   # without the testing library, however the component is always specified as required
-  # to keep the CMake code minimalistic and easy-to-use.
+  # to keep the CMake code minimal and easy-to-use.
   seastar_set_dep_args (Boost REQUIRED
     VERSION ${_seastar_boost_version}
     COMPONENTS

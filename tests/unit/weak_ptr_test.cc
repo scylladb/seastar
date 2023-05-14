@@ -106,7 +106,7 @@ BOOST_AUTO_TEST_CASE(test_weak_ptr_can_be_copied) {
     BOOST_REQUIRE(!bool(wp3_copied));
 }
 
-BOOST_AUTO_TEST_CASE(test_multipe_weak_ptrs) {
+BOOST_AUTO_TEST_CASE(test_multiple_weak_ptrs) {
     auto owning_ptr = std::make_unique<myclass>();
 
     weak_ptr<myclass> wp1 = owning_ptr->weak_from_this();
@@ -123,7 +123,7 @@ BOOST_AUTO_TEST_CASE(test_multipe_weak_ptrs) {
     BOOST_REQUIRE(!bool(wp2));
 }
 
-BOOST_AUTO_TEST_CASE(test_multipe_weak_ptrs_going_away_first) {
+BOOST_AUTO_TEST_CASE(test_multiple_weak_ptrs_going_away_first) {
     auto owning_ptr = std::make_unique<myclass>();
 
     weak_ptr<myclass> wp1 = owning_ptr->weak_from_this();

@@ -238,8 +238,8 @@ void set_reclaim_hook(
 ///
 /// Note that even if the global state is set to enabled, the
 /// `disable_abort_on_alloc_failure_temporarily` class may override
-/// the behavior tepmorarily on a given shard. That is, abort only
-/// occurs if abort is globablly enabled on this shard _and_ there
+/// the behavior temporarily on a given shard. That is, abort only
+/// occurs if abort is globally enabled on this shard _and_ there
 /// are no `disable_abort_on_alloc_failure_temporarily` objects
 /// currently alive on this shard.
 void set_abort_on_allocation_failure(bool enabled);
@@ -285,7 +285,7 @@ public:
     uint64_t mallocs() const { return _mallocs; }
     /// Total number of memory deallocations calls since the system was started.
     uint64_t frees() const { return _frees; }
-    /// Total number of memory deallocations that occured on a different lcore
+    /// Total number of memory deallocations that occurred on a different lcore
     /// than the one on which they were allocated.
     uint64_t cross_cpu_frees() const { return _cross_cpu_frees; }
     /// Total number of objects which were allocated but not freed.

@@ -369,7 +369,7 @@ void impl::start(const sstring & host, const ipv4_addr & addr, const duration pe
         // total_requests      value:DERIVE:0:U
         sm::make_counter("total_requests", sm::description("total requests"), _num_packets),
         // latency          value:GAUGE:0:U
-        sm::make_gauge("latency", sm::description("avrage latency"), _avg),
+        sm::make_gauge("latency", sm::description("average latency"), _avg),
         // total_time_in_ms    value:DERIVE:0:U
         sm::make_counter("total_time_in_ms", sm::description("total time in milliseconds"), _millis),
         // total_values     value:DERIVE:0:U
@@ -408,7 +408,7 @@ void impl::run() {
 
     // note we're doing this unsynced since we assume
     // all registrations to this instance will be done on the
-    // same cpu, and without interuptions (no wait-states)
+    // same cpu, and without interruptions (no wait-states)
 
     auto& values = vals->values;
     auto metadata = vals->metadata;

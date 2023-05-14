@@ -96,7 +96,7 @@ SEASTAR_TEST_CASE(test_empty_data_is_parsed) {
     });
 }
 
-SEASTAR_TEST_CASE(test_superflous_data_is_an_error) {
+SEASTAR_TEST_CASE(test_superfluous_data_is_an_error) {
     return for_each_fragment_size([] (auto make_packet) {
         return parse(make_packet({"set key 0 0 0\r\nasd\r\n"})).then([] (auto p) {
             BOOST_REQUIRE(p->_state == parser_type::state::error);
