@@ -55,6 +55,28 @@ struct stats {
     counter_type timeout = 0;
 };
 
+struct connection_id {
+    uint64_t id;
+    bool operator==(const connection_id& o) const {
+        return id == o.id;
+    }
+    explicit operator bool() const {
+        return shard() != 0xffff;
+    }
+    size_t shard() const {
+        return size_t(id & 0xffff);
+    }
+    constexpr static connection_id make_invalid_id(uint64_t id = 0) {
+        return make_id(id, 0xffff);
+    }
+    constexpr static connection_id make_id(uint64_t id, uint16_t shard) {
+        return {id << 16 | shard};
+    }
+};
+
+constexpr connection_id invalid_connection_id = connection_id::make_invalid_id();
+
+std::ostream& operator<<(std::ostream&, const connection_id&);
 
 struct client_info {
     socket_address addr;
@@ -257,29 +279,6 @@ public:
 };
 
 class connection;
-
-struct connection_id {
-    uint64_t id;
-    bool operator==(const connection_id& o) const {
-        return id == o.id;
-    }
-    explicit operator bool() const {
-        return shard() != 0xffff;
-    }
-    size_t shard() const {
-        return size_t(id & 0xffff);
-    }
-    constexpr static connection_id make_invalid_id(uint64_t id = 0) {
-        return make_id(id, 0xffff);
-    }
-    constexpr static connection_id make_id(uint64_t id, uint16_t shard) {
-        return {id << 16 | shard};
-    }
-};
-
-constexpr connection_id invalid_connection_id = connection_id::make_invalid_id();
-
-std::ostream& operator<<(std::ostream&, const connection_id&);
 
 using xshard_connection_ptr = lw_shared_ptr<foreign_ptr<shared_ptr<connection>>>;
 constexpr size_t max_queued_stream_buffers = 50;
