@@ -577,6 +577,12 @@ public:
     bool operator!=(const basic_sstring& x) const noexcept {
         return !operator==(x);
     }
+    constexpr bool operator==(const std::basic_string<char_type> x) const noexcept {
+        return compare(x) == 0;
+    }
+    constexpr bool operator==(const char_type* x) const noexcept {
+        return compare(x) == 0;
+    }
 #if __cpp_lib_three_way_comparison
     constexpr std::strong_ordering operator<=>(const auto& x) const noexcept {
         return compare(x) <=> 0;
