@@ -203,7 +203,9 @@ namespace rpc {
       }
       _fd = std::move(fd);
       _read_buf =_fd.input();
-      _write_buf = _fd.output();
+      internal::socket_output_stream_options opts;
+      opts.batch_flushes = true;
+      _write_buf = _fd.output(opts);
       _connected = true;
   }
 

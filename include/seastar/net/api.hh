@@ -165,6 +165,10 @@ struct session_dn {
     sstring issuer;
 };
 
+namespace internal {
+struct socket_output_stream_options : public output_stream_options {};
+};
+
 /// A TCP (or other stream-based protocol) connection.
 ///
 /// A \c connected_socket represents a full-duplex stream between
@@ -257,6 +261,9 @@ public:
     ///
     /// \see poll(2) about POLLRDHUP for more details
     future<> wait_input_shutdown();
+
+    /// @private
+    output_stream<char> output(internal::socket_output_stream_options, size_t buffer_size = 8192);
 };
 /// @}
 
