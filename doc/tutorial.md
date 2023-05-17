@@ -734,7 +734,55 @@ Usually, aborting the current chain of operations and returning an exception is 
 1. `.then_wrapped()`: instead of passing the values carried by the future into the continuation, `.then_wrapped()` passes the input future to the continuation. The future is guaranteed to be in ready state, so the continuation can examine whether it contains a value or an exception, and take appropriate action.
 2. `.finally()`: similar to a Java finally block, a `.finally()` continuation is executed whether or not its input future carries an exception or not. The result of the finally continuation is its input future, so `.finally()` can be used to insert code in a flow that is executed unconditionally, but otherwise does not alter the flow.
 
-TODO: give example code for the above. Also mention handle_exception - although perhaps delay that to a later chapter?
+The following example illustates usage of `then_wrapped` and `finally`:
+
+```cpp
+#include <seastar/core/future.hh>
+#include <iostream>
+#include <exception>
+
+seastar::future<> pass() {
+    std::cout << "I passed!!!" << std::endl;
+    return seastar::make_ready_future<>();
+}
+
+seastar::future<> fail() {
+    std::cout << "I failed." << std::endl;
+    return seastar::make_exception_future<>(std::exception());
+}
+
+seastar::future<> f() {
+    return pass().then([] {
+        std::cout << "Oh no! I'm gonna fail!" << std::endl;
+        return fail(); // throws
+    }).then([] () { // skipped
+        std::cout << "If I got to this place I will pass!" << std::endl;
+        return pass();
+    }).then_wrapped([] (seastar::future<> f) {
+        if (f.failed()) {
+            std::cout << "The input future failed!" << std::endl;
+            return f;
+        }
+
+        std::cout << "If I got to this place I will pass!" << std::endl;
+        return pass();
+    }).finally([] () {
+        std::cout << "This code will run, regardless of any exceptions" << std::endl;
+    });
+}
+```
+
+This time the output will be
+```
+I passed!!!
+Oh no! I'm gonna fail!
+I failed.
+The input future failed!
+This code will run, regardless of any exceptions
+ERROR [...] Exiting on unhandled exception: std::exception (std::exception)
+```
+
+TODO: Also mention handle_exception - although perhaps delay that to a later chapter?
 
 ## Exceptions vs. exceptional futures
 An asynchronous function can fail in one of two ways: It can fail immediately, by throwing an exception, or it can return a future which will eventually fail (resolve to an exception). These two modes of failure appear similar to the uninitiated, but behave differently when attempting to handle exceptions using `finally()`, `handle_exception()`, or `then_wrapped()`. For example, consider the code:
