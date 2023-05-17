@@ -245,25 +245,22 @@ auto client::with_connection(Fn&& fn) {
 
 future<> client::make_request(request req, reply_handler handle, reply::status_type expected) {
     return with_connection([req = std::move(req), handle = std::move(handle), expected] (connection& con) mutable {
-        return con.make_request(std::move(req)).then([&con, expected, handle = std::move(handle)] (reply rep) mutable {
+        return con.do_make_request(std::move(req)).then([&con, expected, handle = std::move(handle)] (connection::reply_ptr reply) mutable {
+            auto& rep = *reply;
             if (rep._status != expected) {
                 if (!http_log.is_enabled(log_level::debug)) {
                     return make_exception_future<>(httpd::unexpected_status_error(rep._status));
                 }
 
-                return do_with(std::move(rep), [&con] (auto& rep) mutable {
-                    return do_with(con.in(rep), [&rep] (auto& in) mutable {
-                        return util::read_entire_stream_contiguous(in).then([&rep] (auto message) {
-                            http_log.debug("request finished with {}: {}", rep._status, message);
-                            return make_exception_future<>(httpd::unexpected_status_error(rep._status));
-                        });
+                return do_with(con.in(rep), [reply = std::move(reply)] (auto& in) mutable {
+                    return util::read_entire_stream_contiguous(in).then([reply = std::move(reply)] (auto message) {
+                        http_log.debug("request finished with {}: {}", reply->_status, message);
+                        return make_exception_future<>(httpd::unexpected_status_error(reply->_status));
                     });
                 });
             }
 
-            return do_with(std::move(rep), [&con, handle = std::move(handle)] (auto& rep) mutable {
-                return handle(rep, con.in(rep));
-            });
+            return handle(rep, con.in(rep)).finally([reply = std::move(reply)] {});
         });
     });
 }
