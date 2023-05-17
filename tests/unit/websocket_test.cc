@@ -66,7 +66,7 @@ SEASTAR_TEST_CASE(test_websocket_handshake) {
         http_response_parser parser;
         parser.init();
         input.consume(parser).get();
-        std::unique_ptr<http_response> resp = parser.get_parsed_response();
+        std::unique_ptr<http::reply> resp = parser.get_parsed_response();
         BOOST_ASSERT(resp);
         sstring websocket_accept = resp->_headers["Sec-WebSocket-Accept"];
         // Trim possible whitespace prefix

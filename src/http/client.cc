@@ -114,6 +114,8 @@ future<reply> connection::recv_reply() {
             }
 
             auto resp = parser.get_parsed_response();
+            sstring length_header = resp->get_header("Content-Length");
+            resp->content_length = strtol(length_header.c_str(), nullptr, 10);
             return make_ready_future<reply>(std::move(*resp));
         });
     });

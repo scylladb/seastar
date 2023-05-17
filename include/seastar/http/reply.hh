@@ -44,8 +44,6 @@ namespace seastar {
 
 SEASTAR_MODULE_EXPORT_BEGIN
 
-struct http_response;
-
 namespace httpd {
 
 class connection;
@@ -125,8 +123,6 @@ struct reply {
     reply()
             : _status(status_type::ok) {
     }
-
-    explicit reply(http_response&&);
 
     reply& add_header(const sstring& h, const sstring& value) {
         _headers[h] = value;

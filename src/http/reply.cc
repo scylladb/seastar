@@ -185,15 +185,6 @@ std::ostream& operator<<(std::ostream& os, reply::status_type st) {
     return os << status_strings::to_string(st);
 }
 
-reply::reply(http_response&& resp)
-        : _status(static_cast<status_type>(resp._status_code))
-        , _headers(std::move(resp._headers))
-        , _version(std::move(resp._version))
-{
-    sstring length_header = get_header("Content-Length");
-    content_length = strtol(length_header.c_str(), nullptr, 10);
-}
-
 sstring reply::response_line() {
     return "HTTP/" + _version + " " + status_strings::to_string(_status) + "\r\n";
 }
