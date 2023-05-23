@@ -53,6 +53,9 @@ module;
 #include <boost/lexical_cast.hpp>
 #include <boost/thread/barrier.hpp>
 #include <boost/algorithm/string/classification.hpp>
+#include <boost/algorithm/string/constants.hpp>
+#include <boost/algorithm/string/find_iterator.hpp>
+#include <boost/algorithm/string/finder.hpp>
 #include <boost/algorithm/string/split.hpp>
 #include <boost/container/small_vector.hpp>
 #include <boost/iterator/counting_iterator.hpp>
@@ -884,13 +887,47 @@ static decltype(auto) install_signal_handler_stack() {
     });
 }
 
-reactor::task_queue::task_queue(unsigned id, sstring name, float shares)
+static sstring shorten_name(const sstring& name, size_t length) {
+    assert(!name.empty());
+    assert(length > 0);
+
+    namespace ba = boost::algorithm;
+    using split_iter_t = ba::split_iterator<sstring::const_iterator>;
+    static constexpr auto delimiter = "_";
+
+    sstring shortname(typename sstring::initialized_later{}, length);
+    auto output = shortname.begin();
+    auto last = shortname.end();
+    if (name.find(delimiter) == name.npos) {
+        // use the prefix as the fallback, if the name is not underscore
+        // delimited
+        size_t n = std::min(length, name.size());
+        output = std::copy_n(name.begin(), n, output);
+    } else {
+        for (split_iter_t split_it = ba::make_split_iterator(
+                 name,
+                 ba::token_finder(ba::is_any_of("_"),
+                                  ba::token_compress_on)), split_last{};
+             output != last && split_it != split_last;
+             ++split_it) {
+            auto& part = *split_it;
+            assert(part.size() > 0);
+            // convert "hello_world" to "hw"
+            *output++ = part[0];
+        }
+    }
+    // pad the remaining part with spaces, so the shortened name is always
+    // of length long.
+    std::fill(output, last, ' ');
+    return shortname;
+}
+
+reactor::task_queue::task_queue(unsigned id, sstring name, sstring shortname, float shares)
         : _shares(std::max(shares, 1.0f))
         , _reciprocal_shares_times_2_power_32((uint64_t(1) << 32) / _shares)
         , _id(id)
-        , _ts(now())
-        , _name(std::move(name)) {
-    register_stats();
+        , _ts(now()) {
+    rename(name, shortname);
 }
 
 void
@@ -930,9 +967,14 @@ reactor::task_queue::register_stats() {
 }
 
 void
-reactor::task_queue::rename(sstring new_name) {
+reactor::task_queue::rename(sstring new_name, sstring new_shortname) {
     if (_name != new_name) {
         _name = new_name;
+        if (new_shortname.empty()) {
+            _shortname = shorten_name(_name, shortname_size);
+        } else {
+            _shortname = fmt::format("{:>{}}", new_shortname, shortname_size);
+        }
         register_stats();
     }
 }
@@ -1000,8 +1042,8 @@ reactor::reactor(std::shared_ptr<smp> smp, alien::instance& alien, unsigned id, 
      */
     _backend = rbs.create(*this);
     *internal::get_scheduling_group_specific_thread_local_data_ptr() = &_scheduling_group_specific_data;
-    _task_queues.push_back(std::make_unique<task_queue>(0, "main", 1000));
-    _task_queues.push_back(std::make_unique<task_queue>(1, "atexit", 1000));
+    _task_queues.push_back(std::make_unique<task_queue>(0, "main", "main", 1000));
+    _task_queues.push_back(std::make_unique<task_queue>(1, "atexit", "exit", 1000));
     _at_destroy_tasks = _task_queues.back().get();
     set_need_preempt_var(&_preemption_monitor);
     seastar::thread_impl::init();
@@ -4754,12 +4796,12 @@ reactor::rename_scheduling_group_specific_data(scheduling_group sg) {
 }
 
 future<>
-reactor::init_scheduling_group(seastar::scheduling_group sg, sstring name, float shares) {
+reactor::init_scheduling_group(seastar::scheduling_group sg, sstring name, sstring shortname, float shares) {
     auto& sg_data = _scheduling_group_specific_data;
     auto& this_sg = sg_data.per_scheduling_group_data[sg._id];
     this_sg.queue_is_initialized = true;
     _task_queues.resize(std::max<size_t>(_task_queues.size(), sg._id + 1));
-    _task_queues[sg._id] = std::make_unique<task_queue>(sg._id, name, shares);
+    _task_queues[sg._id] = std::make_unique<task_queue>(sg._id, name, shortname, shares);
     unsigned long num_keys = s_next_scheduling_group_specific_key.load(std::memory_order_relaxed);
 
     return with_scheduling_group(sg, [this, num_keys, sg] () {
@@ -4842,6 +4884,19 @@ scheduling_group::name() const noexcept {
     return engine()._task_queues[_id]->_name;
 }
 
+const sstring&
+scheduling_group::short_name() const noexcept {
+    if (!engine()._task_queues.empty()) {
+        auto& task_queue = engine()._task_queues[_id];
+        return task_queue->_shortname;
+    }
+    // we might want to print logging messages before task_queues are ready.
+    // pad this string so its length is task_queue->shortname_size
+    static const sstring not_available("n/a ");
+    return not_available;
+}
+
+
 float scheduling_group::get_shares() const noexcept {
     return engine()._task_queues[_id]->_shares;
 }
@@ -4861,7 +4916,7 @@ future<> scheduling_group::update_io_bandwidth(uint64_t bandwidth) const {
 #endif
 
 future<scheduling_group>
-create_scheduling_group(sstring name, float shares) noexcept {
+create_scheduling_group(sstring name, sstring shortname, float shares) noexcept {
     auto aid = allocate_scheduling_group_id();
     if (aid < 0) {
         return make_exception_future<scheduling_group>(std::runtime_error(fmt::format("Scheduling group limit exceeded while creating {}", name)));
@@ -4869,11 +4924,16 @@ create_scheduling_group(sstring name, float shares) noexcept {
     auto id = static_cast<unsigned>(aid);
     assert(id < max_scheduling_groups());
     auto sg = scheduling_group(id);
-    return smp::invoke_on_all([sg, name, shares] {
-        return engine().init_scheduling_group(sg, name, shares);
+    return smp::invoke_on_all([sg, name, shortname, shares] {
+        return engine().init_scheduling_group(sg, name, shortname, shares);
     }).then([sg] {
         return make_ready_future<scheduling_group>(sg);
     });
+}
+
+future<scheduling_group>
+create_scheduling_group(sstring name, float shares) noexcept {
+    return create_scheduling_group(name, {}, shares);
 }
 
 future<scheduling_group_key>
@@ -4910,11 +4970,16 @@ destroy_scheduling_group(scheduling_group sg) noexcept {
 
 future<>
 rename_scheduling_group(scheduling_group sg, sstring new_name) noexcept {
+    return rename_scheduling_group(sg, new_name, {});
+}
+
+future<>
+rename_scheduling_group(scheduling_group sg, sstring new_name, sstring new_shortname) noexcept {
     if (sg == default_scheduling_group()) {
         return make_exception_future<>(make_backtraced_exception_ptr<std::runtime_error>("Attempt to rename the default scheduling group"));
     }
-    return smp::invoke_on_all([sg, new_name] {
-        engine()._task_queues[sg._id]->rename(new_name);
+    return smp::invoke_on_all([sg, new_name, new_shortname] {
+        engine()._task_queues[sg._id]->rename(new_name, new_shortname);
 #if SEASTAR_API_LEVEL >= 7
         engine().rename_queues(internal::priority_class(sg), new_name);
 #endif

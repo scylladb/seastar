@@ -313,7 +313,7 @@ private:
     uint64_t _cxx_exceptions = 0;
     uint64_t _abandoned_failed_futures = 0;
     struct task_queue {
-        explicit task_queue(unsigned id, sstring name, float shares);
+        explicit task_queue(unsigned id, sstring name, sstring shortname, float shares);
         int64_t _vruntime = 0;
         float _shares;
         int64_t _reciprocal_shares_times_2_power_32;
@@ -327,12 +327,16 @@ private:
         uint64_t _tasks_processed = 0;
         circular_buffer<task*> _q;
         sstring _name;
+        // the shortened version of scheduling_gruop's name, only the first 4
+        // chars are used.
+        static constexpr size_t shortname_size = 4;
+        sstring _shortname;
         int64_t to_vruntime(sched_clock::duration runtime) const;
         void set_shares(float shares) noexcept;
         struct indirect_compare;
         sched_clock::duration _time_spent_on_task_quota_violations = {};
         seastar::metrics::metric_groups _metrics;
-        void rename(sstring new_name);
+        void rename(sstring new_name, sstring new_shortname);
     private:
         void register_stats();
     };
@@ -374,6 +378,7 @@ private:
     bool _kernel_page_cache = false;
     std::atomic<bool> _dying{false};
     gate _background_gate;
+
 private:
     static std::chrono::nanoseconds calculate_poll_time();
     static void block_notifier(int);
@@ -445,7 +450,7 @@ private:
     void account_idle(sched_clock::duration idletime);
     void allocate_scheduling_group_specific_data(scheduling_group sg, scheduling_group_key key);
     future<> rename_scheduling_group_specific_data(scheduling_group sg);
-    future<> init_scheduling_group(scheduling_group sg, sstring name, float shares);
+    future<> init_scheduling_group(scheduling_group sg, sstring name, sstring shortname, float shares);
     future<> init_new_scheduling_group_key(scheduling_group_key key, scheduling_group_key_config cfg);
     future<> destroy_scheduling_group(scheduling_group sg) noexcept;
     uint64_t tasks_processed() const;
@@ -677,9 +682,9 @@ private:
     friend void report_failed_future(const std::exception_ptr& eptr) noexcept;
     friend void with_allow_abandoned_failed_futures(unsigned count, noncopyable_function<void ()> func);
     metrics::metric_groups _metric_groups;
-    friend future<scheduling_group> create_scheduling_group(sstring name, float shares) noexcept;
+    friend future<scheduling_group> create_scheduling_group(sstring name, sstring shortname, float shares) noexcept;
     friend future<> seastar::destroy_scheduling_group(scheduling_group) noexcept;
-    friend future<> seastar::rename_scheduling_group(scheduling_group sg, sstring new_name) noexcept;
+    friend future<> seastar::rename_scheduling_group(scheduling_group sg, sstring new_name, sstring new_shortname) noexcept;
     friend future<scheduling_group_key> scheduling_group_key_create(scheduling_group_key_config cfg) noexcept;
 
     template<typename T>
