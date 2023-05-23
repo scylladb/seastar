@@ -550,7 +550,6 @@ private:
 
 public:
     class connection : public rpc::connection, public enable_shared_from_this<connection> {
-        server& _server;
         client_info _info;
         connection_id _parent_id = invalid_connection_id;
         std::optional<isolation_config> _isolation_config;
@@ -581,19 +580,22 @@ public:
         // Resources will be released when this goes out of scope
         future<resource_permit> wait_for_resources(size_t memory_consumed,  std::optional<rpc_clock_type::time_point> timeout) {
             if (timeout) {
-                return get_units(_server._resources_available, memory_consumed, *timeout);
+                return get_units(get_server()._resources_available, memory_consumed, *timeout);
             } else {
-                return get_units(_server._resources_available, memory_consumed);
+                return get_units(get_server()._resources_available, memory_consumed);
             }
         }
         size_t estimate_request_size(size_t serialized_size) {
-            return rpc::estimate_request_size(_server._limits, serialized_size);
+            return rpc::estimate_request_size(get_server()._limits, serialized_size);
         }
         size_t max_request_size() const {
-            return _server._limits.max_memory;
+            return get_server()._limits.max_memory;
         }
         server& get_server() {
-            return _server;
+            return _info.server;
+        }
+        const server& get_server() const {
+            return _info.server;
         }
         future<> deregister_this_stream();
     };
