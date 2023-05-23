@@ -24,7 +24,6 @@
 module;
 #endif
 
-#include <regex>
 #include <boost/any.hpp>
 #include <boost/intrusive/list.hpp>
 #include <boost/program_options.hpp>
