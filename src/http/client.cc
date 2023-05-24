@@ -240,14 +240,14 @@ future<> client::make_request(request req, reply_handler handle, reply::status_t
         return con.make_request(std::move(req)).then([&con, expected, handle = std::move(handle)] (reply rep) mutable {
             if (rep._status != expected) {
                 if (!http_log.is_enabled(log_level::debug)) {
-                    return make_exception_future<>(std::runtime_error(format("request finished with {}", rep._status)));
+                    return make_exception_future<>(httpd::unexpected_status_error(rep._status));
                 }
 
                 return do_with(std::move(rep), [&con] (auto& rep) mutable {
                     return do_with(con.in(rep), [&rep] (auto& in) mutable {
                         return util::read_entire_stream_contiguous(in).then([&rep] (auto message) {
                             http_log.debug("request finished with {}: {}", rep._status, message);
-                            return make_exception_future<>(std::runtime_error(format("request finished with {}", rep._status)));
+                            return make_exception_future<>(httpd::unexpected_status_error(rep._status));
                         });
                     });
                 });
