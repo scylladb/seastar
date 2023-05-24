@@ -149,6 +149,16 @@ private:
     }
 };
 
+/**
+ * Client-side exception to report unexpected server reply status
+ */
+class unexpected_status_error : public base_exception {
+public:
+    unexpected_status_error(reply::status_type st)
+        : base_exception("Unexpected reply status", st)
+    {}
+};
+
 SEASTAR_MODULE_EXPORT_END
 }
 

@@ -785,6 +785,46 @@ SEASTAR_TEST_CASE(content_length_limit) {
     });
 }
 
+SEASTAR_TEST_CASE(test_client_unexpected_reply_status) {
+    return seastar::async([] {
+        class handl : public httpd::handler_base {
+        public:
+            virtual future<std::unique_ptr<http::reply> > handle(const sstring& path,
+                    std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) {
+                fmt::print("Returning exception from server\n");
+                return make_exception_future<std::unique_ptr<http::reply>>(httpd::server_error_exception("error"));
+            }
+        };
+
+        loopback_connection_factory lcf(1);
+        http_server server("test");
+        httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
+
+        future<> client = seastar::async([&lcf] {
+            class connection_factory : public http::experimental::connection_factory {
+                loopback_socket_impl lsi;
+            public:
+                explicit connection_factory(loopback_connection_factory& f) : lsi(f) {}
+                virtual future<connected_socket> make() override {
+                    return lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr()));
+                }
+            };
+            auto cln = http::experimental::client(std::make_unique<connection_factory>(lcf));
+            auto req = http::request::make("GET", "test", "/test");
+            BOOST_REQUIRE_THROW(cln.make_request(std::move(req), [] (const http::reply& rep, input_stream<char>&& in) {
+                return make_ready_future<>();
+            }).get0(), httpd::unexpected_status_error);
+
+            cln.close().get();
+        });
+
+        server._routes.put(GET, "/test", new handl());
+        server.do_accepts(0).get();
+        client.get();
+        server.stop().get();
+    });
+}
+
 SEASTAR_TEST_CASE(test_100_continue) {
     return seastar::async([] {
         loopback_connection_factory lcf(1);
