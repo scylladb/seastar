@@ -55,23 +55,29 @@ struct stats {
     counter_type timeout = 0;
 };
 
-struct connection_id {
-    uint64_t id;
+class connection_id {
+    uint64_t _id;
+
+public:
+    uint64_t id() const {
+        return _id;
+    }
     bool operator==(const connection_id& o) const {
-        return id == o.id;
+        return _id == o._id;
     }
     explicit operator bool() const {
         return shard() != 0xffff;
     }
     size_t shard() const {
-        return size_t(id & 0xffff);
+        return size_t(_id & 0xffff);
     }
-    constexpr static connection_id make_invalid_id(uint64_t id = 0) {
-        return make_id(id, 0xffff);
+    constexpr static connection_id make_invalid_id(uint64_t _id = 0) {
+        return make_id(_id, 0xffff);
     }
-    constexpr static connection_id make_id(uint64_t id, uint16_t shard) {
-        return {id << 16 | shard};
+    constexpr static connection_id make_id(uint64_t _id, uint16_t shard) {
+        return {_id << 16 | shard};
     }
+    constexpr connection_id(uint64_t id) : _id(id) {}
 };
 
 constexpr connection_id invalid_connection_id = connection_id::make_invalid_id();
@@ -393,7 +399,7 @@ template<>
 struct hash<seastar::rpc::connection_id> {
     size_t operator()(const seastar::rpc::connection_id& id) const {
         size_t h = 0;
-        boost::hash_combine(h, std::hash<uint64_t>{}(id.id));
+        boost::hash_combine(h, std::hash<uint64_t>{}(id.id()));
         return h;
     }
 };

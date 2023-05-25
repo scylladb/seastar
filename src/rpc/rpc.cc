@@ -1198,7 +1198,7 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
   }
 
   std::ostream& operator<<(std::ostream& os, const connection_id& id) {
-      fmt::print(os, "{:x}", id.id);
+      fmt::print(os, "{:x}", id.id());
       return os;
   }
 

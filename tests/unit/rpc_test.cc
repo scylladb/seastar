@@ -1445,7 +1445,7 @@ static_assert(std::is_same_v<decltype(rpc::tuple(1U, 1L)), rpc::tuple<unsigned, 
 
 SEASTAR_TEST_CASE(test_client_info) {
     return rpc_test_env<>::do_with(rpc_test_config(), [] (rpc_test_env<>& env) {
-        rpc::client_info info{.server{env.server()}};
+        rpc::client_info info{.server{env.server()}, .conn_id{0}};
         const rpc::client_info& const_info = *const_cast<rpc::client_info*>(&info);
 
         info.attach_auxiliary("key", 0);
