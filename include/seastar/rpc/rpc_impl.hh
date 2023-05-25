@@ -176,15 +176,15 @@ maybe_add_time_point(do_want_time_point, opt_time_point& otp, std::tuple<In...>&
 inline sstring serialize_connection_id(const connection_id& id) {
     sstring p = uninitialized_string(sizeof(id));
     auto c = p.data();
-    write_le(c, id.id);
+    write_le(c, id.id());
     return p;
 }
 
 inline connection_id deserialize_connection_id(const sstring& s) {
-    connection_id id;
+    using id_type = decltype(connection_id{0}.id());
     auto p = s.c_str();
-    id.id = read_le<decltype(id.id)>(p);
-    return id;
+    auto id = read_le<id_type>(p);
+    return connection_id{id};
 }
 
 template <bool IsSmartPtr>

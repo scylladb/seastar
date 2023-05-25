@@ -1444,21 +1444,23 @@ SEASTAR_TEST_CASE(test_connection_id_format) {
 static_assert(std::is_same_v<decltype(rpc::tuple(1U, 1L)), rpc::tuple<unsigned, long>>, "rpc::tuple deduction guid not working");
 
 SEASTAR_TEST_CASE(test_client_info) {
-    rpc::client_info info;
-    const rpc::client_info& const_info = *const_cast<rpc::client_info*>(&info);
+    return rpc_test_env<>::do_with(rpc_test_config(), [] (rpc_test_env<>& env) {
+        rpc::client_info info{.server{env.server()}, .conn_id{0}};
+        const rpc::client_info& const_info = *const_cast<rpc::client_info*>(&info);
 
-    info.attach_auxiliary("key", 0);
-    BOOST_REQUIRE_EQUAL(const_info.retrieve_auxiliary<int>("key"), 0);
-    info.retrieve_auxiliary<int>("key") = 1;
-    BOOST_REQUIRE_EQUAL(const_info.retrieve_auxiliary<int>("key"), 1);
+        info.attach_auxiliary("key", 0);
+        BOOST_REQUIRE_EQUAL(const_info.retrieve_auxiliary<int>("key"), 0);
+        info.retrieve_auxiliary<int>("key") = 1;
+        BOOST_REQUIRE_EQUAL(const_info.retrieve_auxiliary<int>("key"), 1);
 
-    BOOST_REQUIRE_EQUAL(info.retrieve_auxiliary_opt<int>("key"), &info.retrieve_auxiliary<int>("key"));
-    BOOST_REQUIRE_EQUAL(const_info.retrieve_auxiliary_opt<int>("key"), &const_info.retrieve_auxiliary<int>("key"));
+        BOOST_REQUIRE_EQUAL(info.retrieve_auxiliary_opt<int>("key"), &info.retrieve_auxiliary<int>("key"));
+        BOOST_REQUIRE_EQUAL(const_info.retrieve_auxiliary_opt<int>("key"), &const_info.retrieve_auxiliary<int>("key"));
 
-    BOOST_REQUIRE_EQUAL(info.retrieve_auxiliary_opt<int>("missing"), nullptr);
-    BOOST_REQUIRE_EQUAL(const_info.retrieve_auxiliary_opt<int>("missing"), nullptr);
+        BOOST_REQUIRE_EQUAL(info.retrieve_auxiliary_opt<int>("missing"), nullptr);
+        BOOST_REQUIRE_EQUAL(const_info.retrieve_auxiliary_opt<int>("missing"), nullptr);
 
-    return make_ready_future<>();
+        return make_ready_future<>();
+    });
 }
 
 void send_messages_and_check_timeouts(rpc_test_env<>& env, test_rpc_proto::client& cln) {
@@ -1496,5 +1498,27 @@ SEASTAR_TEST_CASE(test_rpc_send_timeout_on_connect) {
     cfg.inject_error = ecfg;
     return rpc_test_env<>::do_with_thread(cfg, [] (auto& env, auto& cln) {
         send_messages_and_check_timeouts(env, cln);
+    });
+}
+
+SEASTAR_TEST_CASE(test_rpc_abort_connection) {
+    return rpc_test_env<>::do_with_thread(rpc_test_config(), [] (rpc_test_env<>& env) {
+        test_rpc_proto::client c1(env.proto(), {}, env.make_socket(), ipv4_addr());
+        int arrived = 0;
+        env.register_handler(1, [&arrived] (rpc::client_info& cinfo, int x) {
+            BOOST_REQUIRE_EQUAL(x, arrived++);
+            if (arrived == 2) {
+                cinfo.server.abort_connection(cinfo.conn_id);
+            }
+            // The third message won't arrive because we abort the connection.
+
+            return 0;
+        }).get();
+        auto f = env.proto().make_client<int (int)>(1);
+        BOOST_REQUIRE_EQUAL(f(c1, 0).get0(), 0);
+        BOOST_REQUIRE_THROW(f(c1, 1).get0(), rpc::closed_error);
+        BOOST_REQUIRE_THROW(f(c1, 2).get0(), rpc::closed_error);
+        BOOST_REQUIRE_EQUAL(arrived, 2);
+        c1.stop().get0();
     });
 }

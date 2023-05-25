@@ -861,8 +861,8 @@ namespace rpc {
           switch (id) {
           // supported features go here
           case protocol_features::COMPRESS: {
-              if (_server._options.compressor_factory) {
-                  _compressor = _server._options.compressor_factory->negotiate(e.second, true);
+              if (get_server()._options.compressor_factory) {
+                  _compressor = get_server()._options.compressor_factory->negotiate(e.second, true);
                   if (_compressor) {
                        ret[protocol_features::COMPRESS] = _compressor->name();
                   }
@@ -874,7 +874,7 @@ namespace rpc {
               ret[protocol_features::TIMEOUT] = "";
               break;
           case protocol_features::STREAM_PARENT: {
-              if (!_server._options.streaming_domain) {
+              if (!get_server()._options.streaming_domain) {
                   f = f.then([] {
                       return make_exception_future<>(std::runtime_error("streaming is not configured for the server"));
                   });
@@ -882,12 +882,12 @@ namespace rpc {
                   _parent_id = deserialize_connection_id(e.second);
                   _is_stream = true;
                   // remove stream connection from rpc connection list
-                  _server._conns.erase(get_connection_id());
+                  get_server()._conns.erase(get_connection_id());
                   f = f.then([this, c = shared_from_this()] () mutable {
                       return smp::submit_to(_parent_id.shard(), [this, c = make_foreign(static_pointer_cast<rpc::connection>(c))] () mutable {
-                          auto sit = _servers.find(*_server._options.streaming_domain);
+                          auto sit = _servers.find(*get_server()._options.streaming_domain);
                           if (sit == _servers.end()) {
-                              throw std::logic_error(format("Shard {:d} does not have server with streaming domain {}", this_shard_id(), *_server._options.streaming_domain).c_str());
+                              throw std::logic_error(format("Shard {:d} does not have server with streaming domain {}", this_shard_id(), *get_server()._options.streaming_domain).c_str());
                           }
                           auto s = sit->second;
                           auto it = s->_conns.find(_parent_id);
@@ -918,7 +918,7 @@ namespace rpc {
 
               auto visitor = isolation_function_visitor(isolation_cookie);
               f = f.then([visitor = std::move(visitor), this] () mutable {
-                  return std::visit(visitor, _server._limits.isolate_connection).then([this] (isolation_config conf) {
+                  return std::visit(visitor, get_server()._limits.isolate_connection).then([this] (isolation_config conf) {
                       _isolation_config = conf;
                   });
               });
@@ -930,7 +930,7 @@ namespace rpc {
               ;
           }
       }
-      if (_server._options.streaming_domain) {
+      if (get_server()._options.streaming_domain) {
           ret[protocol_features::CONNECTION_ID] = serialize_connection_id(_id);
       }
       return f.then([ret = std::move(ret)] {
@@ -1017,7 +1017,7 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
         try {
             // Send asynchronously.
             // This is safe since connection::stop() will wait for background work.
-            (void)with_gate(_server._reply_gate, [this, timeout, msg_id, data = std::move(data), permit = std::move(permit)] () mutable {
+            (void)with_gate(get_server()._reply_gate, [this, timeout, msg_id, data = std::move(data), permit = std::move(permit)] () mutable {
                 // workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=83268
                 auto c = shared_from_this();
                 return respond(-msg_id, std::move(data), timeout).then([c = std::move(c), permit = std::move(permit)] {});
@@ -1048,7 +1048,7 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
                       if (expire && *expire) {
                           timeout = relative_timeout_to_absolute(std::chrono::milliseconds(*expire));
                       }
-                      auto h = _server._proto->get_handler(type);
+                      auto h = get_server()._proto->get_handler(type);
                       if (!h) {
                           return send_unknown_verb_reply(timeout, msg_id, type);
                       }
@@ -1059,7 +1059,7 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
                       return with_scheduling_group(sg, [this, timeout, msg_id, h, data = std::move(data.value())] () mutable {
                           return h->func(shared_from_this(), timeout, msg_id, std::move(data)).finally([this, h] {
                               // If anything between get_handler() and here throws, we leak put_handler
-                              _server._proto->put_handler(h);
+                              get_server()._proto->put_handler(h);
                           });
                       });
                   }
@@ -1078,7 +1078,7 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
           _stream_queue.abort(std::make_exception_ptr(stream_closed()));
           return stop_send_loop(ep).then_wrapped([this] (future<> f) {
               f.ignore_ready_future();
-              _server._conns.erase(get_connection_id());
+              get_server()._conns.erase(get_connection_id());
               if (is_stream()) {
                   return deregister_this_stream();
               } else {
@@ -1093,16 +1093,16 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
   }
 
   server::connection::connection(server& s, connected_socket&& fd, socket_address&& addr, const logger& l, void* serializer, connection_id id)
-      : rpc::connection(std::move(fd), l, serializer, id), _server(s) {
-      _info.addr = std::move(addr);
+          : rpc::connection(std::move(fd), l, serializer, id)
+          , _info{.addr{std::move(addr)}, .server{s}, .conn_id{id}} {
   }
 
   future<> server::connection::deregister_this_stream() {
-      if (!_server._options.streaming_domain) {
+      if (!get_server()._options.streaming_domain) {
           return make_ready_future<>();
       }
       return smp::submit_to(_parent_id.shard(), [this] () mutable {
-          auto sit = server::_servers.find(*_server._options.streaming_domain);
+          auto sit = server::_servers.find(*get_server()._options.streaming_domain);
           if (sit != server::_servers.end()) {
               auto s = sit->second;
               auto it = s->_conns.find(_parent_id);
@@ -1184,8 +1184,21 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
       ).discard_result();
   }
 
+  void server::abort_connection(connection_id id) {
+      auto it = _conns.find(id);
+      if (it == _conns.end()) {
+          return;
+      }
+      try {
+          it->second->abort();
+      } catch (...) {
+          log_exception(*it->second, log_level::error,
+                        "fail to shutdown connection on user request", std::current_exception());
+      }
+  }
+
   std::ostream& operator<<(std::ostream& os, const connection_id& id) {
-      fmt::print(os, "{:x}", id.id);
+      fmt::print(os, "{:x}", id.id());
       return os;
   }
 
