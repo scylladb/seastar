@@ -608,6 +608,7 @@ private:
     promise<> _ss_stopped;
     gate _reply_gate;
     server_options _options;
+    bool _shutdown = false;
     uint64_t _next_client_id = 1;
 
 public:
@@ -624,6 +625,17 @@ public:
      * handlers will be sent.
      */
     future<> stop();
+    /**
+     * Shuts down the server.
+     *
+     * Light version of the stop, that just makes sure the server is not visible
+     * by remote clients, i.e. -- no new rpcs are admitted and no replies on the
+     * previously running handlers will be sent. Currently running handlers may
+     * still run.
+     *
+     * Caller of shutdown() mush wait for it to resolve before calling stop.
+     */
+    future<> shutdown();
     template<typename Func>
     void foreach_connection(Func&& f) {
         for (auto c : _conns) {
