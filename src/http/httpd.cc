@@ -52,6 +52,7 @@ module seastar;
 #include <seastar/http/reply.hh>
 #include <seastar/util/short_streams.hh>
 #include <seastar/util/log.hh>
+#include <seastar/util/string_utils.hh>
 #endif
 
 
@@ -178,7 +179,7 @@ future<> connection::read() {
 
 static input_stream<char> make_content_stream(http::request* req, input_stream<char>& buf) {
     // Create an input stream based on the requests body encoding or lack thereof
-    if (http::request::case_insensitive_cmp()(req->get_header("Transfer-Encoding"), "chunked")) {
+    if (seastar::internal::case_insensitive_cmp()(req->get_header("Transfer-Encoding"), "chunked")) {
         return input_stream<char>(data_source(std::make_unique<internal::chunked_source_impl>(buf, req->chunk_extensions, req->trailing_headers)));
     } else {
         return input_stream<char>(data_source(std::make_unique<internal::content_length_source_impl>(buf, req->content_length)));
@@ -242,14 +243,14 @@ future<> connection::read_one() {
         }
 
         sstring encoding = req->get_header("Transfer-Encoding");
-        if (encoding.size() && !http::request::case_insensitive_cmp()(encoding, "chunked")){
+        if (encoding.size() && !seastar::internal::case_insensitive_cmp()(encoding, "chunked")){
             //TODO: add "identity", "gzip"("x-gzip"), "compress"("x-compress"), and "deflate" encodings and their combinations
             generate_error_reply_and_close(std::move(req), http::reply::status_type::not_implemented, format("Encodings other than \"chunked\" are not implemented (received encoding: \"{}\")", encoding));
             return make_ready_future<>();
         }
 
         auto maybe_reply_continue = [this, req = std::move(req)] () mutable {
-            if (req->_version == "1.1" && http::request::case_insensitive_cmp()(req->get_header("Expect"), "100-continue")){
+            if (req->_version == "1.1" && seastar::internal::case_insensitive_cmp()(req->get_header("Expect"), "100-continue")){
                 return _replies.not_full().then([req = std::move(req), this] () mutable {
                     auto continue_reply = std::make_unique<http::reply>();
                     set_headers(*continue_reply);

@@ -33,6 +33,7 @@ module seastar;
 #include <seastar/http/response_parser.hh>
 #include <seastar/http/internal/content_source.hh>
 #include <seastar/util/short_streams.hh>
+#include <seastar/util/string_utils.hh>
 #endif
 
 namespace seastar {
@@ -162,7 +163,7 @@ future<reply> connection::make_request(request req) {
 }
 
 input_stream<char> connection::in(reply& rep) {
-    if (http::request::case_insensitive_cmp()(rep.get_header("Transfer-Encoding"), "chunked")) {
+    if (seastar::internal::case_insensitive_cmp()(rep.get_header("Transfer-Encoding"), "chunked")) {
         return input_stream<char>(data_source(std::make_unique<httpd::internal::chunked_source_impl>(_read_buf, rep.chunk_extensions, rep.trailing_headers)));
     }
 

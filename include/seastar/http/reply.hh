@@ -39,6 +39,7 @@
 #include <seastar/core/iostream.hh>
 #include <seastar/util/noncopyable_function.hh>
 #include <seastar/util/modules.hh>
+#include <seastar/util/string_utils.hh>
 
 namespace seastar {
 
@@ -107,7 +108,7 @@ struct reply {
     /**
      * The headers to be included in the reply.
      */
-    std::unordered_map<sstring, sstring> _headers;
+    std::unordered_map<sstring, sstring, seastar::internal::case_insensitive_hash, seastar::internal::case_insensitive_cmp> _headers;
 
     sstring _version;
     /**
