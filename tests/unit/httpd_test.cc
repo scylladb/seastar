@@ -1285,6 +1285,21 @@ SEASTAR_TEST_CASE(case_insensitive_header) {
     return make_ready_future<>();
 }
 
+SEASTAR_TEST_CASE(case_insensitive_header_reply) {
+    http_response_parser parser;
+    parser.init();
+    char r101[] = "HTTP/1.1 200 OK\r\ncontent-length: 17\r\ncontent-type: application/json\r\n\r\n{\"Hello\":\"World\"}";
+
+    parser.parse(r101, r101 + sizeof(r101), r101 + sizeof(r101));
+    auto response = parser.get_parsed_response();
+    std::unique_ptr<seastar::http::reply> rep = std::make_unique<seastar::http::reply>(std::move(*response));
+    BOOST_REQUIRE_EQUAL(rep->get_header("content-length"), "17");
+    BOOST_REQUIRE_EQUAL(rep->get_header("Content-Length"), "17");
+    BOOST_REQUIRE_EQUAL(rep->get_header("cOnTeNT-lEnGTh"), "17");
+
+    return make_ready_future<>();
+}
+
 SEASTAR_THREAD_TEST_CASE(multiple_connections) {
     loopback_connection_factory lcf(1);
     http_server server("test");
@@ -1316,6 +1331,22 @@ SEASTAR_TEST_CASE(http_parse_response_status) {
     parser.parse(r200, r200 + sizeof(r200), r200 + sizeof(r200));
     response = parser.get_parsed_response();
     BOOST_REQUIRE_EQUAL(response->_status, http::reply::status_type::ok);
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(http_parse_response_small_json) {
+    http_response_parser parser;
+    parser.init();
+    char r101[] = "HTTP/1.1 200 OK\r\ndate: Thu, 25 May 2023 16:13:59 GMT\r\nserver: uvicorn\r\ncontent-length: 17\r\ncontent-type: application/json\r\n\r\n{\"Hello\":\"World\"}";
+
+    parser.parse(r101, r101 + sizeof(r101), r101 + sizeof(r101));
+    auto resp = parser.get_parsed_response();
+    BOOST_REQUIRE_EQUAL((int)resp->_status, 200);
+    BOOST_REQUIRE_EQUAL(resp->get_header("Content-Length"), "17");
+    BOOST_REQUIRE_EQUAL(resp->get_header("Content-Type"), "application/json");
+    BOOST_REQUIRE_EQUAL(resp->get_header("server"), "uvicorn");
+    BOOST_REQUIRE_EQUAL(resp->get_header("date"), "Thu, 25 May 2023 16:13:59 GMT");
+
     return make_ready_future<>();
 }
 
