@@ -20,10 +20,12 @@
  */
 
 
+#include <seastar/core/coroutine.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/shared_ptr.hh>
+#include <seastar/core/file.hh>
 
 using namespace seastar;
 
@@ -51,7 +53,7 @@ const char* de_type_desc(directory_entry_type t)
     return nullptr;
 }
 
-int main(int ac, char** av) {
+future<> lister_test() {
     class lister {
         file _f;
         subscription<directory_entry> _listing;
@@ -74,13 +76,18 @@ int main(int ac, char** av) {
             });
         }
     };
+    fmt::print("--- Regular lister test ---\n");
+    return engine().open_directory(".").then([] (file f) {
+        return do_with(lister(std::move(f)), [] (lister& l) {
+          return l.done();
+       });
+    });
+}
+
+int main(int ac, char** av) {
     return app_template().run(ac, av, [] {
-        return engine().open_directory(".").then([] (file f) {
-            return do_with(lister(std::move(f)), [] (lister& l) {
-              return l.done().then([] {
-                  return 0;
-              });
-           });
+        return lister_test().then([] {
+            return make_ready_future<>();
         });
     });
 }
