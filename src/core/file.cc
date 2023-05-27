@@ -364,6 +364,37 @@ blockdev_file_impl::size() noexcept {
     });
 }
 
+static std::optional<directory_entry_type> dirent_type(const linux_dirent64& de) {
+    std::optional<directory_entry_type> type;
+    switch (de.d_type) {
+    case DT_BLK:
+        type = directory_entry_type::block_device;
+        break;
+    case DT_CHR:
+        type = directory_entry_type::char_device;
+        break;
+    case DT_DIR:
+        type = directory_entry_type::directory;
+        break;
+    case DT_FIFO:
+        type = directory_entry_type::fifo;
+        break;
+    case DT_REG:
+        type = directory_entry_type::regular;
+        break;
+    case DT_LNK:
+        type = directory_entry_type::link;
+        break;
+    case DT_SOCK:
+        type = directory_entry_type::socket;
+        break;
+    default:
+        // unknown, ignore
+        ;
+    }
+    return type;
+}
+
 subscription<directory_entry>
 posix_file_impl::list_directory(std::function<future<> (directory_entry de)> next) {
     static constexpr size_t buffer_size = 8192;
@@ -380,19 +411,6 @@ posix_file_impl::list_directory(std::function<future<> (directory_entry de)> nex
     // our syscall thread pool doesn't support malloc(), which is
     // required for this to work.  So resort to using getdents()
     // instead.
-
-    // From getdents(2):
-    // check for 64-bit inode number
-    static_assert(sizeof(ino_t) == 8, "large file support not enabled");
-    static_assert(sizeof(off_t) == 8, "large file support not enabled");
-
-    struct linux_dirent64 {
-        ino_t          d_ino;    /* 64-bit inode number */
-        off_t          d_off;    /* 64-bit offset to next structure */
-        unsigned short d_reclen; /* Size of this dirent */
-        unsigned char  d_type;   /* File type */
-        char           d_name[]; /* Filename (null-terminated) */
-    };
 
     auto w = make_lw_shared<work>();
     auto ret = w->s.listen(std::move(next));
@@ -417,38 +435,12 @@ posix_file_impl::list_directory(std::function<future<> (directory_entry de)> nex
             }
             auto start = w->buffer + w->current;
             auto de = reinterpret_cast<linux_dirent64*>(start);
-            std::optional<directory_entry_type> type;
-            switch (de->d_type) {
-            case DT_BLK:
-                type = directory_entry_type::block_device;
-                break;
-            case DT_CHR:
-                type = directory_entry_type::char_device;
-                break;
-            case DT_DIR:
-                type = directory_entry_type::directory;
-                break;
-            case DT_FIFO:
-                type = directory_entry_type::fifo;
-                break;
-            case DT_REG:
-                type = directory_entry_type::regular;
-                break;
-            case DT_LNK:
-                type = directory_entry_type::link;
-                break;
-            case DT_SOCK:
-                type = directory_entry_type::socket;
-                break;
-            default:
-                // unknown, ignore
-                ;
-            }
             w->current += de->d_reclen;
             sstring name = de->d_name;
             if (name == "." || name == "..") {
                 return make_ready_future<>();
             }
+            std::optional<directory_entry_type> type = dirent_type(*de);
             return w->s.produce({std::move(name), type});
         });
     }).then([w] {
