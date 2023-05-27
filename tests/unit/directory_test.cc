@@ -84,10 +84,33 @@ future<> lister_test() {
     });
 }
 
+#ifdef SEASTAR_COROUTINES_ENABLED
+future<> lister_generator_test() {
+    fmt::print("--- Generator lister test ---\n");
+    auto f = co_await engine().open_directory(".");
+    auto lister = f.experimental_list_directory();
+    while (auto de = co_await lister()) {
+        auto sd = co_await file_stat(de->name, follow_symlink::no);
+        if (de->type) {
+            assert(*de->type == sd.type);
+        } else {
+            assert(sd.type == directory_entry_type::unknown);
+        }
+        fmt::print("{} (type={})\n", de->name, de_type_desc(sd.type));
+    }
+    co_await f.close();
+}
+#else
+future<> lister_generator_test() {
+    fmt::print("Generator lister test skipped, coroutines not enabled\n");
+    return make_ready_future<>();
+}
+#endif
+
 int main(int ac, char** av) {
     return app_template().run(ac, av, [] {
         return lister_test().then([] {
-            return make_ready_future<>();
+            return lister_generator_test();
         });
     });
 }

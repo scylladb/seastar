@@ -21,6 +21,8 @@
 
 #pragma once
 
+#include <seastar/core/coroutine.hh>
+#include <seastar/coroutine/generator.hh>
 #include <seastar/core/do_with.hh>
 #include <seastar/core/stream.hh>
 #include <seastar/core/sstring.hh>
@@ -28,6 +30,7 @@
 #include <seastar/core/align.hh>
 #include <seastar/core/io_priority_class.hh>
 #include <seastar/core/file-types.hh>
+#include <seastar/core/circular_buffer.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/modules.hh>
 #ifndef SEASTAR_MODULE
@@ -110,6 +113,9 @@ public:
     virtual shared_ptr<file_impl> to_file() && = 0;
 };
 
+template <typename T>
+using dir_entry_buffer = circular_buffer<T>;
+
 class file_impl {
     friend class file;
 protected:
@@ -166,6 +172,11 @@ public:
     virtual future<> close() = 0;
     virtual std::unique_ptr<file_handle_impl> dup();
     virtual subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next) = 0;
+#ifdef SEASTAR_COROUTINES_ENABLED
+    virtual coroutine::experimental::generator<directory_entry, dir_entry_buffer> experimental_list_directory() {
+        throw std::runtime_error("not implemented");
+    }
+#endif
 
     friend class reactor;
 };
@@ -680,6 +691,11 @@ public:
 
     /// Returns a directory listing, given that this file object is a directory.
     subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next);
+
+#ifdef SEASTAR_COROUTINES_ENABLED
+    /// Returns a directory listing, given that this file object is a directory.
+    coroutine::experimental::generator<directory_entry, dir_entry_buffer> experimental_list_directory();
+#endif
 
 #if SEASTAR_API_LEVEL < 7
     /**

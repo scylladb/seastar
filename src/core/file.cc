@@ -395,6 +395,37 @@ static std::optional<directory_entry_type> dirent_type(const linux_dirent64& de)
     return type;
 }
 
+#ifdef SEASTAR_COROUTINES_ENABLED
+static coroutine::experimental::generator<directory_entry, dir_entry_buffer> make_list_directory_generator(coroutine::experimental::buffer_size_t buffer_size, thread_pool& pool, int fd) {
+    temporary_buffer<char> buf(8192);
+
+    while (true) {
+        auto size = co_await engine().read_directory(fd, buf.get_write(), buf.size());
+        if (size == 0) {
+            co_return;
+        }
+
+        for (const char* b = buf.get(); b < buf.get() + size; ) {
+            const auto de = reinterpret_cast<const linux_dirent64*>(b);
+            b += de->d_reclen;
+            sstring name(de->d_name);
+            if (name == "." || name == "..") {
+                continue;
+            }
+            std::optional<directory_entry_type> type = dirent_type(*de);
+            directory_entry ret(std::move(name), type);
+            co_yield ret;
+        }
+    }
+}
+
+coroutine::experimental::generator<directory_entry, dir_entry_buffer> posix_file_impl::experimental_list_directory() {
+    // Keep 8 entries. The sizeof(directory_entry) is 24 bytes, the name itself 
+    // is allocated out of this buffer, so the buffer would grow up to ~200 bytes
+    return make_list_directory_generator(coroutine::experimental::buffer_size_t{8}, *engine()._thread_pool, _fd);
+}
+#endif
+
 subscription<directory_entry>
 posix_file_impl::list_directory(std::function<future<> (directory_entry de)> next) {
     static constexpr size_t buffer_size = 8192;
@@ -1127,6 +1158,12 @@ subscription<directory_entry>
 file::list_directory(std::function<future<>(directory_entry de)> next) {
     return _file_impl->list_directory(std::move(next));
 }
+
+#ifdef SEASTAR_COROUTINES_ENABLED
+coroutine::experimental::generator<directory_entry, dir_entry_buffer> file::experimental_list_directory() {
+    return _file_impl->experimental_list_directory();
+}
+#endif
 
 future<int> file::ioctl(uint64_t cmd, void* argp) noexcept {
     return _file_impl->ioctl(cmd, argp);
