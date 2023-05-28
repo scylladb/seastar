@@ -1369,6 +1369,18 @@ public:
                return put(std::move(p));
             });
         }
+
+        // We want to make sure that we call gnutls_record_send with as large
+        // packets as possible. This is because each call to gnutls_record_send
+        // translates to a sendmsg syscall. Further it results in larger TLS
+        // records which makes encryption/decryption faster. Hence to avoid
+        // cases where we would do an extra syscall for something like a 100
+        // bytes header we linearize the packet if it's below the max TLS record
+        // size.
+        if (p.nr_frags() > 1 && p.len() <= gnutls_record_get_max_size(*this)) {
+            p.linearize();
+        }
+
         auto i = p.fragments().begin();
         auto e = p.fragments().end();
         return with_semaphore(_out_sem, 1, std::bind(&session::do_put, this, i, e)).finally([p = std::move(p)] {});
