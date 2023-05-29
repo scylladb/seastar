@@ -305,8 +305,8 @@ namespace internal {
 template <typename Func>
 inline
 auto
-invoke_func_with_gate(gate& g, Func&& func) noexcept {
-    return futurize_invoke(std::forward<Func>(func)).finally([&g] { g.leave(); });
+invoke_func_with_gate(gate::holder&& gh, Func&& func) noexcept {
+    return futurize_invoke(std::forward<Func>(func)).finally([gh = std::forward<gate::holder>(gh)] {});
 }
 
 } // namespace internal
@@ -324,8 +324,7 @@ template <typename Func>
 inline
 auto
 with_gate(gate& g, Func&& func) {
-    g.enter();
-    return internal::invoke_func_with_gate(g, std::forward<Func>(func));
+    return internal::invoke_func_with_gate(g.hold(), std::forward<Func>(func));
 }
 
 /// Executes the function \c func if the gate \c g can be entered
@@ -344,11 +343,11 @@ template <typename Func>
 inline
 auto
 try_with_gate(gate& g, Func&& func) noexcept {
-    if (!g.try_enter()) {
+    if (g.is_closed()) {
         using futurator = futurize<std::invoke_result_t<Func>>;
         return futurator::make_exception_future(gate_closed_exception());
     }
-    return internal::invoke_func_with_gate(g, std::forward<Func>(func));
+    return internal::invoke_func_with_gate(g.hold(), std::forward<Func>(func));
 }
 /// @}
 
