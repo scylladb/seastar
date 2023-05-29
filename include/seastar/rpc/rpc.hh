@@ -675,6 +675,7 @@ protected:
 
     virtual rpc_handler* get_handler(uint64_t msg_id) = 0;
     virtual void put_handler(rpc_handler*) = 0;
+    virtual void with_handlers(noncopyable_function<void(uint64_t, const rpc_handler&)>) const = 0;
 };
 
 /// \addtogroup rpc
@@ -913,6 +914,12 @@ public:
     }
 
 private:
+    void with_handlers(noncopyable_function<void(uint64_t, const rpc_handler&)> fn) const override {
+        for (const auto& h : _handlers) {
+            fn(uint64_t(h.first), h.second);
+        }
+    }
+
     rpc_handler* get_handler(uint64_t msg_id) override;
     void put_handler(rpc_handler*) override;
 
