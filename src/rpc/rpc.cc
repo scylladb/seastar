@@ -1181,8 +1181,7 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
           _servers.erase(*_options.streaming_domain);
       }
       return _ss_stopped.get_future().then([this] {
-      return
-          parallel_for_each(_conns | boost::adaptors::map_values, [] (shared_ptr<connection> conn) {
+          return parallel_for_each(_conns | boost::adaptors::map_values, [] (shared_ptr<connection> conn) {
               return conn->stop();
           });
       }).finally([this] {
