@@ -164,7 +164,7 @@ class client {
 
     std::unique_ptr<connection_factory> _new_connections;
     unsigned _nr_connections = 0;
-    const unsigned _max_connections;
+    unsigned _max_connections;
     condition_variable _wait_con;
     connections_list_t _pool;
 
@@ -172,6 +172,7 @@ class client {
 
     future<connection_ptr> get_connection();
     future<> put_connection(connection_ptr con, bool can_cache);
+    future<> shrink_connections();
 
     template <typename Fn>
     SEASTAR_CONCEPT( requires std::invocable<Fn, connection&> )
@@ -229,6 +230,16 @@ public:
      *
      */
     future<> make_request(request req, reply_handler handle, reply::status_type expected = reply::status_type::ok);
+
+    /**
+     * \brief Updates the maximum number of connections a client may have
+     *
+     * If the new limit is less than the amount of connections a client has, they will be
+     * closed. The returned future resolves when all excessive connections get closed
+     *
+     * \param nr -- the new limit on the number of connections
+     */
+    future<> set_maximum_connections(unsigned nr);
 
     /**
      * \brief Closes the client

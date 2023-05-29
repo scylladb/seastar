@@ -47,7 +47,7 @@ client_ref::client_ref(http::experimental::client* c) noexcept : _c(c) {
 client_ref::~client_ref() {
     if (_c != nullptr) {
         _c->_nr_connections--;
-        _c->_wait_con.signal();
+        _c->_wait_con.broadcast();
     }
 }
 
@@ -236,7 +236,7 @@ future<client::connection_ptr> client::get_connection() {
 }
 
 future<> client::put_connection(connection_ptr con, bool can_cache) {
-    if (can_cache) {
+    if (can_cache && (_nr_connections <= _max_connections)) {
         http_log.trace("push http connection {} to pool", con->_fd.local_address());
         _pool.push_back(*con);
         _wait_con.signal();
@@ -245,6 +245,35 @@ future<> client::put_connection(connection_ptr con, bool can_cache) {
 
     http_log.trace("dropping connection {}", con->_fd.local_address());
     return con->close().finally([con] {});
+}
+
+future<> client::shrink_connections() {
+    if (_nr_connections <= _max_connections) {
+        return make_ready_future<>();
+    }
+
+    if (!_pool.empty()) {
+        connection_ptr con = _pool.front().shared_from_this();
+        _pool.pop_front();
+        return con->close().finally([this, con] {
+            return shrink_connections();
+        });
+    }
+
+    return _wait_con.wait().then([this] {
+        return shrink_connections();
+    });
+}
+
+future<> client::set_maximum_connections(unsigned nr) {
+    if (nr > _max_connections) {
+        _max_connections = nr;
+        _wait_con.broadcast();
+        return make_ready_future<>();
+    }
+
+    _max_connections = nr;
+    return shrink_connections();
 }
 
 template <typename Fn>
