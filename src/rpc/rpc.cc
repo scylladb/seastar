@@ -1170,16 +1170,28 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
       });
   }
 
-  future<> server::stop() {
+  future<> server::shutdown() {
+      if (_shutdown) {
+          return make_ready_future<>();
+      }
+
       _ss.abort_accept();
       _resources_available.broken();
       if (_options.streaming_domain) {
           _servers.erase(*_options.streaming_domain);
       }
-      return when_all(_ss_stopped.get_future(),
-          parallel_for_each(_conns | boost::adaptors::map_values, [] (shared_ptr<connection> conn) {
+      return _ss_stopped.get_future().then([this] {
+          return parallel_for_each(_conns | boost::adaptors::map_values, [] (shared_ptr<connection> conn) {
               return conn->stop();
-          }),
+          });
+      }).finally([this] {
+          _shutdown = true;
+      });
+  }
+
+  future<> server::stop() {
+      return when_all(
+          shutdown(),
           _reply_gate.close()
       ).discard_result();
   }
