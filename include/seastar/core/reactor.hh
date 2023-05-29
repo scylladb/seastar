@@ -40,6 +40,7 @@
 #include <seastar/core/manual_clock.hh>
 #include <seastar/core/memory.hh>
 #include <seastar/core/metrics_registration.hh>
+#include <seastar/core/internal/estimated_histogram.hh>
 #include <seastar/core/posix.hh>
 #include <seastar/core/reactor_config.hh>
 #include <seastar/core/scattered_message.hh>
@@ -297,6 +298,7 @@ private:
     internal::preemption_monitor _preemption_monitor{};
     uint64_t _global_tasks_processed = 0;
     uint64_t _polls = 0;
+    metrics::internal::time_estimated_histogram _stalls_histogram;
     std::unique_ptr<internal::cpu_stall_detector> _cpu_stall_detector;
 
     unsigned _max_task_backlog = 1000;
