@@ -616,6 +616,13 @@ public:
     server(protocol_base* proto, server_socket, resource_limits memory_limit = resource_limits(), server_options opts = server_options{});
     server(protocol_base* proto, server_options opts, server_socket, resource_limits memory_limit = resource_limits());
     void accept();
+    /**
+     * Stops the server.
+     *
+     * It makes sure that no new rpcs are admitted, no rpc handlers issued on this
+     * connection are running any longer and no replies on the previously running
+     * handlers will be sent.
+     */
     future<> stop();
     template<typename Func>
     void foreach_connection(Func&& f) {
