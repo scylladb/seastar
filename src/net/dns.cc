@@ -37,6 +37,7 @@
 #include <seastar/core/reactor.hh>
 #include <seastar/core/gate.hh>
 #include <seastar/core/print.hh>
+#include <system_error>
 
 namespace seastar::net {
 
@@ -845,16 +846,24 @@ private:
                     }).finally([fd, me = shared_from_this()] {
                         me->release(fd);
                     });
-                    // if we have a fast-fail, give error.
-                    if (e.udp.f.failed()) {
-                        try {
-                            e.udp.f.get();
-                        } catch (std::system_error& e) {
-                            errno = e.code().value();
-                        } catch (...) {
+
+                    if (e.udp.f.available()) {
+                        // if we have a fast-fail, give error.
+                        if (e.udp.f.failed()) {
+                            try {
+                                e.udp.f.get();
+                            } catch (std::system_error& e) {
+                                errno = e.code().value();
+                            } catch (...) {
+                            }
+                            e.udp.f = make_ready_future<>();
+                            return -1;
                         }
-                        e.udp.f = make_ready_future<>();
-                        return -1;
+                    } else {
+                        // ensure that no exception from channel.send is left uncaught
+                        e.udp.f = e.udp.f.handle_exception_type([](std::system_error const& e){
+                            dns_log.warn("UDP send exception: {}", e.what());
+                        });
                     }
                     // c-ares does _not_ use non-blocking retry for udp sockets. We just pretend
                     // all is fine even though we have no idea. Barring stack/adapter failure it
