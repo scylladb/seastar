@@ -608,6 +608,12 @@ namespace rpc {
           auto size = read_le<uint32_t>(ptr + 16);
           return std::make_tuple(std::nullopt, type, msgid, size);
       }
+      static void encode_header(uint64_t type, int64_t msg_id, snd_buf& buf, size_t off) {
+          auto p = buf.front().get_write() + off;
+          write_le<uint64_t>(p, type);
+          write_le<int64_t>(p + 8, msg_id);
+          write_le<uint32_t>(p + 16, buf.size - 20 - off);
+      }
       static uint32_t get_size(const header_type& t) {
           return std::get<3>(t);
       }
@@ -626,14 +632,15 @@ namespace rpc {
           std::get<0>(h) = read_le<uint64_t>(ptr);
           return h;
       }
+      static void encode_header(uint64_t type, int64_t msg_id, snd_buf& buf) {
+          static_assert(snd_buf::chunk_size >= 28, "send buffer chunk size is too small");
+          // expiration timer is encoded later
+          request_frame::encode_header(type, msg_id, buf, 8);
+      }
   };
 
   future<> client::request(uint64_t type, int64_t msg_id, snd_buf buf, std::optional<rpc_clock_type::time_point> timeout, cancellable* cancel) {
-      static_assert(snd_buf::chunk_size >= 28, "send buffer chunk size is too small");
-      auto p = buf.front().get_write() + 8; // 8 extra bytes for expiration timer
-      write_le<uint64_t>(p, type);
-      write_le<int64_t>(p + 8, msg_id);
-      write_le<uint32_t>(p + 16, buf.size - 28);
+      request_frame_with_timeout::encode_header(type, msg_id, buf);
       return send(std::move(buf), timeout, cancel);
   }
 
