@@ -451,6 +451,9 @@ relative_timeout_to_absolute(rpc_clock_type::duration relative) {
     return now + std::min(relative, rpc_clock_type::time_point::max() - now);
 }
 
+// Refer to struct request_frame for more details
+static constexpr size_t request_frame_headroom = 28;
+
 // Returns lambda that can be used to send rpc messages.
 // The lambda gets client connection and rpc parameters as arguments, marshalls them sends
 // to a server and waits for a reply. After receiving reply it unmarshalls it and signal completion
@@ -468,7 +471,7 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
 
             // send message
             auto msg_id = dst.next_message_id();
-            snd_buf data = marshall(dst.template serializer<Serializer>(), 28, args...);
+            snd_buf data = marshall(dst.template serializer<Serializer>(), request_frame_headroom, args...);
 
             // prepare reply handler, if return type is now_wait_type this does nothing, since no reply will be sent
             using wait = wait_signature_t<Ret>;

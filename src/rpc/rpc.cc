@@ -135,7 +135,7 @@ namespace rpc {
 
   future<> connection::send_entry(outgoing_entry& d) {
       if (_propagate_timeout) {
-          static_assert(snd_buf::chunk_size >= 8, "send buffer chunk size is too small");
+          static_assert(snd_buf::chunk_size >= sizeof(uint64_t), "send buffer chunk size is too small");
           if (_timeout_negotiated) {
               auto expire = d.t.get_timeout();
               uint64_t left = 0;
@@ -144,8 +144,8 @@ namespace rpc {
               }
               write_le<uint64_t>(d.buf.front().get_write(), left);
           } else {
-              d.buf.front().trim_front(8);
-              d.buf.size -= 8;
+              d.buf.front().trim_front(sizeof(uint64_t));
+              d.buf.size -= sizeof(uint64_t);
           }
       }
       auto buf = compress(std::move(d.buf));
@@ -588,13 +588,21 @@ namespace rpc {
       return it->second;
   }
 
+  // The request frame is
+  //   le64 optional timeout (see request_frame_with_timeout below)
+  //   le64 message type a.k.a. verb ID
+  //   le64 message ID
+  //   le32 payload length
+  //   ...  payload
   struct request_frame {
       using opt_buf_type = std::optional<rcv_buf>;
       using header_and_buffer_type = std::tuple<std::optional<uint64_t>, uint64_t, int64_t, opt_buf_type>;
       using return_type = future<header_and_buffer_type>;
       using header_type = std::tuple<std::optional<uint64_t>, uint64_t, int64_t, uint32_t>;
+      static constexpr size_t raw_header_size = sizeof(uint64_t) + sizeof(int64_t) + sizeof(uint32_t);
       static size_t header_size() {
-          return 20;
+          static_assert(request_frame_headroom >= raw_header_size);
+          return raw_header_size;
       }
       static const char* role() {
           return "server";
@@ -612,7 +620,7 @@ namespace rpc {
           auto p = buf.front().get_write() + off;
           write_le<uint64_t>(p, type);
           write_le<int64_t>(p + 8, msg_id);
-          write_le<uint32_t>(p + 16, buf.size - 20 - off);
+          write_le<uint32_t>(p + 16, buf.size - raw_header_size - off);
       }
       static uint32_t get_size(const header_type& t) {
           return std::get<3>(t);
@@ -622,10 +630,13 @@ namespace rpc {
       }
   };
 
+  // This frame is used if protocol_features.TIMEOUT was negotiated
   struct request_frame_with_timeout : request_frame {
       using super = request_frame;
+      static constexpr size_t raw_header_size = sizeof(uint64_t) + request_frame::raw_header_size;
       static size_t header_size() {
-          return 28;
+          static_assert(request_frame_headroom >= raw_header_size);
+          return raw_header_size;
       }
       static typename super::header_type decode_header(const char* ptr) {
           auto h = super::decode_header(ptr + 8);
@@ -633,7 +644,7 @@ namespace rpc {
           return h;
       }
       static void encode_header(uint64_t type, int64_t msg_id, snd_buf& buf) {
-          static_assert(snd_buf::chunk_size >= 28, "send buffer chunk size is too small");
+          static_assert(snd_buf::chunk_size >= raw_header_size, "send buffer chunk size is too small");
           // expiration timer is encoded later
           request_frame::encode_header(type, msg_id, buf, 8);
       }
