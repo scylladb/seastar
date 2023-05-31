@@ -588,6 +588,15 @@ namespace rpc {
       return it->second;
   }
 
+  future<> client::request(uint64_t type, int64_t msg_id, snd_buf buf, std::optional<rpc_clock_type::time_point> timeout, cancellable* cancel) {
+      static_assert(snd_buf::chunk_size >= 28, "send buffer chunk size is too small");
+      auto p = buf.front().get_write() + 8; // 8 extra bytes for expiration timer
+      write_le<uint64_t>(p, type);
+      write_le<int64_t>(p + 8, msg_id);
+      write_le<uint32_t>(p + 16, buf.size - 28);
+      return send(std::move(buf), timeout, cancel);
+  }
+
   void
   client::negotiate(feature_map provided) {
       // record features returned here

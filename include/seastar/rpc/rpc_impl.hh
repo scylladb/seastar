@@ -469,15 +469,10 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
             // send message
             auto msg_id = dst.next_message_id();
             snd_buf data = marshall(dst.template serializer<Serializer>(), 28, args...);
-            static_assert(snd_buf::chunk_size >= 28, "send buffer chunk size is too small");
-            auto p = data.front().get_write() + 8; // 8 extra bytes for expiration timer
-            write_le<uint64_t>(p, uint64_t(t));
-            write_le<int64_t>(p + 8, msg_id);
-            write_le<uint32_t>(p + 16, data.size - 28);
 
             // prepare reply handler, if return type is now_wait_type this does nothing, since no reply will be sent
             using wait = wait_signature_t<Ret>;
-            return when_all(dst.send(std::move(data), timeout, cancel), wait_for_reply<Serializer>(wait(), timeout, cancel, dst, msg_id, sig)).then([] (auto r) {
+            return when_all(dst.request(uint64_t(t), msg_id, std::move(data), timeout, cancel), wait_for_reply<Serializer>(wait(), timeout, cancel, dst, msg_id, sig)).then([] (auto r) {
                     std::get<0>(r).ignore_ready_future();
                     return std::move(std::get<1>(r)); // return future of wait_for_reply
             });
