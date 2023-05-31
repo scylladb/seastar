@@ -429,8 +429,7 @@ namespace rpc {
               }
               return FrameType::empty_value();
           }
-          auto h = FrameType::decode_header(header.get());
-          auto size = FrameType::get_size(h);
+          auto [size, h] = FrameType::decode_header(header.get());
           if (!size) {
               return FrameType::make_value(h, rcv_buf());
           } else {
@@ -490,7 +489,6 @@ namespace rpc {
       using opt_buf_type = std::optional<rcv_buf>;
       using return_type = future<opt_buf_type>;
       struct header_type {
-          uint32_t size;
           bool eos;
       };
       static size_t header_size() {
@@ -502,16 +500,9 @@ namespace rpc {
       static future<opt_buf_type> empty_value() {
           return make_ready_future<opt_buf_type>(std::nullopt);
       }
-      static header_type decode_header(const char* ptr) {
-          header_type h{read_le<uint32_t>(ptr), false};
-          if (h.size == -1U) {
-              h.size = 0;
-              h.eos = true;
-          }
-          return h;
-      }
-      static uint32_t get_size(const header_type& t) {
-          return t.size;
+      static std::pair<uint32_t, header_type> decode_header(const char* ptr) {
+          auto size = read_le<uint32_t>(ptr);
+          return size != -1U ? std::make_pair(size, header_type{false}) : std::make_pair(0U, header_type{true});
       }
       static future<opt_buf_type> make_value(const header_type& t, rcv_buf data) {
           if (t.eos) {
@@ -597,7 +588,7 @@ namespace rpc {
       using opt_buf_type = std::optional<rcv_buf>;
       using header_and_buffer_type = std::tuple<std::optional<uint64_t>, uint64_t, int64_t, opt_buf_type>;
       using return_type = future<header_and_buffer_type>;
-      using header_type = std::tuple<std::optional<uint64_t>, uint64_t, int64_t, uint32_t>;
+      using header_type = std::tuple<std::optional<uint64_t>, uint64_t, int64_t>;
       static constexpr size_t raw_header_size = sizeof(uint64_t) + sizeof(int64_t) + sizeof(uint32_t);
       static size_t header_size() {
           static_assert(request_frame_headroom >= raw_header_size);
@@ -609,20 +600,17 @@ namespace rpc {
       static auto empty_value() {
           return make_ready_future<header_and_buffer_type>(header_and_buffer_type(std::nullopt, uint64_t(0), 0, std::nullopt));
       }
-      static header_type decode_header(const char* ptr) {
+      static std::pair<size_t, header_type> decode_header(const char* ptr) {
           auto type = read_le<uint64_t>(ptr);
           auto msgid = read_le<int64_t>(ptr + 8);
           auto size = read_le<uint32_t>(ptr + 16);
-          return std::make_tuple(std::nullopt, type, msgid, size);
+          return std::make_pair(size, std::make_tuple(std::nullopt, type, msgid));
       }
       static void encode_header(uint64_t type, int64_t msg_id, snd_buf& buf, size_t off) {
           auto p = buf.front().get_write() + off;
           write_le<uint64_t>(p, type);
           write_le<int64_t>(p + 8, msg_id);
           write_le<uint32_t>(p + 16, buf.size - raw_header_size - off);
-      }
-      static uint32_t get_size(const header_type& t) {
-          return std::get<3>(t);
       }
       static auto make_value(const header_type& t, rcv_buf data) {
           return make_ready_future<header_and_buffer_type>(header_and_buffer_type(std::get<0>(t), std::get<1>(t), std::get<2>(t), std::move(data)));
@@ -637,9 +625,9 @@ namespace rpc {
           static_assert(request_frame_headroom >= raw_header_size);
           return raw_header_size;
       }
-      static typename super::header_type decode_header(const char* ptr) {
+      static std::pair<uint32_t, typename super::header_type> decode_header(const char* ptr) {
           auto h = super::decode_header(ptr + 8);
-          std::get<0>(h) = read_le<uint64_t>(ptr);
+          std::get<0>(h.second) = read_le<uint64_t>(ptr);
           return h;
       }
       static void encode_header(uint64_t type, int64_t msg_id, snd_buf& buf) {
@@ -699,7 +687,7 @@ namespace rpc {
       using opt_buf_type = std::optional<rcv_buf>;
       using header_and_buffer_type = std::tuple<int64_t, opt_buf_type>;
       using return_type = future<header_and_buffer_type>;
-      using header_type = std::tuple<int64_t, uint32_t>;
+      using header_type = std::tuple<int64_t>;
       static constexpr size_t raw_header_size = sizeof(int64_t) + sizeof(uint32_t);
       static size_t header_size() {
           static_assert(response_frame_headroom >= raw_header_size);
@@ -711,19 +699,16 @@ namespace rpc {
       static auto empty_value() {
           return make_ready_future<header_and_buffer_type>(header_and_buffer_type(0, std::nullopt));
       }
-      static header_type decode_header(const char* ptr) {
+      static std::pair<uint32_t, header_type> decode_header(const char* ptr) {
           auto msgid = read_le<int64_t>(ptr);
           auto size = read_le<uint32_t>(ptr + 8);
-          return std::make_tuple(msgid, size);
+          return std::make_pair(size, std::make_tuple(msgid));
       }
       static void encode_header(int64_t msg_id, snd_buf& data) {
           static_assert(snd_buf::chunk_size >= raw_header_size, "send buffer chunk size is too small");
           auto p = data.front().get_write();
           write_le<int64_t>(p, msg_id);
           write_le<uint32_t>(p + 8, data.size - raw_header_size);
-      }
-      static uint32_t get_size(const header_type& t) {
-          return std::get<1>(t);
       }
       static auto make_value(const header_type& t, rcv_buf data) {
           return make_ready_future<header_and_buffer_type>(header_and_buffer_type(std::get<0>(t), std::move(data)));
