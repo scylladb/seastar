@@ -502,7 +502,7 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
 }
 
 // Refer to struct response_frame for more details
-static constexpr size_t response_frame_headroom = 12;
+static constexpr size_t response_frame_headroom = 16;
 
 template<typename Serializer, typename RetTypes>
 inline future<> reply(wait_type, future<RetTypes>&& ret, int64_t msg_id, shared_ptr<server::connection> client,
