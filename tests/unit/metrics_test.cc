@@ -31,6 +31,7 @@
 #include <seastar/core/do_with.hh>
 #include <seastar/core/io_queue.hh>
 #include <seastar/core/loop.hh>
+#include <seastar/core/internal/estimated_histogram.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/testing/test_runner.hh>
@@ -318,4 +319,62 @@ SEASTAR_THREAD_TEST_CASE(test_relabel_enable_disable_skip_when_empty) {
         return mi.should_skip_when_empty == sm::skip_when_empty::yes;
     }), 0);
     sm::set_relabel_configs({}).get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_estimated_histogram) {
+    using namespace seastar::metrics;
+    using namespace std::chrono_literals;
+    internal::time_estimated_histogram histogram1;
+    internal::time_estimated_histogram histogram2;
+    // The number of linearly-spaced buckets between consecutive powers of 2 in time_estimated_histogram.
+    constexpr int PRECISION = 4;
+
+    // The lower bound of time_estimated_histogram is 512 us.
+    std::chrono::steady_clock::duration min = std::chrono::microseconds(512);
+    std::chrono::steady_clock::duration next = min*2;
+
+    for (size_t i = 0; i < 16; i++) {
+        auto delta = (next - min)/PRECISION;
+        for (size_t j = 0; j< PRECISION; j++) {
+            histogram1.add(min + delta*j);
+        }
+        min = next;
+        next *= 2;
+    }
+    BOOST_CHECK_EQUAL(histogram1.count(), 64);
+    for (size_t i = 0; i < 64; i++) {
+        BOOST_CHECK_EQUAL(histogram1.get(i), 1);
+    }
+    min = std::chrono::microseconds(512);
+    next = min*2;
+    for (size_t i = 0; i < 8; i++) {
+        auto delta = (next - min)/PRECISION;
+        for (size_t j = 0; j< PRECISION; j++) {
+            histogram2.add(min + delta*j);
+        }
+        min = next;
+        next *= 2;
+    }
+    BOOST_CHECK_EQUAL(histogram2.count(), 32);
+    for (size_t i = 0; i < 32; i++) {
+        BOOST_CHECK_EQUAL(histogram2.get(i), 1);
+    }
+    for (size_t i = 33; i < 64; i++) {
+        BOOST_CHECK_EQUAL(histogram2.get(i), 0);
+    }
+    histogram1.merge(histogram2);
+    BOOST_CHECK_EQUAL(histogram1.count(), 96);
+    for (size_t i = 0; i < 32; i++) {
+        BOOST_CHECK_EQUAL(histogram1.get(i), 2);
+    }
+    for (size_t i = 33; i < 64; i++) {
+        BOOST_CHECK_EQUAL(histogram1.get(i), 1);
+    }
+    auto mh = histogram1.to_metrics_histogram();
+    for (size_t i = 0; i < 32; i++) {
+        BOOST_CHECK_EQUAL(mh.buckets[i].count, 2 + i*2);
+    }
+    for (size_t i = 33; i < 64; i++) {
+        BOOST_CHECK_EQUAL(mh.buckets[i].count, 33 + i);
+    }
 }
