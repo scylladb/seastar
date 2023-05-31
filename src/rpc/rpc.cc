@@ -419,7 +419,7 @@ namespace rpc {
   }
 
   template<typename FrameType>
-  typename FrameType::return_type
+  future<typename FrameType::return_type>
   connection::read_frame(socket_address info, input_stream<char>& in) {
       auto header_size = FrameType::header_size();
       return in.read_exactly(header_size).then([this, header_size, info, &in] (temporary_buffer<char> header) {
@@ -427,18 +427,18 @@ namespace rpc {
               if (header.size() != 0) {
                   _logger(info, format("unexpected eof on a {} while reading header: expected {:d} got {:d}", FrameType::role(), header_size, header.size()));
               }
-              return FrameType::empty_value();
+              return make_ready_future<typename FrameType::return_type>(FrameType::empty_value());
           }
           auto [size, h] = FrameType::decode_header(header.get());
           if (!size) {
-              return FrameType::make_value(h, rcv_buf());
+              return make_ready_future<typename FrameType::return_type>(FrameType::make_value(h, rcv_buf()));
           } else {
               return read_rcv_buf(in, size).then([this, info, h = std::move(h), size] (rcv_buf rb) {
                   if (rb.size != size) {
                       _logger(info, format("unexpected eof on a {} while reading data: expected {:d} got {:d}", FrameType::role(), size, rb.size));
-                      return FrameType::empty_value();
+                      return make_ready_future<typename FrameType::return_type>(FrameType::empty_value());
                   } else {
-                      return FrameType::make_value(h, std::move(rb));
+                      return make_ready_future<typename FrameType::return_type>(FrameType::make_value(h, std::move(rb)));
                   }
               });
           }
@@ -446,7 +446,7 @@ namespace rpc {
   }
 
   template<typename FrameType>
-  typename FrameType::return_type
+  future<typename FrameType::return_type>
   connection::read_frame_compressed(socket_address info, std::unique_ptr<compressor>& compressor, input_stream<char>& in) {
       if (compressor) {
           return in.read_exactly(4).then([this, info, &in, &compressor] (temporary_buffer<char> compress_header) {
@@ -454,14 +454,14 @@ namespace rpc {
                   if (compress_header.size() != 0) {
                       _logger(info, format("unexpected eof on a {} while reading compression header: expected 4 got {:d}", FrameType::role(), compress_header.size()));
                   }
-                  return FrameType::empty_value();
+                  return make_ready_future<typename FrameType::return_type>(FrameType::empty_value());
               }
               auto ptr = compress_header.get();
               auto size = read_le<uint32_t>(ptr);
               return read_rcv_buf(in, size).then([this, size, &compressor, info] (rcv_buf compressed_data) {
                   if (compressed_data.size != size) {
                       _logger(info, format("unexpected eof on a {} while reading compressed data: expected {:d} got {:d}", FrameType::role(), size, compressed_data.size));
-                      return FrameType::empty_value();
+                      return make_ready_future<typename FrameType::return_type>(FrameType::empty_value());
                   }
                   auto eb = compressor->decompress(std::move(compressed_data));
                   net::packet p;
@@ -487,7 +487,7 @@ namespace rpc {
 
   struct stream_frame {
       using opt_buf_type = std::optional<rcv_buf>;
-      using return_type = future<opt_buf_type>;
+      using return_type = opt_buf_type;
       struct header_type {
           bool eos;
       };
@@ -497,18 +497,18 @@ namespace rpc {
       static const char* role() {
           return "stream";
       }
-      static future<opt_buf_type> empty_value() {
-          return make_ready_future<opt_buf_type>(std::nullopt);
+      static auto empty_value() {
+          return std::nullopt;
       }
       static std::pair<uint32_t, header_type> decode_header(const char* ptr) {
           auto size = read_le<uint32_t>(ptr);
           return size != -1U ? std::make_pair(size, header_type{false}) : std::make_pair(0U, header_type{true});
       }
-      static future<opt_buf_type> make_value(const header_type& t, rcv_buf data) {
+      static auto make_value(const header_type& t, rcv_buf data) {
           if (t.eos) {
               data.size = -1U;
           }
-          return make_ready_future<opt_buf_type>(std::move(data));
+          return data;
       }
   };
 
@@ -587,7 +587,7 @@ namespace rpc {
   struct request_frame {
       using opt_buf_type = std::optional<rcv_buf>;
       using header_and_buffer_type = std::tuple<std::optional<uint64_t>, uint64_t, int64_t, opt_buf_type>;
-      using return_type = future<header_and_buffer_type>;
+      using return_type = header_and_buffer_type;
       using header_type = std::tuple<std::optional<uint64_t>, uint64_t, int64_t>;
       static constexpr size_t raw_header_size = sizeof(uint64_t) + sizeof(int64_t) + sizeof(uint32_t);
       static size_t header_size() {
@@ -598,7 +598,7 @@ namespace rpc {
           return "server";
       }
       static auto empty_value() {
-          return make_ready_future<header_and_buffer_type>(header_and_buffer_type(std::nullopt, uint64_t(0), 0, std::nullopt));
+          return header_and_buffer_type(std::nullopt, uint64_t(0), 0, std::nullopt);
       }
       static std::pair<size_t, header_type> decode_header(const char* ptr) {
           auto type = read_le<uint64_t>(ptr);
@@ -613,7 +613,7 @@ namespace rpc {
           write_le<uint32_t>(p + 16, buf.size - raw_header_size - off);
       }
       static auto make_value(const header_type& t, rcv_buf data) {
-          return make_ready_future<header_and_buffer_type>(header_and_buffer_type(std::get<0>(t), std::get<1>(t), std::get<2>(t), std::move(data)));
+          return header_and_buffer_type(std::get<0>(t), std::get<1>(t), std::get<2>(t), std::move(data));
       }
   };
 
@@ -686,7 +686,7 @@ namespace rpc {
   struct response_frame {
       using opt_buf_type = std::optional<rcv_buf>;
       using header_and_buffer_type = std::tuple<int64_t, opt_buf_type>;
-      using return_type = future<header_and_buffer_type>;
+      using return_type = header_and_buffer_type;
       using header_type = std::tuple<int64_t>;
       static constexpr size_t raw_header_size = sizeof(int64_t) + sizeof(uint32_t);
       static size_t header_size() {
@@ -697,7 +697,7 @@ namespace rpc {
           return "client";
       }
       static auto empty_value() {
-          return make_ready_future<header_and_buffer_type>(header_and_buffer_type(0, std::nullopt));
+          return header_and_buffer_type(0, std::nullopt);
       }
       static std::pair<uint32_t, header_type> decode_header(const char* ptr) {
           auto msgid = read_le<int64_t>(ptr);
@@ -711,7 +711,7 @@ namespace rpc {
           write_le<uint32_t>(p + 8, data.size - raw_header_size);
       }
       static auto make_value(const header_type& t, rcv_buf data) {
-          return make_ready_future<header_and_buffer_type>(header_and_buffer_type(std::get<0>(t), std::move(data)));
+          return header_and_buffer_type(std::get<0>(t), std::move(data));
       }
   };
 
