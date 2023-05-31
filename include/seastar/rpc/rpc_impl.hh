@@ -494,6 +494,9 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
     return shelper{xt, xsig};
 }
 
+// Refer to struct response_frame for more details
+static constexpr size_t response_frame_headroom = 12;
+
 template<typename Serializer, typename RetTypes>
 inline future<> reply(wait_type, future<RetTypes>&& ret, int64_t msg_id, shared_ptr<server::connection> client,
         std::optional<rpc_clock_type::time_point> timeout) {
@@ -502,15 +505,15 @@ inline future<> reply(wait_type, future<RetTypes>&& ret, int64_t msg_id, shared_
         try {
             if constexpr (std::is_void_v<RetTypes>) {
                 ret.get();
-                data = std::invoke(marshall<Serializer>, std::ref(client->template serializer<Serializer>()), 12);
+                data = std::invoke(marshall<Serializer>, std::ref(client->template serializer<Serializer>()), response_frame_headroom);
             } else {
-                data = std::invoke(marshall<Serializer, const RetTypes&>, std::ref(client->template serializer<Serializer>()), 12, std::move(ret.get0()));
+                data = std::invoke(marshall<Serializer, const RetTypes&>, std::ref(client->template serializer<Serializer>()), response_frame_headroom, std::move(ret.get0()));
             }
         } catch (std::exception& ex) {
             uint32_t len = std::strlen(ex.what());
-            data = snd_buf(20 + len);
+            data = snd_buf(response_frame_headroom + 2 * sizeof(uint32_t) + len);
             auto os = make_serializer_stream(data);
-            os.skip(12);
+            os.skip(response_frame_headroom);
             uint32_t v32 = cpu_to_le(uint32_t(exception_type::USER));
             os.write(reinterpret_cast<char*>(&v32), sizeof(v32));
             v32 = cpu_to_le(len);

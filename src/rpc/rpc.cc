@@ -681,13 +681,19 @@ namespace rpc {
       });
   }
 
+  // The response frame is
+  //   le64 message ID
+  //   le32 payload size
+  //   ...  payload
   struct response_frame {
       using opt_buf_type = std::optional<rcv_buf>;
       using header_and_buffer_type = std::tuple<int64_t, opt_buf_type>;
       using return_type = future<header_and_buffer_type>;
       using header_type = std::tuple<int64_t, uint32_t>;
+      static constexpr size_t raw_header_size = sizeof(int64_t) + sizeof(uint32_t);
       static size_t header_size() {
-          return 12;
+          static_assert(response_frame_headroom >= raw_header_size);
+          return raw_header_size;
       }
       static const char* role() {
           return "client";
@@ -701,10 +707,10 @@ namespace rpc {
           return std::make_tuple(msgid, size);
       }
       static void encode_header(int64_t msg_id, snd_buf& data) {
-          static_assert(snd_buf::chunk_size >= 12, "send buffer chunk size is too small");
+          static_assert(snd_buf::chunk_size >= raw_header_size, "send buffer chunk size is too small");
           auto p = data.front().get_write();
           write_le<int64_t>(p, msg_id);
-          write_le<uint32_t>(p + 8, data.size - 12);
+          write_le<uint32_t>(p + 8, data.size - raw_header_size);
       }
       static uint32_t get_size(const header_type& t) {
           return std::get<1>(t);
