@@ -617,10 +617,11 @@ namespace rpc {
       }
   }
 
-  future<>
-  client::negotiate_protocol(input_stream<char>& in) {
-      return receive_negotiation_frame(*this, in).then([this] (feature_map features) {
-          return negotiate(features);
+  future<> client::negotiate_protocol(feature_map features) {
+      return send_negotiation_frame(std::move(features)).then([this] {
+          return receive_negotiation_frame(*this, _read_buf).then([this] (feature_map features) {
+              return negotiate(std::move(features));
+          });
       });
   }
 
@@ -766,9 +767,7 @@ namespace rpc {
               features[protocol_features::ISOLATION] = _options.isolation_cookie;
           }
 
-          return send_negotiation_frame(std::move(features)).then([this] {
-               return negotiate_protocol(_read_buf);
-          }).then([this] () {
+          return negotiate_protocol(std::move(features)).then([this] {
               _propagate_timeout = !is_stream();
               set_negotiated();
               return do_until([this] { return _read_buf.eof() || _error; }, [this] () mutable {
