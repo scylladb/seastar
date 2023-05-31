@@ -644,6 +644,12 @@ namespace rpc {
           auto size = read_le<uint32_t>(ptr + 8);
           return std::make_tuple(msgid, size);
       }
+      static void encode_header(int64_t msg_id, snd_buf& data) {
+          static_assert(snd_buf::chunk_size >= 12, "send buffer chunk size is too small");
+          auto p = data.front().get_write();
+          write_le<int64_t>(p, msg_id);
+          write_le<uint32_t>(p + 8, data.size - 12);
+      }
       static uint32_t get_size(const header_type& t) {
           return std::get<1>(t);
       }
@@ -992,10 +998,7 @@ namespace rpc {
 
   future<>
   server::connection::respond(int64_t msg_id, snd_buf&& data, std::optional<rpc_clock_type::time_point> timeout) {
-      static_assert(snd_buf::chunk_size >= 12, "send buffer chunk size is too small");
-      auto p = data.front().get_write();
-      write_le<int64_t>(p, msg_id);
-      write_le<uint32_t>(p + 8, data.size - 12);
+      response_frame::encode_header(msg_id, data);
       return send(std::move(data), timeout);
   }
 
