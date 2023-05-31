@@ -554,7 +554,7 @@ public:
         connection_id _parent_id = invalid_connection_id;
         std::optional<isolation_config> _isolation_config;
     private:
-        future<> negotiate_protocol(input_stream<char>& in);
+        future<> negotiate_protocol();
         future<std::tuple<std::optional<uint64_t>, uint64_t, int64_t, std::optional<rcv_buf>>>
         read_request_frame_compressed(input_stream<char>& in);
         future<feature_map> negotiate(feature_map requested);

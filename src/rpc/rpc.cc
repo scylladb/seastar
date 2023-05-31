@@ -938,8 +938,8 @@ namespace rpc {
   }
 
   future<>
-  server::connection::negotiate_protocol(input_stream<char>& in) {
-      return receive_negotiation_frame(*this, in).then([this] (feature_map requested_features) {
+  server::connection::negotiate_protocol() {
+      return receive_negotiation_frame(*this, _read_buf).then([this] (feature_map requested_features) {
           return negotiate(std::move(requested_features)).then([this] (feature_map returned_features) {
               return send_negotiation_frame(std::move(returned_features));
           });
@@ -1026,7 +1026,7 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
 }
 
   future<> server::connection::process() {
-      return negotiate_protocol(_read_buf).then([this] () mutable {
+      return negotiate_protocol().then([this] () mutable {
         auto sg = _isolation_config ? _isolation_config->sched_group : current_scheduling_group();
         return with_scheduling_group(sg, [this] {
           set_negotiated();
