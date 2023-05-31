@@ -654,11 +654,6 @@ namespace rpc {
 
 
   future<response_frame::header_and_buffer_type>
-  client::read_response_frame(input_stream<char>& in) {
-      return read_frame<response_frame>(_server_addr, in);
-  }
-
-  future<response_frame::header_and_buffer_type>
   client::read_response_frame_compressed(input_stream<char>& in) {
       return read_frame_compressed<response_frame>(_server_addr, _compressor, in);
   }

@@ -463,8 +463,6 @@ private:
     future<> negotiate_protocol(feature_map map);
     void negotiate(feature_map server_features);
     future<std::tuple<int64_t, std::optional<rcv_buf>>>
-    read_response_frame(input_stream<char>& in);
-    future<std::tuple<int64_t, std::optional<rcv_buf>>>
     read_response_frame_compressed(input_stream<char>& in);
 public:
     /**
