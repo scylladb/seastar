@@ -60,6 +60,8 @@ struct stats {
     counter_type sent_messages = 0;
     counter_type wait_reply = 0;
     counter_type timeout = 0;
+    counter_type delay_samples = 0;
+    std::chrono::duration<double> delay_total = std::chrono::duration<double>(0);
 };
 
 class connection_id {

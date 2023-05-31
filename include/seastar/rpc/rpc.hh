@@ -430,6 +430,7 @@ class client : public rpc::connection, public weakly_referencable<client> {
     struct reply_handler_base {
         timer<rpc_clock_type> t;
         cancellable* pcancel = nullptr;
+        rpc_clock_type::time_point start;
         virtual void operator()(client&, id_type, rcv_buf data) = 0;
         virtual void timeout() {}
         virtual void cancel() {}

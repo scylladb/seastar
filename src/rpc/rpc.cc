@@ -886,6 +886,15 @@ namespace rpc {
                         sm::description("Total number of exceptional responses received"), { domain_l }).set_skip_when_empty(),
                 sm::make_counter("timeout", std::bind(&domain::count_all, this, &stats::timeout),
                         sm::description("Total number of timeout responses"), { domain_l }).set_skip_when_empty(),
+                sm::make_counter("delay_samples", std::bind(&domain::count_all, this, &stats::delay_samples),
+                        sm::description("Total number of delay samples"), { domain_l }),
+                sm::make_counter("delay_total", [this] () -> double {
+                            std::chrono::duration<double> res(0);
+                            for (const auto& m : list) {
+                                res += m._c._stats.delay_total;
+                            }
+                            return res.count();
+                        }, sm::description("Total delay in seconds"), { domain_l }),
                 sm::make_gauge("pending", std::bind(&domain::count_all_fn, this, &client::outgoing_queue_length),
                     sm::description("Number of queued outbound messages"), { domain_l }),
                 sm::make_gauge("wait_reply", std::bind(&domain::count_all_fn, this, &client::incoming_queue_length),
@@ -913,6 +922,8 @@ namespace rpc {
       _domain.dead.exception_received += _c._stats.exception_received;
       _domain.dead.sent_messages += _c._stats.sent_messages;
       _domain.dead.timeout += _c._stats.timeout;
+      _domain.dead.delay_samples += _c._stats.delay_samples;
+      _domain.dead.delay_total += _c._stats.delay_total;
   }
 
   client::client(const logger& l, void* s, client_options ops, socket socket, const socket_address& addr, const socket_address& local)
@@ -962,8 +973,13 @@ namespace rpc {
                           _error = true;
                       } else if (it != _outstanding.end()) {
                           auto handler = std::move(it->second);
+                          auto ht = std::get<1>(msg_id_and_data);
                           _outstanding.erase(it);
                           (*handler)(*this, msg_id, std::move(data.value()));
+                          if (ht) {
+                              _stats.delay_samples++;
+                              _stats.delay_total += (rpc_clock_type::now() - handler->start) - std::chrono::microseconds(*ht);
+                          }
                       } else if (msg_id < 0) {
                           try {
                               std::rethrow_exception(unmarshal_exception(data.value()));
