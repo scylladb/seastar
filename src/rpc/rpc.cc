@@ -1095,7 +1095,7 @@ namespace rpc {
   }
 
   future<>
-  server::connection::respond(int64_t msg_id, snd_buf&& data, std::optional<rpc_clock_type::time_point> timeout) {
+  server::connection::respond(int64_t msg_id, snd_buf&& data, std::optional<rpc_clock_type::time_point> timeout, std::optional<rpc_clock_type::duration> handler_duration) {
       response_frame::encode_header(msg_id, data);
       return send(std::move(data), timeout);
   }
@@ -1116,7 +1116,7 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
             (void)with_gate(get_server()._reply_gate, [this, timeout, msg_id, data = std::move(data), permit = std::move(permit)] () mutable {
                 // workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=83268
                 auto c = shared_from_this();
-                return respond(-msg_id, std::move(data), timeout).then([c = std::move(c), permit = std::move(permit)] {});
+                return respond(-msg_id, std::move(data), timeout, std::nullopt).then([c = std::move(c), permit = std::move(permit)] {});
             });
         } catch(gate_closed_exception&) {/* ignore */}
     });
