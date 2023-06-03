@@ -30,6 +30,12 @@
 
 using namespace seastar;
 
+namespace seastar {
+
+extern logger seastar_logger;
+
+}
+
 SEASTAR_TEST_CASE(make_foreign_ptr_from_lw_shared_ptr) {
     auto p = make_foreign(make_lw_shared<sstring>("foo"));
     BOOST_REQUIRE(p->size() == 3);
@@ -149,7 +155,7 @@ SEASTAR_THREAD_TEST_CASE(foreign_ptr_destroy_test) {
         {}
         ~deferred() {
             seastar_logger.info("~deferred");
-            engine().run_in_background([&done = done, shard = this_shard_id()] {
+            internal::run_in_background([&done = done, shard = this_shard_id()] {
                 return smp::submit_to(0, [&done, shard] {
                     done[shard].set_value(true);
                     done[shard ^ 1].set_value(false);

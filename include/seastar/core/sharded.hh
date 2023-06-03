@@ -24,12 +24,12 @@
 #include <seastar/core/smp.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/core/map_reduce.hh>
+#include <seastar/core/internal/run_in_background.hh>
 #include <seastar/util/is_smart_ptr.hh>
 #include <seastar/util/tuple_utils.hh>
 #include <seastar/core/do_with.hh>
 #include <seastar/util/concepts.hh>
 #include <seastar/util/log.hh>
-#include <seastar/core/reactor.hh>
 #include <seastar/util/modules.hh>
 
 #ifndef SEASTAR_MODULE
@@ -858,7 +858,7 @@ private:
         // wait for this future.
         auto f = destroy_on(std::move(p), cpu);
         if (!f.available() || f.failed()) {
-            engine().run_in_background(std::move(f));
+            internal::run_in_background(std::move(f));
         }
     }
 
