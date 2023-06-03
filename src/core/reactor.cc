@@ -143,6 +143,7 @@ module seastar;
 #include <seastar/core/internal/io_desc.hh>
 #include <seastar/core/internal/uname.hh>
 #include <seastar/core/internal/stall_detector.hh>
+#include <seastar/core/internal/run_in_background.hh>
 #include <seastar/net/native-stack.hh>
 #include <seastar/net/packet.hh>
 #include <seastar/net/posix-stack.hh>
@@ -4984,6 +4985,11 @@ std::ostream& operator<<(std::ostream& os, const stall_report& sr) {
 size_t scheduling_group_count() {
     auto b = s_used_scheduling_group_ids_bitmap.load(std::memory_order_relaxed);
     return __builtin_popcountl(b);
+}
+
+void
+run_in_background(future<> f) {
+    engine().run_in_background(std::move(f));
 }
 
 }
