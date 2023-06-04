@@ -73,6 +73,8 @@ arg_parser.add_argument('--compiler', action = 'store', dest = 'cxx', default = 
                         help = 'C++ compiler path')
 arg_parser.add_argument('--c-compiler', action='store', dest='cc', default='gcc',
                         help = 'C compiler path (for bundled libraries such as dpdk)')
+arg_parser.add_argument('--ccache', nargs='?', const='ccache', default='', metavar='CCACHE_BINARY_PATH',
+                        help = 'Use ccache to cache compilation (and optionally provide a path to ccache binary)')
 arg_parser.add_argument('--c++-standard', action='store', dest='cpp_standard', default='',
                         help='C++ standard to build with [default: %(default)s]')
 arg_parser.add_argument('--cook', action='append', dest='cook', default=[],
@@ -191,6 +193,7 @@ def configure_mode(mode):
         '-DCMAKE_BUILD_TYPE={}'.format(MODE_TO_CMAKE_BUILD_TYPE[mode]),
         '-DCMAKE_CXX_COMPILER={}'.format(args.cxx),
         '-DCMAKE_CXX_STANDARD={}'.format(args.cpp_standard),
+        '-DCMAKE_CXX_COMPILER_LAUNCHER={}'.format(args.ccache),
         '-DCMAKE_INSTALL_PREFIX={}'.format(args.install_prefix),
         '-DCMAKE_EXPORT_COMPILE_COMMANDS={}'.format('yes' if args.cc_json else 'no'),
         '-DBUILD_SHARED_LIBS={}'.format('yes' if mode in ('debug', 'dev') else 'no'),
