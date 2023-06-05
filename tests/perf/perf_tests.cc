@@ -21,6 +21,7 @@
 
 #include <seastar/testing/perf_tests.hh>
 
+#include <cstdio>
 #include <fstream>
 #include <regex>
 
@@ -239,6 +240,38 @@ public:
     }
 };
 
+class markdown_printer final : public result_printer {
+    static constexpr std::string_view header_format_string = "| {:<40} | {:>11} | {:>11} | {:>11} | {:>11} | {:>11} | {:>11} | {:>11} | {:>11} |\n";
+    static constexpr std::string_view body_format_string = "| {:<40} | {:>11} | {:>11} | {:>11} | {:>11} | {:>11} | {:>11.3f} | {:>11.3f} | {:>11.1f} |\n";
+    std::FILE* _output = nullptr;
+public:
+    explicit markdown_printer(const std::string& filename) {
+        if (filename == "-") {
+            _output = stdout;
+        } else {
+            _output = std::fopen(filename.c_str(), "w");
+        }
+        if (!_output) {
+            throw std::invalid_argument(fmt::format("unable to write to {}", filename));
+        }
+    }
+    ~markdown_printer() {
+        if (_output != stdout) {
+            std::fclose(_output);
+        }
+    }
+    void print_configuration(const config&) override {
+        fmt::print(_output, header_format_string, "test", "iterations", "median", "mad", "min", "max", "allocs", "tasks", "inst");
+        fmt::print(_output, header_format_string, "-", "-", "-", "-", "-", "-", "-", "-", "-");
+    }
+
+    void print_result(const result& r) override {
+        fmt::print(_output, body_format_string, r.test_name, r.total_iterations / r.runs, duration { r.median },
+                   duration { r.mad }, duration { r.min }, duration { r.max },
+                   r.allocs, r.tasks, r.inst);
+    }
+};
+
 void performance_test::do_run(const config& conf)
 {
     _max_single_run_iterations = conf.single_run_iterations;
@@ -371,6 +404,7 @@ int main(int ac, char** av)
             "random number generator seed")
         ("no-stdout", "do not print to stdout")
         ("json-output", bpo::value<std::string>(), "output json file")
+        ("md-output", bpo::value<std::string>(), "output markdown file")
         ("list", "list available tests")
         ;
 
@@ -405,6 +439,12 @@ int main(int ac, char** av)
             if (app.configuration().count("json-output")) {
                 conf.printers.emplace_back(std::make_unique<json_printer>(
                     app.configuration()["json-output"].as<std::string>()
+                ));
+            }
+
+            if (app.configuration().count("md-output")) {
+                conf.printers.emplace_back(std::make_unique<markdown_printer>(
+                    app.configuration()["md-output"].as<std::string>()
                 ));
             }
 
