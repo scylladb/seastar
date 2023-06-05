@@ -103,7 +103,15 @@ class basic_sstring {
     char_type* str() noexcept {
         return is_internal() ? u.internal.str : u.external.str;
     }
-
+    static constexpr int compare_chars(const char_type* s1, const char_type* s2, size_t n) {
+        if constexpr (std::is_signed_v<char_type> == std::is_signed_v<char>) {
+            return std::char_traits<char>::compare(reinterpret_cast<const char*>(s1),
+                                                   reinterpret_cast<const char*>(s2),
+                                                   n);
+        } else {
+            return traits_type::compare(s1, s2, n);
+        }
+    }
 public:
     using value_type = char_type;
     using traits_type = std::char_traits<char_type>;
@@ -526,7 +534,7 @@ public:
         }
     }
     int compare(std::basic_string_view<char_type, traits_type> x) const noexcept {
-        auto n = traits_type::compare(begin(), x.begin(), std::min(size(), x.size()));
+        auto n = compare_chars(begin(), x.begin(), std::min(size(), x.size()));
         if (n != 0) {
             return n;
         }
@@ -545,7 +553,7 @@ public:
         }
 
         sz = std::min(size() - pos, sz);
-        auto n = traits_type::compare(begin() + pos, x.begin(), std::min(sz, x.size()));
+        auto n = compare_chars(begin() + pos, x.begin(), std::min(sz, x.size()));
         if (n != 0) {
             return n;
         }
