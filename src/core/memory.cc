@@ -342,6 +342,10 @@ static char* mem_base() {
         known = align_up(cr, mem_base_alloc);
         ::munmap(cr, known - cr);
         ::munmap(known + mem_base_alloc, cr + 2 * mem_base_alloc - (known + mem_base_alloc));
+        // extremely unlikely for mmap to return a mapping at 0, but our detection of free(null)
+        // depends on it not doing that so check it
+        assert(known != nullptr);
+        assert(reinterpret_cast<uintptr_t>(known) != 0);
     });
     return known;
 }
@@ -429,7 +433,7 @@ class small_pool {
     free_object* _free = nullptr;
     unsigned _object_size;
     span_sizes _span_sizes;
-    size_t _free_count = 0;
+    unsigned _free_count = 0;
     unsigned _min_free;
     unsigned _max_free;
     unsigned _pages_in_use = 0;
@@ -592,13 +596,17 @@ struct cpu_pages {
     void free_span_unaligned(pageidx start, uint32_t nr_pages);
     void free(void* ptr);
     void free(void* ptr, size_t size);
-    static bool try_foreign_free(void* ptr);
+    static bool try_free_fastpath(void* ptr);
+    static bool is_local_pointer(void* ptr);
+    static void do_foreign_free(void* ptr);
     void shrink(void* ptr, size_t new_size);
     static void free_cross_cpu(unsigned cpu_id, void* ptr);
     bool drain_cross_cpu_freelist();
     size_t object_size(void* ptr);
+
     page* to_page(void* p) {
-        return &pages[(reinterpret_cast<char*>(p) - mem()) / page_size];
+        size_t page_idx = ((uintptr_t)p) << (64 - cpu_id_shift) >> (64 - cpu_id_shift + page_bits);
+        return &pages[page_idx];
     }
 
     bool is_initialized() const;
@@ -1043,7 +1051,8 @@ bool cpu_pages::drain_cross_cpu_freelist() {
     return true;
 }
 
-void cpu_pages::free(void* ptr) {
+[[gnu::always_inline]]
+inline void cpu_pages::free(void* ptr) {
     page* span = to_page(ptr);
     if (span->pool) {
         small_pool& pool = *span->pool;
@@ -1081,12 +1090,71 @@ void cpu_pages::free(void* ptr, size_t size) {
 #endif
 }
 
-bool
-cpu_pages::try_foreign_free(void* ptr) {
-    // fast path for local free
-    if (__builtin_expect((reinterpret_cast<uintptr_t>(ptr) & cpu_id_and_mem_base_mask) == local_expected_cpu_id, true)) {
-        return false;
+// Is the passed pointer a local pointer, i.e., allocated on the current shard from the 
+// per-shard allocator.
+[[gnu::always_inline]]
+inline bool
+cpu_pages::is_local_pointer(void* ptr) {
+    return (reinterpret_cast<uintptr_t>(ptr) & cpu_id_and_mem_base_mask) == local_expected_cpu_id;
+}
+
+// Try to execute free on the fast path, which succeeds if:
+//
+// 1) The pointer is local to this shard
+// 2) The pointer is from a small pool
+// 3) The small pool is not sampled
+//
+// In this case, complete the de-allocation and return true.
+// Otherwise, modify nothing and return false.
+[[gnu::always_inline]]
+inline bool
+cpu_pages::try_free_fastpath(void* ptr) {
+    if (__builtin_expect(is_local_pointer(ptr), true)) {
+        auto pool = get_cpu_mem().to_page(ptr)->pool;
+        if (__builtin_expect(pool && !pool->is_sampled_pool(), true)) {
+            alloc_stats::increment_local(alloc_stats::types::frees);
+            pool->deallocate(ptr);
+            return true;
+        }
     }
+    return false;
+}
+
+/// Helper to allow a single implementation for sized and non-sized functions.
+/// Indicator to allow a single implementation for sized and non-sized functions.
+/// The size parameter will be either no_size tag type or size_t, and most
+/// of the implementation can be shared, using constexpr if or other dispatch
+/// in the places where there should be a difference of behavior.
+struct no_size {};
+
+template <typename S>
+SEASTAR_CONCEPT(requires std::same_as<S, size_t> || std::same_as<S, no_size>)
+[[gnu::noinline]]
+static void free_slowpath(void* obj, S size) {
+    if (cpu_pages::is_local_pointer(obj)) {
+        alloc_stats::increment_local(alloc_stats::types::frees);
+        if constexpr (std::is_same_v<decltype(size), no_size>) {
+            get_cpu_mem().free(obj);
+        } else {
+            get_cpu_mem().free(obj, size);
+        }
+    } else {
+        cpu_pages::do_foreign_free(obj);
+    }
+}
+
+[[gnu::noinline]]
+void
+cpu_pages::do_foreign_free(void* ptr) {
+    // handles:
+    // 1) non-seastar pointers
+    // 2) cross-shard frees
+    // 3) null pointer
+
+    if (!ptr) {
+        return;
+    }
+
     if (!is_seastar_memory(ptr)) {
         if (is_reactor_thread) {
             alloc_stats::increment_local(alloc_stats::types::foreign_cross_frees);
@@ -1094,10 +1162,9 @@ cpu_pages::try_foreign_free(void* ptr) {
             alloc_stats::increment(alloc_stats::types::foreign_frees);
         }
         original_free_func(ptr);
-        return true;
+        return;
     }
     free_cross_cpu(object_cpu_id(ptr), ptr);
-    return true;
 }
 
 void cpu_pages::shrink(void* ptr, size_t new_size) {
@@ -1144,7 +1211,7 @@ bool cpu_pages::initialize() {
     }
     cpu_id = cpu_id_gen.fetch_add(1, std::memory_order_relaxed);
     local_expected_cpu_id = (static_cast<uint64_t>(cpu_id) << cpu_id_shift)
-	| reinterpret_cast<uintptr_t>(mem_base());
+	        | reinterpret_cast<uintptr_t>(mem_base());
     assert(cpu_id < max_cpus);
     all_cpus[cpu_id] = this;
     auto base = mem_base() + (size_t(cpu_id) << cpu_id_shift);
@@ -1650,20 +1717,12 @@ void* allocate_aligned(size_t align, size_t size) {
     return ptr;
 }
 
-void free(void* obj) {
-    if (cpu_pages::try_foreign_free(obj)) {
-        return;
+template <typename S = no_size>
+[[gnu::always_inline]]
+inline void free(void* obj, S size = {}) {
+    if (!__builtin_expect(cpu_pages::try_free_fastpath(obj), true)) {
+        free_slowpath(obj, size);
     }
-    alloc_stats::increment_local(alloc_stats::types::frees);
-    get_cpu_mem().free(obj);
-}
-
-void free(void* obj, size_t size) {
-    if (cpu_pages::try_foreign_free(obj)) {
-        return;
-    }
-    alloc_stats::increment_local(alloc_stats::types::frees);
-    get_cpu_mem().free(obj, size);
 }
 
 void free_aligned(void* obj, size_t align, size_t size) {
@@ -2118,9 +2177,7 @@ extern "C"
 [[gnu::visibility("default")]]
 [[gnu::used]]
 void free(void* ptr) {
-    if (ptr) {
-        seastar::memory::free(ptr);
-    }
+    seastar::memory::free(ptr);
 }
 
 extern "C"
