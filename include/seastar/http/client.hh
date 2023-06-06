@@ -39,8 +39,22 @@ namespace tls { class certificate_credentials; }
 
 namespace http {
 
+namespace experimental { class client; }
 struct request;
 struct reply;
+
+namespace internal {
+
+class client_ref {
+    http::experimental::client* _c;
+public:
+    client_ref(http::experimental::client* c) noexcept;
+    ~client_ref();
+    client_ref(client_ref&& o) noexcept : _c(std::exchange(o._c, nullptr)) {}
+    client_ref(const client_ref&) = delete;
+};
+
+}
 
 namespace experimental {
 
@@ -59,6 +73,7 @@ class connection : public enable_shared_from_this<connection> {
     output_stream<char> _write_buf;
     hook_t _hook;
     future<> _closed;
+    internal::client_ref _ref;
 
 public:
     /**
@@ -67,7 +82,7 @@ public:
      * Construct the connection that will work over the provided \fd transport socket
      *
      */
-    connection(connected_socket&& fd);
+    connection(connected_socket&& fd, internal::client_ref cr);
 
     /**
      * \brief Send the request and wait for response
@@ -143,15 +158,21 @@ public:
  */
 
 class client {
+    friend class http::internal::client_ref;
     using connections_list_t = bi::list<connection, bi::member_hook<connection, typename connection::hook_t, &connection::_hook>, bi::constant_time_size<false>>;
+    static constexpr unsigned default_max_connections = 100;
 
     std::unique_ptr<connection_factory> _new_connections;
+    unsigned _nr_connections = 0;
+    unsigned _max_connections;
+    condition_variable _wait_con;
     connections_list_t _pool;
 
     using connection_ptr = seastar::shared_ptr<connection>;
 
     future<connection_ptr> get_connection();
     future<> put_connection(connection_ptr con, bool can_cache);
+    future<> shrink_connections();
 
     template <typename Fn>
     SEASTAR_CONCEPT( requires std::invocable<Fn, connection&> )
@@ -193,7 +214,7 @@ public:
      * \param f -- the factory pointer
      *
      */
-    explicit client(std::unique_ptr<connection_factory> f);
+    explicit client(std::unique_ptr<connection_factory> f, unsigned max_connections = default_max_connections);
 
     /**
      * \brief Send the request and handle the response
@@ -211,11 +232,37 @@ public:
     future<> make_request(request req, reply_handler handle, reply::status_type expected = reply::status_type::ok);
 
     /**
+     * \brief Updates the maximum number of connections a client may have
+     *
+     * If the new limit is less than the amount of connections a client has, they will be
+     * closed. The returned future resolves when all excessive connections get closed
+     *
+     * \param nr -- the new limit on the number of connections
+     */
+    future<> set_maximum_connections(unsigned nr);
+
+    /**
      * \brief Closes the client
      *
      * Client must be closed before destruction unconditionally
      */
     future<> close();
+
+    /**
+     * \brief Returns the total number of connections
+     */
+
+    unsigned connections_nr() const noexcept {
+        return _nr_connections;
+    }
+
+    /**
+     * \brief Returns the number of idle connections
+     */
+
+    unsigned idle_connections_nr() const noexcept {
+        return _pool.size();
+    }
 };
 
 } // experimental namespace

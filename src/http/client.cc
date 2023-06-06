@@ -38,13 +38,29 @@ module seastar;
 namespace seastar {
 logger http_log("http");
 namespace http {
+namespace internal {
+
+client_ref::client_ref(http::experimental::client* c) noexcept : _c(c) {
+    _c->_nr_connections++;
+}
+
+client_ref::~client_ref() {
+    if (_c != nullptr) {
+        _c->_nr_connections--;
+        _c->_wait_con.broadcast();
+    }
+}
+
+}
+
 namespace experimental {
 
-connection::connection(connected_socket&& fd)
+connection::connection(connected_socket&& fd, internal::client_ref cr)
         : _fd(std::move(fd))
         , _read_buf(_fd.input())
         , _write_buf(_fd.output())
         , _closed(_fd.wait_input_shutdown().finally([me = shared_from_this()] {}))
+        , _ref(std::move(cr))
 {
 }
 
@@ -192,8 +208,9 @@ client::client(socket_address addr, shared_ptr<tls::certificate_credentials> cre
 {
 }
 
-client::client(std::unique_ptr<connection_factory> f)
+client::client(std::unique_ptr<connection_factory> f, unsigned max_connections)
         : _new_connections(std::move(f))
+        , _max_connections(max_connections)
 {
 }
 
@@ -205,22 +222,58 @@ future<client::connection_ptr> client::get_connection() {
         return make_ready_future<connection_ptr>(con);
     }
 
-    return _new_connections->make().then([] (connected_socket cs) {
+    if (_nr_connections >= _max_connections) {
+        return _wait_con.wait().then([this] {
+            return get_connection();
+        });
+    }
+
+    return _new_connections->make().then([cr = internal::client_ref(this)] (connected_socket cs) mutable {
         http_log.trace("created new http connection {}", cs.local_address());
-        auto con = seastar::make_shared<connection>(std::move(cs));
+        auto con = seastar::make_shared<connection>(std::move(cs), std::move(cr));
         return make_ready_future<connection_ptr>(std::move(con));
     });
 }
 
 future<> client::put_connection(connection_ptr con, bool can_cache) {
-    if (can_cache) {
+    if (can_cache && (_nr_connections <= _max_connections)) {
         http_log.trace("push http connection {} to pool", con->_fd.local_address());
         _pool.push_back(*con);
+        _wait_con.signal();
         return make_ready_future<>();
     }
 
     http_log.trace("dropping connection {}", con->_fd.local_address());
     return con->close().finally([con] {});
+}
+
+future<> client::shrink_connections() {
+    if (_nr_connections <= _max_connections) {
+        return make_ready_future<>();
+    }
+
+    if (!_pool.empty()) {
+        connection_ptr con = _pool.front().shared_from_this();
+        _pool.pop_front();
+        return con->close().finally([this, con] {
+            return shrink_connections();
+        });
+    }
+
+    return _wait_con.wait().then([this] {
+        return shrink_connections();
+    });
+}
+
+future<> client::set_maximum_connections(unsigned nr) {
+    if (nr > _max_connections) {
+        _max_connections = nr;
+        _wait_con.broadcast();
+        return make_ready_future<>();
+    }
+
+    _max_connections = nr;
+    return shrink_connections();
 }
 
 template <typename Fn>
