@@ -73,13 +73,15 @@ module seastar;
 namespace seastar {
 using dl_iterate_fn = int (*) (int (*callback) (struct dl_phdr_info *info, size_t size, void *data), void *data);
 
-[[gnu::no_sanitize_address]]
+// once it was a lambda, [[gnu::no_sanitize_address]] did not help in debug.
+static dl_iterate_fn dl_iterate_phdr_org_assert() {
+    auto org = (dl_iterate_fn)dlsym (RTLD_NEXT, "dl_iterate_phdr");
+    assert(org);
+    return org;
+}
+
 static dl_iterate_fn dl_iterate_phdr_org() {
-    static dl_iterate_fn org = [] {
-        auto org = (dl_iterate_fn)dlsym (RTLD_NEXT, "dl_iterate_phdr");
-        assert(org);
-        return org;
-    }();
+    static dl_iterate_fn org = dl_iterate_phdr_org_assert();
     return org;
 }
 
