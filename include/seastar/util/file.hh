@@ -23,6 +23,7 @@
 #pragma once
 
 #include "modules.hh"
+#include <seastar/core/seastar.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/fstream.hh>
 #include <seastar/core/sstring.hh>
