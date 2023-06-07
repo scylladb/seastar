@@ -26,6 +26,7 @@
 #endif
 #include <seastar/net/api.hh>
 #include <seastar/http/reply.hh>
+#include <seastar/core/condition-variable.hh>
 #include <seastar/core/iostream.hh>
 #include <seastar/util/modules.hh>
 
