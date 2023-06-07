@@ -68,6 +68,7 @@ namespace experimental {
 class connection : public enable_shared_from_this<connection> {
     friend class client;
     using hook_t = bi::list_member_hook<bi::link_mode<bi::auto_unlink>>;
+    using reply_ptr = std::unique_ptr<reply>;
 
     connected_socket _fd;
     input_stream<char> _read_buf;
@@ -121,10 +122,11 @@ public:
     future<> close();
 
 private:
+    future<reply_ptr> do_make_request(request rq);
     future<> send_request_head(request& rq);
-    future<std::optional<reply>> maybe_wait_for_continue(request& req);
+    future<reply_ptr> maybe_wait_for_continue(request& req);
     future<> write_body(request& rq);
-    future<reply> recv_reply();
+    future<reply_ptr> recv_reply();
 };
 
 /**

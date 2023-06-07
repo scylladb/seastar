@@ -1310,12 +1310,12 @@ SEASTAR_TEST_CASE(http_parse_response_status) {
 
     parser.parse(r101, r101 + sizeof(r101), r101 + sizeof(r101));
     auto response = parser.get_parsed_response();
-    BOOST_REQUIRE_EQUAL(response->_status_code, 101);
+    BOOST_REQUIRE_EQUAL(response->_status, http::reply::status_type::switching_protocols);
 
     parser.init();
     parser.parse(r200, r200 + sizeof(r200), r200 + sizeof(r200));
     response = parser.get_parsed_response();
-    BOOST_REQUIRE_EQUAL(response->_status_code, 200);
+    BOOST_REQUIRE_EQUAL(response->_status, http::reply::status_type::ok);
     return make_ready_future<>();
 }
 
