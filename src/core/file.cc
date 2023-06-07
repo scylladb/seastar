@@ -67,6 +67,7 @@ module seastar;
 #include <seastar/util/internal/magic.hh>
 #include <seastar/util/internal/iovec_utils.hh>
 #include <seastar/core/io_queue.hh>
+#include <seastar/core/queue.hh>
 #include "core/file-impl.hh"
 #include "core/syscall_result.hh"
 #include "core/thread_pool.hh"
@@ -1367,6 +1368,32 @@ std::unique_ptr<seastar::file_handle_impl>
 file_impl::dup() {
     throw std::runtime_error("this file type cannot be duplicated");
 }
+
+#ifdef SEASTAR_COROUTINES_ENABLED
+static coroutine::experimental::generator<directory_entry, dir_entry_buffer> make_list_directory_fallback_generator(coroutine::experimental::buffer_size_t buffer_size, file_impl& me) {
+    queue<std::optional<directory_entry>> ents(16);
+    auto lister = me.list_directory([&ents] (directory_entry de) {
+        return ents.push_eventually(std::move(de));
+    });
+    auto done = lister.done().finally([&ents] {
+        return ents.push_eventually(std::nullopt);
+    });
+
+    while (true) {
+        auto de = co_await ents.pop_eventually();
+        if (!de) {
+            break;
+        }
+        co_yield *de;
+    }
+
+    co_await std::move(done);
+}
+
+coroutine::experimental::generator<directory_entry, dir_entry_buffer> file_impl::experimental_list_directory() {
+    return make_list_directory_fallback_generator(coroutine::experimental::buffer_size_t{8}, *this);
+}
+#endif
 
 future<int> file_impl::ioctl(uint64_t cmd, void* argp) noexcept {
     return make_exception_future<int>(std::runtime_error("this file type does not support ioctl"));

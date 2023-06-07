@@ -173,9 +173,7 @@ public:
     virtual std::unique_ptr<file_handle_impl> dup();
     virtual subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next) = 0;
 #ifdef SEASTAR_COROUTINES_ENABLED
-    virtual coroutine::experimental::generator<directory_entry, dir_entry_buffer> experimental_list_directory() {
-        throw std::runtime_error("not implemented");
-    }
+    virtual coroutine::experimental::generator<directory_entry, dir_entry_buffer> experimental_list_directory();
 #endif
 
     friend class reactor;
