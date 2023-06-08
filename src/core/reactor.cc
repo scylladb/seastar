@@ -1834,8 +1834,8 @@ reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_opt
 future<>
 reactor::remove_file(std::string_view pathname) noexcept {
     // Allocating memory for a sstring can throw, hence the futurize_invoke
-    return futurize_invoke([pathname] {
-        return engine()._thread_pool->submit<syscall_result<int>>([pathname = sstring(pathname)] {
+    return futurize_invoke([this, pathname] {
+        return _thread_pool->submit<syscall_result<int>>([pathname = sstring(pathname)] {
             return wrap_syscall<int>(::remove(pathname.c_str()));
         }).then([pathname = sstring(pathname)] (syscall_result<int> sr) {
             sr.throw_fs_exception_if_error("remove failed", pathname);
@@ -1847,8 +1847,8 @@ reactor::remove_file(std::string_view pathname) noexcept {
 future<>
 reactor::rename_file(std::string_view old_pathname, std::string_view new_pathname) noexcept {
     // Allocating memory for a sstring can throw, hence the futurize_invoke
-    return futurize_invoke([old_pathname, new_pathname] {
-        return engine()._thread_pool->submit<syscall_result<int>>([old_pathname = sstring(old_pathname), new_pathname = sstring(new_pathname)] {
+    return futurize_invoke([this, old_pathname, new_pathname] {
+        return _thread_pool->submit<syscall_result<int>>([old_pathname = sstring(old_pathname), new_pathname = sstring(new_pathname)] {
             return wrap_syscall<int>(::rename(old_pathname.c_str(), new_pathname.c_str()));
         }).then([old_pathname = sstring(old_pathname), new_pathname = sstring(new_pathname)] (syscall_result<int> sr) {
             sr.throw_fs_exception_if_error("rename failed",  old_pathname, new_pathname);
@@ -1860,8 +1860,8 @@ reactor::rename_file(std::string_view old_pathname, std::string_view new_pathnam
 future<>
 reactor::link_file(std::string_view oldpath, std::string_view newpath) noexcept {
     // Allocating memory for a sstring can throw, hence the futurize_invoke
-    return futurize_invoke([oldpath, newpath] {
-        return engine()._thread_pool->submit<syscall_result<int>>([oldpath = sstring(oldpath), newpath = sstring(newpath)] {
+    return futurize_invoke([this, oldpath, newpath] {
+        return _thread_pool->submit<syscall_result<int>>([oldpath = sstring(oldpath), newpath = sstring(newpath)] {
             return wrap_syscall<int>(::link(oldpath.c_str(), newpath.c_str()));
         }).then([oldpath = sstring(oldpath), newpath = sstring(newpath)] (syscall_result<int> sr) {
             sr.throw_fs_exception_if_error("link failed", oldpath, newpath);
@@ -2306,8 +2306,8 @@ reactor::make_directory(std::string_view name, file_permissions permissions) noe
 future<>
 reactor::touch_directory(std::string_view name, file_permissions permissions) noexcept {
     // Allocating memory for a sstring can throw, hence the futurize_invoke
-    return futurize_invoke([name, permissions] {
-        return engine()._thread_pool->submit<syscall_result<int>>([name = sstring(name), permissions] {
+    return futurize_invoke([this, name, permissions] {
+        return _thread_pool->submit<syscall_result<int>>([name = sstring(name), permissions] {
             auto mode = static_cast<mode_t>(permissions);
             return wrap_syscall<int>(::mkdir(name.c_str(), mode));
         }).then([name = sstring(name)] (syscall_result<int> sr) {
