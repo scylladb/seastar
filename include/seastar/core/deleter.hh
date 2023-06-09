@@ -193,6 +193,8 @@ SEASTAR_MODULE_EXPORT_END
 struct free_deleter_impl final : deleter::impl {
     void* obj;
     free_deleter_impl(void* obj) : impl(deleter()), obj(obj) {}
+    free_deleter_impl(const free_deleter_impl&) = delete;
+    free_deleter_impl(free_deleter_impl&&) = delete;
     virtual ~free_deleter_impl() override { std::free(obj); }
 };
 /// \endcond
