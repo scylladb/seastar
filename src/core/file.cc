@@ -420,16 +420,12 @@ posix_file_impl::list_directory(std::function<future<> (directory_entry de)> nex
         auto eofcond = [w] { return w->eof; };
         return do_until(eofcond, [w, this] {
             if (w->current == w->total) {
-                return engine()._thread_pool->submit<syscall_result<long>>([w , this] () {
-                    auto ret = ::syscall(__NR_getdents64, _fd, reinterpret_cast<linux_dirent64*>(w->buffer), buffer_size);
-                    return wrap_syscall(ret);
-                }).then([w] (syscall_result<long> ret) {
-                    ret.throw_if_error();
-                    if (ret.result == 0) {
+                return engine().read_directory(_fd, w->buffer, buffer_size).then([w] (auto size) {
+                    if (size == 0) {
                         w->eof = true;
                     } else {
                         w->current = 0;
-                        w->total = ret.result;
+                        w->total = size;
                     }
                 });
             }

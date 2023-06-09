@@ -2013,6 +2013,16 @@ timespec_to_time_point(const timespec& ts) {
     return std::chrono::system_clock::time_point(d);
 }
 
+future<size_t> reactor::read_directory(int fd, char* buffer, size_t buffer_size) {
+    return _thread_pool->submit<syscall_result<long>>([fd, buffer, buffer_size] () {
+        auto ret = ::syscall(__NR_getdents64, fd, reinterpret_cast<linux_dirent64*>(buffer), buffer_size);
+        return wrap_syscall(ret);
+    }).then([] (syscall_result<long> ret) {
+        ret.throw_if_error();
+        return make_ready_future<size_t>(ret.result);
+    });
+}
+
 future<int>
 reactor::inotify_add_watch(int fd, std::string_view path, uint32_t flags) {
     // Allocating memory for a sstring can throw, hence the futurize_invoke
