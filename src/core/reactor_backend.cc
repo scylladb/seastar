@@ -1239,7 +1239,7 @@ try_create_uring(unsigned queue_len, bool throw_on_error) {
         maybe_throw(std::runtime_error("unable to create io_uring probe"));
         return std::nullopt;
     }
-    auto free_probe = defer([&] () noexcept { ::free(probe); });
+    auto free_probe = defer([&] () noexcept { ::io_uring_free_probe(probe); });
 
     for (auto op : required_ops) {
         if (!io_uring_opcode_supported(probe, op)) {
