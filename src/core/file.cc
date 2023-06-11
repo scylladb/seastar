@@ -312,7 +312,14 @@ posix_file_impl::close() noexcept {
     }
     delete _refcount;
     _refcount = nullptr;
-    auto closed = [fd] () noexcept {
+    auto closed = make_ready_future<syscall_result<int>>(0, 0);
+    if ((_open_flags & open_flags::ro) != open_flags{}) {
+        closed = [fd] () noexcept {
+            return make_ready_future<syscall_result<int>>(wrap_syscall<int>(::close(fd)));
+        }();
+    } else {
+    // TODO: fix the indent
+    closed = [fd] () noexcept {
         try {
             return engine()._thread_pool->submit<syscall_result<int>>([fd] {
                 return wrap_syscall<int>(::close(fd));
@@ -322,6 +329,7 @@ posix_file_impl::close() noexcept {
             return make_ready_future<syscall_result<int>>(wrap_syscall<int>(::close(fd)));
         }
     }();
+    }
     return closed.then([] (syscall_result<int> sr) {
       try {
         sr.throw_if_error();
