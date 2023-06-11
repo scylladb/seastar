@@ -318,17 +318,16 @@ posix_file_impl::close() noexcept {
             return make_ready_future<syscall_result<int>>(wrap_syscall<int>(::close(fd)));
         }();
     } else {
-    // TODO: fix the indent
-    closed = [fd] () noexcept {
-        try {
-            return engine()._thread_pool->submit<syscall_result<int>>([fd] {
-                return wrap_syscall<int>(::close(fd));
-            });
-        } catch (...) {
-            report_exception("Running ::close() in reactor thread, submission failed with exception", std::current_exception());
-            return make_ready_future<syscall_result<int>>(wrap_syscall<int>(::close(fd)));
-        }
-    }();
+        closed = [fd] () noexcept {
+            try {
+                return engine()._thread_pool->submit<syscall_result<int>>([fd] {
+                    return wrap_syscall<int>(::close(fd));
+                });
+            } catch (...) {
+                report_exception("Running ::close() in reactor thread, submission failed with exception", std::current_exception());
+                return make_ready_future<syscall_result<int>>(wrap_syscall<int>(::close(fd)));
+            }
+        }();
     }
     return closed.then([] (syscall_result<int> sr) {
       try {
