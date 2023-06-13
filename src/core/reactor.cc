@@ -4213,6 +4213,9 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     }
     std::vector<reactor*> reactors(smp::count);
     if (smp_opts.memory) {
+#ifdef SEASTAR_DEFAULT_ALLOCATOR
+        seastar_logger.warn("Seastar compiled with default allocator, --memory option won't take effect");
+#endif
         rc.total_memory = parse_memory_size(smp_opts.memory.get_value());
 #ifdef SEASTAR_HAVE_DPDK
         if (smp_opts.hugepages &&
