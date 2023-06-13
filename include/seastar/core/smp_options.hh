@@ -95,6 +95,8 @@ struct smp_options : public program_options::option_group {
     /// * \ref reactor_options::heapprof
     /// * \ref reactor_options::abort_on_seastar_bad_alloc
     /// * \ref reactor_options::dump_memory_diagnostics_on_alloc_failure_kind
+    /// \note Unused when seastar was compiled without the custom allocator support.
+    /// The options above won't be applied in this case either.
     seastar::memory_allocator memory_allocator = memory_allocator::seastar;
 
     /// \cond internal
