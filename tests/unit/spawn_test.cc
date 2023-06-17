@@ -65,7 +65,7 @@ SEASTAR_TEST_CASE(test_spawn_echo) {
     const char* echo_cmd = "/bin/echo";
     return spawn_process(echo_cmd, {.argv = {echo_cmd, "-n", "hello", "world"}}).then([] (auto process) {
         auto stdout = process.stdout();
-        return do_with(std::move(process), std::move(stdout), bool(true), [](auto& p, auto& stdout, auto& matched) {
+        return do_with(std::move(process), std::move(stdout), bool(false), [](auto& p, auto& stdout, auto& matched) {
             using consumption_result_type = typename input_stream<char>::consumption_result_type;
             using stop_consuming_type = typename consumption_result_type::stop_consuming_type;
             using tmp_buf = stop_consuming_type::tmp_buf;
@@ -73,11 +73,15 @@ SEASTAR_TEST_CASE(test_spawn_echo) {
                 consumer(std::string_view expected, bool& matched)
                     : _expected(expected), _matched(matched) {}
                 future<consumption_result_type> operator()(tmp_buf buf) {
-                    _matched = std::equal(buf.begin(), buf.end(), _expected.begin());
-                    if (!_matched) {
+                    if (!std::equal(buf.begin(), buf.end(), _expected.begin())) {
+                        _matched = false;
                         return make_ready_future<consumption_result_type>(stop_consuming_type({}));
                     }
                     _expected.remove_prefix(buf.size());
+                    if (_expected.empty()) {
+                        _matched = true;
+                        return make_ready_future<consumption_result_type>(stop_consuming_type({}));
+                    }
                     return make_ready_future<consumption_result_type>(continue_consuming{});
                 }
                 std::string_view _expected;
