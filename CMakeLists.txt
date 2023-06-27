@@ -321,18 +321,18 @@ option (BUILD_SHARED_LIBS
   OFF)
 # We set the following environment variables
 # * ASAN_OPTIONS=disable_coredump=0:abort_on_error=1:detect_stack_use_after_return=1:verify_asan_link_order=0
-#   By default asan disables core dumps because they used to be
+#   By default ASan disables core dumps because they used to be
 #   huge. This is no longer the case since the shadow memory is
 #   excluded, so it is safe to enable them.
-#   Also, by default, to make sure it works as expected, asan
-#   verifies if the asan dynamic runtime is the first DSO in the
+#   Also, by default, to make sure it works as expected, ASan
+#   verifies if the ASan dynamic runtime is the first DSO in the
 #   initial library list by calling dl_iterate_phdr(3). But
 #   Seastar provides this symbol, and its implementation references
 #   some static variables. So if Seastar is built as a shared
 #   library, this causes a chicken and egg problem. In other words,
 #   ASan is loaded first, and it tries to reference a symbol which
-#   is in turn provided by another shared library which is not
-#   necessariy ready its static variables yet. And this leads leads
+#   is in turn provided by another shared library which does not
+#   necessarily ready its static variables yet. And this leads
 #   to a segfault. So, we have to disable this check when
 #   "BUILD_SHARED_LIBS" is enabled.
 # * UBSAN_OPTIONS=halt_on_error=1:abort_on_error=1
