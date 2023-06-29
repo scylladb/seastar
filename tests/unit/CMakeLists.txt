@@ -273,6 +273,9 @@ seastar_add_test (connect
 seastar_add_test (content_source
   SOURCES content_source_test.cc)
 
+seastar_add_test (conversion
+  SOURCES conversion_test.cc)
+
 seastar_add_test (coroutines
   SOURCES coroutines_test.cc)
 

@@ -67,3 +67,45 @@ size_t parse_memory_size(std::string_view s) {
 
 }
 
+template <typename Suffixes>
+static constexpr std::pair<unsigned, std::string_view>
+do_format(size_t n, Suffixes suffixes, unsigned scale) {
+    size_t factor = n;
+    std::string_view suffix;
+    for (auto next_suffix : suffixes) {
+        size_t next_factor = factor / scale;
+        if (next_factor == 0) {
+            break;
+        }
+        factor = next_factor;
+        suffix = next_suffix;
+    }
+    return {factor, suffix};
+}
+
+template <typename FormatContext>
+auto fmt::formatter<seastar::data_size>::format(seastar::data_size data_size,
+                                               FormatContext& ctx) const -> decltype(ctx.out()) {
+    if (_prefix == prefix_type::IEC) {
+        // ISO/IEC units
+        static constexpr auto suffixes = {"Ki", "Mi", "Gi", "Ti"};
+        auto [n, suffix] = do_format(data_size._value, suffixes, 1024);
+        return fmt::format_to(ctx.out(), "{}{}", n, suffix);
+    } else {
+        // SI units
+        static constexpr auto suffixes = {"k", "M", "G", "T"};
+        auto [n, suffix] = do_format(data_size._value, suffixes, 1000);
+        return fmt::format_to(ctx.out(), "{}{}", n, suffix);
+    }
+}
+
+template
+auto fmt::formatter<seastar::data_size>::format<fmt::format_context>(
+    seastar::data_size,
+    fmt::format_context& ctx) const
+    -> decltype(ctx.out());
+template
+auto fmt::formatter<seastar::data_size>::format<fmt::basic_format_context<std::back_insert_iterator<std::string>, char>>(
+    seastar::data_size,
+    fmt::basic_format_context<std::back_insert_iterator<std::string>, char>& ctx) const
+    -> decltype(ctx.out());
