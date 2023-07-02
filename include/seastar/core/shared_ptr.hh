@@ -343,6 +343,7 @@ public:
     lw_shared_ptr& operator=(std::nullptr_t) noexcept {
         return *this = lw_shared_ptr();
     }
+    [[deprecated("call make_lw_shared<> and assign the result instead")]]
     lw_shared_ptr& operator=(T&& x) noexcept {
         this->~lw_shared_ptr();
         new (this) lw_shared_ptr(make_lw_shared<T>(std::move(x)));
