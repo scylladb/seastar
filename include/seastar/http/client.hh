@@ -168,6 +168,7 @@ class client {
     std::unique_ptr<connection_factory> _new_connections;
     unsigned _nr_connections = 0;
     unsigned _max_connections;
+    unsigned long _total_new_connections = 0;
     condition_variable _wait_con;
     connections_list_t _pool;
 
@@ -265,6 +266,17 @@ public:
 
     unsigned idle_connections_nr() const noexcept {
         return _pool.size();
+    }
+
+    /**
+     * \brief Returns the total number of connection factory invocations made so far
+     *
+     * This is the monotonically-increasing counter describing how "frequently" the
+     * client kicks its factory for new connections.
+     */
+
+    unsigned long total_new_connections_nr() const noexcept {
+        return _total_new_connections;
     }
 };
 

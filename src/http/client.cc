@@ -237,6 +237,7 @@ future<client::connection_ptr> client::get_connection() {
         });
     }
 
+    _total_new_connections++;
     return _new_connections->make().then([cr = internal::client_ref(this)] (connected_socket cs) mutable {
         http_log.trace("created new http connection {}", cs.local_address());
         auto con = seastar::make_shared<connection>(std::move(cs), std::move(cr));
