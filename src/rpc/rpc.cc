@@ -135,7 +135,7 @@ namespace rpc {
 
   future<> connection::send_entry(outgoing_entry& d) {
       if (_propagate_timeout) {
-          static_assert(snd_buf::chunk_size >= 8, "send buffer chunk size is too small");
+          static_assert(snd_buf::chunk_size >= sizeof(uint64_t), "send buffer chunk size is too small");
           if (_timeout_negotiated) {
               auto expire = d.t.get_timeout();
               uint64_t left = 0;
@@ -144,8 +144,8 @@ namespace rpc {
               }
               write_le<uint64_t>(d.buf.front().get_write(), left);
           } else {
-              d.buf.front().trim_front(8);
-              d.buf.size -= 8;
+              d.buf.front().trim_front(sizeof(uint64_t));
+              d.buf.size -= sizeof(uint64_t);
           }
       }
       auto buf = compress(std::move(d.buf));
@@ -588,6 +588,73 @@ namespace rpc {
       return it->second;
   }
 
+  // The request frame is
+  //   le64 optional timeout (see request_frame_with_timeout below)
+  //   le64 message type a.k.a. verb ID
+  //   le64 message ID
+  //   le32 payload length
+  //   ...  payload
+  struct request_frame {
+      using opt_buf_type = std::optional<rcv_buf>;
+      using header_and_buffer_type = std::tuple<std::optional<uint64_t>, uint64_t, int64_t, opt_buf_type>;
+      using return_type = future<header_and_buffer_type>;
+      using header_type = std::tuple<std::optional<uint64_t>, uint64_t, int64_t, uint32_t>;
+      static constexpr size_t raw_header_size = sizeof(uint64_t) + sizeof(int64_t) + sizeof(uint32_t);
+      static size_t header_size() {
+          static_assert(request_frame_headroom >= raw_header_size);
+          return raw_header_size;
+      }
+      static const char* role() {
+          return "server";
+      }
+      static auto empty_value() {
+          return make_ready_future<header_and_buffer_type>(header_and_buffer_type(std::nullopt, uint64_t(0), 0, std::nullopt));
+      }
+      static header_type decode_header(const char* ptr) {
+          auto type = read_le<uint64_t>(ptr);
+          auto msgid = read_le<int64_t>(ptr + 8);
+          auto size = read_le<uint32_t>(ptr + 16);
+          return std::make_tuple(std::nullopt, type, msgid, size);
+      }
+      static void encode_header(uint64_t type, int64_t msg_id, snd_buf& buf, size_t off) {
+          auto p = buf.front().get_write() + off;
+          write_le<uint64_t>(p, type);
+          write_le<int64_t>(p + 8, msg_id);
+          write_le<uint32_t>(p + 16, buf.size - raw_header_size - off);
+      }
+      static uint32_t get_size(const header_type& t) {
+          return std::get<3>(t);
+      }
+      static auto make_value(const header_type& t, rcv_buf data) {
+          return make_ready_future<header_and_buffer_type>(header_and_buffer_type(std::get<0>(t), std::get<1>(t), std::get<2>(t), std::move(data)));
+      }
+  };
+
+  // This frame is used if protocol_features.TIMEOUT was negotiated
+  struct request_frame_with_timeout : request_frame {
+      using super = request_frame;
+      static constexpr size_t raw_header_size = sizeof(uint64_t) + request_frame::raw_header_size;
+      static size_t header_size() {
+          static_assert(request_frame_headroom >= raw_header_size);
+          return raw_header_size;
+      }
+      static typename super::header_type decode_header(const char* ptr) {
+          auto h = super::decode_header(ptr + 8);
+          std::get<0>(h) = read_le<uint64_t>(ptr);
+          return h;
+      }
+      static void encode_header(uint64_t type, int64_t msg_id, snd_buf& buf) {
+          static_assert(snd_buf::chunk_size >= raw_header_size, "send buffer chunk size is too small");
+          // expiration timer is encoded later
+          request_frame::encode_header(type, msg_id, buf, 8);
+      }
+  };
+
+  future<> client::request(uint64_t type, int64_t msg_id, snd_buf buf, std::optional<rpc_clock_type::time_point> timeout, cancellable* cancel) {
+      request_frame_with_timeout::encode_header(type, msg_id, buf);
+      return send(std::move(buf), timeout, cancel);
+  }
+
   void
   client::negotiate(feature_map provided) {
       // record features returned here
@@ -617,20 +684,27 @@ namespace rpc {
       }
   }
 
-  future<>
-  client::negotiate_protocol(input_stream<char>& in) {
-      return receive_negotiation_frame(*this, in).then([this] (feature_map features) {
-          return negotiate(features);
+  future<> client::negotiate_protocol(feature_map features) {
+      return send_negotiation_frame(std::move(features)).then([this] {
+          return receive_negotiation_frame(*this, _read_buf).then([this] (feature_map features) {
+              return negotiate(std::move(features));
+          });
       });
   }
 
+  // The response frame is
+  //   le64 message ID
+  //   le32 payload size
+  //   ...  payload
   struct response_frame {
       using opt_buf_type = std::optional<rcv_buf>;
       using header_and_buffer_type = std::tuple<int64_t, opt_buf_type>;
       using return_type = future<header_and_buffer_type>;
       using header_type = std::tuple<int64_t, uint32_t>;
+      static constexpr size_t raw_header_size = sizeof(int64_t) + sizeof(uint32_t);
       static size_t header_size() {
-          return 12;
+          static_assert(response_frame_headroom >= raw_header_size);
+          return raw_header_size;
       }
       static const char* role() {
           return "client";
@@ -643,6 +717,12 @@ namespace rpc {
           auto size = read_le<uint32_t>(ptr + 8);
           return std::make_tuple(msgid, size);
       }
+      static void encode_header(int64_t msg_id, snd_buf& data) {
+          static_assert(snd_buf::chunk_size >= raw_header_size, "send buffer chunk size is too small");
+          auto p = data.front().get_write();
+          write_le<int64_t>(p, msg_id);
+          write_le<uint32_t>(p + 8, data.size - raw_header_size);
+      }
       static uint32_t get_size(const header_type& t) {
           return std::get<1>(t);
       }
@@ -651,11 +731,6 @@ namespace rpc {
       }
   };
 
-
-  future<response_frame::header_and_buffer_type>
-  client::read_response_frame(input_stream<char>& in) {
-      return read_frame<response_frame>(_server_addr, in);
-  }
 
   future<response_frame::header_and_buffer_type>
   client::read_response_frame_compressed(input_stream<char>& in) {
@@ -766,9 +841,7 @@ namespace rpc {
               features[protocol_features::ISOLATION] = _options.isolation_cookie;
           }
 
-          return send_negotiation_frame(std::move(features)).then([this] {
-               return negotiate_protocol(_read_buf);
-          }).then([this] () {
+          return negotiate_protocol(std::move(features)).then([this] {
               _propagate_timeout = !is_stream();
               set_negotiated();
               return do_until([this] { return _read_buf.eof() || _error; }, [this] () mutable {
@@ -939,53 +1012,13 @@ namespace rpc {
   }
 
   future<>
-  server::connection::negotiate_protocol(input_stream<char>& in) {
-      return receive_negotiation_frame(*this, in).then([this] (feature_map requested_features) {
+  server::connection::negotiate_protocol() {
+      return receive_negotiation_frame(*this, _read_buf).then([this] (feature_map requested_features) {
           return negotiate(std::move(requested_features)).then([this] (feature_map returned_features) {
               return send_negotiation_frame(std::move(returned_features));
           });
       });
   }
-
-  struct request_frame {
-      using opt_buf_type = std::optional<rcv_buf>;
-      using header_and_buffer_type = std::tuple<std::optional<uint64_t>, uint64_t, int64_t, opt_buf_type>;
-      using return_type = future<header_and_buffer_type>;
-      using header_type = std::tuple<std::optional<uint64_t>, uint64_t, int64_t, uint32_t>;
-      static size_t header_size() {
-          return 20;
-      }
-      static const char* role() {
-          return "server";
-      }
-      static auto empty_value() {
-          return make_ready_future<header_and_buffer_type>(header_and_buffer_type(std::nullopt, uint64_t(0), 0, std::nullopt));
-      }
-      static header_type decode_header(const char* ptr) {
-          auto type = read_le<uint64_t>(ptr);
-          auto msgid = read_le<int64_t>(ptr + 8);
-          auto size = read_le<uint32_t>(ptr + 16);
-          return std::make_tuple(std::nullopt, type, msgid, size);
-      }
-      static uint32_t get_size(const header_type& t) {
-          return std::get<3>(t);
-      }
-      static auto make_value(const header_type& t, rcv_buf data) {
-          return make_ready_future<header_and_buffer_type>(header_and_buffer_type(std::get<0>(t), std::get<1>(t), std::get<2>(t), std::move(data)));
-      }
-  };
-
-  struct request_frame_with_timeout : request_frame {
-      using super = request_frame;
-      static size_t header_size() {
-          return 28;
-      }
-      static typename super::header_type decode_header(const char* ptr) {
-          auto h = super::decode_header(ptr + 8);
-          std::get<0>(h) = read_le<uint64_t>(ptr);
-          return h;
-      }
-  };
 
   future<request_frame::header_and_buffer_type>
   server::connection::read_request_frame_compressed(input_stream<char>& in) {
@@ -998,10 +1031,7 @@ namespace rpc {
 
   future<>
   server::connection::respond(int64_t msg_id, snd_buf&& data, std::optional<rpc_clock_type::time_point> timeout) {
-      static_assert(snd_buf::chunk_size >= 12, "send buffer chunk size is too small");
-      auto p = data.front().get_write();
-      write_le<int64_t>(p, msg_id);
-      write_le<uint32_t>(p + 8, data.size - 12);
+      response_frame::encode_header(msg_id, data);
       return send(std::move(data), timeout);
   }
 
@@ -1027,7 +1057,7 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
 }
 
   future<> server::connection::process() {
-      return negotiate_protocol(_read_buf).then([this] () mutable {
+      return negotiate_protocol().then([this] () mutable {
         auto sg = _isolation_config ? _isolation_config->sched_group : current_scheduling_group();
         return with_scheduling_group(sg, [this] {
           set_negotiated();

@@ -451,6 +451,9 @@ relative_timeout_to_absolute(rpc_clock_type::duration relative) {
     return now + std::min(relative, rpc_clock_type::time_point::max() - now);
 }
 
+// Refer to struct request_frame for more details
+static constexpr size_t request_frame_headroom = 28;
+
 // Returns lambda that can be used to send rpc messages.
 // The lambda gets client connection and rpc parameters as arguments, marshalls them sends
 // to a server and waits for a reply. After receiving reply it unmarshalls it and signal completion
@@ -468,16 +471,11 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
 
             // send message
             auto msg_id = dst.next_message_id();
-            snd_buf data = marshall(dst.template serializer<Serializer>(), 28, args...);
-            static_assert(snd_buf::chunk_size >= 28, "send buffer chunk size is too small");
-            auto p = data.front().get_write() + 8; // 8 extra bytes for expiration timer
-            write_le<uint64_t>(p, uint64_t(t));
-            write_le<int64_t>(p + 8, msg_id);
-            write_le<uint32_t>(p + 16, data.size - 28);
+            snd_buf data = marshall(dst.template serializer<Serializer>(), request_frame_headroom, args...);
 
             // prepare reply handler, if return type is now_wait_type this does nothing, since no reply will be sent
             using wait = wait_signature_t<Ret>;
-            return when_all(dst.send(std::move(data), timeout, cancel), wait_for_reply<Serializer>(wait(), timeout, cancel, dst, msg_id, sig)).then([] (auto r) {
+            return when_all(dst.request(uint64_t(t), msg_id, std::move(data), timeout, cancel), wait_for_reply<Serializer>(wait(), timeout, cancel, dst, msg_id, sig)).then([] (auto r) {
                     std::get<0>(r).ignore_ready_future();
                     return std::move(std::get<1>(r)); // return future of wait_for_reply
             });
@@ -499,6 +497,9 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
     return shelper{xt, xsig};
 }
 
+// Refer to struct response_frame for more details
+static constexpr size_t response_frame_headroom = 12;
+
 template<typename Serializer, typename RetTypes>
 inline future<> reply(wait_type, future<RetTypes>&& ret, int64_t msg_id, shared_ptr<server::connection> client,
         std::optional<rpc_clock_type::time_point> timeout) {
@@ -507,15 +508,15 @@ inline future<> reply(wait_type, future<RetTypes>&& ret, int64_t msg_id, shared_
         try {
             if constexpr (std::is_void_v<RetTypes>) {
                 ret.get();
-                data = std::invoke(marshall<Serializer>, std::ref(client->template serializer<Serializer>()), 12);
+                data = std::invoke(marshall<Serializer>, std::ref(client->template serializer<Serializer>()), response_frame_headroom);
             } else {
-                data = std::invoke(marshall<Serializer, const RetTypes&>, std::ref(client->template serializer<Serializer>()), 12, std::move(ret.get0()));
+                data = std::invoke(marshall<Serializer, const RetTypes&>, std::ref(client->template serializer<Serializer>()), response_frame_headroom, std::move(ret.get0()));
             }
         } catch (std::exception& ex) {
             uint32_t len = std::strlen(ex.what());
-            data = snd_buf(20 + len);
+            data = snd_buf(response_frame_headroom + 2 * sizeof(uint32_t) + len);
             auto os = make_serializer_stream(data);
-            os.skip(12);
+            os.skip(response_frame_headroom);
             uint32_t v32 = cpu_to_le(uint32_t(exception_type::USER));
             os.write(reinterpret_cast<char*>(&v32), sizeof(v32));
             v32 = cpu_to_le(len);

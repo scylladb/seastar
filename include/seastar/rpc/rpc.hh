@@ -305,7 +305,7 @@ protected:
 
     snd_buf compress(snd_buf buf);
     future<> send_buffer(snd_buf buf);
-
+    future<> send(snd_buf buf, std::optional<rpc_clock_type::time_point> timeout = {}, cancellable* cancel = nullptr);
     future<> send_entry(outgoing_entry& d);
     future<> stop_send_loop(std::exception_ptr ex);
     future<std::optional<rcv_buf>>  read_stream_frame_compressed(input_stream<char>& in);
@@ -324,9 +324,6 @@ public:
     virtual ~connection() {}
     void set_socket(connected_socket&& fd);
     future<> send_negotiation_frame(feature_map features);
-    // functions below are public because they are used by external heavily templated functions
-    // and I am not smart enough to know how to define them as friends
-    future<> send(snd_buf buf, std::optional<rpc_clock_type::time_point> timeout = {}, cancellable* cancel = nullptr);
     bool error() const noexcept { return _error; }
     void abort();
     future<> stop() noexcept;
@@ -460,10 +457,8 @@ private:
     weak_ptr<client> _parent; // for stream clients
 
 private:
-    future<> negotiate_protocol(input_stream<char>& in);
+    future<> negotiate_protocol(feature_map map);
     void negotiate(feature_map server_features);
-    future<std::tuple<int64_t, std::optional<rcv_buf>>>
-    read_response_frame(input_stream<char>& in);
     future<std::tuple<int64_t, std::optional<rcv_buf>>>
     read_response_frame_compressed(input_stream<char>& in);
 public:
@@ -540,6 +535,8 @@ public:
     future<sink<Out...>> make_stream_sink() {
         return make_stream_sink<Serializer, Out...>(make_socket());
     }
+
+    future<> request(uint64_t type, int64_t id, snd_buf buf, std::optional<rpc_clock_type::time_point> timeout = {}, cancellable* cancel = nullptr);
 };
 
 class protocol_base;
@@ -554,7 +551,7 @@ public:
         connection_id _parent_id = invalid_connection_id;
         std::optional<isolation_config> _isolation_config;
     private:
-        future<> negotiate_protocol(input_stream<char>& in);
+        future<> negotiate_protocol();
         future<std::tuple<std::optional<uint64_t>, uint64_t, int64_t, std::optional<rcv_buf>>>
         read_request_frame_compressed(input_stream<char>& in);
         future<feature_map> negotiate(feature_map requested);
