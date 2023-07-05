@@ -1373,7 +1373,7 @@ public:
     void start() {
         listen_options lo;
         lo.reuse_address = true;
-        _listener = seastar::server_socket(seastar::listen(make_ipv4_address({_port}), lo));
+        _listener = make_lw_shared<seastar::server_socket>(seastar::listen(make_ipv4_address({_port}), lo));
         // Run in the background until eof has reached on the input connection.
         _task = keep_doing([this] {
             return _listener->accept().then([this] (accept_result ar) mutable {
