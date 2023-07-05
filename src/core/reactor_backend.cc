@@ -1243,7 +1243,7 @@ try_create_uring(unsigned queue_len, bool throw_on_error) {
 
     for (auto op : required_ops) {
         if (!io_uring_opcode_supported(probe, op)) {
-            maybe_throw(std::runtime_error(fmt::format("required io_uring opcode {} not supported", op)));
+            maybe_throw(std::runtime_error(fmt::format("required io_uring opcode {} not supported", static_cast<int>(op))));
             return std::nullopt;
         }
     }
