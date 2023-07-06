@@ -526,6 +526,9 @@ function(seastar_add_certgen name)
 
   find_program(OPENSSL openssl)
 
+  # Some openssl commands read and write the serial number file (.srl). These can't be executed in parallel.
+  set_property(GLOBAL PROPERTY JOB_POOLS openssl_serial=1)
+
   add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${CERT_PRIVKEY}"
     COMMAND ${OPENSSL} genpkey -quiet -out ${CERT_PRIVKEY} -algorithm ${CERT_ALG} ${CERT_ALG_OPTS}
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
@@ -570,7 +573,7 @@ function(seastar_gen_mtls_certs)
     COMMAND ${OPENSSL} ecparam -name prime256v1 -genkey -noout -out mtls_ca.key
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
   )
-  add_custom_command(OUTPUT mtls_ca.crt
+  add_custom_command(OUTPUT mtls_ca.crt mtls_ca.srl
     COMMAND ${OPENSSL} req -new -x509 -sha256 -key mtls_ca.key -out mtls_ca.crt -subj ${SUBJECT} -addext ${EXTENSION}
     DEPENDS mtls_ca.key
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
@@ -587,8 +590,9 @@ function(seastar_gen_mtls_certs)
   )
   add_custom_command(OUTPUT mtls_server.crt
     COMMAND ${OPENSSL} x509 -req -in mtls_server.csr -CA mtls_ca.crt -CAkey mtls_ca.key -CAcreateserial -out mtls_server.crt -days 1000 -sha256
-    DEPENDS mtls_server.csr mtls_ca.crt mtls_ca.key
+    DEPENDS mtls_server.csr mtls_ca.crt mtls_ca.key mtls_ca.srl
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    JOB_POOL openssl_serial
   )
   # client1 certificates
   add_custom_command(OUTPUT mtls_client1.key
@@ -602,8 +606,9 @@ function(seastar_gen_mtls_certs)
   )
   add_custom_command(OUTPUT mtls_client1.crt
     COMMAND ${OPENSSL} x509 -req -in mtls_client1.csr -CA mtls_ca.crt -CAkey mtls_ca.key -CAcreateserial -out mtls_client1.crt -days 1000 -sha256
-    DEPENDS mtls_client1.csr mtls_ca.crt mtls_ca.key
+    DEPENDS mtls_client1.csr mtls_ca.crt mtls_ca.key mtls_ca.srl
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    JOB_POOL openssl_serial
   )
   # client2 certificates
   add_custom_command(OUTPUT mtls_client2.key
@@ -617,8 +622,9 @@ function(seastar_gen_mtls_certs)
   )
   add_custom_command(OUTPUT mtls_client2.crt
     COMMAND ${OPENSSL} x509 -req -in mtls_client2.csr -CA mtls_ca.crt -CAkey mtls_ca.key -CAcreateserial -out mtls_client2.crt -days 1000 -sha256
-    DEPENDS mtls_client2.csr mtls_ca.crt mtls_ca.key
+    DEPENDS mtls_client2.csr mtls_ca.crt mtls_ca.key mtls_ca.srl
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    JOB_POOL openssl_serial
   )
 
   add_custom_target(mtls_certs
