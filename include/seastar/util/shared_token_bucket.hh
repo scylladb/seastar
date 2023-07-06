@@ -134,6 +134,7 @@ class shared_token_bucket {
     static constexpr rate_resolution max_delta = std::chrono::duration_cast<rate_resolution>(std::chrono::hours(1));
 public:
     static constexpr T max_rate = std::numeric_limits<T>::max() / 2 / max_delta.count();
+    static constexpr capped_release is_capped = Capped;
 
 private:
     static constexpr T accumulated(T rate, rate_resolution delta) noexcept {
