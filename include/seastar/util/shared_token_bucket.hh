@@ -200,7 +200,7 @@ public:
     // Estimated time to process the given amount of tokens
     // (peer of accumulated_in helper)
     rate_resolution duration_for(T tokens) const noexcept {
-        return rate_resolution(tokens / _replenish_rate);
+        return rate_resolution(double(tokens) / _replenish_rate);
     }
 
     T rate() const noexcept { return _replenish_rate; }
