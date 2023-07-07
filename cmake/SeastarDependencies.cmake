@@ -88,6 +88,7 @@ macro (seastar_find_dependencies)
     dpdk # No version information published.
     fmt
     lz4
+    zstd
     # Private and private/public dependencies.
     GnuTLS
     LibUring
@@ -124,6 +125,8 @@ macro (seastar_find_dependencies)
     VERSION 5.0.0)
   seastar_set_dep_args (lz4 REQUIRED
     VERSION 1.7.3)
+  seastar_set_dep_args (zstd REQUIRED
+    VERSION 1.5.4)
   seastar_set_dep_args (GnuTLS REQUIRED
     VERSION 3.3.26)
   seastar_set_dep_args (LibUring

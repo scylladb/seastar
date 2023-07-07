@@ -622,6 +622,7 @@ add_library (seastar
   include/seastar/net/virtio.hh
   include/seastar/rpc/lz4_compressor.hh
   include/seastar/rpc/lz4_fragmented_compressor.hh
+  include/seastar/rpc/zstd_streaming_compressor.hh
   include/seastar/rpc/multi_algo_compressor_factory.hh
   include/seastar/rpc/rpc.hh
   include/seastar/rpc/rpc_impl.hh
@@ -731,6 +732,7 @@ add_library (seastar
   src/net/virtio.cc
   src/rpc/lz4_compressor.cc
   src/rpc/lz4_fragmented_compressor.cc
+  src/rpc/zstd_streaming_compressor.cc
   src/rpc/rpc.cc
   src/util/alloc_failure_injector.cc
   src/util/backtrace.cc
@@ -786,6 +788,7 @@ target_link_libraries (seastar
     cryptopp::cryptopp
     fmt::fmt
     lz4::lz4
+    zstd::zstd
     SourceLocation::source_location
   PRIVATE
     ${CMAKE_DL_LIBS}

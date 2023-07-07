@@ -24,6 +24,7 @@
 #include <seastar/rpc/rpc_types.hh>
 #include <seastar/rpc/lz4_compressor.hh>
 #include <seastar/rpc/lz4_fragmented_compressor.hh>
+#include <seastar/rpc/zstd_streaming_compressor.hh>
 #include <seastar/rpc/multi_algo_compressor_factory.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
@@ -962,8 +963,6 @@ void test_compressor(std::function<std::unique_ptr<seastar::rpc::compressor>()> 
         return c;
     };
 
-    auto compressor = compressor_factory();
-
     std::vector<noncopyable_function<std::tuple<sstring, size_t, snd_buf> ()>> inputs;
 
     auto add_input = [&] (auto func_returning_tuple) {
@@ -1124,7 +1123,7 @@ void test_compressor(std::function<std::unique_ptr<seastar::rpc::compressor>()> 
         auto in = in_func();
         BOOST_TEST_MESSAGE("Input: " << std::get<0>(in));
         auto headroom = std::get<1>(in);
-        auto compressed = compressor->compress(headroom, clone(std::get<2>(in)));
+        auto compressed = compressor_factory()->compress(headroom, clone(std::get<2>(in)));
         sanity_check(compressed);
 
         // Remove headroom
@@ -1154,7 +1153,7 @@ void test_compressor(std::function<std::unique_ptr<seastar::rpc::compressor>()> 
             BOOST_TEST_MESSAGE("  Transform: " << std::get<0>(t));
             auto received = std::get<1>(t)(clone(compressed));
 
-            auto decompressed = compressor->decompress(std::move(received));
+            auto decompressed = compressor_factory()->decompress(std::move(received));
             sanity_check(decompressed);
 
             BOOST_CHECK_EQUAL(decompressed.size, std::get<2>(in).size);
@@ -1173,6 +1172,10 @@ SEASTAR_THREAD_TEST_CASE(test_lz4_compressor) {
 
 SEASTAR_THREAD_TEST_CASE(test_lz4_fragmented_compressor) {
     test_compressor([] { return std::make_unique<rpc::lz4_fragmented_compressor>(); });
+}
+
+SEASTAR_THREAD_TEST_CASE(test_zstd_streaming_compressor) {
+    test_compressor([] { return std::make_unique<rpc::zstd_streaming_compressor>(); });
 }
 
 // Test reproducing issue #671: If timeout is time_point::max(), translating
