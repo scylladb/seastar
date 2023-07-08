@@ -140,9 +140,9 @@ log(A&&... a) {
  */
 template <typename... A>
 sstring
-format(const char* fmt, A&&... a) {
+format(fmt::format_string<A...> fmt, A&&... a) {
     fmt::memory_buffer out;
-    fmt::format_to(fmt::appender(out), fmt::runtime(fmt), std::forward<A>(a)...);
+    fmt::format_to(fmt::appender(out), fmt, std::forward<A>(a)...);
     return sstring{out.data(), out.size()};
 }
 
