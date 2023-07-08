@@ -966,7 +966,7 @@ struct convert<options> {
             } else if (st == "steady") {
                 op.sleep_fn = timer_sleep<std::chrono::steady_clock>;
             } else {
-                throw std::runtime_error(format("Unknown sleep_type {}", st));
+                throw std::runtime_error(seastar::format("Unknown sleep_type {}", st));
             }
         }
         if (node["pause_distribution"]) {
@@ -976,7 +976,7 @@ struct convert<options> {
             } else if (pd == "poisson") {
                 op.pause_fn = make_poisson_pause;
             } else {
-                throw std::runtime_error(format("Unknown pause_distribution {}", pd));
+                throw std::runtime_error(seastar::format("Unknown pause_distribution {}", pd));
             }
         }
         return true;
