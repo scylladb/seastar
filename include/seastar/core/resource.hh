@@ -129,6 +129,7 @@ struct cpu {
 struct resources {
     std::vector<cpu> cpus;
     std::unordered_map<dev_t, io_queue_topology> ioq_topology;
+    std::unordered_map<unsigned /* numa node id */, cpuset> numa_node_id_to_cpuset;
 };
 
 resources allocate(configuration& c);

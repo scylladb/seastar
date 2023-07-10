@@ -44,6 +44,7 @@
 #include <functional>
 #include <memory>
 #include <set>
+#include <optional>
 #endif
 #include "abort_on_ebadf.hh"
 #include <seastar/core/sstring.hh>
@@ -442,8 +443,10 @@ public:
             set(std::forward<Rest>(rest)...);
         }
         void set(stack_size ss) { _stack_size = ss; }
+        void set(cpu_set_t affinity) { _affinity = affinity; }
     private:
         stack_size _stack_size;
+        std::optional<cpu_set_t> _affinity;
         friend class posix_thread;
     };
 };

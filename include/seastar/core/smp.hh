@@ -70,6 +70,14 @@ inline shard_id* this_shard_id_ptr() noexcept {
 }
 #endif
 
+class memory_prefaulter;
+
+}
+
+namespace memory::internal {
+
+struct numa_layout;
+
 }
 
 SEASTAR_MODULE_EXPORT_BEGIN
@@ -322,6 +330,7 @@ class smp : public std::enable_shared_from_this<smp> {
     std::vector<posix_thread> _threads;
     std::vector<std::function<void ()>> _thread_loops; // for dpdk
     std::optional<boost::barrier> _all_event_loops_done;
+    std::unique_ptr<internal::memory_prefaulter> _prefaulter;
     struct qs_deleter {
       void operator()(smp_message_queue** qs) const;
     };
@@ -334,8 +343,11 @@ class smp : public std::enable_shared_from_this<smp> {
     using returns_future = is_future<std::invoke_result_t<Func>>;
     template <typename Func>
     using returns_void = std::is_same<std::invoke_result_t<Func>, void>;
+private:
+    void setup_prefaulter(const seastar::resource::resources& res, seastar::memory::internal::numa_layout layout);
 public:
-    explicit smp(alien::instance& alien) : _alien(alien) {}
+    explicit smp(alien::instance& alien);
+    ~smp();
     void configure(const smp_options& smp_opts, const reactor_options& reactor_opts);
     void cleanup() noexcept;
     void cleanup_cpu();

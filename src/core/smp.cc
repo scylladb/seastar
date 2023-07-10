@@ -29,10 +29,12 @@ module;
 module seastar;
 #else
 #include <seastar/core/smp.hh>
+#include <seastar/core/resource.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/core/semaphore.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/on_internal_error.hh>
+#include "prefault.hh"
 #endif
 
 namespace seastar {
@@ -146,6 +148,104 @@ void init_default_smp_service_group(shard_id cpu) {
 
 smp_service_group_semaphore& get_smp_service_groups_semaphore(unsigned ssg_id, shard_id t) noexcept {
     return smp_service_groups[ssg_id].clients[t];
+}
+
+smp::smp(alien::instance& alien)
+        : _alien(alien) {
+}
+
+
+smp::~smp() = default;
+
+void
+smp::setup_prefaulter(const seastar::resource::resources& res, seastar::memory::internal::numa_layout layout) {
+    // Stack guards mprotect() random pages, so the prefaulter will hard-fault.
+#ifndef SEASTAR_THREAD_STACK_GUARDS
+    _prefaulter = std::make_unique<internal::memory_prefaulter>(res, std::move(layout));
+#endif
+}
+
+internal::memory_prefaulter::memory_prefaulter(const resource::resources& res, memory::internal::numa_layout layout) {
+    for (auto& range : layout.ranges) {
+        _layout_by_node_id[range.numa_node_id].push_back(std::move(range));
+    }
+    auto page_size = getpagesize();
+    for (auto& numa_node_id_and_ranges : _layout_by_node_id) {
+        auto& numa_node_id = numa_node_id_and_ranges.first;
+        auto& ranges = numa_node_id_and_ranges.second;
+        posix_thread::attr a;
+        auto i = res.numa_node_id_to_cpuset.find(numa_node_id);
+        if (i != res.numa_node_id_to_cpuset.end()) {
+            cpu_set_t cpuset;
+            CPU_ZERO(&cpuset);
+            for (auto cpu : i->second) {
+                CPU_SET(cpu, &cpuset);
+            }
+            a.set(cpuset);
+        }
+        _worker_threads.emplace_back(a, [this, &ranges, page_size] {
+            work(ranges, page_size);
+        });
+    }
+}
+
+internal::memory_prefaulter::~memory_prefaulter() {
+    _stop_request.store(true, std::memory_order_relaxed);
+    for (auto& t : _worker_threads) {
+        t.join();
+    }
+}
+
+void
+internal::memory_prefaulter::work(std::vector<memory::internal::memory_range>& ranges, size_t page_size) {
+    sched_param param = { .sched_priority = 0 };
+    // SCHED_IDLE doesn't work via thread attributes
+    pthread_setschedparam(pthread_self(), SCHED_IDLE, &param);
+    size_t current_range = 0;
+    const size_t batch_size = 512; // happens to match huge page size on x86, through not critical
+    auto fault_in_memory = [] (char* p) {
+        // Touch the page for write, but be sure not to modify anything
+        // The compilers tend to optimize things, so prefer assembly
+#if defined(__x86_64__)
+        asm volatile ("lock orb $0, %0" : "=&m"(*p));
+#elif defined(__aarch64__)
+        int byte; // ldxrb likes 32-bit registers
+        int need_loop;
+        asm volatile ("1: ldxrb %w0, %2; stxrb %w1, %w0, %2; cbnz %w1, 1b"
+                : "=&r"(byte), "=&r"(need_loop), "+Q"(*p));
+#else
+        // atomic_ref would be better, but alas C++20 only
+        auto p1 = reinterpret_cast<volatile std::atomic<char>*>(p);
+        p->fetch_or(0, std::memory_order_relaxed);
+#endif
+    };
+    while (!_stop_request.load(std::memory_order_relaxed) && !ranges.empty()) {
+        auto& range = ranges[current_range];
+        // copy eveything into locals, or the optimizer will worry about them due
+        // to the cast below and not optimize anything
+        auto start = range.start;
+        auto end = range.end;
+        for (size_t i = 0; i < batch_size && start < end; ++i) {
+            fault_in_memory(start);
+            start += page_size;
+        }
+        // An end-to-start scan for applications that manage two heaps that
+        // grow towards each other.
+        for (size_t i = 0; i < batch_size && start < end; ++i) {
+            fault_in_memory(end - 1);
+            end -= page_size;
+        }
+        range.start = start;
+        range.end = end;
+        if (start >= end) {
+            ranges.erase(ranges.begin() + current_range);
+            current_range = 0;
+        }
+        current_range += 1;
+        if (current_range >= ranges.size()) {
+            current_range = 0;
+        }
+    }
 }
 
 }

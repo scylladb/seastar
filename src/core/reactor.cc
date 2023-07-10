@@ -4290,8 +4290,9 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     if (thread_affinity) {
         smp::pin(allocations[0].cpu_id);
     }
+    std::optional<memory::internal::numa_layout> layout;
     if (smp_opts.memory_allocator == memory_allocator::seastar) {
-        memory::configure(allocations[0].mem, mbind, hugepages_path);
+        layout = memory::configure(allocations[0].mem, mbind, hugepages_path);
     }
 
     if (reactor_opts.abort_on_seastar_bad_alloc) {
@@ -4305,6 +4306,8 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     reactor_config reactor_cfg;
     reactor_cfg.auto_handle_sigint_sigterm = reactor_opts._auto_handle_sigint_sigterm;
     reactor_cfg.max_networking_aio_io_control_blocks = adjust_max_networking_aio_io_control_blocks(reactor_opts.max_networking_io_control_blocks.get_value());
+
+    std::mutex mtx;
 
 #ifdef SEASTAR_HEAPPROF
     bool heapprof_enabled = reactor_opts.heapprof;
@@ -4390,7 +4393,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     auto smp_tmain = smp::_tmain;
     for (i = 1; i < smp::count; i++) {
         auto allocation = allocations[i];
-        create_thread([this, smp_tmain, inited, &reactors_registered, &smp_queues_constructed, &smp_opts, &reactor_opts, &reactors, hugepages_path, i, allocation, assign_io_queues, alloc_io_queues, thread_affinity, heapprof_enabled, mbind, backend_selector, reactor_cfg] {
+        create_thread([this, smp_tmain, inited, &reactors_registered, &smp_queues_constructed, &smp_opts, &reactor_opts, &reactors, hugepages_path, i, allocation, assign_io_queues, alloc_io_queues, thread_affinity, heapprof_enabled, mbind, backend_selector, reactor_cfg, &mtx, &layout] {
           try {
             // initialize thread_locals that are equal across all reacto threads of this smp instance
             smp::_tmain = smp_tmain;
@@ -4400,7 +4403,9 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
                 smp::pin(allocation.cpu_id);
             }
             if (smp_opts.memory_allocator == memory_allocator::seastar) {
-                memory::configure(allocation.mem, mbind, hugepages_path);
+                auto another_layout = memory::configure(allocation.mem, mbind, hugepages_path);
+                auto guard = std::lock_guard(mtx);
+                *layout = memory::internal::merge(std::move(*layout), std::move(another_layout));
             }
             if (heapprof_enabled) {
                 memory::set_heap_profiling_enabled(heapprof_enabled);
@@ -4470,6 +4475,10 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     inited->wait();
 
     engine().configure(reactor_opts);
+
+    if (smp_opts.lock_memory && smp_opts.lock_memory.get_value() && layout && !layout->ranges.empty()) {
+        smp::setup_prefaulter(resources, std::move(*layout));
+    }
 }
 
 bool smp::poll_queues() {

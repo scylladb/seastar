@@ -43,6 +43,11 @@ module seastar;
 #include <seastar/util/log.hh>
 #include <seastar/core/io_queue.hh>
 #include "cgroup.hh"
+
+#if SEASTAR_HAVE_HWLOC
+#include <hwloc/glibc-sched.h>
+#endif
+
 #endif
 
 namespace seastar {
@@ -497,6 +502,26 @@ hwloc_topology_t topology_holder::get() {
 
 } // namespace hwloc::internal
 
+static
+std::unordered_map<unsigned, cpuset>
+numa_node_id_to_cpuset(hwloc_topology_t topo) {
+    auto ret = std::unordered_map<unsigned, cpuset>();
+    for (auto numa_node = hwloc_get_next_obj_by_type(topo, HWLOC_OBJ_NUMANODE, NULL);
+            numa_node;
+            numa_node = hwloc_get_next_obj_by_type(topo, HWLOC_OBJ_NUMANODE, numa_node)) {
+        auto parent = numa_node->parent;
+        auto cpuset = parent->cpuset;
+        cpu_set_t os_cpuset;
+        hwloc_cpuset_to_glibc_sched_affinity(topo, cpuset, &os_cpuset, sizeof(os_cpuset));
+        for (unsigned idx = 0; idx < CPU_SETSIZE; ++idx) {
+            if (CPU_ISSET(idx, &os_cpuset)) {
+                ret[numa_node->os_index].insert(idx);
+            }
+        }
+    }
+    return ret;
+}
+
 resources allocate(configuration& c) {
     auto topology = c.topology.get();
     auto bm = hwloc_bitmap_alloc();
@@ -650,6 +675,9 @@ resources allocate(configuration& c) {
     for (auto devid : c.devices) {
         ret.ioq_topology.emplace(devid, allocate_io_queues(topology, ret.cpus, cpu_to_node, c.num_io_groups, last_node_idx));
     }
+
+    ret.numa_node_id_to_cpuset = numa_node_id_to_cpuset(topology);
+
     return ret;
 }
 

@@ -141,7 +141,24 @@ static constexpr size_t huge_page_size =
 #error "Huge page size is not defined for this architecture"
 #endif
 
-void configure(std::vector<resource::memory> m, bool mbind,
+
+namespace internal {
+
+struct memory_range {
+    char* start;
+    char* end;
+    unsigned numa_node_id;
+};
+
+struct numa_layout {
+    std::vector<memory_range> ranges;
+};
+
+numa_layout merge(numa_layout one, numa_layout two);
+
+}
+
+internal::numa_layout configure(std::vector<resource::memory> m, bool mbind,
         std::optional<std::string> hugetlbfs_path = {});
 
 // A deprecated alias for set_abort_on_allocation_failure(true).
