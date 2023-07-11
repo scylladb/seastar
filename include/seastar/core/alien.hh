@@ -107,7 +107,6 @@ namespace internal {
 struct qs_deleter {
     unsigned count;
     qs_deleter(unsigned n = 0) : count(n) {}
-    qs_deleter(const qs_deleter& d) : count(d.count) {}
     void operator()(message_queue* qs) const;
 };
 
