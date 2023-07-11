@@ -253,7 +253,7 @@ public:
         return *_name;
     }
 
-    const uint32_t size() const {
+    uint32_t size() const {
         return _size;
     }
 
@@ -366,7 +366,7 @@ public:
         return *_info._name;
     }
 
-    const uint32_t size() const {
+    uint32_t size() const {
         return _info._size;
     }
 
