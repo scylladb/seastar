@@ -410,5 +410,28 @@ namespace tls {
      * dn: "DIRNAME"
     */
     std::ostream& operator<<(std::ostream&, subject_alt_name_type);
+
+    /**
+     * Error handling.
+     * 
+     * The error_category instance used by exceptions thrown by TLS
+     */
+    const std::error_category& error_category();
+
+    /**
+     * The more common error codes encountered in TLS.
+     * Not an exhaustive list. Add exports as needed.
+     */
+    extern const int ERROR_UNKNOWN_COMPRESSION_ALGORITHM;
+    extern const int ERROR_UNKNOWN_CIPHER_TYPE;
+    extern const int ERROR_INVALID_SESSION;
+    extern const int ERROR_UNEXPECTED_HANDSHAKE_PACKET;
+    extern const int ERROR_UNKNOWN_CIPHER_SUITE;
+    extern const int ERROR_UNKNOWN_ALGORITHM;
+    extern const int ERROR_UNSUPPORTED_SIGNATURE_ALGORITHM;
+    extern const int ERROR_SAFE_RENEGOTIATION_FAILED;
+    extern const int ERROR_UNSAFE_RENEGOTIATION_DENIED;
+    extern const int ERROR_UNKNOWN_SRP_USERNAME;
+    extern const int ERROR_PREMATURE_TERMINATION;
 }
 }

@@ -151,21 +151,24 @@ static future<file_result> read_fully(const sstring& name, const sstring& what) 
 class gnutls_error_category : public std::error_category {
 public:
     constexpr gnutls_error_category() noexcept : std::error_category{} {}
-    const char * name() const noexcept {
+    const char * name() const noexcept override {
         return "GnuTLS";
     }
-    std::string message(int error) const {
+    std::string message(int error) const override {
         return gnutls_strerror(error);
     }
 };
 
-static const gnutls_error_category glts_errorc;
+const std::error_category& tls::error_category() {
+    static const gnutls_error_category ec;
+    return ec;
+}
 
 // Checks a gnutls return value.
 // < 0 -> error.
 static void gtls_chk(int res) {
     if (res < 0) {
-        throw std::system_error(res, glts_errorc);
+        throw std::system_error(res, tls::error_category());
     }
 }
 
@@ -1219,7 +1222,7 @@ public:
             return;
         }
         if (res < 0) {
-            throw std::system_error(res, glts_errorc);
+            throw std::system_error(res, error_category());
         }
         if (status & GNUTLS_CERT_INVALID) {
             auto stat_str = cert_status_to_string(gnutls_certificate_type_get(*this), status);
@@ -1309,7 +1312,7 @@ public:
                     _connected = false;
                     return make_ready_future<temporary_buffer<char>>();
                 default:
-                    _error = std::make_exception_ptr(std::system_error(n, glts_errorc));
+                    _error = std::make_exception_ptr(std::system_error(n, error_category()));
                     return make_exception_future<temporary_buffer<char>>(_error);
                 }
             }
@@ -1422,12 +1425,12 @@ public:
 
     future<>
     handle_error(int res) {
-        _error = std::make_exception_ptr(std::system_error(res, glts_errorc));
+        _error = std::make_exception_ptr(std::system_error(res, error_category()));
         return make_exception_future(_error);
     }
     future<>
     handle_output_error(int res) {
-        _error = std::make_exception_ptr(std::system_error(res, glts_errorc));
+        _error = std::make_exception_ptr(std::system_error(res, error_category()));
         // #453
         // defensively wait for output before generating the error.
         // if we have both error code and an exception in output
@@ -1438,7 +1441,7 @@ public:
                 // output was ok/done, just generate error code exception
                 return make_exception_future(_error);
             } catch (...) {
-                std::throw_with_nested(std::system_error(res, glts_errorc));
+                std::throw_with_nested(std::system_error(res, error_category()));
             }
         });
     }
@@ -1952,3 +1955,15 @@ std::ostream& tls::operator<<(std::ostream& os, const subject_alt_name& a) {
 
 
 }
+
+const int seastar::tls::ERROR_UNKNOWN_COMPRESSION_ALGORITHM = GNUTLS_E_UNKNOWN_COMPRESSION_ALGORITHM;
+const int seastar::tls::ERROR_UNKNOWN_CIPHER_TYPE = GNUTLS_E_UNKNOWN_CIPHER_TYPE;
+const int seastar::tls::ERROR_INVALID_SESSION = GNUTLS_E_INVALID_SESSION;
+const int seastar::tls::ERROR_UNEXPECTED_HANDSHAKE_PACKET = GNUTLS_E_UNEXPECTED_HANDSHAKE_PACKET;
+const int seastar::tls::ERROR_UNKNOWN_CIPHER_SUITE = GNUTLS_E_UNKNOWN_CIPHER_SUITE;
+const int seastar::tls::ERROR_UNKNOWN_ALGORITHM = GNUTLS_E_UNKNOWN_ALGORITHM;
+const int seastar::tls::ERROR_UNSUPPORTED_SIGNATURE_ALGORITHM = GNUTLS_E_UNSUPPORTED_SIGNATURE_ALGORITHM;
+const int seastar::tls::ERROR_SAFE_RENEGOTIATION_FAILED = GNUTLS_E_SAFE_RENEGOTIATION_FAILED;
+const int seastar::tls::ERROR_UNSAFE_RENEGOTIATION_DENIED = GNUTLS_E_UNSAFE_RENEGOTIATION_DENIED;
+const int seastar::tls::ERROR_UNKNOWN_SRP_USERNAME = GNUTLS_E_UNKNOWN_SRP_USERNAME;
+const int seastar::tls::ERROR_PREMATURE_TERMINATION = GNUTLS_E_PREMATURE_TERMINATION;
