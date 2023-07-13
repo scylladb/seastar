@@ -106,7 +106,7 @@ using deque = std::deque<int>;
 
 BOOST_AUTO_TEST_CASE(test_random_walk) {
     auto rand = std::default_random_engine();
-    auto op_gen = std::uniform_int_distribution<unsigned>(0, 6);
+    auto op_gen = std::uniform_int_distribution<unsigned>(0, 7);
     deque d;
     cb16_t c;
     for (auto i = 0; i != 1000000; ++i) {
@@ -164,6 +164,7 @@ BOOST_AUTO_TEST_CASE(test_random_walk) {
         case 7:
             boost::reverse(c);
             boost::reverse(d);
+            break;
         default:
             abort();
         }
