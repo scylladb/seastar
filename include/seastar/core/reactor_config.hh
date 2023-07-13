@@ -83,11 +83,11 @@ struct reactor_options : public program_options::option_group {
     /// \brief Maximum number of backtraces reported by stall detector per minute.
     ///
     /// Default: 5.
-    program_options::value<unsigned> blocked_reactor_reports_per_minute;
+    program_options::updateable_value<unsigned> blocked_reactor_reports_per_minute;
     /// \brief Print a simplified backtrace on a single line.
     ///
     /// Default: \p true.
-    program_options::value<bool> blocked_reactor_report_format_oneline;
+    program_options::updateable_value<bool> blocked_reactor_report_format_oneline;
     /// \brief Allow using buffered I/O if DMA is not available (reduces performance).
     program_options::value<> relaxed_dma;
     /// \brief Use the Linux NOWAIT AIO feature, which reduces reactor stalls due

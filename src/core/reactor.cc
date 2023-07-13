@@ -1444,6 +1444,13 @@ reactor::set_stall_detector_report_function(std::function<void ()> report) {
     _cpu_stall_detector->reset_suppression_state(reactor::now());
 }
 
+void reactor::update_stall_detector_config(std::function<void (internal::cpu_stall_detector_config&)> update) {
+    auto cfg = _cpu_stall_detector->get_config();
+    update(cfg);
+    _cpu_stall_detector->update_config(std::move(cfg));
+    _cpu_stall_detector->reset_suppression_state(reactor::now());
+}
+
 std::function<void ()>
 reactor::get_stall_detector_report_function() const {
     return _cpu_stall_detector->get_config().report;
@@ -3778,8 +3785,16 @@ reactor_options::reactor_options(program_options::option_group* parent_group)
     , blocked_reactor_notify_ms(*this, "blocked-reactor-notify-ms", 25, "threshold in miliseconds over which the reactor is considered blocked if no progress is made",
             update_option_on_all_shards<unsigned>([] (auto v) { engine().update_blocked_reactor_notify_ms(v * 1ms); })
     )
-    , blocked_reactor_reports_per_minute(*this, "blocked-reactor-reports-per-minute", 5, "Maximum number of backtraces reported by stall detector per minute")
-    , blocked_reactor_report_format_oneline(*this, "blocked-reactor-report-format-oneline", true, "Print a simplified backtrace on a single line")
+    , blocked_reactor_reports_per_minute(*this, "blocked-reactor-reports-per-minute", 5, "Maximum number of backtraces reported by stall detector per minute",
+            update_option_on_all_shards<unsigned>([] (auto v) {
+                engine().update_stall_detector_config([v] (auto& cfg) { cfg.stall_detector_reports_per_minute = v; });
+            })
+    )
+    , blocked_reactor_report_format_oneline(*this, "blocked-reactor-report-format-oneline", true, "Print a simplified backtrace on a single line",
+            update_option_on_all_shards<bool>([] (auto v) {
+                engine().update_stall_detector_config([v] (auto& cfg) { cfg.oneline = v; });
+            })
+    )
     , relaxed_dma(*this, "relaxed-dma", "allow using buffered I/O if DMA is not available (reduces performance)")
     , linux_aio_nowait(*this, "linux-aio-nowait", aio_nowait_supported,
                 "use the Linux NOWAIT AIO feature, which reduces reactor stalls due to aio (autodetected)")
