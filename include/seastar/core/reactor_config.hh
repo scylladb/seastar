@@ -79,7 +79,7 @@ struct reactor_options : public program_options::option_group {
     /// blocked if no progress is made.
     ///
     /// Default: 25.
-    program_options::value<unsigned> blocked_reactor_notify_ms;
+    program_options::updateable_value<unsigned> blocked_reactor_notify_ms;
     /// \brief Maximum number of backtraces reported by stall detector per minute.
     ///
     /// Default: 5.

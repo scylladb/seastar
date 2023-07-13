@@ -3775,7 +3775,9 @@ reactor_options::reactor_options(program_options::option_group* parent_group)
     , max_task_backlog(*this, "max-task-backlog", 1000, "Maximum number of task backlog to allow; above this we ignore I/O",
             update_option_on_all_shards<unsigned>([] (auto v) { engine().set_max_task_backlog(v); })
     )
-    , blocked_reactor_notify_ms(*this, "blocked-reactor-notify-ms", 25, "threshold in miliseconds over which the reactor is considered blocked if no progress is made")
+    , blocked_reactor_notify_ms(*this, "blocked-reactor-notify-ms", 25, "threshold in miliseconds over which the reactor is considered blocked if no progress is made",
+            update_option_on_all_shards<unsigned>([] (auto v) { engine().update_blocked_reactor_notify_ms(v * 1ms); })
+    )
     , blocked_reactor_reports_per_minute(*this, "blocked-reactor-reports-per-minute", 5, "Maximum number of backtraces reported by stall detector per minute")
     , blocked_reactor_report_format_oneline(*this, "blocked-reactor-report-format-oneline", true, "Print a simplified backtrace on a single line")
     , relaxed_dma(*this, "relaxed-dma", "allow using buffered I/O if DMA is not available (reduces performance)")
