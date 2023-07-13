@@ -3320,7 +3320,7 @@ int reactor::do_run() {
     auto check_for_work = [this] () {
         return poll_once() || have_more_tasks();
     };
-    std::function<bool()> pure_check_for_work = [this] () {
+    const noncopyable_function<bool()> pure_check_for_work = [this] () {
         return pure_poll_once() || have_more_tasks();
     };
     _cpu_profiler->start();
