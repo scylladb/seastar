@@ -591,6 +591,7 @@ public:
             return _info.server;
         }
         future<> deregister_this_stream();
+        future<> abort_all_streams();
     };
 private:
     protocol_base& _proto;

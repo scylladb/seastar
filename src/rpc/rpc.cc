@@ -1112,7 +1112,7 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
               if (is_stream()) {
                   return deregister_this_stream();
               } else {
-                  return make_ready_future<>();
+                  return abort_all_streams();
               }
           }).finally([this] {
               _stopped.set_value();
@@ -1140,6 +1140,16 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
                   it->second->_streams.erase(get_connection_id());
               }
           }
+      });
+  }
+
+  future<> server::connection::abort_all_streams() {
+      return parallel_for_each(_streams | boost::adaptors::map_values, [] (xshard_connection_ptr s) {
+          return smp::submit_to(s->get_owner_shard(), [s] {
+              s->get()->abort();
+          });
+      }).then([this] {
+          _streams.clear();
       });
   }
 
