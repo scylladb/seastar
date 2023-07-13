@@ -1145,7 +1145,6 @@ void cpu_stall_detector::update_config(cpu_stall_detector_config cfg) {
     _config = cfg;
     _threshold = std::chrono::duration_cast<sched_clock::duration>(cfg.threshold);
     _slack = std::chrono::duration_cast<sched_clock::duration>(cfg.threshold * cfg.slack);
-    _stall_detector_reports_per_minute = cfg.stall_detector_reports_per_minute;
     _max_reports_per_minute = cfg.stall_detector_reports_per_minute;
     _rearm_timer_at = reactor::now();
 }
