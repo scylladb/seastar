@@ -300,8 +300,8 @@ future<> connection::read_one() {
                      */
                     return close(true);
                 case opcodes::PING:
-                    return handle_ping();
                     wlogger.debug("Received ping frame.");
+                    return handle_ping();
                 case opcodes::PONG:
                     wlogger.debug("Received pong frame.");
                     return handle_pong();
