@@ -715,6 +715,7 @@ public:
     /// performance and an increase in memory consumption.
     void set_strict_dma(bool value);
     void set_bypass_fsync(bool value);
+    void set_max_task_backlog(unsigned value);
     void update_blocked_reactor_notify_ms(std::chrono::milliseconds ms);
     std::chrono::milliseconds get_blocked_reactor_notify_ms() const;
     /// For testing, sets the stall reporting function which is called when

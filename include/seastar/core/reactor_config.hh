@@ -74,7 +74,7 @@ struct reactor_options : public program_options::option_group {
     /// When the number of tasks grow above this, we stop polling (e.g. I/O)
     /// until it goes back below the limit.
     /// Default: 1000.
-    program_options::value<unsigned> max_task_backlog;
+    program_options::updateable_value<unsigned> max_task_backlog;
     /// \brief Threshold in milliseconds over which the reactor is considered
     /// blocked if no progress is made.
     ///

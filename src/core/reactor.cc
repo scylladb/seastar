@@ -1084,6 +1084,10 @@ void reactor::set_bypass_fsync(bool value) {
     _bypass_fsync = value;
 }
 
+void reactor::set_max_task_backlog(unsigned value) {
+    _max_task_backlog = value;
+}
+
 void
 reactor::reset_preemption_monitor() {
     return _backend->reset_preemption_monitor();
@@ -3769,7 +3773,9 @@ reactor_options::reactor_options(program_options::option_group* parent_group)
                 "busy-poll for disk I/O (reduces latency and increases throughput)")
     , task_quota_ms(*this, "task-quota-ms", 0.5, "Max time (ms) between polls")
     , io_latency_goal_ms(*this, "io-latency-goal-ms", {}, "Max time (ms) io operations must take (1.5 * task-quota-ms if not set)")
-    , max_task_backlog(*this, "max-task-backlog", 1000, "Maximum number of task backlog to allow; above this we ignore I/O")
+    , max_task_backlog(*this, "max-task-backlog", 1000, "Maximum number of task backlog to allow; above this we ignore I/O",
+            update_option_on_all_shards<unsigned>([] (auto v) { engine().set_max_task_backlog(v); })
+    )
     , blocked_reactor_notify_ms(*this, "blocked-reactor-notify-ms", 25, "threshold in miliseconds over which the reactor is considered blocked if no progress is made")
     , blocked_reactor_reports_per_minute(*this, "blocked-reactor-reports-per-minute", 5, "Maximum number of backtraces reported by stall detector per minute")
     , blocked_reactor_report_format_oneline(*this, "blocked-reactor-report-format-oneline", true, "Print a simplified backtrace on a single line")
