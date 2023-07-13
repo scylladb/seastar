@@ -765,6 +765,7 @@ set (Seastar_PRIVATE_CXX_FLAGS
   -UNDEBUG
   -Wall
   -Werror
+  -Wimplicit-fallthrough
   -Wno-array-bounds # Disabled because of https://gcc.gnu.org/bugzilla/show_bug.cgi?id=93437
   -Wno-error=deprecated-declarations)
 if (NOT BUILD_SHARED_LIBS)
