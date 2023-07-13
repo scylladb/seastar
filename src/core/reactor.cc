@@ -3747,6 +3747,18 @@ static program_options::selection_value<reactor_backend_selector>::candidates ba
     return candidates;
 }
 
+template <typename T>
+class update_option_on_all_shards {
+    noncopyable_function<void(T)> _update;
+public:
+    update_option_on_all_shards(noncopyable_function<void(T)> u) noexcept : _update(std::move(u)) {}
+    void operator() (const program_options::updateable_value<T>& uv, program_options::updateable_value<T>::lock l) {
+        (void)smp::invoke_on_all([this, v = uv.get_value()] {
+            _update(v);
+        }).finally([l = std::move(l)] {});
+    }
+};
+
 reactor_options::reactor_options(program_options::option_group* parent_group)
     : program_options::option_group(parent_group, "Core options")
     , network_stack(create_network_stacks_option(*this))
