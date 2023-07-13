@@ -1121,6 +1121,7 @@ public:
 #if GNUTLS_VERSION_NUMBER >= 0x030406
                 case GNUTLS_E_CERTIFICATE_ERROR:
                     verify(); // should throw. otherwise, fallthrough
+                    [[fallthrough]];
 #endif
                 default:
                     // Send the handshake error returned by gnutls_handshake()
