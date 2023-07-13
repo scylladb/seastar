@@ -27,9 +27,11 @@ list (APPEND CMAKE_MODULE_PATH
   ${CMAKE_CURRENT_BINARY_DIR})
 
 cmake_policy (SET CMP0090 NEW)
-if (POLICY CMP0135)
-  cmake_policy (SET CMP0135 NEW)
-endif ()
+foreach (policy CMP0127 CMP0135)
+  if (POLICY ${policy})
+    cmake_policy (SET ${policy} NEW)
+  endif ()
+endforeach ()
 
 include (Cooking OPTIONAL)
 
