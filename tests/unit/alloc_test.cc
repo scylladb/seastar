@@ -19,12 +19,13 @@
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
-#include <seastar/testing/test_case.hh>
 #include <seastar/core/memory.hh>
 #include <seastar/core/smp.hh>
 #include <seastar/core/temporary_buffer.hh>
-#include <seastar/util/memory_diagnostics.hh>
+#include <seastar/testing/perf_tests.hh>
+#include <seastar/testing/test_case.hh>
 #include <seastar/util/log.hh>
+#include <seastar/util/memory_diagnostics.hh>
 
 #include <memory>
 #include <new>
@@ -90,6 +91,23 @@ SEASTAR_TEST_CASE(test_aligned_alloc) {
     }
     return make_ready_future<>();
 }
+
+#ifdef __cpp_sized_deallocation
+SEASTAR_TEST_CASE(test_sized_delete) {
+    for (size_t size = 0; size <= 65536; size++) {
+        void *p0 = operator new(size), *p1 = operator new(size);
+        BOOST_REQUIRE(p0 != nullptr);
+        BOOST_REQUIRE(p1 != nullptr);
+        ::memset(p0, 1, size);
+        ::memset(p1, 2, size);
+        perf_tests::do_not_optimize(p0);
+        perf_tests::do_not_optimize(p1);
+        operator delete(p0, size);
+        operator delete(p1, size);
+    }
+    return make_ready_future<>();
+}
+#endif
 
 SEASTAR_TEST_CASE(test_temporary_buffer_aligned) {
     for (size_t align = sizeof(void*); align <= 65536; align <<= 1) {
