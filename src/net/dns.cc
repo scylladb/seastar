@@ -149,7 +149,7 @@ public:
         // do this ourselves, and instead set ares options
         // here, but it seems more error prone (me parsing
         // resolv.conf -> hah!)
-        ares_options a_opts = { 0, };
+        ares_options a_opts = {};
 
         // For now, use the default "fb" query order
         // (set explicitly lest we forget).
