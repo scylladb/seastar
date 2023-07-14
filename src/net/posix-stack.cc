@@ -942,10 +942,11 @@ std::vector<network_interface> posix_network_stack::network_interfaces() {
 
         auto pid = ::getpid();
 
-        sockaddr_nl local = { 0, };
-        local.nl_family = AF_NETLINK;
-        local.nl_pid = pid;
-        local.nl_groups = RTMGRP_IPV6_IFADDR|RTMGRP_IPV4_IFADDR;
+        sockaddr_nl local = {
+          .nl_family = AF_NETLINK,
+          .nl_pid = static_cast<unsigned int>(pid),
+          .nl_groups = RTMGRP_IPV6_IFADDR|RTMGRP_IPV4_IFADDR,
+        };
 
         throw_system_error_on(bind(fd, (struct sockaddr *) &local, sizeof(local)) < 0, "could not bind netlink socket");
 
@@ -960,12 +961,7 @@ std::vector<network_interface> posix_network_stack::network_interfaces() {
                     rtgenmsg gen;
                     ifaddrmsg addr; 
                 }; 
-            } req = { {0}, };
-
-            sockaddr_nl kernel = { 0, }; 
-            msghdr rtnl_msg = { 0, };
-    
-            kernel.nl_family = AF_NETLINK; /* fill-in kernel address (destination of our message) */
+            } req = {};
 
             req.hdr.nlmsg_len = NLMSG_LENGTH(sizeof(struct rtgenmsg));
             req.hdr.nlmsg_type = msg;
@@ -979,15 +975,19 @@ std::vector<network_interface> posix_network_stack::network_interfaces() {
                 req.addr.ifa_family = AF_UNSPEC;
             }
 
-            iovec io;
-
-            io.iov_base = &req;
-            io.iov_len = req.hdr.nlmsg_len;
-
-            rtnl_msg.msg_iov = &io;
-            rtnl_msg.msg_iovlen = 1;
-            rtnl_msg.msg_name = &kernel;
-            rtnl_msg.msg_namelen = sizeof(kernel);
+            sockaddr_nl kernel = {
+              .nl_family = AF_NETLINK, /* fill-in kernel address (destination of our message) */
+            };
+            iovec io = {
+              .iov_base = &req,
+              .iov_len = req.hdr.nlmsg_len,
+            };
+            msghdr rtnl_msg = {
+              .msg_name = &kernel,
+              .msg_namelen = sizeof(kernel),
+              .msg_iov = &io,
+              .msg_iovlen = 1,
+            };
 
             throw_system_error_on(::sendmsg(fd, (struct msghdr *) &rtnl_msg, 0) < 0, "could not send netlink request");
             /* parse reply */
@@ -998,15 +998,16 @@ std::vector<network_interface> posix_network_stack::network_interfaces() {
             bool done = false;
 
             while (!done) {
-                msghdr rtnl_reply = { 0, };
-                iovec io_reply = { 0, };
-
-                io_reply.iov_base = reply;
-                io_reply.iov_len = reply_buffer_size;
-                rtnl_reply.msg_iov = &io_reply;
-                rtnl_reply.msg_iovlen = 1;
-                rtnl_reply.msg_name = &kernel;
-                rtnl_reply.msg_namelen = sizeof(kernel);
+                iovec io_reply = {
+                  .iov_base = reply,
+                  .iov_len = reply_buffer_size,
+                };
+                msghdr rtnl_reply = {
+                  .msg_name = &kernel,
+                  .msg_namelen = sizeof(kernel),
+                  .msg_iov = &io_reply,
+                  .msg_iovlen = 1,
+                };
 
                 auto len = ::recvmsg(fd, &rtnl_reply, 0); /* read as much data as fits in the receive buffer */
                 if (len <= 0) {
