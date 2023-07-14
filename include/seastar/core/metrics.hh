@@ -341,8 +341,6 @@ public:
             : u(d), _type(t) {
     }
 
-    metric_value& operator=(const metric_value& c) = default;
-
     metric_value& operator+=(const metric_value& c) {
         *this = *this + c;
         return *this;
