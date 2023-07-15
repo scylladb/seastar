@@ -240,7 +240,7 @@ public:
     metric_info& info() {
         return _info;
    }
-    metric_function& get_function() {
+    const metric_function& get_function() const {
         return _f;
     }
 };
