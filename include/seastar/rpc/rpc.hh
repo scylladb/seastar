@@ -348,6 +348,9 @@ public:
     connection_id get_connection_id() const noexcept {
         return _id;
     }
+    stats& get_stats_internal() noexcept {
+        return _stats;
+    }
     xshard_connection_ptr get_stream(connection_id id) const;
     void register_stream(connection_id id, xshard_connection_ptr c);
     virtual socket_address peer_address() const = 0;
@@ -487,9 +490,6 @@ public:
     client(const logger& l, void* s, client_options options, socket socket, const socket_address& addr, const socket_address& local = {});
 
     stats get_stats() const;
-    stats& get_stats_internal() {
-        return _stats;
-    }
     auto next_message_id() { return _message_id++; }
     void wait_for_reply(id_type id, std::unique_ptr<reply_handler_base>&& h, std::optional<rpc_clock_type::time_point> timeout, cancellable* cancel);
     void wait_timed_out(id_type id);
@@ -566,10 +566,6 @@ public:
             stats res = _stats;
             res.pending = outgoing_queue_length();
             return res;
-        }
-
-        stats& get_stats_internal() {
-            return _stats;
         }
         socket_address peer_address() const override {
             return _info.addr;
