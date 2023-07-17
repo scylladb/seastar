@@ -412,7 +412,7 @@ void impl::arm() {
 void impl::run() {
     typedef size_t metric_family_id;
     typedef seastar::metrics::impl::value_vector::iterator value_iterator;
-    typedef seastar::metrics::impl::metric_metadata_vector::iterator metadata_iterator;
+    typedef seastar::metrics::impl::metric_metadata_fifo::iterator metadata_iterator;
     typedef std::tuple<metric_family_id, metadata_iterator, value_iterator, type_id, cpwriter> context;
 
     auto ctxt = make_lw_shared<context>();
