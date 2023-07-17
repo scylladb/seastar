@@ -223,7 +223,24 @@ optional<T> read_setting_V1V2_as(std::string cg1_path, std::string cg2_fname) {
 
 namespace resource {
 
+static
+size_t
+kernel_memory_reservation() {
+    try {
+        return read_first_line_as<size_t>("/proc/sys/vm/min_free_kbytes") * 1024;
+    } catch (...) {
+        return 0;
+    }
+}
+
 size_t calculate_memory(const configuration& c, size_t available_memory, float panic_factor = 1) {
+    auto kernel_reservation = kernel_memory_reservation();
+    if (kernel_reservation >= 200'000'000) {
+        // The standard setting is sqrt(mem)*128. This is 128MB at 1TB RAM. With 64kB pages and transparent hugepages,
+        // the kernel increases this significantly, wasting memory.
+        seastar_logger.warn("Kernel memory reservation (/proc/sys/vm/min_free_kbytes) unexpectedly high ({}), check your configuration", kernel_reservation);
+    }
+    available_memory -= kernel_reservation;
     size_t default_reserve_memory = std::max<size_t>(1536 * 1024 * 1024, 0.07 * available_memory) * panic_factor;
     auto reserve = c.reserve_memory.value_or(default_reserve_memory);
     auto reserve_additional = c.reserve_additional_memory_per_shard * c.cpus;
