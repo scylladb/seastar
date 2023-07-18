@@ -526,9 +526,6 @@ function(seastar_add_certgen name)
 
   find_program(OPENSSL openssl)
 
-  # Some openssl commands read and write the serial number file (.srl). These can't be executed in parallel.
-  set_property(GLOBAL PROPERTY JOB_POOLS openssl_serial=1)
-
   add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${CERT_PRIVKEY}"
     COMMAND ${OPENSSL} genpkey -quiet -out ${CERT_PRIVKEY} -algorithm ${CERT_ALG} ${CERT_ALG_OPTS}
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
@@ -568,6 +565,9 @@ function(seastar_gen_mtls_certs)
   set(EXTENSION "subjectAltName = IP:127.0.0.1")
   set(CLIENT1_SUBJECT "/C=GB/ST=London/L=London/O=Redpanda Data/OU=Core/CN=client1.org")
   set(CLIENT2_SUBJECT "/C=GB/ST=London/L=London/O=Redpanda Data/OU=Core/CN=client2.org")
+
+  # Some openssl commands read and write the serial number file (.srl). These can't be executed in parallel.
+  set_property(GLOBAL APPEND PROPERTY JOB_POOLS openssl_serial=1)
 
   add_custom_command(OUTPUT mtls_ca.key
     COMMAND ${OPENSSL} ecparam -name prime256v1 -genkey -noout -out mtls_ca.key
