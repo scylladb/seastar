@@ -210,16 +210,12 @@ public:
 
 class impl;
 
-class registered_metric {
+class registered_metric final {
     metric_info _info;
     metric_function _f;
     shared_ptr<impl> _impl;
 public:
     registered_metric(metric_id id, metric_function f, bool enabled=true, skip_when_empty skip=skip_when_empty::no);
-    virtual ~registered_metric() {}
-    virtual metric_value operator()() const {
-        return _f();
-    }
 
     bool is_enabled() const {
         return _info.enabled;
@@ -241,7 +237,7 @@ public:
     metric_info& info() {
         return _info;
    }
-    metric_function& get_function() {
+    const metric_function& get_function() const {
         return _f;
     }
 };
