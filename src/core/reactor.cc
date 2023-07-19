@@ -72,6 +72,13 @@ module;
 #include <sys/ioctl.h>
 #include <linux/perf_event.h>
 #include <xfs/linux.h>
+/*
+ * With package xfsprogs-devel >= 5.14.1, `fallthrough` has defined to
+ * fix compilation warning in header <xfs/linux.h>,
+ * (see: https://git.kernel.org/pub/scm/fs/xfs/xfsprogs-dev.git/commit/?id=df9c7d8d8f3ed0785ed83e7fd0c7ddc92cbfbe15)
+ * There is a confliction with c++ keyword `fallthrough`, so undefine fallthrough here.
+ */
+#undef fallthrough
 #define min min    /* prevent xfs.h from defining min() as a macro */
 #include <xfs/xfs.h>
 #undef min
