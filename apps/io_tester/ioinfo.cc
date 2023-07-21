@@ -21,6 +21,7 @@
 #include <seastar/core/app-template.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/core/io_queue.hh>
 #include <seastar/util/closeable.hh>
 #include <yaml-cpp/yaml.h>
 
@@ -49,6 +50,18 @@ int main(int ac, char** av) {
                     return remove_file(storage + "/tempfile").then([&out, &f] {
                         out << YAML::Key << "disk_read_max_length" << YAML::Value << f.disk_read_max_length();
                         out << YAML::Key << "disk_write_max_length" << YAML::Value << f.disk_write_max_length();
+                    }).then([&out, &f] {
+                        return f.stat().then([&out] (auto st) {
+                            auto& ioq = engine().get_io_queue(st.st_dev);
+                            auto& cfg = ioq.get_config();
+
+                            out << YAML::Key << "io_queue" << YAML::BeginMap;
+                            out << YAML::Key << "req_count_rate" << YAML::Value << cfg.req_count_rate;
+                            out << YAML::Key << "blocks_count_rate" << YAML::Value << cfg.blocks_count_rate;
+                            out << YAML::Key << "disk_req_write_to_read_multiplier" << YAML::Value << cfg.disk_req_write_to_read_multiplier;
+                            out << YAML::Key << "disk_blocks_write_to_read_multiplier" << YAML::Value << cfg.disk_blocks_write_to_read_multiplier;
+                            out << YAML::EndMap;
+                        });
                     });
                 });
             }).get();
