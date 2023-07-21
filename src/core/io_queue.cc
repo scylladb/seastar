@@ -562,24 +562,6 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     } else {
         _streams.emplace_back(*_group->_fgs[0], make_fair_queue_config(cfg, "rw"));
     }
-
-    if (this_shard_id() == 0) {
-        sstring caps_str;
-        for (size_t sz = 512; sz <= 128 * 1024; sz <<= 1) {
-            caps_str += fmt::format(" {}:", sz);
-            if (sz <= _group->_max_request_length[io_direction_read]) {
-                caps_str += fmt::format("{}", _group->_fgs[0]->ticket_capacity(make_ticket(io_direction_and_length(io_direction_read, sz), get_config())));
-            } else {
-                caps_str += "X";
-            }
-            if (sz <= _group->_max_request_length[io_direction_write]) {
-                caps_str += fmt::format(":{}", _group->_fgs[0]->ticket_capacity(make_ticket(io_direction_and_length(io_direction_write, sz), get_config())));
-            } else {
-                caps_str += ":X";
-            }
-        }
-        seastar_logger.info("Created io queue dev({}) capacities:{}", get_config().devid, caps_str);
-    }
 }
 
 fair_group::config io_group::make_fair_group_config(const io_queue::config& qcfg) noexcept {
@@ -640,11 +622,6 @@ io_group::io_group(io_queue::config io_cfg, unsigned nr_queues)
 
     update_max_size(io_direction_write);
     update_max_size(io_direction_read);
-
-    seastar_logger.info("Created io group dev({}), length limit {}:{}, rate {}:{}", _config.devid,
-            _max_request_length[io_direction_read],
-            _max_request_length[io_direction_write],
-            _config.req_count_rate, _config.blocks_count_rate);
 }
 
 io_group::~io_group() {
