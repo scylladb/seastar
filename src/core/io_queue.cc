@@ -580,7 +580,7 @@ fair_group::config io_group::make_fair_group_config(const io_queue::config& qcfg
 
 static void maybe_warn_latency_goal_auto_adjust(const fair_group& fg, const io_queue::config& cfg) noexcept {
     auto goal = fg.rate_limit_duration();
-    auto lvl = goal > 1.1 * cfg.rate_limit_duration ? log_level::warn : log_level::info;
+    auto lvl = goal > 1.1 * cfg.rate_limit_duration ? log_level::warn : log_level::debug;
     seastar_logger.log(lvl, "IO queue uses {:.2f}ms latency goal for device {}", goal.count() * 1000, cfg.devid);
 }
 
