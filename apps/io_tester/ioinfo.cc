@@ -76,6 +76,18 @@ int main(int ac, char** av) {
                                 out << YAML::EndMap;
                             }
                             out << YAML::EndMap;
+
+                            const auto& fg = internal::get_fair_group(ioq, internal::io_direction_and_length::write_idx);
+                            out << YAML::Key << "cost_capacity" << YAML::Value << format("{}", fg.cost_capacity());
+                            out << YAML::Key << "per_tick_grab_threshold" << YAML::Value << fg.per_tick_grab_threshold();
+
+                            const auto& tb = fg.token_bucket();
+                            out << YAML::Key << "token_bucket" << YAML::BeginMap;
+                            out << YAML::Key << "limit" << YAML::Value << tb.limit();
+                            out << YAML::Key << "rate" << YAML::Value << tb.rate();
+                            out << YAML::Key << "threshold" << YAML::Value << tb.threshold();
+                            out << YAML::EndMap;
+
                             out << YAML::EndMap;
                         });
                     });
