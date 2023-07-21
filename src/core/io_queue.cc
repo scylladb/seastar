@@ -64,8 +64,6 @@ using io_direction_and_length = internal::io_direction_and_length;
 static constexpr auto io_direction_read = io_direction_and_length::read_idx;
 static constexpr auto io_direction_write = io_direction_and_length::write_idx;
 
-static fair_queue_ticket make_ticket(io_direction_and_length dnl, const io_queue::config& cfg) noexcept;
-
 struct default_io_exception_factory {
     static auto cancelled() {
         return cancelled_error();
@@ -291,7 +289,7 @@ public:
         : io_request(std::move(req))
         , _ioq(q)
         , _stream(_ioq.request_stream(dnl))
-        , _fq_entry(make_ticket(dnl, _ioq.get_config()))
+        , _fq_entry(internal::make_ticket(dnl, _ioq.get_config()))
         , _desc(std::make_unique<io_desc_read_write>(_ioq, pc, _stream, dnl, _fq_entry.ticket(), std::move(iovs)))
     {
     }
@@ -624,7 +622,7 @@ io_group::io_group(io_queue::config io_cfg, unsigned nr_queues)
         auto g_idx = _config.duplex ? idx : 0;
         auto max_cap = _fgs[g_idx]->maximum_capacity();
         for (unsigned shift = 0; ; shift++) {
-            auto ticket = make_ticket(io_direction_and_length(idx, 1 << (shift + io_queue::block_size_shift)), _config);
+            auto ticket = internal::make_ticket(io_direction_and_length(idx, 1 << (shift + io_queue::block_size_shift)), _config);
             auto cap = _fgs[g_idx]->ticket_capacity(ticket);
             if (cap > max_cap) {
                 if (shift == 0) {
@@ -893,7 +891,7 @@ stream_id io_queue::request_stream(io_direction_and_length dnl) const noexcept {
     return get_config().duplex ? dnl.rw_idx() : 0;
 }
 
-fair_queue_ticket make_ticket(io_direction_and_length dnl, const io_queue::config& cfg) noexcept {
+fair_queue_ticket internal::make_ticket(io_direction_and_length dnl, const io_queue::config& cfg) noexcept {
     struct {
         unsigned weight;
         unsigned size;
