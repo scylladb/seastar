@@ -530,6 +530,10 @@ sstring io_request::opname() const {
     std::abort();
 }
 
+const fair_group& get_fair_group(const io_queue& ioq, unsigned stream) {
+    return *(ioq._group->_fgs[stream]);
+}
+
 } // internal namespace
 
 void

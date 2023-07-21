@@ -61,6 +61,22 @@ int main(int ac, char** av) {
                             out << YAML::Key << "disk_req_write_to_read_multiplier" << YAML::Value << cfg.disk_req_write_to_read_multiplier;
                             out << YAML::Key << "disk_blocks_write_to_read_multiplier" << YAML::Value << cfg.disk_blocks_write_to_read_multiplier;
                             out << YAML::EndMap;
+
+                            out << YAML::Key << "fair_queue" << YAML::BeginMap;
+                            out << YAML::Key << "capacities" << YAML::BeginMap;
+                            auto request_io_capacity = [&ioq] (internal::io_direction_and_length dnl) {
+                                auto stream = ioq.request_stream(dnl);
+                                auto ticket = internal::make_ticket(dnl, ioq.get_config());
+                                return internal::get_fair_group(ioq, stream).ticket_capacity(ticket);
+                            };
+                            for (size_t sz = 512; sz <= 128 * 1024; sz <<= 1) {
+                                out << YAML::Key << sz << YAML::BeginMap;
+                                out << YAML::Key << "read" << YAML::Value << request_io_capacity(internal::io_direction_and_length(internal::io_direction_and_length::read_idx, sz));
+                                out << YAML::Key << "write" << YAML::Value << request_io_capacity(internal::io_direction_and_length(internal::io_direction_and_length::write_idx, sz));
+                                out << YAML::EndMap;
+                            }
+                            out << YAML::EndMap;
+                            out << YAML::EndMap;
                         });
                     });
                 });
