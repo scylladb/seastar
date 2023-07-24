@@ -51,6 +51,12 @@ BOOST_AUTO_TEST_CASE(test_add_literal_to_sstring) {
     BOOST_REQUIRE_EQUAL("x" + sstring("y"), sstring("xy"));
 }
 
+BOOST_AUTO_TEST_CASE(test_front) {
+    sstring s("abcde");
+    BOOST_CHECK_EQUAL(s.front(), 'a');
+    BOOST_CHECK_EQUAL(std::as_const(s).front(), 'a');
+}
+
 BOOST_AUTO_TEST_CASE(test_find_sstring) {
     BOOST_REQUIRE_EQUAL(sstring("abcde").find('b'), 1u);
     BOOST_REQUIRE_EQUAL(sstring("babcde").find('b',1), 2u);

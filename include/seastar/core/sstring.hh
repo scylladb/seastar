@@ -461,6 +461,29 @@ public:
         replace(p, p, beg, end);
     }
 
+
+    /**
+     *  Returns a read/write reference to the data at the first
+     *  element of the string.
+     *  This function shall not be called on empty strings.
+     */
+    reference
+    front() noexcept {
+        assert(!empty());
+        return *str();
+    }
+
+    /**
+     *  Returns a  read-only (constant) reference to the data at the first
+     *  element of the string.
+     *  This function shall not be called on empty strings.
+     */
+    const_reference
+    front() const noexcept {
+        assert(!empty());
+        return *str();
+    }
+
     /**
      *  Returns a read/write reference to the data at the last
      *  element of the string.
