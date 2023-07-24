@@ -118,6 +118,18 @@ BOOST_AUTO_TEST_CASE(test_str_starts_with) {
     BOOST_CHECK(!sstring("abcdefg").starts_with("ab\0"sv));
 }
 
+BOOST_AUTO_TEST_CASE(test_str_ends_with) {
+    BOOST_CHECK(sstring("abcdefg").ends_with("efg"sv));
+    BOOST_CHECK(sstring("abcde").ends_with('e'));
+    BOOST_CHECK(sstring("abcde").ends_with("de"));
+    BOOST_CHECK(sstring("abcdefg").ends_with(""));
+
+    BOOST_CHECK(!sstring("abcde").ends_with("abc"));
+    BOOST_CHECK(!sstring("abcde").ends_with('b'));
+    BOOST_CHECK(!sstring("abcdefg").ends_with("abc"sv));
+    BOOST_CHECK(!sstring("abcdefg").ends_with("efg\0"sv));
+}
+
 BOOST_AUTO_TEST_CASE(test_substr_sstring) {
     BOOST_REQUIRE_EQUAL(sstring("abcde").substr(1,2), "bc");
     BOOST_REQUIRE_EQUAL(sstring("abc").substr(1,2), "bc");
