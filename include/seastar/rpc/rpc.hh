@@ -519,6 +519,9 @@ public:
             c->_parent = this->weak_from_this();
             c->_is_stream = true;
             return c->await_connection().then([c, this] {
+                if (_error) {
+                    throw closed_error();
+                }
                 xshard_connection_ptr s = make_lw_shared(make_foreign(static_pointer_cast<rpc::connection>(c)));
                 this->register_stream(c->get_connection_id(), s);
                 return sink<Out...>(make_shared<sink_impl<Serializer, Out...>>(std::move(s)));
