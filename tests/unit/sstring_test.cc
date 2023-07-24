@@ -130,6 +130,28 @@ BOOST_AUTO_TEST_CASE(test_str_ends_with) {
     BOOST_CHECK(!sstring("abcdefg").ends_with("efg\0"sv));
 }
 
+BOOST_AUTO_TEST_CASE(test_str_contains) {
+    BOOST_CHECK(sstring("abcde").starts_with("ab"sv));
+    BOOST_CHECK(sstring("abcde").starts_with('a'));
+    BOOST_CHECK(sstring("abcde").starts_with("ab"));
+    BOOST_CHECK(sstring("abcde").starts_with(""));
+
+    BOOST_CHECK(sstring("abcde").contains("bc"sv));
+    BOOST_CHECK(sstring("abcde").contains("bc"));
+    BOOST_CHECK(sstring("abcde").contains('c'));
+
+    BOOST_CHECK(sstring("abcde").contains("de"sv));
+    BOOST_CHECK(sstring("abcde").contains("de"));
+
+    BOOST_CHECK(!sstring("abcde").contains("bad"));
+    BOOST_CHECK(!sstring("abcde").contains("bce"));
+    BOOST_CHECK(!sstring("abcde").contains("x"));
+    BOOST_CHECK(!sstring("abcde").contains('x'));
+    BOOST_CHECK(!sstring("abcde").contains("ab\0"sv));
+    BOOST_CHECK(!sstring("abcde").contains("bc\0"sv));
+    BOOST_CHECK(!sstring("abcde").contains("de\0"sv));
+}
+
 BOOST_AUTO_TEST_CASE(test_substr_sstring) {
     BOOST_REQUIRE_EQUAL(sstring("abcde").substr(1,2), "bc");
     BOOST_REQUIRE_EQUAL(sstring("abc").substr(1,2), "bc");

@@ -620,6 +620,18 @@ public:
         return ends_with(std::basic_string_view<char_type, traits_type>(s));
     }
 
+    constexpr bool contains(std::basic_string_view<char_type, traits_type> sv) const noexcept {
+        return find(sv) != npos;
+    }
+
+    constexpr bool contains(char_type c) const noexcept {
+        return find(c) != npos;
+    }
+
+    constexpr bool contains(const char_type* s) const noexcept {
+        return find(s) != npos;
+    }
+
     void swap(basic_sstring& x) noexcept {
         contents tmp;
         tmp = x.u;
