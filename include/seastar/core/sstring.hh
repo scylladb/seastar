@@ -256,20 +256,18 @@ public:
         return npos;
     }
 
-    size_t find(const basic_sstring& s, size_t pos = 0) const noexcept {
-        const char_type* it = str() + pos;
-        const char_type* end = str() + size();
-        const char_type* c_str = s.str();
-
+    size_t find(const char_type* c_str, size_t pos, size_t len2) const noexcept {
+        assert(c_str != nullptr || len2 == 0);
         if (pos > size()) {
             return npos;
         }
 
-        const size_t len2 = s.size();
         if (len2 == 0) {
             return pos;
         }
 
+        const char_type* it = str() + pos;
+        const char_type* end = str() + size();
         size_t len1 = end - it;
         if (len1 < len2) {
             return npos;
@@ -294,6 +292,23 @@ public:
 
             ++it;
         }
+    }
+
+    constexpr size_t find(const char_type* s, size_t pos = 0) const noexcept {
+        return find(s, pos, traits_type::length(s));
+    }
+
+    size_t find(const basic_sstring& s, size_t pos = 0) const noexcept {
+        return find(s.str(), pos, s.size());
+    }
+
+    template<class StringViewLike,
+             std::enable_if_t<std::is_convertible_v<StringViewLike,
+                                                    std::basic_string_view<char_type, traits_type>>,
+                              int> = 0>
+    size_t find(const StringViewLike& sv_like, size_type pos = 0) const noexcept {
+        std::basic_string_view<char_type, traits_type> sv = sv_like;
+        return find(sv.data(), pos, sv.size());
     }
 
     /**
