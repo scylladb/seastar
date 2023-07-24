@@ -596,6 +596,18 @@ public:
         }
     }
 
+    constexpr bool starts_with(std::basic_string_view<char_type, traits_type> sv) const noexcept {
+        return size() > sv.size() && compare(0, sv.size(), sv) == 0;
+    }
+
+    constexpr bool starts_with(char_type c) const noexcept {
+        return !empty() && traits_type::eq(front(), c);
+    }
+
+    constexpr bool starts_with(const char_type* s) const noexcept {
+        return starts_with(std::basic_string_view<char_type, traits_type>(s));
+    }
+
     void swap(basic_sstring& x) noexcept {
         contents tmp;
         tmp = x.u;

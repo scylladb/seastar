@@ -25,6 +25,7 @@
 #include <seastar/core/sstring.hh>
 #include <list>
 
+using namespace std::literals;
 using namespace seastar;
 
 BOOST_AUTO_TEST_CASE(test_make_sstring) {
@@ -103,6 +104,18 @@ BOOST_AUTO_TEST_CASE(test_str_not_find_sstring) {
     BOOST_REQUIRE_EQUAL(sstring("ababcbdbe").find("bcd"), sstring::npos);
     BOOST_REQUIRE_EQUAL(sstring("").find("", 1), sstring::npos);
     BOOST_REQUIRE_EQUAL(sstring("abc").find("abcde"), sstring::npos);
+}
+
+BOOST_AUTO_TEST_CASE(test_str_starts_with) {
+    BOOST_CHECK(sstring("abcdefg").starts_with("ab"sv));
+    BOOST_CHECK(sstring("abcde").starts_with('a'));
+    BOOST_CHECK(sstring("abcde").starts_with("ab"));
+    BOOST_CHECK(sstring("abcdefg").starts_with(""));
+
+    BOOST_CHECK(!sstring("abcde").starts_with("cde"));
+    BOOST_CHECK(!sstring("abcde").starts_with('b'));
+    BOOST_CHECK(!sstring("abcdefg").starts_with("cde"sv));
+    BOOST_CHECK(!sstring("abcdefg").starts_with("ab\0"sv));
 }
 
 BOOST_AUTO_TEST_CASE(test_substr_sstring) {
