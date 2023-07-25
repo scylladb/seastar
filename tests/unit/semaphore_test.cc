@@ -262,7 +262,7 @@ SEASTAR_TEST_CASE(test_with_semaphore) {
     });
 }
 
-SEASTAR_THREAD_TEST_CASE(test_semaphore_units_splitting) {
+SEASTAR_THREAD_TEST_CASE(test_semaphore_units_valid_splitting) {
     auto sm = semaphore(2);
     auto units = get_units(sm, 2, 1min).get0();
     {
@@ -272,25 +272,32 @@ SEASTAR_THREAD_TEST_CASE(test_semaphore_units_splitting) {
         BOOST_REQUIRE_EQUAL(sm.available_units(), 0);
     }
     BOOST_REQUIRE_EQUAL(sm.available_units(), 1);
-    units.~semaphore_units();
-    units = get_units(sm, 2, 1min).get0();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_semaphore_units_invalid_splitting) {
+    auto sm = semaphore(2);
+    auto units = get_units(sm, 2, 1min).get0();
     BOOST_REQUIRE_EQUAL(sm.available_units(), 0);
     BOOST_REQUIRE_THROW(units.split(10), std::invalid_argument);
     BOOST_REQUIRE_EQUAL(sm.available_units(), 0);
 }
 
-SEASTAR_THREAD_TEST_CASE(test_semaphore_units_return) {
+SEASTAR_THREAD_TEST_CASE(test_semaphore_units_return_when_destroyed) {
     auto sm = semaphore(3);
+  {
     auto units = get_units(sm, 3, 1min).get0();
     BOOST_REQUIRE_EQUAL(units.count(), 3);
     BOOST_REQUIRE_EQUAL(sm.available_units(), 0);
     BOOST_REQUIRE_EQUAL(units.return_units(1), 2);
     BOOST_REQUIRE_EQUAL(units.count(), 2);
     BOOST_REQUIRE_EQUAL(sm.available_units(), 1);
-    units.~semaphore_units();
+  }
     BOOST_REQUIRE_EQUAL(sm.available_units(), 3);
+}
 
-    units = get_units(sm, 2, 1min).get0();
+SEASTAR_THREAD_TEST_CASE(test_semaphore_units_return_all) {
+    auto sm = semaphore(3);
+    auto units = get_units(sm, 2, 1min).get0();
     BOOST_REQUIRE_EQUAL(sm.available_units(), 1);
     BOOST_REQUIRE_THROW(units.return_units(10), std::invalid_argument);
     BOOST_REQUIRE_EQUAL(sm.available_units(), 1);
@@ -430,4 +437,18 @@ SEASTAR_THREAD_TEST_CASE(test_semaphore_abort_before_wait) {
     sem.signal();
     BOOST_CHECK_THROW(fut1.get(), semaphore_aborted);
     BOOST_REQUIRE_EQUAL(x, 0);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_reassigned_units_are_returned) {
+    auto sem0 = semaphore(1);
+    auto sem1 = semaphore(1);
+    auto units = get_units(sem0, 1).get();
+    auto wait = sem0.wait(1);
+    BOOST_REQUIRE(!wait.available());
+    units = get_units(sem1, 1).get();
+    timer t([] { abort(); });
+    t.arm(1s);
+    // will hang if units are not returned when reassigned
+    wait.get();
+    t.cancel();
 }
