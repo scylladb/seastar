@@ -29,33 +29,17 @@ namespace seastar::coroutine {
 
 namespace internal {
 
-struct maybe_yield_awaiter final : task {
-    using coroutine_handle_t = std::coroutine_handle<void>;
-
-    coroutine_handle_t when_ready;
-    task* main_coroutine_task;
-
+struct maybe_yield_awaiter final {
     bool await_ready() const {
         return !need_preempt();
     }
 
     template <typename T>
     void await_suspend(std::coroutine_handle<T> h) {
-        when_ready = h;
-        main_coroutine_task = &h.promise(); // for waiting_task()
-        schedule(this);
+        schedule(&h.promise());
     }
 
     void await_resume() {
-    }
-
-    virtual void run_and_dispose() noexcept override {
-        when_ready.resume();
-        // No need to delete, this is allocated on the coroutine frame
-    }
-
-    virtual task* waiting_task() noexcept override {
-        return main_coroutine_task;
     }
 };
 
