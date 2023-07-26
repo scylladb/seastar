@@ -256,20 +256,18 @@ public:
         return npos;
     }
 
-    size_t find(const basic_sstring& s, size_t pos = 0) const noexcept {
-        const char_type* it = str() + pos;
-        const char_type* end = str() + size();
-        const char_type* c_str = s.str();
-
+    size_t find(const char_type* c_str, size_t pos, size_t len2) const noexcept {
+        assert(c_str != nullptr || len2 == 0);
         if (pos > size()) {
             return npos;
         }
 
-        const size_t len2 = s.size();
         if (len2 == 0) {
             return pos;
         }
 
+        const char_type* it = str() + pos;
+        const char_type* end = str() + size();
         size_t len1 = end - it;
         if (len1 < len2) {
             return npos;
@@ -294,6 +292,23 @@ public:
 
             ++it;
         }
+    }
+
+    constexpr size_t find(const char_type* s, size_t pos = 0) const noexcept {
+        return find(s, pos, traits_type::length(s));
+    }
+
+    size_t find(const basic_sstring& s, size_t pos = 0) const noexcept {
+        return find(s.str(), pos, s.size());
+    }
+
+    template<class StringViewLike,
+             std::enable_if_t<std::is_convertible_v<StringViewLike,
+                                                    std::basic_string_view<char_type, traits_type>>,
+                              int> = 0>
+    size_t find(const StringViewLike& sv_like, size_type pos = 0) const noexcept {
+        std::basic_string_view<char_type, traits_type> sv = sv_like;
+        return find(sv.data(), pos, sv.size());
     }
 
     /**
@@ -446,6 +461,29 @@ public:
         replace(p, p, beg, end);
     }
 
+
+    /**
+     *  Returns a read/write reference to the data at the first
+     *  element of the string.
+     *  This function shall not be called on empty strings.
+     */
+    reference
+    front() noexcept {
+        assert(!empty());
+        return *str();
+    }
+
+    /**
+     *  Returns a  read-only (constant) reference to the data at the first
+     *  element of the string.
+     *  This function shall not be called on empty strings.
+     */
+    const_reference
+    front() const noexcept {
+        assert(!empty());
+        return *str();
+    }
+
     /**
      *  Returns a read/write reference to the data at the last
      *  element of the string.
@@ -556,6 +594,42 @@ public:
         } else {
             return 0;
         }
+    }
+
+    constexpr bool starts_with(std::basic_string_view<char_type, traits_type> sv) const noexcept {
+        return size() > sv.size() && compare(0, sv.size(), sv) == 0;
+    }
+
+    constexpr bool starts_with(char_type c) const noexcept {
+        return !empty() && traits_type::eq(front(), c);
+    }
+
+    constexpr bool starts_with(const char_type* s) const noexcept {
+        return starts_with(std::basic_string_view<char_type, traits_type>(s));
+    }
+
+    constexpr bool ends_with(std::basic_string_view<char_type, traits_type> sv) const noexcept {
+        return size() > sv.size() && compare(size() - sv.size(), npos, sv) == 0;
+    }
+
+    constexpr bool ends_with(char_type c) const noexcept {
+        return !empty() && traits_type::eq(back(), c);
+    }
+
+    constexpr bool ends_with(const char_type* s) const noexcept {
+        return ends_with(std::basic_string_view<char_type, traits_type>(s));
+    }
+
+    constexpr bool contains(std::basic_string_view<char_type, traits_type> sv) const noexcept {
+        return find(sv) != npos;
+    }
+
+    constexpr bool contains(char_type c) const noexcept {
+        return find(c) != npos;
+    }
+
+    constexpr bool contains(const char_type* s) const noexcept {
+        return find(s) != npos;
     }
 
     void swap(basic_sstring& x) noexcept {

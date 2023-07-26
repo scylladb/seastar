@@ -25,6 +25,7 @@
 #include <seastar/core/sstring.hh>
 #include <list>
 
+using namespace std::literals;
 using namespace seastar;
 
 BOOST_AUTO_TEST_CASE(test_make_sstring) {
@@ -49,6 +50,12 @@ BOOST_AUTO_TEST_CASE(test_to_sstring) {
 
 BOOST_AUTO_TEST_CASE(test_add_literal_to_sstring) {
     BOOST_REQUIRE_EQUAL("x" + sstring("y"), sstring("xy"));
+}
+
+BOOST_AUTO_TEST_CASE(test_front) {
+    sstring s("abcde");
+    BOOST_CHECK_EQUAL(s.front(), 'a');
+    BOOST_CHECK_EQUAL(std::as_const(s).front(), 'a');
 }
 
 BOOST_AUTO_TEST_CASE(test_find_sstring) {
@@ -97,6 +104,52 @@ BOOST_AUTO_TEST_CASE(test_str_not_find_sstring) {
     BOOST_REQUIRE_EQUAL(sstring("ababcbdbe").find("bcd"), sstring::npos);
     BOOST_REQUIRE_EQUAL(sstring("").find("", 1), sstring::npos);
     BOOST_REQUIRE_EQUAL(sstring("abc").find("abcde"), sstring::npos);
+}
+
+BOOST_AUTO_TEST_CASE(test_str_starts_with) {
+    BOOST_CHECK(sstring("abcdefg").starts_with("ab"sv));
+    BOOST_CHECK(sstring("abcde").starts_with('a'));
+    BOOST_CHECK(sstring("abcde").starts_with("ab"));
+    BOOST_CHECK(sstring("abcdefg").starts_with(""));
+
+    BOOST_CHECK(!sstring("abcde").starts_with("cde"));
+    BOOST_CHECK(!sstring("abcde").starts_with('b'));
+    BOOST_CHECK(!sstring("abcdefg").starts_with("cde"sv));
+    BOOST_CHECK(!sstring("abcdefg").starts_with("ab\0"sv));
+}
+
+BOOST_AUTO_TEST_CASE(test_str_ends_with) {
+    BOOST_CHECK(sstring("abcdefg").ends_with("efg"sv));
+    BOOST_CHECK(sstring("abcde").ends_with('e'));
+    BOOST_CHECK(sstring("abcde").ends_with("de"));
+    BOOST_CHECK(sstring("abcdefg").ends_with(""));
+
+    BOOST_CHECK(!sstring("abcde").ends_with("abc"));
+    BOOST_CHECK(!sstring("abcde").ends_with('b'));
+    BOOST_CHECK(!sstring("abcdefg").ends_with("abc"sv));
+    BOOST_CHECK(!sstring("abcdefg").ends_with("efg\0"sv));
+}
+
+BOOST_AUTO_TEST_CASE(test_str_contains) {
+    BOOST_CHECK(sstring("abcde").starts_with("ab"sv));
+    BOOST_CHECK(sstring("abcde").starts_with('a'));
+    BOOST_CHECK(sstring("abcde").starts_with("ab"));
+    BOOST_CHECK(sstring("abcde").starts_with(""));
+
+    BOOST_CHECK(sstring("abcde").contains("bc"sv));
+    BOOST_CHECK(sstring("abcde").contains("bc"));
+    BOOST_CHECK(sstring("abcde").contains('c'));
+
+    BOOST_CHECK(sstring("abcde").contains("de"sv));
+    BOOST_CHECK(sstring("abcde").contains("de"));
+
+    BOOST_CHECK(!sstring("abcde").contains("bad"));
+    BOOST_CHECK(!sstring("abcde").contains("bce"));
+    BOOST_CHECK(!sstring("abcde").contains("x"));
+    BOOST_CHECK(!sstring("abcde").contains('x'));
+    BOOST_CHECK(!sstring("abcde").contains("ab\0"sv));
+    BOOST_CHECK(!sstring("abcde").contains("bc\0"sv));
+    BOOST_CHECK(!sstring("abcde").contains("de\0"sv));
 }
 
 BOOST_AUTO_TEST_CASE(test_substr_sstring) {
