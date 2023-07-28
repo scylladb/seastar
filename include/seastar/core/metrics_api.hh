@@ -216,6 +216,9 @@ class registered_metric final {
     shared_ptr<impl> _impl;
 public:
     registered_metric(metric_id id, metric_function f, bool enabled=true, skip_when_empty skip=skip_when_empty::no);
+    metric_value operator()() const {
+        return _f();
+    }
 
     bool is_enabled() const {
         return _info.enabled;

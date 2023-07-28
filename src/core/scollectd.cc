@@ -582,7 +582,7 @@ std::vector<collectd_value> get_collectd_value(
         const scollectd::type_instance_id& id) {
     std::vector<collectd_value> vals;
     const seastar::metrics::impl::registered_metric& val = *get_register(id);
-    vals.push_back(val.get_function()());
+    vals.push_back(val());
     return vals;
 }
 
