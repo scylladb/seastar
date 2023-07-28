@@ -85,9 +85,15 @@ app_template::app_template(app_template::seastar_options opts)
         if (!alien::internal::default_instance) {
             alien::internal::default_instance = _alien.get();
         }
-        _app_opts.add_options()
-                ("help,h", "show help message")
-                ;
+        if (opts.reserve_dash_h) {
+            _app_opts.add_options()
+                    ("help", "show help message")
+                    ;
+        } else {
+            _app_opts.add_options()
+                    ("help,h", "show help message")
+                    ;
+        }
         _app_opts.add_options()
                 ("help-seastar", "show help message about seastar options")
                 ;
