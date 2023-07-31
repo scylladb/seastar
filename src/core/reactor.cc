@@ -959,6 +959,7 @@ reactor::task_queue::set_shares(float shares) noexcept {
 void
 reactor::account_runtime(task_queue& tq, sched_clock::duration runtime) {
     if (runtime > (2 * _task_quota)) {
+        _stalls_histogram.add(runtime);
         tq._time_spent_on_task_quota_violations += runtime - _task_quota;
     }
     tq._vruntime += tq.to_vruntime(runtime);
@@ -2527,6 +2528,7 @@ void reactor::register_metrics() {
             sm::make_total_bytes("aio_bytes_write", _io_stats.aio_write_bytes, sm::description("Total aio-writes bytes")),
             sm::make_counter("aio_outsizes", _io_stats.aio_outsizes, sm::description("Total number of aio operations that exceed IO limit")),
             sm::make_counter("aio_errors", _io_stats.aio_errors, sm::description("Total aio errors")),
+            sm::make_histogram("stalls", sm::description("A histogram of reactor stall durations"), [this] {return _stalls_histogram.to_metrics_histogram();}).aggregate({seastar::metrics::shard_label}).set_skip_when_empty(),
             // total_operations value:DERIVE:0:U
             sm::make_counter("fsyncs", _fsyncs, sm::description("Total number of fsync operations")),
             // total_operations value:DERIVE:0:U
