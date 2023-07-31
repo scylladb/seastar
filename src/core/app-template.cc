@@ -163,21 +163,6 @@ app_template::configuration() {
 }
 
 int
-app_template::run(int ac, char ** av, std::function<future<int> ()>&& func) noexcept {
-    return run_deprecated(ac, av, [func = std::move(func)] () mutable {
-        auto func_done = make_lw_shared<promise<>>();
-        engine().at_exit([func_done] { return func_done->get_future(); });
-        // No need to wait for this future.
-        // func's returned exit_code is communicated via engine().exit()
-        (void)futurize_invoke(func).finally([func_done] {
-            func_done->set_value();
-        }).then([] (int exit_code) {
-            return engine().exit(exit_code);
-        }).or_terminate();
-    });
-}
-
-int
 app_template::run(int ac, char ** av, std::function<future<> ()>&& func) noexcept {
     return run(ac, av, [func = std::move(func)] {
         return func().then([] () {
@@ -188,6 +173,13 @@ app_template::run(int ac, char ** av, std::function<future<> ()>&& func) noexcep
 
 int
 app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) noexcept {
+    return run(ac, av, [func = std::move(func)] {
+        return futurize_invoke(func);
+    });
+}
+
+int
+app_template::run(int ac, char ** av, std::function<future<int> ()>&& func) noexcept {
 #ifdef SEASTAR_DEBUG
     fmt::print(std::cerr, "WARNING: debug mode. Not for benchmarking or production\n");
 #endif
@@ -265,9 +257,9 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
         });
     }).then(
         std::move(func)
-    ).then_wrapped([] (auto&& f) {
+    ).then_wrapped([] (future<int>&& f) {
         try {
-            f.get();
+            engine().exit(f.get());
         } catch (std::exception& ex) {
             std::cout << "program failed with uncaught exception: " << ex.what() << "\n";
             engine().exit(1);
