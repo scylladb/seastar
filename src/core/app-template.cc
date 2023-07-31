@@ -226,7 +226,15 @@ app_template::run(int ac, char ** av, std::function<future<int> ()>&& func) noex
         program_options::variables_map_extracting_visitor visitor(configuration);
         _opts.mutate(visitor);
     }
-    _opts.reactor_opts._argv0 = std::string(av[0]);
+
+    _configuration = {std::move(configuration)};
+    _opts.argv0 = std::move(av[0]);
+
+    return run(std::move(func));
+}
+
+int app_template::run(std::function<future<int>()>&& func) noexcept {
+    _opts.reactor_opts._argv0 = std::string(_opts.argv0);
     _opts.reactor_opts._auto_handle_sigint_sigterm = _opts.auto_handle_sigint_sigterm;
     if (auto* native_stack = dynamic_cast<net::native_stack_options*>(_opts.reactor_opts.network_stack.get_selected_candidate_opts())) {
         native_stack->_hugepages = _opts.smp_opts.hugepages;
@@ -246,7 +254,6 @@ app_template::run(int ac, char ** av, std::function<future<int> ()>&& func) noex
         std::cerr << "Could not initialize seastar: " << std::current_exception() << std::endl;
         return 1;
     }
-    _configuration = {std::move(configuration)};
     // No need to wait for this future.
     // func is waited on via engine().run()
     (void)engine().when_started().then([this] {
@@ -268,6 +275,14 @@ app_template::run(int ac, char ** av, std::function<future<int> ()>&& func) noex
     auto exit_code = engine().run();
     _smp->cleanup();
     return exit_code;
+}
+
+int app_template::run(std::function<future<>()>&& func) noexcept {
+    return run([func = std::move(func)] {
+        return func().then([] () {
+            return 0;
+        });
+    });
 }
 
 }
