@@ -366,7 +366,6 @@ foreign_ptr<values_reference> get_values() {
     auto& mv = res.values;
     res.metadata = get_local_impl()->metadata();
     auto & functions = get_local_impl()->functions();
-    mv.reserve(functions.size());
     for (auto&& i : functions) {
         value_vector values;
         values.reserve(i.size());

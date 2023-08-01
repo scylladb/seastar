@@ -340,7 +340,7 @@ struct metric_family_metadata {
 
 using value_vector = std::vector<metric_value>;
 using metric_metadata = std::vector<metric_family_metadata>;
-using metric_values = std::vector<value_vector>;
+using metric_values = std::deque<value_vector>;
 
 struct values_copy {
     shared_ptr<metric_metadata> metadata;
