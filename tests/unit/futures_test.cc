@@ -2036,3 +2036,35 @@ SEASTAR_THREAD_TEST_CASE(test_manual_clock_advance) {
     manual_clock::advance(1ms);
     BOOST_REQUIRE(expired);
 }
+
+SEASTAR_THREAD_TEST_CASE(test_forward_to_shared_promise_with_value) {
+    {
+        shared_promise<int> pr;
+        yield().then([] {
+            return 42;
+        }).forward_to(pr);
+        BOOST_REQUIRE_EQUAL(pr.get_shared_future().get(), 42);
+    }
+    {
+        shared_promise<int> pr;
+        yield().then([] {
+            return make_exception_future<int>(std::runtime_error("expected"));
+        }).forward_to(pr);
+        BOOST_REQUIRE_THROW(pr.get_shared_future().get(), std::runtime_error);
+    }
+}
+
+SEASTAR_THREAD_TEST_CASE(test_forward_to_shared_promise) {
+    {
+        shared_promise<> pr;
+        yield().forward_to(pr);
+        pr.get_shared_future().get();
+    }
+    {
+        shared_promise<> pr;
+        yield().then([] {
+            return make_exception_future<>(std::runtime_error("expected"));
+        }).forward_to(pr);
+        BOOST_REQUIRE_THROW(pr.get_shared_future().get(), std::runtime_error);
+    }
+}

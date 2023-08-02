@@ -155,6 +155,9 @@ class future;
 template <typename... T>
 class shared_future;
 
+template <typename... T>
+class shared_promise;
+
 struct future_state_base;
 
 /// \brief Creates a \ref future in an available, value state.
@@ -1593,7 +1596,13 @@ public:
         }
     }
 
+    template <typename... U>
+    SEASTAR_CONCEPT( requires (!std::same_as<T, void> && std::same_as<std::tuple<std::remove_cv_t<U>...>, std::tuple<T>>) )
+    std::enable_if_t<!std::is_same_v<T, void> && std::is_same_v<std::tuple<std::remove_cv_t<U>...>, std::tuple<T>>, void> forward_to(shared_promise<U...>& pr) noexcept;
 
+    template <typename... U>
+    SEASTAR_CONCEPT( requires (std::same_as<T, void> && std::same_as<std::tuple<std::remove_cv_t<U>...>, std::tuple<>>) )
+    std::enable_if_t<std::is_same_v<T, void> && std::is_same_v<std::tuple<std::remove_cv_t<U>...>, std::tuple<>>, void> forward_to(shared_promise<U...>& pr) noexcept;
 
     /**
      * Finally continuation for statements that require waiting for the result.

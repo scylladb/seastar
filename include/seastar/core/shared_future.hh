@@ -370,6 +370,35 @@ public:
     }
 };
 
+SEASTAR_MODULE_EXPORT
+template <typename T>
+template <typename... U>
+SEASTAR_CONCEPT( requires (!std::same_as<T, void> && std::same_as<std::tuple<std::remove_cv_t<U>...>, std::tuple<T>>) )
+std::enable_if_t<!std::is_same_v<T, void> && std::is_same_v<std::tuple<std::remove_cv_t<U>...>, std::tuple<T>>, void> future<T>::forward_to(shared_promise<U...>& pr) noexcept {
+    // Discard future. Caller must await pr.get_shared_future();
+    (void)then_wrapped([&pr] (auto f) {
+        if (f.failed()) {
+            pr.set_exception(f.get_exception());
+        } else {
+            pr.set_value(f.get());
+        }
+    });
+}
+
+template <typename T>
+template <typename... U>
+SEASTAR_CONCEPT( requires (std::same_as<T, void> && std::same_as<std::tuple<std::remove_cv_t<U>...>, std::tuple<>>) )
+std::enable_if_t<std::is_same_v<T, void> && std::is_same_v<std::tuple<std::remove_cv_t<U>...>, std::tuple<>>, void> future<T>::forward_to(shared_promise<U...>& pr) noexcept {
+    // Discard future. Caller must await pr.get_shared_future();
+    (void)then_wrapped([&pr] (auto f) {
+        if (f.failed()) {
+            pr.set_exception(f.get_exception());
+        } else {
+            pr.set_value();
+        }
+    });
+}
+
 /// @}
 
 }
