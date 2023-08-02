@@ -534,6 +534,48 @@ sstring io_request::opname() const {
 
 } // internal namespace
 
+template <typename T>
+void update_moving_average(T& result, const T& value, double factor) noexcept {
+    result = result * factor + value * (1.0 - factor);
+}
+
+struct io_queue::flow_monitor {
+    const io_queue& ioq;
+    uint64_t prev_dispatched = 0;
+    uint64_t prev_completed = 0;
+    double flow_ratio = 1.0;
+    timer<lowres_clock> update;
+
+    flow_monitor(const io_queue& q) noexcept
+        : ioq(q)
+        , update([this] { update_ratio(); })
+    {
+        update.arm_periodic(ioq.get_config().flow_monitor_period);
+    }
+
+    void update_ratio() {
+        if (ioq._requests_completed > prev_completed) {
+            // Need to get the value of
+            //
+            //   dispatch_rate / complete_rate ratio
+            //
+            // where
+            //
+            //   dispatch_rate = nr_dispatched / duration
+            //   complete_rate = nr_completed / duration
+            //
+            // The nr_$value here is ioq.$value - prev_$value and duration is the same
+            // (config::flow_monitor_period), so the instant value of what we want is
+            //
+            //   nr_dispatched_delta / nr_completed_delta
+            auto instant = double(ioq._requests_dispatched - prev_dispatched) / double(ioq._requests_completed - prev_completed);
+            update_moving_average(flow_ratio, instant, ioq.get_config().flow_ratio_ema_factor);
+            prev_dispatched = ioq._requests_dispatched;
+            prev_completed = ioq._requests_completed;
+        }
+    }
+};
+
 void
 io_queue::complete_request(io_desc_read_write& desc) noexcept {
     _requests_executing--;
@@ -551,6 +593,7 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     : _priority_classes()
     , _group(std::move(group))
     , _sink(sink)
+    , _flow_mon(std::make_unique<flow_monitor>(*this))
 {
     auto& cfg = get_config();
     if (cfg.duplex) {

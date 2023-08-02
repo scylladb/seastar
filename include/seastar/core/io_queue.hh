@@ -109,6 +109,9 @@ private:
     size_t _requests_executing = 0;
     uint64_t _requests_dispatched = 0;
     uint64_t _requests_completed = 0;
+    struct flow_monitor;
+    std::unique_ptr<flow_monitor> _flow_mon;
+
 public:
 
     using clock_type = std::chrono::steady_clock;
@@ -137,6 +140,8 @@ public:
         float rate_factor = 1.0;
         std::chrono::duration<double> rate_limit_duration = std::chrono::milliseconds(1);
         size_t block_count_limit_min = 1;
+        std::chrono::milliseconds flow_monitor_period = std::chrono::milliseconds(100);
+        double flow_ratio_ema_factor = 0.95;
     };
 
     io_queue(io_group_ptr group, internal::io_sink& sink);
