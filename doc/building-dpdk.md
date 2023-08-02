@@ -8,4 +8,4 @@
 
 To run with the DPDK backend for a native stack give the seastar application `--dpdk-pmd 1` parameter.
 
-You can also configure DPDK as an [external package](README-DPDK.md).
+You can also configure DPDK as an [external package](/README-DPDK.md).
