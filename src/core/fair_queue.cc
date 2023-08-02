@@ -123,10 +123,6 @@ auto fair_group::grab_capacity(capacity_t cap) noexcept -> capacity_t {
     return _token_bucket.grab(cap);
 }
 
-void fair_group::release_capacity(capacity_t cap) noexcept {
-    _token_bucket.release(cap);
-}
-
 void fair_group::replenish_capacity(clock_type::time_point now) noexcept {
     _token_bucket.replenish(now);
 }
@@ -261,10 +257,6 @@ auto fair_queue::grab_pending_capacity(const fair_queue_entry& ent) noexcept -> 
         return grab_result::cant_preempt;
     }
 
-    if (cap < _pending->cap) {
-        _group.release_capacity(_pending->cap - cap); // FIXME -- replenish right at once?
-    }
-
     _pending.reset();
     return grab_result::grabbed;
 }
@@ -330,7 +322,6 @@ void fair_queue::queue(class_id id, fair_queue_entry& ent) noexcept {
 }
 
 void fair_queue::notify_request_finished(fair_queue_entry::capacity_t cap) noexcept {
-    _group.release_capacity(cap);
 }
 
 void fair_queue::notify_request_cancelled(fair_queue_entry& ent) noexcept {
