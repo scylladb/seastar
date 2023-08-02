@@ -112,6 +112,7 @@ private:
     struct flow_monitor;
     std::unique_ptr<flow_monitor> _flow_mon;
 
+    metrics::metric_groups _metric_groups;
 public:
 
     using clock_type = std::chrono::steady_clock;
