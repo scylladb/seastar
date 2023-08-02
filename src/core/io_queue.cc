@@ -579,6 +579,16 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
         _streams.emplace_back(*_group->_fgs[0], make_fair_queue_config(cfg, "rw"));
     }
     _flow_ratio_update.arm_periodic(std::chrono::duration_cast<std::chrono::milliseconds>(group->io_latency_goal() * cfg.flow_ratio_ticks));
+
+    namespace sm = seastar::metrics;
+    auto owner_l = sm::shard_label(this_shard_id());
+    auto mnt_l = sm::label("mountpoint")(mountpoint());
+    auto group_l = sm::label("iogroup")(to_sstring(_group->_allocated_on));
+    _metric_groups.add_group("io_queue", {
+        sm::make_gauge("flow_ratio", [this] { return _flow_ratio; },
+                sm::description("Ratio of dispatch rate to completion rate. Is expected to be 1.0+ growing larger on reactor stalls or (!) disk problems"),
+                { owner_l, mnt_l, group_l }),
+    });
 }
 
 fair_group::config io_group::make_fair_group_config(const io_queue::config& qcfg) noexcept {
