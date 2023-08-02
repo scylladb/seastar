@@ -539,6 +539,7 @@ const fair_group& get_fair_group(const io_queue& ioq, unsigned stream) {
 void
 io_queue::complete_request(io_desc_read_write& desc) noexcept {
     _requests_executing--;
+    _requests_completed++;
     _streams[desc.stream()].notify_request_finished(desc.capacity());
 }
 
@@ -1008,6 +1009,7 @@ void io_queue::poll_io_queue() {
 void io_queue::submit_request(io_desc_read_write* desc, internal::io_request req) noexcept {
     _queued_requests--;
     _requests_executing++;
+    _requests_dispatched++;
     _sink.submit(desc, std::move(req));
 }
 

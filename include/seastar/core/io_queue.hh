@@ -114,6 +114,8 @@ private:
     // decoupling and is temporary
     size_t _queued_requests = 0;
     size_t _requests_executing = 0;
+    uint64_t _requests_dispatched = 0;
+    uint64_t _requests_completed = 0;
 public:
 
     using clock_type = std::chrono::steady_clock;
