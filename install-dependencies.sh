@@ -131,6 +131,17 @@ centos8_packages=(
     gcc-toolset-11-libatomic-devel
 )
 
+centos9_packages=(
+    "${redhat_packages[@]}"
+    ninja-build
+    ragel
+    gcc-toolset-13-gcc
+    gcc-toolset-13-gcc-c++
+    gcc-toolset-13-libubsan-devel
+    gcc-toolset-13-libasan-devel
+    gcc-toolset-13-libatomic-devel
+)
+
 # 1) glibc 2.30-3 has sys/sdt.h (systemtap include)
 #    some old containers may contain glibc older,
 #    so enforce update on that one.
@@ -218,6 +229,9 @@ case "$ID" in
         elif [ "${VERSION_ID%%.*}" = "8" ]; then
             dnf install -y epel-release
             dnf install -y "${centos8_packages[@]}"
+        elif [ "${VERSION_ID%%.*}" = "9" ]; then
+            dnf install -y epel-release
+            dnf install -y "${centos9_packages[@]}"
         fi
     ;;
     opensuse-leap)
