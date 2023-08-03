@@ -968,6 +968,7 @@ reactor::task_queue::register_stats() {
 
 void
 reactor::task_queue::rename(sstring new_name, sstring new_shortname) {
+    assert(!new_name.empty());
     if (_name != new_name) {
         _name = new_name;
         if (new_shortname.empty()) {
