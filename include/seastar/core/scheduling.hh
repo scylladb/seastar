@@ -76,6 +76,20 @@ SEASTAR_MODULE_EXPORT_BEGIN
 /// \return a scheduling group that can be used on any shard
 future<scheduling_group> create_scheduling_group(sstring name, float shares) noexcept;
 
+/// Creates a scheduling group with a specified number of shares.
+///
+/// The operation is global and affects all shards. The returned scheduling
+/// group can then be used in any shard.
+///
+/// \param name A name that identifiers the group; will be used as a label
+///             in the group's metrics
+/// \param name A name that identifiers the group; will be printed in the
+///             logging message aside of the shard id
+/// \param shares number of shares of the CPU time allotted to the group;
+///              Use numbers in the 1-1000 range (but can go above).
+/// \return a scheduling group that can be used on any shard
+future<scheduling_group> create_scheduling_group(sstring name, sstring shortname, float shares) noexcept;
+
 /// Destroys a scheduling group.
 ///
 /// Destroys a \ref scheduling_group previously created with create_scheduling_group().
@@ -98,6 +112,18 @@ future<> destroy_scheduling_group(scheduling_group sg) noexcept;
 /// \param new_name The new name for the scheduling group.
 /// \return a future that is ready when the scheduling group has been renamed
 future<> rename_scheduling_group(scheduling_group sg, sstring new_name) noexcept;
+/// Rename scheduling group.
+///
+/// Renames a \ref scheduling_group previously created with create_scheduling_group().
+///
+/// The operation is global and affects all shards.
+/// The operation affects the exported statistics labels.
+///
+/// \param sg The scheduling group to be renamed
+/// \param new_name The new name for the scheduling group.
+/// \param new_shortname The new shortname for the scheduling group.
+/// \return a future that is ready when the scheduling group has been renamed
+future<> rename_scheduling_group(scheduling_group sg, sstring new_name, sstring new_shortname) noexcept;
 
 
 /**
@@ -265,6 +291,7 @@ public:
     constexpr scheduling_group() noexcept : _id(0) {} // must be constexpr for current_scheduling_group_holder
     bool active() const noexcept;
     const sstring& name() const noexcept;
+    const sstring& short_name() const noexcept;
     bool operator==(scheduling_group x) const noexcept { return _id == x._id; }
     bool operator!=(scheduling_group x) const noexcept { return _id != x._id; }
     bool is_main() const noexcept { return _id == 0; }
@@ -309,9 +336,9 @@ public:
     future<> update_io_bandwidth(uint64_t bandwidth) const;
 #endif
 
-    friend future<scheduling_group> create_scheduling_group(sstring name, float shares) noexcept;
+    friend future<scheduling_group> create_scheduling_group(sstring name, sstring shortname, float shares) noexcept;
     friend future<> destroy_scheduling_group(scheduling_group sg) noexcept;
-    friend future<> rename_scheduling_group(scheduling_group sg, sstring new_name) noexcept;
+    friend future<> rename_scheduling_group(scheduling_group sg, sstring new_name, sstring new_shortname) noexcept;
     friend class reactor;
     friend unsigned internal::scheduling_group_index(scheduling_group sg) noexcept;
     friend scheduling_group internal::scheduling_group_from_index(unsigned index) noexcept;
