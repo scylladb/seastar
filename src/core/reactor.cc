@@ -1850,9 +1850,11 @@ reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_opt
             auto close_fd = defer([fd] () noexcept { ::close(fd); });
             int o_direct_flag = _kernel_page_cache ? 0 : O_DIRECT;
             int r = ::fcntl(fd, F_SETFL, open_flags | o_direct_flag);
-            auto maybe_ret = wrap_syscall<int>(r);  // capture errno (should be EINVAL)
-            if (r == -1  && strict_o_direct && !is_tmpfs(fd)) {
-                return maybe_ret;
+            if (r == -1  && strict_o_direct) {
+                auto maybe_ret = wrap_syscall<int>(r);  // capture errno (should be EINVAL)
+                if (!is_tmpfs(fd)) {
+                    return maybe_ret;
+                }
             }
             if (fd != -1 && options.extent_allocation_size_hint && !_kernel_page_cache) {
                 fsxattr attr = {};
