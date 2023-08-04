@@ -1847,11 +1847,11 @@ reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_opt
             if (fd == -1) {
                 return wrap_syscall<int>(fd);
             }
+            auto close_fd = defer([fd] () noexcept { ::close(fd); });
             int o_direct_flag = _kernel_page_cache ? 0 : O_DIRECT;
             int r = ::fcntl(fd, F_SETFL, open_flags | o_direct_flag);
             auto maybe_ret = wrap_syscall<int>(r);  // capture errno (should be EINVAL)
             if (r == -1  && strict_o_direct && !is_tmpfs(fd)) {
-                ::close(fd);
                 return maybe_ret;
             }
             if (fd != -1 && options.extent_allocation_size_hint && !_kernel_page_cache) {
@@ -1872,6 +1872,7 @@ reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_opt
                     ::ioctl(fd, XFS_IOC_FSSETXATTR, &attr);
                 }
             }
+            close_fd.cancel();
             return wrap_syscall<int>(fd);
         }).then([&options, name = std::move(name), &open_flags] (syscall_result<int> sr) {
             sr.throw_fs_exception_if_error("open failed", name);
