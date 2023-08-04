@@ -1822,7 +1822,7 @@ future<file>
 reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_options options) noexcept {
     return do_with(static_cast<int>(flags), std::move(options), [this, nameref] (auto& open_flags, file_open_options& options) {
         sstring name(nameref);
-        return _thread_pool->submit<syscall_result<int>>([this, name, &open_flags, &options, strict_o_direct = _strict_o_direct, bypass_fsync = _bypass_fsync] () mutable {
+        return _thread_pool->submit<syscall_result_extra<struct stat>>([this, name, &open_flags, &options, strict_o_direct = _strict_o_direct, bypass_fsync = _bypass_fsync] () mutable {
             // We want O_DIRECT, except in three cases:
             //   - tmpfs (which doesn't support it, but works fine anyway)
             //   - strict_o_direct == false (where we forgive it being not supported)
@@ -1842,16 +1842,17 @@ reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_opt
             if (bypass_fsync) {
                 open_flags &= ~O_DSYNC;
             }
+            struct stat st;
             auto mode = static_cast<mode_t>(options.create_permissions);
             int fd = ::open(name.c_str(), open_flags, mode);
             if (fd == -1) {
-                return wrap_syscall<int>(fd);
+                return wrap_syscall(fd, st);
             }
             auto close_fd = defer([fd] () noexcept { ::close(fd); });
             int o_direct_flag = _kernel_page_cache ? 0 : O_DIRECT;
             int r = ::fcntl(fd, F_SETFL, open_flags | o_direct_flag);
             if (r == -1  && strict_o_direct) {
-                auto maybe_ret = wrap_syscall<int>(r);  // capture errno (should be EINVAL)
+                auto maybe_ret = wrap_syscall(r, st);  // capture errno (should be EINVAL)
                 if (!is_tmpfs(fd)) {
                     return maybe_ret;
                 }
@@ -1874,9 +1875,13 @@ reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_opt
                     ::ioctl(fd, XFS_IOC_FSSETXATTR, &attr);
                 }
             }
+            r = ::fstat(fd, &st);
+            if (r == -1) {
+                return wrap_syscall(r, st);
+            }
             close_fd.cancel();
-            return wrap_syscall<int>(fd);
-        }).then([&options, name = std::move(name), &open_flags] (syscall_result<int> sr) {
+            return wrap_syscall(fd, st);
+        }).then([&options, name = std::move(name), &open_flags] (syscall_result_extra<struct stat> sr) {
             sr.throw_fs_exception_if_error("open failed", name);
             return make_file_impl(sr.result, options, open_flags);
         }).then([] (shared_ptr<file_impl> impl) {
