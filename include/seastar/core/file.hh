@@ -170,7 +170,7 @@ public:
     friend class reactor;
 };
 
-future<shared_ptr<file_impl>> make_file_impl(int fd, file_open_options options, int oflags) noexcept;
+future<shared_ptr<file_impl>> make_file_impl(int fd, file_open_options options, int oflags, struct stat st) noexcept;
 
 /// \endcond
 

@@ -1023,8 +1023,7 @@ xfs_concurrency_from_kernel_version() {
 }
 
 future<shared_ptr<file_impl>>
-make_file_impl(int fd, file_open_options options, int flags) noexcept {
-    return engine().fstat(fd).then([fd, options = std::move(options), flags] (struct stat st) mutable {
+make_file_impl(int fd, file_open_options options, int flags, struct stat st) noexcept {
         auto st_dev = st.st_dev;
 
         if (S_ISBLK(st.st_mode)) {
@@ -1103,7 +1102,6 @@ make_file_impl(int fd, file_open_options options, int flags) noexcept {
                 return make_ready_future<shared_ptr<file_impl>>(make_shared<append_challenged_posix_file_impl>(fd, open_flags(flags), std::move(options), fsi, st_dev));
             });
         }
-    });
 }
 
 file::file(seastar::file_handle&& handle) noexcept
