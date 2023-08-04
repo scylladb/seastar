@@ -2338,9 +2338,18 @@ reactor::open_directory(std::string_view name) noexcept {
     // Allocating memory for a sstring can throw, hence the futurize_invoke
     return futurize_invoke([name, this] {
         auto oflags = O_DIRECTORY | O_CLOEXEC | O_RDONLY;
-        return _thread_pool->submit<syscall_result<int>>([name = sstring(name), oflags] {
-            return wrap_syscall<int>(::open(name.c_str(), oflags));
-        }).then([name = sstring(name), oflags] (syscall_result<int> sr) {
+        return _thread_pool->submit<syscall_result_extra<struct stat>>([name = sstring(name), oflags] {
+            struct stat st;
+            int fd = ::open(name.c_str(), oflags);
+            if (fd != -1) {
+                int r = ::fstat(fd, &st);
+                if (r == -1) {
+                    ::close(fd);
+                    fd = r;
+                }
+            }
+            return wrap_syscall(fd, st);
+        }).then([name = sstring(name), oflags] (syscall_result_extra<struct stat> sr) {
             sr.throw_fs_exception_if_error("open failed", name);
             return make_file_impl(sr.result, file_open_options(), oflags);
         }).then([] (shared_ptr<file_impl> file_impl) {
