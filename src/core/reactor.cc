@@ -2006,18 +2006,6 @@ timespec_to_time_point(const timespec& ts) {
     return std::chrono::system_clock::time_point(d);
 }
 
-future<struct stat>
-reactor::fstat(int fd) noexcept {
-    return _thread_pool->submit<syscall_result_extra<struct stat>>([fd] {
-        struct stat st;
-        auto ret = ::fstat(fd, &st);
-        return wrap_syscall(ret, st);
-    }).then([] (syscall_result_extra<struct stat> ret) {
-        ret.throw_if_error();
-        return make_ready_future<struct stat>(ret.extra);
-    });
-}
-
 future<int>
 reactor::inotify_add_watch(int fd, std::string_view path, uint32_t flags) {
     // Allocating memory for a sstring can throw, hence the futurize_invoke
