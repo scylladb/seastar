@@ -608,8 +608,8 @@ io_group::io_group(io_queue::config io_cfg, unsigned nr_queues)
         auto g_idx = _config.duplex ? idx : 0;
         auto max_cap = _fgs[g_idx]->maximum_capacity();
         for (unsigned shift = 0; ; shift++) {
-            auto ticket = internal::make_ticket(io_direction_and_length(idx, 1 << (shift + io_queue::block_size_shift)), _config);
-            auto cap = _fgs[g_idx]->ticket_capacity(ticket);
+            auto tokens = internal::request_tokens(io_direction_and_length(idx, 1 << (shift + io_queue::block_size_shift)), _config);
+            auto cap = _fgs[g_idx]->tokens_capacity(tokens);
             if (cap > max_cap) {
                 if (shift == 0) {
                     throw std::runtime_error("IO-group limits are too low");
@@ -872,7 +872,7 @@ stream_id io_queue::request_stream(io_direction_and_length dnl) const noexcept {
     return get_config().duplex ? dnl.rw_idx() : 0;
 }
 
-fair_queue_ticket internal::make_ticket(io_direction_and_length dnl, const io_queue::config& cfg) noexcept {
+double internal::request_tokens(io_direction_and_length dnl, const io_queue::config& cfg) noexcept {
     struct {
         unsigned weight;
         unsigned size;
@@ -888,11 +888,12 @@ fair_queue_ticket internal::make_ticket(io_direction_and_length dnl, const io_qu
     };
 
     const auto& m = mult[dnl.rw_idx()];
-    return fair_queue_ticket(m.weight, m.size * (dnl.length() >> io_queue::block_size_shift));
+
+    return double(m.weight) / cfg.req_count_rate + double(m.size) * (dnl.length() >> io_queue::block_size_shift) / cfg.blocks_count_rate;
 }
 
 fair_queue_entry::capacity_t io_queue::request_capacity(io_direction_and_length dnl) const noexcept {
-    return _streams[request_stream(dnl)].ticket_capacity(internal::make_ticket(dnl, get_config()));
+    return _streams[request_stream(dnl)].tokens_capacity(internal::request_tokens(dnl, get_config()));
 }
 
 io_queue::request_limits io_queue::get_request_limits() const noexcept {

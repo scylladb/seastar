@@ -222,6 +222,11 @@ public:
         return (double)cap / fixed_point_factor / token_bucket_t::rate_cast(std::chrono::seconds(1)).count();
     }
 
+    // Convert floating-point tokens into the token bucket capacity
+    static capacity_t tokens_capacity(double tokens) noexcept {
+        return tokens * token_bucket_t::rate_cast(std::chrono::seconds(1)).count() * fixed_point_factor;
+    }
+
     auto capacity_duration(capacity_t cap) const noexcept {
         return _token_bucket.duration_for(cap);
     }
@@ -391,6 +396,10 @@ public:
 
     capacity_t ticket_capacity(fair_queue_ticket ticket) const noexcept {
         return _group.ticket_capacity(ticket);
+    }
+
+    capacity_t tokens_capacity(double tokens) const noexcept {
+        return _group.tokens_capacity(tokens);
     }
 
     /// Queue the entry \c ent through this class' \ref fair_queue
