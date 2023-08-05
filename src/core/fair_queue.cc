@@ -420,8 +420,8 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         }
         h._accumulated += req_cost;
         h._pure_accumulated += req_cap;
+        dispatched += req_cap;
 
-        dispatched += _group.ticket_capacity(req._ticket);
         cb(req);
 
         if (h._plugged && !h._queue.empty()) {
