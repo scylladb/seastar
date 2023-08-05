@@ -148,10 +148,6 @@ auto fair_group::capacity_deficiency(capacity_t from) const noexcept -> capacity
     return _token_bucket.deficiency(from);
 }
 
-auto fair_group::ticket_capacity(fair_queue_ticket t) const noexcept -> capacity_t {
-    return t.normalize(_cost_capacity) * fixed_point_factor;
-}
-
 // Priority class, to be used with a given fair_queue
 class fair_queue::priority_class_data {
     friend class fair_queue;
