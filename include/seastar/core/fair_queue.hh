@@ -261,7 +261,6 @@ public:
     void maybe_replenish_capacity(clock_type::time_point& local_ts) noexcept;
 
     capacity_t capacity_deficiency(capacity_t from) const noexcept;
-    capacity_t ticket_capacity(fair_queue_ticket ticket) const noexcept;
 
     std::chrono::duration<double> rate_limit_duration() const noexcept {
         std::chrono::duration<double, rate_resolution> dur((double)_token_bucket.limit() / _token_bucket.rate());
@@ -391,10 +390,6 @@ public:
 
     /// \return the amount of resources (weight, size) currently executing
     fair_queue_ticket resources_currently_executing() const;
-
-    capacity_t ticket_capacity(fair_queue_ticket ticket) const noexcept {
-        return _group.ticket_capacity(ticket);
-    }
 
     capacity_t tokens_capacity(double tokens) const noexcept {
         return _group.tokens_capacity(tokens);
