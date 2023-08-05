@@ -174,6 +174,7 @@ public:
     void poll_io_queue();
 
     clock_type::time_point next_pending_aio() const noexcept;
+    fair_queue_entry::capacity_t request_capacity(internal::io_direction_and_length dnl) const noexcept;
 
     sstring mountpoint() const;
     dev_t dev_id() const noexcept;

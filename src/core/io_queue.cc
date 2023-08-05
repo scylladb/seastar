@@ -891,6 +891,10 @@ fair_queue_ticket internal::make_ticket(io_direction_and_length dnl, const io_qu
     return fair_queue_ticket(m.weight, m.size * (dnl.length() >> io_queue::block_size_shift));
 }
 
+fair_queue_entry::capacity_t io_queue::request_capacity(io_direction_and_length dnl) const noexcept {
+    return _streams[request_stream(dnl)].ticket_capacity(internal::make_ticket(dnl, get_config()));
+}
+
 io_queue::request_limits io_queue::get_request_limits() const noexcept {
     request_limits l;
     l.max_read = align_down<size_t>(std::min<size_t>(get_config().disk_read_saturation_length, _group->_max_request_length[io_direction_read]), 1 << block_size_shift);
@@ -903,7 +907,7 @@ future<size_t> io_queue::queue_one_request(internal::priority_class pc, io_direc
         // First time will hit here, and then we create the class. It is important
         // that we create the shared pointer in the same shard it will be used at later.
         auto& pclass = find_or_create_class(pc);
-        auto cap = _streams[request_stream(dnl)].ticket_capacity(internal::make_ticket(dnl, get_config()));
+        auto cap = request_capacity(dnl);
         auto queued_req = std::make_unique<queued_io_request>(std::move(req), *this, cap, pclass, std::move(dnl), std::move(iovs));
         auto fut = queued_req->get_future();
         if (intent != nullptr) {
