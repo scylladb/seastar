@@ -240,12 +240,11 @@ public:
          * must accept those as large as the latter pair (but it can accept
          * even larger values, of course)
          */
-        unsigned min_weight = 0;
-        unsigned min_size = 0;
         unsigned limit_min_weight = 0;
         unsigned limit_min_size = 0;
         unsigned long weight_rate;
         unsigned long size_rate;
+        double min_tokens = 0.0;
         float rate_factor = 1.0;
         std::chrono::duration<double> rate_limit_duration = std::chrono::milliseconds(1);
     };
