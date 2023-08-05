@@ -233,7 +233,7 @@ inline dev_t io_queue::dev_id() const noexcept {
 }
 
 namespace internal {
-fair_queue_ticket make_ticket(io_direction_and_length dnl, const io_queue::config& cfg) noexcept;
+double request_tokens(io_direction_and_length dnl, const io_queue::config& cfg) noexcept;
 }
 
 }
