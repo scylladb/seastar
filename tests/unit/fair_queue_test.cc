@@ -133,7 +133,7 @@ public:
 
     void do_op(fair_queue::class_id id, unsigned weight) {
         unsigned index = id;
-        auto cap = fair_queue_ticket(weight, 0);
+        auto cap = _fq.ticket_capacity(fair_queue_ticket(weight, 0));
         auto req = std::make_unique<request>(cap, index, [this, index] (request& req) mutable noexcept {
             try {
                 _inflight.push_back(std::move(req));
