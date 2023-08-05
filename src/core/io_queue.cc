@@ -567,8 +567,9 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
 fair_group::config io_group::make_fair_group_config(const io_queue::config& qcfg) noexcept {
     fair_group::config cfg;
     cfg.label = fmt::format("io-queue-{}", qcfg.devid);
-    cfg.min_weight = std::min(io_queue::read_request_base_count, qcfg.disk_req_write_to_read_multiplier);
-    cfg.min_size = std::min(io_queue::read_request_base_count, qcfg.disk_blocks_write_to_read_multiplier);
+    double min_weight = std::min(io_queue::read_request_base_count, qcfg.disk_req_write_to_read_multiplier);
+    double min_size = std::min(io_queue::read_request_base_count, qcfg.disk_blocks_write_to_read_multiplier);
+    cfg.min_tokens = min_weight / qcfg.req_count_rate + min_size / qcfg.blocks_count_rate;
     cfg.limit_min_weight = std::max(io_queue::read_request_base_count, qcfg.disk_req_write_to_read_multiplier);
     cfg.limit_min_size = std::max(io_queue::read_request_base_count, qcfg.disk_blocks_write_to_read_multiplier) * qcfg.block_count_limit_min;
     cfg.weight_rate = qcfg.req_count_rate;

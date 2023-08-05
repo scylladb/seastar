@@ -106,7 +106,7 @@ fair_group::fair_group(config cfg, unsigned nr_queues)
         : _cost_capacity(cfg.weight_rate / token_bucket_t::rate_cast(std::chrono::seconds(1)).count(), cfg.size_rate / token_bucket_t::rate_cast(std::chrono::seconds(1)).count())
         , _token_bucket(cfg.rate_factor * fixed_point_factor,
                         std::max<capacity_t>(cfg.rate_factor * fixed_point_factor * token_bucket_t::rate_cast(cfg.rate_limit_duration).count(), ticket_capacity(fair_queue_ticket(cfg.limit_min_weight, cfg.limit_min_size))),
-                        ticket_capacity(fair_queue_ticket(cfg.min_weight, cfg.min_size))
+                        tokens_capacity(cfg.min_tokens)
                        )
         , _per_tick_threshold(_token_bucket.limit() / nr_queues)
 {
@@ -116,7 +116,7 @@ fair_group::fair_group(config cfg, unsigned nr_queues)
         throw std::runtime_error("Fair-group rate_factor is too large");
     }
 
-    if (ticket_capacity(fair_queue_ticket(cfg.min_weight, cfg.min_size)) > _token_bucket.threshold()) {
+    if (tokens_capacity(cfg.min_tokens) > _token_bucket.threshold()) {
         throw std::runtime_error("Fair-group replenisher limit is lower than threshold");
     }
 }
