@@ -337,9 +337,9 @@ void fair_queue::queue(class_id id, fair_queue_entry& ent) noexcept {
     _resources_queued += ent._ticket;
 }
 
-void fair_queue::notify_request_finished(fair_queue_ticket desc) noexcept {
-    _resources_executing -= desc;
-    _group.release_capacity(_group.ticket_capacity(desc));
+void fair_queue::notify_request_finished(fair_queue_entry::capacity_t cap) noexcept {
+    _resources_executing -= cap;
+    _group.release_capacity(_group.ticket_capacity(cap));
 }
 
 void fair_queue::notify_request_cancelled(fair_queue_entry& ent) noexcept {
