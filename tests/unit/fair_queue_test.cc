@@ -42,8 +42,8 @@ struct request {
     unsigned index;
 
     template <typename Func>
-    request(fair_queue_ticket ticket, unsigned index, Func&& h)
-        : fqent(ticket)
+    request(fair_queue_entry::capacity_t cap, unsigned index, Func&& h)
+        : fqent(cap)
         , handle(std::move(h))
         , index(index)
     {}
@@ -106,7 +106,7 @@ public:
             for (auto& req : curr) {
                 processed++;
                 _results[req.index]++;
-                _fq.notify_request_finished(req.fqent.ticket());
+                _fq.notify_request_finished(req.fqent.capacity());
             }
 
             _fg.replenish_capacity(_fg.replenished_ts() + std::chrono::microseconds(1));
@@ -133,14 +133,14 @@ public:
 
     void do_op(fair_queue::class_id id, unsigned weight) {
         unsigned index = id;
-        auto ticket = fair_queue_ticket(weight, 0);
-        auto req = std::make_unique<request>(ticket, index, [this, index] (request& req) mutable noexcept {
+        auto cap = fair_queue_ticket(weight, 0);
+        auto req = std::make_unique<request>(cap, index, [this, index] (request& req) mutable noexcept {
             try {
                 _inflight.push_back(std::move(req));
             } catch (...) {
                 auto eptr = std::current_exception();
                 _exceptions[index].push_back(eptr);
-                _fq.notify_request_finished(req.fqent.ticket());
+                _fq.notify_request_finished(req.fqent.capacity());
             }
         });
 

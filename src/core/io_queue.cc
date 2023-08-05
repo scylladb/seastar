@@ -220,21 +220,21 @@ class io_desc_read_write final : public io_completion {
     io_queue::clock_type::time_point _ts;
     const stream_id _stream;
     const io_direction_and_length _dnl;
-    const fair_queue_ticket _fq_ticket;
+    const fair_queue_entry::capacity_t _fq_capacity;
     promise<size_t> _pr;
     iovec_keeper _iovs;
 
 public:
-    io_desc_read_write(io_queue& ioq, io_queue::priority_class_data& pc, stream_id stream, io_direction_and_length dnl, fair_queue_ticket ticket, iovec_keeper iovs)
+    io_desc_read_write(io_queue& ioq, io_queue::priority_class_data& pc, stream_id stream, io_direction_and_length dnl, fair_queue_entry::capacity_t cap, iovec_keeper iovs)
         : _ioq(ioq)
         , _pclass(pc)
         , _ts(io_queue::clock_type::now())
         , _stream(stream)
         , _dnl(dnl)
-        , _fq_ticket(ticket)
+        , _fq_capacity(cap)
         , _iovs(std::move(iovs))
     {
-        io_log.trace("dev {} : req {} queue  len {} ticket {}", _ioq.dev_id(), fmt::ptr(this), _dnl.length(), _fq_ticket);
+        io_log.trace("dev {} : req {} queue  len {} capacity {}", _ioq.dev_id(), fmt::ptr(this), _dnl.length(), _fq_capacity);
     }
 
     virtual void set_exception(std::exception_ptr eptr) noexcept override {
@@ -271,7 +271,7 @@ public:
         return _pr.get_future();
     }
 
-    fair_queue_ticket ticket() const noexcept { return _fq_ticket; }
+    fair_queue_entry::capacity_t capacity() const noexcept { return _fq_capacity; }
     stream_id stream() const noexcept { return _stream; }
 };
 
@@ -285,12 +285,12 @@ class queued_io_request : private internal::io_request {
     bool is_cancelled() const noexcept { return !_desc; }
 
 public:
-    queued_io_request(internal::io_request req, io_queue& q, fair_queue_ticket ticket, io_queue::priority_class_data& pc, io_direction_and_length dnl, iovec_keeper iovs)
+    queued_io_request(internal::io_request req, io_queue& q, fair_queue_entry::capacity_t cap, io_queue::priority_class_data& pc, io_direction_and_length dnl, iovec_keeper iovs)
         : io_request(std::move(req))
         , _ioq(q)
         , _stream(_ioq.request_stream(dnl))
-        , _fq_entry(ticket)
-        , _desc(std::make_unique<io_desc_read_write>(_ioq, pc, _stream, dnl, ticket, std::move(iovs)))
+        , _fq_entry(cap)
+        , _desc(std::make_unique<io_desc_read_write>(_ioq, pc, _stream, dnl, cap, std::move(iovs)))
     {
     }
 
@@ -539,7 +539,7 @@ const fair_group& get_fair_group(const io_queue& ioq, unsigned stream) {
 void
 io_queue::complete_request(io_desc_read_write& desc) noexcept {
     _requests_executing--;
-    _streams[desc.stream()].notify_request_finished(desc.ticket());
+    _streams[desc.stream()].notify_request_finished(desc.capacity());
 }
 
 fair_queue::config io_queue::make_fair_queue_config(const config& iocfg, sstring label) {
@@ -903,8 +903,8 @@ future<size_t> io_queue::queue_one_request(internal::priority_class pc, io_direc
         // First time will hit here, and then we create the class. It is important
         // that we create the shared pointer in the same shard it will be used at later.
         auto& pclass = find_or_create_class(pc);
-        auto ticket = internal::make_ticket(dnl, get_config());
-        auto queued_req = std::make_unique<queued_io_request>(std::move(req), *this, ticket, pclass, std::move(dnl), std::move(iovs));
+        auto cap = internal::make_ticket(dnl, get_config());
+        auto queued_req = std::make_unique<queued_io_request>(std::move(req), *this, cap, pclass, std::move(dnl), std::move(iovs));
         auto fut = queued_req->get_future();
         if (intent != nullptr) {
             auto& cq = intent->find_or_create_cancellable_queue(dev_id(), pc.id());
@@ -1012,7 +1012,7 @@ void io_queue::cancel_request(queued_io_request& req) noexcept {
 }
 
 void io_queue::complete_cancelled_request(queued_io_request& req) noexcept {
-    _streams[req.stream()].notify_request_finished(req.queue_entry().ticket());
+    _streams[req.stream()].notify_request_finished(req.queue_entry().capacity());
 }
 
 io_queue::clock_type::time_point io_queue::next_pending_aio() const noexcept {
