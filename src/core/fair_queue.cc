@@ -191,8 +191,6 @@ fair_queue::fair_queue(fair_queue&& other)
     , _group_replenish(std::move(other._group_replenish))
     , _resources_executing(std::exchange(other._resources_executing, fair_queue_ticket{}))
     , _resources_queued(std::exchange(other._resources_queued, fair_queue_ticket{}))
-    , _requests_executing(std::exchange(other._requests_executing, 0))
-    , _requests_queued(std::exchange(other._requests_queued, 0))
     , _handles(std::move(other._handles))
     , _priority_classes(std::move(other._priority_classes))
     , _last_accumulated(other._last_accumulated)
@@ -321,14 +319,6 @@ void fair_queue::update_shares_for_class(class_id id, uint32_t shares) {
     pc->update_shares(shares);
 }
 
-size_t fair_queue::waiters() const {
-    return _requests_queued;
-}
-
-size_t fair_queue::requests_currently_executing() const {
-    return _requests_executing;
-}
-
 fair_queue_ticket fair_queue::resources_currently_waiting() const {
     return _resources_queued;
 }
@@ -347,12 +337,10 @@ void fair_queue::queue(class_id id, fair_queue_entry& ent) noexcept {
     }
     pc._queue.push_back(ent);
     _resources_queued += ent._ticket;
-    _requests_queued++;
 }
 
 void fair_queue::notify_request_finished(fair_queue_ticket desc) noexcept {
     _resources_executing -= desc;
-    _requests_executing--;
     _group.release_capacity(_group.ticket_capacity(desc));
 }
 
@@ -410,8 +398,6 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
 
         _resources_executing += req._ticket;
         _resources_queued -= req._ticket;
-        _requests_executing++;
-        _requests_queued--;
 
         // Usually the cost of request is tens to hundreeds of thousands. However, for
         // unrestricted queue it can be as low as 2k. With large enough shares this
