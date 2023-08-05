@@ -214,7 +214,6 @@ private:
      * into more tokens in the bucket.
      */
 
-    const fair_queue_ticket _cost_capacity;
     token_bucket_t _token_bucket;
     const capacity_t _per_tick_threshold;
 
@@ -243,8 +242,6 @@ public:
          * must accept those as large as the latter pair (but it can accept
          * even larger values, of course)
          */
-        unsigned long weight_rate;
-        unsigned long size_rate;
         double min_tokens = 0.0;
         double limit_min_tokens = 0.0;
         float rate_factor = 1.0;
@@ -254,7 +251,6 @@ public:
     explicit fair_group(config cfg, unsigned nr_queues);
     fair_group(fair_group&&) = delete;
 
-    fair_queue_ticket cost_capacity() const noexcept { return _cost_capacity; }
     capacity_t maximum_capacity() const noexcept { return _token_bucket.limit(); }
     capacity_t per_tick_grab_threshold() const noexcept { return _per_tick_threshold; }
     capacity_t grab_capacity(capacity_t cap) noexcept;

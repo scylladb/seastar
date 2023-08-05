@@ -573,8 +573,6 @@ fair_group::config io_group::make_fair_group_config(const io_queue::config& qcfg
     double limit_min_weight = std::max(io_queue::read_request_base_count, qcfg.disk_req_write_to_read_multiplier);
     double limit_min_size = std::max(io_queue::read_request_base_count, qcfg.disk_blocks_write_to_read_multiplier) * qcfg.block_count_limit_min;
     cfg.limit_min_tokens = limit_min_weight / qcfg.req_count_rate + limit_min_size / qcfg.blocks_count_rate;
-    cfg.weight_rate = qcfg.req_count_rate;
-    cfg.size_rate = qcfg.blocks_count_rate;
     cfg.rate_factor = qcfg.rate_factor;
     cfg.rate_limit_duration = qcfg.rate_limit_duration;
     return cfg;
