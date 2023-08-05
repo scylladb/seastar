@@ -104,22 +104,25 @@ public:
 
 class fair_queue_entry {
 public:
-    using capacity_t = fair_queue_ticket;
+    // The capacity_t represents tokens each entry needs to get dispatched, in
+    // a 'normalized' form -- converted from floating-point to fixed-point number
+    // and scaled accrding to fair-group's token-bucket duration
+    using capacity_t = uint64_t;
     friend class fair_queue;
 
 private:
-    fair_queue_ticket _ticket;
+    capacity_t _capacity;
     bi::slist_member_hook<> _hook;
 
 public:
-    fair_queue_entry(fair_queue_ticket t) noexcept
-        : _ticket(std::move(t)) {}
+    fair_queue_entry(capacity_t c) noexcept
+        : _capacity(c) {}
     using container_list_t = bi::slist<fair_queue_entry,
             bi::constant_time_size<false>,
             bi::cache_last<true>,
             bi::member_hook<fair_queue_entry, bi::slist_member_hook<>, &fair_queue_entry::_hook>>;
 
-    fair_queue_ticket capacity() const noexcept { return _ticket; }
+    capacity_t capacity() const noexcept { return _capacity; }
 };
 
 /// \brief Group of queues class
@@ -134,7 +137,7 @@ public:
 /// the given time frame exceeds the disk throughput.
 class fair_group {
 public:
-    using capacity_t = uint64_t;
+    using capacity_t = fair_queue_entry::capacity_t;
     using clock_type = std::chrono::steady_clock;
 
     /*
@@ -388,6 +391,10 @@ public:
 
     /// \return the amount of resources (weight, size) currently executing
     fair_queue_ticket resources_currently_executing() const;
+
+    capacity_t ticket_capacity(fair_queue_ticket ticket) const noexcept {
+        return _group.ticket_capacity(ticket);
+    }
 
     /// Queue the entry \c ent through this class' \ref fair_queue
     ///

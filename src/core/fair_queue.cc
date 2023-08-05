@@ -263,7 +263,7 @@ auto fair_queue::grab_pending_capacity(const fair_queue_entry& ent) noexcept -> 
         return grab_result::pending;
     }
 
-    capacity_t cap = _group.ticket_capacity(ent._ticket);
+    capacity_t cap = ent._capacity;
     if (cap > _pending->cap) {
         return grab_result::cant_preempt;
     }
@@ -281,7 +281,7 @@ auto fair_queue::grab_capacity(const fair_queue_entry& ent) noexcept -> grab_res
         return grab_pending_capacity(ent);
     }
 
-    capacity_t cap = _group.ticket_capacity(ent._ticket);
+    capacity_t cap = ent._capacity;
     capacity_t want_head = _group.grab_capacity(cap);
     if (_group.capacity_deficiency(want_head)) {
         _pending.emplace(want_head, cap);
@@ -334,17 +334,14 @@ void fair_queue::queue(class_id id, fair_queue_entry& ent) noexcept {
         push_priority_class_from_idle(pc);
     }
     pc._queue.push_back(ent);
-    _resources_queued += ent._ticket;
 }
 
 void fair_queue::notify_request_finished(fair_queue_entry::capacity_t cap) noexcept {
-    _resources_executing -= cap;
-    _group.release_capacity(_group.ticket_capacity(cap));
+    _group.release_capacity(cap);
 }
 
 void fair_queue::notify_request_cancelled(fair_queue_entry& ent) noexcept {
-    _resources_queued -= ent._ticket;
-    ent._ticket = fair_queue_ticket();
+    ent._capacity = 0;
 }
 
 fair_queue::clock_type::time_point fair_queue::next_pending_aio() const noexcept {
@@ -394,14 +391,11 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         pop_priority_class(h);
         h._queue.pop_front();
 
-        _resources_executing += req._ticket;
-        _resources_queued -= req._ticket;
-
         // Usually the cost of request is tens to hundreeds of thousands. However, for
         // unrestricted queue it can be as low as 2k. With large enough shares this
         // has chances to be translated into zero cost which, in turn, will make the
         // class show no progress and monopolize the queue.
-        auto req_cap = _group.ticket_capacity(req._ticket);
+        auto req_cap = req._capacity;
         auto req_cost  = std::max(req_cap / h._shares, (capacity_t)1);
         // signed overflow check to make push_priority_class_from_idle math work
         if (h._accumulated >= std::numeric_limits<signed_capacity_t>::max() - req_cost) {

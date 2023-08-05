@@ -103,7 +103,7 @@ future<> perf_fair_queue::test(bool loc) {
 
     auto invokers = local_fq.invoke_on_all([loc] (local_fq_and_class& local) {
         return parallel_for_each(boost::irange(0u, requests_to_dispatch), [&local, loc] (unsigned dummy) {
-            auto cap = fair_queue_ticket(1, 1);
+            auto cap = local.queue(loc).ticket_capacity(fair_queue_ticket(1, 1));
             auto req = std::make_unique<local_fq_entry>(cap, [&local, loc, cap] {
                 local.executed++;
                 local.queue(loc).notify_request_finished(cap);

@@ -903,7 +903,7 @@ future<size_t> io_queue::queue_one_request(internal::priority_class pc, io_direc
         // First time will hit here, and then we create the class. It is important
         // that we create the shared pointer in the same shard it will be used at later.
         auto& pclass = find_or_create_class(pc);
-        auto cap = internal::make_ticket(dnl, get_config());
+        auto cap = _streams[request_stream(dnl)].ticket_capacity(internal::make_ticket(dnl, get_config()));
         auto queued_req = std::make_unique<queued_io_request>(std::move(req), *this, cap, pclass, std::move(dnl), std::move(iovs));
         auto fut = queued_req->get_future();
         if (intent != nullptr) {
