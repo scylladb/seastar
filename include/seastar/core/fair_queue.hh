@@ -322,8 +322,6 @@ private:
     clock_type::time_point _group_replenish;
     fair_queue_ticket _resources_executing;
     fair_queue_ticket _resources_queued;
-    unsigned _requests_executing = 0;
-    unsigned _requests_queued = 0;
     priority_queue _handles;
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
     size_t _nr_classes = 0;
@@ -379,14 +377,6 @@ public:
     void unregister_priority_class(class_id c);
 
     void update_shares_for_class(class_id c, uint32_t new_shares);
-
-    /// \return how many waiters are currently queued for all classes.
-    [[deprecated("fair_queue users should not track individual requests, but resources (weight, size) passing through the queue")]]
-    size_t waiters() const;
-
-    /// \return the number of requests currently executing
-    [[deprecated("fair_queue users should not track individual requests, but resources (weight, size) passing through the queue")]]
-    size_t requests_currently_executing() const;
 
     /// \return how much resources (weight, size) are currently queued for all classes.
     fair_queue_ticket resources_currently_waiting() const;
