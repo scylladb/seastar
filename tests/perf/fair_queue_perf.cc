@@ -66,8 +66,8 @@ struct local_fq_entry {
     std::function<void()> submit;
 
     template <typename Func>
-    local_fq_entry(unsigned weight, unsigned index, Func&& f)
-        : ent(seastar::fair_queue_ticket(weight, index))
+    local_fq_entry(fair_queue_ticket ticket, Func&& f)
+        : ent(ticket)
         , submit(std::move(f)) {}
 };
 
@@ -103,9 +103,10 @@ future<> perf_fair_queue::test(bool loc) {
 
     auto invokers = local_fq.invoke_on_all([loc] (local_fq_and_class& local) {
         return parallel_for_each(boost::irange(0u, requests_to_dispatch), [&local, loc] (unsigned dummy) {
-            auto req = std::make_unique<local_fq_entry>(1, 1, [&local, loc] {
+            auto ticket = fair_queue_ticket(1, 1);
+            auto req = std::make_unique<local_fq_entry>(ticket, [&local, loc, ticket] {
                 local.executed++;
-                local.queue(loc).notify_request_finished(seastar::fair_queue_ticket{1, 1});
+                local.queue(loc).notify_request_finished(ticket);
             });
             local.queue(loc).queue(cid, req->ent);
             req.release();

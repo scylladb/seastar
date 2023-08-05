@@ -285,12 +285,12 @@ class queued_io_request : private internal::io_request {
     bool is_cancelled() const noexcept { return !_desc; }
 
 public:
-    queued_io_request(internal::io_request req, io_queue& q, io_queue::priority_class_data& pc, io_direction_and_length dnl, iovec_keeper iovs)
+    queued_io_request(internal::io_request req, io_queue& q, fair_queue_ticket ticket, io_queue::priority_class_data& pc, io_direction_and_length dnl, iovec_keeper iovs)
         : io_request(std::move(req))
         , _ioq(q)
         , _stream(_ioq.request_stream(dnl))
-        , _fq_entry(internal::make_ticket(dnl, _ioq.get_config()))
-        , _desc(std::make_unique<io_desc_read_write>(_ioq, pc, _stream, dnl, _fq_entry.ticket(), std::move(iovs)))
+        , _fq_entry(ticket)
+        , _desc(std::make_unique<io_desc_read_write>(_ioq, pc, _stream, dnl, ticket, std::move(iovs)))
     {
     }
 
@@ -903,7 +903,8 @@ future<size_t> io_queue::queue_one_request(internal::priority_class pc, io_direc
         // First time will hit here, and then we create the class. It is important
         // that we create the shared pointer in the same shard it will be used at later.
         auto& pclass = find_or_create_class(pc);
-        auto queued_req = std::make_unique<queued_io_request>(std::move(req), *this, pclass, std::move(dnl), std::move(iovs));
+        auto ticket = internal::make_ticket(dnl, get_config());
+        auto queued_req = std::make_unique<queued_io_request>(std::move(req), *this, ticket, pclass, std::move(dnl), std::move(iovs));
         auto fut = queued_req->get_future();
         if (intent != nullptr) {
             auto& cq = intent->find_or_create_cancellable_queue(dev_id(), pc.id());

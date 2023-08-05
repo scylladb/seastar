@@ -42,8 +42,8 @@ struct request {
     unsigned index;
 
     template <typename Func>
-    request(unsigned weight, unsigned index, Func&& h)
-        : fqent(fair_queue_ticket(weight, 0))
+    request(fair_queue_ticket ticket, unsigned index, Func&& h)
+        : fqent(ticket)
         , handle(std::move(h))
         , index(index)
     {}
@@ -133,7 +133,8 @@ public:
 
     void do_op(fair_queue::class_id id, unsigned weight) {
         unsigned index = id;
-        auto req = std::make_unique<request>(weight, index, [this, index] (request& req) mutable noexcept {
+        auto ticket = fair_queue_ticket(weight, 0);
+        auto req = std::make_unique<request>(ticket, index, [this, index] (request& req) mutable noexcept {
             try {
                 _inflight.push_back(std::move(req));
             } catch (...) {
