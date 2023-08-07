@@ -1087,6 +1087,8 @@ std::vector<network_interface> posix_network_stack::network_interfaces() {
                                 break;
                             }
                         }
+
+                        break;
                     }
                     default:
                         break;

@@ -151,7 +151,10 @@ public:
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wmisleading-indentation"
 #endif
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wimplicit-fallthrough"
         %% write exec;
+#pragma GCC diagnostic pop
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif
