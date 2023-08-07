@@ -4171,7 +4171,7 @@ unsigned smp::adjust_max_networking_aio_io_control_blocks(unsigned network_iocbs
     auto network_iocbs_old = network_iocbs;
 
     if (available_aio < requested_aio) {
-        seastar_logger.warn("Requested AIO slots too large, please increase request capacity in /proc/sys/fs/aio-max-nr. available:{} requested:{}", available_aio, requested_aio);
+        seastar_logger.warn("Requested AIO slots too large, please increase request capacity in /proc/sys/fs/aio-max-nr. configured:{} available:{} requested:{}", aio_max_nr, available_aio, requested_aio);
         if (available_aio >= requested_aio_other + smp::count) { // at least one queue for each shard
             network_iocbs = (available_aio - requested_aio_other) / smp::count;
             seastar_logger.warn("max-networking-io-control-blocks adjusted from {} to {}, since AIO slots are unavailable", network_iocbs_old, network_iocbs);
