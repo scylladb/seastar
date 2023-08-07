@@ -702,9 +702,8 @@ private:
     friend future<typename function_traits<Reducer>::return_type>
         reduce_scheduling_group_specific(Reducer reducer, Initial initial_val, scheduling_group_key key);
 
-    future<struct stat> fstat(int fd) noexcept;
     future<struct statfs> fstatfs(int fd) noexcept;
-    friend future<shared_ptr<file_impl>> make_file_impl(int fd, file_open_options options, int flags) noexcept;
+    friend future<shared_ptr<file_impl>> make_file_impl(int fd, file_open_options options, int flags, struct stat st) noexcept;
 public:
     future<> readable(pollable_fd_state& fd);
     future<> writeable(pollable_fd_state& fd);

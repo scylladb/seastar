@@ -1822,7 +1822,7 @@ future<file>
 reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_options options) noexcept {
     return do_with(static_cast<int>(flags), std::move(options), [this, nameref] (auto& open_flags, file_open_options& options) {
         sstring name(nameref);
-        return _thread_pool->submit<syscall_result<int>>([this, name, &open_flags, &options, strict_o_direct = _strict_o_direct, bypass_fsync = _bypass_fsync] () mutable {
+        return _thread_pool->submit<syscall_result_extra<struct stat>>([this, name, &open_flags, &options, strict_o_direct = _strict_o_direct, bypass_fsync = _bypass_fsync] () mutable {
             // We want O_DIRECT, except in three cases:
             //   - tmpfs (which doesn't support it, but works fine anyway)
             //   - strict_o_direct == false (where we forgive it being not supported)
@@ -1842,17 +1842,20 @@ reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_opt
             if (bypass_fsync) {
                 open_flags &= ~O_DSYNC;
             }
+            struct stat st;
             auto mode = static_cast<mode_t>(options.create_permissions);
             int fd = ::open(name.c_str(), open_flags, mode);
             if (fd == -1) {
-                return wrap_syscall<int>(fd);
+                return wrap_syscall(fd, st);
             }
+            auto close_fd = defer([fd] () noexcept { ::close(fd); });
             int o_direct_flag = _kernel_page_cache ? 0 : O_DIRECT;
             int r = ::fcntl(fd, F_SETFL, open_flags | o_direct_flag);
-            auto maybe_ret = wrap_syscall<int>(r);  // capture errno (should be EINVAL)
-            if (r == -1  && strict_o_direct && !is_tmpfs(fd)) {
-                ::close(fd);
-                return maybe_ret;
+            if (r == -1  && strict_o_direct) {
+                auto maybe_ret = wrap_syscall(r, st);  // capture errno (should be EINVAL)
+                if (!is_tmpfs(fd)) {
+                    return maybe_ret;
+                }
             }
             if (fd != -1 && options.extent_allocation_size_hint && !_kernel_page_cache) {
                 fsxattr attr = {};
@@ -1872,10 +1875,15 @@ reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_opt
                     ::ioctl(fd, XFS_IOC_FSSETXATTR, &attr);
                 }
             }
-            return wrap_syscall<int>(fd);
-        }).then([&options, name = std::move(name), &open_flags] (syscall_result<int> sr) {
+            r = ::fstat(fd, &st);
+            if (r == -1) {
+                return wrap_syscall(r, st);
+            }
+            close_fd.cancel();
+            return wrap_syscall(fd, st);
+        }).then([&options, name = std::move(name), &open_flags] (syscall_result_extra<struct stat> sr) {
             sr.throw_fs_exception_if_error("open failed", name);
-            return make_file_impl(sr.result, options, open_flags);
+            return make_file_impl(sr.result, options, open_flags, sr.extra);
         }).then([] (shared_ptr<file_impl> impl) {
             return make_ready_future<file>(std::move(impl));
         });
@@ -1996,18 +2004,6 @@ timespec_to_time_point(const timespec& ts) {
     auto d = std::chrono::duration_cast<std::chrono::system_clock::duration>(
             ts.tv_sec * 1s + ts.tv_nsec * 1ns);
     return std::chrono::system_clock::time_point(d);
-}
-
-future<struct stat>
-reactor::fstat(int fd) noexcept {
-    return _thread_pool->submit<syscall_result_extra<struct stat>>([fd] {
-        struct stat st;
-        auto ret = ::fstat(fd, &st);
-        return wrap_syscall(ret, st);
-    }).then([] (syscall_result_extra<struct stat> ret) {
-        ret.throw_if_error();
-        return make_ready_future<struct stat>(ret.extra);
-    });
 }
 
 future<int>
@@ -2330,11 +2326,20 @@ reactor::open_directory(std::string_view name) noexcept {
     // Allocating memory for a sstring can throw, hence the futurize_invoke
     return futurize_invoke([name, this] {
         auto oflags = O_DIRECTORY | O_CLOEXEC | O_RDONLY;
-        return _thread_pool->submit<syscall_result<int>>([name = sstring(name), oflags] {
-            return wrap_syscall<int>(::open(name.c_str(), oflags));
-        }).then([name = sstring(name), oflags] (syscall_result<int> sr) {
+        return _thread_pool->submit<syscall_result_extra<struct stat>>([name = sstring(name), oflags] {
+            struct stat st;
+            int fd = ::open(name.c_str(), oflags);
+            if (fd != -1) {
+                int r = ::fstat(fd, &st);
+                if (r == -1) {
+                    ::close(fd);
+                    fd = r;
+                }
+            }
+            return wrap_syscall(fd, st);
+        }).then([name = sstring(name), oflags] (syscall_result_extra<struct stat> sr) {
             sr.throw_fs_exception_if_error("open failed", name);
-            return make_file_impl(sr.result, file_open_options(), oflags);
+            return make_file_impl(sr.result, file_open_options(), oflags, sr.extra);
         }).then([] (shared_ptr<file_impl> file_impl) {
             return make_ready_future<file>(std::move(file_impl));
         });

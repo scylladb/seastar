@@ -206,7 +206,14 @@ posix_file_impl::flush() noexcept {
 
 future<struct stat>
 posix_file_impl::stat() noexcept {
-    return engine().fstat(_fd);
+    return engine()._thread_pool->submit<syscall_result_extra<struct stat>>([fd = _fd] {
+        struct stat st;
+        auto ret = ::fstat(fd, &st);
+        return wrap_syscall(ret, st);
+    }).then([] (syscall_result_extra<struct stat> ret) {
+        ret.throw_if_error();
+        return make_ready_future<struct stat>(ret.extra);
+    });
 }
 
 future<>
@@ -1023,86 +1030,85 @@ xfs_concurrency_from_kernel_version() {
 }
 
 future<shared_ptr<file_impl>>
-make_file_impl(int fd, file_open_options options, int flags) noexcept {
-    return engine().fstat(fd).then([fd, options = std::move(options), flags] (struct stat st) mutable {
-        auto st_dev = st.st_dev;
-
-        if (S_ISBLK(st.st_mode)) {
-            size_t block_size;
-            auto ret = ::ioctl(fd, BLKBSZGET, &block_size);
-            if (ret == -1) {
-                return make_exception_future<shared_ptr<file_impl>>(
-                        std::system_error(errno, std::system_category(), "ioctl(BLKBSZGET) failed"));
-            }
-            return make_ready_future<shared_ptr<file_impl>>(make_shared<blockdev_file_impl>(fd, open_flags(flags), options, st.st_rdev, block_size));
-        } else {
-            if (S_ISDIR(st.st_mode)) {
-                // Directories don't care about block size, so we need not
-                // query it here. Just provide something reasonable.
-                internal::fs_info fsi;
-                fsi.block_size = 4096;
-                fsi.nowait_works = false;
-                return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_real_impl>(fd, open_flags(flags), options, fsi, st_dev));
-            }
-            static thread_local std::unordered_map<decltype(st_dev), internal::fs_info> s_fstype;
-            future<> get_fs_info = s_fstype.count(st_dev) ? make_ready_future<>() :
-                engine().fstatfs(fd).then([fd, st_dev] (struct statfs sfs) {
-                    internal::fs_info fsi;
-                    fsi.block_size = sfs.f_bsize;
-                    switch (sfs.f_type) {
-                    case internal::fs_magic::xfs:
-                        dioattr da;
-                        if (::ioctl(fd, XFS_IOC_DIOINFO, &da) == 0) {
-                            fsi.dioinfo = std::move(da);
-                        }
-
-                        fsi.append_challenged = true;
-                        static auto xc = xfs_concurrency_from_kernel_version();
-                        fsi.append_concurrency = xc;
-                        fsi.fsync_is_exclusive = true;
-                        fsi.nowait_works = internal::kernel_uname().whitelisted({"4.13"});
-                        break;
-                    case internal::fs_magic::nfs:
-                        fsi.append_challenged = false;
-                        fsi.append_concurrency = 0;
-                        fsi.fsync_is_exclusive = false;
-                        fsi.nowait_works = internal::kernel_uname().whitelisted({"4.13"});
-                        break;
-                    case internal::fs_magic::ext4:
-                        fsi.append_challenged = true;
-                        fsi.append_concurrency = 0;
-                        fsi.fsync_is_exclusive = false;
-                        fsi.nowait_works = internal::kernel_uname().whitelisted({"5.5"});
-                        break;
-                    case internal::fs_magic::btrfs:
-                        fsi.append_challenged = true;
-                        fsi.append_concurrency = 0;
-                        fsi.fsync_is_exclusive = true;
-                        fsi.nowait_works = internal::kernel_uname().whitelisted({"5.9"});
-                        break;
-                    case internal::fs_magic::tmpfs:
-                    case internal::fs_magic::fuse:
-                        fsi.append_challenged = false;
-                        fsi.append_concurrency = 999;
-                        fsi.fsync_is_exclusive = false;
-                        fsi.nowait_works = false;
-                        break;
-                    default:
-                        fsi.append_challenged = true;
-                        fsi.append_concurrency = 0;
-                        fsi.fsync_is_exclusive = true;
-                        fsi.nowait_works = false;
-                    }
-                    s_fstype[st_dev] = std::move(fsi);
-                });
-            return get_fs_info.then([st_dev, fd, flags, options = std::move(options)] () mutable {
-                const internal::fs_info& fsi = s_fstype[st_dev];
-                if (!fsi.append_challenged || options.append_is_unlikely || ((flags & O_ACCMODE) == O_RDONLY)) {
-                    return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_real_impl>(fd, open_flags(flags), std::move(options), fsi, st_dev));
-                }
-                return make_ready_future<shared_ptr<file_impl>>(make_shared<append_challenged_posix_file_impl>(fd, open_flags(flags), std::move(options), fsi, st_dev));
-            });
+make_file_impl(int fd, file_open_options options, int flags, struct stat st) noexcept {
+    if (S_ISBLK(st.st_mode)) {
+        size_t block_size;
+        auto ret = ::ioctl(fd, BLKBSZGET, &block_size);
+        if (ret == -1) {
+            return make_exception_future<shared_ptr<file_impl>>(
+                    std::system_error(errno, std::system_category(), "ioctl(BLKBSZGET) failed"));
         }
+        return make_ready_future<shared_ptr<file_impl>>(make_shared<blockdev_file_impl>(fd, open_flags(flags), options, st.st_rdev, block_size));
+    }
+
+    if (S_ISDIR(st.st_mode)) {
+        // Directories don't care about block size, so we need not
+        // query it here. Just provide something reasonable.
+        internal::fs_info fsi;
+        fsi.block_size = 4096;
+        fsi.nowait_works = false;
+        return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_real_impl>(fd, open_flags(flags), options, fsi, st.st_dev));
+    }
+
+    auto st_dev = st.st_dev;
+    static thread_local std::unordered_map<decltype(st_dev), internal::fs_info> s_fstype;
+
+    future<> get_fs_info = s_fstype.count(st_dev) ? make_ready_future<>() :
+        engine().fstatfs(fd).then([fd, st_dev] (struct statfs sfs) {
+            internal::fs_info fsi;
+            fsi.block_size = sfs.f_bsize;
+            switch (sfs.f_type) {
+            case internal::fs_magic::xfs:
+                dioattr da;
+                if (::ioctl(fd, XFS_IOC_DIOINFO, &da) == 0) {
+                    fsi.dioinfo = std::move(da);
+                }
+
+                fsi.append_challenged = true;
+                static auto xc = xfs_concurrency_from_kernel_version();
+                fsi.append_concurrency = xc;
+                fsi.fsync_is_exclusive = true;
+                fsi.nowait_works = internal::kernel_uname().whitelisted({"4.13"});
+                break;
+            case internal::fs_magic::nfs:
+                fsi.append_challenged = false;
+                fsi.append_concurrency = 0;
+                fsi.fsync_is_exclusive = false;
+                fsi.nowait_works = internal::kernel_uname().whitelisted({"4.13"});
+                break;
+            case internal::fs_magic::ext4:
+                fsi.append_challenged = true;
+                fsi.append_concurrency = 0;
+                fsi.fsync_is_exclusive = false;
+                fsi.nowait_works = internal::kernel_uname().whitelisted({"5.5"});
+                break;
+            case internal::fs_magic::btrfs:
+                fsi.append_challenged = true;
+                fsi.append_concurrency = 0;
+                fsi.fsync_is_exclusive = true;
+                fsi.nowait_works = internal::kernel_uname().whitelisted({"5.9"});
+                break;
+            case internal::fs_magic::tmpfs:
+            case internal::fs_magic::fuse:
+                fsi.append_challenged = false;
+                fsi.append_concurrency = 999;
+                fsi.fsync_is_exclusive = false;
+                fsi.nowait_works = false;
+                break;
+            default:
+                fsi.append_challenged = true;
+                fsi.append_concurrency = 0;
+                fsi.fsync_is_exclusive = true;
+                fsi.nowait_works = false;
+            }
+            s_fstype[st_dev] = std::move(fsi);
+        });
+    return get_fs_info.then([st_dev, fd, flags, options = std::move(options)] () mutable {
+        const internal::fs_info& fsi = s_fstype[st_dev];
+        if (!fsi.append_challenged || options.append_is_unlikely || ((flags & O_ACCMODE) == O_RDONLY)) {
+            return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_real_impl>(fd, open_flags(flags), std::move(options), fsi, st_dev));
+        }
+        return make_ready_future<shared_ptr<file_impl>>(make_shared<append_challenged_posix_file_impl>(fd, open_flags(flags), std::move(options), fsi, st_dev));
     });
 }
 
