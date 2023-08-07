@@ -39,6 +39,7 @@ module seastar;
 #else
 #include <seastar/core/linux-aio.hh>
 #include <seastar/core/print.hh>
+#include <seastar/util/read_first_line.hh>
 #endif
 
 namespace seastar {
@@ -171,7 +172,8 @@ void setup_aio_context(size_t nr, linux_abi::aio_context_t* io_context) {
     if (r < 0) {
         char buf[1024];
         char *msg = strerror_r(errno, buf, sizeof(buf));
-        throw std::runtime_error(fmt::format("Could not setup Async I/O: {}. The most common cause is not enough request capacity in /proc/sys/fs/aio-max-nr. Try increasing that number or reducing the amount of logical CPUs available for your application", msg));
+        auto aio_max_nr = read_first_line_as<unsigned>("/proc/sys/fs/aio-max-nr");
+        throw std::runtime_error(fmt::format("Could not setup Async I/O: {}. The most common cause is not enough request capacity in /proc/sys/fs/aio-max-nr ({}). Try increasing that number or reducing the amount of logical CPUs available for your application", aio_max_nr, msg));
     }
 }
 
