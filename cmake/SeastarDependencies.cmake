@@ -45,7 +45,7 @@ endif ()
 
 # This is the minimum version of Boost we need the CMake-bundled `FindBoost.cmake` to know about.
 find_package (Boost ${_seastar_boost_version} MODULE)
-if (BOOST_VERSION_STRING VERSION_LESS 1.81.0)
+if (Boost_VERSION_STRING VERSION_LESS 1.81.0)
   set_target_properties (Boost::boost PROPERTIES
     INTERFACE_COMPILE_DEFINITIONS "BOOST_NO_CXX98_FUNCTION_BASE")
 endif ()
