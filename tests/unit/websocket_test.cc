@@ -137,35 +137,92 @@ SEASTAR_TEST_CASE(test_websocket_handler_registration) {
         input.read_exactly(186).get();
 
         unsigned ws_frame_len = 10;
-        for (unsigned split_i = 0; split_i < ws_frame_len - 1; ++split_i) {
-            // The loop tests various combinations of partial websocket frame coming in
 
-            // Sending and receiving a websocket frame
-            const std::string ws_frame = std::string(
-                "\202\204"  // 1000 0002 1000 0100
-                "TEST"      // Masking Key
-                "\0\0\0\0", ws_frame_len); // Masked Message - TEST
-            const auto rs_frame = std::string(
-                "\202\004" // 1000 0002 0000 0100
-                "TEST", 6);    // Message - TEST
+        // Sending and receiving a websocket frame
+        const std::string ws_frame = std::string(
+            "\202\204"  // 1000 0002 1000 0100
+            "TEST"      // Masking Key
+            "\0\0\0\0", ws_frame_len); // Masked Message - TEST
+        const auto rs_frame = std::string(
+            "\202\004" // 1000 0002 0000 0100
+            "TEST", 6);    // Message - TEST
+
+        output.write(ws_frame).get();
+        output.flush().get();
+
+        auto response = input.read_exactly(6).get();
+        auto response_str = std::string(response.begin(), response.end());
+        BOOST_REQUIRE_EQUAL(rs_frame, response_str);
+    });
+}
+
+// Simple wrapper to help create a testable input_stream.
+class test_source_impl : public data_source_impl {
+    std::vector<temporary_buffer<char>> _bufs{};
+    size_t _idx = 0;
+public:
+    void push_back(std::string s) {
+        auto buf = temporary_buffer<char>::copy_of(s);
+        _bufs.emplace_back(std::move(buf));
+    }
+    virtual future<temporary_buffer<char>> get() override {
+        if (_idx < _bufs.size()) {
+            return make_ready_future<temporary_buffer<char>>(_bufs[_idx++].share());
+        }
+        return make_ready_future<temporary_buffer<char>>(temporary_buffer<char>{});
+    }
+};
+
+SEASTAR_TEST_CASE(test_websocket_parser_split) {
+    return seastar::async([] {
+        // Two websocket frames
+        std::string ws_frames = std::string(
+            "\x82\x85"    // FIN, opcode, mask, payload len (5)
+            "\0\0\0\0"    // Masking Key
+            "TEST1"       // payload
+            "\x82\x85"    // FIN, opcode, mask, payload len (5)
+            "\0\0\0\0"    // Masking Key
+            "TEST2"
+            "\x82\x85"    // FIN, opcode, mask, payload len (5)
+            "\0\0\0\0"    // Masking Key
+            "TEST3", 33); // payload
+
+        for (unsigned split_i = 0; split_i < ws_frames.size() - 1; ++split_i) {
+            websocket::websocket_parser parser;
+
+            auto source = std::make_unique<test_source_impl>();
 
             if (split_i == 0) {
-                output.write(ws_frame).get();
-                output.flush().get();
+                source->push_back(ws_frames);
             } else {
-                output.write(ws_frame.substr(0, split_i)).get();
-                output.flush().get();
-
-                // ensure that server attempts to read before the second part of the frame lands
-                sleep(std::chrono::milliseconds(100)).get();
-
-                output.write(ws_frame.substr(split_i)).get();
-                output.flush().get();
+                source->push_back(ws_frames.substr(0, split_i));
+                source->push_back(ws_frames.substr(split_i));
             }
 
-            auto response = input.read_exactly(6).get();
-            auto response_str = std::string(response.begin(), response.end());
-            BOOST_REQUIRE_EQUAL(rs_frame, response_str);
+            input_stream<char> in{data_source{std::move(source)}};
+
+            std::vector<sstring> results;
+
+            while (true) {
+                in.consume(parser).get();
+                if (parser.eof()) {
+                    break;
+                }
+
+                BOOST_ASSERT(parser.is_valid());
+                results.push_back(seastar::to_sstring(parser.result()));
+            }
+
+            BOOST_ASSERT(!parser.is_valid());
+            BOOST_REQUIRE_EQUAL(0, parser.result().size());
+
+            std::vector<sstring> expected = {
+                "TEST1",
+                "TEST2",
+                "TEST3",
+            };
+
+            BOOST_REQUIRE_EQUAL(results, expected);
         }
     });
 }
