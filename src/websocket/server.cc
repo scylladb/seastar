@@ -58,7 +58,9 @@ opcodes websocket_parser::opcode() const {
 }
 
 websocket_parser::buff_t websocket_parser::result() {
-    return std::move(_result);
+    auto r = std::move(_result);
+    _result = buff_t{};
+    return r;
 }
 
 void server::listen(socket_address addr, listen_options lo) {
@@ -239,12 +241,12 @@ future<websocket_parser::consumption_result_t> websocket_parser::operator()(
                 _payload_length = _header->length;
                 char const *input = _buffer.data();
                 if (_header->length == 126) {
-		    _payload_length = consume_be<uint16_t>(input);
+                    _payload_length = consume_be<uint16_t>(input);
                 } else if (_header->length == 127) {
-		    _payload_length = consume_be<uint64_t>(input);
+                    _payload_length = consume_be<uint64_t>(input);
                 }
 
-		_masking_key = consume_be<uint32_t>(input);
+                _masking_key = consume_be<uint32_t>(input);
                 _buffer = {};
             }
             _state = parsing_state::payload;
@@ -254,18 +256,23 @@ future<websocket_parser::consumption_result_t> websocket_parser::operator()(
         }
     }
     if (_state == parsing_state::payload) {
-        if (_payload_length > data.size()) {
-            _payload_length -= data.size();
-            remove_mask(data, data.size());
-            _result = std::move(data);
-            return websocket_parser::stop(buff_t(0));
+        if (_buffer.length() + data.size() >= _payload_length) {
+            if (_buffer.length() < _payload_length) {
+                size_t blen = _buffer.length();
+                _buffer.append(data.get(), _payload_length - blen);
+                data.trim_front(_payload_length - blen);
+
+                // We've completed a payload, so reset state and set result.
+                _result = buff_t{_buffer.data(), _buffer.length()};
+                remove_mask(_result, _result.size());
+                _payload_length = 0;
+                _buffer = {};
+                _state = parsing_state::flags_and_payload_data;
+                return websocket_parser::stop(std::move(data));
+            }
         } else {
-            _result = data.clone();
-            remove_mask(_result, _payload_length);
-            data.trim_front(_payload_length);
-            _payload_length = 0;
-            _state = parsing_state::flags_and_payload_data;
-            return websocket_parser::stop(std::move(data));
+            _buffer.append(data.get(), data.size());
+            return websocket_parser::stop({});
         }
     }
     _cstate = connection_state::error;
