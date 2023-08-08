@@ -3818,6 +3818,7 @@ reactor_options::reactor_options(program_options::option_group* parent_group)
                 "busy-poll for disk I/O (reduces latency and increases throughput)")
     , task_quota_ms(*this, "task-quota-ms", 0.5, "Max time (ms) between polls")
     , io_latency_goal_ms(*this, "io-latency-goal-ms", {}, "Max time (ms) io operations must take (1.5 * task-quota-ms if not set)")
+    , io_flow_ratio_threshold(*this, "io-flow-rate-threshold", 1.1, "Dispatch rate to completion rate threshold")
     , max_task_backlog(*this, "max-task-backlog", 1000, "Maximum number of task backlog to allow; above this we ignore I/O")
     , blocked_reactor_notify_ms(*this, "blocked-reactor-notify-ms", 25, "threshold in miliseconds over which the reactor is considered blocked if no progress is made")
     , blocked_reactor_reports_per_minute(*this, "blocked-reactor-reports-per-minute", 5, "Maximum number of backtraces reported by stall detector per minute")
@@ -4047,6 +4048,7 @@ private:
     unsigned _num_io_groups = 0;
     std::unordered_map<dev_t, mountpoint_params> _mountpoints;
     std::chrono::duration<double> _latency_goal;
+    double _flow_ratio_backpressure_threshold;
 
 public:
     explicit disk_config_params(unsigned max_queues) noexcept
@@ -4073,6 +4075,8 @@ public:
         seastar_logger.debug("smp::count: {}", smp::count);
         _latency_goal = std::chrono::duration_cast<std::chrono::duration<double>>(latency_goal_opt(reactor_opts) * 1ms);
         seastar_logger.debug("latency_goal: {}", latency_goal().count());
+        _flow_ratio_backpressure_threshold = reactor_opts.io_flow_ratio_threshold.get_value();
+        seastar_logger.debug("flow-ratio threshold: {}", _flow_ratio_backpressure_threshold);
 
         if (smp_opts.num_io_groups) {
             _num_io_groups = smp_opts.num_io_groups.get_value();
@@ -4157,6 +4161,7 @@ public:
         cfg.duplex = p.duplex;
         cfg.rate_factor = p.rate_factor;
         cfg.rate_limit_duration = latency_goal();
+        cfg.flow_ratio_backpressure_threshold = _flow_ratio_backpressure_threshold;
         // Block count limit should not be less than the minimal IO size on the device
         // On the other hand, even this is not good enough -- in the worst case the
         // scheduler will self-tune to allow for the single 64k request, while it would

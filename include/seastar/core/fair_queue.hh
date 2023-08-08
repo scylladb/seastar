@@ -393,6 +393,10 @@ public:
         return _group.tokens_capacity(tokens);
     }
 
+    capacity_t maximum_capacity() const noexcept {
+        return _group.maximum_capacity();
+    }
+
     /// Queue the entry \c ent through this class' \ref fair_queue
     ///
     /// The user of this interface is supposed to call \ref notify_requests_finished when the

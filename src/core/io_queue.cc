@@ -920,7 +920,16 @@ double internal::request_tokens(io_direction_and_length dnl, const io_queue::con
 }
 
 fair_queue_entry::capacity_t io_queue::request_capacity(io_direction_and_length dnl) const noexcept {
-    return _streams[request_stream(dnl)].tokens_capacity(internal::request_tokens(dnl, get_config()));
+    const auto& cfg = get_config();
+    auto tokens = internal::request_tokens(dnl, cfg);
+    if (_flow_ratio <= cfg.flow_ratio_backpressure_threshold) {
+        return _streams[request_stream(dnl)].tokens_capacity(tokens);
+    }
+
+    auto stream = request_stream(dnl);
+    auto cap = _streams[stream].tokens_capacity(tokens * _flow_ratio);
+    auto max_cap = _streams[stream].maximum_capacity();
+    return std::min(cap, max_cap);
 }
 
 io_queue::request_limits io_queue::get_request_limits() const noexcept {

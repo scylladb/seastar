@@ -69,6 +69,14 @@ struct reactor_options : public program_options::option_group {
     ///
     /// Default: 1.5 * task_quota_ms value
     program_options::value<double> io_latency_goal_ms;
+    /// \bried Dispatch rate to completion rate ratio threshold
+    ///
+    /// Describes the worst ratio at which seastar reactor is allowed to delay
+    /// IO requests completion. If exceeded, the scheduler will consider it's
+    /// disk that's the reason for completion slow-down and will scale down
+    ///
+    /// Default: 1.1
+    program_options::value<double> io_flow_ratio_threshold;
     /// \brief Maximum number of task backlog to allow.
     ///
     /// When the number of tasks grow above this, we stop polling (e.g. I/O)
