@@ -489,12 +489,13 @@ struct stream_test_result {
     bool source_done_exception = false;
     bool server_done_exception = false;
     bool client_stop_exception = false;
+    bool server_stop_exception = false;
     int server_sum = 0;
     bool exception_while_creating_sink = false;
 };
 
-future<stream_test_result> stream_test_func(rpc_test_env<>& env, bool stop_client, bool expect_connection_error = false) {
-    return seastar::async([&env, stop_client, expect_connection_error] {
+future<stream_test_result> stream_test_func(rpc_test_env<>& env, bool stop_client, bool stop_server, bool expect_connection_error = false) {
+    return seastar::async([&env, stop_client, stop_server, expect_connection_error] {
         stream_test_result r;
         test_rpc_proto::client c(env.proto(), {}, env.make_socket(), ipv4_addr());
         future<> server_done = make_ready_future();
@@ -566,13 +567,20 @@ future<stream_test_result> stream_test_func(rpc_test_env<>& env, bool stop_clien
                 return false;
             };
             future<> stop_client_future = make_ready_future();
+            future<> stop_server_future = make_ready_future();
             // With a connection error sink() will eventually fail, but we
             // cannot guarantee when.
             int max = expect_connection_error ? std::numeric_limits<int>::max()  : 101;
             for (int i = 1; i < max; i++) {
-                if (stop_client && i == 50) {
-                    // stop client while stream is in use
-                    stop_client_future = c.stop();
+                if (i == 50) {
+                    if (stop_client) {
+                        // stop client while stream is in use
+                        stop_client_future = c.stop();
+                    }
+                    if (stop_server) {
+                        // stop server while stream is in use
+                        stop_server_future = env.server().shutdown();
+                    }
                 }
                 sleep(std::chrono::milliseconds(1)).get();
                 r.sink_exception = check_exception(sink(i));
@@ -584,6 +592,7 @@ future<stream_test_result> stream_test_func(rpc_test_env<>& env, bool stop_clien
             r.source_done_exception = check_exception(std::move(source_done));
             r.server_done_exception = check_exception(std::move(server_done));
             r.client_stop_exception = check_exception(!stop_client ? c.stop() : std::move(stop_client_future));
+            r.server_stop_exception = check_exception(!stop_server ? make_ready_future<>() : std::move(stop_server_future));
             return r;
         } catch(failed_to_create_sync&) {
             r.exception_while_creating_sink = true;
@@ -598,7 +607,7 @@ SEASTAR_TEST_CASE(test_stream_simple) {
     rpc_test_config cfg;
     cfg.server_options = so;
     return rpc_test_env<>::do_with(cfg, [] (rpc_test_env<>& env) {
-        return stream_test_func(env, false).then([] (stream_test_result r) {
+        return stream_test_func(env, false, false).then([] (stream_test_result r) {
             BOOST_REQUIRE(r.client_source_closed);
             BOOST_REQUIRE(r.server_source_closed);
             BOOST_REQUIRE(r.server_sum == 5050);
@@ -617,7 +626,7 @@ SEASTAR_TEST_CASE(test_stream_stop_client) {
     rpc_test_config cfg;
     cfg.server_options = so;
     return rpc_test_env<>::do_with(cfg, [] (rpc_test_env<>& env) {
-        return stream_test_func(env, true).then([] (stream_test_result r) {
+        return stream_test_func(env, true, false).then([] (stream_test_result r) {
             BOOST_REQUIRE(!r.client_source_closed);
             BOOST_REQUIRE(!r.server_source_closed);
             BOOST_REQUIRE(r.sink_exception);
@@ -629,6 +638,24 @@ SEASTAR_TEST_CASE(test_stream_stop_client) {
     });
 }
 
+SEASTAR_TEST_CASE(test_stream_stop_server) {
+    rpc::server_options so;
+    so.streaming_domain = rpc::streaming_domain_type(1);
+    rpc_test_config cfg;
+    cfg.server_options = so;
+    return rpc_test_env<>::do_with(cfg, [] (rpc_test_env<>& env) {
+        return stream_test_func(env, false, true).then([] (stream_test_result r) {
+            BOOST_REQUIRE(!r.client_source_closed);
+            BOOST_REQUIRE(!r.server_source_closed);
+            BOOST_REQUIRE(r.sink_exception);
+            BOOST_REQUIRE(r.sink_close_exception);
+            BOOST_REQUIRE(r.source_done_exception);
+            BOOST_REQUIRE(r.server_done_exception);
+            BOOST_REQUIRE(!r.client_stop_exception);
+            BOOST_REQUIRE(!r.server_stop_exception);
+        });
+    });
+}
 
 SEASTAR_TEST_CASE(test_stream_connection_error) {
     rpc::server_options so;
@@ -640,7 +667,7 @@ SEASTAR_TEST_CASE(test_stream_connection_error) {
     ecfg.server_rcv.kind = loopback_error_injector::error::abort;
     cfg.inject_error = ecfg;
     return rpc_test_env<>::do_with(cfg, [] (rpc_test_env<>& env) {
-        return stream_test_func(env, false, true).then([] (stream_test_result r) {
+        return stream_test_func(env, false, false, true).then([] (stream_test_result r) {
             BOOST_REQUIRE(!r.client_source_closed);
             BOOST_REQUIRE(!r.server_source_closed);
             BOOST_REQUIRE(r.sink_exception);
@@ -662,7 +689,7 @@ SEASTAR_TEST_CASE(test_stream_negotiation_error) {
     ecfg.server_rcv.kind = loopback_error_injector::error::abort;
     cfg.inject_error = ecfg;
     return rpc_test_env<>::do_with(cfg, [] (rpc_test_env<>& env) {
-        return stream_test_func(env, false, true).then([] (stream_test_result r) {
+        return stream_test_func(env, false, false, true).then([] (stream_test_result r) {
             BOOST_REQUIRE(r.exception_while_creating_sink);
         });
     });
