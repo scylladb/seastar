@@ -21,6 +21,7 @@
 #include <seastar/core/app-template.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/core/io_queue.hh>
 #include <seastar/util/closeable.hh>
 #include <yaml-cpp/yaml.h>
 
@@ -49,6 +50,42 @@ int main(int ac, char** av) {
                     return remove_file(storage + "/tempfile").then([&out, &f] {
                         out << YAML::Key << "disk_read_max_length" << YAML::Value << f.disk_read_max_length();
                         out << YAML::Key << "disk_write_max_length" << YAML::Value << f.disk_write_max_length();
+                    }).then([&out, &f] {
+                        return f.stat().then([&out] (auto st) {
+                            auto& ioq = engine().get_io_queue(st.st_dev);
+                            auto& cfg = ioq.get_config();
+
+                            out << YAML::Key << "io_latency_goal_ms" << YAML::Value <<
+                                    std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(cfg.rate_limit_duration).count();
+                            out << YAML::Key << "io_queue" << YAML::BeginMap;
+                            out << YAML::Key << "req_count_rate" << YAML::Value << cfg.req_count_rate;
+                            out << YAML::Key << "blocks_count_rate" << YAML::Value << cfg.blocks_count_rate;
+                            out << YAML::Key << "disk_req_write_to_read_multiplier" << YAML::Value << cfg.disk_req_write_to_read_multiplier;
+                            out << YAML::Key << "disk_blocks_write_to_read_multiplier" << YAML::Value << cfg.disk_blocks_write_to_read_multiplier;
+                            out << YAML::EndMap;
+
+                            out << YAML::Key << "fair_queue" << YAML::BeginMap;
+                            out << YAML::Key << "capacities" << YAML::BeginMap;
+                            for (size_t sz = 512; sz <= 128 * 1024; sz <<= 1) {
+                                out << YAML::Key << sz << YAML::BeginMap;
+                                out << YAML::Key << "read" << YAML::Value << ioq.request_capacity(internal::io_direction_and_length(internal::io_direction_and_length::read_idx, sz));
+                                out << YAML::Key << "write" << YAML::Value << ioq.request_capacity(internal::io_direction_and_length(internal::io_direction_and_length::write_idx, sz));
+                                out << YAML::EndMap;
+                            }
+                            out << YAML::EndMap;
+
+                            const auto& fg = internal::get_fair_group(ioq, internal::io_direction_and_length::write_idx);
+                            out << YAML::Key << "per_tick_grab_threshold" << YAML::Value << fg.per_tick_grab_threshold();
+
+                            const auto& tb = fg.token_bucket();
+                            out << YAML::Key << "token_bucket" << YAML::BeginMap;
+                            out << YAML::Key << "limit" << YAML::Value << tb.limit();
+                            out << YAML::Key << "rate" << YAML::Value << tb.rate();
+                            out << YAML::Key << "threshold" << YAML::Value << tb.threshold();
+                            out << YAML::EndMap;
+
+                            out << YAML::EndMap;
+                        });
                     });
                 });
             }).get();

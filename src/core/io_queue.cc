@@ -64,8 +64,6 @@ using io_direction_and_length = internal::io_direction_and_length;
 static constexpr auto io_direction_read = io_direction_and_length::read_idx;
 static constexpr auto io_direction_write = io_direction_and_length::write_idx;
 
-static fair_queue_ticket make_ticket(io_direction_and_length dnl, const io_queue::config& cfg) noexcept;
-
 struct default_io_exception_factory {
     static auto cancelled() {
         return cancelled_error();
@@ -222,21 +220,21 @@ class io_desc_read_write final : public io_completion {
     io_queue::clock_type::time_point _ts;
     const stream_id _stream;
     const io_direction_and_length _dnl;
-    const fair_queue_ticket _fq_ticket;
+    const fair_queue_entry::capacity_t _fq_capacity;
     promise<size_t> _pr;
     iovec_keeper _iovs;
 
 public:
-    io_desc_read_write(io_queue& ioq, io_queue::priority_class_data& pc, stream_id stream, io_direction_and_length dnl, fair_queue_ticket ticket, iovec_keeper iovs)
+    io_desc_read_write(io_queue& ioq, io_queue::priority_class_data& pc, stream_id stream, io_direction_and_length dnl, fair_queue_entry::capacity_t cap, iovec_keeper iovs)
         : _ioq(ioq)
         , _pclass(pc)
         , _ts(io_queue::clock_type::now())
         , _stream(stream)
         , _dnl(dnl)
-        , _fq_ticket(ticket)
+        , _fq_capacity(cap)
         , _iovs(std::move(iovs))
     {
-        io_log.trace("dev {} : req {} queue  len {} ticket {}", _ioq.dev_id(), fmt::ptr(this), _dnl.length(), _fq_ticket);
+        io_log.trace("dev {} : req {} queue  len {} capacity {}", _ioq.dev_id(), fmt::ptr(this), _dnl.length(), _fq_capacity);
     }
 
     virtual void set_exception(std::exception_ptr eptr) noexcept override {
@@ -273,7 +271,7 @@ public:
         return _pr.get_future();
     }
 
-    fair_queue_ticket ticket() const noexcept { return _fq_ticket; }
+    fair_queue_entry::capacity_t capacity() const noexcept { return _fq_capacity; }
     stream_id stream() const noexcept { return _stream; }
 };
 
@@ -287,12 +285,12 @@ class queued_io_request : private internal::io_request {
     bool is_cancelled() const noexcept { return !_desc; }
 
 public:
-    queued_io_request(internal::io_request req, io_queue& q, io_queue::priority_class_data& pc, io_direction_and_length dnl, iovec_keeper iovs)
+    queued_io_request(internal::io_request req, io_queue& q, fair_queue_entry::capacity_t cap, io_queue::priority_class_data& pc, io_direction_and_length dnl, iovec_keeper iovs)
         : io_request(std::move(req))
         , _ioq(q)
         , _stream(_ioq.request_stream(dnl))
-        , _fq_entry(make_ticket(dnl, _ioq.get_config()))
-        , _desc(std::make_unique<io_desc_read_write>(_ioq, pc, _stream, dnl, _fq_entry.ticket(), std::move(iovs)))
+        , _fq_entry(cap)
+        , _desc(std::make_unique<io_desc_read_write>(_ioq, pc, _stream, dnl, cap, std::move(iovs)))
     {
     }
 
@@ -532,12 +530,16 @@ sstring io_request::opname() const {
     std::abort();
 }
 
+const fair_group& get_fair_group(const io_queue& ioq, unsigned stream) {
+    return *(ioq._group->_fgs[stream]);
+}
+
 } // internal namespace
 
 void
 io_queue::complete_request(io_desc_read_write& desc) noexcept {
     _requests_executing--;
-    _streams[desc.stream()].notify_request_finished(desc.ticket());
+    _streams[desc.stream()].notify_request_finished(desc.capacity());
 }
 
 fair_queue::config io_queue::make_fair_queue_config(const config& iocfg, sstring label) {
@@ -560,35 +562,17 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     } else {
         _streams.emplace_back(*_group->_fgs[0], make_fair_queue_config(cfg, "rw"));
     }
-
-    if (this_shard_id() == 0) {
-        sstring caps_str;
-        for (size_t sz = 512; sz <= 128 * 1024; sz <<= 1) {
-            caps_str += fmt::format(" {}:", sz);
-            if (sz <= _group->_max_request_length[io_direction_read]) {
-                caps_str += fmt::format("{}", _group->_fgs[0]->ticket_capacity(make_ticket(io_direction_and_length(io_direction_read, sz), get_config())));
-            } else {
-                caps_str += "X";
-            }
-            if (sz <= _group->_max_request_length[io_direction_write]) {
-                caps_str += fmt::format(":{}", _group->_fgs[0]->ticket_capacity(make_ticket(io_direction_and_length(io_direction_write, sz), get_config())));
-            } else {
-                caps_str += ":X";
-            }
-        }
-        seastar_logger.info("Created io queue dev({}) capacities:{}", get_config().devid, caps_str);
-    }
 }
 
 fair_group::config io_group::make_fair_group_config(const io_queue::config& qcfg) noexcept {
     fair_group::config cfg;
     cfg.label = fmt::format("io-queue-{}", qcfg.devid);
-    cfg.min_weight = std::min(io_queue::read_request_base_count, qcfg.disk_req_write_to_read_multiplier);
-    cfg.min_size = std::min(io_queue::read_request_base_count, qcfg.disk_blocks_write_to_read_multiplier);
-    cfg.limit_min_weight = std::max(io_queue::read_request_base_count, qcfg.disk_req_write_to_read_multiplier);
-    cfg.limit_min_size = std::max(io_queue::read_request_base_count, qcfg.disk_blocks_write_to_read_multiplier) * qcfg.block_count_limit_min;
-    cfg.weight_rate = qcfg.req_count_rate;
-    cfg.size_rate = qcfg.blocks_count_rate;
+    double min_weight = std::min(io_queue::read_request_base_count, qcfg.disk_req_write_to_read_multiplier);
+    double min_size = std::min(io_queue::read_request_base_count, qcfg.disk_blocks_write_to_read_multiplier);
+    cfg.min_tokens = min_weight / qcfg.req_count_rate + min_size / qcfg.blocks_count_rate;
+    double limit_min_weight = std::max(io_queue::read_request_base_count, qcfg.disk_req_write_to_read_multiplier);
+    double limit_min_size = std::max(io_queue::read_request_base_count, qcfg.disk_blocks_write_to_read_multiplier) * qcfg.block_count_limit_min;
+    cfg.limit_min_tokens = limit_min_weight / qcfg.req_count_rate + limit_min_size / qcfg.blocks_count_rate;
     cfg.rate_factor = qcfg.rate_factor;
     cfg.rate_limit_duration = qcfg.rate_limit_duration;
     return cfg;
@@ -596,7 +580,7 @@ fair_group::config io_group::make_fair_group_config(const io_queue::config& qcfg
 
 static void maybe_warn_latency_goal_auto_adjust(const fair_group& fg, const io_queue::config& cfg) noexcept {
     auto goal = fg.rate_limit_duration();
-    auto lvl = goal > 1.1 * cfg.rate_limit_duration ? log_level::warn : log_level::info;
+    auto lvl = goal > 1.1 * cfg.rate_limit_duration ? log_level::warn : log_level::debug;
     seastar_logger.log(lvl, "IO queue uses {:.2f}ms latency goal for device {}", goal.count() * 1000, cfg.devid);
 }
 
@@ -624,8 +608,8 @@ io_group::io_group(io_queue::config io_cfg, unsigned nr_queues)
         auto g_idx = _config.duplex ? idx : 0;
         auto max_cap = _fgs[g_idx]->maximum_capacity();
         for (unsigned shift = 0; ; shift++) {
-            auto ticket = make_ticket(io_direction_and_length(idx, 1 << (shift + io_queue::block_size_shift)), _config);
-            auto cap = _fgs[g_idx]->ticket_capacity(ticket);
+            auto tokens = internal::request_tokens(io_direction_and_length(idx, 1 << (shift + io_queue::block_size_shift)), _config);
+            auto cap = _fgs[g_idx]->tokens_capacity(tokens);
             if (cap > max_cap) {
                 if (shift == 0) {
                     throw std::runtime_error("IO-group limits are too low");
@@ -638,11 +622,6 @@ io_group::io_group(io_queue::config io_cfg, unsigned nr_queues)
 
     update_max_size(io_direction_write);
     update_max_size(io_direction_read);
-
-    seastar_logger.info("Created io group dev({}), length limit {}:{}, rate {}:{}", _config.devid,
-            _max_request_length[io_direction_read],
-            _max_request_length[io_direction_write],
-            _config.req_count_rate, _config.blocks_count_rate);
 }
 
 io_group::~io_group() {
@@ -893,7 +872,7 @@ stream_id io_queue::request_stream(io_direction_and_length dnl) const noexcept {
     return get_config().duplex ? dnl.rw_idx() : 0;
 }
 
-fair_queue_ticket make_ticket(io_direction_and_length dnl, const io_queue::config& cfg) noexcept {
+double internal::request_tokens(io_direction_and_length dnl, const io_queue::config& cfg) noexcept {
     struct {
         unsigned weight;
         unsigned size;
@@ -909,7 +888,12 @@ fair_queue_ticket make_ticket(io_direction_and_length dnl, const io_queue::confi
     };
 
     const auto& m = mult[dnl.rw_idx()];
-    return fair_queue_ticket(m.weight, m.size * (dnl.length() >> io_queue::block_size_shift));
+
+    return double(m.weight) / cfg.req_count_rate + double(m.size) * (dnl.length() >> io_queue::block_size_shift) / cfg.blocks_count_rate;
+}
+
+fair_queue_entry::capacity_t io_queue::request_capacity(io_direction_and_length dnl) const noexcept {
+    return _streams[request_stream(dnl)].tokens_capacity(internal::request_tokens(dnl, get_config()));
 }
 
 io_queue::request_limits io_queue::get_request_limits() const noexcept {
@@ -924,7 +908,8 @@ future<size_t> io_queue::queue_one_request(internal::priority_class pc, io_direc
         // First time will hit here, and then we create the class. It is important
         // that we create the shared pointer in the same shard it will be used at later.
         auto& pclass = find_or_create_class(pc);
-        auto queued_req = std::make_unique<queued_io_request>(std::move(req), *this, pclass, std::move(dnl), std::move(iovs));
+        auto cap = request_capacity(dnl);
+        auto queued_req = std::make_unique<queued_io_request>(std::move(req), *this, cap, pclass, std::move(dnl), std::move(iovs));
         auto fut = queued_req->get_future();
         if (intent != nullptr) {
             auto& cq = intent->find_or_create_cancellable_queue(dev_id(), pc.id());
@@ -1032,7 +1017,7 @@ void io_queue::cancel_request(queued_io_request& req) noexcept {
 }
 
 void io_queue::complete_cancelled_request(queued_io_request& req) noexcept {
-    _streams[req.stream()].notify_request_finished(req.queue_entry().ticket());
+    _streams[req.stream()].notify_request_finished(req.queue_entry().capacity());
 }
 
 io_queue::clock_type::time_point io_queue::next_pending_aio() const noexcept {

@@ -40,6 +40,11 @@ struct io_queue_for_tests;
 
 namespace seastar {
 
+class io_queue;
+namespace internal {
+const fair_group& get_fair_group(const io_queue& ioq, unsigned stream);
+}
+
 #if SEASTAR_API_LEVEL < 7
 SEASTAR_MODULE_EXPORT
 class io_priority_class;
@@ -97,6 +102,8 @@ private:
     internal::io_sink& _sink;
 
     friend struct ::io_queue_for_tests;
+    friend const fair_group& internal::get_fair_group(const io_queue& ioq, unsigned stream);
+
     priority_class_data& find_or_create_class(internal::priority_class pc);
     future<size_t> queue_request(internal::priority_class pc, internal::io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept;
     future<size_t> queue_one_request(internal::priority_class pc, internal::io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept;
@@ -167,6 +174,7 @@ public:
     void poll_io_queue();
 
     clock_type::time_point next_pending_aio() const noexcept;
+    fair_queue_entry::capacity_t request_capacity(internal::io_direction_and_length dnl) const noexcept;
 
     sstring mountpoint() const;
     dev_t dev_id() const noexcept;
@@ -199,6 +207,7 @@ public:
 private:
     friend class io_queue;
     friend struct ::io_queue_for_tests;
+    friend const fair_group& internal::get_fair_group(const io_queue& ioq, unsigned stream);
 
     const io_queue::config _config;
     size_t _max_request_length[2];
@@ -221,6 +230,10 @@ inline sstring io_queue::mountpoint() const {
 
 inline dev_t io_queue::dev_id() const noexcept {
     return get_config().devid;
+}
+
+namespace internal {
+double request_tokens(io_direction_and_length dnl, const io_queue::config& cfg) noexcept;
 }
 
 }

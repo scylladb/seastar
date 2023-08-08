@@ -103,20 +103,23 @@ public:
 /// @{
 
 class fair_queue_entry {
+public:
+    using capacity_t = uint64_t;
     friend class fair_queue;
 
-    fair_queue_ticket _ticket;
+private:
+    capacity_t _capacity;
     bi::slist_member_hook<> _hook;
 
 public:
-    fair_queue_entry(fair_queue_ticket t) noexcept
-        : _ticket(std::move(t)) {}
+    fair_queue_entry(capacity_t c) noexcept
+        : _capacity(c) {}
     using container_list_t = bi::slist<fair_queue_entry,
             bi::constant_time_size<false>,
             bi::cache_last<true>,
             bi::member_hook<fair_queue_entry, bi::slist_member_hook<>, &fair_queue_entry::_hook>>;
 
-    fair_queue_ticket ticket() const noexcept { return _ticket; }
+    capacity_t capacity() const noexcept { return _capacity; }
 };
 
 /// \brief Group of queues class
@@ -208,7 +211,6 @@ private:
      * into more tokens in the bucket.
      */
 
-    const fair_queue_ticket _cost_capacity;
     token_bucket_t _token_bucket;
     const capacity_t _per_tick_threshold;
 
@@ -217,6 +219,11 @@ public:
     // Convert internal capacity value back into the real token
     static double capacity_tokens(capacity_t cap) noexcept {
         return (double)cap / fixed_point_factor / token_bucket_t::rate_cast(std::chrono::seconds(1)).count();
+    }
+
+    // Convert floating-point tokens into the token bucket capacity
+    static capacity_t tokens_capacity(double tokens) noexcept {
+        return tokens * token_bucket_t::rate_cast(std::chrono::seconds(1)).count() * fixed_point_factor;
     }
 
     auto capacity_duration(capacity_t cap) const noexcept {
@@ -232,12 +239,8 @@ public:
          * must accept those as large as the latter pair (but it can accept
          * even larger values, of course)
          */
-        unsigned min_weight = 0;
-        unsigned min_size = 0;
-        unsigned limit_min_weight = 0;
-        unsigned limit_min_size = 0;
-        unsigned long weight_rate;
-        unsigned long size_rate;
+        double min_tokens = 0.0;
+        double limit_min_tokens = 0.0;
         float rate_factor = 1.0;
         std::chrono::duration<double> rate_limit_duration = std::chrono::milliseconds(1);
     };
@@ -245,7 +248,6 @@ public:
     explicit fair_group(config cfg, unsigned nr_queues);
     fair_group(fair_group&&) = delete;
 
-    fair_queue_ticket cost_capacity() const noexcept { return _cost_capacity; }
     capacity_t maximum_capacity() const noexcept { return _token_bucket.limit(); }
     capacity_t per_tick_grab_threshold() const noexcept { return _per_tick_threshold; }
     capacity_t grab_capacity(capacity_t cap) noexcept;
@@ -255,12 +257,13 @@ public:
     void maybe_replenish_capacity(clock_type::time_point& local_ts) noexcept;
 
     capacity_t capacity_deficiency(capacity_t from) const noexcept;
-    capacity_t ticket_capacity(fair_queue_ticket ticket) const noexcept;
 
     std::chrono::duration<double> rate_limit_duration() const noexcept {
         std::chrono::duration<double, rate_resolution> dur((double)_token_bucket.limit() / _token_bucket.rate());
         return std::chrono::duration_cast<std::chrono::duration<double>>(dur);
     }
+
+    const token_bucket_t& token_bucket() const noexcept { return _token_bucket; }
 };
 
 /// \brief Fair queuing class
@@ -384,6 +387,10 @@ public:
     /// \return the amount of resources (weight, size) currently executing
     fair_queue_ticket resources_currently_executing() const;
 
+    capacity_t tokens_capacity(double tokens) const noexcept {
+        return _group.tokens_capacity(tokens);
+    }
+
     /// Queue the entry \c ent through this class' \ref fair_queue
     ///
     /// The user of this interface is supposed to call \ref notify_requests_finished when the
@@ -395,7 +402,7 @@ public:
 
     /// Notifies that ont request finished
     /// \param desc an instance of \c fair_queue_ticket structure describing the request that just finished.
-    void notify_request_finished(fair_queue_ticket desc) noexcept;
+    void notify_request_finished(fair_queue_entry::capacity_t cap) noexcept;
     void notify_request_cancelled(fair_queue_entry& ent) noexcept;
 
     /// Try to execute new requests if there is capacity left in the queue.
