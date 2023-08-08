@@ -64,8 +64,6 @@ using io_direction_and_length = internal::io_direction_and_length;
 static constexpr auto io_direction_read = io_direction_and_length::read_idx;
 static constexpr auto io_direction_write = io_direction_and_length::write_idx;
 
-static fair_queue_ticket make_ticket(io_direction_and_length dnl, const io_queue::config& cfg) noexcept;
-
 struct default_io_exception_factory {
     static auto cancelled() {
         return cancelled_error();
@@ -291,7 +289,7 @@ public:
         : io_request(std::move(req))
         , _ioq(q)
         , _stream(_ioq.request_stream(dnl))
-        , _fq_entry(make_ticket(dnl, _ioq.get_config()))
+        , _fq_entry(internal::make_ticket(dnl, _ioq.get_config()))
         , _desc(std::make_unique<io_desc_read_write>(_ioq, pc, _stream, dnl, _fq_entry.ticket(), std::move(iovs)))
     {
     }
@@ -532,6 +530,10 @@ sstring io_request::opname() const {
     std::abort();
 }
 
+const fair_group& get_fair_group(const io_queue& ioq, unsigned stream) {
+    return *(ioq._group->_fgs[stream]);
+}
+
 } // internal namespace
 
 void
@@ -560,24 +562,6 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     } else {
         _streams.emplace_back(*_group->_fgs[0], make_fair_queue_config(cfg, "rw"));
     }
-
-    if (this_shard_id() == 0) {
-        sstring caps_str;
-        for (size_t sz = 512; sz <= 128 * 1024; sz <<= 1) {
-            caps_str += fmt::format(" {}:", sz);
-            if (sz <= _group->_max_request_length[io_direction_read]) {
-                caps_str += fmt::format("{}", _group->_fgs[0]->ticket_capacity(make_ticket(io_direction_and_length(io_direction_read, sz), get_config())));
-            } else {
-                caps_str += "X";
-            }
-            if (sz <= _group->_max_request_length[io_direction_write]) {
-                caps_str += fmt::format(":{}", _group->_fgs[0]->ticket_capacity(make_ticket(io_direction_and_length(io_direction_write, sz), get_config())));
-            } else {
-                caps_str += ":X";
-            }
-        }
-        seastar_logger.info("Created io queue dev({}) capacities:{}", get_config().devid, caps_str);
-    }
 }
 
 fair_group::config io_group::make_fair_group_config(const io_queue::config& qcfg) noexcept {
@@ -596,7 +580,7 @@ fair_group::config io_group::make_fair_group_config(const io_queue::config& qcfg
 
 static void maybe_warn_latency_goal_auto_adjust(const fair_group& fg, const io_queue::config& cfg) noexcept {
     auto goal = fg.rate_limit_duration();
-    auto lvl = goal > 1.1 * cfg.rate_limit_duration ? log_level::warn : log_level::info;
+    auto lvl = goal > 1.1 * cfg.rate_limit_duration ? log_level::warn : log_level::debug;
     seastar_logger.log(lvl, "IO queue uses {:.2f}ms latency goal for device {}", goal.count() * 1000, cfg.devid);
 }
 
@@ -624,7 +608,7 @@ io_group::io_group(io_queue::config io_cfg, unsigned nr_queues)
         auto g_idx = _config.duplex ? idx : 0;
         auto max_cap = _fgs[g_idx]->maximum_capacity();
         for (unsigned shift = 0; ; shift++) {
-            auto ticket = make_ticket(io_direction_and_length(idx, 1 << (shift + io_queue::block_size_shift)), _config);
+            auto ticket = internal::make_ticket(io_direction_and_length(idx, 1 << (shift + io_queue::block_size_shift)), _config);
             auto cap = _fgs[g_idx]->ticket_capacity(ticket);
             if (cap > max_cap) {
                 if (shift == 0) {
@@ -638,11 +622,6 @@ io_group::io_group(io_queue::config io_cfg, unsigned nr_queues)
 
     update_max_size(io_direction_write);
     update_max_size(io_direction_read);
-
-    seastar_logger.info("Created io group dev({}), length limit {}:{}, rate {}:{}", _config.devid,
-            _max_request_length[io_direction_read],
-            _max_request_length[io_direction_write],
-            _config.req_count_rate, _config.blocks_count_rate);
 }
 
 io_group::~io_group() {
@@ -893,7 +872,7 @@ stream_id io_queue::request_stream(io_direction_and_length dnl) const noexcept {
     return get_config().duplex ? dnl.rw_idx() : 0;
 }
 
-fair_queue_ticket make_ticket(io_direction_and_length dnl, const io_queue::config& cfg) noexcept {
+fair_queue_ticket internal::make_ticket(io_direction_and_length dnl, const io_queue::config& cfg) noexcept {
     struct {
         unsigned weight;
         unsigned size;
