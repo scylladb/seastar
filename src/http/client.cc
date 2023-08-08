@@ -171,11 +171,15 @@ input_stream<char> connection::in(reply& rep) {
 }
 
 future<> connection::close() {
-    return when_all(_read_buf.close(), _write_buf.close()).discard_result().then([this] {
-        auto la = _fd.local_address();
-        return std::move(_closed).then([la = std::move(la)] {
-            http_log.trace("destroyed connection {}", la);
-        });
+    return when_all(
+        _read_buf.close().handle_exception([] (auto ignored) {}),
+        _write_buf.close().handle_exception([] (auto ignored) {}))
+        .discard_result()
+        .then([this] {
+            auto la = _fd.local_address();
+            return std::move(_closed).then([la = std::move(la)] {
+                http_log.trace("destroyed connection {}", la);
+            });
     });
 }
 
