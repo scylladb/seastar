@@ -150,6 +150,7 @@ public:
         size_t block_count_limit_min = 1;
         std::chrono::milliseconds flow_monitor_period = std::chrono::milliseconds(100);
         double flow_ratio_ema_factor = 0.95;
+        double flow_ratio_backpressure_threshold = 1.5;
     };
 
     io_queue(io_group_ptr group, internal::io_sink& sink);
