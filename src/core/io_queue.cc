@@ -536,9 +536,52 @@ const fair_group& get_fair_group(const io_queue& ioq, unsigned stream) {
 
 } // internal namespace
 
+template <typename T>
+void update_moving_average(T& result, const T& value, double factor) noexcept {
+    result = result * factor + value * (1.0 - factor);
+}
+
+struct io_queue::flow_monitor {
+    const io_queue& ioq;
+    uint64_t prev_dispatched = 0;
+    uint64_t prev_completed = 0;
+    double flow_ratio = 1.0;
+    timer<lowres_clock> update;
+
+    flow_monitor(const io_queue& q) noexcept
+        : ioq(q)
+        , update([this] { update_ratio(); })
+    {
+        update.arm_periodic(ioq.get_config().flow_monitor_period);
+    }
+
+    void update_ratio() {
+        if (ioq._requests_completed > prev_completed) {
+            // Need to get the value of
+            //
+            //   dispatch_rate / complete_rate ratio
+            //
+            // where
+            //
+            //   dispatch_rate = nr_dispatched / duration
+            //   complete_rate = nr_completed / duration
+            //
+            // The nr_$value here is ioq.$value - prev_$value and duration is the same
+            // (config::flow_monitor_period), so the instant value of what we want is
+            //
+            //   nr_dispatched_delta / nr_completed_delta
+            auto instant = double(ioq._requests_dispatched - prev_dispatched) / double(ioq._requests_completed - prev_completed);
+            update_moving_average(flow_ratio, instant, ioq.get_config().flow_ratio_ema_factor);
+            prev_dispatched = ioq._requests_dispatched;
+            prev_completed = ioq._requests_completed;
+        }
+    }
+};
+
 void
 io_queue::complete_request(io_desc_read_write& desc) noexcept {
     _requests_executing--;
+    _requests_completed++;
     _streams[desc.stream()].notify_request_finished(desc.capacity());
 }
 
@@ -552,6 +595,7 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     : _priority_classes()
     , _group(std::move(group))
     , _sink(sink)
+    , _flow_mon(std::make_unique<flow_monitor>(*this))
 {
     auto& cfg = get_config();
     if (cfg.duplex) {
@@ -562,6 +606,16 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     } else {
         _streams.emplace_back(*_group->_fgs[0], make_fair_queue_config(cfg, "rw"));
     }
+
+    namespace sm = seastar::metrics;
+    auto owner_l = sm::shard_label(this_shard_id());
+    auto mnt_l = sm::label("mountpoint")(mountpoint());
+    auto group_l = sm::label("iogroup")(to_sstring(_group->_allocated_on));
+    _metric_groups.add_group("io_queue", {
+        sm::make_gauge("flow_ratio", [this] { return _flow_mon->flow_ratio; },
+                sm::description("Ratio of dispatch rate to completion rate. Is expected to be 1.0+ growing larger on reactor stalls or (!) disk problems"),
+                { owner_l, mnt_l, group_l }),
+    });
 }
 
 fair_group::config io_group::make_fair_group_config(const io_queue::config& qcfg) noexcept {
@@ -1008,6 +1062,7 @@ void io_queue::poll_io_queue() {
 void io_queue::submit_request(io_desc_read_write* desc, internal::io_request req) noexcept {
     _queued_requests--;
     _requests_executing++;
+    _requests_dispatched++;
     _sink.submit(desc, std::move(req));
 }
 
