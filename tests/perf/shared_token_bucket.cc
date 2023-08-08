@@ -224,7 +224,7 @@ struct worker : public seastar::peering_sharded_service<worker<TokenBucket>> {
     // bucket method) duration
 
     future<work_result> work_sleeping() {
-        return work([this] (std::chrono::duration<double> d) {
+        return work([] (std::chrono::duration<double> d) {
             return seastar::sleep(std::chrono::duration_cast<std::chrono::microseconds>(d));
         });
     }
@@ -317,7 +317,7 @@ struct context {
     template <typename Fn>
     future<> run_workers(Fn&& fn) {
         auto start = clock_type::now();
-        return w.map_reduce0(std::forward<Fn>(fn), statistics{}, accumulate).then([this, start] (statistics st) {
+        return w.map_reduce0(std::forward<Fn>(fn), statistics{}, accumulate).then([start] (statistics st) {
             auto delay = std::chrono::duration_cast<std::chrono::duration<double>>(clock_type::now() - start).count();
             fmt::print("effective rate is {:.1f}t/s, [{} ... {}]\n", st.total / delay, st.min, st.max);
         });
