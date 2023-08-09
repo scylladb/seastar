@@ -427,8 +427,6 @@ private:
         };
         std::atomic<uint64_t> _pending_signals;
         std::unordered_map<int, signal_handler> _signal_handlers;
-
-        friend void reactor::handle_signal(int, noncopyable_function<void ()>&&);
     };
 
     signals _signals;
@@ -667,7 +665,6 @@ private:
     friend class alien::message_queue;
     friend class pollable_fd;
     friend class pollable_fd_state;
-    friend struct pollable_fd_state_deleter;
     friend class posix_file_impl;
     friend class blockdev_file_impl;
     friend class timer<>;
