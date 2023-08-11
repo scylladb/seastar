@@ -117,6 +117,7 @@ struct client_options {
     ///
     /// \see resource_limits::isolate_connection
     sstring isolation_cookie;
+    sstring metrics_domain = "default";
 };
 
 /// @}
@@ -433,6 +434,24 @@ class client : public rpc::connection, public weakly_referencable<client> {
         };
     };
 
+    class metrics {
+        struct domain;
+
+        using domain_member_hook_t = boost::intrusive::list_member_hook<boost::intrusive::link_mode<boost::intrusive::auto_unlink>>;
+
+        const client& _c;
+        domain& _domain;
+        domain_member_hook_t _link;
+
+        using domain_list_t = boost::intrusive::list<metrics,
+              boost::intrusive::member_hook<metrics, metrics::domain_member_hook_t, &metrics::_link>,
+              boost::intrusive::constant_time_size<false>>;
+
+    public:
+        metrics(const client&);
+        ~metrics();
+    };
+
     void enqueue_zero_frame();
 public:
     template<typename Reply, typename Func>
@@ -458,6 +477,8 @@ private:
     socket_address _server_addr, _local_addr;
     client_options _options;
     weak_ptr<client> _parent; // for stream clients
+
+    metrics _metrics;
 
 private:
     future<> negotiate_protocol(feature_map map);
@@ -519,6 +540,7 @@ public:
             client_options o = _options;
             o.stream_parent = this->get_connection_id();
             o.send_timeout_data = false;
+            o.metrics_domain += "_stream";
             auto c = make_shared<client>(_logger, _serializer, o, std::move(socket), _server_addr, _local_addr);
             c->_parent = this->weak_from_this();
             c->_is_stream = true;

@@ -813,8 +813,37 @@ namespace rpc {
       });
   }
 
+  struct client::metrics::domain {
+      metrics::domain_list_t list;
+
+      static thread_local std::unordered_map<sstring, domain> all;
+      static domain& find_or_create(sstring name);
+
+      domain(sstring name)
+      {
+      }
+  };
+
+  thread_local std::unordered_map<sstring, client::metrics::domain> client::metrics::domain::all;
+
+  client::metrics::domain& client::metrics::domain::find_or_create(sstring name) {
+      auto i = all.try_emplace(name, name);
+      return i.first->second;
+  }
+
+  client::metrics::metrics(const client& c)
+        : _c(c)
+        , _domain(domain::find_or_create(_c._options.metrics_domain))
+  {
+      _domain.list.push_back(*this);
+  }
+
+  client::metrics::~metrics() {
+  }
+
   client::client(const logger& l, void* s, client_options ops, socket socket, const socket_address& addr, const socket_address& local)
-  : rpc::connection(l, s), _socket(std::move(socket)), _server_addr(addr), _local_addr(local), _options(ops) {
+  : rpc::connection(l, s), _socket(std::move(socket)), _server_addr(addr), _local_addr(local), _options(ops), _metrics(*this)
+  {
        _socket.set_reuseaddr(ops.reuseaddr);
       // Run client in the background.
       // Communicate result via _stopped.
