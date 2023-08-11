@@ -815,6 +815,7 @@ namespace rpc {
 
   struct client::metrics::domain {
       metrics::domain_list_t list;
+      stats dead;
 
       static thread_local std::unordered_map<sstring, domain> all;
       static domain& find_or_create(sstring name);
@@ -839,6 +840,10 @@ namespace rpc {
   }
 
   client::metrics::~metrics() {
+      _domain.dead.replied += _c._stats.replied;
+      _domain.dead.exception_received += _c._stats.exception_received;
+      _domain.dead.sent_messages += _c._stats.sent_messages;
+      _domain.dead.timeout += _c._stats.timeout;
   }
 
   client::client(const logger& l, void* s, client_options ops, socket socket, const socket_address& addr, const socket_address& local)
