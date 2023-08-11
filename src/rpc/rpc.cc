@@ -739,7 +739,7 @@ namespace rpc {
 
   stats client::get_stats() const {
       stats res = _stats;
-      res.wait_reply = _outstanding.size();
+      res.wait_reply = incoming_queue_length();
       res.pending = outgoing_queue_length();
       return res;
   }
