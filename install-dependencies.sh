@@ -57,6 +57,8 @@ debian_packages=(
     doxygen
     openssl
     pkg-config
+    libprotobuf-dev
+    protobuf-compiler
 )
 
 # seastar doesn't directly depend on these packages. They are
@@ -92,6 +94,8 @@ redhat_packages=(
     fmt-devel
     boost-devel
     valgrind-devel
+    protobuf-devel
+    protobuf-compiler
     "${transitive[@]}"
 )
 
