@@ -111,8 +111,6 @@ fair_group::fair_group(config cfg, unsigned nr_queues)
         , _per_tick_threshold(_token_bucket.limit() / nr_queues)
 {
     assert(_cost_capacity.is_non_zero());
-    seastar_logger.info("Created fair group {} for {} queues, capacity rate {}, limit {}, rate {} (factor {}), threshold {}, per tick grab {}", cfg.label, nr_queues,
-            _cost_capacity, _token_bucket.limit(), _token_bucket.rate(), cfg.rate_factor, _token_bucket.threshold(), _per_tick_threshold);
 
     if (cfg.rate_factor * fixed_point_factor > _token_bucket.max_rate) {
         throw std::runtime_error("Fair-group rate_factor is too large");

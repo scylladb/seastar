@@ -261,6 +261,8 @@ public:
         std::chrono::duration<double, rate_resolution> dur((double)_token_bucket.limit() / _token_bucket.rate());
         return std::chrono::duration_cast<std::chrono::duration<double>>(dur);
     }
+
+    const token_bucket_t& token_bucket() const noexcept { return _token_bucket; }
 };
 
 /// \brief Fair queuing class
