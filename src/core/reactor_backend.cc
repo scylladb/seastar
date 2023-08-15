@@ -453,6 +453,12 @@ size_t aio_general_context::flush() {
             begin += r;
             continue;
         }
+        SEASTAR_ASSERT(r < 0);
+        // Abort on any error other than EAGAIN, as those indicate an internal
+        // error on our side (see io_submit(2)).
+        if (errno != EAGAIN) {
+            on_fatal_internal_error(seastar_logger, format("aio_general_context::flush: io_submit failed with unexpected system error: {}", errno));
+        }
         // EAGAIN means the completion ring has no free slot. The kernel reserves
         // one slot per in-flight iocb at io_submit() time and frees it only when
         // userspace reaps the completion (see fs/aio.c get_reqs_available() and
