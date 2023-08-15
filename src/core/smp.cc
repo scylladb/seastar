@@ -59,7 +59,7 @@ struct smp_service_group_impl {
 #endif
 };
 
-static smp_service_group_semaphore smp_service_group_management_sem{1, named_semaphore_exception_factory{"smp_service_group_management_sem"}};
+static thread_local smp_service_group_semaphore smp_service_group_management_sem{1, named_semaphore_exception_factory{"smp_service_group_management_sem"}};
 static thread_local std::vector<smp_service_group_impl> smp_service_groups;
 
 static named_semaphore_exception_factory make_service_group_semaphore_exception_factory(unsigned id, shard_id client_cpu, shard_id this_cpu, std::optional<sstring> smp_group_name) {
