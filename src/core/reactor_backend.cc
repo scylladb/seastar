@@ -340,7 +340,13 @@ size_t aio_general_context::flush() {
     while (begin != last) {
         auto r = io_submit(io_context, last - begin, begin);
         if (__builtin_expect(r <= 0, false)) {
-            // errno == EAGAIN is expected here, but we don't explicitly assert that.
+            // EAGAIN is expected here when "Insufficient resources are available to queue any iocbs" (see io_submit(2)).
+            // This indicates overload on the kernel internal queue.
+            // Returning early below will allow us to reap completions to free up resources for further iocb:s.
+            // Abort on any other error, as those indicate an internal error on our side.
+            if (r < 0 && errno != EAGAIN) {
+                on_fatal_internal_error(seastar_logger, format("aio_general_context::flush: io_submit failed with unexpected system error: {}", errno));
+            }
             // just adjust the queue and return the number of iocbs we were able to submit
             std::move(begin, last, iocbs.get());
             break;
