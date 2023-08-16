@@ -42,8 +42,8 @@ struct request {
     unsigned index;
 
     template <typename Func>
-    request(unsigned weight, unsigned index, Func&& h)
-        : fqent(fair_queue_ticket(weight, 0))
+    request(fair_queue_entry::capacity_t cap, unsigned index, Func&& h)
+        : fqent(cap)
         , handle(std::move(h))
         , index(index)
     {}
@@ -64,8 +64,6 @@ class test_env {
 
     static fair_group::config fg_config(unsigned cap) {
         fair_group::config cfg;
-        cfg.weight_rate = 1'000'000;
-        cfg.size_rate = std::numeric_limits<int>::max();
         cfg.rate_limit_duration = std::chrono::microseconds(cap);
         return cfg;
     }
@@ -106,7 +104,7 @@ public:
             for (auto& req : curr) {
                 processed++;
                 _results[req.index]++;
-                _fq.notify_request_finished(req.fqent.ticket());
+                _fq.notify_request_finished(req.fqent.capacity());
             }
 
             _fg.replenish_capacity(_fg.replenished_ts() + std::chrono::microseconds(1));
@@ -133,13 +131,14 @@ public:
 
     void do_op(fair_queue::class_id id, unsigned weight) {
         unsigned index = id;
-        auto req = std::make_unique<request>(weight, index, [this, index] (request& req) mutable noexcept {
+        auto cap = _fq.tokens_capacity(double(weight) / 1'000'000);
+        auto req = std::make_unique<request>(cap, index, [this, index] (request& req) mutable noexcept {
             try {
                 _inflight.push_back(std::move(req));
             } catch (...) {
                 auto eptr = std::current_exception();
                 _exceptions[index].push_back(eptr);
-                _fq.notify_request_finished(req.fqent.ticket());
+                _fq.notify_request_finished(req.fqent.capacity());
             }
         });
 
