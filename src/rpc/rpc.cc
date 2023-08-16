@@ -967,6 +967,9 @@ namespace rpc {
                           if (it == s->_conns.end()) {
                               throw std::logic_error(format("Unknown parent connection {} on shard {:d}", _parent_id, this_shard_id()).c_str());
                           }
+                          if (it->second->_error) {
+                              throw std::runtime_error(format("Parent connection {} is aborting on shard {:d}", _parent_id, this_shard_id()).c_str());
+                          }
                           auto id = c->get_connection_id();
                           it->second->register_stream(id, make_lw_shared(std::move(c)));
                       });
@@ -1112,7 +1115,7 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
               if (is_stream()) {
                   return deregister_this_stream();
               } else {
-                  return make_ready_future<>();
+                  return abort_all_streams();
               }
           }).finally([this] {
               _stopped.set_value();
@@ -1140,6 +1143,16 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
                   it->second->_streams.erase(get_connection_id());
               }
           }
+      });
+  }
+
+  future<> server::connection::abort_all_streams() {
+      return parallel_for_each(_streams | boost::adaptors::map_values, [] (xshard_connection_ptr s) {
+          return smp::submit_to(s->get_owner_shard(), [s] {
+              s->get()->abort();
+          });
+      }).then([this] {
+          _streams.clear();
       });
   }
 
