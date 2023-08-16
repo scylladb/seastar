@@ -89,6 +89,71 @@ static pm::Metric* add_label(pm::Metric* mt, const metrics::impl::labels_type & 
     return mt;
 }
 
+static void fill_old_type_histogram(const metrics::histogram& h, ::io::prometheus::client::Histogram* mh) {
+    mh->set_sample_count(h.sample_count);
+    mh->set_sample_sum(h.sample_sum);
+    for (auto b : h.buckets) {
+        auto bc = mh->add_bucket();
+        bc->set_cumulative_count(b.count);
+        bc->set_upper_bound(b.upper_bound);
+    }
+}
+/*!
+ * Fill a histogram using the Prometheus native histogram representation.
+ *
+ * Prometheus Native histogram (also known as sparse histograms)
+ * uses an exponential bucket size with a coefficient equal to 2^(2^-schema).
+ * Besides the schema, a native histogram has a list of BucketSpan and a list of deltas.
+ * Each entry in the list of deltas represents a nonempty bucket,
+ * the bucket value is stored as a delta from the previous nonempty bucket.
+ * The bucket-spans list describes the buckets ids.
+ * Each back span represents multiple consecutive nonempty buckets.
+ * It holds the id of the first bucket in the span of buckets and the length (number of nonempty consecutive buckets).
+ */
+static void fill_native_type_histogram(const metrics::histogram& h, ::io::prometheus::client::Histogram* mh) {
+    mh->set_sample_count(h.sample_count);
+    mh->set_sample_sum(h.sample_sum);
+    size_t id = h.native_histogram.value().min_id;
+
+    mh->set_schema(h.native_histogram.value().schema);
+    double last_bucket = 0;
+    double count = 0;
+
+    size_t length = 0;
+    size_t last_bucket_id = 0;
+    ::io::prometheus::client::BucketSpan* bucket_span = nullptr;
+    for (auto b : h.buckets) {
+        // Metrics histograms are aggregated histograms
+        // A non empty bucket is bigger than the previous one
+        if (count < b.count) {
+            // If we are not part of an existing bucket-span, create one
+            if (!bucket_span) {
+                bucket_span = mh->add_positive_span();
+                bucket_span->set_offset(id - last_bucket_id);
+                length = 0;
+            }
+            length++;
+            mh->add_positive_delta(b.count - count - last_bucket);
+            last_bucket = b.count - count;
+        } else {
+            // The current bucket is empty, if there is an existing bucket-span
+            // set its length
+            if (bucket_span) {
+                bucket_span->set_length(length);
+                bucket_span = nullptr;
+                last_bucket_id = id;
+            }
+        }
+        count = b.count;
+        id++;
+    }
+    // maybe there is an open bucket span (the last bucket was part of a bucket-span)
+    // set its length
+    if (bucket_span) {
+        bucket_span->set_length(length);
+    }
+}
+
 static void fill_metric(pm::MetricFamily& mf, const metrics::impl::metric_value& c,
         const metrics::impl::labels_type & id, const config& ctx) {
     switch (c.type()) {
@@ -115,10 +180,10 @@ static void fill_metric(pm::MetricFamily& mf, const metrics::impl::metric_value&
         auto mh = add_label(mf.add_metric(), id,ctx)->mutable_histogram();
         mh->set_sample_count(h.sample_count);
         mh->set_sample_sum(h.sample_sum);
-        for (auto b : h.buckets) {
-            auto bc = mh->add_bucket();
-            bc->set_cumulative_count(b.count);
-            bc->set_upper_bound(b.upper_bound);
+        if (h.native_histogram) {
+            fill_native_type_histogram(h, mh);
+        } else {
+            fill_old_type_histogram(h, mh);
         }
         mf.set_type(pm::MetricType::HISTOGRAM);
         break;
