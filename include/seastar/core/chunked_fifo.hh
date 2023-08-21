@@ -149,6 +149,7 @@ private:
         size_t _item_index = 0;
 
     protected:
+        inline basic_iterator() = default;
         inline explicit basic_iterator(chunk* c) noexcept;
         inline basic_iterator(chunk* c, size_t item_index) noexcept;
 
