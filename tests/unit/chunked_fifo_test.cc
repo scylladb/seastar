@@ -24,20 +24,29 @@
 
 #include <boost/test/unit_test.hpp>
 #include <seastar/core/chunked_fifo.hh>
+#include <seastar/core/circular_buffer.hh>
 #include <stdlib.h>
 #include <chrono>
 #include <deque>
 #include <iterator>
+#if __has_include(<ranges>)
+#include <ranges>
+#endif
 #if __has_include(<version>)
 #include <version>
 #endif
-#include <seastar/core/circular_buffer.hh>
 
 using namespace seastar;
 
 #ifdef __cpp_lib_concepts
 static_assert(std::weakly_incrementable<chunked_fifo<int>::iterator>);
 static_assert(std::weakly_incrementable<chunked_fifo<int>::const_iterator>);
+static_assert(std::sentinel_for<chunked_fifo<int>::iterator, chunked_fifo<int>::iterator>);
+static_assert(std::sentinel_for<chunked_fifo<int>::const_iterator, chunked_fifo<int>::const_iterator>);
+#endif
+
+#ifdef __cpp_lib_ranges
+static_assert(std::ranges::range<chunked_fifo<const int>>);
 #endif
 
 BOOST_AUTO_TEST_CASE(chunked_fifo_small) {
