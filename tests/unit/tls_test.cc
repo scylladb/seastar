@@ -22,6 +22,7 @@
 
 #include <iostream>
 
+#include <memory>
 #include <seastar/core/do_with.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/reactor.hh>
@@ -268,36 +269,43 @@ public:
     }
 };
 
+struct with_https_server {
+    std::unique_ptr<https_server> server;
+    void setup() {
+        server = std::make_unique<https_server>();
+    }
+    void teardown() {
+        server.reset();
+    }
+};
+
 #if !SEASTAR_TESTING_WITH_NETWORKING
 
-SEASTAR_THREAD_TEST_CASE(test_simple_x509_client) {
+SEASTAR_THREAD_FIXTURE_TEST_CASE(test_simple_x509_client, with_https_server) {
     auto certs = ::make_shared<tls::certificate_credentials>();
-    https_server server;
-    certs->set_x509_trust_file(server.cert(), tls::x509_crt_format::PEM).get();
-    connect_to_ssl_addr(certs, server.addr(), server.name()).get();
+    certs->set_x509_trust_file(server->cert(), tls::x509_crt_format::PEM).get();
+    connect_to_ssl_addr(certs, server->addr(), server->name()).get();
 }
 
 #endif // !SEASTAR_TESTING_WITH_NETWORKING
 
-SEASTAR_THREAD_TEST_CASE(test_x509_client_with_builder) {
+SEASTAR_THREAD_FIXTURE_TEST_CASE(test_x509_client_with_builder, with_https_server) {
     tls::credentials_builder b;
-    https_server server;
-    b.set_x509_trust_file(server.cert(), tls::x509_crt_format::PEM).get();
-    connect_to_ssl_addr(b.build_certificate_credentials(), server.addr()).get();
+    b.set_x509_trust_file(server->cert(), tls::x509_crt_format::PEM).get();
+    connect_to_ssl_addr(b.build_certificate_credentials(), server->addr()).get();
 }
 
-SEASTAR_THREAD_TEST_CASE(test_x509_client_with_builder_multiple) {
+SEASTAR_THREAD_FIXTURE_TEST_CASE(test_x509_client_with_builder_multiple, with_https_server) {
     tls::credentials_builder b;
-    https_server server;
-    b.set_x509_trust_file(server.cert(), tls::x509_crt_format::PEM).get();
+    b.set_x509_trust_file(server->cert(), tls::x509_crt_format::PEM).get();
     auto creds = b.build_certificate_credentials();
-    auto addr = server.addr();
+    auto addr = server->addr();
     parallel_for_each(boost::irange(0, 20), [creds, addr](auto i) {
         return connect_to_ssl_addr(creds, addr);
     }).get();
 }
 
-SEASTAR_THREAD_TEST_CASE(test_x509_client_with_priority_strings) {
+SEASTAR_THREAD_FIXTURE_TEST_CASE(test_x509_client_with_priority_strings, with_https_server) {
     static std::vector<sstring> prios( {
         "NORMAL:+ARCFOUR-128", // means normal ciphers plus ARCFOUR-128.
         "SECURE128:-VERS-SSL3.0:+COMP-DEFLATE", // means that only secure ciphers are enabled, SSL3.0 is disabled, and libz compression enabled.
@@ -310,23 +318,21 @@ SEASTAR_THREAD_TEST_CASE(test_x509_client_with_priority_strings) {
         "SECURE128:+SECURE192:-VERS-TLS-ALL:+VERS-TLS1.2"
     });
     tls::credentials_builder b;
-    https_server server;
-    b.set_x509_trust_file(server.cert(), tls::x509_crt_format::PEM).get();
-    auto addr = server.addr();
+    b.set_x509_trust_file(server->cert(), tls::x509_crt_format::PEM).get();
+    auto addr = server->addr();
     do_for_each(prios, [&b, addr](const sstring& prio) {
         b.set_priority_string(prio);
         return connect_to_ssl_addr(b.build_certificate_credentials(), addr);
     }).get();
 }
 
-SEASTAR_THREAD_TEST_CASE(test_x509_client_with_priority_strings_fail) {
+SEASTAR_THREAD_FIXTURE_TEST_CASE(test_x509_client_with_priority_strings_fail, with_https_server) {
     static std::vector<sstring> prios( { "NONE",
         "NONE:+CURVE-SECP256R1"
     });
     tls::credentials_builder b;
-    https_server server;
-    b.set_x509_trust_file(server.cert(), tls::x509_crt_format::PEM).get();
-    auto addr = server.addr();
+    b.set_x509_trust_file(server->cert(), tls::x509_crt_format::PEM).get();
+    auto addr = server->addr();
     do_for_each(prios, [&b, addr](const sstring& prio) {
         b.set_priority_string(prio);
         try {
