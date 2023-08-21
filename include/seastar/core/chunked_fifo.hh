@@ -130,9 +130,12 @@ public:
     using const_pointer = const T*;
 
 private:
-    template <typename U>
+    template <typename Derived, typename U>
     class basic_iterator {
         friend class chunked_fifo;
+
+        Derived& underlying() noexcept;
+        const Derived& underlying() const noexcept;
 
     public:
         using iterator_category = std::forward_iterator_tag;
@@ -154,18 +157,18 @@ private:
         inline bool operator!=(const basic_iterator& o) const noexcept;
         inline pointer operator->() const noexcept;
         inline reference operator*() const noexcept;
-        inline basic_iterator operator++(int) noexcept;
-        basic_iterator& operator++() noexcept;
+        inline Derived operator++(int) noexcept;
+        Derived& operator++() noexcept;
     };
 
 public:
-    class iterator : public basic_iterator<T> {
-        using basic_iterator<T>::basic_iterator;
+    class iterator : public basic_iterator<iterator, T> {
+        using basic_iterator<iterator, T>::basic_iterator;
     public:
         iterator() noexcept = default;
     };
-    class const_iterator : public basic_iterator<const T> {
-        using basic_iterator<const T>::basic_iterator;
+    class const_iterator : public basic_iterator<const_iterator, const T> {
+        using basic_iterator<const_iterator, const T>::basic_iterator;
     public:
         const_iterator() noexcept = default;
         inline const_iterator(iterator o) noexcept;
@@ -215,70 +218,84 @@ private:
 };
 
 template <typename T, size_t items_per_chunk>
-template <typename U>
-inline
-chunked_fifo<T, items_per_chunk>::basic_iterator<U>::basic_iterator(chunk* c) noexcept : _chunk(c), _item_index(_chunk ? _chunk->begin : 0) {
+template <typename Derived, typename U>
+inline Derived&
+chunked_fifo<T, items_per_chunk>::basic_iterator<Derived, U>::underlying() noexcept{
+    return static_cast<Derived&>(*this);
 }
 
 template <typename T, size_t items_per_chunk>
-template <typename U>
-inline
-chunked_fifo<T, items_per_chunk>::basic_iterator<U>::basic_iterator(chunk* c, size_t item_index) noexcept : _chunk(c), _item_index(item_index) {
+template <typename Derived, typename U>
+inline const Derived&
+chunked_fifo<T, items_per_chunk>::basic_iterator<Derived, U>::underlying() const noexcept{
+    return static_cast<Derived&>(*this);
 }
 
 template <typename T, size_t items_per_chunk>
-template <typename U>
+template <typename Derived, typename U>
+inline
+chunked_fifo<T, items_per_chunk>::basic_iterator<Derived, U>::basic_iterator(chunk* c) noexcept : _chunk(c), _item_index(_chunk ? _chunk->begin : 0) {
+}
+
+template <typename T, size_t items_per_chunk>
+template <typename Derived, typename U>
+inline
+chunked_fifo<T, items_per_chunk>::basic_iterator<Derived, U>::basic_iterator(chunk* c, size_t item_index) noexcept : _chunk(c), _item_index(item_index) {
+}
+
+template <typename T, size_t items_per_chunk>
+template <typename Derived, typename U>
 inline bool
-chunked_fifo<T, items_per_chunk>::basic_iterator<U>::operator==(const basic_iterator& o) const noexcept {
+chunked_fifo<T, items_per_chunk>::basic_iterator<Derived, U>::operator==(const basic_iterator& o) const noexcept {
     return _chunk == o._chunk && _item_index == o._item_index;
 }
 
 template <typename T, size_t items_per_chunk>
-template <typename U>
+template <typename Derived, typename U>
 inline bool
-chunked_fifo<T, items_per_chunk>::basic_iterator<U>::operator!=(const basic_iterator& o) const noexcept {
+chunked_fifo<T, items_per_chunk>::basic_iterator<Derived, U>::operator!=(const basic_iterator& o) const noexcept {
     return !(*this == o);
 }
 
 template <typename T, size_t items_per_chunk>
-template <typename U>
-inline typename chunked_fifo<T, items_per_chunk>::template basic_iterator<U>::pointer
-chunked_fifo<T, items_per_chunk>::basic_iterator<U>::operator->() const noexcept {
+template <typename Derived, typename U>
+inline typename chunked_fifo<T, items_per_chunk>::template basic_iterator<Derived, U>::pointer
+chunked_fifo<T, items_per_chunk>::basic_iterator<Derived, U>::operator->() const noexcept {
     return &_chunk->items[chunked_fifo::mask(_item_index)].data;
 }
 
 template <typename T, size_t items_per_chunk>
-template <typename U>
-inline typename chunked_fifo<T, items_per_chunk>::template basic_iterator<U>::reference
-chunked_fifo<T, items_per_chunk>::basic_iterator<U>::operator*() const noexcept {
+template <typename Derived, typename U>
+inline typename chunked_fifo<T, items_per_chunk>::template basic_iterator<Derived, U>::reference
+chunked_fifo<T, items_per_chunk>::basic_iterator<Derived, U>::operator*() const noexcept {
     return _chunk->items[chunked_fifo::mask(_item_index)].data;
 }
 
 template <typename T, size_t items_per_chunk>
-template <typename U>
-inline typename chunked_fifo<T, items_per_chunk>::template basic_iterator<U>
-chunked_fifo<T, items_per_chunk>::basic_iterator<U>::operator++(int) noexcept {
-    auto it = *this;
+template <typename Derived, typename U>
+inline Derived
+chunked_fifo<T, items_per_chunk>::basic_iterator<Derived, U>::operator++(int) noexcept {
+    auto it = this->underlying();
     ++(*this);
     return it;
 }
 
 template <typename T, size_t items_per_chunk>
-template <typename U>
-typename chunked_fifo<T, items_per_chunk>::template basic_iterator<U>&
-chunked_fifo<T, items_per_chunk>::basic_iterator<U>::operator++() noexcept {
+template <typename Derived, typename U>
+Derived&
+chunked_fifo<T, items_per_chunk>::basic_iterator<Derived, U>::operator++() noexcept {
     ++_item_index;
     if (_item_index == _chunk->end) {
         _chunk = _chunk->next;
         _item_index = _chunk ? _chunk->begin : 0;
     }
-    return *this;
+    return this->underlying();
 }
 
 template <typename T, size_t items_per_chunk>
 inline
 chunked_fifo<T, items_per_chunk>::const_iterator::const_iterator(chunked_fifo<T, items_per_chunk>::iterator o) noexcept
-    : basic_iterator<const T>(o._chunk, o._item_index) {
+    : basic_iterator<const_iterator, const T>(o._chunk, o._item_index) {
 }
 
 template <typename T, size_t items_per_chunk>
