@@ -27,9 +27,18 @@
 #include <stdlib.h>
 #include <chrono>
 #include <deque>
+#include <iterator>
+#if __has_include(<version>)
+#include <version>
+#endif
 #include <seastar/core/circular_buffer.hh>
 
 using namespace seastar;
+
+#ifdef __cpp_lib_concepts
+static_assert(std::weakly_incrementable<chunked_fifo<int>::iterator>);
+static_assert(std::weakly_incrementable<chunked_fifo<int>::const_iterator>);
+#endif
 
 BOOST_AUTO_TEST_CASE(chunked_fifo_small) {
     // Check all the methods of chunked_fifo but with a trivial type (int) and
