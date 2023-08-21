@@ -33,14 +33,14 @@
 #define SEASTAR_TEST_CASE_WITH_DECO(name, decorators)               \
     struct name : public seastar::testing::seastar_test {           \
         using seastar::testing::seastar_test::seastar_test;         \
-        seastar::future<> run_test_case() const override;           \
+        seastar::future<> run_test_case() override;                 \
     };                                                              \
     static const name name ## _instance(                            \
         #name,                                                      \
         __FILE__,                                                   \
         __LINE__,                                                   \
         decorators); /* NOLINT(cert-err58-cpp) */                   \
-    seastar::future<> name::run_test_case() const
+    seastar::future<> name::run_test_case()
 
 #define SEASTAR_TEST_CASE_WITHOUT_DECO(name)                        \
     SEASTAR_TEST_CASE_WITH_DECO(                                    \

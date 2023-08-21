@@ -53,7 +53,7 @@ public:
         return _test_file;
     }
     static const std::string& get_name();
-    virtual future<> run_test_case() const = 0;
+    virtual future<> run_test_case() = 0;
     void run();
 };
 

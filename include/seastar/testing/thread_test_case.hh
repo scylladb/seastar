@@ -34,7 +34,7 @@
 #define SEASTAR_THREAD_TEST_CASE_WITH_DECO(name, decorators) \
     struct name : public seastar::testing::seastar_test {    \
         using seastar::testing::seastar_test::seastar_test;  \
-        seastar::future<> run_test_case() const override {   \
+        seastar::future<> run_test_case() override {         \
             return seastar::async([this] {                   \
                 do_run_test_case();                          \
             });                                              \
