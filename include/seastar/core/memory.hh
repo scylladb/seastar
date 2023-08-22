@@ -159,6 +159,7 @@ numa_layout merge(numa_layout one, numa_layout two);
 }
 
 internal::numa_layout configure(std::vector<resource::memory> m, bool mbind,
+        bool transparent_hugepages,
         std::optional<std::string> hugetlbfs_path = {});
 
 // A deprecated alias for set_abort_on_allocation_failure(true).
