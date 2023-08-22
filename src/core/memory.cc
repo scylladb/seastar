@@ -248,6 +248,10 @@ using std::optional;
 // for those threads
 static thread_local bool is_reactor_thread = false;
 
+// We default transparent hugepages to true since we prefer to transiently
+// use a transparent hugepage and then break it, to having the kernel
+// work to rearrange a broken transparent hugepage.
+std::atomic<bool> use_transparent_hugepages = true;
 
 namespace alloc_stats {
 
@@ -874,6 +878,22 @@ small_pool::alloc_site_holder(void* ptr) {
 
 #endif
 
+static
+void
+maybe_enable_transparent_hugepages(void* addr, size_t len) {
+    if (use_transparent_hugepages.load(std::memory_order_relaxed)) {
+        ::madvise(addr, len, MADV_HUGEPAGE);
+    }
+}
+
+static
+void
+maybe_disable_transparent_hugepages(void* addr, size_t len) {
+    if (!use_transparent_hugepages.load(std::memory_order_relaxed)) {
+        ::madvise(addr, len, MADV_NOHUGEPAGE);
+    }
+}
+
 void*
 cpu_pages::allocate_small(unsigned size) {
     auto idx = small_pool::size_to_idx(size);
@@ -1065,7 +1085,7 @@ bool cpu_pages::initialize() {
     if (r == MAP_FAILED) {
         abort();
     }
-    ::madvise(base, size, MADV_HUGEPAGE);
+    maybe_enable_transparent_hugepages(base, size);
     pages = reinterpret_cast<page*>(base);
     memory = base;
     nr_pages = size / page_size;
@@ -1127,7 +1147,7 @@ void cpu_pages::do_resize(size_t new_size, allocate_system_memory_fn alloc_sys_m
     auto mmap_size = new_size - old_size;
     auto mem = alloc_sys_mem(mmap_start, mmap_size);
     mem.release();
-    ::madvise(mmap_start, mmap_size, MADV_HUGEPAGE);
+    maybe_enable_transparent_hugepages(mmap_start, mmap_size);
     // one past last page structure is a sentinel
     auto new_page_array_pages = align_up(sizeof(page[new_pages + 1]), page_size) / page_size;
     auto new_page_array
@@ -1544,6 +1564,7 @@ void disable_large_allocation_warning() {
 
 internal::numa_layout
 configure(std::vector<resource::memory> m, bool mbind,
+        bool transparent_hugepages,
         optional<std::string> hugetlbfs_path) {
     // we need to make sure cpu_mem is initialize since configure calls cpu_mem.resize
     // and we might reach configure without ever allocating, hence without ever calling
@@ -1551,7 +1572,12 @@ configure(std::vector<resource::memory> m, bool mbind,
     // The correct solution is to add a condition inside cpu_mem.resize, but since all
     // other paths to cpu_pages::resize are already verifying initialize was called, we
     // verify that here.
+    use_transparent_hugepages.store(transparent_hugepages, std::memory_order_relaxed);
     init_cpu_mem();
+    // init_cpu_mem() could have been called very early, see call site in allocate().
+    // In that case we don't know about the transparent_hugepages parameter and conservatively
+    // assume it's true. Undo that here if it turned out to be false.
+    maybe_disable_transparent_hugepages(cpu_mem.memory, cpu_mem.nr_pages * page_size);
     is_reactor_thread = true;
     internal::numa_layout ret_layout;
     size_t total = 0;
@@ -2352,7 +2378,9 @@ void set_reclaim_hook(std::function<void (std::function<void ()>)> hook) {
 }
 
 internal::numa_layout
-configure(std::vector<resource::memory> m, bool mbind, std::optional<std::string> hugepages_path) {
+configure(std::vector<resource::memory> m, bool mbind,
+        bool transparent_hugepages,
+        std::optional<std::string> hugepages_path) {
     return {};
 }
 
