@@ -305,6 +305,12 @@ namespace tls {
         sstring _priority;
     };
 
+    /// TLS configuration options
+    struct tls_options {
+        /// \brief whether to wait for EOF from server on session termination
+        bool wait_for_eof_on_shutdown = true;
+    };
+
     /**
      * Creates a TLS client connection using the default network stack and the
      * supplied credentials.
@@ -330,9 +336,13 @@ namespace tls {
     ::seastar::socket socket(shared_ptr<certificate_credentials>, sstring name = {});
     /// @}
 
-    /** Wraps an existing connection in SSL/TLS. */
+    /**
+     * Wraps an existing connection in SSL/TLS.
+     *
+     * \param options Optional additional session configuration
+     */
     /// @{
-    future<connected_socket> wrap_client(shared_ptr<certificate_credentials>, connected_socket&&, sstring name = {});
+    future<connected_socket> wrap_client(shared_ptr<certificate_credentials>, connected_socket&&, sstring name = {}, tls_options options = {});
     future<connected_socket> wrap_server(shared_ptr<server_credentials>, connected_socket&&);
     /// @}
 

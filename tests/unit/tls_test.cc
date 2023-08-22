@@ -1433,3 +1433,59 @@ SEASTAR_THREAD_TEST_CASE(test_alt_names) {
 
 }
 
+SEASTAR_THREAD_TEST_CASE(test_skip_wait_for_eof) {
+    tls::credentials_builder b;
+
+    b.set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).get();
+    b.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
+    b.set_client_auth(tls::client_auth::REQUIRE);
+
+    auto creds = b.build_certificate_credentials();
+    auto serv = b.build_server_credentials();
+
+    ::listen_options opts;
+    opts.reuse_address = true;
+    opts.set_fixed_cpu(this_shard_id());
+
+    auto addr = ::make_ipv4_address({0x7f000001, 4712});
+    auto server = tls::listen(serv, addr, opts);
+
+    {
+        // Initiate a connection while specifying that it should not wait for eof on shutdown.
+        auto sa = server.accept();
+        auto c = engine().connect(addr).get();
+        auto c_tls = tls::wrap_client(creds, std::move(c), sstring{},
+                                      tls::tls_options{.wait_for_eof_on_shutdown = false}).get();
+        auto s = sa.get();
+
+        auto in = s.connection.input();
+        auto out = c_tls.output();
+
+        // Write some data in the socket to handshake.
+        out.write("apa").get();
+        auto f = out.flush();
+        auto buf = in.read().get0();
+        f.get();
+        BOOST_CHECK(sstring(buf.begin(), buf.end()) == "apa");
+
+        // Prevent the server from reading from the connection.
+        // This ensures that it will miss the bye message and not
+        // reply with an eof.
+        server.abort_accept();
+
+        // Initiate closing of the TLS session
+        c_tls.shutdown_input();
+        c_tls.shutdown_output();
+
+        // Ensure that the session is closed promptly. When wait_for_eof_on_shutdown is not
+        // specified, the call to wait_input_shutdown will hang for 10 seconds waiting for
+        // and eof from the server.
+        try {
+            with_timeout(std::chrono::steady_clock::now() + 1s, c_tls.wait_input_shutdown()).get();
+        } catch (timed_out_error&) {
+            BOOST_FAIL("Timed out while waiting for input shutdown."
+                       "This indicates the EOF wait was not skipped");
+        }
+    }
+}
+
