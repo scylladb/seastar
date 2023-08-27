@@ -24,6 +24,7 @@
 #ifndef SEASTAR_MODULE
 #include <memory>
 #include <algorithm>
+#include <type_traits>
 #include <seastar/util/modules.hh>
 #endif
 
@@ -130,26 +131,31 @@ public:
     using const_pointer = const T*;
 
 private:
-    template <typename U>
+    template <bool IsConst>
     class basic_iterator {
         friend class chunked_fifo;
 
     public:
         using iterator_category = std::forward_iterator_tag;
         using difference_type = std::ptrdiff_t;
-        using value_type = U;
-        using pointer = U*;
-        using reference = U&;
+        using value_type = std::conditional_t<IsConst, const T, T>;
+        using pointer = value_type*;
+        using reference = value_type&;
 
-    protected:
-        chunk* _chunk = nullptr;
+    private:
+        using chunk_t = std::conditional_t<IsConst, const chunk, chunk>;
+        chunk_t* _chunk = nullptr;
         size_t _item_index = 0;
 
     protected:
-        inline explicit basic_iterator(chunk* c) noexcept;
-        inline basic_iterator(chunk* c, size_t item_index) noexcept;
+        inline explicit basic_iterator(chunk_t* c) noexcept;
+        inline basic_iterator(chunk_t* c, size_t item_index) noexcept;
 
     public:
+        basic_iterator() noexcept = default;
+        template<bool OtherIsConst, std::enable_if_t<IsConst && !OtherIsConst, int> = 0>
+        inline basic_iterator(const basic_iterator<OtherIsConst>& o) noexcept
+	  :  basic_iterator{o._chunk, o._item_index} {}
         inline bool operator==(const basic_iterator& o) const noexcept;
         inline bool operator!=(const basic_iterator& o) const noexcept;
         inline pointer operator->() const noexcept;
@@ -159,17 +165,8 @@ private:
     };
 
 public:
-    class iterator : public basic_iterator<T> {
-        using basic_iterator<T>::basic_iterator;
-    public:
-        iterator() noexcept = default;
-    };
-    class const_iterator : public basic_iterator<const T> {
-        using basic_iterator<const T>::basic_iterator;
-    public:
-        const_iterator() noexcept = default;
-        inline const_iterator(iterator o) noexcept;
-    };
+    using iterator = basic_iterator<false>;
+    using const_iterator = basic_iterator<true>;
 
 public:
     chunked_fifo() noexcept = default;
@@ -215,70 +212,64 @@ private:
 };
 
 template <typename T, size_t items_per_chunk>
-template <typename U>
+template <bool IsConst>
 inline
-chunked_fifo<T, items_per_chunk>::basic_iterator<U>::basic_iterator(chunk* c) noexcept : _chunk(c), _item_index(_chunk ? _chunk->begin : 0) {
+chunked_fifo<T, items_per_chunk>::basic_iterator<IsConst>::basic_iterator(chunk_t* c) noexcept : _chunk(c), _item_index(_chunk ? _chunk->begin : 0) {
 }
 
 template <typename T, size_t items_per_chunk>
-template <typename U>
+template <bool IsConst>
 inline
-chunked_fifo<T, items_per_chunk>::basic_iterator<U>::basic_iterator(chunk* c, size_t item_index) noexcept : _chunk(c), _item_index(item_index) {
+chunked_fifo<T, items_per_chunk>::basic_iterator<IsConst>::basic_iterator(chunk_t* c, size_t item_index) noexcept : _chunk(c), _item_index(item_index) {
 }
 
 template <typename T, size_t items_per_chunk>
-template <typename U>
+template <bool IsConst>
 inline bool
-chunked_fifo<T, items_per_chunk>::basic_iterator<U>::operator==(const basic_iterator& o) const noexcept {
+chunked_fifo<T, items_per_chunk>::basic_iterator<IsConst>::operator==(const basic_iterator& o) const noexcept {
     return _chunk == o._chunk && _item_index == o._item_index;
 }
 
 template <typename T, size_t items_per_chunk>
-template <typename U>
+template <bool IsConst>
 inline bool
-chunked_fifo<T, items_per_chunk>::basic_iterator<U>::operator!=(const basic_iterator& o) const noexcept {
+chunked_fifo<T, items_per_chunk>::basic_iterator<IsConst>::operator!=(const basic_iterator& o) const noexcept {
     return !(*this == o);
 }
 
 template <typename T, size_t items_per_chunk>
-template <typename U>
-inline typename chunked_fifo<T, items_per_chunk>::template basic_iterator<U>::pointer
-chunked_fifo<T, items_per_chunk>::basic_iterator<U>::operator->() const noexcept {
+template <bool IsConst>
+inline typename chunked_fifo<T, items_per_chunk>::template basic_iterator<IsConst>::pointer
+chunked_fifo<T, items_per_chunk>::basic_iterator<IsConst>::operator->() const noexcept {
     return &_chunk->items[chunked_fifo::mask(_item_index)].data;
 }
 
 template <typename T, size_t items_per_chunk>
-template <typename U>
-inline typename chunked_fifo<T, items_per_chunk>::template basic_iterator<U>::reference
-chunked_fifo<T, items_per_chunk>::basic_iterator<U>::operator*() const noexcept {
+template <bool IsConst>
+inline typename chunked_fifo<T, items_per_chunk>::template basic_iterator<IsConst>::reference
+chunked_fifo<T, items_per_chunk>::basic_iterator<IsConst>::operator*() const noexcept {
     return _chunk->items[chunked_fifo::mask(_item_index)].data;
 }
 
 template <typename T, size_t items_per_chunk>
-template <typename U>
-inline typename chunked_fifo<T, items_per_chunk>::template basic_iterator<U>
-chunked_fifo<T, items_per_chunk>::basic_iterator<U>::operator++(int) noexcept {
+template <bool IsConst>
+inline typename chunked_fifo<T, items_per_chunk>::template basic_iterator<IsConst>
+chunked_fifo<T, items_per_chunk>::basic_iterator<IsConst>::operator++(int) noexcept {
     auto it = *this;
     ++(*this);
     return it;
 }
 
 template <typename T, size_t items_per_chunk>
-template <typename U>
-typename chunked_fifo<T, items_per_chunk>::template basic_iterator<U>&
-chunked_fifo<T, items_per_chunk>::basic_iterator<U>::operator++() noexcept {
+template <bool IsConst>
+typename chunked_fifo<T, items_per_chunk>::template basic_iterator<IsConst>&
+chunked_fifo<T, items_per_chunk>::basic_iterator<IsConst>::operator++() noexcept {
     ++_item_index;
     if (_item_index == _chunk->end) {
         _chunk = _chunk->next;
         _item_index = _chunk ? _chunk->begin : 0;
     }
     return *this;
-}
-
-template <typename T, size_t items_per_chunk>
-inline
-chunked_fifo<T, items_per_chunk>::const_iterator::const_iterator(chunked_fifo<T, items_per_chunk>::iterator o) noexcept
-    : basic_iterator<const T>(o._chunk, o._item_index) {
 }
 
 template <typename T, size_t items_per_chunk>
