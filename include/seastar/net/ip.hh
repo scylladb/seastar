@@ -96,7 +96,12 @@ class ip_protocol {
 public:
     virtual ~ip_protocol() {}
     virtual void received(packet p, ipv4_address from, ipv4_address to) = 0;
-    virtual bool forward(forward_hash& out_hash_data, packet& p, size_t off) { return true; }
+    virtual bool forward(forward_hash& out_hash_data, packet& p, size_t off) {
+      std::ignore = out_hash_data;
+      std::ignore = p;
+      std::ignore = off;
+      return true;
+    }
 };
 
 template <typename InetTraits>
