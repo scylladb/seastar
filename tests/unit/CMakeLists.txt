@@ -374,6 +374,10 @@ seastar_add_test (noncopyable_function
   KIND BOOST
   SOURCES noncopyable_function_test.cc)
 
+seastar_add_test (cpu_profiler_alloc
+  KIND BOOST
+  SOURCES cpu_profiler_alloc_test.cc)
+
 seastar_add_test (output_stream
   SOURCES output_stream_test.cc)
 
