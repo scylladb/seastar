@@ -134,6 +134,9 @@ void cpu_profiler::on_signal() {
     // Note: this only protects against C++ exceptions, therefore foreign
     // exceptions or long jumps could still cause segfaults within the profiler.
     const bool no_uncaught_exceptions = std::uncaught_exceptions() == 0;
+    if(!no_uncaught_exceptions) {
+        _stats.dropped_samples_from_exceptions++;
+    }
 
     // Skip the sample if the main thread is currently reading
     // _traces. This case shouldn't happen often though.
@@ -144,7 +147,7 @@ void cpu_profiler::on_signal() {
         // this.
         if (_traces.size() == _traces.capacity()) {
             _traces.pop_front();
-            _dropped_samples++;
+            _stats.dropped_samples_from_buffer_full++;
         }
         _traces.emplace_back();
         _traces.back().user_backtrace = current_backtrace_tasklocal();
@@ -159,6 +162,8 @@ void cpu_profiler::on_signal() {
                 }
             });
         }
+    } else {
+        _stats.dropped_samples_from_mutex_contention++;
     }
 
     auto next = get_next_timeout();
@@ -176,8 +181,11 @@ size_t cpu_profiler::results(std::vector<cpu_profiler_trace>& results_buffer) {
 
     results_buffer.assign(_traces.cbegin(), _traces.cend());
     _traces.clear();
-    
-    return std::exchange(_dropped_samples, 0);
+
+    auto dropped_samples = _stats.sum_dropped();
+    _stats.clear_dropped();
+
+    return dropped_samples;
 }
 
 void cpu_profiler_posix_timer::arm_timer(std::chrono::nanoseconds ns) {

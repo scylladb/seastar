@@ -76,6 +76,24 @@ struct cpu_profiler_config {
     std::chrono::nanoseconds period;
 };
 
+struct cpu_profiler_stats {
+    unsigned dropped_samples_from_exceptions{0};
+    unsigned dropped_samples_from_buffer_full{0};
+    unsigned dropped_samples_from_mutex_contention{0};
+
+    void clear_dropped() {
+        dropped_samples_from_exceptions = 0;
+        dropped_samples_from_buffer_full = 0;
+        dropped_samples_from_mutex_contention = 0;
+    }
+
+    unsigned sum_dropped() const {
+        return dropped_samples_from_buffer_full
+            + dropped_samples_from_exceptions
+            + dropped_samples_from_mutex_contention;
+    }
+};
+
 class cpu_profiler {
 private:
     circular_buffer_fixed_capacity<cpu_profiler_trace, max_number_of_traces> _traces;
@@ -85,7 +103,7 @@ private:
     signal_mutex _traces_mutex;
     cpu_profiler_config _cfg;
     std::chrono::nanoseconds _last_set_timeout;
-    size_t _dropped_samples{0};
+    cpu_profiler_stats _stats;
     bool _is_stopped{true};
 
 
