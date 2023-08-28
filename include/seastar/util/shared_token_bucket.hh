@@ -174,10 +174,7 @@ public:
         auto extra = accumulated_in(delta);
 
         if (extra >= _replenish_threshold) {
-            // accumulated_in() might have lost or accumulated some replenisher
-            // time due to rounding floating-point delta to integer tokens
-            auto real_delta = std::chrono::duration_cast<decltype(delta)>(duration_for(extra));
-            if (!_replenished.compare_exchange_weak(ts, ts + real_delta)) {
+            if (!_replenished.compare_exchange_weak(ts, ts + delta)) {
                 return; // next time or another shard
             }
 
