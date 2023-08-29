@@ -730,15 +730,21 @@ private:
         char* _buffer;
         cmsg_with_pktinfo _cmsg;
 
-        recv_ctx() {
+        recv_ctx(bool use_pktinfo) {
             memset(&_hdr, 0, sizeof(_hdr));
             _hdr.msg_iov = &_iov;
             _hdr.msg_iovlen = 1;
             _hdr.msg_name = &_src_addr.u.sa;
             _hdr.msg_namelen = sizeof(_src_addr.u.sas);
-            memset(&_cmsg, 0, sizeof(_cmsg));
-            _hdr.msg_control = &_cmsg;
-            _hdr.msg_controllen = sizeof(_cmsg);
+
+            if (use_pktinfo) {
+                memset(&_cmsg, 0, sizeof(_cmsg));
+                _hdr.msg_control = &_cmsg;
+                _hdr.msg_controllen = sizeof(_cmsg);
+            } else {
+                _hdr.msg_control = nullptr;
+                _hdr.msg_controllen = 0;
+            }
         }
 
         void prepare() {
@@ -769,6 +775,9 @@ private:
             resolve_outgoing_address(_dst);
         }
     };
+    static bool eligible_to_ip_pktinfo(const socket_address& addr) {
+        return addr.family() == AF_INET || addr.family() == AF_INET6;
+    }
     pollable_fd _fd;
     socket_address _address;
     recv_ctx _recv;
@@ -776,14 +785,19 @@ private:
     bool _closed;
 public:
     posix_udp_channel(const socket_address& bind_address)
-            : _closed(false) {
+            : _recv(eligible_to_ip_pktinfo(bind_address) || bind_address.is_unspecified()),
+            _closed(false) {
         auto sa = bind_address.is_unspecified() ? socket_address(inet_address(inet_address::family::INET)) : bind_address;
         file_desc fd = file_desc::socket(sa.u.sa.sa_family, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
-        fd.setsockopt(SOL_IP, IP_PKTINFO, true);
-        if (engine().posix_reuseport_available()) {
-            fd.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1);
+
+        if (eligible_to_ip_pktinfo(sa)) {
+            fd.setsockopt(SOL_IP, IP_PKTINFO, true);
+            if (engine().posix_reuseport_available()) {
+                fd.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1);
+            }
         }
-        fd.bind(sa.u.sa, sizeof(sa.u.sas));
+
+        fd.bind(sa.u.sa, sa.addr_length);
         _address = fd.get_address();
         _fd = std::move(fd);
     }
@@ -859,7 +873,7 @@ future<udp_datagram>
 posix_udp_channel::receive() {
     _recv.prepare();
     return _fd.recvmsg(&_recv._hdr).then([this] (size_t size) {
-        socket_address dst;
+        socket_address dst = _address; // Default for when no pktinfo is available (e.g. AF_UNIX).
         for (auto* cmsg = CMSG_FIRSTHDR(&_recv._hdr); cmsg != nullptr; cmsg = CMSG_NXTHDR(&_recv._hdr, cmsg)) {
             if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_PKTINFO) {
                 dst = ipv4_addr(copy_reinterpret_cast<in_pktinfo>(CMSG_DATA(cmsg)).ipi_addr, _address.port());
