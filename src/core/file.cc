@@ -382,9 +382,13 @@ posix_file_impl::list_directory(std::function<future<> (directory_entry de)> nex
     // instead.
 
     // From getdents(2):
+    // check for 64-bit inode number
+    static_assert(sizeof(ino_t) == 8, "large file support not enabled");
+    static_assert(sizeof(off_t) == 8, "large file support not enabled");
+
     struct linux_dirent64 {
-        ino64_t        d_ino;    /* 64-bit inode number */
-        off64_t        d_off;    /* 64-bit offset to next structure */
+        ino_t          d_ino;    /* 64-bit inode number */
+        off_t          d_off;    /* 64-bit offset to next structure */
         unsigned short d_reclen; /* Size of this dirent */
         unsigned char  d_type;   /* File type */
         char           d_name[]; /* Filename (null-terminated) */
