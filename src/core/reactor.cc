@@ -1950,7 +1950,7 @@ reactor::chmod(std::string_view name, file_permissions permissions) noexcept {
     });
 }
 
-directory_entry_type stat_to_entry_type(__mode_t type) {
+directory_entry_type stat_to_entry_type(mode_t type) {
     if (S_ISDIR(type)) {
         return directory_entry_type::directory;
     }
