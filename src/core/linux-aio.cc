@@ -33,6 +33,7 @@ module;
 #include <unistd.h>
 #include <sys/syscall.h>
 #include <valgrind/valgrind.h>
+#include <features.h>
 
 #ifdef SEASTAR_MODULE
 module seastar;
@@ -171,7 +172,11 @@ void setup_aio_context(size_t nr, linux_abi::aio_context_t* io_context) {
     auto r = io_setup(nr, io_context);
     if (r < 0) {
         char buf[1024];
-        char *msg = strerror_r(errno, buf, sizeof(buf));
+#ifdef __GLIBC__
+        const char *msg = strerror_r(errno, buf, sizeof(buf));
+#else
+        const char *msg = strerror_r(errno, buf, sizeof(buf)) ? "unknown error" : buf;
+#endif
         if (errno == EAGAIN) {
             auto aio_max_nr = read_first_line_as<unsigned>("/proc/sys/fs/aio-max-nr");
             throw std::runtime_error(

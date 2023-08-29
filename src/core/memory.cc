@@ -69,6 +69,7 @@ module;
 #include <boost/container/static_vector.hpp>
 
 #include <dlfcn.h>
+#include <features.h>
 
 #ifndef SEASTAR_DEFAULT_ALLOCATOR
 #include <new>
@@ -1608,7 +1609,11 @@ configure(std::vector<resource::memory> m, bool mbind,
 
             if (r == -1) {
                 char err[1000] = {};
-                char *msg = strerror_r(errno, err, sizeof(err));
+#ifdef __GLIBC__
+                const char *msg = strerror_r(errno, err, sizeof(err));
+#else
+                const char *msg = strerror_r(errno, err, sizeof(err)) ? "unknown error" : buf;
+#endif
                 std::cerr << "WARNING: unable to mbind shard memory; performance may suffer: "
                         << msg << std::endl;
             }
