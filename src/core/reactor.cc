@@ -1140,7 +1140,10 @@ posix_timer::posix_timer(timer_cfg cfg, clockid_t clock_id) {
     struct sigevent sev = {};
     sev.sigev_notify = SIGEV_THREAD_ID;
     sev.sigev_signo = cfg.signal_number;
-    sev._sigev_un._tid = syscall(SYS_gettid);
+#ifndef sigev_notify_thread_id
+#define sigev_notify_thread_id _sigev_un._tid
+#endif
+    sev.sigev_notify_thread_id = syscall(SYS_gettid);
     int err = timer_create(clock_id, &sev, &_timer);
     if (err) {
         throw std::system_error(std::error_code(err, std::system_category()));
