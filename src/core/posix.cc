@@ -122,15 +122,15 @@ posix_thread::posix_thread(attr a, std::function<void ()> func)
     }
 #endif
 
-    if (a._affinity) {
-        auto& cpuset = *a._affinity;
-        pthread_attr_setaffinity_np(&pa, sizeof(cpuset), &cpuset);
-    }
-
     r = pthread_create(&_pthread, &pa,
                 &posix_thread::start_routine, _func.get());
     if (r) {
         throw std::system_error(r, std::system_category());
+    }
+
+    if (a._affinity) {
+        auto& cpuset = *a._affinity;
+        pthread_setaffinity_np(_pthread, sizeof(cpuset), &cpuset);
     }
 }
 
