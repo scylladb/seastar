@@ -174,3 +174,75 @@ SEASTAR_THREAD_TEST_CASE(signal_mutex_basic) {
     auto guard_opt_3 = mutex.try_lock();
     BOOST_REQUIRE(guard_opt_3.has_value());
 }
+
+namespace {
+void random_exception_catcher(int p, int a);
+
+[[gnu::noinline]] void
+random_exception_thrower(int a) {
+  static thread_local std::random_device rd;
+  static thread_local std::mt19937 gen(rd());
+  std::uniform_int_distribution<> d(1, 100);
+
+  a -= 1;
+
+  if (a <= 0) {
+    throw std::invalid_argument("noop");
+  }
+
+  random_exception_catcher(d(gen), a);
+}
+
+[[gnu::noinline]] void random_exception_catcher(int p, int a) {
+  static thread_local std::random_device rd;
+  static thread_local std::mt19937 gen(rd());
+  std::uniform_int_distribution<> d(1, 100);
+
+  try {
+    random_exception_thrower(a);
+  } catch (...) {
+    int r = d(gen);
+    if (r > p) {
+      throw;
+    }
+  }
+}
+
+} // namespace
+
+SEASTAR_THREAD_TEST_CASE(exception_handler_case) {
+  // Ensure that exception unwinding doesn't cause any issues
+  // while profiling.
+  temporary_profiler_settings cp{true, 10us};
+
+  std::random_device rd;
+  std::mt19937 gen(rd());
+  std::uniform_int_distribution<> d(1, 100);
+  for (int a = 0; a < 100; a++) {
+    random_exception_catcher(100, d(gen));
+  }
+
+  std::vector<cpu_profiler_trace> results;
+  auto dropped_samples = engine().profiler_results(results);
+  BOOST_REQUIRE_EQUAL(results.size(), 128);
+  BOOST_REQUIRE(dropped_samples > 0);
+}
+
+SEASTAR_THREAD_TEST_CASE(config_thrashing) {
+  // Ensure that fast config changes leave the profiler in a valid
+  // state.
+  temporary_profiler_settings cp{true, 10us};
+
+  std::random_device rd;
+  std::mt19937 gen(rd());
+  std::uniform_int_distribution<> d(1, 100);
+
+  for (int a = 0; a < 100; a++) {
+    int r = d(gen);
+    temporary_profiler_settings cp_0{r % 2 == 0, std::chrono::microseconds(r)};
+  }
+
+  std::vector<cpu_profiler_trace> results;
+  engine().profiler_results(results);
+  BOOST_REQUIRE(results.size() > 0);
+}
