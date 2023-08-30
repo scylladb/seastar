@@ -261,3 +261,28 @@ SEASTAR_THREAD_TEST_CASE(unixdomain_udp_autobind) {
     string received = to_string(std::move(dgram.get_data()));
     BOOST_REQUIRE_EQUAL(received, "hello");
 }
+
+SEASTAR_THREAD_TEST_CASE(unixdomain_udp_named) {
+    // Create a temporary directory for the socket file using mkdtemp.
+    char tmpdir[] = "/tmp/seastar-test-XXXXXX";
+    char* tmpdir_ptr = mkdtemp(tmpdir);
+    if (tmpdir_ptr == nullptr) {
+        throw std::runtime_error("mkdtemp failed");
+    }
+
+    // Create a socket file in the temporary directory.
+    std::string socket_path = format("{}/socket", tmpdir_ptr);
+    auto named_receiver = make_udp_channel(socket_address{unix_domain_addr{socket_path}});
+
+    // Send a message to the named socket using an autobound socket.
+    auto sender = make_udp_channel(autobind());
+    sender.send(socket_address{unix_domain_addr{socket_path}}, "hihi").get();
+
+    net::udp_datagram dgram = named_receiver.receive().get0();
+    string received = to_string(std::move(dgram.get_data()));
+    BOOST_REQUIRE_EQUAL(received, "hihi");
+
+    // Try to be nice and remove the temporary directory.
+    std::ignore = ::unlink(socket_path.c_str());
+    std::ignore = ::rmdir(tmpdir_ptr);
+}
