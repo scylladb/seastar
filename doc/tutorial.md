@@ -451,7 +451,8 @@ make_dishes(coroutine::experimental::buffer_size_t max_dishes_on_table,
 
 seastar::future<> have_a_dinner(unsigned max_dishes_on_table) {
     Ingredients ingredients;
-    auto dishes = make_dishes(std::move(ingredients));
+    auto dishes = make_dishes(coroutine::experimental::buffer_size_t{max_dishes_on_table},
+                              std::move(ingredients));
     while (auto dish = co_await dishes()) {
         co_await consume_a_dish(std::move(dish));
     }
