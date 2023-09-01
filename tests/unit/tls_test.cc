@@ -67,7 +67,7 @@ using namespace seastar;
 
 static future<> connect_to_ssl_addr(::shared_ptr<tls::certificate_credentials> certs, socket_address addr, const sstring& name = {}) {
     return repeat_until_value([=]() mutable {
-        return tls::connect(certs, addr, name).then([](connected_socket s) {
+        return tls::connect(certs, addr, tls::tls_options{.server_name = name}).then([](connected_socket s) {
             return do_with(std::move(s), [](connected_socket& s) {
                 return do_with(s.output(), [&s](auto& os) {
                     static const sstring msg("GET / HTTP/1.0\r\n\r\n");
@@ -591,7 +591,7 @@ static future<> run_echo_test(sstring message,
             }
             return server->invoke_on_all(&echoserver::listen, addr, crt, key, ca, server_trust);
         }).then([=] {
-            return tls::connect(certs, addr, name).then([loops, msg, do_read](::connected_socket s) {
+            return tls::connect(certs, addr, tls::tls_options{.server_name=name}).then([loops, msg, do_read](::connected_socket s) {
                 auto strms = ::make_lw_shared<streams>(std::move(s));
                 auto range = boost::irange(0, loops);
                 return do_for_each(range, [strms, msg](auto) {
@@ -1454,7 +1454,7 @@ SEASTAR_THREAD_TEST_CASE(test_skip_wait_for_eof) {
         // Initiate a connection while specifying that it should not wait for eof on shutdown.
         auto sa = server.accept();
         auto c = engine().connect(addr).get();
-        auto c_tls = tls::wrap_client(creds, std::move(c), sstring{},
+        auto c_tls = tls::wrap_client(creds, std::move(c),
                                       tls::tls_options{.wait_for_eof_on_shutdown = false}).get();
         auto s = sa.get();
 

@@ -309,6 +309,8 @@ namespace tls {
     struct tls_options {
         /// \brief whether to wait for EOF from server on session termination
         bool wait_for_eof_on_shutdown = true;
+        /// \brief server name to be used for the SNI TLS extension
+        sstring server_name = {};
     };
 
     /**
@@ -317,11 +319,28 @@ namespace tls {
      * Typically these should contain enough information
      * to validate the remote certificate (i.e. trust info).
      *
-     * \param name An optional expected server name for the remote end point
+     * ATTN: The method is going to be deprecated
+     *
+     * \param name The expected server name for the remote end point
      */
     /// @{
-    future<connected_socket> connect(shared_ptr<certificate_credentials>, socket_address, sstring name = {});
-    future<connected_socket> connect(shared_ptr<certificate_credentials>, socket_address, socket_address local, sstring name = {});
+    [[deprecated("Use overload with tls_options parameter")]]
+    future<connected_socket> connect(shared_ptr<certificate_credentials>, socket_address, sstring name);
+    [[deprecated("Use overload with tls_options parameter")]]
+    future<connected_socket> connect(shared_ptr<certificate_credentials>, socket_address, socket_address local, sstring name);
+    /// @}
+
+    /**
+     * Creates a TLS client connection using the default network stack and the
+     * supplied credentials.
+     * Typically these should contain enough information
+     * to validate the remote certificate (i.e. trust info).
+     *
+     * \param options Optional additional session configuration
+     */
+    /// @{
+    future<connected_socket> connect(shared_ptr<certificate_credentials>, socket_address, tls_options option = {});
+    future<connected_socket> connect(shared_ptr<certificate_credentials>, socket_address, socket_address local, tls_options options = {});
     /// @}
 
     /**
@@ -330,10 +349,38 @@ namespace tls {
      * Typically these should contain enough information
      * to validate the remote certificate (i.e. trust info).
      *
-     * \param name An optional expected server name for the remote end point
+     * ATTN: The method is going to be deprecated
+     *
+     * \param name The expected server name for the remote end point
      */
     /// @{
-    ::seastar::socket socket(shared_ptr<certificate_credentials>, sstring name = {});
+    [[deprecated("Use overload with tls_options parameter")]]
+    ::seastar::socket socket(shared_ptr<certificate_credentials>, sstring name);
+    /// @}
+
+    /**
+     * Creates a socket through which a TLS client connection can be created,
+     * using the default network stack and the supplied credentials.
+     * Typically these should contain enough information
+     * to validate the remote certificate (i.e. trust info).
+     *
+     * \param options Optional additional session configuration
+     */
+    /// @{
+    ::seastar::socket socket(shared_ptr<certificate_credentials>, tls_options options = {});
+    /// @}
+
+    /**
+     * Wraps an existing connection in SSL/TLS.
+     *
+     * ATTN: The method is going to be deprecated
+     *
+     * \param name The expected server name for the remote end point
+     */
+    /// @{
+    [[deprecated("Use overload with tls_options parameter")]]
+    future<connected_socket> wrap_client(shared_ptr<certificate_credentials>, connected_socket&&, sstring name);
+    future<connected_socket> wrap_server(shared_ptr<server_credentials>, connected_socket&&);
     /// @}
 
     /**
@@ -342,8 +389,7 @@ namespace tls {
      * \param options Optional additional session configuration
      */
     /// @{
-    future<connected_socket> wrap_client(shared_ptr<certificate_credentials>, connected_socket&&, sstring name = {}, tls_options options = {});
-    future<connected_socket> wrap_server(shared_ptr<server_credentials>, connected_socket&&);
+    future<connected_socket> wrap_client(shared_ptr<certificate_credentials>, connected_socket&&, tls_options options = {});
     /// @}
 
     /**

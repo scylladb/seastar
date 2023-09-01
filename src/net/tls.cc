@@ -1001,10 +1001,10 @@ public:
     };
 
     session(type t, shared_ptr<tls::certificate_credentials> creds,
-            std::unique_ptr<net::connected_socket_impl> sock, sstring name = { }, tls_options options = {})
-            : _type(t), _sock(std::move(sock)), _creds(creds->_impl), _hostname(
-                    std::move(name)), _in(_sock->source()), _out(_sock->sink()),
-                    _in_sem(1), _out_sem(1), _options(options), _output_pending(
+            std::unique_ptr<net::connected_socket_impl> sock, tls_options options = {})
+            : _type(t), _sock(std::move(sock)), _creds(creds->_impl),
+                    _in(_sock->source()), _out(_sock->sink()),
+                    _in_sem(1), _out_sem(1), _options(std::move(options)), _output_pending(
                     make_ready_future<>()), _session([t] {
                 gnutls_session_t session;
                 gtls_chk(gnutls_init(&session, GNUTLS_NONBLOCK|uint32_t(t)));
@@ -1047,10 +1047,10 @@ public:
 #endif
     }
     session(type t, shared_ptr<certificate_credentials> creds,
-            connected_socket sock, sstring name = { },
+            connected_socket sock,
             tls_options options = {})
             : session(t, std::move(creds), net::get_impl::get(std::move(sock)),
-                    std::move(name), options) {
+                      std::move(options)) {
     }
 
     ~session() {
@@ -1094,8 +1094,8 @@ public:
         if (_connected) {
             return make_ready_future<>();
         }
-        if (_type == type::CLIENT && !_hostname.empty()) {
-            gnutls_server_name_set(*this, GNUTLS_NAME_DNS, _hostname.data(), _hostname.size());
+        if (_type == type::CLIENT && !_options.server_name.empty()) {
+            gnutls_server_name_set(*this, GNUTLS_NAME_DNS, _options.server_name.data(), _options.server_name.size());
         }
         try {
             auto res = gnutls_handshake(*this);
@@ -1218,8 +1218,8 @@ public:
 
     void verify() {
         unsigned int status;
-        auto res = gnutls_certificate_verify_peers3(*this, _type != type::CLIENT || _hostname.empty()
-                        ? nullptr : _hostname.c_str(), &status);
+        auto res = gnutls_certificate_verify_peers3(*this, _type != type::CLIENT || _options.server_name.empty()
+                        ? nullptr : _options.server_name.c_str(), &status);
         if (res == GNUTLS_E_NO_CERTIFICATE_FOUND && _type != type::CLIENT && _creds->get_client_auth() != client_auth::REQUIRE) {
             return;
         }
@@ -1684,7 +1684,6 @@ private:
 
     std::unique_ptr<net::connected_socket_impl> _sock;
     shared_ptr<tls::certificate_credentials::impl> _creds;
-    const sstring _hostname;
     data_source _in;
     data_sink _out;
 
@@ -1847,15 +1846,15 @@ private:
 
 class tls_socket_impl : public net::socket_impl {
     shared_ptr<certificate_credentials> _cred;
-    sstring _name;
+    tls_options _options;
     ::seastar::socket _socket;
 public:
-    tls_socket_impl(shared_ptr<certificate_credentials> cred, sstring name)
-            : _cred(cred), _name(std::move(name)), _socket(make_socket()) {
+    tls_socket_impl(shared_ptr<certificate_credentials> cred, tls_options options)
+            : _cred(cred), _options(std::move(options)), _socket(make_socket()) {
     }
     virtual future<connected_socket> connect(socket_address sa, socket_address local, transport proto = transport::TCP) override {
-        return _socket.connect(sa, local, proto).then([cred = std::move(_cred), name = std::move(_name)](connected_socket s) mutable {
-            return wrap_client(cred, std::move(s), std::move(name));
+        return _socket.connect(sa, local, proto).then([cred = std::move(_cred), options = std::move(_options)](connected_socket s) mutable {
+            return wrap_client(cred, std::move(s), std::move(options));
         });
     }
     void set_reuseaddr(bool reuseaddr) override {
@@ -1881,23 +1880,43 @@ data_sink tls::tls_connected_socket_impl::sink() {
 
 
 future<connected_socket> tls::connect(shared_ptr<certificate_credentials> cred, socket_address sa, sstring name) {
-    return engine().connect(sa).then([cred = std::move(cred), name = std::move(name)](connected_socket s) mutable {
-        return wrap_client(cred, std::move(s), std::move(name));
-    });
+    tls_options options{.server_name = std::move(name)};
+    return connect(std::move(cred), std::move(sa), std::move(options));
 }
 
 future<connected_socket> tls::connect(shared_ptr<certificate_credentials> cred, socket_address sa, socket_address local, sstring name) {
-    return engine().connect(sa, local).then([cred = std::move(cred), name = std::move(name)](connected_socket s) mutable {
-        return wrap_client(cred, std::move(s), std::move(name));
+    tls_options options{.server_name = std::move(name)};
+    return connect(std::move(cred), std::move(sa), std::move(local), std::move(options));
+}
+
+future<connected_socket> tls::connect(shared_ptr<certificate_credentials> cred, socket_address sa, tls_options options) {
+    return engine().connect(sa).then([cred = std::move(cred), options = std::move(options)](connected_socket s) mutable {
+        return wrap_client(std::move(cred), std::move(s), std::move(options));
+    });
+}
+
+future<connected_socket> tls::connect(shared_ptr<certificate_credentials> cred, socket_address sa, socket_address local, tls_options options) {
+    return engine().connect(sa, local).then([cred = std::move(cred), options = std::move(options)](connected_socket s) mutable {
+        return wrap_client(std::move(cred), std::move(s), std::move(options));
     });
 }
 
 socket tls::socket(shared_ptr<certificate_credentials> cred, sstring name) {
-    return ::seastar::socket(std::make_unique<tls_socket_impl>(std::move(cred), std::move(name)));
+    tls_options options{.server_name = std::move(name)};
+    return tls::socket(std::move(cred), std::move(options));
 }
 
-future<connected_socket> tls::wrap_client(shared_ptr<certificate_credentials> cred, connected_socket&& s, sstring name, tls_options options) {
-    session::session_ref sess(make_lw_shared<session>(session::type::CLIENT, std::move(cred), std::move(s), std::move(name), options));
+socket tls::socket(shared_ptr<certificate_credentials> cred, tls_options options) {
+    return ::seastar::socket(std::make_unique<tls_socket_impl>(std::move(cred), std::move(options)));
+}
+
+future<connected_socket> tls::wrap_client(shared_ptr<certificate_credentials> cred, connected_socket&& s, sstring name) {
+    tls_options options{.server_name = std::move(name)};
+    return wrap_client(std::move(cred), std::move(s), std::move(options));
+}
+
+future<connected_socket> tls::wrap_client(shared_ptr<certificate_credentials> cred, connected_socket&& s, tls_options options) {
+    session::session_ref sess(make_lw_shared<session>(session::type::CLIENT, std::move(cred), std::move(s),  options));
     connected_socket sock(std::make_unique<tls_connected_socket_impl>(std::move(sess)));
     return make_ready_future<connected_socket>(std::move(sock));
 }
