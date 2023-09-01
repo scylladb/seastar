@@ -882,10 +882,14 @@ std::ostream& operator<<(std::ostream& os, const std::unordered_map<Key, T, Hash
 
 SEASTAR_MODULE_EXPORT
 template <typename char_type, typename Size, Size max_size, bool NulTerminate>
-struct fmt::formatter<seastar::basic_sstring<char_type, Size, max_size, NulTerminate>> : fmt::formatter<std::basic_string_view<char_type>> {
+struct fmt::formatter<seastar::basic_sstring<char_type, Size, max_size, NulTerminate>>
+    : private fmt::formatter<std::basic_string_view<char_type>> {
+    using format_as_t = std::basic_string_view<char_type>;
+    using base = fmt::formatter<format_as_t>;
+    using base::parse;
     template <typename FormatContext>
     auto format(const ::seastar::basic_sstring<char_type, Size, max_size, NulTerminate>& s, FormatContext& ctx) const {
-        return formatter<std::basic_string_view<char_type>>::format(s, ctx);
+        return base::format(format_as_t{s}, ctx);
     }
 };
 
