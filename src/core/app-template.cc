@@ -117,6 +117,17 @@ const app_template::seastar_options& app_template::options() const {
 
 app_template::configuration_reader app_template::get_default_configuration_reader() {
     return [this] (bpo::variables_map& configuration) {
+        auto seastar_conf = std::getenv("SEASTAR_CONF");
+        if (seastar_conf) {
+            std::ifstream ifs {std::string(seastar_conf)};
+            if (ifs) {
+                bpo::store(bpo::parse_config_file(ifs, _opts_conf_file), configuration);
+            } else {
+                seastar_logger.error("Failed to open {}", seastar_conf);
+                _exit(1);
+            }
+            return;
+        }
         auto home = std::getenv("HOME");
         if (home) {
             std::ifstream ifs(std::string(home) + "/.config/seastar/seastar.conf");
