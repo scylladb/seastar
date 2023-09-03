@@ -48,7 +48,7 @@ module;
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/eventfd.h>
-#include <sys/poll.h>
+#include <poll.h>
 #include <netinet/in.h>
 #include <boost/lexical_cast.hpp>
 #include <boost/thread/barrier.hpp>

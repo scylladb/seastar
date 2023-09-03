@@ -30,7 +30,7 @@
 #include <seastar/core/loop.hh>
 #include <seastar/core/sleep.hh>
 #include <sys/mman.h>
-#include <sys/signal.h>
+#include <signal.h>
 
 #include <valgrind/valgrind.h>
 
