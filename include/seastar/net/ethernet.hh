@@ -46,7 +46,7 @@ struct ethernet_address {
     std::array<uint8_t, 6> mac;
 
     template <typename Adjuster>
-    void adjust_endianness(Adjuster a) noexcept {}
+    void adjust_endianness(Adjuster) noexcept {}
 
     static ethernet_address read(const char* p) noexcept {
         ethernet_address ea;
