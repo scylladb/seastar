@@ -22,6 +22,7 @@
 #pragma once
 
 #include <cassert>
+#include <coroutine>
 #include <optional>
 #include <utility>
 #include <seastar/core/future.hh>
