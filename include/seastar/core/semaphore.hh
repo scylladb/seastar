@@ -249,6 +249,43 @@ public:
     {
         static_assert(std::is_nothrow_move_constructible_v<expiry_handler>);
     }
+
+    /// Move-constructs a semaphore object from a moved-from semaphore object,
+    /// inheriting the number of units from the moved-from semaphore.
+    /// The moved-from semaphore must be unused.
+    ///
+    /// \param other the moved-from semaphore object.
+    basic_semaphore(basic_semaphore&& other) noexcept(std::is_nothrow_move_constructible_v<exception_factory>)
+        : exception_factory(other)
+        , _count(other._count)
+        , _ex(std::exchange(other._ex, std::exception_ptr()))
+        , _wait_list(expiry_handler{*this})
+        , _used(std::move(other._used))
+    {
+        // semaphore cannot be moved with non-empty waiting list
+        assert(other._wait_list.empty());
+    }
+
+    /// Move-assigns a semaphore object from a moved-from semaphore object,
+    /// inheriting the number of units from the moved-from semaphore.
+    /// The number of units of the assigned semaphore is overwritten by the
+    /// the moved-from number of units.
+    /// Both the moved-to and moved-from semaphores must be unused.
+    ///
+    /// \param other the moved-from semaphore object.
+    basic_semaphore& operator=(basic_semaphore&& other) noexcept(std::is_nothrow_move_assignable_v<exception_factory>) {
+        // semaphore cannot be moved with non-empty waiting list
+        assert(_wait_list.empty());
+        assert(other._wait_list.empty());
+        if (this != &other) {
+            exception_factory::operator=(other);
+            _count = other._count;
+            _ex = std::exchange(other._ex, std::exception_ptr());
+            _used = std::move(other._used);
+        }
+        return *this;
+    }
+
     /// Waits until at least a specific number of units are available in the
     /// counter, and reduces the counter by that amount of units.
     ///
