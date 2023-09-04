@@ -32,6 +32,7 @@
 #include <seastar/core/sleep.hh>
 #include <seastar/core/distributed.hh>
 #include <seastar/core/loop.hh>
+#include <seastar/core/metrics_api.hh>
 #include <seastar/util/defer.hh>
 #include <seastar/util/log.hh>
 #include <seastar/util/closeable.hh>
@@ -1548,4 +1549,42 @@ SEASTAR_TEST_CASE(test_rpc_abort_connection) {
         BOOST_REQUIRE_EQUAL(arrived, 2);
         c1.stop().get0();
     });
+}
+
+SEASTAR_THREAD_TEST_CASE(test_rpc_metric_domains) {
+    auto do_one_echo = [] (rpc_test_env<>& env, test_rpc_proto::client& cln, int nr_calls) {
+        env.register_handler(1, [] (int v) { return make_ready_future<int>(v); }).get();
+        auto call = env.proto().template make_client<int(int)>(1);
+        for (int i = 0; i < nr_calls; i++) {
+            call(cln, i).get();
+        }
+    };
+
+    rpc::client_options client_opt;
+
+    client_opt.metrics_domain = "dom1";
+    auto p1 = rpc_test_env<>::do_with_thread(rpc_test_config(), client_opt, [&] (auto& env, auto& cln) { do_one_echo(env, cln, 3); });
+    client_opt.metrics_domain = "dom2";
+    auto p2 = rpc_test_env<>::do_with_thread(rpc_test_config(), client_opt, [&] (auto& env, auto& cln) { do_one_echo(env, cln, 2); });
+    auto p3 = rpc_test_env<>::do_with_thread(rpc_test_config(), client_opt, [&] (auto& env, auto& cln) { do_one_echo(env, cln, 5); });
+    when_all(std::move(p1), std::move(p2)).discard_result().get();
+
+    auto get_metrics = [] (std::string name, std::string domain) -> int {
+        const auto& values = seastar::metrics::impl::get_value_map();
+        const auto& mf = values.find(name);
+        BOOST_REQUIRE(mf != values.end());
+        for (auto&& mi : mf->second) {
+            for (auto&&li : mi.first) {
+                if (li.first == "domain" && li.second == domain) {
+                    return mi.second->get_function()().i();
+                }
+            }
+        }
+        BOOST_FAIL("cannot find requested metrics");
+        return 0;
+    };
+
+    // Negotiation messages also count, so +1 for default domain and +2 for "dom" one
+    BOOST_CHECK_EQUAL(get_metrics("rpc_client_sent_messages", "dom1"), 4);
+    BOOST_CHECK_EQUAL(get_metrics("rpc_client_sent_messages", "dom2"), 9);
 }
