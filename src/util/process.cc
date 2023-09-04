@@ -108,11 +108,11 @@ public:
 };
 }
 
-process::process(create_tag, pid_t pid, file_desc&& stdin, file_desc&& stdout, file_desc&& stderr)
+process::process(create_tag, pid_t pid, file_desc&& cin, file_desc&& cout, file_desc&& cerr)
     : _pid(pid)
-    , _stdin(std::move(stdin))
-    , _stdout(std::move(stdout))
-    , _stderr(std::move(stderr)) {}
+    , _stdin(std::move(cin))
+    , _stdout(std::move(cout))
+    , _stderr(std::move(cerr)) {}
 
 future<process::wait_status> process::wait() {
     return engine().waitpid(_pid).then([] (int wstatus) -> wait_status {
@@ -146,15 +146,15 @@ future<process> process::spawn(const std::filesystem::path& pathname) {
     return spawn(pathname, {{pathname.native()}, {}});
 }
 
-output_stream<char> process::stdin() {
+output_stream<char> process::cin() {
     return output_stream<char>(data_sink(pipe_data_sink_impl::from_fd(std::move(_stdin))));
 }
 
-input_stream<char> process::stdout() {
+input_stream<char> process::cout() {
     return input_stream<char>(data_source(pipe_data_source_impl::from_fd(std::move(_stdout))));
 }
 
-input_stream<char> process::stderr() {
+input_stream<char> process::cerr() {
     return input_stream<char>(data_source(pipe_data_source_impl::from_fd(std::move(_stderr))));
 }
 
