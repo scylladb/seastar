@@ -67,7 +67,7 @@ using namespace seastar;
 
 static future<> connect_to_ssl_addr(::shared_ptr<tls::certificate_credentials> certs, socket_address addr, const sstring& name = {}) {
     return repeat_until_value([=]() mutable {
-        return tls::connect(certs, addr, name).then([](connected_socket s) {
+        return tls::connect(certs, addr, tls::tls_options{.server_name = name}).then([](connected_socket s) {
             return do_with(std::move(s), [](connected_socket& s) {
                 return do_with(s.output(), [&s](auto& os) {
                     static const sstring msg("GET / HTTP/1.0\r\n\r\n");
@@ -591,7 +591,7 @@ static future<> run_echo_test(sstring message,
             }
             return server->invoke_on_all(&echoserver::listen, addr, crt, key, ca, server_trust);
         }).then([=] {
-            return tls::connect(certs, addr, name).then([loops, msg, do_read](::connected_socket s) {
+            return tls::connect(certs, addr, tls::tls_options{.server_name=name}).then([loops, msg, do_read](::connected_socket s) {
                 auto strms = ::make_lw_shared<streams>(std::move(s));
                 auto range = boost::irange(0, loops);
                 return do_for_each(range, [strms, msg](auto) {
@@ -1431,5 +1431,61 @@ SEASTAR_THREAD_TEST_CASE(test_alt_names) {
         ensure_alt_name(tls::subject_alt_name_type::dnsname, 1);
     }
 
+}
+
+SEASTAR_THREAD_TEST_CASE(test_skip_wait_for_eof) {
+    tls::credentials_builder b;
+
+    b.set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).get();
+    b.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
+    b.set_client_auth(tls::client_auth::REQUIRE);
+
+    auto creds = b.build_certificate_credentials();
+    auto serv = b.build_server_credentials();
+
+    ::listen_options opts;
+    opts.reuse_address = true;
+    opts.set_fixed_cpu(this_shard_id());
+
+    auto addr = ::make_ipv4_address({0x7f000001, 4712});
+    auto server = tls::listen(serv, addr, opts);
+
+    {
+        // Initiate a connection while specifying that it should not wait for eof on shutdown.
+        auto sa = server.accept();
+        auto c = engine().connect(addr).get();
+        auto c_tls = tls::wrap_client(creds, std::move(c),
+                                      tls::tls_options{.wait_for_eof_on_shutdown = false}).get();
+        auto s = sa.get();
+
+        auto in = s.connection.input();
+        auto out = c_tls.output();
+
+        // Write some data in the socket to handshake.
+        out.write("apa").get();
+        auto f = out.flush();
+        auto buf = in.read().get0();
+        f.get();
+        BOOST_CHECK(sstring(buf.begin(), buf.end()) == "apa");
+
+        // Prevent the server from reading from the connection.
+        // This ensures that it will miss the bye message and not
+        // reply with an eof.
+        server.abort_accept();
+
+        // Initiate closing of the TLS session
+        c_tls.shutdown_input();
+        c_tls.shutdown_output();
+
+        // Ensure that the session is closed promptly. When wait_for_eof_on_shutdown is not
+        // specified, the call to wait_input_shutdown will hang for 10 seconds waiting for
+        // and eof from the server.
+        try {
+            with_timeout(std::chrono::steady_clock::now() + 1s, c_tls.wait_input_shutdown()).get();
+        } catch (timed_out_error&) {
+            BOOST_FAIL("Timed out while waiting for input shutdown."
+                       "This indicates the EOF wait was not skipped");
+        }
+    }
 }
 
