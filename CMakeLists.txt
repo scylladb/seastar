@@ -866,7 +866,8 @@ if (MaybeUninitialized_FOUND)
 endif ()
 
 if (Seastar_SSTRING)
-  target_compile_options (seastar PUBLIC -DSEASTAR_SSTRING)
+  target_compile_definitions (seastar
+    PUBLIC SEASTAR_SSTRING)
 endif ()
 
 if (LinuxMembarrier_FOUND)
