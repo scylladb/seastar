@@ -74,8 +74,8 @@ const char* to_string(logger_timestamp_style val) {
 const char* to_string(logger_ostream_type val) {
     switch (val) {
         case logger_ostream_type::none: return "none";
-        case logger_ostream_type::stdout: return "stdout";
-        case logger_ostream_type::stderr: return "stderr";
+        case logger_ostream_type::cout: return "stdout";
+        case logger_ostream_type::cerr: return "stderr";
     }
     std::abort();
 }
@@ -121,9 +121,9 @@ logger_ostream_type from_string(const std::string& val, boost::type<logger_ostre
     if (val == "none") {
         return logger_ostream_type::none;
     } else if (val == "stdout") {
-        return logger_ostream_type::stdout;
+        return logger_ostream_type::cout;
     } else if (val == "stderr") {
-        return logger_ostream_type::stderr;
+        return logger_ostream_type::cerr;
     }
     throw std::runtime_error(fmt::format("Invalid value for enum logger_ostream_type: {}", val));
 }

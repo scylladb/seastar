@@ -74,13 +74,13 @@ class process {
     /// \returns a \c process instance representing the spawned subprocess
     static future<process> spawn(const std::filesystem::path& pathname);
 public:
-    process(create_tag, pid_t pid, file_desc&& stdin, file_desc&& stdout, file_desc&& stderr);
+    process(create_tag, pid_t pid, file_desc&& cin, file_desc&& cout, file_desc&& cerr);
     /// Return an writable stream which provides input from the child process
-    output_stream<char> stdin();
+    output_stream<char> cin();
     /// Return an writable stream which provides stdout output from the child process
-    input_stream<char> stdout();
+    input_stream<char> cout();
     /// Return an writable stream which provides stderr output from the child process
-    input_stream<char> stderr();
+    input_stream<char> cerr();
     struct wait_exited {
         int exit_code;
     };

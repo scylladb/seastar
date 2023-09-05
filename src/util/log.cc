@@ -212,10 +212,10 @@ void validate(boost::any& v,
         v = logger_ostream_type::none;
         return;
     } else if (s == "stdout") {
-        v = logger_ostream_type::stdout;
+        v = logger_ostream_type::cout;
         return;
     } else if (s == "stderr") {
-        v = logger_ostream_type::stderr;
+        v = logger_ostream_type::cerr;
         return;
     }
     throw validation_error(validation_error::invalid_option_value);
@@ -224,8 +224,8 @@ void validate(boost::any& v,
 std::ostream& operator<<(std::ostream& os, logger_ostream_type lot) {
     switch (lot) {
     case logger_ostream_type::none: return os << "none";
-    case logger_ostream_type::stdout: return os << "stdout";
-    case logger_ostream_type::stderr: return os << "stderr";
+    case logger_ostream_type::cout: return os << "stdout";
+    case logger_ostream_type::cerr: return os << "stderr";
     default: abort();
     }
     return os;
@@ -492,11 +492,11 @@ void apply_logging_settings(const logging_settings& s) {
     case logger_ostream_type::none:
         logger::set_ostream_enabled(false);
         break;
-    case logger_ostream_type::stdout:
+    case logger_ostream_type::cout:
         logger::set_ostream(std::cout);
         logger::set_ostream_enabled(true);
         break;
-    case logger_ostream_type::stderr:
+    case logger_ostream_type::cerr:
         logger::set_ostream(std::cerr);
         logger::set_ostream_enabled(true);
         break;
@@ -588,7 +588,7 @@ options::options(program_options::option_group* parent_group)
     , logger_stdout_timestamps(*this, "logger-stdout-timestamps", logger_timestamp_style::real,
                     "Select timestamp style for stdout logs: none|boot|real")
     , log_to_stdout(*this, "log-to-stdout", true, "Send log output to output stream, as selected by --logger-ostream-type")
-    , logger_ostream_type(*this, "logger-ostream-type", logger_ostream_type::stderr,
+    , logger_ostream_type(*this, "logger-ostream-type", logger_ostream_type::cerr,
             "Send log output to: none|stdout|stderr")
     , log_to_syslog(*this, "log-to-syslog", false, "Send log output to syslog.")
     , log_with_color(*this, "log-with-color", isatty(STDOUT_FILENO), "Print colored tag prefix in log message written to ostream")

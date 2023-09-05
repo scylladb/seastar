@@ -504,8 +504,12 @@ enum class logger_timestamp_style {
 /// \brief Output stream to use for logging.
 enum class logger_ostream_type {
     none,
-    stdout,
-    stderr,
+#ifdef SEASTAR_LOGGER_TYPE_STDOUT
+    stdout __attribute__ ((deprecated ("use cout instead"))) = 1,
+    stderr __attribute__ ((deprecated ("use cerr instead"))) = 2,
+#endif
+    cout = 1,
+    cerr = 2,
 };
 
 struct logging_settings final {
@@ -515,7 +519,7 @@ struct logging_settings final {
     bool syslog_enabled;
     bool with_color;
     logger_timestamp_style stdout_timestamp_style = logger_timestamp_style::real;
-    logger_ostream_type logger_ostream = logger_ostream_type::stderr;
+    logger_ostream_type logger_ostream = logger_ostream_type::cerr;
 };
 
 /// Shortcut for configuring the logging system all at once.

@@ -241,7 +241,7 @@ class https_server {
             std::string line;
         };
         auto reader = ::make_shared<consumer>();
-        process.stdout().consume(*reader).get();
+        process.cout().consume(*reader).get();
         return std::stoul(reader->line);
     }
 

@@ -64,8 +64,8 @@ SEASTAR_TEST_CASE(test_spawn_program_does_not_exist) {
 SEASTAR_TEST_CASE(test_spawn_echo) {
     const char* echo_cmd = "/bin/echo";
     return spawn_process(echo_cmd, {.argv = {echo_cmd, "-n", "hello", "world"}}).then([] (auto process) {
-        auto stdout = process.stdout();
-        return do_with(std::move(process), std::move(stdout), bool(false), [](auto& p, auto& stdout, auto& matched) {
+        auto cout = process.cout();
+        return do_with(std::move(process), std::move(cout), bool(false), [](auto& p, auto& cout, auto& matched) {
             using consumption_result_type = typename input_stream<char>::consumption_result_type;
             using stop_consuming_type = typename consumption_result_type::stop_consuming_type;
             using tmp_buf = stop_consuming_type::tmp_buf;
@@ -87,7 +87,7 @@ SEASTAR_TEST_CASE(test_spawn_echo) {
                 std::string_view _expected;
                 bool& _matched;
             };
-            return stdout.consume(consumer("hello world", matched)).then([&matched] {
+            return cout.consume(consumer("hello world", matched)).then([&matched] {
                 BOOST_CHECK(matched);
             }).finally([&p] {
                 return p.wait().discard_result();
@@ -99,17 +99,17 @@ SEASTAR_TEST_CASE(test_spawn_echo) {
 SEASTAR_TEST_CASE(test_spawn_input) {
     static const sstring text = "hello world\n";
     return spawn_process("/bin/cat").then([] (auto process) {
-        auto stdin = process.stdin();
-        auto stdout = process.stdout();
-        return do_with(std::move(process), std::move(stdin), std::move(stdout), [](auto& p, auto& stdin, auto& stdout) {
-            return stdin.write(text).then([&stdin] {
-                return stdin.close();
+        auto cin = process.cin();
+        auto cout = process.cout();
+        return do_with(std::move(process), std::move(cin), std::move(cout), [](auto& p, auto& cin, auto& cout) {
+            return cin.write(text).then([&cin] {
+                return cin.close();
             }).handle_exception_type([] (std::system_error& e) {
                 BOOST_TEST_ERROR(fmt::format("failed to write to stdin: {}", e));
-            }).then([&stdout] {
-                return stdout.read_exactly(text.size());
+            }).then([&cout] {
+                return cout.read_exactly(text.size());
             }).handle_exception_type([] (std::system_error& e) {
-                BOOST_TEST_ERROR(fmt::format("failed to read from stdout: {}", e));
+                BOOST_TEST_ERROR(fmt::format("failed to read from cout: {}", e));
                 return make_ready_future<temporary_buffer<char>>();
             }).then([] (temporary_buffer<char> echo) {
                 BOOST_CHECK_EQUAL(sstring(echo.get(), echo.size()), text);
