@@ -208,7 +208,7 @@ public:
     {
     }
     virtual future<connected_socket> make() override {
-        return tls::connect(_creds, _addr, _host);
+        return tls::connect(_creds, _addr, tls::tls_options{.server_name = _host});
     }
 };
 
