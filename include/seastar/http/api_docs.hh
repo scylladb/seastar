@@ -80,10 +80,10 @@ struct api_docs : public json::json_base {
         register_params();
     }
     api_docs(const api_docs & e)
-      : json::json_base()
+        : apiVersion{e.apiVersion}
+        , swaggerVersion{e.swaggerVersion}
+        , apis{e.apis}
     {
-        apiVersion = "0.0.1";
-        swaggerVersion = "1.2";
         register_params();
     }
     template<class T>
