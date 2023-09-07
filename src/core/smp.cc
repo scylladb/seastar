@@ -216,7 +216,7 @@ internal::memory_prefaulter::work(std::vector<memory::internal::memory_range>& r
 #else
         // atomic_ref would be better, but alas C++20 only
         auto p1 = reinterpret_cast<volatile std::atomic<char>*>(p);
-        p->fetch_or(0, std::memory_order_relaxed);
+        p1->fetch_or(0, std::memory_order_relaxed);
 #endif
     };
     while (!_stop_request.load(std::memory_order_relaxed) && !ranges.empty()) {
