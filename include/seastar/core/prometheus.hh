@@ -43,6 +43,7 @@ struct config {
     sstring hostname; //!< hostname is deprecated, use label instead
     std::optional<metrics::label_instance> label; //!< A label that will be added to all metrics, we advice not to use it and set it on the prometheus server
     sstring prefix = "seastar"; //!< a prefix that will be added to metric names
+    bool allow_protobuf = false; // protobuf support is experimental and off by default
 };
 
 future<> start(httpd::http_server_control& http_server, config ctx);
