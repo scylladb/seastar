@@ -200,9 +200,11 @@ BOOST_AUTO_TEST_CASE(throw_with_backtrace_exception_logging) {
         log_msg << std::current_exception();
     }
 
+#ifndef SEASTAR_BACKTRACE_UNIMPLEMENTED
     auto regex_str = "backtraced<std::runtime_error> \\(throw_with_backtrace_exception_logging Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+\\)";
     std::regex expected_msg_re(regex_str, std::regex_constants::ECMAScript | std::regex_constants::icase);
     BOOST_REQUIRE(std::regex_search(log_msg.str(), expected_msg_re));
+#endif
 }
 
 BOOST_AUTO_TEST_CASE(throw_with_backtrace_nested_exception_logging) {
@@ -217,9 +219,11 @@ BOOST_AUTO_TEST_CASE(throw_with_backtrace_nested_exception_logging) {
         }
     }
 
+#ifndef SEASTAR_BACKTRACE_UNIMPLEMENTED
     auto regex_str = "std::_Nested_exception<unknown_obj>.*backtraced<std::runtime_error> \\(outer Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+\\)";
     std::regex expected_msg_re(regex_str, std::regex_constants::ECMAScript | std::regex_constants::icase);
     BOOST_REQUIRE(std::regex_search(log_msg.str(), expected_msg_re));
+#endif
 }
 
 BOOST_AUTO_TEST_CASE(throw_with_backtrace_seastar_nested_exception_logging) {
@@ -240,10 +244,12 @@ BOOST_AUTO_TEST_CASE(throw_with_backtrace_seastar_nested_exception_logging) {
         }
     }
 
+#ifndef SEASTAR_BACKTRACE_UNIMPLEMENTED
     auto regex_str = "seastar::nested_exception:.*backtraced<std::runtime_error> \\(inner Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+\\)"
             " \\(while cleaning up after unknown_obj\\)";
     std::regex expected_msg_re(regex_str, std::regex_constants::ECMAScript | std::regex_constants::icase);
     BOOST_REQUIRE(std::regex_search(log_msg.str(), expected_msg_re));
+#endif
 }
 
 BOOST_AUTO_TEST_CASE(double_throw_with_backtrace_seastar_nested_exception_logging) {
@@ -264,8 +270,10 @@ BOOST_AUTO_TEST_CASE(double_throw_with_backtrace_seastar_nested_exception_loggin
         }
     }
 
+#ifndef SEASTAR_BACKTRACE_UNIMPLEMENTED
     auto regex_str = "seastar::nested_exception:.*backtraced<std::runtime_error> \\(inner Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+\\)"
             " \\(while cleaning up after .*backtraced<std::runtime_error> \\(outer Backtrace:(\\s+(\\S+\\+)?0x[0-9a-f]+)+\\)\\)";
     std::regex expected_msg_re(regex_str, std::regex_constants::ECMAScript | std::regex_constants::icase);
     BOOST_REQUIRE(std::regex_search(log_msg.str(), expected_msg_re));
+#endif
 }
