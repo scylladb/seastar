@@ -28,7 +28,10 @@
 #include <seastar/util/modules.hh>
 
 #ifndef SEASTAR_MODULE
+#if __has_include(<execinfo.h>)
 #include <execinfo.h>
+#define HAVE_EXECINFO
+#endif
 #include <iosfwd>
 #include <memory>
 #include <variant>
@@ -59,6 +62,7 @@ frame decorate(uintptr_t addr) noexcept;
 SEASTAR_MODULE_EXPORT
 template<typename Func>
 void backtrace(Func&& func) noexcept(noexcept(func(frame()))) {
+#ifdef HAVE_EXECINFO
     constexpr size_t max_backtrace = 100;
     void* buffer[max_backtrace];
     int n = ::backtrace(buffer, max_backtrace);
@@ -66,6 +70,10 @@ void backtrace(Func&& func) noexcept(noexcept(func(frame()))) {
         auto ip = reinterpret_cast<uintptr_t>(buffer[i]);
         func(decorate(ip - 1));
     }
+#else
+// Not implemented yet
+#define SEASTAR_BACKTRACE_UNIMPLEMENTED
+#endif
 }
 
 // Represents a call stack of a single thread.
