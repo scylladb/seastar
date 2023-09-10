@@ -401,6 +401,7 @@ seastar_find_dependencies ()
 
 # Private build dependencies not visible to consumers
 find_package (ragel 6.10 REQUIRED)
+find_package (ucontext REQUIRED)
 find_package (Threads REQUIRED)
 find_package (PthreadSetName REQUIRED)
 find_package (Valgrind REQUIRED)
@@ -796,6 +797,7 @@ target_link_libraries (seastar
     StdAtomic::atomic
     lksctp-tools::lksctp-tools
     rt::rt
+    ucontext::ucontext
     yaml-cpp::yaml-cpp
     "$<BUILD_INTERFACE:Valgrind::valgrind>"
     Threads::Threads)
