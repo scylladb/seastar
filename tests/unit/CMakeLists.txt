@@ -525,6 +525,9 @@ function(seastar_add_certgen name)
   )
 
   find_program(OPENSSL openssl)
+  if (NOT OPENSSL)
+    message(FATAL_ERROR "openssl is required for performing tests!")
+  endif ()
 
   add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${CERT_PRIVKEY}"
     COMMAND ${OPENSSL} genpkey -quiet -out ${CERT_PRIVKEY} -algorithm ${CERT_ALG} ${CERT_ALG_OPTS}
@@ -617,6 +620,9 @@ endfunction(seastar_sign_cert)
 
 function(seastar_gen_mtls_certs)
   find_program(OPENSSL openssl)
+  if (NOT OPENSSL)
+    message (FATAL_ERROR "openssl is required for performing tests!")
+  endif ()
 
   # create a CA cert
   set(cert_ca "mtls_ca")
