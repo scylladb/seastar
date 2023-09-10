@@ -405,6 +405,7 @@ find_package (ucontext REQUIRED)
 find_package (Threads REQUIRED)
 find_package (PthreadSetName REQUIRED)
 find_package (Valgrind REQUIRED)
+find_package (SystemTap-SDT)
 
 #
 # Code generation helpers.
@@ -1000,6 +1001,13 @@ if (Seastar_NUMA)
 
   target_link_libraries (seastar
     PRIVATE numactl::numactl)
+endif ()
+
+if (SystemTap-SDT_FOUND)
+  list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_HAVE_SYSTEMTAP_SDT)
+
+  target_link_libraries (seastar
+    PRIVATE SystemTap::SDT)
 endif ()
 
 seastar_supports_flag ("-Werror=unused-result" ErrorUnused_FOUND)

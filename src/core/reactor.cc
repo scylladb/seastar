@@ -95,7 +95,11 @@ module;
 #include <sys/mman.h>
 #include <sys/utsname.h>
 #include <linux/falloc.h>
+#ifdef SEASTAR_HAVE_SYSTEMTAP_SDT
 #include <sys/sdt.h>
+#else
+#define STAP_PROBE(provider, name)
+#endif
 
 #ifdef HAVE_OSV
 #include <osv/newpoll.hh>
