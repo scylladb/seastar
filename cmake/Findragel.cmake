@@ -23,6 +23,9 @@
 find_program (
   ragel_RAGEL_EXECUTABLE
   ragel)
+if (NOT ragel_RAGEL_EXECUTABLE)
+  message (FATAL_ERROR "ragel is required for processing .rl source files!")
+endif ()
 
 mark_as_advanced (ragel_RAGEL_EXECUTABLE)
 
