@@ -326,7 +326,7 @@ def print_stats(tally:dict, tmin):
 
 input = open(args.file) if args.file else sys.stdin
 count = 0
-comment = re.compile('^\s*#')
+comment = re.compile(r'^\s*#')
 pattern = re.compile('Reactor stall')
 for s in input:
     if comment.search(s) or not pattern.search(s):
