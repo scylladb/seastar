@@ -171,21 +171,22 @@ def restart_irqbalance(banned_irqs):
     perftune_print("Restarting irqbalance: going to ban the following IRQ numbers: {} ...".format(", ".join(banned_irqs_list)))
 
     # Search for the original options line
-    opt_lines = list(filter(lambda line : re.search("^\s*{}".format(options_key), line), cfile_lines))
+    opt_lines = list(filter(lambda line : re.search(r"^\s*{}".format(options_key), line), cfile_lines))
     if not opt_lines:
         new_options = "{}=\"".format(options_key)
     elif len(opt_lines) == 1:
         # cut the last "
-        new_options = re.sub("\"\s*$", "", opt_lines[0].rstrip())
+        new_options = re.sub(r'"\s*$', "", opt_lines[0].rstrip())
         opt_lines = opt_lines[0].strip()
     else:
         raise Exception("Invalid format in {}: more than one lines with {} key".format(config_file, options_key))
 
     for irq in banned_irqs_list:
         # prevent duplicate "ban" entries for the same IRQ
-        patt_str = "\-\-banirq\={}\Z|\-\-banirq\={}\s".format(irq, irq)
+        opt = f"--banirq={irq}"
+        patt_str = rf"{opt}\Z|{opt}\s"
         if not re.search(patt_str, new_options):
-            new_options += " --banirq={}".format(irq)
+            new_options += f" {opt}"
 
     new_options += "\""
 
@@ -196,7 +197,7 @@ def restart_irqbalance(banned_irqs):
     else:
         with open(config_file, 'w') as cfile:
             for line in cfile_lines:
-                if not re.search("^\s*{}".format(options_key), line):
+                if not re.search(r"^\s*{}".format(options_key), line):
                     cfile.write(line)
 
             cfile.write(new_options + "\n")
