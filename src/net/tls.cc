@@ -1362,7 +1362,7 @@ public:
             return make_exception_future<>(_error);
         }
         if (_shutdown) {
-            return make_exception_future<>(std::system_error(ENOTCONN, std::system_category()));
+            return make_exception_future<>(std::system_error(EPIPE, std::system_category()));
         }
         if (!_connected) {
             return handshake().then([this, p = std::move(p)]() mutable {
