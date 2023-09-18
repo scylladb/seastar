@@ -168,9 +168,9 @@ class KernelResolver:
         return f'{sn[idx]}+0x{address - saddr:x}\n'
 
 
-class BacktraceResolver(object):
+class BacktraceResolver:
 
-    class BacktraceParser(object):
+    class BacktraceParser:
         class Type(Enum):
             ADDRESS = 1
             SEPARATOR = 2
