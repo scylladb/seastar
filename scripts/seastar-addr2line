@@ -32,28 +32,24 @@ class StdinBacktraceIterator(object):
     Enter twice. Altough reading char-by-char is slow this won't be a
     problem here as backtraces shouldn't be huge.
     """
-    def __iter__(self):
-        linefeeds = 0
-        lines = []
-        line = []
+    linefeeds = 0
+    line = []
 
-        while True:
-            char = sys.stdin.read(1)
+    while True:
+        char = stdin.read(1)
 
-            if char == '\n':
-                linefeeds += 1
+        if char == '\n':
+            linefeeds += 1
 
-                if len(line) > 0:
-                    lines.append(''.join(line))
-                    line = []
-            else:
-                line.append(char)
-                linefeeds = 0
+            if len(line) > 0:
+                yield ''.join(line)
+                line = []
+        else:
+            line.append(char)
+            linefeeds = 0
 
-            if char == '' or linefeeds > 1:
-                break
-
-        return iter(lines)
+        if char == '' or linefeeds > 1:
+            break
 
 
 class TestStringMethods(unittest.TestCase):
@@ -336,7 +332,7 @@ There are three operational modes:
         lines = args.addresses
     else:
         if sys.stdin.isatty():
-            lines = StdinBacktraceIterator()
+            lines = read_backtrace(sys.stdin)
         else:
             lines = sys.stdin
 
@@ -347,7 +343,7 @@ There are three operational modes:
                            verbose=args.verbose,
                            cmd_path=args.addr2line) as resolve:
         p = re.compile(r'\W+')
-        for line in lines:
+        for line in list(lines):
             resolve(line.strip() + '\n')
 
 
