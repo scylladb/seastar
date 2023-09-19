@@ -871,3 +871,7 @@ std::ostream& operator<<(std::ostream&, fs_type fs);
 SEASTAR_MODULE_EXPORT_END
 
 }
+
+#if FMT_VERSION >= 90000
+template <> struct fmt::formatter<seastar::fs_type> : fmt::ostream_formatter {};
+#endif
