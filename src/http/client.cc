@@ -125,7 +125,7 @@ future<connection::reply_ptr> connection::recv_reply() {
     http_response_parser parser;
     return do_with(std::move(parser), [this] (auto& parser) {
         parser.init();
-        return _read_buf.consume(parser).then([&parser] {
+        return _read_buf.consume(parser).then([this, &parser] {
             if (parser.eof()) {
                 throw std::runtime_error("Invalid response");
             }
@@ -133,6 +133,9 @@ future<connection::reply_ptr> connection::recv_reply() {
             auto resp = parser.get_parsed_response();
             sstring length_header = resp->get_header("Content-Length");
             resp->content_length = strtol(length_header.c_str(), nullptr, 10);
+            if (resp->_version != "1.1") {
+                _persistent = false;
+            }
             return make_ready_future<reply_ptr>(std::move(resp));
         });
     });
@@ -245,8 +248,8 @@ future<client::connection_ptr> client::get_connection() {
     });
 }
 
-future<> client::put_connection(connection_ptr con, bool can_cache) {
-    if (can_cache && (_nr_connections <= _max_connections)) {
+future<> client::put_connection(connection_ptr con) {
+    if (con->_persistent && (_nr_connections <= _max_connections)) {
         http_log.trace("push http connection {} to pool", con->_fd.local_address());
         _pool.push_back(*con);
         _wait_con.signal();
@@ -290,10 +293,8 @@ template <typename Fn>
 SEASTAR_CONCEPT( requires std::invocable<Fn, connection&> )
 auto client::with_connection(Fn&& fn) {
     return get_connection().then([this, fn = std::move(fn)] (connection_ptr con) mutable {
-        return fn(*con).then_wrapped([this, con = std::move(con)] (auto f) mutable {
-            return put_connection(std::move(con), !f.failed()).then([f = std::move(f)] () mutable {
-                return std::move(f);
-            });
+        return fn(*con).finally([this, con = std::move(con)] () mutable {
+            return put_connection(std::move(con));
         });
     });
 }
@@ -316,6 +317,9 @@ future<> client::make_request(request req, reply_handler handle, reply::status_t
             }
 
             return handle(rep, con.in(rep)).finally([reply = std::move(reply)] {});
+        }).handle_exception([&con] (auto ex) mutable {
+            con._persistent = false;
+            return make_exception_future<>(std::move(ex));
         });
     });
 }

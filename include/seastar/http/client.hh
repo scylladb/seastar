@@ -76,6 +76,10 @@ class connection : public enable_shared_from_this<connection> {
     hook_t _hook;
     future<> _closed;
     internal::client_ref _ref;
+    // Client sends HTTP-1.1 version and assumes the server is 1.1-compatible
+    // too and thus the connection will be persistent by default. If the server
+    // responds with older version, this flag will be dropped (see recv_reply())
+    bool _persistent = true;
 
 public:
     /**
@@ -175,7 +179,7 @@ class client {
     using connection_ptr = seastar::shared_ptr<connection>;
 
     future<connection_ptr> get_connection();
-    future<> put_connection(connection_ptr con, bool can_cache);
+    future<> put_connection(connection_ptr con);
     future<> shrink_connections();
 
     template <typename Fn>
