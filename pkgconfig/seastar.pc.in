@@ -42,4 +42,4 @@ Requires.private: gnutls >= 3.2.26, hwloc >= 1.11.2, $<$<BOOL:@Seastar_IO_URING@
 Conflicts:
 Cflags: ${boost_cflags} ${c_ares_cflags} ${cryptopp_cflags} ${fmt_cflags} ${liburing_cflags} ${lksctp_tools_cflags} ${numactl_cflags} ${seastar_cflags}
 Libs: ${seastar_libs} ${boost_program_options_libs} ${boost_thread_libs} ${c_ares_libs} ${cryptopp_libs} ${fmt_libs}
-Libs.private: ${dl_libs} ${rt_libs} ${boost_thread_libs} ${lksctp_tools_libs} ${liburing_libs} ${numactl_libs} ${stdatomic_libs} {dpdk_libs}
+Libs.private: ${dl_libs} ${rt_libs} ${boost_thread_libs} ${lksctp_tools_libs} ${liburing_libs} ${numactl_libs} ${stdatomic_libs} ${dpdk_libs}
