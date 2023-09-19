@@ -116,6 +116,10 @@ future<fs_type> file_system_at(std::string_view name) noexcept {
     return engine().file_system_at(name);
 }
 
+future<fs_type> file_system_at_from_mounts(std::string_view name) noexcept {
+    return engine().file_system_at_from_mounts(name);
+}
+
 future<uint64_t> fs_avail(std::string_view name) noexcept {
     return engine().statvfs(name).then([] (struct statvfs st) {
         return make_ready_future<uint64_t>(st.f_bavail * st.f_frsize);

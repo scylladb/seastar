@@ -387,8 +387,26 @@ future<> chmod(std::string_view name, file_permissions permissions) noexcept;
 
 /// Return information about the filesystem where a file is located.
 ///
-/// \param name name of the file to inspect
-future<fs_type> file_system_at(std::string_view name) noexcept;
+/// This method examines the superblock magic number and will detect
+/// ext3 and ext4 as ext2.
+///
+/// \param path path to the file to inspect
+future<fs_type> file_system_at(std::string_view path) noexcept;
+
+/// Return information about the filesystem where a file is located.
+///
+/// This method parses /proc/mounts and is able to disambiguate among
+/// ext2, ext3 and ext4, but it is slower, will fail if /proc/mounts is
+/// not available, etc.
+///
+/// The file must exist and an exceptional future is returned otherwise.
+///
+/// Most other failures such as missing /proc/mounts, failure to parse
+/// /proc/mounts, failure to find path in any mount, etc result in a 
+/// return value of fs_type::other.
+///
+/// \param path name of the file to inspect
+future<fs_type> file_system_at_from_mounts(std::string_view path) noexcept;
 
 /// Return space available to unprivileged users in filesystem where a file is located, in bytes.
 ///

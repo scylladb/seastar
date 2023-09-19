@@ -72,6 +72,7 @@ module;
 #include <dirent.h>
 #define __user /* empty */  // for xfs includes, below
 #include <linux/types.h> // for xfs, below
+#include <linux/limits.h>
 #include <sys/ioctl.h>
 #include <linux/perf_event.h>
 #include <xfs/linux.h>
@@ -2293,6 +2294,59 @@ reactor::file_system_at(std::string_view pathname) noexcept {
             }
             return make_ready_future<fs_type>(ret);
         });
+    });
+}
+
+static const std::unordered_map<sstring, fs_type> fs_string_to_type = [] {
+    std::unordered_map<sstring, fs_type> ret;
+    for (auto t = fs_type::first_type; t <= fs_type::last_type;
+            t = static_cast<fs_type>(static_cast<int>(t) + 1)) {
+        ret[fmt::format("{}", t)] = t;
+    }
+    return ret;
+}();
+
+static fs_type from_string(const sstring& type) {
+    auto e = fs_string_to_type.find(type);
+    return e == fs_string_to_type.end() ? fs_type::other : e->second;
+}
+
+future<fs_type>
+reactor::file_system_at_from_mounts(std::string_view pathname) noexcept {
+
+    using mount_map = std::unordered_map<std::string, std::string>;
+
+    return _thread_pool->submit<mount_map>([] {
+        auto mounts_fd = ::setmntent("/proc/mounts", "r");
+
+        if (!mounts_fd) {
+            return mount_map{};
+        }
+
+        auto close = defer([mounts_fd] () noexcept { ::endmntent(mounts_fd); });
+
+        struct mntent mt{};
+        char paths_buf[(PATH_MAX + 1) * 4];
+
+        mount_map mount_to_type;
+        while (::getmntent_r(mounts_fd, &mt, paths_buf, sizeof(paths_buf)) != nullptr) {
+            mount_to_type[mt.mnt_dir] = mt.mnt_type;
+        }
+
+        return mount_to_type;
+    }).then([path = std::filesystem::path(pathname)] (const auto& mount_to_type) {
+        auto target_path = std::filesystem::canonical(path);
+
+        while (target_path.has_relative_path()) {
+            auto match = mount_to_type.find(target_path.string());
+            if (match != mount_to_type.end()) {
+                return from_string(match->second);
+
+            }
+            target_path = target_path.parent_path();
+        }
+
+        return fs_type::other;
     });
 }
 

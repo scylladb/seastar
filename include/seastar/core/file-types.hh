@@ -88,6 +88,9 @@ enum class fs_type {
     btrfs,
     hfs,
     tmpfs,
+
+    first_type = other,
+    last_type = tmpfs   // sentinels for iteration
 };
 
 // Access flags for files/directories
