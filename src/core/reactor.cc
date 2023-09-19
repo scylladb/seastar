@@ -2280,8 +2280,8 @@ reactor::file_system_at(std::string_view pathname) noexcept {
             static std::unordered_map<long int, fs_type> type_mapper = {
                 { internal::fs_magic::xfs, fs_type::xfs },
                 { internal::fs_magic::ext2, fs_type::ext2 },
-                { internal::fs_magic::ext3, fs_type::ext3 },
-                { internal::fs_magic::ext4, fs_type::ext4 },
+                // ext3 and ext4 are always detected as ext2 by this method as they
+                // share the same superblock magic
                 { internal::fs_magic::btrfs, fs_type::btrfs },
                 { internal::fs_magic::hfs, fs_type::hfs },
                 { internal::fs_magic::tmpfs, fs_type::tmpfs },
