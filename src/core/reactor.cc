@@ -1063,11 +1063,13 @@ reactor::reactor(std::shared_ptr<smp> smp, alien::instance& alien, unsigned id, 
     auto r = ::pthread_sigmask(SIG_UNBLOCK, &mask, NULL);
     assert(r == 0);
 #endif
-    memory::set_reclaim_hook([this] (std::function<void ()> reclaim_fn) {
-        add_high_priority_task(make_task(default_scheduling_group(), [fn = std::move(reclaim_fn)] {
-            fn();
-        }));
-    });
+    if (cfg.using_seastar_allocator) {
+        memory::set_reclaim_hook([this] (std::function<void ()> reclaim_fn) {
+            add_high_priority_task(make_task(default_scheduling_group(), [fn = std::move(reclaim_fn)] {
+                fn();
+            }));
+        });
+    }
 }
 
 reactor::~reactor() {
@@ -3236,7 +3238,9 @@ int reactor::do_run() {
 
     poller syscall_poller(std::make_unique<syscall_pollfn>(*this));
 
-    poller drain_cross_cpu_freelist(std::make_unique<drain_cross_cpu_freelist_pollfn>());
+    if (_cfg.using_seastar_allocator) {
+        poller drain_cross_cpu_freelist(std::make_unique<drain_cross_cpu_freelist_pollfn>());
+    }
 
     poller expire_lowres_timers(std::make_unique<lowres_timer_pollfn>(*this));
     poller sig_poller(std::make_unique<signal_pollfn>(*this));
@@ -4369,6 +4373,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     reactor_config reactor_cfg;
     reactor_cfg.auto_handle_sigint_sigterm = reactor_opts._auto_handle_sigint_sigterm;
     reactor_cfg.max_networking_aio_io_control_blocks = adjust_max_networking_aio_io_control_blocks(reactor_opts.max_networking_io_control_blocks.get_value());
+    reactor_cfg.using_seastar_allocator = (smp_opts.memory_allocator == memory_allocator::seastar);
 
     std::mutex mtx;
 
