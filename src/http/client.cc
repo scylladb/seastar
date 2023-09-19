@@ -133,7 +133,7 @@ future<connection::reply_ptr> connection::recv_reply() {
             auto resp = parser.get_parsed_response();
             sstring length_header = resp->get_header("Content-Length");
             resp->content_length = strtol(length_header.c_str(), nullptr, 10);
-            if (resp->_version != "1.1") {
+            if ((resp->_version != "1.1") || seastar::internal::case_insensitive_cmp()(resp->get_header("Connection"), "close")) {
                 _persistent = false;
             }
             return make_ready_future<reply_ptr>(std::move(resp));
