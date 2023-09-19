@@ -20,6 +20,12 @@
  * Copyright (C) 2020 ScyllaDB
  */
 
+#include "seastar/core/file-types.hh"
+#include "seastar/core/future.hh"
+#include <boost/test/tools/interface.hpp>
+#include <boost/test/unit_test_log.hpp>
+#include <cstdlib>
+#include <filesystem>
 #include <stdlib.h>
 
 #include <seastar/testing/test_case.hh>
@@ -303,4 +309,64 @@ SEASTAR_TEST_CASE(test_read_entire_file_contiguous) {
             BOOST_REQUIRE_EQUAL(res, std::string_view(wbuf.begin(), wbuf.size()));
         });
     });
+}
+
+static auto get_detect_fs_type_root() {
+    return std::getenv("TEST_DETECT_FS_TYPE_ROOT");
+}
+
+static boost::test_tools::assertion_result detect_fs_type_root_set(boost::unit_test::test_unit_id)
+{
+  return get_detect_fs_type_root();
+}
+
+// this test needs manual setup of loop-mounted file systems, requiring root
+// so by default if this hasn't occurred we skip the test
+SEASTAR_THREAD_TEST_CASE(test_detect_fs_type, * boost::unit_test::precondition(detect_fs_type_root_set)) {
+
+    auto root_dir = get_detect_fs_type_root();
+    BOOST_REQUIRE(root_dir);
+
+    fs::path root_path(root_dir);
+    BOOST_TEST_INFO("root_path=" << root_path);
+    BOOST_REQUIRE(exists(root_path));
+
+
+    std::vector<fs_type> fs_to_test{
+        fs_type::ext2,
+        fs_type::ext3,
+        fs_type::ext4,
+        fs_type::xfs 
+    };
+
+    // paths within the mnt directory to test, they should all resolve to the
+    // same fs and are set up by the wrapper script
+    std::vector<std::string> suffixes{
+        "mnt/{}", // the mount itself
+        "mnt/{}/dir1", // dir inside the mount
+        "mnt/{}/dir1/dir2", // one level deeper
+        "sym0/{}", // symlink to mount
+        "sym1/{}" // symlink to dir inside mount
+    };
+
+    for (auto& suffix : suffixes) {
+        for (auto fs : fs_to_test) {
+            auto fs_name = fmt::format("{}", fs);
+            auto path = (root_path / fmt::format(fmt::runtime(suffix), fs_name)).string();
+            BOOST_TEST_INFO("path=" << path);
+            auto detected_fs_original = file_system_at(path).get();
+            auto detected_fs_mounts = file_system_at_from_mounts(path).get();
+
+            // from_mounts should always be correct
+            BOOST_CHECK_EQUAL(detected_fs_mounts, fs);
+
+            // original should be the same, except that ext3 and 4 are detected as ext2
+            if (fs == fs_type::ext3 || fs == fs_type::ext4) {
+                BOOST_CHECK_EQUAL(detected_fs_original, fs_type::ext2);
+            } else {
+                BOOST_CHECK_EQUAL(detected_fs_original, fs);
+            }
+        }
+    }
+
 }
