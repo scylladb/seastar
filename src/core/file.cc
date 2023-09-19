@@ -1367,4 +1367,30 @@ future<file> open_directory(std::string_view name) noexcept {
     return engine().open_directory(name);
 }
 
+std::ostream& operator<<(std::ostream& os, fs_type fs) {
+    os << [fs]() {
+        switch (fs) {
+        case fs_type::other:
+            return "other";
+        case fs_type::xfs:
+            return "xfs";
+        case fs_type::ext2:
+            return "ext2";
+        case fs_type::ext3:
+            return "ext3";
+        case fs_type::ext4:
+            return "ext4";
+        case fs_type::btrfs:
+            return "btrfs";
+        case fs_type::hfs:
+            return "hfs";
+        case fs_type::tmpfs:
+            return "tmpfs";
+        };
+        return "bad_enum";
+    }();
+
+    return os;
+}
+
 }

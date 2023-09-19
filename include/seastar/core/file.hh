@@ -866,6 +866,8 @@ public:
     }
 };
 
+std::ostream& operator<<(std::ostream&, fs_type fs);
+
 SEASTAR_MODULE_EXPORT_END
 
 }
