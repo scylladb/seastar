@@ -161,6 +161,10 @@ public:
  */
 
 class client {
+public:
+    using authorizer = noncopyable_function<void(request&)>;
+
+private:
     friend class http::internal::client_ref;
     using connections_list_t = bi::list<connection, bi::member_hook<connection, typename connection::hook_t, &connection::_hook>, bi::constant_time_size<false>>;
     static constexpr unsigned default_max_connections = 100;
@@ -171,6 +175,7 @@ class client {
     unsigned long _total_new_connections = 0;
     condition_variable _wait_con;
     connections_list_t _pool;
+    authorizer _authorize;
 
     using connection_ptr = seastar::shared_ptr<connection>;
 
@@ -244,6 +249,15 @@ public:
      * \param nr -- the new limit on the number of connections
      */
     future<> set_maximum_connections(unsigned nr);
+
+    /**
+     * \brief Sets request authorizer
+     *
+     * The authorizer is called right before the client is about to send the request onto
+     * the wire. The callback is free to set up any additional headers, but changing any
+     * other request parameter may not have its effect and must not happen
+     */
+    void set_authorizer(authorizer);
 
     /**
      * \brief Closes the client
