@@ -163,3 +163,12 @@ SEASTAR_MODULE_EXPORT_END
 }
 
 }
+
+SEASTAR_MODULE_EXPORT
+template <>
+struct fmt::formatter<seastar::httpd::base_exception> {
+    constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
+    auto format(const seastar::httpd::base_exception& e, fmt::format_context& ctx) const {
+        return fmt::format_to(ctx.out(), "{} ({})", e.what(), e.status());
+    }
+};
