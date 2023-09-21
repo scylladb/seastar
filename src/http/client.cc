@@ -308,6 +308,10 @@ auto client::with_connection(Fn&& fn) {
 }
 
 future<> client::make_request(request req, reply_handler handle, reply::status_type expected) {
+    return do_make_request(std::move(req), std::move(handle), expected);
+}
+
+future<> client::do_make_request(request req, reply_handler handle, reply::status_type expected) {
     return with_connection([req = std::move(req), handle = std::move(handle), expected] (connection& con) mutable {
         return con.do_make_request(std::move(req)).then([&con, expected, handle = std::move(handle)] (connection::reply_ptr reply) mutable {
             auto& rep = *reply;
