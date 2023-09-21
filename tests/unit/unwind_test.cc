@@ -50,12 +50,14 @@ BOOST_AUTO_TEST_CASE(test_signal_mask_is_preserved_on_unwinding) {
         // ignore
     }
 
-    // Check backtrace()
+    // Check backtrace() if execinfo.h is present
+#ifndef SEASTAR_BACKTRACE_UNIMPLEMENTED
     {
         size_t count = 0;
         backtrace([&count] (auto) { ++count; });
         BOOST_REQUIRE(count > 0);
     }
+#endif
 
     {
         sigset_t mask2;

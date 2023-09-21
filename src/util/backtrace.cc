@@ -22,7 +22,6 @@
 module;
 #endif
 
-#include <execinfo.h>
 #include <link.h>
 #include <sys/types.h>
 #include <unistd.h>
