@@ -126,7 +126,7 @@ public:
     future<> close();
 
 private:
-    future<reply_ptr> do_make_request(request rq);
+    future<reply_ptr> do_make_request(request& rq);
     void setup_request(request& rq);
     future<> send_request_head(const request& rq);
     future<reply_ptr> maybe_wait_for_continue(const request& req);
@@ -191,7 +191,7 @@ private:
     SEASTAR_CONCEPT( requires std::invocable<Fn, connection&> )
     auto with_connection(Fn&& fn);
 
-    future<> do_make_request(request req, reply_handler handle, reply::status_type expected);
+    future<> do_make_request(request& req, reply_handler handle, reply::status_type expected);
 
 public:
     /**

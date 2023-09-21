@@ -148,8 +148,7 @@ future<connection::reply_ptr> connection::recv_reply() {
     });
 }
 
-future<connection::reply_ptr> connection::do_make_request(request req) {
-    return do_with(std::move(req), [this] (auto& req) {
+future<connection::reply_ptr> connection::do_make_request(request& req) {
         setup_request(req);
         return send_request_head(req).then([this, &req] {
             return maybe_wait_for_continue(req).then([this, &req] (reply_ptr cont) {
@@ -164,13 +163,14 @@ future<connection::reply_ptr> connection::do_make_request(request req) {
                 });
             });
         });
-    });
 }
 
 future<reply> connection::make_request(request req) {
-    return do_make_request(std::move(req)).then([] (reply_ptr rep) {
+  return do_with(std::move(req), [this] (auto& req) {
+    return do_make_request(req).then([] (reply_ptr rep) {
         return make_ready_future<reply>(std::move(*rep));
     });
+  });
 }
 
 input_stream<char> connection::in(reply& rep) {
@@ -308,12 +308,14 @@ auto client::with_connection(Fn&& fn) {
 }
 
 future<> client::make_request(request req, reply_handler handle, reply::status_type expected) {
-    return do_make_request(std::move(req), std::move(handle), expected);
+    return do_with(std::move(req), [this, handle = std::move(handle), expected] (request& req) mutable {
+        return do_make_request(req, std::move(handle), expected);
+    });
 }
 
-future<> client::do_make_request(request req, reply_handler handle, reply::status_type expected) {
-    return with_connection([req = std::move(req), handle = std::move(handle), expected] (connection& con) mutable {
-        return con.do_make_request(std::move(req)).then([&con, expected, handle = std::move(handle)] (connection::reply_ptr reply) mutable {
+future<> client::do_make_request(request& req, reply_handler handle, reply::status_type expected) {
+    return with_connection([&req, handle = std::move(handle), expected] (connection& con) mutable {
+        return con.do_make_request(req).then([&con, expected, handle = std::move(handle)] (connection::reply_ptr reply) mutable {
             auto& rep = *reply;
             if (rep._status != expected) {
                 if (!http_log.is_enabled(log_level::debug)) {
