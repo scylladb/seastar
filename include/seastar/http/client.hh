@@ -126,7 +126,7 @@ public:
     future<> close();
 
 private:
-    future<reply_ptr> do_make_request(request rq);
+    future<reply_ptr> do_make_request(request& rq);
     void setup_request(request& rq);
     future<> send_request_head(const request& rq);
     future<reply_ptr> maybe_wait_for_continue(const request& req);
@@ -166,6 +166,10 @@ public:
  */
 
 class client {
+public:
+    using reply_handler = noncopyable_function<future<>(const reply&, input_stream<char>&& body)>;
+
+private:
     friend class http::internal::client_ref;
     using connections_list_t = bi::list<connection, bi::member_hook<connection, typename connection::hook_t, &connection::_hook>, bi::constant_time_size<false>>;
     static constexpr unsigned default_max_connections = 100;
@@ -191,8 +195,9 @@ class client {
     requires std::invocable<Fn, connection&>
     auto with_new_connection(Fn&& fn);
 
+    future<> do_make_request(connection& con, request& req, reply_handler& handle, std::optional<reply::status_type> expected);
+
 public:
-    using reply_handler = noncopyable_function<future<>(const reply&, input_stream<char>&& body)>;
     /**
      * \brief Construct a simple client
      *

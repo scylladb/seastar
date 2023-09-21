@@ -156,8 +156,7 @@ future<connection::reply_ptr> connection::recv_reply() {
     });
 }
 
-future<connection::reply_ptr> connection::do_make_request(request req) {
-    return do_with(std::move(req), [this] (auto& req) {
+future<connection::reply_ptr> connection::do_make_request(request& req) {
         setup_request(req);
         return send_request_head(req).then([this, &req] {
             return maybe_wait_for_continue(req).then([this, &req] (reply_ptr cont) {
@@ -172,13 +171,14 @@ future<connection::reply_ptr> connection::do_make_request(request req) {
                 });
             });
         });
-    });
 }
 
 future<reply> connection::make_request(request req) {
-    return do_make_request(std::move(req)).then([] (reply_ptr rep) {
+  return do_with(std::move(req), [this] (auto& req) {
+    return do_make_request(req).then([] (reply_ptr rep) {
         return make_ready_future<reply>(std::move(*rep));
     });
+  });
 }
 
 input_stream<char> connection::in(reply& rep) {
@@ -329,8 +329,15 @@ auto client::with_new_connection(Fn&& fn) {
 }
 
 future<> client::make_request(request req, reply_handler handle, std::optional<reply::status_type> expected) {
-    return with_connection([req = std::move(req), handle = std::move(handle), expected] (connection& con) mutable {
-        return con.do_make_request(std::move(req)).then([&con, expected, handle = std::move(handle)] (connection::reply_ptr reply) mutable {
+    return do_with(std::move(req), std::move(handle), [this, expected] (request& req, reply_handler& handle) mutable {
+        return with_connection([this, &req, &handle, expected] (connection& con) {
+            return do_make_request(con, req, handle, expected);
+        });
+    });
+}
+
+future<> client::do_make_request(connection& con, request& req, reply_handler& handle, std::optional<reply::status_type> expected) {
+        return con.do_make_request(req).then([&con, &handle, expected] (connection::reply_ptr reply) mutable {
             auto& rep = *reply;
             if (expected.has_value() && rep._status != expected.value()) {
                 if (!http_log.is_enabled(log_level::debug)) {
@@ -350,7 +357,6 @@ future<> client::make_request(request req, reply_handler handle, std::optional<r
             con._persistent = false;
             return make_exception_future<>(std::move(ex));
         });
-    });
 }
 
 future<> client::close() {
