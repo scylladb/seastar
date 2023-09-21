@@ -26,7 +26,7 @@ import sys
 from addr2line import BacktraceResolver
 
 
-class StdinBacktraceIterator(object):
+def read_backtrace(stdin):
     """
     Read stdin char-by-char and stop when when user pressed Ctrl+D or the
     Enter twice. Altough reading char-by-char is slow this won't be a
