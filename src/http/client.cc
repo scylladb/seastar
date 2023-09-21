@@ -149,28 +149,28 @@ future<connection::reply_ptr> connection::recv_reply() {
 }
 
 future<connection::reply_ptr> connection::do_make_request(request& req) {
-        setup_request(req);
-        return send_request_head(req).then([this, &req] {
-            return maybe_wait_for_continue(req).then([this, &req] (reply_ptr cont) {
-                if (cont) {
-                    return make_ready_future<reply_ptr>(std::move(cont));
-                }
+    setup_request(req);
+    return send_request_head(req).then([this, &req] {
+        return maybe_wait_for_continue(req).then([this, &req] (reply_ptr cont) {
+            if (cont) {
+                return make_ready_future<reply_ptr>(std::move(cont));
+            }
 
-                return write_body(req).then([this] {
-                    return _write_buf.flush().then([this] {
-                        return recv_reply();
-                    });
+            return write_body(req).then([this] {
+                return _write_buf.flush().then([this] {
+                    return recv_reply();
                 });
             });
         });
+    });
 }
 
 future<reply> connection::make_request(request req) {
-  return do_with(std::move(req), [this] (auto& req) {
-    return do_make_request(req).then([] (reply_ptr rep) {
-        return make_ready_future<reply>(std::move(*rep));
+    return do_with(std::move(req), [this] (auto& req) {
+        return do_make_request(req).then([] (reply_ptr rep) {
+            return make_ready_future<reply>(std::move(*rep));
+        });
     });
-  });
 }
 
 input_stream<char> connection::in(reply& rep) {
