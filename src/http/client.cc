@@ -103,7 +103,7 @@ future<connection::reply_ptr> connection::maybe_wait_for_continue(request& req) 
     });
 }
 
-future<> connection::send_request_head(request& req) {
+void connection::setup_request(request& req) {
     if (req._version.empty()) {
         req._version = "1.1";
     }
@@ -113,7 +113,9 @@ future<> connection::send_request_head(request& req) {
         }
         req._headers["Content-Length"] = to_sstring(req.content_length);
     }
+}
 
+future<> connection::send_request_head(request& req) {
     return _write_buf.write(req.request_line()).then([this, &req] {
         return req.write_request_headers(_write_buf).then([this] {
             return _write_buf.write("\r\n", 2);
@@ -143,6 +145,7 @@ future<connection::reply_ptr> connection::recv_reply() {
 
 future<connection::reply_ptr> connection::do_make_request(request req) {
     return do_with(std::move(req), [this] (auto& req) {
+        setup_request(req);
         return send_request_head(req).then([this, &req] {
             return maybe_wait_for_continue(req).then([this, &req] (reply_ptr cont) {
                 if (cont) {
