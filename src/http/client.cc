@@ -87,7 +87,7 @@ future<> connection::write_body(request& req) {
     }
 }
 
-future<connection::reply_ptr> connection::maybe_wait_for_continue(request& req) {
+future<connection::reply_ptr> connection::maybe_wait_for_continue(const request& req) {
     if (req.get_header("Expect") == "") {
         return make_ready_future<reply_ptr>(nullptr);
     }

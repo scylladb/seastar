@@ -129,7 +129,7 @@ private:
     future<reply_ptr> do_make_request(request rq);
     void setup_request(request& rq);
     future<> send_request_head(const request& rq);
-    future<reply_ptr> maybe_wait_for_continue(request& req);
+    future<reply_ptr> maybe_wait_for_continue(const request& req);
     future<> write_body(request& rq);
     future<reply_ptr> recv_reply();
 };
