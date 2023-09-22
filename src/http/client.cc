@@ -26,6 +26,7 @@ module seastar;
 #include <seastar/core/loop.hh>
 #include <seastar/core/when_all.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/core/sleep.hh>
 #include <seastar/net/tls.hh>
 #include <seastar/http/client.hh>
 #include <seastar/http/request.hh>
@@ -307,9 +308,32 @@ auto client::with_connection(Fn&& fn) {
     });
 }
 
-future<> client::make_request(request req, reply_handler handle, reply::status_type expected) {
-    return do_with(std::move(req), std::move(handle), [this, expected] (request& req, reply_handler& handle) mutable {
-        return do_make_request(req, handle, expected);
+future<> client::make_request(request req, reply_handler handle, reply::status_type expected, retry_param retry) {
+    return do_with(std::move(req), std::move(handle), 0u, [this, expected, retry] (request& req, auto& handle, unsigned& attempt) mutable {
+        // Default fast-path
+        if (retry.max_count == 0) {
+            return do_make_request(req, handle, expected);
+        }
+
+        return repeat([this, &req, &handle, &attempt, expected, retry] () mutable {
+            return do_make_request(req, handle, expected).then_wrapped([&attempt, retry] (auto f) {
+                try {
+                    f.get();
+                } catch (std::system_error& ex) {
+                    if (ex.code().value() == EPIPE || ex.code().value() == ECONNABORTED) {
+                        if (attempt < retry.max_count) {
+                            auto pause = retry.pause_base * (1 << attempt++);
+                            http_log.trace("Restarting request due to {}, {} attempt", ex, attempt);
+                            return seastar::sleep(pause).then([] {
+                                return make_ready_future<stop_iteration>(stop_iteration::no);
+                            });
+                        }
+                    }
+                    return make_exception_future<stop_iteration>(ex);
+                }
+                return make_ready_future<stop_iteration>(stop_iteration::yes);
+            });
+        });
     });
 }
 
