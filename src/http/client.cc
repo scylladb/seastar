@@ -308,14 +308,14 @@ auto client::with_connection(Fn&& fn) {
 }
 
 future<> client::make_request(request req, reply_handler handle, reply::status_type expected) {
-    return do_with(std::move(req), [this, handle = std::move(handle), expected] (request& req) mutable {
-        return do_make_request(req, std::move(handle), expected);
+    return do_with(std::move(req), std::move(handle), [this, expected] (request& req, reply_handler& handle) mutable {
+        return do_make_request(req, handle, expected);
     });
 }
 
-future<> client::do_make_request(request& req, reply_handler handle, reply::status_type expected) {
-    return with_connection([&req, handle = std::move(handle), expected] (connection& con) mutable {
-        return con.do_make_request(req).then([&con, expected, handle = std::move(handle)] (connection::reply_ptr reply) mutable {
+future<> client::do_make_request(request& req, reply_handler& handle, reply::status_type expected) {
+    return with_connection([&req, &handle, expected] (connection& con) mutable {
+        return con.do_make_request(req).then([&con, &handle, expected] (connection::reply_ptr reply) mutable {
             auto& rep = *reply;
             if (rep._status != expected) {
                 if (!http_log.is_enabled(log_level::debug)) {

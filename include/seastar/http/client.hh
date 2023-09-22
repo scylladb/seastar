@@ -191,7 +191,7 @@ private:
     SEASTAR_CONCEPT( requires std::invocable<Fn, connection&> )
     auto with_connection(Fn&& fn);
 
-    future<> do_make_request(request& req, reply_handler handle, reply::status_type expected);
+    future<> do_make_request(request& req, reply_handler& handle, reply::status_type expected);
 
 public:
     /**
