@@ -129,7 +129,12 @@ future<connection::reply_ptr> connection::recv_reply() {
         parser.init();
         return _read_buf.consume(parser).then([this, &parser] {
             if (parser.eof()) {
-                throw std::runtime_error("Invalid response");
+                http_log.trace("Parsing responce EOFed");
+                throw std::system_error(ECONNABORTED, std::system_category());
+            }
+            if (parser.failed()) {
+                http_log.trace("Parsing responce failed");
+                throw std::runtime_error("Invalid http server response");
             }
 
             auto resp = parser.get_parsed_response();
