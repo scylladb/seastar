@@ -878,6 +878,79 @@ SEASTAR_TEST_CASE(test_client_unexpected_reply_status) {
     });
 }
 
+static void read_simple_http_request(input_stream<char>& in) {
+    sstring req;
+    while (true) {
+        auto r = in.read().get();
+        req += sstring(r.get(), r.size());
+        if (req.ends_with("\r\n\r\n")) {
+            break;
+        }
+    }
+}
+
+SEASTAR_TEST_CASE(test_client_response_eof) {
+    return seastar::async([] {
+        loopback_connection_factory lcf(1);
+        auto ss = lcf.get_server_socket();
+        future<> server = ss.accept().then([] (accept_result ar) {
+            return seastar::async([sk = std::move(ar.connection)] () mutable {
+                input_stream<char> in = sk.input();
+                read_simple_http_request(in);
+                output_stream<char> out = sk.output();
+                out.write("HTT").get(); // write incomplete response
+                out.flush().get();
+                out.close().get();
+            });
+        });
+
+        future<> client = seastar::async([&lcf] {
+            auto cln = http::experimental::client(std::make_unique<loopback_http_factory>(lcf));
+            auto req = http::request::make("GET", "test", "/test");
+            BOOST_REQUIRE_EXCEPTION(cln.make_request(std::move(req), [] (const http::reply& rep, input_stream<char>&& in) {
+                return make_exception_future<>(std::runtime_error("Shouldn't happen"));
+            }, http::reply::status_type::ok).get(), std::system_error, [] (auto& ex) {
+                return ex.code().value() == ECONNABORTED;
+            });
+
+            cln.close().get();
+        });
+
+        when_all(std::move(client), std::move(server)).discard_result().get();
+    });
+}
+
+SEASTAR_TEST_CASE(test_client_response_parse_error) {
+    return seastar::async([] {
+        loopback_connection_factory lcf(1);
+        auto ss = lcf.get_server_socket();
+        future<> server = ss.accept().then([] (accept_result ar) {
+            return seastar::async([sk = std::move(ar.connection)] () mutable {
+                input_stream<char> in = sk.input();
+                read_simple_http_request(in);
+                output_stream<char> out = sk.output();
+                out.write("HTTTT").get(); // write invalid line
+                out.flush().get();
+                out.close().get();
+            });
+        });
+
+        future<> client = seastar::async([&lcf] {
+            auto cln = http::experimental::client(std::make_unique<loopback_http_factory>(lcf));
+            auto req = http::request::make("GET", "test", "/test");
+            BOOST_REQUIRE_EXCEPTION(cln.make_request(std::move(req), [] (const http::reply& rep, input_stream<char>&& in) {
+                return make_exception_future<>(std::runtime_error("Shouldn't happen"));
+            }, http::reply::status_type::ok).get(), std::runtime_error, [] (auto& ex) {
+                return sstring(ex.what()).contains("Invalid http server response");
+            });
+
+            cln.close().get();
+        });
+
+        when_all(std::move(client), std::move(server)).discard_result().get();
+    });
+}
+
 SEASTAR_TEST_CASE(test_100_continue) {
     return seastar::async([] {
         loopback_connection_factory lcf(1);
