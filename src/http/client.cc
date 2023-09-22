@@ -65,7 +65,7 @@ connection::connection(connected_socket&& fd, internal::client_ref cr)
 {
 }
 
-future<> connection::write_body(request& req) {
+future<> connection::write_body(const request& req) {
     if (req.body_writer) {
         if (req.content_length != 0) {
             req._bytes_written = req.content_length;
