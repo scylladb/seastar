@@ -115,7 +115,7 @@ void connection::setup_request(request& req) {
     }
 }
 
-future<> connection::send_request_head(request& req) {
+future<> connection::send_request_head(const request& req) {
     return _write_buf.write(req.request_line()).then([this, &req] {
         return req.write_request_headers(_write_buf).then([this] {
             return _write_buf.write("\r\n", 2);

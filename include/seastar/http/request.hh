@@ -259,7 +259,7 @@ struct request {
 private:
     void add_param(const std::string_view& param);
     sstring request_line() const;
-    future<> write_request_headers(output_stream<char>& out);
+    future<> write_request_headers(output_stream<char>& out) const;
     friend class experimental::connection;
 };
 
