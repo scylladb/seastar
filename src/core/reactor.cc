@@ -4245,6 +4245,11 @@ public:
         cfg.block_count_limit_min = (64 << 10) >> io_queue::block_size_shift;
         cfg.stall_threshold = stall_threshold();
 
+        cfg.read_bytes_rate = p.read_bytes_rate;
+        cfg.write_bytes_rate = p.write_bytes_rate;
+        cfg.read_req_rate = p.read_req_rate;
+        cfg.write_req_rate = p.write_req_rate;
+
         return cfg;
     }
 
