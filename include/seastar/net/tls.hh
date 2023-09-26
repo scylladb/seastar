@@ -293,6 +293,24 @@ namespace tls {
          */
         void set_enable_certificate_verification(bool enable);
 
+        /**
+         * Retrieve information about loaded certificates.
+         *
+         * Returns a std::vector of cert_info, each extracted from a loaded
+         * certificate, std::nullopt if the impl does not exist or we detect
+         * an error during extraction.
+         */
+        std::optional<std::vector<cert_info>> get_cert_info() const noexcept;
+
+        /**
+         * Retrieve information about the loaded current trust list.
+         *
+         * Returns a std::vector of cert_info, each extracted from a CA in the
+         * trust list, std::nullopt if the impl does not exist or we detect
+         * an error during extraction.
+         */
+        std::optional<std::vector<cert_info>> get_trust_list_info() const noexcept;
+
     private:
         class impl;
         friend class session;
