@@ -32,7 +32,7 @@ module;
 #include <fcntl.h>
 #include <signal.h>
 #include <sys/epoll.h>
-#include <sys/poll.h>
+#include <poll.h>
 #include <sys/syscall.h>
 #include <sys/resource.h>
 #include <boost/container/small_vector.hpp>

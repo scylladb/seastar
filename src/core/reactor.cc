@@ -48,7 +48,7 @@ module;
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/eventfd.h>
-#include <sys/poll.h>
+#include <poll.h>
 #include <netinet/in.h>
 #include <boost/lexical_cast.hpp>
 #include <boost/thread/barrier.hpp>
@@ -1176,7 +1176,10 @@ cpu_stall_detector_posix_timer::cpu_stall_detector_posix_timer(cpu_stall_detecto
     struct sigevent sev = {};
     sev.sigev_notify = SIGEV_THREAD_ID;
     sev.sigev_signo = signal_number();
-    sev._sigev_un._tid = syscall(SYS_gettid);
+#ifndef sigev_notify_thread_id
+#define sigev_notify_thread_id _sigev_un._tid
+#endif
+    sev.sigev_notify_thread_id = syscall(SYS_gettid);
     int err = timer_create(CLOCK_THREAD_CPUTIME_ID, &sev, &_timer);
     if (err) {
         throw std::system_error(std::error_code(err, std::system_category()));
@@ -1950,7 +1953,7 @@ reactor::chmod(std::string_view name, file_permissions permissions) noexcept {
     });
 }
 
-directory_entry_type stat_to_entry_type(__mode_t type) {
+directory_entry_type stat_to_entry_type(mode_t type) {
     if (S_ISDIR(type)) {
         return directory_entry_type::directory;
     }
