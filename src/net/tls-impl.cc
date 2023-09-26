@@ -45,6 +45,7 @@ module seastar;
 #else
 #include <seastar/net/tls.hh>
 #include <seastar/core/file.hh>
+#include <seastar/core/future.hh>
 #include <seastar/core/fsnotify.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/reactor.hh>
@@ -53,6 +54,19 @@ module seastar;
 #endif
 
 namespace seastar {
+
+namespace {
+
+tls::reload_callback_ex wrap_reload_callback(tls::reload_callback_with_creds cb) {
+    return [cb{std::move(cb)}](const tls::credentials_builder& builder,
+                               const std::unordered_set<sstring> &files,
+                               std::exception_ptr ep) {
+         auto creds = builder.build_certificate_credentials();
+         return futurize_invoke(cb, files, *creds, ep);
+    };
+}
+
+}
 
 logger tls::tls_log("seastar-tls");
 
@@ -537,7 +551,7 @@ public:
             }
         }
         void do_callback(std::exception_ptr ep = {}) {
-            if (_cb && !_files.empty()) {
+            if (_cb && !_files.empty() && _creds) {
                 _cb(*this, boost::copy_range<std::unordered_set<sstring>>(_files | boost::adaptors::map_keys), std::move(ep)).get();
             }
         }
@@ -665,6 +679,13 @@ future<shared_ptr<tls::server_credentials>> tls::credentials_builder::build_relo
         cb(files, p);
         return make_ready_future<>();
     }, tolerance);
+}
+future<shared_ptr<tls::certificate_credentials>> tls::credentials_builder::build_reloadable_certificate_credentials(reload_callback_with_creds cb, std::optional<std::chrono::milliseconds> tolerance) const {
+    return build_reloadable_certificate_credentials(wrap_reload_callback(std::move(cb)), tolerance);
+}
+
+future<shared_ptr<tls::server_credentials>> tls::credentials_builder::build_reloadable_server_credentials(reload_callback_with_creds cb, std::optional<std::chrono::milliseconds> tolerance) const {
+    return build_reloadable_server_credentials(wrap_reload_callback(std::move(cb)), tolerance);
 }
 
 data_source tls::tls_connected_socket_impl::source() {
