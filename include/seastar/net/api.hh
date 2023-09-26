@@ -176,6 +176,12 @@ struct session_dn {
     sstring issuer;
 };
 
+  /// Information about a certificate
+struct cert_info {
+    sstring serial;
+    time_t expiry;
+};
+
 /// A TCP (or other stream-based protocol) connection.
 ///
 /// A \c connected_socket represents a full-duplex stream between
