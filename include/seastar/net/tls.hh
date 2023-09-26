@@ -220,6 +220,24 @@ namespace tls {
          */
         void set_dn_verification_callback(dn_callback);
 
+        /**
+         * Retrieve information about loaded certificates.
+         *
+         * Returns a std::vector of cert_info, each extracted from a loaded
+         * certificate, std::nullopt if the impl does not exist, or throws an
+         * exception if we detect any error during extraction.
+         */
+        std::optional<std::vector<cert_info>> get_cert_info() const;
+
+        /**
+         * Retrieve information about the currently loaded trust list.
+         *
+         * Returns a std::vector of cert_info, each extracted from a CA in the
+         * trust list, std::nullopt if the impl does not exist, or throws an
+         * exception if whe detect any error during extraction.
+         */
+        std::optional<std::vector<cert_info>> get_trust_list_info() const;
+
     private:
         class impl;
         friend class session;

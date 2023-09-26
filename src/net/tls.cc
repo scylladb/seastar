@@ -39,6 +39,7 @@ module;
 #include <boost/range/adaptor/map.hpp>
 
 #include <fmt/core.h>
+#include <seastar/util/defer.hh>
 
 #ifdef SEASTAR_MODULE
 module seastar;
@@ -170,6 +171,19 @@ static void gtls_chk(int res) {
     if (res < 0) {
         throw std::system_error(res, tls::error_category());
     }
+}
+
+static std::vector<std::byte> extract_x509_serial(gnutls_x509_crt_t cert) {
+    constexpr size_t serial_max = 128;
+    size_t serial_size{serial_max};
+    std::vector<std::byte> serial(serial_size);
+    try {
+        gtls_chk(gnutls_x509_crt_get_serial(cert, serial.data(), &serial_size));
+    } catch (...) {
+        std::throw_with_nested(std::runtime_error(std::string("Could not extract x509 serial")));
+    }
+    serial.resize(serial_size);
+    return serial;
 }
 
 namespace {
@@ -387,6 +401,53 @@ public:
                 gnutls_certificate_set_x509_simple_pkcs12_mem(_creds, &w,
                         gnutls_x509_crt_fmt_t(fmt), password.c_str()));
     }
+    std::vector<cert_info> get_x509_info() const {
+        gnutls_x509_crt_t *crt_list{};
+        unsigned int crt_list_size{};
+        try {
+            gtls_chk(gnutls_certificate_get_x509_crt(*this, 0, &crt_list, &crt_list_size));
+        } catch (...) {
+            std::throw_with_nested(std::runtime_error(std::string("Could not get x509 cert")));
+        }
+        auto cleanup = defer([&crt_list, crt_list_size]() noexcept {
+            for (unsigned int i = 0; i < crt_list_size; ++i) {
+                gnutls_x509_crt_deinit(crt_list[i]);
+            }
+            gnutls_free(crt_list);
+        });
+
+        std::vector<cert_info> result;
+        result.reserve(crt_list_size);
+
+        for (unsigned int i = 0; i < crt_list_size; ++i) {
+            cert_info info = {
+                .serial = extract_x509_serial(crt_list[i]),
+                .expiry = gnutls_x509_crt_get_expiration_time(crt_list[i]),
+            };
+            result.emplace_back(std::move(info));
+        }
+        return result;
+    }
+    std::vector<cert_info> get_x509_trust_list_info() const {
+        gnutls_x509_trust_list_t tlist{};
+        gnutls_certificate_get_trust_list(*this, &tlist);
+        gnutls_x509_trust_list_iter_t iter{};
+        gnutls_x509_crt_t cert{};
+
+        // Size not known up front
+        std::vector<cert_info> result;
+        while (GNUTLS_E_REQUESTED_DATA_NOT_AVAILABLE !=
+               gnutls_x509_trust_list_iter_get_ca(tlist, &iter, &cert)) {
+            cert_info info = {
+                .serial = extract_x509_serial(cert),
+                .expiry = gnutls_x509_crt_get_expiration_time(cert),
+            };
+            result.emplace_back(std::move(info));
+
+            gnutls_x509_crt_deinit(cert);
+        }
+        return result;
+    }
     void dh_params(const tls::dh_params& dh) {
 #if GNUTLS_VERSION_NUMBER >= 0x030506
         auto sec_param = dh._impl->sec_param();
@@ -526,6 +587,22 @@ void tls::certificate_credentials::set_priority_string(const sstring& prio) {
 
 void tls::certificate_credentials::set_dn_verification_callback(dn_callback cb) {
     _impl->set_dn_verification_callback(std::move(cb));
+}
+
+std::optional<std::vector<cert_info>> tls::certificate_credentials::get_cert_info() const {
+    if (_impl == nullptr) {
+        return std::nullopt;
+    }
+
+    return _impl->get_x509_info();
+}
+
+std::optional<std::vector<cert_info>> tls::certificate_credentials::get_trust_list_info() const {
+    if (_impl == nullptr) {
+        return std::nullopt;
+    }
+
+    return _impl->get_x509_trust_list_info();
 }
 
 tls::server_credentials::server_credentials()
@@ -2010,7 +2087,6 @@ std::ostream& tls::operator<<(std::ostream& os, const subject_alt_name::value_ty
 std::ostream& tls::operator<<(std::ostream& os, const subject_alt_name& a) {
     return os << a.type << "=" << a.value;
 }
-
 
 }
 
