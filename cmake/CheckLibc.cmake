@@ -12,3 +12,20 @@ if (Stdout_Can_Be_Used_As_Identifier)
     PUBLIC
       SEASTAR_LOGGER_TYPE_STDOUT)
 endif ()
+
+check_cxx_source_compiles ("
+#include <string.h>
+
+int main() {
+    char buf;
+    char* a = strerror_r(1, &buf, 0);
+    static_cast<void>(a);
+}"
+  Strerror_R_Returns_Char_P)
+if (Strerror_R_Returns_Char_P)
+  # define SEASTAR_STRERROR_R_CHAR_P if strerror_r() is GNU-specific version,
+  # which returns a "char*" not "int".
+  target_compile_definitions (seastar
+    PRIVATE
+      SEASTAR_STRERROR_R_CHAR_P)
+endif ()
