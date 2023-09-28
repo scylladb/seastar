@@ -3,6 +3,7 @@
 #include <seastar/core/seastar.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/future-util.hh>
+#include <seastar/core/metrics.hh>
 #include <boost/range/adaptor/map.hpp>
 
 #if FMT_VERSION >= 90000
@@ -739,7 +740,7 @@ namespace rpc {
 
   stats client::get_stats() const {
       stats res = _stats;
-      res.wait_reply = _outstanding.size();
+      res.wait_reply = incoming_queue_length();
       res.pending = outgoing_queue_length();
       return res;
   }
@@ -813,8 +814,78 @@ namespace rpc {
       });
   }
 
+  struct client::metrics::domain {
+      metrics::domain_list_t list;
+      stats dead;
+      seastar::metrics::metric_groups metric_groups;
+
+      static thread_local std::unordered_map<sstring, domain> all;
+      static domain& find_or_create(sstring name);
+
+      stats::counter_type count_all(stats::counter_type stats::* field) noexcept {
+          stats::counter_type res = dead.*field;
+          for (const auto& m : list) {
+              res += m._c._stats.*field;
+          }
+          return res;
+      }
+
+      size_t count_all_fn(size_t (client::*fn)(void) const) noexcept {
+          size_t res = 0;
+          for (const auto& m : list) {
+              res += (m._c.*fn)();
+          }
+          return res;
+      }
+
+      domain(sstring name)
+      {
+          namespace sm = seastar::metrics;
+          auto domain_l = sm::label("domain")(name);
+
+          metric_groups.add_group("rpc_client", {
+                sm::make_gauge("count", [this] { return list.size(); },
+                        sm::description("Total number of clients"), { domain_l }),
+                sm::make_counter("sent_messages", std::bind(&domain::count_all, this, &stats::sent_messages),
+                        sm::description("Total number of messages sent"), { domain_l }),
+                sm::make_counter("replied", std::bind(&domain::count_all, this, &stats::replied),
+                        sm::description("Total number of responses received"), { domain_l }),
+                sm::make_counter("exception_received", std::bind(&domain::count_all, this, &stats::exception_received),
+                        sm::description("Total number of exceptional responses received"), { domain_l }).set_skip_when_empty(),
+                sm::make_counter("timeout", std::bind(&domain::count_all, this, &stats::timeout),
+                        sm::description("Total number of timeout responses"), { domain_l }).set_skip_when_empty(),
+                sm::make_gauge("pending", std::bind(&domain::count_all_fn, this, &client::outgoing_queue_length),
+                    sm::description("Number of queued outbound messages"), { domain_l }),
+                sm::make_gauge("wait_reply", std::bind(&domain::count_all_fn, this, &client::incoming_queue_length),
+                    sm::description("Number of replies waiting for"), { domain_l }),
+          });
+      }
+  };
+
+  thread_local std::unordered_map<sstring, client::metrics::domain> client::metrics::domain::all;
+
+  client::metrics::domain& client::metrics::domain::find_or_create(sstring name) {
+      auto i = all.try_emplace(name, name);
+      return i.first->second;
+  }
+
+  client::metrics::metrics(const client& c)
+        : _c(c)
+        , _domain(domain::find_or_create(_c._options.metrics_domain))
+  {
+      _domain.list.push_back(*this);
+  }
+
+  client::metrics::~metrics() {
+      _domain.dead.replied += _c._stats.replied;
+      _domain.dead.exception_received += _c._stats.exception_received;
+      _domain.dead.sent_messages += _c._stats.sent_messages;
+      _domain.dead.timeout += _c._stats.timeout;
+  }
+
   client::client(const logger& l, void* s, client_options ops, socket socket, const socket_address& addr, const socket_address& local)
-  : rpc::connection(l, s), _socket(std::move(socket)), _server_addr(addr), _local_addr(local), _options(ops) {
+  : rpc::connection(l, s), _socket(std::move(socket)), _server_addr(addr), _local_addr(local), _options(ops), _metrics(*this)
+  {
        _socket.set_reuseaddr(ops.reuseaddr);
       // Run client in the background.
       // Communicate result via _stopped.
