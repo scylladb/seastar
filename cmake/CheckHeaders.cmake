@@ -67,6 +67,11 @@ function (seastar_check_self_contained target library)
     list (APPEND srcs "${src}")
   endforeach ()
 
+  if (NOT srcs)
+    # library's SOURCES does not contain any header
+    return ()
+  endif ()
+
   set (check_lib "${target}-${library}")
   add_library (${check_lib} EXCLUDE_FROM_ALL)
   target_sources (${check_lib}
