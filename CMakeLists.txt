@@ -1183,7 +1183,7 @@ if (CMAKE_BUILD_TYPE STREQUAL "Dev")
   add_custom_target (checkheaders)
   foreach (lib seastar seastar_testing seastar_perf_testing)
     if (TARGET ${lib})
-      seastar_check_self_contained (${lib}
+      seastar_check_self_contained (checkheaders ${lib}
         INCLUDE "\\.hh$"
         # impl.hh headers are internal implementations of .hh, so they are not
         # compilable. let's exclude them from the files to be checked.
