@@ -76,6 +76,8 @@ class connection : public boost::intrusive::list_base_hook<> {
     connected_socket _fd;
     input_stream<char> _read_buf;
     output_stream<char> _write_buf;
+    socket_address _client_addr;
+    socket_address _server_addr;
     static constexpr size_t limit = 4096;
     using tmp_buf = temporary_buffer<char>;
     http_request_parser _parser;
@@ -89,8 +91,22 @@ public:
     connection(http_server& server, connected_socket&& fd,
             socket_address) : connection(server, std::move(fd)) {}
     connection(http_server& server, connected_socket&& fd)
-            : _server(server), _fd(std::move(fd)), _read_buf(_fd.input()), _write_buf(
-                    _fd.output()) {
+            : _server(server)
+            , _fd(std::move(fd))
+            , _read_buf(_fd.input())
+            , _write_buf(_fd.output())
+            , _client_addr(_fd.remote_address())
+            , _server_addr(_fd.local_address()) {
+        on_new_connection();
+    }
+    connection(http_server& server, connected_socket&& fd,
+            socket_address client_addr, socket_address server_addr)
+            : _server(server)
+            , _fd(std::move(fd))
+            , _read_buf(_fd.input())
+            , _write_buf(_fd.output())
+            , _client_addr(std::move(client_addr))
+            , _server_addr(std::move(server_addr)) {
         on_new_connection();
     }
     ~connection();

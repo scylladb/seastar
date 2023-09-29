@@ -220,6 +220,10 @@ future<> connection::read_one() {
         }
         ++_server._requests_served;
         std::unique_ptr<http::request> req = _parser.get_parsed_request();
+
+        req->_server_address = this->_server_addr;
+        req->_client_address = this->_client_addr;
+
         if (_server._credentials) {
             req->protocol_name = "https";
         }
@@ -423,7 +427,9 @@ future<> http_server::do_accepts(int which) {
 
 future<> http_server::do_accept_one(int which) {
     return _listeners[which].accept().then([this] (accept_result ar) mutable {
-        auto conn = std::make_unique<connection>(*this, std::move(ar.connection), std::move(ar.remote_address));
+        auto local_address = ar.connection.local_address();
+        auto conn = std::make_unique<connection>(*this,
+            std::move(ar.connection), std::move(ar.remote_address), std::move(local_address));
         (void)try_with_gate(_task_gate, [conn = std::move(conn)]() mutable {
             return conn->process().handle_exception([conn = std::move(conn)] (std::exception_ptr ex) {
                 hlogger.error("request error: {}", ex);

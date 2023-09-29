@@ -37,6 +37,7 @@
 #include <strings.h>
 #include <seastar/http/common.hh>
 #include <seastar/http/mime_types.hh>
+#include <seastar/net/socket_defs.hh>
 #include <seastar/core/iostream.hh>
 #include <seastar/util/string_utils.hh>
 
@@ -55,6 +56,8 @@ struct request {
             other, multipart, app_x_www_urlencoded,
     };
 
+    socket_address _client_address;
+    socket_address _server_address;
     sstring _method;
     sstring _url;
     sstring _version;
@@ -74,6 +77,22 @@ struct request {
     std::unordered_map<sstring, sstring> chunk_extensions;
     sstring protocol_name = "http";
     noncopyable_function<future<>(output_stream<char>&&)> body_writer; // for client
+
+    /**
+     * Get the address of the client that generated the request
+     * @return The address of the client that generated the request
+     */
+    const socket_address & get_client_address() const {
+        return _client_address;
+    }
+
+    /**
+     * Get the address of the server that handled the request
+     * @return The address of the server that handled the request
+     */
+    const socket_address & get_server_address() const {
+        return _server_address;
+    }
 
     /**
      * Search for the first header of a given name
