@@ -224,6 +224,8 @@ public:
     int get_sockopt(int level, int optname, void* data, size_t len) const;
     /// Local address of the socket
     socket_address local_address() const noexcept;
+    /// Remote address of the socket
+    socket_address remote_address() const noexcept;
 
     /// Disables output to the socket.
     ///

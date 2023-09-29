@@ -204,6 +204,10 @@ public:
         // dummy
         return {};
     }
+    socket_address remote_address() const noexcept override {
+        // dummy
+        return {};
+    }
     future<> wait_input_shutdown() override {
         return _rx->wait_input_shutdown();
     }
