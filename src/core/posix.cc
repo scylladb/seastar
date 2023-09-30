@@ -122,16 +122,25 @@ posix_thread::posix_thread(attr a, std::function<void ()> func)
     }
 #endif
 
+#ifdef SEASTAR_PTHREAD_ATTR_SETAFFINITY_NP
+    if (a._affinity) {
+        auto& cpuset = *a._affinity;
+        pthread_attr_setaffinity_np(&pa, sizeof(cpuset), &cpuset);
+    }
+#endif
+
     r = pthread_create(&_pthread, &pa,
                 &posix_thread::start_routine, _func.get());
     if (r) {
         throw std::system_error(r, std::system_category());
     }
 
+#ifndef SEASTAR_PTHREAD_ATTR_SETAFFINITY_NP
     if (a._affinity) {
         auto& cpuset = *a._affinity;
         pthread_setaffinity_np(_pthread, sizeof(cpuset), &cpuset);
     }
+#endif
 }
 
 posix_thread::posix_thread(posix_thread&& x)
