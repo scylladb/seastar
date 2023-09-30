@@ -29,3 +29,13 @@ if (Strerror_R_Returns_Char_P)
     PRIVATE
       SEASTAR_STRERROR_R_CHAR_P)
 endif ()
+
+include (CheckFunctionExists)
+
+check_function_exists (pthread_attr_setaffinity_np
+  Pthread_Attr_Setaffinity_Np)
+if (Pthread_Attr_Setaffinity_Np)
+  target_compile_definitions (seastar
+    PRIVATE
+    SEASTAR_PTHREAD_ATTR_SETAFFINITY_NP)
+endif ()
