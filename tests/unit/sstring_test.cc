@@ -24,6 +24,8 @@
 #include <boost/test/unit_test.hpp>
 #include <seastar/core/sstring.hh>
 #include <list>
+#include <fmt/ranges.h>
+#include <fmt/std.h>
 
 using namespace std::literals;
 using namespace seastar;
@@ -306,3 +308,16 @@ BOOST_AUTO_TEST_CASE(test_compares_left_hand_not_string) {
     BOOST_REQUIRE(std::string("a") < sstring("b"));
 #endif
 }
+
+#if FMT_VERSION >= 90000
+
+BOOST_AUTO_TEST_CASE(test_fmt) {
+#if FMT_VERSION >= 100000   // formatting of std::optional was introduced in fmt 10
+    // https://github.com/llvm/llvm-project/issues/68849
+    std::ignore = fmt::format("{}", std::optional(sstring{"hello"}));
+#endif
+    std::vector<sstring> strings;
+    std::ignore = fmt::format("{}", strings);
+}
+
+#endif
