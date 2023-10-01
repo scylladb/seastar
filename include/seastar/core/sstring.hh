@@ -880,13 +880,15 @@ std::ostream& operator<<(std::ostream& os, const std::unordered_map<Key, T, Hash
 
 #if FMT_VERSION >= 90000
 
+// Due to https://github.com/llvm/llvm-project/issues/68849, we inherit
+// from formatter<string_view> publicly rather than privately
+
 SEASTAR_MODULE_EXPORT
 template <typename char_type, typename Size, Size max_size, bool NulTerminate>
 struct fmt::formatter<seastar::basic_sstring<char_type, Size, max_size, NulTerminate>>
-    : private fmt::formatter<std::basic_string_view<char_type>> {
+    : public fmt::formatter<std::basic_string_view<char_type>> {
     using format_as_t = std::basic_string_view<char_type>;
     using base = fmt::formatter<format_as_t>;
-    using base::parse;
     template <typename FormatContext>
     auto format(const ::seastar::basic_sstring<char_type, Size, max_size, NulTerminate>& s, FormatContext& ctx) const {
         return base::format(format_as_t{s}, ctx);
