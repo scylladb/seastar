@@ -66,6 +66,25 @@ SEASTAR_TEST_CASE(malloc_0_and_free_it) {
     return make_ready_future<>();
 }
 
+SEASTAR_TEST_CASE(new_0) {
+
+    {
+        // new must always return a non-null pointer, even for 0 size
+        auto obj = operator new(0);
+        BOOST_REQUIRE(obj != nullptr);
+        operator delete(obj);
+    }
+
+    {
+        // same test but with a zero length array
+        auto obj = new char[0];
+        BOOST_REQUIRE(obj != nullptr);
+        delete [] obj;
+    }
+
+    return make_ready_future<>();
+}
+
 SEASTAR_TEST_CASE(test_live_objects_counter_with_cross_cpu_free) {
     return smp::submit_to(1, [] {
         auto ret = std::vector<std::unique_ptr<bool>>(1000000);
@@ -247,6 +266,11 @@ SEASTAR_TEST_CASE(test_bad_alloc_throws) {
     // test that new throws
     stats = seastar::memory::stats();
     BOOST_REQUIRE_THROW(sink = operator new(size), std::bad_alloc);
+    BOOST_CHECK_EQUAL(failed_allocs(), 1);
+
+    // test that new[] throws
+    stats = seastar::memory::stats();
+    BOOST_REQUIRE_THROW(sink = new char[size], std::bad_alloc);
     BOOST_CHECK_EQUAL(failed_allocs(), 1);
 
     // test that huge malloc returns null
