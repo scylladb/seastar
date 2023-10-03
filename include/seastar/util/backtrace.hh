@@ -181,6 +181,7 @@ struct hash<seastar::tasktrace> {
 
 #if FMT_VERSION >= 90000
 template <> struct fmt::formatter<seastar::tasktrace> : fmt::ostream_formatter {};
+template <> struct fmt::formatter<seastar::simple_backtrace> : fmt::ostream_formatter {};
 #endif
 
 namespace seastar {
