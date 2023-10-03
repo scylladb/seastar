@@ -106,6 +106,8 @@ public:
         /// You can adjust the behavior of SIGINT/SIGTERM by installing signal handlers
         /// via reactor::handle_signal().
         bool auto_handle_sigint_sigterm = true;
+        /// Path to seastar.conf file
+        program_options::value<std::string> config_file;
         /// Configuration options for the reactor.
         reactor_options reactor_opts;
         /// Configuration for the metrics sub-system.
@@ -158,6 +160,12 @@ public:
     int run_deprecated(int ac, char ** av, std::function<void ()>&& func) noexcept;
 
     void set_configuration_reader(configuration_reader conf_reader);
+    /// This method makes seastar re-read its configuration file and update
+    /// live-updateable options accordingly. By default this function is
+    /// installed as a handler for HUP signal, but if re-assigning it with
+    /// reactor::handle_signal(), mind calling it by hand as seastar handlers
+    /// are not stackable.
+    void reread_config();
 
     /// Obtains an alien::instance object that can be used to send messages
     /// to Seastar shards from non-Seastar threads.

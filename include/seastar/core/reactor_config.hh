@@ -74,20 +74,20 @@ struct reactor_options : public program_options::option_group {
     /// When the number of tasks grow above this, we stop polling (e.g. I/O)
     /// until it goes back below the limit.
     /// Default: 1000.
-    program_options::value<unsigned> max_task_backlog;
+    program_options::updateable_value<unsigned> max_task_backlog;
     /// \brief Threshold in milliseconds over which the reactor is considered
     /// blocked if no progress is made.
     ///
     /// Default: 25.
-    program_options::value<unsigned> blocked_reactor_notify_ms;
+    program_options::updateable_value<unsigned> blocked_reactor_notify_ms;
     /// \brief Maximum number of backtraces reported by stall detector per minute.
     ///
     /// Default: 5.
-    program_options::value<unsigned> blocked_reactor_reports_per_minute;
+    program_options::updateable_value<unsigned> blocked_reactor_reports_per_minute;
     /// \brief Print a simplified backtrace on a single line.
     ///
     /// Default: \p true.
-    program_options::value<bool> blocked_reactor_report_format_oneline;
+    program_options::updateable_value<bool> blocked_reactor_report_format_oneline;
     /// \brief Allow using buffered I/O if DMA is not available (reduces performance).
     program_options::value<> relaxed_dma;
     /// \brief Use the Linux NOWAIT AIO feature, which reduces reactor stalls due
@@ -97,7 +97,7 @@ struct reactor_options : public program_options::option_group {
     ///
     /// Use for testing on consumer drives.
     /// Default: \p false.
-    program_options::value<bool> unsafe_bypass_fsync;
+    program_options::updateable_value<bool> unsafe_bypass_fsync;
     /// \brief Use the kernel page cache.
     ///
     /// This disables DMA (O_DIRECT). Useful for short-lived functional tests

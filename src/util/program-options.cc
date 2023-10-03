@@ -138,6 +138,18 @@ void option_group::mutate(options_mutator& mutator) {
     mutator.visit_group_end();
 }
 
+void option_group::mutate_live(options_mutator& mutator) {
+    if (mutator.visit_group_start(_name, _used)) {
+        for (auto& value : _values) {
+            value.mutate_live(mutator);
+        }
+        for (auto& grp : _subgroups) {
+            grp.mutate_live(mutator);
+        }
+    }
+    mutator.visit_group_end();
+}
+
 basic_value::basic_value(option_group& group, bool used, std::string name, std::string description)
     : _group(&group), _used(used), _name(std::move(name)), _description(std::move(description))
 {
@@ -160,6 +172,12 @@ void basic_value::describe(options_descriptor& descriptor) const {
 void basic_value::mutate(options_mutator& mutator) {
     if (mutator.visit_value_metadata(_name, _used)) {
         do_mutate(mutator);
+    }
+}
+
+void basic_value::mutate_live(options_mutator& mutator) {
+    if (mutator.visit_value_metadata(_name, _used)) {
+        do_mutate_live(mutator);
     }
 }
 

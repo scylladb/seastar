@@ -1139,6 +1139,10 @@ void reactor::set_bypass_fsync(bool value) {
     _bypass_fsync = value;
 }
 
+void reactor::set_max_task_backlog(unsigned value) {
+    _max_task_backlog = value;
+}
+
 void
 reactor::reset_preemption_monitor() {
     return _backend->reset_preemption_monitor();
@@ -1199,7 +1203,6 @@ void cpu_stall_detector::update_config(cpu_stall_detector_config cfg) {
     _config = cfg;
     _threshold = std::chrono::duration_cast<sched_clock::duration>(cfg.threshold);
     _slack = std::chrono::duration_cast<sched_clock::duration>(cfg.threshold * cfg.slack);
-    _stall_detector_reports_per_minute = cfg.stall_detector_reports_per_minute;
     _max_reports_per_minute = cfg.stall_detector_reports_per_minute;
     _rearm_timer_at = reactor::now();
 }
@@ -1495,6 +1498,13 @@ void
 reactor::set_stall_detector_report_function(std::function<void ()> report) {
     auto cfg = _cpu_stall_detector->get_config();
     cfg.report = std::move(report);
+    _cpu_stall_detector->update_config(std::move(cfg));
+    _cpu_stall_detector->reset_suppression_state(reactor::now());
+}
+
+void reactor::update_stall_detector_config(std::function<void (internal::cpu_stall_detector_config&)> update) {
+    auto cfg = _cpu_stall_detector->get_config();
+    update(cfg);
     _cpu_stall_detector->update_config(std::move(cfg));
     _cpu_stall_detector->reset_suppression_state(reactor::now());
 }
@@ -3811,6 +3821,18 @@ static program_options::selection_value<reactor_backend_selector>::candidates ba
     return candidates;
 }
 
+template <typename T>
+class update_option_on_all_shards {
+    noncopyable_function<void(T)> _update;
+public:
+    update_option_on_all_shards(noncopyable_function<void(T)> u) noexcept : _update(std::move(u)) {}
+    void operator() (const program_options::updateable_value<T>& uv, program_options::updateable_value<T>::lock l) {
+        (void)smp::invoke_on_all([this, v = uv.get_value()] {
+            _update(v);
+        }).finally([l = std::move(l)] {});
+    }
+};
+
 reactor_options::reactor_options(program_options::option_group* parent_group)
     : program_options::option_group(parent_group, "Core options")
     , network_stack(create_network_stacks_option(*this))
@@ -3821,14 +3843,28 @@ reactor_options::reactor_options(program_options::option_group* parent_group)
                 "busy-poll for disk I/O (reduces latency and increases throughput)")
     , task_quota_ms(*this, "task-quota-ms", 0.5, "Max time (ms) between polls")
     , io_latency_goal_ms(*this, "io-latency-goal-ms", {}, "Max time (ms) io operations must take (1.5 * task-quota-ms if not set)")
-    , max_task_backlog(*this, "max-task-backlog", 1000, "Maximum number of task backlog to allow; above this we ignore I/O")
-    , blocked_reactor_notify_ms(*this, "blocked-reactor-notify-ms", 25, "threshold in miliseconds over which the reactor is considered blocked if no progress is made")
-    , blocked_reactor_reports_per_minute(*this, "blocked-reactor-reports-per-minute", 5, "Maximum number of backtraces reported by stall detector per minute")
-    , blocked_reactor_report_format_oneline(*this, "blocked-reactor-report-format-oneline", true, "Print a simplified backtrace on a single line")
+    , max_task_backlog(*this, "max-task-backlog", 1000, "Maximum number of task backlog to allow; above this we ignore I/O",
+            update_option_on_all_shards<unsigned>([] (auto v) { engine().set_max_task_backlog(v); })
+    )
+    , blocked_reactor_notify_ms(*this, "blocked-reactor-notify-ms", 25, "threshold in miliseconds over which the reactor is considered blocked if no progress is made",
+            update_option_on_all_shards<unsigned>([] (auto v) { engine().update_blocked_reactor_notify_ms(v * 1ms); })
+    )
+    , blocked_reactor_reports_per_minute(*this, "blocked-reactor-reports-per-minute", 5, "Maximum number of backtraces reported by stall detector per minute",
+            update_option_on_all_shards<unsigned>([] (auto v) {
+                engine().update_stall_detector_config([v] (auto& cfg) { cfg.stall_detector_reports_per_minute = v; });
+            })
+    )
+    , blocked_reactor_report_format_oneline(*this, "blocked-reactor-report-format-oneline", true, "Print a simplified backtrace on a single line",
+            update_option_on_all_shards<bool>([] (auto v) {
+                engine().update_stall_detector_config([v] (auto& cfg) { cfg.oneline = v; });
+            })
+    )
     , relaxed_dma(*this, "relaxed-dma", "allow using buffered I/O if DMA is not available (reduces performance)")
     , linux_aio_nowait(*this, "linux-aio-nowait", aio_nowait_supported,
                 "use the Linux NOWAIT AIO feature, which reduces reactor stalls due to aio (autodetected)")
-    , unsafe_bypass_fsync(*this, "unsafe-bypass-fsync", false, "Bypass fsync(), may result in data loss. Use for testing on consumer drives")
+    , unsafe_bypass_fsync(*this, "unsafe-bypass-fsync", false, "Bypass fsync(), may result in data loss. Use for testing on consumer drives",
+            update_option_on_all_shards<bool>([] (auto v) { engine().set_bypass_fsync(v); })
+    )
     , kernel_page_cache(*this, "kernel-page-cache", false,
                 "Use the kernel page cache. This disables DMA (O_DIRECT)."
                 " Useful for short-lived functional tests with a small data set.")

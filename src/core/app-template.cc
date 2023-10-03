@@ -67,6 +67,7 @@ seastar_options_from_config(app_template::config cfg) {
 
 app_template::seastar_options::seastar_options()
     : program_options::option_group(nullptr, "seastar")
+    , config_file(*this, "config-file", "~/.config/seastar/seastar.conf", "Path to seastar.conf file")
     , reactor_opts(this)
     , metrics_opts(this)
     , smp_opts(this)
@@ -118,17 +119,43 @@ const app_template::seastar_options& app_template::options() const {
 app_template::configuration_reader app_template::get_default_configuration_reader() {
     return [this] (bpo::variables_map& configuration) {
         auto home = std::getenv("HOME");
-        if (home) {
-            std::ifstream ifs(std::string(home) + "/.config/seastar/seastar.conf");
-            if (ifs) {
-                bpo::store(bpo::parse_config_file(ifs, _opts_conf_file), configuration);
+
+        std::string config_file = _opts.config_file.get_value();
+        if (config_file.empty()) {
+            throw std::runtime_error("Empty 'config-file'");
+        }
+        if (config_file[0] == '~') {
+            if (!home) {
+                throw std::runtime_error(format("Cannot expand 'config-file' {}, $HOME not set", config_file));
             }
+            config_file.replace(0, 1, home);
+        }
+        std::ifstream ifs(config_file);
+        if (ifs) {
+            bpo::store(bpo::parse_config_file(ifs, _opts_conf_file), configuration);
+        } else if (!_opts.config_file.defaulted()) {
+            throw std::runtime_error(format("Cannot read config file {}", config_file));
+        }
+
+        if (home) {
             std::ifstream ifs_io(std::string(home) + "/.config/seastar/io.conf");
             if (ifs_io) {
                 bpo::store(bpo::parse_config_file(ifs_io, _opts_conf_file), configuration);
             }
         }
     };
+}
+
+void app_template::reread_config() {
+    bpo::variables_map configuration;
+    try {
+        _conf_reader(configuration);
+    } catch (...) {
+        fmt::print("error re-reading config: {}\n\n", std::current_exception());
+        return;
+    }
+    program_options::variables_map_extracting_visitor visitor(configuration);
+    _opts.mutate_live(visitor);
 }
 
 void app_template::set_configuration_reader(configuration_reader conf_reader) {
@@ -202,9 +229,14 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
                     .positional(_pos_opts)
                     .run()
             , configuration);
+        program_options::variables_map_extracting_visitor visitor(configuration);
+        _opts.config_file.mutate(visitor);
         _conf_reader(configuration);
     } catch (bpo::error& e) {
         fmt::print("error: {}\n\nTry --help.\n", e.what());
+        return 2;
+    } catch (...) {
+        fmt::print("error: {}\n\n", std::current_exception());
         return 2;
     }
     if (configuration.count("help")) {
@@ -262,6 +294,10 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
             // set scollectd use the metrics configuration, so the later
             // need to be set first
             scollectd::configure( _opts.scollectd_opts);
+        });
+    }).then([this] {
+        engine().handle_signal(SIGHUP, [this] {
+            reread_config();
         });
     }).then(
         std::move(func)

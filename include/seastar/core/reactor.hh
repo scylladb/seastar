@@ -141,6 +141,7 @@ namespace internal {
 
 class reactor_stall_sampler;
 class cpu_stall_detector;
+struct cpu_stall_detector_config;
 class buffer_allocator;
 class priority_class;
 
@@ -718,12 +719,14 @@ public:
     /// performance and an increase in memory consumption.
     void set_strict_dma(bool value);
     void set_bypass_fsync(bool value);
+    void set_max_task_backlog(unsigned value);
     void update_blocked_reactor_notify_ms(std::chrono::milliseconds ms);
     std::chrono::milliseconds get_blocked_reactor_notify_ms() const;
     /// For testing, sets the stall reporting function which is called when
     /// a stall is detected (and not suppressed). Setting the function also
     /// resets the supression state.
     void set_stall_detector_report_function(std::function<void ()> report);
+    void update_stall_detector_config(std::function<void(internal::cpu_stall_detector_config&)>);
     std::function<void ()> get_stall_detector_report_function() const;
 };
 
