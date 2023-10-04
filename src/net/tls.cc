@@ -1815,6 +1815,10 @@ private:
         _session->close();
         return make_ready_future<>();
     }
+    bool can_batch_flushes() const noexcept override { return true; }
+    void on_batch_flush_error() noexcept override {
+        _session->close();
+    }
 };
 
 class server_session : public net::server_socket_impl {
