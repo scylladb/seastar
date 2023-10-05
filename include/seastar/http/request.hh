@@ -60,6 +60,7 @@ struct request {
     sstring _version;
     ctclass content_type_class;
     size_t content_length = 0;
+    mutable size_t _bytes_written = 0;
     std::unordered_map<sstring, sstring, seastar::internal::case_insensitive_hash, seastar::internal::case_insensitive_cmp> _headers;
     std::unordered_map<sstring, sstring> query_parameters;
     httpd::parameters param;
@@ -259,7 +260,7 @@ struct request {
 private:
     void add_param(const std::string_view& param);
     sstring request_line() const;
-    future<> write_request_headers(output_stream<char>& out);
+    future<> write_request_headers(output_stream<char>& out) const;
     friend class experimental::connection;
 };
 

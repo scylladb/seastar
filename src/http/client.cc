@@ -65,15 +65,15 @@ connection::connection(connected_socket&& fd, internal::client_ref cr)
 {
 }
 
-future<> connection::write_body(request& req) {
+future<> connection::write_body(const request& req) {
     if (req.body_writer) {
         if (req.content_length != 0) {
-            auto orig_content_length = req.content_length;
-            return req.body_writer(internal::make_http_content_length_output_stream(_write_buf, req.content_length)).then([&req, orig_content_length] {
-                if (req.content_length == orig_content_length) {
+            req._bytes_written = req.content_length;
+            return req.body_writer(internal::make_http_content_length_output_stream(_write_buf, req._bytes_written)).then([&req] {
+                if (req.content_length == req._bytes_written) {
                     return make_ready_future<>();
                 } else {
-                    return make_exception_future<>(std::runtime_error(format("partial request body write, need {} sent {}", orig_content_length, req.content_length)));
+                    return make_exception_future<>(std::runtime_error(format("partial request body write, need {} sent {}", req.content_length, req._bytes_written)));
                 }
             });
         }
@@ -87,7 +87,7 @@ future<> connection::write_body(request& req) {
     }
 }
 
-future<connection::reply_ptr> connection::maybe_wait_for_continue(request& req) {
+future<connection::reply_ptr> connection::maybe_wait_for_continue(const request& req) {
     if (req.get_header("Expect") == "") {
         return make_ready_future<reply_ptr>(nullptr);
     }
@@ -103,7 +103,7 @@ future<connection::reply_ptr> connection::maybe_wait_for_continue(request& req) 
     });
 }
 
-future<> connection::send_request_head(request& req) {
+void connection::setup_request(request& req) {
     if (req._version.empty()) {
         req._version = "1.1";
     }
@@ -113,7 +113,9 @@ future<> connection::send_request_head(request& req) {
         }
         req._headers["Content-Length"] = to_sstring(req.content_length);
     }
+}
 
+future<> connection::send_request_head(const request& req) {
     return _write_buf.write(req.request_line()).then([this, &req] {
         return req.write_request_headers(_write_buf).then([this] {
             return _write_buf.write("\r\n", 2);
@@ -143,6 +145,7 @@ future<connection::reply_ptr> connection::recv_reply() {
 
 future<connection::reply_ptr> connection::do_make_request(request req) {
     return do_with(std::move(req), [this] (auto& req) {
+        setup_request(req);
         return send_request_head(req).then([this, &req] {
             return maybe_wait_for_continue(req).then([this, &req] (reply_ptr cont) {
                 if (cont) {
