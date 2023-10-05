@@ -4046,11 +4046,16 @@ void smp::qs_deleter::operator()(smp_message_queue** qs) const {
 
 class disk_config_params {
 private:
+    const unsigned _max_queues;
     unsigned _num_io_groups = 0;
     std::unordered_map<dev_t, mountpoint_params> _mountpoints;
     std::chrono::duration<double> _latency_goal;
 
 public:
+    explicit disk_config_params(unsigned max_queues) noexcept
+            : _max_queues(max_queues)
+    {}
+
     uint64_t per_io_group(uint64_t qty, unsigned nr_groups) const noexcept {
         return std::max(qty / nr_groups, 1ul);
     }
@@ -4110,9 +4115,9 @@ public:
                     if (_mountpoints.count(st_dev)) {
                         throw std::runtime_error(fmt::format("Mountpoint {} already configured", d.mountpoint));
                     }
-                    if (_mountpoints.size() >= reactor::max_queues) {
+                    if (_mountpoints.size() >= _max_queues) {
                         throw std::runtime_error(fmt::format("Configured number of queues {} is larger than the maximum {}",
-                                                 _mountpoints.size(), reactor::max_queues));
+                                                 _mountpoints.size(), _max_queues));
                     }
                     if (d.read_bytes_rate == 0 || d.write_bytes_rate == 0 ||
                             d.read_req_rate == 0 || d.write_req_rate == 0) {
@@ -4337,7 +4342,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     rc.cpus = smp::count;
     rc.cpu_set = std::move(cpu_set);
 
-    disk_config_params disk_config;
+    disk_config_params disk_config(reactor::max_queues);
     disk_config.parse_config(smp_opts, reactor_opts);
     for (auto& id : disk_config.device_ids()) {
         rc.devices.push_back(id);

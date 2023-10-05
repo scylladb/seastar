@@ -180,7 +180,6 @@ class kernel_completion;
 class io_queue;
 SEASTAR_MODULE_EXPORT
 class io_intent;
-class disk_config_params;
 
 class io_completion : public kernel_completion {
 public:
@@ -276,7 +275,6 @@ private:
     static constexpr unsigned max_aio_per_queue = 128;
     static constexpr unsigned max_queues = 8;
     static constexpr unsigned max_aio = max_aio_per_queue * max_queues;
-    friend disk_config_params;
 
     // Each mountpouint is controlled by its own io_queue, but ...
     std::unordered_map<dev_t, std::unique_ptr<io_queue>> _io_queues;
