@@ -684,21 +684,6 @@ private:
     friend future<> seastar::rename_scheduling_group(scheduling_group sg, sstring new_name, sstring new_shortname) noexcept;
     friend future<scheduling_group_key> scheduling_group_key_create(scheduling_group_key_config cfg) noexcept;
 
-    template<typename T>
-    friend T* internal::scheduling_group_get_specific_ptr(scheduling_group sg, scheduling_group_key key) noexcept;
-    template<typename SpecificValType, typename Mapper, typename Reducer, typename Initial>
-        SEASTAR_CONCEPT( requires requires(SpecificValType specific_val, Mapper mapper, Reducer reducer, Initial initial) {
-            {reducer(initial, mapper(specific_val))} -> std::convertible_to<Initial>;
-        })
-    friend future<typename function_traits<Reducer>::return_type>
-    map_reduce_scheduling_group_specific(Mapper mapper, Reducer reducer, Initial initial_val, scheduling_group_key key);
-    template<typename SpecificValType, typename Reducer, typename Initial>
-    SEASTAR_CONCEPT( requires requires(SpecificValType specific_val, Reducer reducer, Initial initial) {
-        {reducer(initial, specific_val)} -> std::convertible_to<Initial>;
-    })
-    friend future<typename function_traits<Reducer>::return_type>
-        reduce_scheduling_group_specific(Reducer reducer, Initial initial_val, scheduling_group_key key);
-
     future<struct statfs> fstatfs(int fd) noexcept;
     friend future<shared_ptr<file_impl>> make_file_impl(int fd, file_open_options options, int flags, struct stat st) noexcept;
 public:
