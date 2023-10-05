@@ -28,7 +28,7 @@
 # for performing a similar check. see
 # https://cmake.org/cmake/help/latest/prop_tgt/LANG_INCLUDE_WHAT_YOU_USE.html
 
-function (seastar_check_self_contained library)
+function (seastar_check_self_contained target library)
   cmake_parse_arguments (
     parsed_args
     ""
@@ -50,7 +50,7 @@ function (seastar_check_self_contained library)
     endif ()
     get_filename_component (file_dir ${fn} DIRECTORY)
     list (APPEND includes "${file_dir}")
-    set (src_dir "${CMAKE_BINARY_DIR}/checkheaders/${file_dir}")
+    set (src_dir "${CMAKE_BINARY_DIR}/${target}/${file_dir}")
     file (MAKE_DIRECTORY "${src_dir}")
     get_filename_component (file_name ${fn} NAME)
     set (src "${src_dir}/${file_name}.cc")
@@ -67,7 +67,12 @@ function (seastar_check_self_contained library)
     list (APPEND srcs "${src}")
   endforeach ()
 
-  set (check_lib "checkheaders-${library}")
+  if (NOT srcs)
+    # library's SOURCES does not contain any header
+    return ()
+  endif ()
+
+  set (check_lib "${target}-${library}")
   add_library (${check_lib} EXCLUDE_FROM_ALL)
   target_sources (${check_lib}
     PRIVATE ${srcs})
@@ -109,5 +114,5 @@ function (seastar_check_self_contained library)
       PRIVATE ${compile_definitions})
   endif ()
 
-  add_dependencies (checkheaders ${check_lib})
+  add_dependencies (${target} ${check_lib})
 endfunction ()
