@@ -674,7 +674,7 @@ private:
     friend class smp_message_queue;
     friend class internal::poller;
     friend class scheduling_group;
-    friend void add_to_flush_poller(output_stream<char>& os) noexcept;
+    friend void internal::add_to_flush_poller(output_stream<char>& os) noexcept;
     friend void seastar::internal::increase_thrown_exceptions_counter() noexcept;
     friend void report_failed_future(const std::exception_ptr& eptr) noexcept;
     friend void with_allow_abandoned_failed_futures(unsigned count, noncopyable_function<void ()> func);

@@ -4718,10 +4718,6 @@ future<> later() noexcept {
     return check_for_io_immediately();
 }
 
-void add_to_flush_poller(output_stream<char>& os) noexcept {
-    engine()._flush_batching.push_back(os);
-}
-
 steady_clock_type::duration reactor::total_idle_time() {
     return _total_idle;
 }
@@ -5003,6 +4999,10 @@ rename_scheduling_group(scheduling_group sg, sstring new_name, sstring new_short
 }
 
 namespace internal {
+
+void add_to_flush_poller(output_stream<char>& os) noexcept {
+    engine()._flush_batching.push_back(os);
+}
 
 inline
 sched_clock::duration

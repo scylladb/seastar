@@ -408,7 +408,9 @@ output_stream<CharType>::slow_write(const char_type* buf, size_t n) noexcept {
   }
 }
 
+namespace internal {
 void add_to_flush_poller(output_stream<char>& x) noexcept;
+}
 
 template <typename CharType>
 future<> output_stream<CharType>::do_flush() noexcept {
@@ -439,7 +441,7 @@ output_stream<CharType>::flush() noexcept {
         } else {
             _flush = true;
             if (!_in_batch) {
-                add_to_flush_poller(*this);
+                internal::add_to_flush_poller(*this);
                 _in_batch = promise<>();
             }
         }
