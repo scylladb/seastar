@@ -152,11 +152,13 @@ class http_content_length_data_sink_impl : public data_sink_impl {
     size_t& _bytes_written;
 
 public:
-    http_content_length_data_sink_impl(output_stream<char>& out, size_t& len)
+    http_content_length_data_sink_impl(output_stream<char>& out, size_t total_len, size_t& bytes_written)
             : _out(out)
-            , _limit(std::exchange(len, 0))
-            , _bytes_written(len)
+            , _limit(total_len)
+            , _bytes_written(bytes_written)
     {
+        // at the very beginning, 0 bytes were written
+        _bytes_written = 0;
     }
     virtual future<> put(net::packet data)  override { abort(); }
     using data_sink_impl::put;
@@ -181,16 +183,16 @@ public:
 
 class http_content_length_data_sink : public data_sink {
 public:
-    http_content_length_data_sink(output_stream<char>& out, size_t& len)
-        : data_sink(std::make_unique<http_content_length_data_sink_impl>(out, len))
+    http_content_length_data_sink(output_stream<char>& out, size_t total_len, size_t& bytes_written)
+        : data_sink(std::make_unique<http_content_length_data_sink_impl>(out, total_len, bytes_written))
     {
     }
 };
 
-output_stream<char> make_http_content_length_output_stream(output_stream<char>& out, size_t& len) {
+output_stream<char> make_http_content_length_output_stream(output_stream<char>& out, size_t total_len, size_t& bytes_written) {
     output_stream_options opts;
     opts.trim_to_size = true;
-    return output_stream<char>(http_content_length_data_sink(out, len), default_body_sink_buffer_size, opts);
+    return output_stream<char>(http_content_length_data_sink(out, total_len, bytes_written), default_body_sink_buffer_size, opts);
 }
 
 }

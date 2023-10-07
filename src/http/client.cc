@@ -68,8 +68,7 @@ connection::connection(connected_socket&& fd, internal::client_ref cr)
 future<> connection::write_body(const request& req) {
     if (req.body_writer) {
         if (req.content_length != 0) {
-            req._bytes_written = req.content_length;
-            return req.body_writer(internal::make_http_content_length_output_stream(_write_buf, req._bytes_written)).then([&req] {
+            return req.body_writer(internal::make_http_content_length_output_stream(_write_buf, req.content_length, req._bytes_written)).then([&req] {
                 if (req.content_length == req._bytes_written) {
                     return make_ready_future<>();
                 } else {
