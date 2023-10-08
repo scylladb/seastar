@@ -114,11 +114,6 @@ public:
     }
 };
 
-// in cpp 14 declaration of static variables is mandatory even
-// though the assignment took place inside the class declaration
-// - no inline static variables (like in Cpp17).
-constexpr size_t reusable_buffer::chunk_size;
-
 static thread_local reusable_buffer reusable_buffer_compressed_data;
 static thread_local reusable_buffer reusable_buffer_decompressed_data;
 static thread_local size_t buffer_use_count = 0;

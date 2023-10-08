@@ -2147,18 +2147,6 @@ void tcp<InetTraits>::connection::shutdown_connect() {
 }
 
 template <typename InetTraits>
-constexpr uint16_t tcp<InetTraits>::tcb::_max_nr_retransmit;
-
-template <typename InetTraits>
-constexpr std::chrono::milliseconds tcp<InetTraits>::tcb::_rto_min;
-
-template <typename InetTraits>
-constexpr std::chrono::milliseconds tcp<InetTraits>::tcb::_rto_max;
-
-template <typename InetTraits>
-constexpr std::chrono::milliseconds tcp<InetTraits>::tcb::_rto_clk_granularity;
-
-template <typename InetTraits>
 typename tcp<InetTraits>::tcb::isn_secret tcp<InetTraits>::tcb::_isn_secret;
 
 }

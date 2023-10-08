@@ -616,9 +616,6 @@ using namespace internal::linux_abi;
 
 std::atomic<manual_clock::rep> manual_clock::_now;
 
-constexpr unsigned reactor::max_queues;
-constexpr unsigned reactor::max_aio_per_queue;
-
 // Base version where this works; some filesystems were only fixed later, so
 // this value is mixed in with filesystem-provided values later.
 bool aio_nowait_supported = internal::kernel_uname().whitelisted({"4.13"});

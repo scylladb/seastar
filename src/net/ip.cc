@@ -48,10 +48,6 @@ ipv4_address::ipv4_address(const std::string& addr) {
     ip = static_cast<uint32_t>(std::move(ipv4).to_ulong());
 }
 
-constexpr std::chrono::seconds ipv4::_frag_timeout;
-constexpr uint32_t ipv4::_frag_low_thresh;
-constexpr uint32_t ipv4::_frag_high_thresh;
-
 ipv4::ipv4(interface* netif)
     : _netif(netif)
     , _global_arp(netif)

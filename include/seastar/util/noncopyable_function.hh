@@ -222,9 +222,6 @@ public:
 
 
 template <typename Ret, typename... Args, bool Noexcept>
-constexpr typename noncopyable_function<Ret (Args...) noexcept(Noexcept)>::vtable noncopyable_function<Ret (Args...) noexcept(Noexcept)>::_s_empty_vtable;
-
-template <typename Ret, typename... Args, bool Noexcept>
 template <typename Func>
 const typename noncopyable_function<Ret (Args...) noexcept(Noexcept)>::vtable noncopyable_function<Ret (Args...) noexcept(Noexcept)>::direct_vtable_for<Func>::s_vtable
         = noncopyable_function<Ret (Args...) noexcept(Noexcept)>::direct_vtable_for<Func>::make_vtable();
