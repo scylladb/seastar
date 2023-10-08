@@ -2709,8 +2709,14 @@ void reactor::register_metrics() {
             sm::make_gauge("utilization", [this] { return (1-_load)  * 100; }, sm::description("CPU utilization")),
             sm::make_counter("cpu_busy_ms", [this] () -> int64_t { return total_busy_time() / 1ms; },
                     sm::description("Total cpu busy time in milliseconds")),
+            sm::make_counter("sleep_time_ms_total", [this] () -> int64_t { return _total_sleep / 1ms; },
+                    sm::description("Total reactor sleep time (wall clock)")),
+            sm::make_counter("awake_time_ms_total", [this] () -> int64_t { return total_awake_time() / 1ms; },
+                    sm::description("Total reactor awake time (wall_clock)")),
+            sm::make_counter("cpu_used_time_ms", [this] () -> int64_t { return total_cpu_time() / 1ms; },
+                    sm::description("Total reactor thread CPU time (from CLOCK_THREAD_CPUTIME)")),
             sm::make_counter("cpu_steal_time_ms", [this] () -> int64_t { return total_steal_time() / 1ms; },
-                    sm::description("Total steal time, the time in which some other process was running while Seastar was not trying to run (not sleeping)."
+                    sm::description("Total steal time, the time in which something else was running while the reactor was runnable (not sleeping)."
                                      "Because this is in userspace, some time that could be legitimally thought as steal time is not accounted as such. For example, if we are sleeping and can wake up but the kernel hasn't woken us up yet.")),
             // total_operations value:DERIVE:0:U
             sm::make_counter("aio_reads", _io_stats.aio_reads, sm::description("Total aio-reads operations")),
@@ -4938,6 +4944,14 @@ steady_clock_type::duration reactor::total_busy_time() {
     return now() - _start_time - _total_idle;
 }
 
+steady_clock_type::duration reactor::total_awake_time() const {
+    return now() - _start_time - _total_sleep;
+}
+
+std::chrono::nanoseconds reactor::total_cpu_time() const {
+    return thread_cputime_clock::now().time_since_epoch();
+}
+
 std::chrono::nanoseconds reactor::total_steal_time() {
     // Steal time: this mimics the concept some Hypervisors have about Steal time.
     // That is the time in which a VM has something to run, but is not running because some other
@@ -4952,8 +4966,7 @@ std::chrono::nanoseconds reactor::total_steal_time() {
     // steal time but we have no ways to account it.
     //
     // But what we have here should be good enough and at least has a well defined meaning.
-    return std::chrono::duration_cast<std::chrono::nanoseconds>(now() - _start_time - _total_sleep) -
-           std::chrono::duration_cast<std::chrono::nanoseconds>(thread_cputime_clock::now().time_since_epoch());
+    return total_awake_time() - total_cpu_time();
 }
 
 static std::atomic<unsigned long> s_used_scheduling_group_ids_bitmap{3}; // 0=main, 1=atexit
