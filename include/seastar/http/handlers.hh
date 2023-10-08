@@ -40,7 +40,11 @@ typedef const http::request& const_req;
  *
  */
 class handler_base {
+protected:
+    handler_base() = default;
+    handler_base(const handler_base&) = default;
 public:
+    virtual ~handler_base() = default;
     /**
      * All handlers should implement this method.
      *  It fill the reply according to the request.
@@ -51,7 +55,6 @@ public:
     virtual future<std::unique_ptr<http::reply> > handle(const sstring& path,
             std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) = 0;
 
-    virtual ~handler_base() = default;
 
     /**
      * Add a mandatory parameter
