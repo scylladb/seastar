@@ -765,7 +765,8 @@ set (Seastar_PRIVATE_CXX_FLAGS
   -Wall
   -Werror
   -Wimplicit-fallthrough
-  -Wno-error=deprecated-declarations)
+  -Wdeprecated
+  -Wno-error=deprecated)
 if (NOT BUILD_SHARED_LIBS)
   list (APPEND Seastar_PRIVATE_CXX_FLAGS -fvisibility=hidden)
 endif ()
