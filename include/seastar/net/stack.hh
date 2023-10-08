@@ -82,8 +82,11 @@ public:
 };
 
 class network_interface_impl {
-public:
+protected:
+    network_interface_impl() = default;
+    network_interface_impl(const network_interface_impl&) = default;
     virtual ~network_interface_impl() {}
+public:
     virtual uint32_t index() const = 0;
     virtual uint32_t mtu() const = 0;
 

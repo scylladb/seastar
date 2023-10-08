@@ -50,7 +50,7 @@ SEASTAR_MODULE_EXPORT_BEGIN
  * this is not a valid object
  */
 class json_base_element {
-public:
+protected:
     /**
      * The constructors
      */
@@ -58,8 +58,17 @@ public:
             : _mandatory(false), _set(false) {
     }
 
-    virtual ~json_base_element() = default;
+    json_base_element(const json_base_element& o) noexcept = default;
+    json_base_element& operator=(const json_base_element& o) noexcept {
+        // Names and mandatory are never changed after creation
+        _set = o._set;
+        return *this;
+    }
 
+    json_base_element(json_base_element&&) = delete;
+    json_base_element& operator=(json_base_element&&) = delete;
+public:
+    virtual ~json_base_element() = default;
     /**
      * Check if it's a mandatory parameter
      * and if it's set.
@@ -68,12 +77,6 @@ public:
      */
     virtual bool is_verify() noexcept {
         return !(_mandatory && !_set);
-    }
-
-    json_base_element& operator=(const json_base_element& o) noexcept {
-        // Names and mandatory are never changed after creation
-        _set = o._set;
-        return *this;
     }
 
     /**

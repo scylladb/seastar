@@ -115,9 +115,13 @@ namespace tls {
     };
 
     class abstract_credentials {
-    public:
+    protected:
+        abstract_credentials() = default;
+        abstract_credentials(const abstract_credentials&) = default;
+        abstract_credentials& operator=(abstract_credentials&) = default;
+        abstract_credentials& operator=(abstract_credentials&&) = default;
         virtual ~abstract_credentials() {};
-
+    public:
         virtual void set_x509_trust(const blob&, x509_crt_format) = 0;
         virtual void set_x509_crl(const blob&, x509_crt_format) = 0;
         virtual void set_x509_key(const blob& cert, const blob& key, x509_crt_format) = 0;
