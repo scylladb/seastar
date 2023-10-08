@@ -258,6 +258,7 @@ SEASTAR_THREAD_TEST_CASE(sg_count) {
         scheduling_group _sg;
     public:
         scheduling_group_destroyer(scheduling_group sg) : _sg(sg) {}
+        scheduling_group_destroyer(const scheduling_group_destroyer&) = default;
         ~scheduling_group_destroyer() {
             destroy_scheduling_group(_sg).get();
         }

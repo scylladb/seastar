@@ -29,7 +29,8 @@ namespace seastar {
 class kernel_completion {
 protected:
      kernel_completion() = default;
-     kernel_completion(const kernel_completion&) = default;
+     kernel_completion(kernel_completion&&) = default;
+     kernel_completion& operator=(kernel_completion&&) = default;
      ~kernel_completion() = default;
 public:
     virtual void complete_with(ssize_t res) = 0;

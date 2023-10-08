@@ -194,6 +194,9 @@ public:
 
 class jsonable {
 public:
+    jsonable() = default;
+    jsonable(const jsonable&) = default;
+    jsonable& operator=(const jsonable&) = default;
     virtual ~jsonable() = default;
     /**
      * create a foramted string of the object.

@@ -76,6 +76,10 @@ private:
     // the base for queue waiters. looks complicated, but this is
     // to make it transparent once we add non-promise based nodes
     struct waiter : public boost::intrusive::list_base_hook<boost::intrusive::link_mode<boost::intrusive::auto_unlink>> {
+        waiter() = default;
+        waiter(waiter&&) = default;
+        waiter(const waiter&) = delete;
+        waiter& operator=(const waiter&) = delete;
         virtual ~waiter() = default;
         void timeout() noexcept;
 

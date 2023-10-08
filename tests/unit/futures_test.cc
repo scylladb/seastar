@@ -709,6 +709,8 @@ SEASTAR_TEST_CASE(test_map_reduce_tuple) {
 SEASTAR_TEST_CASE(test_map_reduce_lifetime) {
     struct map {
         bool destroyed = false;
+        map() = default;
+        map(const map&) = default;
         ~map() {
             destroyed = true;
         }
@@ -722,6 +724,9 @@ SEASTAR_TEST_CASE(test_map_reduce_lifetime) {
     struct reduce {
         long& res;
         bool destroyed = false;
+        reduce(long& result)
+            : res{result} {}
+        reduce(const reduce&) = default;
         ~reduce() {
             destroyed = true;
         }
@@ -745,6 +750,8 @@ SEASTAR_TEST_CASE(test_map_reduce_lifetime) {
 SEASTAR_TEST_CASE(test_map_reduce0_lifetime) {
     struct map {
         bool destroyed = false;
+        map() = default;
+        map(const map&) = default;
         ~map() {
             destroyed = true;
         }
@@ -757,6 +764,8 @@ SEASTAR_TEST_CASE(test_map_reduce0_lifetime) {
     };
     struct reduce {
         bool destroyed = false;
+        reduce() = default;
+        reduce(const reduce&) = default;
         ~reduce() {
             destroyed = true;
         }
@@ -776,6 +785,8 @@ SEASTAR_TEST_CASE(test_map_reduce0_lifetime) {
 SEASTAR_TEST_CASE(test_map_reduce1_lifetime) {
     struct map {
         bool destroyed = false;
+        map() = default;
+        map(const map&) = default;
         ~map() {
             destroyed = true;
         }
@@ -789,6 +800,8 @@ SEASTAR_TEST_CASE(test_map_reduce1_lifetime) {
     struct reduce {
         long res = 0;
         bool destroyed = false;
+        reduce() = default;
+        reduce(const reduce&) = default;
         ~reduce() {
             BOOST_TEST_MESSAGE("~reduce()");
             destroyed = true;
