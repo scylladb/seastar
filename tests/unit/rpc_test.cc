@@ -1567,7 +1567,7 @@ SEASTAR_THREAD_TEST_CASE(test_rpc_metric_domains) {
     client_opt.metrics_domain = "dom2";
     auto p2 = rpc_test_env<>::do_with_thread(rpc_test_config(), client_opt, [&] (auto& env, auto& cln) { do_one_echo(env, cln, 2); });
     auto p3 = rpc_test_env<>::do_with_thread(rpc_test_config(), client_opt, [&] (auto& env, auto& cln) { do_one_echo(env, cln, 5); });
-    when_all(std::move(p1), std::move(p2)).discard_result().get();
+    when_all(std::move(p1), std::move(p2), std::move(p3)).discard_result().get();
 
     auto get_metrics = [] (std::string name, std::string domain) -> int {
         const auto& values = seastar::metrics::impl::get_value_map();
