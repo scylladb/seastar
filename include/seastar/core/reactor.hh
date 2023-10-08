@@ -553,6 +553,8 @@ public:
 
     steady_clock_type::duration total_idle_time();
     steady_clock_type::duration total_busy_time();
+    steady_clock_type::duration total_awake_time() const;
+    std::chrono::nanoseconds total_cpu_time() const;
     std::chrono::nanoseconds total_steal_time();
 
     const io_stats& get_io_stats() const { return _io_stats; }
