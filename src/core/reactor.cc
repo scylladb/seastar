@@ -3381,15 +3381,13 @@ int reactor::do_run() {
                     // Turn off the task quota timer to avoid spurious wakeups
                     struct itimerspec zero_itimerspec = {};
                     _task_quota_timer.timerfd_settime(0, zero_itimerspec);
-                    auto start_sleep = now();
                     _cpu_stall_detector->start_sleep();
                     _cpu_profiler->stop();
-                    sleep();
+                    try_sleep();
                     _cpu_profiler->start();
                     _cpu_stall_detector->end_sleep();
                     // We may have slept for a while, so freshen idle_end
                     idle_end = now();
-                    _total_sleep += idle_end - start_sleep;
                     _task_quota_timer.timerfd_settime(0, task_quote_itimerspec);
                 }
             } else {
@@ -3408,8 +3406,9 @@ int reactor::do_run() {
     return _return;
 }
 
+
 void
-reactor::sleep() {
+reactor::try_sleep() {
     for (auto i = _pollers.begin(); i != _pollers.end(); ++i) {
         auto ok = (*i)->try_enter_interrupt_mode();
         if (!ok) {
@@ -4925,6 +4924,10 @@ std::chrono::nanoseconds reactor::total_steal_time() {
     // Because this is totally in userspace we can miss some events. For instance, if the seastar
     // process is ready to run but the kernel hasn't scheduled us yet, that would be technically
     // steal time but we have no ways to account it.
+    //
+    // Furthermore, not all steal is from other processes: time used by the syscall thread and any
+    // alien threads will show up as steal as well as any time spent in a system call that
+    // unexpectedly blocked (since CPU time won't tick up when that occurs).
     //
     // But what we have here should be good enough and at least has a well defined meaning.
     return total_awake_time() - total_cpu_time();
