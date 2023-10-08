@@ -43,7 +43,7 @@ public:
             : _msg(msg), _status(status) {
     }
 
-    virtual const char* what() const throw () {
+    virtual const char* what() const noexcept {
         return _msg.c_str();
     }
 
