@@ -51,7 +51,8 @@ public:
      */
     virtual output_stream<char> transform(std::unique_ptr<http::request> req,
             const sstring& extension, output_stream<char>&& s) = 0;
-
+    file_transformer() = default;
+    file_transformer(file_transformer&&) = default;
     virtual ~file_transformer() = default;
 };
 
