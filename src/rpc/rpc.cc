@@ -40,8 +40,6 @@ namespace rpc {
 
   no_wait_type no_wait;
 
-  constexpr size_t snd_buf::chunk_size;
-
   snd_buf::snd_buf(size_t size_) : size(size_) {
       if (size <= chunk_size) {
           bufs = temporary_buffer<char>(size);

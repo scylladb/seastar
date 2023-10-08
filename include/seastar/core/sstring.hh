@@ -703,8 +703,6 @@ public:
         return std::basic_string_view<char_type>(str(), size());
     }
 };
-template <typename char_type, typename Size, Size max_size, bool NulTerminate>
-constexpr Size basic_sstring<char_type, Size, max_size, NulTerminate>::npos;
 
 namespace internal {
 template <class T> struct is_sstring : std::false_type {};
