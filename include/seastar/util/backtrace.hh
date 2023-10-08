@@ -143,6 +143,8 @@ private:
 public:
     tasktrace() = default;
     tasktrace(simple_backtrace main, vector_type prev, size_t prev_hash, scheduling_group sg) noexcept;
+    tasktrace(const tasktrace&) = default;
+    tasktrace& operator=(const tasktrace&) = default;
     ~tasktrace();
 
     size_t hash() const noexcept { return _hash; }

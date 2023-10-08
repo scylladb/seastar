@@ -52,6 +52,9 @@ public:
 
 class socket_impl {
 public:
+    socket_impl() = default;
+    socket_impl(const socket_impl&) = delete;
+    socket_impl(socket_impl&&) = default;
     virtual ~socket_impl() {}
     virtual future<connected_socket> connect(socket_address sa, socket_address local, transport proto = transport::TCP) = 0;
     virtual void set_reuseaddr(bool reuseaddr) = 0;
