@@ -1927,7 +1927,7 @@ using namespace seastar::memory;
 extern "C"
 [[gnu::visibility("default")]]
 [[gnu::used]]
-void* malloc(size_t n) throw () {
+void* malloc(size_t n) noexcept {
     if (try_trigger_error_injector()) {
         return nullptr;
     }
@@ -1942,7 +1942,7 @@ extern "C"
 #ifndef __clang__
 [[gnu::leaf]]
 #endif
-void* __libc_malloc(size_t n) throw ();
+void* __libc_malloc(size_t n) noexcept;
 
 extern "C"
 [[gnu::visibility("default")]]
@@ -1959,7 +1959,7 @@ extern "C"
 #ifndef __clang__
 [[gnu::leaf]]
 #endif
-void __libc_free(void* obj) throw ();
+void __libc_free(void* obj) noexcept;
 
 extern "C"
 [[gnu::visibility("default")]]
@@ -1985,7 +1985,7 @@ extern "C"
 #ifndef __clang__
 [[gnu::leaf]]
 #endif
-void* __libc_calloc(size_t n, size_t m) throw ();
+void* __libc_calloc(size_t n, size_t m) noexcept;
 
 extern "C"
 [[gnu::visibility("default")]]
@@ -2038,7 +2038,7 @@ extern "C"
 #ifndef __clang__
 [[gnu::leaf]]
 #endif
-void* __libc_realloc(void* obj, size_t size) throw ();
+void* __libc_realloc(void* obj, size_t size) noexcept;
 
 extern "C"
 [[gnu::visibility("default")]]
@@ -2047,7 +2047,7 @@ extern "C"
 [[gnu::leaf]]
 #endif
 [[gnu::nonnull(1)]]
-int posix_memalign(void** ptr, size_t align, size_t size) throw () {
+int posix_memalign(void** ptr, size_t align, size_t size) noexcept {
     if (try_trigger_error_injector()) {
         return ENOMEM;
     }
@@ -2065,7 +2065,7 @@ extern "C"
 [[gnu::leaf]]
 #endif
 [[gnu::nonnull(1)]]
-int __libc_posix_memalign(void** ptr, size_t align, size_t size) throw ();
+int __libc_posix_memalign(void** ptr, size_t align, size_t size) noexcept;
 
 extern "C"
 [[gnu::visibility("default")]]
@@ -2076,7 +2076,7 @@ extern "C"
 #if defined(__GLIBC__) && __GLIBC_PREREQ(2, 35)
 [[gnu::alloc_align(1)]]
 #endif
-void* memalign(size_t align, size_t size) throw () {
+void* memalign(size_t align, size_t size) noexcept {
     if (try_trigger_error_injector()) {
         return nullptr;
     }
@@ -2086,7 +2086,7 @@ void* memalign(size_t align, size_t size) throw () {
 
 extern "C"
 [[gnu::visibility("default")]]
-void *aligned_alloc(size_t align, size_t size) throw () {
+void *aligned_alloc(size_t align, size_t size) noexcept {
     if (try_trigger_error_injector()) {
         return nullptr;
     }
@@ -2103,18 +2103,18 @@ extern "C"
 #if defined(__GLIBC__) && __GLIBC_PREREQ(2, 35)
 [[gnu::alloc_align(1)]]
 #endif
-void* __libc_memalign(size_t align, size_t size) throw ();
+void* __libc_memalign(size_t align, size_t size) noexcept;
 
 extern "C"
 [[gnu::visibility("default")]]
-void cfree(void* obj) throw () {
+void cfree(void* obj) noexcept {
     return ::free(obj);
 }
 
 extern "C"
 [[gnu::alias("cfree")]]
 [[gnu::visibility("default")]]
-void __libc_cfree(void* obj) throw ();
+void __libc_cfree(void* obj) noexcept;
 
 extern "C"
 [[gnu::visibility("default")]]
@@ -2164,7 +2164,7 @@ void* operator new[](size_t size) {
 
 extern "C++"
 [[gnu::visibility("default")]]
-void operator delete(void* ptr) throw () {
+void operator delete(void* ptr) noexcept {
     if (ptr) {
         seastar::memory::free(ptr);
     }
@@ -2172,7 +2172,7 @@ void operator delete(void* ptr) throw () {
 
 extern "C++"
 [[gnu::visibility("default")]]
-void operator delete[](void* ptr) throw () {
+void operator delete[](void* ptr) noexcept {
     if (ptr) {
         seastar::memory::free(ptr);
     }
@@ -2180,7 +2180,7 @@ void operator delete[](void* ptr) throw () {
 
 extern "C++"
 [[gnu::visibility("default")]]
-void operator delete(void* ptr, size_t size) throw () {
+void operator delete(void* ptr, size_t size) noexcept {
     if (ptr) {
         seastar::memory::free(ptr, size);
     }
@@ -2188,7 +2188,7 @@ void operator delete(void* ptr, size_t size) throw () {
 
 extern "C++"
 [[gnu::visibility("default")]]
-void operator delete[](void* ptr, size_t size) throw () {
+void operator delete[](void* ptr, size_t size) noexcept {
     if (ptr) {
         seastar::memory::free(ptr, size);
     }
@@ -2196,7 +2196,7 @@ void operator delete[](void* ptr, size_t size) throw () {
 
 extern "C++"
 [[gnu::visibility("default")]]
-void* operator new(size_t size, std::nothrow_t) throw () {
+void* operator new(size_t size, std::nothrow_t) noexcept {
     if (try_trigger_error_injector()) {
         return nullptr;
     }
@@ -2208,7 +2208,7 @@ void* operator new(size_t size, std::nothrow_t) throw () {
 
 extern "C++"
 [[gnu::visibility("default")]]
-void* operator new[](size_t size, std::nothrow_t) throw () {
+void* operator new[](size_t size, std::nothrow_t) noexcept {
     if (size == 0) {
         size = 1;
     }
@@ -2217,7 +2217,7 @@ void* operator new[](size_t size, std::nothrow_t) throw () {
 
 extern "C++"
 [[gnu::visibility("default")]]
-void operator delete(void* ptr, std::nothrow_t) throw () {
+void operator delete(void* ptr, std::nothrow_t) noexcept {
     if (ptr) {
         seastar::memory::free(ptr);
     }
@@ -2225,7 +2225,7 @@ void operator delete(void* ptr, std::nothrow_t) throw () {
 
 extern "C++"
 [[gnu::visibility("default")]]
-void operator delete[](void* ptr, std::nothrow_t) throw () {
+void operator delete[](void* ptr, std::nothrow_t) noexcept {
     if (ptr) {
         seastar::memory::free(ptr);
     }
@@ -2233,7 +2233,7 @@ void operator delete[](void* ptr, std::nothrow_t) throw () {
 
 extern "C++"
 [[gnu::visibility("default")]]
-void operator delete(void* ptr, size_t size, std::nothrow_t) throw () {
+void operator delete(void* ptr, size_t size, std::nothrow_t) noexcept {
     if (ptr) {
         seastar::memory::free(ptr, size);
     }
@@ -2241,7 +2241,7 @@ void operator delete(void* ptr, size_t size, std::nothrow_t) throw () {
 
 extern "C++"
 [[gnu::visibility("default")]]
-void operator delete[](void* ptr, size_t size, std::nothrow_t) throw () {
+void operator delete[](void* ptr, size_t size, std::nothrow_t) noexcept {
     if (ptr) {
         seastar::memory::free(ptr, size);
     }
