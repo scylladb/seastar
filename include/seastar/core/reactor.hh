@@ -549,7 +549,7 @@ public:
     [[deprecated("Use this_shard_id")]]
     shard_id cpu_id() const;
 
-    void sleep();
+    void try_sleep();
 
     steady_clock_type::duration total_idle_time();
     steady_clock_type::duration total_busy_time();
