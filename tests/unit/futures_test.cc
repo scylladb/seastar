@@ -1552,6 +1552,42 @@ SEASTAR_TEST_CASE(test_when_all_succeed_tuples) {
     });
 }
 
+SEASTAR_TEST_CASE(test_when_all_succeed_vector_overload) {
+    std::vector<future<int>> vecs_noexcept;
+    vecs_noexcept.reserve(10);
+    for(int i = 0; i < 10; i++) {
+        vecs_noexcept.emplace_back(i % 2 == 0 ? make_ready_future<int>(42) : yield().then([] { return 42; }));
+    }
+
+    std::vector<future<int>> vecs_except;
+    vecs_except.reserve(10);
+    for(int i = 0; i < 10; i++) {
+        vecs_except.emplace_back(i % 2 == 0 ? make_ready_future<int>(42) : make_exception_future<int>(43));
+    }
+
+    return seastar::when_all_succeed(std::move(vecs_noexcept))
+    .then([vecs_except = std::move(vecs_except)] (std::vector<int> vals) mutable {
+        bool all = std::all_of(vals.cbegin(), vals.cend(), [](int val) { return val == 42; });
+        BOOST_REQUIRE(all);
+        return seastar::when_all_succeed(std::move(vecs_except));
+    }).then_wrapped([] (auto vals_fut) {
+        auto vals = vals_fut.get();
+        BOOST_FAIL("shouldn't reach");
+        return false;
+    })
+    .handle_exception([] (auto excp) {
+        try {
+            std::rethrow_exception(excp);
+        } catch (int v) {
+            BOOST_REQUIRE(v == 43);
+            return true;
+        } catch (...) { }
+        return false;
+    }).then([] (auto ret) {
+        BOOST_REQUIRE(ret);
+    });
+}
+
 SEASTAR_TEST_CASE(test_when_all_succeed_vector) {
     std::vector<future<>> vecs;
     vecs.emplace_back(make_ready_future<>());
