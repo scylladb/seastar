@@ -1028,11 +1028,6 @@ reactor::account_runtime(task_queue& tq, sched_clock::duration runtime) {
     tq._runtime += runtime;
 }
 
-void
-reactor::account_idle(sched_clock::duration runtime) {
-    // anything to do here?
-}
-
 struct reactor::task_queue::indirect_compare {
     bool operator()(const task_queue* tq1, const task_queue* tq2) const {
         return tq1->_vruntime < tq2->_vruntime;
@@ -3464,7 +3459,6 @@ int reactor::do_run() {
         if (check_for_work()) {
             if (idle) {
                 _total_idle += idle_end - idle_start;
-                account_idle(idle_end - idle_start);
                 idle_start = idle_end;
                 idle = false;
             }
