@@ -503,17 +503,14 @@ struct has_iterator_category<T, std::void_t<typename std::iterator_traits<T>::it
 template <typename Iterator, typename Sentinel, typename IteratorCategory>
 inline
 size_t
-iterator_range_estimate_vector_capacity(Iterator const&, Sentinel const&, IteratorCategory) {
+iterator_range_estimate_vector_capacity(Iterator begin, Sentinel end, IteratorCategory) {
+    // May be linear time below random_access_iterator_tag, but still better than reallocation
+    if constexpr (std::is_base_of<std::forward_iterator_tag, IteratorCategory>::value) {
+        return std::distance(begin, end);
+    }
+
     // For InputIterators we can't estimate needed capacity
     return 0;
-}
-
-template <typename Iterator, typename Sentinel>
-inline
-size_t
-iterator_range_estimate_vector_capacity(Iterator begin, Sentinel end, std::forward_iterator_tag) {
-    // May be linear time below random_access_iterator_tag, but still better than reallocation
-    return std::distance(begin, end);
 }
 
 } // namespace internal
