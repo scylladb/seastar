@@ -19,8 +19,12 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
+#include "seastar/core/loop.hh"
+#include <boost/test/tools/old/interface.hpp>
 #include <cstddef>
 #include <exception>
+#include <forward_list>
+#include <iterator>
 #include <seastar/testing/test_case.hh>
 
 #include <seastar/core/reactor.hh>
@@ -506,6 +510,21 @@ SEASTAR_TEST_CASE(test_when_all_iterator_range) {
         BOOST_REQUIRE(std::all_of(ret.begin(), ret.end(), [] (auto& f) { return f.available(); }));
         BOOST_REQUIRE(std::all_of(ret.begin(), ret.end(), [&ret] (auto& f) { return f.get0() == size_t(&f - ret.data()); }));
     });
+}
+
+template<typename Container>
+void test_iterator_range_estimate() {
+    using iter_traits = std::iterator_traits<typename Container::iterator>;
+    Container container{1,2,3};
+
+    BOOST_REQUIRE_EQUAL(internal::iterator_range_estimate_vector_capacity(
+        container.begin(), container.end(), typename iter_traits::iterator_category{}), 3);
+}
+
+BOOST_AUTO_TEST_CASE(test_iterator_range_estimate_vector_capacity) {
+    test_iterator_range_estimate<std::vector<int>>();
+    test_iterator_range_estimate<std::list<int>>();
+    test_iterator_range_estimate<std::forward_list<int>>();
 }
 
 // helper function for when_any tests
