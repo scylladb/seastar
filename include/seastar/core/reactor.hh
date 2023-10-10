@@ -310,7 +310,7 @@ private:
     circular_buffer<double> _loads;
     double _load = 0;
     sched_clock::duration _total_idle{0};
-    sched_clock::duration _total_sleep;
+    sched_clock::duration _total_sleep{0};
     sched_clock::time_point _start_time = now();
     output_stream<char>::batch_flush_list_t _flush_batching;
     std::atomic<bool> _sleeping alignas(seastar::cache_line_size){0};
