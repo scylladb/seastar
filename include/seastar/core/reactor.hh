@@ -302,6 +302,15 @@ private:
     const bool _reuseport;
     circular_buffer<double> _loads;
     double _load = 0;
+    // Next two fields are required to enforce the monotonicity of total_steal_time()
+    // see that method for details.
+
+    // Last measured accumulated steal time, i.e., the simple difference of accumulated
+    // awake time and consumed thread CPU time.
+    sched_clock::duration _last_true_steal{0};
+    // Accumulated steal time forced to be monotinic by rejecting any updates that would
+    // decrease it. See total_steal_time() for details.
+    sched_clock::duration _last_mono_steal{0};
     sched_clock::duration _total_idle{0};
     sched_clock::duration _total_sleep{0};
     sched_clock::time_point _start_time = now();

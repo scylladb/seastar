@@ -4811,7 +4811,33 @@ std::chrono::nanoseconds reactor::total_steal_time() {
     // unexpectedly blocked (since CPU time won't tick up when that occurs).
     //
     // But what we have here should be good enough and at least has a well defined meaning.
-    return total_awake_time() - total_cpu_time();
+    //
+    // Because we calculate sleep time with timestamps around polling methods that may sleep, like
+    // io_getevents, we systematically over-count sleep time, since there is CPU usage within the
+    // period timed as sleep, before and after an actual sleep occurs (and no sleep may occur at all,
+    // e.g., if there are events immediately available). Over-counting sleep means we under-count the 
+    // wall-clock awake time, and so if there is no "true" steal, we will generally have a small
+    // *negative* steal time, because we under-count awake wall clock time while thread CPU time does
+    // not have a corresponding error.
+    //
+    // Becuase we claim "steal" is a counter, we must ensure that it never deceases, because PromQL
+    // functions which use counters will produce non-sensical results if they do. Therefore we clamp
+    // the output such that it never decreases.
+    //
+    // Finally, we don't just clamp difference of awake and CPU time since proces start at 0, but
+    // take the last value we returned from this function and then calculate the incremental steal
+    // time since that measurement, clamped to 0. This means that as soon as steal time becomes 
+    // positive, it will be reflected in the measurement, rather than needing to "consume" all the
+    // accumulated negative steal time before positive steal times start showing up.
+
+
+    auto true_steal = total_awake_time() - total_cpu_time();
+    auto mono_steal = _last_mono_steal + std::max(true_steal - _last_true_steal, 0ns);
+
+    _last_true_steal = true_steal;
+    _last_mono_steal = mono_steal;
+
+    return mono_steal;
 }
 
 static std::atomic<unsigned long> s_used_scheduling_group_ids_bitmap{3}; // 0=main, 1=atexit
