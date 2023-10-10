@@ -331,7 +331,7 @@ private:
     circular_buffer<double> _loads;
     double _load = 0;
     sched_clock::duration _total_idle{0};
-    sched_clock::duration _total_sleep;
+    sched_clock::duration _total_sleep{0};
     sched_clock::time_point _start_time = now();
     std::chrono::nanoseconds _max_poll_time = calculate_poll_time();
     output_stream<char>::batch_flush_list_t _flush_batching;
