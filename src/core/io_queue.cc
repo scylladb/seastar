@@ -578,10 +578,8 @@ fair_group::config io_group::make_fair_group_config(const io_queue::config& qcfg
     return cfg;
 }
 
-static void maybe_warn_latency_goal_auto_adjust(const fair_group& fg, const io_queue::config& cfg) noexcept {
-    auto goal = fg.rate_limit_duration();
-    auto lvl = goal > 1.1 * cfg.rate_limit_duration ? log_level::warn : log_level::debug;
-    seastar_logger.log(lvl, "IO queue uses {:.2f}ms latency goal for device {}", goal.count() * 1000, cfg.devid);
+std::chrono::duration<double> io_group::io_latency_goal() const noexcept {
+    return _fgs.front()->rate_limit_duration();
 }
 
 io_group::io_group(io_queue::config io_cfg, unsigned nr_queues)
@@ -590,11 +588,13 @@ io_group::io_group(io_queue::config io_cfg, unsigned nr_queues)
 {
     auto fg_cfg = make_fair_group_config(_config);
     _fgs.push_back(std::make_unique<fair_group>(fg_cfg, nr_queues));
-    maybe_warn_latency_goal_auto_adjust(*_fgs.back(), io_cfg);
     if (_config.duplex) {
         _fgs.push_back(std::make_unique<fair_group>(fg_cfg, nr_queues));
-        maybe_warn_latency_goal_auto_adjust(*_fgs.back(), io_cfg);
     }
+
+    auto goal = io_latency_goal();
+    auto lvl = goal > 1.1 * io_cfg.rate_limit_duration ? log_level::warn : log_level::debug;
+    seastar_logger.log(lvl, "IO queue uses {:.2f}ms latency goal for device {}", goal.count() * 1000, io_cfg.devid);
 
     /*
      * The maximum request size shouldn't result in the capacity that would

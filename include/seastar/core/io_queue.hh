@@ -204,6 +204,8 @@ public:
     ~io_group();
     struct priority_class_data;
 
+    std::chrono::duration<double> io_latency_goal() const noexcept;
+
 private:
     friend class io_queue;
     friend struct ::io_queue_for_tests;
