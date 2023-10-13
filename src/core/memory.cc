@@ -1611,7 +1611,7 @@ configure(std::vector<resource::memory> m, bool mbind,
 #ifdef SEASTAR_STRERROR_R_CHAR_P
                 const char *msg = strerror_r(errno, err, sizeof(err));
 #else
-                const char *msg = strerror_r(errno, err, sizeof(err)) ? "unknown error" : buf;
+                const char *msg = strerror_r(errno, err, sizeof(err)) ? "unknown error" : err;
 #endif
                 std::cerr << "WARNING: unable to mbind shard memory; performance may suffer: "
                         << msg << std::endl;
