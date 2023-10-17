@@ -484,6 +484,7 @@ output_stream<CharType>::poll_flush() noexcept {
             f.get();
         } catch (...) {
             _ex = std::current_exception();
+            _fd.on_batch_flush_error();
         }
         // if flush() was called while flushing flush once more
         poll_flush();

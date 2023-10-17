@@ -131,6 +131,18 @@ public:
         assert(false && "Data sink must have the buffer_size() method overload");
         return 0;
     }
+
+    // In order to support flushes batching (output_stream_options.batch_flushes)
+    // the sink mush handle flush errors that may happen in the background by
+    // overriding the on_batch_flush_error() method. If the sink doesn't do it,
+    // turning on batch_flushes would have no effect
+    virtual bool can_batch_flushes() const noexcept {
+        return false;
+    }
+
+    virtual void on_batch_flush_error() noexcept {
+        assert(false && "Data sink must implement on_batch_flush_error() method");
+    }
 };
 
 class data_sink {
@@ -180,6 +192,8 @@ public:
     }
 
     size_t buffer_size() const noexcept { return _dsi->buffer_size(); }
+    bool can_batch_flushes() const noexcept { return _dsi->can_batch_flushes(); }
+    void on_batch_flush_error() noexcept { _dsi->on_batch_flush_error(); }
 };
 
 struct continue_consuming {};
@@ -392,10 +406,10 @@ public:
     using char_type = CharType;
     output_stream() noexcept = default;
     output_stream(data_sink fd, size_t size, output_stream_options opts = {}) noexcept
-        : _fd(std::move(fd)), _size(size), _trim_to_size(opts.trim_to_size), _batch_flushes(opts.batch_flushes) {}
+        : _fd(std::move(fd)), _size(size), _trim_to_size(opts.trim_to_size), _batch_flushes(opts.batch_flushes && _fd.can_batch_flushes()) {}
     [[deprecated("use output_stream_options instead of booleans")]]
     output_stream(data_sink fd, size_t size, bool trim_to_size, bool batch_flushes = false) noexcept
-        : _fd(std::move(fd)), _size(size), _trim_to_size(trim_to_size), _batch_flushes(batch_flushes) {}
+        : _fd(std::move(fd)), _size(size), _trim_to_size(trim_to_size), _batch_flushes(batch_flushes && _fd.can_batch_flushes()) {}
     output_stream(data_sink fd) noexcept
         : _fd(std::move(fd)), _size(_fd.buffer_size()), _trim_to_size(true) {}
     output_stream(output_stream&&) noexcept = default;

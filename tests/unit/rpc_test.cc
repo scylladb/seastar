@@ -37,6 +37,7 @@
 #include <seastar/util/log.hh>
 #include <seastar/util/closeable.hh>
 #include <seastar/util/noncopyable_function.hh>
+#include <seastar/util/later.hh>
 
 using namespace seastar;
 
@@ -694,6 +695,66 @@ SEASTAR_TEST_CASE(test_stream_negotiation_error) {
             BOOST_REQUIRE(r.exception_while_creating_sink);
         });
     });
+}
+
+static future<> test_rpc_connection_send_glitch(bool on_client) {
+    struct context {
+        int limit;
+        bool no_failures;
+        bool on_client;
+    };
+
+    return do_with(context{0, false, on_client}, [] (auto& ctx) {
+        return do_until([&ctx] {
+            return ctx.no_failures;
+        }, [&ctx] {
+            fmt::print("======== 8< ========\n");
+            fmt::print("  Checking {} limit\n", ctx.limit);
+            rpc_test_config cfg;
+            rpc_loopback_error_injector::config ecfg;
+            if (ctx.on_client) {
+                ecfg.client_snd.limit = ctx.limit;
+                ecfg.client_snd.kind = loopback_error_injector::error::one_shot;
+            } else {
+                ecfg.server_snd.limit = ctx.limit;
+                ecfg.server_snd.kind = loopback_error_injector::error::one_shot;
+            }
+            cfg.inject_error = ecfg;
+            return rpc_test_env<>::do_with_thread(cfg, [&ctx] (rpc_test_env<>& env, test_rpc_proto::client& c1) {
+                env.register_handler(1, [] {
+                    fmt::print("  reply\n");
+                    return seastar::sleep(std::chrono::milliseconds(100)).then([] {
+                        return make_ready_future<unsigned>(13);
+                    });
+                }).get();
+
+                ctx.no_failures = true;
+
+                for (int i = 0; i < 4; i++) {
+                    auto call = env.proto().make_client<unsigned ()>(1);
+                    fmt::print("  call {}\n", i);
+                    try {
+                        auto id = call(c1).get0();
+                        fmt::print("    response: {}\n", id);
+                    } catch (...) {
+                        fmt::print("    responce: ex {}\n", std::current_exception());
+                        ctx.no_failures = false;
+                        ctx.limit++;
+                        break;
+                    }
+                    seastar::yield().get();
+                }
+            });
+        });
+    });
+}
+
+SEASTAR_TEST_CASE(test_rpc_client_send_glitch) {
+    return test_rpc_connection_send_glitch(true);
+}
+
+SEASTAR_TEST_CASE(test_rpc_server_send_glitch) {
+    return test_rpc_connection_send_glitch(false);
 }
 
 SEASTAR_TEST_CASE(test_rpc_scheduling) {

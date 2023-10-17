@@ -128,6 +128,8 @@ public:
     future<> put(packet p) override;
     future<> put(temporary_buffer<char> buf) override;
     future<> close() override;
+    bool can_batch_flushes() const noexcept override { return true; }
+    void on_batch_flush_error() noexcept override;
 };
 
 class posix_ap_server_socket_impl : public server_socket_impl {

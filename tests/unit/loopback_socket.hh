@@ -107,9 +107,12 @@ public:
 
 class loopback_data_sink_impl : public data_sink_impl {
     lw_shared_ptr<foreign_ptr<lw_shared_ptr<loopback_buffer>>> _buffer;
+    noncopyable_function<void()> _batch_flush_error;
 public:
-    explicit loopback_data_sink_impl(lw_shared_ptr<foreign_ptr<lw_shared_ptr<loopback_buffer>>> buffer)
-            : _buffer(buffer) {
+    explicit loopback_data_sink_impl(lw_shared_ptr<foreign_ptr<lw_shared_ptr<loopback_buffer>>> buffer, noncopyable_function<void()> flush_error)
+            : _buffer(buffer)
+            , _batch_flush_error(std::move(flush_error))
+    {
     }
     future<> put(net::packet data) override {
         return do_with(data.release(), [this] (std::vector<temporary_buffer<char>>& bufs) {
@@ -129,6 +132,9 @@ public:
             });
         });
     }
+
+    bool can_batch_flushes() const noexcept override { return true; }
+    void on_batch_flush_error() noexcept override { _batch_flush_error(); }
 };
 
 class loopback_data_source_impl : public data_source_impl {
@@ -171,7 +177,7 @@ public:
         return data_source(std::make_unique<loopback_data_source_impl>(_rx));
     }
     data_sink sink() override {
-        return data_sink(std::make_unique<loopback_data_sink_impl>(_tx));
+        return data_sink(std::make_unique<loopback_data_sink_impl>(_tx, [this] { shutdown_input(); }));
     }
     void shutdown_input() override {
         _rx->shutdown();

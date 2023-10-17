@@ -199,6 +199,10 @@ public:
         _conn->close_write();
         return make_ready_future<>();
     }
+    virtual bool can_batch_flushes() const noexcept override { return true; }
+    virtual void on_batch_flush_error() noexcept override {
+        _conn->close_read();
+    }
 };
 
 template <typename Protocol>
