@@ -256,6 +256,10 @@ future<client::connection_ptr> client::get_connection() {
         });
     }
 
+    return make_connection();
+}
+
+future<client::connection_ptr> client::make_connection() {
     _total_new_connections++;
     return _new_connections->make().then([cr = internal::client_ref(this)] (connected_socket cs) mutable {
         http_log.trace("created new http connection {}", cs.local_address());
@@ -308,6 +312,16 @@ future<> client::set_maximum_connections(unsigned nr) {
 template <std::invocable<connection&> Fn>
 auto client::with_connection(Fn&& fn) {
     return get_connection().then([this, fn = std::move(fn)] (connection_ptr con) mutable {
+        return fn(*con).finally([this, con = std::move(con)] () mutable {
+            return put_connection(std::move(con));
+        });
+    });
+}
+
+template <typename Fn>
+requires std::invocable<Fn, connection&>
+auto client::with_new_connection(Fn&& fn) {
+    return make_connection().then([this, fn = std::move(fn)] (connection_ptr con) mutable {
         return fn(*con).finally([this, con = std::move(con)] () mutable {
             return put_connection(std::move(con));
         });
