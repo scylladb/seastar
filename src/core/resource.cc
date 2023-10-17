@@ -669,10 +669,7 @@ resources allocate(configuration& c) {
 
     // Divide the rest of the memory
     auto depth = hwloc_get_type_or_above_depth(topology, HWLOC_OBJ_NUMANODE);
-    for (auto&& r : remains) {
-        cpu this_cpu;
-        size_t remain;
-        std::tie(this_cpu, remain) = r;
+    for (auto&& [this_cpu, remain] : remains) {
         auto node = cpu_to_node.at(this_cpu.cpu_id);
         auto obj = node;
 
