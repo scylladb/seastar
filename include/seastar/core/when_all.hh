@@ -528,6 +528,30 @@ when_all_succeed(FutureIterator begin, FutureIterator end) noexcept {
     }
 }
 
+
+/// Wait for many futures to complete (vector version).
+///
+/// Given a vector of futures as input, wait for all of them
+/// to resolve, and return a future containing a vector of values of the
+/// original futures.
+///
+/// In case any of the given futures fails one of the exceptions is returned
+/// by this function as a failed future.
+///
+/// \param futures a \c std::vector containing the futures to wait for.
+/// \return an \c std::vector<> of all the values in the input
+SEASTAR_MODULE_EXPORT
+template <typename T>
+inline auto
+when_all_succeed(std::vector<future<T>>&& futures) noexcept {
+    using result_transform = internal::extract_values_from_futures_vector<future<T>>;
+    try {
+        return internal::complete_when_all<result_transform>(std::move(futures), futures.begin());
+    } catch (...) {
+        return result_transform::current_exception_as_future();
+    }
+}
+
 /// @}
 
 } // namespace seastar
