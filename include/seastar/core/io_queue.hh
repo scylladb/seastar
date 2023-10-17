@@ -33,6 +33,7 @@
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/internal/io_request.hh>
+#include <seastar/core/lowres_clock.hh>
 #include <seastar/util/spinlock.hh>
 #include <seastar/util/modules.hh>
 
@@ -114,6 +115,18 @@ private:
     // decoupling and is temporary
     size_t _queued_requests = 0;
     size_t _requests_executing = 0;
+    uint64_t _requests_dispatched = 0;
+    uint64_t _requests_completed = 0;
+
+    // Flow monitor
+    uint64_t _prev_dispatched = 0;
+    uint64_t _prev_completed = 0;
+    double _flow_ratio = 1.0;
+    timer<lowres_clock> _flow_ratio_update;
+
+    void update_flow_ratio() noexcept;
+
+    metrics::metric_groups _metric_groups;
 public:
 
     using clock_type = std::chrono::steady_clock;
@@ -142,6 +155,9 @@ public:
         float rate_factor = 1.0;
         std::chrono::duration<double> rate_limit_duration = std::chrono::milliseconds(1);
         size_t block_count_limit_min = 1;
+        unsigned flow_ratio_ticks = 100;
+        double flow_ratio_ema_factor = 0.95;
+        double flow_ratio_backpressure_threshold = 1.1;
     };
 
     io_queue(io_group_ptr group, internal::io_sink& sink);
@@ -203,6 +219,8 @@ public:
     explicit io_group(io_queue::config io_cfg, unsigned nr_queues);
     ~io_group();
     struct priority_class_data;
+
+    std::chrono::duration<double> io_latency_goal() const noexcept;
 
 private:
     friend class io_queue;

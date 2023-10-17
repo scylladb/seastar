@@ -191,7 +191,7 @@ public:
 
     static constexpr float fixed_point_factor = float(1 << 24);
     using rate_resolution = std::milli;
-    using token_bucket_t = internal::shared_token_bucket<capacity_t, rate_resolution, internal::capped_release::yes>;
+    using token_bucket_t = internal::shared_token_bucket<capacity_t, rate_resolution, internal::capped_release::no>;
 
 private:
 
@@ -255,7 +255,6 @@ public:
     capacity_t per_tick_grab_threshold() const noexcept { return _per_tick_threshold; }
     capacity_t grab_capacity(capacity_t cap) noexcept;
     clock_type::time_point replenished_ts() const noexcept { return _token_bucket.replenished_ts(); }
-    void release_capacity(capacity_t cap) noexcept;
     void replenish_capacity(clock_type::time_point now) noexcept;
     void maybe_replenish_capacity(clock_type::time_point& local_ts) noexcept;
 
@@ -392,6 +391,10 @@ public:
 
     capacity_t tokens_capacity(double tokens) const noexcept {
         return _group.tokens_capacity(tokens);
+    }
+
+    capacity_t maximum_capacity() const noexcept {
+        return _group.maximum_capacity();
     }
 
     /// Queue the entry \c ent through this class' \ref fair_queue

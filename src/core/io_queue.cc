@@ -536,9 +536,24 @@ const fair_group& get_fair_group(const io_queue& ioq, unsigned stream) {
 
 } // internal namespace
 
+template <typename T>
+void update_moving_average(T& result, T value, double factor) noexcept {
+    result = result * factor + value * (1.0 - factor);
+}
+
+void io_queue::update_flow_ratio() noexcept {
+    if (_requests_completed > _prev_completed) {
+        auto instant = double(_requests_dispatched - _prev_dispatched) / double(_requests_completed - _prev_completed);
+        update_moving_average(_flow_ratio, instant, get_config().flow_ratio_ema_factor);
+        _prev_dispatched = _requests_dispatched;
+        _prev_completed = _requests_completed;
+    }
+}
+
 void
 io_queue::complete_request(io_desc_read_write& desc) noexcept {
     _requests_executing--;
+    _requests_completed++;
     _streams[desc.stream()].notify_request_finished(desc.capacity());
 }
 
@@ -552,6 +567,7 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     : _priority_classes()
     , _group(std::move(group))
     , _sink(sink)
+    , _flow_ratio_update([this] { update_flow_ratio(); })
 {
     auto& cfg = get_config();
     if (cfg.duplex) {
@@ -562,6 +578,17 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     } else {
         _streams.emplace_back(*_group->_fgs[0], make_fair_queue_config(cfg, "rw"));
     }
+    _flow_ratio_update.arm_periodic(std::chrono::duration_cast<std::chrono::milliseconds>(group->io_latency_goal() * cfg.flow_ratio_ticks));
+
+    namespace sm = seastar::metrics;
+    auto owner_l = sm::shard_label(this_shard_id());
+    auto mnt_l = sm::label("mountpoint")(mountpoint());
+    auto group_l = sm::label("iogroup")(to_sstring(_group->_allocated_on));
+    _metric_groups.add_group("io_queue", {
+        sm::make_gauge("flow_ratio", [this] { return _flow_ratio; },
+                sm::description("Ratio of dispatch rate to completion rate. Is expected to be 1.0+ growing larger on reactor stalls or (!) disk problems"),
+                { owner_l, mnt_l, group_l }),
+    });
 }
 
 fair_group::config io_group::make_fair_group_config(const io_queue::config& qcfg) noexcept {
@@ -578,10 +605,8 @@ fair_group::config io_group::make_fair_group_config(const io_queue::config& qcfg
     return cfg;
 }
 
-static void maybe_warn_latency_goal_auto_adjust(const fair_group& fg, const io_queue::config& cfg) noexcept {
-    auto goal = fg.rate_limit_duration();
-    auto lvl = goal > 1.1 * cfg.rate_limit_duration ? log_level::warn : log_level::debug;
-    seastar_logger.log(lvl, "IO queue uses {:.2f}ms latency goal for device {}", goal.count() * 1000, cfg.devid);
+std::chrono::duration<double> io_group::io_latency_goal() const noexcept {
+    return _fgs.front()->rate_limit_duration();
 }
 
 io_group::io_group(io_queue::config io_cfg, unsigned nr_queues)
@@ -590,11 +615,13 @@ io_group::io_group(io_queue::config io_cfg, unsigned nr_queues)
 {
     auto fg_cfg = make_fair_group_config(_config);
     _fgs.push_back(std::make_unique<fair_group>(fg_cfg, nr_queues));
-    maybe_warn_latency_goal_auto_adjust(*_fgs.back(), io_cfg);
     if (_config.duplex) {
         _fgs.push_back(std::make_unique<fair_group>(fg_cfg, nr_queues));
-        maybe_warn_latency_goal_auto_adjust(*_fgs.back(), io_cfg);
     }
+
+    auto goal = io_latency_goal();
+    auto lvl = goal > 1.1 * io_cfg.rate_limit_duration ? log_level::warn : log_level::debug;
+    seastar_logger.log(lvl, "IO queue uses {:.2f}ms latency goal for device {}", goal.count() * 1000, io_cfg.devid);
 
     /*
      * The maximum request size shouldn't result in the capacity that would
@@ -893,7 +920,16 @@ double internal::request_tokens(io_direction_and_length dnl, const io_queue::con
 }
 
 fair_queue_entry::capacity_t io_queue::request_capacity(io_direction_and_length dnl) const noexcept {
-    return _streams[request_stream(dnl)].tokens_capacity(internal::request_tokens(dnl, get_config()));
+    const auto& cfg = get_config();
+    auto tokens = internal::request_tokens(dnl, cfg);
+    if (_flow_ratio <= cfg.flow_ratio_backpressure_threshold) {
+        return _streams[request_stream(dnl)].tokens_capacity(tokens);
+    }
+
+    auto stream = request_stream(dnl);
+    auto cap = _streams[stream].tokens_capacity(tokens * _flow_ratio);
+    auto max_cap = _streams[stream].maximum_capacity();
+    return std::min(cap, max_cap);
 }
 
 io_queue::request_limits io_queue::get_request_limits() const noexcept {
@@ -1008,6 +1044,7 @@ void io_queue::poll_io_queue() {
 void io_queue::submit_request(io_desc_read_write* desc, internal::io_request req) noexcept {
     _queued_requests--;
     _requests_executing++;
+    _requests_dispatched++;
     _sink.submit(desc, std::move(req));
 }
 
