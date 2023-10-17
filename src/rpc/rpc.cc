@@ -134,7 +134,7 @@ namespace rpc {
 
   future<> connection::send_entry(outgoing_entry& d) noexcept {
     return futurize_invoke([this, &d] {
-      if (_propagate_timeout) {
+      if (d.buf.size && _propagate_timeout) {
           static_assert(snd_buf::chunk_size >= sizeof(uint64_t), "send buffer chunk size is too small");
           if (_timeout_negotiated) {
               auto expire = d.t.get_timeout();
@@ -671,7 +671,7 @@ namespace rpc {
           // supported features go here
           case protocol_features::COMPRESS:
               if (_options.compressor_factory) {
-                  _compressor = _options.compressor_factory->negotiate(e.second, false);
+                  _compressor = _options.compressor_factory->negotiate(e.second, false, [this] { return send({}); });
               }
               if (!_compressor) {
                   throw std::runtime_error(format("RPC server responded with compression {} - unsupported", e.second));
@@ -982,6 +982,8 @@ namespace rpc {
               } else {
                   abort_all_streams();
               }
+          }).finally([this] {
+              return _compressor ? _compressor->close() : make_ready_future();
           }).finally([this]{
               _stopped.set_value();
           });
@@ -1012,7 +1014,7 @@ namespace rpc {
           // supported features go here
           case protocol_features::COMPRESS: {
               if (get_server()._options.compressor_factory) {
-                  _compressor = get_server()._options.compressor_factory->negotiate(e.second, true);
+                  _compressor = get_server()._options.compressor_factory->negotiate(e.second, true, [this] { return send({}); });
                   if (_compressor) {
                        ret[protocol_features::COMPRESS] = _compressor->name();
                   }
@@ -1191,6 +1193,8 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
               } else {
                   return abort_all_streams();
               }
+          }).finally([this] {
+              return _compressor ? _compressor->close() : make_ready_future();
           }).finally([this] {
               _stopped.set_value();
           });

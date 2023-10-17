@@ -90,7 +90,13 @@ Actual negotiation looks like this:
     uint32_t len
     uint8_t compressed_data[len]
 
-    after compressed_data is uncompressed it becomes regular request, response or streaming frame 
+    After compressed_data is uncompressed, it becomes a regular request, response or streaming frame.
+
+    As a special case, it is allowed to send a compressed frame of size 0 (pre-compression).
+    Such a frame will be a no-op on the receiver.
+    (This can be used as a means of communication between the compressors themselves.
+    If a compressor wants to send some metadata to its peer, it can send a no-op frame,
+    and prepend the metadata as a compressor-specific header.)
 
 ## Request frame format
     uint64_t timeout_in_ms - only present if timeout propagation is negotiated
