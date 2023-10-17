@@ -236,9 +236,10 @@ client::client(socket_address addr, shared_ptr<tls::certificate_credentials> cre
 {
 }
 
-client::client(std::unique_ptr<connection_factory> f, unsigned max_connections)
+client::client(std::unique_ptr<connection_factory> f, unsigned max_connections, retry_requests retry)
         : _new_connections(std::move(f))
         , _max_connections(max_connections)
+        , _retry(retry)
 {
 }
 
@@ -330,9 +331,27 @@ auto client::with_new_connection(Fn&& fn) {
 
 future<> client::make_request(request req, reply_handler handle, std::optional<reply::status_type> expected) {
     return do_with(std::move(req), std::move(handle), [this, expected] (request& req, reply_handler& handle) mutable {
-        return with_connection([this, &req, &handle, expected] (connection& con) {
+        auto f = with_connection([this, &req, &handle, expected] (connection& con) {
             return do_make_request(con, req, handle, expected);
         });
+
+        if (_retry) {
+            f = f.handle_exception_type([this, &req, &handle, expected] (const std::system_error& ex) {
+                auto code = ex.code().value();
+                if ((code != EPIPE) && (code != ECONNABORTED)) {
+                    return make_exception_future<>(ex);
+                }
+
+                // The 'con' connection may not yet be freed, so the total connection
+                // count still account for it and with_new_connection() may temporarily
+                // break the limit. That's OK, the 'con' will be closed really soon
+                return with_new_connection([this, &req, &handle, expected] (connection& con) {
+                    return do_make_request(con, req, handle, expected);
+                });
+            });
+        }
+
+        return f;
     });
 }
 
