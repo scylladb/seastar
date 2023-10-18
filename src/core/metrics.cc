@@ -366,7 +366,6 @@ foreign_ptr<values_reference> get_values() {
     auto& mv = res.values;
     res.metadata = get_local_impl()->metadata();
     auto & functions = get_local_impl()->functions();
-    mv.reserve(functions.size());
     for (auto&& i : functions) {
         value_vector values;
         values.reserve(i.size());
@@ -399,7 +398,7 @@ void impl::update_metrics_if_needed() {
         _current_metrics.resize(_value_map.size());
         size_t i = 0;
         for (auto&& mf : _value_map) {
-            metric_metadata_vector metrics;
+            metric_metadata_fifo metrics;
             _current_metrics[i].clear();
             for (auto&& m : mf.second) {
                 if (m.second && m.second->is_enabled()) {
@@ -426,7 +425,7 @@ shared_ptr<metric_metadata> impl::metadata() {
     return _metadata;
 }
 
-std::vector<std::vector<metric_function>>& impl::functions() {
+std::vector<std::deque<metric_function>>& impl::functions() {
     update_metrics_if_needed();
     return _current_metrics;
 }

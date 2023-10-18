@@ -392,7 +392,7 @@ public:
             // does not exist, because everything is sorted by metric family name, this is fine.
             if (metadata.mf.name == name()) {
                 const mi::value_vector& values = metric_family->values[pos_in_metric_per_shard];
-                const mi::metric_metadata_vector& metrics_metadata = metadata.metrics;
+                const mi::metric_metadata_fifo& metrics_metadata = metadata.metrics;
                 for (auto&& vm : boost::combine(values, metrics_metadata)) {
                     auto& value = boost::get<0>(vm);
                     auto& metric_metadata = boost::get<1>(vm);
