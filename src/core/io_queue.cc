@@ -578,7 +578,7 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     } else {
         _streams.emplace_back(*_group->_fgs[0], make_fair_queue_config(cfg, "rw"));
     }
-    _flow_ratio_update.arm_periodic(std::chrono::duration_cast<std::chrono::milliseconds>(group->io_latency_goal() * cfg.flow_ratio_ticks));
+    _flow_ratio_update.arm_periodic(std::chrono::duration_cast<std::chrono::milliseconds>(_group->io_latency_goal() * cfg.flow_ratio_ticks));
 
     namespace sm = seastar::metrics;
     auto owner_l = sm::shard_label(this_shard_id());
