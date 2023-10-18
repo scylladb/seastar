@@ -150,6 +150,10 @@ socket_address connected_socket::local_address() const noexcept {
     return _csi->local_address();
 }
 
+socket_address connected_socket::remote_address() const noexcept {
+    return _csi->remote_address();
+}
+
 void connected_socket::shutdown_output() {
     _csi->shutdown_output();
 }

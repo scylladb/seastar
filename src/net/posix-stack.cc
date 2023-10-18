@@ -107,6 +107,9 @@ public:
     virtual socket_address local_address(file_desc& _fd) const {
         return _fd.get_address();
     }
+    virtual socket_address remote_address(file_desc& _fd) const {
+        return _fd.get_remote_address();
+    }
 };
 
 thread_local posix_ap_server_socket_impl::sockets_map_t posix_ap_server_socket_impl::sockets{};
@@ -280,6 +283,9 @@ public:
     }
     socket_address local_address() const noexcept override {
         return _ops->local_address(_fd.get_file_desc());
+    }
+    socket_address remote_address() const noexcept override {
+        return _ops->remote_address(_fd.get_file_desc());
     }
     future<> wait_input_shutdown() override {
         return _fd.poll_rdhup();

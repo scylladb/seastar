@@ -1771,6 +1771,9 @@ public:
     socket_address local_address() const noexcept override {
         return _session->socket().local_address();
     }
+    socket_address remote_address() const noexcept override {
+        return _session->socket().remote_address();
+    }
     future<std::optional<session_dn>> get_distinguished_name() {
         return _session->get_distinguished_name();
     }
