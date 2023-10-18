@@ -22,6 +22,7 @@
 #pragma once
 
 #ifndef SEASTAR_MODULE
+#include <utility>
 #include <boost/intrusive/list.hpp>
 #include <seastar/util/modules.hh>
 #endif
