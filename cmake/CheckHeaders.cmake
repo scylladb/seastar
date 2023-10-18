@@ -95,18 +95,18 @@ function (seastar_check_self_contained target library)
       PRIVATE ${includes})
   endif ()
 
-  # symbols in header file should always be referenced, but these
-  # are just pure headers, so unused variables should be tolerated.
-  target_compile_options (${check_lib}
-    PRIVATE
-      -Wno-error=unused-const-variable
-      -Wno-error=unused-function
-      -Wno-error=unused-variable)
   get_target_property (compile_options ${library} COMPILE_OPTIONS)
   if (compile_options)
     target_compile_options (${check_lib}
       PRIVATE ${compile_options})
   endif ()
+  # symbols in header file should always be referenced, but these
+  # are just pure headers, so unused variables should be tolerated.
+  target_compile_options (${check_lib}
+    PRIVATE
+      -Wno-unused-const-variable
+      -Wno-unused-function
+      -Wno-unused-variable)
 
   get_target_property (compile_definitions ${library} COMPILE_DEFINITIONS)
   if (compile_definitions)
