@@ -19,15 +19,14 @@ jobs:
       - run: git submodule sync
       - run: git submodule update --init
       - run: echo 'docker run --pids-limit -1 --security-opt seccomp=unconfined --network host --user "$(id -u):$(id -g)" --rm -v $PWD:$PWD -w $PWD  docker.io/scylladb/seastar-toolchain:2023-08-13 "$@"' > run; chmod +x run
-      - run:
-          command: |
-            ./run ./configure.py --compiler << parameters.compiler >> --c++-standard << parameters.standard >>
-            if [ << parameters.mode >> = "dev" ]; then
-              ./run ninja -C build/<< parameters.mode >> all checkheaders
-            else
-              ./run ninja -C build/<< parameters.mode >>
-            fi
-            ./run ./test.py --mode=<< parameters.mode >>
+      - run: ./run ./configure.py --compiler << parameters.compiler >> --c++-standard << parameters.standard >>
+      - when:
+          condition:
+            equal: [ dev, << parameters.mode >> ]
+          steps:
+            - run: ./run ninja -C build/<< parameters.mode >> checkheaders
+      - run: ./run ninja -C build/<< parameters.mode >>
+      - run: ./run ./test.py --mode=<< parameters.mode >>
 
 workflows:
   version: 2
