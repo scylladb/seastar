@@ -1559,16 +1559,16 @@ public:
     virtual void wait_and_process_events(const sigset_t* active_sigmask) override {
         _smp_wakeup_completion.maybe_rearm(*this);
         _hrtimer_completion.maybe_rearm(*this);
-        ::io_uring_submit(&_uring);
         bool did_work = false;
         did_work |= _preempt_io_context.service_preempting_io();
         did_work |= std::exchange(_did_work_while_getting_sqe, false);
         if (did_work) {
+            ::io_uring_submit(&_uring);
             return;
         }
         struct ::io_uring_cqe* cqe = nullptr;
         sigset_t sigs = *active_sigmask; // io_uring_wait_cqes() wants non-const
-        auto r = ::io_uring_wait_cqes(&_uring, &cqe, 1, nullptr, &sigs);
+        auto r = ::io_uring_submit_and_wait_timeout(&_uring, &cqe, 1, nullptr, &sigs);
         if (__builtin_expect(r < 0, false)) {
             switch (-r) {
             case EINTR:
