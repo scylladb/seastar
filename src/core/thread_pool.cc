@@ -38,7 +38,7 @@ namespace seastar {
 
 /* not yet implemented for OSv. TODO: do the notification like we do class smp. */
 #ifndef HAVE_OSV
-thread_pool::thread_pool(reactor* r, sstring name) : _reactor(r), _worker_thread([this, name] { work(name); }) {
+thread_pool::thread_pool(reactor& r, sstring name) : _reactor(r), _worker_thread([this, name] { work(name); }) {
 }
 
 void thread_pool::work(sstring name) {
@@ -68,7 +68,7 @@ void thread_pool::work(sstring name) {
             std::atomic_thread_fence(std::memory_order_seq_cst);
             if (_main_thread_idle.load(std::memory_order_relaxed)) {
                 uint64_t one = 1;
-                ::write(_reactor->_notify_eventfd.get(), &one, 8);
+                ::write(_reactor._notify_eventfd.get(), &one, 8);
             }
         }
     }

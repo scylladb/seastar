@@ -28,7 +28,7 @@ namespace seastar {
 class reactor;
 
 class thread_pool {
-    reactor* _reactor;
+    reactor& _reactor;
     uint64_t _aio_threaded_fallbacks = 0;
 #ifndef HAVE_OSV
     syscall_work_queue inter_thread_wq;
@@ -36,7 +36,7 @@ class thread_pool {
     std::atomic<bool> _stopped = { false };
     std::atomic<bool> _main_thread_idle = { false };
 public:
-    explicit thread_pool(reactor* r, sstring thread_name);
+    explicit thread_pool(reactor& r, sstring thread_name);
     ~thread_pool();
     template <typename T, typename Func>
     future<T> submit(Func func) noexcept {
