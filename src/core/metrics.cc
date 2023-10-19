@@ -597,6 +597,19 @@ void impl::add_registration(const metric_id& id, const metric_type& type, metric
     replicate_metric_if_required(rm);
 }
 
+void impl::update_aggregate_labels(const metric_id& id,
+                                   const std::vector<label>& aggregate_labels) {
+    auto iter = _value_map.find(id.full_name());
+    if (iter != _value_map.end()) {
+        iter->second.info().aggregate_labels.clear();
+        std::transform(aggregate_labels.begin(), aggregate_labels.end(),
+            std::back_inserter(iter->second.info().aggregate_labels),
+            [] (const label& l) { return l.name(); });
+
+        dirty();
+    }
+}
+
 future<metric_relabeling_result> impl::set_relabel_configs(const std::vector<relabel_config>& relabel_configs) {
     _relabel_configs = relabel_configs;
     metric_relabeling_result conflicts{0};
@@ -726,5 +739,11 @@ histogram histogram::operator+(histogram&& c) const {
     return std::move(c);
 }
 
+void update_aggregate_labels(const group_name_type& group_name,
+                             const metric_name_type& metric_name,
+                             const std::vector<label>& aggregate_labels) {
+    impl::metric_id id(group_name, metric_name, {});
+    impl::get_local_impl()->update_aggregate_labels(id, aggregate_labels);
+}
 }
 }

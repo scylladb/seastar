@@ -65,6 +65,7 @@ SEASTAR_MODULE_EXPORT_BEGIN
 int default_handle();
 
 using group_name_type = sstring; /*!< A group of logically related metrics */
+using metric_name_type = sstring; /*!< A single metric name */
 class metric_groups;
 
 class metric_definition {

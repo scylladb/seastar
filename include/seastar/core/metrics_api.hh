@@ -389,6 +389,7 @@ public:
     }
 
     void add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled, skip_when_empty skip, const std::vector<std::string>& aggregate_labels, int handle = default_handle());
+    void update_aggregate_labels(const metric_id& id, const std::vector<label>& aggregate_labels);
     void remove_registration(const metric_id& id);
     future<> stop() {
         return make_ready_future<>();
