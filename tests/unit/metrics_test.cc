@@ -321,6 +321,50 @@ SEASTAR_THREAD_TEST_CASE(test_relabel_enable_disable_skip_when_empty) {
     sm::set_relabel_configs({}).get();
 }
 
+SEASTAR_THREAD_TEST_CASE(test_relabel_update_aggregate_labels) {
+    using namespace seastar::metrics;
+    namespace sm = seastar::metrics;
+    sm::metric_groups app_metrics;
+    std::string metrics_family_name = "update_aggregate_labels_test";
+    std::string metric_name = "metric";
+    sm::label label("label");
+
+    for (int i = 0; i < 3; ++i) {
+        app_metrics.add_group(metrics_family_name, {
+            sm::make_counter(metric_name, sm::description(""),
+            { sm::label_instance(label.name(), std::to_string(i))},
+            [] { return 0; }),
+        });
+    }
+
+    auto check_aggregate_labels = [&] (
+            std::vector<std::string> expected_labels, size_t expected_metrics_count) {
+        seastar::foreign_ptr<seastar::metrics::impl::values_reference> values = seastar::metrics::impl::get_values();
+        auto full_name = metrics_family_name + "_" + metric_name;
+        auto metadata = std::find_if(values->metadata->begin(), values->metadata->end(),
+            [&] (const auto& md) { return md.mf.name == full_name; });
+        BOOST_REQUIRE(metadata != values->metadata->end());
+        BOOST_REQUIRE_EQUAL(metadata->mf.aggregate_labels, expected_labels);
+        BOOST_REQUIRE_EQUAL(metadata->metrics.size(), expected_metrics_count);
+    };
+
+    check_aggregate_labels({}, 3);
+
+    // now add one with different aggregate labels which will be ignored
+    app_metrics.add_group(metrics_family_name, {
+        sm::make_counter(metric_name, sm::description(""),
+        { sm::label_instance(label.name(), 3)},
+        [] { return 0; }).aggregate({label}),
+    });
+
+    check_aggregate_labels({}, 4);
+
+    // properly update the aggregate labels
+    update_aggregate_labels(metrics_family_name, metric_name, {label});
+
+    check_aggregate_labels({label.name()}, 4);
+}
+
 SEASTAR_THREAD_TEST_CASE(test_estimated_histogram) {
     using namespace seastar::metrics;
     using namespace std::chrono_literals;
