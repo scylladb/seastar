@@ -680,6 +680,13 @@ impl::metric_definition_impl make_total_operations(metric_name_type name,
     return make_counter(name, std::forward<T>(val), d, labels).set_type("total_operations");
 }
 
+/*!
+ * \brief Update the aggregation labels of a metric family
+ */
+void update_aggregate_labels(const group_name_type& group_name,
+                             const metric_name_type& metric_name,
+                             const std::vector<label>& aggregate_labels);
+
 /*! @} */
 }
 }

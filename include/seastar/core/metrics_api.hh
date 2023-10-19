@@ -482,6 +482,7 @@ public:
 
     register_ref add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled, skip_when_empty skip, const std::vector<std::string>& aggregate_labels);
     internalized_labels_ref internalize_labels(labels_type labels);
+    void update_aggregate_labels(const metric_id& id, const std::vector<label>& aggregate_labels);
     void remove_registration(const metric_id& id);
     future<> stop() {
         return make_ready_future<>();
