@@ -38,6 +38,10 @@ const char* condition_variable_timed_out::what() const noexcept {
     return "Condition variable timed out";
 }
 
+const char* condition_variable_aborted::what() const noexcept {
+    return "Condition variable aborted";
+}
+
 condition_variable::~condition_variable() {
     broken();
 }
@@ -54,6 +58,11 @@ void condition_variable::add_waiter(waiter& w) noexcept {
 void condition_variable::waiter::timeout() noexcept {
     this->unlink();
     this->set_exception(std::make_exception_ptr(condition_variable_timed_out()));
+}
+
+void condition_variable::waiter::abort() noexcept {
+    this->unlink();
+    this->set_exception(std::make_exception_ptr(condition_variable_aborted()));
 }
 
 bool condition_variable::wakeup_first() noexcept {

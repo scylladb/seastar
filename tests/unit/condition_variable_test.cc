@@ -34,6 +34,7 @@
 #include <seastar/core/when_all.hh>
 #include <seastar/core/when_any.hh>
 #include <seastar/core/with_timeout.hh>
+#include <seastar/core/abort_on_expiry.hh>
 #include <boost/range/irange.hpp>
 
 using namespace seastar;
@@ -128,6 +129,40 @@ SEASTAR_THREAD_TEST_CASE(test_condition_variable_timeout) {
         condition_variable_timed_out);
 }
 
+SEASTAR_THREAD_TEST_CASE(test_condition_variable_abort) {
+    abort_source as;
+    condition_variable cv1;
+
+    {
+        auto f = cv1.wait(as);
+        cv1.signal();
+        sleep(10ms).get();
+        BOOST_REQUIRE(f.available());
+        f.get();
+    }
+
+    auto f1 = cv1.wait(as);
+    BOOST_REQUIRE(!f1.available());
+
+    sleep(10ms).get();
+    BOOST_REQUIRE(!f1.available());
+
+    condition_variable cv2;
+
+    as.request_abort();
+    auto f2 = cv2.wait(as);
+
+    BOOST_REQUIRE(f1.available());
+    BOOST_REQUIRE(f2.available());
+
+    BOOST_REQUIRE_THROW(
+        f1.get(),
+        condition_variable_aborted);
+    BOOST_REQUIRE_THROW(
+        f2.get(),
+        condition_variable_aborted);
+}
+
 SEASTAR_THREAD_TEST_CASE(test_condition_variable_pred_wait) {
     condition_variable cv;
 
@@ -171,6 +206,68 @@ SEASTAR_THREAD_TEST_CASE(test_condition_variable_pred_wait) {
     cv.wait().get();
 }
 
+SEASTAR_THREAD_TEST_CASE(test_condition_variable_pred_wait_abort) {
+    condition_variable cv;
+
+    bool ready = false;
+
+    timer<> t;
+    t.set_callback([&] { ready = true; cv.signal(); });
+    t.arm(100ms);
+
+    {
+        abort_source as;
+        cv.wait(as, [&] { return ready; }).get();
+
+        as.request_abort();
+        ready = false;
+
+        BOOST_REQUIRE_THROW(
+            cv.wait(as, [&] { return ready; }).get(),
+            condition_variable_aborted);
+    }
+
+    ready = true;
+    cv.signal();
+
+    {
+        abort_source as;
+        cv.wait(as, [&] { return ready; }).get();
+    }
+
+    for (int i = 0; i < 2; ++i) {
+        ready = false;
+        t.set_callback([&] { cv.broadcast();});
+        t.arm_periodic(10ms);
+
+        using clock_type = timer<>::clock;
+        abort_on_expiry<clock_type> aoe(clock_type::now() + 300ms);
+
+        BOOST_REQUIRE_THROW(
+            cv.wait(aoe.abort_source(), [&] { return ready; }).get(),
+            condition_variable_aborted);
+
+        t.cancel();
+        cv.signal();
+    }
+
+    ready = true;
+    cv.signal();
+
+    cv.wait([&] { return ready; }).get();
+    // signal state should remain on
+    cv.wait().get();
+
+    {
+        cv.signal();
+        abort_source as;
+        as.request_abort();
+        BOOST_REQUIRE_THROW(
+            cv.wait(as, [&] { return false; }).get(),
+            condition_variable_aborted);
+    }
+}
+
 SEASTAR_THREAD_TEST_CASE(test_condition_variable_has_waiter) {
     condition_variable cv;
 
@@ -194,6 +291,14 @@ SEASTAR_TEST_CASE(test_condition_variable_signal_consume_coroutine) {
         co_await cv.when();
     }());
 
+    {
+        abort_source as;
+        cv.signal();
+        co_await with_timeout(steady_clock::now() + 10ms, [&]() -> future<> {
+            co_await cv.when(as);
+        }());
+    }
+
     BOOST_REQUIRE_THROW(
         co_await with_timeout(steady_clock::now() + 10ms, [&]() -> future<> {
             co_await cv.when();
@@ -206,6 +311,13 @@ SEASTAR_TEST_CASE(test_condition_variable_signal_consume_coroutine) {
         }()),
         condition_variable_timed_out);
 
+    using clock_type = timer<>::clock;
+    abort_on_expiry<clock_type> aoe(clock_type::now() + 100ms);
+    BOOST_REQUIRE_THROW(
+        co_await with_timeout(steady_clock::now() + 10s, [&]() -> future<> {
+            co_await cv.when(aoe.abort_source());
+        }()),
+        condition_variable_aborted);
 }
 
 SEASTAR_TEST_CASE(test_condition_variable_pred_when) {
@@ -251,7 +363,67 @@ SEASTAR_TEST_CASE(test_condition_variable_pred_when) {
     co_await cv.when();
 }
 
+SEASTAR_TEST_CASE(test_condition_variable_pred_when_abort) {
+    condition_variable cv;
 
+    bool ready = false;
+
+    timer<> t;
+    t.set_callback([&] { ready = true; cv.signal(); });
+    t.arm(100ms);
+
+    {
+        abort_source as;
+        co_await cv.when([&] { return ready; });
+
+        as.request_abort();
+        ready = false;
+
+        BOOST_REQUIRE_THROW(
+            co_await cv.when(as, [&] { return ready; }),
+            condition_variable_aborted);
+    }
+
+    ready = true;
+    cv.signal();
+
+    {
+        abort_source as;
+        co_await cv.when(as, [&] { return ready; });
+    }
+
+    for (int i = 0; i < 2; ++i) {
+        ready = false;
+        t.set_callback([&] { cv.broadcast();});
+        t.arm_periodic(10ms);
+
+        using clock_type = timer<>::clock;
+        abort_on_expiry<clock_type> aoe(clock_type::now() + 300ms);
+
+        BOOST_REQUIRE_THROW(
+            co_await cv.when(aoe.abort_source(), [&] { return ready; }),
+            condition_variable_aborted);
+
+        t.cancel();
+        cv.signal();
+    }
+
+    ready = true;
+    cv.signal();
+
+    co_await cv.when([&] { return ready; });
+    // signal state should remain on
+    co_await cv.when();
+
+    {
+        cv.signal();
+        abort_source as;
+        as.request_abort();
+        BOOST_REQUIRE_THROW(
+            co_await cv.when(as, [&] { return false; }),
+            condition_variable_aborted);
+    }
+}
 
 SEASTAR_TEST_CASE(test_condition_variable_when_signal) {
     condition_variable cv;
@@ -265,6 +437,22 @@ SEASTAR_TEST_CASE(test_condition_variable_when_signal) {
     co_await cv.when();
     // ensure we did not resume before timer ran fully
     BOOST_REQUIRE(ready);
+
+    ready = false;
+    abort_source as;
+
+    t.set_callback([&] { cv.signal(); ready = true; });
+    t.arm(100ms);
+
+    co_await cv.when(as);
+    BOOST_REQUIRE(ready);
+
+    as.request_abort();
+    cv.signal();
+    co_await cv.when();
+
+    cv.signal();
+    BOOST_REQUIRE_THROW(co_await cv.when(as), condition_variable_aborted);
 }
 
 SEASTAR_TEST_CASE(test_condition_variable_when_timeout) {
