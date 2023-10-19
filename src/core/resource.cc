@@ -590,7 +590,6 @@ resources allocate(configuration& c) {
     std::vector<unsigned> orphan_pus;
     std::unordered_map<hwloc_obj_t, size_t> topo_used_mem;
     std::vector<std::pair<cpu, size_t>> remains;
-    size_t remain;
 
     auto cpu_sets = distribute_objects(topology, procs);
 
@@ -662,17 +661,14 @@ resources allocate(configuration& c) {
         auto node = cpu_to_node.at(cpu_id);
         cpu this_cpu;
         this_cpu.cpu_id = cpu_id;
-        remain = mem_per_proc - alloc_from_node(this_cpu, node, topo_used_mem, mem_per_proc);
+        size_t remain = mem_per_proc - alloc_from_node(this_cpu, node, topo_used_mem, mem_per_proc);
 
         remains.emplace_back(std::move(this_cpu), remain);
     }
 
     // Divide the rest of the memory
     auto depth = hwloc_get_type_or_above_depth(topology, HWLOC_OBJ_NUMANODE);
-    for (auto&& r : remains) {
-        cpu this_cpu;
-        size_t remain;
-        std::tie(this_cpu, remain) = r;
+    for (auto&& [this_cpu, remain] : remains) {
         auto node = cpu_to_node.at(this_cpu.cpu_id);
         auto obj = node;
 
