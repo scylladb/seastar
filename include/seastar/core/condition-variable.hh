@@ -77,9 +77,13 @@ private:
     // to make it transparent once we add non-promise based nodes
     struct waiter : public boost::intrusive::list_base_hook<boost::intrusive::link_mode<boost::intrusive::auto_unlink>> {
         waiter() = default;
-        waiter(waiter&&) = default;
+
         waiter(const waiter&) = delete;
+        waiter(waiter&&) = delete;
+
         waiter& operator=(const waiter&) = delete;
+        waiter& operator=(waiter&&) = delete;
+
         virtual ~waiter() = default;
         void timeout() noexcept;
 
@@ -159,8 +163,8 @@ private:
     struct [[nodiscard("must co_await a when() call")]] predicate_awaiter : public Base {
         Func _func;
         template<typename... Args>
-        predicate_awaiter(Func func, Args&& ...args)
-            : Base(std::forward<Args>(args)...)
+        predicate_awaiter(condition_variable* cv, Func func, Args&& ...args)
+            : Base(cv, std::forward<Args>(args)...)
             , _func(std::move(func))
         {}
         void signal() noexcept override {
@@ -346,7 +350,7 @@ public:
     template<typename Pred>
     SEASTAR_CONCEPT( requires std::is_invocable_r_v<bool, Pred> )
     auto when(Pred&& pred) noexcept {
-        return predicate_awaiter<Pred, awaiter>{std::forward<Pred>(pred), when()};
+        return predicate_awaiter<Pred, awaiter>{this, std::forward<Pred>(pred)};
     }
 
     /// Coroutine/co_await only waiter.
@@ -362,7 +366,7 @@ public:
     template<typename Clock = typename timer<>::clock, typename Duration = typename Clock::duration, typename Pred>
     SEASTAR_CONCEPT( requires std::is_invocable_r_v<bool, Pred> )
     auto when(std::chrono::time_point<Clock, Duration> timeout, Pred&& pred) noexcept {
-        return predicate_awaiter<Pred, timeout_awaiter<Clock, Duration>>{std::forward<Pred>(pred), when(timeout)};
+        return predicate_awaiter<Pred, timeout_awaiter<Clock, Duration>>{this, std::forward<Pred>(pred), timeout};
     }
 
     /// Coroutine/co_await only waiter.
