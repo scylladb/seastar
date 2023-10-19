@@ -2784,8 +2784,7 @@ class reactor::kernel_events_pollfn final : public reactor::pollfn {
     // Wake-up the reactor with highres timer when the io-queue
     // decides to delay dispatching until some time point in
     // the future
-    bool _armed = false;
-    timer<> _nearest_wakeup { [this] { _armed = false; } };
+    timer<> _nearest_wakeup { [] { } };
     bool maybe_set_alarm_for_aio() {
         auto next = _r.next_pending_aio();
         auto now = steady_clock_type::now();
@@ -2793,7 +2792,6 @@ class reactor::kernel_events_pollfn final : public reactor::pollfn {
             return false;
         }
         _nearest_wakeup.arm(next);
-        _armed = true;
         return true;
     }
 public:
@@ -2834,9 +2832,8 @@ public:
     }
 
     void exit_interrupt_mode() final {
-        if (_armed) {
+        if (_nearest_wakeup.armed()) {
             _nearest_wakeup.cancel();
-            _armed = false;
         }
     }
 };
