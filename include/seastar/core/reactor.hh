@@ -203,9 +203,7 @@ private:
     class lowres_timer_pollfn;
     class manual_timer_pollfn;
     class epoll_pollfn;
-    class reap_kernel_completions_pollfn;
-    class kernel_submit_work_pollfn;
-    class io_queue_submission_pollfn;
+    class kernel_events_pollfn;
     class syscall_pollfn;
     class execution_stage_pollfn;
     friend class manual_clock;
