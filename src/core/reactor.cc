@@ -1788,10 +1788,7 @@ bool reactor::poll_all_events() {
     bool work = false;
     work |= _backend->reap_kernel_completions();
     work |= flush_pending_aio();
-#ifndef HAVE_OSV
-    work |= _backend->kernel_submit_work();
-#endif
-    work |= _backend->reap_kernel_completions();
+    work |= _backend->submit_and_get_completions();
     return work;
 }
 
@@ -1800,10 +1797,7 @@ bool reactor::poll_any_event() {
         // actually performs work, but triggers no user continuations, so okay
         _backend->reap_kernel_completions() ||
         flush_pending_aio() ||
-#ifndef HAVE_OSV
-        _backend->kernel_submit_work() ||
-#endif
-        _backend->reap_kernel_completions());
+        _backend->submit_and_get_completions());
 }
 
 #if SEASTAR_API_LEVEL < 7
