@@ -1784,9 +1784,26 @@ steady_clock_type::time_point reactor::next_pending_aio() const noexcept {
     return next;
 }
 
-bool
-reactor::reap_kernel_completions() {
-    return _backend->reap_kernel_completions();
+bool reactor::poll_all_events() {
+    bool work = false;
+    work |= _backend->reap_kernel_completions();
+    work |= flush_pending_aio();
+#ifndef HAVE_OSV
+    work |= _backend->kernel_submit_work();
+#endif
+    work |= _backend->reap_kernel_completions();
+    return work;
+}
+
+bool reactor::poll_any_event() {
+    return (
+        // actually performs work, but triggers no user continuations, so okay
+        _backend->reap_kernel_completions() ||
+        flush_pending_aio() ||
+#ifndef HAVE_OSV
+        _backend->kernel_submit_work() ||
+#endif
+        _backend->reap_kernel_completions());
 }
 
 #if SEASTAR_API_LEVEL < 7
@@ -2797,24 +2814,10 @@ class reactor::kernel_events_pollfn final : public reactor::pollfn {
 public:
     kernel_events_pollfn(reactor& r) : _r(r) {}
     bool poll() final {
-        bool work = false;
-        work |= _r.reap_kernel_completions();
-        work |= _r.flush_pending_aio();
-#ifndef HAVE_OSV
-        work |= _r._backend->kernel_submit_work();
-#endif
-        work |= _r.reap_kernel_completions();
-        return work;
+        return _r.poll_all_events();
     }
     bool pure_poll() final {
-       return (
-           // actually performs work, but triggers no user continuations, so okay
-           _r.reap_kernel_completions() ||
-           _r.flush_pending_aio() ||
-#ifndef HAVE_OSV
-           _r._backend->kernel_submit_work() ||
-#endif
-           _r.reap_kernel_completions());
+        return _r.poll_any_event();
     }
     bool try_enter_interrupt_mode() final {
         if (!_r._backend->kernel_events_can_sleep()) {
