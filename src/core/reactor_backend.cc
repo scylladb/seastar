@@ -1549,7 +1549,11 @@ public:
         bool did_work = false;
         did_work |= _preempt_io_context.service_preempting_io();
         did_work |= queue_pending_file_io();
-        did_work |= ::io_uring_submit(&_uring);
+        int ret = ::io_uring_submit(&_uring);
+        if (__builtin_expect(ret < 0, false)) {
+            abort();
+        }
+        did_work |= ret;
         return did_work;
     }
     virtual bool kernel_events_can_sleep() const override {
@@ -1559,7 +1563,9 @@ public:
     virtual void wait_and_process_events(const sigset_t* active_sigmask) override {
         _smp_wakeup_completion.maybe_rearm(*this);
         _hrtimer_completion.maybe_rearm(*this);
-        ::io_uring_submit(&_uring);
+        if (int ret = ::io_uring_submit(&_uring); __builtin_expect(ret < 0, false)) {
+            abort();
+        }
         bool did_work = false;
         did_work |= _preempt_io_context.service_preempting_io();
         did_work |= std::exchange(_did_work_while_getting_sqe, false);
