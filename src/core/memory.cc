@@ -1618,14 +1618,14 @@ void* allocate_from_small_pool(size_t size)
  */
 [[gnu::always_inline]]
 static inline void* finish_allocation(void* ptr, size_t size) {
-    if (!ptr) {
+    alloc_stats::increment_local(alloc_stats::types::allocs);
+    if (__builtin_expect(!ptr, false)) {
         on_allocation_failure(size);
     } else {
 #ifdef SEASTAR_DEBUG_ALLOCATIONS
     std::memset(ptr, debug_allocation_pattern, size);
 #endif
     }
-    alloc_stats::increment_local(alloc_stats::types::allocs);
     return ptr;
 }
 
