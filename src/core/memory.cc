@@ -1639,9 +1639,6 @@ void *allocate_slowpath(size_t size) {
         // in constructors before original_malloc_func ctor is called
         init_cpu_mem();
     }
-    if (size <= sizeof(free_object)) {
-        size = sizeof(free_object);
-    }
     // On the fast path we've already called maybe_sample, except in the case
     // of !is_reactor_thread (we don't sample such alloctions).
     bool should_sample = get_cpu_mem().definitely_sample(size);
@@ -1661,10 +1658,16 @@ void *allocate_slowpath(size_t size) {
     return finish_allocation(ptr, size);
 }
 
+/// The main entry point for allocation.
+///
+/// The idea is that function is inlined into malloc and all the variations of new
+/// so that the body of each of those functions will contain the full fast path
+/// fully inlined, and all of these variations will share the allocate_slowpath
+/// fallback, which is not inlined.
 [[gnu::always_inline]]
 inline void* allocate(size_t size) {
+    size = std::max(size, sizeof(free_object));
     if (__builtin_expect(is_reactor_thread && !get_cpu_mem().maybe_sample(size) && size <= max_small_allocation, true)) {
-        size = std::max(size, sizeof(free_object));
         auto ptr = allocate_from_small_pool<alignment_t::unaligned>(size);
         return finish_allocation(ptr, size);
     }
@@ -2373,9 +2376,6 @@ extern "C++"
 [[gnu::visibility("default")]]
 void* operator new(size_t size) {
     trigger_error_injector();
-    if (size == 0) {
-        size = 1;
-    }
     return throw_if_null(allocate(size));
 }
 
@@ -2383,9 +2383,6 @@ extern "C++"
 [[gnu::visibility("default")]]
 void* operator new[](size_t size) {
     trigger_error_injector();
-    if (size == 0) {
-        size = 1;
-    }
     return throw_if_null(allocate(size));
 }
 
@@ -2427,18 +2424,12 @@ void* operator new(size_t size, std::nothrow_t) noexcept {
     if (try_trigger_error_injector()) {
         return nullptr;
     }
-    if (size == 0) {
-        size = 1;
-    }
     return allocate(size);
 }
 
 extern "C++"
 [[gnu::visibility("default")]]
 void* operator new[](size_t size, std::nothrow_t) noexcept {
-    if (size == 0) {
-        size = 1;
-    }
     return allocate(size);
 }
 
