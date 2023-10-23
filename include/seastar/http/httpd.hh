@@ -153,6 +153,7 @@ class http_server {
 public:
     routes _routes;
     using connection = seastar::httpd::connection;
+    using server_credentials_ptr = shared_ptr<seastar::tls::server_credentials>;
     explicit http_server(const sstring& name) : _stats(*this, name) {
         _date_format_timer.arm_periodic(1s);
     }
@@ -182,8 +183,8 @@ public:
         }).get();
      *
      */
-    [[deprecated("use listen(socket_address addr, shared_ptr<seastar::tls::server_credentials> credentials)")]]
-    void set_tls_credentials(shared_ptr<seastar::tls::server_credentials> credentials);
+    [[deprecated("use listen(socket_address addr, server_credentials_ptr credentials)")]]
+    void set_tls_credentials(server_credentials_ptr credentials);
 
     size_t get_content_length_limit() const;
 
@@ -193,8 +194,8 @@ public:
 
     void set_content_streaming(bool b);
 
-    future<> listen(socket_address addr, shared_ptr<seastar::tls::server_credentials> credentials);
-    future<> listen(socket_address addr, listen_options lo, shared_ptr<seastar::tls::server_credentials> credentials);
+    future<> listen(socket_address addr, server_credentials_ptr credentials);
+    future<> listen(socket_address addr, listen_options lo, server_credentials_ptr credentials);
     future<> listen(socket_address addr, listen_options lo);
     future<> listen(socket_address addr);
     future<> stop();
@@ -249,9 +250,9 @@ public:
     future<> stop();
     future<> set_routes(std::function<void(routes& r)> fun);
     future<> listen(socket_address addr);
-    future<> listen(socket_address addr, shared_ptr<seastar::tls::server_credentials> credentials);
+    future<> listen(socket_address addr, http_server::server_credentials_ptr credentials);
     future<> listen(socket_address addr, listen_options lo);
-    future<> listen(socket_address addr, listen_options lo, shared_ptr<seastar::tls::server_credentials> credentials);
+    future<> listen(socket_address addr, listen_options lo, http_server::server_credentials_ptr credentials);
     distributed<http_server>& server();
 };
 SEASTAR_MODULE_EXPORT_END
