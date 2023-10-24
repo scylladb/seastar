@@ -81,10 +81,11 @@ future<scheduling_group> create_scheduling_group(sstring name, float shares) noe
 /// The operation is global and affects all shards. The returned scheduling
 /// group can then be used in any shard.
 ///
-/// \param name A name that identifiers the group; will be used as a label
+/// \param name A name that identifies the group; will be used as a label
 ///             in the group's metrics
-/// \param name A name that identifiers the group; will be printed in the
-///             logging message aside of the shard id
+/// \param shortname A name that identifies the group; will be printed in the
+///                  logging message aside of the shard id. please note, the
+///                  \c shortname will be truncated to 4 characters.
 /// \param shares number of shares of the CPU time allotted to the group;
 ///              Use numbers in the 1-1000 range (but can go above).
 /// \return a scheduling group that can be used on any shard
