@@ -47,7 +47,7 @@ SEASTAR_MODULE_EXPORT_BEGIN
 class broken_condition_variable : public std::exception {
 public:
     /// Reports the exception reason.
-    virtual const char* what() const noexcept;
+    const char* what() const noexcept override;
 };
 
 /// Exception thrown when wait() operation times out
@@ -55,7 +55,7 @@ public:
 class condition_variable_timed_out : public std::exception {
 public:
     /// Reports the exception reason.
-    virtual const char* what() const noexcept;
+    const char* what() const noexcept override;
 };
 
 /// \brief Conditional variable.
