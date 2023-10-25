@@ -838,6 +838,16 @@ posix_network_stack::make_udp_channel(const socket_address& addr) {
     return udp_channel(std::make_unique<posix_datagram_channel>(addr));
 }
 
+datagram_channel
+posix_network_stack::make_unbound_datagram_channel(sa_family_t family) {
+    throw "unimplemented"; // Changed later in the commit series.
+}
+
+datagram_channel
+posix_network_stack::make_bound_datagram_channel(const socket_address& local) {
+    throw "unimplemented"; // Changed later in the commit series.
+}
+
 bool
 posix_network_stack::supports_ipv6() const {
     static bool has_ipv6 = [] {
