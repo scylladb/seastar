@@ -166,6 +166,7 @@ socket make_socket();
 /// for sending.
 ///
 /// \return a \ref net::udp_channel object that can be used for UDP transfers.
+[[deprecated("Use `make_unbound_datagram_channel` instead")]]
 net::udp_channel make_udp_channel();
 
 
@@ -174,6 +175,7 @@ net::udp_channel make_udp_channel();
 /// \param local local address to bind to
 ///
 /// \return a \ref net::udp_channel object that can be used for UDP transfers.
+[[deprecated("Use `make_bound_datagram_channel` instead")]]
 net::udp_channel make_udp_channel(const socket_address& local);
 
 /// Creates a datagram_channel object suitable for sending datagrams to
