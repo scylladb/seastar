@@ -538,7 +538,7 @@ private:
             dns_log.trace("Created tcp socket {}", fd);
             break;
         case SOCK_DGRAM:
-            _sockets.emplace(fd, _stack.make_udp_channel());
+            _sockets.emplace(fd, _stack.make_unbound_datagram_channel(AF_INET));
             dns_log.trace("Created udp socket {}", fd);
             break;
         default: return -1;
