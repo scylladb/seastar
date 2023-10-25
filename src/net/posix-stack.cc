@@ -730,7 +730,7 @@ struct cmsg_with_pktinfo {
     };
 };
 
-class posix_udp_channel : public datagram_channel_impl {
+class posix_datagram_channel : public datagram_channel_impl {
 private:
     static constexpr int MAX_DATAGRAM_SIZE = 65507;
     struct recv_ctx {
@@ -785,7 +785,7 @@ private:
     send_ctx _send;
     bool _closed;
 public:
-    posix_udp_channel(const socket_address& bind_address)
+    posix_datagram_channel(const socket_address& bind_address)
             : _closed(false) {
         auto sa = bind_address.is_unspecified() ? socket_address(inet_address(inet_address::family::INET)) : bind_address;
         file_desc fd = file_desc::socket(sa.u.sa.sa_family, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
@@ -797,7 +797,7 @@ public:
         _address = fd.get_address();
         _fd = std::move(fd);
     }
-    virtual ~posix_udp_channel() { if (!_closed) close(); };
+    virtual ~posix_datagram_channel() { if (!_closed) close(); };
     virtual future<datagram> receive() override;
     virtual future<> send(const socket_address& dst, const char *msg) override;
     virtual future<> send(const socket_address& dst, packet p) override;
@@ -818,7 +818,7 @@ public:
     }
 };
 
-future<> posix_udp_channel::send(const socket_address& dst, const char *message) {
+future<> posix_datagram_channel::send(const socket_address& dst, const char *message) {
     auto len = strlen(message);
     auto a = dst;
     resolve_outgoing_address(a);
@@ -826,7 +826,7 @@ future<> posix_udp_channel::send(const socket_address& dst, const char *message)
             .then([len] (size_t size) { assert(size == len); });
 }
 
-future<> posix_udp_channel::send(const socket_address& dst, packet p) {
+future<> posix_datagram_channel::send(const socket_address& dst, packet p) {
     auto len = p.len();
     _send.prepare(dst, std::move(p));
     return _fd.sendmsg(&_send._hdr)
@@ -835,14 +835,14 @@ future<> posix_udp_channel::send(const socket_address& dst, packet p) {
 
 udp_channel
 posix_network_stack::make_udp_channel(const socket_address& addr) {
-    return udp_channel(std::make_unique<posix_udp_channel>(addr));
+    return udp_channel(std::make_unique<posix_datagram_channel>(addr));
 }
 
 bool
 posix_network_stack::supports_ipv6() const {
     static bool has_ipv6 = [] {
         try {
-            posix_udp_channel c(ipv6_addr{"::1"});
+            posix_datagram_channel c(ipv6_addr{"::1"});
             c.close();
             return true;
         } catch (...) {}
@@ -866,7 +866,7 @@ public:
 };
 
 future<datagram>
-posix_udp_channel::receive() {
+posix_datagram_channel::receive() {
     _recv.prepare();
     return _fd.recvmsg(&_recv._hdr).then([this] (size_t size) {
         socket_address dst;
