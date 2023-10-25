@@ -917,7 +917,12 @@ public:
     posix_datagram(const socket_address& src, const socket_address& dst, packet p) : _src(src), _dst(dst), _p(std::move(p)) {}
     virtual socket_address get_src() override { return _src; }
     virtual socket_address get_dst() override { return _dst; }
-    virtual uint16_t get_dst_port() override { return _dst.port(); }
+    virtual uint16_t get_dst_port() override {
+        if (_dst.family() != AF_INET && _dst.family() != AF_INET6) {
+            throw std::runtime_error(format("get_dst_port() called on non-IP address: {}", _dst));
+        }
+        return _dst.port();
+    }
     virtual packet& get_data() override { return _p; }
 };
 
