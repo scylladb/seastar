@@ -4655,11 +4655,11 @@ socket make_socket() {
 }
 
 net::udp_channel make_udp_channel() {
-    return engine().net().make_udp_channel();
+    return make_unbound_datagram_channel(AF_INET);
 }
 
 net::udp_channel make_udp_channel(const socket_address& local) {
-    return engine().net().make_udp_channel(local);
+    return make_bound_datagram_channel(local);
 }
 
 net::datagram_channel make_unbound_datagram_channel(sa_family_t family) {
