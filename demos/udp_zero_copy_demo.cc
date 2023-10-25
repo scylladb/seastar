@@ -73,7 +73,7 @@ public:
     }
     void start(int chunk_size, bool copy, size_t mem_size) {
         ipv4_addr listen_addr{10000};
-        _chan = make_udp_channel(listen_addr);
+        _chan = make_bound_datagram_channel(listen_addr);
 
         std::cout << "Listening on " << listen_addr << std::endl;
 

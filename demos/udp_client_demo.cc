@@ -40,7 +40,7 @@ public:
     void start(ipv4_addr server_addr) {
         std::cout << "Sending to " << server_addr << std::endl;
 
-        _chan = make_udp_channel();
+        _chan = make_unbound_datagram_channel(AF_INET);
 
         _stats_timer.set_callback([this] {
             std::cout << "Out: " << n_sent << " pps, \t";
