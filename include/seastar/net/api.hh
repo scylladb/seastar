@@ -84,7 +84,7 @@ class connected_socket_impl;
 class socket_impl;
 
 class server_socket_impl;
-class udp_channel_impl;
+class datagram_channel_impl;
 class get_impl;
 /// \endcond
 
@@ -114,10 +114,10 @@ using udp_datagram = datagram;
 
 class udp_channel {
 private:
-    std::unique_ptr<udp_channel_impl> _impl;
+    std::unique_ptr<datagram_channel_impl> _impl;
 public:
     udp_channel() noexcept;
-    udp_channel(std::unique_ptr<udp_channel_impl>) noexcept;
+    udp_channel(std::unique_ptr<datagram_channel_impl>) noexcept;
     ~udp_channel();
 
     udp_channel(udp_channel&&) noexcept;

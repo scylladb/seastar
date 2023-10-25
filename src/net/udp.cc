@@ -80,7 +80,7 @@ public:
     }
 };
 
-class native_channel : public udp_channel_impl {
+class native_channel : public datagram_channel_impl {
 private:
     ipv4_udp& _proto;
     ipv4_udp::registration _reg;

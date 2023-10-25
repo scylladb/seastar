@@ -49,7 +49,7 @@ static_assert(std::is_nothrow_move_constructible_v<server_socket>);
 net::udp_channel::udp_channel() noexcept
 {}
 
-net::udp_channel::udp_channel(std::unique_ptr<udp_channel_impl> impl) noexcept : _impl(std::move(impl))
+net::udp_channel::udp_channel(std::unique_ptr<datagram_channel_impl> impl) noexcept : _impl(std::move(impl))
 {}
 
 net::udp_channel::~udp_channel()

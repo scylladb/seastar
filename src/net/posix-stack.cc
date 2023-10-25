@@ -730,7 +730,7 @@ struct cmsg_with_pktinfo {
     };
 };
 
-class posix_udp_channel : public udp_channel_impl {
+class posix_udp_channel : public datagram_channel_impl {
 private:
     static constexpr int MAX_DATAGRAM_SIZE = 65507;
     struct recv_ctx {
