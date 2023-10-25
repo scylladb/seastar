@@ -757,6 +757,9 @@ private:
             }
         }
 
+        recv_ctx(const recv_ctx&) = delete;
+        recv_ctx(recv_ctx&&) = delete;
+
         void prepare() {
             _buffer = new char[MAX_DATAGRAM_SIZE];
             _iov.iov_base = _buffer;
@@ -774,6 +777,9 @@ private:
             _hdr.msg_name = &_dst.u.sa;
             _hdr.msg_namelen = _dst.addr_length;
         }
+
+        send_ctx(const send_ctx&) = delete;
+        send_ctx(send_ctx&&) = delete;
 
         void prepare(const socket_address& dst, packet p) {
             _dst = dst;
