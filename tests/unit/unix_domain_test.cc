@@ -19,6 +19,8 @@
  * Copyright (C) 2019 Red Hat, Inc.
  */ 
 
+#include <filesystem>
+
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/core/seastar.hh>
@@ -259,4 +261,30 @@ SEASTAR_THREAD_TEST_CASE(unixdomain_datagram_autobind) {
 
     string received = to_string(std::move(dgram.get_data()));
     BOOST_REQUIRE_EQUAL(received, "hello");
+}
+
+SEASTAR_THREAD_TEST_CASE(unixdomain_datagram_named_bound) {
+    // Create a temporary directory for the socket file using mkdtemp.
+    char tmpdir[] = "/tmp/seastar-test-XXXXXX";
+    char* tmpdir_ptr = mkdtemp(tmpdir);
+    if (tmpdir_ptr == nullptr) {
+        throw std::runtime_error("mkdtemp failed");
+    }
+
+    // Create a socket file in the temporary directory.
+    std::string socket_path = format("{}/socket", tmpdir_ptr);
+    auto named_receiver = make_bound_datagram_channel(socket_address{unix_domain_addr{socket_path}});
+    // Verify that a socket file was created.
+    BOOST_REQUIRE(std::filesystem::exists(socket_path));
+
+    // Send a message to the named socket using an unbound socket.
+    auto sender = make_unbound_datagram_channel(AF_UNIX);
+    sender.send(socket_address{unix_domain_addr{socket_path}}, "hihi").get();
+
+    net::udp_datagram dgram = named_receiver.receive().get0();
+    string received = to_string(std::move(dgram.get_data()));
+    BOOST_REQUIRE_EQUAL(received, "hihi");
+
+    // Try to be nice and remove the temporary directory.
+    std::filesystem::remove_all(tmpdir_ptr);
 }
