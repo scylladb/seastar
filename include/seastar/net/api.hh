@@ -88,20 +88,22 @@ class udp_channel_impl;
 class get_impl;
 /// \endcond
 
-class udp_datagram_impl {
+class datagram_impl {
 public:
-    virtual ~udp_datagram_impl() {};
+    virtual ~datagram_impl() {};
     virtual socket_address get_src() = 0;
     virtual socket_address get_dst() = 0;
     virtual uint16_t get_dst_port() = 0;
     virtual packet& get_data() = 0;
 };
 
+using udp_datagram_impl = datagram_impl;
+
 class udp_datagram final {
 private:
-    std::unique_ptr<udp_datagram_impl> _impl;
+    std::unique_ptr<datagram_impl> _impl;
 public:
-    udp_datagram(std::unique_ptr<udp_datagram_impl>&& impl) noexcept : _impl(std::move(impl)) {};
+    udp_datagram(std::unique_ptr<datagram_impl>&& impl) noexcept : _impl(std::move(impl)) {};
     socket_address get_src() { return _impl->get_src(); }
     socket_address get_dst() { return _impl->get_dst(); }
     uint16_t get_dst_port() { return _impl->get_dst_port(); }

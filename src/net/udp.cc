@@ -48,7 +48,7 @@ to_ipv4_addr(ipv4_address a, uint16_t port) {
     return {a.ip, port};
 }
 
-class native_datagram : public udp_datagram_impl {
+class native_datagram : public datagram_impl {
 private:
     ipv4_addr _src;
     ipv4_addr _dst;

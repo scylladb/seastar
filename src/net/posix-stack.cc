@@ -852,7 +852,7 @@ posix_network_stack::supports_ipv6() const {
     return has_ipv6;
 }
 
-class posix_datagram : public udp_datagram_impl {
+class posix_datagram : public datagram_impl {
 private:
     socket_address _src;
     socket_address _dst;
