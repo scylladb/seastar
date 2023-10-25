@@ -46,7 +46,7 @@ public:
 
         // Run server in background.
         (void)keep_doing([this] {
-            return _chan.receive().then([this] (udp_datagram dgram) {
+            return _chan.receive().then([this] (datagram dgram) {
                 return _chan.send(dgram.get_src(), std::move(dgram.get_data())).then([this] {
                     _n_sent++;
                 });

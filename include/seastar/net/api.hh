@@ -99,16 +99,18 @@ public:
 
 using udp_datagram_impl = datagram_impl;
 
-class udp_datagram final {
+class datagram final {
 private:
     std::unique_ptr<datagram_impl> _impl;
 public:
-    udp_datagram(std::unique_ptr<datagram_impl>&& impl) noexcept : _impl(std::move(impl)) {};
+    datagram(std::unique_ptr<datagram_impl>&& impl) noexcept : _impl(std::move(impl)) {};
     socket_address get_src() { return _impl->get_src(); }
     socket_address get_dst() { return _impl->get_dst(); }
     uint16_t get_dst_port() { return _impl->get_dst_port(); }
     packet& get_data() { return _impl->get_data(); }
 };
+
+using udp_datagram = datagram;
 
 class udp_channel {
 private:
@@ -123,7 +125,7 @@ public:
 
     socket_address local_address() const;
 
-    future<udp_datagram> receive();
+    future<datagram> receive();
     future<> send(const socket_address& dst, const char* msg);
     future<> send(const socket_address& dst, packet p);
     bool is_closed() const;

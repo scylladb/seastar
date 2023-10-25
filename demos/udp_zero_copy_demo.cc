@@ -105,7 +105,7 @@ public:
 
         // Run sender in background.
         (void)keep_doing([this] {
-            return _chan.receive().then([this] (udp_datagram dgram) {
+            return _chan.receive().then([this] (datagram dgram) {
                 auto chunk = next_chunk();
                 lw_shared_ptr<sstring> item;
                 if (_copy) {

@@ -798,7 +798,7 @@ public:
         _fd = std::move(fd);
     }
     virtual ~posix_udp_channel() { if (!_closed) close(); };
-    virtual future<udp_datagram> receive() override;
+    virtual future<datagram> receive() override;
     virtual future<> send(const socket_address& dst, const char *msg) override;
     virtual future<> send(const socket_address& dst, packet p) override;
     virtual void shutdown_input() override {
@@ -865,7 +865,7 @@ public:
     virtual packet& get_data() override { return _p; }
 };
 
-future<udp_datagram>
+future<datagram>
 posix_udp_channel::receive() {
     _recv.prepare();
     return _fd.recvmsg(&_recv._hdr).then([this] (size_t size) {
@@ -879,11 +879,11 @@ posix_udp_channel::receive() {
                 break;
             }
         }
-        return make_ready_future<udp_datagram>(udp_datagram(std::make_unique<posix_datagram>(
+        return make_ready_future<datagram>(datagram(std::make_unique<posix_datagram>(
             _recv._src_addr, dst, packet(fragment{_recv._buffer, size}, make_deleter([buf = _recv._buffer] { delete[] buf; })))));
     }).handle_exception([p = _recv._buffer](auto ep) {
         delete[] p;
-        return make_exception_future<udp_datagram>(std::move(ep));
+        return make_exception_future<datagram>(std::move(ep));
     });
 }
 

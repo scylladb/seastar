@@ -66,7 +66,7 @@ socket_address net::udp_channel::local_address() const {
     }
 }
 
-future<net::udp_datagram> net::udp_channel::receive() {
+future<net::datagram> net::udp_channel::receive() {
     return _impl->receive();
 }
 

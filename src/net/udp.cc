@@ -106,7 +106,7 @@ public:
         return socket_address(_proto.inet().host_address(), _reg.port());
     }
 
-    virtual future<udp_datagram> receive() override {
+    virtual future<datagram> receive() override {
         return _state->_queue.pop_eventually();
     }
 
@@ -172,7 +172,7 @@ bool ipv4_udp::forward(forward_hash& out_hash_data, packet& p, size_t off)
 
 void ipv4_udp::received(packet p, ipv4_address from, ipv4_address to)
 {
-    udp_datagram dgram(std::make_unique<native_datagram>(from, to, std::move(p)));
+    datagram dgram(std::make_unique<native_datagram>(from, to, std::move(p)));
 
     auto chan_it = _channels.find(dgram.get_dst_port());
     if (chan_it != _channels.end()) {
