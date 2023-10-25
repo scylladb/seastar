@@ -779,24 +779,46 @@ private:
             resolve_outgoing_address(_dst);
         }
     };
+
+    static file_desc create_socket(sa_family_t family) {
+        file_desc fd = file_desc::socket(family, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+
+        fd.setsockopt(SOL_IP, IP_PKTINFO, true);
+        if (engine().posix_reuseport_available()) {
+            fd.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1);
+        }
+
+        return fd;
+    }
+
     pollable_fd _fd;
     socket_address _address;
     recv_ctx _recv;
     send_ctx _send;
     bool _closed;
 public:
-    posix_datagram_channel(const socket_address& bind_address)
-            : _closed(false) {
-        auto sa = bind_address.is_unspecified() ? socket_address(inet_address(inet_address::family::INET)) : bind_address;
-        file_desc fd = file_desc::socket(sa.u.sa.sa_family, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
-        fd.setsockopt(SOL_IP, IP_PKTINFO, true);
-        if (engine().posix_reuseport_available()) {
-            fd.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1);
-        }
-        fd.bind(sa.u.sa, sizeof(sa.u.sas));
+    /// Creates a channel that is not bound to any socket address. The channel
+    /// can be used to communicate with adressess that belong to the \param
+    /// family.
+    posix_datagram_channel(sa_family_t family)
+        : _closed(false) {
+        auto fd = create_socket(family);
+
         _address = fd.get_address();
         _fd = std::move(fd);
     }
+
+    /// Creates a channel that is bound to the specified local address. It can be used to
+    /// communicate with addresses that belong to the family of \param local.
+    posix_datagram_channel(socket_address local)
+        : _closed(false) {
+        auto fd = create_socket(local.family());
+        fd.bind(local.u.sa, local.addr_length);
+
+        _address = fd.get_address();
+        _fd = std::move(fd);
+    }
+
     virtual ~posix_datagram_channel() { if (!_closed) close(); };
     virtual future<datagram> receive() override;
     virtual future<> send(const socket_address& dst, const char *msg) override;
@@ -835,17 +857,23 @@ future<> posix_datagram_channel::send(const socket_address& dst, packet p) {
 
 udp_channel
 posix_network_stack::make_udp_channel(const socket_address& addr) {
-    return udp_channel(std::make_unique<posix_datagram_channel>(addr));
+    if (!addr.is_unspecified()) {
+        return make_bound_datagram_channel(addr);
+    } else {
+        // Preserve the default behavior of make_udp_channel({}) which is to
+        // create an unbound channel that can be used to send UDP datagrams.
+        return make_unbound_datagram_channel(AF_INET);
+    }
 }
 
 datagram_channel
 posix_network_stack::make_unbound_datagram_channel(sa_family_t family) {
-    throw "unimplemented"; // Changed later in the commit series.
+    return datagram_channel(std::make_unique<posix_datagram_channel>(family));
 }
 
 datagram_channel
 posix_network_stack::make_bound_datagram_channel(const socket_address& local) {
-    throw "unimplemented"; // Changed later in the commit series.
+    return datagram_channel(std::make_unique<posix_datagram_channel>(local));
 }
 
 bool
