@@ -20,9 +20,11 @@
  */ 
 
 #include <seastar/testing/test_case.hh>
+#include <seastar/testing/thread_test_case.hh>
 #include <seastar/core/seastar.hh>
 #include <seastar/net/api.hh>
 #include <seastar/net/inet_address.hh>
+#include <seastar/net/socket_defs.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/thread.hh>
@@ -230,3 +232,31 @@ SEASTAR_TEST_CASE(unixdomain_abort) {
     });
 }
 
+// From man 7 unix:
+//  If a bind(2) call specifies addrlen as sizeof(sa_family_t), or
+//  the SO_PASSCRED socket option was specified for a socket that was
+//  not explicitly bound to an address, then the socket is autobound
+//  to an abstract address.
+static socket_address autobind() {
+    socket_address addr;
+    addr.addr_length = offsetof(sockaddr_un, sun_path);
+    addr.u.sa.sa_family = AF_UNIX;
+    return addr;
+}
+
+static string to_string(net::packet p) {
+    p.linearize();
+    const auto& f = p.frag(0);
+    return std::string(f.base, f.size);
+}
+
+SEASTAR_THREAD_TEST_CASE(unixdomain_datagram_autobind) {
+    auto chan1 = make_unbound_datagram_channel(AF_UNIX);
+    auto chan2 = make_bound_datagram_channel(autobind());
+
+    chan1.send(chan2.local_address(), "hello").get();
+    net::datagram dgram = chan2.receive().get0();
+
+    string received = to_string(std::move(dgram.get_data()));
+    BOOST_REQUIRE_EQUAL(received, "hello");
+}
