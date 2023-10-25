@@ -176,6 +176,33 @@ net::udp_channel make_udp_channel();
 /// \return a \ref net::udp_channel object that can be used for UDP transfers.
 net::udp_channel make_udp_channel(const socket_address& local);
 
+/// Creates a datagram_channel object suitable for sending datagrams to
+/// destinations that belong to the provided address family.
+/// Supported address families: AF_INET, AF_INET6 and AF_UNIX.
+///
+/// Setting family to AF_INET or AF_INET6 creates a datagram_channel that uses
+/// UDP protocol. AF_UNIX creates a datagram_channel that uses UNIX domain
+/// sockets.
+///
+/// The channel is not bound to a local address, and thus can only be used
+/// for sending.
+///
+/// \param family address family in which the \ref datagram_channel will operate
+///
+/// \return a \ref net::datagram_channel object for sending datagrams in a
+/// specified address family.
+net::datagram_channel make_unbound_datagram_channel(sa_family_t family);
+
+/// Creates a datagram_channel object suitable for sending and receiving
+/// datagrams to/from destinations that belong to the provided address family.
+/// Supported address families: AF_INET, AF_INET6 and AF_UNIX.
+///
+/// \param local local address to bind to
+///
+/// \return a \ref net::datagram_channel object for sending/receiving datagrams
+/// in a specified address family.
+net::datagram_channel make_bound_datagram_channel(const socket_address& local);
+
 /// @}
 
 /// \defgroup fileio-module File Input/Output
