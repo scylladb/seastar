@@ -112,16 +112,16 @@ public:
 
 using udp_datagram = datagram;
 
-class udp_channel {
+class datagram_channel {
 private:
     std::unique_ptr<datagram_channel_impl> _impl;
 public:
-    udp_channel() noexcept;
-    udp_channel(std::unique_ptr<datagram_channel_impl>) noexcept;
-    ~udp_channel();
+    datagram_channel() noexcept;
+    datagram_channel(std::unique_ptr<datagram_channel_impl>) noexcept;
+    ~datagram_channel();
 
-    udp_channel(udp_channel&&) noexcept;
-    udp_channel& operator=(udp_channel&&) noexcept;
+    datagram_channel(datagram_channel&&) noexcept;
+    datagram_channel& operator=(datagram_channel&&) noexcept;
 
     socket_address local_address() const;
 
@@ -140,6 +140,8 @@ public:
     /// shutdown_output().
     void close();
 };
+
+using udp_channel = datagram_channel;
 
 class network_interface_impl;
 

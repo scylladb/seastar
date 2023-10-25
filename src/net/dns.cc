@@ -936,10 +936,10 @@ private:
         temporary_buffer<char> indata;
     };
     struct udp_entry {
-        udp_entry(net::udp_channel c)
+        udp_entry(net::datagram_channel c)
                         : channel(std::move(c)) {
         }
-        net::udp_channel channel;
+        net::datagram_channel channel;
         std::optional<net::datagram> in;;
         socket_address dst;
         future<> f = make_ready_future<>();
@@ -974,7 +974,7 @@ private:
             : tcp(tcp_entry{std::move(s)})
             , typ(type::tcp)
         {}
-        sock_entry(net::udp_channel c)
+        sock_entry(net::datagram_channel c)
             : udp(udp_entry{std::move(c)})
             , typ(type::udp)
         {}

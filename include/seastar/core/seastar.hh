@@ -84,7 +84,7 @@ struct stat_data;
 
 namespace net {
 
-class udp_channel;
+using udp_channel = class datagram_channel;
 
 }
 
