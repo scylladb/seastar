@@ -740,15 +740,21 @@ private:
         char* _buffer;
         cmsg_with_pktinfo _cmsg;
 
-        recv_ctx() {
+        recv_ctx(bool use_pktinfo) {
             memset(&_hdr, 0, sizeof(_hdr));
             _hdr.msg_iov = &_iov;
             _hdr.msg_iovlen = 1;
             _hdr.msg_name = &_src_addr.u.sa;
             _hdr.msg_namelen = sizeof(_src_addr.u.sas);
-            memset(&_cmsg, 0, sizeof(_cmsg));
-            _hdr.msg_control = &_cmsg;
-            _hdr.msg_controllen = sizeof(_cmsg);
+
+            if (use_pktinfo) {
+                memset(&_cmsg, 0, sizeof(_cmsg));
+                _hdr.msg_control = &_cmsg;
+                _hdr.msg_controllen = sizeof(_cmsg);
+            } else {
+                _hdr.msg_control = nullptr;
+                _hdr.msg_controllen = 0;
+            }
         }
 
         void prepare() {
@@ -780,12 +786,18 @@ private:
         }
     };
 
+    static bool is_inet(sa_family_t family) {
+        return family == AF_INET || family == AF_INET6;
+    }
+
     static file_desc create_socket(sa_family_t family) {
         file_desc fd = file_desc::socket(family, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
 
-        fd.setsockopt(SOL_IP, IP_PKTINFO, true);
-        if (engine().posix_reuseport_available()) {
-            fd.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1);
+        if (is_inet(family)) {
+            fd.setsockopt(SOL_IP, IP_PKTINFO, true);
+            if (engine().posix_reuseport_available()) {
+                fd.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1);
+            }
         }
 
         return fd;
@@ -801,7 +813,7 @@ public:
     /// can be used to communicate with adressess that belong to the \param
     /// family.
     posix_datagram_channel(sa_family_t family)
-        : _closed(false) {
+        : _recv(is_inet(family)), _closed(false) {
         auto fd = create_socket(family);
 
         _address = fd.get_address();
@@ -811,7 +823,7 @@ public:
     /// Creates a channel that is bound to the specified local address. It can be used to
     /// communicate with addresses that belong to the family of \param local.
     posix_datagram_channel(socket_address local)
-        : _closed(false) {
+        : _recv(is_inet(local.family())), _closed(false) {
         auto fd = create_socket(local.family());
         fd.bind(local.u.sa, local.addr_length);
 
@@ -907,7 +919,7 @@ future<datagram>
 posix_datagram_channel::receive() {
     _recv.prepare();
     return _fd.recvmsg(&_recv._hdr).then([this] (size_t size) {
-        socket_address dst;
+        std::optional<socket_address> dst;
         for (auto* cmsg = CMSG_FIRSTHDR(&_recv._hdr); cmsg != nullptr; cmsg = CMSG_NXTHDR(&_recv._hdr, cmsg)) {
             if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_PKTINFO) {
                 dst = ipv4_addr(copy_reinterpret_cast<in_pktinfo>(CMSG_DATA(cmsg)).ipi_addr, _address.port());
@@ -918,7 +930,7 @@ posix_datagram_channel::receive() {
             }
         }
         return make_ready_future<datagram>(datagram(std::make_unique<posix_datagram>(
-            _recv._src_addr, dst, packet(fragment{_recv._buffer, size}, make_deleter([buf = _recv._buffer] { delete[] buf; })))));
+            _recv._src_addr, dst ? *dst : _address, packet(fragment{_recv._buffer, size}, make_deleter([buf = _recv._buffer] { delete[] buf; })))));
     }).handle_exception([p = _recv._buffer](auto ep) {
         delete[] p;
         return make_exception_future<datagram>(std::move(ep));
