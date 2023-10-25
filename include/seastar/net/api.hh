@@ -431,7 +431,10 @@ public:
     // FIXME: local parameter assumes ipv4 for now, fix when adding other AF
     future<connected_socket> connect(socket_address sa, socket_address = {}, transport proto = transport::TCP);
     virtual ::seastar::socket socket() = 0;
+
+    [[deprecated("Use `make_[un]bound_datagram_channel` instead")]]
     virtual net::udp_channel make_udp_channel(const socket_address& = {}) = 0;
+
     virtual net::datagram_channel make_unbound_datagram_channel(sa_family_t) = 0;
     virtual net::datagram_channel make_bound_datagram_channel(const socket_address& local) = 0;
     virtual future<> initialize() {
