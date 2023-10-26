@@ -33,10 +33,18 @@ function (seastar_check_self_contained target library)
     parsed_args
     ""
     ""
-    "EXCLUDE;INCLUDE"
+    "GLOB;EXCLUDE;INCLUDE"
     ${ARGN})
 
   get_target_property (sources ${library} SOURCES)
+  if (DEFINED parsed_args_GLOB)
+    file (GLOB globbed_sources
+      LIST_DIRECTORIES false
+      RELATIVE ${CMAKE_CURRENT_SOURCE_DIR}
+      "${parsed_args_GLOB}")
+    list (APPEND sources ${globbed_sources})
+    list (REMOVE_DUPLICATES sources)
+  endif ()
   list (FILTER sources INCLUDE REGEX "${parsed_args_INCLUDE}")
   list (FILTER sources EXCLUDE REGEX "${parsed_args_EXCLUDE}")
   foreach (fn ${sources})
