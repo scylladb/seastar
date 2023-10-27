@@ -178,7 +178,9 @@ struct session_dn {
 
   /// Information about a certificate
 struct cert_info {
-    sstring serial;
+    static constexpr size_t bytes_inline_size = 31;
+    using bytes = basic_sstring<uint8_t, uint32_t, bytes_inline_size, false>;
+    bytes serial;
     time_t expiry;
 };
 
