@@ -130,10 +130,10 @@ static void gtls_chk(int res) {
     }
 }
 
-static sstring extract_x509_serial(gnutls_x509_crt_t cert) {
+static cert_info::bytes extract_x509_serial(gnutls_x509_crt_t cert) {
     constexpr size_t serial_max = 128;
     size_t serial_size{serial_max};
-    sstring serial(sstring::initialized_later{}, serial_size);
+    cert_info::bytes serial(cert_info::bytes::initialized_later{}, serial_size);
     gtls_chk(gnutls_x509_crt_get_serial(cert, serial.data(), &serial_size));
     serial.resize(serial_size);
     return serial;
