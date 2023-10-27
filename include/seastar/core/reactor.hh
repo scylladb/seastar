@@ -579,6 +579,11 @@ public:
     }
 
     task* current_task() const { return _current_task; }
+    // If a task wants to resume a different task instead of returning control to the reactor,
+    // it should set _current_task to the resumed task.
+    // In particular, this is mandatory if the task is going to die before control is returned
+    // to the reactor -- otherwise _current_task will be left dangling.
+    void set_current_task(task* t) { _current_task = t; }
 
     void add_task(task* t) noexcept;
     void add_urgent_task(task* t) noexcept;
