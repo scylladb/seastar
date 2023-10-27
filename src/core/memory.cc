@@ -1720,6 +1720,14 @@ void* allocate_aligned(size_t align, size_t size) {
     return ptr;
 }
 
+
+/// Similarly to memory::allocate() we expect to inline the whole fast path
+/// of free into all the variations of the top level dallocation functions like
+/// free, delete, sized delete, etc. The slow path is not inline and is shared
+/// by all implementations.
+///
+/// The S template object allows us to handle both sized and unsized allocations
+/// in the same code path.
 template <typename S = no_size>
 [[gnu::always_inline]]
 inline void free(void* obj, S size = {}) {
@@ -2389,33 +2397,25 @@ void* operator new[](size_t size) {
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete(void* ptr) noexcept {
-    if (ptr) {
-        seastar::memory::free(ptr);
-    }
+    seastar::memory::free(ptr);
 }
 
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr) noexcept {
-    if (ptr) {
-        seastar::memory::free(ptr);
-    }
+    seastar::memory::free(ptr);
 }
 
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete(void* ptr, size_t size) noexcept {
-    if (ptr) {
-        seastar::memory::free(ptr, size);
-    }
+    seastar::memory::free(ptr, size);
 }
 
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr, size_t size) noexcept {
-    if (ptr) {
-        seastar::memory::free(ptr, size);
-    }
+    seastar::memory::free(ptr, size);
 }
 
 extern "C++"
@@ -2436,33 +2436,25 @@ void* operator new[](size_t size, std::nothrow_t) noexcept {
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete(void* ptr, std::nothrow_t) noexcept {
-    if (ptr) {
-        seastar::memory::free(ptr);
-    }
+    seastar::memory::free(ptr);
 }
 
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr, std::nothrow_t) noexcept {
-    if (ptr) {
-        seastar::memory::free(ptr);
-    }
+    seastar::memory::free(ptr);
 }
 
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete(void* ptr, size_t size, std::nothrow_t) noexcept {
-    if (ptr) {
-        seastar::memory::free(ptr, size);
-    }
+    seastar::memory::free(ptr, size);
 }
 
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr, size_t size, std::nothrow_t) noexcept {
-    if (ptr) {
-        seastar::memory::free(ptr, size);
-    }
+    seastar::memory::free(ptr, size);
 }
 
 #ifdef __cpp_aligned_new
@@ -2504,17 +2496,13 @@ void* operator new[](size_t size, std::align_val_t a, const std::nothrow_t&) noe
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete(void* ptr, std::align_val_t a) noexcept {
-    if (ptr) {
-        seastar::memory::free(ptr);
-    }
+    seastar::memory::free(ptr);
 }
 
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr, std::align_val_t a) noexcept {
-    if (ptr) {
-        seastar::memory::free(ptr);
-    }
+    seastar::memory::free(ptr);
 }
 
 extern "C++"
@@ -2536,17 +2524,13 @@ void operator delete[](void* ptr, size_t size, std::align_val_t a) noexcept {
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete(void* ptr, std::align_val_t a, const std::nothrow_t&) noexcept {
-    if (ptr) {
-        seastar::memory::free(ptr);
-    }
+    seastar::memory::free(ptr);
 }
 
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr, std::align_val_t a, const std::nothrow_t&) noexcept {
-    if (ptr) {
-        seastar::memory::free(ptr);
-    }
+    seastar::memory::free(ptr);
 }
 
 #endif
