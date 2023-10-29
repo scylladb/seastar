@@ -661,6 +661,7 @@ io_queue::~io_queue() {
     //
     // And that will happen only when there are no more fibers to run. If we ever change
     // that, then this has to change.
+    assert(_queued_requests == 0);
     for (auto&& pc_data : _priority_classes) {
         if (pc_data) {
             for (auto&& s : _streams) {
