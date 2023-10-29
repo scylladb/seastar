@@ -290,7 +290,7 @@ void fair_queue::register_priority_class(class_id id, uint32_t shares) {
 
 void fair_queue::unregister_priority_class(class_id id) {
     auto& pclass = _priority_classes[id];
-    assert(pclass && pclass->_queue.empty());
+    assert(pclass);
     pclass.reset();
     _nr_classes--;
 }
