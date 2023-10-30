@@ -50,7 +50,7 @@ struct udp_hdr {
 } __attribute__((packed));
 
 struct udp_channel_state {
-    queue<udp_datagram> _queue;
+    queue<datagram> _queue;
     // Limit number of data queued into send queue
     semaphore _user_queue_space = {212992};
     udp_channel_state(size_t queue_size) : _queue(queue_size) {}

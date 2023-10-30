@@ -369,7 +369,7 @@ void impl::start(const sstring & host, const ipv4_addr & addr, const duration pe
     _period = period;
     _addr = addr;
     _host = host;
-    _chan = make_udp_channel();
+    _chan = make_unbound_datagram_channel(AF_INET);
     _timer.set_callback(std::bind(&impl::run, this));
 
     // dogfood ourselves

@@ -84,44 +84,48 @@ class connected_socket_impl;
 class socket_impl;
 
 class server_socket_impl;
-class udp_channel_impl;
+class datagram_channel_impl;
 class get_impl;
 /// \endcond
 
-class udp_datagram_impl {
+class datagram_impl {
 public:
-    virtual ~udp_datagram_impl() {};
+    virtual ~datagram_impl() {};
     virtual socket_address get_src() = 0;
     virtual socket_address get_dst() = 0;
     virtual uint16_t get_dst_port() = 0;
     virtual packet& get_data() = 0;
 };
 
-class udp_datagram final {
+using udp_datagram_impl = datagram_impl;
+
+class datagram final {
 private:
-    std::unique_ptr<udp_datagram_impl> _impl;
+    std::unique_ptr<datagram_impl> _impl;
 public:
-    udp_datagram(std::unique_ptr<udp_datagram_impl>&& impl) noexcept : _impl(std::move(impl)) {};
+    datagram(std::unique_ptr<datagram_impl>&& impl) noexcept : _impl(std::move(impl)) {};
     socket_address get_src() { return _impl->get_src(); }
     socket_address get_dst() { return _impl->get_dst(); }
     uint16_t get_dst_port() { return _impl->get_dst_port(); }
     packet& get_data() { return _impl->get_data(); }
 };
 
-class udp_channel {
-private:
-    std::unique_ptr<udp_channel_impl> _impl;
-public:
-    udp_channel() noexcept;
-    udp_channel(std::unique_ptr<udp_channel_impl>) noexcept;
-    ~udp_channel();
+using udp_datagram = datagram;
 
-    udp_channel(udp_channel&&) noexcept;
-    udp_channel& operator=(udp_channel&&) noexcept;
+class datagram_channel {
+private:
+    std::unique_ptr<datagram_channel_impl> _impl;
+public:
+    datagram_channel() noexcept;
+    datagram_channel(std::unique_ptr<datagram_channel_impl>) noexcept;
+    ~datagram_channel();
+
+    datagram_channel(datagram_channel&&) noexcept;
+    datagram_channel& operator=(datagram_channel&&) noexcept;
 
     socket_address local_address() const;
 
-    future<udp_datagram> receive();
+    future<datagram> receive();
     future<> send(const socket_address& dst, const char* msg);
     future<> send(const socket_address& dst, packet p);
     bool is_closed() const;
@@ -136,6 +140,8 @@ public:
     /// shutdown_output().
     void close();
 };
+
+using udp_channel = datagram_channel;
 
 class network_interface_impl;
 
@@ -425,7 +431,12 @@ public:
     // FIXME: local parameter assumes ipv4 for now, fix when adding other AF
     future<connected_socket> connect(socket_address sa, socket_address = {}, transport proto = transport::TCP);
     virtual ::seastar::socket socket() = 0;
+
+    [[deprecated("Use `make_[un]bound_datagram_channel` instead")]]
     virtual net::udp_channel make_udp_channel(const socket_address& = {}) = 0;
+
+    virtual net::datagram_channel make_unbound_datagram_channel(sa_family_t) = 0;
+    virtual net::datagram_channel make_bound_datagram_channel(const socket_address& local) = 0;
     virtual future<> initialize() {
         return make_ready_future();
     }

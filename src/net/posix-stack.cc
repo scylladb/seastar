@@ -730,7 +730,7 @@ struct cmsg_with_pktinfo {
     };
 };
 
-class posix_udp_channel : public udp_channel_impl {
+class posix_datagram_channel : public datagram_channel_impl {
 private:
     static constexpr int MAX_DATAGRAM_SIZE = 65507;
     struct recv_ctx {
@@ -740,16 +740,25 @@ private:
         char* _buffer;
         cmsg_with_pktinfo _cmsg;
 
-        recv_ctx() {
+        recv_ctx(bool use_pktinfo) {
             memset(&_hdr, 0, sizeof(_hdr));
             _hdr.msg_iov = &_iov;
             _hdr.msg_iovlen = 1;
             _hdr.msg_name = &_src_addr.u.sa;
             _hdr.msg_namelen = sizeof(_src_addr.u.sas);
-            memset(&_cmsg, 0, sizeof(_cmsg));
-            _hdr.msg_control = &_cmsg;
-            _hdr.msg_controllen = sizeof(_cmsg);
+
+            if (use_pktinfo) {
+                memset(&_cmsg, 0, sizeof(_cmsg));
+                _hdr.msg_control = &_cmsg;
+                _hdr.msg_controllen = sizeof(_cmsg);
+            } else {
+                _hdr.msg_control = nullptr;
+                _hdr.msg_controllen = 0;
+            }
         }
+
+        recv_ctx(const recv_ctx&) = delete;
+        recv_ctx(recv_ctx&&) = delete;
 
         void prepare() {
             _buffer = new char[MAX_DATAGRAM_SIZE];
@@ -769,6 +778,9 @@ private:
             _hdr.msg_namelen = _dst.addr_length;
         }
 
+        send_ctx(const send_ctx&) = delete;
+        send_ctx(send_ctx&&) = delete;
+
         void prepare(const socket_address& dst, packet p) {
             _dst = dst;
             _hdr.msg_namelen = _dst.addr_length;
@@ -779,26 +791,54 @@ private:
             resolve_outgoing_address(_dst);
         }
     };
+
+    static bool is_inet(sa_family_t family) {
+        return family == AF_INET || family == AF_INET6;
+    }
+
+    static file_desc create_socket(sa_family_t family) {
+        file_desc fd = file_desc::socket(family, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+
+        if (is_inet(family)) {
+            fd.setsockopt(SOL_IP, IP_PKTINFO, true);
+            if (engine().posix_reuseport_available()) {
+                fd.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1);
+            }
+        }
+
+        return fd;
+    }
+
     pollable_fd _fd;
     socket_address _address;
     recv_ctx _recv;
     send_ctx _send;
     bool _closed;
 public:
-    posix_udp_channel(const socket_address& bind_address)
-            : _closed(false) {
-        auto sa = bind_address.is_unspecified() ? socket_address(inet_address(inet_address::family::INET)) : bind_address;
-        file_desc fd = file_desc::socket(sa.u.sa.sa_family, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
-        fd.setsockopt(SOL_IP, IP_PKTINFO, true);
-        if (engine().posix_reuseport_available()) {
-            fd.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1);
-        }
-        fd.bind(sa.u.sa, sizeof(sa.u.sas));
+    /// Creates a channel that is not bound to any socket address. The channel
+    /// can be used to communicate with adressess that belong to the \param
+    /// family.
+    posix_datagram_channel(sa_family_t family)
+        : _recv(is_inet(family)), _closed(false) {
+        auto fd = create_socket(family);
+
         _address = fd.get_address();
         _fd = std::move(fd);
     }
-    virtual ~posix_udp_channel() { if (!_closed) close(); };
-    virtual future<udp_datagram> receive() override;
+
+    /// Creates a channel that is bound to the specified local address. It can be used to
+    /// communicate with addresses that belong to the family of \param local.
+    posix_datagram_channel(socket_address local)
+        : _recv(is_inet(local.family())), _closed(false) {
+        auto fd = create_socket(local.family());
+        fd.bind(local.u.sa, local.addr_length);
+
+        _address = fd.get_address();
+        _fd = std::move(fd);
+    }
+
+    virtual ~posix_datagram_channel() { if (!_closed) close(); };
+    virtual future<datagram> receive() override;
     virtual future<> send(const socket_address& dst, const char *msg) override;
     virtual future<> send(const socket_address& dst, packet p) override;
     virtual void shutdown_input() override {
@@ -818,7 +858,7 @@ public:
     }
 };
 
-future<> posix_udp_channel::send(const socket_address& dst, const char *message) {
+future<> posix_datagram_channel::send(const socket_address& dst, const char *message) {
     auto len = strlen(message);
     auto a = dst;
     resolve_outgoing_address(a);
@@ -826,7 +866,7 @@ future<> posix_udp_channel::send(const socket_address& dst, const char *message)
             .then([len] (size_t size) { assert(size == len); });
 }
 
-future<> posix_udp_channel::send(const socket_address& dst, packet p) {
+future<> posix_datagram_channel::send(const socket_address& dst, packet p) {
     auto len = p.len();
     _send.prepare(dst, std::move(p));
     return _fd.sendmsg(&_send._hdr)
@@ -835,14 +875,30 @@ future<> posix_udp_channel::send(const socket_address& dst, packet p) {
 
 udp_channel
 posix_network_stack::make_udp_channel(const socket_address& addr) {
-    return udp_channel(std::make_unique<posix_udp_channel>(addr));
+    if (!addr.is_unspecified()) {
+        return make_bound_datagram_channel(addr);
+    } else {
+        // Preserve the default behavior of make_udp_channel({}) which is to
+        // create an unbound channel that can be used to send UDP datagrams.
+        return make_unbound_datagram_channel(AF_INET);
+    }
+}
+
+datagram_channel
+posix_network_stack::make_unbound_datagram_channel(sa_family_t family) {
+    return datagram_channel(std::make_unique<posix_datagram_channel>(family));
+}
+
+datagram_channel
+posix_network_stack::make_bound_datagram_channel(const socket_address& local) {
+    return datagram_channel(std::make_unique<posix_datagram_channel>(local));
 }
 
 bool
 posix_network_stack::supports_ipv6() const {
     static bool has_ipv6 = [] {
         try {
-            posix_udp_channel c(ipv6_addr{"::1"});
+            posix_datagram_channel c(ipv6_addr{"::1"});
             c.close();
             return true;
         } catch (...) {}
@@ -852,7 +908,7 @@ posix_network_stack::supports_ipv6() const {
     return has_ipv6;
 }
 
-class posix_datagram : public udp_datagram_impl {
+class posix_datagram : public datagram_impl {
 private:
     socket_address _src;
     socket_address _dst;
@@ -861,15 +917,20 @@ public:
     posix_datagram(const socket_address& src, const socket_address& dst, packet p) : _src(src), _dst(dst), _p(std::move(p)) {}
     virtual socket_address get_src() override { return _src; }
     virtual socket_address get_dst() override { return _dst; }
-    virtual uint16_t get_dst_port() override { return _dst.port(); }
+    virtual uint16_t get_dst_port() override {
+        if (_dst.family() != AF_INET && _dst.family() != AF_INET6) {
+            throw std::runtime_error(format("get_dst_port() called on non-IP address: {}", _dst));
+        }
+        return _dst.port();
+    }
     virtual packet& get_data() override { return _p; }
 };
 
-future<udp_datagram>
-posix_udp_channel::receive() {
+future<datagram>
+posix_datagram_channel::receive() {
     _recv.prepare();
     return _fd.recvmsg(&_recv._hdr).then([this] (size_t size) {
-        socket_address dst;
+        std::optional<socket_address> dst;
         for (auto* cmsg = CMSG_FIRSTHDR(&_recv._hdr); cmsg != nullptr; cmsg = CMSG_NXTHDR(&_recv._hdr, cmsg)) {
             if (cmsg->cmsg_level == IPPROTO_IP && cmsg->cmsg_type == IP_PKTINFO) {
                 dst = ipv4_addr(copy_reinterpret_cast<in_pktinfo>(CMSG_DATA(cmsg)).ipi_addr, _address.port());
@@ -879,11 +940,11 @@ posix_udp_channel::receive() {
                 break;
             }
         }
-        return make_ready_future<udp_datagram>(udp_datagram(std::make_unique<posix_datagram>(
-            _recv._src_addr, dst, packet(fragment{_recv._buffer, size}, make_deleter([buf = _recv._buffer] { delete[] buf; })))));
+        return make_ready_future<datagram>(datagram(std::make_unique<posix_datagram>(
+            _recv._src_addr, dst ? *dst : _address, packet(fragment{_recv._buffer, size}, make_deleter([buf = _recv._buffer] { delete[] buf; })))));
     }).handle_exception([p = _recv._buffer](auto ep) {
         delete[] p;
-        return make_exception_future<udp_datagram>(std::move(ep));
+        return make_exception_future<datagram>(std::move(ep));
     });
 }
 

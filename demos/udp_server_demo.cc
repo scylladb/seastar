@@ -36,7 +36,7 @@ private:
 public:
     void start(uint16_t port) {
         ipv4_addr listen_addr{port};
-        _chan = make_udp_channel(listen_addr);
+        _chan = make_bound_datagram_channel(listen_addr);
 
         _stats_timer.set_callback([this] {
             std::cout << "Out: " << _n_sent << " pps" << std::endl;
@@ -46,7 +46,7 @@ public:
 
         // Run server in background.
         (void)keep_doing([this] {
-            return _chan.receive().then([this] (udp_datagram dgram) {
+            return _chan.receive().then([this] (datagram dgram) {
                 return _chan.send(dgram.get_src(), std::move(dgram.get_data())).then([this] {
                     _n_sent++;
                 });

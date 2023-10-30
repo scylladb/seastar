@@ -46,19 +46,19 @@ static_assert(std::is_nothrow_move_constructible_v<socket>);
 static_assert(std::is_nothrow_default_constructible_v<server_socket>);
 static_assert(std::is_nothrow_move_constructible_v<server_socket>);
 
-net::udp_channel::udp_channel() noexcept
+net::datagram_channel::datagram_channel() noexcept
 {}
 
-net::udp_channel::udp_channel(std::unique_ptr<udp_channel_impl> impl) noexcept : _impl(std::move(impl))
+net::datagram_channel::datagram_channel(std::unique_ptr<datagram_channel_impl> impl) noexcept : _impl(std::move(impl))
 {}
 
-net::udp_channel::~udp_channel()
+net::datagram_channel::~datagram_channel()
 {}
 
-net::udp_channel::udp_channel(udp_channel&&) noexcept = default;
-net::udp_channel& net::udp_channel::operator=(udp_channel&&) noexcept = default;
+net::datagram_channel::datagram_channel(datagram_channel&&) noexcept = default;
+net::datagram_channel& net::datagram_channel::operator=(datagram_channel&&) noexcept = default;
 
-socket_address net::udp_channel::local_address() const {
+socket_address net::datagram_channel::local_address() const {
     if (_impl) {
         return _impl->local_address();
     } else {
@@ -66,32 +66,32 @@ socket_address net::udp_channel::local_address() const {
     }
 }
 
-future<net::udp_datagram> net::udp_channel::receive() {
+future<net::datagram> net::datagram_channel::receive() {
     return _impl->receive();
 }
 
-future<> net::udp_channel::send(const socket_address& dst, const char* msg) {
+future<> net::datagram_channel::send(const socket_address& dst, const char* msg) {
     return _impl->send(dst, msg);
 }
 
-future<> net::udp_channel::send(const socket_address& dst, packet p) {
+future<> net::datagram_channel::send(const socket_address& dst, packet p) {
     return _impl->send(dst, std::move(p));
 }
 
-bool net::udp_channel::is_closed() const {
+bool net::datagram_channel::is_closed() const {
     return _impl->is_closed();
 }
 
-void net::udp_channel::shutdown_input() {
+void net::datagram_channel::shutdown_input() {
     _impl->shutdown_input();
 }
 
-void net::udp_channel::shutdown_output() {
+void net::datagram_channel::shutdown_output() {
     _impl->shutdown_output();
 }
 
 
-void net::udp_channel::close() {
+void net::datagram_channel::close() {
     return _impl->close();
 }
 

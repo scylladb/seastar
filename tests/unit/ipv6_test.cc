@@ -43,11 +43,11 @@ SEASTAR_TEST_CASE(udp_packet_test) {
         return make_ready_future<>();
     }
 
-    auto sc = make_udp_channel(ipv6_addr{"::1"});
+    auto sc = make_bound_datagram_channel(ipv6_addr{"::1"});
 
     BOOST_REQUIRE(sc.local_address().addr().is_ipv6());
 
-    auto cc = make_udp_channel(ipv6_addr{"::1"});
+    auto cc = make_bound_datagram_channel(ipv6_addr{"::1"});
 
     auto f1 = cc.send(sc.local_address(), "apa");
 

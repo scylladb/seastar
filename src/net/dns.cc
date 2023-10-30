@@ -538,7 +538,7 @@ private:
             dns_log.trace("Created tcp socket {}", fd);
             break;
         case SOCK_DGRAM:
-            _sockets.emplace(fd, _stack.make_udp_channel());
+            _sockets.emplace(fd, _stack.make_unbound_datagram_channel(AF_INET));
             dns_log.trace("Created udp socket {}", fd);
             break;
         default: return -1;
@@ -748,7 +748,7 @@ private:
                         use(fd);
                         dns_log.trace("Read {}: data unavailable", fd);
                         // FIXME: future is discarded
-                        (void)f.then_wrapped([me = shared_from_this(), &e, fd](future<net::udp_datagram> f) {
+                        (void)f.then_wrapped([me = shared_from_this(), &e, fd](future<net::datagram> f) {
                             try {
                                 auto d = f.get0();
                                 dns_log.trace("Read {} -> {} bytes", fd, d.get_data().len());
@@ -936,11 +936,11 @@ private:
         temporary_buffer<char> indata;
     };
     struct udp_entry {
-        udp_entry(net::udp_channel c)
+        udp_entry(net::datagram_channel c)
                         : channel(std::move(c)) {
         }
-        net::udp_channel channel;
-        std::optional<net::udp_datagram> in;;
+        net::datagram_channel channel;
+        std::optional<net::datagram> in;;
         socket_address dst;
         future<> f = make_ready_future<>();
     };
@@ -974,7 +974,7 @@ private:
             : tcp(tcp_entry{std::move(s)})
             , typ(type::tcp)
         {}
-        sock_entry(net::udp_channel c)
+        sock_entry(net::datagram_channel c)
             : udp(udp_entry{std::move(c)})
             , typ(type::udp)
         {}

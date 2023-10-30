@@ -1290,10 +1290,10 @@ public:
     }
 
     void start() {
-        _chan = make_udp_channel({_port});
+        _chan = make_bound_datagram_channel({_port});
         // Run in the background.
         _task = keep_doing([this] {
-            return _chan.receive().then([this](udp_datagram dgram) {
+            return _chan.receive().then([this](datagram dgram) {
                 packet& p = dgram.get_data();
                 if (p.len() < sizeof(header)) {
                     // dropping invalid packet

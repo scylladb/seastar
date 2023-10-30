@@ -37,7 +37,7 @@ static const ipv4_addr default_addr("239.192.74.66:25826");
 static const std::chrono::milliseconds default_period(1s);
 
 class impl {
-    net::udp_channel _chan;
+    net::datagram_channel _chan;
     timer<> _timer;
 
     sstring _host = "localhost";

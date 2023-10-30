@@ -72,11 +72,11 @@ public:
     virtual socket_address local_address() const = 0;
 };
 
-class udp_channel_impl {
+class datagram_channel_impl {
 public:
-    virtual ~udp_channel_impl() {}
+    virtual ~datagram_channel_impl() {}
     virtual socket_address local_address() const = 0;
-    virtual future<udp_datagram> receive() = 0;
+    virtual future<datagram> receive() = 0;
     virtual future<> send(const socket_address& dst, const char* msg) = 0;
     virtual future<> send(const socket_address& dst, packet p) = 0;
     virtual void shutdown_input() = 0;
@@ -84,6 +84,8 @@ public:
     virtual bool is_closed() const = 0;
     virtual void close() = 0;
 };
+
+using udp_channel_impl = datagram_channel_impl;
 
 class network_interface_impl {
 protected:
