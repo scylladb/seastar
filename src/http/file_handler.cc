@@ -98,10 +98,10 @@ future<std::unique_ptr<http::reply>> file_interaction_handler::read(
         std::unique_ptr<http::reply> rep) {
     sstring extension = get_extension(file_name);
     rep->write_body(extension, [req = std::move(req), extension, file_name, this] (output_stream<char>&& s) mutable {
-        return do_with(output_stream<char>(get_stream(std::move(req), extension, std::move(s))),
+        return do_with(get_stream(std::move(req), extension, std::move(s)),
                 [file_name] (output_stream<char>& os) {
             return open_file_dma(file_name, open_flags::ro).then([&os] (file f) {
-                return do_with(input_stream<char>(make_file_input_stream(std::move(f))), [&os](input_stream<char>& is) {
+                return do_with(make_file_input_stream(std::move(f)), [&os](input_stream<char>& is) {
                     return copy(is, os).then([&os] {
                         return os.close();
                     }).then([&is] {
