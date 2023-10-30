@@ -20,10 +20,12 @@
  */
 
 
+#include <seastar/core/coroutine.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/shared_ptr.hh>
+#include <seastar/core/file.hh>
 
 using namespace seastar;
 
@@ -51,7 +53,7 @@ const char* de_type_desc(directory_entry_type t)
     return nullptr;
 }
 
-int main(int ac, char** av) {
+future<> lister_test() {
     class lister {
         file _f;
         subscription<directory_entry> _listing;
@@ -74,13 +76,73 @@ int main(int ac, char** av) {
             });
         }
     };
+    fmt::print("--- Regular lister test ---\n");
+    return engine().open_directory(".").then([] (file f) {
+        return do_with(lister(std::move(f)), [] (lister& l) {
+          return l.done();
+       });
+    });
+}
+
+#ifdef SEASTAR_COROUTINES_ENABLED
+future<> lister_generator_test(file f) {
+    auto lister = f.experimental_list_directory();
+    while (auto de = co_await lister()) {
+        auto sd = co_await file_stat(de->name, follow_symlink::no);
+        if (de->type) {
+            assert(*de->type == sd.type);
+        } else {
+            assert(sd.type == directory_entry_type::unknown);
+        }
+        fmt::print("{} (type={})\n", de->name, de_type_desc(sd.type));
+    }
+    co_await f.close();
+}
+
+class test_file_impl : public file_impl {
+    file _lower;
+public:
+    test_file_impl(file&& f) : _lower(std::move(f)) {}
+
+    virtual future<> flush() override { return get_file_impl(_lower)->flush(); }
+    virtual future<struct stat> stat() override { return get_file_impl(_lower)->stat(); }
+    virtual future<> truncate(uint64_t length) override { return get_file_impl(_lower)->truncate(length); }
+    virtual future<> discard(uint64_t offset, uint64_t length) override { return get_file_impl(_lower)->discard(offset, length); }
+    virtual future<> allocate(uint64_t position, uint64_t length) override { return get_file_impl(_lower)->allocate(position, length); }
+    virtual future<uint64_t> size() override { return get_file_impl(_lower)->size(); }
+    virtual future<> close() override { return _lower.close(); }
+    virtual subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next) override { return get_file_impl(_lower)->list_directory(std::move(next)); }
+    // ! no override for generator list_directory, so that fallback is used
+
+    virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, io_intent* i) override { return get_file_impl(_lower)->write_dma(pos, buffer, len, i); }
+    virtual future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, io_intent* i) override { return get_file_impl(_lower)->write_dma(pos, std::move(iov), i); }
+    virtual future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, io_intent* i) override { return get_file_impl(_lower)->read_dma(pos, buffer, len, i); }
+    virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, io_intent* i) override { return get_file_impl(_lower)->read_dma(pos, std::move(iov), i); }
+    virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, io_intent* i) override { return get_file_impl(_lower)->dma_read_bulk(offset, range_size, i); }
+};
+
+future<> lister_generator_test() {
+    fmt::print("--- Generator lister test ---\n");
+    auto f = co_await engine().open_directory(".");
+    co_await lister_generator_test(std::move(f));
+
+    fmt::print("--- Generator fallback test ---\n");
+    auto lf = co_await engine().open_directory(".");
+    auto tf = ::seastar::make_shared<test_file_impl>(std::move(lf));
+    auto f2 = file(std::move(tf));
+    co_await lister_generator_test(std::move(f2));
+}
+#else
+future<> lister_generator_test() {
+    fmt::print("Generator lister test skipped, coroutines not enabled\n");
+    return make_ready_future<>();
+}
+#endif
+
+int main(int ac, char** av) {
     return app_template().run(ac, av, [] {
-        return engine().open_directory(".").then([] (file f) {
-            return do_with(lister(std::move(f)), [] (lister& l) {
-              return l.done().then([] {
-                  return 0;
-              });
-           });
+        return lister_test().then([] {
+            return lister_generator_test();
         });
     });
 }
