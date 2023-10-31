@@ -21,8 +21,11 @@
 
 #pragma once
 
+#include <seastar/util/std-compat.hh>
+#ifdef SEASTAR_COROUTINES_ENABLED
 #include <seastar/core/coroutine.hh>
 #include <seastar/coroutine/generator.hh>
+#endif
 #include <seastar/core/do_with.hh>
 #include <seastar/core/stream.hh>
 #include <seastar/core/sstring.hh>
@@ -31,7 +34,6 @@
 #include <seastar/core/io_priority_class.hh>
 #include <seastar/core/file-types.hh>
 #include <seastar/core/circular_buffer.hh>
-#include <seastar/util/std-compat.hh>
 #include <seastar/util/modules.hh>
 #ifndef SEASTAR_MODULE
 #include <system_error>

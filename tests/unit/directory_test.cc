@@ -19,8 +19,10 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-
+#include <seastar/util/std-compat.hh>
+#ifdef SEASTAR_COROUTINES_ENABLED
 #include <seastar/core/coroutine.hh>
+#endif
 #include <seastar/core/reactor.hh>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/print.hh>
