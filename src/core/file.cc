@@ -414,7 +414,8 @@ static coroutine::experimental::generator<directory_entry, dir_entry_buffer> mak
                 continue;
             }
             std::optional<directory_entry_type> type = dirent_type(*de);
-            directory_entry ret(std::move(name), type);
+            // See: https://github.com/scylladb/seastar/issues/1677
+            directory_entry ret{std::move(name), type};
             co_yield ret;
         }
     }
