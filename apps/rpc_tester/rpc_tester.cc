@@ -25,6 +25,9 @@
 #include <yaml-cpp/yaml.h>
 #include <fmt/core.h>
 #include <boost/range/irange.hpp>
+#pragma GCC diagnostic push
+// see https://github.com/boostorg/accumulators/pull/54
+#pragma GCC diagnostic ignored "-Wuninitialized"
 #include <boost/accumulators/accumulators.hpp>
 #include <boost/accumulators/statistics/stats.hpp>
 #include <boost/accumulators/statistics/max.hpp>
@@ -32,6 +35,7 @@
 #include <boost/accumulators/statistics/p_square_quantile.hpp>
 #include <boost/accumulators/statistics/extended_p_square.hpp>
 #include <boost/accumulators/statistics/extended_p_square_quantile.hpp>
+#pragma GCC diagnostic pop
 #include <seastar/core/app-template.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/sharded.hh>
