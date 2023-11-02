@@ -28,6 +28,7 @@
 #include <cassert>
 #include <functional>
 #include <iosfwd>
+#include <fmt/ostream.h>
 #endif
 #include <seastar/net/byteorder.hh>
 #include <seastar/net/unix_address.hh>

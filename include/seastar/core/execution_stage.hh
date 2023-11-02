@@ -35,7 +35,6 @@
 #include <seastar/util/modules.hh>
 #ifndef SEASTAR_MODULE
 #include <fmt/format.h>
-#include <fmt/ostream.h>
 #include <vector>
 #include <boost/range/irange.hpp>
 #include <boost/range/adaptor/transformed.hpp>
