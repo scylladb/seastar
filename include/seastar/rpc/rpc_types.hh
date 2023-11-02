@@ -102,8 +102,8 @@ struct client_info {
         return boost::any_cast<T&>(it->second);
     }
     template <typename T>
-    typename std::add_const<T>::type& retrieve_auxiliary(const sstring& key) const {
-        return const_cast<client_info*>(this)->retrieve_auxiliary<typename std::add_const<T>::type>(key);
+    std::add_const_t<T>& retrieve_auxiliary(const sstring& key) const {
+        return const_cast<client_info*>(this)->retrieve_auxiliary<std::add_const_t<T>>(key);
     }
     template <typename T>
     T* retrieve_auxiliary_opt(const sstring& key) noexcept {

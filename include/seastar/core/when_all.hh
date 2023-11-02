@@ -340,7 +340,7 @@ namespace internal {
 template<typename Future>
 struct future_has_value {
     enum {
-        value = !std::is_same<std::decay_t<Future>, future<>>::value
+        value = !std::is_same_v<std::decay_t<Future>, future<>>
     };
 };
 

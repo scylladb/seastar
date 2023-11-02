@@ -47,7 +47,7 @@ template <typename T, typename Alloc>
 inline
 void
 transfer_pass1(Alloc& a, T* from, T* to,
-        typename std::enable_if<std::is_nothrow_move_constructible<T>::value>::type* = nullptr) {
+        std::enable_if_t<std::is_nothrow_move_constructible_v<T>>* = nullptr) {
     std::allocator_traits<Alloc>::construct(a, to, std::move(*from));
     std::allocator_traits<Alloc>::destroy(a, from);
 }
@@ -56,14 +56,14 @@ template <typename T, typename Alloc>
 inline
 void
 transfer_pass2(Alloc&, T*, T*,
-        typename std::enable_if<std::is_nothrow_move_constructible<T>::value>::type* = nullptr) {
+        std::enable_if_t<std::is_nothrow_move_constructible_v<T>>* = nullptr) {
 }
 
 template <typename T, typename Alloc>
 inline
 void
 transfer_pass1(Alloc& a, T* from, T* to,
-        typename std::enable_if<!std::is_nothrow_move_constructible<T>::value>::type* = nullptr) {
+        std::enable_if_t<!std::is_nothrow_move_constructible_v<T>>* = nullptr) {
     std::allocator_traits<Alloc>::construct(a, to, *from);
 }
 
@@ -71,7 +71,7 @@ template <typename T, typename Alloc>
 inline
 void
 transfer_pass2(Alloc& a, T* from, T*,
-        typename std::enable_if<!std::is_nothrow_move_constructible<T>::value>::type* = nullptr) {
+        std::enable_if_t<!std::is_nothrow_move_constructible_v<T>>* = nullptr) {
     std::allocator_traits<Alloc>::destroy(a, from);
 }
 SEASTAR_MODULE_EXPORT_END

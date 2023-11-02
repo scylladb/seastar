@@ -36,8 +36,8 @@ SEASTAR_CONCEPT(
 
 template<typename T>
 concept OptimizableOptional =
-    std::is_default_constructible<T>::value
-        && std::is_nothrow_move_assignable<T>::value
+    std::is_default_constructible_v<T>
+        && std::is_nothrow_move_assignable_v<T>
         && requires(const T& obj) {
             { bool(obj) } noexcept;
         };
@@ -70,7 +70,7 @@ public:
         return *this;
     }
     template<typename U>
-    std::enable_if_t<std::is_same<std::decay_t<U>, T>::value, optimized_optional&>
+    std::enable_if_t<std::is_same_v<std::decay_t<U>, T>, optimized_optional&>
     operator=(U&& obj) noexcept {
         _object = std::forward<U>(obj);
         return *this;

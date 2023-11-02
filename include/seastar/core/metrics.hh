@@ -277,13 +277,13 @@ struct real_counter_type_traits {
 
 template <typename T>
 struct real_counter_type_traits<true, T> {
-    using type = typename std::invoke_result<T>::type;
+    using type = std::invoke_result_t<T>;
 };
 
 template <typename T>
 struct counter_type_traits {
-    using real_traits = real_counter_type_traits<std::is_invocable<T>::value, T>;
-    static constexpr bool is_integral = std::is_integral<typename real_traits::type>::value;
+    using real_traits = real_counter_type_traits<std::is_invocable_v<T>, T>;
+    static constexpr bool is_integral = std::is_integral_v<typename real_traits::type>;
     static constexpr data_type type = is_integral ? data_type::COUNTER : data_type::REAL_COUNTER;
 };
 

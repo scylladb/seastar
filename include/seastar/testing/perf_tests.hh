@@ -265,7 +265,7 @@ protected:
         return if_constexpr_<is_future<decltype(_test->run())>::value>([&] (auto&&...) {
             measure_time.start_run(&_instructions_retired_counter);
             return do_until([this] { return this->stop_iteration(); }, [this] {
-                return if_constexpr_<std::is_same<decltype(_test->run()), future<>>::value>([&] (auto&&...) {
+                return if_constexpr_<std::is_same_v<decltype(_test->run()), future<>>>([&] (auto&&...) {
                     this->next_iteration(1);
                     return _test->run();
                 }, [&] (auto&&... dependency) {
@@ -283,7 +283,7 @@ protected:
         }, [&] (auto&&...) {
             measure_time.start_run(&_instructions_retired_counter);
             while (!stop_iteration()) {
-                if_constexpr_<std::is_void<decltype(_test->run())>::value>([&] (auto&&...) {
+                if_constexpr_<std::is_void_v<decltype(_test->run())>>([&] (auto&&...) {
                     (void)_test->run();
                     this->next_iteration(1);
                 }, [&] (auto&&... dependency) {

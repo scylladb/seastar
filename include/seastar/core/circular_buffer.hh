@@ -490,7 +490,7 @@ template <typename T, typename Alloc>
 inline
 typename circular_buffer<T, Alloc>::iterator
 circular_buffer<T, Alloc>::erase(iterator first, iterator last) noexcept {
-    static_assert(std::is_nothrow_move_assignable<T>::value, "erase() assumes move assignment does not throw");
+    static_assert(std::is_nothrow_move_assignable_v<T>, "erase() assumes move assignment does not throw");
     if (first == last) {
         return last;
     }

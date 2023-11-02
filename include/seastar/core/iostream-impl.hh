@@ -111,7 +111,7 @@ output_stream<CharType>::zero_copy_split_and_put(net::packet p) noexcept {
 
 template<typename CharType>
 future<> output_stream<CharType>::write(net::packet p) noexcept {
-    static_assert(std::is_same<CharType, char>::value, "packet works on char");
+    static_assert(std::is_same_v<CharType, char>, "packet works on char");
   try {
     if (p.len() != 0) {
         assert(!_end && "Mixing buffered writes and zero-copy writes not supported yet");

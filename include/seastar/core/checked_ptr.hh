@@ -101,7 +101,7 @@ inline T* checked_ptr_do_get(T* ptr) noexcept {
 SEASTAR_MODULE_EXPORT
 template<typename Ptr, typename NullDerefAction = default_null_deref_action>
 /// \cond SEASTAR_CONCEPT_DOC
-SEASTAR_CONCEPT( requires std::is_default_constructible<NullDerefAction>::value && requires (NullDerefAction action) {
+SEASTAR_CONCEPT( requires std::is_default_constructible_v<NullDerefAction> && requires (NullDerefAction action) {
     NullDerefAction();
 })
 /// \endcond
@@ -126,9 +126,9 @@ private:
 
 public:
     checked_ptr() noexcept(noexcept(Ptr(nullptr))) = default;
-    checked_ptr(std::nullptr_t) noexcept(std::is_nothrow_default_constructible<checked_ptr<Ptr, NullDerefAction>>::value) : checked_ptr() {}
-    checked_ptr(Ptr&& ptr) noexcept(std::is_nothrow_move_constructible<Ptr>::value) : _ptr(std::move(ptr)) {}
-    checked_ptr(const Ptr& p) noexcept(std::is_nothrow_copy_constructible<Ptr>::value) : _ptr(p) {}
+    checked_ptr(std::nullptr_t) noexcept(std::is_nothrow_default_constructible_v<checked_ptr<Ptr, NullDerefAction>>) : checked_ptr() {}
+    checked_ptr(Ptr&& ptr) noexcept(std::is_nothrow_move_constructible_v<Ptr>) : _ptr(std::move(ptr)) {}
+    checked_ptr(const Ptr& p) noexcept(std::is_nothrow_copy_constructible_v<Ptr>) : _ptr(p) {}
 
     /// \name Checked Methods
     /// These methods start with invoking a NullDerefAction functor if the underlying pointer is not engaged.

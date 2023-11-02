@@ -51,7 +51,7 @@ class [[nodiscard("unassigned deferred_action")]] deferred_action {
     Func _func;
     bool _cancelled = false;
 public:
-    static_assert(std::is_nothrow_move_constructible<Func>::value, "Func(Func&&) must be noexcept");
+    static_assert(std::is_nothrow_move_constructible_v<Func>, "Func(Func&&) must be noexcept");
     deferred_action(Func&& func) noexcept : _func(std::move(func)) {}
     deferred_action(deferred_action&& o) noexcept : _func(std::move(o._func)), _cancelled(o._cancelled) {
         o._cancelled = true;

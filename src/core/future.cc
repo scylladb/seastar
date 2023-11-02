@@ -39,7 +39,7 @@ namespace seastar {
 
 // We can't test future_state_base directly because its private
 // destructor is protected.
-static_assert(std::is_nothrow_move_constructible<future_state<std::tuple<int>>>::value,
+static_assert(std::is_nothrow_move_constructible_v<future_state<std::tuple<int>>>,
               "future_state's move constructor must not throw");
 
 static_assert(sizeof(future_state<std::tuple<>>) <= 8, "future_state<std::tuple<>> is too large");
@@ -50,14 +50,14 @@ static_assert(future_state<long>::has_trivial_move_and_destroy, "future_state<lo
 // We need to be able to move and copy std::exception_ptr in and out
 // of future/promise/continuations without that producing a new
 // exception.
-static_assert(std::is_nothrow_copy_constructible<std::exception_ptr>::value,
+static_assert(std::is_nothrow_copy_constructible_v<std::exception_ptr>,
     "std::exception_ptr's copy constructor must not throw");
-static_assert(std::is_nothrow_move_constructible<std::exception_ptr>::value,
+static_assert(std::is_nothrow_move_constructible_v<std::exception_ptr>,
     "std::exception_ptr's move constructor must not throw");
 
 namespace internal {
 
-static_assert(std::is_empty<uninitialized_wrapper<std::tuple<>>>::value, "This should still be empty");
+static_assert(std::is_empty_v<uninitialized_wrapper<std::tuple<>>>, "This should still be empty");
 
 void promise_base::move_it(promise_base&& x) noexcept {
     // Don't use std::exchange to make sure x's values are nulled even
