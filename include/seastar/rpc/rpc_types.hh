@@ -21,6 +21,10 @@
 
 #pragma once
 
+#if FMT_VERSION >= 90000
+#include <fmt/ostream.h>
+#endif
+
 #include <seastar/net/api.hh>
 #include <stdexcept>
 #include <string>
