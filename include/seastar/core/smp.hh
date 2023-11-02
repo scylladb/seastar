@@ -339,10 +339,6 @@ class smp : public std::enable_shared_from_this<smp> {
     static thread_local std::thread::id _tmain;
     bool _using_dpdk = false;
 
-    template <typename Func>
-    using returns_future = is_future<std::invoke_result_t<Func>>;
-    template <typename Func>
-    using returns_void = std::is_same<std::invoke_result_t<Func>, void>;
 private:
     void setup_prefaulter(const seastar::resource::resources& res, seastar::memory::internal::numa_layout layout);
 public:
