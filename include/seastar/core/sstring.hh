@@ -74,9 +74,9 @@ SEASTAR_MODULE_EXPORT
 template <typename char_type, typename Size, Size max_size, bool NulTerminate>
 class basic_sstring {
     static_assert(
-            (std::is_same<char_type, char>::value
-             || std::is_same<char_type, signed char>::value
-             || std::is_same<char_type, unsigned char>::value),
+            (std::is_same_v<char_type, char>
+             || std::is_same_v<char_type, signed char>
+             || std::is_same_v<char_type, unsigned char>),
             "basic_sstring only supports single byte char types");
     union contents {
         struct external_type {

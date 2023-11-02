@@ -471,7 +471,7 @@ void throw_system_error_on(bool condition, const char* what_arg) {
 template <typename T>
 inline
 void throw_kernel_error(T r) {
-    static_assert(std::is_signed<T>::value, "kernel error variables must be signed");
+    static_assert(std::is_signed_v<T>, "kernel error variables must be signed");
     if (r < 0) {
         auto ec = -r;
         if ((ec == EBADF || ec == ENOTSOCK) && is_abort_on_ebadf_enabled()) {

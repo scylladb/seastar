@@ -235,7 +235,7 @@ SEASTAR_MODULE_EXPORT
 template <class Exc, typename... Args>
 std::exception_ptr make_backtraced_exception_ptr(Args&&... args) {
     using exc_type = std::decay_t<Exc>;
-    static_assert(std::is_base_of<std::exception, exc_type>::value,
+    static_assert(std::is_base_of_v<std::exception, exc_type>,
             "throw_with_backtrace only works with exception types");
     return std::make_exception_ptr<internal::backtraced<exc_type>>(Exc(std::forward<Args>(args)...));
 }

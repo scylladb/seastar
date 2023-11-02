@@ -192,13 +192,13 @@ private:
     friend struct shared_ptr_make_helper;
 
     template <typename T>
-    std::enable_if_t<std::is_base_of<peering_sharded_service<T>, T>::value>
+    std::enable_if_t<std::is_base_of_v<peering_sharded_service<T>, T>>
     set_container(T& service) noexcept {
         service.set_container(this);
     }
 
     template <typename T>
-    std::enable_if_t<!std::is_base_of<peering_sharded_service<T>, T>::value>
+    std::enable_if_t<!std::is_base_of_v<peering_sharded_service<T>, T>>
     set_container(T&) noexcept {
     }
 
@@ -846,7 +846,7 @@ SEASTAR_MODULE_EXPORT_BEGIN
 /// \c foreign_ptr<> is a move-only object; it cannot be copied.
 ///
 template <typename PtrType>
-SEASTAR_CONCEPT( requires (!std::is_pointer<PtrType>::value) )
+SEASTAR_CONCEPT( requires (!std::is_pointer_v<PtrType>) )
 class foreign_ptr {
 private:
     PtrType _value;
@@ -923,7 +923,7 @@ public:
     /// Checks whether the wrapped pointer is non-null.
     operator bool() const noexcept(noexcept(static_cast<bool>(_value))) { return static_cast<bool>(_value); }
     /// Move-assigns a \c foreign_ptr<>.
-    foreign_ptr& operator=(foreign_ptr&& other) noexcept(std::is_nothrow_move_constructible<PtrType>::value) {
+    foreign_ptr& operator=(foreign_ptr&& other) noexcept(std::is_nothrow_move_constructible_v<PtrType>) {
          destroy(std::move(_value), _cpu);
         _value = std::move(other._value);
         _cpu = other._cpu;

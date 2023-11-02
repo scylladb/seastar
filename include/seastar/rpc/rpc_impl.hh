@@ -213,7 +213,7 @@ template <typename Serializer, typename Output>
 struct marshall_one {
     template <typename T> struct helper {
         static void doit(Serializer& serializer, Output& out, const T& arg) {
-            using serialize_helper_type = serialize_helper<is_smart_ptr<typename std::remove_reference<T>::type>::value>;
+            using serialize_helper_type = serialize_helper<is_smart_ptr<typename std::remove_reference_t<T>>::value>;
             serialize_helper_type::serialize(serializer, out, arg);
         }
     };
@@ -610,13 +610,13 @@ auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo, Wa
 
 // helper to create copy constructible lambda from non copy constructible one. std::function<> works only with former kind.
 template<typename Func>
-auto make_copyable_function(Func&& func, std::enable_if_t<!std::is_copy_constructible<std::decay_t<Func>>::value, void*> = nullptr) {
+auto make_copyable_function(Func&& func, std::enable_if_t<!std::is_copy_constructible_v<std::decay_t<Func>>, void*> = nullptr) {
   auto p = make_lw_shared<typename std::decay_t<Func>>(std::forward<Func>(func));
   return [p] (auto&&... args) { return (*p)( std::forward<decltype(args)>(args)... ); };
 }
 
 template<typename Func>
-auto make_copyable_function(Func&& func, std::enable_if_t<std::is_copy_constructible<std::decay_t<Func>>::value, void*> = nullptr) {
+auto make_copyable_function(Func&& func, std::enable_if_t<std::is_copy_constructible_v<std::decay_t<Func>>, void*> = nullptr) {
     return std::forward<Func>(func);
 }
 

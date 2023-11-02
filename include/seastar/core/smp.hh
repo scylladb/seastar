@@ -372,7 +372,7 @@ public:
                 if (!is_future<ret_type>::value) {
                     // Non-deferring function, so don't worry about func lifetime
                     return futurize<ret_type>::invoke(std::forward<Func>(func));
-                } else if (std::is_lvalue_reference<Func>::value) {
+                } else if (std::is_lvalue_reference_v<Func>) {
                     // func is an lvalue, so caller worries about its lifetime
                     return futurize<ret_type>::invoke(func);
                 } else {
@@ -423,7 +423,7 @@ public:
     template<typename Func>
     SEASTAR_CONCEPT( requires std::is_nothrow_move_constructible_v<Func> )
     static future<> invoke_on_all(smp_submit_to_options options, Func&& func) noexcept {
-        static_assert(std::is_same<future<>, typename futurize<std::invoke_result_t<Func>>::type>::value, "bad Func signature");
+        static_assert(std::is_same_v<future<>, typename futurize<std::invoke_result_t<Func>>::type>, "bad Func signature");
         static_assert(std::is_nothrow_move_constructible_v<Func>);
         return parallel_for_each(all_cpus(), [options, &func] (unsigned id) {
             return smp::submit_to(id, options, Func(func));
@@ -455,7 +455,7 @@ public:
     SEASTAR_CONCEPT( requires std::is_nothrow_move_constructible_v<Func> &&
             std::is_nothrow_copy_constructible_v<Func> )
     static future<> invoke_on_others(unsigned cpu_id, smp_submit_to_options options, Func func) noexcept {
-        static_assert(std::is_same<future<>, typename futurize<std::invoke_result_t<Func>>::type>::value, "bad Func signature");
+        static_assert(std::is_same_v<future<>, typename futurize<std::invoke_result_t<Func>>::type>, "bad Func signature");
         static_assert(std::is_nothrow_move_constructible_v<Func>);
         return parallel_for_each(all_cpus(), [cpu_id, options, func = std::move(func)] (unsigned id) {
             return id != cpu_id ? smp::submit_to(id, options, Func(func)) : make_ready_future<>();

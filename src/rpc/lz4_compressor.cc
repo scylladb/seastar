@@ -80,7 +80,7 @@ public:
     template<typename Output, typename Function>
     SEASTAR_CONCEPT(requires requires (Function fn, char* ptr) {
         { fn(ptr) } -> std::convertible_to<size_t>;
-    } && (std::is_same<Output, snd_buf>::value || std::is_same<Output, rcv_buf>::value))
+    } && (std::is_same_v<Output, snd_buf> || std::is_same_v<Output, rcv_buf>))
     Output with_reserved(size_t max_size, Function&& fn) {
         if (max_size <= chunk_size) {
             auto dst = temporary_buffer<char>(max_size);

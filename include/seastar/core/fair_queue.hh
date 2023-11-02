@@ -301,7 +301,7 @@ public:
     using class_id = unsigned int;
     class priority_class_data;
     using capacity_t = fair_group::capacity_t;
-    using signed_capacity_t = std::make_signed<capacity_t>::type;
+    using signed_capacity_t = std::make_signed_t<capacity_t>;
 
 private:
     using clock_type = std::chrono::steady_clock;

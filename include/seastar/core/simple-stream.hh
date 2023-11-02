@@ -239,9 +239,9 @@ public:
         // fragmented and simple input stream are PODs and the branch below
         // is optimized away, so throwable copy constructors aren't something
         // we want.
-        static_assert(std::is_nothrow_copy_constructible<fragmented>::value,
+        static_assert(std::is_nothrow_copy_constructible_v<fragmented>,
                       "seastar::memory_output_stream::fragmented should be copy constructible");
-        static_assert(std::is_nothrow_copy_constructible<simple>::value,
+        static_assert(std::is_nothrow_copy_constructible_v<simple>,
                       "seastar::memory_output_stream::simple should be copy constructible");
         if (_is_simple) {
             new (&_simple) simple(other._simple);
@@ -262,7 +262,7 @@ public:
     [[gnu::always_inline]]
     memory_output_stream& operator=(const memory_output_stream& other) noexcept {
         // Copy constructor being noexcept makes copy assignment simpler.
-        static_assert(std::is_nothrow_copy_constructible<memory_output_stream>::value,
+        static_assert(std::is_nothrow_copy_constructible_v<memory_output_stream>,
                       "memory_output_stream copy constructor shouldn't throw");
         if (this != &other) {
             this->~memory_output_stream();
@@ -505,9 +505,9 @@ public:
         // fragmented and simple input stream are PODs and the branch below
         // is optimized away, so throwable copy constructors aren't something
         // we want.
-        static_assert(std::is_nothrow_copy_constructible<fragmented>::value,
+        static_assert(std::is_nothrow_copy_constructible_v<fragmented>,
                       "seastar::memory_input_stream::fragmented should be copy constructible");
-        static_assert(std::is_nothrow_copy_constructible<simple>::value,
+        static_assert(std::is_nothrow_copy_constructible_v<simple>,
                       "seastar::memory_input_stream::simple should be copy constructible");
         if (_is_simple) {
             new (&_simple) simple(other._simple);
@@ -528,7 +528,7 @@ public:
     [[gnu::always_inline]]
     memory_input_stream& operator=(const memory_input_stream& other) noexcept {
         // Copy constructor being noexcept makes copy assignment simpler.
-        static_assert(std::is_nothrow_copy_constructible<memory_input_stream>::value,
+        static_assert(std::is_nothrow_copy_constructible_v<memory_input_stream>,
                       "memory_input_stream copy constructor shouldn't throw");
         if (this != &other) {
             this->~memory_input_stream();

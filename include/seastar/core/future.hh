@@ -344,8 +344,8 @@ template <typename T> struct uninitialized_wrapper_base<T, true> : private T {
 
 template <typename T>
 constexpr bool can_inherit =
-        (std::is_trivially_destructible<T>::value && std::is_trivially_constructible<T>::value &&
-                std::is_class<T>::value && !std::is_final<T>::value);
+        (std::is_trivially_destructible_v<T> && std::is_trivially_constructible_v<T> &&
+                std::is_class_v<T> && !std::is_final_v<T>);
 
 // The objective is to avoid extra space for empty types like std::tuple<>. We could use std::is_empty_v, but it is
 // better to check that both the constructor and destructor can be skipped.
@@ -355,7 +355,7 @@ struct uninitialized_wrapper
 
 template <typename T>
 struct is_trivially_move_constructible_and_destructible {
-    static constexpr bool value = std::is_trivially_move_constructible<T>::value && std::is_trivially_destructible<T>::value;
+    static constexpr bool value = std::is_trivially_move_constructible_v<T> && std::is_trivially_destructible_v<T>;
 };
 
 template <bool... v>
@@ -562,11 +562,11 @@ struct future_for_get_promise_marker {};
 /// \cond internal
 template <typename T>
 struct future_state :  public future_state_base, private internal::uninitialized_wrapper<T> {
-    static constexpr bool copy_noexcept = std::is_nothrow_copy_constructible<T>::value;
+    static constexpr bool copy_noexcept = std::is_nothrow_copy_constructible_v<T>;
     static constexpr bool has_trivial_move_and_destroy = internal::is_trivially_move_constructible_and_destructible<T>::value;
-    static_assert(std::is_nothrow_move_constructible<T>::value,
+    static_assert(std::is_nothrow_move_constructible_v<T>,
                   "Types must be no-throw move constructible");
-    static_assert(std::is_nothrow_destructible<T>::value,
+    static_assert(std::is_nothrow_destructible_v<T>,
                   "Types must be no-throw destructible");
     future_state() noexcept = default;
     void move_it(future_state&& x) noexcept {
@@ -639,7 +639,7 @@ struct future_state :  public future_state_base, private internal::uninitialized
         return static_cast<T&&>(this->uninitialized_get());
     }
     template<typename U = T>
-    const std::enable_if_t<std::is_copy_constructible<U>::value, U>& get_value() const& noexcept(copy_noexcept) {
+    const std::enable_if_t<std::is_copy_constructible_v<U>, U>& get_value() const& noexcept(copy_noexcept) {
         assert(_u.st == state::result);
         return this->uninitialized_get();
     }
@@ -820,7 +820,7 @@ protected:
     }
 
     template<typename Exception>
-    std::enable_if_t<!std::is_same<std::remove_reference_t<Exception>, std::exception_ptr>::value, void> set_exception(Exception&& e) noexcept {
+    std::enable_if_t<!std::is_same_v<std::remove_reference_t<Exception>, std::exception_ptr>, void> set_exception(Exception&& e) noexcept {
         set_exception(std::make_exception_ptr(std::forward<Exception>(e)));
     }
 
@@ -987,7 +987,7 @@ public:
     /// Forwards the exception argument to the future and makes it
     /// available.  May be called either before or after \c get_future().
     template<typename Exception>
-    std::enable_if_t<!std::is_same<std::remove_reference_t<Exception>, std::exception_ptr>::value, void> set_exception(Exception&& e) noexcept {
+    std::enable_if_t<!std::is_same_v<std::remove_reference_t<Exception>, std::exception_ptr>, void> set_exception(Exception&& e) noexcept {
         internal::promise_base::set_exception(std::forward<Exception>(e));
     }
 

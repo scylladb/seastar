@@ -120,7 +120,7 @@ SEASTAR_CONCEPT( requires std::is_invocable_r_v<stop_iteration, AsyncAction> || 
 inline
 future<> repeat(AsyncAction&& action) noexcept {
     using futurator = futurize<std::invoke_result_t<AsyncAction>>;
-    static_assert(std::is_same<future<stop_iteration>, typename futurator::type>::value, "bad AsyncAction signature");
+    static_assert(std::is_same_v<future<stop_iteration>, typename futurator::type>, "bad AsyncAction signature");
     for (;;) {
         // Do not type-erase here in case this is a short repeat()
         auto f = futurator::invoke(action);
@@ -505,7 +505,7 @@ inline
 size_t
 iterator_range_estimate_vector_capacity(Iterator begin, Sentinel end, IteratorCategory) {
     // May be linear time below random_access_iterator_tag, but still better than reallocation
-    if constexpr (std::is_base_of<std::forward_iterator_tag, IteratorCategory>::value) {
+    if constexpr (std::is_base_of_v<std::forward_iterator_tag, IteratorCategory>) {
         return std::distance(begin, end);
     }
 

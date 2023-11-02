@@ -67,7 +67,7 @@ BOOST_AUTO_TEST_CASE(map_types) {
     using before_tuple = std::tuple<double, bool, const char*>;
     using after_tuple = typename tuple_map_types<transform_type, before_tuple>::type;
 
-    BOOST_REQUIRE((std::is_same<after_tuple, std::tuple<char, int, const char*>>::value));
+    BOOST_REQUIRE((std::is_same_v<after_tuple, std::tuple<char, int, const char*>>));
 }
 
 namespace {
@@ -92,8 +92,8 @@ BOOST_AUTO_TEST_CASE(filter_by_type) {
     using before_tuple = std::tuple<bool, int, bool, double, bool, char>;
 
     const auto t = tuple_filter_by_type<keep_type>(before_tuple{true, 10, false, 5.5, true, 'a'});
-    using filtered_type = typename std::decay<decltype(t)>::type;
+    using filtered_type = std::decay_t<decltype(t)>;
 
-    BOOST_REQUIRE((std::is_same<filtered_type, std::tuple<int, double, char>>::value));
+    BOOST_REQUIRE((std::is_same_v<filtered_type, std::tuple<int, double, char>>));
     BOOST_REQUIRE(t == std::make_tuple(10, 5.5, 'a'));
 }

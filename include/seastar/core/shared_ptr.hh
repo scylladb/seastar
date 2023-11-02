@@ -239,7 +239,7 @@ struct lw_shared_ptr_accessors_no_esft {
 // implementation based on whether T inherits from enable_lw_shared_from_this<T>.
 template <typename T, typename U = void>
 struct lw_shared_ptr_accessors : std::conditional_t<
-         std::is_base_of<enable_lw_shared_from_this<T>, T>::value,
+         std::is_base_of_v<enable_lw_shared_from_this<T>, T>,
          lw_shared_ptr_accessors_esft<T>,
          lw_shared_ptr_accessors_no_esft<T>> {
 };
@@ -546,7 +546,7 @@ public:
         x._b = nullptr;
         x._p = nullptr;
     }
-    template <typename U, typename = std::enable_if_t<std::is_base_of<T, U>::value>>
+    template <typename U, typename = std::enable_if_t<std::is_base_of_v<T, U>>>
     shared_ptr(const shared_ptr<U>& x) noexcept
             : _b(x._b)
             , _p(x._p) {
@@ -554,7 +554,7 @@ public:
             ++_b->count;
         }
     }
-    template <typename U, typename = std::enable_if_t<std::is_base_of<T, U>::value>>
+    template <typename U, typename = std::enable_if_t<std::is_base_of_v<T, U>>>
     shared_ptr(shared_ptr<U>&& x) noexcept
             : _b(x._b)
             , _p(x._p) {
@@ -588,7 +588,7 @@ public:
     shared_ptr& operator=(std::nullptr_t) noexcept {
         return *this = shared_ptr();
     }
-    template <typename U, typename = std::enable_if_t<std::is_base_of<T, U>::value>>
+    template <typename U, typename = std::enable_if_t<std::is_base_of_v<T, U>>>
     shared_ptr& operator=(const shared_ptr<U>& x) noexcept {
         if (*this != x) {
             this->~shared_ptr();
@@ -596,7 +596,7 @@ public:
         }
         return *this;
     }
-    template <typename U, typename = std::enable_if_t<std::is_base_of<T, U>::value>>
+    template <typename U, typename = std::enable_if_t<std::is_base_of_v<T, U>>>
     shared_ptr& operator=(shared_ptr<U>&& x) noexcept {
         if (*this != x) {
             this->~shared_ptr();
@@ -681,7 +681,7 @@ template <typename T, typename... A>
 inline
 shared_ptr<T>
 make_shared(A&&... a) {
-    using helper = shared_ptr_make_helper<T, std::is_base_of<shared_ptr_count_base, T>::value>;
+    using helper = shared_ptr_make_helper<T, std::is_base_of_v<shared_ptr_count_base, T>>;
     return helper::make(std::forward<A>(a)...);
 }
 
@@ -689,7 +689,7 @@ template <typename T>
 inline
 shared_ptr<T>
 make_shared(T&& a) {
-    using helper = shared_ptr_make_helper<T, std::is_base_of<shared_ptr_count_base, T>::value>;
+    using helper = shared_ptr_make_helper<T, std::is_base_of_v<shared_ptr_count_base, T>>;
     return helper::make(std::forward<T>(a));
 }
 

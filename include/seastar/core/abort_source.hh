@@ -87,12 +87,12 @@ public:
     public:
         subscription() = default;
 
-        subscription(subscription&& other) noexcept(std::is_nothrow_move_constructible<subscription_callback_type>::value)
+        subscription(subscription&& other) noexcept(std::is_nothrow_move_constructible_v<subscription_callback_type>)
                 : _target(std::move(other._target)) {
             subscription_list_type::node_algorithms::swap_nodes(other.this_ptr(), this_ptr());
         }
 
-        subscription& operator=(subscription&& other) noexcept(std::is_nothrow_move_assignable<subscription_callback_type>::value) {
+        subscription& operator=(subscription&& other) noexcept(std::is_nothrow_move_assignable_v<subscription_callback_type>) {
             if (this != &other) {
                 _target = std::move(other._target);
                 unlink();

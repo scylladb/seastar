@@ -90,7 +90,7 @@ struct is_nothrow_if_object {
 
 template<typename Arg>
 struct is_nothrow_if_object<Arg> {
-    static constexpr bool value = !std::is_object<Arg>::value || std::is_nothrow_move_constructible<Arg>::value;
+    static constexpr bool value = !std::is_object_v<Arg> || std::is_nothrow_move_constructible_v<Arg>;
 };
 
 template<>
@@ -133,15 +133,15 @@ private:
             destroy(from);
         }
         static constexpr move_type select_move_thunk() {
-            bool can_trivially_move = std::is_trivially_move_constructible<Func>::value
-                    && std::is_trivially_destructible<Func>::value;
+            bool can_trivially_move = std::is_trivially_move_constructible_v<Func>
+                    && std::is_trivially_destructible_v<Func>;
             return can_trivially_move ? trivial_direct_move<internal::used_size<Func>::value> : move;
         }
         static void destroy(noncopyable_function_base* func) {
             access(func)->~Func();
         }
         static constexpr destroy_type select_destroy_thunk() {
-            return std::is_trivially_destructible<Func>::value ? trivial_direct_destroy : destroy;
+            return std::is_trivially_destructible_v<Func> ? trivial_direct_destroy : destroy;
         }
         static void initialize(Func&& from, noncopyable_function* to) {
             new (access(to)) Func(std::move(from));
@@ -173,7 +173,7 @@ private:
     template <typename Func>
     static constexpr bool is_direct() {
         return sizeof(Func) <= nr_direct && alignof(Func) <= alignof(storage)
-                && std::is_nothrow_move_constructible<Func>::value;
+                && std::is_nothrow_move_constructible_v<Func>;
     }
     template <typename Func>
     struct vtable_for : select_vtable_for<Func, is_direct<Func>()> {};

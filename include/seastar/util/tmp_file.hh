@@ -37,9 +37,9 @@ class tmp_file {
     file _file;
     bool _is_open = false;
 
-    static_assert(std::is_nothrow_constructible<std::filesystem::path>::value,
+    static_assert(std::is_nothrow_constructible_v<std::filesystem::path>,
         "filesystem::path's constructor must not throw");
-    static_assert(std::is_nothrow_move_constructible<std::filesystem::path>::value,
+    static_assert(std::is_nothrow_move_constructible_v<std::filesystem::path>,
         "filesystem::path's move constructor must not throw");
 public:
     tmp_file() noexcept = default;
@@ -60,7 +60,7 @@ public:
     static future<> do_with(std::filesystem::path path_template, Func&& func,
             open_flags oflags = open_flags::rw,
             file_open_options options = {}) noexcept {
-        static_assert(std::is_nothrow_move_constructible<Func>::value,
+        static_assert(std::is_nothrow_move_constructible_v<Func>,
             "Func's move constructor must not throw");
         return seastar::do_with(tmp_file(), [func = std::move(func), path_template = std::move(path_template), oflags, options = std::move(options)] (tmp_file& t) mutable {
             return t.open(std::move(path_template), oflags, std::move(options)).then([&t, func = std::move(func)] () mutable {
