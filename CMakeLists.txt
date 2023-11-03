@@ -47,11 +47,6 @@ project (Seastar
   VERSION 1.0
   LANGUAGES CXX)
 
-# generic boolean values passed as string, potentially from configure.py
-set (True_STRING_VALUES "ON" "yes" "Yes" "YES" "true" "True" "TRUE")
-set (False_STRING_VALUES "OFF" "no" "No" "NO" "false" "False" "FALSE")
-set (Default_STRING_VALUES "DEFAULT" "default" "Default")
-
 set (Seastar_ALLOC_FAILURE_INJECTION
   "DEFAULT"
   CACHE
@@ -880,10 +875,12 @@ if (LinuxMembarrier_FOUND)
     PRIVATE LinuxMembarrier::membarrier)
 endif ()
 
-set (Seastar_ALLOC_FAILURE_INJECTION_MODES "Dev")
-if ((Seastar_ALLOC_FAILURE_INJECTION IN_LIST True_STRING_VALUES) OR
-    ((Seastar_ALLOC_FAILURE_INJECTION STREQUAL "DEFAULT") AND
-     (CMAKE_BUILD_TYPE IN_LIST Seastar_ALLOC_FAILURE_INJECTION_MODES)))
+include (TriStateOption)
+
+tri_state_option (${Seastar_ALLOC_FAILURE_INJECTION}
+  DEFAULT_BUILD_TYPES "Dev"
+  OUTPUT ALLOC_FAILURE_INJECTION)
+if (ALLOC_FAILURE_INJECTION)
   target_compile_definitions (seastar
     PUBLIC SEASTAR_ENABLE_ALLOC_FAILURE_INJECTION)
 endif ()
@@ -1016,10 +1013,10 @@ foreach (definition
       $<$<IN_LIST:$<CONFIG>,Debug;Sanitize>:${definition}>)
 endforeach ()
 
-set (Seastar_DEBUG_SHARED_PTR_MODES "Debug" "Sanitize")
-if (Seastar_DEBUG_SHARED_PTR IN_LIST True_STRING_VALUES OR
-    ((Seastar_DEBUG_SHARED_PTR IN_LIST Default_STRING_VALUES) AND
-     (CMAKE_BUILD_TYPE IN_LIST Seastar_DEBUG_SHARED_PTR_MODES)))
+tri_state_option (${Seastar_DEBUG_SHARED_PTR}
+  DEFAULT_BUILD_TYPES "Debug" "Sanitize"
+  OUTPUT DEBUG_SHARED_PTR)
+if (DEBUG_SHARED_PTR)
   target_compile_definitions (seastar
     PUBLIC
       SEASTAR_DEBUG_SHARED_PTR)
@@ -1027,10 +1024,10 @@ endif ()
 
 include (CheckLibc)
 
-set (Seastar_STACK_GUARD_MODES "Debug" "Sanitize" "Dev")
-if ((Seastar_STACK_GUARDS STREQUAL "ON") OR
-    ((Seastar_STACK_GUARDS STREQUAL "DEFAULT") AND
-     (CMAKE_BUILD_TYPE IN_LIST Seastar_STACK_GUARD_MODES)))
+tri_state_option (${Seastar_STACK_GUARDS}
+  DEFAULT_BUILD_TYPES "Debug" "Sanitize" "Dev"
+  OUTPUT STACK_GUARDS)
+if(STACK_GUARDS)
   # check for -fstack-clash-protection together with -Werror, because
   # otherwise clang can soft-fail (return 0 but emit a warning) instead.
   seastar_supports_flag ("-fstack-clash-protection -Werror" StackClashProtection_FOUND)
