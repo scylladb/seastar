@@ -762,6 +762,14 @@ set (Seastar_PRIVATE_CXX_FLAGS
   -Wimplicit-fallthrough
   -Wdeprecated
   -Wno-error=deprecated)
+
+include (CheckGcc107852)
+if (NOT Cxx_Compiler_BZ107852_Free)
+  list (APPEND Seastar_PRIVATE_CXX_FLAGS
+    -Wno-error=stringop-overflow
+    -Wno-error=array-bounds)
+endif ()
+
 if (NOT BUILD_SHARED_LIBS)
   list (APPEND Seastar_PRIVATE_CXX_FLAGS -fvisibility=hidden)
 endif ()
