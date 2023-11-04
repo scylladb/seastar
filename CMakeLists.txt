@@ -919,10 +919,12 @@ endif ()
 # as many compilation units as possible.  So while these flags don't
 # have to be public, we don't expect anyone to want to build seastar
 # with them and some client code without.
-if (Seastar_SPLIT_DWARF AND (NOT (CMAKE_BUILD_TYPE STREQUAL "Dev")))
+if (Seastar_SPLIT_DWARF)
   set (Seastar_SPLIT_DWARF_FLAG "-Wl,--gdb-index")
-  target_link_libraries (seastar PUBLIC ${Seastar_SPLIT_DWARF_FLAG})
-  target_compile_options (seastar PUBLIC "-gsplit-dwarf")
+  target_link_libraries (seastar PUBLIC
+    $<$<NOT:$<CONFIG:Dev>>:${Seastar_SPLIT_DWARF_FLAG}>)
+  target_compile_options (seastar PUBLIC
+    $<$<NOT:$<CONFIG:Dev>>:-gsplit-dwarf>)
 endif ()
 
 if (Seastar_HEAP_PROFILING)
