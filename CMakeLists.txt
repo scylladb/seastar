@@ -1007,13 +1007,14 @@ if (ErrorWarnings_FOUND)
       PUBLIC "-Wno-error=#warnings")
 endif ()
 
-if ((CMAKE_BUILD_TYPE STREQUAL "Debug") OR (CMAKE_BUILD_TYPE STREQUAL "Sanitize"))
+foreach (definition
+    SEASTAR_DEBUG
+    SEASTAR_DEFAULT_ALLOCATOR
+    SEASTAR_SHUFFLE_TASK_QUEUE)
   target_compile_definitions (seastar
     PUBLIC
-      SEASTAR_DEBUG
-      SEASTAR_DEFAULT_ALLOCATOR
-      SEASTAR_SHUFFLE_TASK_QUEUE)
-endif ()
+      $<$<IN_LIST:$<CONFIG>,Debug;Sanitize>:${definition}>)
+endforeach ()
 
 set (Seastar_DEBUG_SHARED_PTR_MODES "Debug" "Sanitize")
 if (Seastar_DEBUG_SHARED_PTR IN_LIST True_STRING_VALUES OR
@@ -1043,11 +1044,10 @@ if ((Seastar_STACK_GUARDS STREQUAL "ON") OR
       SEASTAR_THREAD_STACK_GUARDS)
 endif ()
 
-if ((CMAKE_BUILD_TYPE STREQUAL "Dev") OR (CMAKE_BUILD_TYPE STREQUAL "Debug"))
-  target_compile_definitions (seastar
-    PUBLIC
-      SEASTAR_TYPE_ERASE_MORE)
-endif ()
+target_compile_definitions (seastar
+  PUBLIC
+    $<$<IN_LIST:$<CONFIG>,Dev;Debug>:SEASTAR_TYPE_ERASE_MORE>
+    SEASTAR_TYPE_ERASE_MORE)
 
 target_compile_definitions (seastar
   PRIVATE ${Seastar_PRIVATE_COMPILE_DEFINITIONS})
