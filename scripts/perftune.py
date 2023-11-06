@@ -1359,6 +1359,12 @@ class DiskPerfTuner(PerfTunerBase):
                 udev_obj = pyudev.Devices.from_device_file(self.__pyudev_ctx, "/dev/{}".format(device))
                 dev_sys_path = udev_obj.sys_path
 
+                # If the device is iSCSI disk, we should skip discovering IRQs
+                # since it's virtual device
+                if re.search(r'^/sys/devices/platform/host[0-9]+/session[0-9]+', udev_obj.sys_path):
+                    disk2irqs[device] = []
+                    continue
+
                 # If the device is a virtual NVMe device it's sys file name goes as follows:
                 # /sys/devices/virtual/nvme-subsystem/nvme-subsys0/nvme0n1
                 #
