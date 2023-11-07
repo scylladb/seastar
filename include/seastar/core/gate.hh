@@ -161,7 +161,7 @@ public:
 
     /// Facility to hold a gate opened using RAII.
     ///
-    /// A \ref gate::holder is usually obtained using \ref gate::get_holder.
+    /// A \ref gate::holder is usually obtained using \ref gate::hold.
     ///
     /// The \c gate is entered when the \ref gate::holder is constructed,
     /// And the \c gate is left when the \ref gate::holder is destroyed.
