@@ -1747,6 +1747,11 @@ public:
     using future_base::set_coroutine;
 #endif
 private:
+    void set_task(task& t) noexcept {
+        assert(_promise);
+        _promise->_task = &t;
+    }
+
     void set_callback(continuation_base<T>* callback) noexcept {
         if (_state.available()) {
             callback->set_state(get_available_state_ref());
