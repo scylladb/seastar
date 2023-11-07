@@ -1547,6 +1547,20 @@ SEASTAR_THREAD_TEST_CASE(test_shared_future_with_abort) {
     BOOST_REQUIRE(f4.available());
 }
 
+SEASTAR_THREAD_TEST_CASE(test_shared_promise_with_outstanding_future_is_immediately_available) {
+    shared_promise<> pr1;
+    auto f1 = pr1.get_shared_future();
+    pr1.set_value();
+    BOOST_REQUIRE(pr1.available());
+    BOOST_REQUIRE_NO_THROW(f1.get());
+
+    shared_promise<> pr2;
+    auto f2 = pr2.get_shared_future();
+    pr2.set_exception(std::runtime_error("oops"));
+    BOOST_REQUIRE(pr2.available());
+    BOOST_REQUIRE_THROW(f2.get(), std::runtime_error);
+}
+
 SEASTAR_TEST_CASE(test_when_all_succeed_tuples) {
     return seastar::when_all_succeed(
         make_ready_future<>(),
