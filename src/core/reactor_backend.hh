@@ -55,8 +55,12 @@ struct aio_general_context {
     ~aio_general_context();
     internal::linux_abi::aio_context_t io_context{};
     std::unique_ptr<internal::linux_abi::iocb*[]> iocbs;
+    internal::linux_abi::iocb** begin;
     internal::linux_abi::iocb** last;
     internal::linux_abi::iocb** const end;
+    // in case `iocbs` is full queue here, use std::deque to avoid oversized
+    // allocations
+    std::deque<internal::linux_abi::iocb*> iocbs_backlog;
     void queue(internal::linux_abi::iocb* iocb);
     // submit all queued iocbs and return their count.
     size_t flush();

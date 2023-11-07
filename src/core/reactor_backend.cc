@@ -319,6 +319,7 @@ bool aio_storage_context::can_sleep() const {
 
 aio_general_context::aio_general_context(size_t nr)
         : iocbs(new iocb*[nr])
+        , begin(iocbs.get())
         , last(iocbs.get())
         , end(iocbs.get() + nr)
 {
@@ -330,12 +331,15 @@ aio_general_context::~aio_general_context() {
 }
 
 void aio_general_context::queue(linux_abi::iocb* iocb) {
-    assert(last < end);
-    *last++ = iocb;
+    if (last < end) {
+        *last++ = iocb;
+    } else {
+        iocbs_backlog.push_back(iocb);
+    }
 }
 
 size_t aio_general_context::flush() {
-    auto begin = iocbs.get();
+    auto original_begin = begin;
     while (begin != last) {
         auto r = io_submit(io_context, last - begin, begin);
         if (__builtin_expect(r <= 0, false)) {
@@ -346,14 +350,31 @@ size_t aio_general_context::flush() {
             if (r < 0 && errno != EAGAIN) {
                 on_fatal_internal_error(seastar_logger, format("aio_general_context::flush: io_submit failed with unexpected system error: {}", errno));
             }
-            // just adjust the queue and return the number of iocbs we were able to submit
-            std::move(begin, last, iocbs.get());
             break;
         }
         begin += r;
     }
-    auto nr = begin - iocbs.get();
-    last -= nr;
+
+    auto nr = begin - original_begin;
+
+    if (nr != 0 && begin == last) {
+        // If we have succesfully committed all iocbs (begin == last) then we
+        // reset the pointers. Further at this point we move iocbs from the
+        // backlog to the main `iocbs` array if there are any.
+        // We only do this once `iocbs` is fully empty to get batching behaviour
+        // and avoid degenarate cases where only one element gets submitted
+        // which would result in excessive shifting of the elements in `iocbs`
+        // array or the backlog.
+        begin = iocbs.get();
+        last = iocbs.get();
+
+        if (!iocbs_backlog.empty()) {
+            auto max_to_copy = std::min(size_t(end - begin), iocbs_backlog.size());
+            last = std::move(iocbs_backlog.begin(), iocbs_backlog.begin() + max_to_copy, begin);
+            iocbs_backlog.erase(iocbs_backlog.begin(), iocbs_backlog.begin() + max_to_copy);
+        }
+    }
+
     return nr;
 }
 
