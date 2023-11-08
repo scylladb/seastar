@@ -193,6 +193,9 @@ ipv4::handle_received_packet(packet p, ethernet_address from) {
             auto cpu_id = this_shard_id();
             auto l4 = _l4[h.ip_proto];
             if (l4) {
+                if (smp::count == 1) {
+                    l4->received(std::move(ip_data), h.src_ip, h.dst_ip);
+                } else {
                 size_t l4_offset = 0;
                 forward_hash hash_data;
                 hash_data.push_back(hton(h.src_ip.ip));
@@ -208,6 +211,7 @@ ipv4::handle_received_packet(packet p, ethernet_address from) {
                         auto pkt = frag.get_assembled_packet(from, to);
                         _netif->forward(cpu_id, std::move(pkt));
                     }
+                }
                 }
             }
 
