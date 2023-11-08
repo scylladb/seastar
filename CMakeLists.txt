@@ -879,10 +879,10 @@ include (TriStateOption)
 
 tri_state_option (${Seastar_ALLOC_FAILURE_INJECTION}
   DEFAULT_BUILD_TYPES "Dev"
-  OUTPUT ALLOC_FAILURE_INJECTION)
-if (ALLOC_FAILURE_INJECTION)
+  CONDITION condition)
+if (condition)
   target_compile_definitions (seastar
-    PUBLIC SEASTAR_ENABLE_ALLOC_FAILURE_INJECTION)
+    PUBLIC $<${condition}:SEASTAR_ENABLE_ALLOC_FAILURE_INJECTION>)
 endif ()
 
 if (Seastar_TASK_BACKTRACE)
@@ -1015,30 +1015,30 @@ endforeach ()
 
 tri_state_option (${Seastar_DEBUG_SHARED_PTR}
   DEFAULT_BUILD_TYPES "Debug" "Sanitize"
-  OUTPUT DEBUG_SHARED_PTR)
-if (DEBUG_SHARED_PTR)
+  CONDITION condition)
+if (condition)
   target_compile_definitions (seastar
     PUBLIC
-      SEASTAR_DEBUG_SHARED_PTR)
+      $<${condition}:SEASTAR_DEBUG_SHARED_PTR>)
 endif ()
 
 include (CheckLibc)
 
 tri_state_option (${Seastar_STACK_GUARDS}
   DEFAULT_BUILD_TYPES "Debug" "Sanitize" "Dev"
-  OUTPUT STACK_GUARDS)
-if(STACK_GUARDS)
+  CONDITION condition)
+if(condition)
   # check for -fstack-clash-protection together with -Werror, because
   # otherwise clang can soft-fail (return 0 but emit a warning) instead.
   seastar_supports_flag ("-fstack-clash-protection -Werror" StackClashProtection_FOUND)
   if (StackClashProtection_FOUND)
     target_compile_options (seastar
       PUBLIC
-      -fstack-clash-protection)
+        $<${condition}:-fstack-clash-protection>)
   endif ()
   target_compile_definitions (seastar
     PRIVATE
-      SEASTAR_THREAD_STACK_GUARDS)
+      $<${condition}:SEASTAR_THREAD_STACK_GUARDS>)
 endif ()
 
 target_compile_definitions (seastar
