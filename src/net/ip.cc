@@ -196,22 +196,22 @@ ipv4::handle_received_packet(packet p, ethernet_address from) {
                 if (smp::count == 1) {
                     l4->received(std::move(ip_data), h.src_ip, h.dst_ip);
                 } else {
-                size_t l4_offset = 0;
-                forward_hash hash_data;
-                hash_data.push_back(hton(h.src_ip.ip));
-                hash_data.push_back(hton(h.dst_ip.ip));
-                auto forwarded = l4->forward(hash_data, ip_data, l4_offset);
-                if (forwarded) {
-                    cpu_id = _netif->hash2cpu(toeplitz_hash(_netif->rss_key(), hash_data));
-                    // No need to forward if the dst cpu is the current cpu
-                    if (cpu_id == this_shard_id()) {
-                        l4->received(std::move(ip_data), h.src_ip, h.dst_ip);
-                    } else {
-                        auto to = _netif->hw_address();
-                        auto pkt = frag.get_assembled_packet(from, to);
-                        _netif->forward(cpu_id, std::move(pkt));
+                    size_t l4_offset = 0;
+                    forward_hash hash_data;
+                    hash_data.push_back(hton(h.src_ip.ip));
+                    hash_data.push_back(hton(h.dst_ip.ip));
+                    auto forwarded = l4->forward(hash_data, ip_data, l4_offset);
+                    if (forwarded) {
+                        cpu_id = _netif->hash2cpu(toeplitz_hash(_netif->rss_key(), hash_data));
+                        // No need to forward if the dst cpu is the current cpu
+                        if (cpu_id == this_shard_id()) {
+                            l4->received(std::move(ip_data), h.src_ip, h.dst_ip);
+                        } else {
+                            auto to = _netif->hw_address();
+                            auto pkt = frag.get_assembled_packet(from, to);
+                            _netif->forward(cpu_id, std::move(pkt));
+                        }
                     }
-                }
                 }
             }
 
