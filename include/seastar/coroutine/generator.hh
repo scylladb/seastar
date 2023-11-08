@@ -141,7 +141,14 @@ public:
         return _future.available();
     }
 
-    coroutine_handle<> await_suspend(coroutine_handle<promise_type> coro) noexcept;
+    void await_suspend(coroutine_handle<promise_type> coro) noexcept {
+        auto& current_task = coro.promise();
+        if (_future.available()) {
+            seastar::schedule(&current_task);
+        } else {
+            _future.set_coroutine(current_task);
+        }
+    }
     void await_resume() noexcept { }
 };
 
@@ -523,24 +530,6 @@ requires Fifo<Container, T>
 auto generator_buffered_promise<T, Container>::get_return_object() noexcept -> generator_type {
     using handle_type = coroutine_handle<generator_buffered_promise<T, Container>>;
     return generator_type{_buffer_capacity, handle_type::from_promise(*this), this};
-}
-
-template<typename T, template <typename> class Container>
-coroutine_handle<> yield_awaiter<T, Container>::await_suspend(
-    coroutine_handle<generator_buffered_promise<T, Container>> coro) noexcept {
-    if (_future.available()) {
-        auto& current_task = coro.promise();
-        seastar::schedule(&current_task);
-        return coro;
-    } else {
-        // we cannot do something like `task.set_coroutine(consumer_task)`.
-        // because, instead of waiting for a subcoroutine, we are pending on
-        // the caller of current coroutine to consume the produced values to
-        // free up at least a free slot in the buffer, if we set the `_task`
-        // of the of the awaiting task, we would have an infinite loop of
-        // "promise->_task".
-        return noop_coroutine();
-    }
 }
 
 } // namespace internal
