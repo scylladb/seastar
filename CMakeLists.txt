@@ -1203,9 +1203,17 @@ if (Seastar_INSTALL)
   set (Seastar_PKG_CONFIG_LIBDIR ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR})
   set (Seastar_PKG_CONFIG_SEASTAR_INCLUDE_FLAGS "-I${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_INCLUDEDIR}")
 
+  get_property(_is_Multi_Config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+  if(_is_Multi_Config)
+    # use different library names for each config
+    set (Seastar_PC "_$<CONFIG>.pc")
+  else()
+    set (Seastar_PC ".pc")
+  endif()
+
   configure_file (
     ${CMAKE_CURRENT_SOURCE_DIR}/pkgconfig/seastar.pc.in
-    ${CMAKE_CURRENT_BINARY_DIR}/pkgconfig/seastar-install.pc.in
+    ${CMAKE_CURRENT_BINARY_DIR}/pkgconfig/seastar-install${Seastar_PC}.in
     @ONLY)
 
   configure_file (
@@ -1220,7 +1228,7 @@ if (Seastar_INSTALL)
 
   configure_file (
     ${CMAKE_CURRENT_SOURCE_DIR}/pkgconfig/seastar.pc.in
-    ${CMAKE_CURRENT_BINARY_DIR}/pkgconfig/seastar.pc.in
+    ${CMAKE_CURRENT_BINARY_DIR}/pkgconfig/seastar${Seastar_PC}.in
     @ONLY)
 
   configure_file (
@@ -1229,16 +1237,16 @@ if (Seastar_INSTALL)
     @ONLY)
 
   file (GENERATE
-    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/seastar.pc
-    INPUT ${CMAKE_CURRENT_BINARY_DIR}/pkgconfig/seastar.pc.in)
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/seastar${Seastar_PC}
+    INPUT ${CMAKE_CURRENT_BINARY_DIR}/pkgconfig/seastar${Seastar_PC}.in)
 
   file (GENERATE
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/seastar-testing.pc
     INPUT ${CMAKE_CURRENT_BINARY_DIR}/pkgconfig/seastar-testing.pc.in)
 
   file (GENERATE
-    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/seastar-install.pc
-    INPUT ${CMAKE_CURRENT_BINARY_DIR}/pkgconfig/seastar-install.pc.in)
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/seastar-install${Seastar_PC}
+    INPUT ${CMAKE_CURRENT_BINARY_DIR}/pkgconfig/seastar-install${Seastar_PC}.in)
 
   file (GENERATE
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/seastar-testing-install.pc
@@ -1316,9 +1324,9 @@ if (Seastar_INSTALL)
     DESTINATION ${install_cmakedir})
 
   install (
-    FILES ${CMAKE_CURRENT_BINARY_DIR}/seastar-install.pc
+    FILES ${CMAKE_CURRENT_BINARY_DIR}/seastar-install${Seastar_PC}
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
-    RENAME seastar.pc)
+    RENAME seastar${Seastar_PC})
 
   install (
     FILES ${CMAKE_CURRENT_BINARY_DIR}/seastar-testing-install.pc
