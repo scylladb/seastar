@@ -47,11 +47,6 @@ project (Seastar
   VERSION 1.0
   LANGUAGES CXX)
 
-# generic boolean values passed as string, potentially from configure.py
-set (True_STRING_VALUES "ON" "yes" "Yes" "YES" "true" "True" "TRUE")
-set (False_STRING_VALUES "OFF" "no" "No" "NO" "false" "False" "FALSE")
-set (Default_STRING_VALUES "DEFAULT" "default" "Default")
-
 set (Seastar_ALLOC_FAILURE_INJECTION
   "DEFAULT"
   CACHE
@@ -880,12 +875,14 @@ if (LinuxMembarrier_FOUND)
     PRIVATE LinuxMembarrier::membarrier)
 endif ()
 
-set (Seastar_ALLOC_FAILURE_INJECTION_MODES "Dev")
-if ((Seastar_ALLOC_FAILURE_INJECTION IN_LIST True_STRING_VALUES) OR
-    ((Seastar_ALLOC_FAILURE_INJECTION STREQUAL "DEFAULT") AND
-     (CMAKE_BUILD_TYPE IN_LIST Seastar_ALLOC_FAILURE_INJECTION_MODES)))
+include (TriStateOption)
+
+tri_state_option (${Seastar_ALLOC_FAILURE_INJECTION}
+  DEFAULT_BUILD_TYPES "Dev"
+  CONDITION condition)
+if (condition)
   target_compile_definitions (seastar
-    PUBLIC SEASTAR_ENABLE_ALLOC_FAILURE_INJECTION)
+    PUBLIC $<${condition}:SEASTAR_ENABLE_ALLOC_FAILURE_INJECTION>)
 endif ()
 
 if (Seastar_TASK_BACKTRACE)
@@ -919,10 +916,12 @@ endif ()
 # as many compilation units as possible.  So while these flags don't
 # have to be public, we don't expect anyone to want to build seastar
 # with them and some client code without.
-if (Seastar_SPLIT_DWARF AND (NOT (CMAKE_BUILD_TYPE STREQUAL "Dev")))
+if (Seastar_SPLIT_DWARF)
   set (Seastar_SPLIT_DWARF_FLAG "-Wl,--gdb-index")
-  target_link_libraries (seastar PUBLIC ${Seastar_SPLIT_DWARF_FLAG})
-  target_compile_options (seastar PUBLIC "-gsplit-dwarf")
+  target_link_libraries (seastar PUBLIC
+    $<$<NOT:$<CONFIG:Dev>>:${Seastar_SPLIT_DWARF_FLAG}>)
+  target_compile_options (seastar PUBLIC
+    $<$<NOT:$<CONFIG:Dev>>:-gsplit-dwarf>)
 endif ()
 
 if (Seastar_HEAP_PROFILING)
@@ -1005,47 +1004,47 @@ if (ErrorWarnings_FOUND)
       PUBLIC "-Wno-error=#warnings")
 endif ()
 
-if ((CMAKE_BUILD_TYPE STREQUAL "Debug") OR (CMAKE_BUILD_TYPE STREQUAL "Sanitize"))
+foreach (definition
+    SEASTAR_DEBUG
+    SEASTAR_DEFAULT_ALLOCATOR
+    SEASTAR_SHUFFLE_TASK_QUEUE)
   target_compile_definitions (seastar
     PUBLIC
-      SEASTAR_DEBUG
-      SEASTAR_DEFAULT_ALLOCATOR
-      SEASTAR_SHUFFLE_TASK_QUEUE)
-endif ()
+      $<$<IN_LIST:$<CONFIG>,Debug;Sanitize>:${definition}>)
+endforeach ()
 
-set (Seastar_DEBUG_SHARED_PTR_MODES "Debug" "Sanitize")
-if (Seastar_DEBUG_SHARED_PTR IN_LIST True_STRING_VALUES OR
-    ((Seastar_DEBUG_SHARED_PTR IN_LIST Default_STRING_VALUES) AND
-     (CMAKE_BUILD_TYPE IN_LIST Seastar_DEBUG_SHARED_PTR_MODES)))
+tri_state_option (${Seastar_DEBUG_SHARED_PTR}
+  DEFAULT_BUILD_TYPES "Debug" "Sanitize"
+  CONDITION condition)
+if (condition)
   target_compile_definitions (seastar
     PUBLIC
-      SEASTAR_DEBUG_SHARED_PTR)
+      $<${condition}:SEASTAR_DEBUG_SHARED_PTR>)
 endif ()
 
 include (CheckLibc)
 
-set (Seastar_STACK_GUARD_MODES "Debug" "Sanitize" "Dev")
-if ((Seastar_STACK_GUARDS STREQUAL "ON") OR
-    ((Seastar_STACK_GUARDS STREQUAL "DEFAULT") AND
-     (CMAKE_BUILD_TYPE IN_LIST Seastar_STACK_GUARD_MODES)))
+tri_state_option (${Seastar_STACK_GUARDS}
+  DEFAULT_BUILD_TYPES "Debug" "Sanitize" "Dev"
+  CONDITION condition)
+if(condition)
   # check for -fstack-clash-protection together with -Werror, because
   # otherwise clang can soft-fail (return 0 but emit a warning) instead.
   seastar_supports_flag ("-fstack-clash-protection -Werror" StackClashProtection_FOUND)
   if (StackClashProtection_FOUND)
     target_compile_options (seastar
       PUBLIC
-      -fstack-clash-protection)
+        $<${condition}:-fstack-clash-protection>)
   endif ()
   target_compile_definitions (seastar
     PRIVATE
-      SEASTAR_THREAD_STACK_GUARDS)
+      $<${condition}:SEASTAR_THREAD_STACK_GUARDS>)
 endif ()
 
-if ((CMAKE_BUILD_TYPE STREQUAL "Dev") OR (CMAKE_BUILD_TYPE STREQUAL "Debug"))
-  target_compile_definitions (seastar
-    PUBLIC
-      SEASTAR_TYPE_ERASE_MORE)
-endif ()
+target_compile_definitions (seastar
+  PUBLIC
+    $<$<IN_LIST:$<CONFIG>,Dev;Debug>:SEASTAR_TYPE_ERASE_MORE>
+    SEASTAR_TYPE_ERASE_MORE)
 
 target_compile_definitions (seastar
   PRIVATE ${Seastar_PRIVATE_COMPILE_DEFINITIONS})
