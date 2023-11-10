@@ -53,7 +53,6 @@ struct future_option_traits<with_clock<Clock>, T> {
 
     using future_type = future<T>;
     using promise_type = promise<T>;
-    using continuation_base_type = continuation_base<T>;
 };
 
 template <typename Clock>
@@ -62,7 +61,6 @@ struct future_option_traits<with_clock<Clock>> {
 
     using future_type = future<>;
     using promise_type = promise<>;
-    using continuation_base_type = continuation_base<>;
 };
 
 template <typename T>
@@ -111,7 +109,6 @@ template<typename... T>
 class shared_future {
     template <typename... U> friend class shared_promise;
     using options = future_option_traits<T...>;
-    using continuation_base_type = typename options::continuation_base_type;
 public:
     using clock = typename options::clock_type;
     using time_point = typename clock::time_point;
@@ -120,9 +117,8 @@ public:
     using value_tuple_type = typename future_type::tuple_type;
 private:
     /// \cond internal
-    class shared_state final : public enable_lw_shared_from_this<shared_state>, public continuation_base_type {
-        // Ensures that shared_state is alive until run_and_dispose() runs.
-        lw_shared_ptr<shared_state> _keepaliver;
+    class shared_state : public enable_lw_shared_from_this<shared_state> {
+        future_type _original_future;
         struct entry {
             promise_type pr;
             std::optional<abort_on_expiry<clock>> timer;
@@ -145,47 +141,41 @@ private:
             // Don't warn if the shared future is exceptional. Any
             // warnings will be reported by the futures returned by
             // get_future.
-            if (this->_state.failed()) {
-                this->_state.ignore();
+            if (_original_future.failed()) {
+                _original_future.ignore_ready_future();
             }
         }
-        explicit shared_state(future_type f) noexcept
-                : _keepaliver(f.available() ? nullptr : this->shared_from_this()) {
-            if (f.available()) {
-                this->set_state(f.get_available_state_ref());
-            } else {
-                internal::set_callback(std::move(f), this);
-            }
-        }
-        virtual void run_and_dispose() noexcept override {
-            if (this->_state.failed()) {
+        explicit shared_state(future_type f) noexcept : _original_future(std::move(f)) { }
+        void resolve(future_type&& f) noexcept {
+            _original_future = std::move(f);
+            auto& state = _original_future._state;
+            if (_original_future.failed()) {
                 while (_peers) {
-                    _peers.front().pr.set_exception(this->_state.get_exception());
+                    _peers.front().pr.set_exception(state.get_exception());
                     _peers.pop_front();
                 }
             } else {
                 while (_peers) {
                     auto& p = _peers.front().pr;
                     try {
-                        p.set_value(this->_state.get_value());
+                        p.set_value(state.get_value());
                     } catch (...) {
                         p.set_exception(std::current_exception());
                     }
                     _peers.pop_front();
                 }
             }
-            _keepaliver.release();
         }
 
         future_type get_future(time_point timeout = time_point::max()) noexcept {
             // Note that some functions called below may throw,
-            // like pushing to _peers or copying _state's ready value.
+            // like pushing to _peers or copying _original_future's ready value.
             // We'd rather terminate than propagate these errors similar to
             // .then()'s failure to allocate a continuation as the caller cannot
             // distinguish between an error returned by the original future to
             // failing to perform `get_future` itself.
             memory::scoped_critical_alloc_section _;
-            if (!this->_state.available()) {
+            if (!_original_future.available()) {
                 entry& e = _peers.emplace_back();
 
                 auto f = e.pr.get_future();
@@ -194,41 +184,53 @@ private:
                     abort_source& as = e.timer->abort_source();
                    _peers.make_back_abortable(as);
                 }
+                if (_original_future._state.valid()) {
+                    // _original_future's result is forwarded to each peer.
+                    (void)_original_future.then_wrapped([s = this->shared_from_this()] (future_type&& f) mutable {
+                        s->resolve(std::move(f));
+                    });
+                }
                 return f;
-            } else if (this->_state.failed()) {
-                return future_type(exception_future_marker(), std::exception_ptr(this->_state.get_exception()));
+            } else if (_original_future.failed()) {
+                return future_type(exception_future_marker(), std::exception_ptr(_original_future._state.get_exception()));
             } else {
-                return future_type(ready_future_marker(), this->_state.get_value());
+                return future_type(ready_future_marker(), _original_future._state.get_value());
             }
         }
 
         future_type get_future(abort_source& as) noexcept {
             // Note that some functions called below may throw,
-            // like pushing to _peers or copying _state's ready value.
+            // like pushing to _peers or copying _original_future's ready value.
             // We'd rather terminate than propagate these errors similar to
             // .then()'s failure to allocate a continuation as the caller cannot
             // distinguish between an error returned by the original future to
             // failing to perform `get_future` itself.
             memory::scoped_critical_alloc_section _;
-            if (!this->_state.available()) {
+            if (!_original_future.available()) {
                 entry& e = _peers.emplace_back();
 
                 auto f = e.pr.get_future();
                 _peers.make_back_abortable(as);
+                if (_original_future._state.valid()) {
+                    // _original_future's result is forwarded to each peer.
+                    (void)_original_future.then_wrapped([s = this->shared_from_this()] (future_type&& f) mutable {
+                        s->resolve(std::move(f));
+                    });
+                }
                 return f;
-            } else if (this->_state.failed()) {
-                return future_type(exception_future_marker(), std::exception_ptr(this->_state.get_exception()));
+            } else if (_original_future.failed()) {
+                return future_type(exception_future_marker(), std::exception_ptr(_original_future._state.get_exception()));
             } else {
-                return future_type(ready_future_marker(), this->_state.get_value());
+                return future_type(ready_future_marker(), _original_future._state.get_value());
             }
         }
 
         bool available() const noexcept {
-            return this->_state.available();
+            return _original_future.available();
         }
 
         bool failed() const noexcept {
-            return this->_state.failed();
+            return _original_future.failed();
         }
     };
     /// \endcond
