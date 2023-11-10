@@ -61,8 +61,8 @@ test_runner::start(int ac, char** av) {
     return true;
 }
 
-void test_runner::start_thread(int ac, char** av) {
-    auto init_outcome = std::make_shared<exchanger<bool>>();
+int test_runner::start_thread(int ac, char** av) {
+    auto init_outcome = std::make_shared<exchanger<int>>();
 
     namespace bpo = boost::program_options;
     _thread = std::make_unique<posix_thread>([this, ac, av, init_outcome]() mutable {
@@ -73,7 +73,7 @@ void test_runner::start_thread(int ac, char** av) {
         // We guarantee that only one thread is running.
         // We only read this after that one thread is joined, so this is safe.
         _exit_code = app.run(ac, av, [this, &app, init_outcome = init_outcome.get()] {
-            init_outcome->give(true);
+            init_outcome->give(0);
             auto init = [&app] {
                 auto conf_seed = app.configuration()["random-seed"];
                 auto seed = conf_seed.empty() ? std::random_device()():  conf_seed.as<unsigned>();
@@ -106,12 +106,10 @@ void test_runner::start_thread(int ac, char** av) {
                 return 0;
             });
         });
-        init_outcome->give(!_exit_code);
+        init_outcome->give(_exit_code);
     });
 
-    if (!init_outcome->take()) {
-        throw std::runtime_error("error starting reactor thread");
-    }
+    return init_outcome->take();
 }
 
 void
@@ -119,11 +117,22 @@ test_runner::run_sync(std::function<future<>()> task) {
     if (_st_args) {
         start_thread_args sa = *_st_args;
         _st_args.reset();
-        start_thread(sa.ac, sa.av);
+        if (int start_status = start_thread(sa.ac, sa.av); start_status != 0) {
+            // something bad happened when starting the reactor or app, and
+            // the _thread has exited before taking any task. but we need to
+            // move on. let's report this bad news with exit code
+            _exit_code = start_status;
+        }
+    }
+    if (_exit_code != 0) {
+        // we failed to start the worker reactor, so we cannot send the task to
+        // it.
+        return;
     }
 
     exchanger<std::exception_ptr> e;
     _task.give([task = std::move(task), &e] {
+        assert(engine_is_ready());
         try {
             return task().then_wrapped([&e](auto&& f) {
                 try {

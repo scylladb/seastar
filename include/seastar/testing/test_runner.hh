@@ -48,7 +48,7 @@ private:
         start_thread_args(int ac_, char** av_) noexcept : ac(ac_), av(av_) {}
     };
     std::unique_ptr<start_thread_args> _st_args;
-    void start_thread(int ac, char** av);
+    int start_thread(int ac, char** av);
 public:
     // Returns whether initialization was successful.
     // Will return as soon as the seastar::app was started.
