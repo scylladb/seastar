@@ -87,8 +87,7 @@ public:
         assert(_generator);
         _generator->put_next_value(std::forward<U>(value));
         assert(_wait_for_next_value);
-        _wait_for_next_value->set_value();
-        _wait_for_next_value = {};
+        std::exchange(_wait_for_next_value, std::nullopt)->set_value();
         return {};
     }
 
@@ -166,9 +165,8 @@ public:
     generator_buffered_promise(const generator_buffered_promise&) = delete;
     ~generator_buffered_promise() = default;
     void return_void() noexcept {
-        if (_wait_for_next_value) {
-            _wait_for_next_value->set_value();
-            _wait_for_next_value = {};
+        if (auto wait_for_next_value = std::exchange(_wait_for_next_value, std::nullopt)) {
+            wait_for_next_value->set_value();
         }
     }
     void unhandled_exception() noexcept;
@@ -176,9 +174,8 @@ public:
     template<std::convertible_to<T> U>
     yield_awaiter<T, Container> yield_value(U&& value) noexcept {
         bool ready = _generator->put_next_value(std::forward<U>(value));
-        if (_wait_for_next_value) {
-            _wait_for_next_value->set_value();
-            _wait_for_next_value = {};
+        if (auto wait_for_next_value = std::exchange(_wait_for_next_value, std::nullopt)) {
+            wait_for_next_value->set_value();
         }
         return {ready};
     }
@@ -459,8 +456,7 @@ namespace internal {
 template<NothrowMoveConstructible T>
 void generator_unbuffered_promise<T>::return_void() noexcept {
     assert(_wait_for_next_value);
-    _wait_for_next_value->set_value();
-    _wait_for_next_value = {};
+    std::exchange(_wait_for_next_value, std::nullopt)->set_value();
 }
 
 template<NothrowMoveConstructible T>
@@ -471,9 +467,8 @@ void generator_unbuffered_promise<T>::unhandled_exception() noexcept {
     // _wait_for_next_value, and delegate generator's unhandled_exception() to
     // store the exception.
     _generator->unhandled_exception();
-    if (_wait_for_next_value.has_value()) {
-        _wait_for_next_value->set_value();
-        _wait_for_next_value = {};
+    if (auto wait_for_next_value = std::exchange(_wait_for_next_value, std::nullopt)) {
+        wait_for_next_value->set_value();
     }
 }
 
@@ -487,9 +482,8 @@ template<NothrowMoveConstructible T, template <typename> class Container>
 requires Fifo<Container, T>
 void generator_buffered_promise<T, Container>::unhandled_exception() noexcept {
     _generator->unhandled_exception();
-    if (_wait_for_next_value.has_value()) {
-        _wait_for_next_value->set_value();
-        _wait_for_next_value = {};
+    if (auto wait_for_next_value = std::exchange(_wait_for_next_value, std::nullopt)) {
+        wait_for_next_value->set_value();
     }
 }
 
