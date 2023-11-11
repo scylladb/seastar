@@ -193,10 +193,6 @@ public:
         return {};
     }
 
-    bool is_awaiting() const noexcept {
-        return _wait_for_next_value.has_value();
-    }
-
     seastar::future<> wait_for_next_value() noexcept {
         assert(!_wait_for_next_value);
         return _wait_for_next_value.emplace().get_future();
