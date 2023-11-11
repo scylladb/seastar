@@ -131,17 +131,20 @@ class generator_buffered_promise;
 template<typename T, template <typename> class Container>
 struct yield_awaiter final {
     using promise_type = generator_buffered_promise<T, Container>;
-    seastar::future<> _future;
+    const bool _wait_for_free_space;
 
 public:
-    yield_awaiter(seastar::future<>&& f) noexcept
-        : _future{std::move(f)} {}
+    yield_awaiter(bool wait_for_free_space) noexcept
+        : _wait_for_free_space{wait_for_free_space} {}
 
     bool await_ready() noexcept {
-        return _future.available();
+        return _wait_for_free_space;
     }
 
-    coroutine_handle<> await_suspend(coroutine_handle<promise_type> coro) noexcept;
+    coroutine_handle<> await_suspend(coroutine_handle<promise_type>) noexcept {
+        return std::noop_coroutine();
+    }
+
     void await_resume() noexcept { }
 };
 
@@ -152,7 +155,6 @@ class generator_buffered_promise final : public seastar::task {
     using generator_type = seastar::coroutine::experimental::generator<T, Container>;
 
     std::optional<seastar::promise<>> _wait_for_next_value;
-    std::optional<seastar::promise<>> _wait_for_free_space;
     generator_type* _generator = nullptr;
     const size_t _buffer_capacity;
 
@@ -174,18 +176,11 @@ public:
     template<std::convertible_to<T> U>
     yield_awaiter<T, Container> yield_value(U&& value) noexcept {
         bool ready = _generator->put_next_value(std::forward<U>(value));
-
         if (_wait_for_next_value) {
             _wait_for_next_value->set_value();
             _wait_for_next_value = {};
-            return {make_ready_future()};
         }
-        if (ready) {
-            return {make_ready_future()};
-        } else {
-            assert(!_wait_for_free_space);
-            return {_wait_for_free_space.emplace().get_future()};
-        }
+        return {ready};
     }
 
     auto get_return_object() noexcept -> generator_type;
@@ -205,19 +200,9 @@ public:
         return _wait_for_next_value.has_value();
     }
 
-    coroutine_handle<> coroutine() const noexcept {
-        return coroutine_handle<>::from_address(_wait_for_next_value->waiting_task());
-    }
-
     seastar::future<> wait_for_next_value() noexcept {
         assert(!_wait_for_next_value);
         return _wait_for_next_value.emplace().get_future();
-    }
-
-    void on_reclaim_free_space() noexcept {
-        assert(_wait_for_free_space);
-        _wait_for_free_space->set_value();
-        _wait_for_free_space = {};
     }
 
 private:
@@ -229,8 +214,6 @@ private:
     seastar::task* waiting_task() noexcept final {
         if (_wait_for_next_value) {
             return _wait_for_next_value->waiting_task();
-        } else if (_wait_for_free_space) {
-            return _wait_for_free_space->waiting_task();
         } else {
             return nullptr;
         }
@@ -241,33 +224,31 @@ template<typename T, typename Generator>
 struct next_awaiter final {
     using next_value_type = next_value_t<T>;
     Generator* const _generator;
-    seastar::task* const _task;
+    using promise_type = typename Generator::promise_type;
+    promise_type* const _promise;
     seastar::future<> _next_value_future;
 
 public:
     next_awaiter(Generator* generator,
-                 seastar::task* task,
+                 promise_type* p,
                  seastar::future<>&& f) noexcept
         : _generator{generator}
-        , _task(task)
+        , _promise{p}
         , _next_value_future(std::move(f)) {}
 
     next_awaiter(const next_awaiter&) = delete;
     next_awaiter(next_awaiter&&) = delete;
 
     constexpr bool await_ready() const noexcept {
-        return _next_value_future.available() && !seastar::need_preempt();
+        return !_promise;
     }
 
     template<typename Promise>
-    void await_suspend(coroutine_handle<Promise> coro) noexcept {
+    auto await_suspend(coroutine_handle<Promise> coro) noexcept {
+        assert(_promise);
         auto& current_task = coro.promise();
-        if (_next_value_future.available()) {
-            seastar::schedule(&current_task);
-        } else {
-            _next_value_future.set_coroutine(current_task);
-            seastar::schedule(_task);
-        }
+        _next_value_future.set_coroutine(current_task);
+        return coroutine_handle<promise_type>::from_promise(*_promise);
     }
 
     next_value_type await_resume() {
@@ -376,13 +357,7 @@ public:
     internal::next_value_t<T> take_next_value() {
         if (!_values.empty()) [[likely]] {
             auto value = std::move(_values.front());
-            bool maybe_reclaim = _values.size() == _buffer_capacity;
             _values.pop_front();
-            if (maybe_reclaim) {
-                if (_promise) [[likely]] {
-                    _promise->on_reclaim_free_space();
-                }
-            }
             return internal::next_value_t<T>(std::move(value));
         } else if (_exception) [[unlikely]] {
             std::rethrow_exception(std::exchange(_exception, nullptr));
@@ -523,24 +498,6 @@ requires Fifo<Container, T>
 auto generator_buffered_promise<T, Container>::get_return_object() noexcept -> generator_type {
     using handle_type = coroutine_handle<generator_buffered_promise<T, Container>>;
     return generator_type{_buffer_capacity, handle_type::from_promise(*this), this};
-}
-
-template<typename T, template <typename> class Container>
-coroutine_handle<> yield_awaiter<T, Container>::await_suspend(
-    coroutine_handle<generator_buffered_promise<T, Container>> coro) noexcept {
-    if (_future.available()) {
-        auto& current_task = coro.promise();
-        seastar::schedule(&current_task);
-        return coro;
-    } else {
-        // we cannot do something like `task.set_coroutine(consumer_task)`.
-        // because, instead of waiting for a subcoroutine, we are pending on
-        // the caller of current coroutine to consume the produced values to
-        // free up at least a free slot in the buffer, if we set the `_task`
-        // of the of the awaiting task, we would have an infinite loop of
-        // "promise->_task".
-        return noop_coroutine();
-    }
 }
 
 } // namespace internal
