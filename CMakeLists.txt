@@ -1043,8 +1043,7 @@ endif ()
 
 target_compile_definitions (seastar
   PUBLIC
-    $<$<IN_LIST:$<CONFIG>,Dev;Debug>:SEASTAR_TYPE_ERASE_MORE>
-    SEASTAR_TYPE_ERASE_MORE)
+    $<$<IN_LIST:$<CONFIG>,Dev;Debug>:SEASTAR_TYPE_ERASE_MORE>)
 
 target_compile_definitions (seastar
   PRIVATE ${Seastar_PRIVATE_COMPILE_DEFINITIONS})
