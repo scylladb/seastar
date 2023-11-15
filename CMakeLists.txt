@@ -83,7 +83,7 @@ set (Seastar_SCHEDULING_GROUPS_COUNT
 
 if (NOT Seastar_SCHEDULING_GROUPS_COUNT MATCHES "^[1-9][0-9]*")
   message(FATAL_ERROR "Seastar_SCHEDULING_GROUPS_COUNT must be a positive number (${Seastar_SCHEDULING_GROUPS_COUNT})")
-endif()
+endif ()
 
 #
 # Add a dev build type.
@@ -770,7 +770,7 @@ if (Seastar_COMPRESS_DEBUG)
   # -gz doesn't imply -g, so it is safe to add it regardless of debug
   # info being enabled.
   list (APPEND Seastar_PRIVATE_CXX_FLAGS -gz)
-endif()
+endif ()
 
 target_link_libraries (seastar
   PUBLIC
@@ -796,7 +796,7 @@ if (Seastar_DPDK)
   target_link_libraries (seastar
     PRIVATE
       DPDK::dpdk)
-endif()
+endif ()
 
 include (TriStateOption)
 tri_state_option (${Seastar_SANITIZE}
@@ -948,7 +948,7 @@ if (Seastar_DPDK)
     target_compile_options (seastar
       PUBLIC
         -march=${Seastar_DPDK_MACHINE})
-  endif()
+  endif ()
   target_compile_definitions (seastar
     PUBLIC SEASTAR_HAVE_DPDK)
 endif ()
@@ -1026,7 +1026,7 @@ include (CheckLibc)
 tri_state_option (${Seastar_STACK_GUARDS}
   DEFAULT_BUILD_TYPES "Debug" "Sanitize" "Dev"
   CONDITION condition)
-if(condition)
+if (condition)
   # check for -fstack-clash-protection together with -Werror, because
   # otherwise clang can soft-fail (return 0 but emit a warning) instead.
   seastar_supports_flag ("-fstack-clash-protection -Werror" StackClashProtection_FOUND)
@@ -1200,13 +1200,13 @@ if (Seastar_INSTALL)
   set (Seastar_PKG_CONFIG_LIBDIR ${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR})
   set (Seastar_PKG_CONFIG_SEASTAR_INCLUDE_FLAGS "-I${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_INCLUDEDIR}")
 
-  get_property(_is_Multi_Config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
-  if(_is_Multi_Config)
+  get_property (_is_Multi_Config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+  if (_is_Multi_Config)
     # use different library names for each config
     set (Seastar_PC "_$<CONFIG>.pc")
-  else()
+  else ()
     set (Seastar_PC ".pc")
-  endif()
+  endif ()
 
   configure_file (
     ${CMAKE_CURRENT_SOURCE_DIR}/pkgconfig/seastar.pc.in
