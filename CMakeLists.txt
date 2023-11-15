@@ -798,18 +798,19 @@ if (Seastar_DPDK)
       DPDK::dpdk)
 endif()
 
-set (Seastar_SANITIZE_MODES "Debug" "Sanitize")
-if ((Seastar_SANITIZE STREQUAL "ON") OR
-    ((Seastar_SANITIZE STREQUAL "DEFAULT") AND
-     (CMAKE_BUILD_TYPE IN_LIST Seastar_SANITIZE_MODES)))
+include (TriStateOption)
+tri_state_option (${Seastar_SANITIZE}
+  DEFAULT_BUILD_TYPES "Debug" "Sanitize"
+  CONDITION condition)
+if (condition)
   if (NOT Sanitizers_FOUND)
     message (FATAL_ERROR "Sanitizers not found!")
   endif ()
   set (Seastar_Sanitizers_OPTIONS ${Sanitizers_COMPILER_OPTIONS})
   target_link_libraries (seastar
     PUBLIC
-      Sanitizers::address
-      Sanitizers::undefined_behavior)
+      $<${condition}:Sanitizers::address>
+      $<${condition}:Sanitizers::undefined_behavior>)
 endif ()
 
 # We only need valgrind to find uninitialized memory uses, so disable
@@ -874,8 +875,6 @@ if (LinuxMembarrier_FOUND)
   target_link_libraries (seastar
     PRIVATE LinuxMembarrier::membarrier)
 endif ()
-
-include (TriStateOption)
 
 tri_state_option (${Seastar_ALLOC_FAILURE_INJECTION}
   DEFAULT_BUILD_TYPES "Dev"
