@@ -96,7 +96,9 @@ public:
     }
     void lock() noexcept {
         while (_busy.exchange(true, std::memory_order_acquire)) {
-            internal::cpu_relax();
+            while (_busy.load(std::memory_order_relaxed)) {
+                internal::cpu_relax();
+            }
         }
     }
     void unlock() noexcept {
