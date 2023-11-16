@@ -1149,7 +1149,7 @@ void cpu_pages::do_resize(size_t new_size, allocate_system_memory_fn alloc_sys_m
     mem.release();
     maybe_enable_transparent_hugepages(mmap_start, mmap_size);
     // one past last page structure is a sentinel
-    auto new_page_array_pages = align_up(sizeof(page[new_pages + 1]), page_size) / page_size;
+    auto new_page_array_pages = align_up(sizeof(page) * (new_pages + 1), page_size) / page_size;
     auto new_page_array
         = reinterpret_cast<page*>(allocate_large(new_page_array_pages));
     if (!new_page_array) {
@@ -1160,7 +1160,7 @@ void cpu_pages::do_resize(size_t new_size, allocate_system_memory_fn alloc_sys_m
     new_page_array[new_pages].free = false;
     auto old_pages = reinterpret_cast<char*>(pages);
     auto old_nr_pages = nr_pages;
-    auto old_pages_size = align_up(sizeof(page[nr_pages + 1]), page_size);
+    auto old_pages_size = align_up(sizeof(page) * (nr_pages + 1), page_size);
     old_pages_size = size_t(1) << log2ceil(old_pages_size);
     pages = new_page_array;
     nr_pages = new_pages;
