@@ -1218,9 +1218,7 @@ try_create_uring(unsigned queue_len, bool throw_on_error) {
         }
     };
 
-    auto params = ::io_uring_params{
-        .flags = 0,
-    };
+    auto params = ::io_uring_params{};
     ::io_uring ring;
     auto err = ::io_uring_queue_init_params(queue_len, &ring, &params);
     if (err != 0) {
