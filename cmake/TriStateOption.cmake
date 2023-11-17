@@ -5,8 +5,8 @@ function (tri_state_option option)
   cmake_parse_arguments (
     parsed_args
     ""
-    "DEFAULT_BUILD_TYPES"
     "CONDITION"
+    "DEFAULT_BUILD_TYPES"
     ${ARGN})
 
   if (CMAKE_CONFIGURATION_TYPES)
