@@ -5,11 +5,12 @@ function (tri_state_option option)
   cmake_parse_arguments (
     parsed_args
     ""
-    "DEFAULT_BUILD_TYPES"
     "CONDITION"
+    "DEFAULT_BUILD_TYPES"
     ${ARGN})
 
-  if (CMAKE_CONFIGURATION_TYPES)
+  get_property(is_multi_config GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+  if (is_multi_config)
     set (all_build_types ${CMAKE_CONFIGURATION_TYPES})
   else ()
     set (all_build_types ${CMAKE_BUILD_TYPE})
@@ -27,9 +28,11 @@ function (tri_state_option option)
     set (enabled_types "")
   endif ()
 
-  if (enabled_types)
+  if (is_multi_config)
     set (${parsed_args_CONDITION} "$<IN_LIST:$<CONFIG>,${enabled_types}>" PARENT_SCOPE)
+  elseif (CMAKE_BUILD_TYPE IN_LIST enabled_types)
+    set (${parsed_args_CONDITION} 1 PARENT_SCOPE)
   else ()
-    set (${parsed_args_CONDITION} OFF PARENT_SCOPE)
+    set (${parsed_args_CONDITION} 0 PARENT_SCOPE)
   endif ()
 endfunction ()
