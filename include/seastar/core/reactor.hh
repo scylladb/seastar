@@ -682,7 +682,6 @@ private:
     friend void internal::add_to_flush_poller(output_stream<char>& os) noexcept;
     friend void seastar::internal::increase_thrown_exceptions_counter() noexcept;
     friend void report_failed_future(const std::exception_ptr& eptr) noexcept;
-    friend void with_allow_abandoned_failed_futures(unsigned count, noncopyable_function<void ()> func);
     metrics::metric_groups _metric_groups;
     friend future<scheduling_group> create_scheduling_group(sstring name, sstring shortname, float shares) noexcept;
     friend future<> seastar::destroy_scheduling_group(scheduling_group) noexcept;
@@ -715,6 +714,11 @@ public:
     /// resets the supression state.
     void set_stall_detector_report_function(std::function<void ()> report);
     std::function<void ()> get_stall_detector_report_function() const;
+
+    class test {
+    public:
+        static void with_allow_abandoned_failed_futures(unsigned count, noncopyable_function<void ()> func);
+    };
 };
 
 template <typename Func>

@@ -224,7 +224,7 @@ void report_failed_future(future_state_base::any&& state) noexcept {
     report_failed_future(std::move(state).take_exception());
 }
 
-void with_allow_abandoned_failed_futures(unsigned count, noncopyable_function<void ()> func) {
+void reactor::test::with_allow_abandoned_failed_futures(unsigned count, noncopyable_function<void ()> func) {
     auto before = engine()._abandoned_failed_futures;
     auto old_level = seastar_logger.level();
     seastar_logger.set_level(log_level::error);
