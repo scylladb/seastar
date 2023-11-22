@@ -1731,7 +1731,7 @@ SEASTAR_TEST_CASE(test_warn_on_broken_promise_with_no_future) {
     // Intentionally destroy the future
     (void)p.get_future();
 
-    with_allow_abandoned_failed_futures(1, [&] {
+    reactor::test::with_allow_abandoned_failed_futures(1, [&] {
         p.set_exception(std::runtime_error("foo"));
     });
 
@@ -1772,7 +1772,7 @@ SEASTAR_THREAD_TEST_CASE(test_exception_future_with_backtrace) {
     // Example code where we expect a "Exceptional future ignored"
     // warning.
     (void)outer(true).then_wrapped([](future<int> fut) {
-        with_allow_abandoned_failed_futures(1, [fut = std::move(fut)]() mutable {
+        reactor::test::with_allow_abandoned_failed_futures(1, [fut = std::move(fut)]() mutable {
             auto foo = std::move(fut);
         });
     });

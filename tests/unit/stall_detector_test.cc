@@ -48,14 +48,14 @@ public:
      */
     temporary_stall_detector_settings(std::chrono::duration<double> threshold, std::function<void ()> report = {})
             : _old_threshold(engine().get_blocked_reactor_notify_ms())
-            , _old_report(engine().get_stall_detector_report_function()) {
+            , _old_report(reactor::test::get_stall_detector_report_function()) {
         engine().update_blocked_reactor_notify_ms(std::chrono::duration_cast<std::chrono::milliseconds>(threshold));
-        engine().set_stall_detector_report_function(std::move(report));
+        reactor::test::set_stall_detector_report_function(std::move(report));
     }
 
     ~temporary_stall_detector_settings() {
         engine().update_blocked_reactor_notify_ms(_old_threshold);
-        engine().set_stall_detector_report_function(std::move(_old_report));
+        reactor::test::set_stall_detector_report_function(std::move(_old_report));
     }
 };
 

@@ -682,7 +682,6 @@ private:
     friend void internal::add_to_flush_poller(output_stream<char>& os) noexcept;
     friend void seastar::internal::increase_thrown_exceptions_counter() noexcept;
     friend void report_failed_future(const std::exception_ptr& eptr) noexcept;
-    friend void with_allow_abandoned_failed_futures(unsigned count, noncopyable_function<void ()> func);
     metrics::metric_groups _metric_groups;
     friend future<scheduling_group> create_scheduling_group(sstring name, sstring shortname, float shares) noexcept;
     friend future<> seastar::destroy_scheduling_group(scheduling_group) noexcept;
@@ -710,11 +709,17 @@ public:
     void set_bypass_fsync(bool value);
     void update_blocked_reactor_notify_ms(std::chrono::milliseconds ms);
     std::chrono::milliseconds get_blocked_reactor_notify_ms() const;
-    /// For testing, sets the stall reporting function which is called when
-    /// a stall is detected (and not suppressed). Setting the function also
-    /// resets the supression state.
-    void set_stall_detector_report_function(std::function<void ()> report);
-    std::function<void ()> get_stall_detector_report_function() const;
+
+    class test {
+    public:
+        static void with_allow_abandoned_failed_futures(unsigned count, noncopyable_function<void ()> func);
+
+        /// Sets the stall reporting function which is called when a stall
+        /// is detected (and not suppressed). Setting the function also
+        /// resets the supression state.
+        static void set_stall_detector_report_function(std::function<void ()> report);
+        static std::function<void ()> get_stall_detector_report_function();
+    };
 };
 
 template <typename Func>

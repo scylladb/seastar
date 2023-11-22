@@ -1489,16 +1489,17 @@ reactor::get_blocked_reactor_notify_ms() const {
 }
 
 void
-reactor::set_stall_detector_report_function(std::function<void ()> report) {
-    auto cfg = _cpu_stall_detector->get_config();
+reactor::test::set_stall_detector_report_function(std::function<void ()> report) {
+    auto& r = engine();
+    auto cfg = r._cpu_stall_detector->get_config();
     cfg.report = std::move(report);
-    _cpu_stall_detector->update_config(std::move(cfg));
-    _cpu_stall_detector->reset_suppression_state(reactor::now());
+    r._cpu_stall_detector->update_config(std::move(cfg));
+    r._cpu_stall_detector->reset_suppression_state(reactor::now());
 }
 
 std::function<void ()>
-reactor::get_stall_detector_report_function() const {
-    return _cpu_stall_detector->get_config().report;
+reactor::test::get_stall_detector_report_function() {
+    return engine()._cpu_stall_detector->get_config().report;
 }
 
 void
