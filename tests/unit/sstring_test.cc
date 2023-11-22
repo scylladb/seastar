@@ -25,7 +25,7 @@
 #include <seastar/core/sstring.hh>
 #include <list>
 #include <fmt/ranges.h>
-#if FMT_VERSION >= 10000  // formatting of std::optional was introduced in fmt 10
+#if FMT_VERSION >= 100000  // formatting of std::optional was introduced in fmt 10
 #include <fmt/std.h>
 #endif
 
