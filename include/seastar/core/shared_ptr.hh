@@ -27,6 +27,7 @@
 #include <seastar/util/modules.hh>
 #ifndef SEASTAR_MODULE
 #include <boost/intrusive/parent_from_member.hpp>
+#include <fmt/core.h>
 #include <functional>
 #include <memory>
 #include <ostream>
@@ -926,20 +927,40 @@ struct hash<seastar::shared_ptr<T>> : private hash<T*> {
 
 }
 
+SEASTAR_MODULE_EXPORT
 namespace fmt {
 
-SEASTAR_MODULE_EXPORT
 template<typename T>
 const void* ptr(const seastar::lw_shared_ptr<T>& p) {
     return p.get();
 }
 
-SEASTAR_MODULE_EXPORT
 template<typename T>
 const void* ptr(const seastar::shared_ptr<T>& p) {
     return p.get();
 }
 
+template <typename T>
+struct formatter<seastar::shared_ptr<T>> {
+    constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
+    auto format(const seastar::shared_ptr<T>& p, fmt::format_context& ctx) const {
+        if (!p) {
+            return fmt::format_to(ctx.out(), "null");
+        }
+        return fmt::format_to(ctx.out(), "{}", *p);
+    }
+};
+
+template <typename T>
+struct formatter<seastar::lw_shared_ptr<T>> {
+    constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
+    auto format(const seastar::lw_shared_ptr<T>& p, fmt::format_context& ctx) const {
+        if (!p) {
+            return fmt::format_to(ctx.out(), "null");
+        }
+        return fmt::format_to(ctx.out(), "{}", *p);
+    }
+};
 }
 
 namespace seastar {
