@@ -709,15 +709,16 @@ public:
     void set_bypass_fsync(bool value);
     void update_blocked_reactor_notify_ms(std::chrono::milliseconds ms);
     std::chrono::milliseconds get_blocked_reactor_notify_ms() const;
-    /// For testing, sets the stall reporting function which is called when
-    /// a stall is detected (and not suppressed). Setting the function also
-    /// resets the supression state.
-    void set_stall_detector_report_function(std::function<void ()> report);
-    std::function<void ()> get_stall_detector_report_function() const;
 
     class test {
     public:
         static void with_allow_abandoned_failed_futures(unsigned count, noncopyable_function<void ()> func);
+
+        /// Sets the stall reporting function which is called when a stall
+        /// is detected (and not suppressed). Setting the function also
+        /// resets the supression state.
+        static void set_stall_detector_report_function(std::function<void ()> report);
+        static std::function<void ()> get_stall_detector_report_function();
     };
 };
 
