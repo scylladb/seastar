@@ -21,6 +21,7 @@
 #pragma once
 
 #include <ostream>
+#include <fmt/core.h>
 
 /// \addtogroup logging
 /// @{
@@ -150,4 +151,25 @@ ostream& operator<<(ostream& os, seastar::lazy_deref_wrapper<T> ld) {
     return os << "null";
 }
 }
+
+template <typename Func>
+struct fmt::formatter<seastar::lazy_eval<Func>> : fmt::formatter<std::string_view> {
+    template <typename FormatContext>
+    auto format(const seastar::lazy_eval<Func>& lf, FormatContext& ctx) const {
+        return fmt::format_to(ctx.out(), "{}", lf());
+    }
+};
+
+template <typename T>
+struct fmt::formatter<seastar::lazy_deref_wrapper<T>> : fmt::formatter<std::string_view> {
+    template <typename FormatContext>
+    auto format(const seastar::lazy_deref_wrapper<T>& ld, FormatContext& ctx) const {
+        if (ld.p) {
+            return fmt::format_to(ctx.out(), "{}", *ld.p);
+        } else {
+            return fmt::format_to(ctx.out(), "null");
+        }
+    }
+};
+
 /// @}
