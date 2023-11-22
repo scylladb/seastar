@@ -1561,6 +1561,55 @@ SEASTAR_THREAD_TEST_CASE(test_shared_promise_with_outstanding_future_is_immediat
     BOOST_REQUIRE_THROW(f2.get(), std::runtime_error);
 }
 
+namespace seastar {
+class shared_future_tester {
+public:
+    template <typename... T>
+    static bool has_scheduled_task(const shared_future<T...>& f) noexcept {
+        return f._state->has_scheduled_task();
+    }
+};
+}
+
+SEASTAR_THREAD_TEST_CASE(test_shared_future_task_scheduled_only_if_there_are_waiting_futures) {
+    {
+        // Case 1: promise is eventually satisfied, get_future is not called
+        promise<> pr1;
+        shared_future<> f1(pr1.get_future());
+        BOOST_REQUIRE(!shared_future_tester::has_scheduled_task(f1));
+
+        pr1.set_value();
+        // get_future was not called, so no task should have been scheduled
+        BOOST_REQUIRE(!shared_future_tester::has_scheduled_task(f1));
+    }
+
+    {
+        // Case 2: promise is eventually satisfied, get_future was called
+        promise<> pr2;
+        shared_future<> f2(pr2.get_future());
+        auto f2f = f2.get_future();
+
+        // get_future was called, so the task is scheduled to happen after promise is resolved
+        BOOST_REQUIRE(shared_future_tester::has_scheduled_task(f2));
+
+        pr2.set_value();
+        f2f.get();
+        // f2f is resolved by shared future's task, so it must have run
+        BOOST_REQUIRE(!shared_future_tester::has_scheduled_task(f2));
+    }
+
+    {
+        // Case 3: shared future is ready from the start
+        shared_future<> f3(make_ready_future<>());
+        BOOST_REQUIRE(!shared_future_tester::has_scheduled_task(f3));
+
+        auto f3f = f3.get_future();
+        // Calling get_future on a ready shared future does not schedule the task
+        BOOST_REQUIRE(!shared_future_tester::has_scheduled_task(f3));
+        BOOST_REQUIRE(f3f.available());
+    }
+}
+
 SEASTAR_TEST_CASE(test_when_all_succeed_tuples) {
     return seastar::when_all_succeed(
         make_ready_future<>(),

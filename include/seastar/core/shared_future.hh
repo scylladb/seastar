@@ -239,6 +239,11 @@ private:
         bool failed() const noexcept {
             return _original_future.failed();
         }
+
+        // Used only in tests (see shared_future_tester in futures_test.cc)
+        bool has_scheduled_task() const noexcept {
+            return _keepaliver != nullptr;
+        }
     };
     /// \endcond
     lw_shared_ptr<shared_state> _state;
@@ -296,6 +301,10 @@ public:
     bool valid() const noexcept {
         return bool(_state);
     }
+
+    /// \cond internal
+    friend class shared_future_tester;
+    /// \endcond
 };
 
 /// \brief Like \ref promise except that its counterpart is \ref shared_future instead of \ref future
