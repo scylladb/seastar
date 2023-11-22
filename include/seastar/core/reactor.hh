@@ -297,7 +297,6 @@ private:
     uint64_t _global_tasks_processed = 0;
     uint64_t _polls = 0;
     metrics::internal::time_estimated_histogram _stalls_histogram;
-    std::unique_ptr<internal::cpu_stall_detector> _cpu_stall_detector;
 
     unsigned _max_task_backlog = 1000;
     timer_set<timer<>, &timer<>::_link> _timers;
@@ -340,6 +339,7 @@ private:
     };
 
     boost::container::static_vector<std::unique_ptr<task_queue>, max_scheduling_groups()> _task_queues;
+    std::unique_ptr<internal::cpu_stall_detector> _cpu_stall_detector;
     internal::scheduling_group_specific_thread_local_data _scheduling_group_specific_data;
     int64_t _last_vruntime = 0;
     task_queue_list _active_task_queues;
