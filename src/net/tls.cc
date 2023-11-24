@@ -1965,17 +1965,27 @@ future<std::vector<tls::subject_alt_name>> tls::get_alt_name_information(connect
     return get_tls_socket(socket)->get_alt_name_information(std::move(types));
 }
 
-std::ostream& tls::operator<<(std::ostream& os, subject_alt_name_type type) {
+std::string_view tls::format_as(subject_alt_name_type type) {
     switch (type) {
-        case subject_alt_name_type::dnsname: os << "DNS"; break;
-        case subject_alt_name_type::rfc822name: os << "EMAIL"; break;
-        case subject_alt_name_type::uri: os << "URI"; break;
-        case subject_alt_name_type::ipaddress: os << "IP"; break;
-        case subject_alt_name_type::othername: os << "OTHERNAME"; break;
-        case subject_alt_name_type::dn: os << "DIRNAME"; break;
-        default: break;
+        case subject_alt_name_type::dnsname:
+            return "DNS";
+        case subject_alt_name_type::rfc822name:
+            return "EMAIL";
+        case subject_alt_name_type::uri:
+            return "URI";
+        case subject_alt_name_type::ipaddress:
+            return "IP";
+        case subject_alt_name_type::othername:
+            return "OTHERNAME";
+        case subject_alt_name_type::dn:
+            return "DIRNAME";
+        default:
+            return "UNKNOWN";
     }
-    return os;
+}
+
+std::ostream& tls::operator<<(std::ostream& os, subject_alt_name_type type) {
+    return os << format_as(type);
 }
 
 std::ostream& tls::operator<<(std::ostream& os, const subject_alt_name::value_type& v) {

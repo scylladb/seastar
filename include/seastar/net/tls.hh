@@ -469,6 +469,7 @@ namespace tls {
      * othername: "OTHERNAME"
      * dn: "DIRNAME"
     */
+    std::string_view format_as(subject_alt_name_type);
     std::ostream& operator<<(std::ostream&, subject_alt_name_type);
 
     /**
