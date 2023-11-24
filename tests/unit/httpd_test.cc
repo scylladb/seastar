@@ -1407,3 +1407,12 @@ SEASTAR_TEST_CASE(test_url_param_encode_decode) {
 
     return make_ready_future<>();
 }
+
+SEASTAR_TEST_CASE(test_unexpected_exception_format) {
+    try {
+        throw httpd::unexpected_status_error(http::reply::status_type::see_other);
+    } catch (const std::exception& ex) {
+        BOOST_REQUIRE_EQUAL(sstring(ex.what()), format("{}", http::reply::status_type::see_other));
+    }
+    return make_ready_future<>();
+}

@@ -155,7 +155,7 @@ private:
 class unexpected_status_error : public base_exception {
 public:
     unexpected_status_error(http::reply::status_type st)
-        : base_exception("Unexpected reply status", st)
+        : base_exception(fmt::to_string(st), st)
     {}
 };
 
