@@ -75,7 +75,6 @@ shared_backtrace task::get_backtrace() const {
 SEASTAR_MODULE_EXPORT_BEGIN
 
 void schedule(task* t) noexcept;
-void schedule_checked(task* t) noexcept;
 void schedule_urgent(task* t) noexcept;
 
 SEASTAR_MODULE_EXPORT_END
