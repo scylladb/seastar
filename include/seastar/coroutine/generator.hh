@@ -29,7 +29,7 @@
 
 namespace seastar::coroutine::experimental {
 
-template<typename T, template <typename> class Container>
+template<typename T, template <typename> class Container = std::optional>
 class generator;
 
 /// `seastar::coroutine::experimental` is used as the type of the first
