@@ -105,7 +105,7 @@ public:
     virtual std::unique_ptr<seastar::file_handle_impl> dup() override;
     virtual subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next) override;
 #ifdef SEASTAR_COROUTINES_ENABLED
-    virtual coroutine::experimental::generator<directory_entry, dir_entry_buffer> experimental_list_directory() override;
+    virtual coroutine::experimental::generator<directory_entry> experimental_list_directory() override;
 #endif
 
 #if SEASTAR_API_LEVEL >= 7

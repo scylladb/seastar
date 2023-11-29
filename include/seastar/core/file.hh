@@ -115,9 +115,6 @@ public:
     virtual shared_ptr<file_impl> to_file() && = 0;
 };
 
-template <typename T>
-using dir_entry_buffer = circular_buffer<T>;
-
 class file_impl {
     friend class file;
 protected:
@@ -175,7 +172,9 @@ public:
     virtual std::unique_ptr<file_handle_impl> dup();
     virtual subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next) = 0;
 #ifdef SEASTAR_COROUTINES_ENABLED
-    virtual coroutine::experimental::generator<directory_entry, dir_entry_buffer> experimental_list_directory();
+    // due to https://github.com/scylladb/seastar/issues/1913, we cannot use
+    // buffered generator yet.
+    virtual coroutine::experimental::generator<directory_entry> experimental_list_directory();
 #endif
 
     friend class reactor;
@@ -694,7 +693,9 @@ public:
 
 #ifdef SEASTAR_COROUTINES_ENABLED
     /// Returns a directory listing, given that this file object is a directory.
-    coroutine::experimental::generator<directory_entry, dir_entry_buffer> experimental_list_directory();
+    // due to https://github.com/scylladb/seastar/issues/1913, we cannot use
+    // buffered generator yet.
+    coroutine::experimental::generator<directory_entry> experimental_list_directory();
 #endif
 
 #if SEASTAR_API_LEVEL < 7

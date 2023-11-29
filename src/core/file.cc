@@ -397,7 +397,7 @@ static std::optional<directory_entry_type> dirent_type(const linux_dirent64& de)
 }
 
 #ifdef SEASTAR_COROUTINES_ENABLED
-static coroutine::experimental::generator<directory_entry, dir_entry_buffer> make_list_directory_generator(coroutine::experimental::buffer_size_t buffer_size, thread_pool& pool, int fd) {
+static coroutine::experimental::generator<directory_entry> make_list_directory_generator(thread_pool& pool, int fd) {
     temporary_buffer<char> buf(8192);
 
     while (true) {
@@ -421,10 +421,13 @@ static coroutine::experimental::generator<directory_entry, dir_entry_buffer> mak
     }
 }
 
-coroutine::experimental::generator<directory_entry, dir_entry_buffer> posix_file_impl::experimental_list_directory() {
+coroutine::experimental::generator<directory_entry> posix_file_impl::experimental_list_directory() {
+    // due to https://github.com/scylladb/seastar/issues/1913, we cannot use
+    // buffered generator yet.
+    // TODO:
     // Keep 8 entries. The sizeof(directory_entry) is 24 bytes, the name itself 
     // is allocated out of this buffer, so the buffer would grow up to ~200 bytes
-    return make_list_directory_generator(coroutine::experimental::buffer_size_t{8}, *engine()._thread_pool, _fd);
+    return make_list_directory_generator(*engine()._thread_pool, _fd);
 }
 #endif
 
@@ -1162,7 +1165,7 @@ file::list_directory(std::function<future<>(directory_entry de)> next) {
 }
 
 #ifdef SEASTAR_COROUTINES_ENABLED
-coroutine::experimental::generator<directory_entry, dir_entry_buffer> file::experimental_list_directory() {
+coroutine::experimental::generator<directory_entry> file::experimental_list_directory() {
     return _file_impl->experimental_list_directory();
 }
 #endif
@@ -1371,7 +1374,7 @@ file_impl::dup() {
 }
 
 #ifdef SEASTAR_COROUTINES_ENABLED
-static coroutine::experimental::generator<directory_entry, dir_entry_buffer> make_list_directory_fallback_generator(coroutine::experimental::buffer_size_t buffer_size, file_impl& me) {
+static coroutine::experimental::generator<directory_entry> make_list_directory_fallback_generator(file_impl& me) {
     queue<std::optional<directory_entry>> ents(16);
     auto lister = me.list_directory([&ents] (directory_entry de) {
         return ents.push_eventually(std::move(de));
@@ -1391,8 +1394,8 @@ static coroutine::experimental::generator<directory_entry, dir_entry_buffer> mak
     co_await std::move(done);
 }
 
-coroutine::experimental::generator<directory_entry, dir_entry_buffer> file_impl::experimental_list_directory() {
-    return make_list_directory_fallback_generator(coroutine::experimental::buffer_size_t{8}, *this);
+coroutine::experimental::generator<directory_entry> file_impl::experimental_list_directory() {
+    return make_list_directory_fallback_generator(*this);
 }
 #endif
 
