@@ -152,3 +152,33 @@ PERF_TEST_F(alloc_bench, single_alloc_and_free_small_many_cross_page_alloc_more)
         free(_pointers[i]);
     }
 }
+
+template <typename DistType>
+static size_t dist_bench() {
+    std::random_device rd_device;
+    std::mt19937_64 random_gen(rd_device());
+
+    constexpr size_t ITERS = 10000;
+    size_t rate = 3'000'000;
+    perf_tests::do_not_optimize(rate);
+
+    DistType dist(rate);
+
+    typename DistType::result_type sum = 0;
+
+    for (size_t i = 0; i < ITERS; i++) {
+        sum += dist(random_gen);
+    }
+
+    perf_tests::do_not_optimize(sum);
+
+    return ITERS;
+}
+
+PERF_TEST(random_sampling, exp_dist) {
+    return dist_bench<std::exponential_distribution<double>>();
+}
+
+PERF_TEST(random_sampling, geo_dist) {
+    return dist_bench<std::geometric_distribution<size_t>>();
+}
