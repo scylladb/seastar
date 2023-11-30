@@ -244,7 +244,6 @@ public:
          */
         double min_tokens = 0.0;
         double limit_min_tokens = 0.0;
-        float rate_factor = 1.0;
         std::chrono::duration<double> rate_limit_duration = std::chrono::milliseconds(1);
     };
 

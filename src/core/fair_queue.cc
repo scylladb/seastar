@@ -103,16 +103,12 @@ fair_queue_ticket wrapping_difference(const fair_queue_ticket& a, const fair_que
 }
 
 fair_group::fair_group(config cfg, unsigned nr_queues)
-        : _token_bucket(cfg.rate_factor * fixed_point_factor,
-                        std::max<capacity_t>(cfg.rate_factor * fixed_point_factor * token_bucket_t::rate_cast(cfg.rate_limit_duration).count(), tokens_capacity(cfg.limit_min_tokens)),
+        : _token_bucket(fixed_point_factor,
+                        std::max<capacity_t>(fixed_point_factor * token_bucket_t::rate_cast(cfg.rate_limit_duration).count(), tokens_capacity(cfg.limit_min_tokens)),
                         tokens_capacity(cfg.min_tokens)
                        )
         , _per_tick_threshold(_token_bucket.limit() / nr_queues)
 {
-    if (cfg.rate_factor * fixed_point_factor > _token_bucket.max_rate) {
-        throw std::runtime_error("Fair-group rate_factor is too large");
-    }
-
     if (tokens_capacity(cfg.min_tokens) > _token_bucket.threshold()) {
         throw std::runtime_error("Fair-group replenisher limit is lower than threshold");
     }
