@@ -4163,6 +4163,12 @@ public:
                         throw std::runtime_error(fmt::format("Configured number of queues {} is larger than the maximum {}",
                                                  _mountpoints.size(), _max_queues));
                     }
+
+                    d.read_bytes_rate *= d.rate_factor;
+                    d.write_bytes_rate *= d.rate_factor;
+                    d.read_req_rate *= d.rate_factor;
+                    d.write_req_rate *= d.rate_factor;
+
                     if (d.read_bytes_rate == 0 || d.write_bytes_rate == 0 ||
                             d.read_req_rate == 0 || d.write_req_rate == 0) {
                         throw std::runtime_error(fmt::format("R/W bytes and req rates must not be zero"));
@@ -4202,7 +4208,6 @@ public:
         }
         cfg.mountpoint = p.mountpoint;
         cfg.duplex = p.duplex;
-        cfg.rate_factor = p.rate_factor;
         cfg.rate_limit_duration = latency_goal();
         cfg.flow_ratio_backpressure_threshold = _flow_ratio_backpressure_threshold;
         // Block count limit should not be less than the minimal IO size on the device
