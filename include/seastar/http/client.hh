@@ -229,16 +229,16 @@ public:
      * \brief Send the request and handle the response
      *
      * Sends the provided request to the server and calls the provided callback to handle
-     * the response when it arrives. If the reply's status code is not equals the expected
-     * value, the handler is not called and the method resolves with exceptional future.
-     * Otherwise returns the handler's future
+     * the response when it arrives. If the expected status is specified and the response's
+     * status is not the expected one, the handler is not called and the method resolves
+     * with exceptional future. Otherwise returns the handler's future
      *
      * \param req -- request to be sent
      * \param handle -- the response handler
-     * \param expected -- the expected reply status code
+     * \param expected -- the optional expected reply status code, default is std::nullopt
      *
      */
-    future<> make_request(request req, reply_handler handle, reply::status_type expected = reply::status_type::ok);
+    future<> make_request(request req, reply_handler handle, std::optional<reply::status_type> expected = std::nullopt);
 
     /**
      * \brief Updates the maximum number of connections a client may have

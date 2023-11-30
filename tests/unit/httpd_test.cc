@@ -810,10 +810,23 @@ SEASTAR_TEST_CASE(test_client_unexpected_reply_status) {
                 }
             };
             auto cln = http::experimental::client(std::make_unique<connection_factory>(lcf));
-            auto req = http::request::make("GET", "test", "/test");
-            BOOST_REQUIRE_THROW(cln.make_request(std::move(req), [] (const http::reply& rep, input_stream<char>&& in) {
-                return make_ready_future<>();
-            }).get0(), httpd::unexpected_status_error);
+            {
+                auto req = http::request::make("GET", "test", "/test");
+                BOOST_REQUIRE_THROW(cln.make_request(std::move(req), [] (const http::reply& rep, input_stream<char>&& in) {
+                    BOOST_REQUIRE(false); // should throw before handling response
+                    return make_ready_future<>();
+                }, http::reply::status_type::ok).get0(), httpd::unexpected_status_error);
+            }
+            {
+                auto req = http::request::make("GET", "test", "/test");
+                std::optional<http::reply::status_type> status;
+                cln.make_request(std::move(req), [&status] (const http::reply& rep, input_stream<char>&& in) {
+                    status = rep._status;
+                    return make_ready_future<>();
+                }).get();
+                BOOST_REQUIRE(status.has_value());
+                BOOST_REQUIRE_EQUAL(status.value(), http::reply::status_type::internal_server_error);
+            }
 
             cln.close().get();
         });
@@ -1043,7 +1056,7 @@ static future<> test_basic_content(bool streamed, bool chunked_reply) {
                         });
                     }
                     return make_ready_future<>();
-                }).get();
+                }, http::reply::status_type::ok).get();
                 // in fact, this case is to make sure that _next_ cases won't collect
                 // garbage from the client connection
             }
@@ -1083,7 +1096,7 @@ static future<> test_basic_content(bool streamed, bool chunked_reply) {
                         sstring body = util::read_entire_stream_contiguous(in).get0();
                         BOOST_REQUIRE_EQUAL(body, sstring("1234567890AB"));
                     });
-                }).get();
+                }, http::reply::status_type::ok).get();
             }
 
             {
@@ -1111,7 +1124,7 @@ static future<> test_basic_content(bool streamed, bool chunked_reply) {
                         sstring body = util::read_entire_stream_contiguous(in).get0();
                         BOOST_REQUIRE_EQUAL(body, to_sstring(std::move(jumbo_copy)));
                     });
-                }).get();
+                }, http::reply::status_type::ok).get();
             }
 
             {
