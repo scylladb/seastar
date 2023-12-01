@@ -121,13 +121,14 @@ class sharded;
 /// pointer as long as object is in use.
 template<typename T>
 class async_sharded_service : public enable_shared_from_this<T> {
+    promise<> _freed;
 protected:
-    std::function<void()> _delete_cb;
     async_sharded_service() noexcept = default;
     virtual ~async_sharded_service() {
-        if (_delete_cb) {
-            _delete_cb();
-        }
+        _freed.set_value();
+    }
+    future<> freed() noexcept {
+        return _freed.get_future();
     }
     template <typename Service> friend class sharded;
 };
@@ -179,15 +180,21 @@ template <typename Service>
 class sharded {
     struct entry {
         shared_ptr<Service> service;
-        promise<> freed;
+
+        future<> track_deletion() noexcept {
+            // do not wait for instance to be deleted if it is not going to notify us
+            if constexpr (std::is_base_of_v<async_sharded_service<Service>, Service>) {
+                if (service) {
+                    return service->freed();
+                }
+            }
+            return make_ready_future<>();
+        }
     };
     std::vector<entry> _instances;
 private:
     using invoke_on_all_func_type = std::function<future<> (Service&)>;
 private:
-    void service_deleted() noexcept {
-        _instances[this_shard_id()].freed.set_value();
-    }
     template <typename U, bool async>
     friend struct shared_ptr_make_helper;
 
@@ -497,20 +504,10 @@ public:
     bool local_is_initialized() const noexcept;
 
 private:
-    void track_deletion(shared_ptr<Service>&, std::false_type) noexcept {
-        // do not wait for instance to be deleted since it is not going to notify us
-        service_deleted();
-    }
-
-    void track_deletion(shared_ptr<Service>& s, std::true_type) {
-        s->_delete_cb = std::bind(std::mem_fn(&sharded<Service>::service_deleted), this);
-    }
-
     template <typename... Args>
     shared_ptr<Service> create_local_service(Args&&... args) {
         auto s = ::seastar::make_shared<Service>(std::forward<Args>(args)...);
         set_container(*s);
-        track_deletion(s, std::is_base_of<async_sharded_service<Service>, Service>());
         return s;
     }
 
@@ -729,11 +726,9 @@ sharded<Service>::stop() noexcept {
     }).then_wrapped([this] (future<> fut) {
         return sharded_parallel_for_each([this] (unsigned c) {
             return smp::submit_to(c, [this] {
-                if (_instances[this_shard_id()].service == nullptr) {
-                    return make_ready_future<>();
-                }
+                auto fut = _instances[this_shard_id()].track_deletion();
                 _instances[this_shard_id()].service = nullptr;
-                return _instances[this_shard_id()].freed.get_future();
+                return fut;
             });
         }).finally([this, fut = std::move(fut)] () mutable {
             _instances.clear();
