@@ -30,7 +30,6 @@
 #include <seastar/util/modules.hh>
 #include <exception>
 #include <optional>
-#include <tuple>
 #endif
 
 namespace seastar {
