@@ -180,13 +180,15 @@ public:
     // The methods below are used to communicate with the kernel.
     // reap_kernel_completions() will complete any previous async
     // work that is ready to consume.
-    // kernel_submit_work() submit new events that were produced.
+    // submit_and_get_completions() will both submit new events that were
+    // produced, and also complete any previous async work that is ready to
+    // consume.
     // Both of those methods are asynchronous and will never block.
     //
     // wait_and_process_events on the other hand may block, and is called when
     // we are about to go to sleep.
     virtual bool reap_kernel_completions() = 0;
-    virtual bool kernel_submit_work() = 0;
+    virtual bool submit_and_get_completions() = 0;
     virtual bool kernel_events_can_sleep() const = 0;
     virtual void wait_and_process_events(const sigset_t* active_sigmask = nullptr) = 0;
 
@@ -257,7 +259,7 @@ public:
     virtual ~reactor_backend_epoll() override;
 
     virtual bool reap_kernel_completions() override;
-    virtual bool kernel_submit_work() override;
+    virtual bool submit_and_get_completions() override;
     virtual bool kernel_events_can_sleep() const override;
     virtual void wait_and_process_events(const sigset_t* active_sigmask) override;
     virtual future<> readable(pollable_fd_state& fd) override;
@@ -307,7 +309,7 @@ public:
     explicit reactor_backend_aio(reactor& r);
 
     virtual bool reap_kernel_completions() override;
-    virtual bool kernel_submit_work() override;
+    virtual bool submit_and_get_completions() override;
     virtual bool kernel_events_can_sleep() const override;
     virtual void wait_and_process_events(const sigset_t* active_sigmask) override;
     virtual future<> readable(pollable_fd_state& fd) override;

@@ -1785,9 +1785,20 @@ steady_clock_type::time_point reactor::next_pending_aio() const noexcept {
     return next;
 }
 
-bool
-reactor::reap_kernel_completions() {
-    return _backend->reap_kernel_completions();
+bool reactor::poll_all_events() {
+    bool work = false;
+    work |= _backend->reap_kernel_completions();
+    work |= flush_pending_aio();
+    work |= _backend->submit_and_get_completions();
+    return work;
+}
+
+bool reactor::poll_any_event() {
+    return (
+        // actually performs work, but triggers no user continuations, so okay
+        _backend->reap_kernel_completions() ||
+        flush_pending_aio() ||
+        _backend->submit_and_get_completions());
 }
 
 #if SEASTAR_API_LEVEL < 7
@@ -2752,19 +2763,6 @@ reactor::do_check_lowres_timers() const noexcept {
     return lowres_clock::now() > _lowres_next_timeout;
 }
 
-#ifndef HAVE_OSV
-
-class reactor::kernel_submit_work_pollfn final : public simple_pollfn<true> {
-    reactor& _r;
-public:
-    kernel_submit_work_pollfn(reactor& r) : _r(r) {}
-    virtual bool poll() override final {
-        return _r._backend->kernel_submit_work();
-    }
-};
-
-#endif
-
 class reactor::signal_pollfn final : public reactor::pollfn {
     reactor& _r;
 public:
@@ -2803,52 +2801,47 @@ public:
     }
 };
 
-class reactor::reap_kernel_completions_pollfn final : public reactor::pollfn {
-    reactor& _r;
-public:
-    reap_kernel_completions_pollfn(reactor& r) : _r(r) {}
-    virtual bool poll() final override {
-        return _r.reap_kernel_completions();
-    }
-    virtual bool pure_poll() override final {
-        return poll(); // actually performs work, but triggers no user continuations, so okay
-    }
-    virtual bool try_enter_interrupt_mode() override {
-        return _r._backend->kernel_events_can_sleep();
-    }
-    virtual void exit_interrupt_mode() override final {
-    }
-};
-
-class reactor::io_queue_submission_pollfn final : public reactor::pollfn {
+class reactor::kernel_events_pollfn final : public reactor::pollfn {
     reactor& _r;
     // Wake-up the reactor with highres timer when the io-queue
     // decides to delay dispatching until some time point in
     // the future
-    timer<> _nearest_wakeup { [this] { _armed = false; } };
-    bool _armed = false;
-public:
-    io_queue_submission_pollfn(reactor& r) : _r(r) {}
-    virtual bool poll() final override {
-        return _r.flush_pending_aio();
-    }
-    virtual bool pure_poll() override final {
-        return poll();
-    }
-    virtual bool try_enter_interrupt_mode() override {
+    timer<> _nearest_wakeup { [] { } };
+    bool maybe_set_alarm_for_aio() {
         auto next = _r.next_pending_aio();
         auto now = steady_clock_type::now();
         if (next <= now) {
             return false;
         }
         _nearest_wakeup.arm(next);
-        _armed = true;
         return true;
     }
-    virtual void exit_interrupt_mode() override final {
-        if (_armed) {
+public:
+    kernel_events_pollfn(reactor& r) : _r(r) {}
+    bool poll() final {
+        return _r.poll_all_events();
+    }
+    bool pure_poll() final {
+        return _r.poll_any_event();
+    }
+    bool try_enter_interrupt_mode() final {
+        if (!_r._backend->kernel_events_can_sleep()) {
+            return false;
+        }
+        if (!maybe_set_alarm_for_aio()) {
+            return false;
+        }
+        if (!_r._backend->kernel_events_can_sleep()) {
+            // undo maybe_set_alarm_for_aio()
             _nearest_wakeup.cancel();
-            _armed = false;
+            return false;
+        }
+        return true;
+    }
+
+    void exit_interrupt_mode() final {
+        if (_nearest_wakeup.armed()) {
+            _nearest_wakeup.cancel();
         }
     }
 };
@@ -3213,10 +3206,7 @@ int reactor::do_run() {
     //                                   For example if we are dealing with poll() on a fd that has events.
     poller smp_poller(std::make_unique<smp_pollfn>(*this));
 
-    poller reap_kernel_completions_poller(std::make_unique<reap_kernel_completions_pollfn>(*this));
-    poller io_queue_submission_poller(std::make_unique<io_queue_submission_pollfn>(*this));
-    poller kernel_submit_work_poller(std::make_unique<kernel_submit_work_pollfn>(*this));
-    poller final_real_kernel_completions_poller(std::make_unique<reap_kernel_completions_pollfn>(*this));
+    poller kernel_events_poller(std::make_unique<kernel_events_pollfn>(*this));
 
     poller batch_flush_poller(std::make_unique<batch_flush_pollfn>(*this));
     poller execution_stage_poller(std::make_unique<execution_stage_pollfn>());
