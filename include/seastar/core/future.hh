@@ -36,6 +36,7 @@
 #include <seastar/core/task.hh>
 #include <seastar/core/thread_impl.hh>
 #include <seastar/core/function_traits.hh>
+#include <seastar/core/shard_id.hh>
 #include <seastar/util/critical_alloc_section.hh>
 #include <seastar/util/concepts.hh>
 #include <seastar/util/noncopyable_function.hh>
@@ -767,6 +768,20 @@ protected:
     future_state_base* _state;
 
     task* _task = nullptr;
+#ifdef SEASTAR_DEBUG_PROMISE
+    int _task_shard = -1;
+
+    void set_task(task* task) noexcept {
+        _task = task;
+        _task_shard = this_shard_id();
+    }
+    void assert_task_shard() const noexcept;
+#else
+    void set_task(task* task) noexcept {
+        _task = task;
+    }
+    void assert_task_shard() const noexcept { }
+#endif
 
     promise_base(const promise_base&) = delete;
     promise_base(future_state_base* state) noexcept : _state(state) {}
@@ -1118,7 +1133,7 @@ protected:
     void schedule(task* tws, future_state_base* state) noexcept {
         promise_base* p = detach_promise();
         p->_state = state;
-        p->_task = tws;
+        p->set_task(tws);
     }
 
     void do_wait() noexcept;
@@ -1747,7 +1762,7 @@ public:
 private:
     void set_task(task& t) noexcept {
         assert(_promise);
-        _promise->_task = &t;
+        _promise->set_task(&t);
     }
 
     void set_callback(continuation_base<T>* callback) noexcept {
