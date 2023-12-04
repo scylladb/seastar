@@ -33,6 +33,7 @@ module seastar;
 #else
 #include <seastar/net/net.hh>
 #include <seastar/net/toeplitz.hh>
+#include <seastar/core/internal/poll.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/metrics.hh>
 #include <seastar/core/print.hh>

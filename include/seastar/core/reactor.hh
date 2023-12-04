@@ -60,7 +60,6 @@
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/modules.hh>
 #include "internal/pollable_fd.hh"
-#include "internal/poll.hh"
 
 #ifndef SEASTAR_MODULE
 #include <boost/container/static_vector.hpp>
@@ -136,6 +135,7 @@ class smp;
 class reactor_backend_selector;
 
 class reactor_backend;
+struct pollfn;
 
 namespace internal {
 
@@ -143,32 +143,7 @@ class reactor_stall_sampler;
 class cpu_stall_detector;
 class buffer_allocator;
 class priority_class;
-
-template <typename Func>
-SEASTAR_CONCEPT( requires std::is_invocable_r_v<bool, Func> )
-std::unique_ptr<pollfn> make_pollfn(Func&& func);
-
-class poller {
-    std::unique_ptr<pollfn> _pollfn;
-    class registration_task;
-    class deregistration_task;
-    registration_task* _registration_task = nullptr;
-public:
-    template <typename Func>
-    SEASTAR_CONCEPT( requires std::is_invocable_r_v<bool, Func> )
-    static poller simple(Func&& poll) {
-        return poller(make_pollfn(std::forward<Func>(poll)));
-    }
-    poller(std::unique_ptr<pollfn> fn)
-            : _pollfn(std::move(fn)) {
-        do_register();
-    }
-    ~poller();
-    poller(poller&& x) noexcept;
-    poller& operator=(poller&& x) noexcept;
-    void do_register() noexcept;
-    friend class reactor;
-};
+class poller;
 
 size_t scheduling_group_count();
 
@@ -720,21 +695,6 @@ public:
         static std::function<void ()> get_stall_detector_report_function();
     };
 };
-
-template <typename Func>
-SEASTAR_CONCEPT( requires std::is_invocable_r_v<bool, Func> )
-inline
-std::unique_ptr<seastar::pollfn>
-internal::make_pollfn(Func&& func) {
-    struct the_pollfn : simple_pollfn<false> {
-        the_pollfn(Func&& func) : func(std::forward<Func>(func)) {}
-        Func func;
-        virtual bool poll() override final {
-            return func();
-        }
-    };
-    return std::make_unique<the_pollfn>(std::forward<Func>(func));
-}
 
 extern __thread reactor* local_engine;
 extern __thread size_t task_quota;
