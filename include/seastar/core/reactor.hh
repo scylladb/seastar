@@ -144,10 +144,6 @@ class cpu_stall_detector;
 class buffer_allocator;
 class priority_class;
 
-template <typename Func>
-SEASTAR_CONCEPT( requires std::is_invocable_r_v<bool, Func> )
-std::unique_ptr<pollfn> make_pollfn(Func&& func);
-
 class poller {
     std::unique_ptr<pollfn> _pollfn;
     class registration_task;
@@ -720,21 +716,6 @@ public:
         static std::function<void ()> get_stall_detector_report_function();
     };
 };
-
-template <typename Func>
-SEASTAR_CONCEPT( requires std::is_invocable_r_v<bool, Func> )
-inline
-std::unique_ptr<seastar::pollfn>
-internal::make_pollfn(Func&& func) {
-    struct the_pollfn : simple_pollfn<false> {
-        the_pollfn(Func&& func) : func(std::forward<Func>(func)) {}
-        Func func;
-        virtual bool poll() override final {
-            return func();
-        }
-    };
-    return std::make_unique<the_pollfn>(std::forward<Func>(func));
-}
 
 extern __thread reactor* local_engine;
 extern __thread size_t task_quota;

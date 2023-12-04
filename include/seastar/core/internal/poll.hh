@@ -56,4 +56,22 @@ struct simple_pollfn : public pollfn {
     }
 };
 
+namespace internal {
+
+template <typename Func>
+SEASTAR_CONCEPT( requires std::is_invocable_r_v<bool, Func> )
+inline
+std::unique_ptr<seastar::pollfn> make_pollfn(Func&& func) {
+    struct the_pollfn : simple_pollfn<false> {
+        the_pollfn(Func&& func) : func(std::forward<Func>(func)) {}
+        Func func;
+        virtual bool poll() override final {
+            return func();
+        }
+    };
+    return std::make_unique<the_pollfn>(std::forward<Func>(func));
+}
+
+} // internal namespace
+
 }
