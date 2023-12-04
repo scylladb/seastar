@@ -176,8 +176,6 @@ public:
     // buffered generator yet.
     virtual coroutine::experimental::generator<directory_entry> experimental_list_directory();
 #endif
-
-    friend class reactor;
 };
 
 future<shared_ptr<file_impl>> make_file_impl(int fd, file_open_options options, int oflags, struct stat st) noexcept;
