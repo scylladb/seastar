@@ -28,6 +28,7 @@
 #include <seastar/core/posix.hh>
 #include <seastar/core/reactor_config.hh>
 #include <seastar/core/resource.hh>
+#include <seastar/core/shard_id.hh>
 #include <seastar/util/modules.hh>
 
 #ifndef SEASTAR_MODULE
@@ -46,7 +47,6 @@ namespace seastar {
 class reactor_backend_selector;
 
 SEASTAR_MODULE_EXPORT_BEGIN
-using shard_id = unsigned;
 
 class smp_service_group;
 
@@ -61,15 +61,6 @@ namespace internal {
 
 unsigned smp_service_group_id(smp_service_group ssg) noexcept;
 
-#ifdef SEASTAR_BUILD_SHARED_LIBS
-shard_id* this_shard_id_ptr() noexcept;
-#else
-inline shard_id* this_shard_id_ptr() noexcept {
-    static thread_local shard_id g_this_shard_id;
-    return &g_this_shard_id;
-}
-#endif
-
 class memory_prefaulter;
 
 }
@@ -81,11 +72,6 @@ struct numa_layout;
 }
 
 SEASTAR_MODULE_EXPORT_BEGIN
-
-/// Returns shard_id of the of the current shard.
-inline shard_id this_shard_id() noexcept {
-    return *internal::this_shard_id_ptr();
-}
 
 /// Configuration for smp_service_group objects.
 ///
