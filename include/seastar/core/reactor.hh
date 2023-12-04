@@ -60,7 +60,6 @@
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/modules.hh>
 #include "internal/pollable_fd.hh"
-#include "internal/poll.hh"
 
 #ifndef SEASTAR_MODULE
 #include <boost/container/static_vector.hpp>
@@ -136,6 +135,7 @@ class smp;
 class reactor_backend_selector;
 
 class reactor_backend;
+struct pollfn;
 
 namespace internal {
 

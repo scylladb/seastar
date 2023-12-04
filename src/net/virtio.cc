@@ -46,6 +46,7 @@ module seastar;
 #include <seastar/net/virtio.hh>
 #include <seastar/core/posix.hh>
 #include <seastar/core/internal/pollable_fd.hh>
+#include <seastar/core/internal/poll.hh>
 #include "core/vla.hh"
 #include <seastar/core/reactor.hh>
 #include <seastar/core/stream.hh>
