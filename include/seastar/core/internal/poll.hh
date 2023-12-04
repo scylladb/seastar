@@ -72,6 +72,28 @@ std::unique_ptr<seastar::pollfn> make_pollfn(Func&& func) {
     return std::make_unique<the_pollfn>(std::forward<Func>(func));
 }
 
+class poller {
+    std::unique_ptr<pollfn> _pollfn;
+    class registration_task;
+    class deregistration_task;
+    registration_task* _registration_task = nullptr;
+public:
+    template <typename Func>
+    SEASTAR_CONCEPT( requires std::is_invocable_r_v<bool, Func> )
+    static poller simple(Func&& poll) {
+        return poller(make_pollfn(std::forward<Func>(poll)));
+    }
+    poller(std::unique_ptr<pollfn> fn)
+            : _pollfn(std::move(fn)) {
+        do_register();
+    }
+    ~poller();
+    poller(poller&& x) noexcept;
+    poller& operator=(poller&& x) noexcept;
+    void do_register() noexcept;
+    friend class reactor;
+};
+
 } // internal namespace
 
 }

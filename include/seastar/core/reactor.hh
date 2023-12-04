@@ -143,28 +143,7 @@ class reactor_stall_sampler;
 class cpu_stall_detector;
 class buffer_allocator;
 class priority_class;
-
-class poller {
-    std::unique_ptr<pollfn> _pollfn;
-    class registration_task;
-    class deregistration_task;
-    registration_task* _registration_task = nullptr;
-public:
-    template <typename Func>
-    SEASTAR_CONCEPT( requires std::is_invocable_r_v<bool, Func> )
-    static poller simple(Func&& poll) {
-        return poller(make_pollfn(std::forward<Func>(poll)));
-    }
-    poller(std::unique_ptr<pollfn> fn)
-            : _pollfn(std::move(fn)) {
-        do_register();
-    }
-    ~poller();
-    poller(poller&& x) noexcept;
-    poller& operator=(poller&& x) noexcept;
-    void do_register() noexcept;
-    friend class reactor;
-};
+class poller;
 
 size_t scheduling_group_count();
 
