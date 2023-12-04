@@ -27,6 +27,7 @@ MODE=$1
 COMPILER=$2
 VERSION=$3
 STANDARD=$4
+CONF_EXTRA=$5
 
 CONFIGURE="--mode=$MODE"
 if [ ! -z "$COMPILER" ]; then
@@ -50,5 +51,5 @@ if [ ! -z "$COMPILER" ]; then
     fi
 fi
 
-./configure.py $CONFIGURE
+./configure.py $CONFIGURE $CONF_EXTRA
 ninja -C build/$MODE
