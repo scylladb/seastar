@@ -55,6 +55,7 @@ module seastar;
 #include <seastar/core/sstring.hh>
 #include <seastar/core/memory.hh>
 #include <seastar/core/metrics.hh>
+#include <seastar/core/internal/poll.hh>
 #include <seastar/util/function_input_iterator.hh>
 #include <seastar/util/transform_iterator.hh>
 #include <seastar/util/std-compat.hh>
@@ -1422,11 +1423,11 @@ private:
     std::vector<fragment> _frags;
     std::vector<char*> _bufs;
     size_t _num_rx_free_segs = 0;
-    reactor::poller _rx_gc_poller;
+    internal::poller _rx_gc_poller;
     std::unique_ptr<void, free_deleter> _rx_xmem;
     tx_buf_factory _tx_buf_factory;
     std::optional<reactor::poller> _rx_poller;
-    reactor::poller _tx_gc_poller;
+    internal::poller _tx_gc_poller;
     std::vector<rte_mbuf*> _tx_burst;
     uint16_t _tx_burst_idx = 0;
     static constexpr phys_addr_t page_mask = ~(memory::page_size - 1);
