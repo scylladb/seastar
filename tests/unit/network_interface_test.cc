@@ -107,3 +107,58 @@ SEASTAR_TEST_CASE(is_standard_addresses_sanity) {
 
     return make_ready_future<>();
 }
+
+SEASTAR_TEST_CASE(test_inet_address_format) {
+    const std::string tests[] = {
+        // IPv4 addresses
+        "127.0.0.1",
+        "192.168.100.123",
+        // IPv6 addresses
+        // see also https://datatracker.ietf.org/doc/html/rfc5952
+        // leading zeros are removed
+        "2001:db8:85a3:8d3:1319:8a2e:370:7348",
+        // consecutive all-zeros must be compressed
+        "2001:db8::8a2e:370:7334",
+        "::1",
+        "100::",
+    };
+
+    for (auto expected : tests) {
+        net::inet_address addr{expected};
+        BOOST_CHECK_EQUAL(fmt::to_string(addr), expected);
+    }
+
+    // scoped addresses
+    for (auto& nwif: seastar::engine().net().network_interfaces()) {
+        const std::string_view address = "fe80::1ff:fe23:4567:890a";
+        const sstring zone_id = fmt::to_string(nwif.index());
+        for (auto zone : {zone_id, nwif.name(), nwif.display_name()}) {
+            net::inet_address addr{fmt::format("{}%{}", address, zone)};
+            // we always use the zone-id to represent the zone
+            auto expected = fmt::format("{}%{}", address, zone_id);
+            BOOST_CHECK_EQUAL(fmt::to_string(addr), expected);
+        }
+        // one of them would suffice
+        break;
+    }
+    return make_ready_future();
+}
+
+SEASTAR_TEST_CASE(test_inet_address_parse_invalid) {
+    const sstring tests[] = {
+        // bad IPv4 addresses
+        "127.0.0",
+        "192.168.100,123",
+        "192.168.1.2.3",
+        // bad IPv6 addresses
+        "fe80:2030:31:24",
+        "fe80:2030:12345",
+        "fe80:2030:12345%%",
+        ":",
+    };
+
+    for (auto s : tests) {
+        BOOST_CHECK_THROW(net::inet_address{s}, std::invalid_argument);
+    }
+    return make_ready_future();
+}
