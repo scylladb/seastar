@@ -11,6 +11,11 @@ jobs:
       mode:
         description: mode to build and test with
         type: string
+      with_dpdk:
+        default: "disable-dpdk"
+        description: build with DPDK enabled
+        type: enum
+        enum: ["disable-dpdk", "enable-dpdk"]
     machine:
       image:  ubuntu-2204:2023.04.2
     resource_class: large
@@ -19,7 +24,16 @@ jobs:
       - run: git submodule sync
       - run: git submodule update --init
       - run: echo 'docker run --pids-limit -1 --security-opt seccomp=unconfined --network host --user "$(id -u):$(id -g)" --rm -v $PWD:$PWD -w $PWD  docker.io/scylladb/seastar-toolchain:2023-12-05 "$@"' > run; chmod +x run
-      - run: ./run ./configure.py --compiler << parameters.compiler >> --c++-standard << parameters.standard >>
+      - when:
+          condition:
+            equal: [ "enable-dpdk", << parameters.with_dpdk >> ]
+          steps:
+            - run: ./run ./configure.py --compiler << parameters.compiler >> --c++-standard << parameters.standard >> --cook dpdk --enable-dpdk
+      - when:
+          condition:
+            equal: [ "disable-dpdk", << parameters.with_dpdk >> ]
+          steps:
+            - run: ./run ./configure.py --compiler << parameters.compiler >> --c++-standard << parameters.standard >>
       - when:
           condition:
             equal: [ dev, << parameters.mode >> ]
@@ -38,3 +52,14 @@ workflows:
               compiler: ["clang++-17", "g++-13"]
               standard: ["20", "17"]
               mode: ["dev", "debug", "release"]
+              with_dpdk: [ "disable-dpdk" ]
+      # only build this combination with dpdk enabled, so we don't double
+      # the size of the test matrix, and can at least test the build with
+      # dpdk enabled.
+      - build_and_test:
+          matrix:
+            parameters:
+              compiler: ["clang++-17"]
+              standard: ["20"]
+              mode: ["release"]
+              with_dpdk: [ "enable-dpdk" ]
