@@ -178,7 +178,9 @@ private:
     class lowres_timer_pollfn;
     class manual_timer_pollfn;
     class epoll_pollfn;
-    class kernel_events_pollfn;
+    class reap_kernel_completions_pollfn;
+    class kernel_submit_work_pollfn;
+    class io_queue_submission_pollfn;
     class syscall_pollfn;
     class execution_stage_pollfn;
     friend class manual_clock;
@@ -354,9 +356,8 @@ private:
     static std::chrono::nanoseconds calculate_poll_time();
     static void block_notifier(int);
     bool flush_pending_aio();
-    bool poll_all_events();
-    bool poll_any_event();
     steady_clock_type::time_point next_pending_aio() const noexcept;
+    bool reap_kernel_completions();
     bool flush_tcp_batches();
     void update_lowres_clocks() noexcept;
     bool do_expire_lowres_timers() noexcept;

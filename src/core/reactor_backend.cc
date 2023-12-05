@@ -534,12 +534,10 @@ bool reactor_backend_aio::reap_kernel_completions() {
     return did_work;
 }
 
-bool reactor_backend_aio::submit_and_get_completions() {
+bool reactor_backend_aio::kernel_submit_work() {
     _hrtimer_poll_completion.maybe_queue(_polling_io);
     bool did_work = _polling_io.flush();
     did_work |= _storage_context.submit_work();
-    did_work |= await_events(0, nullptr);
-    did_work |= _storage_context.reap_completions();
     return did_work;
 }
 
@@ -921,9 +919,9 @@ public:
 bool reactor_backend_epoll::reap_kernel_completions() {
     // epoll does not have a separate submission stage, and just
     // calls epoll_ctl everytime it needs, so this method and
-    // submit_and_get_completions are essentially the same. Ordering also
+    // kernel_submit_work are essentially the same. Ordering also
     // doesn't matter much. wait_and_process is actually completing,
-    // but we prefer to call it in submit_and_get_completions because the
+    // but we prefer to call it in kernel_submit_work because the
     // reactor register two pollers for completions and one for submission,
     // since completion is cheaper for other backends like aio. This avoids
     // calling epoll_wait twice.
@@ -932,7 +930,7 @@ bool reactor_backend_epoll::reap_kernel_completions() {
     return _storage_context.reap_completions();
 }
 
-bool reactor_backend_epoll::submit_and_get_completions() {
+bool reactor_backend_epoll::kernel_submit_work() {
     bool result = false;
     _storage_context.submit_work();
     if (_need_epoll_events) {
@@ -940,7 +938,7 @@ bool reactor_backend_epoll::submit_and_get_completions() {
     }
 
     result |= complete_hrtimer();
-    result |= _storage_context.reap_completions();
+
     return result;
 }
 
@@ -1107,7 +1105,7 @@ reactor_backend_osv::reap_kernel_completions() {
     return true;
 }
 
-reactor_backend_osv::submit_and_get_completions() {
+reactor_backend_osv::kernel_submit_work() {
 }
 
 void
@@ -1546,16 +1544,11 @@ public:
     virtual bool reap_kernel_completions() override {
         return do_process_kernel_completions();
     }
-    virtual bool submit_and_get_completions() override {
+    virtual bool kernel_submit_work() override {
         bool did_work = false;
         did_work |= _preempt_io_context.service_preempting_io();
         did_work |= queue_pending_file_io();
-        int ret = ::io_uring_submit(&_uring);
-        if (__builtin_expect(ret < 0, false)) {
-            abort();
-        }
-        did_work |= ret;
-        did_work |= do_process_kernel_completions();
+        did_work |= ::io_uring_submit(&_uring);
         return did_work;
     }
     virtual bool kernel_events_can_sleep() const override {
@@ -1565,9 +1558,7 @@ public:
     virtual void wait_and_process_events(const sigset_t* active_sigmask) override {
         _smp_wakeup_completion.maybe_rearm(*this);
         _hrtimer_completion.maybe_rearm(*this);
-        if (int ret = ::io_uring_submit(&_uring); __builtin_expect(ret < 0, false)) {
-            abort();
-        }
+        ::io_uring_submit(&_uring);
         bool did_work = false;
         did_work |= _preempt_io_context.service_preempting_io();
         did_work |= std::exchange(_did_work_while_getting_sqe, false);
