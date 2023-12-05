@@ -9,7 +9,7 @@ docker build -t seastar-dev -f docker/dev/Dockerfile .
 Building is done with two commands:
 
 ```
-$ ./configure.py
+$ ./configure.py
 $ ninja -C build/release
 ```
 
@@ -17,7 +17,7 @@ You can run them inside container, e.g. like this
 
 ```
 $ seabuild() { docker run -v $HOME/seastar/:/seastar -u $(id -u):$(id -g) -w /seastar -t seastar-dev "$@"; }
-$ seabuild ./configure.py
+$ seabuild ./configure.py
 $ seabuild ninja -C build/release
 ```
 
@@ -32,3 +32,4 @@ that will do the above steps itself, e.g. the above example would be like
 ```
 $ scripts/build.sh release
 ```
+
