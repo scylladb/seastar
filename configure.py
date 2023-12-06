@@ -90,6 +90,11 @@ add_tristate(
     help = 'DPDK support')
 add_tristate(
     arg_parser,
+    name = 'cxx-modules',
+    dest = 'cxx_modules',
+    help = 'build as C++20 module')
+add_tristate(
+    arg_parser,
     name = 'hwloc',
     dest = 'hwloc',
     help = 'hwloc support')
@@ -204,6 +209,7 @@ def configure_mode(mode):
         tr(args.exclude_demos, 'EXCLUDE_DEMOS_FROM_ALL'),
         tr(CFLAGS, 'CXX_FLAGS'),
         tr(LDFLAGS, 'LD_FLAGS'),
+        tr(args.cxx_modules, 'MODULE'),
         tr(args.dpdk, 'DPDK'),
         tr(infer_dpdk_machine(args.user_cflags), 'DPDK_MACHINE'),
         tr(args.hwloc, 'HWLOC', value_when_none='yes'),
