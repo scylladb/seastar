@@ -1,9 +1,13 @@
-if (NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+  if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 16)
+    message (FATAL "C++20 module needs Clang++-16 or up")
+  endif ()
+elseif (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 14)
+    message (FATAL "C++20 module needs g++-14 or up")
+  endif ()
+else ()
   message (FATAL_ERROR "Unsupported compiler: ${CMAKE_CXX_COMPILER_ID}")
-endif ()
-
-if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 16)
-  message (FATAL "C++20 module needs Clang++-16 or up")
 endif ()
 
 if (CMAKE_VERSION VERSION_GREATER_EQUAL 3.28)
