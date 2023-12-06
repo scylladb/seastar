@@ -24,18 +24,22 @@ import tempfile
 
 tempfile.tempdir = "./build/tmp"
 
+
 def add_tristate(arg_parser, name, dest, help, default=None):
     arg_parser.add_argument('--enable-' + name, dest = dest, action = 'store_true', default = default,
                             help = 'Enable ' + help + ' [default]' if default else '')
     arg_parser.add_argument('--disable-' + name, dest = dest, action = 'store_false', default = None,
                             help = 'Disable ' + help)
 
+
 def try_compile(compiler, source = '', flags = []):
     return try_compile_and_link(compiler, source, flags = flags + ['-c'])
+
 
 def ensure_tmp_dir_exists():
     if not os.path.exists(tempfile.tempdir):
         os.makedirs(tempfile.tempdir)
+
 
 def try_compile_and_link(compiler, source = '', flags = []):
     ensure_tmp_dir_exists()
@@ -53,8 +57,11 @@ def try_compile_and_link(compiler, source = '', flags = []):
         finally:
             if os.path.exists(ofile):
                 os.unlink(ofile)
+
+
 def standard_supported(standard, compiler='g++'):
     return try_compile(compiler=compiler, source='', flags=['-std=' + standard])
+
 
 arg_parser = argparse.ArgumentParser('Configure seastar')
 arg_parser.add_argument('--mode', action='store', choices=seastar_cmake.SUPPORTED_MODES + ['all'], default='all')
@@ -136,6 +143,7 @@ add_tristate(arg_parser, name='deferred-action-require-noexcept', dest='deferred
 arg_parser.add_argument('--prefix', dest='install_prefix', default='/usr/local', help='Root installation path of Seastar files')
 args = arg_parser.parse_args()
 
+
 def identify_best_standard(cpp_standards, compiler):
     """Returns the first C++ standard accepted by the compiler in the sequence,
     assuming the "best" standards appear first.
@@ -149,9 +157,11 @@ def identify_best_standard(cpp_standards, compiler):
             return std
     raise Exception(f"{compiler} does not seem to support any of Seastar's preferred C++ standards - {cpp_standards}. Please upgrade your compiler.")
 
+
 if args.cpp_standard == '':
     cpp_standards = ['23', '20', '17']
     args.cpp_standard = identify_best_standard(cpp_standards, compiler=args.cxx)
+
 
 def infer_dpdk_machine(user_cflags):
     """Infer the DPDK machine identifier (e.g., 'ivb') from the space-separated
@@ -178,12 +188,14 @@ def infer_dpdk_machine(user_cflags):
 
     return MAPPING.get(arch, 'native')
 
+
 MODES = seastar_cmake.SUPPORTED_MODES if args.mode == 'all' else [args.mode]
 
 # For convenience.
 tr = seastar_cmake.translate_arg
 
 MODE_TO_CMAKE_BUILD_TYPE = {'release' : 'RelWithDebInfo', 'debug' : 'Debug', 'dev' : 'Dev', 'sanitize' : 'Sanitize' }
+
 
 def configure_mode(mode):
     BUILD_PATH = seastar_cmake.build_path(mode, build_root=args.build_root)
@@ -262,6 +274,7 @@ def configure_mode(mode):
         print(" \\\n  ".join(ARGS))
     os.makedirs(BUILD_PATH, exist_ok=True)
     subprocess.check_call(ARGS, shell=False, cwd=dir)
+
 
 for mode in MODES:
     configure_mode(mode)
