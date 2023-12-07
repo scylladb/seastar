@@ -99,6 +99,13 @@ target_compile_definitions (seastar-module
 target_compile_options (seastar-module
   PUBLIC
     -U_FORTIFY_SOURCE)
+include (CheckCXXCompilerFlag)
+check_cxx_compiler_flag ("-Winclude-angled-in-module-purview"
+    Warning_IncludeAngledInModulePurview_FOUND)
+if (Warning_IncludeAngledInModulePurview_FOUND)
+  target_compile_options (seastar-module
+    PRIVATE "-Wno-include-angled-in-module-purview")
+endif ()
 
 target_link_libraries (seastar-module
   PUBLIC
