@@ -52,7 +52,6 @@ workflows:
               compiler: ["clang++-17", "g++-13"]
               standard: ["20", "17"]
               mode: ["dev", "debug", "release"]
-              with_dpdk: [ "disable-dpdk" ]
       # only build this combination with dpdk enabled, so we don't double
       # the size of the test matrix, and can at least test the build with
       # dpdk enabled.
