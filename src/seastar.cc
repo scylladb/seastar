@@ -306,6 +306,7 @@ module : private;
 
 #include "core/cgroup.hh"
 #include "core/file-impl.hh"
+#include "core/prefault.hh"
 #include "core/program_options.hh"
 #include "core/reactor_backend.hh"
 #include "core/syscall_result.hh"
