@@ -147,7 +147,6 @@ module;
 
 export module seastar;
 
-#define SEASTAR_COROUTINES_ENABLED
 // include all declaration and definitions to be exported in the the module
 // purview
 #include <seastar/util/std-compat.hh>
