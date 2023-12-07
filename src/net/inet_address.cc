@@ -23,6 +23,7 @@
 module;
 #endif
 
+#include <algorithm>
 #include <ostream>
 #include <arpa/inet.h>
 #include <boost/functional/hash.hpp>

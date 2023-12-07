@@ -23,6 +23,7 @@
 module;
 #endif
 
+#include <sys/socket.h>
 #include <cassert>
 #include <chrono>
 #include <cmath>
