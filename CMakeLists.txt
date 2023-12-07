@@ -855,13 +855,8 @@ target_compile_features(seastar
   PUBLIC
     cxx_std_${CMAKE_CXX_STANDARD})
 
-function (seastar_supports_flag flag var)
-  set (CMAKE_REQUIRED_FLAGS "${flag}")
-  check_cxx_source_compiles ("int main() { return 0; }" tmp_${var})
-  set (${var} ${tmp_${var}} PARENT_SCOPE)
-endfunction ()
-
-seastar_supports_flag ("-Wno-maybe-uninitialized -Werror" MaybeUninitialized_FOUND)
+include (CheckCXXCompilerFlag)
+check_cxx_compiler_flag ("-Wno-maybe-uninitialized -Werror" MaybeUninitialized_FOUND)
 if (MaybeUninitialized_FOUND)
   target_compile_options (seastar
     PUBLIC
@@ -994,7 +989,7 @@ if (SystemTap-SDT_FOUND)
     PRIVATE SystemTap::SDT)
 endif ()
 
-seastar_supports_flag ("-Werror=unused-result" ErrorUnused_FOUND)
+check_cxx_compiler_flag ("-Werror=unused-result" ErrorUnused_FOUND)
 if (ErrorUnused_FOUND)
   if (Seastar_UNUSED_RESULT_ERROR)
     target_compile_options (seastar
@@ -1005,7 +1000,7 @@ if (ErrorUnused_FOUND)
   endif ()
 endif ()
 
-seastar_supports_flag ("-Wno-error=#warnings" ErrorWarnings_FOUND)
+check_cxx_compiler_flag ("-Wno-error=#warnings" ErrorWarnings_FOUND)
 if (ErrorWarnings_FOUND)
   target_compile_options (seastar
       PUBLIC "-Wno-error=#warnings")
@@ -1046,7 +1041,7 @@ tri_state_option (${Seastar_STACK_GUARDS}
 if (condition)
   # check for -fstack-clash-protection together with -Werror, because
   # otherwise clang can soft-fail (return 0 but emit a warning) instead.
-  seastar_supports_flag ("-fstack-clash-protection -Werror" StackClashProtection_FOUND)
+  check_cxx_compiler_flag ("-fstack-clash-protection -Werror" StackClashProtection_FOUND)
   if (StackClashProtection_FOUND)
     target_compile_options (seastar
       PUBLIC
