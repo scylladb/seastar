@@ -26,6 +26,7 @@ module;
 
 #include <boost/asio/ip/address_v4.hpp>
 #include <boost/algorithm/string.hpp>
+#include <map>
 #include <utility>
 
 #ifdef SEASTAR_MODULE

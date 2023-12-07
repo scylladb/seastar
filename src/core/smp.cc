@@ -23,6 +23,7 @@ module;
 #endif
 
 #include <boost/range/algorithm/find_if.hpp>
+#include <memory>
 #include <vector>
 
 #ifdef SEASTAR_MODULE

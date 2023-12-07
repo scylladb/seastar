@@ -25,6 +25,9 @@ module;
 
 #include <algorithm>
 #include <atomic>
+#ifdef SEASTAR_COROUTINES_ENABLED
+#include <coroutine>
+#endif
 #include <deque>
 #include <filesystem>
 #include <functional>
