@@ -21,8 +21,11 @@
 
 #pragma once
 
-#if FMT_VERSION >= 90000
+#if FMT_VERSION >= 9'00'00
 #include <fmt/ostream.h>
+#endif
+#if FMT_VERSION >= 10'00'00
+#include <fmt/std.h>
 #endif
 
 #include <seastar/net/api.hh>
@@ -418,6 +421,16 @@ struct tuple_element<I, seastar::rpc::tuple<T...>> : tuple_element<I, tuple<T...
 
 }
 
-#if FMT_VERSION >= 90000
+#if FMT_VERSION >= 9'00'00
 template <> struct fmt::formatter<seastar::rpc::connection_id> : fmt::ostream_formatter {};
+#endif
+
+#if FMT_VERSION >= 10'00'00
+template <typename T>
+struct fmt::formatter<seastar::rpc::optional<T>> : private fmt::formatter<std::optional<T>> {
+    using fmt::formatter<std::optional<T>>::parse;
+    auto format(const seastar::rpc::optional<T>& opt, fmt::format_context& ctx) const {
+        return fmt::formatter<std::optional<T>>::format(opt, ctx);
+    }
+};
 #endif
