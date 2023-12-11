@@ -40,6 +40,7 @@ debian_packages=(
     libgnutls28-dev
     liblz4-dev
     libsctp-dev
+    libudev-dev
     liburing-dev
     gcc
     make
@@ -86,6 +87,7 @@ redhat_packages=(
     meson
     python3
     python3-pyelftools
+    systemd-devel
     systemtap-sdt-devel
     libtool
     cmake
