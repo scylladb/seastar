@@ -396,11 +396,9 @@ seastar_find_dependencies ()
 
 # Private build dependencies not visible to consumers
 find_package (ragel 6.10 REQUIRED)
-find_package (ucontext REQUIRED)
 find_package (Threads REQUIRED)
 find_package (PthreadSetName REQUIRED)
 find_package (Valgrind REQUIRED)
-find_package (SystemTap-SDT)
 
 #
 # Code generation helpers.
@@ -1323,9 +1321,11 @@ if (Seastar_INSTALL)
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findnumactl.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findragel.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findrt.cmake
+      ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Finducontext.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findyaml-cpp.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/SeastarDependencies.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindLibUring.cmake
+      ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindSystemTap-SDT.cmake
     DESTINATION ${install_cmakedir})
 
   install (

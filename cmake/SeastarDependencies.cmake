@@ -99,10 +99,12 @@ macro (seastar_find_dependencies)
     Sanitizers
     SourceLocation
     StdAtomic
+    SystemTap-SDT
     hwloc
     lksctp-tools # No version information published.
     numactl # No version information published.
     rt
+    ucontext
     yaml-cpp)
 
   # Arguments to `find_package` for each 3rd-party dependency.
@@ -141,6 +143,7 @@ macro (seastar_find_dependencies)
   seastar_set_dep_args (rt REQUIRED)
   seastar_set_dep_args (numactl
     OPTION ${Seastar_NUMA})
+  seastar_set_dep_args (ucontext REQUIRED)
   seastar_set_dep_args (yaml-cpp REQUIRED
     VERSION 0.5.1)
 
