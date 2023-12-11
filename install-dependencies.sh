@@ -35,6 +35,7 @@ debian_packages=(
     libpciaccess-dev
     libcrypto++-dev
     libboost-all-dev
+    libunistring-dev
     libxml2-dev
     xfslibs-dev
     libgnutls28-dev
@@ -79,6 +80,7 @@ redhat_packages=(
     libxml2-devel
     xfsprogs-devel
     gnutls-devel
+    libunistring-devel
     lksctp-tools-devel
     lz4-devel
     liburing-devel
