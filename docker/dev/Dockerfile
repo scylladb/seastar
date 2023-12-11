@@ -6,7 +6,7 @@ RUN apt -y update \
     && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 12 \
     && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 13 \
     && update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-13 13 \
-    && apt -y install clang-16 clang-17 \
+    && apt -y install clang-16 clang-17 clang-tools-17 \
     && update-alternatives --install /usr/bin/clang clang /usr/bin/clang-16 16 \
     && update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-16 16 \
     && update-alternatives --install /usr/bin/clang clang /usr/bin/clang-17 17 \
