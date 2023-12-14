@@ -1530,7 +1530,13 @@ void shrink(void* obj, size_t new_size) {
 }
 
 void set_reclaim_hook(std::function<void (std::function<void ()>)> hook) {
-    get_cpu_mem().set_reclaim_hook(hook);
+    // in general, we are using Seastar allocator here. but the Seastar application
+    // can still configure smp_opts.memory_allocator with memory_allocator::standard.
+    // in that case, the memory::configure() is not called, hence cpu_mem_ptr is not
+    // set.
+    if (cpu_mem_ptr) {
+        cpu_mem_ptr->set_reclaim_hook(hook);
+    }
 }
 
 reclaimer::reclaimer(std::function<reclaiming_result ()> reclaim, reclaimer_scope scope)

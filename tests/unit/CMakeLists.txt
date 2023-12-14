@@ -409,6 +409,13 @@ seastar_add_test (simple_stream
 seastar_add_app_test (smp
   SOURCES smp_test.cc)
 
+if(NOT Seastar_DPDK)
+  # disabled if built with DPDK, see seastar#2003
+  seastar_add_test (app-template
+    KIND BOOST
+    SOURCES app-template_test.cc)
+endif()
+
 seastar_add_test (socket
   SOURCES socket_test.cc)
 
