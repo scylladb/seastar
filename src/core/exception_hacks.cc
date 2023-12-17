@@ -90,6 +90,10 @@ static dl_iterate_fn dl_iterate_phdr_org() {
 static std::vector<dl_phdr_info> *phdrs_cache = nullptr;
 
 void init_phdr_cache() {
+    // this process started reactor before, no need to fill the cache
+    if (phdrs_cache) {
+        return;
+    }
     // Fill out elf header cache for access without locking.
     // This assumes no dynamic object loading/unloading after this point
     phdrs_cache = new std::vector<dl_phdr_info>();
