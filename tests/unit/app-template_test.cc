@@ -27,12 +27,14 @@
 
 using namespace seastar;
 
-// NOTE: only a single test case is hosted in this test, because the underlying
-// Seastar runtime does not do cleanup every bits when it tears down. and this
-// is a design decision at this moment, so even launching two seastar
-// applications in the same process sequentially is not supported.
-//
-BOOST_AUTO_TEST_CASE(app_standard_memory_allocator) {
+#ifdef Seastar_DPDK
+constexpr bool with_dpdk = true;
+#else
+constexpr bool with_dpdk = false;
+#endif
+
+BOOST_AUTO_TEST_CASE(app_standard_memory_allocator,
+                     *boost::unit_test::enable_if<with_dpdk>()) {
     // by default, use conservative settings instead of maxing out the performance
     // for testing app_template and underlying reactor's handling of different
     // settings
@@ -53,5 +55,27 @@ BOOST_AUTO_TEST_CASE(app_standard_memory_allocator) {
         [expected_status] {
             return make_ready_future<int>(expected_status);
         });
+    BOOST_CHECK_EQUAL(actual_status, expected_status);
+}
+
+BOOST_AUTO_TEST_CASE(return_0_for_func_returning_void) {
+    app_template app;
+    std::string prog_name{"prog"};
+    char* args[] = {prog_name.data()};
+    int status = app.run(std::size(args), std::data(args),
+                         [] { return make_ready_future(); });
+    BOOST_CHECK_EQUAL(status, 0);
+}
+
+BOOST_AUTO_TEST_CASE(return_status_for_func_returning_int) {
+    app_template app;
+    std::string prog_name{"prog"};
+    char* args[] = {prog_name.data()};
+    int expected_status = 42;
+    int actual_status = app.run(
+        std::size(args), std::data(args),
+         [expected_status] {
+             return make_ready_future<int>(expected_status);
+         });
     BOOST_CHECK_EQUAL(actual_status, expected_status);
 }
