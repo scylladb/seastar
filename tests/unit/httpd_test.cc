@@ -1429,3 +1429,65 @@ SEASTAR_TEST_CASE(test_unexpected_exception_format) {
     }
     return make_ready_future<>();
 }
+
+SEASTAR_TEST_CASE(test_redirect_exception) {
+    return seastar::async([] {
+        class perm_handle : public httpd::handler_base {
+        public:
+            virtual future<std::unique_ptr<http::reply> > handle(const sstring& path,
+                    std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) {
+                return make_exception_future<std::unique_ptr<http::reply>>(httpd::redirect_exception("/perm_loc"));
+            }
+        };
+
+        class temp_handle : public httpd::handler_base {
+        public:
+            virtual future<std::unique_ptr<http::reply> > handle(const sstring& path,
+                    std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) {
+                return make_exception_future<std::unique_ptr<http::reply>>(httpd::redirect_exception("/temp_loc",
+                        http::reply::status_type::moved_temporarily));
+            }
+        };
+
+        loopback_connection_factory lcf(1);
+        http_server server("test");
+        httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
+
+        future<> client = seastar::async([&lcf] {
+            class connection_factory : public http::experimental::connection_factory {
+                loopback_socket_impl lsi;
+            public:
+                explicit connection_factory(loopback_connection_factory& f) : lsi(f) {}
+                virtual future<connected_socket> make() override {
+                    return lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr()));
+                }
+            };
+            auto cln = http::experimental::client(std::make_unique<connection_factory>(lcf));
+
+            auto test = [&](sstring path, sstring expected_dest, http::reply::status_type expected_status) {
+                auto req = http::request::make("GET", "test", path);
+                std::optional<http::reply::status_type> status;
+                sstring location;
+                cln.make_request(std::move(req), [&] (const http::reply& rep, input_stream<char>&& in) {
+                    status = rep._status;
+                    location = rep.get_header("Location");
+                    return make_ready_future<>();
+                }).get();
+                BOOST_REQUIRE(status.has_value());
+                BOOST_REQUIRE_EQUAL(status.value(), expected_status);
+                BOOST_REQUIRE_EQUAL(location, expected_dest);
+            };
+
+            test("/perm", "/perm_loc", http::reply::status_type::moved_permanently);
+            test("/temp", "/temp_loc", http::reply::status_type::moved_temporarily);
+
+            cln.close().get();
+        });
+
+        server._routes.put(GET, "/perm", new perm_handle());
+        server._routes.put(GET, "/temp", new temp_handle());
+        server.do_accepts(0).get();
+        client.get();
+        server.stop().get();
+    });
+}
