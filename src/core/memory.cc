@@ -1593,8 +1593,11 @@ void* allocate_from_sampled_small_pool(size_t size) {
     auto& pool = get_cpu_mem().sampled_small_pools[idx];
     dassert(size <= pool.object_size());
     void* ptr = pool.allocate();
-    auto alloc_site = get_cpu_mem().add_alloc_site(pool.object_size());
-    new (&pool.alloc_site_holder(ptr)) allocation_site_ptr{alloc_site};
+    if (__builtin_expect(ptr != nullptr, true)) {
+        // we failed to allocate, so we won't sample either
+        auto alloc_site = get_cpu_mem().add_alloc_site(pool.object_size());
+        new (&pool.alloc_site_holder(ptr)) allocation_site_ptr{alloc_site};
+    }
     return ptr;
 }
 
