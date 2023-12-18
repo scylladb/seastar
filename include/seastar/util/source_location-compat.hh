@@ -43,8 +43,11 @@ public:
         , _line(0)
         , _col(0)
     { }
-
-    static source_location current(const char* file = __builtin_FILE(), const char* func = __builtin_FUNCTION(), int line = __builtin_LINE(), int col = 0) noexcept {
+    static
+#if __cplusplus >= 202002L
+    consteval
+#endif
+    source_location current(const char* file = __builtin_FILE(), const char* func = __builtin_FUNCTION(), int line = __builtin_LINE(), int col = 0) noexcept {
         return source_location(file, func, line, col);
     }
 
