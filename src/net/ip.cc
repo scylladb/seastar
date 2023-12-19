@@ -138,6 +138,7 @@ ipv4::handle_received_packet(packet p, ethernet_address from) {
     unsigned ip_len = h.len;
     unsigned pkt_len = p.len();
     auto offset = h.offset();
+
     if (pkt_len > ip_len) {
         // Trim extra data in the packet beyond IP total length
         p.trim_back(pkt_len - ip_len);
@@ -171,9 +172,12 @@ ipv4::handle_received_packet(packet p, ethernet_address from) {
     // Does this IP datagram need reassembly
     auto mf = h.mf();
     if (mf == true || offset != 0) {
+
         frag_limit_mem();
+
         auto frag_id = ipv4_frag_id{h.src_ip, h.dst_ip, h.id, h.ip_proto};
         auto& frag = _frags[frag_id];
+
         if (mf == false) {
             frag.last_frag_received = true;
         }
@@ -195,7 +199,7 @@ ipv4::handle_received_packet(packet p, ethernet_address from) {
                 packet& ip_packet = frag.header;
 
                 packet& ip_data = frag.data.map.begin()->second;
-                frag.header.append(std::move(ip_data));
+                ip_packet.append(std::move(ip_data));
 
                 deliver_packet_to_l4(from, l4, *ip_packet.get_header<ip_hdr>(), ip_packet);
             }
@@ -222,27 +226,31 @@ ipv4::handle_received_packet(packet p, ethernet_address from) {
 
 void ipv4::deliver_packet_to_l4(ethernet_address from, ip_protocol* l4,
                                 ip_hdr& ip_header, packet& ip_packet) {
+    unsigned ip_hdr_len = ip_header.ihl * 4;
+
     if (smp::count == 1) {
+        ip_packet.trim_front(ip_hdr_len);
         l4->received(std::move(ip_packet), ip_header.src_ip, ip_header.dst_ip);
-    } else {
-        size_t l4_offset = 0;
-        forward_hash hash_data;
-        hash_data.push_back(hton(ip_header.src_ip.ip));
-        hash_data.push_back(hton(ip_header.dst_ip.ip));
-        auto forwarded = l4->forward(hash_data, ip_packet, l4_offset);
-        if (forwarded) {
-            auto cpu_id = _netif->hash2cpu(toeplitz_hash(_netif->rss_key(), hash_data));
-            // No need to forward if the dst cpu is the current cpu
-            if (cpu_id == this_shard_id()) {
-                // Trim IP header and pass to upper layer
-                unsigned ip_hdr_len = ip_header.ihl * 4;
-                ip_packet.trim_front(ip_hdr_len);
-                l4->received(std::move(ip_packet), ip_header.src_ip, ip_header.dst_ip);
-            } else {
-                auto to = _netif->hw_address();
-                auto pkt = assemble_ethernet_packet(from, to, ip_packet);
-                _netif->forward(cpu_id, std::move(pkt));
-            }
+        return;
+    }
+
+    size_t l4_offset = 0;
+    forward_hash hash_data;
+    hash_data.push_back(hton(ip_header.src_ip.ip));
+    hash_data.push_back(hton(ip_header.dst_ip.ip));
+
+    auto forwarded = l4->forward(hash_data, ip_packet, l4_offset);
+    if (forwarded) {
+        auto cpu_id = _netif->hash2cpu(toeplitz_hash(_netif->rss_key(), hash_data));
+        // No need to forward if the dst cpu is the current cpu
+        if (cpu_id == this_shard_id()) {
+            // Trim IP header and pass to upper layer
+            ip_packet.trim_front(ip_hdr_len);
+            l4->received(std::move(ip_packet), ip_header.src_ip, ip_header.dst_ip);
+        } else {
+            auto to = _netif->hw_address();
+            auto pkt = assemble_ethernet_packet(from, to, ip_packet);
+            _netif->forward(cpu_id, std::move(pkt));
         }
     }
 }
@@ -253,13 +261,16 @@ packet ipv4::assemble_ethernet_packet(ethernet_address from, ethernet_address to
     eh->dst_mac = to;
     eh->eth_proto = uint16_t(eth_protocol_num::ipv4);
     *eh = hton(*eh);
+
     // Prepare a packet contains both ethernet header, ip header and ip data
     auto ethernet_pkt = std::move(ip_packet);
     auto iph = ethernet_pkt.get_header<ip_hdr>(sizeof(eth_hdr));
+
     // len is the sum of each fragment
     iph->len = hton(uint16_t(ethernet_pkt.len() - sizeof(eth_hdr)));
     // No fragmentation for the assembled datagram
     iph->frag = 0;
+
     // Since each fragment's csum is checked, no need to csum
     // again for the assembled datagram
     offload_info oi;
