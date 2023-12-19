@@ -43,41 +43,41 @@ ipv4_address::ipv4_address(const std::string& addr) {
     auto ipv4 = boost::asio::ip::address_v4::from_string(addr, ec);
     if (ec) {
         throw std::runtime_error(
-            format("Wrong format for IPv4 address {}. Please ensure it's in dotted-decimal format", addr));
+                format("Wrong format for IPv4 address {}. Please ensure it's in dotted-decimal format", addr));
     }
     ip = static_cast<uint32_t>(std::move(ipv4).to_ulong());
 }
 
 ipv4::ipv4(interface* netif)
-    : _netif(netif)
-    , _global_arp(netif)
-    , _arp(_global_arp)
-    , _host_address(0)
-    , _gw_address(0)
-    , _netmask(0)
-    , _l3(netif, eth_protocol_num::ipv4, [this] { return get_packet(); })
-    , _tcp(*this)
-    , _icmp(*this)
-    , _udp(*this)
-    , _l4({ { uint8_t(ip_protocol_num::tcp), &_tcp }, { uint8_t(ip_protocol_num::icmp), &_icmp }, { uint8_t(ip_protocol_num::udp), &_udp }})
+        : _netif(netif)
+        , _global_arp(netif)
+        , _arp(_global_arp)
+        , _host_address(0)
+        , _gw_address(0)
+        , _netmask(0)
+        , _l3(netif, eth_protocol_num::ipv4, [this] { return get_packet(); })
+        , _tcp(*this)
+        , _icmp(*this)
+        , _udp(*this)
+        , _l4({ { uint8_t(ip_protocol_num::tcp), &_tcp }, { uint8_t(ip_protocol_num::icmp), &_icmp }, { uint8_t(ip_protocol_num::udp), &_udp }})
 {
     namespace sm = seastar::metrics;
     // FIXME: ignored future
     (void)_l3.receive(
-        [this](packet p, ethernet_address ea) {
-            return handle_received_packet(std::move(p), ea);
-        },
-        [this](forward_hash& out_hash_data, packet& p, size_t off) {
-            return forward(out_hash_data, p, off);
-        });
+            [this](packet p, ethernet_address ea) {
+                return handle_received_packet(std::move(p), ea);
+            },
+            [this](forward_hash& out_hash_data, packet& p, size_t off) {
+                return forward(out_hash_data, p, off);
+            });
 
     _metrics.add_group("ipv4", {
-        //
-        // Linearized events: DERIVE:0:u
-        //
-        sm::make_counter("linearizations", [] { return ipv4_packet_merger::linearizations(); },
-                        sm::description("Counts a number of times a buffer linearization was invoked during buffers merge process. "
-                                        "Divide it by a total IPv4 receive packet rate to get an average number of lineraizations per packet."))
+            //
+            // Linearized events: DERIVE:0:u
+            //
+            sm::make_counter("linearizations", [] { return ipv4_packet_merger::linearizations(); },
+                             sm::description("Counts a number of times a buffer linearization was invoked during buffers merge process. "
+                                             "Divide it by a total IPv4 receive packet rate to get an average number of lineraizations per packet."))
     });
     _frag_timer.set_callback([this] { frag_timeout(); });
 }
@@ -136,9 +136,9 @@ ipv4::handle_received_packet(packet p, ethernet_address from) {
 
     auto h = ntoh(*iph);
     unsigned ip_len = h.len;
-    unsigned ip_hdr_len = h.ihl * 4;
     unsigned pkt_len = p.len();
     auto offset = h.offset();
+
     if (pkt_len > ip_len) {
         // Trim extra data in the packet beyond IP total length
         p.trim_back(pkt_len - ip_len);
@@ -172,51 +172,40 @@ ipv4::handle_received_packet(packet p, ethernet_address from) {
     // Does this IP datagram need reassembly
     auto mf = h.mf();
     if (mf == true || offset != 0) {
+
         frag_limit_mem();
+
         auto frag_id = ipv4_frag_id{h.src_ip, h.dst_ip, h.id, h.ip_proto};
         auto& frag = _frags[frag_id];
+
         if (mf == false) {
             frag.last_frag_received = true;
         }
+
         // This is a newly created frag_id
         if (frag.mem_size == 0) {
             _frags_age.push_back(frag_id);
             frag.rx_time = clock_type::now();
         }
+
         auto added_size = frag.merge(h, offset, std::move(p));
         _frag_mem += added_size;
+
         if (frag.is_complete()) {
             // All the fragments are received
-            auto dropped_size = frag.mem_size;
-            auto& ip_data = frag.data.map.begin()->second;
             // Choose a cpu to forward this packet
-            auto cpu_id = this_shard_id();
             auto l4 = _l4[h.ip_proto];
             if (l4) {
-                if (smp::count == 1) {
-                    l4->received(std::move(ip_data), h.src_ip, h.dst_ip);
-                } else {
-                    size_t l4_offset = 0;
-                    forward_hash hash_data;
-                    hash_data.push_back(hton(h.src_ip.ip));
-                    hash_data.push_back(hton(h.dst_ip.ip));
-                    auto forwarded = l4->forward(hash_data, ip_data, l4_offset);
-                    if (forwarded) {
-                        cpu_id = _netif->hash2cpu(toeplitz_hash(_netif->rss_key(), hash_data));
-                        // No need to forward if the dst cpu is the current cpu
-                        if (cpu_id == this_shard_id()) {
-                            l4->received(std::move(ip_data), h.src_ip, h.dst_ip);
-                        } else {
-                            auto to = _netif->hw_address();
-                            auto pkt = frag.get_assembled_packet(from, to);
-                            _netif->forward(cpu_id, std::move(pkt));
-                        }
-                    }
-                }
+                packet& ip_packet = frag.header;
+
+                packet& ip_data = frag.data.map.begin()->second;
+                ip_packet.append(std::move(ip_data));
+
+                deliver_packet_to_l4(from, l4, *ip_packet.get_header<ip_hdr>(), ip_packet);
             }
 
             // Delete this frag from _frags and _frags_age
-            frag_drop(frag_id, dropped_size);
+            frag_drop(frag_id, frag.mem_size);
             _frags_age.remove(frag_id);
         } else {
             // Some of the fragments are missing
@@ -229,11 +218,65 @@ ipv4::handle_received_packet(packet p, ethernet_address from) {
 
     auto l4 = _l4[h.ip_proto];
     if (l4) {
-        // Trim IP header and pass to upper layer
-        p.trim_front(ip_hdr_len);
-        l4->received(std::move(p), h.src_ip, h.dst_ip);
+        deliver_packet_to_l4(from, l4, h, p);
     }
+
     return make_ready_future<>();
+}
+
+void ipv4::deliver_packet_to_l4(ethernet_address from, ip_protocol* l4,
+                                ip_hdr& ip_header, packet& ip_packet) {
+    unsigned ip_hdr_len = ip_header.ihl * 4;
+
+    if (smp::count == 1) {
+        ip_packet.trim_front(ip_hdr_len);
+        l4->received(std::move(ip_packet), ip_header.src_ip, ip_header.dst_ip);
+        return;
+    }
+
+    size_t l4_offset = 0;
+    forward_hash hash_data;
+    hash_data.push_back(hton(ip_header.src_ip.ip));
+    hash_data.push_back(hton(ip_header.dst_ip.ip));
+
+    auto forwarded = l4->forward(hash_data, ip_packet, l4_offset);
+    if (forwarded) {
+        auto cpu_id = _netif->hash2cpu(toeplitz_hash(_netif->rss_key(), hash_data));
+        // No need to forward if the dst cpu is the current cpu
+        if (cpu_id == this_shard_id()) {
+            // Trim IP header and pass to upper layer
+            ip_packet.trim_front(ip_hdr_len);
+            l4->received(std::move(ip_packet), ip_header.src_ip, ip_header.dst_ip);
+        } else {
+            auto to = _netif->hw_address();
+            auto pkt = assemble_ethernet_packet(from, to, ip_packet);
+            _netif->forward(cpu_id, std::move(pkt));
+        }
+    }
+}
+
+packet ipv4::assemble_ethernet_packet(ethernet_address from, ethernet_address to, packet& ip_packet) {
+    auto eh = ip_packet.prepend_header<eth_hdr>();
+    eh->src_mac = from;
+    eh->dst_mac = to;
+    eh->eth_proto = uint16_t(eth_protocol_num::ipv4);
+    *eh = hton(*eh);
+
+    // Prepare a packet contains both ethernet header, ip header and ip data
+    auto ethernet_pkt = std::move(ip_packet);
+    auto iph = ethernet_pkt.get_header<ip_hdr>(sizeof(eth_hdr));
+
+    // len is the sum of each fragment
+    iph->len = hton(uint16_t(ethernet_pkt.len() - sizeof(eth_hdr)));
+    // No fragmentation for the assembled datagram
+    iph->frag = 0;
+
+    // Since each fragment's csum is checked, no need to csum
+    // again for the assembled datagram
+    offload_info oi;
+    oi.reassembled = true;
+    ethernet_pkt.set_offload_info(oi);
+    return ethernet_pkt;
 }
 
 future<ethernet_address> ipv4::get_l2_dst_address(ipv4_address to) {
@@ -442,31 +485,6 @@ bool ipv4::frag::is_complete() {
     auto offset = data.map.begin()->first;
     auto nr_packet = data.map.size();
     return last_frag_received && nr_packet == 1 && offset == 0;
-}
-
-packet ipv4::frag::get_assembled_packet(ethernet_address from, ethernet_address to) {
-    auto& ip_header = header;
-    auto& ip_data = data.map.begin()->second;
-    // Append a ethernet header, needed for forwarding
-    auto eh = ip_header.prepend_header<eth_hdr>();
-    eh->src_mac = from;
-    eh->dst_mac = to;
-    eh->eth_proto = uint16_t(eth_protocol_num::ipv4);
-    *eh = hton(*eh);
-    // Prepare a packet contains both ethernet header, ip header and ip data
-    ip_header.append(std::move(ip_data));
-    auto pkt = std::move(ip_header);
-    auto iph = pkt.get_header<ip_hdr>(sizeof(eth_hdr));
-    // len is the sum of each fragment
-    iph->len = hton(uint16_t(pkt.len() - sizeof(eth_hdr)));
-    // No fragmentation for the assembled datagram
-    iph->frag = 0;
-    // Since each fragment's csum is checked, no need to csum
-    // again for the assembled datagram
-    offload_info oi;
-    oi.reassembled = true;
-    pkt.set_offload_info(oi);
-    return pkt;
 }
 
 void icmp::received(packet p, ipaddr from, ipaddr to) {

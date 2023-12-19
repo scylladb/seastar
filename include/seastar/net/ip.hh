@@ -97,10 +97,10 @@ public:
     virtual ~ip_protocol() {}
     virtual void received(packet p, ipv4_address from, ipv4_address to) = 0;
     virtual bool forward(forward_hash& out_hash_data, packet& p, size_t off) {
-      std::ignore = out_hash_data;
-      std::ignore = p;
-      std::ignore = off;
-      return true;
+        std::ignore = out_hash_data;
+        std::ignore = p;
+        std::ignore = off;
+        return true;
     }
 };
 
@@ -117,9 +117,9 @@ struct l4connid {
 
     bool operator==(const l4connid& x) const {
         return local_ip == x.local_ip
-                && foreign_ip == x.foreign_ip
-                && local_port == x.local_port
-                && foreign_port == x.foreign_port;
+               && foreign_ip == x.foreign_ip
+               && local_port == x.local_port
+               && foreign_port == x.foreign_port;
     }
 
     uint32_t hash(rss_key_type rss_key) {
@@ -258,7 +258,7 @@ struct ipv4_frag_id {
 };
 
 struct ipv4_frag_id::hash : private std::hash<ipv4_address>,
-    private std::hash<uint16_t>, private std::hash<uint8_t> {
+                            private std::hash<uint16_t>, private std::hash<uint8_t> {
     size_t operator()(const ipv4_frag_id& id) const noexcept {
         using h1 = std::hash<ipv4_address>;
         using h2 = std::hash<uint16_t>;
@@ -302,7 +302,6 @@ private:
         // fragment with MF == 0 inidates it is the last fragment
         bool last_frag_received = false;
 
-        packet get_assembled_packet(ethernet_address from, ethernet_address to);
         int32_t merge(ip_hdr &h, uint16_t offset, packet p);
         bool is_complete();
     };
@@ -318,6 +317,9 @@ private:
     metrics::metric_groups _metrics;
 private:
     future<> handle_received_packet(packet p, ethernet_address from);
+    void deliver_packet_to_l4(ethernet_address from, ip_protocol* l4,
+                              ip_hdr& ip_header, packet& ip_packet);
+    static packet assemble_ethernet_packet(ethernet_address from, ethernet_address to, packet& ip_packet);
     bool forward(forward_hash& out_hash_data, packet& p, size_t off);
     std::optional<l3_protocol::l3packet> get_packet();
     bool in_my_netmask(ipv4_address a) const;
@@ -411,9 +413,9 @@ struct l4connid<InetTraits>::connid_hash : private std::hash<ipaddr>, private st
         using h1 = std::hash<ipaddr>;
         using h2 = std::hash<uint16_t>;
         return h1::operator()(id.local_ip)
-            ^ h1::operator()(id.foreign_ip)
-            ^ h2::operator()(id.local_port)
-            ^ h2::operator()(id.foreign_port);
+               ^ h1::operator()(id.foreign_ip)
+               ^ h2::operator()(id.local_port)
+               ^ h2::operator()(id.foreign_port);
     }
 };
 
