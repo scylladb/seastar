@@ -2665,7 +2665,7 @@ void reactor::run_tasks(task_queue& tq) {
         ++tq._tasks_processed;
         ++_global_tasks_processed;
         // check at end of loop, to allow at least one task to run
-        if (need_preempt()) {
+        if (internal::scheduler_need_preempt()) {
             if (tasks.size() <= _max_task_backlog) {
                 break;
             } else {
@@ -3135,6 +3135,13 @@ reactor::run_some_tasks() {
         } else {
             tq->_active = false;
         }
+        // We must not use internal::scheduler_need_preempt() below,
+        // since in debug mode we'll never have two successive calls
+        // to internal::scheduler_need_preempt() both return true, so
+        // an infinite loop with yield() will never terminate.
+        //
+        // Settle on a regular need_preempt(), which will return true in
+        // debug mode.
     } while (have_more_tasks() && !need_preempt());
     _cpu_stall_detector->end_task_run(t_run_completed);
     STAP_PROBE(seastar, reactor_run_tasks_end);

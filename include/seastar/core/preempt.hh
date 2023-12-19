@@ -69,4 +69,29 @@ inline bool need_preempt() noexcept {
 #endif
 }
 
+namespace internal {
+
+
+
+// Same as need_preempt(), but for the scheduler's use. Outside debug
+// mode they have the same meaning - the task quota expired and we need
+// to check for I/O.
+inline
+bool
+scheduler_need_preempt() {
+#ifndef SEASTAR_DEBUG
+    return need_preempt();
+#else
+    // Within the scheduler, preempting all the time (as need_preempt()
+    // does in debug mode) reduces performance drastically since we check
+    // for I/O after every task. Since we don't care about latency in debug
+    // mode, run some random-but-bounded number of tasks instead. Latency
+    // will be high if those tasks are slow, but this is debug mode anyway.
+    static thread_local unsigned counter = 0;
+    return ++counter % 64 == 0;
+#endif
+}
+
+}
+
 }

@@ -32,6 +32,8 @@
 #include <chrono>
 #include <sys/mman.h>
 
+#ifndef SEASTAR_DEBUG
+
 using namespace seastar;
 using namespace std::chrono_literals;
 
@@ -172,3 +174,11 @@ SEASTAR_THREAD_TEST_CASE(spin_in_kernel) {
     // doing 128K mmaps
     test_spin_with_body("kernel", [] { mmap_populate(128 * 1024); });
 }
+
+
+#else
+
+SEASTAR_THREAD_TEST_CASE(stall_detector_test_not_valid_in_debug_mode) {
+}
+
+#endif
