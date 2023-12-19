@@ -302,7 +302,6 @@ private:
         // fragment with MF == 0 inidates it is the last fragment
         bool last_frag_received = false;
 
-        packet get_assembled_packet(ethernet_address from, ethernet_address to);
         int32_t merge(ip_hdr &h, uint16_t offset, packet p);
         bool is_complete();
     };
@@ -318,6 +317,9 @@ private:
     metrics::metric_groups _metrics;
 private:
     future<> handle_received_packet(packet p, ethernet_address from);
+    void deliver_packet_to_l4(ethernet_address from, ip_protocol* l4,
+                              ip_hdr& ip_header, packet& ip_packet);
+    static packet assemble_ethernet_packet(ethernet_address from, ethernet_address to, packet& ip_packet);
     bool forward(forward_hash& out_hash_data, packet& p, size_t off);
     std::optional<l3_protocol::l3packet> get_packet();
     bool in_my_netmask(ipv4_address a) const;
