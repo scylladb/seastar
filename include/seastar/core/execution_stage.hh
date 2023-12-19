@@ -250,7 +250,7 @@ private:
             futurize<ReturnType>::apply(_function, unwrap(std::move(wi_in))).forward_to(std::move(wi_ready));
             _stats.function_calls_executed++;
 
-            if (need_preempt()) {
+            if (internal::scheduler_need_preempt()) {
                 _stats.tasks_preempted++;
                 break;
             }
