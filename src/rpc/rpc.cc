@@ -461,12 +461,18 @@ namespace rpc {
               }
               auto ptr = compress_header.get();
               auto size = read_le<uint32_t>(ptr);
-              return read_rcv_buf(in, size).then([this, size, &compressor, info] (rcv_buf compressed_data) {
+              return read_rcv_buf(in, size).then([this, size, &compressor, info, &in] (rcv_buf compressed_data) {
                   if (compressed_data.size != size) {
                       _logger(info, format("unexpected eof on a {} while reading compressed data: expected {:d} got {:d}", FrameType::role(), size, compressed_data.size));
                       return FrameType::empty_value();
                   }
                   auto eb = compressor->decompress(std::move(compressed_data));
+                  if (eb.size == 0) {
+                      // Empty frames might be sent as means of communication between the compressors, and should be skipped by the RPC layer.
+                      // We skip the empty frame here. We recursively restart the function, as if the empty frame didn't happen.
+                      // The yield() is here to limit the stack depth of the recursion to 1.
+                      return yield().then([this, info, &in, &compressor] { return read_frame_compressed<FrameType>(info, compressor, in); });
+                  }
                   net::packet p;
                   auto* one = std::get_if<temporary_buffer<char>>(&eb.bufs);
                   if (one) {
