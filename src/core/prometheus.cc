@@ -74,14 +74,14 @@ static bool write_delimited_to(const google::protobuf::MessageLite& message,
     return true;
 }
 
-static pm::Metric* add_label(pm::Metric* mt, const metrics::impl::metric_id & id, const config& ctx) {
-    mt->mutable_label()->Reserve(id.labels().size() + 1);
+static pm::Metric* add_label(pm::Metric* mt, const metrics::impl::labels_type & id, const config& ctx) {
+    mt->mutable_label()->Reserve(id.size() + 1);
     if (ctx.label) {
         auto label = mt->add_label();
         label->set_name(ctx.label->key());
         label->set_value(ctx.label->value());
     }
-    for (auto &&i : id.labels()) {
+    for (auto &&i : id) {
         auto label = mt->add_label();
         label->set_name(i.first);
         label->set_value(i.second);
@@ -90,17 +90,28 @@ static pm::Metric* add_label(pm::Metric* mt, const metrics::impl::metric_id & id
 }
 
 static void fill_metric(pm::MetricFamily& mf, const metrics::impl::metric_value& c,
-        const metrics::impl::metric_id & id, const config& ctx) {
+        const metrics::impl::labels_type & id, const config& ctx) {
     switch (c.type()) {
     case scollectd::data_type::GAUGE:
         add_label(mf.add_metric(), id, ctx)->mutable_gauge()->set_value(c.d());
         mf.set_type(pm::MetricType::GAUGE);
         break;
-    case scollectd::data_type::SUMMARY:
-        [[fallthrough]];
+    case scollectd::data_type::SUMMARY: {
+        auto& h = c.get_histogram();
+        auto mh = add_label(mf.add_metric(), id,ctx)->mutable_summary();
+        mh->set_sample_count(h.sample_count);
+        mh->set_sample_sum(h.sample_sum);
+        for (auto b : h.buckets) {
+            auto bc = mh->add_quantile();
+            bc->set_value(b.count);
+            bc->set_quantile(b.upper_bound);
+        }
+        mf.set_type(pm::MetricType::SUMMARY);
+        break;
+    }
     case scollectd::data_type::HISTOGRAM:
     {
-        auto h = c.get_histogram();
+        auto& h = c.get_histogram();
         auto mh = add_label(mf.add_metric(), id,ctx)->mutable_histogram();
         mh->set_sample_count(h.sample_count);
         mh->set_sample_sum(h.sample_sum);
@@ -115,7 +126,7 @@ static void fill_metric(pm::MetricFamily& mf, const metrics::impl::metric_value&
     case scollectd::data_type::REAL_COUNTER:
         [[fallthrough]];
     case scollectd::data_type::COUNTER:
-        add_label(mf.add_metric(), id, ctx)->mutable_counter()->set_value(c.ui());
+        add_label(mf.add_metric(), id, ctx)->mutable_counter()->set_value(c.d());
         mf.set_type(pm::MetricType::COUNTER);
         break;
     }
@@ -712,19 +723,35 @@ future<> write_text_representation(output_stream<char>& out, const config& ctx, 
     });
 }
 
-future<> write_protobuf_representation(output_stream<char>& out, const config& ctx, metric_family_range& m) {
-    return do_for_each(m, [&ctx, &out](metric_family& metric_family) mutable {
+future<> write_protobuf_representation(output_stream<char>& out, const config& ctx, metric_family_range& m, std::function<bool(const mi::labels_type&)> filter) {
+    return do_for_each(m, [&ctx, &out, filter=std::move(filter)](metric_family& metric_family) mutable {
         std::string s;
         google::protobuf::io::StringOutputStream os(&s);
-
+        metric_aggregate_by_labels aggregated_values(metric_family.metadata().aggregate_labels);
+        bool should_aggregate = !metric_family.metadata().aggregate_labels.empty();
         auto& name = metric_family.name();
         pm::MetricFamily mtf;
-
+        bool empty_metric = true;
         mtf.set_name(ctx.prefix + "_" + name);
         mtf.mutable_metric()->Reserve(metric_family.size());
-        metric_family.foreach_metric([&mtf, &ctx](auto value, auto value_info) {
-            fill_metric(mtf, value, value_info.id, ctx);
+        metric_family.foreach_metric([&mtf, &ctx, &filter, &aggregated_values, &empty_metric, should_aggregate](auto value, auto value_info) {
+            if ((value_info.should_skip_when_empty && value.is_empty()) || !filter(value_info.id.labels())) {
+                return;
+            }
+            if (should_aggregate) {
+                aggregated_values.add(value, value_info.id.labels());
+            } else {
+                fill_metric(mtf, value, value_info.id.labels(), ctx);
+                empty_metric = false;
+            }
         });
+        for (auto& [labels, value] : aggregated_values.get_values()) {
+            fill_metric(mtf, value, labels, ctx);
+            empty_metric = false;
+        }
+        if (empty_metric) {
+            return make_ready_future<>();
+        }
         if (!write_delimited_to(mtf, &os)) {
             seastar_logger.warn("Failed to write protobuf metrics");
         }
@@ -813,7 +840,7 @@ public:
                     return do_with(get_range(families, metric_family_name, prefix),
                             [&s, this, is_text_format, show_help, filter](metric_family_range& m) {
                         return (is_text_format) ? write_text_representation(s, _ctx, m, show_help, filter) :
-                                write_protobuf_representation(s, _ctx, m);
+                                write_protobuf_representation(s, _ctx, m, filter);
                     });
                 }).finally([&s] () mutable {
                     return s.close();
