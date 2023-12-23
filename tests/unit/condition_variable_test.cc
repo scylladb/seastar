@@ -20,6 +20,7 @@
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
+#include <seastar/core/abort_source.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/do_with.hh>
 #include <seastar/testing/test_case.hh>
@@ -198,6 +199,110 @@ SEASTAR_THREAD_TEST_CASE(test_condition_variable_pred_wait) {
             BOOST_FAIL("should not reach");
         }
         t.cancel();
+        cv.signal();
+    }
+
+    ready = true;
+    cv.signal();
+
+    cv.wait([&] { return ready; }).get();
+    // signal state should remain on
+    cv.wait().get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_condition_variable_abort_source) {
+    condition_variable cv;
+    abort_source as;
+
+    auto f = cv.wait(as);
+    BOOST_REQUIRE_EQUAL(f.available(), false);
+
+    as.request_abort();
+    BOOST_REQUIRE_EQUAL(f.available(), true);
+
+    try {
+        f.get();
+        BOOST_FAIL("should not reach");
+    } catch (condition_variable_aborted &) {
+        // ok
+    } catch (...) {
+        BOOST_FAIL("should not reach");
+    }
+}
+
+SEASTAR_THREAD_TEST_CASE(test_condition_variable_abort_source_already_aborted) {
+    condition_variable cv;
+    abort_source as;
+    as.request_abort();
+
+    auto f = cv.wait(as);
+    BOOST_REQUIRE_EQUAL(f.available(), true);
+
+    try {
+        f.get();
+        BOOST_FAIL("should not reach");
+    } catch (condition_variable_aborted &) {
+        // ok
+    } catch (...) {
+        BOOST_FAIL("should not reach");
+    }
+}
+
+SEASTAR_THREAD_TEST_CASE(test_condition_variable_abort_source_pred_wait) {
+    condition_variable cv;
+    abort_source as;
+
+    bool ready = false;
+
+    timer<> t;
+    t.set_callback([&] {
+      ready = true;
+      cv.signal();
+    });
+    t.arm(100ms);
+
+    cv.wait([&] { return ready; }).get();
+
+    ready = false;
+    as.request_abort();
+
+    try {
+        cv.wait(as, [&] { return ready; }).get();
+        BOOST_FAIL("should not reach");
+    } catch (timed_out_error &) {
+        BOOST_FAIL("should not reach");
+    } catch (condition_variable_aborted &) {
+        // ok
+    } catch (...) {
+        BOOST_FAIL("should not reach");
+    }
+
+    ready = true;
+    cv.signal();
+    as = abort_source();
+
+    cv.wait(as, [&] { return ready; }).get();
+
+    for (int i = 0; i < 2; ++i) {
+        ready = false;
+        t.set_callback([&] { cv.broadcast(); });
+        t.arm_periodic(10ms);
+        timer<> as_t;
+        as_t.set_callback([&] { as.request_abort(); });
+        as_t.arm(300ms);
+
+        try {
+            cv.wait(as, [&] { return ready; }).get();
+            BOOST_FAIL("should not reach");
+        } catch (timed_out_error &) {
+            BOOST_FAIL("should not reach");
+        } catch (condition_variable_aborted &) {
+            // ok
+        } catch (...) {
+            BOOST_FAIL("should not reach");
+        }
+        t.cancel();
+        as_t.cancel();
         cv.signal();
     }
 
