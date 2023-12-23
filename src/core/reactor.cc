@@ -4324,9 +4324,9 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
             size_t dpdk_memory = dpdk::eal::mem_size(smp::count);
 
             if (dpdk_memory >= rc.total_memory) {
-                std::cerr<<"Can't run with the given amount of memory: ";
-                std::cerr<<smp_opts.memory.get_value();
-                std::cerr<<". Consider giving more."<<std::endl;
+                seastar_logger.error("Can't run with the given amount of memory: {}. "
+                                     "Consider giving more.",
+                                     smp_opts.memory.get_value());
                 exit(1);
             }
 
