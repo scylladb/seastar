@@ -3811,7 +3811,7 @@ static program_options::selection_value<network_stack_factory> create_network_st
     }
 
     return program_options::selection_value<network_stack_factory>(zis, "network-stack", std::move(candidates), default_stack,
-            format("select network stack (valid values: {})", format_separated(net_stack_names.begin(), net_stack_names.end(), ", ")));
+            format("select network stack (valid values: {})", fmt::join(net_stack_names, ", ")));
 }
 
 static program_options::selection_value<reactor_backend_selector>::candidates backend_selector_candidates() {
