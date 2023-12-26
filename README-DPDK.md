@@ -22,12 +22,8 @@ To use your own self-compiled DPDK package, follow this procedure:
    - Ubuntu 
      `sudo apt-get install -y build-essential linux-image-extra-$(uname -r)` 
 2. Prepare a DPDK SDK:
-   - Download the latest DPDK release: `wget http://dpdk.org/browse/dpdk/snapshot/dpdk-2.0.0.tar.gz`
+   - Download the latest DPDK release: `wget https://fast.dpdk.org/rel/dpdk-23.07.tar.xz`
    - Untar it.
-   - Edit config/common_linuxapp: set CONFIG_RTE_MBUF_REFCNT_ATOMIC and CONFIG_RTE_LIBRTE_KNI to 'n'.
-   - Start the tools/setup.sh script as root.
-   - Compile a linuxapp target (option 9).
-   - Install IGB_UIO module (option 12).
-   - Bind some physical port to IGB_UIO (option 18).
-   - Configure hugepage mappings (option 15/16).
+   - Follow the [Quick Start Guide](https://core.dpdk.org/doc/quick-start/)
+   - Pass `-Dmbuf_refcnt_atomic=false` to meson.
 3. Modify the CMake cache (`CMakeCache.txt`) to inform CMake of the location of the installed DPDK SDK.
