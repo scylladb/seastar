@@ -232,7 +232,7 @@ seastar::net::ipv6_address::ipv6_address() noexcept
 
 seastar::net::ipv6_address::ipv6_address(const std::string& addr) {
     if (!::inet_pton(AF_INET6, addr.c_str(), ip.data())) {
-        throw std::runtime_error(format("Wrong format for IPv6 address {}. Please ensure it's in colon-hex format",
+        throw std::runtime_error(fmt::format("Wrong format for IPv6 address {}. Please ensure it's in colon-hex format",
                                         addr));
     }
 }
