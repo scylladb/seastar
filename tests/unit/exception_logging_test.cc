@@ -54,7 +54,7 @@ void exception_generator(uint32_t test_instance, int nesting_level) {
             exception_generator(test_instance>>1, nesting_level-1);
         }
     } catch(...) {
-        auto msg = format("Exception Level {}", nesting_level);
+        auto msg = fmt::format("Exception Level {}", nesting_level);
         if(test_instance&1) {
             // Throw a non std::exception derived type
             std::throw_with_nested(unknown_obj(msg));
@@ -64,9 +64,9 @@ void exception_generator(uint32_t test_instance, int nesting_level) {
     }
     if (nesting_level == 0) {
         if (test_instance & 1) {
-            throw unknown_obj(format("Exception Level {}", nesting_level));
+            throw unknown_obj(fmt::format("Exception Level {}", nesting_level));
         } else {
-            throw std::runtime_error(format("Exception Level {}", nesting_level));
+            throw std::runtime_error(fmt::format("Exception Level {}", nesting_level));
         }
     }
 }
@@ -76,17 +76,16 @@ void exception_generator(uint32_t test_instance, int nesting_level) {
 std::string exception_generator_str(uint32_t test_instance,int nesting_level) {
     std::ostringstream ret;
     const std::string runtime_err_str = "std::runtime_error";
-    const std::string exception_level_fmt_str = "Exception Level {}";
     const std::string unknown_obj_str = "unknown_obj";
     const std::string nested_exception_with_unknown_obj_str = "std::_Nested_exception<unknown_obj>";
     const std::string nested_exception_with_runtime_err_str = "std::_Nested_exception<std::runtime_error>";
 
     for(; nesting_level > 0; nesting_level--) {
         if (test_instance & 1) {
-            ret << nested_exception_with_unknown_obj_str;
+            fmt::print(ret, "{}", nested_exception_with_unknown_obj_str);
         } else {
-            ret << nested_exception_with_runtime_err_str << " (" <<
-                    format(exception_level_fmt_str.c_str(), nesting_level) << ")";
+            fmt::print(ret, "{} (Exception Level {})", nested_exception_with_runtime_err_str,
+                       nesting_level);
         }
         ret << ": ";
         test_instance >>= 1;
@@ -94,9 +93,9 @@ std::string exception_generator_str(uint32_t test_instance,int nesting_level) {
 
 
     if (test_instance & 1) {
-        ret << unknown_obj_str;
+        fmt::print(ret, "{}", unknown_obj_str);
     } else {
-        ret << runtime_err_str << " (" << format(exception_level_fmt_str.c_str(), nesting_level) << ")";
+        fmt::print(ret, "{} (Exception Level {})", runtime_err_str, nesting_level);
     }
     return ret.str();
 }

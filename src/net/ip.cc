@@ -43,7 +43,7 @@ ipv4_address::ipv4_address(const std::string& addr) {
     auto ipv4 = boost::asio::ip::address_v4::from_string(addr, ec);
     if (ec) {
         throw std::runtime_error(
-            format("Wrong format for IPv4 address {}. Please ensure it's in dotted-decimal format", addr));
+            fmt::format("Wrong format for IPv4 address {}. Please ensure it's in dotted-decimal format", addr));
     }
     ip = static_cast<uint32_t>(std::move(ipv4).to_ulong());
 }

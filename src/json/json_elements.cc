@@ -81,7 +81,7 @@ public:
         try {
             add(element->_name, element->to_string());
         } catch (...) {
-            std::throw_with_nested(std::runtime_error(format("Json generation failed for field: {}",element->_name)));
+            std::throw_with_nested(std::runtime_error(fmt::format("Json generation failed for field: {}",element->_name)));
         }
     }
 
