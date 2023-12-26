@@ -829,18 +829,19 @@ auto tcp<InetTraits>::listen(uint16_t port, size_t queue_length) -> listener {
 
 template <typename InetTraits>
 auto tcp<InetTraits>::connect(socket_address sa) -> connection {
-    uint16_t src_port;
     connid id;
     auto src_ip = _inet._inet.host_address();
     auto dst_ip = ipv4_address(sa);
     auto dst_port = net::ntoh(sa.u.in.sin_port);
 
-    do {
-        src_port = _port_dist(_e);
-        id = connid{src_ip, dst_ip, src_port, dst_port};
-    } while (_inet._inet.netif()->hw_queues_count() > 1 &&
-             (_inet._inet.netif()->hash2cpu(id.hash(_inet._inet.netif()->rss_key())) != this_shard_id()
-              || _tcbs.find(id) != _tcbs.end()));
+    if (smp::count > 1) {
+        do {
+            id = connid{src_ip, dst_ip, _port_dist(_e), dst_port};
+        } while (_inet._inet.netif()->hash2cpu(id.hash(_inet._inet.netif()->rss_key())) != this_shard_id()
+                 || _tcbs.find(id) != _tcbs.end());
+    } else {
+        id = connid{src_ip, dst_ip, _port_dist(_e), dst_port};
+    }
 
     auto tcbp = make_lw_shared<tcb>(*this, id);
     _tcbs.insert({id, tcbp});
