@@ -50,6 +50,7 @@ module;
 #include <bitset>
 #include <cassert>
 #include <chrono>
+#include <compare>
 #include <concepts>
 #include <coroutine>
 #include <cstddef>
@@ -66,6 +67,7 @@ module;
 #include <iostream>
 #include <iterator>
 #include <limits>
+#include <list>
 #include <memory>
 #include <memory_resource>
 #include <mutex>
