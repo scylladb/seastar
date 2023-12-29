@@ -106,7 +106,6 @@ target_link_libraries (seastar-module
     Boost::program_options
     Boost::thread
     c-ares::cares
-    cryptopp::cryptopp
     fmt::fmt
     lz4::lz4
     SourceLocation::source_location
