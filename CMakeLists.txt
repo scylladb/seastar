@@ -858,6 +858,9 @@ set( MEMORYCHECK_COMMAND_OPTIONS "--error-exitcode=1 --leak-check=no --trace-chi
 include (CTest)
 
 if (Seastar_MODULE)
+  if (POLICY CMP0155)
+    cmake_policy (SET CMP0155 NEW)
+  endif ()
   include (CxxModulesRules)
   add_subdirectory (src)
 endif ()
