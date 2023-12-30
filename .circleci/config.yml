@@ -16,6 +16,11 @@ jobs:
         description: build with DPDK enabled
         type: enum
         enum: ["disable-dpdk", "enable-dpdk"]
+      with_modules:
+        default: "disable-modules"
+        description: build with C++20 modules enabled
+        type: enum
+        enum: ["disable-modules", "enable-modules"]
     machine:
       image:  ubuntu-2204:2023.04.2
     resource_class: large
@@ -31,7 +36,14 @@ jobs:
             - run: ./run ./configure.py --compiler << parameters.compiler >> --c++-standard << parameters.standard >> --cook dpdk --enable-dpdk
       - when:
           condition:
-            equal: [ "disable-dpdk", << parameters.with_dpdk >> ]
+            equal: [ "enable-modules", << parameters.with_modules >> ]
+          steps:
+            - run: ./run ./configure.py --compiler << parameters.compiler >> --c++-standard << parameters.standard >> --enable-cxx-modules
+      - when:
+          condition:
+            and:
+              - equal: [ "disable-dpdk", << parameters.with_dpdk >> ]
+              - equal: [ "disable-modules", << parameters.with_modules >> ]
           steps:
             - run: ./run ./configure.py --compiler << parameters.compiler >> --c++-standard << parameters.standard >>
       - when:
@@ -39,8 +51,17 @@ jobs:
             equal: [ dev, << parameters.mode >> ]
           steps:
             - run: ./run ninja -C build/<< parameters.mode >> checkheaders
-      - run: ./run ninja -C build/<< parameters.mode >>
-      - run: ./run ./test.py --mode=<< parameters.mode >>
+      - when:
+          condition:
+            equal: [ "enable-modules", << parameters.with_modules >> ]
+          steps:
+            - run: ./run ninja -C build/<< parameters.mode >> hello_cxx_module
+      - when:
+          condition:
+            equal: [ "disable-modules", << parameters.with_modules >> ]
+          steps:
+            - run: ./run ninja -C build/<< parameters.mode >>
+            - run: ./run ./test.py --mode=<< parameters.mode >>
 
 workflows:
   version: 2
@@ -62,3 +83,13 @@ workflows:
               standard: ["20"]
               mode: ["release"]
               with_dpdk: [ "enable-dpdk" ]
+      # only build this combination with C++20 moduels enabled, so we don't double
+      # the size of the test matrix, and can at least test the build with
+      # C++20 modules enabled.
+      - build_and_test:
+          matrix:
+            parameters:
+              compiler: ["clang++-17"]
+              standard: ["20"]
+              mode: ["debug"]
+              with_modules: [ "enable-modules" ]

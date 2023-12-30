@@ -50,6 +50,7 @@ module;
 #include <bitset>
 #include <cassert>
 #include <chrono>
+#include <compare>
 #include <concepts>
 #include <coroutine>
 #include <cstddef>
@@ -66,6 +67,7 @@ module;
 #include <iostream>
 #include <iterator>
 #include <limits>
+#include <list>
 #include <memory>
 #include <memory_resource>
 #include <mutex>
@@ -114,6 +116,7 @@ module;
 #include <fmt/format.h>
 #include <fmt/ostream.h>
 #include <fmt/printf.h>
+#include <gnutls/crypto.h>
 
 #if defined(__x86_64__) || defined(__i386__)
 #include <xmmintrin.h>
@@ -142,8 +145,6 @@ module;
 #include <spawn.h>
 #include <ucontext.h>
 #include <unistd.h>
-#define CRYPTOPP_ENABLE_NAMESPACE_WEAK 1
-#include <cryptopp/md5.h>
 
 export module seastar;
 
