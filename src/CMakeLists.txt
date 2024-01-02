@@ -67,6 +67,7 @@ target_sources (seastar-module
     net/socket_address.cc
     net/tls.cc
     net/virtio.cc
+    http/client.cc
     http/common.cc
     http/file_handler.cc
     http/httpd.cc
