@@ -21,6 +21,15 @@
 
 #ifdef SEASTAR_MODULE
 module;
+#endif
+
+#include <memory>
+#include <optional>
+#include <stdexcept>
+#include <utility>
+#include <seastar/util/concepts.hh>
+
+#ifdef SEASTAR_MODULE
 module seastar;
 #else
 #include <seastar/core/loop.hh>
