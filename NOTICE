@@ -6,3 +6,7 @@ under the BSD license.
 
 This work contains software from the DPDK project (http://dpdk.org), licensed
 under the BSD license.  The software is under the dpdk/ directory.
+
+This work contains software from the Android Open Source Project,
+licensed under the Apache2 license.
+The software is in the include/seastar/util/sampler.hh file.

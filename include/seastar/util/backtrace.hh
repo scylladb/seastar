@@ -88,8 +88,8 @@ private:
 private:
     size_t calculate_hash() const noexcept;
 public:
-    simple_backtrace(char delimeter = ' ') noexcept : _delimeter(delimeter) {}
-    simple_backtrace(vector_type f, char delimeter = ' ') noexcept : _frames(std::move(f)), _delimeter(delimeter) {}
+    simple_backtrace(vector_type f, char delimeter = ' ') noexcept : _frames(std::move(f)), _hash(calculate_hash()), _delimeter(delimeter) {}
+    simple_backtrace(char delimeter = ' ') noexcept : simple_backtrace({}, delimeter) {}
 
     size_t hash() const noexcept { return _hash; }
     char delimeter() const noexcept { return _delimeter; }

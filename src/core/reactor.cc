@@ -3878,7 +3878,7 @@ reactor_options::reactor_options(program_options::option_group* parent_group)
                 "Maximum number of I/O control blocks (IOCBs) to allocate per shard. This translates to the number of sockets supported per shard."
                 " Requires tuning /proc/sys/fs/aio-max-nr. Only valid for the linux-aio reactor backend (see --reactor-backend).")
 #ifdef SEASTAR_HEAPPROF
-    , heapprof(*this, "heapprof", "enable seastar heap profiling")
+    , heapprof(*this, "heapprof", 0, "Enable seastar heap profiling. Sample every ARG bytes. 0 means off")
 #else
     , heapprof(*this, "heapprof", program_options::unused{})
 #endif
@@ -4414,12 +4414,12 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     std::mutex mtx;
 
 #ifdef SEASTAR_HEAPPROF
-    bool heapprof_enabled = reactor_opts.heapprof;
-    if (heapprof_enabled) {
-        memory::set_heap_profiling_enabled(heapprof_enabled);
+    size_t heapprof_sampling_rate = reactor_opts.heapprof.get_value();
+    if (heapprof_sampling_rate) {
+        memory::set_heap_profiling_sampling_rate(heapprof_sampling_rate);
     }
 #else
-    bool heapprof_enabled = false;
+    size_t heapprof_sampling_rate = 0;
 #endif
 
 #ifdef SEASTAR_HAVE_DPDK
@@ -4497,7 +4497,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     auto smp_tmain = smp::_tmain;
     for (i = 1; i < smp::count; i++) {
         auto allocation = allocations[i];
-        create_thread([this, smp_tmain, inited, &reactors_registered, &smp_queues_constructed, &smp_opts, &reactor_opts, &reactors, hugepages_path, i, allocation, assign_io_queues, alloc_io_queues, thread_affinity, heapprof_enabled, mbind, backend_selector, reactor_cfg, &mtx, &layout, use_transparent_hugepages] {
+        create_thread([this, smp_tmain, inited, &reactors_registered, &smp_queues_constructed, &smp_opts, &reactor_opts, &reactors, hugepages_path, i, allocation, assign_io_queues, alloc_io_queues, thread_affinity, heapprof_sampling_rate, mbind, backend_selector, reactor_cfg, &mtx, &layout, use_transparent_hugepages] {
           try {
             // initialize thread_locals that are equal across all reacto threads of this smp instance
             smp::_tmain = smp_tmain;
@@ -4511,8 +4511,8 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
                 auto guard = std::lock_guard(mtx);
                 *layout = memory::internal::merge(std::move(*layout), std::move(another_layout));
             }
-            if (heapprof_enabled) {
-                memory::set_heap_profiling_enabled(heapprof_enabled);
+            if (heapprof_sampling_rate) {
+                memory::set_heap_profiling_sampling_rate(heapprof_sampling_rate);
             }
             sigset_t mask;
             sigfillset(&mask);

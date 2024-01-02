@@ -23,7 +23,9 @@
 
 #include <seastar/core/resource.hh>
 #include <seastar/core/bitops.hh>
+#include <seastar/util/backtrace.hh>
 #include <seastar/util/modules.hh>
+#include <seastar/util/sampler.hh>
 #ifndef SEASTAR_MODULE
 #include <new>
 #include <cstdint>
@@ -90,8 +92,9 @@ namespace seastar {
 /// ### Heap profiling
 ///
 /// Heap profiling allows finding out how memory is used by your application, by
-/// recording the stacktrace of all allocations. See:
-/// * \ref set_heap_profiling_enabled()
+/// recording the stacktrace of a sampled subset (or all) allocations. See:
+/// * \ref set_heap_profiling_sampling_rate()
+/// * \ref sampled_memory_profile()
 /// * \ref scoped_heap_profiling
 ///
 /// ### Abort on allocation failure
@@ -176,10 +179,9 @@ public:
 // Can be nested, in which case the profiling is re-enabled when all
 // the objects go out of scope.
 class disable_backtrace_temporarily {
-    bool _old;
+    sampler::disable_sampling_temporarily _disable_sampling;
 public:
     disable_backtrace_temporarily();
-    ~disable_backtrace_temporarily();
 };
 
 enum class reclaiming_result {
@@ -405,31 +407,107 @@ public:
     void operator=(scoped_large_allocation_warning_disable&&) = delete;
 };
 
-/// Enable/disable heap profiling.
+/// @brief Describes an allocation location in the code.
+///
+/// The location is identified by its backtrace. One allocation_site can
+/// represent many allocations at the same location. `count` and `size`
+/// represent the cumulative sum of all allocations at the location. Note the
+/// size represents an extrapolated size and not the sampled one, i.e.: when
+/// looking at the total size of all allocation sites it will approximate the
+/// total memory usage
+struct allocation_site {
+    mutable size_t count = 0; /// number of live objects allocated at backtrace.
+    mutable size_t size = 0; /// amount of bytes in live objects allocated at backtrace.
+    simple_backtrace backtrace; /// call site for this allocation
+
+    // All allocation sites are linked to each other. This can be used for easy
+    // iteration across them in gdb scripts where it's difficult to work with
+    // the C++ data structures.
+    mutable const allocation_site* next = nullptr; // next allocation site in the chain
+    mutable const allocation_site* prev = nullptr; // previous allocation site in the chain
+
+    bool operator==(const allocation_site& o) const {
+        return backtrace == o.backtrace;
+    }
+
+    bool operator!=(const allocation_site& o) const {
+        return !(*this == o);
+    }
+};
+
+/// @brief If memory sampling is on returns the current sampled memory live set
+///
+/// If there is tracked allocations (because heap profiling was on earlier)
+/// these will still be returned if heap profiling is now off
+///
+/// @return a vector of \ref allocation_site
+std::vector<allocation_site> sampled_memory_profile();
+
+/// @brief Copies the current sampled set of allocation_sites into the
+/// array pointed to by the output parameter
+///
+/// Copies up to \p size elements of the current sampled set of allocation
+/// sites into the output array, which must have length at least \p size.
+///
+/// Returns amount of copied elements. This method does not allocate so it
+/// is a useful alternative to \ref sampled_memory_profile() when one wants
+/// to avoid allocating (e.g.: under OOM conditions).
+///
+/// @param output array to copy the allocation sites to
+/// @param size the size of the array pointed to by \p output
+/// @return number of \ref allocation_site copied to the vector
+size_t sampled_memory_profile(allocation_site* output, size_t size);
+
+/// @brief Enable sampled heap profiling by setting a sample rate
+///
+/// @param sample_rate the sample rate to use. Disable heap profiling by setting
+/// the sample rate to 0
 ///
 /// In order to use heap profiling you have to define
 /// `SEASTAR_HEAPPROF`.
-/// Heap profiling data is not currently exposed via an API for
-/// inspection, instead it was designed to be inspected from a
-/// debugger.
+///
+/// Use \ref sampled_memory_profile for API access to profiling data
+///
+/// Note: Changing the sampling rate while previously sampled allocations are
+/// still alive can lead to inconsistent results of their reported size (i.e.:
+/// their size will be over or under reported). Undefined behavior or memory
+/// corruption will not occur.
+///
 /// For an example script that makes use of the heap profiling data
 /// see [scylla-gdb.py] (https://github.com/scylladb/scylla/blob/e1b22b6a4c56b4f1d0adf65d1a11db4bcb51fe7d/scylla-gdb.py#L1439)
 /// This script can generate either textual representation of the data,
 /// or a zoomable flame graph ([flame graph generation instructions](https://github.com/scylladb/scylla/wiki/Seastar-heap-profiler),
 /// [example flame graph](https://user-images.githubusercontent.com/1389273/72920437-f0cf8a80-3d51-11ea-92f0-f3dbeb698871.png)).
-void set_heap_profiling_enabled(bool);
+void set_heap_profiling_sampling_rate(size_t sample_rate);
 
-/// Enable heap profiling for the duration of the scope.
+/// @brief Returns the current heap profiling sampling rate (0 means off)
+/// @return the current heap profiling sampling rate
+size_t get_heap_profiling_sample_rate();
+
+/// @brief Enable heap profiling for the duration of the scope.
+///
+/// Note: Nesting different sample rates is currently not supported.
 ///
 /// For more information about heap profiling see
-/// \ref set_heap_profiling_enabled().
+/// \ref set_heap_profiling_sampling_rate().
 class scoped_heap_profiling {
 public:
-    scoped_heap_profiling() noexcept;
+    scoped_heap_profiling(size_t) noexcept;
     ~scoped_heap_profiling();
 };
 
 SEASTAR_MODULE_EXPORT_END
 
 }
+}
+
+namespace std {
+
+template<>
+struct hash<seastar::memory::allocation_site> {
+    size_t operator()(const seastar::memory::allocation_site& bi) const {
+        return std::hash<seastar::simple_backtrace>()(bi.backtrace);
+    }
+};
+
 }

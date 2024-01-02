@@ -159,8 +159,12 @@ struct reactor_options : public program_options::option_group {
     program_options::value<unsigned> max_networking_io_control_blocks;
     /// \brief Enable seastar heap profiling.
     ///
+    /// Allocations will be sampled every N bytes on average. Zero means off.
+    ///
+    /// Default: 0
+    ///
     /// \note Unused when seastar was compiled without heap profiling support.
-    program_options::value<> heapprof;
+    program_options::value<unsigned> heapprof;
     /// Ignore SIGINT (for gdb).
     program_options::value<> no_handle_interrupt;
 
