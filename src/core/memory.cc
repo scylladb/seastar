@@ -1627,7 +1627,7 @@ static inline void* finish_allocation(void* ptr, size_t size) {
         on_allocation_failure(size);
     } else {
 #ifdef SEASTAR_DEBUG_ALLOCATIONS
-    std::memset(ptr, debug_allocation_pattern, size);
+        std::memset(ptr, debug_allocation_pattern, size);
 #endif
     }
     return ptr;
