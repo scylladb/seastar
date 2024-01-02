@@ -87,6 +87,8 @@ module;
 
 #include <dlfcn.h>
 
+#include <seastar/util/concepts.hh>
+
 #ifndef SEASTAR_DEFAULT_ALLOCATOR
 #include <new>
 #include <cstdint>
