@@ -84,6 +84,7 @@ module;
 #include <fmt/ostream.h>
 
 #include <boost/container/static_vector.hpp>
+#include <seastar/util/concepts.hh>
 
 #include <dlfcn.h>
 
