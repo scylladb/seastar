@@ -1044,6 +1044,17 @@ if (ErrorUnused_FOUND)
   endif ()
 endif ()
 
+if (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+  check_cxx_compiler_flag ("-Wconsumed" WarningConsumed_FOUND)
+  if (WarningConsumed_FOUND)
+    target_compile_options (seastar
+      PUBLIC -Wconsumed)
+  endif ()
+else ()
+  target_compile_options (seastar
+      PUBLIC "-Wno-attributes=clang::")
+endif ()
+
 check_cxx_compiler_flag ("-Wno-error=#warnings" ErrorWarnings_FOUND)
 if (ErrorWarnings_FOUND)
   target_compile_options (seastar

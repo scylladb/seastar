@@ -67,7 +67,7 @@ shared_backtrace task::get_backtrace() const {
 #ifdef SEASTAR_TASK_BACKTRACE
     return _bt;
 #else
-    return {};
+    return shared_backtrace(nullptr);
 #endif
 }
 

@@ -1214,8 +1214,10 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
 
   future<> server::connection::abort_all_streams() {
       return parallel_for_each(_streams | boost::adaptors::map_values, [] (xshard_connection_ptr s) {
-          return smp::submit_to(s->get_owner_shard(), [s] {
-              s->get()->abort();
+          auto conn_ptr = s.get();
+          assert(conn_ptr);
+          return smp::submit_to(conn_ptr->get_owner_shard(), [conn_ptr] {
+              conn_ptr->get()->abort();
           });
       }).then([this] {
           _streams.clear();
