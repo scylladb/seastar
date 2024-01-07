@@ -22,7 +22,6 @@
 #ifndef SEASTAR_MODULE
 #include <stdlib.h>
 #include <memory>
-#include <stdexcept>
 #include <seastar/util/modules.hh>
 #endif
 

@@ -22,7 +22,6 @@
 #pragma once
 
 #ifndef SEASTAR_MODULE
-#include <memory>
 #include <seastar/core/task.hh>
 #include <seastar/core/future.hh>
 #include <seastar/util/modules.hh>

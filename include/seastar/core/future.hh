@@ -23,7 +23,6 @@
 
 #ifndef SEASTAR_MODULE
 #include <cassert>
-#include <atomic>
 #include <cstdlib>
 #include <cstring>
 #include <functional>

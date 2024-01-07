@@ -26,9 +26,6 @@
 #include <seastar/core/timer.hh>
 #include <seastar/util/modules.hh>
 
-#include <cstdint>
-
-#include <atomic>
 #include <chrono>
 #endif
 

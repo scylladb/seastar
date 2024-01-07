@@ -22,7 +22,6 @@
 #pragma once
 
 #ifndef SEASTAR_MODULE
-#include <memory>
 #include <sys/inotify.h>
 
 #include <seastar/core/future.hh>

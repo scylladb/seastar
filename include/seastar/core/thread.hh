@@ -29,9 +29,7 @@
 #include <seastar/core/timer.hh>
 #include <seastar/core/scheduling.hh>
 #include <memory>
-#include <setjmp.h>
 #include <type_traits>
-#include <chrono>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/modules.hh>
 #include <ucontext.h>

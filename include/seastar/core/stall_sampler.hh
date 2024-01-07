@@ -25,7 +25,6 @@
 #include <seastar/core/future.hh>
 #include <seastar/util/noncopyable_function.hh>
 
-#include <chrono>
 #include <iosfwd>
 
 // Instrumentation to detect context switches during reactor execution

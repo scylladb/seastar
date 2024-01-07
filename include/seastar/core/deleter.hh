@@ -22,10 +22,11 @@
 #pragma once
 
 #ifndef SEASTAR_MODULE
-#include <memory>
 #include <cassert>
+#include <cstdint>
 #include <cstdlib>
-#include <type_traits>
+#include <new>
+#include <utility>
 #include <seastar/util/modules.hh>
 #endif
 
