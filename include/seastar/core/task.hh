@@ -25,7 +25,6 @@
 #include <seastar/util/backtrace.hh>
 
 #ifndef SEASTAR_MODULE
-#include <memory>
 #include <utility>
 #endif
 

@@ -27,10 +27,8 @@
 #include <seastar/util/modules.hh>
 
 #ifndef SEASTAR_MODULE
-#include <exception>
 #include <memory>
 #include <optional>
-#include <stdexcept>
 #include <type_traits>
 #endif
 

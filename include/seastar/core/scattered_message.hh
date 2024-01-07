@@ -27,10 +27,6 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/modules.hh>
-#ifndef SEASTAR_MODULE
-#include <memory>
-#include <vector>
-#endif
 
 namespace seastar {
 

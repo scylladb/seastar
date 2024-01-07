@@ -29,7 +29,6 @@
 #include <variant>
 #include <fmt/format.h>
 #endif
-#include "future.hh"
 #include <seastar/core/sstring.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/metrics_registration.hh>

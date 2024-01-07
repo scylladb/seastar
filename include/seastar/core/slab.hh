@@ -26,7 +26,6 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <assert.h>
-#include <memory>
 #include <vector>
 #include <algorithm>
 #include <seastar/core/metrics.hh>

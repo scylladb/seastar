@@ -24,7 +24,6 @@
 
 #ifndef SEASTAR_MODULE
 #include <atomic>
-#include <deque>
 #include <future>
 #include <memory>
 #include <type_traits>

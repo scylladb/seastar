@@ -25,7 +25,6 @@
 #include <seastar/util/modules.hh>
 #include <seastar/core/sharded.hh>
 #ifndef SEASTAR_MODULE
-#include <unordered_map>
 #include <boost/functional/hash.hpp>
 #endif
 

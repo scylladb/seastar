@@ -26,7 +26,6 @@
 #include <setjmp.h>
 #include <ucontext.h>
 #include <chrono>
-#include <memory>
 
 namespace seastar {
 /// Clock used for scheduling threads

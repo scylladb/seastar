@@ -24,7 +24,6 @@
 #ifndef SEASTAR_MODULE
 #include <seastar/core/future.hh>
 #include <seastar/core/chunked_fifo.hh>
-#include <stdexcept>
 #include <exception>
 #include <memory>
 #include <seastar/core/timer.hh>

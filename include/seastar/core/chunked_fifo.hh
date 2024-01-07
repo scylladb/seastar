@@ -22,7 +22,6 @@
 #pragma once
 
 #ifndef SEASTAR_MODULE
-#include <memory>
 #include <algorithm>
 #include <type_traits>
 #include <seastar/util/modules.hh>

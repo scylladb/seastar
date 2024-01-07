@@ -25,7 +25,6 @@
 #include <seastar/util/modules.hh>
 #ifndef SEASTAR_MODULE
 #include <exception>
-#include <functional>
 #include <cassert>
 #endif
 

@@ -24,7 +24,6 @@
 #include <endian.h>
 #include <sys/time.h>
 #include <sys/uio.h>
-#include <signal.h>
 #include <cstdint>
 
 namespace seastar {

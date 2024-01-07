@@ -28,8 +28,6 @@
 #ifndef SEASTAR_MODULE
 #include <boost/intrusive/parent_from_member.hpp>
 #include <fmt/core.h>
-#include <functional>
-#include <memory>
 #include <ostream>
 #include <type_traits>
 #include <utility>

@@ -36,7 +36,6 @@
 #include <seastar/core/circular_buffer.hh>
 #include <seastar/util/modules.hh>
 #ifndef SEASTAR_MODULE
-#include <system_error>
 #include <sys/statvfs.h>
 #include <sys/ioctl.h>
 #include <linux/fs.h>

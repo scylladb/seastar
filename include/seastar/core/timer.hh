@@ -28,9 +28,7 @@
 #include <seastar/util/modules.hh>
 #ifndef SEASTAR_MODULE
 #include <boost/intrusive/list.hpp>
-#include <atomic>
 #include <chrono>
-#include <functional>
 #endif
 
 /// \file
