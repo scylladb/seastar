@@ -127,6 +127,7 @@ class approximate_exponential_histogram {
     static constexpr unsigned PRECISION_BITS = log2floor(Precision);
     static constexpr unsigned BASESHIFT = log2floor(Min);
     static constexpr uint64_t LOWER_BITS_MASK = Precision - 1;
+    static constexpr size_t MIN_ID = log2ceil(Min) * Precision + 1; // id0 (x,1]
     std::array<uint64_t, NUM_BUCKETS> _buckets;
 public:
     approximate_exponential_histogram() {
@@ -325,12 +326,38 @@ public:
     uint64_t& operator[](size_t b) noexcept {
         return _buckets[b];
     }
+    /*!
+     * \brief get_schema the schema of a native histogram
+     *
+     * Native histograms (also known as sparse histograms), are an experimental Prometheus feature.
+     *
+     * schema defines the bucket schema. Currently, valid numbers are -4 <= n <= 8.
+     * They are all for base-2 bucket schemas, where 1 is a bucket boundary in each case, and
+     * then each power of two is divided into 2^n logarithmic buckets.
+     * Or in other words, each bucket boundary is the previous boundary times 2^(2^-n).
+     */
+    int32_t get_schema() const noexcept {
+        return PRECISION_BITS;
+    }
+
+    /*!
+     * \brief return the histogram min as a native histogram ID
+     *
+     * Native histograms (also known as sparse histograms), are an experimental Prometheus feature.
+     *
+     * Native histograms always starts from 1, while approximate_exponential_histogram have a min first bucket
+     * This function returns approximate_exponential_histogram min value as the bucket id of native histogram.
+     */
+    int32_t min_as_native_histogram_id() const noexcept {
+        return MIN_ID;
+    }
 
     seastar::metrics::histogram to_metrics_histogram() const noexcept {
         seastar::metrics::histogram res;
         res.buckets.resize(size() - 1);
         uint64_t cummulative_count = 0;
         res.sample_sum = 0;
+        res.native_histogram = seastar::metrics::native_histogram_info{get_schema(), min_as_native_histogram_id()};
 
         for (size_t i = 0; i < NUM_BUCKETS - 1; i++) {
             auto& v = res.buckets[i];
