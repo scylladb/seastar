@@ -86,6 +86,7 @@ sprint(const sstring& fmt, A&&... a) {
 }
 
 template <typename Iterator>
+[[deprecated("use fmt::join()")]]
 std::string
 format_separated(Iterator b, Iterator e, const char* sep = ", ") {
     std::string ret;
