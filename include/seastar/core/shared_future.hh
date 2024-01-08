@@ -168,6 +168,9 @@ private:
                     _peers.pop_front();
                 }
             }
+            // _peer is now empty, but let's also make sure it releases any
+            // memory it might hold in reserve.
+            _peers = {};
             _keepaliver.release();
         }
 
