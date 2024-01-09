@@ -25,6 +25,7 @@ module;
 #include <chrono>
 #include <string>
 #include <boost/asio/ip/address_v4.hpp>
+#include <fmt/core.h>
 module seastar;
 #else
 #include <seastar/net/ip.hh>

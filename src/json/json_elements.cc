@@ -27,6 +27,7 @@ module;
 #include <string>
 #include <vector>
 #include <sstream>
+#include <fmt/core.h>
 
 #ifdef SEASTAR_MODULE
 module seastar;
