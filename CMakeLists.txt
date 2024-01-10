@@ -1262,6 +1262,12 @@ if (Seastar_INSTALL)
     set (Seastar_PC ".pc")
   endif ()
 
+  if(CMAKE_CXX_EXTENSIONS)
+    set(Seastar_CXX_COMPILE_OPTION ${CMAKE_CXX${CMAKE_CXX_STANDARD}_EXTENSION_COMPILE_OPTION})
+  else()
+    set(Seastar_CXX_COMPILE_OPTION ${CMAKE_CXX${CMAKE_CXX_STANDARD}_STANDARD_COMPILE_OPTION})
+  endif()
+
   configure_file (
     ${CMAKE_CURRENT_SOURCE_DIR}/pkgconfig/seastar.pc.in
     ${CMAKE_CURRENT_BINARY_DIR}/pkgconfig/seastar-install${Seastar_PC}.in
