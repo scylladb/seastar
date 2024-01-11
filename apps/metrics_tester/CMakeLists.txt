@@ -23,4 +23,5 @@
 seastar_add_app (metrics_tester
   SOURCES metrics_tester.cc)
 
-target_link_libraries (app_metrics_tester)
+target_link_libraries (app_metrics_tester
+  PRIVATE yaml-cpp::yaml-cpp)

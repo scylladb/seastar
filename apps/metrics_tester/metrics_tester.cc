@@ -26,10 +26,71 @@
 #include <seastar/core/relabel_config.hh>
 #include <seastar/core/internal/estimated_histogram.hh>
 #include "../lib/stop_signal.hh"
+#include <yaml-cpp/yaml.h>
 using namespace seastar;
 using namespace std::chrono_literals;
-
+namespace sm = seastar::metrics;
 struct serializer {};
+
+struct metric_def {
+    sstring name;
+    sstring type;
+    std::vector<double> values;
+};
+
+struct config {
+    std::vector<metric_def> metrics;
+};
+namespace YAML {
+template<>
+struct convert<metric_def> {
+    static bool decode(const Node& node, metric_def& cfg) {
+        if (node["name"]) {
+            cfg.name = node["name"].as<std::string>();
+        }
+        if (node["type"]) {
+            cfg.type = node["type"].as<std::string>();
+        }
+        if (node["values"]) {
+            cfg.values = node["values"].as<std::vector<double>>();
+        }
+        return true;
+    }
+};
+template<>
+struct convert<config> {
+    static bool decode(const Node& node, config& cfg) {
+        if (node["metrics"]) {
+            cfg.metrics = node["metrics"].as<std::vector<metric_def>>();
+        }
+        return true;
+    }
+};
+}
+std::function<sm::internal::time_estimated_histogram()> make_histogram_fun(const metric_def& c) {
+    sm::internal::time_estimated_histogram histogram;
+    for (const auto& v : c.values) {
+        histogram.add_micro(v);
+    }
+    return [histogram]() {return histogram;};
+}
+
+sm::impl::metric_definition_impl make_metrics_definition(const metric_def& jc, sm::label_instance private_label) {
+    if (jc.type == "histogram") {
+        sm::internal::time_estimated_histogram histogram;
+        for (const auto& v : jc.values) {
+            histogram.add_micro(v);
+        }
+        return sm::make_histogram(jc.name, [histogram]() {return histogram.to_metrics_histogram();},
+                sm::description(jc.name),{private_label} );
+    }
+    if (jc.type == "gauge") {
+        return sm::make_gauge(jc.name, [val=jc.values[0]] { return val; },
+                sm::description(jc.name),{private_label} );
+    }
+    return sm::make_counter(jc.name, [val=jc.values[0]] { return val; },
+            sm::description(jc.name),{private_label} );
+}
 
 int main(int ac, char** av) {
     namespace bpo = boost::program_options;
@@ -39,28 +100,28 @@ int main(int ac, char** av) {
     opt_add
         ("listen", bpo::value<sstring>()->default_value("0.0.0.0"), "address to start Prometheus server on")
         ("port", bpo::value<uint16_t>()->default_value(9180), "Prometheus port")
+        ("conf", bpo::value<sstring>()->default_value("./conf.yaml"), "config with jobs and options")
     ;
     httpd::http_server_control prometheus_server;
 
     return app.run(ac, av, [&] {
         return seastar::async([&] {
-            namespace sm = seastar::metrics;
-            sm::internal::time_estimated_histogram histogram;
             sm::metric_groups _metrics;
-            histogram.add_micro(1000);
-            histogram.add_micro(2000);
-            histogram.add_micro(30000);
             seastar_apps_lib::stop_signal stop_signal;
             auto& opts = app.configuration();
             auto& listen = opts["listen"].as<sstring>();
             auto private_label = sm::label_instance("private", "1");
             auto& port = opts["port"].as<uint16_t>();
-            _metrics.add_group("test_group", {
-                    sm::make_gauge("gauge1", [] { return 1; },
-                            sm::description("A test gauge"),{private_label} ),
-                    sm::make_histogram("histogram1", [histogram]{return histogram.to_metrics_histogram();}
-                           ,sm::description("A test histogram"),{private_label})
-            });
+            auto& conf = opts["conf"].as<sstring>();
+
+            YAML::Node doc = YAML::LoadFile(conf);
+            auto cfg = doc.as<config>();
+
+            for (auto&& jc : cfg.metrics) {
+                _metrics.add_group("test_group", {
+                        make_metrics_definition(jc, private_label)
+                });
+            }
             smp::invoke_on_all([] {
                     std::vector<metrics::relabel_config> rl(2);
                     rl[0].source_labels = {"__name__"};
