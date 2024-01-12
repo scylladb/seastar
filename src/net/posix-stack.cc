@@ -112,6 +112,7 @@ public:
     }
 };
 
+thread_local posix_ap_server_socket_impl::port_map_t posix_ap_server_socket_impl::ports{};
 thread_local posix_ap_server_socket_impl::sockets_map_t posix_ap_server_socket_impl::sockets{};
 thread_local posix_ap_server_socket_impl::conn_map_t posix_ap_server_socket_impl::conn_q{};
 
@@ -538,6 +539,19 @@ posix_server_socket_impl::abort_accept() {
 
 socket_address posix_server_socket_impl::local_address() const {
     return _lfd.get_file_desc().get_address();
+}
+
+posix_ap_server_socket_impl::posix_ap_server_socket_impl(int protocol, socket_address sa, std::pmr::polymorphic_allocator<char>* allocator)
+        : _protocol(protocol), _sa(sa), _allocator(allocator)
+{
+    auto it = ports.emplace(std::make_tuple(_protocol, _sa));
+    if (!it.second) {
+        throw std::system_error(EADDRINUSE, std::system_category());
+    }
+}
+
+posix_ap_server_socket_impl::~posix_ap_server_socket_impl() {
+    ports.erase(std::make_tuple(_protocol, _sa));
 }
 
 future<accept_result> posix_ap_server_socket_impl::accept() {
