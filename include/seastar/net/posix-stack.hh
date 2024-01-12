@@ -140,15 +140,18 @@ class posix_ap_server_socket_impl : public server_socket_impl {
         conntrack::handle connection_tracking_handle;
         connection(pollable_fd xfd, socket_address xaddr, conntrack::handle cth) : fd(std::move(xfd)), addr(xaddr), connection_tracking_handle(std::move(cth)) {}
     };
+    using port_map_t = std::unordered_set<protocol_and_socket_address>;
     using sockets_map_t = std::unordered_map<protocol_and_socket_address, promise<accept_result>>;
     using conn_map_t = std::unordered_multimap<protocol_and_socket_address, connection>;
+    static thread_local port_map_t ports;
     static thread_local sockets_map_t sockets;
     static thread_local conn_map_t conn_q;
     int _protocol;
     socket_address _sa;
     std::pmr::polymorphic_allocator<char>* _allocator;
 public:
-    explicit posix_ap_server_socket_impl(int protocol, socket_address sa, std::pmr::polymorphic_allocator<char>* allocator = memory::malloc_allocator) : _protocol(protocol), _sa(sa), _allocator(allocator) {}
+    explicit posix_ap_server_socket_impl(int protocol, socket_address sa, std::pmr::polymorphic_allocator<char>* allocator = memory::malloc_allocator);
+    ~posix_ap_server_socket_impl();
     virtual future<accept_result> accept() override;
     virtual void abort_accept() override;
     socket_address local_address() const override {
