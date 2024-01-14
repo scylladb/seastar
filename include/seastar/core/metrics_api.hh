@@ -333,7 +333,7 @@ using metric_metadata_fifo = std::deque<metric_info>;
  * each of the metric.
  */
 struct metric_family_metadata {
-    metric_family_info mf;
+    metric_family_info& mf;
     metric_metadata_fifo metrics;
 };
 
