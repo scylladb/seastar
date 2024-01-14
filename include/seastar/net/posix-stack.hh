@@ -28,6 +28,8 @@
 #include <seastar/core/internal/buffer_allocator.hh>
 #include <seastar/util/program-options.hh>
 
+#include <unordered_set>
+
 namespace seastar {
 
 namespace net {
