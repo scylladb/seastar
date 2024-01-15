@@ -569,7 +569,8 @@ auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo, Wa
     return [func = lref_to_cref(std::forward<Func>(func))](shared_ptr<server::connection> client,
                                                            std::optional<rpc_clock_type::time_point> timeout,
                                                            int64_t msg_id,
-                                                           rcv_buf data) mutable {
+                                                           rcv_buf data,
+                                                           gate::holder guard) mutable {
         auto memory_consumed = client->estimate_request_size(data.size);
         if (memory_consumed > client->max_request_size()) {
             auto err = format("request size {:d} large than memory limit {:d}", memory_consumed, client->max_request_size());
@@ -583,7 +584,7 @@ auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo, Wa
             return make_ready_future();
         }
         // note: apply is executed asynchronously with regards to networking so we cannot chain futures here by doing "return apply()"
-        auto f = client->wait_for_resources(memory_consumed, timeout).then([client, timeout, msg_id, data = std::move(data), &func] (auto permit) mutable {
+        auto f = client->wait_for_resources(memory_consumed, timeout).then([client, timeout, msg_id, data = std::move(data), &func, g = std::move(guard)] (auto permit) mutable {
                 // FIXME: future is discarded
                 (void)try_with_gate(client->get_server().reply_gate(), [client, timeout, msg_id, data = std::move(data), permit = std::move(permit), &func] () mutable {
                     try {
@@ -597,7 +598,7 @@ auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo, Wa
                         client->get_logger()(client->info(), msg_id, format("caught exception while processing a message: {}", std::current_exception()));
                         return make_ready_future();
                     }
-                }).handle_exception_type([] (gate_closed_exception&) {/* ignore */});
+                }).handle_exception_type([g = std::move(g)] (gate_closed_exception&) {/* ignore */});
         });
 
         if (timeout) {
@@ -701,23 +702,16 @@ bool protocol<Serializer, MsgType>::has_handler(MsgType msg_id) {
 }
 
 template<typename Serializer, typename MsgType>
-rpc_handler* protocol<Serializer, MsgType>::get_handler(uint64_t msg_id) {
-    rpc_handler* h = nullptr;
-    auto it = _handlers.find(MsgType(msg_id));
+std::optional<protocol_base::handler_with_holder> protocol<Serializer, MsgType>::get_handler(uint64_t msg_id) {
+    const auto it = _handlers.find(MsgType(msg_id));
     if (it != _handlers.end()) {
         try {
-            it->second.use_gate.enter();
-            h = &it->second;
+            return handler_with_holder{it->second, it->second.use_gate.hold()};
         } catch (gate_closed_exception&) {
             // unregistered, just ignore
         }
     }
-    return h;
-}
-
-template<typename Serializer, typename MsgType>
-void protocol<Serializer, MsgType>::put_handler(rpc_handler* h) {
-    h->use_gate.leave();
+    return std::nullopt;
 }
 
 template<typename T> T make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<T>> org);

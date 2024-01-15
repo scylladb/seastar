@@ -1493,6 +1493,29 @@ SEASTAR_TEST_CASE(test_unregister_handler) {
             std::cerr << "call failed in an unexpected way: " << std::current_exception() << std::endl;
             BOOST_REQUIRE(false);
         }
+
+        // verify that unregister_handler waits for pending requests to finish
+        {
+            promise<> handler_reached_promise;
+            promise<> handler_go_promise;
+            sstring value_to_return = "before_unregister";
+            env.register_handler(1, [&]() -> future<sstring> {
+                handler_reached_promise.set_value();
+                return handler_go_promise.get_future().then([&] { return value_to_return; });
+            }).get();
+            auto f = env.proto().make_client<future<sstring>()>(1);
+            auto response_future = f(c1);
+            handler_reached_promise.get_future().get0();
+            auto unregister_future = env.unregister_handler(1).then([&] {
+                value_to_return = "after_unregister";
+            });
+            BOOST_REQUIRE(!unregister_future.available());
+            sleep(1ms).get();
+            BOOST_REQUIRE(!unregister_future.available());
+            handler_go_promise.set_value();
+            unregister_future.get0();
+            BOOST_REQUIRE_EQUAL(response_future.get0(), "before_unregister");
+        }
     });
 }
 
