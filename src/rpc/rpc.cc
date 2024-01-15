@@ -1157,12 +1157,9 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
 
                       // If the new method of per-connection scheduling group was used, honor it.
                       // Otherwise, use the old per-handler scheduling group.
-                      auto sg = _isolation_config ? _isolation_config->sched_group : h->sg;
-                      return with_scheduling_group(sg, [this, timeout, msg_id, h, data = std::move(data.value())] () mutable {
-                          return h->func(shared_from_this(), timeout, msg_id, std::move(data)).finally([this, h] {
-                              // If anything between get_handler() and here throws, we leak put_handler
-                              get_server()._proto.put_handler(h);
-                          });
+                      auto sg = _isolation_config ? _isolation_config->sched_group : h->handler.sg;
+                      return with_scheduling_group(sg, [this, timeout, msg_id, &h = h->handler, data = std::move(data.value()), guard = std::move(h->holder)] () mutable {
+                          return h.func(shared_from_this(), timeout, msg_id, std::move(data), std::move(guard));
                       });
                   }
               });

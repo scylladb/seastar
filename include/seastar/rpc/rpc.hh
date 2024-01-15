@@ -685,7 +685,7 @@ public:
 };
 
 using rpc_handler_func = std::function<future<> (shared_ptr<server::connection>, std::optional<rpc_clock_type::time_point> timeout, int64_t msgid,
-                                                 rcv_buf data)>;
+                                                 rcv_buf data, gate::holder guard)>;
 
 struct rpc_handler {
     scheduling_group sg;
@@ -700,8 +700,11 @@ public:
 protected:
     friend class server;
 
-    virtual rpc_handler* get_handler(uint64_t msg_id) = 0;
-    virtual void put_handler(rpc_handler*) = 0;
+    struct handler_with_holder {
+        rpc_handler& handler;
+        gate::holder holder;
+    };
+    virtual std::optional<handler_with_holder> get_handler(uint64_t msg_id) = 0;
 };
 
 /// \addtogroup rpc
@@ -940,8 +943,7 @@ public:
     }
 
 private:
-    rpc_handler* get_handler(uint64_t msg_id) override;
-    void put_handler(rpc_handler*) override;
+    std::optional<handler_with_holder> get_handler(uint64_t msg_id) override;
 
     template<typename Ret, typename... In>
     auto make_client(signature<Ret(In...)> sig, MsgType t);
