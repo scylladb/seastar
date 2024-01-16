@@ -730,3 +730,7 @@ seastar_add_test (pipe
 
 seastar_add_test (spawn
   SOURCES spawn_test.cc)
+
+seastar_add_test (trie
+        KIND BOOST
+        SOURCES trie_test.cc)

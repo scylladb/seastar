@@ -770,7 +770,17 @@ add_library (seastar
   src/util/tmp_file.cc
   src/util/short_streams.cc
   src/websocket/server.cc
-  )
+
+  include/seastar/http_v2/request.hh
+  include/seastar/http_v2/response.hh
+  include/seastar/http_v2/common.hh
+  include/seastar/http_v2/parse.hh
+  include/seastar/util/trie.hh
+  src/http_v2/common.cc
+  src/http_v2/request.cc
+  src/http_v2/response.cc
+  src/http_v2/parse.cc
+)
 
 add_library (Seastar::seastar ALIAS seastar)
 
