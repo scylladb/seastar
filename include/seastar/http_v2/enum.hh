@@ -25,7 +25,7 @@
 namespace seastar::http_v2 {
 
 /**
- * Enum Base Class
+ * enum base class
  */
 class enum_object {
     sstring name;

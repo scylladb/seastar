@@ -16,7 +16,7 @@
  * under the License.
  */
 
-#include <seastar/http_v2/common.hh>
+#include <seastar/http_v2/enum.hh>
 
 namespace seastar::http_v2 {
 

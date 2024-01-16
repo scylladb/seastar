@@ -17,3 +17,7 @@
  */
 
 #pragma once
+
+namespace seastar::http_v2 {
+
+}

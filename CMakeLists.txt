@@ -773,10 +773,10 @@ add_library (seastar
 
   include/seastar/http_v2/request.hh
   include/seastar/http_v2/response.hh
-  include/seastar/http_v2/common.hh
+  include/seastar/http_v2/enum.hh
   include/seastar/http_v2/parse.hh
   include/seastar/util/trie.hh
-  src/http_v2/common.cc
+  src/http_v2/enum.cc
   src/http_v2/request.cc
   src/http_v2/response.cc
   src/http_v2/parse.cc

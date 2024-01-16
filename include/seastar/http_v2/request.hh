@@ -20,7 +20,7 @@
 
 #include <seastar/core/iostream.hh>
 #include <seastar/core/sstring.hh>
-#include <seastar/http_v2/common.hh>
+#include <seastar/http_v2/enum.hh>
 
 namespace seastar::http_v2 {
 
