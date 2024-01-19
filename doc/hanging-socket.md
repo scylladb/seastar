@@ -6,59 +6,62 @@ such as, when a client isn't sending any data, or in the case there is a network
 In such cases reading from a socket might never return.
 
 If we look at the next example, we have an infinite read for any amount of data, but in a case of a Denial of Server multiple connections, can cause high pressure on the system. 
+The next example is a bad example of how a socket can hang indefinitely.
 ```cpp
+seastar::future<seastar::stop_iteration> process_data(seastar::output_stream<char> &out, seastar::input_stream<char> &in) {
+    auto buf = in.read();
+
+    if(buf) {
+        co_await out.write(std::move(buf));
+        co_await out.flush();
+        co_return seastar::stop_iteration::no;
+    } else {
+        co_return seastar::stop_iteration::yes;
+    }
+}
+
+seastar::future<> process_connection(seastar::connected_socket &s, seastar::output_stream<char> &out, seastar::input_stream<char> &in) {
+    co_await seastar::repeat(std::bind(&process_data, std::ref(out), std::ref(in)));
+    co_await out.close();
+    co_await in.close();
+}
+
 seastar::future<> handle_connection(seastar::connected_socket s) {
     auto out = s.output();
     auto in = s.input();
 
-    return do_with(std::move(s), std::move(out), std::move(in),
-            [] (auto& s, auto& out, auto& in) {
-        return seastar::repeat([&out, &in] {
-            return in.read().then([&out] (auto buf) {
-                if (buf) {
-                    return out.write(std::move(buf)).then([&out] {
-                        return out.flush();
-                    }).then([] {
-                        return seastar::stop_iteration::no;
-                    });
-                } else {
-                    return seastar::make_ready_future<seastar::stop_iteration>(
-                            seastar::stop_iteration::yes);
-                }
-            });
-        }).then([&out] {
-            return out.close();
-        });
-    });
+    co_await do_with(std::move(s), std::move(out), std::move(in), std::bind_front(&process_connection));
 }
 ```
 In this example, the next step after read, will never happen, and we'll never reach the "end" state.
 
-A simple solution for this case might be to add a timeout on the read operation, in the case the client doesn't do any progress, for instance 
+A simple solution for this case might be to add a timeout on the read operation, in the case the client doesn't do any progress, for instance.
+The next example is a lacking handling for stream closure, and can cause a segmentation fault.
 ```cpp
+seastar::future<seastar::stop_iteration> process_data(seastar::output_stream<char> &out, seastar::input_stream<char> &in) {
+    auto buf = co_await seastar::with_timeout(seastar::lowres_clock::now() + std::chrono::seconds(1), in.read());
+
+    if(buf) {
+        co_await out.write(std::move(buf));
+        co_await out.flush();
+        co_return seastar::stop_iteration::no;
+    } else {
+        co_return seastar::stop_iteration::yes;
+    }
+}
+
+seastar::future<> process_connection(seastar::connected_socket &s, seastar::output_stream<char> &out, seastar::input_stream<char> &in) {
+    co_await seastar::repeat(std::bind(&process_data, std::ref(out), std::ref(in)));
+    // This may not be called ever due to the time_out_error
+    co_await out.close();
+    co_await in.close();
+}
+
 seastar::future<> handle_connection(seastar::connected_socket s) {
     auto out = s.output();
     auto in = s.input();
 
-    return do_with(std::move(s), std::move(out), std::move(in),
-            [] (auto& s, auto& out, auto& in) {
-        return seastar::repeat([&out, &in] {
-            return seastar::with_timeout(seastar::lowres_clock::now() + std::chrono::seconds(1), in.read()).then([&out] (auto buf) {
-                if (buf) {
-                    return out.write(std::move(buf)).then([&out] {
-                        return out.flush();
-                    }).then([] {
-                        return seastar::stop_iteration::no;
-                    });
-                } else {
-                    return seastar::make_ready_future<seastar::stop_iteration>(
-                            seastar::stop_iteration::yes);
-                }
-            });
-        }).then([&out] {
-            return out.close();
-        });
-    });
+    co_await do_with(std::move(s), std::move(out), std::move(in), std::bind_front(&process_connection));
 }
 ```
 In this example, a timeout exception will be propogonated, but there is a problem with that, ```seastar::with_timeout```, doesn't cancel ```in.read()``` future, which
@@ -66,34 +69,44 @@ means, the future might run, and can cause a Segmentation Fault, due to the fact
 
 In order to resolve such a case, we can add a unique handling for the case of timeout
 ```cpp
+seastar::future<seastar::stop_iteration> process_data(seastar::output_stream<char>& out,
+                                                      seastar::input_stream<char>& in) {
+    auto buf = co_await seastar::with_timeout(seastar::lowres_clock::now() + std::chrono::seconds(1), in.read());
+
+    if(buf) {
+        co_await out.write(std::move(buf));
+        co_await out.flush();
+        co_return seastar::stop_iteration::no;
+    } else {
+        co_return seastar::stop_iteration::yes;
+    }
+}
+
+seastar::future<> process_connection(seastar::connected_socket& s, seastar::output_stream<char>& out,
+                                     seastar::input_stream<char>& in) {
+    std::exception_ptr eptr = nullptr;
+
+    try {
+        co_await seastar::repeat(std::bind(&process_data, std::ref(out), std::ref(in)));
+    } catch(...) {
+        eptr = std::current_exception();
+    }
+
+    if(eptr) {
+        s.shutdown_input();
+        co_await s.wait_input_shutdown();
+        std::rethrow_exception(eptr);
+    }
+
+    co_await out.close();
+    co_await in.close();
+}
+
 seastar::future<> handle_connection(seastar::connected_socket s) {
     auto out = s.output();
     auto in = s.input();
 
-    return do_with(std::move(s), std::move(out), std::move(in),
-            [] (auto& s, auto& out, auto& in) {
-        return seastar::repeat([&out, &in] {
-            return seastar::with_timeout(seastar::lowres_clock::now() + std::chrono::seconds(1), in.read()).then([&out] (auto buf) {
-                if (buf) {
-                    return out.write(std::move(buf)).then([&out] {
-                        return out.flush();
-                    }).then([] {
-                        return seastar::stop_iteration::no;
-                    });
-                } else {
-                    return seastar::make_ready_future<seastar::stop_iteration>(
-                            seastar::stop_iteration::yes);
-                }
-            }).handle_exception_type([&s] (const seastar::timed_out_error &err) {
-                // Will resolve the currently waiting futures, with an exception
-                s.shutdown_input();
-                // Allows to wait untill the inputs are actually closed
-                return s.wait_input_shutdown();
-            });
-        }).then([&out] {
-            return out.close();
-        });
-    });
+    co_await do_with(std::move(s), std::move(out), std::move(in), std::bind_front(&process_connection));
 }
 ```
 
