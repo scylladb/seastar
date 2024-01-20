@@ -298,7 +298,7 @@ public:
     template<typename... U>
     std::enable_if_t<!std::is_same_v<std::tuple<std::remove_cv_t<U>...>, std::tuple<tuple_type>>, void>
     uninitialized_set(U&&... vs) {
-        new (&_v.value) maybe_wrap_ref<T>{T(std::forward<U>(vs)...)};
+        new (&_v.value) maybe_wrap_ref<T>(T(std::forward<U>(vs)...));
     }
     void uninitialized_set(tuple_type&& v) {
         uninitialized_set(std::move(std::get<0>(v)));
