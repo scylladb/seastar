@@ -25,6 +25,8 @@
 #include <exception>
 #include <forward_list>
 #include <iterator>
+#include <type_traits>
+#include <vector>
 #include <seastar/testing/test_case.hh>
 
 #include <seastar/core/reactor.hh>
@@ -113,6 +115,24 @@ static subscription<int> get_empty_subscription(std::function<future<> (int)> fu
     auto ret = s.listen(func);
     s.close();
     return ret;
+}
+
+struct int_container {
+    int_container() = default;
+    int_container(int_container&&) noexcept = default;
+    // this template can be matched by an initializer like `{foo}`, which was used in
+    // uninitialized_wrapper_base::uninitialized_set() to perform placement new.
+    template <typename T>
+    int_container(const std::vector<T>&) {
+        static_assert(std::is_constructible_v<int, T>);
+    }
+};
+
+SEASTAR_TEST_CASE(test_future_value_constructible_from_range) {
+    // verify that the type a future's value is constructible from a range
+    using vector_type = std::vector<int_container>;
+    std::ignore = seastar::make_ready_future<vector_type>(vector_type{});
+    return make_ready_future();
 }
 
 SEASTAR_TEST_CASE(test_stream) {
