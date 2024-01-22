@@ -35,6 +35,7 @@
 #include <seastar/net/packet.hh>
 #include <seastar/core/internal/api-level.hh>
 #include <seastar/core/temporary_buffer.hh>
+#include <seastar/core/file-types.hh>
 #include <seastar/core/iostream.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/program-options.hh>
@@ -394,6 +395,7 @@ struct listen_options {
     transport proto = transport::TCP;
     int listen_backlog = 100;
     unsigned fixed_cpu = 0u;
+    std::optional<file_permissions> unix_domain_socket_permissions;
     void set_fixed_cpu(unsigned cpu) {
         lba = server_socket::load_balancing_algorithm::fixed;
         fixed_cpu = cpu;
