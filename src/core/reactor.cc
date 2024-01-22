@@ -1651,6 +1651,18 @@ reactor::posix_listen(socket_address sa, listen_options opts) {
 
     try {
         fd.bind(sa.u.sa, sa.length());
+
+        if (sa.is_af_unix() && opts.unix_domain_socket_permissions) {
+            // After bind the socket is created in the file system.
+            mode_t mode = static_cast<mode_t>(opts.unix_domain_socket_permissions.value());
+            auto result = ::chmod(sa.u.un.sun_path, mode);
+            if (result < 0) {
+                auto errno_copy = errno;
+                ::unlink(sa.u.un.sun_path);
+                throw std::system_error(errno_copy, std::system_category(), "chmod failed");
+            }
+        }
+
         fd.listen(opts.listen_backlog);
     } catch (const std::system_error& s) {
         throw std::system_error(s.code(), fmt::format("posix_listen failed for address {}", sa));
