@@ -1,0 +1,86 @@
+name: Test
+
+permissions:
+  contents: read
+
+on: [push, pull_request]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+
+jobs:
+  test:
+    name: "Tests (${{ matrix.compiler }}, C++${{ matrix.standard}}, ${{ matrix.mode }}, ${{ matrix.enables }})"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # only the compilers supported by setup-cpp
+        compiler: [clang++-17, gcc-13]
+        standard: [17, 20]
+        mode: [dev, debug, release]
+        include:
+          # only build this combination with dpdk enabled, so we don't double
+          # the size of the test matrix, and can at least test the build with
+          # dpdk enabled.
+          - compiler: clang++-17
+            standard: 20
+            mode: release
+            cooks: --cook dpdk
+            enables: --enable-dpdk
+          # only build this combination with C++20 moduels enabled, so we don't double
+          # the size of the test matrix, and can at least test the build with
+          # C++20 modules enabled.
+          - compiler: clang++-17
+            standard: 20
+            mode: debug
+            enables: --enable-cxx-modules
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: "${{ contains(matrix.cooks, 'dpdk') }}"
+
+      - name: Install build dependencies
+        run: |
+          sudo ./install-dependencies.sh
+
+      # instal the latest cmake and ninja when building C++ modules
+      - name: Install ${{ matrix.compiler }}
+        uses: aminya/setup-cpp@v1
+        with:
+          compiler: ${{ matrix.compiler }}
+          ccache: true
+          cmake: "${{ contains(matrix.enables, 'cxx-modules') }}"
+          ninja: "${{ contains(matrix.enables, 'cxx-modules') }}"
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1
+        with:
+          key: ${{ matrix.compiler }}-${{ matrix.standard }}-${{ matrix.mode }}
+
+      - name: Configure
+        run: >
+          ./configure.py
+          --ccache
+          --c++-standard ${{ matrix.standard }}
+          --compiler $CXX
+          --c-compiler $CC
+          --mode ${{ matrix.mode }}
+          ${{ matrix.cooks }}
+          ${{ matrix.enables }} ;
+
+      - name: Build
+        run: cmake --build build/${{matrix.mode}}
+
+      - name: Check Header
+        if: ${{ matrix.mode == 'dev' }}
+        run: cmake --build build/${{ matrix.mode }} --target checkheaders
+
+      - name: Build with C++20 modules
+        if: ${{ contains(matrix.enables, 'cxx-modules') }}
+        run: cmake --build build/${{ matrix.mode }} --target hello_cxx_module
+
+      - name: Test
+        if: ${{ ! contains(matrix.enables, 'cxx-modules') }}
+        run: ./test.py --mode=${{ matrix.mode }}
