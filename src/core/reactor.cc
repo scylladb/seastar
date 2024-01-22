@@ -4063,6 +4063,16 @@ static void sigabrt_action() noexcept {
     reraise_signal(SIGABRT);
 }
 
+static void sigsegv_action_oneline_backtrace() noexcept {
+    print_with_backtrace("Segmentation fault", true);
+    reraise_signal(SIGSEGV);
+}
+
+static void sigabrt_action_oneline_backtrace() noexcept {
+    print_with_backtrace("Aborting", true);
+    reraise_signal(SIGABRT);
+}
+
 void smp::qs_deleter::operator()(smp_message_queue** qs) const {
     for (unsigned i = 0; i < smp::count; i++) {
         for (unsigned j = 0; j < smp::count; j++) {
@@ -4236,6 +4246,7 @@ unsigned smp::adjust_max_networking_aio_io_control_blocks(unsigned network_iocbs
 void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_opts)
 {
     bool use_transparent_hugepages = !reactor_opts.overprovisioned;
+    bool oneline = reactor_opts.blocked_reactor_report_format_oneline.get_value();
 
 #ifndef SEASTAR_NO_EXCEPTION_HACK
     if (smp_opts.enable_glibc_exception_scaling_workaround.get_value()) {
@@ -4262,12 +4273,20 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
 
 #ifndef SEASTAR_ASAN_ENABLED
     // We don't need to handle SIGSEGV when asan is enabled.
-    install_oneshot_signal_handler<SIGSEGV, sigsegv_action>();
+    if (oneline) {
+        install_oneshot_signal_handler<SIGSEGV, sigsegv_action_oneline_backtrace>();
+    } else {
+        install_oneshot_signal_handler<SIGSEGV, sigsegv_action>();
+    }
 #else
     (void)sigsegv_action;
+    (void)sigsegv_action_oneline_backtrace;
 #endif
-    install_oneshot_signal_handler<SIGABRT, sigabrt_action>();
-
+    if (oneline) {
+         install_oneshot_signal_handler<SIGABRT, sigabrt_action_oneline_backtrace>();
+    } else {
+         install_oneshot_signal_handler<SIGABRT, sigabrt_action>();
+    }
 #ifdef SEASTAR_HAVE_DPDK
     const auto* native_stack = dynamic_cast<const net::native_stack_options*>(reactor_opts.network_stack.get_selected_candidate_opts());
     _using_dpdk = native_stack && native_stack->dpdk_pmd;
