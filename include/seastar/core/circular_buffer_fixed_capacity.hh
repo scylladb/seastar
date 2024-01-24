@@ -33,6 +33,7 @@
 #include <cstddef>
 #include <iterator>
 #include <utility>
+#include <memory>
 #include <seastar/util/modules.hh>
 #endif
 
@@ -224,11 +225,7 @@ template <typename T, size_t Capacity>
 inline
 circular_buffer_fixed_capacity<T, Capacity>::circular_buffer_fixed_capacity(circular_buffer_fixed_capacity&& x) noexcept
         : _begin(x._begin), _end(x._end) {
-    // This is std::uninitialized_move, but that is c++17 only
-    auto dest = begin();
-    for (auto& obj : x) {
-        new (&*dest++) T(std::move(obj));
-    }
+    std::uninitialized_move(x.begin(), x.end(), begin());
 }
 
 template <typename T, size_t Capacity>
