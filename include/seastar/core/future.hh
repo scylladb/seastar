@@ -259,15 +259,15 @@ template <typename T>
 struct get0_return_type;
 
 template <>
-struct get0_return_type<std::tuple<>> {
+struct get0_return_type<internal::monostate> {
     using type = void;
-    static type get0(std::tuple<>) { }
+    static type get0(internal::monostate) { }
 };
 
-template <typename T0, typename... T>
-struct get0_return_type<std::tuple<T0, T...>> {
-    using type = T0;
-    static type get0(std::tuple<T0, T...> v) { return std::get<0>(std::move(v)); }
+template <typename T>
+struct get0_return_type {
+    using type = T;
+    static T get0(T&& v) { return std::move(v); }
 };
 
 template<typename T>
@@ -663,7 +663,7 @@ struct future_state :  public future_state_base, private internal::uninitialized
         }
         return this->uninitialized_get();
     }
-    using get0_return_type = typename internal::get0_return_type<internal::future_tuple_type_t<T>>::type;
+    using get0_return_type = typename internal::get0_return_type<T>::type;
     static get0_return_type get0(T&& x) {
         return internal::get0_return_type<T>::get0(std::move(x));
     }
