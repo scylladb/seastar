@@ -159,7 +159,7 @@ def identify_best_standard(cpp_standards, compiler):
 
 
 if args.cpp_standard == '':
-    cpp_standards = ['23', '20', '17']
+    cpp_standards = ['23', '20']
     args.cpp_standard = identify_best_standard(cpp_standards, compiler=args.cxx)
 
 
