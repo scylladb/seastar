@@ -797,11 +797,13 @@ set (Seastar_PRIVATE_CXX_FLAGS
   -Wdeprecated
   -Wno-error=deprecated)
 
-include (CheckGcc107852)
-if (NOT Cxx_Compiler_BZ107852_Free)
-  list (APPEND Seastar_PRIVATE_CXX_FLAGS
-    -Wno-error=stringop-overflow
-    -Wno-error=array-bounds)
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  include (CheckGcc107852)
+  if (NOT Cxx_Compiler_BZ107852_Free)
+    list (APPEND Seastar_PRIVATE_CXX_FLAGS
+      -Wno-error=stringop-overflow
+      -Wno-error=array-bounds)
+  endif()
 endif ()
 
 if (NOT BUILD_SHARED_LIBS)
