@@ -71,7 +71,7 @@ workflows:
           matrix:
             parameters:
               compiler: ["clang++-17", "g++-13"]
-              standard: ["20", "17"]
+              standard: ["23", "20"]
               mode: ["dev", "debug", "release"]
       # only build this combination with dpdk enabled, so we don't double
       # the size of the test matrix, and can at least test the build with
@@ -80,7 +80,7 @@ workflows:
           matrix:
             parameters:
               compiler: ["clang++-17"]
-              standard: ["20"]
+              standard: ["23"]
               mode: ["release"]
               with_dpdk: [ "enable-dpdk" ]
       # only build this combination with C++20 moduels enabled, so we don't double
@@ -90,6 +90,6 @@ workflows:
           matrix:
             parameters:
               compiler: ["clang++-17"]
-              standard: ["20"]
+              standard: ["23"]
               mode: ["debug"]
               with_modules: [ "enable-modules" ]
