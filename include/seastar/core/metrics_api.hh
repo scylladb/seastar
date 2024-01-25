@@ -337,7 +337,7 @@ struct metric_family_metadata {
     metric_metadata_fifo metrics;
 };
 
-using value_vector = std::vector<metric_value>;
+using value_vector = std::deque<metric_value>;
 using metric_metadata = std::vector<metric_family_metadata>;
 using metric_values = std::deque<value_vector>;
 
