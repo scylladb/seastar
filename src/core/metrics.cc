@@ -368,7 +368,6 @@ foreign_ptr<values_reference> get_values() {
     auto & functions = get_local_impl()->functions();
     for (auto&& i : functions) {
         value_vector values;
-        values.reserve(i.size());
         for (auto&& v : i) {
             values.emplace_back(v());
         }
