@@ -28,7 +28,7 @@ jobs:
       - checkout
       - run: git submodule sync
       - run: git submodule update --init
-      - run: echo 'docker run --pids-limit -1 --security-opt seccomp=unconfined --network host --user "$(id -u):$(id -g)" --rm -v $PWD:$PWD -w $PWD  docker.io/scylladb/seastar-toolchain:2023-12-28 "$@"' > run; chmod +x run
+      - run: echo 'docker run --pids-limit -1 --security-opt seccomp=unconfined --network host --user "$(id -u):$(id -g)" --rm -v $PWD:$PWD -w $PWD  docker.io/scylladb/seastar-toolchain:2024-02-01 "$@"' > run; chmod +x run
       - when:
           condition:
             equal: [ "enable-dpdk", << parameters.with_dpdk >> ]
