@@ -1355,6 +1355,7 @@ public:
     ///
     /// Equivalent to: \c std::get<0>(f.get()).
     using get0_return_type = typename future_state::get0_return_type;
+    [[deprecated("Use get() instead")]]
     get0_return_type get0() {
         return (get0_return_type)get();
     }
