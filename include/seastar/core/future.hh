@@ -1354,12 +1354,25 @@ public:
     /// Gets the value returned by the computation.
     ///
     /// Similar to \ref get(), but instead of returning a
-    /// tuple, returns the first value of the tuple.  This is
-    /// useful for the common case of a \c future<T> with exactly
-    /// one type parameter.
+    /// \c T&&, returns \c T.
     ///
-    /// Equivalent to: \c std::get<0>(f.get()).
+    /// \note The \c get0() method is deprecated. It's a remnant from older
+    /// versions of Seastar that supported variadic futures, capable of
+    /// returning multiple values through a tuple. Back then, \c get0() served
+    /// the purpose of retrieving the first (and usually the only) value.
+    /// Today, the \ref get() method accomplishes the same task. However,
+    /// there's a subtle difference in return types: \c get0() returned
+    /// \c T, while \ref get() returns \c T&& (an rvalue reference to
+    /// \c T). This distinction typically won't cause issues when switching
+    /// from \c get0() to \ref get(). However, in specific metaprogramming
+    /// scenarios, especially when the code expects type \c T, you'll need
+    /// to use \c std::remove_reference_t<decltype(fut.get())> to extract
+    /// the underlying type \c T.
+    /// For new code that utilizes \c future<tuple<...>>, employ
+    /// \c std::get<0>(fut.get()) to access the first element of the tuple,
+    /// rather than the deprecated \ref get0().
     using get0_return_type = typename future_state::get0_return_type;
+    [[deprecated("Use get() instead")]]
     get0_return_type get0() {
         return (get0_return_type)get();
     }
