@@ -2629,7 +2629,7 @@ void reactor::register_metrics() {
             sm::make_counter("tasks_processed", std::bind(&reactor::tasks_processed, this), sm::description("Total tasks processed")),
             sm::make_counter("polls", _polls, sm::description("Number of times pollers were executed")),
             sm::make_gauge("timers_pending", std::bind(&decltype(_timers)::size, &_timers), sm::description("Number of tasks in the timer-pending queue")),
-            sm::make_gauge("utilization", [this] { return (1-_load)  * 100; }, sm::description("CPU utilization")),
+            sm::make_gauge("utilization", [this] { return (1-_load)  * 100; }, sm::description("Reactor non-polling CPU utilization % (5-second rolling average)")),
             // The value is 1 so that the cpu label can be applied to a host
             // metric by joining it with this one using multiplication and
             // "group_left" on (instance, cpu).
@@ -2637,7 +2637,7 @@ void reactor::register_metrics() {
                     sm::description("An info metric that exposes the shard's corresponding host cpu ID in the cpu label."),
                     { sm::label_instance("cpu", smp::pinned_cpu_id()) }),
             sm::make_counter("cpu_busy_ms", [this] () -> int64_t { return total_busy_time() / 1ms; },
-                    sm::description("Total cpu busy time in milliseconds")),
+                    sm::description("Total reactor non-polling CPU utilization in milliseconds")),
             sm::make_counter("sleep_time_ms_total", [this] () -> int64_t { return _total_sleep / 1ms; },
                     sm::description("Total reactor sleep time (wall clock)")),
             sm::make_counter("awake_time_ms_total", [this] () -> int64_t { return total_awake_time() / 1ms; },
