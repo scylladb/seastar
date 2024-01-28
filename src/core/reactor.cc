@@ -2580,9 +2580,9 @@ void reactor::register_metrics() {
             sm::make_counter("tasks_processed", std::bind(&reactor::tasks_processed, this), sm::description("Total tasks processed")),
             sm::make_counter("polls", _polls, sm::description("Number of times pollers were executed")),
             sm::make_gauge("timers_pending", std::bind(&decltype(_timers)::size, &_timers), sm::description("Number of tasks in the timer-pending queue")),
-            sm::make_gauge("utilization", [this] { return (1-_load)  * 100; }, sm::description("CPU utilization")),
+            sm::make_gauge("utilization", [this] { return (1-_load)  * 100; }, sm::description("Reactor non-polling CPU utilization % (5-second rolling average)")),
             sm::make_counter("cpu_busy_ms", [this] () -> int64_t { return total_busy_time() / 1ms; },
-                    sm::description("Total cpu busy time in milliseconds")),
+                    sm::description("Total reactor non-polling CPU utilization in milliseconds")),
             sm::make_counter("cpu_steal_time_ms", [this] () -> int64_t { return total_steal_time() / 1ms; },
                     sm::description("Total steal time, the time in which some other process was running while Seastar was not trying to run (not sleeping)."
                                      "Because this is in userspace, some time that could be legitimally thought as steal time is not accounted as such. For example, if we are sleeping and can wake up but the kernel hasn't woken us up yet.")),
