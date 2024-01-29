@@ -62,7 +62,7 @@ using namespace std::chrono_literals;
 using namespace boost::accumulators;
 
 static auto random_seed = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-static std::default_random_engine random_generator(random_seed);
+static thread_local std::default_random_engine random_generator(random_seed);
 
 class context;
 enum class request_type { seqread, seqwrite, randread, randwrite, append, cpu };
@@ -76,6 +76,16 @@ struct hash<request_type> {
     }
 };
 
+}
+
+auto allocate_and_fill_buffer(size_t buffer_size) {
+    constexpr size_t alignment{4096u};
+    auto buffer = allocate_aligned_buffer<char>(buffer_size, alignment);
+
+    std::uniform_int_distribution<int> fill('@', '~');
+    memset(buffer.get(), fill(random_generator), buffer_size);
+
+    return buffer;
 }
 
 future<> busyloop_sleep(std::chrono::steady_clock::time_point until, std::chrono::steady_clock::time_point now) {
@@ -538,10 +548,8 @@ private:
                         auto bufsize = 256ul << 10;
                         return do_with(boost::irange(UINT64_C(0), (_config.file_size / bufsize) + 1), [this, bufsize] (auto& pos) mutable {
                             return max_concurrent_for_each(pos.begin(), pos.end(), 64, [this, bufsize] (auto pos) mutable {
-                                auto bufptr = allocate_aligned_buffer<char>(bufsize, 4096);
+                                auto bufptr = allocate_and_fill_buffer(bufsize);
                                 auto buf = bufptr.get();
-                                std::uniform_int_distribution<int> fill('@', '~');
-                                memset(buf, fill(random_generator), bufsize);
                                 pos = pos * bufsize;
                                 return _file.dma_write(pos, buf, bufsize).finally([this, bufptr = std::move(bufptr), pos] {
                                     if ((this->req_type() == request_type::append) && (pos > _last_pos)) {
