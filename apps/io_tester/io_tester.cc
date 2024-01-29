@@ -206,6 +206,10 @@ struct job_config {
 std::array<double, 4> quantiles = { 0.5, 0.95, 0.99, 0.999};
 static bool keep_files = false;
 
+future<> maybe_remove_file(sstring fname) {
+    return keep_files ? make_ready_future<>() : remove_file(fname);
+}
+
 class class_data {
 protected:
     using accumulator_type = accumulator_set<double, stats<tag::extended_p_square_quantile(quadratic), tag::mean, tag::max>>;
@@ -524,9 +528,6 @@ private:
         options.append_is_unlikely = true;
         return open_file_dma(fname, flags, options).then([this, fname] (auto f) {
             _file = f;
-            auto maybe_remove_file = [] (sstring fname) {
-                return keep_files ? make_ready_future<>() : remove_file(fname);
-            };
             return maybe_remove_file(fname).then([this] {
                 return _file.size().then([this] (uint64_t size) {
                     return _file.truncate(_config.file_size).then([this, size] {
