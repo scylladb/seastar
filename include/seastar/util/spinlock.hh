@@ -71,7 +71,7 @@ inline void cpu_relax() {
 
 [[gnu::always_inline]]
 inline void cpu_relax() {}
-#warn "Using an empty cpu_relax() for this architecture"
+#warning "Using an empty cpu_relax() for this architecture"
 
 #endif
 
