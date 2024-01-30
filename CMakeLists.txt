@@ -1047,7 +1047,7 @@ endif ()
 check_cxx_compiler_flag ("-Wno-error=#warnings" ErrorWarnings_FOUND)
 if (ErrorWarnings_FOUND)
   target_compile_options (seastar
-      PUBLIC "-Wno-error=#warnings")
+      PRIVATE "-Wno-error=#warnings")
 endif ()
 
 foreach (definition
