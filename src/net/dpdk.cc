@@ -56,6 +56,7 @@ module seastar;
 #include <seastar/core/memory.hh>
 #include <seastar/core/metrics.hh>
 #include <seastar/core/internal/poll.hh>
+#include <seastar/core/units.hh>
 #include <seastar/util/function_input_iterator.hh>
 #include <seastar/util/transform_iterator.hh>
 #include <seastar/util/std-compat.hh>
@@ -951,7 +952,7 @@ build_mbuf_cluster:
          */
         static size_t set_one_data_buf(
             dpdk_qp& qp, rte_mbuf*& m, char* va, size_t buf_len) {
-            static constexpr size_t max_frag_len = 15 * 1024; // 15K
+            static constexpr size_t max_frag_len = 15_KiB;
 
             //
             // Currently we break a buffer on a 15K boundary because 82599
