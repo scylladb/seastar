@@ -166,6 +166,15 @@ struct future_state_base;
 template <typename T = void, typename... A>
 future<T> make_ready_future(A&&... value) noexcept;
 
+
+/// \brief Returns a ready \ref future that is already resolved.
+template<typename T>
+inline
+future<std::remove_cv_t<std::remove_reference_t<T>>> as_ready_future(T&& v) noexcept {
+    return make_ready_future<std::remove_cv_t<std::remove_reference_t<T>>>(
+        std::forward<T>(v));
+}
+
 /// \brief Creates a \ref future in an available, failed state.
 ///
 /// Creates a \ref future object that is already resolved in a failed
