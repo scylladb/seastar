@@ -133,33 +133,8 @@ public:
     };
 };
 
-template<bool CheckPreempt, typename... T>
-struct awaiter {
-    seastar::future<T...> _future;
-public:
-    explicit awaiter(seastar::future<T...>&& f) noexcept : _future(std::move(f)) { }
-
-    awaiter(const awaiter&) = delete;
-    awaiter(awaiter&&) = delete;
-
-    bool await_ready() const noexcept {
-        return _future.available() && (!CheckPreempt || !need_preempt());
-    }
-
-    template<typename U>
-    void await_suspend(std::coroutine_handle<U> hndl) noexcept {
-        if (!CheckPreempt || !_future.available()) {
-            _future.set_coroutine(hndl.promise());
-        } else {
-            schedule(&hndl.promise());
-        }
-    }
-
-    std::tuple<T...> await_resume() { return _future.get(); }
-};
-
 template<bool CheckPreempt, typename T>
-struct awaiter<CheckPreempt, T> {
+struct awaiter {
     seastar::future<T> _future;
 public:
     explicit awaiter(seastar::future<T>&& f) noexcept : _future(std::move(f)) { }
@@ -184,7 +159,7 @@ public:
 };
 
 template<bool CheckPreempt>
-struct awaiter<CheckPreempt> {
+struct awaiter<CheckPreempt, void> {
     seastar::future<> _future;
 public:
     explicit awaiter(seastar::future<>&& f) noexcept : _future(std::move(f)) { }
@@ -212,9 +187,9 @@ public:
 
 SEASTAR_MODULE_EXPORT_BEGIN
 
-template<typename... T>
-auto operator co_await(future<T...> f) noexcept {
-    return internal::awaiter<true, T...>(std::move(f));
+template<typename T>
+auto operator co_await(future<T> f) noexcept {
+    return internal::awaiter<true, T>(std::move(f));
 }
 
 namespace coroutine {
@@ -223,14 +198,8 @@ namespace coroutine {
 /// If constructed from a future, co_await-ing it will bypass
 /// checking if the task quota is depleted, which means that
 /// a ready future will be handled immediately.
-template<typename... T> struct [[nodiscard]] without_preemption_check : public seastar::future<T...> {
-    explicit without_preemption_check(seastar::future<T...>&& f) noexcept : seastar::future<T...>(std::move(f)) {}
-};
-template<typename T> struct [[nodiscard]] without_preemption_check<T> : public seastar::future<T> {
+template<typename T> struct [[nodiscard]] without_preemption_check : public seastar::future<T> {
     explicit without_preemption_check(seastar::future<T>&& f) noexcept : seastar::future<T>(std::move(f)) {}
-};
-template<> struct [[nodiscard]] without_preemption_check<> : public seastar::future<> {
-    explicit without_preemption_check(seastar::future<>&& f) noexcept : seastar::future<>(std::move(f)) {}
 };
 
 /// Make a lambda coroutine safe for use in an outer coroutine with
@@ -272,9 +241,9 @@ public:
 /// Wait for a future without a preemption check
 ///
 /// \param f a \c future<> wrapped with \c without_preemption_check
-template<typename... T>
-auto operator co_await(coroutine::without_preemption_check<T...> f) noexcept {
-    return internal::awaiter<false, T...>(std::move(f));
+template<typename T>
+auto operator co_await(coroutine::without_preemption_check<T> f) noexcept {
+    return internal::awaiter<false, T>(std::move(f));
 }
 
 SEASTAR_MODULE_EXPORT_END
@@ -285,8 +254,8 @@ SEASTAR_MODULE_EXPORT_END
 namespace std {
 
 SEASTAR_MODULE_EXPORT
-template<typename... T, typename... Args>
-class coroutine_traits<seastar::future<T...>, Args...> : public seastar::internal::coroutine_traits_base<T...> {
+template<typename T, typename... Args>
+class coroutine_traits<seastar::future<T>, Args...> : public seastar::internal::coroutine_traits_base<T> {
 };
 
 } // std
