@@ -216,7 +216,7 @@ class https_server {
           "--key", key,
           "--cert", cert,
         };
-        return experimental::spawn_process(httpd.string(), {.argv = argv}).get0();
+        return experimental::spawn_process(httpd.string(), {.argv = argv}).get();
     }
 
     // https-server.py picks an available port and listens on it. when it is
@@ -409,15 +409,15 @@ SEASTAR_TEST_CASE(test_abort_accept_after_handshake) {
         tls::credentials_builder b;
         b.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
 
-        auto c = tls::connect(b.build_certificate_credentials(), addr).get0();
-        auto s = sa.get0();
+        auto c = tls::connect(b.build_certificate_credentials(), addr).get();
+        auto s = sa.get();
         server.abort_accept(); // should not affect the socket we got.
         auto out = c.output();
         auto in = s.connection.input();
 
         out.write("apa").get();
         auto f = out.flush();
-        auto buf = in.read().get0();
+        auto buf = in.read().get();
         f.get();
         BOOST_CHECK(sstring(buf.begin(), buf.end()) == "apa");
 
@@ -450,7 +450,7 @@ SEASTAR_TEST_CASE(test_abort_accept_on_server_before_handshake) {
         try {
             // the connect as such should succeed, but the handshare following it
             // should not.
-            auto c = f.get0();
+            auto c = f.get();
             auto out = c.output();
             out.write("apa").get();
             out.flush().get();
@@ -837,8 +837,8 @@ SEASTAR_THREAD_TEST_CASE(test_close_timout) {
         auto& ssir = *ssi;
         auto& csir = *csi;
 
-        auto ss = tls::wrap_server(serv, connected_socket(std::move(ssi))).get0();
-        auto cs = tls::wrap_client(creds, connected_socket(std::move(csi))).get0();
+        auto ss = tls::wrap_server(serv, connected_socket(std::move(ssi))).get();
+        auto cs = tls::wrap_client(creds, connected_socket(std::move(csi))).get();
 
         auto os = cs.output().detach();
         auto is = ss.input();
@@ -884,7 +884,7 @@ SEASTAR_THREAD_TEST_CASE(test_reload_certificates) {
         if (changed.count(cert) && changed.count(key)) {
             p.set_value();
         }
-    }).get0();
+    }).get();
 
     ::listen_options opts;
     opts.reuse_address = true;
@@ -896,8 +896,8 @@ SEASTAR_THREAD_TEST_CASE(test_reload_certificates) {
 
     {
         auto sa = server.accept();
-        auto c = tls::connect(b2.build_certificate_credentials(), addr).get0();
-        auto s = sa.get0();
+        auto c = tls::connect(b2.build_certificate_credentials(), addr).get();
+        auto s = sa.get();
         auto in = s.connection.input();
 
         output_stream<char> out(c.output().detach(), 4096);
@@ -945,15 +945,15 @@ SEASTAR_THREAD_TEST_CASE(test_reload_certificates) {
     // now it should work
     {
         auto sa = server.accept();
-        auto c = tls::connect(b2.build_certificate_credentials(), addr).get0();
-        auto s = sa.get0();
+        auto c = tls::connect(b2.build_certificate_credentials(), addr).get();
+        auto s = sa.get();
         auto in = s.connection.input();
 
         output_stream<char> out(c.output().detach(), 4096);
 
         out.write("apa").get();
         auto f = out.flush();
-        auto buf = in.read().get0();
+        auto buf = in.read().get();
         f.get();
         out.close().get();
         in.read().get(); // ignore - just want eof
@@ -991,7 +991,7 @@ SEASTAR_THREAD_TEST_CASE(test_reload_broken_certificates) {
         if (changed.count(cert) && changed.count(key)) {
             p.set_value();
         }
-    }).get0();
+    }).get();
 
     // very intentionally use blocking calls. We want all our modifications to happen
     // before any other continuation is allowed to process.
@@ -1049,7 +1049,7 @@ SEASTAR_THREAD_TEST_CASE(test_reload_tolerance) {
         if (changed.count(cert) && changed.count(key)) {
             p.set_value();
         }
-    }, std::chrono::milliseconds(5000)).get0();
+    }, std::chrono::milliseconds(5000)).get();
 
     // very intentionally use blocking calls. We want all our modifications to happen
     // before any other continuation is allowed to process.
@@ -1111,7 +1111,7 @@ SEASTAR_THREAD_TEST_CASE(test_reload_by_move) {
         if (changed.count(cert) && changed.count(key)) {
             p.set_value();
         }
-    }, std::chrono::milliseconds(5000)).get0();
+    }, std::chrono::milliseconds(5000)).get();
 
     // very intentionally use blocking calls. We want all our modifications to happen
     // before any other continuation is allowed to process.
@@ -1223,8 +1223,8 @@ SEASTAR_THREAD_TEST_CASE(test_closed_write) {
 
     {
         auto sa = server.accept();
-        auto c = tls::connect(creds, addr).get0();
-        auto s = sa.get0();
+        auto c = tls::connect(creds, addr).get();
+        auto s = sa.get();
         auto in = s.connection.input();
 
         output_stream<char> out(c.output().detach(), 4096);
@@ -1236,8 +1236,8 @@ SEASTAR_THREAD_TEST_CASE(test_closed_write) {
 
     {
         auto sa = server.accept();
-        auto c = tls::connect(creds, addr).get0();
-        auto s = sa.get0();
+        auto c = tls::connect(creds, addr).get();
+        auto s = sa.get();
         auto in = s.connection.input();
 
         output_stream<char> out(c.output().detach(), 4096);
@@ -1385,8 +1385,8 @@ SEASTAR_THREAD_TEST_CASE(test_alt_names) {
 
     {
         auto sa = server.accept();
-        auto c = tls::connect(creds, addr).get0();
-        auto s = sa.get0();
+        auto c = tls::connect(creds, addr).get();
+        auto s = sa.get();
 
         auto in = s.connection.input();
         output_stream<char> out(c.output().detach(), 1024);
@@ -1464,7 +1464,7 @@ SEASTAR_THREAD_TEST_CASE(test_skip_wait_for_eof) {
         // Write some data in the socket to handshake.
         out.write("apa").get();
         auto f = out.flush();
-        auto buf = in.read().get0();
+        auto buf = in.read().get();
         f.get();
         BOOST_CHECK(sstring(buf.begin(), buf.end()) == "apa");
 

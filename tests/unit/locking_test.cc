@@ -127,7 +127,7 @@ SEASTAR_THREAD_TEST_CASE(test_rwlock_abort) {
             as.request_abort();
         });
 
-        BOOST_REQUIRE_THROW(f.get0(), semaphore_aborted);
+        BOOST_REQUIRE_THROW(f.get(), semaphore_aborted);
     }
 
     {
@@ -139,14 +139,14 @@ SEASTAR_THREAD_TEST_CASE(test_rwlock_abort) {
             as.request_abort();
         });
 
-        BOOST_REQUIRE_THROW(f.get0(), semaphore_aborted);
+        BOOST_REQUIRE_THROW(f.get(), semaphore_aborted);
     }
 }
 
 SEASTAR_THREAD_TEST_CASE(test_rwlock_hold_abort) {
     rwlock l;
 
-    auto wh = l.hold_write_lock().get0();
+    auto wh = l.hold_write_lock().get();
 
     {
         abort_source as;
@@ -157,7 +157,7 @@ SEASTAR_THREAD_TEST_CASE(test_rwlock_hold_abort) {
             as.request_abort();
         });
 
-        BOOST_REQUIRE_THROW(f.get0(), semaphore_aborted);
+        BOOST_REQUIRE_THROW(f.get(), semaphore_aborted);
     }
 
     {
@@ -169,7 +169,7 @@ SEASTAR_THREAD_TEST_CASE(test_rwlock_hold_abort) {
             as.request_abort();
         });
 
-        BOOST_REQUIRE_THROW(f.get0(), semaphore_aborted);
+        BOOST_REQUIRE_THROW(f.get(), semaphore_aborted);
     }
 }
 
@@ -339,7 +339,7 @@ SEASTAR_THREAD_TEST_CASE(test_with_shared_typed_return_nothrow_move_func) {
     auto expected = 42;
     auto res = with_shared(sm, [expected] {
         return expected;
-    }).get0();
+    }).get();
     BOOST_REQUIRE_EQUAL(res, expected);
 
     try {
@@ -383,7 +383,7 @@ SEASTAR_THREAD_TEST_CASE(test_with_lock_typed_return_nothrow_move_func) {
     auto expected = 42;
     auto res = with_lock(sm, [expected] {
         return expected;
-    }).get0();
+    }).get();
     BOOST_REQUIRE_EQUAL(res, expected);
 
     try {

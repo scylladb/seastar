@@ -97,7 +97,7 @@ SEASTAR_TEST_CASE(test_thread_async_nested) {
     return async([] {
         return async([] {
             return 3;
-        }).get0();
+        }).get();
     }).then([] (int three) {
         BOOST_REQUIRE_EQUAL(three, 3);
     });

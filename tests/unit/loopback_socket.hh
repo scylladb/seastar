@@ -148,9 +148,9 @@ public:
         return _buffer->pop().then_wrapped([this] (future<temporary_buffer<char>>&& b) {
             _eof = b.failed();
             if (!_eof) {
-                // future::get0() is destructive, so we have to play these games
-                // FIXME: make future::get0() non-destructive
-                auto&& tmp = b.get0();
+                // future::get() is destructive, so we have to play these games
+                // FIXME: make future::get() non-destructive
+                auto&& tmp = b.get();
                 _eof = tmp.empty();
                 b = make_ready_future<temporary_buffer<char>>(std::move(tmp));
             }

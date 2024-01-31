@@ -94,8 +94,8 @@ struct timer_test {
 
     future<> test_timer_with_scheduling_groups() {
         return async([] {
-            auto sg1 = create_scheduling_group("sg1", 100).get0();
-            auto sg2 = create_scheduling_group("sg2", 100).get0();
+            auto sg1 = create_scheduling_group("sg1", 100).get();
+            auto sg2 = create_scheduling_group("sg2", 100).get();
             thread_attributes t1attr;
             t1attr.sched_group = sg1;
             auto expirations = 0;

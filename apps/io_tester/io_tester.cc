@@ -307,7 +307,7 @@ private:
                         return issue_request(buf, &intent).then_wrapped([this, start, pause, stop, &in_flight] (auto size_f) {
                             size_t size;
                             try {
-                                size = size_f.get0();
+                                size = size_f.get();
                             } catch (...) {
                                 // cancelled
                                 in_flight--;
@@ -959,14 +959,14 @@ int main(int ac, char** av) {
             auto& opts = app.configuration();
             auto& storage = opts["storage"].as<sstring>();
 
-            auto st_type = engine().file_type(storage).get0();
+            auto st_type = engine().file_type(storage).get();
 
             if (!st_type) {
                 throw std::runtime_error(format("Unknown storage {}", storage));
             }
 
             if (*st_type == directory_entry_type::directory) {
-                auto fs = file_system_at(storage).get0();
+                auto fs = file_system_at(storage).get();
                 if (fs != fs_type::xfs) {
                     throw std::runtime_error(format("This is a performance test. {} is not on XFS", storage));
                 }
@@ -1010,7 +1010,7 @@ int main(int ac, char** av) {
                 }
             }
 
-            ctx.start(storage, *st_type, reqs, duration).get0();
+            ctx.start(storage, *st_type, reqs, duration).get();
             engine().at_exit([&ctx] {
                 return ctx.stop();
             });
@@ -1023,7 +1023,7 @@ int main(int ac, char** av) {
                 return c.issue_requests();
             }).get();
             show_results(ctx);
-            ctx.stop().get0();
+            ctx.stop().get();
         }).or_terminate();
     });
 }

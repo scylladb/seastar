@@ -100,7 +100,7 @@ SEASTAR_CONCEPT( requires requires (Iterator i, Mapper mapper, Reducer reduce) {
      *i++;
      { i != i } -> std::convertible_to<bool>;
      mapper(*i);
-     reduce(futurize_invoke(mapper, *i).get0());
+     reduce(futurize_invoke(mapper, *i).get());
 } )
 inline
 auto
@@ -120,7 +120,7 @@ map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Reducer&& r)
                     f.ignore_ready_future();
                     return rf;
                 } else {
-                    return futurize_invoke(s->reducer, std::move(f.get0()));
+                    return futurize_invoke(s->reducer, std::move(f.get()));
                 }
             });
         });
@@ -176,7 +176,7 @@ SEASTAR_CONCEPT( requires requires (Iterator i, Mapper mapper, Initial initial, 
      { i != i} -> std::convertible_to<bool>;
      mapper(*i);
      requires is_future<decltype(mapper(*i))>::value;
-     { reduce(std::move(initial), mapper(*i).get0()) } -> std::convertible_to<Initial>;
+     { reduce(std::move(initial), mapper(*i).get()) } -> std::convertible_to<Initial>;
 } )
 inline
 future<Initial>
@@ -191,7 +191,7 @@ map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Initial initial, Reduc
     while (begin != end) {
         ret = futurize_invoke(s->mapper, *begin++).then_wrapped([s = s.get(), ret = std::move(ret)] (auto f) mutable {
             try {
-                s->result = s->reduce(std::move(s->result), f.get0());
+                s->result = s->reduce(std::move(s->result), f.get());
                 return std::move(ret);
             } catch (...) {
                 return std::move(ret).then_wrapped([ex = std::current_exception()] (auto f) {
@@ -254,7 +254,7 @@ SEASTAR_CONCEPT( requires requires (Range range, Mapper mapper, Initial initial,
      std::end(range);
      mapper(*std::begin(range));
      requires is_future<std::remove_reference_t<decltype(mapper(*std::begin(range)))>>::value;
-     { reduce(std::move(initial), mapper(*std::begin(range)).get0()) } -> std::convertible_to<Initial>;
+     { reduce(std::move(initial), mapper(*std::begin(range)).get()) } -> std::convertible_to<Initial>;
 } )
 inline
 future<Initial>

@@ -620,7 +620,7 @@ private:
                     // FIXME: future is discarded
                     (void)f.then_wrapped([me = shared_from_this(), &e, fd](future<connected_socket> f) {
                         try {
-                            e.tcp.socket = f.get0();
+                            e.tcp.socket = f.get();
                             dns_log.trace("Connection complete: {}", fd);
                         } catch (...) {
                             dns_log.debug("Connect {} failed: {}", fd, std::current_exception());
@@ -632,7 +632,7 @@ private:
                     errno = EWOULDBLOCK;
                     return -1;
                 }
-                e.tcp.socket = f.get0();
+                e.tcp.socket = f.get();
                 break;
             }
             case type::udp:
@@ -687,7 +687,7 @@ private:
                         // FIXME: future is discarded
                         (void)f.then_wrapped([me = shared_from_this(), &e, fd](future<temporary_buffer<char>> f) {
                             try {
-                                auto buf = f.get0();
+                                auto buf = f.get();
                                 dns_log.trace("Read {} -> {} bytes", fd, buf.size());
                                 e.tcp.indata = std::move(buf);
                             } catch (...) {
@@ -702,7 +702,7 @@ private:
                     }
 
                     try {
-                        tcp.indata = f.get0();
+                        tcp.indata = f.get();
                         continue; // loop will take care of data
                     } catch (std::system_error& e) {
                         errno = e.code().value();
@@ -750,7 +750,7 @@ private:
                         // FIXME: future is discarded
                         (void)f.then_wrapped([me = shared_from_this(), &e, fd](future<net::datagram> f) {
                             try {
-                                auto d = f.get0();
+                                auto d = f.get();
                                 dns_log.trace("Read {} -> {} bytes", fd, d.get_data().len());
                                 e.udp.in = std::move(d);
                                 e.avail |= POLLIN;
@@ -765,7 +765,7 @@ private:
                     }
 
                     try {
-                        udp.in = f.get0();
+                        udp.in = f.get();
                         continue; // loop will take care of data
                     } catch (std::system_error& e) {
                         errno = e.code().value();

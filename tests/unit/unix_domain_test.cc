@@ -132,15 +132,15 @@ future<> ud_server_client::init_server() {
 // Runs in a seastar::thread.
 void ud_server_client::client_round() {
     auto cc = client_path ? 
-        engine().net().connect(server_addr, socket_address{unix_domain_addr{*client_path}}).get0() :
-        engine().net().connect(server_addr).get0();
+        engine().net().connect(server_addr, socket_address{unix_domain_addr{*client_path}}).get() :
+        engine().net().connect(server_addr).get();
 
     auto inp = cc.input();
     auto out = cc.output();
 
     out.write(test_message).get();
     out.flush().get();
-    auto bb = inp.read().get0();
+    auto bb = inp.read().get();
     BOOST_REQUIRE_EQUAL(std::string_view(bb.begin(), bb.size()), "+"s+test_message);
     inp.close().get();
     out.close().get();
@@ -257,7 +257,7 @@ SEASTAR_THREAD_TEST_CASE(unixdomain_datagram_autobind) {
     auto chan2 = make_bound_datagram_channel(autobind());
 
     chan1.send(chan2.local_address(), "hello").get();
-    net::datagram dgram = chan2.receive().get0();
+    net::datagram dgram = chan2.receive().get();
 
     string received = to_string(std::move(dgram.get_data()));
     BOOST_REQUIRE_EQUAL(received, "hello");
@@ -281,7 +281,7 @@ SEASTAR_THREAD_TEST_CASE(unixdomain_datagram_named_bound) {
     auto sender = make_unbound_datagram_channel(AF_UNIX);
     sender.send(socket_address{unix_domain_addr{socket_path}}, "hihi").get();
 
-    net::udp_datagram dgram = named_receiver.receive().get0();
+    net::udp_datagram dgram = named_receiver.receive().get();
     string received = to_string(std::move(dgram.get_data()));
     BOOST_REQUIRE_EQUAL(received, "hihi");
 

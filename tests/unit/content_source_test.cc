@@ -50,9 +50,9 @@ SEASTAR_TEST_CASE(test_incomplete_content) {
         auto inp = input_stream<char>(data_source(std::make_unique<buf_source_impl>(sstring("asdfghjkl;"))));
         auto content_strm = input_stream<char>(data_source(std::make_unique<httpd::internal::content_length_source_impl>(inp, 20)));
 
-        auto content1 = content_strm.read().get0();
+        auto content1 = content_strm.read().get();
         BOOST_REQUIRE(temporary_buffer<char>("asdfghjkl;", 10) == content1);
-        auto content2 = content_strm.read().get0();
+        auto content2 = content_strm.read().get();
         BOOST_REQUIRE(temporary_buffer<char>() == content2);
         BOOST_REQUIRE(content_strm.eof());
         BOOST_REQUIRE(inp.eof());
@@ -61,9 +61,9 @@ SEASTAR_TEST_CASE(test_incomplete_content) {
         std::unordered_map<sstring, sstring> tmp, tmp2;
         content_strm = input_stream<char>(data_source(std::make_unique<httpd::internal::chunked_source_impl>(inp, tmp, tmp2)));
 
-        content1 = content_strm.read().get0();
+        content1 = content_strm.read().get();
         BOOST_REQUIRE(temporary_buffer<char>("132", 3) == content1);
-        content2 = content_strm.read().get0();
+        content2 = content_strm.read().get();
         BOOST_REQUIRE(temporary_buffer<char>() == content2);
         BOOST_REQUIRE(content_strm.eof());
     });
@@ -74,9 +74,9 @@ SEASTAR_TEST_CASE(test_complete_content) {
         auto inp = input_stream<char>(data_source(std::make_unique<buf_source_impl>(sstring("asdfghjkl;1234567890"))));
         auto content_strm = input_stream<char>(data_source(std::make_unique<httpd::internal::content_length_source_impl>(inp, 20)));
 
-        auto content1 = content_strm.read().get0();
+        auto content1 = content_strm.read().get();
         BOOST_REQUIRE(temporary_buffer<char>("asdfghjkl;1234567890", 20) == content1);
-        auto content2 = content_strm.read().get0();
+        auto content2 = content_strm.read().get();
         BOOST_REQUIRE(temporary_buffer<char>() == content2);
         BOOST_REQUIRE(content_strm.eof());
 
@@ -84,9 +84,9 @@ SEASTAR_TEST_CASE(test_complete_content) {
         std::unordered_map<sstring, sstring> tmp, tmp2;
         content_strm = input_stream<char>(data_source(std::make_unique<httpd::internal::chunked_source_impl>(inp, tmp, tmp2)));
 
-        content1 = content_strm.read().get0();
+        content1 = content_strm.read().get();
         BOOST_REQUIRE(temporary_buffer<char>("1324", 4) == content1);
-        content2 = content_strm.read().get0();
+        content2 = content_strm.read().get();
         BOOST_REQUIRE(temporary_buffer<char>() == content2);
         BOOST_REQUIRE(content_strm.eof());
     });
@@ -97,24 +97,24 @@ SEASTAR_TEST_CASE(test_more_than_requests_content) {
         auto inp = input_stream<char>(data_source(std::make_unique<buf_source_impl>(sstring("asdfghjkl;1234567890xyz"))));
         auto content_strm = input_stream<char>(data_source(std::make_unique<httpd::internal::content_length_source_impl>(inp, 20)));
 
-        auto content1 = content_strm.read().get0();
+        auto content1 = content_strm.read().get();
         BOOST_REQUIRE(temporary_buffer<char>("asdfghjkl;1234567890", 20) == content1);
-        auto content2 = content_strm.read().get0();
+        auto content2 = content_strm.read().get();
         BOOST_REQUIRE(temporary_buffer<char>() == content2);
         BOOST_REQUIRE(content_strm.eof());
-        auto content3 = inp.read().get0();
+        auto content3 = inp.read().get();
         BOOST_REQUIRE(temporary_buffer<char>("xyz", 3) == content3);
 
         inp = input_stream<char>(data_source(std::make_unique<buf_source_impl>(sstring("4\r\n1324\r\n0\r\n\r\nxyz"))));
         std::unordered_map<sstring, sstring> tmp, tmp2;
         content_strm = input_stream<char>(data_source(std::make_unique<httpd::internal::chunked_source_impl>(inp, tmp, tmp2)));
 
-        content1 = content_strm.read().get0();
+        content1 = content_strm.read().get();
         BOOST_REQUIRE(temporary_buffer<char>("1324", 4) == content1);
-        content2 = content_strm.read().get0();
+        content2 = content_strm.read().get();
         BOOST_REQUIRE(temporary_buffer<char>() == content2);
         BOOST_REQUIRE(content_strm.eof());
-        content3 = inp.read().get0();
+        content3 = inp.read().get();
         BOOST_REQUIRE(temporary_buffer<char>("xyz", 3) == content3);
     });
 }
@@ -146,7 +146,7 @@ SEASTAR_TEST_CASE(test_single_bytes_source) {
         for (auto& ch : input_str) {
             temporary_buffer<char> one_letter_buf(1);
             *one_letter_buf.get_write() = ch;
-            auto get_buf = ds.get().get0();
+            auto get_buf = ds.get().get();
             BOOST_REQUIRE(one_letter_buf == get_buf);
         }
     });
@@ -163,10 +163,10 @@ SEASTAR_TEST_CASE(test_fragmented_chunks) {
         for (auto& ch : sstring("1234567890")) {
             temporary_buffer<char> one_letter_buf(1);
             *one_letter_buf.get_write() = ch;
-            auto read_buf = content_stream.read().get0();
+            auto read_buf = content_stream.read().get();
             BOOST_REQUIRE(one_letter_buf == read_buf);
         }
-        auto read_buf = content_stream.read().get0();
+        auto read_buf = content_stream.read().get();
         BOOST_REQUIRE(temporary_buffer<char>() == read_buf);
         BOOST_REQUIRE(chunk_extensions[sstring("chunk")] == sstring("ext"));
         BOOST_REQUIRE(trailing_headers[sstring("trailer")] == sstring("part"));

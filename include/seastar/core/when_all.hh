@@ -371,7 +371,7 @@ class extract_values_from_futures_tuple {
         auto prepare_result = [] (auto futures) noexcept {
             auto fs = tuple_filter_by_type<internal::future_has_value>(std::move(futures));
             return tuple_map(std::move(fs), [] (auto&& e) {
-                return e.get0();
+                return e.get();
             });
         };
 
@@ -432,7 +432,7 @@ struct extract_values_from_futures_vector {
                 if (f.failed()) {
                     excp = f.get_exception();
                 } else {
-                    values.emplace_back(f.get0());
+                    values.emplace_back(f.get());
                 }
             } else {
                 f.ignore_ready_future();

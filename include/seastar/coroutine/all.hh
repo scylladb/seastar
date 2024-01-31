@@ -131,7 +131,7 @@ class [[nodiscard("must co_await an all() object")]] all {
                 if constexpr (std::same_as<std::tuple_element_t<idx, tuple>, future<>>) {
                     std::get<idx>(container.state._futures) = make_ready_future<>();
                 } else {
-                    std::get<idx>(container.state._futures) = make_ready_future<value_type>(std::move(this->_state).get0());
+                    std::get<idx>(container.state._futures) = make_ready_future<value_type>(std::move(this->_state).get());
                 }
             }
             this->~intermediate_task();
@@ -177,7 +177,7 @@ private:
             // This immediately-invoked lambda is used to materialize the indexes
             // of non-void futures in the tuple.
             return [&] <size_t... Idx> (std::integer_sequence<size_t, Idx...>) {
-                return value_tuple(std::get<Idx>(state._futures).get0()...);
+                return value_tuple(std::get<Idx>(state._futures).get()...);
             } (internal::index_sequence_for_non_void_futures<Futures...>());
         }
         template <unsigned idx>

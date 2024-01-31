@@ -90,8 +90,8 @@ SEASTAR_THREAD_TEST_CASE(test_const_map_reduces) {
     sharded<peering_counter> c;
     c.start().get();
 
-    BOOST_REQUIRE_EQUAL(c.local().count().get0(), smp::count);
-    BOOST_REQUIRE_EQUAL(c.local().count_from(1).get0(), smp::count + 1);
+    BOOST_REQUIRE_EQUAL(c.local().count().get(), smp::count);
+    BOOST_REQUIRE_EQUAL(c.local().count_from(1).get(), smp::count + 1);
 
     c.stop().get();
 }
@@ -100,10 +100,10 @@ SEASTAR_THREAD_TEST_CASE(test_member_map_reduces) {
     sharded<peering_counter> c;
     c.start().get();
 
-    BOOST_REQUIRE_EQUAL(std::as_const(c.local()).count_const().get0(), smp::count);
-    BOOST_REQUIRE_EQUAL(c.local().count_mutate().get0(), smp::count);
-    BOOST_REQUIRE_EQUAL(std::as_const(c.local()).count_from_const(1).get0(), smp::count + 1);
-    BOOST_REQUIRE_EQUAL(c.local().count_from_mutate(1).get0(), smp::count + 1);
+    BOOST_REQUIRE_EQUAL(std::as_const(c.local()).count_const().get(), smp::count);
+    BOOST_REQUIRE_EQUAL(c.local().count_mutate().get(), smp::count);
+    BOOST_REQUIRE_EQUAL(std::as_const(c.local()).count_from_const(1).get(), smp::count + 1);
+    BOOST_REQUIRE_EQUAL(c.local().count_from_mutate(1).get(), smp::count + 1);
     c.stop().get();
 }
 

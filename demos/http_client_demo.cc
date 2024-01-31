@@ -65,7 +65,7 @@ int main(int ac, char** av) {
         auto https = config["https"].as<bool>();
 
         return seastar::async([=] {
-            net::hostent e = net::dns::get_host_by_name(host, net::inet_address::family::INET).get0();
+            net::hostent e = net::dns::get_host_by_name(host, net::inet_address::family::INET).get();
             std::unique_ptr<http::experimental::client> cln;
             if (https) {
                 auto certs = ::make_shared<tls::certificate_credentials>();
@@ -81,7 +81,7 @@ int main(int ac, char** av) {
                 future<file> f = open_file_dma(body, open_flags::ro);
                 req.write_body("txt", [ f = std::move(f) ] (output_stream<char>&& out) mutable {
                     return seastar::async([f = std::move(f), out = std::move(out)] () mutable {
-                        auto in = make_file_input_stream(f.get0());
+                        auto in = make_file_input_stream(f.get());
                         copy(in, out).get();
                         out.flush().get();
                         out.close().get();

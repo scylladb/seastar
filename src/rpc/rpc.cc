@@ -191,7 +191,7 @@ namespace rpc {
           // _negotiated abortion set it such
           std::get<0>(res).ignore_ready_future();
           // _sink_closed_future is never exceptional
-          bool sink_closed = std::get<1>(res).get0();
+          bool sink_closed = std::get<1>(res).get();
           return _connected && !sink_closed ? _write_buf.close() : make_ready_future();
       });
   }

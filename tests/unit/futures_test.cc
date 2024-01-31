@@ -86,7 +86,7 @@ SEASTAR_TEST_CASE(test_self_move) {
     future_state<std::unique_ptr<int>> s2;
     s2.set(std::make_unique<int>(42));
     std::swap(s2, s2);
-    BOOST_REQUIRE_EQUAL(*std::move(s2).get0(), 42);
+    BOOST_REQUIRE_EQUAL(*std::move(s2).get(), 42);
 
     promise<std::unique_ptr<int>> p1;
     p1.set_value(std::make_unique<int>(42));
@@ -95,14 +95,14 @@ SEASTAR_TEST_CASE(test_self_move) {
     promise<std::unique_ptr<int>> p2;
     p2.set_value(std::make_unique<int>(42));
     std::swap(p2, p2);
-    BOOST_REQUIRE_EQUAL(*p2.get_future().get0(), 42);
+    BOOST_REQUIRE_EQUAL(*p2.get_future().get(), 42);
 
     auto  f1 = make_ready_future<std::unique_ptr<int>>(std::make_unique<int>(42));
     f1 = std::move(f1); // no crash, but the value of f1 is not defined.
 
     auto f2 = make_ready_future<std::unique_ptr<int>>(std::make_unique<int>(42));
     std::swap(f2, f2);
-    BOOST_REQUIRE_EQUAL(*f2.get0(), 42);
+    BOOST_REQUIRE_EQUAL(*f2.get(), 42);
 
     return make_ready_future<>();
 }
@@ -162,7 +162,7 @@ SEASTAR_TEST_CASE(test_reference) {
     int a = 42;
     future<int&> orig = make_ready_future<int&>(a);
     future<int&> fut = std::move(orig);
-    int& r = fut.get0();
+    int& r = fut.get();
     r = 43;
     BOOST_REQUIRE_EQUAL(a, 43);
     return make_ready_future<>();
@@ -230,7 +230,7 @@ SEASTAR_TEST_CASE(test_finally_is_called_on_success_and_failure) {
 SEASTAR_TEST_CASE(test_get_on_promise) {
     auto p = promise<uint32_t>();
     p.set_value(10);
-    BOOST_REQUIRE_EQUAL(10u, p.get_future().get0());
+    BOOST_REQUIRE_EQUAL(10u, p.get_future().get());
     return make_ready_future();
 }
 
@@ -528,7 +528,7 @@ SEASTAR_TEST_CASE(test_when_all_iterator_range) {
     auto p = make_shared(std::move(futures));
     return when_all(p->begin(), p->end()).then([p] (std::vector<future<size_t>> ret) {
         BOOST_REQUIRE(std::all_of(ret.begin(), ret.end(), [] (auto& f) { return f.available(); }));
-        BOOST_REQUIRE(std::all_of(ret.begin(), ret.end(), [&ret] (auto& f) { return f.get0() == size_t(&f - ret.data()); }));
+        BOOST_REQUIRE(std::all_of(ret.begin(), ret.end(), [&ret] (auto& f) { return f.get() == size_t(&f - ret.data()); }));
     });
 }
 
@@ -579,7 +579,7 @@ SEASTAR_TEST_CASE(test_when_any_iterator_range_i) {
     auto p = make_shared(std::move(futures));
     return seastar::when_any(p->begin(), p->end()).then([p](auto &&ret_obj) {
         BOOST_REQUIRE(ret_obj.futures[ret_obj.index].available());
-        BOOST_REQUIRE(ret_obj.futures[ret_obj.index].get0() == ret_obj.index);
+        BOOST_REQUIRE(ret_obj.futures[ret_obj.index].get() == ret_obj.index);
         return when_all_but_one_succeed(ret_obj.futures, ret_obj.index);
     });
 }
@@ -598,7 +598,7 @@ SEASTAR_TEST_CASE(test_when_any_iterator_range_ii) {
     auto p = make_shared(std::move(futures));
     return seastar::when_any(p->begin(), p->end()).then([p](auto &&ret_obj) {
         BOOST_REQUIRE(ret_obj.futures[ret_obj.index].available());
-        BOOST_REQUIRE(ret_obj.futures[ret_obj.index].get0() == ret_obj.index);
+        BOOST_REQUIRE(ret_obj.futures[ret_obj.index].get() == ret_obj.index);
         BOOST_REQUIRE(ret_obj.index == 42);
         return when_all_but_one_succeed(ret_obj.futures, ret_obj.index);
     });
@@ -618,7 +618,7 @@ SEASTAR_TEST_CASE(test_when_any_iterator_range_iii) {
     auto p = make_shared(std::move(futures));
     return seastar::when_any(p->begin(), p->end()).then([p](auto &&ret_obj) {
         BOOST_REQUIRE(ret_obj.futures[ret_obj.index].available());
-        BOOST_REQUIRE(ret_obj.futures[ret_obj.index].get0() == ret_obj.index);
+        BOOST_REQUIRE(ret_obj.futures[ret_obj.index].get() == ret_obj.index);
         BOOST_REQUIRE(ret_obj.index == 42);
         return when_all_but_one_succeed(ret_obj.futures, ret_obj.index);
     });
@@ -654,7 +654,7 @@ SEASTAR_TEST_CASE(test_when_any_variadic_i)
     return when_any(std::move(f_int), std::move(f_string), std::move(f_l33tspeak)).then([](auto&& wa_result) {
         BOOST_REQUIRE(wa_result.index == 0);
         auto [one, two, three] = std::move(wa_result.futures);
-        BOOST_REQUIRE(one.get0() == 42);
+        BOOST_REQUIRE(one.get() == 42);
         return when_all_succeed(std::move(two), std::move(three)).then([](auto _) { return seastar::make_ready_future<>(); });
     });
 }
@@ -676,15 +676,15 @@ SEASTAR_TEST_CASE(test_when_any_variadic_ii)
         .then([](auto&& wa_result) {
             BOOST_REQUIRE(wa_result.index == 2);
             auto [one, two, three, four] = std::move(wa_result.futures);
-            BOOST_REQUIRE(three.get0() == "hello");
+            BOOST_REQUIRE(three.get() == "hello");
             return when_any(std::move(one), std::move(two), std::move(four)).then([](auto wa_nextresult) {
                 auto [one, two, four] = std::move(wa_nextresult.futures);
                 BOOST_REQUIRE(wa_nextresult.index == 2);
-                BOOST_REQUIRE(four.get0() == std::make_tuple('s', 3, 4, 's', 't', 4, 'r'));
+                BOOST_REQUIRE(four.get() == std::make_tuple('s', 3, 4, 's', 't', 4, 'r'));
                 return when_any(std::move(one), std::move(two)).then([](auto wa_result) {
                     auto [one, two] = std::move(wa_result.futures);
                     BOOST_REQUIRE(wa_result.index == 1);
-                    BOOST_REQUIRE(two.get0().bar == foo{}.bar);
+                    BOOST_REQUIRE(two.get().bar == foo{}.bar);
                     return one.then([](int x) { BOOST_REQUIRE(x == 42); });
                 });
             });
@@ -1109,7 +1109,7 @@ SEASTAR_TEST_CASE(futurize_invoke_val_exception) {
 SEASTAR_TEST_CASE(futurize_invoke_val_ok) {
     return futurize_invoke([] (int arg) { return arg * 2; }, 2).then_wrapped([] (future<int> f) {
         try {
-            auto x = f.get0();
+            auto x = f.get();
             BOOST_REQUIRE_EQUAL(x, 4);
         } catch (expected_exception& e) {
             BOOST_FAIL("should not have thrown");
@@ -1138,7 +1138,7 @@ SEASTAR_TEST_CASE(futurize_invoke_val_future_ok) {
         });
     }, 2).then_wrapped([] (future<int> f) {
         try {
-            auto x = f.get0();
+            auto x = f.get();
             BOOST_REQUIRE_EQUAL(x, 200);
         } catch (expected_exception& e) {
             BOOST_FAIL("should not have thrown");
@@ -1208,8 +1208,8 @@ SEASTAR_TEST_CASE(test_shared_future_propagates_value_to_all) {
         auto f2 = f.get_future();
 
         p.set_value(make_shared<int>(1));
-        BOOST_REQUIRE(*f1.get0() == 1);
-        BOOST_REQUIRE(*f2.get0() == 1);
+        BOOST_REQUIRE(*f1.get() == 1);
+        BOOST_REQUIRE(*f2.get() == 1);
     });
 }
 
@@ -1234,8 +1234,8 @@ SEASTAR_TEST_CASE(test_shared_future_propagates_value_to_copies) {
 
         p.set_value(1);
 
-        BOOST_REQUIRE(f1.get0() == 1);
-        BOOST_REQUIRE(f2.get0() == 1);
+        BOOST_REQUIRE(f1.get() == 1);
+        BOOST_REQUIRE(f2.get() == 1);
     });
 }
 
@@ -1250,7 +1250,7 @@ SEASTAR_TEST_CASE(test_obtaining_future_from_shared_future_after_it_is_resolved)
         check_fails_with_expected(std::move(f));
         return std::move(f1);
     }).then_wrapped([] (auto&& f) {
-        BOOST_REQUIRE(f.get0() == 1);
+        BOOST_REQUIRE(f.get() == 1);
     });
 }
 
@@ -1306,7 +1306,7 @@ SEASTAR_TEST_CASE(test_futurize_from_tuple) {
     std::tuple<> v2 = {};
     future<int> fut1 = futurize<int>::from_tuple(v1);
     future<> fut2 = futurize<void>::from_tuple(v2);
-    BOOST_REQUIRE(fut1.get0() == std::get<0>(v1));
+    BOOST_REQUIRE(fut1.get() == std::get<0>(v1));
     return make_ready_future<>();
 }
 
@@ -1372,7 +1372,7 @@ SEASTAR_TEST_CASE(test_when_all_functions) {
         throw 42;
         return make_ready_future<>();
     }, yield()).then([] (std::tuple<future<int>, future<>, future<>> res) {
-        BOOST_REQUIRE_EQUAL(std::get<0>(res).get0(), 42);
+        BOOST_REQUIRE_EQUAL(std::get<0>(res).get(), 42);
 
         BOOST_REQUIRE(std::get<1>(res).available());
         BOOST_REQUIRE(std::get<1>(res).failed());
@@ -1492,7 +1492,7 @@ SEASTAR_TEST_CASE(test_with_timeout_when_it_does_not_time_out) {
 
             pr.set_value(42);
 
-            BOOST_REQUIRE_EQUAL(f.get0(), 42);
+            BOOST_REQUIRE_EQUAL(f.get(), 42);
         }
 
         // Check that timer was indeed cancelled
@@ -1532,7 +1532,7 @@ SEASTAR_TEST_CASE(test_shared_future_with_timeout) {
 
         pr.set_value(42);
 
-        BOOST_REQUIRE_EQUAL(42, f3.get0());
+        BOOST_REQUIRE_EQUAL(42, f3.get());
     });
 }
 
@@ -1561,7 +1561,7 @@ SEASTAR_THREAD_TEST_CASE(test_shared_future_with_abort) {
 
     pr.set_value(42);
 
-    BOOST_REQUIRE_EQUAL(42, f3.get0());
+    BOOST_REQUIRE_EQUAL(42, f3.get());
 
     auto f4 = pr.get_shared_future(as);
     BOOST_REQUIRE(f4.available());
@@ -1846,10 +1846,10 @@ SEASTAR_THREAD_TEST_CASE(test_exception_future_with_backtrace) {
         });
     };
 
-    BOOST_REQUIRE_EQUAL(outer(false).get0(), -1);
+    BOOST_REQUIRE_EQUAL(outer(false).get(), -1);
     BOOST_REQUIRE_EQUAL(counter, 1);
 
-    BOOST_CHECK_THROW(outer(true).get0(), expected_exception);
+    BOOST_CHECK_THROW(outer(true).get(), expected_exception);
     BOOST_REQUIRE_EQUAL(counter, 1);
 
     // Example code where we expect a "Exceptional future ignored"

@@ -67,7 +67,7 @@ public:
             delete this;
             return;
         } else {
-            if (_state.get0() == stop_iteration::yes) {
+            if (_state.get() == stop_iteration::yes) {
                 _promise.set_value();
                 delete this;
                 return;
@@ -81,7 +81,7 @@ public:
                     internal::set_callback(std::move(f), this);
                     return;
                 }
-                if (f.get0() == stop_iteration::yes) {
+                if (f.get() == stop_iteration::yes) {
                     _promise.set_value();
                     delete this;
                     return;
@@ -135,7 +135,7 @@ future<> repeat(AsyncAction&& action) noexcept {
             }();
         }
 
-        if (f.get0() == stop_iteration::yes) {
+        if (f.get() == stop_iteration::yes) {
             return make_ready_future<>();
         }
     }
@@ -183,7 +183,7 @@ public:
             delete this;
             return;
         } else {
-            auto v = std::move(this->_state).get0();
+            auto v = std::move(this->_state).get();
             if (v) {
                 _promise.set_value(std::move(*v));
                 delete this;
@@ -198,7 +198,7 @@ public:
                     internal::set_callback(std::move(f), this);
                     return;
                 }
-                auto ret = f.get0();
+                auto ret = f.get();
                 if (ret) {
                     _promise.set_value(std::move(*ret));
                     delete this;
@@ -230,8 +230,8 @@ public:
 ///         a call to to \c action failed.  The \c optional's value is returned.
 template<typename AsyncAction>
 SEASTAR_CONCEPT( requires requires (AsyncAction aa) {
-    bool(futurize_invoke(aa).get0());
-    futurize_invoke(aa).get0().value();
+    bool(futurize_invoke(aa).get());
+    futurize_invoke(aa).get().value();
 } )
 repeat_until_value_return_type<AsyncAction>
 repeat_until_value(AsyncAction action) noexcept {
@@ -257,7 +257,7 @@ repeat_until_value(AsyncAction action) noexcept {
             return make_exception_future<value_type>(f.get_exception());
         }
 
-        optional_type&& optional = std::move(f).get0();
+        optional_type&& optional = std::move(f).get();
         if (optional) {
             return make_ready_future<value_type>(std::move(optional.value()));
         }

@@ -45,10 +45,10 @@ SEASTAR_TEST_CASE(test_make_tmp_file) {
     return make_tmp_file().then([] (tmp_file tf) {
         return async([tf = std::move(tf)] () mutable {
             const sstring tmp_path = tf.get_path().native();
-            BOOST_REQUIRE(file_exists(tmp_path).get0());
+            BOOST_REQUIRE(file_exists(tmp_path).get());
             tf.close().get();
             tf.remove().get();
-            BOOST_REQUIRE(!file_exists(tmp_path).get0());
+            BOOST_REQUIRE(!file_exists(tmp_path).get());
         });
     });
 }
@@ -153,16 +153,16 @@ SEASTAR_THREAD_TEST_CASE(test_recursive_remove_directory) {
     base.random_fill(0, levels, dist, eng);
     base.populate().get();
     recursive_remove_directory(base.path()).get();
-    BOOST_REQUIRE(!file_exists(base.path().native()).get0());
+    BOOST_REQUIRE(!file_exists(base.path().native()).get());
 }
 
 SEASTAR_TEST_CASE(test_make_tmp_dir) {
     return make_tmp_dir().then([] (tmp_dir td) {
         return async([td = std::move(td)] () mutable {
             const sstring tmp_path = td.get_path().native();
-            BOOST_REQUIRE(file_exists(tmp_path).get0());
+            BOOST_REQUIRE(file_exists(tmp_path).get());
             td.remove().get();
-            BOOST_REQUIRE(!file_exists(tmp_path).get0());
+            BOOST_REQUIRE(!file_exists(tmp_path).get());
         });
     });
 }
@@ -212,11 +212,11 @@ SEASTAR_THREAD_TEST_CASE(test_tmp_dir_with_non_existing_path) {
 
 SEASTAR_TEST_CASE(tmp_dir_with_thread_test) {
     return tmp_dir::do_with_thread([] (tmp_dir& td) {
-        tmp_file tf = make_tmp_file(td.get_path()).get0();
+        tmp_file tf = make_tmp_file(td.get_path()).get();
         auto& f = tf.get_file();
         auto buf = get_init_buffer(f);
         auto expected = buf.size();
-        auto actual = f.dma_write(0, buf.get(), buf.size()).get0();
+        auto actual = f.dma_write(0, buf.get(), buf.size()).get();
         BOOST_REQUIRE_EQUAL(expected, actual);
         tf.close().get();
         tf.remove().get();
@@ -227,7 +227,7 @@ SEASTAR_TEST_CASE(tmp_dir_with_leftovers_test) {
     return tmp_dir::do_with_thread([] (tmp_dir& td) {
         fs::path path = td.get_path() / "testfile.tmp";
         touch_file(path.native()).get();
-        BOOST_REQUIRE(file_exists(path.native()).get0());
+        BOOST_REQUIRE(file_exists(path.native()).get());
     });
 }
 
@@ -251,8 +251,8 @@ SEASTAR_TEST_CASE(tmp_dir_do_with_fail_remove_test) {
             inner_path_renamed = inner_path + ".renamed";
             return rename_file(inner_path, inner_path_renamed);
         }).get(), std::system_error);
-        BOOST_REQUIRE(!file_exists(inner_path).get0());
-        BOOST_REQUIRE(file_exists(inner_path_renamed).get0());
+        BOOST_REQUIRE(!file_exists(inner_path).get());
+        BOOST_REQUIRE(file_exists(inner_path_renamed).get());
         set_default_tmpdir(saved_default_tmpdir.c_str());
     });
 }
@@ -277,8 +277,8 @@ SEASTAR_TEST_CASE(tmp_dir_do_with_thread_fail_remove_test) {
             inner_path_renamed = inner_path + ".renamed";
             return rename_file(inner_path, inner_path_renamed);
         }).get(), std::system_error);
-        BOOST_REQUIRE(!file_exists(inner_path).get0());
-        BOOST_REQUIRE(file_exists(inner_path_renamed).get0());
+        BOOST_REQUIRE(!file_exists(inner_path).get());
+        BOOST_REQUIRE(file_exists(inner_path_renamed).get());
         set_default_tmpdir(saved_default_tmpdir.c_str());
     });
 }
@@ -296,10 +296,10 @@ SEASTAR_TEST_CASE(test_read_entire_file_contiguous) {
                 wbuf.get_write()[i] = chars[dist(eng) % sizeof(chars)];
             }
 
-            BOOST_REQUIRE_EQUAL(f.dma_write(0, wbuf.begin(), wbuf.size()).get0(), wbuf.size());
+            BOOST_REQUIRE_EQUAL(f.dma_write(0, wbuf.begin(), wbuf.size()).get(), wbuf.size());
             f.flush().get();
 
-            sstring res = util::read_entire_file_contiguous(tf.get_path()).get0();
+            sstring res = util::read_entire_file_contiguous(tf.get_path()).get();
             BOOST_REQUIRE_EQUAL(res, std::string_view(wbuf.begin(), wbuf.size()));
         });
     });

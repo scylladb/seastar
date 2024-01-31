@@ -3609,7 +3609,7 @@ void smp_message_queue::submit_item(shard_id t, smp_timeout_clock::time_point ti
     _tx.a.pending_fifo.push_back(item.get());
     // no exceptions from this point
     item.release();
-    units_fut.get0().release();
+    units_fut.get().release();
     if (_tx.a.pending_fifo.size() >= batch_size) {
         move_pending();
     }
@@ -4650,7 +4650,7 @@ future<> check_direct_io_support(std::string_view path) noexcept {
             auto w = w::parse(path, type);
             return open_file_dma(w.path, w.flags).then_wrapped([path = w.path, cleanup = std::move(w.cleanup)] (future<file> f) {
                 try {
-                    auto fd = f.get0();
+                    auto fd = f.get();
                     return cleanup().finally([fd = std::move(fd)] () mutable {
                         return fd.close();
                     });

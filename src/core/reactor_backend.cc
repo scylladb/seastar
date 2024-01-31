@@ -269,7 +269,7 @@ void aio_storage_context::schedule_retry() {
                 seastar_logger.warn("aio_storage_context::schedule_retry failed: {}", std::move(ex));
                 return;
             }
-            auto result = f.get0();
+            auto result = f.get();
             auto iocbs = _aio_retries.data();
             size_t nr_consumed = 0;
             if (result.result == -1) {

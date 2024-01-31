@@ -64,7 +64,7 @@ SEASTAR_TEST_CASE(test_size_and_extensions_parsing) {
     http_chunk_size_and_ext_parser parser;
     for (auto& tset : tests) {
         parser.init();
-        BOOST_REQUIRE(parser(tset.buf()).get0().has_value());
+        BOOST_REQUIRE(parser(tset.buf()).get().has_value());
         BOOST_REQUIRE_NE(parser.failed(), tset.parsable);
         if (tset.parsable) {
             BOOST_REQUIRE_EQUAL(parser.get_size(), std::move(tset.size));
@@ -109,7 +109,7 @@ SEASTAR_TEST_CASE(test_trailer_headers_parsing) {
     http_chunk_trailer_parser parser;
     for (auto& tset : tests) {
         parser.init();
-        BOOST_REQUIRE(parser(tset.buf()).get0().has_value());
+        BOOST_REQUIRE(parser(tset.buf()).get().has_value());
         BOOST_REQUIRE_NE(parser.failed(), tset.parsable);
         if (tset.parsable) {
             auto heads = parser.get_parsed_headers();

@@ -763,7 +763,7 @@ public:
         void run() {
             while (_creds) {
                 try {
-                    auto events = _fsn.wait().get0();
+                    auto events = _fsn.wait().get();
                     if (events.empty() && _creds == nullptr) {
                         return;
                     }
@@ -833,7 +833,7 @@ public:
                     // just ignore for now, and hope the dir watch will tell us when it is back...
                     return;
                 }
-                temporary_buffer<char> buf = read_fully(filename, "reloading").get0();
+                temporary_buffer<char> buf = read_fully(filename, "reloading").get();
                 dst = to_buffer(buf);
                 ++num_changed;
             };
@@ -896,7 +896,7 @@ public:
             auto dir = std::filesystem::path(filename).parent_path();
             for (;;) {
                 try {
-                    return add_watch(dir.native(), fsnotifier::flags::create_child | fsnotifier::flags::move).get0();
+                    return add_watch(dir.native(), fsnotifier::flags::create_child | fsnotifier::flags::move).get();
                 } catch (...) {
                     auto parent = dir.parent_path();
                     if (parent.empty() || dir == parent) {

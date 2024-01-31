@@ -32,7 +32,7 @@ To receive:
 
 ```cpp
       while (true) {
-          std:optional<std::tuple<int, long>> data = source().get0();
+          std:optional<std::tuple<int, long>> data = source().get();
           if (!data) {
              // unengaged optional means EOS
              break;
@@ -51,7 +51,7 @@ before streaming is. Given RPC client `rc`, and a `serializer` class that models
 (again assuming `seastar::async` context):
 
 ```cpp
-    rpc::sink<int, long> sink = rc.make_stream_sink<serializer, int, long>().get0();
+    rpc::sink<int, long> sink = rc.make_stream_sink<serializer, int, long>().get();
 ```
 
 Now the client has the sink that can be used for streaming data to
@@ -95,8 +95,8 @@ Client code will be:
 
 ```cpp
    auto rpc_call = rpc_proto.make_client<rpc::source<sstring> (int, rpc::sink<int>)>(1);
-   rpc::sink<int, long> sink = rc.make_stream_sink<serializer, int, long>().get0();
-   rpc::source<sstring> source = rpc_call(rc, aux_data, sink).get0();
+   rpc::sink<int, long> sink = rc.make_stream_sink<serializer, int, long>().get();
+   rpc::source<sstring> source = rpc_call(rc, aux_data, sink).get();
    // use sink and source here
 ```
 
@@ -111,7 +111,7 @@ The feature will contain ID of an RPC client that was used to create the stream.
 So in the example from previous chapter:
 
 ```cpp
-    rpc::sink<int, long> sink = rc.make_stream_sink<serializer, int, long>().get0();
+    rpc::sink<int, long> sink = rc.make_stream_sink<serializer, int, long>().get();
 ```
 
 the call will initiate a new TCP connection to the same server `rc` is connected to. During RPC

@@ -49,7 +49,7 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_after_sg_create) {
     const int num_scheduling_groups = 4;
     std::vector<scheduling_group> sgs;
     for (int i = 0; i < num_scheduling_groups; i++) {
-        sgs.push_back(create_scheduling_group(format("sg{}", i).c_str(), 100).get0());
+        sgs.push_back(create_scheduling_group(format("sg{}", i).c_str(), 100).get());
     }
 
     const auto destroy_scheduling_groups = defer([&sgs] () noexcept {
@@ -58,10 +58,10 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_after_sg_create) {
        }
     });
     scheduling_group_key_config key1_conf = make_scheduling_group_key_config<int>();
-    scheduling_group_key key1 = scheduling_group_key_create(key1_conf).get0();
+    scheduling_group_key key1 = scheduling_group_key_create(key1_conf).get();
 
     scheduling_group_key_config key2_conf = make_scheduling_group_key_config<ivec>();
-    scheduling_group_key key2 = scheduling_group_key_create(key2_conf).get0();
+    scheduling_group_key key2 = scheduling_group_key_create(key2_conf).get();
 
     smp::invoke_on_all([key1, key2, &sgs] () {
         int factor = this_shard_id() + 1;
@@ -112,13 +112,13 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_before_sg_create) {
        }
     });
     scheduling_group_key_config key1_conf = make_scheduling_group_key_config<int>();
-    scheduling_group_key key1 = scheduling_group_key_create(key1_conf).get0();
+    scheduling_group_key key1 = scheduling_group_key_create(key1_conf).get();
 
     scheduling_group_key_config key2_conf = make_scheduling_group_key_config<ivec>();
-    scheduling_group_key key2 = scheduling_group_key_create(key2_conf).get0();
+    scheduling_group_key key2 = scheduling_group_key_create(key2_conf).get();
 
     for (int i = 0; i < num_scheduling_groups; i++) {
-        sgs.push_back(create_scheduling_group(format("sg{}", i).c_str(), 100).get0());
+        sgs.push_back(create_scheduling_group(format("sg{}", i).c_str(), 100).get());
     }
 
     smp::invoke_on_all([key1, key2, &sgs] () {
@@ -171,16 +171,16 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_before_and_after_sg_create) {
     });
 
     for (int i = 0; i < num_scheduling_groups/2; i++) {
-        sgs.push_back(create_scheduling_group(format("sg{}", i).c_str(), 100).get0());
+        sgs.push_back(create_scheduling_group(format("sg{}", i).c_str(), 100).get());
     }
     scheduling_group_key_config key1_conf = make_scheduling_group_key_config<int>();
-    scheduling_group_key key1 = scheduling_group_key_create(key1_conf).get0();
+    scheduling_group_key key1 = scheduling_group_key_create(key1_conf).get();
 
     scheduling_group_key_config key2_conf = make_scheduling_group_key_config<ivec>();
-    scheduling_group_key key2 = scheduling_group_key_create(key2_conf).get0();
+    scheduling_group_key key2 = scheduling_group_key_create(key2_conf).get();
 
     for (int i = num_scheduling_groups/2; i < num_scheduling_groups; i++) {
-        sgs.push_back(create_scheduling_group(format("sg{}", i).c_str(), 100).get0());
+        sgs.push_back(create_scheduling_group(format("sg{}", i).c_str(), 100).get());
     }
 
     smp::invoke_on_all([key1, key2, &sgs] () {
@@ -221,7 +221,7 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_before_and_after_sg_create) {
  * Test that current scheduling group is inherited by seastar::async()
  */
 SEASTAR_THREAD_TEST_CASE(sg_scheduling_group_inheritance_in_seastar_async_test) {
-    scheduling_group sg = create_scheduling_group("sg0", 100).get0();
+    scheduling_group sg = create_scheduling_group("sg0", 100).get();
     auto cleanup = defer([&] () noexcept { destroy_scheduling_group(sg).get(); });
     thread_attributes attr = {};
     attr.sched_group = sg;
@@ -242,7 +242,7 @@ SEASTAR_THREAD_TEST_CASE(sg_scheduling_group_inheritance_in_seastar_async_test) 
 
 
 SEASTAR_THREAD_TEST_CASE(yield_preserves_sg) {
-    scheduling_group sg = create_scheduling_group("sg", 100).get0();
+    scheduling_group sg = create_scheduling_group("sg", 100).get();
     auto cleanup = defer([&] () noexcept { destroy_scheduling_group(sg).get(); });
     with_scheduling_group(sg, [&] {
         return yield().then([&] {
@@ -310,17 +310,17 @@ SEASTAR_THREAD_TEST_CASE(sg_rename_callback) {
 
     std::vector<scheduling_group_key> keys;
     for (size_t i = 0; i < 3; ++i) {
-        keys.push_back(scheduling_group_key_create(key_conf).get0());
+        keys.push_back(scheduling_group_key_create(key_conf).get());
     }
 
     std::vector<scheduling_group> sgs;
     const auto destroy_sgs = defer([&sgs] () noexcept {
         for (auto sg : sgs) {
-           destroy_scheduling_group(sg).get0();
+           destroy_scheduling_group(sg).get();
         }
     });
     for (size_t s = 0; s < 3; ++s) {
-        sgs.push_back(create_scheduling_group(fmt::format("sg-old-{}", s), 1000).get0());
+        sgs.push_back(create_scheduling_group(fmt::format("sg-old-{}", s), 1000).get());
     }
 
     smp::invoke_on_all([&sgs, &keys] () {
@@ -330,10 +330,10 @@ SEASTAR_THREAD_TEST_CASE(sg_rename_callback) {
                 sgs[s].get_specific<value>(keys[k])._id = 1;
             }
         }
-    }).get0();
+    }).get();
 
     for (size_t s = 0; s < std::size(sgs); ++s) {
-        rename_scheduling_group(sgs[s], fmt::format("sg-new-{}", s)).get0();
+        rename_scheduling_group(sgs[s], fmt::format("sg-new-{}", s)).get();
     }
 
     smp::invoke_on_all([&sgs, &keys] () {
@@ -344,7 +344,7 @@ SEASTAR_THREAD_TEST_CASE(sg_rename_callback) {
                 BOOST_REQUIRE_EQUAL(sgs[s].get_specific<value>(keys[k])._id, 1);
             }
         }
-    }).get0();
+    }).get();
 }
 
 SEASTAR_THREAD_TEST_CASE(sg_create_with_destroy_tasks) {
@@ -371,13 +371,13 @@ SEASTAR_THREAD_TEST_CASE(sg_create_check_unique_constructor_invocation) {
 
     smp::invoke_on_all([] () {
         groups.clear();
-    }).get0();
+    }).get();
 
     scheduling_group_key_config key1_conf = make_scheduling_group_key_config<check>();
-    scheduling_group_key_create(key1_conf).get0();
+    scheduling_group_key_create(key1_conf).get();
 
     // clean out data for ASAN.
     smp::invoke_on_all([] () {
         groups = {};
-    }).get0();
+    }).get();
 }
