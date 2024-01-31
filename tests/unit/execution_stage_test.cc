@@ -39,7 +39,7 @@ SEASTAR_TEST_CASE(test_create_stage_from_lvalue_function_object) {
     return seastar::async([] {
         auto dont_move = [obj = make_shared<int>(53)] { return *obj; };
         auto stage = seastar::make_execution_stage("test", dont_move);
-        BOOST_REQUIRE_EQUAL(stage().get0(), 53);
+        BOOST_REQUIRE_EQUAL(stage().get(), 53);
         BOOST_REQUIRE_EQUAL(dont_move(), 53);
     });
 }
@@ -48,7 +48,7 @@ SEASTAR_TEST_CASE(test_create_stage_from_rvalue_function_object) {
     return seastar::async([] {
         auto dont_copy = [obj = std::make_unique<int>(42)] { return *obj; };
         auto stage = seastar::make_execution_stage("test", std::move(dont_copy));
-        BOOST_REQUIRE_EQUAL(stage().get0(), 42);
+        BOOST_REQUIRE_EQUAL(stage().get(), 42);
     });
 }
 
@@ -59,7 +59,7 @@ int func() {
 SEASTAR_TEST_CASE(test_create_stage_from_function) {
     return seastar::async([] {
         auto stage = seastar::make_execution_stage("test", func);
-        BOOST_REQUIRE_EQUAL(stage().get0(), 64);
+        BOOST_REQUIRE_EQUAL(stage().get(), 64);
     });
 }
 
@@ -92,9 +92,9 @@ SEASTAR_TEST_CASE(test_simple_stage_returning_int) {
             }
         }, [] (int original, future<int> result) {
             if (original % 2) {
-                BOOST_REQUIRE_EQUAL(original * 2, result.get0());
+                BOOST_REQUIRE_EQUAL(original * 2, result.get());
             } else {
-                BOOST_REQUIRE_EXCEPTION(result.get0(), int, [&] (int v) { return original == v; });
+                BOOST_REQUIRE_EXCEPTION(result.get(), int, [&] (int v) { return original == v; });
             }
         });
     });
@@ -110,9 +110,9 @@ SEASTAR_TEST_CASE(test_simple_stage_returning_future_int) {
             }
         }, [] (int original, future<int> result) {
             if (original % 2) {
-                BOOST_REQUIRE_EQUAL(original * 2, result.get0());
+                BOOST_REQUIRE_EQUAL(original * 2, result.get());
             } else {
-                BOOST_REQUIRE_EXCEPTION(result.get0(), int, [&] (int v) { return original == v; });
+                BOOST_REQUIRE_EXCEPTION(result.get(), int, [&] (int v) { return original == v; });
             }
         });
     });
@@ -125,7 +125,7 @@ void test_execution_stage_avoids_copy() {
     });
 
     auto f = stage(T());
-    T obj = f.get0();
+    T obj = f.get();
     (void)obj;
 }
 
@@ -170,7 +170,7 @@ SEASTAR_TEST_CASE(test_rref_decays_to_value) {
         }
 
         for (size_t i = 0; i < 100; i++) {
-            BOOST_REQUIRE_EQUAL(fs[i].get0(), i);
+            BOOST_REQUIRE_EQUAL(fs[i].get(), i);
         }
     });
 }
@@ -233,7 +233,7 @@ SEASTAR_TEST_CASE(test_function_is_class_member) {
         }
 
         for (auto i = 0; i < 100; i++) {
-            BOOST_REQUIRE_EQUAL(fs[i].get0(), i - 1);
+            BOOST_REQUIRE_EQUAL(fs[i].get(), i - 1);
         }
         BOOST_REQUIRE_EQUAL(object.value, 99);
     });
@@ -250,7 +250,7 @@ SEASTAR_TEST_CASE(test_function_is_const_class_member) {
         auto stage = seastar::make_execution_stage("test", &foo::member);
 
         const foo object;
-        BOOST_REQUIRE_EQUAL(stage(&object).get0(), 999);
+        BOOST_REQUIRE_EQUAL(stage(&object).get(), 999);
     });
 }
 
@@ -292,9 +292,9 @@ SEASTAR_TEST_CASE(test_unique_stage_names_are_enforced) {
 }
 
 SEASTAR_THREAD_TEST_CASE(test_inheriting_concrete_execution_stage) {
-    auto sg1 = seastar::create_scheduling_group("sg1", 300).get0();
+    auto sg1 = seastar::create_scheduling_group("sg1", 300).get();
     auto ksg1 = seastar::defer([&] () noexcept { seastar::destroy_scheduling_group(sg1).get(); });
-    auto sg2 = seastar::create_scheduling_group("sg2", 100).get0();
+    auto sg2 = seastar::create_scheduling_group("sg2", 100).get();
     auto ksg2 = seastar::defer([&] () noexcept { seastar::destroy_scheduling_group(sg2).get(); });
     auto check_sg = [] (seastar::scheduling_group sg) {
         BOOST_REQUIRE(seastar::current_scheduling_group() == sg);

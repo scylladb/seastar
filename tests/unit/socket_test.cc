@@ -125,7 +125,7 @@ SEASTAR_TEST_CASE(socket_on_close_test) {
         bool client_notified = false;
 
         auto client = seastar::async([&] {
-            connected_socket cln = connect(ipv4_addr("127.0.0.1", 12345)).get0();
+            connected_socket cln = connect(ipv4_addr("127.0.0.1", 12345)).get();
 
             auto close_wait_fiber = cln.wait_input_shutdown().then([&] {
                 BOOST_REQUIRE_EQUAL(server_closed, true);
@@ -142,7 +142,7 @@ SEASTAR_TEST_CASE(socket_on_close_test) {
                 out.flush().get();
                 seastar::sleep(std::chrono::milliseconds(250)).get();
                 fmt::print("Client: <- message\n");
-                auto buf = in.read().get0();
+                auto buf = in.read().get();
                 if (!buf) {
                     fmt::print("Client: server eof\n");
                     break;
@@ -156,7 +156,7 @@ SEASTAR_TEST_CASE(socket_on_close_test) {
         });
 
         auto server = seastar::async([&] {
-            accept_result acc = ss.accept().get0();
+            accept_result acc = ss.accept().get();
             auto out = acc.connection.output();
             auto in = acc.connection.input();
 
@@ -188,7 +188,7 @@ SEASTAR_TEST_CASE(socket_on_close_local_shutdown_test) {
         bool client_notified = false;
 
         auto client = seastar::async([&] {
-            connected_socket cln = connect(ipv4_addr("127.0.0.1", 12345)).get0();
+            connected_socket cln = connect(ipv4_addr("127.0.0.1", 12345)).get();
 
             auto close_wait_fiber = cln.wait_input_shutdown().then([&] {
                 BOOST_REQUIRE_EQUAL(server_closed, false);
@@ -213,7 +213,7 @@ SEASTAR_TEST_CASE(socket_on_close_local_shutdown_test) {
         });
 
         auto server = seastar::async([&] {
-            accept_result acc = ss.accept().get0();
+            accept_result acc = ss.accept().get();
             auto in = acc.connection.input();
             auto buf = in.read().get();
             server_closed = true;

@@ -996,7 +996,7 @@ future<size_t> io_queue::queue_request(internal::priority_class pc, io_direction
         for (auto&& res : results) {
             if (!res.failed()) {
                 if (prev_ok) {
-                    size_t sz = res.get0();
+                    size_t sz = res.get();
                     total += sz;
                     prev_ok &= (sz == max_length);
                 }

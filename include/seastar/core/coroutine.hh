@@ -155,7 +155,7 @@ public:
         }
     }
 
-    T await_resume() { return _future.get0(); }
+    T await_resume() { return _future.get(); }
 };
 
 template<bool CheckPreempt>

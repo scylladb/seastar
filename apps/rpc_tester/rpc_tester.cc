@@ -714,7 +714,7 @@ int main(int ac, char** av) {
                 jc.duration = duration;
                 if (groups.count(jc.sg_name) == 0) {
                     fmt::print("Make sched group {}, {} shares\n", jc.sg_name, jc.shares);
-                    groups[jc.sg_name] = create_scheduling_group(jc.sg_name, jc.shares).get0();
+                    groups[jc.sg_name] = create_scheduling_group(jc.sg_name, jc.shares).get();
                 }
                 jc.sg = groups[jc.sg_name];
             }

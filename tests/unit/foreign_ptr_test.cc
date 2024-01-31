@@ -53,7 +53,7 @@ SEASTAR_TEST_CASE(foreign_ptr_copy_test) {
     return seastar::async([] {
         auto ptr = make_foreign(make_shared<sstring>("foo"));
         BOOST_REQUIRE(ptr->size() == 3);
-        auto ptr2 = ptr.copy().get0();
+        auto ptr2 = ptr.copy().get();
         BOOST_REQUIRE(ptr2->size() == 3);
     });
 }
@@ -108,7 +108,7 @@ SEASTAR_TEST_CASE(foreign_ptr_cpu_test) {
     return seastar::async([] {
         auto p = smp::submit_to(1, [] {
             return make_foreign(std::make_unique<dummy>());
-        }).get0();
+        }).get();
 
         p.reset(std::make_unique<dummy>());
     }).then([] {
@@ -128,7 +128,7 @@ SEASTAR_TEST_CASE(foreign_ptr_move_assignment_test) {
     return seastar::async([] {
         auto p = smp::submit_to(1, [] {
             return make_foreign(std::make_unique<dummy>());
-        }).get0();
+        }).get();
 
         p = foreign_ptr<std::unique_ptr<dummy>>();
     }).then([] {
@@ -166,7 +166,7 @@ SEASTAR_THREAD_TEST_CASE(foreign_ptr_destroy_test) {
 
     auto val = smp::submit_to(1, [&] () mutable {
         return make_foreign(std::make_unique<deferred>(done));
-    }).get0();
+    }).get();
 
     val.destroy().get();
 

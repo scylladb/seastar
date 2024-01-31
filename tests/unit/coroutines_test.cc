@@ -91,7 +91,7 @@ future<int> failing_coroutine2() noexcept {
 SEASTAR_TEST_CASE(test_simple_coroutines) {
     BOOST_REQUIRE_EQUAL(co_await old_fashioned_continuations(), 42);
     BOOST_REQUIRE_EQUAL(co_await simple_coroutine(), 53);
-    BOOST_REQUIRE_EQUAL(ready_coroutine().get0(), 64);
+    BOOST_REQUIRE_EQUAL(ready_coroutine().get(), 64);
     BOOST_REQUIRE(co_await tuple_coroutine() == std::tuple(1, 2.));
     BOOST_REQUIRE_EXCEPTION((void)co_await failing_coroutine(), int, [] (auto v) { return v == 42; });
     BOOST_CHECK_EQUAL(co_await failing_coroutine().then_wrapped([] (future<int> f) -> future<int> {
@@ -679,7 +679,7 @@ SEASTAR_TEST_CASE(test_void_as_future_without_preemption_check) {
 
 SEASTAR_TEST_CASE(test_non_void_as_future) {
     auto f = co_await coroutine::as_future(make_ready_future<int>(42));
-    BOOST_REQUIRE_EQUAL(f.get0(), 42);
+    BOOST_REQUIRE_EQUAL(f.get(), 42);
 
     f = co_await coroutine::as_future(make_exception_future<int>(std::runtime_error("exception")));
     BOOST_REQUIRE_THROW(f.get(), std::runtime_error);
@@ -687,7 +687,7 @@ SEASTAR_TEST_CASE(test_non_void_as_future) {
     auto p = promise<int>();
     (void)sleep(1ms).then([&] { p.set_value(314); });
     f = co_await coroutine::as_future(p.get_future());
-    BOOST_REQUIRE_EQUAL(f.get0(), 314);
+    BOOST_REQUIRE_EQUAL(f.get(), 314);
 
     auto gen_exception = [] () -> future<int> {
         co_await sleep(1ms);
@@ -699,7 +699,7 @@ SEASTAR_TEST_CASE(test_non_void_as_future) {
 
 SEASTAR_TEST_CASE(test_non_void_as_future_without_preemption_check) {
     auto f = co_await coroutine::as_future_without_preemption_check(make_ready_future<int>(42));
-    BOOST_REQUIRE_EQUAL(f.get0(), 42);
+    BOOST_REQUIRE_EQUAL(f.get(), 42);
 
     f = co_await coroutine::as_future_without_preemption_check(make_exception_future<int>(std::runtime_error("exception")));
     BOOST_REQUIRE_THROW(f.get(), std::runtime_error);
@@ -707,7 +707,7 @@ SEASTAR_TEST_CASE(test_non_void_as_future_without_preemption_check) {
     auto p = promise<int>();
     (void)sleep(1ms).then([&] { p.set_value(314); });
     f = co_await coroutine::as_future_without_preemption_check(p.get_future());
-    BOOST_REQUIRE_EQUAL(f.get0(), 314);
+    BOOST_REQUIRE_EQUAL(f.get(), 314);
 
     auto gen_exception = [] () -> future<int> {
         co_await sleep(1ms);

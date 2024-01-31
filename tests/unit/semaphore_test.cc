@@ -264,7 +264,7 @@ SEASTAR_TEST_CASE(test_with_semaphore) {
 
 SEASTAR_THREAD_TEST_CASE(test_semaphore_units_valid_splitting) {
     auto sm = semaphore(2);
-    auto units = get_units(sm, 2, 1min).get0();
+    auto units = get_units(sm, 2, 1min).get();
     {
         BOOST_REQUIRE_EQUAL(units.count(), 2);
         BOOST_REQUIRE_EQUAL(sm.available_units(), 0);
@@ -276,7 +276,7 @@ SEASTAR_THREAD_TEST_CASE(test_semaphore_units_valid_splitting) {
 
 SEASTAR_THREAD_TEST_CASE(test_semaphore_units_invalid_splitting) {
     auto sm = semaphore(2);
-    auto units = get_units(sm, 2, 1min).get0();
+    auto units = get_units(sm, 2, 1min).get();
     BOOST_REQUIRE_EQUAL(sm.available_units(), 0);
     BOOST_REQUIRE_THROW(units.split(10), std::invalid_argument);
     BOOST_REQUIRE_EQUAL(sm.available_units(), 0);
@@ -285,7 +285,7 @@ SEASTAR_THREAD_TEST_CASE(test_semaphore_units_invalid_splitting) {
 SEASTAR_THREAD_TEST_CASE(test_semaphore_units_return_when_destroyed) {
     auto sm = semaphore(3);
   {
-    auto units = get_units(sm, 3, 1min).get0();
+    auto units = get_units(sm, 3, 1min).get();
     BOOST_REQUIRE_EQUAL(units.count(), 3);
     BOOST_REQUIRE_EQUAL(sm.available_units(), 0);
     BOOST_REQUIRE_EQUAL(units.return_units(1), 2);
@@ -297,7 +297,7 @@ SEASTAR_THREAD_TEST_CASE(test_semaphore_units_return_when_destroyed) {
 
 SEASTAR_THREAD_TEST_CASE(test_semaphore_units_return_all) {
     auto sm = semaphore(3);
-    auto units = get_units(sm, 2, 1min).get0();
+    auto units = get_units(sm, 2, 1min).get();
     BOOST_REQUIRE_EQUAL(sm.available_units(), 1);
     BOOST_REQUIRE_THROW(units.return_units(10), std::invalid_argument);
     BOOST_REQUIRE_EQUAL(sm.available_units(), 1);
@@ -329,7 +329,7 @@ SEASTAR_THREAD_TEST_CASE(test_semaphore_try_get_units) {
 
 SEASTAR_THREAD_TEST_CASE(test_semaphore_units_abort) {
     auto sm = semaphore(3);
-    auto units = get_units(sm, 3, 1min).get0();
+    auto units = get_units(sm, 3, 1min).get();
     BOOST_REQUIRE_EQUAL(units.count(), 3);
 
     abort_source as;
@@ -349,7 +349,7 @@ SEASTAR_THREAD_TEST_CASE(test_semaphore_units_bool_operator) {
     semaphore_units u0;
     BOOST_REQUIRE(!bool(u0));
 
-    u0 = get_units(sem, 2).get0();
+    u0 = get_units(sem, 2).get();
     BOOST_REQUIRE(bool(u0));
 
     u0.return_units(1);
@@ -359,7 +359,7 @@ SEASTAR_THREAD_TEST_CASE(test_semaphore_units_bool_operator) {
     BOOST_REQUIRE(!bool(u0));
     sem.signal(n);
 
-    u0 = get_units(sem, 2).get0();
+    u0 = get_units(sem, 2).get();
     BOOST_REQUIRE(bool(u0));
     auto u1 = std::move(u0);
     BOOST_REQUIRE(bool(u1));
@@ -368,7 +368,7 @@ SEASTAR_THREAD_TEST_CASE(test_semaphore_units_bool_operator) {
     u1.return_all();
     BOOST_REQUIRE(!bool(u1));
 
-    u0 = get_units(sem, 2).get0();
+    u0 = get_units(sem, 2).get();
     BOOST_REQUIRE(bool(u0));
     u1 = u0.split(1);
     BOOST_REQUIRE(bool(u1));

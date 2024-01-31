@@ -329,7 +329,7 @@ private:
                     return make_exception_future<temporary_buffer<char>>(ret.get_exception());
                 } else {
                     // first or last buffer, need trimming
-                    auto tmp = ret.get0();
+                    auto tmp = ret.get();
                     auto real_end = start + tmp.size();
                     if (real_end <= pos) {
                         return make_ready_future<temporary_buffer<char>>();

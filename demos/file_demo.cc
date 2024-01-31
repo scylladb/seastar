@@ -76,7 +76,7 @@ future<> demo_with_file() {
         auto write_to_file = [] (const sstring filename, temporary_buffer<char>& wbuf) {
             auto count = with_file(open_file_dma(filename, open_flags::rw | open_flags::create), [&wbuf] (file& f) {
                 return f.dma_write(0, wbuf.get(), aligned_size);
-            }).get0();
+            }).get();
             assert(count == aligned_size);
         };
 
@@ -144,7 +144,7 @@ future<> demo_with_file_close_on_failure() {
         // `make_file_output_stream` returns an error. Otherwise, in the error-free path,
         // the opened file is moved to `file_output_stream` that in-turn closes it
         // when the stream is closed.
-        output_stream<char> o = make_output_stream(meta_filename).get0();
+        output_stream<char> o = make_output_stream(meta_filename).get();
 
         write_to_stream(o, wbuf).get();
 
@@ -152,7 +152,7 @@ future<> demo_with_file_close_on_failure() {
         fmt::print("  writing random data into {}\n", data_filename);
         std::generate(wbuf.get_write(), wbuf.get_write() + aligned_size, [&dist, &rnd] { return dist(rnd); });
 
-        o = make_output_stream(data_filename).get0();
+        o = make_output_stream(data_filename).get();
 
         write_to_stream(o, wbuf).get();
 
@@ -172,7 +172,7 @@ future<> demo_with_io_intent() {
     fmt::print("\nDemonstrating demo_with_io_intent():\n");
     return tmp_dir::do_with_thread([] (tmp_dir& t) {
         sstring filename = (t.get_path() / "testfile.tmp").native();
-        auto f = open_file_dma(filename, open_flags::rw | open_flags::create).get0();
+        auto f = open_file_dma(filename, open_flags::rw | open_flags::create).get();
 
         auto rnd = std::mt19937(std::random_device()());
         auto dist = std::uniform_int_distribution<int>(0, std::numeric_limits<char>::max());

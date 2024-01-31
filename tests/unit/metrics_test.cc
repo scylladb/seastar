@@ -83,7 +83,7 @@ SEASTAR_THREAD_TEST_CASE(test_renaming_scheuling_groups) {
 
     static const char* name1 = "A";
     static const char* name2 = "B";
-    scheduling_group sg =  create_scheduling_group("hello", 111).get0();
+    scheduling_group sg =  create_scheduling_group("hello", 111).get();
     boost::integer_range<int> rng(0, 1000);
     // repeatedly change the group name back and forth in
     // decresing time intervals to see if it generate double

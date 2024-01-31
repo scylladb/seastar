@@ -611,7 +611,7 @@ posix_file_impl::read_maybe_eof(uint64_t pos, size_t len, internal::maybe_priori
     return read_dma_one(pos, dst, buf_size, pc, intent).then_wrapped(
             [buf = std::move(buf)](future<size_t> f) mutable {
         try {
-            size_t size = f.get0();
+            size_t size = f.get();
 
             buf.trim(size);
 

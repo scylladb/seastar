@@ -237,8 +237,8 @@ SEASTAR_THREAD_TEST_CASE(test_io_cancellation) {
     fake_file file;
 
     io_queue_for_tests tio;
-    auto pc0 = internal::priority_class(create_scheduling_group("a", 100).get0());
-    auto pc1 = internal::priority_class(create_scheduling_group("b", 100).get0());
+    auto pc0 = internal::priority_class(create_scheduling_group("a", 100).get());
+    auto pc1 = internal::priority_class(create_scheduling_group("b", 100).get());
 
     size_t idx = 0;
     int val = 100;

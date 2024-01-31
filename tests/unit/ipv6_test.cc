@@ -80,8 +80,8 @@ SEASTAR_TEST_CASE(tcp_packet_test) {
 
         BOOST_REQUIRE(la.addr().is_ipv6());
 
-        auto cc = connect(la).get0();
-        auto lc = std::move(sc.accept().get0().connection);
+        auto cc = connect(la).get();
+        auto lc = std::move(sc.accept().get().connection);
 
         auto strm = cc.output();
         strm.write("los lobos").get();

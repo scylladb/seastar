@@ -63,7 +63,7 @@ SEASTAR_TEST_CASE(test_header_parsing) {
     http_request_parser parser;
     for (auto& tset : tests) {
         parser.init();
-        BOOST_REQUIRE(parser(tset.buf()).get0().has_value());
+        BOOST_REQUIRE(parser(tset.buf()).get().has_value());
         BOOST_REQUIRE_NE(parser.failed(), tset.parsable);
         if (tset.parsable) {
             auto req = parser.get_parsed_request();

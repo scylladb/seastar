@@ -173,8 +173,8 @@ public:
 
     future<> discover_directory() {
         return seastar::async([this] {
-            auto f = open_directory(_name).get0();
-            auto st = f.stat().get0();
+            auto f = open_directory(_name).get();
+            auto st = f.stat().get();
             f.close().get();
 
             scan_device(major(st.st_dev), minor(st.st_dev));
@@ -666,8 +666,8 @@ fs::path mountpoint_of(sstring filename) {
     std::optional<dev_t> candidate_id = {};
     auto current = mnt_candidate;
     do {
-        auto f = open_directory(current.string()).get0();
-        auto st = f.stat().get0();
+        auto f = open_directory(current.string()).get();
+        auto st = f.stat().get();
         if ((candidate_id) && (*candidate_id != st.st_dev)) {
             return mnt_candidate;
         }
@@ -745,7 +745,7 @@ int main(int ac, char** av) {
                 }
 
                 auto rec = 10000000000ULL;
-                auto avail = fs_avail(eval_dir).get0();
+                auto avail = fs_avail(eval_dir).get();
                 if (avail < rec) {
                     uint64_t val;
                     const char* units;
@@ -799,10 +799,10 @@ int main(int ac, char** av) {
                 io_rates write_bw;
                 size_t sequential_buffer_size = 1 << 20;
                 for (unsigned shard = 0; shard < smp::count; ++shard) {
-                    write_bw += iotune_tests.write_sequential_data(shard, sequential_buffer_size, duration * 0.70 / smp::count).get0();
+                    write_bw += iotune_tests.write_sequential_data(shard, sequential_buffer_size, duration * 0.70 / smp::count).get();
                 }
                 write_bw.bytes_per_sec /= smp::count;
-                rates = iotune_tests.get_serial_rates().get0();
+                rates = iotune_tests.get_serial_rates().get();
                 fmt::print("{} MB/s{}\n", uint64_t(write_bw.bytes_per_sec / (1024 * 1024)), accuracy_msg());
 
                 std::optional<uint64_t> write_sat;
@@ -810,14 +810,14 @@ int main(int ac, char** av) {
                 if (write_saturation) {
                     fmt::print("Measuring write saturation length: ");
                     std::cout.flush();
-                    write_sat = iotune_tests.saturate_write(write_bw.bytes_per_sec * (1.0 - rates.stdev_percents()), sequential_buffer_size/2, duration * 0.70).get0();
+                    write_sat = iotune_tests.saturate_write(write_bw.bytes_per_sec * (1.0 - rates.stdev_percents()), sequential_buffer_size/2, duration * 0.70).get();
                     fmt::print("{}\n", *write_sat);
                 }
 
                 fmt::print("Measuring sequential read bandwidth: ");
                 std::cout.flush();
-                auto read_bw = iotune_tests.read_sequential_data(0, sequential_buffer_size, duration * 0.1).get0();
-                rates = iotune_tests.get_serial_rates().get0();
+                auto read_bw = iotune_tests.read_sequential_data(0, sequential_buffer_size, duration * 0.1).get();
+                rates = iotune_tests.get_serial_rates().get();
                 fmt::print("{} MB/s{}\n", uint64_t(read_bw.bytes_per_sec / (1024 * 1024)), accuracy_msg());
 
                 std::optional<uint64_t> read_sat;
@@ -825,20 +825,20 @@ int main(int ac, char** av) {
                 if (read_saturation) {
                     fmt::print("Measuring read saturation length: ");
                     std::cout.flush();
-                    read_sat = iotune_tests.saturate_read(read_bw.bytes_per_sec * (1.0 - rates.stdev_percents()), sequential_buffer_size/2, duration * 0.1).get0();
+                    read_sat = iotune_tests.saturate_read(read_bw.bytes_per_sec * (1.0 - rates.stdev_percents()), sequential_buffer_size/2, duration * 0.1).get();
                     fmt::print("{}\n", *read_sat);
                 }
 
                 fmt::print("Measuring random write IOPS: ");
                 std::cout.flush();
-                auto write_iops = iotune_tests.write_random_data(test_directory.minimum_io_size(), duration * 0.1).get0();
-                rates = iotune_tests.get_sharded_worst_rates().get0();
+                auto write_iops = iotune_tests.write_random_data(test_directory.minimum_io_size(), duration * 0.1).get();
+                rates = iotune_tests.get_sharded_worst_rates().get();
                 fmt::print("{} IOPS{}\n", uint64_t(write_iops.iops), accuracy_msg());
 
                 fmt::print("Measuring random read IOPS: ");
                 std::cout.flush();
-                auto read_iops = iotune_tests.read_random_data(test_directory.minimum_io_size(), duration * 0.1).get0();
-                rates = iotune_tests.get_sharded_worst_rates().get0();
+                auto read_iops = iotune_tests.read_random_data(test_directory.minimum_io_size(), duration * 0.1).get();
+                rates = iotune_tests.get_sharded_worst_rates().get();
                 fmt::print("{} IOPS{}\n", uint64_t(read_iops.iops), accuracy_msg());
 
                 struct disk_descriptor desc;

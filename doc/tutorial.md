@@ -1207,8 +1207,8 @@ future<> f() {
                     make_ready_future<double>(3.5)
            ).then([] (auto tup) {
             std::cout << std::get<0>(tup).available() << "\n";
-            std::cout << std::get<1>(tup).get0() << "\n";
-            std::cout << std::get<2>(tup).get0() << "\n";
+            std::cout << std::get<1>(tup).get() << "\n";
+            std::cout << std::get<2>(tup).get() << "\n";
     });
 }
 ```
@@ -2281,8 +2281,8 @@ seastar::future<> f() {
 ```cpp
 seastar::future<seastar::sstring> read_file(sstring file_name) {
     return seastar::async([file_name] () {  // lambda executed in a thread
-        file f = seastar::open_file_dma(file_name).get0();  // get0() call "blocks"
-        auto buf = f.dma_read(0, 512).get0();  // "block" again
+        file f = seastar::open_file_dma(file_name).get();  // get() call "blocks"
+        auto buf = f.dma_read(0, 512).get();  // "block" again
         return seastar::sstring(buf.get(), buf.size());
     });
 };
