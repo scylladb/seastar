@@ -968,7 +968,7 @@ int main(int ac, char** av) {
             if (*st_type == directory_entry_type::directory) {
                 auto fs = file_system_at(storage).get();
                 if (fs != fs_type::xfs) {
-                    throw std::runtime_error(format("This is a performance test. {} is not on XFS", storage));
+                    std::cout << "WARNING!!! This is a performance test. " << storage << " is not on XFS" << std::endl;
                 }
             }
 
