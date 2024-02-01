@@ -194,9 +194,10 @@ private:
        difference_type operator-(const cbiterator<CB, ValueType>& rhs) const noexcept {
             return idx - rhs.idx;
         }
+        cbiterator() = default;
     private:
-        CB* cb;
-        size_t idx;
+        CB* cb{nullptr};
+        size_t idx{0};
         cbiterator(CB* b, size_t i) noexcept : cb(b), idx(i) {}
         friend class circular_buffer;
     };
