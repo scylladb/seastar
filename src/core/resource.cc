@@ -28,10 +28,13 @@ module;
 #include <boost/algorithm/string.hpp>
 #include <boost/range/adaptor/map.hpp>
 #include <boost/range/algorithm/copy.hpp>
+#include <boost/range/irange.hpp>
 #include <regex>
 #include <stdlib.h>
+#include <unistd.h>
 #include <limits>
 #include <filesystem>
+#include <unordered_map>
 
 #ifdef SEASTAR_MODULE
 module seastar;
@@ -39,9 +42,11 @@ module seastar;
 #include <seastar/core/resource.hh>
 #include <seastar/core/align.hh>
 #include <seastar/core/print.hh>
+#include <seastar/util/defer.hh>
 #include <seastar/util/read_first_line.hh>
 #include <seastar/util/log.hh>
 #include <seastar/core/io_queue.hh>
+#include <seastar/core/print.hh>
 #include "cgroup.hh"
 
 #if SEASTAR_HAVE_HWLOC
@@ -284,11 +289,6 @@ io_queue_topology::io_queue_topology(io_queue_topology&& o)
 }
 
 #ifdef SEASTAR_HAVE_HWLOC
-
-#include <seastar/util/defer.hh>
-#include <seastar/core/print.hh>
-#include <unordered_map>
-#include <boost/range/irange.hpp>
 
 namespace seastar {
 
@@ -703,9 +703,6 @@ unsigned nr_processing_units(configuration& c) {
 }
 
 #else
-
-#include <seastar/core/resource.hh>
-#include <unistd.h>
 
 namespace seastar {
 
