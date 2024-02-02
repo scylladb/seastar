@@ -597,13 +597,13 @@ public:
 
 thread_local task_histogram this_thread_task_histogram;
 
-#endif
-
 void task_histogram_add_task(const task& t) {
-#ifdef SEASTAR_TASK_HISTOGRAM
     this_thread_task_histogram.add(t);
-#endif
 }
+#else
+void task_histogram_add_task(const task& t) {
+}
+#endif
 
 }
 
