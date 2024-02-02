@@ -2448,21 +2448,24 @@ reactor::fdatasync(int fd) noexcept {
 
 // Note: terminate if arm_highres_timer throws
 // `when` should always be valid
+#ifndef HAVE_OSV
 void reactor::enable_timer(steady_clock_type::time_point when) noexcept
 {
-#ifndef HAVE_OSV
     itimerspec its;
     its.it_interval = {};
     its.it_value = to_timespec(when);
     _backend->arm_highres_timer(its);
+}
 #else
+void reactor::enable_timer(steady_clock_type::time_point when) noexcept
+{
     using ns = std::chrono::nanoseconds;
     WITH_LOCK(_timer_mutex) {
         _timer_due = std::chrono::duration_cast<ns>(when.time_since_epoch()).count();
         _timer_cond.wake_one();
     }
-#endif
 }
+#endif
 
 void reactor::add_timer(timer<steady_clock_type>* tmr) noexcept {
     if (queue_timer(tmr)) {
