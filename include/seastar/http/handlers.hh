@@ -35,7 +35,7 @@ typedef const http::request& const_req;
 
 /**
  * handlers holds the logic for serving an incoming request.
- * All handlers inherit from the base httpserver_handler and
+ * All handlers inherit from the base handler_base and
  * implement the handle method.
  *
  */
