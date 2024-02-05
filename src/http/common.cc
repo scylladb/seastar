@@ -60,6 +60,9 @@ operation_type str2type(const sstring& type) {
     if (type == "CONNECT") {
         return CONNECT;
     }
+    if (type == "PATCH") {
+        return PATCH;
+    }
     return GET;
 }
 
@@ -84,6 +87,9 @@ sstring type2str(operation_type type) {
     }
     if (type == CONNECT) {
         return "CONNECT";
+    }
+    if (type == PATCH) {
+        return "PATCH";
     }
     return "GET";
 }
