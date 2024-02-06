@@ -1,7 +1,7 @@
 # The Lambda Coroutine Fiasco
 
 Lambda coroutines and Seastar APIs that accept continuations interact badly. This
-document explain the bad interaction and how it is mitigated.
+document explains the bad interaction and how it is mitigated.
 
 ## Lambda coroutines revisited
 
