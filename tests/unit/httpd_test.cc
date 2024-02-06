@@ -853,24 +853,43 @@ SEASTAR_TEST_CASE(test_100_continue) {
             for (auto version : {sstring("1.0"), sstring("1.1")}) {
                 for (auto content : {sstring(""), sstring("xxxxxxxxxxx")}) {
                     for (auto expect : {sstring(""), sstring("Expect: 100-continue\r\n"), sstring("Expect: 100-cOnTInUE\r\n")}) {
+                        bool need_cont = (version == "1.1" && expect.length());
+                        bool body_sent = false;
                         auto content_len = content.empty() ? sstring("") : (sstring("Content-Length: ") + to_sstring(content.length()) + sstring("\r\n"));
                         sstring req = sstring("GET /test HTTP/") + version + sstring("\r\nHost: test\r\nConnection: Keep-Alive\r\n") + content_len + expect + sstring("\r\n");
+                        sstring resp;
+
                         output.write(req).get();
                         output.flush().get();
-                        bool already_ok = false;
-                        if (version == "1.1" && expect.length()) {
-                            auto resp = input.read().get();
-                            BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("100 Continue"), std::string::npos);
-                            already_ok = content.empty() && std::string(resp.get(), resp.size()).find("200 OK") != std::string::npos;
-                        }
-                        if (!already_ok) {
-                            //If the body is empty, the final response might have already been read
+
+                        if (!need_cont) {
                             output.write(content).get();
                             output.flush().get();
-                            auto resp = input.read().get();
-                            BOOST_REQUIRE_EQUAL(std::string(resp.get(), resp.size()).find("100 Continue"), std::string::npos);
-                            BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("200 OK"), std::string::npos);
+                            body_sent = true;
                         }
+
+                        while (true) {
+                            auto r = input.read().get();
+                            BOOST_REQUIRE(!r.empty());
+                            resp += sstring(r.get(), r.size());
+
+                            if (need_cont && !body_sent) {
+                                if (resp.find("100 Continue") != std::string::npos) {
+                                    output.write(content).get();
+                                    output.flush().get();
+                                    body_sent = true;
+                                }
+                            }
+
+                            if (resp.ends_with("\"hello\"\r\n0\r\n\r\n")) {
+                                break;
+                            }
+                        }
+
+                        if (need_cont) {
+                            BOOST_REQUIRE(body_sent);
+                        }
+                        BOOST_REQUIRE_NE(resp.find("200 OK"), std::string::npos);
                     }
                 }
             }
