@@ -38,11 +38,6 @@ namespace httpd {
 
 using namespace std;
 
-void verify_param(const http::request& req, const sstring& param) {
-    if (req.get_query_param(param) == "") {
-        throw missing_param_exception(param);
-    }
-}
 routes::routes() : _general_handler([this](std::exception_ptr eptr) mutable {
     return exception_reply(eptr);
 }) {}
@@ -96,9 +91,7 @@ future<std::unique_ptr<http::reply> > routes::handle(const sstring& path, std::u
             normalize_url(path), req->param);
     if (handler != nullptr) {
         try {
-            for (auto& i : handler->_mandatory_param) {
-                verify_param(*req.get(), i);
-            }
+            handler->verify_mandatory_params(*req);
             auto r =  handler->handle(path, std::move(req), std::move(rep));
             return r.handle_exception(_general_handler);
         } catch (...) {

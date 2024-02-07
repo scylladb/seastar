@@ -23,6 +23,7 @@
 
 #include <seastar/http/request.hh>
 #include <seastar/http/common.hh>
+#include <seastar/http/exception.hh>
 #include <seastar/http/reply.hh>
 
 #include <unordered_map>
@@ -40,6 +41,7 @@ typedef const http::request& const_req;
  *
  */
 class handler_base {
+    std::vector<sstring> _mandatory_param;
 protected:
     handler_base() = default;
     handler_base(const handler_base&) = default;
@@ -66,8 +68,18 @@ public:
         return *this;
     }
 
-    std::vector<sstring> _mandatory_param;
-
+    /**
+     * Check if all mandatory parameters exist in the request. if any param
+     * does not exist, the function would throw a @c missing_param_exception
+     * @param params req the http request
+     */
+    void verify_mandatory_params(const http::request& req) const {
+        for (auto& param : _mandatory_param) {
+            if (req.get_query_param(param) == "") {
+                throw missing_param_exception(param);
+            }
+        }
+    }
 };
 
 }
