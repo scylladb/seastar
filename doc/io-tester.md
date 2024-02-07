@@ -14,8 +14,9 @@ if that affects higher percentile latencies.
 Aside from the usual seastar options, I/O tester accepts the following options:
 
 * `duration`: for how long to run the evaluation,
-* `directory`: a directory where to run the evaluation (it must be on XFS),
-* `conf`: the path to a YAML file describing the evaluation.
+* `storage`: a directory or a block device where to execute the test (it must be on XFS),
+* `conf`: the path to a YAML file describing the evaluation,
+* `keep-files`: a flag that indicates keeping test files - next run may re-use them.
 
 # Describing the evaluation
 
@@ -43,6 +44,7 @@ For example:
 * `name`: mandatory property, a string that identifies jobs of this class
 * `type`: mandatory property, one of seqread, seqwrite, randread, randwrite, append, cpu
 * `shards`: mandatory property, either the string "all" or a list of shards where this class should place jobs.
+* `data_size`: optional property, used to divide the available disk space between workloads. Each shard inside the workload uses its portion of the assigned space. If not specified 1GB is used.
 
 The properties under `shard_info` represent properties of the job that will
 be replicated to each shard. All properties under `shard_info` are optional, and in case not specified, defaults are used.
