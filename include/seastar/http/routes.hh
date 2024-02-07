@@ -242,14 +242,6 @@ public:
 };
 
 /**
- * A helper function that check if a parameter is found in the params object
- * if it does not the function would throw a parameter not found exception
- * @param params the parameters object
- * @param param the parameter to look for
- */
-void verify_param(const http::request& req, const sstring& param);
-
-/**
  * The handler_registration object facilitates registration and auto
  * unregistration of an exact-match handler_base into \ref routes "routes"
  */
