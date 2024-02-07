@@ -81,8 +81,8 @@ path_description::path_description(const sstring& path, operation_type method,
     for (auto man : mandatory_params) {
         pushmandatory_param(man);
     }
-    for (auto param : path_parameters) {
-        pushparam(param.first, param.second);
+    for (auto& [param, all_path] : path_parameters) {
+        pushparam(param, all_path);
     }
 }
 
