@@ -42,9 +42,10 @@ For example:
 ```
 
 * `name`: mandatory property, a string that identifies jobs of this class
-* `type`: mandatory property, one of seqread, seqwrite, randread, randwrite, append, cpu
+* `type`: mandatory property, one of seqread, seqwrite, randread, randwrite, append, cpu, unlink
 * `shards`: mandatory property, either the string "all" or a list of shards where this class should place jobs.
 * `data_size`: optional property, used to divide the available disk space between workloads. Each shard inside the workload uses its portion of the assigned space. If not specified 1GB is used.
+* `files_count`: optional property, relevant only for unlink job class - in such case it is required. Describes the number of files that need to be created during startup to be unlinked during evaluation.
 
 The properties under `shard_info` represent properties of the job that will
 be replicated to each shard. All properties under `shard_info` are optional, and in case not specified, defaults are used.
@@ -81,6 +82,6 @@ Some ideas for extending I/O tester:
 * allow properties like think time, request size, etc, to be specified as distributions instead of a fixed number
 * allow classes to have class-wide properties. For instance, we could define a class with parallelism of 100, and distribute those 100 requests over all shards in which this class is placed
 * allow some jobs to be executed sequentially in relationship to others, so we can have preparation jobs.
-* support other types, like delete, fsync, etc.
+* support other types, like sync, etc.
 * provide functionality similar to diskplorer.
 
