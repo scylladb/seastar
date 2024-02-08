@@ -88,18 +88,43 @@ struct exception {
 /// ```
 /// co_return coroutine::make_exception(std::runtime_error("something failed miserably"));
 /// ```
-[[deprecated("Use co_await coroutine::return_exception or co_return coroutine::exception instead")]]
+[[deprecated("Use co_await coroutine::return_exception_ptr or co_return coroutine::exception instead")]]
 [[nodiscard]]
 inline exception make_exception(std::exception_ptr ex) noexcept {
     return exception(std::move(ex));
 }
 
 template<typename T>
-[[deprecated("Use co_await coroutine::return_exception or co_return coroutine::exception instead")]]
+[[deprecated("Use co_await coroutine::return_exception_ptr or co_return coroutine::exception instead")]]
 [[nodiscard]]
 exception make_exception(T&& t) noexcept {
     log_exception_trace();
     return exception(std::make_exception_ptr(std::forward<T>(t)));
+}
+
+/// Allows propagating an exception from a coroutine directly rather than
+/// throwing it.
+///
+/// `return_exception_ptr()` returns an object which must be co_awaited.
+/// Co_awaiting the object will immediately resolve the current coroutine
+/// to the given exception.
+///
+/// Example usage:
+///
+/// ```
+/// std::exception_ptr ex;
+/// try {
+///   //
+/// } catch (...) {
+///   ex = std::current_exception();
+/// }
+/// if (ex) {
+///   co_await coroutine::return_exception_ptr(std::move(ex));
+/// }
+/// ```
+[[nodiscard]]
+inline exception return_exception_ptr(std::exception_ptr ex) noexcept {
+    return exception(std::move(ex));
 }
 
 /// Allows propagating an exception from a coroutine directly rather than
@@ -114,11 +139,6 @@ exception make_exception(T&& t) noexcept {
 /// ```
 /// co_await coroutine::return_exception(std::runtime_error("something failed miserably"));
 /// ```
-[[nodiscard]]
-inline exception return_exception_ptr(std::exception_ptr ex) noexcept {
-    return exception(std::move(ex));
-}
-
 [[deprecated("Use co_await coroutine::return_exception_ptr instead")]]
 [[nodiscard]]
 inline exception return_exception(std::exception_ptr ex) noexcept {
