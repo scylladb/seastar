@@ -400,7 +400,7 @@ static std::optional<directory_entry_type> dirent_type(const linux_dirent64& de)
 }
 
 #ifdef SEASTAR_COROUTINES_ENABLED
-static coroutine::experimental::generator<directory_entry> make_list_directory_generator(thread_pool& pool, int fd) {
+static coroutine::experimental::generator<directory_entry> make_list_directory_generator(int fd) {
     temporary_buffer<char> buf(8192);
 
     while (true) {
@@ -430,7 +430,7 @@ coroutine::experimental::generator<directory_entry> posix_file_impl::experimenta
     // TODO:
     // Keep 8 entries. The sizeof(directory_entry) is 24 bytes, the name itself 
     // is allocated out of this buffer, so the buffer would grow up to ~200 bytes
-    return make_list_directory_generator(*engine()._thread_pool, _fd);
+    return make_list_directory_generator(_fd);
 }
 #endif
 
