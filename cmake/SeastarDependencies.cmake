@@ -133,7 +133,7 @@ macro (seastar_find_dependencies)
   seastar_set_dep_args (Protobuf REQUIRED
     VERSION 2.5.0)
   seastar_set_dep_args (LibUring
-    VERSION 2.0
+    VERSION 2.2
     OPTION ${Seastar_IO_URING})
   seastar_set_dep_args (StdAtomic REQUIRED)
   seastar_set_dep_args (hwloc
