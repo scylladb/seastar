@@ -597,7 +597,7 @@ public:
     }
 
     constexpr bool starts_with(std::basic_string_view<char_type, traits_type> sv) const noexcept {
-        return size() > sv.size() && compare(0, sv.size(), sv) == 0;
+        return size() >= sv.size() && compare(0, sv.size(), sv) == 0;
     }
 
     constexpr bool starts_with(char_type c) const noexcept {
@@ -609,7 +609,7 @@ public:
     }
 
     constexpr bool ends_with(std::basic_string_view<char_type, traits_type> sv) const noexcept {
-        return size() > sv.size() && compare(size() - sv.size(), npos, sv) == 0;
+        return size() >= sv.size() && compare(size() - sv.size(), npos, sv) == 0;
     }
 
     constexpr bool ends_with(char_type c) const noexcept {
