@@ -202,6 +202,92 @@ def add_path(f, path, details):
     fprintln(f, spacing, ";")
 
 
+def add_operation(hfile, ccfile, path, oper):
+    if "summary" in oper:
+        print_ind_comment(hfile, '', oper["summary"])
+
+    param_starts = path.find("{")
+    base_url = path
+    vals = []
+    if param_starts >= 0:
+        vals = path[param_starts:].split("/")
+        vals.reverse()
+        base_url = path[:param_starts]
+
+    varname = getitem(oper, "nickname", oper)
+    if config.create_cc:
+        fprintln(hfile, 'extern const path_description ', varname, ';')
+        maybe_static = ''
+    else:
+        maybe_static = 'static '
+    fprintln(ccfile, maybe_static, 'const path_description ', varname, '("', clear_path_ending(base_url),
+           '",', oper["method"], ',"', oper["nickname"], '",')
+    fprint(ccfile, '{')
+    first = True
+    while vals:
+        path_param, is_url = clean_param(vals.pop())
+        if path_param == "":
+            continue
+        if first:
+            first = False
+        else:
+            fprint(ccfile, "\n,")
+        if is_url:
+            fprint(ccfile, '{', '"/', path_param , '", path_description::url_component_type::FIXED_STRING', '}')
+        else:
+            path_param_type = get_parameter_by_name(oper, path_param)
+            if ("allowMultiple" in path_param_type and
+                path_param_type["allowMultiple"]):
+                fprint(ccfile, '{', '"', path_param , '", path_description::url_component_type::PARAM_UNTIL_END_OF_PATH', '}')
+            else:
+                fprint(ccfile, '{', '"', path_param , '", path_description::url_component_type::PARAM', '}')
+    fprint(ccfile, '}')
+    fprint(ccfile, ',{')
+    first = True
+    enum_definitions = ""
+    if "enum" in oper:
+        nickname = oper["nickname"]
+        enum_wrapper = create_enum_wrapper(nickname, "return_type", oper["enum"])
+        enum_definitions = Template('''
+namespace ns_$nickname {
+$enum_wrapper
+}
+''').substitute(nickname=nickname, enum_wrapper=enum_wrapper.rstrip())
+    funcs = ""
+    if "parameters" in oper:
+        for param in oper["parameters"]:
+            if is_required_query_param(param):
+                if first:
+                    first = False
+                else:
+                    fprint(ccfile, "\n,")
+                fprint(ccfile, '"', param["name"], '"')
+            if "enum" in param:
+                enum_definitions = enum_definitions + 'namespace ns_' + oper["nickname"] + '{\n'
+                enm = param["name"]
+                enum_definitions = enum_definitions + 'enum class ' + enm + ' {'
+                for val in param["enum"]:
+                    enum_definitions = enum_definitions + val + ", "
+                enum_definitions = enum_definitions + 'NUM_ITEMS};\n'
+                enum_definitions = enum_definitions + enm + ' str2' + enm + '(const sstring& str);'
+
+                funcs = funcs + enm + ' str2' + enm + '(const sstring& str) {\n'
+                funcs = funcs + '  static const sstring arr[] = {"' + '","'.join(param["enum"]) + '"};\n'
+                funcs = funcs + '  int i;\n'
+                funcs = funcs + '  for (i=0; i < ' + str(len(param["enum"])) + '; i++) {\n'
+                funcs = funcs + '    if (arr[i] == str) {return (' + enm + ')i;}\n}\n'
+                funcs = funcs + '  return (' + enm + ')i;\n'
+                funcs = funcs + '}\n'
+
+                enum_definitions = enum_definitions + '}\n'
+
+    fprintln(ccfile, '});')
+    fprintln(hfile, enum_definitions)
+    open_namespace(ccfile, 'ns_' + oper["nickname"])
+    fprintln(ccfile, funcs)
+    close_namespace(ccfile)
+
+
 def get_base_name(param):
     return os.path.basename(param)
 
@@ -470,91 +556,8 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
     fprintln(hfile, 'static const sstring name = "', base_api, '";')
     for item in data["apis"]:
         path = item["path"]
-        if "operations" in item:
-            for oper in item["operations"]:
-                if "summary" in oper:
-                    print_ind_comment(hfile, '', oper["summary"])
-
-                param_starts = path.find("{")
-                base_url = path
-                vals = []
-                if param_starts >= 0:
-                    vals = path[param_starts:].split("/")
-                    vals.reverse()
-                    base_url = path[:param_starts]
-
-                varname = getitem(oper, "nickname", oper)
-                if config.create_cc:
-                    fprintln(hfile, 'extern const path_description ', varname, ';')
-                    maybe_static = ''
-                else:
-                    maybe_static = 'static '
-                fprintln(ccfile, maybe_static, 'const path_description ', varname, '("', clear_path_ending(base_url),
-                       '",', oper["method"], ',"', oper["nickname"], '",')
-                fprint(ccfile, '{')
-                first = True
-                while vals:
-                    path_param, is_url = clean_param(vals.pop())
-                    if path_param == "":
-                        continue
-                    if first:
-                        first = False
-                    else:
-                        fprint(ccfile, "\n,")
-                    if is_url:
-                        fprint(ccfile, '{', '"/', path_param , '", path_description::url_component_type::FIXED_STRING', '}')
-                    else:
-                        path_param_type = get_parameter_by_name(oper, path_param)
-                        if ("allowMultiple" in path_param_type and
-                            path_param_type["allowMultiple"]):
-                            fprint(ccfile, '{', '"', path_param , '", path_description::url_component_type::PARAM_UNTIL_END_OF_PATH', '}')
-                        else:
-                            fprint(ccfile, '{', '"', path_param , '", path_description::url_component_type::PARAM', '}')
-                fprint(ccfile, '}')
-                fprint(ccfile, ',{')
-                first = True
-                enum_definitions = ""
-                if "enum" in oper:
-                    nickname = oper["nickname"]
-                    enum_wrapper = create_enum_wrapper(nickname, "return_type", oper["enum"])
-                    enum_definitions = Template('''
-namespace ns_$nickname {
-$enum_wrapper
-}
-''').substitute(nickname=nickname, enum_wrapper=enum_wrapper.rstrip())
-                funcs = ""
-                if "parameters" in oper:
-                    for param in oper["parameters"]:
-                        if is_required_query_param(param):
-                            if first:
-                                first = False
-                            else:
-                                fprint(ccfile, "\n,")
-                            fprint(ccfile, '"', param["name"], '"')
-                        if "enum" in param:
-                            enum_definitions = enum_definitions + 'namespace ns_' + oper["nickname"] + '{\n'
-                            enm = param["name"]
-                            enum_definitions = enum_definitions + 'enum class ' + enm + ' {'
-                            for val in param["enum"]:
-                                enum_definitions = enum_definitions + val + ", "
-                            enum_definitions = enum_definitions + 'NUM_ITEMS};\n'
-                            enum_definitions = enum_definitions + enm + ' str2' + enm + '(const sstring& str);'
-
-                            funcs = funcs + enm + ' str2' + enm + '(const sstring& str) {\n'
-                            funcs = funcs + '  static const sstring arr[] = {"' + '","'.join(param["enum"]) + '"};\n'
-                            funcs = funcs + '  int i;\n'
-                            funcs = funcs + '  for (i=0; i < ' + str(len(param["enum"])) + '; i++) {\n'
-                            funcs = funcs + '    if (arr[i] == str) {return (' + enm + ')i;}\n}\n'
-                            funcs = funcs + '  return (' + enm + ')i;\n'
-                            funcs = funcs + '}\n'
-
-                            enum_definitions = enum_definitions + '}\n'
-
-                fprintln(ccfile, '});')
-                fprintln(hfile, enum_definitions)
-                open_namespace(ccfile, 'ns_' + oper["nickname"])
-                fprintln(ccfile, funcs)
-                close_namespace(ccfile)
+        for oper in item.get("operations", []):
+            add_operation(hfile, ccfile, path, oper)
 
     close_namespace(hfile)
     close_namespace(hfile)
