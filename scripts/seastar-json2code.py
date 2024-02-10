@@ -202,6 +202,40 @@ def add_path(f, path, details):
     fprintln(f, spacing, ";")
 
 
+def generate_code_from_enum(nickname, type_name, enums):
+    enum_list = ',\n'.join(enums + ['NUM_ITEMS'])
+    decl = Template('''\
+    namespace ns_$nickname {
+        enum class $type_name {
+        $enum_list
+        };
+        $type_name str2$type_name(const sstring& str);
+   }
+   ''').substitute(nickname=nickname,
+                   type_name=type_name,
+                   enum_list=enum_list)
+
+    name_list = ',\n'.join(f'"{enum}"' for enum in enums)
+    parse_func = Template('''\
+    $type_name str2$type_name(const sstring& str) {
+        static const sstring arr[] = {
+        $name_list
+        };
+        int i;
+        for (i = 0; i < $num_enums; i++) {
+            if (arr[i] == str) {
+                return ($type_name)i;
+            }
+        }
+        return ($type_name)i;
+    }
+    ''').substitute(type_name=type_name,
+                    name_list=name_list,
+                    num_enums=len(enums))
+
+    return decl, parse_func
+
+
 def add_operation(hfile, ccfile, path, oper):
     if "summary" in oper:
         print_ind_comment(hfile, '', oper["summary"])
@@ -263,23 +297,11 @@ $enum_wrapper
                     fprint(ccfile, "\n,")
                 fprint(ccfile, '"', param["name"], '"')
             if "enum" in param:
-                enum_definitions = enum_definitions + 'namespace ns_' + oper["nickname"] + '{\n'
-                enm = param["name"]
-                enum_definitions = enum_definitions + 'enum class ' + enm + ' {'
-                for val in param["enum"]:
-                    enum_definitions = enum_definitions + val + ", "
-                enum_definitions = enum_definitions + 'NUM_ITEMS};\n'
-                enum_definitions = enum_definitions + enm + ' str2' + enm + '(const sstring& str);'
-
-                funcs = funcs + enm + ' str2' + enm + '(const sstring& str) {\n'
-                funcs = funcs + '  static const sstring arr[] = {"' + '","'.join(param["enum"]) + '"};\n'
-                funcs = funcs + '  int i;\n'
-                funcs = funcs + '  for (i=0; i < ' + str(len(param["enum"])) + '; i++) {\n'
-                funcs = funcs + '    if (arr[i] == str) {return (' + enm + ')i;}\n}\n'
-                funcs = funcs + '  return (' + enm + ')i;\n'
-                funcs = funcs + '}\n'
-
-                enum_definitions = enum_definitions + '}\n'
+                enum_decl, parse_func = generate_code_from_enum(oper["nickname"],
+                                                                param["name"],
+                                                                param["enum"])
+                enum_definitions += enum_decl
+                funcs += parse_func
 
     fprintln(ccfile, '});')
     fprintln(hfile, enum_definitions)
