@@ -315,20 +315,19 @@ $enum_wrapper
 }
 ''').substitute(nickname=nickname, enum_wrapper=enum_wrapper.rstrip())
     funcs = ""
-    if "parameters" in oper:
-        for param in oper["parameters"]:
-            if is_required_query_param(param):
-                if first:
-                    first = False
-                else:
-                    fprint(ccfile, "\n,")
-                fprint(ccfile, '"', param["name"], '"')
-            if "enum" in param:
-                enum_decl, parse_func = generate_code_from_enum(oper["nickname"],
-                                                                param["name"],
-                                                                param["enum"])
-                enum_definitions += enum_decl
-                funcs += parse_func
+    for param in oper.get("parameters", []):
+        if is_required_query_param(param):
+            if first:
+                first = False
+            else:
+                fprint(ccfile, "\n,")
+            fprint(ccfile, '"', param["name"], '"')
+        if "enum" in param:
+            enum_decl, parse_func = generate_code_from_enum(oper["nickname"],
+                                                            param["name"],
+                                                            param["enum"])
+            enum_definitions += enum_decl
+            funcs += parse_func
 
     fprintln(ccfile, '});')
     fprintln(hfile, enum_definitions)
