@@ -202,24 +202,51 @@ def add_path(f, path, details):
     fprintln(f, spacing, ";")
 
 
+def not_first():
+    '''
+    Returns True when gets called for the first time, False otherwise
+
+    used as the predicate parameter of textwrap.indent(), so the first
+    line is not indented. this helps to preserve the Python code's logical
+    indention in the template, and allows us to put something like::
+
+      blah = textwrap.indent("""\
+           foo bar
+               blah blah
+           foo bar
+    """
+    '''
+    _is_first = True
+
+    def should_indent(_):
+        nonlocal _is_first
+        first = _is_first
+        _is_first = False
+        return not first
+    return should_indent
+
+
 def generate_code_from_enum(nickname, type_name, enums):
+    def indent_body(s, level):
+        return textwrap.indent(s, level * '    ', not_first())
+
     enum_list = ',\n'.join(enums + ['NUM_ITEMS'])
     decl = Template('''\
     namespace ns_$nickname {
         enum class $type_name {
-        $enum_list
+            $enum_list
         };
         $type_name str2$type_name(const sstring& str);
    }
    ''').substitute(nickname=nickname,
                    type_name=type_name,
-                   enum_list=enum_list)
+                   enum_list=indent_body(enum_list, 3))
 
     name_list = ',\n'.join(f'"{enum}"' for enum in enums)
     parse_func = Template('''\
     $type_name str2$type_name(const sstring& str) {
         static const sstring arr[] = {
-        $name_list
+            $name_list
         };
         int i;
         for (i = 0; i < $num_enums; i++) {
@@ -230,7 +257,7 @@ def generate_code_from_enum(nickname, type_name, enums):
         return ($type_name)i;
     }
     ''').substitute(type_name=type_name,
-                    name_list=name_list,
+                    name_list=indent_body(name_list, 3),
                     num_enums=len(enums))
 
     return decl, parse_func
@@ -363,30 +390,6 @@ def resolve_model_order(data):
             res.append(model_name)
             models.add(model_name)
     return res
-
-
-def not_first():
-    '''
-    Returns True when gets called for the first time, False otherwise
-
-    used as the predicate parameter of textwrap.indent(), so the first
-    line is not indented. this helps to preserve the Python code's logical
-    indention in the template, and allows us to put something like::
-
-      blah = textwrap.indent("""\
-           foo bar
-               blah blah
-           foo bar
-    """
-    '''
-    _is_first = True
-
-    def should_indent(_):
-        nonlocal _is_first
-        first = _is_first
-        _is_first = False
-        return not first
-    return should_indent
 
 
 def create_enum_wrapper(model_name, name, values):
