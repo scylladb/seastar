@@ -304,7 +304,6 @@ def add_operation(hfile, ccfile, path, oper):
                 fprint(ccfile, '{', '"', path_param , '", path_description::url_component_type::PARAM', '}')
     fprint(ccfile, '}')
     fprint(ccfile, ',{')
-    first = True
     enum_definitions = ""
     if "enum" in oper:
         nickname = oper["nickname"]
@@ -315,20 +314,17 @@ $enum_wrapper
 }
 ''').substitute(nickname=nickname, enum_wrapper=enum_wrapper.rstrip())
     funcs = ""
+    required_query_params = []
     for param in oper.get("parameters", []):
         if is_required_query_param(param):
-            if first:
-                first = False
-            else:
-                fprint(ccfile, "\n,")
-            fprint(ccfile, '"', param["name"], '"')
+            required_query_params.append(param["name"])
         if "enum" in param:
             enum_decl, parse_func = generate_code_from_enum(oper["nickname"],
                                                             param["name"],
                                                             param["enum"])
             enum_definitions += enum_decl
             funcs += parse_func
-
+    fprint(ccfile, '\n,'.join(f'"{name}"' for name in required_query_params))
     fprintln(ccfile, '});')
     fprintln(hfile, enum_definitions)
     open_namespace(ccfile, 'ns_' + oper["nickname"])
