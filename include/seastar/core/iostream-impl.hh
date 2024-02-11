@@ -23,6 +23,7 @@
 
 #pragma once
 
+#include <seastar/core/coroutine.hh>
 #include <seastar/core/do_with.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/net/packet.hh>
@@ -152,26 +153,29 @@ future<> output_stream<CharType>::write(temporary_buffer<CharType> p) noexcept {
 template <typename CharType>
 future<temporary_buffer<CharType>>
 input_stream<CharType>::read_exactly_part(size_t n, tmp_buf out, size_t completed) noexcept {
-    if (available()) {
-        auto now = std::min(n - completed, available());
-        std::copy(_buf.get(), _buf.get() + now, out.get_write() + completed);
-        _buf.trim_front(now);
-        completed += now;
-    }
-    if (completed == n) {
-        return make_ready_future<tmp_buf>(std::move(out));
-    }
+    while (completed < n) {
+        size_t avail = available();
+        if (avail) {
+            auto now = std::min(n - completed, avail);
+            std::copy_n(_buf.get(), now, out.get_write() + completed);
+            _buf.trim_front(now);
+            completed += now;
+        }
 
-    // _buf is now empty
-    return _fd.get().then([this, n, out = std::move(out), completed] (auto buf) mutable {
+        if (completed == n) {
+            break;
+        }
+
+        // _buf is now empty
+        temporary_buffer<CharType> buf = co_await _fd.get();
         if (buf.size() == 0) {
             _eof = true;
             out.trim(completed);
-            return make_ready_future<tmp_buf>(std::move(out));
+            break;
         }
         _buf = std::move(buf);
-        return this->read_exactly_part(n, std::move(out), completed);
-    });
+    }
+    co_return out;
 }
 
 template <typename CharType>
