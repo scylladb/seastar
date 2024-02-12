@@ -305,11 +305,9 @@ BOOST_AUTO_TEST_CASE(test_resize_and_overwrite) {
 
 BOOST_AUTO_TEST_CASE(test_compares_left_hand_not_string) {
     // mostly a compile test for non-sstring left-hand-side
-#if __cplusplus > 201703L
     BOOST_REQUIRE("a" == sstring("a"));
     BOOST_REQUIRE(std::string("a") == sstring("a"));
     BOOST_REQUIRE(std::string_view("a") == sstring("a"));
-#endif
 
 #ifdef __cpp_lib_three_way_comparison
     BOOST_REQUIRE("a" < sstring("b"));
