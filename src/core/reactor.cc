@@ -597,13 +597,13 @@ public:
 
 thread_local task_histogram this_thread_task_histogram;
 
-#endif
-
 void task_histogram_add_task(const task& t) {
-#ifdef SEASTAR_TASK_HISTOGRAM
     this_thread_task_histogram.add(t);
-#endif
 }
+#else
+void task_histogram_add_task(const task& t) {
+}
+#endif
 
 }
 
@@ -868,6 +868,7 @@ static void print_with_backtrace(const char* cause, bool oneline = false) noexce
     print_with_backtrace(buf, oneline);
 }
 
+#ifndef SEASTAR_ASAN_ENABLED
 // Installs signal handler stack for current thread.
 // The stack remains installed as long as the returned object is kept alive.
 // When it goes out of scope the previous handler is restored.
@@ -891,6 +892,15 @@ static decltype(auto) install_signal_handler_stack() {
         }
     });
 }
+#else
+// SIGSTKSZ is too small when using asan. We also don't need to
+// handle SIGSEGV ourselves when using asan, so just don't install
+// a signal handler stack.
+auto install_signal_handler_stack() {
+    struct nothing { ~nothing() {} };
+    return nothing{};
+}
+#endif
 
 static sstring shorten_name(const sstring& name, size_t length) {
     assert(!name.empty());
@@ -2450,21 +2460,24 @@ reactor::fdatasync(int fd) noexcept {
 
 // Note: terminate if arm_highres_timer throws
 // `when` should always be valid
+#ifndef HAVE_OSV
 void reactor::enable_timer(steady_clock_type::time_point when) noexcept
 {
-#ifndef HAVE_OSV
     itimerspec its;
     its.it_interval = {};
     its.it_value = to_timespec(when);
     _backend->arm_highres_timer(its);
+}
 #else
+void reactor::enable_timer(steady_clock_type::time_point when) noexcept
+{
     using ns = std::chrono::nanoseconds;
     WITH_LOCK(_timer_mutex) {
         _timer_due = std::chrono::duration_cast<ns>(when.time_since_epoch()).count();
         _timer_cond.wake_one();
     }
-#endif
 }
+#endif
 
 void reactor::add_timer(timer<steady_clock_type>* tmr) noexcept {
     if (queue_timer(tmr)) {
@@ -3206,14 +3219,7 @@ int reactor::run() noexcept {
 }
 
 int reactor::do_run() {
-#ifndef SEASTAR_ASAN_ENABLED
-    // SIGSTKSZ is too small when using asan. We also don't need to
-    // handle SIGSEGV ourselves when using asan, so just don't install
-    // a signal handler stack.
     auto signal_stack = install_signal_handler_stack();
-#else
-    (void)install_signal_handler_stack;
-#endif
 
     register_metrics();
 
@@ -4075,6 +4081,14 @@ static void sigabrt_action() noexcept {
     reraise_signal(SIGABRT);
 }
 
+// We don't need to handle SIGSEGV when asan is enabled.
+#ifdef SEASTAR_ASAN_ENABLED
+template<>
+void install_oneshot_signal_handler<SIGSEGV, sigsegv_action>() {
+    (void)sigsegv_action;
+}
+#endif
+
 void smp::qs_deleter::operator()(smp_message_queue** qs) const {
     for (unsigned i = 0; i < smp::count; i++) {
         for (unsigned j = 0; j < smp::count; j++) {
@@ -4277,12 +4291,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     }
     pthread_sigmask(SIG_BLOCK, &sigs, nullptr);
 
-#ifndef SEASTAR_ASAN_ENABLED
-    // We don't need to handle SIGSEGV when asan is enabled.
     install_oneshot_signal_handler<SIGSEGV, sigsegv_action>();
-#else
-    (void)sigsegv_action;
-#endif
     install_oneshot_signal_handler<SIGABRT, sigabrt_action>();
 
 #ifdef SEASTAR_HAVE_DPDK
