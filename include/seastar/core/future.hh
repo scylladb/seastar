@@ -1509,15 +1509,13 @@ public:
     /// \param func - function to be called when the future becomes available,
     /// \return a \c future representing the return value of \c func, applied
     ///         to the eventual value of this future.
-    template <typename Func, typename FuncResult = std::invoke_result_t<Func, future>>
-    requires std::invocable<Func, future>
+    template <std::invocable<future> Func, typename FuncResult = std::invoke_result_t<Func, future>>
     futurize_t<FuncResult>
     then_wrapped(Func&& func) & noexcept {
         return then_wrapped_maybe_erase<false, FuncResult>(std::forward<Func>(func));
     }
 
-    template <typename Func, typename FuncResult = std::invoke_result_t<Func, future&&>>
-    requires std::invocable<Func, future&&>
+    template <std::invocable<future&&> Func, typename FuncResult = std::invoke_result_t<Func, future&&>>
     futurize_t<FuncResult>
     then_wrapped(Func&& func) && noexcept {
         return then_wrapped_maybe_erase<true, FuncResult>(std::forward<Func>(func));
@@ -1627,8 +1625,7 @@ public:
      * with the callback exception on top and the original future exception
      * nested will be propagated.
      */
-    template <typename Func>
-    requires std::invocable<Func>
+    template <std::invocable Func>
     future<T> finally(Func&& func) noexcept {
         return then_wrapped(finally_body<Func, is_future<std::invoke_result_t<Func>>::value>(std::forward<Func>(func)));
     }
@@ -1901,8 +1898,7 @@ private:
     /// Forwards the result of, or exception thrown by, func() to the
     /// promise. This avoids creating a future if func() doesn't
     /// return one.
-    template<typename Func>
-    requires std::invocable<Func>
+    template<std::invocable Func>
     static void satisfy_with_result_of(promise_base_with_type&&, Func&& func);
 
     template <typename U>
@@ -2001,8 +1997,7 @@ typename futurize<T>::type futurize<T>::apply(Func&& func, std::tuple<FuncArgs..
 }
 
 template<typename T>
-template<typename Func>
-requires std::invocable<Func>
+template<std::invocable Func>
 void futurize<T>::satisfy_with_result_of(promise_base_with_type&& pr, Func&& func) {
     using ret_t = decltype(func());
     if constexpr (std::is_void_v<ret_t>) {

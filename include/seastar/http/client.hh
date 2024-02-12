@@ -183,8 +183,7 @@ class client {
     future<> put_connection(connection_ptr con);
     future<> shrink_connections();
 
-    template <typename Fn>
-    requires std::invocable<Fn, connection&>
+    template <std::invocable<connection&> Fn>
     auto with_connection(Fn&& fn);
 
 public:
