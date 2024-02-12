@@ -25,7 +25,6 @@
 #ifndef SEASTAR_MODULE
 #include <concepts>
 #include <limits>
-#include <type_traits>
 #endif
 
 namespace seastar {
@@ -62,8 +61,7 @@ constexpr unsigned count_trailing_zeros(unsigned long long x) {
     return __builtin_ctzll(x);
 }
 
-template<typename T>
-requires std::is_integral_v<T>
+template<std::integral T>
 inline constexpr unsigned log2ceil(T n) {
     if (n == 1) {
         return 0;
@@ -71,8 +69,7 @@ inline constexpr unsigned log2ceil(T n) {
     return std::numeric_limits<T>::digits - count_leading_zeros(n - 1);
 }
 
-template<typename T>
-requires std::is_integral_v<T>
+template<std::integral T>
 inline constexpr unsigned log2floor(T n) {
     return std::numeric_limits<T>::digits - count_leading_zeros(n) - 1;
 }
