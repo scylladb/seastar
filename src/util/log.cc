@@ -261,7 +261,7 @@ static internal::log_buf::inserter_iterator print_real_timestamp(internal::log_b
 
 static internal::log_buf::inserter_iterator (*print_timestamp)(internal::log_buf::inserter_iterator) = print_no_timestamp;
 
-const std::map<log_level, sstring> log_level_names = {
+const std::map<log_level, std::string_view> log_level_names = {
         { log_level::trace, "trace" },
         { log_level::debug, "debug" },
         { log_level::info, "info" },
@@ -534,7 +534,7 @@ logger_registry& global_logger_registry() {
 }
 
 sstring level_name(log_level level) {
-    return  log_level_names.at(level);
+    return sstring(log_level_names.at(level));
 }
 
 namespace log_cli {
