@@ -36,8 +36,8 @@ namespace seastar {
 
 namespace internal {
 
-    template <typename Aborter, typename T>
-    concept aborter = std::is_nothrow_invocable_r_v<void, Aborter, T&>;
+template <typename Aborter, typename T>
+concept aborter = std::is_nothrow_invocable_r_v<void, Aborter, T&>;
 
 // This class satisfies 'aborter' concept and is used by default
 template<typename... T>
