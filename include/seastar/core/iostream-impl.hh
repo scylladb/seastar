@@ -208,7 +208,7 @@ input_stream<CharType>::read_exactly(size_t n) noexcept {
 
 template <typename CharType>
 template <typename Consumer>
-SEASTAR_CONCEPT(requires InputStreamConsumer<Consumer, CharType> || ObsoleteInputStreamConsumer<Consumer, CharType>)
+requires InputStreamConsumer<Consumer, CharType> || ObsoleteInputStreamConsumer<Consumer, CharType>
 future<>
 input_stream<CharType>::consume(Consumer&& consumer) noexcept(std::is_nothrow_move_constructible_v<Consumer>) {
     return repeat([consumer = std::move(consumer), this] () mutable {
@@ -244,7 +244,7 @@ input_stream<CharType>::consume(Consumer&& consumer) noexcept(std::is_nothrow_mo
 
 template <typename CharType>
 template <typename Consumer>
-SEASTAR_CONCEPT(requires InputStreamConsumer<Consumer, CharType> || ObsoleteInputStreamConsumer<Consumer, CharType>)
+requires InputStreamConsumer<Consumer, CharType> || ObsoleteInputStreamConsumer<Consumer, CharType>
 future<>
 input_stream<CharType>::consume(Consumer& consumer) noexcept(std::is_nothrow_move_constructible_v<Consumer>) {
     return consume(std::ref(consumer));

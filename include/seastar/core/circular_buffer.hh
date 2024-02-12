@@ -23,9 +23,9 @@
 
 #include <seastar/core/transfer.hh>
 #include <seastar/core/bitops.hh>
-#include <seastar/util/concepts.hh>
 #include <seastar/util/modules.hh>
 #ifndef SEASTAR_MODULE
+#include <concepts>
 #include <memory>
 #include <algorithm>
 #endif
@@ -88,7 +88,7 @@ public:
     using const_reference = const T&;
     using const_pointer = const T*;
 public:
-    circular_buffer() noexcept SEASTAR_CONCEPT(requires std::default_initializable<Alloc>) : circular_buffer(Alloc()) {}
+    circular_buffer() noexcept requires std::default_initializable<Alloc> : circular_buffer(Alloc()) {}
     circular_buffer(Alloc alloc) noexcept;
     circular_buffer(circular_buffer&& X) noexcept;
     circular_buffer(const circular_buffer& X) = delete;

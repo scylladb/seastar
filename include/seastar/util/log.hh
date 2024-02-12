@@ -22,13 +22,13 @@
 
 #include <seastar/core/sstring.hh>
 #include <seastar/util/backtrace.hh>
-#include <seastar/util/concepts.hh>
 #include <seastar/util/log-impl.hh>
 #include <seastar/core/lowres_clock.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/modules.hh>
 
 #ifndef SEASTAR_MODULE
+#include <concepts>
 #include <unordered_map>
 #include <exception>
 #include <iosfwd>
@@ -110,9 +110,9 @@ public:
         virtual internal::log_buf::inserter_iterator operator()(internal::log_buf::inserter_iterator) = 0;
     };
     template <typename Func>
-    SEASTAR_CONCEPT(requires requires (Func fn, internal::log_buf::inserter_iterator it) {
+    requires requires (Func fn, internal::log_buf::inserter_iterator it) {
         it = fn(it);
-    })
+    }
     class lambda_log_writer : public log_writer {
         Func _func;
     public:

@@ -319,7 +319,7 @@ SEASTAR_TEST_CASE(test_diagnostics_failures) {
 }
 
 template <typename Func>
-SEASTAR_CONCEPT(requires requires (Func fn) { fn(); })
+requires requires (Func fn) { fn(); }
 void check_function_allocation(const char* name, size_t expected_allocs, Func f) {
     auto before = seastar::memory::stats();
     f();

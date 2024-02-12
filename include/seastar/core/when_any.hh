@@ -75,7 +75,7 @@ public:
 ///         ready, at least one of the contained futures (the one indicated by index) will be ready.
 SEASTAR_MODULE_EXPORT
 template <class FutureIterator>
-SEASTAR_CONCEPT( requires requires (FutureIterator i) { { *i++ }; requires is_future<std::remove_reference_t<decltype(*i)>>::value; } )
+requires requires (FutureIterator i) { { *i++ }; requires is_future<std::remove_reference_t<decltype(*i)>>::value; }
 auto when_any(FutureIterator begin, FutureIterator end) noexcept
   -> future<when_any_result<std::vector<std::decay_t<typename std::iterator_traits<FutureIterator>::value_type>>>>
 {

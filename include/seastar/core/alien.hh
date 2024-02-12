@@ -24,6 +24,7 @@
 
 #ifndef SEASTAR_MODULE
 #include <atomic>
+#include <concepts>
 #include <future>
 #include <memory>
 #include <type_traits>
@@ -34,7 +35,6 @@
 #include <seastar/core/cacheline.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/metrics_registration.hh>
-#include <seastar/util/concepts.hh>
 #include <seastar/util/modules.hh>
 
 /// \file
@@ -145,7 +145,7 @@ extern instance* default_instance;
 ///          \c func throws.
 SEASTAR_MODULE_EXPORT
 template <typename Func>
-SEASTAR_CONCEPT(requires std::is_nothrow_invocable_r_v<void, Func>)
+requires std::is_nothrow_invocable_r_v<void, Func>
 void run_on(instance& instance, unsigned shard, Func func) {
     instance._qs[shard].submit(std::move(func));
 }
@@ -201,7 +201,7 @@ template <typename Func> using return_type_t = typename return_type_of<Func>::ty
 /// \note the caller must keep the returned future alive until \c func returns
 SEASTAR_MODULE_EXPORT
 template<typename Func, typename T = internal::return_type_t<Func>>
-SEASTAR_CONCEPT(requires std::invocable<Func>)
+requires std::invocable<Func>
 std::future<T> submit_to(instance& instance, unsigned shard, Func func) {
     std::promise<T> pr;
     auto fut = pr.get_future();

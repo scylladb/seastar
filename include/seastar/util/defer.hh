@@ -23,11 +23,11 @@
 
 #include "modules.hh"
 #ifndef SEASTAR_MODULE
+#include <concepts>
 #include <type_traits>
 #include <utility>
 #endif
 #include <seastar/util/modules.hh>
-#include <seastar/util/concepts.hh>
 
 
 #ifdef SEASTAR_DEFERRED_ACTION_REQUIRE_NOEXCEPT
@@ -36,17 +36,15 @@
 #define SEASTAR_DEFERRED_ACTION_NOEXCEPT
 #endif
 
-SEASTAR_CONCEPT(
 template <typename Func>
 concept deferrable_action = requires (Func func) {
     { func() } SEASTAR_DEFERRED_ACTION_NOEXCEPT -> std::same_as<void>;
 };
-)
 
 namespace seastar {
 
 template <typename Func>
-SEASTAR_CONCEPT( requires deferrable_action<Func> )
+requires deferrable_action<Func>
 class [[nodiscard]] deferred_action {
     Func _func;
     bool _cancelled = false;
@@ -70,7 +68,7 @@ public:
 
 SEASTAR_MODULE_EXPORT
 template <typename Func>
-SEASTAR_CONCEPT( requires deferrable_action<Func> )
+requires deferrable_action<Func>
 inline
 deferred_action<Func>
 defer(Func&& func) {

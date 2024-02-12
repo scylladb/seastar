@@ -133,7 +133,7 @@ public:
     future<> remove() noexcept;
 
     template <typename Func>
-    SEASTAR_CONCEPT( requires std::is_nothrow_move_constructible_v<Func> )
+    requires std::is_nothrow_move_constructible_v<Func>
     static future<> do_with(std::filesystem::path path_template, Func&& func,
             file_permissions create_permissions = file_permissions::default_dir_permissions) noexcept {
         static_assert(std::is_nothrow_move_constructible_v<Func>,
@@ -153,8 +153,7 @@ public:
     }
 
     template <typename Func>
-
-    SEASTAR_CONCEPT( requires std::is_nothrow_move_constructible_v<Func> )
+    requires std::is_nothrow_move_constructible_v<Func>
     static future<> do_with_thread(Func&& func) noexcept {
         static_assert(std::is_nothrow_move_constructible_v<Func>,
             "Func's move constructor must not throw");

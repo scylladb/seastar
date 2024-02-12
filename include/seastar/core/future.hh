@@ -23,6 +23,7 @@
 
 #ifndef SEASTAR_MODULE
 #include <cassert>
+#include <concepts>
 #include <cstdlib>
 #include <cstring>
 #include <functional>
@@ -37,7 +38,6 @@
 #include <seastar/core/function_traits.hh>
 #include <seastar/core/shard_id.hh>
 #include <seastar/util/critical_alloc_section.hh>
-#include <seastar/util/concepts.hh>
 #include <seastar/util/noncopyable_function.hh>
 #include <seastar/util/backtrace.hh>
 #include <seastar/util/std-compat.hh>
@@ -1045,8 +1045,6 @@ SEASTAR_MODULE_EXPORT
 template <typename T>
 struct futurize;
 
-SEASTAR_CONCEPT(
-
 template <typename T>
 concept Future = is_future<T>::value;
 
@@ -1080,8 +1078,6 @@ concept InvokeReturnsAnyFuture = Future<std::invoke_result_t<Func, T...>>;
 // Deprecated alias
 template <typename Func, typename... T>
 concept ApplyReturnsAnyFuture = InvokeReturnsAnyFuture<Func, T...>;
-
-)
 
 /// \endcond
 
@@ -1412,8 +1408,8 @@ public:
     /// \return a \c future representing the return value of \c func, applied
     ///         to the eventual value of this future.
     template <typename Func, typename Result = typename internal::future_result<Func, T>::future_type>
-    SEASTAR_CONCEPT( requires std::invocable<Func, T>
-                 || (std::same_as<void, T> && std::invocable<Func>) )
+    requires std::invocable<Func, T>
+                 || (std::same_as<void, T> && std::invocable<Func>)
     Result
     then(Func&& func) noexcept {
 #ifndef SEASTAR_TYPE_ERASE_MORE
@@ -1451,7 +1447,7 @@ public:
     /// \return a \c future representing the return value of \c func, applied
     ///         to the eventual value of this future.
     template <typename Func, typename Result = futurize_t<internal::result_of_apply_t<Func, T>>>
-    SEASTAR_CONCEPT( requires ::seastar::CanApplyTuple<Func, T>)
+    requires ::seastar::CanApplyTuple<Func, T>
     Result
     then_unpack(Func&& func) noexcept {
         return then([func = std::forward<Func>(func)] (T&& tuple) mutable {
@@ -1514,14 +1510,14 @@ public:
     /// \return a \c future representing the return value of \c func, applied
     ///         to the eventual value of this future.
     template <typename Func, typename FuncResult = std::invoke_result_t<Func, future>>
-    SEASTAR_CONCEPT( requires std::invocable<Func, future> )
+    requires std::invocable<Func, future>
     futurize_t<FuncResult>
     then_wrapped(Func&& func) & noexcept {
         return then_wrapped_maybe_erase<false, FuncResult>(std::forward<Func>(func));
     }
 
     template <typename Func, typename FuncResult = std::invoke_result_t<Func, future&&>>
-    SEASTAR_CONCEPT( requires std::invocable<Func, future&&> )
+    requires std::invocable<Func, future&&>
     futurize_t<FuncResult>
     then_wrapped(Func&& func) && noexcept {
         return then_wrapped_maybe_erase<true, FuncResult>(std::forward<Func>(func));
@@ -1632,7 +1628,7 @@ public:
      * nested will be propagated.
      */
     template <typename Func>
-    SEASTAR_CONCEPT( requires std::invocable<Func> )
+    requires std::invocable<Func>
     future<T> finally(Func&& func) noexcept {
         return then_wrapped(finally_body<Func, is_future<std::invoke_result_t<Func>>::value>(std::forward<Func>(func)));
     }
@@ -1714,11 +1710,10 @@ public:
     /// successful value; Because handle_exception() is used here on a
     /// future<>, the handler function does not need to return anything.
     template <typename Func>
-    SEASTAR_CONCEPT( requires std::is_invocable_r_v<future<T> ,Func, std::exception_ptr>
+    requires std::is_invocable_r_v<future<T> ,Func, std::exception_ptr>
                     || (std::tuple_size_v<tuple_type> == 0 && std::is_invocable_r_v<void, Func, std::exception_ptr>)
                     || (std::tuple_size_v<tuple_type> == 1 && std::is_invocable_r_v<T, Func, std::exception_ptr>)
                     || (std::tuple_size_v<tuple_type> > 1 && std::is_invocable_r_v<tuple_type ,Func, std::exception_ptr>)
-    )
     future<T> handle_exception(Func&& func) noexcept {
         return then_wrapped([func = std::forward<Func>(func)]
                              (auto&& fut) mutable -> future<T> {
@@ -1907,7 +1902,7 @@ private:
     /// promise. This avoids creating a future if func() doesn't
     /// return one.
     template<typename Func>
-    SEASTAR_CONCEPT( requires std::invocable<Func> )
+    requires std::invocable<Func>
     static void satisfy_with_result_of(promise_base_with_type&&, Func&& func);
 
     template <typename U>
@@ -2007,7 +2002,7 @@ typename futurize<T>::type futurize<T>::apply(Func&& func, std::tuple<FuncArgs..
 
 template<typename T>
 template<typename Func>
-SEASTAR_CONCEPT( requires std::invocable<Func> )
+requires std::invocable<Func>
 void futurize<T>::satisfy_with_result_of(promise_base_with_type&& pr, Func&& func) {
     using ret_t = decltype(func());
     if constexpr (std::is_void_v<ret_t>) {

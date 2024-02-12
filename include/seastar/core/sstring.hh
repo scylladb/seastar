@@ -28,6 +28,7 @@
 #if __has_include(<compare>)
 #include <compare>
 #endif
+#include <concepts>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -40,7 +41,6 @@
 #include <type_traits>
 #include <fmt/ostream.h>
 #endif
-#include <seastar/util/concepts.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/modules.hh>
 #include <seastar/core/temporary_buffer.hh>
@@ -354,7 +354,7 @@ public:
      *  @param op the function object used for setting the new content of the string
      */
     template <class Operation>
-    SEASTAR_CONCEPT( requires std::is_invocable_r_v<size_t, Operation, char_type*, size_t> )
+    requires std::is_invocable_r_v<size_t, Operation, char_type*, size_t>
     void resize_and_overwrite(size_t n, Operation op) {
         if (n > size()) {
             *this = basic_sstring(initialized_later(), n);

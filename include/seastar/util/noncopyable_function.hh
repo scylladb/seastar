@@ -23,9 +23,9 @@
 
 #include <seastar/util/modules.hh>
 #include <seastar/util/used_size.hh>
-#include <seastar/util/concepts.hh>
 
 #ifndef SEASTAR_MODULE
+#include <concepts>
 #include <utility>
 #include <type_traits>
 #include <functional>
@@ -180,7 +180,7 @@ private:
 public:
     noncopyable_function() noexcept : _vtable(&_s_empty_vtable) {}
     template <typename Func>
-    SEASTAR_CONCEPT( requires std::is_invocable_r_v<Ret, Func, Args...> )
+    requires std::is_invocable_r_v<Ret, Func, Args...>
     noncopyable_function(Func func) {
         static_assert(!Noexcept || noexcept(std::declval<Func>()(std::declval<Args>()...)));
         vtable_for<Func>::initialize(std::move(func), this);

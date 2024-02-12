@@ -21,18 +21,16 @@
 
 #pragma once
 
-#include <seastar/util/concepts.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/modules.hh>
 #ifndef SEASTAR_MODULE
+#include <concepts>
 #include <iostream>
 #include <memory>
 #include <type_traits>
 #endif
 
 namespace seastar {
-
-SEASTAR_CONCEPT(
 
 template<typename T>
 concept OptimizableOptional =
@@ -41,8 +39,6 @@ concept OptimizableOptional =
         && requires(const T& obj) {
             { bool(obj) } noexcept;
         };
-
-)
 
 /// \c optimized_optional<> is intended mainly for use with classes that store
 /// their data externally and expect pointer to this data to be always non-null.

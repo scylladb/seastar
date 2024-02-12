@@ -188,7 +188,6 @@ public:
 } // namespace internal
 
 /// \cond internal
-SEASTAR_CONCEPT(
 
 namespace impl {
 
@@ -211,8 +210,6 @@ struct is_tuple_of_futures<std::tuple<future<T...>, Rest...>> : is_tuple_of_futu
 template <typename... Futs>
 concept AllAreFutures = impl::is_tuple_of_futures<std::tuple<Futs...>>::value;
 
-)
-
 template<typename Fut, std::enable_if_t<is_future<Fut>::value, int> = 0>
 auto futurize_invoke_if_func(Fut&& fut) noexcept {
     return std::forward<Fut>(fut);
@@ -227,7 +224,7 @@ auto futurize_invoke_if_func(Func&& func) noexcept {
 namespace internal {
 
 template <typename... Futs>
-SEASTAR_CONCEPT( requires seastar::AllAreFutures<Futs...> )
+requires seastar::AllAreFutures<Futs...>
 inline
 future<std::tuple<Futs...>>
 when_all_impl(Futs&&... futs) noexcept {
@@ -321,7 +318,7 @@ do_when_all(FutureIterator begin, FutureIterator end) noexcept {
 ///         ready, all contained futures will be ready as well.
 SEASTAR_MODULE_EXPORT
 template <typename FutureIterator>
-SEASTAR_CONCEPT( requires requires (FutureIterator i) { { *i++ }; requires is_future<std::remove_reference_t<decltype(*i)>>::value; } )
+requires requires (FutureIterator i) { { *i++ }; requires is_future<std::remove_reference_t<decltype(*i)>>::value; }
 inline
 future<std::vector<typename std::iterator_traits<FutureIterator>::value_type>>
 when_all(FutureIterator begin, FutureIterator end) noexcept {
@@ -476,7 +473,7 @@ struct extract_values_from_futures_vector<future<>> {
 };
 
 template<typename... Futures>
-SEASTAR_CONCEPT( requires seastar::AllAreFutures<Futures...> )
+requires seastar::AllAreFutures<Futures...>
 inline auto when_all_succeed_impl(Futures&&... futures) noexcept {
     using state = when_all_state<extract_values_from_futures_tuple<Futures...>, Futures...>;
     return state::wait_all(std::forward<Futures>(futures)...);
@@ -512,11 +509,11 @@ inline auto when_all_succeed(FutOrFuncs&&... fut_or_funcs) noexcept {
 /// \return an \c std::vector<> of all the valus in the input
 SEASTAR_MODULE_EXPORT
 template <typename FutureIterator, typename = typename std::iterator_traits<FutureIterator>::value_type>
-SEASTAR_CONCEPT( requires requires (FutureIterator i) {
+requires requires (FutureIterator i) {
      *i++;
      { i != i } -> std::convertible_to<bool>;
      requires is_future<std::remove_reference_t<decltype(*i)>>::value;
-} )
+}
 inline auto
 when_all_succeed(FutureIterator begin, FutureIterator end) noexcept {
     using itraits = std::iterator_traits<FutureIterator>;

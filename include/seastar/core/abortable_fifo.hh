@@ -36,10 +36,8 @@ namespace seastar {
 
 namespace internal {
 
-SEASTAR_CONCEPT(
-    template <typename Aborter, typename T>
-    concept aborter = std::is_nothrow_invocable_r_v<void, Aborter, T&>;
-)
+template <typename Aborter, typename T>
+concept aborter = std::is_nothrow_invocable_r_v<void, Aborter, T&>;
 
 // This class satisfies 'aborter' concept and is used by default
 template<typename... T>
@@ -57,7 +55,7 @@ struct noop_aborter {
 /// The container can only be moved before any elements are pushed.
 ///
 template <typename T, typename OnAbort = noop_aborter<T>>
-SEASTAR_CONCEPT( requires aborter<OnAbort, T> )
+requires aborter<OnAbort, T>
 class abortable_fifo {
 private:
     struct entry {

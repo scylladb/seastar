@@ -22,10 +22,10 @@
 
 #pragma once
 
-#include <seastar/util/concepts.hh>
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <concepts>
 #include <cstdint>
 
 namespace seastar {
@@ -39,14 +39,12 @@ inline uint64_t fetch_add(std::atomic<uint64_t>& a, uint64_t b) noexcept {
     return a.fetch_add(b);
 }
 
-SEASTAR_CONCEPT(
 template <typename T>
 concept supports_wrapping_arithmetics = requires (T a, std::atomic<T> atomic_a, T b) {
     { fetch_add(atomic_a, b) } noexcept -> std::same_as<T>;
     { wrapping_difference(a, b) } noexcept -> std::same_as<T>;
     { a + b } noexcept -> std::same_as<T>;
 };
-)
 
 enum class capped_release { yes, no };
 
@@ -91,7 +89,7 @@ struct rovers<T, capped_release::no> {
 };
 
 template <typename T, typename Period, capped_release Capped, typename Clock = std::chrono::steady_clock>
-SEASTAR_CONCEPT( requires std::is_nothrow_copy_constructible_v<T> && supports_wrapping_arithmetics<T> )
+requires std::is_nothrow_copy_constructible_v<T> && supports_wrapping_arithmetics<T>
 class shared_token_bucket {
     using rate_resolution = std::chrono::duration<double, Period>;
 

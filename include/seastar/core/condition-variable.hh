@@ -259,7 +259,7 @@ public:
     /// \return a future that becomes ready when \ref signal() is called
     ///         If the condition variable was \ref broken(), may contain an exception.
     template<typename Pred>
-    SEASTAR_CONCEPT( requires std::is_invocable_r_v<bool, Pred> )
+    requires std::is_invocable_r_v<bool, Pred>
     future<> wait(Pred&& pred) noexcept {
         return do_until(std::forward<Pred>(pred), [this] {
             return wait();
@@ -276,7 +276,7 @@ public:
     ///         If the condition variable was \ref broken() will return \ref broken_condition_variable
     ///         exception. If timepoint is reached will return \ref condition_variable_timed_out exception.
     template<typename Clock = typename timer<>::clock, typename Duration = typename Clock::duration, typename Pred>
-    SEASTAR_CONCEPT( requires std::is_invocable_r_v<bool, Pred> )
+    requires std::is_invocable_r_v<bool, Pred>
     future<> wait(std::chrono::time_point<Clock, Duration> timeout, Pred&& pred) noexcept {
         return do_until(std::forward<Pred>(pred), [this, timeout] {
             return wait(timeout);
@@ -293,7 +293,7 @@ public:
     ///         If the condition variable was \ref broken() will return \ref broken_condition_variable
     ///         exception. If timepoint is passed will return \ref condition_variable_timed_out exception.
     template<typename Rep, typename Period, typename Pred>
-    SEASTAR_CONCEPT( requires std::is_invocable_r_v<bool, Pred> )
+    requires std::is_invocable_r_v<bool, Pred>
     future<> wait(std::chrono::duration<Rep, Period> timeout, Pred&& pred) noexcept {
         return wait(timer<>::clock::now() + timeout, std::forward<Pred>(pred));
     }
@@ -344,7 +344,7 @@ public:
     /// \return a future that becomes ready when \ref signal() is called
     ///         If the condition variable was \ref broken(), may contain an exception.
     template<typename Pred>
-    SEASTAR_CONCEPT( requires std::is_invocable_r_v<bool, Pred> )
+    requires std::is_invocable_r_v<bool, Pred>
     auto when(Pred&& pred) noexcept {
         return predicate_awaiter<Pred, awaiter>{std::forward<Pred>(pred), when()};
     }
@@ -360,7 +360,7 @@ public:
     ///         If the condition variable was \ref broken() will return \ref broken_condition_variable
     ///         exception. If timepoint is reached will return \ref condition_variable_timed_out exception.
     template<typename Clock = typename timer<>::clock, typename Duration = typename Clock::duration, typename Pred>
-    SEASTAR_CONCEPT( requires std::is_invocable_r_v<bool, Pred> )
+    requires std::is_invocable_r_v<bool, Pred>
     auto when(std::chrono::time_point<Clock, Duration> timeout, Pred&& pred) noexcept {
         return predicate_awaiter<Pred, timeout_awaiter<Clock, Duration>>{std::forward<Pred>(pred), when(timeout)};
     }
@@ -376,7 +376,7 @@ public:
     ///         If the condition variable was \ref broken() will return \ref broken_condition_variable
     ///         exception. If timepoint is passed will return \ref condition_variable_timed_out exception.
     template<typename Rep, typename Period, typename Pred>
-    SEASTAR_CONCEPT( requires std::is_invocable_r_v<bool, Pred> )
+    requires std::is_invocable_r_v<bool, Pred>
     auto when(std::chrono::duration<Rep, Period> timeout, Pred&& pred) noexcept {
         return when(timer<>::clock::now() + timeout, std::forward<Pred>(pred));
     }

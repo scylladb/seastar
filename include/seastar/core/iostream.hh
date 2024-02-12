@@ -243,7 +243,7 @@ private:
 };
 
 // Consumer concept, for consume() method
-SEASTAR_CONCEPT(
+
 // The consumer should operate on the data given to it, and
 // return a future "consumption result", which can be
 //  - continue_consuming, if the consumer has consumed all the input given
@@ -271,7 +271,6 @@ template <typename Consumer, typename CharType>
 concept ObsoleteInputStreamConsumer = requires (Consumer c) {
     { c(temporary_buffer<CharType>{}) } -> std::same_as<future<std::optional<temporary_buffer<CharType>>>>;
 };
-)
 
 /// Buffers data from a data_source and provides a stream interface to the user.
 ///
@@ -310,10 +309,10 @@ public:
     /// prematurely reaching the end of stream is *not* an I/O error.
     future<temporary_buffer<CharType>> read_exactly(size_t n) noexcept;
     template <typename Consumer>
-    SEASTAR_CONCEPT(requires InputStreamConsumer<Consumer, CharType> || ObsoleteInputStreamConsumer<Consumer, CharType>)
+    requires InputStreamConsumer<Consumer, CharType> || ObsoleteInputStreamConsumer<Consumer, CharType>
     future<> consume(Consumer&& c) noexcept(std::is_nothrow_move_constructible_v<Consumer>);
     template <typename Consumer>
-    SEASTAR_CONCEPT(requires InputStreamConsumer<Consumer, CharType> || ObsoleteInputStreamConsumer<Consumer, CharType>)
+    requires InputStreamConsumer<Consumer, CharType> || ObsoleteInputStreamConsumer<Consumer, CharType>
     future<> consume(Consumer& c) noexcept(std::is_nothrow_move_constructible_v<Consumer>);
     /// Returns true if the end-of-file flag is set on the stream.
     /// Note that the eof flag is only set after a previous attempt to read

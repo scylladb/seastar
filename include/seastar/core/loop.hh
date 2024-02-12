@@ -116,7 +116,7 @@ future<> repeat(AsyncAction& action) noexcept = delete;
 /// \return a ready future if we stopped successfully, or a failed future if
 ///         a call to to \c action failed.
 template<typename AsyncAction>
-SEASTAR_CONCEPT( requires std::is_invocable_r_v<stop_iteration, AsyncAction> || std::is_invocable_r_v<future<stop_iteration>, AsyncAction> )
+requires std::is_invocable_r_v<stop_iteration, AsyncAction> || std::is_invocable_r_v<future<stop_iteration>, AsyncAction>
 inline
 future<> repeat(AsyncAction&& action) noexcept {
     using futurator = futurize<std::invoke_result_t<AsyncAction>>;
@@ -229,10 +229,10 @@ public:
 /// \return a ready future if we stopped successfully, or a failed future if
 ///         a call to to \c action failed.  The \c optional's value is returned.
 template<typename AsyncAction>
-SEASTAR_CONCEPT( requires requires (AsyncAction aa) {
+requires requires (AsyncAction aa) {
     bool(futurize_invoke(aa).get());
     futurize_invoke(aa).get().value();
-} )
+}
 repeat_until_value_return_type<AsyncAction>
 repeat_until_value(AsyncAction action) noexcept {
     using futurator = futurize<std::invoke_result_t<AsyncAction>>;
@@ -334,7 +334,7 @@ public:
 /// \return a ready future if we stopped successfully, or a failed future if
 ///         a call to to \c action or a call to \c stop_cond failed.
 template<typename AsyncAction, typename StopCondition>
-SEASTAR_CONCEPT( requires std::is_invocable_r_v<bool, StopCondition> && std::is_invocable_r_v<future<>, AsyncAction> )
+requires std::is_invocable_r_v<bool, StopCondition> && std::is_invocable_r_v<future<>, AsyncAction>
 inline
 future<> do_until(StopCondition stop_cond, AsyncAction action) noexcept {
     using namespace internal;
@@ -370,7 +370,7 @@ future<> do_until(StopCondition stop_cond, AsyncAction action) noexcept {
 ///        that becomes ready when you wish it to be called again.
 /// \return a future<> that will resolve to the first failure of \c action
 template<typename AsyncAction>
-SEASTAR_CONCEPT( requires std::is_invocable_r_v<future<>, AsyncAction> )
+requires std::is_invocable_r_v<future<>, AsyncAction>
 inline
 future<> keep_doing(AsyncAction action) noexcept {
     return repeat([action = std::move(action)] () mutable {
@@ -455,9 +455,9 @@ future<> do_for_each_impl(Iterator begin, Iterator end, AsyncAction action) {
 /// \return a ready future on success, or the first failed future if
 ///         \c action failed.
 template<typename Iterator, typename AsyncAction>
-SEASTAR_CONCEPT( requires requires (Iterator i, AsyncAction aa) {
+requires requires (Iterator i, AsyncAction aa) {
     { futurize_invoke(aa, *i) } -> std::same_as<future<>>;
-} )
+}
 inline
 future<> do_for_each(Iterator begin, Iterator end, AsyncAction action) noexcept {
     try {
@@ -479,10 +479,10 @@ future<> do_for_each(Iterator begin, Iterator end, AsyncAction action) noexcept 
 /// \return a ready future on success, or the first failed future if
 ///         \c action failed.
 template<typename Container, typename AsyncAction>
-SEASTAR_CONCEPT( requires requires (Container c, AsyncAction aa) {
+requires requires (Container c, AsyncAction aa) {
     { futurize_invoke(aa, *std::begin(c)) } -> std::same_as<future<>>;
     std::end(c);
-} )
+}
 inline
 future<> do_for_each(Container& c, AsyncAction action) noexcept {
     try {
@@ -556,7 +556,7 @@ public:
 ///       current shard. If you want to run a function on all shards in parallel,
 ///       have a look at \ref smp::invoke_on_all() instead.
 template <typename Iterator, typename Sentinel, typename Func>
-SEASTAR_CONCEPT( requires (requires (Func f, Iterator i) { { f(*i) } -> std::same_as<future<>>; { i++ }; } && (std::same_as<Sentinel, Iterator> || std::sentinel_for<Sentinel, Iterator>)))
+requires (requires (Func f, Iterator i) { { f(*i) } -> std::same_as<future<>>; { i++ }; } && (std::same_as<Sentinel, Iterator> || std::sentinel_for<Sentinel, Iterator>))
 // We use a conjunction with std::same_as<Sentinel, Iterator> because std::sentinel_for requires Sentinel to be semiregular,
 // which implies that it requires Sentinel to be default-constructible, which is unnecessarily strict in below's context and could
 // break legacy code, for which it holds that Sentinel equals Iterator.
@@ -629,10 +629,10 @@ parallel_for_each_impl(Range&& range, Func&& func) {
 } // namespace internal
 
 template <typename Range, typename Func>
-SEASTAR_CONCEPT( requires requires (Func f, Range r) {
+requires requires (Func f, Range r) {
     { f(*std::begin(r)) } -> std::same_as<future<>>;
     std::end(r);
-} )
+}
 inline
 future<>
 parallel_for_each(Range&& range, Func&& func) noexcept {
@@ -662,7 +662,7 @@ parallel_for_each(Range&& range, Func&& func) noexcept {
 ///       current shard. If you want to run a function on all shards in parallel,
 ///       have a look at \ref smp::invoke_on_all() instead.
 template <typename Iterator, typename Sentinel, typename Func>
-SEASTAR_CONCEPT( requires (requires (Func f, Iterator i) { { f(*i) } -> std::same_as<future<>>; { ++i }; } && (std::same_as<Sentinel, Iterator> || std::sentinel_for<Sentinel, Iterator>) ) )
+requires (requires (Func f, Iterator i) { { f(*i) } -> std::same_as<future<>>; { ++i }; } && (std::same_as<Sentinel, Iterator> || std::sentinel_for<Sentinel, Iterator>) )
 // We use a conjunction with std::same_as<Sentinel, Iterator> because std::sentinel_for requires Sentinel to be semiregular,
 // which implies that it requires Sentinel to be default-constructible, which is unnecessarily strict in below's context and could
 // break legacy code, for which it holds that Sentinel equals Iterator.
@@ -743,10 +743,10 @@ max_concurrent_for_each(Iterator begin, Sentinel end, size_t max_concurrent, Fun
 ///       current shard. If you want to run a function on all shards in parallel,
 ///       have a look at \ref smp::invoke_on_all() instead.
 template <typename Range, typename Func>
-SEASTAR_CONCEPT( requires requires (Func f, Range r) {
+requires requires (Func f, Range r) {
     { f(*std::begin(r)) } -> std::same_as<future<>>;
     std::end(r);
-} )
+}
 inline
 future<>
 max_concurrent_for_each(Range&& range, size_t max_concurrent, Func&& func) noexcept {
