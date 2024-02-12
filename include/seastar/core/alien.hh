@@ -200,8 +200,7 @@ template <typename Func> using return_type_t = typename return_type_of<Func>::ty
 /// \return whatever \c func returns, as a \c std::future<>
 /// \note the caller must keep the returned future alive until \c func returns
 SEASTAR_MODULE_EXPORT
-template<typename Func, typename T = internal::return_type_t<Func>>
-requires std::invocable<Func>
+template<std::invocable Func, typename T = internal::return_type_t<Func>>
 std::future<T> submit_to(instance& instance, unsigned shard, Func func) {
     std::promise<T> pr;
     auto fut = pr.get_future();

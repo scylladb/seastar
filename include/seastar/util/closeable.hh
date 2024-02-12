@@ -90,9 +90,8 @@ public:
     }
 };
 
-template <typename Closeable, typename Func>
-requires closeable<Closeable> && std::invocable<Func, Closeable&> &&
-        std::is_nothrow_move_constructible_v<Closeable> && std::is_nothrow_move_constructible_v<Func>
+template <closeable Closeable, std::invocable<Closeable&> Func>
+requires std::is_nothrow_move_constructible_v<Closeable> && std::is_nothrow_move_constructible_v<Func>
 inline futurize_t<std::invoke_result_t<Func, Closeable&>>
 with_closeable(Closeable&& obj, Func func) noexcept {
     return do_with(std::move(obj), [func = std::move(func)] (Closeable& obj) mutable {
@@ -160,9 +159,8 @@ public:
     }
 };
 
-template <typename Stoppable, typename Func>
-requires stoppable<Stoppable> && std::invocable<Func, Stoppable&> &&
-        std::is_nothrow_move_constructible_v<Stoppable> && std::is_nothrow_move_constructible_v<Func>
+template <stoppable Stoppable, std::invocable<Stoppable&> Func>
+requires std::is_nothrow_move_constructible_v<Stoppable> && std::is_nothrow_move_constructible_v<Func>
 inline futurize_t<std::invoke_result_t<Func, Stoppable&>>
 with_stoppable(Stoppable&& obj, Func func) noexcept {
     return do_with(std::move(obj), [func = std::move(func)] (Stoppable& obj) mutable {

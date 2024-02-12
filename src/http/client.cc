@@ -300,8 +300,7 @@ future<> client::set_maximum_connections(unsigned nr) {
     return shrink_connections();
 }
 
-template <typename Fn>
-requires std::invocable<Fn, connection&>
+template <std::invocable<connection&> Fn>
 auto client::with_connection(Fn&& fn) {
     return get_connection().then([this, fn = std::move(fn)] (connection_ptr con) mutable {
         return fn(*con).finally([this, con = std::move(con)] () mutable {

@@ -161,8 +161,8 @@ private:
 /// \return whatever \c func returns, as a future
 ///
 /// \relates shared_mutex
-template <typename Func>
-    requires (std::invocable<Func> && std::is_nothrow_move_constructible_v<Func>)
+template <std::invocable Func>
+    requires std::is_nothrow_move_constructible_v<Func>
     inline
     futurize_t<std::invoke_result_t<Func>>
 with_shared(shared_mutex& sm, Func&& func) noexcept {
@@ -173,8 +173,8 @@ with_shared(shared_mutex& sm, Func&& func) noexcept {
     });
 }
 
-template <typename Func>
-    requires (std::invocable<Func> && !std::is_nothrow_move_constructible_v<Func>)
+template <std::invocable Func>
+    requires (!std::is_nothrow_move_constructible_v<Func>)
     inline
     futurize_t<std::invoke_result_t<Func>>
 with_shared(shared_mutex& sm, Func&& func) noexcept {
@@ -202,8 +202,8 @@ with_shared(shared_mutex& sm, Func&& func) noexcept {
 /// \return whatever \c func returns, as a future
 ///
 /// \relates shared_mutex
-template <typename Func>
-    requires (std::invocable<Func> && std::is_nothrow_move_constructible_v<Func>)
+template <std::invocable Func>
+    requires std::is_nothrow_move_constructible_v<Func>
     inline
     futurize_t<std::invoke_result_t<Func>>
 with_lock(shared_mutex& sm, Func&& func) noexcept {
@@ -215,8 +215,8 @@ with_lock(shared_mutex& sm, Func&& func) noexcept {
 }
 
 
-template <typename Func>
-    requires (std::invocable<Func> && !std::is_nothrow_move_constructible_v<Func>)
+template <std::invocable Func>
+    requires (!std::is_nothrow_move_constructible_v<Func>)
     inline
     futurize_t<std::invoke_result_t<Func>>
 with_lock(shared_mutex& sm, Func&& func) noexcept {

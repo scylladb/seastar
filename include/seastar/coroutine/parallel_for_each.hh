@@ -182,8 +182,8 @@ requires (std::same_as<Sentinel, Iterator> || std::sentinel_for<Sentinel, Iterat
     && std::same_as<future<>, futurize_t<std::invoke_result_t<Func, typename std::iterator_traits<Iterator>::reference>>>
 parallel_for_each(Iterator begin, Sentinel end, Func&& func) -> parallel_for_each<Func>;
 
-template <std::ranges::range Range, typename Func>
-requires std::invocable<Func, std::ranges::range_reference_t<Range>>
+template <std::ranges::range Range,
+          std::invocable<std::ranges::range_reference_t<Range>> Func>
 parallel_for_each(Range&& range, Func&& func) -> parallel_for_each<Func>;
 
 
