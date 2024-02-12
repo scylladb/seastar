@@ -208,7 +208,7 @@ public:
 /// \tparam Args  argument pack containing arguments to the function object, needs
 ///                   to have move constructor that doesn't throw
 template<typename ReturnType, typename... Args>
-SEASTAR_CONCEPT(requires std::is_nothrow_move_constructible_v<std::tuple<Args...>>)
+requires std::is_nothrow_move_constructible_v<std::tuple<Args...>>
 class concrete_execution_stage final : public execution_stage {
     using args_tuple = std::tuple<Args...>;
     static_assert(std::is_nothrow_move_constructible_v<args_tuple>,
@@ -321,7 +321,7 @@ public:
 /// \tparam Args  argument pack containing arguments to the function object, needs
 ///                   to have move constructor that doesn't throw
 template<typename ReturnType, typename... Args>
-SEASTAR_CONCEPT(requires std::is_nothrow_move_constructible_v<std::tuple<Args...>>)
+requires std::is_nothrow_move_constructible_v<std::tuple<Args...>>
 class inheriting_concrete_execution_stage final : public inheriting_execution_stage {
     using return_type = futurize_t<ReturnType>;
     using args_tuple = std::tuple<Args...>;

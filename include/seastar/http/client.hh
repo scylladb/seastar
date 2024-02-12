@@ -184,7 +184,7 @@ class client {
     future<> shrink_connections();
 
     template <typename Fn>
-    SEASTAR_CONCEPT( requires std::invocable<Fn, connection&> )
+    requires std::invocable<Fn, connection&>
     auto with_connection(Fn&& fn);
 
 public:

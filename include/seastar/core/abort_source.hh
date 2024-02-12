@@ -137,9 +137,8 @@ public:
     ///          the lifetime of the callback \c f, if \ref abort_requested() is \c false. Otherwise,
     ///          returns a disengaged \ref optimized_optional.
     template <typename Func>
-    SEASTAR_CONCEPT(
         requires (std::is_nothrow_invocable_r_v<void, Func, const std::optional<std::exception_ptr>&> ||
-                  std::is_nothrow_invocable_r_v<void, Func>))
+                  std::is_nothrow_invocable_r_v<void, Func>)
     [[nodiscard]]
     optimized_optional<subscription> subscribe(Func&& f) {
         if (abort_requested()) {

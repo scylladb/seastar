@@ -78,9 +78,9 @@ public:
     // containing data that was written to the temporary buffer.
     // Output should be either snd_buf or rcv_buf.
     template<typename Output, typename Function>
-    SEASTAR_CONCEPT(requires requires (Function fn, char* ptr) {
+    requires requires (Function fn, char* ptr) {
         { fn(ptr) } -> std::convertible_to<size_t>;
-    } && (std::is_same_v<Output, snd_buf> || std::is_same_v<Output, rcv_buf>))
+    } && (std::is_same_v<Output, snd_buf> || std::is_same_v<Output, rcv_buf>)
     Output with_reserved(size_t max_size, Function&& fn) {
         if (max_size <= chunk_size) {
             auto dst = temporary_buffer<char>(max_size);

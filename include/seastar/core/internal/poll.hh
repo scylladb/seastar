@@ -59,7 +59,7 @@ struct simple_pollfn : public pollfn {
 namespace internal {
 
 template <typename Func>
-SEASTAR_CONCEPT( requires std::is_invocable_r_v<bool, Func> )
+requires std::is_invocable_r_v<bool, Func>
 inline
 std::unique_ptr<seastar::pollfn> make_pollfn(Func&& func) {
     struct the_pollfn : simple_pollfn<false> {
@@ -79,7 +79,7 @@ class poller {
     registration_task* _registration_task = nullptr;
 public:
     template <typename Func>
-    SEASTAR_CONCEPT( requires std::is_invocable_r_v<bool, Func> )
+    requires std::is_invocable_r_v<bool, Func>
     static poller simple(Func&& poll) {
         return poller(make_pollfn(std::forward<Func>(poll)));
     }

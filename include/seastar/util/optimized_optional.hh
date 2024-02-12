@@ -32,8 +32,6 @@
 
 namespace seastar {
 
-SEASTAR_CONCEPT(
-
 template<typename T>
 concept OptimizableOptional =
     std::is_default_constructible_v<T>
@@ -41,8 +39,6 @@ concept OptimizableOptional =
         && requires(const T& obj) {
             { bool(obj) } noexcept;
         };
-
-)
 
 /// \c optimized_optional<> is intended mainly for use with classes that store
 /// their data externally and expect pointer to this data to be always non-null.

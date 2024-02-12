@@ -39,7 +39,7 @@ namespace seastar {
 namespace internal {
 
 template <typename Func>
-SEASTAR_CONCEPT( requires std::is_nothrow_move_constructible_v<Func> )
+requires std::is_nothrow_move_constructible_v<Func>
 auto
 schedule_in_group(scheduling_group sg, Func func) noexcept {
     static_assert(std::is_nothrow_move_constructible_v<Func>);
@@ -63,7 +63,7 @@ schedule_in_group(scheduling_group sg, Func func) noexcept {
 ///             to force passing references
 SEASTAR_MODULE_EXPORT
 template <typename Func, typename... Args>
-SEASTAR_CONCEPT( requires std::is_nothrow_move_constructible_v<Func> )
+requires std::is_nothrow_move_constructible_v<Func>
 inline
 auto
 with_scheduling_group(scheduling_group sg, Func func, Args&&... args) noexcept {

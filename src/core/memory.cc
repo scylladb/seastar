@@ -1129,7 +1129,7 @@ cpu_pages::try_free_fastpath(void* ptr) {
 struct no_size {};
 
 template <typename S>
-SEASTAR_CONCEPT(requires std::same_as<S, size_t> || std::same_as<S, no_size>)
+requires std::same_as<S, size_t> || std::same_as<S, no_size>
 [[gnu::noinline]]
 static void free_slowpath(void* obj, S size) {
     if (cpu_pages::is_local_pointer(obj)) {

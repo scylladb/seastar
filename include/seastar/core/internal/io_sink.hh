@@ -56,7 +56,7 @@ public:
     template <typename Fn>
     // Fn should return whether the request was consumed and
     // draining should try to drain more
-    SEASTAR_CONCEPT( requires std::is_invocable_r<bool, Fn, internal::io_request&, io_completion*>::value )
+    requires std::is_invocable_r<bool, Fn, internal::io_request&, io_completion*>::value
     size_t drain(Fn&& consume) {
         size_t pending = _pending_io.size();
         size_t drained = 0;

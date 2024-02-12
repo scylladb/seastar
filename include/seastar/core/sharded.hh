@@ -288,7 +288,7 @@ public:
     ///        to be invoked on all shards
     /// \return Future that becomes ready once all calls have completed
     template <typename Func, typename... Args>
-    SEASTAR_CONCEPT(requires std::invocable<Func, Service&, internal::sharded_unwrap_t<Args>...>)
+    requires std::invocable<Func, Service&, internal::sharded_unwrap_t<Args>...>
     future<> invoke_on_all(smp_submit_to_options options, Func func, Args... args) noexcept;
 
     /// Invoke a function on all instances of `Service`.
@@ -297,7 +297,7 @@ public:
     /// Passes the default \ref smp_submit_to_options to the
     /// \ref smp::submit_to() called behind the scenes.
     template <typename Func, typename... Args>
-    SEASTAR_CONCEPT(requires std::invocable<Func, Service&, internal::sharded_unwrap_t<Args>...>)
+    requires std::invocable<Func, Service&, internal::sharded_unwrap_t<Args>...>
     future<> invoke_on_all(Func func, Args... args) noexcept {
       try {
         return invoke_on_all(smp_submit_to_options{}, std::move(func), std::move(args)...);
@@ -317,7 +317,7 @@ public:
     /// \return a `future<>` that becomes ready when all cores but the current one have
     ///         processed the message.
     template <typename Func, typename... Args>
-    SEASTAR_CONCEPT(requires std::invocable<Func, Service&, Args...>)
+    requires std::invocable<Func, Service&, Args...>
     future<> invoke_on_others(smp_submit_to_options options, Func func, Args... args) noexcept;
 
     /// Invoke a callable on all instances of  \c Service except the instance
@@ -332,7 +332,7 @@ public:
     /// Passes the default \ref smp_submit_to_options to the
     /// \ref smp::submit_to() called behind the scenes.
     template <typename Func, typename... Args>
-    SEASTAR_CONCEPT(requires std::invocable<Func, Service&, Args...>)
+    requires std::invocable<Func, Service&, Args...>
     future<> invoke_on_others(Func func, Args... args) noexcept {
       try {
         return invoke_on_others(smp_submit_to_options{}, std::move(func), std::move(args)...);
@@ -467,7 +467,7 @@ public:
     ///
     /// \return result of calling `func(instance)` on the designated instance
     template <typename Func, typename... Args, typename Ret = futurize_t<std::invoke_result_t<Func, Service&, Args...>>>
-    SEASTAR_CONCEPT(requires std::invocable<Func, Service&, Args&&...>)
+    requires std::invocable<Func, Service&, Args&&...>
     Ret
     invoke_on(unsigned id, smp_submit_to_options options, Func&& func, Args&&... args) {
         return smp::submit_to(id, options, [this, func = std::forward<Func>(func), args = std::tuple(std::move(args)...)] () mutable {
@@ -485,7 +485,7 @@ public:
     /// \param args parameters to the callable
     /// \return result of calling `func(instance)` on the designated instance
     template <typename Func, typename... Args, typename Ret = futurize_t<std::invoke_result_t<Func, Service&, Args&&...>>>
-    SEASTAR_CONCEPT(requires std::invocable<Func, Service&, Args&&...>)
+    requires std::invocable<Func, Service&, Args&&...>
     Ret
     invoke_on(unsigned id, Func&& func, Args&&... args) {
         return invoke_on(id, smp_submit_to_options(), std::forward<Func>(func), std::forward<Args>(args)...);
@@ -547,7 +547,7 @@ public:
     ///                  instance will be passed. Anything else
     ///                  will be passed by value unchanged.
     explicit sharded_parameter(Func func, Params... params)
-            SEASTAR_CONCEPT(requires std::invocable<Func, internal::sharded_unwrap_evaluated_t<Params>...>)
+            requires std::invocable<Func, internal::sharded_unwrap_evaluated_t<Params>...>
             : _func(std::move(func)), _params(std::make_tuple(std::move(params)...)) {
     }
 private:
@@ -757,7 +757,7 @@ sharded<Service>::invoke_on_all(smp_submit_to_options options, std::function<fut
 
 template <typename Service>
 template <typename Func, typename... Args>
-SEASTAR_CONCEPT(requires std::invocable<Func, Service&, internal::sharded_unwrap_t<Args>...>)
+requires std::invocable<Func, Service&, internal::sharded_unwrap_t<Args>...>
 inline
 future<>
 sharded<Service>::invoke_on_all(smp_submit_to_options options, Func func, Args... args) noexcept {
@@ -776,7 +776,7 @@ sharded<Service>::invoke_on_all(smp_submit_to_options options, Func func, Args..
 
 template <typename Service>
 template <typename Func, typename... Args>
-SEASTAR_CONCEPT(requires std::invocable<Func, Service&, Args...>)
+requires std::invocable<Func, Service&, Args...>
 inline
 future<>
 sharded<Service>::invoke_on_others(smp_submit_to_options options, Func func, Args... args) noexcept {
@@ -841,7 +841,7 @@ SEASTAR_MODULE_EXPORT_BEGIN
 /// \c foreign_ptr<> is a move-only object; it cannot be copied.
 ///
 template <typename PtrType>
-SEASTAR_CONCEPT( requires (!std::is_pointer_v<PtrType>) )
+requires (!std::is_pointer_v<PtrType>)
 class foreign_ptr {
 private:
     PtrType _value;

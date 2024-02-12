@@ -301,7 +301,7 @@ future<> client::set_maximum_connections(unsigned nr) {
 }
 
 template <typename Fn>
-SEASTAR_CONCEPT( requires std::invocable<Fn, connection&> )
+requires std::invocable<Fn, connection&>
 auto client::with_connection(Fn&& fn) {
     return get_connection().then([this, fn = std::move(fn)] (connection_ptr con) mutable {
         return fn(*con).finally([this, con = std::move(con)] () mutable {

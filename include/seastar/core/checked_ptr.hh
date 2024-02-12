@@ -63,11 +63,9 @@ namespace internal {
 /// \param ptr A smart pointer object
 /// \return A pointer to the underlying object
 template <typename T>
-/// cond SEASTAR_CONCEPT_DOC - nested '\ cond' doesn't seem to work (bug 736553), so working it around
-SEASTAR_CONCEPT( requires requires (T ptr) {
+requires requires (T ptr) {
     ptr.get();
-})
-/// endcond
+}
 inline typename std::pointer_traits<std::remove_const_t<T>>::element_type* checked_ptr_do_get(T& ptr) {
     return ptr.get();
 }
@@ -100,11 +98,9 @@ inline T* checked_ptr_do_get(T* ptr) noexcept {
 ///
 SEASTAR_MODULE_EXPORT
 template<typename Ptr, typename NullDerefAction = default_null_deref_action>
-/// \cond SEASTAR_CONCEPT_DOC
-SEASTAR_CONCEPT( requires std::is_default_constructible_v<NullDerefAction> && requires (NullDerefAction action) {
+requires std::is_default_constructible_v<NullDerefAction> && requires (NullDerefAction action) {
     NullDerefAction();
-})
-/// \endcond
+}
 class checked_ptr {
 public:
     /// Underlying element type
