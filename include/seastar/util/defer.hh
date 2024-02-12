@@ -23,11 +23,11 @@
 
 #include "modules.hh"
 #ifndef SEASTAR_MODULE
+#include <concepts>
 #include <type_traits>
 #include <utility>
 #endif
 #include <seastar/util/modules.hh>
-#include <seastar/util/concepts.hh>
 
 
 #ifdef SEASTAR_DEFERRED_ACTION_REQUIRE_NOEXCEPT

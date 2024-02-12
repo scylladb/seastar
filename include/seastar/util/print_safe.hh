@@ -24,12 +24,12 @@
 #ifndef SEASTAR_MODULE
 #include <cassert>
 #include <cerrno>
+#include <concepts>
 #include <cstring>
 #include <stdio.h>
 #include <unistd.h>
 #endif
 
-#include <seastar/util/concepts.hh>
 #include <seastar/util/modules.hh>
 
 namespace seastar {

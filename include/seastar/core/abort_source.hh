@@ -21,7 +21,6 @@
 
 #pragma once
 
-#include <seastar/util/concepts.hh>
 #include <seastar/util/modules.hh>
 #include <seastar/util/noncopyable_function.hh>
 #include <seastar/util/optimized_optional.hh>
@@ -29,6 +28,7 @@
 
 #ifndef SEASTAR_MODULE
 #include <boost/intrusive/list.hpp>
+#include <concepts>
 #include <exception>
 #include <optional>
 #include <type_traits>

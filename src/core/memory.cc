@@ -74,6 +74,7 @@ module;
 #endif
 
 #include <cassert>
+#include <concepts>
 #include <unordered_set>
 #include <iostream>
 #include <optional>
@@ -84,7 +85,6 @@ module;
 #include <fmt/ostream.h>
 
 #include <boost/container/static_vector.hpp>
-#include <seastar/util/concepts.hh>
 
 #include <dlfcn.h>
 

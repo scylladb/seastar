@@ -22,10 +22,10 @@
 
 #pragma once
 
-#include <seastar/util/concepts.hh>
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <concepts>
 #include <cstdint>
 
 namespace seastar {

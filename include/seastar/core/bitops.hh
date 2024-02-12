@@ -21,9 +21,9 @@
 
 #pragma once
 
-#include <seastar/util/concepts.hh>
 #include <seastar/util/modules.hh>
 #ifndef SEASTAR_MODULE
+#include <concepts>
 #include <limits>
 #include <type_traits>
 #endif

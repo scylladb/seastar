@@ -24,6 +24,7 @@
 
 #ifndef SEASTAR_MODULE
 #include <atomic>
+#include <concepts>
 #include <future>
 #include <memory>
 #include <type_traits>
@@ -34,7 +35,6 @@
 #include <seastar/core/cacheline.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/metrics_registration.hh>
-#include <seastar/util/concepts.hh>
 #include <seastar/util/modules.hh>
 
 /// \file

@@ -23,9 +23,9 @@
 
 #include <seastar/util/modules.hh>
 #include <seastar/util/used_size.hh>
-#include <seastar/util/concepts.hh>
 
 #ifndef SEASTAR_MODULE
+#include <concepts>
 #include <utility>
 #include <type_traits>
 #include <functional>

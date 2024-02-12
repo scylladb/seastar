@@ -22,13 +22,13 @@
 
 #include <seastar/core/sstring.hh>
 #include <seastar/util/backtrace.hh>
-#include <seastar/util/concepts.hh>
 #include <seastar/util/log-impl.hh>
 #include <seastar/core/lowres_clock.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/modules.hh>
 
 #ifndef SEASTAR_MODULE
+#include <concepts>
 #include <unordered_map>
 #include <exception>
 #include <iosfwd>

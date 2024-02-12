@@ -23,6 +23,7 @@
 
 #ifndef SEASTAR_MODULE
 #include <cassert>
+#include <concepts>
 #include <cstdlib>
 #include <cstring>
 #include <functional>
@@ -37,7 +38,6 @@
 #include <seastar/core/function_traits.hh>
 #include <seastar/core/shard_id.hh>
 #include <seastar/util/critical_alloc_section.hh>
-#include <seastar/util/concepts.hh>
 #include <seastar/util/noncopyable_function.hh>
 #include <seastar/util/backtrace.hh>
 #include <seastar/util/std-compat.hh>

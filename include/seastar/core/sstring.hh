@@ -28,6 +28,7 @@
 #if __has_include(<compare>)
 #include <compare>
 #endif
+#include <concepts>
 #include <string>
 #include <vector>
 #include <unordered_map>
@@ -40,7 +41,6 @@
 #include <type_traits>
 #include <fmt/ostream.h>
 #endif
-#include <seastar/util/concepts.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/modules.hh>
 #include <seastar/core/temporary_buffer.hh>

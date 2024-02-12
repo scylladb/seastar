@@ -28,13 +28,13 @@
 #include <seastar/core/metrics.hh>
 #include <seastar/core/scheduling.hh>
 #include <seastar/util/reference_wrapper.hh>
-#include <seastar/util/concepts.hh>
 #include <seastar/util/noncopyable_function.hh>
 #include <seastar/util/tuple_utils.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/modules.hh>
 #ifndef SEASTAR_MODULE
 #include <fmt/format.h>
+#include <concepts>
 #include <vector>
 #include <boost/range/irange.hpp>
 #include <boost/range/adaptor/transformed.hpp>

@@ -23,12 +23,12 @@
 
 #ifndef SEASTAR_MODULE
 #include <chrono>
+#include <concepts>
 #include <functional>
 #include <typeindex>
 #endif
 #include <seastar/core/sstring.hh>
 #include <seastar/core/function_traits.hh>
-#include <seastar/util/concepts.hh>
 #include <seastar/util/modules.hh>
 
 /// \file

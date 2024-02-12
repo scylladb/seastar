@@ -23,11 +23,11 @@
 module;
 #endif
 
+#include <concepts>
 #include <memory>
 #include <optional>
 #include <stdexcept>
 #include <utility>
-#include <seastar/util/concepts.hh>
 
 #ifdef SEASTAR_MODULE
 module seastar;

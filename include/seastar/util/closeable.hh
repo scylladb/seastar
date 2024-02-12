@@ -21,9 +21,9 @@
 
 #pragma once
 
+#include <concepts>
 #include <functional>
 #include <seastar/core/future.hh>
-#include <seastar/util/concepts.hh>
 #include <seastar/util/defer.hh>
 
 /// \file

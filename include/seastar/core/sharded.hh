@@ -28,16 +28,13 @@
 #include <seastar/util/is_smart_ptr.hh>
 #include <seastar/util/tuple_utils.hh>
 #include <seastar/core/do_with.hh>
-#include <seastar/util/concepts.hh>
 #include <seastar/util/log.hh>
 #include <seastar/util/modules.hh>
 
 #ifndef SEASTAR_MODULE
 #include <boost/iterator/counting_iterator.hpp>
-#include <functional>
-#if __has_include(<concepts>)
 #include <concepts>
-#endif
+#include <functional>
 #endif
 
 /// \defgroup smp-module Multicore

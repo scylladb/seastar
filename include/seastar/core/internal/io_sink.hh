@@ -23,8 +23,8 @@
 
 #include <seastar/core/circular_buffer.hh>
 #include <seastar/core/internal/io_request.hh>
-#include <seastar/util/concepts.hh>
 
+#include <concepts>
 #include <cstddef>
 #include <type_traits>
 #include <utility>
