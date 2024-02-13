@@ -24,7 +24,6 @@
 /// \file
 /// \brief Contains a seastar::checked_ptr class implementation.
 #ifndef SEASTAR_MODULE
-#include <concepts>
 #include <exception>
 #include <memory>
 #include <seastar/util/modules.hh>

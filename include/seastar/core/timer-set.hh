@@ -18,9 +18,7 @@
 #include <boost/intrusive/list.hpp>
 #include <array>
 #include <bitset>
-#include <chrono>
 #include <limits>
-#include <memory>
 #endif
 
 namespace seastar {

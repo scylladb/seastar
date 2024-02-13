@@ -21,9 +21,6 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
-#include <chrono>
-#endif
 #include <seastar/util/program-options.hh>
 #include <seastar/util/memory_diagnostics.hh>
 #include <seastar/util/modules.hh>
