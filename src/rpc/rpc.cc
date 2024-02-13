@@ -132,7 +132,8 @@ namespace rpc {
       }
   }
 
-  future<> connection::send_entry(outgoing_entry& d) {
+  future<> connection::send_entry(outgoing_entry& d) noexcept {
+    return futurize_invoke([this, &d] {
       if (_propagate_timeout) {
           static_assert(snd_buf::chunk_size >= sizeof(uint64_t), "send buffer chunk size is too small");
           if (_timeout_negotiated) {
@@ -152,6 +153,7 @@ namespace rpc {
           _stats.sent_messages++;
           return _write_buf.flush();
       });
+    });
   }
 
   void connection::set_negotiated() noexcept {
