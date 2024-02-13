@@ -28,7 +28,6 @@
 
 #ifndef SEASTAR_MODULE
 #include <boost/intrusive/list.hpp>
-#include <concepts>
 #include <exception>
 #include <optional>
 #include <type_traits>

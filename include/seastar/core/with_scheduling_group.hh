@@ -26,7 +26,6 @@
 #include <seastar/core/future.hh>
 #include <seastar/core/make_task.hh>
 #include <seastar/util/modules.hh>
-#include <concepts>
 #include <tuple>
 #include <utility>
 #endif

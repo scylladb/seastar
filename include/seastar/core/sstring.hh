@@ -28,12 +28,10 @@
 #if __has_include(<compare>)
 #include <compare>
 #endif
-#include <concepts>
 #include <string>
 #include <vector>
 #include <unordered_map>
 #include <cstring>
-#include <stdexcept>
 #include <initializer_list>
 #include <istream>
 #include <ostream>

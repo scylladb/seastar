@@ -33,7 +33,6 @@
 #include <functional>
 #include <optional>
 #include <queue>
-#include <unordered_set>
 
 namespace bi = boost::intrusive;
 

@@ -26,8 +26,11 @@
 #include <seastar/core/future.hh>
 #include <seastar/util/modules.hh>
 
+#if SEASTAR_API_LEVEL < 7
 #include <array>
 #include <mutex>
+#endif
+
 #endif
 
 namespace seastar {
