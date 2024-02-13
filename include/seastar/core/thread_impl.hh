@@ -23,7 +23,6 @@
 #pragma once
 #include <seastar/core/preempt.hh>
 #include <seastar/util/std-compat.hh>
-#include <setjmp.h>
 #include <ucontext.h>
 #include <chrono>
 
