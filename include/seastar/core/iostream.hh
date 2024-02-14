@@ -354,7 +354,7 @@ public:
     /// \returns the data_source
     data_source detach() &&;
 private:
-    future<temporary_buffer<CharType>> read_exactly_part(size_t n, tmp_buf buf, size_t completed) noexcept;
+    future<temporary_buffer<CharType>> read_exactly_part(size_t n) noexcept;
 };
 
 struct output_stream_options {
