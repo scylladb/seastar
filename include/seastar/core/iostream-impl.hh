@@ -152,7 +152,9 @@ future<> output_stream<CharType>::write(temporary_buffer<CharType> p) noexcept {
 
 template <typename CharType>
 future<temporary_buffer<CharType>>
-input_stream<CharType>::read_exactly_part(size_t n, tmp_buf out, size_t completed) noexcept {
+input_stream<CharType>::read_exactly_part(size_t n) noexcept {
+    temporary_buffer<CharType> out(n);
+    size_t completed{0U};
     while (completed < n) {
         size_t avail = available();
         if (avail) {
@@ -160,10 +162,9 @@ input_stream<CharType>::read_exactly_part(size_t n, tmp_buf out, size_t complete
             std::copy_n(_buf.get(), now, out.get_write() + completed);
             _buf.trim_front(now);
             completed += now;
-        }
-
-        if (completed == n) {
-            break;
+            if (completed == n) {
+                break;
+            }
         }
 
         // _buf is now empty
@@ -200,13 +201,8 @@ input_stream<CharType>::read_exactly(size_t n) noexcept {
             return this->read_exactly(n);
         });
     } else {
-      try {
         // buffer too small: start copy/read loop
-        tmp_buf b(n);
-        return read_exactly_part(n, std::move(b), 0);
-      } catch (...) {
-        return current_exception_as_future<tmp_buf>();
-      }
+        return read_exactly_part(n);
     }
 }
 
