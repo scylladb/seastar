@@ -113,7 +113,6 @@ BOOST_AUTO_TEST_CASE(test_str_not_find_sstring) {
 }
 
 BOOST_AUTO_TEST_CASE(test_str_starts_with) {
-    BOOST_CHECK(std::string("abcdefg").starts_with("abcdefg"));
     BOOST_CHECK(sstring("abcdefg").starts_with("abcdefg"));
     BOOST_CHECK(sstring("abcdefg").starts_with("ab"sv));
     BOOST_CHECK(sstring("abcde").starts_with('a'));
@@ -127,7 +126,6 @@ BOOST_AUTO_TEST_CASE(test_str_starts_with) {
 }
 
 BOOST_AUTO_TEST_CASE(test_str_ends_with) {
-    BOOST_CHECK(std::string("abcdefg").ends_with("abcdefg"));
     BOOST_CHECK(sstring("abcdefg").ends_with("abcdefg"));
     BOOST_CHECK(sstring("abcdefg").ends_with("efg"sv));
     BOOST_CHECK(sstring("abcde").ends_with('e'));
