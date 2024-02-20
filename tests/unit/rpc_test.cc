@@ -20,6 +20,8 @@
  */
 
 #include "loopback_socket.hh"
+#include "seastar/core/condition-variable.hh"
+#include "seastar/core/temporary_buffer.hh"
 #include <seastar/rpc/rpc.hh>
 #include <seastar/rpc/rpc_types.hh>
 #include <seastar/rpc/lz4_compressor.hh>
@@ -1671,4 +1673,157 @@ SEASTAR_THREAD_TEST_CASE(test_rpc_metric_domains) {
     // Negotiation messages also count, so +1 for default domain and +2 for "dom" one
     BOOST_CHECK_EQUAL(get_metrics("rpc_client_sent_messages", "dom1"), 4);
     BOOST_CHECK_EQUAL(get_metrics("rpc_client_sent_messages", "dom2"), 9);
+}
+
+// Extract a piece of contiguous data from the front of the buffer (and trim the extracted front away).
+template <typename T>
+requires std::is_trivially_copyable_v<T>
+T read_from_rcv_buf(rpc::rcv_buf& data) {
+    if (data.size < sizeof(T)) {
+        throw std::runtime_error("Truncated compressed RPC frame");
+    }
+    auto it = std::get_if<temporary_buffer<char>>(&data.bufs);
+    if (!it) {
+        it = std::get<std::vector<temporary_buffer<char>>>(data.bufs).data();
+    }
+    std::array<T, 1> out;
+    auto out_span = std::as_writable_bytes(std::span(out)).subspan(0);
+    while (out_span.size()) {
+        size_t n = std::min<size_t>(out_span.size(), it->size());
+        std::memcpy(static_cast<void*>(out_span.data()), it->get(), n);
+        out_span = out_span.subspan(n);
+        it->trim_front(n);
+        ++it;
+        data.size -= n;
+    }
+    return out[0];
+}
+
+
+// Test the use of empty compressed frames as a method of communication between compressors.
+SEASTAR_THREAD_TEST_CASE(test_compressor_empty_frames) {
+    static const sstring compressor_name = "TEST";
+    struct tracker {
+        struct compressor;
+        compressor* _compressor;
+
+        // When `send_metadata(x)` is called, this compressor sends a piece of metadata (x) to its peer,
+        // by prepending it to an empty compressed frame.
+        // It can be read from the peer with `receive_metadata()`.
+        struct compressor : public rpc::compressor {
+            tracker& _tracker;
+
+            std::unique_ptr<rpc::compressor> _delegate;
+
+            using metadata = uint64_t;
+            std::deque<metadata> _send_queue;
+            std::deque<metadata> _recv_queue;
+            semaphore _metadata_received{0};
+
+            std::function<future<>()> _send_empty_frame;
+            condition_variable _needs_progress;
+            future<> _progress_fiber;
+
+            future<> start_progress_fiber() {
+                while (true) {
+                    co_await _needs_progress.when([&] { return !_send_queue.empty(); });
+                    co_await _send_empty_frame();
+                }
+            }
+            future<> close() noexcept override {
+                _needs_progress.broken();
+                return std::move(_progress_fiber).handle_exception([] (const auto&) {});
+            }
+            void send_metadata(metadata x) {
+                _send_queue.push_back(x);
+                _needs_progress.signal();
+            }
+            future<metadata> receive_metadata() {
+                co_await _metadata_received.wait();
+                auto x = _recv_queue.front();
+                _recv_queue.pop_front();
+                co_return x;
+            }
+
+            rpc::snd_buf compress(size_t head_space, rpc::snd_buf data) override {
+                if (!_send_queue.empty()) {
+                    auto x = _delegate->compress(head_space + 1 + sizeof(metadata), data.size ? std::move(data) : rpc::snd_buf(temporary_buffer<char>()));
+                    seastar::write_be<uint8_t>(x.front().get_write()+head_space, 1);
+                    seastar::write_be<uint64_t>(x.front().get_write()+head_space+1, _send_queue.front());
+                    _send_queue.pop_front();
+                    return x;
+                } else {
+                    auto x = _delegate->compress(head_space + 1, data.size ? std::move(data) : rpc::snd_buf(temporary_buffer<char>()));
+                    seastar::write_be<uint8_t>(x.front().get_write()+head_space, 0);
+                    return x;
+                }
+            }
+            rpc::rcv_buf decompress(rpc::rcv_buf data) override {
+                if (net::ntoh(read_from_rcv_buf<uint8_t>(data))) {
+                    _recv_queue.push_back(net::ntoh(read_from_rcv_buf<uint64_t>(data)));
+                    _metadata_received.signal();
+                }
+                return _delegate->decompress(std::move(data));
+            }
+            sstring name() const override {
+                return compressor_name;
+            }
+
+            compressor(tracker& tracker, std::function<future<>()> send_empty_frame)
+                : _tracker(tracker)
+                , _delegate(std::make_unique<rpc::lz4_fragmented_compressor>())
+                , _send_empty_frame(std::move(send_empty_frame))
+                , _progress_fiber(start_progress_fiber())
+            {
+                _tracker._compressor = this;
+            }
+            ~compressor() {
+                _tracker._compressor = nullptr;
+            }
+        };
+
+        struct factory : public rpc::compressor::factory {
+            tracker& _tracker;
+
+            factory(tracker& tracker) : _tracker(tracker) {
+            }
+            const sstring& supported() const override {
+                return compressor_name;
+            }
+            std::unique_ptr<rpc::compressor> negotiate(sstring feature, bool is_server, std::function<future<>()> send_empty_frame) const override {
+                if (feature == supported()) {
+                    return std::make_unique<compressor>(_tracker, std::move(send_empty_frame));
+                }
+                return nullptr;
+            }
+            std::unique_ptr<rpc::compressor> negotiate(sstring feature, bool is_server) const override {
+                abort();
+            }
+        };
+    };
+
+    tracker server_tracker;
+    tracker client_tracker;
+    tracker::factory server_factory{server_tracker};
+    tracker::factory client_factory{client_tracker};
+    rpc::server_options so{.compressor_factory = &server_factory};
+    rpc::client_options co{.compressor_factory = &client_factory};
+    rpc_test_config cfg;
+    cfg.server_options = so;
+
+    rpc_test_env<>::do_with_thread(cfg, co, [&] (rpc_test_env<>& env, test_rpc_proto::client& c) {
+        // Perform an RPC once to initialize the connection and compressors. 
+        env.register_handler(1, []() { return 42; }).get();
+        auto proto_client = env.proto().make_client<int()>(1);
+        BOOST_REQUIRE_EQUAL(proto_client(c).get(), 42);
+        BOOST_REQUIRE(client_tracker._compressor);
+        BOOST_REQUIRE(server_tracker._compressor);
+        // Check that both compressors can send metadata to each other.
+        for (int i = 0; i < 3; ++i) {
+            client_tracker._compressor->send_metadata(2*i);
+            BOOST_REQUIRE_EQUAL(server_tracker._compressor->receive_metadata().get(), 2*i);
+            server_tracker._compressor->send_metadata(2*i+1);
+            BOOST_REQUIRE_EQUAL(client_tracker._compressor->receive_metadata().get(), 2*i+1);
+        }
+    }).get();
 }

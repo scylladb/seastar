@@ -46,18 +46,21 @@ public:
         multi_algo_compressor_factory(std::vector<const rpc::compressor::factory*>(std::move(factories))) {}
     multi_algo_compressor_factory(const rpc::compressor::factory* factory) : multi_algo_compressor_factory({factory}) {}
     // return feature string that will be sent as part of protocol negotiation
-    virtual const sstring& supported() const {
+    const sstring& supported() const override {
         return _features;
     }
     // negotiate compress algorithm
-    virtual std::unique_ptr<compressor> negotiate(sstring feature, bool is_server) const {
+    std::unique_ptr<compressor> negotiate(sstring feature, bool is_server) const override {
+        return negotiate(feature, is_server, nullptr);
+    }
+    std::unique_ptr<compressor> negotiate(sstring feature, bool is_server, std::function<future<>()> send_empty_frame) const override {
         std::vector<sstring> names;
         boost::split(names, feature, boost::is_any_of(","));
         std::unique_ptr<compressor> c;
         if (is_server) {
             for (auto&& n : names) {
                 for (auto&& f : _factories) {
-                    if ((c = f->negotiate(n, is_server))) {
+                    if ((c = f->negotiate(n, is_server, send_empty_frame))) {
                         return c;
                     }
                 }
@@ -65,7 +68,7 @@ public:
         } else {
             for (auto&& f : _factories) {
                 for (auto&& n : names) {
-                    if ((c = f->negotiate(n, is_server))) {
+                    if ((c = f->negotiate(n, is_server, send_empty_frame))) {
                         return c;
                     }
                 }

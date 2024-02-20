@@ -283,6 +283,7 @@ public:
     // decompress data
     virtual rcv_buf decompress(rcv_buf data) = 0;
     virtual sstring name() const = 0;
+    virtual future<> close() noexcept { return make_ready_future<>(); };
     
     // factory to create compressor for a connection
     class factory {
@@ -291,6 +292,12 @@ public:
         // return feature string that will be sent as part of protocol negotiation
         virtual const sstring& supported() const = 0;
         // negotiate compress algorithm
+        // send_empty_frame() requests an empty frame to be sent to the peer compressor on the other side of the connection. 
+        // By attaching a header to this empty frame, the compressor can communicate somthing to the peer,
+        // send_empty_frame() mustn't be called from inside compress() or decompress().
+        virtual std::unique_ptr<compressor> negotiate(sstring feature, bool is_server, std::function<future<>()> send_empty_frame) const {
+            return negotiate(feature, is_server);
+        }
         virtual std::unique_ptr<compressor> negotiate(sstring feature, bool is_server) const = 0;
     };
 };
