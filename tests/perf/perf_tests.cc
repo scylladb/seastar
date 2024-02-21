@@ -142,6 +142,17 @@ struct result_printer {
 
     virtual void print_configuration(const config&) = 0;
     virtual void print_result(const result&) = 0;
+
+    void update_name_column_length(size_t length) {
+        _name_column_length = std::max(1ul, length);
+    }
+    size_t name_column_length() const {
+        return _name_column_length;
+    }
+
+private:
+    static constexpr size_t DEFAULT_NAME_COLUMN_LENGTH = 40;
+    size_t _name_column_length = DEFAULT_NAME_COLUMN_LENGTH;
 };
 
 struct config {
@@ -190,8 +201,6 @@ static inline std::ostream& operator<<(std::ostream& os, duration d)
     return os;
 }
 
-static constexpr auto header_format_string = "{:<40} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11}\n";
-static constexpr auto        format_string = "{:<40} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11.3f} {:>11.3f} {:>11.1f}\n";
 
 struct stdout_printer final : result_printer {
   virtual void print_configuration(const config& c) override {
@@ -201,14 +210,18 @@ struct stdout_printer final : result_printer {
                "number of runs:", c.number_of_runs,
                "number of cores:", smp::count,
                "random seed:", c.random_seed);
-    fmt::print(header_format_string, "test", "iterations", "median", "mad", "min", "max", "allocs", "tasks", "inst");
+    fmt::print(header_format_string, "test", name_column_length(), "iterations", "median", "mad", "min", "max", "allocs", "tasks", "inst");
   }
 
   virtual void print_result(const result& r) override {
-    fmt::print(format_string, r.test_name, r.total_iterations / r.runs, duration { r.median },
+    fmt::print(format_string, r.test_name, name_column_length(), r.total_iterations / r.runs, duration { r.median },
                duration { r.mad }, duration { r.min }, duration { r.max },
                r.allocs, r.tasks, r.inst);
   }
+
+private:
+  static constexpr auto header_format_string ="{:<{}} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11}\n";
+  static constexpr auto format_string = "{:<{}} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11.3f} {:>11.3f} {:>11.1f}\n";
 };
 
 class json_printer final : public result_printer {
@@ -241,8 +254,8 @@ public:
 };
 
 class markdown_printer final : public result_printer {
-    static constexpr std::string_view header_format_string = "| {:<40} | {:>11} | {:>11} | {:>11} | {:>11} | {:>11} | {:>11} | {:>11} | {:>11} |\n";
-    static constexpr std::string_view body_format_string = "| {:<40} | {:>11} | {:>11} | {:>11} | {:>11} | {:>11} | {:>11.3f} | {:>11.3f} | {:>11.1f} |\n";
+    static constexpr std::string_view header_format_string = "| {:<{}} | {:>11} | {:>11} | {:>11} | {:>11} | {:>11} | {:>11} | {:>11} | {:>11} |\n";
+    static constexpr std::string_view body_format_string = "| {:<{}} | {:>11} | {:>11} | {:>11} | {:>11} | {:>11} | {:>11.3f} | {:>11.3f} | {:>11.1f} |\n";
     std::FILE* _output = nullptr;
 public:
     explicit markdown_printer(const std::string& filename) {
@@ -261,15 +274,16 @@ public:
         }
     }
     void print_configuration(const config&) override {
-        fmt::print(_output, header_format_string, "test", "iterations", "median", "mad", "min", "max", "allocs", "tasks", "inst");
-        fmt::print(_output, header_format_string, "-", "-", "-", "-", "-", "-", "-", "-", "-");
+        fmt::print(_output, header_format_string, "test", name_column_length(), "iterations", "median", "mad", "min", "max", "allocs", "tasks", "inst");
+        fmt::print(_output, header_format_string, "-", name_column_length(), "-", "-", "-", "-", "-", "-", "-", "-");
     }
 
     void print_result(const result& r) override {
-        fmt::print(_output, body_format_string, r.test_name, r.total_iterations / r.runs, duration { r.median },
+        fmt::print(_output, body_format_string, r.test_name, name_column_length(), r.total_iterations / r.runs, duration { r.median },
                    duration { r.mad }, duration { r.min }, duration { r.max },
                    r.allocs, r.tasks, r.inst);
     }
+
 };
 
 void performance_test::do_run(const config& conf)
@@ -367,7 +381,7 @@ void performance_test::register_test(std::unique_ptr<performance_test> test)
     all_tests().emplace_back(std::move(test));
 }
 
-void run_all(const std::vector<std::string>& tests, const config& conf)
+void run_all(const std::vector<std::string>& tests, config& conf)
 {
     auto can_run = [tests = boost::copy_range<std::vector<std::regex>>(tests)] (auto&& test) {
         auto it = boost::range::find_if(tests, [&test] (const std::regex& regex) {
@@ -376,7 +390,13 @@ void run_all(const std::vector<std::string>& tests, const config& conf)
         return tests.empty() || it != tests.end();
     };
 
+    size_t max_name_column_length = 0;
+    for (auto&& test : all_tests() | boost::adaptors::filtered(can_run)) {
+        max_name_column_length = std::max(max_name_column_length, test->name().size());
+    }
+
     for (auto& rp : conf.printers) {
+        rp->update_name_column_length(max_name_column_length);
         rp->print_configuration(conf);
     }
     for (auto&& test : all_tests() | boost::adaptors::filtered(std::move(can_run))) {
