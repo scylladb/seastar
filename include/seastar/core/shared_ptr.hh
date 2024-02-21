@@ -121,8 +121,31 @@ struct lw_shared_ptr_accessors_esft;
 template <class T>
 struct lw_shared_ptr_accessors_no_esft;
 
+template <typename T>
+struct is_complete_helper {
+    template <typename U>
+    static auto test(U*)  -> std::integral_constant<bool, sizeof(U) == sizeof(U)>;
+    static auto test(...) -> std::false_type;
+    using type = decltype(test((T*)0));
+};
+
+// test whether a type is complete
+template <typename T>
+struct is_complete : is_complete_helper<T>::type {};
 }
 
+// test whether a type has a noexcept(true) destructor.
+// in case the type is incomplete, we return true
+// (i.e. in that case we assume that T's dtor does not throw)
+template<typename T>
+constexpr bool dtor_is_noexcept() {
+    if constexpr (internal::is_complete<T>::value) {
+        return std::is_nothrow_destructible_v<T>;
+    }
+    else {
+        return true;
+    }
+}
 
 // We want to support two use cases for shared_ptr<T>:
 //
@@ -481,14 +504,15 @@ std::ostream& operator<<(std::ostream& out, const lw_shared_ptr<T>& p) {
 
 // Polymorphic shared pointer class
 
+template<bool dtor_noexcept = true>
 struct shared_ptr_count_base {
     // destructor is responsible for fully-typed deletion
-    virtual ~shared_ptr_count_base() {}
+    virtual ~shared_ptr_count_base() noexcept(dtor_noexcept) = default;
     shared_ptr_counter_type count = 0;
 };
 
 template <typename T>
-struct shared_ptr_count_for : shared_ptr_count_base {
+struct shared_ptr_count_for : shared_ptr_count_base<dtor_is_noexcept<T>()> {
     T data;
     template <typename... A>
     shared_ptr_count_for(A&&... a) : data(std::forward<A>(a)...) {}
@@ -496,11 +520,13 @@ struct shared_ptr_count_for : shared_ptr_count_base {
 
 SEASTAR_MODULE_EXPORT_BEGIN
 template <typename T>
-class enable_shared_from_this : private shared_ptr_count_base {
+class enable_shared_from_this : private shared_ptr_count_base<dtor_is_noexcept<T>()> {
 public:
     shared_ptr<T> shared_from_this() noexcept;
     shared_ptr<const T> shared_from_this() const noexcept;
-    long use_count() const noexcept { return count; }
+    long use_count() const noexcept {
+        return shared_ptr_count_base<dtor_is_noexcept<T>()>::count;
+    }
 
     template <typename U>
     friend class shared_ptr;
@@ -511,13 +537,13 @@ public:
 
 template <typename T>
 class shared_ptr {
-    mutable shared_ptr_count_base* _b = nullptr;
+    mutable shared_ptr_count_base<dtor_is_noexcept<T>()>* _b = nullptr;
     mutable T* _p = nullptr;
 private:
     explicit shared_ptr(shared_ptr_count_for<T>* b) noexcept : _b(b), _p(&b->data) {
         ++_b->count;
     }
-    shared_ptr(shared_ptr_count_base* b, T* p) noexcept : _b(b), _p(p) {
+    shared_ptr(shared_ptr_count_base<dtor_is_noexcept<T>()>* b, T* p) noexcept : _b(b), _p(p) {
         if (_b) {
             ++_b->count;
         }
@@ -680,7 +706,7 @@ template <typename T, typename... A>
 inline
 shared_ptr<T>
 make_shared(A&&... a) {
-    using helper = shared_ptr_make_helper<T, std::is_base_of_v<shared_ptr_count_base, T>>;
+    using helper = shared_ptr_make_helper<T, std::is_base_of_v<shared_ptr_count_base<dtor_is_noexcept<T>()>, T>>;
     return helper::make(std::forward<A>(a)...);
 }
 
@@ -688,7 +714,7 @@ template <typename T>
 inline
 shared_ptr<T>
 make_shared(T&& a) {
-    using helper = shared_ptr_make_helper<T, std::is_base_of_v<shared_ptr_count_base, T>>;
+    using helper = shared_ptr_make_helper<T, std::is_base_of_v<shared_ptr_count_base<dtor_is_noexcept<T>()>, T>>;
     return helper::make(std::forward<T>(a));
 }
 
