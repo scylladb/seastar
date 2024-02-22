@@ -78,13 +78,13 @@ static pm::Metric* add_label(pm::Metric* mt, const metrics::impl::labels_type & 
     mt->mutable_label()->Reserve(id.size() + 1);
     if (ctx.label) {
         auto label = mt->add_label();
-        label->set_name(ctx.label->key());
-        label->set_value(ctx.label->value());
+        label->set_name(std::string(ctx.label->key()));
+        label->set_value(std::string(ctx.label->value()));
     }
-    for (auto &&i : id) {
+    for (auto && [name, value] : id) {
         auto label = mt->add_label();
-        label->set_name(i.first);
-        label->set_value(i.second);
+        label->set_name(std::string(name));
+        label->set_value(std::string(value));
     }
     return mt;
 }
@@ -797,7 +797,7 @@ future<> write_protobuf_representation(output_stream<char>& out, const config& c
         auto& name = metric_family.name();
         pm::MetricFamily mtf;
         bool empty_metric = true;
-        mtf.set_name(ctx.prefix + "_" + name);
+        mtf.set_name(fmt::format("{}_{}", ctx.prefix, name));
         mtf.mutable_metric()->Reserve(metric_family.size());
         metric_family.foreach_metric([&mtf, &ctx, &filter, &aggregated_values, &empty_metric, should_aggregate](auto value, auto value_info) {
             if ((value_info.should_skip_when_empty && value.is_empty()) || !filter(value_info.id.labels())) {
