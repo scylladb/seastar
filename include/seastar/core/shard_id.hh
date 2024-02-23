@@ -21,6 +21,8 @@
 
 #pragma once
 
+#include <seastar/util/modules.hh>
+
 /// \file
 
 namespace seastar {
