@@ -48,7 +48,7 @@ jobs:
             - run: ./run ./configure.py --compiler << parameters.compiler >> --c++-standard << parameters.standard >>
       - when:
           condition:
-            equal: [ dev, << parameters.mode >> ]
+            equal: [ "dev", << parameters.mode >> ]
           steps:
             - run: ./run ninja -C build/<< parameters.mode >> checkheaders
       - when:
