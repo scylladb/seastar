@@ -213,7 +213,7 @@ thread_context::make_stack(size_t stack_size) {
     auto stack = stack_holder(new (mem) char[stack_size], stack_deleter(valgrind_id));
 #ifdef SEASTAR_ASAN_ENABLED
     // Avoid ASAN false positive due to garbage on stack
-    std::fill_n(stack.get(), stack_size, 0);
+    std::memset(stack.get(), 0, stack_size);
 #endif
 
 #ifdef SEASTAR_THREAD_STACK_GUARDS
