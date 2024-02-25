@@ -1325,7 +1325,7 @@ cpu_stall_detector_linux_perf_event::arm_timer() {
     auto period = _threshold * _report_at + _slack;
     uint64_t ns =  period / 1ns;
     _next_signal_time = reactor::now() + period;
-    
+
     // clear out any existing records in the ring buffer, so when we get interrupted next time
     // we have only the stack associated with that interrupt, and so we don't overflow.
     data_area_reader(*this).skip_all();
@@ -2649,30 +2649,30 @@ void reactor::register_metrics() {
             sm::make_counter("abandoned_failed_futures", _abandoned_failed_futures, sm::description("Total number of abandoned failed futures, futures destroyed while still containing an exception")),
     });
 
-    using namespace seastar::metrics;
+    namespace sm = seastar::metrics;
     _metric_groups.add_group("reactor", {
-        make_counter("fstream_reads", _io_stats.fstream_reads,
-                description(
+        sm::make_counter("fstream_reads", _io_stats.fstream_reads,
+                sm::description(
                         "Counts reads from disk file streams.  A high rate indicates high disk activity."
                         " Contrast with other fstream_read* counters to locate bottlenecks.")),
-        make_counter("fstream_read_bytes", _io_stats.fstream_read_bytes,
-                description(
+        sm::make_counter("fstream_read_bytes", _io_stats.fstream_read_bytes,
+                sm::description(
                         "Counts bytes read from disk file streams.  A high rate indicates high disk activity."
                         " Divide by fstream_reads to determine average read size.")),
-        make_counter("fstream_reads_blocked", _io_stats.fstream_reads_blocked,
-                description(
+        sm::make_counter("fstream_reads_blocked", _io_stats.fstream_reads_blocked,
+                sm::description(
                         "Counts the number of times a disk read could not be satisfied from read-ahead buffers, and had to block."
                         " Indicates short streams, or incorrect read ahead configuration.")),
-        make_counter("fstream_read_bytes_blocked", _io_stats.fstream_read_bytes_blocked,
-                description(
+        sm::make_counter("fstream_read_bytes_blocked", _io_stats.fstream_read_bytes_blocked,
+                sm::description(
                         "Counts the number of bytes read from disk that could not be satisfied from read-ahead buffers, and had to block."
                         " Indicates short streams, or incorrect read ahead configuration.")),
-        make_counter("fstream_reads_aheads_discarded", _io_stats.fstream_read_aheads_discarded,
-                description(
+        sm::make_counter("fstream_reads_aheads_discarded", _io_stats.fstream_read_aheads_discarded,
+                sm::description(
                         "Counts the number of times a buffer that was read ahead of time and was discarded because it was not needed, wasting disk bandwidth."
                         " Indicates over-eager read ahead configuration.")),
-        make_counter("fstream_reads_ahead_bytes_discarded", _io_stats.fstream_read_ahead_discarded_bytes,
-                description(
+        sm::make_counter("fstream_reads_ahead_bytes_discarded", _io_stats.fstream_read_ahead_discarded_bytes,
+                sm::description(
                         "Counts the number of buffered bytes that were read ahead of time and were discarded because they were not needed, wasting disk bandwidth."
                         " Indicates over-eager read ahead configuration.")),
     });
