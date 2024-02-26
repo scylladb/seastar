@@ -294,14 +294,13 @@ def add_operation(hfile, ccfile, path, oper):
         else:
             fprint(ccfile, "\n,")
         if is_url:
-            fprint(ccfile, '{', '"/', path_param , '", path_description::url_component_type::FIXED_STRING', '}')
+            component_type = 'FIXED_STRING'
+        elif get_parameter_by_name(oper, path_param).get("allowMultiple",
+                                                         False):
+            component_type = 'PARAM_UNTIL_END_OF_PATH'
         else:
-            path_param_type = get_parameter_by_name(oper, path_param)
-            if ("allowMultiple" in path_param_type and
-                path_param_type["allowMultiple"]):
-                fprint(ccfile, '{', '"', path_param , '", path_description::url_component_type::PARAM_UNTIL_END_OF_PATH', '}')
-            else:
-                fprint(ccfile, '{', '"', path_param , '", path_description::url_component_type::PARAM', '}')
+            component_type = 'PARAM'
+        fprint(ccfile, f'{{"/{path_param}", path_description::url_component_type::{component_type}}}')
     fprint(ccfile, '}')
     fprint(ccfile, ',{')
     enum_definitions = ""
