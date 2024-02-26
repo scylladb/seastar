@@ -164,12 +164,39 @@ def clear_path_ending(path):
         return path
     return path[0:-1]
 
-# check if a parameter is query required.
-# It will return true if the required flag is set
-# and if it is a query parameter, both swagger 1.2 'paramType' and swagger 2.0 'in' attributes
-# are supported
-def is_required_query_param(param):
-    return "required" in param and param["required"] and ("paramType" in param and param["paramType"] == "query" or "in" in param and param["in"] == "query")
+
+class Parameter:
+    '''represents a parameter
+
+    TODO: return an instance of Parameter from get_parameter_by_name()
+    '''
+    def __init__(self, definition):
+        self.definition = definition
+
+    @property
+    def name(self):
+        return self.definition['name']
+
+    @property
+    def is_required(self):
+        # check if a parameter is query required.
+        # It will return true if the required flag is set
+        # and if it is a query parameter, both swagger 1.2 'paramType' and
+        # swagger 2.0 'in' attributes are supported
+        if "required" not in self.definition:
+            return False
+        if not self.definition["required"]:
+            return False
+        if self.definition.get("paramType") == "query":
+            return True
+        if self.definition.get("in") == "query":
+            return True
+        return False
+
+    @property
+    def enum(self):
+        return self.definition.get('enum')
+
 
 def add_path(f, path, details):
     if "summary" in details:
@@ -196,9 +223,10 @@ def add_path(f, path, details):
         fprintln(f, spacing, 'path_description::add_path("', clear_path_ending(path), '",',
            details["method"], ',"', details["nickname"], '")')
     if "parameters" in details:
-        for param in details["parameters"]:
-            if is_required_query_param(param):
-                fprintln(f, spacing, '  ->pushmandatory_param("', param["name"], '")')
+        for param_definition in details["parameters"]:
+            param = Parameter(param_definition)
+            if param.is_required:
+                fprintln(f, spacing, '  ->pushmandatory_param("', param.name, '")')
     fprintln(f, spacing, ";")
 
 
@@ -315,15 +343,16 @@ $enum_wrapper
     funcs = ""
     required_query_params = []
     for param in oper.get("parameters", []):
-        if is_required_query_param(param):
-            required_query_params.append(param["name"])
-        if "enum" in param:
+        query_param = Parameter(param)
+        if query_param.is_required:
+            required_query_params.append(query_param)
+        if query_param.enum is not None:
             enum_decl, parse_func = generate_code_from_enum(nickname,
-                                                            param["name"],
-                                                            param["enum"])
+                                                            query_param.name,
+                                                            query_param.enum)
             enum_definitions += enum_decl
             funcs += parse_func
-    fprint(ccfile, '\n,'.join(f'"{name}"' for name in required_query_params))
+    fprint(ccfile, '\n,'.join(f'"{param.name}"' for param in required_query_params))
     fprintln(ccfile, '});')
     fprintln(hfile, enum_definitions)
     open_namespace(ccfile, f'ns_{nickname}')
