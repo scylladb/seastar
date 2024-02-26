@@ -277,12 +277,13 @@ def add_operation(hfile, ccfile, path, oper):
 
     nickname = getitem(oper, "nickname", oper)
     if config.create_cc:
-        fprintln(hfile, 'extern const path_description ', nickname, ';')
+        fprintln(hfile, f'extern const path_description {nickname};')
         maybe_static = ''
     else:
         maybe_static = 'static '
-    fprintln(ccfile, maybe_static, 'const path_description ', nickname, '("', clear_path_ending(base_url),
-           '",', oper["method"], ',"', nickname, '",')
+    normalized_path = clear_path_ending(base_url)
+    http_method = oper["method"]
+    fprintln(ccfile, f'{maybe_static}const path_description {nickname}("{normalized_path}",{http_method},"{nickname}",')
     fprint(ccfile, '{')
     first = True
     while vals:
@@ -325,7 +326,7 @@ $enum_wrapper
     fprint(ccfile, '\n,'.join(f'"{name}"' for name in required_query_params))
     fprintln(ccfile, '});')
     fprintln(hfile, enum_definitions)
-    open_namespace(ccfile, 'ns_' + nickname)
+    open_namespace(ccfile, f'ns_{nickname}')
     fprintln(ccfile, funcs)
     close_namespace(ccfile)
 
