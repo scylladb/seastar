@@ -275,14 +275,14 @@ def add_operation(hfile, ccfile, path, oper):
         vals.reverse()
         base_url = path[:param_starts]
 
-    varname = getitem(oper, "nickname", oper)
+    nickname = getitem(oper, "nickname", oper)
     if config.create_cc:
-        fprintln(hfile, 'extern const path_description ', varname, ';')
+        fprintln(hfile, 'extern const path_description ', nickname, ';')
         maybe_static = ''
     else:
         maybe_static = 'static '
-    fprintln(ccfile, maybe_static, 'const path_description ', varname, '("', clear_path_ending(base_url),
-           '",', oper["method"], ',"', oper["nickname"], '",')
+    fprintln(ccfile, maybe_static, 'const path_description ', nickname, '("', clear_path_ending(base_url),
+           '",', oper["method"], ',"', nickname, '",')
     fprint(ccfile, '{')
     first = True
     while vals:
@@ -305,7 +305,6 @@ def add_operation(hfile, ccfile, path, oper):
     fprint(ccfile, ',{')
     enum_definitions = ""
     if "enum" in oper:
-        nickname = oper["nickname"]
         enum_wrapper = create_enum_wrapper(nickname, "return_type", oper["enum"])
         enum_definitions = Template('''
 namespace ns_$nickname {
@@ -318,7 +317,7 @@ $enum_wrapper
         if is_required_query_param(param):
             required_query_params.append(param["name"])
         if "enum" in param:
-            enum_decl, parse_func = generate_code_from_enum(oper["nickname"],
+            enum_decl, parse_func = generate_code_from_enum(nickname,
                                                             param["name"],
                                                             param["enum"])
             enum_definitions += enum_decl
@@ -326,7 +325,7 @@ $enum_wrapper
     fprint(ccfile, '\n,'.join(f'"{name}"' for name in required_query_params))
     fprintln(ccfile, '});')
     fprintln(hfile, enum_definitions)
-    open_namespace(ccfile, 'ns_' + oper["nickname"])
+    open_namespace(ccfile, 'ns_' + nickname)
     fprintln(ccfile, funcs)
     close_namespace(ccfile)
 
