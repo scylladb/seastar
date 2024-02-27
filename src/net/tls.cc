@@ -412,7 +412,7 @@ public:
         _dn_callback = std::move(cb);
     }
 private:
-    friend class credentials_builder;
+    friend class certificate_credentials;
     friend class session;
 
     bool need_load_system_trust() const {
@@ -504,6 +504,14 @@ std::optional<std::vector<cert_info>> tls::certificate_credentials::get_trust_li
     } catch (...) {
         return std::nullopt;
     }
+}
+
+void tls::certificate_credentials::enable_load_system_trust() {
+    _impl->_load_system_trust = true;
+}
+
+void tls::certificate_credentials::set_client_auth(client_auth ca) {
+    _impl->set_client_auth(ca);
 }
 
 tls::server_credentials::server_credentials()
