@@ -184,8 +184,7 @@ aio_storage_context::handle_aio_error(linux_abi::iocb* iocb, int ec) {
         }
         default:
             ++_r._io_stats.aio_errors;
-            throw_system_error_on(true, "io_submit");
-            abort();
+            throw std::system_error(ec, std::system_category(), "io_submit");
     }
 }
 
