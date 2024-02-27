@@ -754,6 +754,7 @@ add_library (seastar
   src/net/socket_address.cc
   src/net/stack.cc
   src/net/tcp.cc
+  src/net/tls-impl.cc
   src/net/tls.cc
   src/net/udp.cc
   src/net/unix_address.cc
