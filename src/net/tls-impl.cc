@@ -258,14 +258,14 @@ void tls::credentials_builder::apply_to(certificate_credentials& creds) const {
     // Doing this detached would be indeterministic, so set a flag in
     // credentials, and do actual loading in first handshake (see session)
     if (_blobs.count(system_trust)) {
-        creds._impl->_load_system_trust = true;
+        creds.enable_load_system_trust();
     }
 
     if (!_priority.empty()) {
         creds.set_priority_string(_priority);
     }
 
-    creds._impl->set_client_auth(_client_auth);
+    creds.set_client_auth(_client_auth);
 }
 
 shared_ptr<tls::certificate_credentials> tls::credentials_builder::build_certificate_credentials() const {
