@@ -56,9 +56,20 @@ inline tls::reload_callback_with_creds wrap_reload_callback(tls::reload_callback
 
 namespace tls {
 
+class session_impl {
+public:
+    virtual future<> put(net::packet) = 0;
+    virtual future<> flush() noexcept = 0;
+    virtual future<temporary_buffer<char>> get() = 0;
+    virtual void close() = 0;
+    virtual future<std::optional<session_dn>> get_distinguished_name() = 0;
+    virtual seastar::net::connected_socket_impl & socket() const = 0;
+    virtual future<std::vector<subject_alt_name>> get_alt_name_information(std::unordered_set<subject_alt_name_type>) = 0;
+};
+
 struct session_ref {
     session_ref() = default;
-    session_ref(shared_ptr<session> session)
+    session_ref(shared_ptr<session_impl> session)
                     : _session(std::move(session)) {
     }
     session_ref(session_ref&&) = default;
@@ -75,7 +86,7 @@ struct session_ref {
     session_ref& operator=(session_ref&&) = default;
     session_ref& operator=(const session_ref&) = default;
 
-    shared_ptr<session> _session;
+    shared_ptr<session_impl> _session;
 };
 
 class tls_connected_socket_impl : public net::connected_socket_impl, public session_ref {
