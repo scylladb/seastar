@@ -539,7 +539,7 @@ namespace tls {
  * of these, since we handle handshake etc.
  *
  */
-class session : public enable_lw_shared_from_this<session> {
+class session : public enable_shared_from_this<session>, public session_impl {
 public:
     enum class type
         : uint32_t {
@@ -1269,7 +1269,13 @@ future<connected_socket> tls::wrap_client(shared_ptr<certificate_credentials> cr
 }
 
 future<connected_socket> tls::wrap_client(shared_ptr<certificate_credentials> cred, connected_socket&& s, tls_options options) {
-    session::session_ref sess(make_lw_shared<session>(session::type::CLIENT, std::move(cred), std::move(s),  options));
+    session_ref sess(seastar::make_shared<session>(session::type::CLIENT, std::move(cred), std::move(s),  options));
+    connected_socket sock(std::make_unique<tls_connected_socket_impl>(std::move(sess)));
+    return make_ready_future<connected_socket>(std::move(sock));
+}
+
+future<connected_socket> tls::wrap_server(shared_ptr<server_credentials> cred, connected_socket&& s) {
+    session_ref sess(seastar::make_shared<session>(session::type::SERVER, std::move(cred), std::move(s)));
     connected_socket sock(std::make_unique<tls_connected_socket_impl>(std::move(sess)));
     return make_ready_future<connected_socket>(std::move(sock));
 }
