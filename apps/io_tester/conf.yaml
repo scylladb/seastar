@@ -21,6 +21,15 @@
   shards: [0]
   type: cpu
   shard_info:
-    parallelim: 1
+    parallelism: 1
     execution_time: 90us
+    think_time: 10us
+
+- name: unlinking
+  shards: all
+  type: unlink
+  data_size: 2GB
+  files_count: 5000
+  shard_info:
+    parallelism: 10
     think_time: 10us
