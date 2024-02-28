@@ -41,6 +41,8 @@
 #include <seastar/util/noncopyable_function.hh>
 #include <seastar/util/later.hh>
 
+#include <span>
+
 using namespace seastar;
 
 struct serializer {
