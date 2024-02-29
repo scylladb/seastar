@@ -109,12 +109,12 @@ struct request {
     }
 
     /**
-     * Search for the first header of a given name
-     * @param name the header name
-     * @return a pointer to the header value, if it exists or empty string
+     * Search for the last query parameter of a given key
+     * @param key the query paramerter key
+     * @return the query parameter value, if it exists or empty string
      */
-    sstring get_query_param(const sstring& name) const {
-        auto res = query_parameters.find(name);
+    sstring get_query_param(const sstring& key) const {
+        auto res = query_parameters.find(key);
         if (res == query_parameters.end()) {
             return "";
         }
@@ -277,7 +277,7 @@ struct request {
     static request make(httpd::operation_type type, sstring host, sstring path);
 
 private:
-    void add_param(const std::string_view& param);
+    void add_query_param(std::string_view param);
     sstring request_line() const;
     future<> write_request_headers(output_stream<char>& out) const;
     friend class experimental::connection;
