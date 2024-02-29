@@ -122,6 +122,16 @@ struct request {
     }
 
     /**
+     * Search for the last path parameter of a given key
+     * @param key the path paramerter key
+     * @return the unescaped path parameter value, if it exists and can be path decoded successfully, otherwise it
+     *  returns an empty string
+     */
+    sstring get_path_param(const sstring& key) const {
+        return param.get_decoded_param(key);
+    }
+
+    /**
      * Get the request protocol name. Can be either "http" or "https".
      */
     sstring get_protocol_name() const {
