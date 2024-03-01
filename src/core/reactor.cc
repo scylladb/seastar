@@ -3149,10 +3149,8 @@ reactor::run_some_tasks() {
         insert_activating_task_queues();
         task_queue* tq = pop_active_task_queue(t_run_started);
         sched_print("running tq {} {}", (void*)tq, tq->_name);
-        tq->_current = true;
         _last_vruntime = std::max(tq->_vruntime, _last_vruntime);
         run_tasks(*tq);
-        tq->_current = false;
         t_run_completed = now();
         auto delta = t_run_completed - t_run_started;
         account_runtime(*tq, delta);
