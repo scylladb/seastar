@@ -281,7 +281,6 @@ private:
         int64_t _vruntime = 0;
         float _shares;
         int64_t _reciprocal_shares_times_2_power_32;
-        bool _current = false;
         bool _active = false;
         uint8_t _id;
         sched_clock::time_point _ts; // to help calculating wait/starve-times
