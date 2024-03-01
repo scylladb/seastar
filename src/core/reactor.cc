@@ -173,7 +173,6 @@ module seastar;
 #include <seastar/util/spinlock.hh>
 #include <seastar/util/internal/iovec_utils.hh>
 #include <seastar/util/internal/magic.hh>
-#include "core/scollectd-impl.hh"
 #include "core/reactor_backend.hh"
 #include "core/syscall_result.hh"
 #include "core/thread_pool.hh"
@@ -3932,12 +3931,6 @@ smp_options::smp_options(program_options::option_group* parent_group)
     , allow_cpus_in_remote_numa_nodes(*this, "allow-cpus-in-remote-numa-nodes", program_options::unused{})
 #endif
 {
-}
-
-thread_local scollectd::impl scollectd_impl;
-
-scollectd::impl & scollectd::get_impl() {
-    return scollectd_impl;
 }
 
 struct reactor_deleter {
