@@ -985,4 +985,10 @@ metrics::impl::value_map get_value_map() {
 
 }
 
+thread_local scollectd::impl scollectd_impl;
+
+scollectd::impl & scollectd::get_impl() {
+    return scollectd_impl;
+}
+
 }
