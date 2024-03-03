@@ -117,7 +117,7 @@ struct io_queue_topology {
 
     io_queue_topology();
     io_queue_topology(const io_queue_topology&) = delete;
-    io_queue_topology(io_queue_topology&&);
+    io_queue_topology(io_queue_topology&&) noexcept;
     ~io_queue_topology();
 };
 

@@ -66,7 +66,7 @@ auto unwrap_sharded_arg(sharded_parameter<Func, Param...> sp);
 
 using on_each_shard_func = std::function<future<> (unsigned shard)>;
 
-future<> sharded_parallel_for_each(unsigned nr_shards, on_each_shard_func on_each_shard) noexcept(std::is_nothrow_move_constructible_v<on_each_shard_func>);
+future<> sharded_parallel_for_each(unsigned nr_shards, const on_each_shard_func& on_each_shard) noexcept(std::is_nothrow_move_constructible_v<on_each_shard_func>);
 
 template <typename Service>
 class either_sharded_or_local {

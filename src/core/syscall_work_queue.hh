@@ -53,7 +53,7 @@ class syscall_work_queue {
         noncopyable_function<T ()> _func;
         promise<T> _promise;
         std::optional<T> _result;
-        work_item_returning(noncopyable_function<T ()> func) : _func(std::move(func)) {}
+        explicit work_item_returning(noncopyable_function<T ()> func) : _func(std::move(func)) {}
         virtual void process() override { _result = this->_func(); }
         virtual void complete() override { _promise.set_value(std::move(*_result)); }
         virtual void set_exception(std::exception_ptr eptr) override { _promise.set_exception(eptr); };

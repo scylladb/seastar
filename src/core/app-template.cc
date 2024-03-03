@@ -43,6 +43,7 @@ module seastar;
 #include <seastar/util/log.hh>
 #include <seastar/util/log-cli.hh>
 #include <seastar/net/native-stack.hh>
+#include <utility>
 #include "program_options.hh"
 #endif
 
@@ -58,7 +59,7 @@ seastar_options_from_config(app_template::config cfg) {
     app_template::seastar_options opts;
     opts.name = std::move(cfg.name);
     opts.description = std::move(cfg.description);
-    opts.auto_handle_sigint_sigterm = std::move(cfg.auto_handle_sigint_sigterm);
+    opts.auto_handle_sigint_sigterm = cfg.auto_handle_sigint_sigterm;
     opts.reactor_opts.task_quota_ms.set_default_value(cfg.default_task_quota / 1ms);
     opts.reactor_opts.max_networking_io_control_blocks.set_default_value(cfg.max_networking_aio_io_control_blocks);
     opts.smp_opts.reserve_additional_memory_per_shard = cfg.reserve_additional_memory_per_shard;
@@ -132,7 +133,7 @@ app_template::configuration_reader app_template::get_default_configuration_reade
 }
 
 void app_template::set_configuration_reader(configuration_reader conf_reader) {
-    _conf_reader = conf_reader;
+    _conf_reader = std::move(conf_reader);
 }
 
 boost::program_options::options_description& app_template::get_options_description() {
