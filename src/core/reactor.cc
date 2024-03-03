@@ -4510,9 +4510,8 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     auto backend_selector = reactor_opts.reactor_backend.get_selected_candidate();
     seastar_logger.info("Reactor backend: {}", backend_selector);
 
-    unsigned i;
     auto smp_tmain = smp::_tmain;
-    for (i = 1; i < smp::count; i++) {
+    for (unsigned i = 1; i < smp::count; i++) {
         auto allocation = allocations[i];
         create_thread([this, smp_tmain, inited, &reactors_registered, &smp_queues_constructed, &smp_opts, &reactor_opts, &reactors, hugepages_path, i, allocation, assign_io_queues, alloc_io_queues, thread_affinity, heapprof_sampling_rate, mbind, backend_selector, reactor_cfg, &mtx, &layout, use_transparent_hugepages] {
           try {
@@ -4536,7 +4535,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
             for (auto sig : { SIGSEGV }) {
                 sigdelset(&mask, sig);
             }
-            auto r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
+            auto r = ::pthread_sigmask(SIG_BLOCK, &mask, nullptr);
             throw_pthread_error(r);
             init_default_smp_service_group(i);
             lowres_clock::update();
@@ -4892,7 +4891,7 @@ reactor::init_new_scheduling_group_key(scheduling_group_key key, scheduling_grou
     sg_data.scheduling_group_key_configs[key.id()] = cfg;
     return parallel_for_each(_task_queues, [this, cfg, key] (std::unique_ptr<task_queue>& tq) {
         if (tq) {
-            scheduling_group sg = scheduling_group(tq->_id);
+            auto sg = scheduling_group(tq->_id);
             if (tq.get() == _at_destroy_tasks) {
                 // fake the group by assuming it here
                 auto curr = current_scheduling_group();

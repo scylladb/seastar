@@ -30,8 +30,7 @@ module;
 #include <boost/range/algorithm/copy.hpp>
 #include <boost/range/irange.hpp>
 #include <regex>
-#include <stdlib.h>
-#include <unistd.h>
+#include <cstdlib>
 #include <limits>
 #include <filesystem>
 #include <unordered_map>
@@ -64,7 +63,7 @@ namespace resource {
 // This function was made optional because of validate. It needs to
 // throw an error when a non parseable input is given.
 std::optional<cpuset> parse_cpuset(std::string value) {
-    static std::regex r("(\\d+-)?(\\d+)(,(\\d+-)?(\\d+))*");
+    static std::regex r(R"((\d+-)?(\d+)(,(\d+-)?(\d+))*)");
 
     std::smatch match;
     if (std::regex_match(value, match, r)) {
@@ -166,7 +165,7 @@ static optional<fs::path> cgroup2_path_my_pid() {
  * traverse the cgroups V2 hierarchy bottom-up, starting from our process'
  * specific cgroup up to /sys/fs/cgroup, looking for the named file.
  */
-static optional<fs::path> locate_lowest_cgroup2(fs::path lowest_subdir, std::string filename) {
+static optional<fs::path> locate_lowest_cgroup2(fs::path lowest_subdir, const std::string& filename) {
     // locate the lowest subgroup containing the named file (i.e.
     // handles the requested control by itself)
     do {
@@ -270,13 +269,11 @@ size_t calculate_memory(const configuration& c, size_t available_memory, float p
     return needed_memory;
 }
 
-io_queue_topology::io_queue_topology() {
-}
+io_queue_topology::io_queue_topology() = default;
 
-io_queue_topology::~io_queue_topology() {
-}
+io_queue_topology::~io_queue_topology() = default;
 
-io_queue_topology::io_queue_topology(io_queue_topology&& o)
+io_queue_topology::io_queue_topology(io_queue_topology&& o)noexcept
     : queues(std::move(o.queues))
     , shard_to_group(std::move(o.shard_to_group))
     , shards_in_group(std::move(o.shards_in_group))
@@ -325,9 +322,9 @@ static size_t alloc_from_node(cpu& this_cpu, hwloc_obj_t node, std::unordered_ma
 // Find the numa node that contains a specific PU.
 static hwloc_obj_t get_numa_node_for_pu(hwloc_topology_t topology, hwloc_obj_t pu) {
     // Can't use ancestry because hwloc 2.0 NUMA nodes are not ancestors of PUs
-    hwloc_obj_t tmp = NULL;
+    hwloc_obj_t tmp = nullptr;
     auto depth = hwloc_get_type_or_above_depth(topology, HWLOC_OBJ_NUMANODE);
-    while ((tmp = hwloc_get_next_obj_by_depth(topology, depth, tmp)) != NULL) {
+    while ((tmp = hwloc_get_next_obj_by_depth(topology, depth, tmp)) != nullptr) {
         if (hwloc_bitmap_intersects(tmp->cpuset, pu->cpuset)) {
             return tmp;
         }
@@ -349,7 +346,7 @@ static hwloc_obj_t hwloc_get_ancestor(hwloc_obj_type_t type, hwloc_topology_t to
 }
 
 static std::unordered_map<hwloc_obj_t, std::vector<unsigned>> break_cpus_into_groups(hwloc_topology_t topology,
-        std::vector<unsigned> cpus, hwloc_obj_type_t type) {
+        const std::vector<unsigned>& cpus, hwloc_obj_type_t type) {
     std::unordered_map<hwloc_obj_t, std::vector<unsigned>> groups;
 
     for (auto&& cpu_id : cpus) {
@@ -523,7 +520,7 @@ static
 std::unordered_map<unsigned, cpuset>
 numa_node_id_to_cpuset(hwloc_topology_t topo) {
     auto ret = std::unordered_map<unsigned, cpuset>();
-    for (auto numa_node = hwloc_get_next_obj_by_type(topo, HWLOC_OBJ_NUMANODE, NULL);
+    for (auto numa_node = hwloc_get_next_obj_by_type(topo, HWLOC_OBJ_NUMANODE, nullptr);
             numa_node;
             numa_node = hwloc_get_next_obj_by_type(topo, HWLOC_OBJ_NUMANODE, numa_node)) {
         auto parent = numa_node->parent;
@@ -618,9 +615,9 @@ resources allocate(configuration& c) {
         // Get the list of NUMA nodes available
         std::vector<hwloc_obj_t> nodes;
 
-        hwloc_obj_t tmp = NULL;
+        hwloc_obj_t tmp = nullptr;
         auto depth = hwloc_get_type_or_above_depth(topology, HWLOC_OBJ_NUMANODE);
-        while ((tmp = hwloc_get_next_obj_by_depth(topology, depth, tmp)) != NULL) {
+        while ((tmp = hwloc_get_next_obj_by_depth(topology, depth, tmp)) != nullptr) {
             nodes.push_back(tmp);
         }
 
