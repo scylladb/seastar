@@ -370,10 +370,10 @@ public:
     }
 
     template <typename FrameType>
-    typename FrameType::return_type read_frame(socket_address info, input_stream<char>& in);
+    future<typename FrameType::return_type> read_frame(socket_address info, input_stream<char>& in);
 
     template <typename FrameType>
-    typename FrameType::return_type read_frame_compressed(socket_address info, std::unique_ptr<compressor>& compressor, input_stream<char>& in);
+    future<typename FrameType::return_type> read_frame_compressed(socket_address info, std::unique_ptr<compressor>& compressor, input_stream<char>& in);
     friend class client;
     template<typename Serializer, typename... Out>
     friend class sink_impl;
