@@ -89,7 +89,7 @@ public:
  *
  */
 struct relabel_config {
-    enum class relabel_action {skip_when_empty, report_when_empty, replace, keep, drop, drop_label};
+    enum class relabel_action {skip_when_empty, report_when_empty, replace, keep, drop, drop_label, aggregate_label};
     std::vector<std::string> source_labels;
     std::string target_label;
     std::string replacement = "${1}";

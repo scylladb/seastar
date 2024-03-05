@@ -192,6 +192,7 @@ struct metric_info {
     labels_type original_labels;
     bool enabled;
     skip_when_empty should_skip_when_empty;
+    std::vector<std::string> aggregate_labels;
 };
 
 
@@ -216,7 +217,7 @@ class registered_metric final {
     metric_function _f;
     shared_ptr<impl> _impl;
 public:
-    registered_metric(metric_id id, metric_function f, bool enabled=true, skip_when_empty skip=skip_when_empty::no);
+    registered_metric(metric_id id, metric_function f, bool enabled=true, skip_when_empty skip=skip_when_empty::no, std::vector<std::string> aggregate_labels = {});
     metric_value operator()() const {
         return _f();
     }
