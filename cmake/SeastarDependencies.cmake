@@ -95,7 +95,7 @@ macro (seastar_find_dependencies)
     GnuTLS
     LibUring
     LinuxMembarrier
-    Protobuf
+    # Protobuf is searched manually.
     Sanitizers
     SourceLocation
     StdAtomic
@@ -130,8 +130,6 @@ macro (seastar_find_dependencies)
     VERSION 1.7.3)
   seastar_set_dep_args (GnuTLS REQUIRED
     VERSION 3.3.26)
-  seastar_set_dep_args (Protobuf REQUIRED
-    VERSION 2.5.0)
   seastar_set_dep_args (LibUring
     VERSION 2.0
     OPTION ${Seastar_IO_URING})
@@ -152,4 +150,23 @@ macro (seastar_find_dependencies)
       find_package ("${third_party}" ${_seastar_dep_args_${third_party}})
     endif ()
   endforeach ()
+
+  # workaround for https://gitlab.kitware.com/cmake/cmake/-/issues/25079
+  # since protobuf v22.0, it started using abseil, see
+  # https://github.com/protocolbuffers/protobuf/releases/tag/v22.0 .
+  # but due to https://gitlab.kitware.com/cmake/cmake/-/issues/25079,
+  # CMake's FindProtobuf does add this linkage yet. fortunately,
+  # ProtobufConfig.cmake provided by protobuf defines this linkage. so we try
+  # the CMake package configuration file first, and fall back to CMake's
+  # FindProtobuf module.
+  find_package (Protobuf 2.5.0
+    QUIET CONFIG)
+  if (Protobuf_FOUND)
+    # do it again, so the message is printed when the package is found
+    find_package(Protobuf 2.5.0
+      CONFIG REQUIRED)
+  else ()
+    find_package(Protobuf 2.5.0
+      REQUIRED)
+  endif ()
 endmacro ()
