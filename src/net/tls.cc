@@ -39,6 +39,7 @@ module;
 #include <boost/range/adaptor/map.hpp>
 
 #include <fmt/core.h>
+#include <seastar/util/defer.hh>
 
 #ifdef SEASTAR_MODULE
 module seastar;
@@ -172,6 +173,19 @@ static void gtls_chk(int res) {
     }
 }
 
+static std::vector<std::byte> extract_x509_serial(gnutls_x509_crt_t cert) {
+    constexpr size_t serial_max = 128;
+    size_t serial_size{serial_max};
+    std::vector<std::byte> serial(serial_size);
+    try {
+        gtls_chk(gnutls_x509_crt_get_serial(cert, serial.data(), &serial_size));
+    } catch (...) {
+        std::throw_with_nested(std::runtime_error(std::string("Could not extract x509 serial")));
+    }
+    serial.resize(serial_size);
+    return serial;
+}
+
 namespace {
 
 // helper for gnutls-functions for receiving a string
@@ -194,6 +208,14 @@ static auto get_gtls_string = [](auto func, auto... args) noexcept {
     ret = func(args..., res.data(), &size);
     return std::make_pair(ret, res);
 };
+
+tls::reload_callback_with_creds wrap_reload_callback(tls::reload_callback cb) {
+    return [cb{std::move(cb)}](const std::unordered_set<sstring>& files,
+                               const tls::certificate_credentials&,
+                               std::exception_ptr ep) {
+        return cb(files, ep);
+    };
+}
 
 }
 
@@ -379,6 +401,53 @@ public:
                 gnutls_certificate_set_x509_simple_pkcs12_mem(_creds, &w,
                         gnutls_x509_crt_fmt_t(fmt), password.c_str()));
     }
+    std::vector<cert_info> get_x509_info() const {
+        gnutls_x509_crt_t *crt_list{};
+        unsigned int crt_list_size{};
+        try {
+            gtls_chk(gnutls_certificate_get_x509_crt(*this, 0, &crt_list, &crt_list_size));
+        } catch (...) {
+            std::throw_with_nested(std::runtime_error(std::string("Could not get x509 cert")));
+        }
+        auto cleanup = defer([&crt_list, crt_list_size]() noexcept {
+            for (unsigned int i = 0; i < crt_list_size; ++i) {
+                gnutls_x509_crt_deinit(crt_list[i]);
+            }
+            gnutls_free(crt_list);
+        });
+
+        std::vector<cert_info> result;
+        result.reserve(crt_list_size);
+
+        for (unsigned int i = 0; i < crt_list_size; ++i) {
+            cert_info info = {
+                .serial = extract_x509_serial(crt_list[i]),
+                .expiry = gnutls_x509_crt_get_expiration_time(crt_list[i]),
+            };
+            result.emplace_back(std::move(info));
+        }
+        return result;
+    }
+    std::vector<cert_info> get_x509_trust_list_info() const {
+        gnutls_x509_trust_list_t tlist{};
+        gnutls_certificate_get_trust_list(*this, &tlist);
+        gnutls_x509_trust_list_iter_t iter{};
+        gnutls_x509_crt_t cert{};
+
+        // Size not known up front
+        std::vector<cert_info> result;
+        while (GNUTLS_E_REQUESTED_DATA_NOT_AVAILABLE !=
+               gnutls_x509_trust_list_iter_get_ca(tlist, &iter, &cert)) {
+            cert_info info = {
+                .serial = extract_x509_serial(cert),
+                .expiry = gnutls_x509_crt_get_expiration_time(cert),
+            };
+            result.emplace_back(std::move(info));
+
+            gnutls_x509_crt_deinit(cert);
+        }
+        return result;
+    }
     void dh_params(const tls::dh_params& dh) {
 #if GNUTLS_VERSION_NUMBER >= 0x030506
         auto sec_param = dh._impl->sec_param();
@@ -518,6 +587,22 @@ void tls::certificate_credentials::set_priority_string(const sstring& prio) {
 
 void tls::certificate_credentials::set_dn_verification_callback(dn_callback cb) {
     _impl->set_dn_verification_callback(std::move(cb));
+}
+
+std::optional<std::vector<cert_info>> tls::certificate_credentials::get_cert_info() const {
+    if (_impl == nullptr) {
+        return std::nullopt;
+    }
+
+    return _impl->get_x509_info();
+}
+
+std::optional<std::vector<cert_info>> tls::certificate_credentials::get_trust_list_info() const {
+    if (_impl == nullptr) {
+        return std::nullopt;
+    }
+
+    return _impl->get_x509_trust_list_info();
 }
 
 tls::server_credentials::server_credentials()
@@ -729,7 +814,7 @@ public:
     public:
         using time_point = std::chrono::system_clock::time_point;
 
-        reloading_builder(credentials_builder b, reload_callback cb, reloadable_credentials_base* creds, delay_type delay)
+        reloading_builder(credentials_builder b, reload_callback_with_creds cb, reloadable_credentials_base* creds, delay_type delay)
             : credentials_builder(std::move(b))
             , _cb(std::move(cb))
             , _creds(creds)
@@ -785,6 +870,7 @@ public:
             _fsn.shutdown();
             _timer.cancel();
         }
+
     private:
         using fsnotifier = experimental::fsnotifier;
 
@@ -887,8 +973,9 @@ public:
             }
         }
         void do_callback(std::exception_ptr ep = {}) {
-            if (_cb && !_files.empty()) {
-                _cb(boost::copy_range<std::unordered_set<sstring>>(_files | boost::adaptors::map_keys), std::move(ep));
+            if (_cb && !_files.empty() && _creds) {
+                const auto &creds = _creds->as_certificate_credentials();
+                _cb(boost::copy_range<std::unordered_set<sstring>>(_files | boost::adaptors::map_keys), creds, std::move(ep));
             }
         }
         // called from seastar::thread
@@ -921,7 +1008,7 @@ public:
             });
         }
 
-        reload_callback _cb;
+        reload_callback_with_creds _cb;
         reloadable_credentials_base* _creds;
         fsnotifier _fsn;
         std::unordered_map<fsnotifier::watch_token, std::pair<fsnotifier::watch, sstring>> _watches;
@@ -930,7 +1017,7 @@ public:
         timer<> _timer;
         delay_type _delay;
     };
-    reloadable_credentials_base(credentials_builder builder, reload_callback cb, delay_type delay = default_tolerance)
+    reloadable_credentials_base(credentials_builder builder, reload_callback_with_creds cb, delay_type delay = default_tolerance)
         : _builder(seastar::make_shared<reloading_builder>(std::move(builder), std::move(cb), this, delay))
     {
         _builder->start();
@@ -942,6 +1029,7 @@ public:
         _builder->detach();
     }
     virtual void rebuild(const credentials_builder&) = 0;
+    virtual const tls::certificate_credentials& as_certificate_credentials() const noexcept = 0;
 private:
     shared_ptr<reloading_builder> _builder;
 };
@@ -949,11 +1037,13 @@ private:
 template<typename Base>
 class tls::reloadable_credentials : public Base, public tls::reloadable_credentials_base {
 public:
-    reloadable_credentials(credentials_builder builder, reload_callback cb, Base b, delay_type delay = default_tolerance)
+    reloadable_credentials(credentials_builder builder, reload_callback_with_creds cb, Base b, delay_type delay = default_tolerance)
         : Base(std::move(b))
         , tls::reloadable_credentials_base(std::move(builder), std::move(cb), delay)
     {}
     void rebuild(const credentials_builder&) override;
+    const tls::certificate_credentials& as_certificate_credentials() const noexcept override;
+
 };
 
 template<>
@@ -962,13 +1052,27 @@ void tls::reloadable_credentials<tls::certificate_credentials>::rebuild(const cr
     this->_impl = std::move(tmp->_impl);
 }
 
+template <>
+const tls::certificate_credentials& tls::reloadable_credentials<tls::certificate_credentials>::as_certificate_credentials() const noexcept {
+    return *this;
+}
+
 template<>
 void tls::reloadable_credentials<tls::server_credentials>::rebuild(const credentials_builder& builder) {
     auto tmp = builder.build_server_credentials();
     this->_impl = std::move(tmp->_impl);
 }
 
+template <>
+const tls::certificate_credentials& tls::reloadable_credentials<tls::server_credentials>::as_certificate_credentials() const noexcept{
+    return *this;
+}
+
 future<shared_ptr<tls::certificate_credentials>> tls::credentials_builder::build_reloadable_certificate_credentials(reload_callback cb, std::optional<std::chrono::milliseconds> tolerance) const {
+    return build_reloadable_certificate_credentials(wrap_reload_callback(std::move(cb)), tolerance);
+}
+
+future<shared_ptr<tls::certificate_credentials>> tls::credentials_builder::build_reloadable_certificate_credentials(reload_callback_with_creds cb, std::optional<std::chrono::milliseconds> tolerance) const {
     auto creds = seastar::make_shared<reloadable_credentials<tls::certificate_credentials>>(*this, std::move(cb), std::move(*build_certificate_credentials()), tolerance.value_or(reloadable_credentials_base::default_tolerance));
     return creds->init().then([creds] {
         return make_ready_future<shared_ptr<tls::certificate_credentials>>(creds);
@@ -976,6 +1080,10 @@ future<shared_ptr<tls::certificate_credentials>> tls::credentials_builder::build
 }
 
 future<shared_ptr<tls::server_credentials>> tls::credentials_builder::build_reloadable_server_credentials(reload_callback cb, std::optional<std::chrono::milliseconds> tolerance) const {
+    return build_reloadable_server_credentials(wrap_reload_callback(std::move(cb)), tolerance);
+}
+
+future<shared_ptr<tls::server_credentials>> tls::credentials_builder::build_reloadable_server_credentials(reload_callback_with_creds cb, std::optional<std::chrono::milliseconds> tolerance) const {
     auto creds = seastar::make_shared<reloadable_credentials<tls::server_credentials>>(*this, std::move(cb), std::move(*build_server_credentials()), tolerance.value_or(reloadable_credentials_base::default_tolerance));
     return creds->init().then([creds] {
         return make_ready_future<shared_ptr<tls::server_credentials>>(creds);
@@ -2008,7 +2116,6 @@ std::ostream& tls::operator<<(std::ostream& os, const subject_alt_name::value_ty
 std::ostream& tls::operator<<(std::ostream& os, const subject_alt_name& a) {
     return os << a.type << "=" << a.value;
 }
-
 
 }
 

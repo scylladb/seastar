@@ -26,6 +26,7 @@
 #include <memory>
 #include <vector>
 #include <cstring>
+#include <cstddef>
 #include <sys/types.h>
 #endif
 
@@ -174,6 +175,15 @@ struct connected_socket_input_stream_config final {
 struct session_dn {
     sstring subject;
     sstring issuer;
+};
+
+/// Information about a certificate
+///
+/// NOTE: `cert_info::serial` is delivered as a raw byte buffer to be interpreted
+/// as a bigint up to 20 octets wide.
+struct cert_info {
+    std::vector<std::byte> serial;
+    time_t expiry;
 };
 
 /// A TCP (or other stream-based protocol) connection.
