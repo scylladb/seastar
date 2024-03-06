@@ -159,14 +159,11 @@ macro (seastar_find_dependencies)
   # ProtobufConfig.cmake provided by protobuf defines this linkage. so we try
   # the CMake package configuration file first, and fall back to CMake's
   # FindProtobuf module.
-  find_package (Protobuf 2.5.0
-    QUIET CONFIG)
-  if (Protobuf_FOUND)
+  find_package (Protobuf QUIET CONFIG)
+  if (Protobuf_FOUND AND Protobuf_VERSION VERSION_GREATER_EQUAL 2.5.0)
     # do it again, so the message is printed when the package is found
-    find_package(Protobuf 2.5.0
-      CONFIG REQUIRED)
+    find_package(Protobuf CONFIG REQUIRED)
   else ()
-    find_package(Protobuf 2.5.0
-      REQUIRED)
+    find_package(Protobuf 2.5.0 REQUIRED)
   endif ()
 endmacro ()
