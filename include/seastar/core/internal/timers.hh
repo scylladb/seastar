@@ -22,6 +22,7 @@
 #pragma once
 
 #ifndef SEASTAR_MODULE
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <optional>
