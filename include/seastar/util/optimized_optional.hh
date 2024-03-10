@@ -28,6 +28,7 @@
 #include <iostream>
 #include <memory>
 #include <type_traits>
+#include <fmt/core.h>
 #endif
 
 namespace seastar {
@@ -99,3 +100,13 @@ public:
 };
 
 }
+
+template <typename T>
+struct fmt::formatter<seastar::optimized_optional<T>> : fmt::formatter<std::string_view> {
+    auto format(const seastar::optimized_optional<T>& opt, fmt::format_context& ctx) const {
+        if (opt) {
+            return fmt::format_to(ctx.out(), "{}", *opt);
+        }
+        return fmt::format_to(ctx.out(), "null");
+    }
+};
