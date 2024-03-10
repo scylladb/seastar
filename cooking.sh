@@ -64,7 +64,7 @@ where OPTIONS are:
 -l
 -h
 
-By default, cmake-cooking reads a file called `cooking_recipe.cmake`.
+By default, cmake-cooking reads a file called 'cooking_recipe.cmake'.
 
 If neither [-i] nor [-e] are specified with a recipe ([-r]), then all ingredients of the recipe
 will be fetched and built.
@@ -80,7 +80,7 @@ Option details:
 
 -r RECIPE
 
-    Instead of reading the recipe in a file called `cooking_recipe.cmake`, follow the recipe
+    Instead of reading the recipe in a file called 'cooking_recipe.cmake', follow the recipe
     in the named file.
 
     If the recipe file is a relative path, it is interpretted relative to the source directory
