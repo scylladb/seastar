@@ -119,6 +119,14 @@ cooking_ingredient (numactl
     BUILD_COMMAND <DISABLE>
     INSTALL_COMMAND ${make_command} install)
 
+cooking_ingredient (zlib
+  EXTERNAL_PROJECT_ARGS
+    URL https://github.com/madler/zlib/releases/download/v1.2.13/zlib-1.2.13.tar.gz
+    URL_MD5 9b8aa094c4e5765dabf4da391f00d15c
+    CONFIGURE_COMMAND <SOURCE_DIR>/configure --prefix=<INSTALL_DIR>
+    BUILD_COMMAND <DISABLE>
+    INSTALL_COMMAND ${make_command} install)
+
 ##
 ## Private and private/public dependencies.
 ##
