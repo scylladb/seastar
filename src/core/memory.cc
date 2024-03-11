@@ -98,6 +98,7 @@ module;
 #include <mutex>
 #include <functional>
 #include <cstring>
+#include <utility>
 #include <boost/intrusive/list.hpp>
 #include <sys/mman.h>
 
@@ -1639,6 +1640,30 @@ void *allocate_slowpath(size_t size) {
             alloc_stats::increment(alloc_stats::types::foreign_mallocs);
             return original_malloc_func(size);
         }
+
+        // #2137 - static init fiasco for fallback functions. 
+        // If dependent libraries do malloc _before_ the above declaration inits are run,
+        // we end up here with nowhere to go. Add a second check and attempt the full init
+        // already. If we find the functions, all is good. Otherwise, trudge along and probably
+        // crash terribly later.
+        // Note: this is only relevant if we're in dlinit phase, in which case we are single
+        // threaded. Or there is no external func to find. No need for atomics or fences.
+        static bool double_checked = false;
+        if (!double_checked) {
+            double_checked = true;
+
+            original_malloc_func = reinterpret_cast<malloc_func_type>(dlsym(RTLD_NEXT, "malloc"));
+            original_free_func = reinterpret_cast<free_func_type>(dlsym(RTLD_NEXT, "free"));
+            original_realloc_func = reinterpret_cast<realloc_func_type>(dlsym(RTLD_NEXT, "realloc"));
+            original_aligned_alloc_func = reinterpret_cast<aligned_alloc_type>(dlsym(RTLD_NEXT, "aligned_alloc"));
+            original_malloc_trim_func = reinterpret_cast<malloc_trim_type>(dlsym(RTLD_NEXT, "malloc_trim"));
+            original_malloc_usable_size_func = reinterpret_cast<malloc_usable_size_type>(dlsym(RTLD_NEXT, "malloc_usable_size"));
+
+            if (original_malloc_func) {
+                return allocate_slowpath(size);
+            }
+        }
+
         // original_malloc_func might be null for allocations before main
         // in constructors before original_malloc_func ctor is called
         init_cpu_mem();
