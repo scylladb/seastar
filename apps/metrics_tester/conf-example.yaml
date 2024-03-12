@@ -1,0 +1,10 @@
+metrics:
+- name: hist1
+  type: histogram
+  values: [1000,2000,3000]
+- name: gag1
+  type: gauge
+  values: [5]
+- name: caunt1
+  type: caunter
+  values: [7]
