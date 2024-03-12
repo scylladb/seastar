@@ -554,7 +554,7 @@ The `seastar::coroutine::parallel_for_each` class template allows a coroutine to
 #include <seastar/core/coroutines.hh>
 #include <seastar/coroutine/parallel_for_each.hh>
 
-seastar::future<bool> all_exist(std::vector<sstring> filenames) {
+seastar::future<bool> all_exist(std::vector<seastar::sstring> filenames) {
     bool res = true;
     co_await seastar::coroutine::parallel_for_each(filenames, [&res] (const seastar::sstring& name) -> seastar::future<> {
         res &= co_await seastar::file_exists(name);
