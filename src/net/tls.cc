@@ -39,6 +39,7 @@ module;
 #include <boost/range/adaptor/map.hpp>
 
 #include <fmt/core.h>
+#include <fmt/ostream.h>
 
 #ifdef SEASTAR_MODULE
 module seastar;
@@ -2001,12 +2002,13 @@ std::ostream& tls::operator<<(std::ostream& os, subject_alt_name_type type) {
 }
 
 std::ostream& tls::operator<<(std::ostream& os, const subject_alt_name::value_type& v) {
-    std::visit([&](auto& vv) { os << vv; }, v);
+    fmt::print(os, "{}", v);
     return os;
 }
 
 std::ostream& tls::operator<<(std::ostream& os, const subject_alt_name& a) {
-    return os << a.type << "=" << a.value;
+    fmt::print(os, "{}", a);
+    return os;
 }
 
 

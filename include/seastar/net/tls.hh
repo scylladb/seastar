@@ -496,3 +496,26 @@ namespace tls {
     extern const int ERROR_PREMATURE_TERMINATION;
 }
 }
+
+template <> struct fmt::formatter<seastar::tls::subject_alt_name_type> : fmt::formatter<std::string_view> {
+    template <typename FormatContext>
+    auto format(seastar::tls::subject_alt_name_type type, FormatContext& ctx) const {
+        return formatter<std::string_view>::format(format_as(type), ctx);
+    }
+};
+
+template <> struct fmt::formatter<seastar::tls::subject_alt_name::value_type> : fmt::formatter<std::string_view> {
+    template <typename FormatContext>
+    auto format(const seastar::tls::subject_alt_name::value_type& value, FormatContext& ctx) const {
+        return std::visit([&](const auto& v) {
+            return fmt::format_to(ctx.out(), "{}", v);
+        }, value);
+    }
+};
+
+template <> struct fmt::formatter<seastar::tls::subject_alt_name> : fmt::formatter<std::string_view> {
+    template <typename FormatContext>
+    auto format(const seastar::tls::subject_alt_name& name, FormatContext& ctx) const {
+        return fmt::format_to(ctx.out(), "{}={}", name.type, name.value);
+    }
+};
