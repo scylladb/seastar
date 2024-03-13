@@ -41,6 +41,7 @@ module seastar;
 #include <seastar/core/systemwide_memory_barrier.hh>
 #include <seastar/core/cacheline.hh>
 #include <seastar/util/log.hh>
+#include <seastar/util/defer.hh>
 #endif
 
 namespace seastar {
@@ -111,7 +112,31 @@ systemwide_memory_barrier() {
     assert(r2 == 0);
 }
 
+struct alignas(cache_line_size) aligned_flag {
+    std::atomic<bool> flag;
+    bool try_lock() noexcept {
+        return !flag.exchange(true, std::memory_order_relaxed);
+    }
+    void unlock() noexcept {
+        flag.store(false, std::memory_order_relaxed);
+    }
+};
+static aligned_flag membarrier_lock;
+
 bool try_systemwide_memory_barrier() {
+    // In 944d5fe50f3f, Linux started serializing membarrier(MEMBARRIER_CMD_PRIVATE_EXPEDITED)
+    // calls. This means that if all reactors enter sleep mode at the same time, they will sleep
+    // on a kernel mutex while doing so. While they wait on the mutex, they cannot be woken.
+    //
+    // To fix this, only we serialize membarrier calls ourselves, but instead of sleeping, we just
+    // return to the reactor poll loop. If an event is ready, we will wake up immediately.
+    if (!membarrier_lock.try_lock()) {
+        return false;
+    }
+    auto unlock = defer([] () noexcept {
+        membarrier_lock.unlock();
+    });
+
     if (try_native_membarrier()) {
         return true;
     }
