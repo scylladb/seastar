@@ -417,10 +417,11 @@ function (seastar_generate_protobuf)
   set (source_out ${args_OUT_DIR}/${in_file_name}.pb.cc)
 
   add_custom_command (
-    DEPENDS ${args_IN_FILE}
+    DEPENDS ${args_IN_FILE} protobuf::protoc
     OUTPUT ${header_out} ${source_out}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${args_OUT_DIR}
-    COMMAND ${Protobuf_PROTOC_EXECUTABLE} --cpp_out=${args_OUT_DIR} -I${in_file_dir} ${args_IN_FILE})
+    COMMAND protobuf::protoc
+    ARGS --cpp_out=${args_OUT_DIR} -I${in_file_dir} ${args_IN_FILE})
 
   add_custom_target (${args_TARGET}
     DEPENDS
