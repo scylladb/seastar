@@ -84,15 +84,8 @@ public:
         return bool_class(!x._value);
     }
 
-    /// Equal-to operator.
-    friend bool operator==(bool_class x, bool_class y) noexcept {
-        return x._value == y._value;
-    }
-
-    /// Not-equal-to operator.
-    friend bool operator!=(bool_class x, bool_class y) noexcept {
-        return x._value != y._value;
-    }
+    /// Equal-to and not-equal-to operators.
+    friend bool operator==(bool_class x, bool_class y) noexcept = default;
 
     /// Prints bool_class value to an output stream.
     friend std::ostream& operator<<(std::ostream& os, bool_class v) {
