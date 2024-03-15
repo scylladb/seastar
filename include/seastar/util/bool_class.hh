@@ -22,6 +22,7 @@
 #pragma once
 
 #include <ostream>
+#include <fmt/core.h>
 
 namespace seastar {
 
@@ -101,3 +102,12 @@ const bool_class<Tag> bool_class<Tag>::no { false };
 /// @}
 
 }
+
+template<typename Tag>
+struct fmt::formatter<seastar::bool_class<Tag>> {
+    constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
+    template <typename FormatContext>
+    auto format(seastar::bool_class<Tag> v, FormatContext& ctx) const{
+        return fmt::format_to(ctx.out(), "{}", bool(v));
+    }
+};
