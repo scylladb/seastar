@@ -179,6 +179,10 @@ static bool apply_relabeling(const relabel_config& rc, impl::metric_info& info) 
             }
             return true;
         }
+        case relabel_config::relabel_action::aggregate_label: {
+            info.aggregate_labels.push_back(rc.target_label);
+            return true;
+        }
         default:
             break;
     }
@@ -201,12 +205,13 @@ static std::string get_unique_id() {
 label shard_label("shard");
 namespace impl {
 
-registered_metric::registered_metric(metric_id id, metric_function f, bool enabled, skip_when_empty skip) :
+registered_metric::registered_metric(metric_id id, metric_function f, bool enabled, skip_when_empty skip, std::vector<std::string> aggregate_labels) :
         _f(f), _impl(get_local_impl()) {
     _info.enabled = enabled;
     _info.should_skip_when_empty = skip;
     _info.id = id;
     _info.original_labels = id.labels();
+    _info.aggregate_labels = aggregate_labels;
 }
 
 metric_value metric_value::operator+(const metric_value& c) {
@@ -430,7 +435,7 @@ std::vector<std::deque<metric_function>>& impl::functions() {
 }
 
 void impl::add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled, skip_when_empty skip, const std::vector<std::string>& aggregate_labels) {
-    auto rm = ::seastar::make_shared<registered_metric>(id, f, enabled, skip);
+    auto rm = ::seastar::make_shared<registered_metric>(id, f, enabled, skip, aggregate_labels);
     for (auto&& rl : _relabel_configs) {
         apply_relabeling(rl, rm->info());
     }
@@ -469,6 +474,9 @@ future<metric_relabeling_result> impl::set_relabel_configs(const std::vector<rel
             metric->second->info().id.labels() = metric->second->info().original_labels;
             for (auto rl : _relabel_configs) {
                 if (apply_relabeling(rl, metric->second->info())) {
+                    if(!metric->second->info().aggregate_labels.empty()){
+                        _value_map[metric->second->info().id.full_name()].info().aggregate_labels = metric->second->info().aggregate_labels;
+                    }
                     dirty();
                 }
             }
@@ -519,8 +527,12 @@ relabel_config::relabel_action relabel_config_action(const std::string& action) 
     }
     if (action == "drop") {
         return relabel_config::relabel_action::drop;
-    } if (action == "drop_label") {
+    } 
+    if (action == "drop_label") {
         return relabel_config::relabel_action::drop_label;
+    }
+    if (action == "aggregate_label") {
+        return relabel_config::relabel_action::aggregate_label;
     }
     return relabel_config::relabel_action::replace;
 }
