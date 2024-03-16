@@ -25,6 +25,10 @@ module;
 #include <boost/range/algorithm/find_if.hpp>
 #include <memory>
 #include <vector>
+#include <regex>
+#include <sys/mman.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 #ifdef SEASTAR_MODULE
 module seastar;
@@ -35,6 +39,8 @@ module seastar;
 #include <seastar/core/semaphore.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/on_internal_error.hh>
+#include <seastar/core/posix.hh>
+#include <seastar/core/align.hh>
 #include "prefault.hh"
 #endif
 
@@ -173,11 +179,32 @@ smp::setup_prefaulter(const seastar::resource::resources& res, seastar::memory::
 #endif
 }
 
+static
+std::optional<size_t>
+get_huge_page_size() {
+    auto meminfo_fd = file_desc::open("/proc/meminfo", O_RDONLY | O_CLOEXEC);
+    std::string meminfo;
+    char buf[4096];
+    while (auto size_opt = meminfo_fd.read(buf, sizeof(buf))) {
+        if (!*size_opt) {
+            break;
+        }
+        meminfo.append(buf, *size_opt);
+    }
+    static std::regex re(R"(Hugepagesize:\s*(\d+) kB)");
+    auto m = std::smatch{};
+    if (std::regex_search(meminfo, m, re)) {
+        return std::stoi(m[1]) * size_t(1024);
+    }
+    return std::nullopt;
+}
+
 internal::memory_prefaulter::memory_prefaulter(const resource::resources& res, memory::internal::numa_layout layout) {
     for (auto& range : layout.ranges) {
         _layout_by_node_id[range.numa_node_id].push_back(std::move(range));
     }
     auto page_size = getpagesize();
+    auto huge_page_size_opt = get_huge_page_size();
     for (auto& numa_node_id_and_ranges : _layout_by_node_id) {
         auto& numa_node_id = numa_node_id_and_ranges.first;
         auto& ranges = numa_node_id_and_ranges.second;
@@ -191,8 +218,8 @@ internal::memory_prefaulter::memory_prefaulter(const resource::resources& res, m
             }
             a.set(cpuset);
         }
-        _worker_threads.emplace_back(a, [this, &ranges, page_size] {
-            work(ranges, page_size);
+        _worker_threads.emplace_back(a, [this, &ranges, page_size, huge_page_size_opt] {
+            work(ranges, page_size, huge_page_size_opt);
         });
     }
 }
@@ -205,12 +232,33 @@ internal::memory_prefaulter::~memory_prefaulter() {
 }
 
 void
-internal::memory_prefaulter::work(std::vector<memory::internal::memory_range>& ranges, size_t page_size) {
+internal::memory_prefaulter::work(std::vector<memory::internal::memory_range>& ranges, size_t page_size,
+        std::optional<size_t> huge_page_size_opt) {
     sched_param param = { .sched_priority = 0 };
     // SCHED_IDLE doesn't work via thread attributes
     pthread_setschedparam(pthread_self(), SCHED_IDLE, &param);
     size_t current_range = 0;
-    const size_t batch_size = 512; // happens to match huge page size on x86, through not critical
+    const size_t batch_size = huge_page_size_opt.value_or(512*4096);
+    auto populate_memory_madvise = [works = true] (char* start, char* end) mutable {
+#ifdef MADV_POPULATE_WRITE
+        if (works) {
+            auto result = madvise(start, end - start, MADV_POPULATE_WRITE);
+            if (result == -1 && errno == EINVAL) {
+                // Unsupported by kernel
+                works = false;
+                return false;
+            }
+            // Ignore other errors. This is just an optimization anyway.
+#ifdef MADV_COLLAPSE
+            madvise(start, end - start, MADV_COLLAPSE);
+            // Also ignore problems with MADV_COLLAPSE, it's just an optimization.
+#endif
+            return true;
+        };
+#endif
+        (void)works; // suppress warning if block above is elided
+        return false;
+    };
     auto fault_in_memory = [] (char* p) {
         // Touch the page for write, but be sure not to modify anything
         // The compilers tend to optimize things, so prefer assembly
@@ -227,25 +275,29 @@ internal::memory_prefaulter::work(std::vector<memory::internal::memory_range>& r
         p1->fetch_or(0, std::memory_order_relaxed);
 #endif
     };
-    while (!_stop_request.load(std::memory_order_relaxed) && !ranges.empty()) {
-        auto& range = ranges[current_range];
-        // copy eveything into locals, or the optimizer will worry about them due
-        // to the cast below and not optimize anything
-        auto start = range.start;
-        auto end = range.end;
-        for (size_t i = 0; i < batch_size && start < end; ++i) {
+    auto populate_memory = [&] (char* start, char* end) {
+        if (populate_memory_madvise(start, end)) {
+            return;
+        }
+        while (start < end) {
             fault_in_memory(start);
             start += page_size;
         }
+    };
+    while (!_stop_request.load(std::memory_order_relaxed) && !ranges.empty()) {
+        auto& range = ranges[current_range];
+
+        auto batch_end = std::min(align_up(range.start + 1, batch_size), range.end);
+        populate_memory(range.start, batch_end);
+        range.start = batch_end;
+
         // An end-to-start scan for applications that manage two heaps that
         // grow towards each other.
-        for (size_t i = 0; i < batch_size && start < end; ++i) {
-            fault_in_memory(end - 1);
-            end -= page_size;
-        }
-        range.start = start;
-        range.end = end;
-        if (start >= end) {
+        auto batch_start = std::max(align_down(range.end - 1, batch_size), range.start);
+        populate_memory(batch_start, range.end);
+        range.end = batch_start;
+
+        if (range.start >= range.end) {
             ranges.erase(ranges.begin() + current_range);
             current_range = 0;
         }
