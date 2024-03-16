@@ -28,6 +28,7 @@
 #include <functional>
 #endif
 
+#include "seastar/core/abort_source.hh"
 #include <seastar/core/timer.hh>
 #ifdef SEASTAR_COROUTINES_ENABLED
 #   include <seastar/core/coroutine.hh>
@@ -58,6 +59,14 @@ public:
     virtual const char* what() const noexcept;
 };
 
+/// Exception thrown when wait() operation is aborted
+/// \ref condition_variable::wait(abort_source& as).
+class condition_variable_aborted : public std::exception {
+  public:
+    /// Reports the exception reason.
+    virtual const char *what() const noexcept;
+};
+
 /// \brief Conditional variable.
 ///
 /// This is a standard computer science condition variable sans locking,
@@ -82,6 +91,7 @@ private:
         waiter& operator=(const waiter&) = delete;
         virtual ~waiter() = default;
         void timeout() noexcept;
+        void abort() noexcept;
 
         virtual void signal() noexcept = 0;
         virtual void set_exception(std::exception_ptr) noexcept = 0;
@@ -296,6 +306,52 @@ public:
     requires std::is_invocable_r_v<bool, Pred>
     future<> wait(std::chrono::duration<Rep, Period> timeout, Pred&& pred) noexcept {
         return wait(timer<>::clock::now() + timeout, std::forward<Pred>(pred));
+    }
+
+    /// Waits until condition variable is signaled or operation is aborted.
+    ///
+    /// \param as abort source.
+    ///
+    /// \return a future that becomes ready when \ref signal() is called
+    ///         If the condition variable was \ref broken() will return \ref
+    ///         broken_condition_variable exception. On abort, the future
+    ///         contains a \ref condition_variable_aborted exception.
+    future<> wait(abort_source &as) noexcept {
+        if (check_and_consume_signal()) {
+            return make_ready_future();
+        }
+        if (as.abort_requested()) {
+            return make_exception_future(condition_variable_aborted());
+        }
+
+        struct abortable_promise_waiter : public promise_waiter {
+            abort_source::subscription sub;
+        };
+        auto w = new abortable_promise_waiter();
+        auto f = w->get_future();
+        w->sub = std::move(*as.subscribe([w](const std::optional<std::exception_ptr> &) noexcept {
+            w->abort();
+        }));
+        add_waiter(*w);
+        return f;
+    }
+
+    /// Waits until condition variable is signaled and pred() == true or
+    /// operation is aborted, otherwise wait again.
+    ///
+    /// \param as abort source.
+    /// \param pred predicate that checks that awaited condition is true
+    ///
+    /// \return a future that becomes ready when \ref signal() is called
+    ///         If the condition variable was \ref broken() will return \ref
+    ///         broken_condition_variable exception. On abort, the future
+    ///         contains a \ref condition_variable_aborted exception.
+    template <typename Pred>
+    SEASTAR_CONCEPT(requires std::is_invocable_r_v<bool, Pred>)
+    future<> wait(abort_source &as, Pred &&pred) noexcept {
+        return do_until(std::forward<Pred>(pred), [this, &as] {
+            return wait(as);
+        });
     }
 
 #ifdef SEASTAR_COROUTINES_ENABLED
