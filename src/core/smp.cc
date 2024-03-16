@@ -25,6 +25,10 @@ module;
 #include <boost/range/algorithm/find_if.hpp>
 #include <memory>
 #include <vector>
+#include <regex>
+#include <sys/mman.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 #ifdef SEASTAR_MODULE
 module seastar;
@@ -35,6 +39,7 @@ module seastar;
 #include <seastar/core/semaphore.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/on_internal_error.hh>
+#include <seastar/core/posix.hh>
 #include "prefault.hh"
 #endif
 
@@ -166,11 +171,32 @@ smp::setup_prefaulter(const seastar::resource::resources& res, seastar::memory::
 #endif
 }
 
+static
+std::optional<size_t>
+get_huge_page_size() {
+    auto meminfo_fd = file_desc::open("/proc/meminfo", O_RDONLY | O_CLOEXEC);
+    std::string meminfo;
+    char buf[4096];
+    while (auto size_opt = meminfo_fd.read(buf, sizeof(buf))) {
+        if (!*size_opt) {
+            break;
+        }
+        meminfo.append(buf, *size_opt);
+    }
+    static std::regex re(R"(Hugepagesize:\s*(\d+) kB)");
+    auto m = std::smatch{};
+    if (std::regex_search(meminfo, m, re)) {
+        return std::stoi(m[1]) * size_t(1024);
+    }
+    return std::nullopt;
+}
+
 internal::memory_prefaulter::memory_prefaulter(const resource::resources& res, memory::internal::numa_layout layout) {
     for (auto& range : layout.ranges) {
         _layout_by_node_id[range.numa_node_id].push_back(std::move(range));
     }
     auto page_size = getpagesize();
+    auto huge_page_size_opt = get_huge_page_size();
     for (auto& numa_node_id_and_ranges : _layout_by_node_id) {
         auto& numa_node_id = numa_node_id_and_ranges.first;
         auto& ranges = numa_node_id_and_ranges.second;
@@ -184,8 +210,8 @@ internal::memory_prefaulter::memory_prefaulter(const resource::resources& res, m
             }
             a.set(cpuset);
         }
-        _worker_threads.emplace_back(a, [this, &ranges, page_size] {
-            work(ranges, page_size);
+        _worker_threads.emplace_back(a, [this, &ranges, page_size, huge_page_size_opt] {
+            work(ranges, page_size, huge_page_size_opt);
         });
     }
 }
@@ -198,13 +224,14 @@ internal::memory_prefaulter::~memory_prefaulter() {
 }
 
 void
-internal::memory_prefaulter::work(std::vector<memory::internal::memory_range>& ranges, size_t page_size) {
+internal::memory_prefaulter::work(std::vector<memory::internal::memory_range>& ranges, size_t page_size,
+        std::optional<size_t> huge_page_size_opt) {
     sched_param param = { .sched_priority = 0 };
     // SCHED_IDLE doesn't work via thread attributes
     pthread_setschedparam(pthread_self(), SCHED_IDLE, &param);
     size_t current_range = 0;
     const size_t batch_size = 512; // happens to match huge page size on x86, through not critical
-    auto fault_in_memory = [] (char* p) {
+    auto fault_in_memory = [&] (char* p, bool forwards) {
         // Touch the page for write, but be sure not to modify anything
         // The compilers tend to optimize things, so prefer assembly
 #if defined(__x86_64__)
@@ -219,6 +246,18 @@ internal::memory_prefaulter::work(std::vector<memory::internal::memory_range>& r
         auto p1 = reinterpret_cast<volatile std::atomic<char>*>(p);
         p1->fetch_or(0, std::memory_order_relaxed);
 #endif
+#ifdef MADV_COLLAPSE
+    if (huge_page_size_opt) {
+        auto addr = reinterpret_cast<uintptr_t>(p);
+        auto aligned = addr & ~(page_size - 1);
+        auto offset_in_hugepage = aligned & (*huge_page_size_opt - 1);
+        auto first_page_offset = forwards ? 0 : *huge_page_size_opt - page_size;
+        auto hugepage_addr = aligned - offset_in_hugepage;
+        if (offset_in_hugepage == first_page_offset) {
+            madvise(reinterpret_cast<void*>(hugepage_addr), *huge_page_size_opt, MADV_COLLAPSE);
+        }
+    }
+#endif
     };
     while (!_stop_request.load(std::memory_order_relaxed) && !ranges.empty()) {
         auto& range = ranges[current_range];
@@ -227,13 +266,13 @@ internal::memory_prefaulter::work(std::vector<memory::internal::memory_range>& r
         auto start = range.start;
         auto end = range.end;
         for (size_t i = 0; i < batch_size && start < end; ++i) {
-            fault_in_memory(start);
+            fault_in_memory(start, true);
             start += page_size;
         }
         // An end-to-start scan for applications that manage two heaps that
         // grow towards each other.
         for (size_t i = 0; i < batch_size && start < end; ++i) {
-            fault_in_memory(end - 1);
+            fault_in_memory(end - 1, false);
             end -= page_size;
         }
         range.start = start;

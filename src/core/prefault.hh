@@ -22,6 +22,7 @@
 
 #include <atomic>
 #include <map>
+#include <optional>
 
 #include <seastar/core/posix.hh>
 #include <seastar/core/resource.hh>
@@ -40,7 +41,7 @@ public:
     explicit memory_prefaulter(const resource::resources& res, memory::internal::numa_layout layout);
     ~memory_prefaulter();
 private:
-    void work(std::vector<memory::internal::memory_range>& ranges, size_t page_size);
+    void work(std::vector<memory::internal::memory_range>& ranges, size_t page_size, std::optional<size_t> huge_page_size_opt);
 };
 
 
