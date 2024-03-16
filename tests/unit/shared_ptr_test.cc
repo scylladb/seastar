@@ -168,7 +168,8 @@ void do_test_release() {
 
     auto ptr2 = ptr;
 
-    BOOST_REQUIRE(!ptr.release());
+    auto uptr1 = ptr.release();
+    BOOST_REQUIRE(!uptr1);
     BOOST_REQUIRE(!ptr);
     BOOST_REQUIRE(ptr2.use_count() == 1);
 
