@@ -1066,6 +1066,61 @@ TODO: A future, e.g., sleep(10s) cannot be interrupted. So if we need to, the pr
 ## Futures are single use
 TODO: Talk about if we have a `future<int>` variable, as soon as we `get()` or `then()` it, it becomes invalid - we need to store the value somewhere else. Think if there's an alternative we can suggest
 
+## Shared Futures / Promises
+In the previous section, we saw that futures are single use, but what happen if multiple fibres (See the following section "Fibers"), reach the same location, and need to calculate the same data?
+We can use a shred promise, which will resolve 1 of the fibers calculations, and propogonate it to multiple waiting fibers, consider the next example
+```cpp
+seastar::future<> execute() {
+    auto future = seastar::sleep(std::chrono::seconds(10)).then([] {
+        return seastar::make_ready_future<int>(1);
+    });
+
+    seastar::shared_future<int> shared(std::move(future));
+
+    auto first = shared.get_future().then([] (int num) {
+        std::cout << "First " << num << std::endl;
+        return seastar::make_ready_future<>();
+    });
+
+    auto second = shared.get_future().then([] (int num) {
+        std::cout << "Second " << num << std::endl;
+        return seastar::make_ready_future<>();
+    });
+    
+    return seastar::when_all(std::move(first), std::move(second)).then([] (auto &&) {
+        return seastar::make_ready_future<>();
+    });
+}
+```
+
+Shared Promises can be use in the same way
+```cpp
+seastar::future<> execute() {
+    return seastar::do_with(seastar::shared_promise<int>(), [] (seastar::shared_promise<int> &promise) {
+        (void)seastar::sleep(std::chrono::seconds(10)).then([&promise] {
+            promise.set_value(1);
+            return seastar::make_ready_future<>();
+        });
+
+        auto first = promise.get_future().then([] (int num) {
+            std::cout << "First " << num << std::endl;
+            return seastar::make_ready_future<>();
+        });
+
+        auto second = promise.get_future().then([] (int num) {
+            std::cout << "Second " << num << std::endl;
+            return seastar::make_ready_future<>();
+        });
+    
+        return seastar::when_all(std::move(first), std::move(second)).then([] (auto &&) {
+            return seastar::make_ready_future<>();
+        });
+    });
+}
+```
+
+
+
 # Fibers
 Seastar continuations are normally short, but often chained to one another, so that one continuation does a bit of work and then schedules another continuation for later. Such chains can be long, and often even involve loopings - see the following section, "Loops". We call such chains "fibers" of execution.
 
