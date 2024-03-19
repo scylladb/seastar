@@ -24,17 +24,13 @@
 #include <string>
 #include <boost/test/unit_test.hpp>
 #include <seastar/core/app-template.hh>
+#include <seastar/core/sleep.hh>
 
 using namespace seastar;
+using namespace std::chrono_literals;
 
-#ifdef Seastar_DPDK
-constexpr bool with_dpdk = true;
-#else
-constexpr bool with_dpdk = false;
-#endif
-
-BOOST_AUTO_TEST_CASE(app_standard_memory_allocator,
-                     *boost::unit_test::enable_if<with_dpdk>()) {
+// #2148 - always run this.
+BOOST_AUTO_TEST_CASE(app_standard_memory_allocator) {
     // by default, use conservative settings instead of maxing out the performance
     // for testing app_template and underlying reactor's handling of different
     // settings
@@ -53,7 +49,14 @@ BOOST_AUTO_TEST_CASE(app_standard_memory_allocator,
     int actual_status = app.run(
         std::size(args), std::data(args),
         [expected_status] {
-            return make_ready_future<int>(expected_status);
+            // #2148 - add a small sleep to ensure the reactor does
+            // some of its background stuff, pollers etc for example.
+            // We only need to ensure we get put on the waiting task queue
+            // to provoke the problem, thus a short (probably even to long here)
+            // sleep will do.
+            return seastar::sleep(2s).then([expected_status] {
+                return make_ready_future<int>(expected_status);
+            });
         });
     BOOST_CHECK_EQUAL(actual_status, expected_status);
 }

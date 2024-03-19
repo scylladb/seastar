@@ -165,6 +165,8 @@ internal::numa_layout configure(std::vector<resource::memory> m, bool mbind,
         bool transparent_hugepages,
         std::optional<std::string> hugetlbfs_path = {});
 
+void configure_minimal();
+
 // A deprecated alias for set_abort_on_allocation_failure(true).
 [[deprecated("use set_abort_on_allocation_failure(true) instead")]]
 void enable_abort_on_allocation_failure();
