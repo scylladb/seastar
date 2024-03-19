@@ -4085,7 +4085,8 @@ void smp::qs_deleter::operator()(smp_message_queue** qs) const {
         for (unsigned j = 0; j < smp::count; j++) {
             qs[i][j].~smp_message_queue();
         }
-        ::operator delete[](qs[i]);
+        ::operator delete[](qs[i], std::align_val_t(alignof(smp_message_queue))
+        );
     }
     delete[](qs);
 }
@@ -4414,6 +4415,11 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     std::optional<memory::internal::numa_layout> layout;
     if (smp_opts.memory_allocator == memory_allocator::seastar) {
         layout = memory::configure(allocations[0].mem, mbind, use_transparent_hugepages, hugepages_path);
+    } else {
+        // #2148 - if running seastar allocator but options that contradict this, we still need to
+        // init memory at least minimally, otherwise a bunch of stuff breaks.
+        // Previously, we got away wth this by accident due to #2137.
+        memory::configure_minimal();
     }
 
     if (reactor_opts.abort_on_seastar_bad_alloc) {
@@ -4527,6 +4533,9 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
                 auto another_layout = memory::configure(allocation.mem, mbind, use_transparent_hugepages, hugepages_path);
                 auto guard = std::lock_guard(mtx);
                 *layout = memory::internal::merge(std::move(*layout), std::move(another_layout));
+            } else {
+                // See comment above (shard 0)
+                memory::configure_minimal();
             }
             if (heapprof_sampling_rate) {
                 memory::set_heap_profiling_sampling_rate(heapprof_sampling_rate);
@@ -4584,7 +4593,14 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     _qs_owner = decltype(smp::_qs_owner){new smp_message_queue* [smp::count], qs_deleter{}};
     _qs = _qs_owner.get();
     for(unsigned i = 0; i < smp::count; i++) {
-        smp::_qs_owner[i] = reinterpret_cast<smp_message_queue*>(operator new[] (sizeof(smp_message_queue) * smp::count));
+        smp::_qs_owner[i] = reinterpret_cast<smp_message_queue*>(operator new[] (sizeof(smp_message_queue) * smp::count
+        // smp_message_queue has members with hefty alignment requirements.
+        // if we are reactor thread, or not running with dpdk, doing this
+        // new default aligned seemingly works, as does reordering
+        // dlinit dependencies (ugh). But we should enforce calling out to
+        // aligned_alloc, instead of pure malloc, if possible.
+            , std::align_val_t(alignof(smp_message_queue))
+        ));
         for (unsigned j = 0; j < smp::count; ++j) {
             new (&smp::_qs_owner[i][j]) smp_message_queue(reactors[j], reactors[i]);
         }

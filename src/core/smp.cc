@@ -139,6 +139,13 @@ future<> destroy_smp_service_group(smp_service_group ssg) noexcept {
 }
 
 void init_default_smp_service_group(shard_id cpu) {
+    // default_smp_service_group == smp_service_group(0) -> we assume service groups are empty
+    // at this point. If they are not, it is quite possibly because we are running repeated 
+    // reactors in the program. Probably a test (see #2148). 
+    // This would be fine, we just create extra junk here, _but_ it is quite possible
+    // that we actually run with different cpu count (see smp_options::smp), in which case
+    // the `get_smp_service_groups_semaphore` below can cause us to return uninitialized memory.
+    smp_service_groups.clear();
     smp_service_groups.emplace_back();
     auto& ssg0 = smp_service_groups.back();
     ssg0.clients.reserve(smp::count);
