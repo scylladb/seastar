@@ -62,8 +62,6 @@ struct allocation {
     }
 };
 
-#ifdef __cpp_aligned_new
-
 template <size_t N>
 struct alignas(N) cpp17_allocation final {
     char v;
@@ -145,13 +143,6 @@ void test_cpp17_aligned_allocator() {
         }
     }
 }
-
-#else
-
-void test_cpp17_aligned_allocator() {
-}
-
-#endif
 
 int main(int ac, char** av) {
     namespace bpo = boost::program_options;
