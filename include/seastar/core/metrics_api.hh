@@ -181,6 +181,7 @@ struct metric_family_info {
     description d;
     sstring name;
     std::vector<std::string> aggregate_labels;
+    aggregate_function_type aggregate_function;
 };
 
 
@@ -367,7 +368,7 @@ public:
         return _value_map;
     }
 
-    void add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled, skip_when_empty skip, const std::vector<std::string>& aggregate_labels);
+    void add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled, skip_when_empty skip, const std::vector<std::string>& aggregate_labels, aggregate_function_type ag_function);
     void remove_registration(const metric_id& id);
     future<> stop() {
         return make_ready_future<>();

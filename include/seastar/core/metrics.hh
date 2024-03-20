@@ -252,6 +252,17 @@ public:
 SEASTAR_MODULE_EXPORT_END
 
 /*!
+ * \brief choose how metrics will be aggregated when using aggregate by labels.
+ */
+enum class aggregate_function_type : uint8_t {
+    SUM,
+    AVG,
+    MIN,
+    MAX
+};
+
+
+/*!
  * \namespace impl
  * \brief holds the implementation parts of the metrics layer, do not use directly.
  *
@@ -345,7 +356,28 @@ public:
         return *this;
     }
 
+    /*
+     * \brief Update the current value to reflect weighted average
+     *
+     * avg method calculates the average iteratively.
+     * It performs a weighted average between the current value and a new value.
+     * The weight will reflect the number of values in the series so far.
+     * For example, assume that the series is 1, 2, 3
+     * When adding 2, count would be 1
+     * and the new value would be 1X0.5 + 2X0.5 = 1.5 which eqals also to (1 + 2)/2
+     *
+     * When adding 3 the new value would be: 1.5 * 0.666 + 3 *.0333 = 2 which equals to (1 + 2 + 3)/3
+     *
+     * c - the new value.
+     * count - how many values were counted so far.
+     *
+     */
+    metric_value& avg(const metric_value& c, size_t count);
+
     metric_value operator+(const metric_value& c);
+
+    bool operator<(const metric_value& c) const noexcept;
+
     const histogram& get_histogram() const {
         return std::get<histogram>(u);
     }
@@ -379,11 +411,12 @@ struct metric_definition_impl {
     bool enabled = true;
     skip_when_empty _skip_when_empty = skip_when_empty::no;
     std::vector<std::string> aggregate_labels;
+    aggregate_function_type aggregate_function;
     std::map<sstring, sstring> labels;
     metric_definition_impl& operator ()(bool enabled);
     metric_definition_impl& operator ()(const label_instance& label);
     metric_definition_impl& operator ()(skip_when_empty skip) noexcept;
-    metric_definition_impl& aggregate(const std::vector<label>& labels) noexcept;
+    metric_definition_impl& aggregate(const std::vector<label>& labels, aggregate_function_type ag_function = aggregate_function_type::SUM) noexcept;
     metric_definition_impl& set_skip_when_empty(bool skip=true) noexcept;
     metric_definition_impl& set_type(const sstring& type_name);
     metric_definition_impl(
@@ -392,7 +425,8 @@ struct metric_definition_impl {
         metric_function f,
         description d,
         std::vector<label_instance> labels,
-        std::vector<label> aggregate_labels = {});
+        std::vector<label> aggregate_labels = {},
+        aggregate_function_type ag_function = aggregate_function_type::SUM);
 };
 
 class metric_groups_def {

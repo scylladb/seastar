@@ -35,6 +35,7 @@
 #include <seastar/core/thread.hh>
 #include <seastar/core/loop.hh>
 #include <regex>
+#include <algorithm>
 
 namespace seastar {
 
@@ -687,9 +688,12 @@ void write_summary(std::stringstream& s, const config& ctx, const sstring& name,
  */
 class metric_aggregate_by_labels {
     std::vector<std::string> _labels_to_aggregate_by;
+    metrics::aggregate_function_type _aggregate_function;
     std::unordered_map<std::map<sstring, sstring>, seastar::metrics::impl::metric_value> _values;
+    std::unordered_map<std::map<sstring, sstring>, size_t> _count;
 public:
-    metric_aggregate_by_labels(std::vector<std::string> labels) : _labels_to_aggregate_by(std::move(labels)) {
+    metric_aggregate_by_labels(std::vector<std::string> labels, metrics::aggregate_function_type agg_function) :
+        _labels_to_aggregate_by(std::move(labels)), _aggregate_function(agg_function) {
     }
     /*!
      * \brief add a metric
@@ -706,9 +710,27 @@ public:
         }
         std::unordered_map<std::map<sstring, sstring>, seastar::metrics::impl::metric_value>::iterator i = _values.find(labels);
         if ( i == _values.end()) {
+            _count.emplace(labels, 1);
             _values.emplace(std::move(labels), m);
         } else {
-            i->second += m;
+            auto& value = i->second;
+            switch (_aggregate_function) {
+            case metrics::aggregate_function_type::SUM:
+                value += m;
+                break;
+            case metrics::aggregate_function_type::AVG: {
+                auto& count = _count.find(labels)->second;
+                value.avg(m, count);
+                count++;
+                break;
+            }
+            case metrics::aggregate_function_type::MIN:
+                value = std::min(i->second, m);
+                break;
+            case metrics::aggregate_function_type::MAX:
+                value = std::max(i->second, m);
+                break;
+            }
         }
     }
     const std::unordered_map<std::map<sstring, sstring>, seastar::metrics::impl::metric_value>& get_values() const noexcept {
@@ -742,7 +764,7 @@ future<> write_text_representation(output_stream<char>& out, const config& ctx, 
         for (metric_family& metric_family : m) {
             auto name = ctx.prefix + "_" + metric_family.name();
             found = false;
-            metric_aggregate_by_labels aggregated_values(metric_family.metadata().aggregate_labels);
+            metric_aggregate_by_labels aggregated_values(metric_family.metadata().aggregate_labels, metric_family.metadata().aggregate_function);
             bool should_aggregate = !metric_family.metadata().aggregate_labels.empty();
             metric_family.foreach_metric([&s, &out, &ctx, &found, &name, &metric_family, &aggregated_values, should_aggregate, show_help, &filter](const mi::metric_value& value, const mi::metric_info& value_info) mutable {
                 s.clear();
