@@ -2499,8 +2499,6 @@ void operator delete[](void* ptr, size_t size, std::nothrow_t) noexcept {
     seastar::memory::free(ptr, size);
 }
 
-#ifdef __cpp_aligned_new
-
 extern "C++"
 [[gnu::visibility("default")]]
 void* operator new(size_t size, std::align_val_t a) {
@@ -2574,8 +2572,6 @@ extern "C++"
 void operator delete[](void* ptr, std::align_val_t a, const std::nothrow_t&) noexcept {
     seastar::memory::free(ptr);
 }
-
-#endif
 
 namespace seastar {
 
