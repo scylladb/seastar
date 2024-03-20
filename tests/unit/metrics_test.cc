@@ -224,6 +224,69 @@ SEASTAR_THREAD_TEST_CASE(test_relabel_add_labels) {
     sm::set_relabel_configs({}).get();
 }
 
+SEASTAR_THREAD_TEST_CASE(test_metrics_family_aggregate) {
+    using namespace seastar::metrics;
+    namespace sm = seastar::metrics;
+    sm::metric_groups app_metrics;
+    sm::label lb("lb");
+    app_metrics.add_group("test", {
+        sm::make_gauge("gauge_1", sm::description("gague 1"), [] { return 1; })(lb("1")),
+        sm::make_gauge("gauge_1", sm::description("gague 1"), [] { return 2; })(lb("2")),
+        sm::make_counter("counter_1", sm::description("counter 1"), [] { return 3; })(lb("1")),
+        sm::make_counter("counter_1", sm::description("counter 1"), [] { return 4; })(lb("2"))
+    });
+    std::vector<sm::relabel_config> rl(2);
+    rl[0].source_labels = {"__name__"};
+    rl[0].action = sm::relabel_config::relabel_action::drop;
+
+    rl[1].source_labels = {"lb"};
+    rl[1].action = sm::relabel_config::relabel_action::keep;
+    // Dropping the lev label would cause a conflict, but not crash the system
+    sm::set_relabel_configs(rl).get();
+
+    std::vector<sm::metric_family_config> fc(2);
+    fc[0].name = "test_gauge_1";
+    fc[0].aggregate_labels = { "lb" };
+    fc[1].regex_name = "test_gauge1.*";
+    fc[1].aggregate_labels = { "ll", "aa" };
+    sm::set_metric_family_configs(fc);
+    seastar::foreign_ptr<seastar::metrics::impl::values_reference> values = seastar::metrics::impl::get_values();
+    int count = 0;
+    for (auto&& md : (*values->metadata)) {
+        if (md.mf.name == "test_gauge_1") {
+            BOOST_CHECK_EQUAL(md.mf.aggregate_labels.size(), 1);
+            BOOST_CHECK_EQUAL(md.mf.aggregate_labels[0], "lb");
+        } else {
+            BOOST_CHECK_EQUAL(md.mf.aggregate_labels.size(), 0);
+        }
+        count++;
+    }
+    BOOST_CHECK_EQUAL(count, 2);
+    app_metrics.add_group("test", {
+        sm::make_gauge("gauge1_1", sm::description("gague 1"), [] { return 1; })(lb("1")),
+        sm::make_gauge("gauge1_1", sm::description("gague 1"), [] { return 2; })(lb("2")),
+        sm::make_counter("counter1_1", sm::description("counter 1"), [] { return 3; })(lb("1")),
+        sm::make_counter("counter1_1", sm::description("counter 1"), [] { return 4; })(lb("2"))
+    });
+    values = seastar::metrics::impl::get_values();
+    count = 0;
+    for (auto&& md : (*values->metadata)) {
+        if (md.mf.name == "test_gauge_1") {
+            BOOST_CHECK_EQUAL(md.mf.aggregate_labels.size(), 1);
+            BOOST_CHECK_EQUAL(md.mf.aggregate_labels[0], "lb");
+        } else if (md.mf.name == "test_gauge1_1") {
+            BOOST_CHECK_EQUAL(md.mf.aggregate_labels.size(), 2);
+            BOOST_CHECK_EQUAL(md.mf.aggregate_labels[0], "ll");
+        } else {
+            BOOST_CHECK_EQUAL(md.mf.aggregate_labels.size(), 0);
+        }
+        count++;
+    }
+    BOOST_CHECK_EQUAL(count, 4);
+    std::vector<sm::relabel_config> rl1;
+    sm::set_relabel_configs(rl1).get();
+}
+
 SEASTAR_THREAD_TEST_CASE(test_relabel_drop_label_prevent_runtime_conflicts) {
     using namespace seastar::metrics;
     namespace sm = seastar::metrics;

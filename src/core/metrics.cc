@@ -130,7 +130,20 @@ future<metric_relabeling_result> set_relabel_configs(const std::vector<relabel_c
 const std::vector<relabel_config>& get_relabel_configs() {
     return impl::get_local_impl()->get_relabel_configs();
 }
+void impl::impl::update_aggregate(metric_family_info& mf) const noexcept {
+    for (const auto& fc : _metric_family_configs) {
+        if (fc.name == mf.name || fc.regex_name.match(mf.name)) {
+            mf.aggregate_labels = fc.aggregate_labels;
+        }
+    }
+}
+void set_metric_family_configs(const std::vector<metric_family_config>& family_config) {
+    impl::get_local_impl()->set_metric_family_configs(family_config);
+}
 
+const std::vector<metric_family_config>& get_metric_family_configs() {
+    return impl::get_local_impl()->get_metric_family_configs();
+}
 
 static bool apply_relabeling(const relabel_config& rc, impl::metric_info& info) {
     std::stringstream s;
@@ -454,6 +467,7 @@ void impl::add_registration(const metric_id& id, const metric_type& type, metric
         _value_map[name].info().inherit_type = type.type_name;
         _value_map[name].info().name = id.full_name();
         _value_map[name].info().aggregate_labels = aggregate_labels;
+        impl::update_aggregate(_value_map[name].info());
         _value_map[name][rm->info().id.labels()] = rm;
     }
     dirty();
@@ -502,6 +516,26 @@ future<metric_relabeling_result> impl::set_relabel_configs(const std::vector<rel
         }
     }
     return make_ready_future<metric_relabeling_result>(conflicts);
+}
+
+void impl::set_metric_family_configs(const std::vector<metric_family_config>& family_config) {
+    _metric_family_configs = family_config;
+    bool has_regex = false;
+    for (const auto& fc : family_config) {
+        has_regex |= !fc.regex_name.empty();
+        if (fc.name != "" && _value_map.find(fc.name) != _value_map.end()) {
+            _value_map[fc.name].info().aggregate_labels = fc.aggregate_labels;
+        }
+    }
+    if (has_regex) {
+        for (auto& [name, family] : _value_map) {
+            for  (const auto& fc : family_config) {
+                if (fc.regex_name.match(name)) {
+                    family.info().aggregate_labels = fc.aggregate_labels;
+                }
+            }
+        }
+    }
 }
 }
 

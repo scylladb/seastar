@@ -69,6 +69,8 @@ namespace metrics {
 SEASTAR_MODULE_EXPORT
 struct relabel_config;
 
+SEASTAR_MODULE_EXPORT
+struct metric_family_config;
 /*!
  * \brief result of metric relabeling
  *
@@ -330,10 +332,17 @@ using metric_metadata_fifo = std::deque<metric_info>;
  *
  * The meta data of a metric family compose of the
  * metadata of the family, and a vector of the metadata for
- * each of the metric.
+ * each of the metrics.
+ *
+ * The struct is used for two purposes. First, it allows iterating over all metric_families
+ * and all metrics related to them. Second, it only contains enabled metrics,
+ * making disabled metrics more efficient.
+ * The struct is recreated when impl._value_map changes
+ * Using a pointer to the family_info metadata is an efficient way to get
+ * from a metric_family to its metadata based on its name.
  */
 struct metric_family_metadata {
-    metric_family_info mf;
+    metric_family_info& mf; //This points to impl._value_map
     metric_metadata_fifo metrics;
 };
 
@@ -358,6 +367,7 @@ class impl {
     std::set<sstring> _labels;
     std::vector<std::deque<metric_function>> _current_metrics;
     std::vector<relabel_config> _relabel_configs;
+    std::vector<metric_family_config> _metric_family_configs;
 public:
     value_map& get_value_map() {
         return _value_map;
@@ -398,6 +408,13 @@ public:
     const std::vector<relabel_config>& get_relabel_configs() const noexcept {
         return _relabel_configs;
     }
+    const std::vector<metric_family_config>& get_metric_family_configs() const noexcept {
+        return _metric_family_configs;
+    }
+
+    void set_metric_family_configs(const std::vector<metric_family_config>& metrics_config);
+
+    void update_aggregate(metric_family_info& mf) const noexcept;
 };
 
 const value_map& get_value_map();
@@ -486,5 +503,29 @@ future<metric_relabeling_result> set_relabel_configs(const std::vector<relabel_c
  */
 const std::vector<relabel_config>& get_relabel_configs();
 
+/*
+ * \brief change the metrics family config
+ *
+ * Family config is a configuration that relates to all metrics with the same name but with different labels.
+ * set_metric_family_configs allows changing that configuration during run time.
+ * Specifically, change the label aggregation based on a metric name.
+ *
+ * The following is an example for setting the aggregate labels for the metric test_gauge_1
+ * and all metrics matching the regex test_gauge1.*:
+ *
+ * std::vector<sm::metric_family_config> fc(2);
+ * fc[0].name = "test_gauge_1";
+ * fc[0].aggregate_labels = { "lb" };
+ * fc[1].regex_name = "test_gauge1.*";
+ * fc[1].aggregate_labels = { "ll", "aa" };
+ * sm::set_metric_family_configs(fc);
+ */
+void set_metric_family_configs(const std::vector<metric_family_config>& metrics_config);
+
+/*
+ * \brief return the current metric_family_config
+ * This function returns a vector of the current metrics family config
+ */
+const std::vector<metric_family_config>& get_metric_family_configs();
 }
 }
