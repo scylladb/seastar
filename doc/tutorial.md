@@ -498,7 +498,13 @@ seastar::future<> exception_handling() {
 }
 ```
 
-In certain cases, exceptions can also be propagated directly, without throwing or rethrowing them. It can be achieved by returning a `coroutine::exception` wrapper, but it unfortunately only works for coroutines which return `future<T>`, not `future<>`, due to the limitations in compilers. In particular, the example above won't compile if the return type is changed to `future<>`.
+Both `throw` and `std::rethrow_exception()` involve managing stack unwinding and exception objects, potentially
+impacting performance. Additionally, the C++ standard permits `std::rethrow_exception()` to create a copy of the
+exception object, introducing further overhead. Fortunately, in certain cases, exceptions can also be propagated
+directly, without throwing or rethrowing them. It can be achieved by returning a `coroutine::exception` wrapper.
+This approach can be advantageous when aiming to minimize overhead associated with exception handling. But it only
+works for coroutines which return `future<T>`, not `future<>`, due to the limitations in compilers. In particular,
+the example above won't compile if the return type is changed to `future<>`.
 
 Example:
 
