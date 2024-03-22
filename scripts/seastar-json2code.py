@@ -164,12 +164,39 @@ def clear_path_ending(path):
         return path
     return path[0:-1]
 
-# check if a parameter is query required.
-# It will return true if the required flag is set
-# and if it is a query parameter, both swagger 1.2 'paramType' and swagger 2.0 'in' attributes
-# are supported
-def is_required_query_param(param):
-    return "required" in param and param["required"] and ("paramType" in param and param["paramType"] == "query" or "in" in param and param["in"] == "query")
+
+class Parameter:
+    '''represents a parameter
+
+    TODO: return an instance of Parameter from get_parameter_by_name()
+    '''
+    def __init__(self, definition):
+        self.definition = definition
+
+    @property
+    def name(self):
+        return self.definition['name']
+
+    @property
+    def is_required(self):
+        # check if a parameter is query required.
+        # It will return true if the required flag is set
+        # and if it is a query parameter, both swagger 1.2 'paramType' and
+        # swagger 2.0 'in' attributes are supported
+        if "required" not in self.definition:
+            return False
+        if not self.definition["required"]:
+            return False
+        if self.definition.get("paramType") == "query":
+            return True
+        if self.definition.get("in") == "query":
+            return True
+        return False
+
+    @property
+    def enum(self):
+        return self.definition.get('enum')
+
 
 def add_path(f, path, details):
     if "summary" in details:
@@ -196,9 +223,10 @@ def add_path(f, path, details):
         fprintln(f, spacing, 'path_description::add_path("', clear_path_ending(path), '",',
            details["method"], ',"', details["nickname"], '")')
     if "parameters" in details:
-        for param in details["parameters"]:
-            if is_required_query_param(param):
-                fprintln(f, spacing, '  ->pushmandatory_param("', param["name"], '")')
+        for param_definition in details["parameters"]:
+            param = Parameter(param_definition)
+            if param.is_required:
+                fprintln(f, spacing, '  ->pushmandatory_param("', param.name, '")')
     fprintln(f, spacing, ";")
 
 
@@ -275,14 +303,15 @@ def add_operation(hfile, ccfile, path, oper):
         vals.reverse()
         base_url = path[:param_starts]
 
-    varname = getitem(oper, "nickname", oper)
+    nickname = getitem(oper, "nickname", oper)
     if config.create_cc:
-        fprintln(hfile, 'extern const path_description ', varname, ';')
+        fprintln(hfile, f'extern const path_description {nickname};')
         maybe_static = ''
     else:
         maybe_static = 'static '
-    fprintln(ccfile, maybe_static, 'const path_description ', varname, '("', clear_path_ending(base_url),
-           '",', oper["method"], ',"', oper["nickname"], '",')
+    normalized_path = clear_path_ending(base_url)
+    http_method = oper["method"]
+    fprintln(ccfile, f'{maybe_static}const path_description {nickname}("{normalized_path}",{http_method},"{nickname}",')
     fprint(ccfile, '{')
     first = True
     while vals:
@@ -294,19 +323,17 @@ def add_operation(hfile, ccfile, path, oper):
         else:
             fprint(ccfile, "\n,")
         if is_url:
-            fprint(ccfile, '{', '"/', path_param , '", path_description::url_component_type::FIXED_STRING', '}')
+            component_type = 'FIXED_STRING'
+        elif get_parameter_by_name(oper, path_param).get("allowMultiple",
+                                                         False):
+            component_type = 'PARAM_UNTIL_END_OF_PATH'
         else:
-            path_param_type = get_parameter_by_name(oper, path_param)
-            if ("allowMultiple" in path_param_type and
-                path_param_type["allowMultiple"]):
-                fprint(ccfile, '{', '"', path_param , '", path_description::url_component_type::PARAM_UNTIL_END_OF_PATH', '}')
-            else:
-                fprint(ccfile, '{', '"', path_param , '", path_description::url_component_type::PARAM', '}')
+            component_type = 'PARAM'
+        fprint(ccfile, f'{{"/{path_param}", path_description::url_component_type::{component_type}}}')
     fprint(ccfile, '}')
     fprint(ccfile, ',{')
     enum_definitions = ""
     if "enum" in oper:
-        nickname = oper["nickname"]
         enum_wrapper = create_enum_wrapper(nickname, "return_type", oper["enum"])
         enum_definitions = Template('''
 namespace ns_$nickname {
@@ -316,18 +343,19 @@ $enum_wrapper
     funcs = ""
     required_query_params = []
     for param in oper.get("parameters", []):
-        if is_required_query_param(param):
-            required_query_params.append(param["name"])
-        if "enum" in param:
-            enum_decl, parse_func = generate_code_from_enum(oper["nickname"],
-                                                            param["name"],
-                                                            param["enum"])
+        query_param = Parameter(param)
+        if query_param.is_required:
+            required_query_params.append(query_param)
+        if query_param.enum is not None:
+            enum_decl, parse_func = generate_code_from_enum(nickname,
+                                                            query_param.name,
+                                                            query_param.enum)
             enum_definitions += enum_decl
             funcs += parse_func
-    fprint(ccfile, '\n,'.join(f'"{name}"' for name in required_query_params))
+    fprint(ccfile, '\n,'.join(f'"{param.name}"' for param in required_query_params))
     fprintln(ccfile, '});')
     fprintln(hfile, enum_definitions)
-    open_namespace(ccfile, 'ns_' + oper["nickname"])
+    open_namespace(ccfile, f'ns_{nickname}')
     fprintln(ccfile, funcs)
     close_namespace(ccfile)
 
