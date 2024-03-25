@@ -1657,45 +1657,20 @@ public:
             return session_data(tmp.data, tmp.data + tmp.size);
         });
     }
-
     future<std::optional<session_dn>> get_distinguished_name() {
-        using result_t = std::optional<session_dn>;
-        if (_error) {
-            return make_exception_future<result_t>(_error);
-        }
-        if (_shutdown) {
-            return make_exception_future<result_t>(std::system_error(ENOTCONN, std::system_category()));
-        }
-        if (!_connected) {
-            return handshake().then([this]() mutable {
-               return get_distinguished_name();
-            });
-        }
-        result_t dn = extract_dn_information();
-        return make_ready_future<result_t>(std::move(dn));
-    }
+        return state_checked_access([this] {
+            return extract_dn_information();
+        });
+    }    
     future<std::vector<subject_alt_name>> get_alt_name_information(std::unordered_set<subject_alt_name_type> types) {
-        using result_t = std::vector<subject_alt_name>;
+        return state_checked_access([this](std::unordered_set<subject_alt_name_type> types) {
+            std::vector<subject_alt_name> res;
 
-        if (_error) {
-            return make_exception_future<result_t>(_error);
-        }
-        if (_shutdown) {
-            return make_exception_future<result_t>(std::system_error(ENOTCONN, std::system_category()));
-        }
-        if (!_connected) {
-            return handshake().then([this, types = std::move(types)]() mutable {
-               return get_alt_name_information(std::move(types));
-            });
-        }
+            auto peer = get_peer_certificate();
+            if (!peer) {
+                return res;
+            }
 
-        auto peer = get_peer_certificate();
-        if (!peer) {
-            return make_ready_future<result_t>();
-        }
-
-        return futurize_invoke([&] {
-            result_t res;
         	for (auto i = 0u; ; i++) {
                 size_t size = 0;
 
@@ -1761,7 +1736,7 @@ public:
                 res.emplace_back(std::move(v));
         	}
             return res;
-        });
+        }, std::move(types));
     }
 
     struct session_ref;
