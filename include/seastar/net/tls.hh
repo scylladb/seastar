@@ -242,6 +242,14 @@ namespace tls {
     };
 
     /**
+     * Session resumption support. 
+     * We only support TLS1.3 session tickets.
+    */
+    enum class session_resume_mode {
+        NONE, TLS13_SESSION_TICKET
+    };
+
+    /**
      * Extending certificates and keys for server usage.
      * More probably goes in here...
      */
@@ -258,6 +266,14 @@ namespace tls {
         server_credentials& operator=(const server_credentials&) = delete;
 
         void set_client_auth(client_auth);
+
+        /**
+         * Sets session resume mode.
+         * If session resumption is set to TLS13 session tickets, 
+         * calling this also functions as key rotation, i.e. creates
+         * a new window of TLS session keys.
+        */
+        void set_session_resume_mode(session_resume_mode);
     };
 
     class reloadable_credentials_base;
@@ -291,6 +307,7 @@ namespace tls {
         future<> set_system_trust();
         void set_client_auth(client_auth);
         void set_priority_string(const sstring&);
+        void set_session_resume_mode(session_resume_mode);
 
         void apply_to(certificate_credentials&) const;
 
@@ -306,8 +323,11 @@ namespace tls {
 
         std::multimap<sstring, boost::any> _blobs;
         client_auth _client_auth = client_auth::NONE;
+        session_resume_mode _session_resume_mode = session_resume_mode::NONE;
         sstring _priority;
     };
+
+    using session_data = std::vector<uint8_t>;
 
     /// TLS configuration options
     struct tls_options {
@@ -315,6 +335,10 @@ namespace tls {
         bool wait_for_eof_on_shutdown = true;
         /// \brief server name to be used for the SNI TLS extension
         sstring server_name = {};
+
+        /// \brief Optional session resume data. Must be retrieved via 
+        /// get_session_resume_data below.
+        session_data session_resume_data;
     };
 
     /**
@@ -451,6 +475,28 @@ namespace tls {
      * If the socket is not a TLS socket an exception will be thrown.
     */
     future<std::vector<subject_alt_name>> get_alt_name_information(connected_socket& socket, std::unordered_set<subject_alt_name_type> types = {});
+
+    /**
+     * Checks if the socket was connected using session resume.
+     * Will force handshake if not already done. 
+     * 
+     * If the socket is not connected a system_error exception will be thrown.
+     * If the socket is not a TLS socket an exception will be thrown.
+    */
+    future<bool> check_session_is_resumed(connected_socket& socket);
+
+    /**
+     * Get session resume data from a connected client socket. Will force handshake if not already done.
+     * 
+     * If the socket is not connected a system_error exception will be thrown.
+     * If the socket is not a TLS socket an exception will be thrown.
+     * If no session resumption data is available, returns empty buffer.
+     * 
+     * Note: TLS13 session tickets most of the time require data to have been transferred
+     * between client/server. To ensure getting the session data, it is advisable to 
+     * delay this call to sometime before shutting down/closing the socket.
+    */
+    future<session_data> get_session_resume_data(connected_socket&);
 
     std::ostream& operator<<(std::ostream&, const subject_alt_name::value_type&);
     std::ostream& operator<<(std::ostream&, const subject_alt_name&);
