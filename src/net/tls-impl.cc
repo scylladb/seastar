@@ -215,6 +215,10 @@ void tls::credentials_builder::set_client_auth(client_auth auth) {
     _client_auth = auth;
 }
 
+void tls::credentials_builder::set_session_resume_mode(session_resume_mode m) {
+    _session_resume_mode = m;
+}
+
 #ifndef SEASTAR_WITH_TLS_OSSL
 void tls::credentials_builder::set_priority_string(const sstring& prio) {
     _priority = prio;
@@ -314,6 +318,7 @@ void tls::credentials_builder::apply_to(certificate_credentials& creds) const {
 #endif
 
     creds.set_client_auth(_client_auth);
+    creds.set_session_resume_mode(_session_resume_mode);
 }
 
 shared_ptr<tls::certificate_credentials> tls::credentials_builder::build_certificate_credentials() const {
@@ -703,6 +708,14 @@ future<std::optional<session_dn>> tls::get_dn_information(connected_socket& sock
 
 future<std::vector<tls::subject_alt_name>> tls::get_alt_name_information(connected_socket& socket, std::unordered_set<subject_alt_name_type> types) {
     return get_tls_socket(socket)->get_alt_name_information(std::move(types));
+}
+
+future<bool> tls::check_session_is_resumed(connected_socket& socket) {
+    return get_tls_socket(socket)->check_session_is_resumed();
+}
+
+future<tls::session_data> tls::get_session_resume_data(connected_socket& socket) {
+    return get_tls_socket(socket)->get_session_resume_data();
 }
 
 std::string_view tls::format_as(subject_alt_name_type type) {
