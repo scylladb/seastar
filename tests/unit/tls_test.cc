@@ -1686,7 +1686,7 @@ SEASTAR_THREAD_TEST_CASE(test_skip_wait_for_eof) {
 }
 
 /**
- * Test TLS13 session ticket support. 
+ * Test TLS13 session ticket support.
 */
 SEASTAR_THREAD_TEST_CASE(test_tls13_session_tickets) {
     tls::credentials_builder b;
@@ -1694,7 +1694,11 @@ SEASTAR_THREAD_TEST_CASE(test_tls13_session_tickets) {
     b.set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).get();
     b.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
     b.set_session_resume_mode(tls::session_resume_mode::TLS13_SESSION_TICKET);
+#ifdef SEASTAR_WITH_TLS_OSSL
+    b.set_minimum_tls_version(tls::tls_version::tlsv1_3);
+#else
     b.set_priority_string("SECURE128:+SECURE192:-VERS-TLS-ALL:+VERS-TLS1.3");
+#endif
 
     auto creds = b.build_certificate_credentials();
     auto serv = b.build_server_credentials();

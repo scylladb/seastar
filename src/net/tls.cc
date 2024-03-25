@@ -555,6 +555,10 @@ void tls::certificate_credentials::set_client_auth(client_auth ca) {
     _impl->set_client_auth(ca);
 }
 
+void tls::certificate_credentials::set_session_resume_mode(session_resume_mode m) {
+    _impl->set_session_resume_mode(m);
+}
+
 tls::server_credentials::server_credentials()
 #if GNUTLS_VERSION_NUMBER < 0x030600
     : server_credentials(dh_params{})
