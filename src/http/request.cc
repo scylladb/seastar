@@ -76,7 +76,7 @@ void request::add_param(const std::string_view& param) {
         sstring value;
         if (http::internal::url_decode(param.substr(0,split), key)
                 && http::internal::url_decode(param.substr(split + 1), value)) {
-            query_parameters[key] = value;
+            query_parameters[key] = std::move(value);
         }
     }
 
