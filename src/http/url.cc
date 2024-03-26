@@ -87,7 +87,7 @@ bool url_decode(const std::string_view& in, sstring& out) {
         }
     }
     buff.resize(pos);
-    out = buff;
+    out = std::move(buff);
     return true;
 }
 
