@@ -63,7 +63,7 @@ future<> request::write_request_headers(output_stream<char>& out) const {
     });
 }
 
-void request::add_param(const std::string_view& param) {
+void request::add_query_param(std::string_view param) {
     size_t split = param.find('=');
 
     if (split >= param.length() - 1) {
@@ -91,10 +91,10 @@ sstring request::parse_query_param() {
     size_t end_param;
     std::string_view url = _url;
     while ((end_param = _url.find('&', curr)) != sstring::npos) {
-        add_param(url.substr(curr, end_param - curr) );
+        add_query_param(url.substr(curr, end_param - curr) );
         curr = end_param + 1;
     }
-    add_param(url.substr(curr));
+    add_query_param(url.substr(curr));
     return _url.substr(0, pos);
 }
 
