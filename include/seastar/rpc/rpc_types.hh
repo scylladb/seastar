@@ -392,6 +392,19 @@ public:
 /// You may also use another tuple type, such as std::tuple. In this case,
 /// your Serializer type must recognize your tuple type and provide serialization
 /// and deserialization for it.
+#ifdef __cpp_lib_tuple_like
+
+template <typename... T>
+using tuple = std::tuple<T...>;
+
+template <typename... T>
+tuple<T...> make_tuple(T&&... args) {
+    return std::make_tuple(std::forward<T>(args)...);
+}
+/// @}
+
+#else
+
 template <typename... T>
 class tuple : public std::tuple<T...> {
 public:
@@ -403,6 +416,13 @@ public:
 
 template <typename... T>
 tuple(T&&...) ->  tuple<T...>;
+
+template <typename... T>
+tuple<T...> make_tuple(T&&... args) {
+    return tuple<T...>(std::forward<T>(args)...);
+}
+
+#endif
 
 } // namespace rpc
 
@@ -418,6 +438,8 @@ struct hash<seastar::rpc::connection_id> {
     }
 };
 
+#ifndef __cpp_lib_tuple_like
+
 template <typename... T>
 struct tuple_size<seastar::rpc::tuple<T...>> : tuple_size<tuple<T...>> {
 };
@@ -425,6 +447,8 @@ struct tuple_size<seastar::rpc::tuple<T...>> : tuple_size<tuple<T...>> {
 template <size_t I, typename... T>
 struct tuple_element<I, seastar::rpc::tuple<T...>> : tuple_element<I, tuple<T...>> {
 };
+
+#endif
 
 }
 

@@ -1359,7 +1359,7 @@ SEASTAR_TEST_CASE(test_rpc_nonvariadic_client_variadic_server) {
     return rpc_test_env<>::do_with_thread(rpc_test_config(), [] (rpc_test_env<>& env, test_rpc_proto::client& c1) {
         // Server is variadic
         env.register_handler(1, [] () {
-            return make_ready_future<rpc::tuple<int, long>>(rpc::tuple(1, 0x7'0000'0000L));
+            return make_ready_future<rpc::tuple<int, long>>(rpc::make_tuple(1, 0x7'0000'0000L));
         }).get();
         // Client is non-variadic
         auto f1 = env.proto().make_client<future<rpc::tuple<int, long>> ()>(1);
@@ -1557,7 +1557,7 @@ SEASTAR_TEST_CASE(test_connection_id_format) {
     return make_ready_future<>();
 }
 
-static_assert(std::is_same_v<decltype(rpc::tuple(1U, 1L)), rpc::tuple<unsigned, long>>, "rpc::tuple deduction guid not working");
+static_assert(std::is_same_v<decltype(rpc::make_tuple(1U, 1L)), rpc::tuple<unsigned, long>>, "rpc::tuple deduction guid not working");
 
 SEASTAR_TEST_CASE(test_client_info) {
     return rpc_test_env<>::do_with(rpc_test_config(), [] (rpc_test_env<>& env) {
