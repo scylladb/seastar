@@ -29,6 +29,7 @@ module;
 module seastar;
 #else
 #include <seastar/http/matcher.hh>
+#include <seastar/http/url.hh>
 #endif
 
 namespace seastar {
@@ -65,7 +66,12 @@ size_t param_matcher::match(const sstring& url, size_t ind, parameters& param) {
         }
         return sstring::npos;
     }
-    param.set(_name, url.substr(ind, last - ind));
+    sstring path;
+    if (http::internal::url_decode(url.substr(ind, last - ind), path)) {
+        param.set(_name, path);
+    } else {
+        param.set(_name, url.substr(ind, last - ind));
+    }
     return last;
 }
 

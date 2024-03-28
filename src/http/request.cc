@@ -82,10 +82,19 @@ void request::add_param(const std::string_view& param) {
 
 }
 
+static sstring decode_path(std::string_view path) {
+    sstring out;
+    if (http::internal::url_decode(path, out)) {
+        return out;
+    } else {
+        return sstring(path);
+    }
+}
+
 sstring request::parse_query_param() {
     size_t pos = _url.find('?');
     if (pos == sstring::npos) {
-        return _url;
+        return decode_path(_url);
     }
     size_t curr = pos + 1;
     size_t end_param;
@@ -95,7 +104,7 @@ sstring request::parse_query_param() {
         curr = end_param + 1;
     }
     add_param(url.substr(curr));
-    return _url.substr(0, pos);
+    return decode_path(_url.substr(0, pos));
 }
 
 void request::write_body(const sstring& content_type, sstring content) {
