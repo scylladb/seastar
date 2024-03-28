@@ -81,6 +81,12 @@ SEASTAR_TEST_CASE(test_match_rule)
     res = mr.get("/hell/val1", param);
     httpd::handler_base* nl = nullptr;
     BOOST_REQUIRE_EQUAL(res, nl);
+
+    // Test that URL decoding happens correctly on the path part of
+    // the URL. Reproduces issue #725.
+    res = mr.get("/hello/hello%21hi", param);
+    BOOST_REQUIRE_EQUAL(param["param"], "hello!hi");
+
     return make_ready_future<>();
 }
 
@@ -202,6 +208,12 @@ SEASTAR_TEST_CASE(test_decode_url) {
     req.parse_query_param();
     BOOST_REQUIRE_EQUAL(req.get_query_param("a"), "#$#");
     BOOST_REQUIRE_EQUAL(req.get_query_param("b"), "\"&\"");
+    // Test that URL decoding happens correctly on the path part of
+    // the URL too. Reproduces issue #725.
+    req._url = "/a%21b?q=%23%24%23";
+    url = req.parse_query_param();
+    BOOST_REQUIRE_EQUAL(url, "/a!b");
+    BOOST_REQUIRE_EQUAL(req.get_query_param("q"), "#$#");
     return make_ready_future<>();
 }
 
