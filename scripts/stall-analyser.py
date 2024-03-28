@@ -40,8 +40,8 @@ parser.add_argument('-d', '--direction', choices=['bottom-up', 'top-down'], defa
                     help='Print graph bottom-up (default, callees first) or top-down (callers first)')
 parser.add_argument('-m', '--minimum', type=int, default=None,
                     help='Process only stalls lasting the given time, in milliseconds, or longer')
-parser.add_argument('-b', '--branch-threshold', type=float, default=0.05,
-                    help='Drop branches responsible for less than this threshold relative to the previous level, not global. (default 5%%)')
+parser.add_argument('-b', '--branch-threshold', type=float, default=0.03,
+                    help='Drop branches responsible for less than this threshold relative to the previous level, not global. (default 3%%)')
 parser.add_argument('file', nargs='?',
                     help='File containing reactor stall backtraces. Read from stdin if missing.')
 
