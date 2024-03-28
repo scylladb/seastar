@@ -126,7 +126,7 @@ public:
     future<> close();
 
 private:
-    future<reply_ptr> do_make_request(request rq);
+    future<reply_ptr> do_make_request(request& rq);
     void setup_request(request& rq);
     future<> send_request_head(const request& rq);
     future<reply_ptr> maybe_wait_for_continue(const request& req);
@@ -166,6 +166,11 @@ public:
  */
 
 class client {
+public:
+    using reply_handler = noncopyable_function<future<>(const reply&, input_stream<char>&& body)>;
+    using retry_requests = bool_class<struct retry_requests_tag>;
+
+private:
     friend class http::internal::client_ref;
     using connections_list_t = bi::list<connection, bi::member_hook<connection, typename connection::hook_t, &connection::_hook>, bi::constant_time_size<false>>;
     static constexpr unsigned default_max_connections = 100;
@@ -174,20 +179,27 @@ class client {
     unsigned _nr_connections = 0;
     unsigned _max_connections;
     unsigned long _total_new_connections = 0;
+    const retry_requests _retry;
     condition_variable _wait_con;
     connections_list_t _pool;
 
     using connection_ptr = seastar::shared_ptr<connection>;
 
     future<connection_ptr> get_connection();
+    future<connection_ptr> make_connection();
     future<> put_connection(connection_ptr con);
     future<> shrink_connections();
 
     template <std::invocable<connection&> Fn>
     auto with_connection(Fn&& fn);
 
+    template <typename Fn>
+    SEASTAR_CONCEPT( requires std::invocable<Fn, connection&> )
+    auto with_new_connection(Fn&& fn);
+
+    future<> do_make_request(connection& con, request& req, reply_handler& handle, std::optional<reply::status_type> expected);
+
 public:
-    using reply_handler = noncopyable_function<future<>(const reply&, input_stream<char>&& body)>;
     /**
      * \brief Construct a simple client
      *
@@ -222,7 +234,7 @@ public:
      * \param f -- the factory pointer
      *
      */
-    explicit client(std::unique_ptr<connection_factory> f, unsigned max_connections = default_max_connections);
+    explicit client(std::unique_ptr<connection_factory> f, unsigned max_connections = default_max_connections, retry_requests retry = retry_requests::no);
 
     /**
      * \brief Send the request and handle the response
@@ -236,6 +248,9 @@ public:
      * \param handle -- the response handler
      * \param expected -- the optional expected reply status code, default is std::nullopt
      *
+     * Note that the handle callback should be prepared to be called more than once, because
+     * client may restart the whole request processing in case server closes the connection
+     * in the middle of operation
      */
     future<> make_request(request req, reply_handler handle, std::optional<reply::status_type> expected = std::nullopt);
 
