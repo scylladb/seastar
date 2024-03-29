@@ -49,6 +49,7 @@ args = parser.parse_args()
 
 resolver = addr2line.BacktraceResolver(executable=args.executable, concise=not args.full_function_names) if args.executable else None
 
+
 class Node:
     def __init__(self, addr: str):
         self.addr = addr
@@ -114,6 +115,7 @@ class Node:
 
     def sorted_callees(self, descending=True):
         return self.sorted_links(self.callees.values(), descending)
+
 
 class Graph:
     def __init__(self):
@@ -264,7 +266,9 @@ Use --direction={'bottom-up' if top_down else 'top-down'} to print {'callees' if
         r = self.head if top_down else self.tail
         _recursive_print_graph(r)
 
+
 graph = Graph()
+
 
 # process each backtrace and insert it to the tree
 #
@@ -280,6 +284,7 @@ def process_graph(t: int, trace: list[str]):
     for addr in trace:
         n = graph.add(n, t, addr)
     graph.add_head(t, n)
+
 
 def print_stats(tally: dict, tmin):
     data = []
@@ -319,6 +324,7 @@ def print_stats(tally: dict, tmin):
         print(f"Of which, {processed_count} lasted {tmin} milliseconds or longer.")
     avg_time = total_time / total_count if total_count else 0
     print(f"min={min_time} avg={avg_time:.1f} median={median} p95={p95} p99={p99} p999={p999} max={max_time}")
+
 
 input = open(args.file) if args.file else sys.stdin
 count = 0
