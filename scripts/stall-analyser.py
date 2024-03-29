@@ -282,9 +282,6 @@ def process_graph(t: int, trace: list[str]):
         n = graph.add(n, t, addr)
     graph.add_head(t, n)
 
-address_threshold = int(args.address_threshold, 0)
-tally = {}
-
 def print_stats(tally:dict, tmin):
     data = []
     total_time = 0
@@ -328,6 +325,8 @@ input = open(args.file) if args.file else sys.stdin
 count = 0
 comment = re.compile('^\s*#')
 pattern = re.compile('Reactor stall')
+address_threshold = int(args.address_threshold, 0)
+tally = {}
 for s in input:
     if comment.search(s) or not pattern.search(s):
         continue
