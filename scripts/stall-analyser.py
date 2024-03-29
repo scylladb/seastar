@@ -194,7 +194,7 @@ Use --direction={'bottom-up' if top_down else 'top-down'} to print {'callees' if
                 prefix += p
             return prefix
 
-        def _recursive_print_graph(n: Node, total: int=0, count: int=0, level: int=-1, idx: int=0, out_of: int=0, rel: float=1.0, prefix_list=[], skip_stats=False):
+        def _recursive_print_graph(n: Node, total: int = 0, count: int = 0, level: int = -1, idx: int = 0, out_of: int = 0, rel: float = 1.0, prefix_list: list[str] = [], skip_stats: bool = False):
             nonlocal top_down
             if level >= 0:
                 avg = round(total / count) if count else 0
