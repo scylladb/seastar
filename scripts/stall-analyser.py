@@ -34,7 +34,7 @@ parser.add_argument('-e', '--executable',
                     help='Decode addresses to lines using given executable')
 parser.add_argument('-f', '--full-function-names', action='store_const', const=True, default=False,
                     help="When demangling C++ function names, display all information, including the type of the function's parameters. Otherwise, they are omitted (see `c++filt(1) -p`).")
-parser.add_argument('-w', '--width', type=int, default=None,
+parser.add_argument('-w', '--width', type=int, default=0,
                     help='Smart trim of long lines to width characters (0=disabled)')
 parser.add_argument('-d', '--direction', choices=['bottom-up', 'top-down'], default='bottom-up',
                     help='Print graph bottom-up (default, callees first) or top-down (callers first)')
@@ -163,7 +163,7 @@ class Graph:
             if l:
                 _print(l, width)
 
-    def print_graph(self, direction: str):
+    def print_graph(self, direction: str, width: int):
         top_down = (direction == 'top-down')
         print(f"""
 This graph is printed in {direction} order, where {'callers' if top_down else 'callees'} are printed first.
@@ -224,7 +224,6 @@ Use --direction={'bottom-up' if top_down else 'top-down'} to print {'callees' if
                             lines.reverse()
                         for li in lines:
                             l += f"{prefix}{p}{' '*cont_indent}{li.strip()}\n"
-                width = args.width or 0
                 self.smart_print(l, width)
                 if n.printed:
                     print(f"{prefix}-> continued at addr={n.addr} above")
@@ -364,6 +363,6 @@ for s in input:
 
 try:
     print_stats(tally, tmin)
-    graph.print_graph(args.direction)
+    graph.print_graph(args.direction, args.width)
 except BrokenPipeError:
     pass
