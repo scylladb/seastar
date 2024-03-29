@@ -50,7 +50,7 @@ args = parser.parse_args()
 resolver = addr2line.BacktraceResolver(executable=args.executable, concise=not args.full_function_names) if args.executable else None
 
 class Node:
-    def __init__(self, addr:str):
+    def __init__(self, addr: str):
         self.addr = addr
         self.callers = {}
         self.callees = {}
@@ -60,7 +60,7 @@ class Node:
         return f"Node({self.addr})"
 
     class Link:
-        def __init__(self, node, t:int):
+        def __init__(self, node, t: int):
             self.node = node
             self.total = t
             self.count = 1
@@ -74,11 +74,11 @@ class Node:
         def __lt__(self, other):
             return self.total < other.total or self.total == other.total and self.count < other.count
 
-        def add(self, t:int):
+        def add(self, t: int):
             self.total += t
             self.count += 1
 
-    def link_caller(self, t:int, n):
+    def link_caller(self, t: int, n):
         if n.addr in self.callers:
             link = self.callers[n.addr]
             link.add(t)
@@ -88,11 +88,11 @@ class Node:
             n.callees[self.addr] = self.Link(self, t)
         return n
 
-    def unlink_caller(self, addr:str):
+    def unlink_caller(self, addr: str):
         link = self.callers.pop(addr)
         link.node.callees.pop(self.addr)
 
-    def link_callee(self, t:int, n):
+    def link_callee(self, t: int, n):
         if n.addr in self.callees:
             link = self.callees[n.addr]
             link.add(t)
@@ -102,11 +102,11 @@ class Node:
             n.callers[self.addr] = self.Link(self, t)
         return n
 
-    def unlink_callee(self, addr:str):
+    def unlink_callee(self, addr: str):
         link = self.callees.pop(addr)
         link.node.callers.pop(self.addr)
 
-    def sorted_links(self, links:list, descending=True):
+    def sorted_links(self, links: list, descending=True):
         return sorted([l for l in links if l.node.addr], reverse=descending)
 
     def sorted_callers(self, descending=True):
@@ -124,7 +124,7 @@ class Graph:
         self.tail = Node('')
         self.head = Node('')
 
-    def add(self, prev:Node, t:int, addr:str):
+    def add(self, prev: Node, t: int, addr: str):
         if addr in self.nodes:
             n = self.nodes[addr]
         else:
@@ -140,11 +140,11 @@ class Graph:
             self.tail.link_caller(t, n)
         return n
 
-    def add_head(self, t:int, n:Node):
+    def add_head(self, t: int, n: Node):
         self.head.link_callee(t, n)
 
-    def smart_print(self, lines:str, width:int):
-        def _print(l:str, width:int):
+    def smart_print(self, lines: str, width: int):
+        def _print(l: str, width: int):
             if not width or len(l) <= width:
                 print(l)
                 return
@@ -163,7 +163,7 @@ class Graph:
             if l:
                 _print(l, width)
 
-    def print_graph(self, direction:str):
+    def print_graph(self, direction: str):
         top_down = (direction == 'top-down')
         print(f"""
 This graph is printed in {direction} order, where {'callers' if top_down else 'callees'} are printed first.
@@ -188,13 +188,13 @@ Use --direction={'bottom-up' if top_down else 'top-down'} to print {'callees' if
                 clopts += f" --{opt}"
         print(f"Command line options:{clopts}\n")
 
-        def _prefix(prefix_list:list):
+        def _prefix(prefix_list: list):
             prefix = ''
             for p in prefix_list:
                 prefix += p
             return prefix
 
-        def _recursive_print_graph(n:Node, total:int=0, count:int=0, level:int=-1, idx:int=0, out_of:int=0, rel:float=1.0, prefix_list=[], skip_stats=False):
+        def _recursive_print_graph(n: Node, total: int=0, count: int=0, level: int=-1, idx: int=0, out_of: int=0, rel: float=1.0, prefix_list=[], skip_stats=False):
             nonlocal top_down
             if level >= 0:
                 avg = round(total / count) if count else 0
@@ -282,7 +282,7 @@ def process_graph(t: int, trace: list[str]):
         n = graph.add(n, t, addr)
     graph.add_head(t, n)
 
-def print_stats(tally:dict, tmin):
+def print_stats(tally: dict, tmin):
     data = []
     total_time = 0
     total_count = 0
