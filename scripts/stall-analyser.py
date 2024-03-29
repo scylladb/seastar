@@ -5,6 +5,7 @@ import sys
 import re
 
 import addr2line
+from typing import Self
 
 parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter,
     description='A reactor stall backtrace graph analyser.',
@@ -61,25 +62,25 @@ class Node:
         return f"Node({self.addr})"
 
     class Link:
-        def __init__(self, node, t: int):
+        def __init__(self, node: "Node", t: int) -> None:
             self.node = node
             self.total = t
             self.count = 1
 
-        def __eq__(self, other):
+        def __eq__(self, other: Self) -> bool:
             return self.total == other.total and self.count == other.count
 
-        def __ne__(self, other):
+        def __ne__(self, other: Self):
             return not (self == other)
 
-        def __lt__(self, other):
+        def __lt__(self, other: Self) -> bool:
             return self.total < other.total or self.total == other.total and self.count < other.count
 
-        def add(self, t: int):
+        def add(self, t: int) -> bool:
             self.total += t
             self.count += 1
 
-    def link_caller(self, t: int, n):
+    def link_caller(self, t: int, n: Self) -> Self:
         if n.addr in self.callers:
             link = self.callers[n.addr]
             link.add(t)
@@ -89,11 +90,11 @@ class Node:
             n.callees[self.addr] = self.Link(self, t)
         return n
 
-    def unlink_caller(self, addr: str):
+    def unlink_caller(self, addr: str) -> None:
         link = self.callers.pop(addr)
         link.node.callees.pop(self.addr)
 
-    def link_callee(self, t: int, n):
+    def link_callee(self, t: int, n) -> Self:
         if n.addr in self.callees:
             link = self.callees[n.addr]
             link.add(t)
@@ -103,17 +104,17 @@ class Node:
             n.callers[self.addr] = self.Link(self, t)
         return n
 
-    def unlink_callee(self, addr: str):
+    def unlink_callee(self, addr: str) -> None:
         link = self.callees.pop(addr)
         link.node.callers.pop(self.addr)
 
-    def sorted_links(self, links: list, descending=True):
+    def sorted_links(self, links: list, descending=True) -> list:
         return sorted([l for l in links if l.node.addr], reverse=descending)
 
-    def sorted_callers(self, descending=True):
+    def sorted_callers(self, descending=True) -> list:
         return self.sorted_links(self.callers.values(), descending)
 
-    def sorted_callees(self, descending=True):
+    def sorted_callees(self, descending=True) -> list:
         return self.sorted_links(self.callees.values(), descending)
 
 
@@ -279,14 +280,14 @@ graph = Graph()
 # This helps identifying closely related reactor stalls
 # where a code path that stalls may be called from multiple
 # call sites.
-def process_graph(t: int, trace: list[str]):
+def process_graph(t: int, trace: list[str]) -> None:
     n = None
     for addr in trace:
         n = graph.add(n, t, addr)
     graph.add_head(t, n)
 
 
-def print_stats(tally: dict, tmin):
+def print_stats(tally: dict, tmin: int) -> None:
     data = []
     total_time = 0
     total_count = 0
