@@ -571,10 +571,8 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
 {
     auto& cfg = get_config();
     if (cfg.duplex) {
-        static_assert(internal::io_direction_and_length::write_idx == 0);
-        _streams.emplace_back(*_group->_fgs[0], make_fair_queue_config(cfg, "write"));
-        static_assert(internal::io_direction_and_length::read_idx == 1);
-        _streams.emplace_back(*_group->_fgs[1], make_fair_queue_config(cfg, "read"));
+        _streams.emplace_back(*_group->_fgs[io_direction_and_length::write_idx], make_fair_queue_config(cfg, "write"));
+        _streams.emplace_back(*_group->_fgs[io_direction_and_length::read_idx], make_fair_queue_config(cfg, "read"));
     } else {
         _streams.emplace_back(*_group->_fgs[0], make_fair_queue_config(cfg, "rw"));
     }
