@@ -228,7 +228,7 @@ private:
 
     const io_queue::config _config;
     size_t _max_request_length[2];
-    std::vector<std::unique_ptr<fair_group>> _fgs;
+    boost::container::static_vector<fair_group, 2> _fgs;
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
     util::spinlock _lock;
     const shard_id _allocated_on;
