@@ -86,7 +86,7 @@ struct io_queue_for_tests {
 
     void kick() {
         for (auto&& fg : group->_fgs) {
-            fg->replenish_capacity(std::chrono::steady_clock::now());
+            fg.replenish_capacity(std::chrono::steady_clock::now());
         }
     }
 

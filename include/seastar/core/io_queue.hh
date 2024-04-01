@@ -22,7 +22,7 @@
 #pragma once
 
 #ifndef SEASTAR_MODULE
-#include <boost/container/small_vector.hpp>
+#include <boost/container/static_vector.hpp>
 #include <chrono>
 #include <memory>
 #include <vector>
@@ -99,7 +99,7 @@ public:
 private:
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
     io_group_ptr _group;
-    boost::container::small_vector<fair_queue, 2> _streams;
+    boost::container::static_vector<fair_queue, 2> _streams;
     internal::io_sink& _sink;
 
     friend struct ::io_queue_for_tests;
@@ -228,7 +228,7 @@ private:
 
     const io_queue::config _config;
     size_t _max_request_length[2];
-    std::vector<std::unique_ptr<fair_group>> _fgs;
+    boost::container::static_vector<fair_group, 2> _fgs;
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
     util::spinlock _lock;
     const shard_id _allocated_on;

@@ -168,18 +168,6 @@ fair_queue::fair_queue(fair_group& group, config cfg)
 {
 }
 
-fair_queue::fair_queue(fair_queue&& other)
-    : _config(std::move(other._config))
-    , _group(other._group)
-    , _group_replenish(std::move(other._group_replenish))
-    , _resources_executing(std::exchange(other._resources_executing, fair_queue_ticket{}))
-    , _resources_queued(std::exchange(other._resources_queued, fair_queue_ticket{}))
-    , _handles(std::move(other._handles))
-    , _priority_classes(std::move(other._priority_classes))
-    , _last_accumulated(other._last_accumulated)
-{
-}
-
 fair_queue::~fair_queue() {
     for (const auto& fq : _priority_classes) {
         assert(!fq);
