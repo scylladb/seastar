@@ -1725,8 +1725,7 @@ Let's look at a simple example server involving both reads an writes. This is a 
 #include <seastar/core/future-util.hh>
 #include <seastar/net/api.hh>
 
-seastar::future<> handle_connection(seastar::connected_socket s,
-                                    seastar::socket_address a) {
+seastar::future<> handle_connection(seastar::connected_socket s) {
     auto out = s.output();
     auto in = s.input();
     return do_with(std::move(s), std::move(out), std::move(in),
@@ -1761,7 +1760,7 @@ seastar::future<> service_loop_3() {
                 // Note we ignore, not return, the future returned by
                 // handle_connection(), so we do not wait for one
                 // connection to be handled before accepting the next one.
-                (void)handle_connection(std::move(res.connection), std::move(res.remote_address)).handle_exception(
+                (void)handle_connection(std::move(res.connection)).handle_exception(
                         [] (std::exception_ptr ep) {
                     fmt::print(stderr, "Could not handle connection: {}\n", ep);
                 });
