@@ -1523,7 +1523,7 @@ public:
         if (!std::exchange(_shutdown, true)) {
             auto me = shared_from_this();
             // running in background. try to bye-handshake us nicely, but after 10s we forcefully close.
-            (void)with_timeout(timer<>::clock::now() + std::chrono::seconds(10), shutdown()).finally([this] {
+            engine().run_in_background(with_timeout(timer<>::clock::now() + std::chrono::seconds(10), shutdown()).finally([this] {
                 _eof = true;
                 try {
                     (void)_in.close().handle_exception([](std::exception_ptr) {}); // should wake any waiters
@@ -1541,7 +1541,7 @@ public:
                 });
             }).then_wrapped([me = std::move(me)](future<> f) { // must keep object alive until here.
                 f.ignore_ready_future();
-            });
+            }));
         }
     }
     // helper for sink
