@@ -130,6 +130,21 @@ class Graph:
         self.tail = Node('')
         self.head = Node('')
 
+    def process_trace(self, trace: list[str], t: int) -> None:
+        # process each backtrace and insert it to the tree
+        #
+        # The backtraces are assumed to be in bottom-up order, i.e.
+        # the first address indicates the innermost frame and the last
+        # address is in the outermost, in calling order.
+        #
+        # This helps identifying closely related reactor stalls
+        # where a code path that stalls may be called from multiple
+        # call sites.
+        node = None
+        for addr in trace:
+            node = self.add(node, t, addr)
+        self.add_head(t, node)
+
     def add(self, prev: Node, t: int, addr: str):
         if addr in self.nodes:
             n = self.nodes[addr]
@@ -274,22 +289,6 @@ Use --direction={'bottom-up' if top_down else 'top-down'} to print {'callees' if
         _recursive_print_graph(r)
 
 
-# process each backtrace and insert it to the tree
-#
-# The backtraces are assumed to be in bottom-up order, i.e.
-# the first address indicates the innermost frame and the last
-# address is in the outermost, in calling order.
-#
-# This helps identifying closely related reactor stalls
-# where a code path that stalls may be called from multiple
-# call sites.
-def process_graph(graph: Graph, t: int, trace: list[str]) -> None:
-    n = None
-    for addr in trace:
-        n = graph.add(n, t, addr)
-    graph.add_head(t, n)
-
-
 def print_stats(tally: dict, tmin: int) -> None:
     data = []
     total_time = 0
@@ -378,7 +377,7 @@ def main():
                     break
         tmin = args.minimum or 0
         if t >= tmin:
-            process_graph(graph, t, trace)
+            graph.process_trace(trace, t)
 
     try:
         print_stats(tally, tmin)
