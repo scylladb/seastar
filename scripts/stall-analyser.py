@@ -336,6 +336,7 @@ def main():
     comment = re.compile(r'^\s*#')
     pattern = re.compile(r"Reactor stalled for (?P<stall>\d+) ms on shard (?P<shard>\d+).*Backtrace:")
     address_threshold = int(args.address_threshold, 0)
+    # map from stall time in ms to the count of the stall time
     tally = {}
     resolver = None
     if args.executable:
@@ -345,12 +346,16 @@ def main():
     for s in input:
         if comment.search(s):
             continue
+        # parse log line like:
+        # ... scylla[7795]: Reactor stalled for 860 ms on shard 4. Backtrace: 0x4f002d2 0x4efef30 0x4f001e0
         m = pattern.search(s)
         if not m:
             continue
         count += 1
+        # extract the time in ms
         trace = s[m.span()[1]:].split()
         t = int(m.group("stall"))
+        # and the addresses after "Backtrace:"
         tally[t] = tally.pop(t, 0) + 1
         # The address_threshold typically indicates a library call
         # and the backtrace up-to and including it are usually of
