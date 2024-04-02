@@ -1785,14 +1785,9 @@ seastar::future<> handle_connection(seastar::connected_socket s) {
     try {
         auto out = s.output();
         auto in = s.input();
-        while (true) {
-            auto buf = co_await in.read();
-            if (buf) {
-                co_await out.write(std::move(buf));
-                co_await out.flush();
-            } else {
-                break;
-            }
+        while (auto buf = co_await in.read()) {
+            co_await out.write(std::move(buf));
+            co_await out.flush();
         }
         co_await out.close();
     }
