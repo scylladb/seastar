@@ -1778,6 +1778,40 @@ It is often a mistake to silently ignore an exception, so if the future we're ig
 
 The ```handle_connection()``` function itself is straightforward --- it repeatedly calls ```read()``` read on the input stream, to receive a ```temporary_buffer``` with some data, and then moves this temporary buffer into a ```write()``` call on the output stream. The buffer will eventually be freed, automatically, when the ```write()``` is done with it. When ```read()``` eventually returns an empty buffer signifying the end of input, we stop ```repeat```'s iteration by returning a ```stop_iteration::yes```.
 
+Re-written using C++20's coroutines, the above becomes this:
+
+```cpp
+seastar::future<> handle_connection(seastar::connected_socket s) {
+    try {
+        auto out = s.output();
+        auto in = s.input();
+        while (true) {
+            auto buf = co_await in.read();
+            if (buf) {
+                co_await out.write(std::move(buf));
+                co_await out.flush();
+            } else {
+                break;
+            }
+        }
+        co_await out.close();
+    }
+    catch (const std::exception &ex) {
+        fmt::print(stderr, "Could not handle connection: {}\n", ex);
+    }
+}
+
+seastar::future<> service_loop_3() {
+    seastar::listen_options lo;
+    lo.reuse_address = true;
+    auto listener = seastar::listen(seastar::make_ipv4_address({1234}), lo);
+    while (true) {
+        auto res = co_await listener.accept();
+        (void) handle_connection(std::move(res.connection));
+    }
+}
+```
+
 # Sharded services
 
 In the previous section we saw that a Seastar application usually needs to run its code on all available CPU cores. We saw that the `seastar::smp::submit_to()` function allows the main function, which initially runs only on the first core, to start the server's code on all `seastar::smp::count` cores.
