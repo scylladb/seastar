@@ -52,8 +52,6 @@ def get_command_line_parser():
 
 args = get_command_line_parser().parse_args()
 
-resolver = addr2line.BacktraceResolver(executable=args.executable, concise=not args.full_function_names) if args.executable else None
-
 
 class Node:
     def __init__(self, addr: str):
@@ -123,7 +121,8 @@ class Node:
 
 
 class Graph:
-    def __init__(self):
+    def __init__(self, resolver: addr2line.BacktraceResolver):
+        self.resolver = resolver
         # Each node in the tree contains:
         self.count = 0
         self.total = 0
@@ -220,8 +219,8 @@ Use --direction={'bottom-up' if top_down else 'top-down'} to print {'callees' if
                     stats = f" total={total} count={count} avg={avg}"
                 l = f"{prefix}{p}{l} addr={n.addr}{stats}"
                 p = "| "
-                if resolver:
-                    lines = resolver.resolve_address(n.addr).splitlines()
+                if self.resolver:
+                    lines = self.resolver.resolve_address(n.addr).splitlines()
                     if len(lines) == 1:
                         li = lines[0]
                         if li.startswith("??"):
@@ -338,7 +337,11 @@ def main():
     pattern = re.compile(r"Reactor stalled for (?P<stall>\d+) ms on shard (?P<shard>\d+).*Backtrace:")
     address_threshold = int(args.address_threshold, 0)
     tally = {}
-    graph = Graph()
+    resolver = None
+    if args.executable:
+        resolver = addr2line.BacktraceResolver(executable=args.executable,
+                                               concise=not args.full_function_names)
+    graph = Graph(resolver)
     for s in input:
         if comment.search(s):
             continue
