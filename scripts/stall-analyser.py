@@ -271,9 +271,6 @@ Use --direction={'bottom-up' if top_down else 'top-down'} to print {'callees' if
         _recursive_print_graph(r)
 
 
-graph = Graph()
-
-
 # process each backtrace and insert it to the tree
 #
 # The backtraces are assumed to be in bottom-up order, i.e.
@@ -283,7 +280,7 @@ graph = Graph()
 # This helps identifying closely related reactor stalls
 # where a code path that stalls may be called from multiple
 # call sites.
-def process_graph(t: int, trace: list[str]) -> None:
+def process_graph(graph: Graph, t: int, trace: list[str]) -> None:
     n = None
     for addr in trace:
         n = graph.add(n, t, addr)
@@ -337,6 +334,7 @@ def main():
     pattern = re.compile(r"Reactor stalled for (?P<stall>\d+) ms on shard (?P<shard>\d+).*Backtrace:")
     address_threshold = int(args.address_threshold, 0)
     tally = {}
+    graph = Graph()
     for s in input:
         if comment.search(s):
             continue
@@ -368,7 +366,7 @@ def main():
                     break
         tmin = args.minimum or 0
         if t >= tmin:
-            process_graph(t, trace)
+            process_graph(graph, t, trace)
 
     try:
         print_stats(tally, tmin)
