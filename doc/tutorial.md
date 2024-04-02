@@ -1807,6 +1807,9 @@ seastar::future<> service_loop_3() {
     auto listener = seastar::listen(seastar::make_ipv4_address({1234}), lo);
     while (true) {
         auto res = co_await listener.accept();
+        // Note we ignore, not co_await, the future returned by
+        // handle_connection(), so we do not wait for one
+        // connection to be handled before accepting the next one.
         (void) handle_connection(std::move(res.connection));
     }
 }
