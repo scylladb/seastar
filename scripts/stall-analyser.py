@@ -330,47 +330,52 @@ def print_stats(tally: dict, tmin: int) -> None:
     print(f"min={min_time} avg={avg_time:.1f} median={median} p95={p95} p99={p99} p999={p999} max={max_time}")
 
 
-input = open(args.file) if args.file else sys.stdin
-count = 0
-comment = re.compile(r'^\s*#')
-pattern = re.compile(r"Reactor stalled for (?P<stall>\d+) ms on shard (?P<shard>\d+).*Backtrace:")
-address_threshold = int(args.address_threshold, 0)
-tally = {}
-for s in input:
-    if comment.search(s):
-        continue
-    m = pattern.search(s)
-    if not m:
-        continue
-    count += 1
-    trace = s[m.span()[1]:].split()
-    t = int(m.group("stall"))
-    tally[t] = tally.pop(t, 0) + 1
-    # The address_threshold typically indicates a library call
-    # and the backtrace up-to and including it are usually of
-    # no interest as they all contain the stall backtrace geneneration code, e.g.:
-    #  seastar::internal::cpu_stall_detector::generate_trace
-    # void seastar::backtrace<seastar::backtrace_buffer::append_backtrace_oneline()::{lambda(seastar::frame)#1}>(seastar::backt>
-    #  (inlined by) seastar::backtrace_buffer::append_backtrace_oneline() at ./build/release/seastar/./seastar/src/core/reactor.cc:771
-    #  (inlined by) seastar::print_with_backtrace(seastar::backtrace_buffer&, bool) at ./build/release/seastar/./seastar/src/core/reactor.cc>
-    # seastar::internal::cpu_stall_detector::generate_trace() at ./build/release/seastar/./seastar/src/core/reactor.cc:1257
-    # seastar::internal::cpu_stall_detector::maybe_report() at ./build/release/seastar/./seastar/src/core/reactor.cc:1103
-    #  (inlined by) seastar::internal::cpu_stall_detector::on_signal() at ./build/release/seastar/./seastar/src/core/reactor.cc:1117
-    #  (inlined by) seastar::reactor::block_notifier(int) at ./build/release/seastar/./seastar/src/core/reactor.cc:1240
-    # ?? ??:0
-    if address_threshold:
-        for i in range(0, len(trace)):
-            if int(trace[i], 0) >= address_threshold:
-                while int(trace[i], 0) >= address_threshold:
-                    i += 1
-                trace = trace[i:]
-                break
-    tmin = args.minimum or 0
-    if t >= tmin:
-        process_graph(t, trace)
+def main():
+    input = open(args.file) if args.file else sys.stdin
+    count = 0
+    comment = re.compile(r'^\s*#')
+    pattern = re.compile(r"Reactor stalled for (?P<stall>\d+) ms on shard (?P<shard>\d+).*Backtrace:")
+    address_threshold = int(args.address_threshold, 0)
+    tally = {}
+    for s in input:
+        if comment.search(s):
+            continue
+        m = pattern.search(s)
+        if not m:
+            continue
+        count += 1
+        trace = s[m.span()[1]:].split()
+        t = int(m.group("stall"))
+        tally[t] = tally.pop(t, 0) + 1
+        # The address_threshold typically indicates a library call
+        # and the backtrace up-to and including it are usually of
+        # no interest as they all contain the stall backtrace geneneration code, e.g.:
+        #  seastar::internal::cpu_stall_detector::generate_trace
+        # void seastar::backtrace<seastar::backtrace_buffer::append_backtrace_oneline()::{lambda(seastar::frame)#1}>(seastar::backt>
+        #  (inlined by) seastar::backtrace_buffer::append_backtrace_oneline() at ./build/release/seastar/./seastar/src/core/reactor.cc:771
+        #  (inlined by) seastar::print_with_backtrace(seastar::backtrace_buffer&, bool) at ./build/release/seastar/./seastar/src/core/reactor.cc>
+        # seastar::internal::cpu_stall_detector::generate_trace() at ./build/release/seastar/./seastar/src/core/reactor.cc:1257
+        # seastar::internal::cpu_stall_detector::maybe_report() at ./build/release/seastar/./seastar/src/core/reactor.cc:1103
+        #  (inlined by) seastar::internal::cpu_stall_detector::on_signal() at ./build/release/seastar/./seastar/src/core/reactor.cc:1117
+        #  (inlined by) seastar::reactor::block_notifier(int) at ./build/release/seastar/./seastar/src/core/reactor.cc:1240
+        # ?? ??:0
+        if address_threshold:
+            for i in range(0, len(trace)):
+                if int(trace[i], 0) >= address_threshold:
+                    while int(trace[i], 0) >= address_threshold:
+                        i += 1
+                    trace = trace[i:]
+                    break
+        tmin = args.minimum or 0
+        if t >= tmin:
+            process_graph(t, trace)
 
-try:
-    print_stats(tally, tmin)
-    graph.print_graph(args.direction, args.width)
-except BrokenPipeError:
-    pass
+    try:
+        print_stats(tally, tmin)
+        graph.print_graph(args.direction, args.width)
+    except BrokenPipeError:
+        pass
+
+
+if __name__ == '__main__':
+    main()
