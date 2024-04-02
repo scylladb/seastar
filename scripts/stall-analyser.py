@@ -7,46 +7,50 @@ import re
 import addr2line
 from typing import Self
 
-parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter,
-    description='A reactor stall backtrace graph analyser.',
-    epilog="""
-stall-analyser helps analyze a series of reactor-stall backtraces using a graph.
-Each node in the graph includes:
-  `addr` - a program address
-Each link in the graph includes:
-  `total` - the total sum of stalls, in milliseconds
-            of all reactor stalls that pass via this caller/callee link.
-  `count` - number of backtraces going through the link.
 
-When printed, the graph is traversed in descending `total` order
-to emphasize stall backtraces that are frequent and long.
+def get_command_line_parser():
+    parser = argparse.ArgumentParser(formatter_class=argparse.RawDescriptionHelpFormatter,
+        description='A reactor stall backtrace graph analyser.',
+        epilog="""
+    stall-analyser helps analyze a series of reactor-stall backtraces using a graph.
+    Each node in the graph includes:
+      `addr` - a program address
+    Each link in the graph includes:
+      `total` - the total sum of stalls, in milliseconds
+                of all reactor stalls that pass via this caller/callee link.
+      `count` - number of backtraces going through the link.
 
-Each node in the printed output is preceded with [level#index pct%],
-where `level` is the level of that node in the graph (0 are root nodes),
-`index` is the index in the parent node's list of callers/callees, and
-`pct` is the percantage of this link's `total` time relative to
-its siblings.
+    When printed, the graph is traversed in descending `total` order
+    to emphasize stall backtraces that are frequent and long.
 
-When given an executable, addresses are decoding using `addr2line`
-""")
-parser.add_argument('--address-threshold', default='0x100000000',
-                    help='Skip common backtrace prefix terminated by one or more addresses greater or equal to the threshold (0=disabled)')
-parser.add_argument('-e', '--executable',
-                    help='Decode addresses to lines using given executable')
-parser.add_argument('-f', '--full-function-names', action='store_const', const=True, default=False,
-                    help="When demangling C++ function names, display all information, including the type of the function's parameters. Otherwise, they are omitted (see `c++filt(1) -p`).")
-parser.add_argument('-w', '--width', type=int, default=0,
-                    help='Smart trim of long lines to width characters (0=disabled)')
-parser.add_argument('-d', '--direction', choices=['bottom-up', 'top-down'], default='bottom-up',
-                    help='Print graph bottom-up (default, callees first) or top-down (callers first)')
-parser.add_argument('-m', '--minimum', type=int, default=None,
-                    help='Process only stalls lasting the given time, in milliseconds, or longer')
-parser.add_argument('-b', '--branch-threshold', type=float, default=0.03,
-                    help='Drop branches responsible for less than this threshold relative to the previous level, not global. (default 3%%)')
-parser.add_argument('file', nargs='?',
-                    help='File containing reactor stall backtraces. Read from stdin if missing.')
+    Each node in the printed output is preceded with [level#index pct%],
+    where `level` is the level of that node in the graph (0 are root nodes),
+    `index` is the index in the parent node's list of callers/callees, and
+    `pct` is the percantage of this link's `total` time relative to
+    its siblings.
 
-args = parser.parse_args()
+    When given an executable, addresses are decoding using `addr2line`
+    """)
+    parser.add_argument('--address-threshold', default='0x100000000',
+                        help='Skip common backtrace prefix terminated by one or more addresses greater or equal to the threshold (0=disabled)')
+    parser.add_argument('-e', '--executable',
+                        help='Decode addresses to lines using given executable')
+    parser.add_argument('-f', '--full-function-names', action='store_const', const=True, default=False,
+                        help="When demangling C++ function names, display all information, including the type of the function's parameters. Otherwise, they are omitted (see `c++filt(1) -p`).")
+    parser.add_argument('-w', '--width', type=int, default=0,
+                        help='Smart trim of long lines to width characters (0=disabled)')
+    parser.add_argument('-d', '--direction', choices=['bottom-up', 'top-down'], default='bottom-up',
+                        help='Print graph bottom-up (default, callees first) or top-down (callers first)')
+    parser.add_argument('-m', '--minimum', type=int, default=None,
+                        help='Process only stalls lasting the given time, in milliseconds, or longer')
+    parser.add_argument('-b', '--branch-threshold', type=float, default=0.03,
+                        help='Drop branches responsible for less than this threshold relative to the previous level, not global. (default 3%%)')
+    parser.add_argument('file', nargs='?',
+                        help='File containing reactor stall backtraces. Read from stdin if missing.')
+    return parser
+
+
+args = get_command_line_parser().parse_args()
 
 resolver = addr2line.BacktraceResolver(executable=args.executable, concise=not args.full_function_names) if args.executable else None
 
