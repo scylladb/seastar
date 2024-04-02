@@ -166,18 +166,7 @@ class Graph:
             if l:
                 _print(l, width)
 
-    def print_graph(self, direction: str, width: int):
-        top_down = (direction == 'top-down')
-        print(f"""
-This graph is printed in {direction} order, where {'callers' if top_down else 'callees'} are printed first.
-Use --direction={'bottom-up' if top_down else 'top-down'} to print {'callees' if top_down else 'callers'} first.
-
-[level#index/out_of pct%] below denotes:
-  level  - nesting level in the graph
-  index  - index of node among to its siblings
-  out_of - number of siblings
-  pct    - percentage of total stall time of this call relative to its siblings
-""")
+    def print_command_line_options(self, args):
         varargs = vars(args)
         clopts = ""
         for k in varargs.keys():
@@ -190,6 +179,20 @@ Use --direction={'bottom-up' if top_down else 'top-down'} to print {'callees' if
             elif val:
                 clopts += f" --{opt}"
         print(f"Command line options:{clopts}\n")
+
+    def print_graph(self, direction: str, width: int):
+        top_down = (direction == 'top-down')
+        print(f"""
+This graph is printed in {direction} order, where {'callers' if top_down else 'callees'} are printed first.
+Use --direction={'bottom-up' if top_down else 'top-down'} to print {'callees' if top_down else 'callers'} first.
+
+[level#index/out_of pct%] below denotes:
+  level  - nesting level in the graph
+  index  - index of node among to its siblings
+  out_of - number of siblings
+  pct    - percentage of total stall time of this call relative to its siblings
+""")
+        self.print_command_line_options(args)
 
         def _prefix(prefix_list: list):
             prefix = ''
