@@ -1196,7 +1196,8 @@ SEASTAR_THREAD_TEST_CASE(test_reload_certificates_with_creds) {
 
     auto certs = b.build_reloadable_server_credentials([&](const std::unordered_set<sstring> &files,
                                                            const tls::certificate_credentials &creds,
-                                                           std::exception_ptr ep) {
+                                                           std::exception_ptr ep,
+                                                           std::optional<tls::blob> trust_file_contents) {
         if (ep) {
             return;
         }
@@ -1211,6 +1212,7 @@ SEASTAR_THREAD_TEST_CASE(test_reload_certificates_with_creds) {
 
         BOOST_CHECK(certs_info.has_value() && !certs_info.value().empty());
         BOOST_CHECK(trust_list_info.has_value() && trust_list_info.value().empty());
+        BOOST_CHECK(!trust_file_contents.has_value());
 
     }).get();
 
@@ -1221,6 +1223,7 @@ SEASTAR_THREAD_TEST_CASE(test_reload_certificates_with_creds) {
 
     BOOST_CHECK(certs_info.has_value() && !certs_info.value().empty());
     BOOST_CHECK(trust_list_info.has_value());
+    BOOST_CHECK(!b.get_trust_file_blob().has_value());
 
     // copy the right (trusted) certs over the old ones.
     fs::copy_file(certfile("test.crt"), tmp.path() / "test0.crt");

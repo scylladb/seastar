@@ -373,7 +373,7 @@ namespace tls {
 
     using reload_callback = std::function<void(const std::unordered_set<sstring>&, std::exception_ptr)>;
     using reload_callback_ex = std::function<future<>(const credentials_builder&, const std::unordered_set<sstring>&, std::exception_ptr)>;
-    using reload_callback_with_creds = std::function<void(const std::unordered_set<sstring>&, const certificate_credentials&, std::exception_ptr)>;
+    using reload_callback_with_creds = std::function<void(const std::unordered_set<sstring> &, const certificate_credentials &, std::exception_ptr, std::optional<blob>)>;
 
     /**
      * Intentionally "primitive", and more importantly, copyable
@@ -447,6 +447,8 @@ namespace tls {
 
         future<shared_ptr<certificate_credentials>> build_reloadable_certificate_credentials(reload_callback_with_creds, std::optional<std::chrono::milliseconds> tolerance = {}) const;
         future<shared_ptr<server_credentials>> build_reloadable_server_credentials(reload_callback_with_creds, std::optional<std::chrono::milliseconds> tolerance = {}) const;
+
+        std::optional<blob> get_trust_file_blob() const;
     private:
         friend class reloadable_credentials_base;
 

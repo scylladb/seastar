@@ -62,7 +62,7 @@ tls::reload_callback_ex wrap_reload_callback(tls::reload_callback_with_creds cb)
                                const std::unordered_set<sstring> &files,
                                std::exception_ptr ep) {
          auto creds = builder.build_certificate_credentials();
-         return futurize_invoke(cb, files, *creds, ep);
+         return futurize_invoke(cb, files, *creds, ep, builder.get_trust_file_blob());
     };
 }
 
@@ -606,7 +606,6 @@ public:
         _builder->detach();
     }
     virtual void rebuild(const credentials_builder&) = 0;
-    virtual const tls::certificate_credentials& as_certificate_credentials() const noexcept = 0;
 private:
     shared_ptr<reloading_builder> _builder;
 };
@@ -619,8 +618,6 @@ public:
         , tls::reloadable_credentials_base(std::move(builder), std::move(cb), delay)
     {}
     void rebuild(const credentials_builder&) override;
-    const tls::certificate_credentials& as_certificate_credentials() const noexcept override;
-
 };
 
 template<>
@@ -628,19 +625,9 @@ void tls::reloadable_credentials<tls::certificate_credentials>::rebuild(const cr
     builder.rebuild(*this);
 }
 
-template <>
-const tls::certificate_credentials& tls::reloadable_credentials<tls::certificate_credentials>::as_certificate_credentials() const noexcept {
-    return *this;
-}
-
 template<>
 void tls::reloadable_credentials<tls::server_credentials>::rebuild(const credentials_builder& builder) {
     builder.rebuild(*this);
-}
-
-template <>
-const tls::certificate_credentials& tls::reloadable_credentials<tls::server_credentials>::as_certificate_credentials() const noexcept{
-    return *this;
 }
 
 void tls::credentials_builder::rebuild(certificate_credentials& creds) const {
@@ -686,6 +673,13 @@ future<shared_ptr<tls::certificate_credentials>> tls::credentials_builder::build
 
 future<shared_ptr<tls::server_credentials>> tls::credentials_builder::build_reloadable_server_credentials(reload_callback_with_creds cb, std::optional<std::chrono::milliseconds> tolerance) const {
     return build_reloadable_server_credentials(wrap_reload_callback(std::move(cb)), tolerance);
+}
+
+std::optional<tls::blob> tls::credentials_builder::get_trust_file_blob() const {
+    if (auto i = _blobs.find(x509_trust_key); i != _blobs.end()) {
+        return std::make_optional<tls::blob>(std::any_cast<const x509_simple&>(i->second).data);
+    }
+    return std::nullopt;
 }
 
 data_source tls::tls_connected_socket_impl::source() {
