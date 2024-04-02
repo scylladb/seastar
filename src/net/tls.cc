@@ -210,7 +210,8 @@ static auto get_gtls_string = [](auto func, auto... args) noexcept {
 tls::reload_callback_with_creds wrap_reload_callback(tls::reload_callback cb) {
     return [cb{std::move(cb)}](const std::unordered_set<sstring> &files,
                                const tls::certificate_credentials&,
-                               std::exception_ptr ep) {
+                               std::exception_ptr ep,
+                               std::optional<tls::blob>) {
         return cb(files, ep);
     };
 }
@@ -979,7 +980,7 @@ public:
         void do_callback(std::exception_ptr ep = {}) {
             if (_cb && !_files.empty() && _creds) {
                 const auto &creds = _creds->as_certificate_credentials();
-                _cb(boost::copy_range<std::unordered_set<sstring>>(_files | boost::adaptors::map_keys), creds, std::move(ep));
+                _cb(boost::copy_range<std::unordered_set<sstring>>(_files | boost::adaptors::map_keys), creds, std::move(ep), get_trust_file_blob());
             }
         }
         // called from seastar::thread
@@ -1092,6 +1093,13 @@ future<shared_ptr<tls::server_credentials>> tls::credentials_builder::build_relo
     return creds->init().then([creds] {
         return make_ready_future<shared_ptr<tls::server_credentials>>(creds);
     });
+}
+
+std::optional<tls::blob> tls::credentials_builder::get_trust_file_blob() const {
+    if (auto i = _blobs.find(x509_trust_key); i != _blobs.end()) {
+        return std::make_optional<tls::blob>(boost::any_cast<const x509_simple&>(i->second).data);
+    }
+    return std::nullopt;
 }
 
 namespace tls {
