@@ -33,6 +33,7 @@
 #include <functional>
 #include <optional>
 #include <queue>
+#include <fmt/ostream.h>
 
 namespace bi = boost::intrusive;
 
