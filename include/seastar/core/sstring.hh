@@ -37,7 +37,7 @@
 #include <ostream>
 #include <functional>
 #include <type_traits>
-#include <fmt/ostream.h>
+#include <fmt/format.h>
 #endif
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/modules.hh>
