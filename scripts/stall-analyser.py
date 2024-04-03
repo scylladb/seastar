@@ -184,20 +184,6 @@ class Graph:
             if l:
                 _print(l, width)
 
-    def print_command_line_options(self, args):
-        varargs = vars(args)
-        clopts = ""
-        for k in varargs.keys():
-            val = varargs[k]
-            opt = re.sub('_', '-', k)
-            if val is None:
-                continue
-            elif not isinstance(val, bool):
-                clopts += f" --{opt}={val}"
-            elif val:
-                clopts += f" --{opt}"
-        print(f"Command line options:{clopts}\n")
-
     def print_graph(self, direction: str, width: int, branch_threshold: float):
         top_down = (direction == 'top-down')
         print(f"""
@@ -210,7 +196,6 @@ Use --direction={'bottom-up' if top_down else 'top-down'} to print {'callees' if
   out_of - number of siblings
   pct    - percentage of total stall time of this call relative to its siblings
 """)
-        self.print_command_line_options(args)
 
         def _prefix(prefix_list: list):
             prefix = ''
@@ -329,6 +314,21 @@ def print_stats(tally: dict, tmin: int) -> None:
     print(f"min={min_time} avg={avg_time:.1f} median={median} p95={p95} p99={p99} p999={p999} max={max_time}")
 
 
+def print_command_line_options(args):
+    varargs = vars(args)
+    clopts = ""
+    for k in varargs.keys():
+        val = varargs[k]
+        opt = re.sub('_', '-', k)
+        if val is None:
+            continue
+        elif not isinstance(val, bool):
+            clopts += f" --{opt}={val}"
+        elif val:
+            clopts += f" --{opt}"
+    print(f"Command line options:{clopts}\n")
+
+
 def main():
     input = open(args.file) if args.file else sys.stdin
     count = 0
@@ -380,6 +380,7 @@ def main():
             graph.process_trace(trace, t)
 
     try:
+        print_command_line_options(args)
         print_stats(tally, tmin)
         graph.print_graph(args.direction, args.width, args.branch_threshold)
     except BrokenPipeError:
