@@ -198,7 +198,7 @@ class Graph:
                 clopts += f" --{opt}"
         print(f"Command line options:{clopts}\n")
 
-    def print_graph(self, direction: str, width: int):
+    def print_graph(self, direction: str, width: int, branch_threshold: float):
         top_down = (direction == 'top-down')
         print(f"""
 This graph is printed in {direction} order, where {'callers' if top_down else 'callees'} are printed first.
@@ -269,7 +269,7 @@ Use --direction={'bottom-up' if top_down else 'top-down'} to print {'callees' if
                 omitted_count = 0
                 for link in next:
                     rel = link.total / total
-                    if rel < args.branch_threshold:
+                    if rel < branch_threshold:
                         if not omitted_idx:
                             omitted_idx = i
                         omitted_total += link.total
@@ -381,7 +381,7 @@ def main():
 
     try:
         print_stats(tally, tmin)
-        graph.print_graph(args.direction, args.width)
+        graph.print_graph(args.direction, args.width, args.branch_threshold)
     except BrokenPipeError:
         pass
 
