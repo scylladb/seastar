@@ -50,9 +50,6 @@ def get_command_line_parser():
     return parser
 
 
-args = get_command_line_parser().parse_args()
-
-
 class Node:
     def __init__(self, addr: str):
         self.addr = addr
@@ -330,6 +327,7 @@ def print_command_line_options(args):
 
 
 def main():
+    args = get_command_line_parser().parse_args()
     input = open(args.file) if args.file else sys.stdin
     count = 0
     comment = re.compile(r'^\s*#')
