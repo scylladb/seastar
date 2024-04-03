@@ -28,6 +28,7 @@ module;
 #include <system_error>
 #include <memory>
 #include <chrono>
+#include <unordered_set>
 
 #include <netinet/in.h>
 #include <sys/stat.h>
