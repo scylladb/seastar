@@ -71,24 +71,45 @@ private:
     std::atomic_bool _mutex;
 };
 
+// Temporarily enable/disable the CPU profiler from taking stacktraces on this thread,
+// but don't disable the profiler completely. This can be used disable the profiler 
+// for cases when taking a backtrace isn't valid (IE JIT generated code).
+void profiler_drop_stacktraces(bool) noexcept;
+
+// A small RAII object to disable profiling temporarily
+//
+// This is not reentrant.
+class scoped_disable_profile_temporarily {
+public:
+    scoped_disable_profile_temporarily() noexcept {
+        profiler_drop_stacktraces(true);
+    }
+    ~scoped_disable_profile_temporarily() noexcept {
+        profiler_drop_stacktraces(false);
+    }
+};
+
 struct cpu_profiler_config {
     bool enabled;
     std::chrono::nanoseconds period;
 };
 
 struct cpu_profiler_stats {
+    unsigned dropped_samples_from_manual_disablement{0};
     unsigned dropped_samples_from_exceptions{0};
     unsigned dropped_samples_from_buffer_full{0};
     unsigned dropped_samples_from_mutex_contention{0};
 
     void clear_dropped() {
+        dropped_samples_from_manual_disablement = 0;
         dropped_samples_from_exceptions = 0;
         dropped_samples_from_buffer_full = 0;
         dropped_samples_from_mutex_contention = 0;
     }
 
     unsigned sum_dropped() const {
-        return dropped_samples_from_buffer_full
+        return dropped_samples_from_manual_disablement 
+            + dropped_samples_from_buffer_full
             + dropped_samples_from_exceptions
             + dropped_samples_from_mutex_contention;
     }
