@@ -228,6 +228,18 @@ SEASTAR_THREAD_TEST_CASE(exception_handler_case) {
   BOOST_REQUIRE(dropped_samples > 0);
 }
 
+SEASTAR_THREAD_TEST_CASE(manually_disable) {
+  // Ensure that manually disabling the profile backtracing works
+  seastar::internal::scoped_disable_profile_temporarily profiling_disabled;
+  temporary_profiler_settings cp{true, 10us};
+
+  spin_some_cooperatively(100ms);
+
+  std::vector<cpu_profiler_trace> results;
+  auto dropped_samples = engine().profiler_results(results);
+  BOOST_REQUIRE(dropped_samples > 0);
+}
+
 SEASTAR_THREAD_TEST_CASE(config_thrashing) {
   // Ensure that fast config changes leave the profiler in a valid
   // state.

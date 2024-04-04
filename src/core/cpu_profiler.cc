@@ -57,6 +57,14 @@ std::optional<signal_mutex::guard> signal_mutex::try_lock() {
     return std::nullopt;
 }
 
+namespace {
+thread_local bool force_drop_stacktraces = false;
+}
+
+void profiler_drop_stacktraces(bool should_drop) noexcept {
+    force_drop_stacktraces = should_drop;
+}
+
 /**
  * The profiler breaks sample periods into windows of size _cfg.period.
  * I.e, [1ns, _cfg.period), [_cfg.period, 2*_cfg.period)... etc. And it
@@ -134,14 +142,15 @@ void cpu_profiler::on_signal() {
     // Note: this only protects against C++ exceptions, therefore foreign
     // exceptions or long jumps could still cause segfaults within the profiler.
     const bool no_uncaught_exceptions = std::uncaught_exceptions() == 0;
-    if(!no_uncaught_exceptions) {
-        _stats.dropped_samples_from_exceptions++;
-    }
 
-    // Skip the sample if the main thread is currently reading
-    // _traces. This case shouldn't happen often though.
-    if (auto guard_opt = _traces_mutex.try_lock(); 
-         guard_opt.has_value() && no_uncaught_exceptions) {
+    if (force_drop_stacktraces) {
+        _stats.dropped_samples_from_manual_disablement++;
+    } else if (!no_uncaught_exceptions) {
+        _stats.dropped_samples_from_exceptions++;
+    } else if (auto guard_opt = _traces_mutex.try_lock(); guard_opt.has_value()) {
+        // Skip the sample if the main thread is currently reading
+        // _traces. This case shouldn't happen often though.
+
         // The oldest trace will be overridden if the circular
         // buffer is full so update the bookkeeping to indicate
         // this.
