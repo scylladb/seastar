@@ -65,7 +65,7 @@ SEASTAR_TEST_CASE(test_param_matcher)
     parameters param;
     BOOST_REQUIRE_EQUAL(m.match("/abc/hello", 4, param), 10u);
     BOOST_REQUIRE_EQUAL(param.path("param"), "/hello");
-    BOOST_REQUIRE_EQUAL(param["param"], "hello");
+    BOOST_REQUIRE_EQUAL(param.get_decoded_param("param"), "hello");
     return make_ready_future<>();
 }
 
@@ -78,7 +78,7 @@ SEASTAR_TEST_CASE(test_match_rule)
     mr.add_str("/hello").add_param("param");
     httpd::handler_base* res = mr.get("/hello/val1", param);
     BOOST_REQUIRE_EQUAL(res, h);
-    BOOST_REQUIRE_EQUAL(param["param"], "val1");
+    BOOST_REQUIRE_EQUAL(param.get_decoded_param("param"), "val1");
     res = mr.get("/hell/val1", param);
     httpd::handler_base* nl = nullptr;
     BOOST_REQUIRE_EQUAL(res, nl);
@@ -295,27 +295,22 @@ SEASTAR_TEST_CASE(test_json_path) {
 
     path1.set(*route, [res1] (const_req req) {
         (*res1) = true;
-        BOOST_REQUIRE_EQUAL(req.param["param1"], "value1");
         BOOST_REQUIRE_EQUAL(req.get_path_param("param1"), "value1");
         return "";
     });
 
     path2.set(*route, [res2] (const_req req) {
         (*res2) = true;
-        BOOST_REQUIRE_EQUAL(req.param["param1"], "value4+value4%20value4");
         BOOST_REQUIRE_EQUAL(req.get_path_param("param1"), "value4+value4 value4");
 
-        BOOST_REQUIRE_EQUAL(req.param["param2"], "text4%2Btext4");
         BOOST_REQUIRE_EQUAL(req.get_path_param("param2"), "text4+text4");
         return "";
     });
 
     path3.set(*route, [res3] (const_req req) {
         (*res3) = true;
-        BOOST_REQUIRE_EQUAL(req.param["param1"], "value3");
         BOOST_REQUIRE_EQUAL(req.get_path_param("param1"), "value3");
 
-        BOOST_REQUIRE_EQUAL(req.param["param2"], "text2/text3");
         BOOST_REQUIRE_EQUAL(req.get_path_param("param2"), "text2/text3");
         return "";
     });

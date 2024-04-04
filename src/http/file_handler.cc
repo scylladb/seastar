@@ -50,7 +50,7 @@ directory_handler::directory_handler(const sstring& doc_root,
 
 future<std::unique_ptr<http::reply>> directory_handler::handle(const sstring& path,
         std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) {
-    sstring full_path = doc_root + req->param["path"];
+    sstring full_path = doc_root + req->param.get_decoded_param("path");
     auto h = this;
     return engine().file_type(full_path).then(
             [h, full_path, req = std::move(req), rep = std::move(rep)](auto val) mutable {

@@ -54,6 +54,7 @@ public:
         return params.at(key);
     }
 
+    [[deprecated("Use request::get_path_param() instead.")]]
     sstring operator[](const sstring& key) const {
         return params.at(key).substr(1);
     }
