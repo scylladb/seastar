@@ -32,8 +32,11 @@
 #include <seastar/net/dns.hh>
 #include <seastar/net/tls.hh>
 
+#pragma GCC diagnostic ignored "-Wunused-variable"
+
 using namespace seastar;
 namespace bpo = boost::program_options;
+logger applog("app");
 
 struct printer {
     future<consumption_result<char>> operator() (temporary_buffer<char> buf) {
@@ -58,11 +61,12 @@ int main(int ac, char** av) {
 
     return app.run(ac, av, [&] {
         auto&& config = app.configuration();
-        auto host = config["host"].as<std::string>();
-        auto path = config["path"].as<std::string>();
-        auto method = config["method"].as<std::string>();
+        auto host = config.count("host") == 0 ? std::string("192.168.1.131") : config["host"].as<std::string>();
+        auto path = config.count("path") == 0 ? std::string("/path") : config["path"].as<std::string>();
+        auto method = config.count("method") == 0 ? std::string("GET") : config["method"].as<std::string>();
         auto body = config.count("file") == 0 ? std::string("") : config["file"].as<std::string>();
-        auto https = config["https"].as<bool>();
+        auto https = config.count("https") == 0 ? false : config["https"].as<bool>();
+        auto port = config.count("port") == 0 ? 10000 : config["port"].as<int>();
 
         return seastar::async([=] {
             net::hostent e = net::dns::get_host_by_name(host, net::inet_address::family::INET).get();
@@ -70,11 +74,11 @@ int main(int ac, char** av) {
             if (https) {
                 auto certs = ::make_shared<tls::certificate_credentials>();
                 certs->set_system_trust().get();
-                fmt::print("{} {}:443{}\n", method, e.addr_list.front(), path);
-                cln = std::make_unique<http::experimental::client>(socket_address(e.addr_list.front(), 443), std::move(certs), host);
+                fmt::print("{} {}:{}{}\n", method, e.addr_list.front(), port, path);
+                cln = std::make_unique<http::experimental::client>(socket_address(e.addr_list.front(), port), std::move(certs), host);
             } else {
-                fmt::print("{} {}:80{}\n", method, e.addr_list.front(), path);
-                cln = std::make_unique<http::experimental::client>(socket_address(e.addr_list.front(), 80));
+                fmt::print("{} {}:{}{}\n", method, e.addr_list.front(), port, path);
+                cln = std::make_unique<http::experimental::client>(socket_address(e.addr_list.front(), port));
             }
             auto req = http::request::make(method, host, path);
             if (body != "") {

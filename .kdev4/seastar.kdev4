@@ -1,0 +1,171 @@
+[Buildset]
+BuildItems=@Variant(\x00\x00\x00\t\x00\x00\x00\x00\x01\x00\x00\x00\x0b\x00\x00\x00\x00\x01\x00\x00\x00\x0e\x00s\x00e\x00a\x00s\x00t\x00a\x00r)
+
+[CMake]
+Build Directory Count=1
+Current Build Directory Index-Host System=0
+
+[CMake][CMake Build Directory 0]
+Build Directory Path=/home/DEV/seastar/build2
+Build Type=Debug
+CMake Binary=/usr/bin/cmake
+CMake Executable=/usr/bin/cmake
+Environment Profile=
+Extra Arguments=
+Install Directory=/usr/local
+Runtime=Host System
+
+[Launch]
+Launch Configurations=Launch Configuration 0,Launch Configuration 1,Launch Configuration 2,Launch Configuration 3,Launch Configuration 4,Launch Configuration 5,Launch Configuration 6
+
+[Launch][Launch Configuration 0]
+Configured Launch Modes=execute
+Configured Launchers=nativeAppLauncher
+Name=demo_http_client
+Type=Native Application
+
+[Launch][Launch Configuration 0][Data]
+Arguments=
+Debugger Shell=
+Dependencies=@Variant(\x00\x00\x00\t\x00\x00\x00\x00\x01\x00\x00\x00\x0b\x00\x00\x00\x00\x03\x00\x00\x00\x0e\x00s\x00e\x00a\x00s\x00t\x00a\x00r\x00\x00\x00\n\x00d\x00e\x00m\x00o\x00s\x00\x00\x00 \x00d\x00e\x00m\x00o\x00_\x00h\x00t\x00t\x00p\x00_\x00c\x00l\x00i\x00e\x00n\x00t)
+Dependency Action=Build
+Display Demangle Names=true
+Display Static Members=false
+EnvironmentGroup=
+Executable=file:///home/DEV/seastar
+External Terminal=konsole --noclose --workdir %workdir -e %exe
+GDB Path=
+Kill Before Executing Again=4194304
+Project Target=seastar,demos,demo_http_client
+Remote GDB Config Script=
+Remote GDB Run Script=
+Remote GDB Shell Script=
+Start With=ApplicationOutput
+Use External Terminal=false
+Working Directory=
+isExecutable=false
+
+[Launch][Launch Configuration 1]
+Configured Launch Modes=execute
+Configured Launchers=nativeAppLauncher
+Name=demo_hello-world
+Type=Native Application
+
+[Launch][Launch Configuration 1][Data]
+Arguments=
+Debugger Shell=
+Dependencies=@Variant(\x00\x00\x00\t\x00\x00\x00\x00\x01\x00\x00\x00\x0b\x00\x00\x00\x00\x03\x00\x00\x00\x0e\x00s\x00e\x00a\x00s\x00t\x00a\x00r\x00\x00\x00\n\x00d\x00e\x00m\x00o\x00s\x00\x00\x00 \x00d\x00e\x00m\x00o\x00_\x00h\x00e\x00l\x00l\x00o\x00-\x00w\x00o\x00r\x00l\x00d)
+Dependency Action=Build
+Display Demangle Names=true
+Display Static Members=true
+EnvironmentGroup=
+Executable=file:///home/DEV/seastar
+External Terminal=konsole --noclose --workdir %workdir -e %exe
+GDB Path=
+Kill Before Executing Again=4194304
+Project Target=seastar,demos,demo_hello-world
+Remote GDB Config Script=
+Remote GDB Run Script=
+Remote GDB Shell Script=
+Start With=ApplicationOutput
+Use External Terminal=false
+Working Directory=file:///home/DEV/seastar/build2/temp
+isExecutable=false
+
+[Launch][Launch Configuration 2]
+Configured Launch Modes=execute
+Configured Launchers=nativeAppLauncher
+Name=demo_tcp
+Type=Native Application
+
+[Launch][Launch Configuration 2][Data]
+Arguments=
+Dependencies=@Variant(\x00\x00\x00\t\x00\x00\x00\x00\x01\x00\x00\x00\x0b\x00\x00\x00\x00\x03\x00\x00\x00\x0e\x00s\x00e\x00a\x00s\x00t\x00a\x00r\x00\x00\x00\n\x00d\x00e\x00m\x00o\x00s\x00\x00\x00\x10\x00d\x00e\x00m\x00o\x00_\x00t\x00c\x00p)
+Dependency Action=Build
+EnvironmentGroup=
+Executable=file:///home/DEV/seastar
+External Terminal=konsole --noclose --workdir %workdir -e %exe
+Kill Before Executing Again=4194304
+Project Target=seastar,demos,demo_tcp
+Use External Terminal=false
+Working Directory=
+isExecutable=false
+
+[Launch][Launch Configuration 3]
+Configured Launch Modes=execute
+Configured Launchers=nativeAppLauncher
+Name=demo_echo
+Type=Native Application
+
+[Launch][Launch Configuration 3][Data]
+Arguments=
+Dependencies=@Variant(\x00\x00\x00\t\x00\x00\x00\x00\x01\x00\x00\x00\x0b\x00\x00\x00\x00\x03\x00\x00\x00\x0e\x00s\x00e\x00a\x00s\x00t\x00a\x00r\x00\x00\x00\n\x00d\x00e\x00m\x00o\x00s\x00\x00\x00\x12\x00d\x00e\x00m\x00o\x00_\x00e\x00c\x00h\x00o)
+Dependency Action=Build
+EnvironmentGroup=
+Executable=file:///home/DEV/seastar
+External Terminal=konsole --noclose --workdir %workdir -e %exe
+Kill Before Executing Again=4194304
+Project Target=seastar,demos,demo_echo
+Use External Terminal=false
+Working Directory=
+isExecutable=false
+
+[Launch][Launch Configuration 4]
+Configured Launch Modes=execute
+Configured Launchers=nativeAppLauncher
+Name=demo_tls_echo_server
+Type=Native Application
+
+[Launch][Launch Configuration 4][Data]
+Arguments=
+Dependencies=@Variant(\x00\x00\x00\t\x00\x00\x00\x00\x01\x00\x00\x00\x0b\x00\x00\x00\x00\x03\x00\x00\x00\x0e\x00s\x00e\x00a\x00s\x00t\x00a\x00r\x00\x00\x00\n\x00d\x00e\x00m\x00o\x00s\x00\x00\x00(\x00d\x00e\x00m\x00o\x00_\x00t\x00l\x00s\x00_\x00e\x00c\x00h\x00o\x00_\x00s\x00e\x00r\x00v\x00e\x00r)
+Dependency Action=Build
+EnvironmentGroup=
+Executable=file:///home/DEV/seastar
+External Terminal=konsole --noclose --workdir %workdir -e %exe
+Kill Before Executing Again=4194304
+Project Target=seastar,demos,demo_tls_echo_server
+Use External Terminal=false
+Working Directory=
+isExecutable=false
+
+[Launch][Launch Configuration 5]
+Configured Launch Modes=execute
+Configured Launchers=nativeAppLauncher
+Name=app_httpd
+Type=Native Application
+
+[Launch][Launch Configuration 5][Data]
+Arguments=
+Dependencies=@Variant(\x00\x00\x00\t\x00\x00\x00\x00\x01\x00\x00\x00\x0b\x00\x00\x00\x00\x04\x00\x00\x00\x0e\x00s\x00e\x00a\x00s\x00t\x00a\x00r\x00\x00\x00\x08\x00a\x00p\x00p\x00s\x00\x00\x00\n\x00h\x00t\x00t\x00p\x00d\x00\x00\x00\x12\x00a\x00p\x00p\x00_\x00h\x00t\x00t\x00p\x00d)
+Dependency Action=Build
+EnvironmentGroup=
+Executable=file:///home/DEV/seastar
+External Terminal=konsole --noclose --workdir %workdir -e %exe
+Kill Before Executing Again=4194304
+Project Target=seastar,apps,httpd,app_httpd
+Use External Terminal=false
+Working Directory=
+isExecutable=false
+
+[Launch][Launch Configuration 6]
+Configured Launch Modes=execute
+Configured Launchers=nativeAppLauncher
+Name=demo_db
+Type=Native Application
+
+[Launch][Launch Configuration 6][Data]
+Arguments=
+Dependencies=@Variant(\x00\x00\x00\t\x00\x00\x00\x00\x01\x00\x00\x00\x0b\x00\x00\x00\x00\x03\x00\x00\x00\x0e\x00s\x00e\x00a\x00s\x00t\x00a\x00r\x00\x00\x00\n\x00d\x00e\x00m\x00o\x00s\x00\x00\x00\x0e\x00d\x00e\x00m\x00o\x00_\x00d\x00b)
+Dependency Action=Build
+EnvironmentGroup=
+Executable=file:///home/DEV/seastar
+External Terminal=konsole --noclose --workdir %workdir -e %exe
+Kill Before Executing Again=4194304
+Project Target=seastar,demos,demo_db
+Use External Terminal=false
+Working Directory=
+isExecutable=false
+
+[Project]
+VersionControlSupport=kdevgit

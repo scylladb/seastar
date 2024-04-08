@@ -62,6 +62,9 @@ endif ()
 seastar_add_demo (hello-world
   SOURCES hello-world.cc)
 
+seastar_add_demo (db
+  SOURCES db_demo.cc)
+
 seastar_add_demo (websocket
   SOURCES websocket_demo.cc)
 

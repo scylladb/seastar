@@ -66,7 +66,7 @@ int main(int ac, char** av) {
     auto vnet = create_virtio_net_device(opts.virtio_opts, opts.lro);
     interface netif(std::move(vnet));
     ipv4 inet(&netif);
-    inet.set_host_address(ipv4_address("192.168.122.2"));
+    inet.set_host_address(ipv4_address("192.168.1.131"));
     tcp_test tt(inet);
     (void)engine().when_started().then([&tt] { tt.run(); });
     engine().run();
