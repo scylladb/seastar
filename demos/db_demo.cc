@@ -65,9 +65,24 @@ logger applog("app");
 
 struct Stats {
     constexpr static int version{0};
-    std::atomic_int sr;
     std::atomic_int ops;
     std::atomic_int inserts, deletes, updates, queries;
+    operator sstring() const
+    {
+        return format(
+            "ops:{}, "
+            "inserts:{}, "
+            "deletes:{}, "
+            "updates:{}, "
+            "queries:{}, "
+            ,
+            ops.load(),
+            inserts.load(),
+            deletes.load(),
+            updates.load(),
+            queries.load()
+        );
+    }
 };
 
 struct Lock {
@@ -84,7 +99,41 @@ struct Lock {
 };
 std::atomic_int Lock::collisions = 0;
 
-struct Cache : Stats {
+struct Disk {
+    constexpr static auto index_fname = "db_index.txt";
+    constexpr static auto data_fname = "db_data.txt";
+    int fid_index;
+    int fid_data;
+    Disk()
+    {
+        fid_index = open(index_fname, O_CREAT | O_RDWR, S_IREAD|S_IWRITE|S_IRGRP|S_IROTH);
+        applog.info("Opened {:} returned {:}, {:}", index_fname, fid_index, errno);
+        fid_data = open(data_fname, O_CREAT | O_RDWR, S_IREAD|S_IWRITE|S_IRGRP|S_IROTH);
+        applog.info("Opened {:} returned {:}", data_fname, fid_data, errno);
+    }
+    void set(std::string key, std::string val) {
+        Lock l;
+        int problems = 0;
+        lseek(fid_index, 0, SEEK_END);
+        auto len = write(fid_index, key.c_str(), key.length());
+        if (len != (ssize_t)key.length())
+            problems |= 1;
+        write(fid_index, "\n", 1);
+        lseek(fid_data, 0, SEEK_END);
+        len = write(fid_data, val.c_str(), val.length());
+        if (len != (ssize_t)val.length())
+            problems |= 2;
+        write(fid_data, "\n", 1);
+        applog.info("{:} {:} {:} {:}", "Write", key, val,
+            problems == 1 ? "fail index" :
+            problems == 2 ? "fail data" :
+            problems == 3 ? "fail index and data" :
+            "ok"
+        );
+    }
+};
+
+struct Cache : Stats, Disk {
     std::map<std::string, std::string> key_vals;
     std::string get(std::string key, bool remove=false) {
         Lock l;
@@ -94,7 +143,7 @@ struct Cache : Stats {
             if (remove)
                 key_vals.clear();
             else
-                for (auto place : key_vals)
+                for (auto &place : key_vals)
                     value += place.first + "=" + place.second + "; ";
             applog.info("{:} {:}", remove ? "Removed" : "Get", "<ALL>");
         }
@@ -109,9 +158,10 @@ struct Cache : Stats {
     void set(std::string key, std::string val) {
         Lock l;
         key_vals.insert_or_assign(key, val);
+        Disk::set(key, val);
         applog.info("{:} {:} {:}", "Set", key, val);
     }
-} cache {{0,0, 0,0,0,0}};
+} cache {{0,0,0,0,0}};
 
 //class handl : public httpd::handler_base {
 //public:
@@ -154,28 +204,17 @@ void set_routes(routes& r) {
         return s;
     });
     function_handler* h2 = new function_handler([](const_req req) {
-        std::string s = format(
-            "Stats: {} "
-            "ops:{}, "
-            "inserts:{}, "
-            "deletes:{}, "
-            "updates:{}, "
-            "queries:{}, "
+        auto ss = format(
+            "Stats:{}, "
             "cachesz:{}, "
-            "Collisions:{}, "
+            "Collisions:{}"
             ,
-            cache.sr.load(),
-            cache.ops.load(),
-            cache.inserts.load(),
-            cache.deletes.load(),
-            cache.updates.load(),
-            cache.queries.load(),
+            (sstring)cache,
             cache.key_vals.size(),
             Lock::collisions
         );
-        cache.sr++;
-        applog.info("{:}", s);
-        return sstring(s);
+        applog.info("{:}", ss);
+        return ss;
     });
     r.add(operation_type::GET, url("/"), h1);
     r.add(operation_type::GET, url("/stats"), h2);
