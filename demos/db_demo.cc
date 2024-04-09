@@ -70,19 +70,46 @@ struct Stats {
     std::atomic_int inserts, deletes, updates, queries;
 };
 
+struct Lock {
+    std::atomic_bool l {false};
+    Lock()
+    {
+        bool expected = false;
+        while (!atomic_compare_exchange_strong(&l, &expected, true))
+            collisions++;
+        applog.info("Locked");
+    }
+    ~Lock(){ applog.info("Unlocked"); l = false; }
+    static std::atomic_int collisions;
+};
+std::atomic_int Lock::collisions = 0;
+
 struct Cache : Stats {
     std::map<std::string, std::string> key_vals;
     std::string get(std::string key, bool remove=false) {
-        if (auto place = key_vals.find(key); place != key_vals.end()) {
-            auto rv = place->second;
+        Lock l;
+        std::string value = "";
+        if (key=="")
+        {
+            if (remove)
+                key_vals.clear();
+            else
+                for (auto place : key_vals)
+                    value += place.first + "=" + place.second + "; ";
+            applog.info("{:} {:}", remove ? "Removed" : "Get", "<ALL>");
+        }
+        else if (auto place = key_vals.find(key); place != key_vals.end()) {
+            value = place->second;
             if (remove)
                 key_vals.erase(place);
-            return rv;
+            applog.info("{:} {:}", remove ? "Removed" : "Get", key=="" ? "<ALL>" : key);
         }
-        return "";
+        return value;
     }
     void set(std::string key, std::string val) {
+        Lock l;
         key_vals.insert_or_assign(key, val);
+        applog.info("{:} {:} {:}", "Set", key, val);
     }
 } cache {{0,0, 0,0,0,0}};
 
@@ -108,10 +135,7 @@ void set_routes(routes& r) {
         }
         else if (op=="delete")
         {
-            if (key!="")
-                cache.get(key, true);
-            else
-                cache.key_vals.clear();
+            cache.get(key, true);
             cache.deletes++;
         }
         else if (op=="update")
@@ -121,11 +145,7 @@ void set_routes(routes& r) {
         }
         else // any op other than insert, delete, or update is a read
         {
-            if (key!="")
-                value = cache.get(key);
-            else
-                for (value = ""; auto place : cache.key_vals)
-                    value += place.first + "=" + place.second + "; ";
+            value = cache.get(key);
             cache.queries++;
         }
         std::string s = format("DB request {}", cache.ops++);
@@ -141,14 +161,17 @@ void set_routes(routes& r) {
             "deletes:{}, "
             "updates:{}, "
             "queries:{}, "
-            "cachesz:{}",
+            "cachesz:{}, "
+            "Collisions:{}, "
+            ,
             cache.sr.load(),
             cache.ops.load(),
             cache.inserts.load(),
             cache.deletes.load(),
             cache.updates.load(),
             cache.queries.load(),
-            cache.key_vals.size()
+            cache.key_vals.size(),
+            Lock::collisions
         );
         cache.sr++;
         applog.info("{:}", s);
