@@ -41,6 +41,8 @@ curl -s %host%/stats
 curl %host%/config?trace_level=0000>NUL 2>&1
 if %pass1% EQU 100 (
 	curl %host%/quit
+	goto :EXIT
 )
 @set /a "pass1=%pass1%+1"
 goto :loop1
+:EXIT

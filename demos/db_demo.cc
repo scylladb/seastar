@@ -457,15 +457,19 @@ struct Table : Stats {
 size_t Table::max_cache = 2;
 
 
-//class handl : public httpd::handler_base {
-//public:
-//    virtual future<std::unique_ptr<http::reply> > handle(const sstring& path,
-//            std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) {
-//        rep->_content = "hello";
-//        rep->done("html");
-//        return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
-//    }
-//};
+class HelpHandle : public httpd::handler_base {
+public:
+    bool plain_text;
+    HelpHandle(bool plain_text) : plain_text(plain_text) {}
+    virtual future<std::unique_ptr<http::reply> > handle(const sstring& path,
+            std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) {
+        rep->_content = plain_text ?
+            "hello\nfrom db_demo!" :
+            "hello<BR/>from <STRONG>db_demo</STRONG>!";
+        rep->done(plain_text ? "plain" : "html");
+        return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
+    }
+};
 
 void set_routes(routes& r) {
     function_handler* h1 = new function_handler([](const_req req) {
@@ -587,7 +591,8 @@ void set_routes(routes& r) {
     r.add(operation_type::GET, url("/stats"), h2);
     r.add(operation_type::GET, url("/config"), h3);
     r.add(operation_type::GET, url("/quit"), h4);
-    r.add(operation_type::GET, url("/jf"), h2);
+    r.add(operation_type::GET, url("/help"), new HelpHandle(false));
+    r.add(operation_type::GET, url("/help_plain"), new HelpHandle(true));
     r.add(operation_type::GET, url("/file").remainder("path"), new directory_handler("/"));
 }
 
