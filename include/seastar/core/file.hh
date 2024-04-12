@@ -61,6 +61,9 @@ struct directory_entry {
     sstring name;
     /// Type of the directory entry, if known.
     std::optional<directory_entry_type> type;
+
+    /// Checks if the file is hidden or not
+    bool is_hidden() const noexcept { return name.starts_with("."); }
 };
 
 /// Filesystem object stat information
