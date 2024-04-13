@@ -338,11 +338,9 @@ using metric_metadata_fifo = std::deque<metric_info>;
  * and all metrics related to them. Second, it only contains enabled metrics,
  * making disabled metrics more efficient.
  * The struct is recreated when impl._value_map changes
- * Using a pointer to the family_info metadata is an efficient way to get
- * from a metric_family to its metadata based on its name.
  */
 struct metric_family_metadata {
-    metric_family_info& mf; //This points to impl._value_map
+    metric_family_info mf;
     metric_metadata_fifo metrics;
 };
 
