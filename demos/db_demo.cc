@@ -266,7 +266,7 @@ struct Table : Stats {
     }
     std::string purge(bool files)
     {
-        Lock l(lock);
+        Lock l(lock_cache);
         values.clear();
         keys.clear();
         xref.clear();
@@ -289,7 +289,7 @@ struct Table : Stats {
     }
     std::string compact()
     {
-        Lock l(lock);
+        Lock l(lock_cache);
         std::string s = purge(false);
         int problems = 0;
         auto fid_temp = open((db_prefix+name+compact_fname).c_str(), O_CREAT | O_TRUNC | O_RDWR /*| O_TMPFILE*/, S_IREAD|S_IWRITE|S_IRGRP|S_IROTH);
@@ -392,7 +392,7 @@ struct Table : Stats {
         {
             char buf[key_len];
             {
-                Lock l(lock, locked);
+                Lock l(lock_cache, locked);
                 lseek(fid_keys, fpos, SEEK_SET);
                 auto len = read(fid_keys, buf, sizeof(buf)-1);
                 if (len==0)
@@ -454,9 +454,9 @@ struct Table : Stats {
             applog.info("list: {:}", s);
         return s;
     }
-    auto get(std::string key, std::string &value, bool reentered=false, bool remove=false)
+    auto get(const std::string &key, std::string &value, bool reentered=false, bool remove=false)
     {
-        Lock l(lock, reentered);
+        Lock l(lock_cache, reentered);
         auto x = xref.begin();
         int problems = 0;
         char buf[key_len];
@@ -565,10 +565,10 @@ struct Table : Stats {
         struct RV{bool found; decltype(x) it; };
         return RV{x != xref.end(), x};
     }
-    bool set(std::string key, std::string val, bool update)
+    bool set(const std::string &key, const std::string &val, bool update)
     {
         bool rv = true;
-        Lock l(lock, false);
+        Lock l(lock_cache, false);
         std::string old_val;
         auto [found, x] = get(key, old_val, true);
         int problems = 0;
@@ -657,9 +657,15 @@ struct Table : Stats {
         format(
             "index entries:{}\n"
             "cache_entries:{}\n"
+            "lock_cache:{}\n"
+            "lock_fio:{}\n"
+            "readers:{}\n"
             "value spaces:{}\n",
             entries,
             xref.size(),
+            lock_cache,
+            lock_fio,
+            readers,
             spaces
         );
     }
@@ -763,13 +769,28 @@ struct Table : Stats {
         s += format("Self test {} {}\n", level, ok ? "passed" : "failed");
         return s;
     }
-
+    bool get_file(std::string &val, bool keys)
+    {
+        auto fid = keys ? fid_keys : fid_values;
+        if (fid<=0)
+            return false;
+        Lock l(lock_fio);
+        auto sz = lseek(fid, 0, SEEK_END);
+        if (sz<0)
+            return false;
+        val.resize(sz);
+        lseek(fid, 0, SEEK_SET);
+        return ::read(fid, (char*)val.c_str(), sz) == sz;
+    }
 private:
     constexpr static size_t key_len = 256+1 +20+10+1+1; // key,int64,int32\n0
     constexpr static int index_end_marker = -1;
     constexpr static int index_deleted_marker = -2;
 
-    std::atomic_bool lock = false;
+    std::atomic_bool lock_fio = false;   // file lock: mutually exclussive readers and writers
+    std::atomic_bool lock_cache = false; // cache lock: shared readers, exclusive writers
+    std::atomic_int  readers = 0;        // count of concurrent readers
+
     int fid_keys{0};
     int fid_values{0};
     size_t entries{0};
@@ -850,6 +871,8 @@ public:
             {"delete bbb",              "?op=delete&key=bbb"},
             {"delete ccc",              "?op=delete&key=ccc"},
             {"delete null",             "?op=delete&key=null"},
+            {"view keys file",          "?file=keys"},
+            {"view values file",        "?file=values"},
         };
         for (int i=0; auto arg : args_per_table)
         {
@@ -1010,6 +1033,15 @@ public:
                     }
                     s += sstring(s.length() > 0 ? "\n" : "") + format(
                         "Changing max_cache from {:} to {:}", old_max_cache, new_max_cache);
+                }
+                else if (req->query_parameters.contains("file"))
+                {
+                    auto val = req->query_parameters.at("file");
+                    std::string text;
+                    if (table.get_file(text, val=="keys"))
+                        s += text;
+                    else
+                        s += format("Error reading {} file", val);
                 }
                 else if (req->query_parameters.contains("rownext"))
                 {
