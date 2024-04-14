@@ -60,6 +60,7 @@
  * - To keep the index human-readable, a CSV format was chosen: (key-name,off_values,size_value, padding).
  * - This format implies that keys must not contain comma characters.
  * - The empty string in queries has special meaning. Keys cannot be empty, values can.
+ * - Cache is currently WRITETHROUGH.
  */
 
 #include <seastar/http/httpd.hh>
@@ -83,10 +84,10 @@ namespace bpo = boost::program_options;
 using namespace seastar;
 using namespace httpd;
 
-const char*VERSION="Demo Database Server 0.3";
-const char* available_trace_levels[] = {"LOCKS", "FILEIO", "CACHE", "SERVER"};
-enum ETrace { LOCKS, FILEIO, CACHE, SERVER, MAX};
-int trace_level = (1 << ETrace::FILEIO) | (1 << ETrace::CACHE) | (1 << ETrace::SERVER);
+const char*VERSION="Demo Database Server 0.4";
+const char* available_trace_levels[] = {"LOCKS", "FILEIO", "CACHE", "SERVER", "TEST"};
+enum ETrace { LOCKS, FILEIO, CACHE, SERVER, TEST, MAX};
+int trace_level = (1 << ETrace::FILEIO) | (1 << ETrace::CACHE) | (1 << ETrace::SERVER) | (1 << ETrace::TEST);
 logger applog("app");
 
 // Tried to use seastar::coroutine::experimental::generator<Index>.
@@ -163,13 +164,13 @@ struct Lock
         while (!atomic_compare_exchange_strong(&value, &expected, true))
             collisions++;
         passes++;
-        if (trace_level & (1 << ETrace::LOCKS)) applog.info("Locked");
+        if (trace_level & (1 << ETrace::LOCKS)) applog.info("LOCKS: Locked");
     }
     ~Lock()
     {
         if (reentered)
             return;
-        if (trace_level & (1 << ETrace::LOCKS)) applog.info("Unlocked");
+        if (trace_level & (1 << ETrace::LOCKS)) applog.info("LOCKS: Unlocked");
         value = false;
     }
     static std::atomic_int passes;
@@ -252,21 +253,123 @@ struct Table : Stats {
     {
         std::string text;
         off_t fpos;
-        size_t sz;
+        ssize_t sz;
     };
     struct Key
     {
         std::string text;
-        long long fpos;
+        off_t fpos;
         std::deque<Value>::iterator it_value;
     };
     struct Index
     {
-        int index; char key[256]; off_t vfpos; size_t vsz;
-        constexpr static size_t key_len = 256+1 +20+10+1+1; // key,int64,int32\n0
-        constexpr static int index_end_marker = -1;
-        constexpr static int index_deleted_marker = -2;
-        auto access(int fid, bool write) {return *this; }
+        int index;
+        char key[256];
+        off_t vfpos;
+        ssize_t vsz;
+        constexpr static size_t entry_sz = 256 + 44; // 300 = key,int64,int32,extra\n0
+        constexpr static off_t end_marker = -1;
+        constexpr static off_t deleted_marker = -2;
+
+        auto access_value(int fid_values, off_t vpos, std::string *value, std::string &table_name, bool write)
+        {
+            sstring msg;
+            if (write)
+            {
+                if (value!=nullptr && value->length()>0)
+                {
+                    vsz = value->length();
+                    vfpos = lseek(fid_values, 0 , SEEK_END);
+                    if (::write(fid_values, value->c_str(), vsz) != vsz)
+                        msg+=format(", Error {} writing values file fid:{}", errno, fid_values);
+                    if (trace_level & (1 << ETrace::FILEIO))
+                        applog.info("FILEIO: Value write {}{}", *value, msg);
+                }
+            }
+            else
+            {
+                if (value!=nullptr && vfpos>=0 && vsz>0)
+                {
+                    lseek(fid_values, vfpos, SEEK_SET);
+                    value->resize(vsz, 0);
+                    if (::read(fid_values, (char*)value->c_str(), vsz) != vsz)
+                        msg+=format(", Error {} reading values filefid:{}", errno, fid_values);
+                    if (trace_level & (1 << ETrace::FILEIO))
+                        applog.info("FILEIO: Value write {}{}", *value, msg);
+                }
+            }
+        }
+        auto access(int fid_keys, int fid_values, std::string *value, std::string &table_name, bool write)
+        {
+            auto fname = db_prefix+table_name+keys_fname;
+            char buf[entry_sz+1];
+            ssize_t len = 0;
+            sstring msg;
+            if (write)
+            {
+                access_value(fid_values, vfpos, value, table_name, write);
+                auto fpos_keys = lseek(fid_keys, index * entry_sz, SEEK_SET);
+                sprintf(buf, "%s,%jd,%zu,", key, vfpos, vsz);
+                len = strlen(buf);
+                sprintf(buf+len, "%*c\n", int(Index::entry_sz-1-len), ' ');
+                lseek(fid_keys, fpos_keys, SEEK_SET);
+                if (::write(fid_keys, buf, Index::entry_sz) != Index::entry_sz)
+                    msg+=format(", Error {} writing keys file", errno);
+                if (trace_level & (1 << ETrace::FILEIO))
+                    applog.info("FILEIO: Index write {}[{}] {}{} {}{}", fname, index, key, value==nullptr ? "" : ("=" + *value), vfpos == deleted_marker ? ", deleted" : "", msg);
+            }
+            else
+            {
+                auto fpos_keys = lseek(fid_keys, 0, SEEK_CUR);
+                auto fpos_next = fpos_keys;
+                index = fpos_keys / entry_sz;
+                int deleted_keys = 0;
+                vfpos = end_marker;
+                len = ::read(fid_keys, buf, Index::entry_sz);
+                if (len<0)
+                    msg+=format(", Error1 {} reading keys file", errno);
+                else if (len==0)
+                    msg+=format(", EIF at {}", fpos_keys);
+                else if (len!=Index::entry_sz)
+                    msg+=format(", Could not read a full index line, errno:{}", errno);
+                else while (len==Index::entry_sz)
+                {
+                    char * sp = strchr(buf,',');
+                    strncpy(key, buf, sp-buf);
+                    key[sp-buf]=0;
+                    sscanf(sp+1, "%jd,%zu", &vfpos, &vsz);
+                    if (vfpos!=Index::deleted_marker)
+                        break;
+                    vfpos = end_marker;
+                    deleted_keys++;
+                    char buf_next[Index::entry_sz+1];
+                    fpos_next += Index::entry_sz;
+                    auto len = ::read(fid_keys, buf_next, Index::entry_sz);
+                    if (len<0)
+                    {
+                        msg+=format(", Error2 {} reading keys file", errno);
+                        break;
+                    }
+                    if (len==0)  // end of index file
+                    {
+                        msg+=format(", EIF at {}", fpos_keys);
+                        ftruncate(fid_keys, fpos_keys);
+                        break;
+                    }
+                    lseek(fid_keys, fpos_keys, SEEK_SET);
+                    ::write(fid_keys, buf_next, Index::entry_sz);       // Shift the next index entry up by one.
+                    lseek(fid_keys, fpos_next, SEEK_SET);
+                    ::write(fid_keys, buf, Index::entry_sz);            // Swap curent and next index entries.
+                    memcpy(buf, buf_next, Index::entry_sz);
+                }
+                access_value(fid_values, vfpos, value, table_name, write);
+                if (deleted_keys>0)
+                    msg+=format(" compacted {} index entries", deleted_keys);
+                if (trace_level & (1 << ETrace::FILEIO))
+                    applog.info("FILEIO: index read {}[{}] {}{}{}", fname, index, key, value==nullptr ? "" : ("=" + *value), msg);
+            }
+            return *this;
+        }
     };
 
     Table(Table const &) = delete;
@@ -275,10 +378,10 @@ struct Table : Stats {
     {
         fid_keys = open((db_prefix+name+keys_fname).c_str(), O_CREAT | O_RDWR, S_IREAD|S_IWRITE|S_IRGRP|S_IROTH);
         if (trace_level & (1 << ETrace::FILEIO))
-            applog.info("Opened {} returned {}, {}", db_prefix+name+keys_fname, fid_keys, errno);
+            applog.info("FILEIO: Opened {} returned {}, {}", db_prefix+name+keys_fname, fid_keys, errno);
         fid_values = open((db_prefix+name+values_fname).c_str(), O_CREAT | O_RDWR, S_IREAD|S_IWRITE|S_IRGRP|S_IROTH);
         if (trace_level & (1 << ETrace::FILEIO))
-            applog.info("Opened {} returned {}", name+keys_fname, fid_values, errno);
+            applog.info("FILEIO: Opened {} returned {}", name+keys_fname, fid_values, errno);
         creates++;
     }
     std::string close(bool remove_files)
@@ -288,12 +391,12 @@ struct Table : Stats {
         if (fid_values>0)
             ::close(fid_values);
         if (!remove_files)
-            return "Closed files " + (db_prefix+name+keys_fname) + " and " + (db_prefix+name+values_fname) + "\n";
+            return "Closed files " + (db_prefix+name+keys_fname) + " and " + (db_prefix+name+values_fname);
         drops++;
         unlink((db_prefix+name+keys_fname).c_str());
         unlink((db_prefix+name+values_fname).c_str());
         unlink((db_prefix+name+compact_fname).c_str());
-        return "Removed files " + (db_prefix+name+keys_fname) + " and " + (db_prefix+name+values_fname) + "\n";
+        return "Removed files " + (db_prefix+name+keys_fname) + " and " + (db_prefix+name+values_fname);
     }
     std::string purge(bool files)
     {
@@ -301,108 +404,67 @@ struct Table : Stats {
         values.clear();
         keys.clear();
         xref.clear();
-        std::string s="";
+        std::string s = "Purged cache";
         if (files)
         {
-            s = "Purged cache and files";
+            s += " and files";
             entries = 0;
             spaces = 0;
             ftruncate(fid_values, 0);
             ftruncate(fid_keys, 0);
             purges++;
         }
-        else
-            s = "Purged cache";
         invalidates++;
         if (trace_level & ((1 << ETrace::CACHE) | (1 << ETrace::FILEIO)))
-            applog.info("purge: cache{}", files ? " and files" : "");
-        return s + "\n";
+            applog.info("CACHE|FILEIO: purge cache{}", files ? " and files" : "");
+        return s;
     }
     std::string compact()
     {
         Lock l(lock_cache);
         std::string s = purge(false);
-        int problems = 0;
+        sstring msg;
         auto fid_temp = open((db_prefix+name+compact_fname).c_str(), O_CREAT | O_TRUNC | O_RDWR /*| O_TMPFILE*/, S_IREAD|S_IWRITE|S_IRGRP|S_IROTH);
         if (fid_temp>0)
         {
-            off_t fpos_keys = 0;
-            off_t fpos_values = 0;
-            off_t fpos_temp = 0;
-            char buf[Index::key_len];
             lseek(fid_keys, 0, SEEK_SET);
+            int deleted = 0;
+            int index = 0;
             while (true)
             {
-                auto len = read(fid_keys, buf, sizeof(buf)-1);
-                if (len==0)
-                    break; // end of index file
-                if (len<0)
-                {
-                    problems |= (1<<0);
+                Index entry;
+                std::string value;
+                entry.access(fid_keys, fid_values, &value, name, false); // read entry
+                if (entry.vfpos == Index::end_marker)
                     break;
-                }
-            __L:
-                char * sp = strchr(buf,',');
-                size_t key_len = sp-buf;
-                size_t sz;
-                sscanf(sp+1, "%jd,%zu", &fpos_values, &sz);
-                if (fpos_values==Index::index_deleted_marker)
-                {
-                    char buf_next[Index::key_len];
-
-                    auto len = read(fid_keys, buf_next, sizeof(buf_next)-1);
-                    if (len==0)
-                    {
-                        ftruncate(fid_keys, fpos_keys);
-                        break; // end of index file
-                    }
-                    lseek(fid_keys, fpos_keys, SEEK_SET);
-                    write(fid_keys, buf_next, sizeof(buf_next)-1);  // Shift the next index entry up by one.
-                    write(fid_keys, buf, sizeof(buf)-1);            // Swap curent and next index entries.
-                    memcpy(buf, buf_next, sizeof(buf));
-                    goto __L;
-                }
-                {
-                    std::string val(sz, 0);
-                    lseek(fid_values, fpos_values, SEEK_SET);
-                    read(fid_values, (char*)val.c_str(), sz);
-                    write(fid_temp, val.c_str(), sz);
-                }
-                sprintf(buf+key_len+1, "%jd,%zu,", fpos_temp, sz);
-                len = strlen(buf);
-                auto pad = sizeof(buf)-1-len-1;
-                sprintf(buf+len, "%*c\n", int(pad), ' ');
-                lseek(fid_keys, fpos_keys, SEEK_SET);
-                write(fid_keys, buf, sizeof(buf)-1);
-                fpos_keys += sizeof(buf)-1;
-                fpos_temp += sz;
+                entry.index = index++;
+                entry.access(fid_keys, fid_temp, &value, name, true); // write entry
             }
-            ftruncate(fid_keys, fpos_keys);
             lseek(fid_temp, 0, SEEK_SET);
             lseek(fid_values, 0, SEEK_SET);
-            while (true)
+            char buf[0x1000];
+            while (auto len = ::read(fid_temp, buf, Index::entry_sz))
             {
-                auto len = read(fid_temp, buf, sizeof(buf)-1);
                 if (len==0)
-                    break; // end of temporary values file
+                    break; // end of temp values file
                 if (len<0)
                 {
-                    problems |= (1<<1);
+                    msg+=format(", Error {} reading temp values file", errno);
                     break;
                 }
-                write(fid_values, buf, sizeof(buf)-1);
-                fpos_values += sizeof(buf)-1;
+                ::write(fid_values, buf, len);
             }
-            ftruncate(fid_values, fpos_temp);
+            ftruncate(fid_values, lseek(fid_values, 0, SEEK_CUR));
             ::close(fid_temp);
             unlink((db_prefix+name+compact_fname).c_str());
             compacts++;
             spaces=0;
+            s = format("Compacted index to {} entries. ", index) + s;
         }
         else
-            problems |= (1<<3);
+            msg+=format(", Error {} creating temp values file", errno);
         if (trace_level & (1 << ETrace::FILEIO))
-            applog.info("compacted: {}, problems: {}, errno: {}", db_prefix+name+compact_fname, problems, errno);
+            applog.info("FILEIO: {}{}{}", s, db_prefix+name+compact_fname, msg);
         return s;
     }
 
@@ -419,12 +481,14 @@ struct Table : Stats {
         int max_count = std::numeric_limits<int>::max();
         while (true)
         {
-            auto [index, key, vfpos, vsz] = locked ? co_index_locked() : co_index_unlocked();
-            if (vfpos!=Index::index_end_marker) // reached the end, must roll over
-                keys.insert(key);
-            else
-                if ((max_count = -index) == 0)
-                    break;
+            {
+                auto [index, key, vfpos, vsz] = locked ? co_index_locked() : co_index_unlocked();
+                if (vfpos!=Index::end_marker) // reached the end, must roll over
+                    keys.insert(key);
+                else
+                    if ((max_count = -index) == 0)
+                        break;
+            }
             if (++count > max_count)
                 break;
         }
@@ -432,29 +496,25 @@ struct Table : Stats {
         std::string s;
         for (auto& key : keys)
             s += key + "\n";
-        if (trace_level & (1 << ETrace::SERVER))
-            applog.info("list: {}", s);
+        if (trace_level & (1 << ETrace::FILEIO))
+            applog.info("FILEIO: list: {}", s);
         return s;
     }
     auto get(const std::string &key, std::string &value, bool reentered=false, bool remove=false)
     {
         Lock l(lock_cache, reentered);
         auto x = xref.begin();
-        int problems = 0;
-        char buf[Index::key_len];
-        off_t fpos_values = Index::index_end_marker;
-        size_t sz;
         bool found = true;
         if (key=="")
         {
-            if (remove)
+            if (remove) // clear the cache
                 purge(false);
-            else
+            else // list cache content
             {
                 for (auto &x : xref)
                     value += x.first + "=" + x.second->it_value->text + "\n";
                 if (trace_level & (1 << ETrace::CACHE))
-                    applog.info("get: (cache) {}", value);
+                    applog.info("CACHE: get (cache) {}", value);
             }
         }
         else if ((x = xref.find(key)) != xref.end())
@@ -466,26 +526,10 @@ struct Table : Stats {
                 // The revolver coroutine should come to clean-it up.
                 off_t fpos_keys = x->second->fpos;
                 lseek(fid_keys, fpos_keys, SEEK_SET);
-                auto len = read(fid_keys, buf, sizeof(buf)-1);
-                if (len==sizeof(buf)-1)
-                {
-                    char * sp = strchr(buf,',');
-                    *sp++=0;
-                    len = sp-buf-1;
-                    size_t sz;
-                    sscanf(sp, "%jd,%zu", &fpos_values, &sz);
-                    lseek(fid_keys, fpos_keys, SEEK_SET);
-                    fpos_values = Index::index_deleted_marker;
-                    sprintf(buf, "%s,%jd,%zu,", key.c_str(), fpos_values, sz);
-                    len = strlen(buf);
-                    if (write(fid_keys, buf, len) != (ssize_t)len)
-                        problems |= (1<<0); // Cannot write to keys file
-                    len = sizeof(buf)-1-len-1;
-                    sprintf(buf, "%*c\n", int(len), ' ');
-                    len++;
-                    if (write(fid_keys, buf, len) != (ssize_t)len)
-                        problems |= (1<<1); // Cannot write to keys file
-                }
+                Index entry;
+                entry.access(fid_keys, fid_values, nullptr, name, false); // Read index entry from file
+                entry.vfpos = Index::deleted_marker;
+                entry.access(fid_keys, fid_values, nullptr, name, true);  // Write index entry back to file
                 values.erase(x->second->it_value);
                 keys.erase(x->second);
                 xref.erase(x);
@@ -494,77 +538,40 @@ struct Table : Stats {
             else
                 gets++;
             if (trace_level & (1 << ETrace::CACHE))
-                applog.info("{} {} {} problems {}", remove ? "remove" : "get: ", key=="" ? "<ALL>" : key, value, problems);
+                applog.info("CACHE: get {} {} {}", remove ? "(remove)" : "", key=="" ? "<ALL>" : key, value);
         }
         else
         {
-            off_t fpos_keys = lseek(fid_keys, 0, SEEK_SET);
+            lseek(fid_keys, 0, SEEK_SET);
+            Index entry;
             while (true)
             {
-                auto len = read(fid_keys, buf, sizeof(buf)-1);
-                if (len==0)
-                    break; // end of index file
-                if (len != sizeof(buf)-1)
-                {
-                    problems |= (1<<2); // didn't read enough
+                entry.access(fid_keys, fid_values, nullptr, name, false); // Read index entry from file
+                if (entry.vfpos==Index::end_marker)
                     break;
-                }
-                char * sp = strchr(buf,',');
-                *sp++=0;
-                if (!strcmp(buf,key.c_str()))
-                {
-                    sscanf(sp, "%jd,%zu", &fpos_values, &sz);
-                    if (fpos_values != Index::index_deleted_marker)
-                        break; // key found in index file
-                }
-                fpos_keys = lseek(fid_keys, 0, SEEK_CUR);
+                if (key==entry.key)
+                    break;
             }
-            if (fpos_values!=Index::index_end_marker) // Load key from index file
+            if (entry.vfpos != Index::end_marker)
             {
                 if (remove)
                 {
-                    lseek(fid_keys, fpos_keys, SEEK_SET);
-                    auto len = read(fid_keys, buf, sizeof(buf)-1);
-                    if (len==sizeof(buf)-1)
-                    {
-                        char * sp = strchr(buf,',');
-                        *sp++=0;
-                        len = sp-buf-1;
-                        size_t sz;
-                        sscanf(sp, "%jd,%zu", &fpos_values, &sz);
-                        lseek(fid_keys, fpos_keys, SEEK_SET);
-                        fpos_values = Index::index_deleted_marker;
-                        sprintf(buf, "%s,%jd,%zu,", key.c_str(), fpos_values, sz);
-                        len = strlen(buf);
-                        if (write(fid_keys, buf, len) != (ssize_t)len)
-                            problems |= (1<<0); // Cannot write to keys file
-                        len = sizeof(buf)-1-len-1;
-                        sprintf(buf, "%*c\n", int(len), ' ');
-                        len++;
-                        if (write(fid_keys, buf, len) != (ssize_t)len)
-                            problems |= (1<<1); // Cannot write to keys file
-                    }
+                    entry.vfpos = Index::deleted_marker;
+                    entry.access(fid_keys, fid_values, nullptr, name, true); // Write index entry back to file
                     entries--;
                     if (trace_level & ((1 << ETrace::FILEIO) | (1 << ETrace::CACHE)))
-                        applog.info("get: (remove) {} {} {}", key, value, problems);
+                        applog.info("CACHE|FILEIO: get (remove) {} {}", key, value);
                 }
                 else
                 {
-                    lseek(fid_values, fpos_values, SEEK_SET);
-                    //value.resize(sz);
-                    std::string v(sz, 0);
-                    if (read(fid_values, (char*)v.c_str(), sz) != (ssize_t)sz)
-                        problems |= (1<<3); // Cannot read from values file
-                    else
-                    {
-                        evict();
-                        value = v;
-                        values.push_front({value, fpos_values, sz});
-                        keys.push_front({buf, fpos_keys, values.begin()});
-                        x = xref.insert_or_assign(key, keys.begin()).first;
-                        if (trace_level & ((1 << ETrace::FILEIO) | (1 << ETrace::CACHE)))
-                            applog.info("get: (cachefill) {} {} {}", key, value, problems);
-                    }
+                    entry.access_value(fid_values, entry.vfpos, &value, name, false);
+                    evict();
+                    off_t fpos_keys = entry.index * Index::entry_sz;
+                    values.push_front({value, entry.vfpos, entry.vsz});
+                    keys.push_front({key, fpos_keys, values.begin()});
+                    x = xref.insert_or_assign(key, keys.begin()).first;
+                    if (trace_level & ((1 << ETrace::FILEIO) | (1 << ETrace::CACHE)))
+                        applog.info("CACHE|FILEIO: get (cachefill) {}={}", key, value);
                 }
             }
             else
@@ -572,7 +579,7 @@ struct Table : Stats {
                 found = false;
                 x = xref.end();
                 if (trace_level & ((1 << ETrace::FILEIO) | (1 << ETrace::CACHE)))
-                    applog.info("get: key {} not found", key);
+                    applog.info("CACHE|FILEIO: get key {} not found", key);
             }
         }
         struct RV{bool found; decltype(x) it; };
@@ -584,12 +591,12 @@ struct Table : Stats {
         Lock l(lock_cache, false);
         std::string old_val;
         auto [found, x] = get(key, old_val, true);
-        int problems = 0;
+        sstring msg;
         std::string branch = "Skip";
         if (!update || val != old_val) // not found, or found different for update
         {
             bool overwrite = false;
-            char buf[Index::key_len];
+            char buf[Index::entry_sz+1];
             if (!found) // key not in cache and not in file
             {
                 if (update)
@@ -598,8 +605,7 @@ struct Table : Stats {
                 {
                     evict();
                     off_t fpos_keys = lseek(fid_keys, 0, SEEK_END);
-                    off_t fpos_values = Index::index_end_marker;
-                    //size_t sz;
+                    off_t fpos_values = Index::end_marker;
                     fpos_values = lseek(fid_values, 0, SEEK_END);
                     values.push_front({val, fpos_values, 0});
                     keys.push_front({key, fpos_keys, values.begin()});
@@ -626,7 +632,7 @@ struct Table : Stats {
                 else
                 {
                     auto sz = oldv.sz;
-                    bool reuse_value_space = val.length() <= sz;
+                    bool reuse_value_space = (ssize_t)val.length() <= sz;
                     off_t fpos_values = 0;
                     if (reuse_value_space)
                     {
@@ -638,20 +644,16 @@ struct Table : Stats {
                     sz = val.length();
                     fpos_values = lseek(fid_values, fpos_values, reuse_value_space ? SEEK_SET : SEEK_END);
                     if (write(fid_values, val.c_str(), val.length()) != (ssize_t)val.length())
-                        problems |= (1<<0); // Cannot write to values file
+                        msg+=format(", Error {} writing to values file", errno);
                     values.erase(x->second->it_value);
                     values.push_front({val, fpos_values, sz});
                     sprintf(buf, "%s,%jd,%zu,", key.c_str(), fpos_values, sz);
                     auto len = strlen(buf);
                     auto fpos_keys = x->second->fpos;
-                    lseek(fid_keys, x->second->fpos, SEEK_SET);
-                    if (write(fid_keys, buf, len) != (ssize_t)len)
-                        problems |= (1<<1); // Cannot write to keys file
-                    len = sizeof(buf)-1-len-1;
-                    sprintf(buf, "%*c\n", int(len), ' ');
-                    len++;
-                    if (write(fid_keys, buf, len) != (ssize_t)len)
-                        problems |= (1<<2); // Cannot write to keys file
+                    lseek(fid_keys, fpos_keys, SEEK_SET);
+                    sprintf(buf+len, "%*c\n", int(Index::entry_sz-1-len), ' ');
+                    if (write(fid_keys, buf, Index::entry_sz) != (ssize_t)Index::entry_sz)
+                        msg+=format(", Error {} writing to keys file", errno);
                     keys.erase(x->second);
                     keys.push_front({key, fpos_keys, values.begin()});
                     x->second = keys.begin();
@@ -659,7 +661,7 @@ struct Table : Stats {
             }
         }
         if (trace_level & ((1 << ETrace::FILEIO) | (1 << ETrace::CACHE)))
-            applog.info("set: {} {} {} problems: {}, result: {}", branch, key, val, problems, rv);
+            applog.info("CACHE|FILEIO: set {} {}={}{} {}", branch, key, val, msg, rv ? "ok" : "fail");
         return rv;
     }
     operator std::string() const
@@ -685,7 +687,9 @@ struct Table : Stats {
     static bool self_test(int test, int loop, std::string &s)
     {
         bool ok = true;
-        s += format("Starting self test {}, id {}\n", test, self_tests++);
+        sstring t;
+       #define LOG s+= t+"\n"; if (trace_level & (1 << ETrace::TEST)) applog.info("TEST: {}", t)
+        t = format("Starting test {}, id {}...", test, self_tests++); LOG;
         if (loop>1)
         {
             for (int i=0; i<loop; i++)
@@ -698,94 +702,117 @@ struct Table : Stats {
         {
             Lock l(tables_lock);
             auto table_name = std::string(Table::master_table_name);
-            s += "Dropping & using {}\n" + table_name;
+            t ="Dropping and using table " + table_name; LOG;
             auto it_table = tables.end();
             {
                 it_table = tables.find(table_name);
                 if (it_table == tables.end())
                     it_table = tables.emplace(table_name, new Table(table_name)).first;
                 auto &table = *it_table->second;
-                s += "Using table " + table_name + ".\n";
-                s += table.purge(true);
-                s += table.close(true);
+                t = "Using table " + table_name; LOG;
+                t = table.purge(true); LOG;
+                t = table.close(true); LOG;
                 Table::tables.erase(it_table);
-                s += "Dropping table " + table_name + ".\n";
+                t = "Dropping table " + table_name; LOG;
                 it_table = tables.emplace(table_name, new Table(table_name)).first;
-                s += "(Re)create table " + table_name + ".\n";
+                t = "(Re)create table " + table_name; LOG;
             }
             auto &table = *it_table->second;
-            std::string keys[] = {"aaa", "bbb", "ccc", "null"};
-            std::string values0[] = {"test_aaa\n", "test_bbb\n", "test_ccc\n", ""};
-            for (int i=0; auto key : keys)
-                if (auto value = values0[i++]; !table.set(key, value, false))  // insert
-                {
-                    s += format("Failed to insert {}={}\n", key, value);
-                    ok = false;
-                }
-            for (int i=0; auto key : keys)
+            if (test==1)
             {
-                std::string value;
-                if (!table.get(key, value).found)  // read
+                if (!table.set("aaa", "_aaa_", false))  // insert
                 {
-                    s += format("Failed to retrieve {}\n", key);
+                    t = format("Failed to insert aaa=_aaa_"); LOG;
                     ok = false;
                 }
-                if (value!=values0[i])
+                if (!table.set("bbb", "_bbb_", false))  // insert
                 {
-                    s += format("Unexpected value for key {}={} <> {}\n", key, value, values0[i]);
+                    t = format("Failed to insert bbb=_bbb_"); LOG;
                     ok = false;
                 }
-                i++;
+                if (std::string value; !table.get("aaa", value, false, true).found) // delete
+                {
+                    t = format("Delete failed for key aaa"); LOG;
+                    ok = false;
+                }
             }
-            for (int i=0; auto key : keys)
-                if (auto value = values0[i++]; table.set(key, value, false))  // overinsert
-                {
-                    s += format("Failed to prevent overinsertion on pre-existing key {}={}\n", key, value);
-                    ok = false;
-                }
-            std::string values1[] = {"test_AAAA\n", "test_BBB\n", "test_CC\n", "text_NotNull\n"};
-            for (int i=0; auto key : keys)
-                if (auto value = values1[i++]; !table.set(key, value, true))  // update
-                {
-                    s += format("Failed to update existing key {}={}\n", key, value);
-                    ok = false;
-                }
-            if (auto key = "ddd", value="text_ddd"; table.set(key, value, true))  // update inexistent key
+            else
             {
-                s += format("Failed to prevent updating of inexistent key {}={}\n", key, value);
-                ok = false;
-            }
-            for (int i=0; auto key : keys)
-            {
-                if (std::string value; !table.get(key, value).found || value!=values1[i])
-                {
-                    s += format("Unexpected value for key {}={}, expected {}\n", key, value, values1[i]);
-                    ok = false;
-                }
-                i++;
-            }
-            if (table.spaces==0)
-                s += format("Table {} expected to have {} internal fragmentation\n", table.name, "non-zero");
-            s += table.compact(); // Compacting must reorder the values file.
-            for (int i=0; auto key : keys)
-            {
-                if (i%2) // delete every second key
-                    if (std::string value; !table.get(key, value, false, true).found) // delete
+                std::string keys[] = {"aaa", "bbb", "ccc", "null"};
+                std::string values0[] = {"_aaa_", "_bbb_", "_ccc_", ""};
+                for (int i=0; auto key : keys)
+                    if (auto value = values0[i++]; !table.set(key, value, false))   // insert (key=value)s
                     {
-                        s += format("Delete failed for key {}={}, expected {}\n", key, value, values1[i]);
+                        t = format("Failed to insert {}={}", key, value); LOG;
                         ok = false;
                     }
-                i++;
+                for (int i=0; auto key : keys)                                      // retrieve values of keys
+                {
+                    std::string value;
+                    if (!table.get(key, value).found)  // read
+                    {
+                        t = format("Failed to retrieve {}", key); LOG;
+                        ok = false;
+                    }
+                    if (value!=values0[i])
+                    {
+                        t = format("Unexpected value for key {}={} <> {}", key, value, values0[i]); LOG;
+                        ok = false;
+                    }
+                    i++;
+                }
+                for (int i=0; auto key : keys)
+                    if (auto value = values0[i++]; table.set(key, value, false))    // try to overinsert (key=value)s
+                    {
+                        t = format("Failed to prevent overinsertion on pre-existing key {}={}", key, value); LOG;
+                        ok = false;
+                    }
+                std::string values1[] = {"_AAAA_", "_BBB_", "_CC_", "_null_"};
+                for (int i=0; auto key : keys)
+                    if (auto value = values1[i++]; !table.set(key, value, true))    // update (key=value)s
+                    {
+                        t = format("Failed to update existing key {}={}", key, value); LOG;
+                        ok = false;
+                    }
+                if (auto key = "ddd", value="_ddd_"; table.set(key, value, true))  // try to update inexistent key
+                {
+                    t = format("Failed to prevent updating of inexistent key {}={}", key, value); LOG;
+                    ok = false;
+                }
+                for (int i=0; auto key : keys)
+                {
+                    if (std::string value; !table.get(key, value).found || value!=values1[i])
+                    {
+                        t = format("Different value for key {}={}, expected {}", key, value, values1[i]); LOG;
+                        ok = false;
+                    }
+                    i++;
+                }
+                if (table.spaces==0)
+                {
+                    t = format("Table {} expected to have {} internal fragmentation", table.name, "non-zero"); LOG;
+                }
+                t = table.compact(); LOG;   // Compacting must reorder the values file.
+                for (int i=0; auto key : keys)
+                {
+                    if (i%2) // delete every second key
+                        if (std::string value; !table.get(key, value, false, true).found) // delete key
+                        {
+                            t = format("Delete failed for key {}={}, expected {}", key, value, values1[i]); LOG;
+                            ok = false;
+                        }
+                    i++;
+                }
+                t = table.compact(); LOG; // Compacting remove all index entries marked as "deleted" and reorders the value file.
+                if (auto count = (sizeof(keys)/sizeof(keys[0])+1) / 2; table.entries != count)
+                {
+                    t = format("Unexpected number of keys in table {}: {}, expected {}", table.name, table.entries, count); LOG;
+                    ok = false;
+                }
+                t = table.list(true); LOG; // revolve though index keys once
             }
-            s += table.compact(); // Compacting remove all index entries marked as "deleted" and reorders the value file.
-            if (auto count = (sizeof(keys)/sizeof(keys[0])+1) / 2; table.entries != count)
-            {
-                s += format("Unexpected number of keys in table {}: {}, expected {}\n", table.name, table.entries, count);
-                ok = false;
-            }
-            s += table.list(true); // revolve though index keys once
         }
-        s += format("Self test {} {}\n", test, ok ? "passed" : "failed") + Stats::get_static_profiles();
+        t = format("... test {} {}.\n", test, ok ? "passed" : "failed") + Stats::get_static_profiles(); LOG;
         return ok;
     }
     bool get_file(std::string &val, bool keys)
@@ -802,11 +829,14 @@ struct Table : Stats {
         return ::read(fid, (char*)val.c_str(), sz) == sz;
     }
     static std::atomic_bool tables_lock; // One self-test through
+
 private:
     std::atomic_bool lock_fio = false;   // file lock: mutually exclussive readers and writers
     std::atomic_bool lock_cache = false; // cache lock: shared readers, exclusive writers
     std::atomic_int  readers = 0;        // count of concurrent readers
 
+    enum ECacheMode {WRITETHROUGH, WRITEBACK};
+    int cache_mode = WRITETHROUGH;
     int fid_keys{0};
     int fid_values{0};
     size_t entries{0};
@@ -824,7 +854,7 @@ private:
             keys.pop_back();
             values.pop_back(); // Eviction
             if (trace_level & (1 << ETrace::CACHE))
-                applog.info("evict key {}", key);
+                applog.info("CACHE: evict key {}", key);
             evictions++;
             return "Eviction of key " + key;
         }
@@ -837,16 +867,16 @@ private:
         int count = 0;
         while (true)
         {
-            char buf[Index::key_len];
+            char buf[Index::entry_sz+1];
             {
                 Lock l(lock_cache, locked);
                 lseek(fid_keys, fpos, SEEK_SET);
-                auto len = read(fid_keys, buf, sizeof(buf)-1);
+                auto len = read(fid_keys, buf, Index::entry_sz);
                 if (len==0)
                 {
                     if (trace_level & (1 << ETrace::FILEIO))
-                        applog.info("Reached the end of {}, count {}", db_prefix+name+keys_fname, count);
-                    co_yield Index{.index = -count, .vfpos = Index::index_end_marker, .vsz = 0};
+                        applog.info("FILEIO: EIF Reached the end of {}, count {}", db_prefix+name+keys_fname, count);
+                    co_yield Index{.index = -count, .vfpos = Index::end_marker, .vsz = 0};
                     fpos = 0;
                     count = 0;
                     continue;
@@ -854,27 +884,27 @@ private:
                 if (len<0)
                 {
                     if (trace_level & (1 << ETrace::FILEIO))
-                        applog.info("Error reading {}, count {}, errno {}", db_prefix+name+keys_fname, count, errno);
+                        applog.info("FILEIO: Error reading {}, count {}, errno {}", db_prefix+name+keys_fname, count, errno);
                     break;
                 }
             }
             count++;
             char * sp = strchr(buf,',');
-            *sp++=0;
-            Index ind{.index=int(fpos/(sizeof(buf)-1))};
-            strncpy(ind.key, buf, sizeof(ind.key));
-            sscanf(sp, "%jd,%zu", &ind.vfpos, &ind.vsz);
+            Index ind{.index=int(fpos/(Index::entry_sz))};
+            strncpy(ind.key, buf, sp-buf);
+            ind.key[sp-buf]=0;
+            sscanf(sp+1, "%jd,%zu", &ind.vfpos, &ind.vsz);
             if (trace_level & (1 << ETrace::FILEIO))
-                applog.info("{} [{}, {}, {}, {}] of index {}",
-                            ind.vfpos==Index::index_deleted_marker ? "Skipping deleted" : "Yielding",
-                            ind.index,
-                            ind.vfpos,
-                            ind.key,
-                            ind.vsz,
-                            db_prefix+name+keys_fname);
-            if (ind.vfpos!=Index::index_deleted_marker)
+                applog.info("FILEIO: {} [{}, {}, {}, {}] of index {}",
+                    ind.vfpos==Index::deleted_marker ? "Skipping deleted" : "Yielding",
+                    ind.index,
+                    ind.vfpos,
+                    ind.key,
+                    ind.vsz,
+                    db_prefix+name+keys_fname);
+            if (ind.vfpos!=Index::deleted_marker)
                 co_yield ind;
-            fpos += sizeof(buf)-1;
+            fpos += Index::entry_sz;
         }
     }
 };
@@ -904,8 +934,8 @@ public:
         struct {const char*label, *str; } args_global[] =
         {
             {"QUIT",                "quit"},
-            {"trace level all ON",  "?trace_level=1111"},
-            {"trace level all OFF", "?trace_level=0000"},
+            {"trace level all ON",  "?trace_level=11111"},
+            {"trace level all OFF", "?trace_level=00000"},
             {"list tables in use",  "?used"},
         };
         for (auto arg : args_global)
@@ -934,18 +964,18 @@ public:
             {"list all keys",           "?list"},
             {"row next",                "?rownext"},
             {"row next",                "?rownext"},
-            {"insert aaa=text_aaa",     "?op=insert&key=aaa&value=text_aaa%0A"},
-            {"insert bbb=text_bbb",     "?op=insert&key=bbb&value=text_bbb%0A"},
-            {"insert ccc=text_ccc",     "?op=insert&key=ccc&value=text_ccc%0A"},
-            {"insert null=NULL",        "?op=insert&key=null&value="},
+            {"insert aaa=_aaa_",        "?op=insert&key=aaa&value=_aaa_"},
+            {"insert bbb=_bbb_",        "?op=insert&key=bbb&value=_bbb_"},
+            {"insert ccc=_ccc_",        "?op=insert&key=ccc&value=_ccc_"},
+            {"insert null=<NULL>",      "?op=insert&key=null&value="},
             {"query aaa",               "?key=aaa"},
             {"query bbb",               "?key=bbb"},
             {"query ccc",               "?key=ccc"},
             {"query null",              "?key=null"},
-            {"update aaa=text_aaaa",    "?op=update&key=aaa&value=text_aaaa%0A"},
-            {"update bbb=text_BBB",     "?op=update&key=bbb&value=text_BBB%0A"},
-            {"update ccc=text_cc",      "?op=update&key=ccc&value=text_cc%0A"},
-            {"update null=text_nonnull","?op=update&key=null&value=text_nonnull%0A"},
+            {"update aaa=_aaaa_",       "?op=update&key=aaa&value=_aaaa_"},
+            {"update bbb=_BBB_",        "?op=update&key=bbb&value=_BBB_"},
+            {"update ccc=_cc_",         "?op=update&key=ccc&value=_cc_"},
+            {"update null=_null_",      "?op=update&key=null&value=_null_"},
             {"delete aaa",              "?op=delete&key=aaa"},
             {"delete bbb",              "?op=delete&key=bbb"},
             {"delete ccc",              "?op=delete&key=ccc"},
@@ -973,10 +1003,11 @@ public:
         }
         struct {const char*label, *str; } args_tests[] =
         {
-            {"Test1      insert/update/delete",       "?self_test=1"},
-            {"Test1*10   insert/update/delete",       "?self_test=1&loop=10"},
-            {"Test1*100  insert/update/delete",       "?self_test=1&loop=100"},
-            {"Test1*1000 insert/update/delete",       "?self_test=1&loop=1000"},
+            {"Test1: 2 inserts, 1 delete",   "?self_test=1"},
+            {"Test2: 4-keys composite",      "?self_test=2"},
+            {"Test2*10",                     "?self_test=2&loop=10"},
+            {"Test2*100",                    "?self_test=2&loop=100"},
+            {"Test2*1000",                   "?self_test=2&loop=1000"},
         };
         s += plain_text ?
             format("Self tests:\n") :
@@ -1131,7 +1162,7 @@ public:
                 else if (req->query_parameters.contains("rownext"))
                 {
                     auto [index, key, fpos, sz] = table.co_index_locked();
-                    s = format("test index {}, key:{}, valpos:{}, valsz:{}", index, key, fpos, sz);
+                    s = format("test index {}, key:{}, valpos:{}, valsz:{}, value:{}", index, key, fpos, sz, "?");
                 }
                 else if (req->query_parameters.contains("op"))
                 {
@@ -1154,7 +1185,7 @@ public:
                 }
             }
             if (trace_level & (1 << ETrace::SERVER))
-                applog.info("DB request {} on table {}, {}", Stats::requests++, table_name, s);
+                applog.info("SERVER: DB request {} on table {}, {}", Stats::requests++, table_name, s);
             plain = true;
         }
         rep->_content = s;
@@ -1168,7 +1199,7 @@ void set_routes(routes& r) {
         std::string s = "Server shutting down";
         exit(0);
         if (trace_level & (1 << ETrace::SERVER))
-            applog.info("{}", s);
+            applog.info("SERVER: {}", s);
         return s;
     });
     r.add_default_handler(&defaultHandle);
