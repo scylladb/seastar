@@ -27,6 +27,8 @@
 #include <seastar/core/future.hh>
 #include <seastar/core/fstream.hh>
 #include <seastar/core/sstring.hh>
+#include <seastar/core/coroutine.hh>
+#include <seastar/coroutine/as_future.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/short_streams.hh>
 #include <seastar/util/modules.hh>
@@ -64,20 +66,26 @@ namespace util {
 
 SEASTAR_MODULE_EXPORT_BEGIN
 template <typename Func>
-requires requires(Func func, input_stream<char>& in) {
-     { func(in) };
-}
-auto with_file_input_stream(const std::filesystem::path& path, Func func, file_open_options file_opts = {}, file_input_stream_options input_stream_opts = {}) {
+requires std::invocable<Func, input_stream<char>&>
+typename futurize<typename std::invoke_result_t<Func, input_stream<char>&>>::type with_file_input_stream(const std::filesystem::path& path, Func func, file_open_options file_opts = {}, file_input_stream_options input_stream_opts = {}) {
     static_assert(std::is_nothrow_move_constructible_v<Func>);
-    return open_file_dma(path.native(), open_flags::ro, std::move(file_opts)).then(
-            [func = std::move(func), input_stream_opts = std::move(input_stream_opts)] (file f) mutable {
-        return do_with(make_file_input_stream(std::move(f), std::move(input_stream_opts)),
-                [func = std::move(func)] (input_stream<char>& in) mutable {
-            return futurize_invoke(std::move(func), in).finally([&in] {
-                return in.close();
-            });
-        });
-    });
+    auto f = co_await open_file_dma(path.native(), open_flags::ro, std::move(file_opts));
+    input_stream<char> in;
+    std::exception_ptr ex;
+    try {
+        in = make_file_input_stream(f, std::move(input_stream_opts));
+    } catch (...) {
+        ex = std::current_exception();
+    }
+    if (ex) {
+        co_await f.close();
+        co_await coroutine::return_exception_ptr(std::move(ex));
+    }
+
+    auto res = co_await coroutine::as_future(futurize_invoke(std::move(func), in));
+    co_await in.close();
+    co_await f.close();
+    co_return co_await std::move(res);
 }
 
 /// Returns all bytes from the file until eof, accessible in chunks.
