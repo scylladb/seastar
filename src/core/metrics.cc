@@ -520,19 +520,17 @@ future<metric_relabeling_result> impl::set_relabel_configs(const std::vector<rel
 
 void impl::set_metric_family_configs(const std::vector<metric_family_config>& family_config) {
     _metric_family_configs = family_config;
-    bool has_regex = false;
-    for (const auto& fc : family_config) {
-        has_regex |= !fc.regex_name.empty();
-        if (fc.name != "" && _value_map.find(fc.name) != _value_map.end()) {
-            _value_map[fc.name].info().aggregate_labels = fc.aggregate_labels;
+    for (auto& [name, family] : _value_map) {
+        for  (const auto& fc : family_config) {
+            if (fc.name == name || fc.regex_name.match(name)) {
+                family.info().aggregate_labels = fc.aggregate_labels;
+            }
         }
     }
-    if (has_regex) {
-        for (auto& [name, family] : _value_map) {
-            for  (const auto& fc : family_config) {
-                if (fc.regex_name.match(name)) {
-                    family.info().aggregate_labels = fc.aggregate_labels;
-                }
+    for (auto& mf_metadata: *_metadata) {
+        for  (const auto& fc : family_config) {
+            if (fc.name == mf_metadata.mf.name || fc.regex_name.match(mf_metadata.mf.name)) {
+                mf_metadata.mf.aggregate_labels = fc.aggregate_labels;
             }
         }
     }
