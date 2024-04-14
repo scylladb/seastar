@@ -76,6 +76,7 @@
 #include <seastar/util/defer.hh>
 
 #pragma GCC diagnostic ignored "-Wunused-variable"
+#pragma GCC diagnostic ignored "-Wstringop-truncation"
 
 namespace bpo = boost::program_options;
 
@@ -179,40 +180,61 @@ std::atomic_int Lock::collisions = 0;
 
 struct Stats
 {
-    static std::atomic_int requests, creates, drops;
+    static std::atomic_int requests, creates, drops, self_tests;
     std::atomic_int inserts{0}, deletes{0}, updates{0}, gets{0}, purges{0}, invalidates{0}, evictions{0}, compacts{0};
-    operator sstring() const
+    static std::string get_static_profiles()
     {
-        return format(
-            "requests:{}\n"
-            "creates:{}\n"
-            "drops:{}\n"
-            "inserts:{}\n"
-            "deletes:{}\n"
-            "updates:{}\n"
-            "gets:{}\n"
-            "purges:{}\n"
-            "invalidates:{}\n"
-            "evictions:{}\n"
-            "compacts:{}\n"
+        char buf[0x1000];
+        sprintf(buf,
+            "*requests:%d\n"
+            "*creates:%d\n"
+            "*drops:%d\n"
+            "*self_tests:%d\n"
             ,
-            requests,
-            creates,
-            drops,
-            inserts,
-            deletes,
-            updates,
-            gets,
-            purges,
-            invalidates,
-            evictions,
-            compacts
+            requests.load(),
+            creates.load(),
+            drops.load(),
+            self_tests.load()
         );
+        return buf;
+    }
+    operator std::string() const
+    {
+        char buf[0x1000];
+        sprintf(buf,
+            "*requests:%d\n"
+            "*creates:%d\n"
+            "*drops:%d\n"
+            "*self_tests:%d\n"
+            "inserts:%d\n"
+            "deletes:%d\n"
+            "updates:%d\n"
+            "gets:%d\n"
+            "purges:%d\n"
+            "invalidates:%d\n"
+            "evictions:%d\n"
+            "compacts:%d\n"
+            ,
+            requests.load(),
+            creates.load(),
+            drops.load(),
+            self_tests.load(),
+            inserts.load(),
+            deletes.load(),
+            updates.load(),
+            gets.load(),
+            purges.load(),
+            invalidates.load(),
+            evictions.load(),
+            compacts.load()
+        );
+        return get_static_profiles() + buf;
     }
 };
 std::atomic_int Stats::requests = 0;
 std::atomic_int Stats::creates = 0;
 std::atomic_int Stats::drops = 0;
+std::atomic_int Stats::self_tests = 0;
 
 struct Table : Stats {
     std::string name;
@@ -229,7 +251,7 @@ struct Table : Stats {
     struct Value
     {
         std::string text;
-        long long fpos;
+        off_t fpos;
         size_t sz;
     };
     struct Key
@@ -238,16 +260,25 @@ struct Table : Stats {
         long long fpos;
         std::deque<Value>::iterator it_value;
     };
-    struct Index { int index; char key[256]; off_t vfpos; size_t vsz; };
+    struct Index
+    {
+        int index; char key[256]; off_t vfpos; size_t vsz;
+        constexpr static size_t key_len = 256+1 +20+10+1+1; // key,int64,int32\n0
+        constexpr static int index_end_marker = -1;
+        constexpr static int index_deleted_marker = -2;
+        auto access(int fid, bool write) {return *this; }
+    };
 
     Table(Table const &) = delete;
     void operator=(Table const &) = delete;
     explicit Table(std::string name) : name(name)
     {
         fid_keys = open((db_prefix+name+keys_fname).c_str(), O_CREAT | O_RDWR, S_IREAD|S_IWRITE|S_IRGRP|S_IROTH);
-        applog.info("Opened {:} returned {:}, {:}", db_prefix+name+keys_fname, fid_keys, errno);
+        if (trace_level & (1 << ETrace::FILEIO))
+            applog.info("Opened {} returned {}, {}", db_prefix+name+keys_fname, fid_keys, errno);
         fid_values = open((db_prefix+name+values_fname).c_str(), O_CREAT | O_RDWR, S_IREAD|S_IWRITE|S_IRGRP|S_IROTH);
-        applog.info("Opened {:} returned {:}", name+keys_fname, fid_values, errno);
+        if (trace_level & (1 << ETrace::FILEIO))
+            applog.info("Opened {} returned {}", name+keys_fname, fid_values, errno);
         creates++;
     }
     std::string close(bool remove_files)
@@ -284,8 +315,8 @@ struct Table : Stats {
             s = "Purged cache";
         invalidates++;
         if (trace_level & ((1 << ETrace::CACHE) | (1 << ETrace::FILEIO)))
-            applog.info("purge: cache{:}", files ? " and files" : "");
-        return s;
+            applog.info("purge: cache{}", files ? " and files" : "");
+        return s + "\n";
     }
     std::string compact()
     {
@@ -298,7 +329,7 @@ struct Table : Stats {
             off_t fpos_keys = 0;
             off_t fpos_values = 0;
             off_t fpos_temp = 0;
-            char buf[key_len];
+            char buf[Index::key_len];
             lseek(fid_keys, 0, SEEK_SET);
             while (true)
             {
@@ -310,27 +341,34 @@ struct Table : Stats {
                     problems |= (1<<0);
                     break;
                 }
+            __L:
                 char * sp = strchr(buf,',');
-                *sp++=0;
+                size_t key_len = sp-buf;
                 size_t sz;
-                sscanf(sp, "%jd,%zu", &fpos_values, &sz);
-                if (fpos_values==index_deleted_marker)
+                sscanf(sp+1, "%jd,%zu", &fpos_values, &sz);
+                if (fpos_values==Index::index_deleted_marker)
                 {
-                    auto len = read(fid_keys, buf, sizeof(buf)-1);
+                    char buf_next[Index::key_len];
+
+                    auto len = read(fid_keys, buf_next, sizeof(buf_next)-1);
                     if (len==0)
                     {
                         ftruncate(fid_keys, fpos_keys);
                         break; // end of index file
                     }
                     lseek(fid_keys, fpos_keys, SEEK_SET);
-                    write(fid_keys, buf, sizeof(buf)-1); // Shift the next index entry up by one.
-                    continue; // index key is marked as deleted
+                    write(fid_keys, buf_next, sizeof(buf_next)-1);  // Shift the next index entry up by one.
+                    write(fid_keys, buf, sizeof(buf)-1);            // Swap curent and next index entries.
+                    memcpy(buf, buf_next, sizeof(buf));
+                    goto __L;
                 }
-                std::string val(sz+1, 0);
-                lseek(fid_values, fpos_values, SEEK_SET);
-                read(fid_values, (char*)val.c_str(), sz);
-                write(fid_temp, val.c_str(), sz);
-                sprintf(buf+strlen(buf), ",%jd,%zu,", fpos_temp, sz);
+                {
+                    std::string val(sz, 0);
+                    lseek(fid_values, fpos_values, SEEK_SET);
+                    read(fid_values, (char*)val.c_str(), sz);
+                    write(fid_temp, val.c_str(), sz);
+                }
+                sprintf(buf+key_len+1, "%jd,%zu,", fpos_temp, sz);
                 len = strlen(buf);
                 auto pad = sizeof(buf)-1-len-1;
                 sprintf(buf+len, "%*c\n", int(pad), ' ');
@@ -364,66 +402,10 @@ struct Table : Stats {
         else
             problems |= (1<<3);
         if (trace_level & (1 << ETrace::FILEIO))
-            applog.info("compacted: {:}, problems: {:}, errno: {:}", db_prefix+name+compact_fname, problems, errno);
+            applog.info("compacted: {}, problems: {}, errno: {}", db_prefix+name+compact_fname, problems, errno);
         return s;
     }
-    std::string evict()
-    {
-        if (keys.size() == max_cache)
-        {
-            auto key = keys.back().text;
-            xref.erase(xref.find(key));
-            keys.pop_back();
-            values.pop_back(); // Eviction
-            if (trace_level & (1 << ETrace::CACHE))
-                applog.info("evict key {:}", key);
-            evictions++;
-            return "Eviction of key " + key;
-        }
-        return "Evition not required";
-    }
 
-    // Tried to use seastar::coroutine::experimental::generator<Index>
-    Generator<Index> index_revolver(bool locked, int &remove)
-    {
-        off_t fpos = 0;
-        int count = 0;
-        while (true)
-        {
-            char buf[key_len];
-            {
-                Lock l(lock_cache, locked);
-                lseek(fid_keys, fpos, SEEK_SET);
-                auto len = read(fid_keys, buf, sizeof(buf)-1);
-                if (len==0)
-                {
-                    if (trace_level & (1 << ETrace::FILEIO))
-                        applog.info("Reached the end of {}, count {}", db_prefix+name+keys_fname, count);
-                    co_yield Index{.index = -count, .vfpos = index_end_marker, .vsz = 0};
-                    fpos = 0;
-                    count = 0;
-                    continue;
-                }
-                if (len<0)
-                {
-                    if (trace_level & (1 << ETrace::FILEIO))
-                        applog.info("Error reading {}, count {}, errno {}", db_prefix+name+keys_fname, count, errno);
-                    break;
-                }
-            }
-            count++;
-            char * sp = strchr(buf,',');
-            *sp++=0;
-            Index ind{.index=int(fpos/(sizeof(buf)-1))};
-            strncpy(ind.key, buf, sizeof(ind.key));
-            sscanf(sp, "%jd,%zu", &ind.vfpos, &ind.vsz);
-            if (trace_level & (1 << ETrace::FILEIO))
-                applog.info("{} [{}, {}, {}, {}] of index {}", ind.vfpos==index_deleted_marker ? "Skipping deleted" : "Yielding", ind.index, ind.vfpos, ind.key, ind.vsz, name+keys_fname);
-            if (ind.vfpos!=index_deleted_marker)
-                co_yield ind;
-            fpos += sizeof(buf)-1;
-        }
-    }
     int delete_index = false;
     Generator<Index> co_index_locked = index_revolver(false, delete_index);
     Generator<Index> co_index_unlocked = index_revolver(true, delete_index);
@@ -438,7 +420,7 @@ struct Table : Stats {
         while (true)
         {
             auto [index, key, vfpos, vsz] = locked ? co_index_locked() : co_index_unlocked();
-            if (vfpos!=index_end_marker) // reached the end, must roll over
+            if (vfpos!=Index::index_end_marker) // reached the end, must roll over
                 keys.insert(key);
             else
                 if ((max_count = -index) == 0)
@@ -451,7 +433,7 @@ struct Table : Stats {
         for (auto& key : keys)
             s += key + "\n";
         if (trace_level & (1 << ETrace::SERVER))
-            applog.info("list: {:}", s);
+            applog.info("list: {}", s);
         return s;
     }
     auto get(const std::string &key, std::string &value, bool reentered=false, bool remove=false)
@@ -459,9 +441,10 @@ struct Table : Stats {
         Lock l(lock_cache, reentered);
         auto x = xref.begin();
         int problems = 0;
-        char buf[key_len];
-        off_t fpos_values = index_end_marker;
+        char buf[Index::key_len];
+        off_t fpos_values = Index::index_end_marker;
         size_t sz;
+        bool found = true;
         if (key=="")
         {
             if (remove)
@@ -492,7 +475,7 @@ struct Table : Stats {
                     size_t sz;
                     sscanf(sp, "%jd,%zu", &fpos_values, &sz);
                     lseek(fid_keys, fpos_keys, SEEK_SET);
-                    fpos_values = index_deleted_marker;
+                    fpos_values = Index::index_deleted_marker;
                     sprintf(buf, "%s,%jd,%zu,", key.c_str(), fpos_values, sz);
                     len = strlen(buf);
                     if (write(fid_keys, buf, len) != (ssize_t)len)
@@ -511,7 +494,7 @@ struct Table : Stats {
             else
                 gets++;
             if (trace_level & (1 << ETrace::CACHE))
-                applog.info("{:} {:} {:} problems {}", remove ? "remove" : "get: ", key=="" ? "<ALL>" : key, value, problems);
+                applog.info("{} {} {} problems {}", remove ? "remove" : "get: ", key=="" ? "<ALL>" : key, value, problems);
         }
         else
         {
@@ -531,39 +514,69 @@ struct Table : Stats {
                 if (!strcmp(buf,key.c_str()))
                 {
                     sscanf(sp, "%jd,%zu", &fpos_values, &sz);
-                    if (fpos_values != index_deleted_marker)
+                    if (fpos_values != Index::index_deleted_marker)
                         break; // key found in index file
                 }
                 fpos_keys = lseek(fid_keys, 0, SEEK_CUR);
             }
-            if (fpos_values!=index_end_marker) // Load key from index file
+            if (fpos_values!=Index::index_end_marker) // Load key from index file
             {
                 if (remove)
+                {
+                    lseek(fid_keys, fpos_keys, SEEK_SET);
+                    auto len = read(fid_keys, buf, sizeof(buf)-1);
+                    if (len==sizeof(buf)-1)
+                    {
+                        char * sp = strchr(buf,',');
+                        *sp++=0;
+                        len = sp-buf-1;
+                        size_t sz;
+                        sscanf(sp, "%jd,%zu", &fpos_values, &sz);
+                        lseek(fid_keys, fpos_keys, SEEK_SET);
+                        fpos_values = Index::index_deleted_marker;
+                        sprintf(buf, "%s,%jd,%zu,", key.c_str(), fpos_values, sz);
+                        len = strlen(buf);
+                        if (write(fid_keys, buf, len) != (ssize_t)len)
+                            problems |= (1<<0); // Cannot write to keys file
+                        len = sizeof(buf)-1-len-1;
+                        sprintf(buf, "%*c\n", int(len), ' ');
+                        len++;
+                        if (write(fid_keys, buf, len) != (ssize_t)len)
+                            problems |= (1<<1); // Cannot write to keys file
+                    }
+                    entries--;
                     if (trace_level & ((1 << ETrace::FILEIO) | (1 << ETrace::CACHE)))
-                        applog.info("get: (remove) {:} {:} {:}", key, value, problems);
-                lseek(fid_values, fpos_values, SEEK_SET);
-                value.resize(sz);
-                if (read(fid_values, (char*)value.c_str(), sz) != (ssize_t)sz)
-                    problems |= (1<<3); // Cannot read from values file
+                        applog.info("get: (remove) {} {} {}", key, value, problems);
+                }
                 else
                 {
-                    evict();
-                    values.push_front({value, fpos_values, sz});
-                    keys.push_front({buf, fpos_keys, values.begin()});
-                    x = xref.insert_or_assign(key, keys.begin()).first;
-                    if (trace_level & ((1 << ETrace::FILEIO) | (1 << ETrace::CACHE)))
-                        applog.info("get: (cachefill) {:} {:} {:}", key, value, problems);
+                    lseek(fid_values, fpos_values, SEEK_SET);
+                    //value.resize(sz);
+                    std::string v(sz, 0);
+                    if (read(fid_values, (char*)v.c_str(), sz) != (ssize_t)sz)
+                        problems |= (1<<3); // Cannot read from values file
+                    else
+                    {
+                        evict();
+                        value = v;
+                        values.push_front({value, fpos_values, sz});
+                        keys.push_front({buf, fpos_keys, values.begin()});
+                        x = xref.insert_or_assign(key, keys.begin()).first;
+                        if (trace_level & ((1 << ETrace::FILEIO) | (1 << ETrace::CACHE)))
+                            applog.info("get: (cachefill) {} {} {}", key, value, problems);
+                    }
                 }
             }
             else
             {
+                found = false;
                 x = xref.end();
                 if (trace_level & ((1 << ETrace::FILEIO) | (1 << ETrace::CACHE)))
-                    applog.info("get: key {:} not found", key);
+                    applog.info("get: key {} not found", key);
             }
         }
         struct RV{bool found; decltype(x) it; };
-        return RV{x != xref.end(), x};
+        return RV{found, x};
     }
     bool set(const std::string &key, const std::string &val, bool update)
     {
@@ -576,7 +589,7 @@ struct Table : Stats {
         if (!update || val != old_val) // not found, or found different for update
         {
             bool overwrite = false;
-            char buf[key_len];
+            char buf[Index::key_len];
             if (!found) // key not in cache and not in file
             {
                 if (update)
@@ -585,7 +598,7 @@ struct Table : Stats {
                 {
                     evict();
                     off_t fpos_keys = lseek(fid_keys, 0, SEEK_END);
-                    off_t fpos_values = index_end_marker;
+                    off_t fpos_values = Index::index_end_marker;
                     //size_t sz;
                     fpos_values = lseek(fid_values, 0, SEEK_END);
                     values.push_front({val, fpos_values, 0});
@@ -646,14 +659,14 @@ struct Table : Stats {
             }
         }
         if (trace_level & ((1 << ETrace::FILEIO) | (1 << ETrace::CACHE)))
-            applog.info("set: {:} {:} {:} problems: {:}, result: {:}", branch, key, val, problems, rv);
+            applog.info("set: {} {} {} problems: {}, result: {}", branch, key, val, problems, rv);
         return rv;
     }
-    operator sstring() const
+    operator std::string() const
     {
         return sstring(VERSION) + "\n" +
             "table:" + name + "\n" +
-            Stats::operator::sstring() +
+            Stats::operator::std::string() +
         format(
             "index entries:{}\n"
             "cache_entries:{}\n"
@@ -669,105 +682,111 @@ struct Table : Stats {
             spaces
         );
     }
-    static auto selftest(int level)
+    static bool self_test(int test, int loop, std::string &s)
     {
         bool ok = true;
-        std::string s;
-        s += format("Starting self test {}\n", level);
-        auto table_name = std::string(Table::master_table_name);
-        s += "Dropping & using {}\n" + table_name;
-        auto it_table = tables.find(table_name);
-        if (it_table == tables.end())
+        s += format("Starting self test {}, id {}\n", test, self_tests++);
+        if (loop>1)
         {
-            it_table = tables.emplace(table_name, new Table(table_name)).first;
+            for (int i=0; i<loop; i++)
+            {
+                std::string t;
+                ok = ok && self_test(test, 1, t);
+            }
+        }
+        else
+        {
+            Lock l(tables_lock);
+            auto table_name = std::string(Table::master_table_name);
+            s += "Dropping & using {}\n" + table_name;
+            auto it_table = tables.end();
+            {
+                it_table = tables.find(table_name);
+                if (it_table == tables.end())
+                    it_table = tables.emplace(table_name, new Table(table_name)).first;
+                auto &table = *it_table->second;
+                s += "Using table " + table_name + ".\n";
+                s += table.purge(true);
+                s += table.close(true);
+                Table::tables.erase(it_table);
+                s += "Dropping table " + table_name + ".\n";
+                it_table = tables.emplace(table_name, new Table(table_name)).first;
+                s += "(Re)create table " + table_name + ".\n";
+            }
             auto &table = *it_table->second;
-            s += "Using table " + table_name + ".\n";
-            s += table.purge(true);
-            s += table.close(true);
-            Table::tables.erase(it_table);
-            s += "Dropping table " + table_name + ".\n";
-            it_table = tables.emplace(table_name, new Table(table_name)).first;
-            s += "(Re)create table " + table_name + ".\n";
+            std::string keys[] = {"aaa", "bbb", "ccc", "null"};
+            std::string values0[] = {"test_aaa\n", "test_bbb\n", "test_ccc\n", ""};
+            for (int i=0; auto key : keys)
+                if (auto value = values0[i++]; !table.set(key, value, false))  // insert
+                {
+                    s += format("Failed to insert {}={}\n", key, value);
+                    ok = false;
+                }
+            for (int i=0; auto key : keys)
+            {
+                std::string value;
+                if (!table.get(key, value).found)  // read
+                {
+                    s += format("Failed to retrieve {}\n", key);
+                    ok = false;
+                }
+                if (value!=values0[i])
+                {
+                    s += format("Unexpected value for key {}={} <> {}\n", key, value, values0[i]);
+                    ok = false;
+                }
+                i++;
+            }
+            for (int i=0; auto key : keys)
+                if (auto value = values0[i++]; table.set(key, value, false))  // overinsert
+                {
+                    s += format("Failed to prevent overinsertion on pre-existing key {}={}\n", key, value);
+                    ok = false;
+                }
+            std::string values1[] = {"test_AAAA\n", "test_BBB\n", "test_CC\n", "text_NotNull\n"};
+            for (int i=0; auto key : keys)
+                if (auto value = values1[i++]; !table.set(key, value, true))  // update
+                {
+                    s += format("Failed to update existing key {}={}\n", key, value);
+                    ok = false;
+                }
+            if (auto key = "ddd", value="text_ddd"; table.set(key, value, true))  // update inexistent key
+            {
+                s += format("Failed to prevent updating of inexistent key {}={}\n", key, value);
+                ok = false;
+            }
+            for (int i=0; auto key : keys)
+            {
+                if (std::string value; !table.get(key, value).found || value!=values1[i])
+                {
+                    s += format("Unexpected value for key {}={}, expected {}\n", key, value, values1[i]);
+                    ok = false;
+                }
+                i++;
+            }
+            if (table.spaces==0)
+                s += format("Table {} expected to have {} internal fragmentation\n", table.name, "non-zero");
+            s += table.compact(); // Compacting must reorder the values file.
+            for (int i=0; auto key : keys)
+            {
+                if (i%2) // delete every second key
+                    if (std::string value; !table.get(key, value, false, true).found) // delete
+                    {
+                        s += format("Delete failed for key {}={}, expected {}\n", key, value, values1[i]);
+                        ok = false;
+                    }
+                i++;
+            }
+            s += table.compact(); // Compacting remove all index entries marked as "deleted" and reorders the value file.
+            if (auto count = (sizeof(keys)/sizeof(keys[0])+1) / 2; table.entries != count)
+            {
+                s += format("Unexpected number of keys in table {}: {}, expected {}\n", table.name, table.entries, count);
+                ok = false;
+            }
+            s += table.list(true); // revolve though index keys once
         }
-        auto &table = *it_table->second;
-        std::string keys[] = {"aaa", "bbb", "ccc", "null"};
-        std::string values0[] = {"test_aaa\n", "test_bbb\n", "test_ccc\n", ""};
-        for (int i=0; auto key : keys)
-            if (auto value = values0[i++]; !table.set(key, value, false))  // insert
-            {
-                s += format("Failed to insert {}={}\n", key, value);
-                ok = false;
-            }
-        for (int i=0; auto key : keys)
-        {
-            std::string value;
-            if (!table.get(key, value).found)  // read
-            {
-                s += format("Failed to retrieve {}\n", key);
-                ok = false;
-            }
-            if (value!=values0[i])
-            {
-                s += format("Unexpected value for key {}={} <> {}\n", key, value, values0[i]);
-                ok = false;
-            }
-            i++;
-        }
-        for (int i=0; auto key : keys)
-            if (auto value = values0[i++]; table.set(key, value, false))  // overinsert
-            {
-                s += format("Failed to prevent overinsertion on pre-existing key {}={}\n", key, value);
-                ok = false;
-            }
-        std::string values1[] = {"test_AAAA\n", "test_BBB\n", "test_CC\n", "text_NotNull\n"};
-        for (int i=0; auto key : keys)
-            if (auto value = values1[i++]; !table.set(key, value, true))  // update
-            {
-                s += format("Failed to update existing key {}={}\n", key, value);
-                ok = false;
-            }
-        if (auto key = "ddd", value="text_ddd"; table.set(key, value, true))  // update inexistent key
-        {
-            s += format("Failed to prevent updating of inexistent key {}={}\n", key, value);
-            ok = false;
-        }
-        for (int i=0; auto key : keys)
-        {
-            if (std::string value; !table.get(key, value).found || value!=values1[i])
-            {
-                s += format("Unexpected value for key {}={}, expected {}\n", key, value, values1[i]);
-                ok = false;
-            }
-            i++;
-        }
-        if (table.spaces==0)
-            s += format("Table {} expected to have {} internal fragmentation\n", table.name, "non-zero");
-
-        s += table.compact(); // Compacting must reorder the values file.
-
-        for (int i=0; auto key : keys)
-        {
-            if (std::string value; !table.get(key, value, false, true).found) // delete
-            {
-                s += format("Delete failed for key {}={}, expected {}\n", key, value, values1[i]);
-                ok = false;
-            }
-            i++;
-            break; // do just one delete
-        }
-
-        s += table.compact(); // Compacting remove all index entries marked as "deleted" and reorders the value file.
-
-        if (auto count = sizeof(keys)/sizeof(keys[0]) - 1; table.entries != count)
-        {
-            s += format("Unexpected number of keys in table {}: {}, expected {}\n", table.name, table.entries, count);
-            ok = false;
-        }
-
-        s += table.list(true); // revolve though index keys once
-
-        s += format("Self test {} {}\n", level, ok ? "passed" : "failed");
-        return s;
+        s += format("Self test {} {}\n", test, ok ? "passed" : "failed") + Stats::get_static_profiles();
+        return ok;
     }
     bool get_file(std::string &val, bool keys)
     {
@@ -782,11 +801,8 @@ struct Table : Stats {
         lseek(fid, 0, SEEK_SET);
         return ::read(fid, (char*)val.c_str(), sz) == sz;
     }
+    static std::atomic_bool tables_lock; // One self-test through
 private:
-    constexpr static size_t key_len = 256+1 +20+10+1+1; // key,int64,int32\n0
-    constexpr static int index_end_marker = -1;
-    constexpr static int index_deleted_marker = -2;
-
     std::atomic_bool lock_fio = false;   // file lock: mutually exclussive readers and writers
     std::atomic_bool lock_cache = false; // cache lock: shared readers, exclusive writers
     std::atomic_int  readers = 0;        // count of concurrent readers
@@ -798,9 +814,72 @@ private:
     std::deque<Value> values;
     std::deque<Key> keys;
     std::map<std::string, std::deque<Key>::iterator> xref;
+
+    std::string evict()
+    {
+        if (keys.size() == max_cache)
+        {
+            auto key = keys.back().text;
+            xref.erase(xref.find(key));
+            keys.pop_back();
+            values.pop_back(); // Eviction
+            if (trace_level & (1 << ETrace::CACHE))
+                applog.info("evict key {}", key);
+            evictions++;
+            return "Eviction of key " + key;
+        }
+        return "Evition not required";
+    }
+    // Tried to use seastar::coroutine::experimental::generator<Index>
+    Generator<Index> index_revolver(bool locked, int &remove)
+    {
+        off_t fpos = 0;
+        int count = 0;
+        while (true)
+        {
+            char buf[Index::key_len];
+            {
+                Lock l(lock_cache, locked);
+                lseek(fid_keys, fpos, SEEK_SET);
+                auto len = read(fid_keys, buf, sizeof(buf)-1);
+                if (len==0)
+                {
+                    if (trace_level & (1 << ETrace::FILEIO))
+                        applog.info("Reached the end of {}, count {}", db_prefix+name+keys_fname, count);
+                    co_yield Index{.index = -count, .vfpos = Index::index_end_marker, .vsz = 0};
+                    fpos = 0;
+                    count = 0;
+                    continue;
+                }
+                if (len<0)
+                {
+                    if (trace_level & (1 << ETrace::FILEIO))
+                        applog.info("Error reading {}, count {}, errno {}", db_prefix+name+keys_fname, count, errno);
+                    break;
+                }
+            }
+            count++;
+            char * sp = strchr(buf,',');
+            *sp++=0;
+            Index ind{.index=int(fpos/(sizeof(buf)-1))};
+            strncpy(ind.key, buf, sizeof(ind.key));
+            sscanf(sp, "%jd,%zu", &ind.vfpos, &ind.vsz);
+            if (trace_level & (1 << ETrace::FILEIO))
+                applog.info("{} [{}, {}, {}, {}] of index {}",
+                            ind.vfpos==Index::index_deleted_marker ? "Skipping deleted" : "Yielding",
+                            ind.index,
+                            ind.vfpos,
+                            ind.key,
+                            ind.vsz,
+                            db_prefix+name+keys_fname);
+            if (ind.vfpos!=Index::index_deleted_marker)
+                co_yield ind;
+            fpos += sizeof(buf)-1;
+        }
+    }
 };
 std::map<std::string, Table*> Table::tables;
-std::atomic_bool tables_lock = false;
+std::atomic_bool Table::tables_lock = false;
 
 class DefaultHandle : public httpd::handler_base {
 public:
@@ -810,7 +889,7 @@ public:
     {
         sstring s;
         s += plain_text ?
-            format("{:}.{:}\n", VERSION) +
+            format("{}.{}\n", VERSION) +
             format("Global commands\n")
         :
             sstring("<h1>") + VERSION + "</h1>\n" +
@@ -831,10 +910,10 @@ public:
         };
         for (auto arg : args_global)
             s += plain_text ?
-            format("{:}: {:}/{:}\n", arg.label, host, arg.str) :
-            sstring("<span>") + arg.label + ":</span> <a href=\"" + host + "/" + arg.str + "\">" + host + "/" + arg.str + "</a><br/>\n";
+            format("{}: {}/{}\n", arg.label, host, arg.str) :
+            sstring("<span>") + arg.label + ":</span> <a href=\"" + host + "/" + arg.str + "\">" + arg.str + "</a><br/>\n";
         s += plain_text ?
-            format("Commands for table: {:}\n", table_name) :
+            format("Commands for table: {}\n", table_name) :
             sstring("</p>\n<h1>Commands for table: " + table_name + "&nbsp</h1>\n"
             "For any of the following commands to work, a table must be created, or opened if it exists, with the <strong><a href=\"" + host + "/?use\">?use</a></strong> REST command.\n"
             "<p>");
@@ -889,20 +968,22 @@ public:
                 surl = tmp.substr(0, sl-tmp.c_str());
             }
             s += plain_text ?
-            format("{:}: {:}/{:}\n", arg.label, surl, arg.str) :
+            format("{}: {}/{}\n", arg.label, surl, arg.str) :
             sstring("<span>") + arg.label + ":</span> <a href=\"" + surl + arg.str + "\">" + arg.str + "</a><br/>\n";
         }
         struct {const char*label, *str; } args_tests[] =
         {
-            {"simple insert/update/delete",     "?selftest=0"},
-            {"poop insert/update/delete",       "?selftest=1"},
+            {"Test1      insert/update/delete",       "?self_test=1"},
+            {"Test1*10   insert/update/delete",       "?self_test=1&loop=10"},
+            {"Test1*100  insert/update/delete",       "?self_test=1&loop=100"},
+            {"Test1*1000 insert/update/delete",       "?self_test=1&loop=1000"},
         };
         s += plain_text ?
             format("Self tests:\n") :
             sstring("</p>\n<h1>Self tests:""&nbsp</h1>\n");
         for (auto arg : args_tests)
             s += plain_text ?
-            format("{:}: {:}/{:}\n", arg.label, host, arg.str) :
+            format("{}: {}/{}\n", arg.label, host, arg.str) :
             sstring("<span>") + arg.label + ":</span> <a href=\"" + host + "/" + arg.str + "\">" + arg.str + "</a><br/>\n";
         s += plain_text ?
             "" :
@@ -956,7 +1037,7 @@ public:
         }
         else if (req->query_parameters.contains("use"))
         {
-            Lock l(tables_lock);
+            Lock l(Table::tables_lock);
             it_table = Table::tables.find(table_name);
             if (it_table == Table::tables.end())
             {
@@ -966,29 +1047,33 @@ public:
         }
         else if (req->query_parameters.contains("used"))
         {
-            Lock l(tables_lock);
+            Lock l(Table::tables_lock);
             for (auto t : Table::tables) s += t.first + "\n";
         }
-        else if (req->query_parameters.contains("selftest"))
+        else if (req->query_parameters.contains("self_test"))
         {
-            auto level = req->query_parameters.at("selftest");
+            auto test = req->query_parameters.at("self_test");
+            int tn;
+            sscanf(test.c_str(),"%d", &tn);
+            auto loop = req->query_parameters.contains("loop") ? req->query_parameters.at("loop") : "1";
             int l;
-            sscanf(level.c_str(),"%d", &l);
-            std::string result = Table::selftest(l);
+            sscanf(loop.c_str(),"%d", &l);
+            std::string text;
+            bool result = Table::self_test(tn, l, text);
             std::string::size_type n = 0;
             const std::string rwhat = "\n";
             const std::string rwith = "<br/>\n";
-            while ((n = result.find(rwhat, n)) != std::string::npos)
+            while ((n = text.find(rwhat, n)) != std::string::npos)
             {
-                result.replace( n, rwhat.size(), rwith);
+                text.replace( n, rwhat.size(), rwith);
                 n += rwith.size();
             }
-            s += result;
+            s += text;
         }
         else
         {
             {
-                Lock l(tables_lock);
+                Lock l(Table::tables_lock);
                 it_table = Table::tables.find(table_name);
                 if (it_table == Table::tables.end())
                     s += "Table " + table_name + " is not in use.\n";
@@ -1011,7 +1096,7 @@ public:
                         "LockPasses:{}\n"
                         "LockCollisions:{}\n"
                         ,
-                        (sstring)table,
+                        (std::string)table,
                         Lock::passes,
                         Lock::collisions);
                 else if (req->query_parameters.contains("drop"))
@@ -1032,7 +1117,7 @@ public:
                         table.max_cache = new_max_cache;
                     }
                     s += sstring(s.length() > 0 ? "\n" : "") + format(
-                        "Changing max_cache from {:} to {:}", old_max_cache, new_max_cache);
+                        "Changing max_cache from {} to {}", old_max_cache, new_max_cache);
                 }
                 else if (req->query_parameters.contains("file"))
                 {
@@ -1046,7 +1131,7 @@ public:
                 else if (req->query_parameters.contains("rownext"))
                 {
                     auto [index, key, fpos, sz] = table.co_index_locked();
-                    s = format("test index {:}, key:{:}, valpos:{:}, valsz:{:}", index, key, fpos, sz);
+                    s = format("test index {}, key:{}, valpos:{}, valsz:{}", index, key, fpos, sz);
                 }
                 else if (req->query_parameters.contains("op"))
                 {
@@ -1083,7 +1168,7 @@ void set_routes(routes& r) {
         std::string s = "Server shutting down";
         exit(0);
         if (trace_level & (1 << ETrace::SERVER))
-            applog.info("{:}", s);
+            applog.info("{}", s);
         return s;
     });
     r.add_default_handler(&defaultHandle);
@@ -1092,7 +1177,7 @@ void set_routes(routes& r) {
 }
 
 int main(int ac, char** av) {
-    applog.info("Db demo {:}", VERSION);
+    applog.info("Db demo {}", VERSION);
     httpd::http_server_control prometheus_server;
     prometheus::config pctx;
     app_template app;
