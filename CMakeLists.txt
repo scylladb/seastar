@@ -836,8 +836,17 @@ target_link_libraries (seastar
     rt::rt
     ucontext::ucontext
     yaml-cpp::yaml-cpp
-    "$<BUILD_INTERFACE:Valgrind::valgrind>"
     Threads::Threads)
+if (CMAKE_VERSION VERSION_GREATER_EQUAL 3.26)
+  target_link_libraries (seastar
+    PRIVATE
+      "$<BUILD_LOCAL_INTERFACE:Valgrind::valgrind>")
+else ()
+  target_link_libraries (seastar
+    PRIVATE
+      "$<BUILD_INTERFACE:Valgrind::valgrind>")
+endif ()
+
 if (Seastar_DPDK)
   target_link_libraries (seastar
     PRIVATE
