@@ -84,7 +84,7 @@ namespace bpo = boost::program_options;
 using namespace seastar;
 using namespace httpd;
 
-const char*VERSION="Demo Database Server 0.4";
+const char*VERSION="Demo Database Server 0.5";
 const char* available_trace_levels[] = {"LOCKS", "FILEIO", "CACHE", "SERVER", "TEST"};
 enum ETrace { LOCKS, FILEIO, CACHE, SERVER, TEST, MAX};
 int trace_level = (1 << ETrace::FILEIO) | (1 << ETrace::CACHE) | (1 << ETrace::SERVER) | (1 << ETrace::TEST);
@@ -92,7 +92,7 @@ logger applog("app");
 
 // Tried to use seastar::coroutine::experimental::generator<Index>.
 // Resorted to adopting the following ugly construct for the index revolver coroutine.
-// Generator should be part of std, or be a compiler generated construct.
+// Generator should be part of std, if not a compiler generated construct.
 // C++ coroutines are trully a mess.
 
 template<typename T>
@@ -249,18 +249,6 @@ struct Table : Stats {
 
     static std::map<std::string, Table*> tables;
 
-    struct Value
-    {
-        std::string text;
-        off_t fpos;
-        ssize_t sz;
-    };
-    struct Key
-    {
-        std::string text;
-        off_t fpos;
-        std::deque<Value>::iterator it_value;
-    };
     struct Index
     {
         int index;
@@ -270,8 +258,7 @@ struct Table : Stats {
         constexpr static size_t entry_sz = 256 + 44; // 300 = key,int64,int32,extra\n0
         constexpr static off_t end_marker = -1;
         constexpr static off_t deleted_marker = -2;
-
-        auto access_value(int fid_values, off_t vpos, std::string *value, std::string &table_name, bool write)
+        auto access_value(int fid_values, std::string *value, std::string &table_name, bool write)
         {
             sstring msg;
             if (write)
@@ -307,7 +294,7 @@ struct Table : Stats {
             sstring msg;
             if (write)
             {
-                access_value(fid_values, vfpos, value, table_name, write);
+                access_value(fid_values, value, table_name, write);
                 auto fpos_keys = lseek(fid_keys, index * entry_sz, SEEK_SET);
                 sprintf(buf, "%s,%jd,%zu,", key, vfpos, vsz);
                 len = strlen(buf);
@@ -362,7 +349,7 @@ struct Table : Stats {
                     ::write(fid_keys, buf, Index::entry_sz);            // Swap curent and next index entries.
                     memcpy(buf, buf_next, Index::entry_sz);
                 }
-                access_value(fid_values, vfpos, value, table_name, write);
+                access_value(fid_values, value, table_name, write);
                 if (deleted_keys>0)
                     msg+=format(" compacted {} index entries", deleted_keys);
                 if (trace_level & (1 << ETrace::FILEIO))
@@ -500,7 +487,7 @@ struct Table : Stats {
             applog.info("FILEIO: list: {}", s);
         return s;
     }
-    auto get(const std::string &key, std::string &value, bool reentered=false, bool remove=false)
+    auto get(const std::string &key, std::string &value, bool remove = false, bool reentered = false)
     {
         Lock l(lock_cache, reentered);
         auto x = xref.begin();
@@ -564,7 +551,7 @@ struct Table : Stats {
                 }
                 else
                 {
-                    entry.access_value(fid_values, entry.vfpos, &value, name, false);
+                    entry.access_value(fid_values, &value, name, false);
                     evict();
                     off_t fpos_keys = entry.index * Index::entry_sz;
                     values.push_front({value, entry.vfpos, entry.vsz});
@@ -585,84 +572,61 @@ struct Table : Stats {
         struct RV{bool found; decltype(x) it; };
         return RV{found, x};
     }
-    bool set(const std::string &key, const std::string &val, bool update)
+    bool set(const std::string &key, const std::string &value, bool update, bool reentered = false)
     {
-        bool rv = true;
-        Lock l(lock_cache, false);
+        std::string branch;
+        if (key=="null")
+            if (value=="")
+                branch = "trap ";
+
+        Lock l(lock_cache, reentered);
         std::string old_val;
-        auto [found, x] = get(key, old_val, true);
-        sstring msg;
-        std::string branch = "Skip";
-        if (!update || val != old_val) // not found, or found different for update
+        auto [found, x] = get(key, old_val, false, true);
+        if (update && found && value == old_val)
+            branch += "ignore"; // ignore update with the same value
+        else if (found == update)
         {
-            bool overwrite = false;
-            char buf[Index::entry_sz+1];
+            off_t fpos_values = lseek(fid_values, 0, SEEK_END);
+            auto val = value;   // value is const
+            Index entry;
+            snprintf(entry.key, 256, "%s", key.c_str());
+            entry.vfpos = fpos_values;
+            entry.vsz = val.length();
             if (!found) // key not in cache and not in file
             {
-                if (update)
-                    rv = false;
-                else // insert
-                {
-                    evict();
-                    off_t fpos_keys = lseek(fid_keys, 0, SEEK_END);
-                    off_t fpos_values = Index::end_marker;
-                    fpos_values = lseek(fid_values, 0, SEEK_END);
-                    values.push_front({val, fpos_values, 0});
-                    keys.push_front({key, fpos_keys, values.begin()});
-                    x = xref.insert_or_assign(key, keys.begin()).first;
-                    branch = "Add";
-                    entries++;
-                    inserts++;
-                }
+                branch += "Insert";
+                off_t fpos_keys = lseek(fid_keys, 0, SEEK_END);
+                entry.index = fpos_keys / Index::entry_sz;
+                entry.access(fid_keys, fid_values, &val, name, true);     // write key to keys file and value to values file
+                evict();
+                values.push_front({val, entry.vfpos, 0});                 // load into cache
+                keys.push_front({key, fpos_keys, values.begin()});
+                x = xref.insert_or_assign(key, keys.begin()).first;
+                entries++;
+                inserts++;
             }
-            else
+            else // found in cache
             {
-                branch = "Overwrite";
-                overwrite = true;
-                if (update)
-                    updates++;
-                else
-                    rv = false;
-            }
-            if (rv && x != xref.end())
-            {
+                branch += "Update";
                 Value& oldv = *x->second->it_value;
-                if (overwrite && val == oldv.text)
-                    branch = "ignore";
-                else
-                {
-                    auto sz = oldv.sz;
-                    bool reuse_value_space = (ssize_t)val.length() <= sz;
-                    off_t fpos_values = 0;
-                    if (reuse_value_space)
-                    {
-                        spaces += sz-val.length();
-                        fpos_values = oldv.fpos;
-                    }
-                    else
-                        spaces += sz;
-                    sz = val.length();
-                    fpos_values = lseek(fid_values, fpos_values, reuse_value_space ? SEEK_SET : SEEK_END);
-                    if (write(fid_values, val.c_str(), val.length()) != (ssize_t)val.length())
-                        msg+=format(", Error {} writing to values file", errno);
-                    values.erase(x->second->it_value);
-                    values.push_front({val, fpos_values, sz});
-                    sprintf(buf, "%s,%jd,%zu,", key.c_str(), fpos_values, sz);
-                    auto len = strlen(buf);
-                    auto fpos_keys = x->second->fpos;
-                    lseek(fid_keys, fpos_keys, SEEK_SET);
-                    sprintf(buf+len, "%*c\n", int(Index::entry_sz-1-len), ' ');
-                    if (write(fid_keys, buf, Index::entry_sz) != (ssize_t)Index::entry_sz)
-                        msg+=format(", Error {} writing to keys file", errno);
-                    keys.erase(x->second);
-                    keys.push_front({key, fpos_keys, values.begin()});
-                    x->second = keys.begin();
-                }
+                bool inplace = val.length() <= old_val.length();
+                spaces += old_val.length() - (inplace ? value.length() : 0);
+                entry.index = x->second->fpos / Index::entry_sz;
+                if (inplace)
+                    entry.vfpos = fpos_values;
+                entry.access(fid_keys, fid_values, &val, name, true);
+                values.erase(x->second->it_value);
+                off_t fpos_keys = entry.index * Index::entry_sz;
+                values.push_front({val, fpos_keys, (ssize_t)value.length()});
+                keys.erase(x->second);
+                keys.push_front({key, fpos_keys, values.begin()});
+                x->second = keys.begin();
+                updates++;
             }
         }
         if (trace_level & ((1 << ETrace::FILEIO) | (1 << ETrace::CACHE)))
-            applog.info("CACHE|FILEIO: set {} {}={}{} {}", branch, key, val, msg, rv ? "ok" : "fail");
-        return rv;
+            applog.info("CACHE|FILEIO: set {} {}={} {}", branch, key, value, update == found ? "ok" : "fail");
+        return update == found;
     }
     operator std::string() const
     {
@@ -691,13 +655,11 @@ struct Table : Stats {
        #define LOG s+= t+"\n"; if (trace_level & (1 << ETrace::TEST)) applog.info("TEST: {}", t)
         t = format("Starting test {}, id {}...", test, self_tests++); LOG;
         if (loop>1)
-        {
             for (int i=0; i<loop; i++)
             {
                 std::string t;
                 ok = ok && self_test(test, 1, t);
             }
-        }
         else
         {
             Lock l(tables_lock);
@@ -774,9 +736,9 @@ struct Table : Stats {
                         t = format("Failed to update existing key {}={}", key, value); LOG;
                         ok = false;
                     }
-                if (auto key = "ddd", value="_ddd_"; table.set(key, value, true))  // try to update inexistent key
+                if (auto key = "ddd", value="_ddd_"; table.set(key, value, true))  // try to update non-existent key
                 {
-                    t = format("Failed to prevent updating of inexistent key {}={}", key, value); LOG;
+                    t = format("Failed to prevent updating of non-existent key {}={}", key, value); LOG;
                     ok = false;
                 }
                 for (int i=0; auto key : keys)
@@ -796,7 +758,7 @@ struct Table : Stats {
                 for (int i=0; auto key : keys)
                 {
                     if (i%2) // delete every second key
-                        if (std::string value; !table.get(key, value, false, true).found) // delete key
+                        if (std::string value; !table.get(key, value, true).found) // delete key
                         {
                             t = format("Delete failed for key {}={}, expected {}", key, value, values1[i]); LOG;
                             ok = false;
@@ -828,8 +790,8 @@ struct Table : Stats {
         lseek(fid, 0, SEEK_SET);
         return ::read(fid, (char*)val.c_str(), sz) == sz;
     }
-    static std::atomic_bool tables_lock; // One self-test through
 
+    static std::atomic_bool tables_lock; // One self-test through
 private:
     std::atomic_bool lock_fio = false;   // file lock: mutually exclussive readers and writers
     std::atomic_bool lock_cache = false; // cache lock: shared readers, exclusive writers
@@ -841,6 +803,20 @@ private:
     int fid_values{0};
     size_t entries{0};
     size_t spaces{0};
+
+    struct Value
+    {
+        std::string text;
+        off_t fpos;
+        ssize_t sz;
+    };
+    struct Key
+    {
+        std::string text;
+        off_t fpos;
+        std::deque<Value>::iterator it_value;
+    };
+
     std::deque<Value> values;
     std::deque<Key> keys;
     std::map<std::string, std::deque<Key>::iterator> xref;
@@ -945,7 +921,7 @@ public:
         s += plain_text ?
             format("Commands for table: {}\n", table_name) :
             sstring("</p>\n<h1>Commands for table: " + table_name + "&nbsp</h1>\n"
-            "For any of the following commands to work, a table must be created, or opened if it exists, with the <strong><a href=\"" + host + "/?use\">?use</a></strong> REST command.\n"
+            "For any of the following commands to work, a table must be created, or opened if it exists, with the <strong><a href=\"" + host + "/?use\">?use</a></strong> command.\n"
             "<p>");
         struct {const char*label, *str; } args_per_table[] =
         {
@@ -962,8 +938,7 @@ public:
             {"invalidate cache",        "?invalidate"},
             {"list cached keys/vals",   "?key="},
             {"list all keys",           "?list"},
-            {"row next",                "?rownext"},
-            {"row next",                "?rownext"},
+            {"(co)index next",          "?rownext"},
             {"insert aaa=_aaa_",        "?op=insert&key=aaa&value=_aaa_"},
             {"insert bbb=_bbb_",        "?op=insert&key=bbb&value=_bbb_"},
             {"insert ccc=_ccc_",        "?op=insert&key=ccc&value=_ccc_"},
@@ -976,6 +951,7 @@ public:
             {"update bbb=_BBB_",        "?op=update&key=bbb&value=_BBB_"},
             {"update ccc=_cc_",         "?op=update&key=ccc&value=_cc_"},
             {"update null=_null_",      "?op=update&key=null&value=_null_"},
+            {"update null=<null>",      "?op=update&key=null&value="},
             {"delete aaa",              "?op=delete&key=aaa"},
             {"delete bbb",              "?op=delete&key=bbb"},
             {"delete ccc",              "?op=delete&key=ccc"},
