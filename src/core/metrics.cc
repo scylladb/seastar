@@ -226,6 +226,7 @@ metric_value metric_value::operator+(const metric_value& c) {
     metric_value res(*this);
     switch (_type) {
     case data_type::HISTOGRAM:
+    case data_type::SUMMARY:
         std::get<histogram>(res.u) += std::get<histogram>(c.u);
         break;
     default:
