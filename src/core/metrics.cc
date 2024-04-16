@@ -528,6 +528,16 @@ void impl::set_metric_family_configs(const std::vector<metric_family_config>& fa
             }
         }
     }
+
+    if (!_metadata) {
+        // The metadata structure may not have been built yet,
+        // or it may rebuild right now, in this case just return
+        // and it will be updated the next time, setting the dirty to true
+        // is just in case we are somehow in the middle of rebuilding the
+        // metadata.
+        dirty();
+        return;
+    }
     for (auto& mf_metadata: *_metadata) {
         for  (const auto& fc : family_config) {
             if (fc.name == mf_metadata.mf.name || fc.regex_name.match(mf_metadata.mf.name)) {
