@@ -323,21 +323,19 @@ def print_stats(tally: dict, tmin):
 input = open(args.file) if args.file else sys.stdin
 count = 0
 comment = re.compile(r'^\s*#')
-pattern = re.compile('Reactor stall')
+pattern = re.compile(r"Reactor stalled for (?P<stall>\d+) ms on shard (?P<shard>\d+).*Backtrace:")
 address_threshold = int(args.address_threshold, 0)
 tally = {}
 for s in input:
-    if comment.search(s) or not pattern.search(s):
+    if comment.search(s):
+        continue
+    m = pattern.search(s)
+    if not m:
         continue
     count += 1
-    trace = s.split()
-    for i in range(0, len(trace)):
-        if trace[i] == 'Reactor':
-            i += 3
-            break
-    t = int(trace[i])
+    trace = s[m.span()[1]:].split()
+    t = int(m.group("stall"))
     tally[t] = tally.pop(t, 0) + 1
-    trace = trace[i + 6:]
     # The address_threshold typically indicates a library call
     # and the backtrace up-to and including it are usually of
     # no interest as they all contain the stall backtrace geneneration code, e.g.:
