@@ -75,6 +75,8 @@
 #include <seastar/core/print.hh>
 #include <seastar/net/inet_address.hh>
 #include <seastar/util/defer.hh>
+#include <seastar/core/sleep.hh>
+#include <future>
 
 #pragma GCC diagnostic ignored "-Wunused-variable"
 #pragma GCC diagnostic ignored "-Wstringop-truncation"
@@ -84,7 +86,7 @@ namespace bpo = boost::program_options;
 using namespace seastar;
 using namespace httpd;
 
-const char*VERSION="Demo Database Server 0.5";
+const char*VERSION="Demo Database Server 0.6";
 const char* available_trace_levels[] = {"LOCKS", "FILEIO", "CACHE", "SERVER", "TEST"};
 enum ETrace { LOCKS, FILEIO, CACHE, SERVER, TEST, MAX};
 int trace_level = (1 << ETrace::FILEIO) | (1 << ETrace::CACHE) | (1 << ETrace::SERVER) | (1 << ETrace::TEST);
@@ -187,15 +189,19 @@ struct Stats
     {
         char buf[0x1000];
         sprintf(buf,
-            "*requests:%d\n"
-            "*creates:%d\n"
-            "*drops:%d\n"
-            "*self_tests:%d\n"
+            "requests: %d\n"
+            "creates: %d\n"
+            "drops: %d\n"
+            "self_tests: %d\n"
+            "LockPasses: %d\n"
+            "LockCollisions: %d\n"
             ,
             requests.load(),
             creates.load(),
             drops.load(),
-            self_tests.load()
+            self_tests.load(),
+            Lock::passes.load(),
+            Lock::collisions.load()
         );
         return buf;
     }
@@ -203,23 +209,15 @@ struct Stats
     {
         char buf[0x1000];
         sprintf(buf,
-            "*requests:%d\n"
-            "*creates:%d\n"
-            "*drops:%d\n"
-            "*self_tests:%d\n"
-            "inserts:%d\n"
-            "deletes:%d\n"
-            "updates:%d\n"
-            "gets:%d\n"
-            "purges:%d\n"
-            "invalidates:%d\n"
-            "evictions:%d\n"
-            "compacts:%d\n"
+            "inserts: %d\n"
+            "deletes: %d\n"
+            "updates: %d\n"
+            "gets: %d\n"
+            "purges: %d\n"
+            "invalidates: %d\n"
+            "evictions: %d\n"
+            "compacts: %d\n"
             ,
-            requests.load(),
-            creates.load(),
-            drops.load(),
-            self_tests.load(),
             inserts.load(),
             deletes.load(),
             updates.load(),
@@ -240,11 +238,13 @@ std::atomic_int Stats::self_tests = 0;
 struct Table : Stats {
     std::string name;
     size_t max_cache {2};
+    static bool mode_async;
 
     constexpr static auto db_prefix = "db_";
     constexpr static auto keys_fname = "_keys.txt";
     constexpr static auto values_fname = "_values.txt";
     constexpr static auto compact_fname = "_compact.txt";
+    constexpr static auto console_fname = "_console.txt";
     constexpr static auto master_table_name = "Master";
 
     static std::map<std::string, Table*> tables;
@@ -258,7 +258,7 @@ struct Table : Stats {
         constexpr static size_t entry_sz = 256 + 44; // 300 = key,int64,int32,extra\n0
         constexpr static off_t end_marker = -1;
         constexpr static off_t deleted_marker = -2;
-        auto access_value(int fid_values, std::string *value, std::string &table_name, bool write)
+        void access_value(int fid_values, std::string *value, std::string &table_name, bool write)
         {
             sstring msg;
             if (write)
@@ -286,7 +286,7 @@ struct Table : Stats {
                 }
             }
         }
-        auto access(int fid_keys, int fid_values, std::string *value, std::string &table_name, bool write)
+        Index& access(int fid_keys, int fid_values, std::string *value, std::string &table_name, bool write)
         {
             auto fname = db_prefix+table_name+keys_fname;
             char buf[entry_sz+1];
@@ -294,7 +294,10 @@ struct Table : Stats {
             sstring msg;
             if (write)
             {
-                access_value(fid_values, value, table_name, write);
+                if (mode_async)
+                    std::async([this, fid_values, &value, &table_name, write]{access_value(fid_values, value, table_name, write);}).get(); // Read value from values file
+                else
+                    access_value(fid_values, value, table_name, write); // Read value from values file
                 auto fpos_keys = lseek(fid_keys, index * entry_sz, SEEK_SET);
                 sprintf(buf, "%s,%jd,%zu,", key, vfpos, vsz);
                 len = strlen(buf);
@@ -349,7 +352,10 @@ struct Table : Stats {
                     ::write(fid_keys, buf, Index::entry_sz);            // Swap curent and next index entries.
                     memcpy(buf, buf_next, Index::entry_sz);
                 }
-                access_value(fid_values, value, table_name, write);
+                if (mode_async)
+                    std::async([this, fid_values, &value, &table_name, write]{ access_value(fid_values, value, table_name, write); }).get(); // Write value to values file
+                else
+                    access_value(fid_values, value, table_name, write); // Write value to file
                 if (deleted_keys>0)
                     msg+=format(" compacted {} index entries", deleted_keys);
                 if (trace_level & (1 << ETrace::FILEIO))
@@ -421,11 +427,17 @@ struct Table : Stats {
             {
                 Index entry;
                 std::string value;
-                entry.access(fid_keys, fid_values, &value, name, false); // read entry
+                if (mode_async)
+                    std::async([&entry, &value, this]{ entry.access(fid_keys, fid_values, &value, name, false); }).get(); // read entry
+                else
+                    entry.access(fid_keys, fid_values, &value, name, false); // read entry
                 if (entry.vfpos == Index::end_marker)
                     break;
                 entry.index = index++;
-                entry.access(fid_keys, fid_temp, &value, name, true); // write entry
+                if (mode_async)
+                    std::async([&entry, &value, fid_temp, this]{ entry.access(fid_keys, fid_temp, &value, name, true); }).get(); // write entry
+                else
+                    entry.access(fid_keys, fid_temp, &value, name, true); // write entry
             }
             lseek(fid_temp, 0, SEEK_SET);
             lseek(fid_values, 0, SEEK_SET);
@@ -514,9 +526,15 @@ struct Table : Stats {
                 off_t fpos_keys = x->second->fpos;
                 lseek(fid_keys, fpos_keys, SEEK_SET);
                 Index entry;
-                entry.access(fid_keys, fid_values, nullptr, name, false); // Read index entry from file
+                if (mode_async)
+                    std::async([&entry, this]{ entry.access(fid_keys, fid_values, nullptr, name, false); }).get(); // Read index entry from file ignoring value
+                else
+                    entry.access(fid_keys, fid_values, nullptr, name, false); // Read index entry from file ignoring value
                 entry.vfpos = Index::deleted_marker;
-                entry.access(fid_keys, fid_values, nullptr, name, true);  // Write index entry back to file
+                if (mode_async)
+                    std::async([&entry, this]{ entry.access(fid_keys, fid_values, nullptr, name, true); }).get(); // Write index entry back to file ignoring value
+                else
+                    entry.access(fid_keys, fid_values, nullptr, name, true); // Write index entry back to file ignoring value
                 values.erase(x->second->it_value);
                 keys.erase(x->second);
                 xref.erase(x);
@@ -533,7 +551,10 @@ struct Table : Stats {
             Index entry;
             while (true)
             {
-                entry.access(fid_keys, fid_values, nullptr, name, false); // Read index entry from file
+                if (mode_async)
+                    std::async([&entry, this]{ entry.access(fid_keys, fid_values, nullptr, name, false); }).get(); // Read index entry from file ignoring value
+                else
+                    entry.access(fid_keys, fid_values, nullptr, name, false); // Read index entry from file ignoring value
                 if (entry.vfpos==Index::end_marker)
                     break;
                 if (key==entry.key)
@@ -544,14 +565,20 @@ struct Table : Stats {
                 if (remove)
                 {
                     entry.vfpos = Index::deleted_marker;
-                    entry.access(fid_keys, fid_values, nullptr, name, true); // Write index entry back to file
+                    if (mode_async)
+                        std::async([&entry, this]{ entry.access(fid_keys, fid_values, nullptr, name, true); }).get(); // Write index entry back to file ignoring value
+                    else
+                        entry.access(fid_keys, fid_values, nullptr, name, true); // Write index entry back to file ignoring value
                     entries--;
                     if (trace_level & ((1 << ETrace::FILEIO) | (1 << ETrace::CACHE)))
                         applog.info("CACHE|FILEIO: get (remove) {} {}", key, value);
                 }
                 else
                 {
-                    entry.access_value(fid_values, &value, name, false);
+                    if (mode_async)
+                        std::async([&entry, &value, this]{ entry.access_value(fid_values, &value, name, false); }).get(); // Read value from values file
+                    else
+                        entry.access_value(fid_values, &value, name, false); // Read value from values file
                     evict();
                     off_t fpos_keys = entry.index * Index::entry_sz;
                     values.push_front({value, entry.vfpos, entry.vsz});
@@ -597,7 +624,10 @@ struct Table : Stats {
                 branch += "Insert";
                 off_t fpos_keys = lseek(fid_keys, 0, SEEK_END);
                 entry.index = fpos_keys / Index::entry_sz;
-                entry.access(fid_keys, fid_values, &val, name, true);     // write key to keys file and value to values file
+                if (mode_async)
+                    std::async([&entry, &val, this]{ entry.access(fid_keys, fid_values, &val, name, true); }).get(); // write key to keys file and value to values file
+                else
+                    entry.access(fid_keys, fid_values, &val, name, true); // write key to keys file and value to values file
                 evict();
                 values.push_front({val, entry.vfpos, 0});                 // load into cache
                 keys.push_front({key, fpos_keys, values.begin()});
@@ -614,7 +644,10 @@ struct Table : Stats {
                 entry.index = x->second->fpos / Index::entry_sz;
                 if (inplace)
                     entry.vfpos = fpos_values;
-                entry.access(fid_keys, fid_values, &val, name, true);
+                if (mode_async)
+                    std::async([&entry, &val, this]{ entry.access(fid_keys, fid_values, &val, name, true); }).get(); // Read index entry from file ignoring value
+                else
+                    entry.access(fid_keys, fid_values, &val, name, true); // Read index entry from file ignoring value
                 values.erase(x->second->it_value);
                 off_t fpos_keys = entry.index * Index::entry_sz;
                 values.push_front({val, fpos_keys, (ssize_t)value.length()});
@@ -631,15 +664,15 @@ struct Table : Stats {
     operator std::string() const
     {
         return sstring(VERSION) + "\n" +
-            "table:" + name + "\n" +
+            "table: " + name + "\n" +
             Stats::operator::std::string() +
         format(
-            "index entries:{}\n"
-            "cache_entries:{}\n"
-            "lock_cache:{}\n"
-            "lock_fio:{}\n"
-            "readers:{}\n"
-            "value spaces:{}\n",
+            "index entries: {}\n"
+            "cache_entries: {}\n"
+            "lock_cache: {}\n"
+            "lock_fio: {}\n"
+            "readers: {}\n"
+            "value spaces: {}\n",
             entries,
             xref.size(),
             lock_cache,
@@ -648,7 +681,7 @@ struct Table : Stats {
             spaces
         );
     }
-    static bool self_test(int test, int loop, std::string &s)
+    static bool _self_test(int test, int loop, std::string &s)
     {
         bool ok = true;
         sstring t;
@@ -657,8 +690,16 @@ struct Table : Stats {
         if (loop>1)
             for (int i=0; i<loop; i++)
             {
-                std::string t;
-                ok = ok && self_test(test, 1, t);
+                std::string localt;
+                bool local_ok = ok && mode_async ?
+                    std::async([test, &localt]{ return _self_test(test, 1, localt); }).get() :
+                    _self_test(test, 1, localt);
+                if (local_ok != ok)
+                {
+                    t = localt;
+                    LOG;
+                }
+                ok = local_ok;
             }
         else
         {
@@ -682,20 +723,52 @@ struct Table : Stats {
             auto &table = *it_table->second;
             if (test==1)
             {
-                if (!table.set("aaa", "_aaa_", false))  // insert
+                std::string keys[] = {"aaa", "bbb"};
+                std::string values0[] = {"_aaa_", "_bbb_"};
+                for (int i=0; auto key : keys)
+                    if (auto value = values0[i++]; !table.set(key, value, false))   // insert (key=value)s
+                    {
+                        t = format("Failed to insert {}={}", key, value); LOG;
+                        ok = false;
+                    }
+                for (int i=0; auto key : keys)                                      // retrieve values of keys
                 {
-                    t = format("Failed to insert aaa=_aaa_"); LOG;
+                    std::string value;
+                    if (!table.get(key, value).found)  // read
+                    {
+                        t = format("Failed to retrieve {}", key); LOG;
+                        ok = false;
+                    }
+                    if (value!=values0[i])
+                    {
+                        t = format("Unexpected value for key {}={} <> {}", key, value, values0[i]); LOG;
+                        ok = false;
+                    }
+                    i++;
+                }
+                if (std::string value; !table.get(keys[0], value, true).found) // delete
+                {
+                    t = format("Delete failed for key {}", keys[0]); LOG;
                     ok = false;
                 }
-                if (!table.set("bbb", "_bbb_", false))  // insert
+                for (int i=0; auto key : keys)                                      // retrieve values of keys
                 {
-                    t = format("Failed to insert bbb=_bbb_"); LOG;
-                    ok = false;
-                }
-                if (std::string value; !table.get("aaa", value, false, true).found) // delete
-                {
-                    t = format("Delete failed for key aaa"); LOG;
-                    ok = false;
+                    std::string value;
+                    bool found = table.get(key, value).found;  // read
+                    if (i==0)
+                    {
+                        if (found)
+                        {
+                            t = format("Key {} was not deleted", key); LOG;
+                            ok = false;
+                        }
+                    }
+                    else if (value!=values0[i])
+                    {
+                        t = format("Unexpected value for key {}={} <> {}", key, value, values0[i]); LOG;
+                        ok = false;
+                    }
+                    i++;
                 }
             }
             else
@@ -774,7 +847,7 @@ struct Table : Stats {
                 t = table.list(true); LOG; // revolve though index keys once
             }
         }
-        t = format("... test {} {}.\n", test, ok ? "passed" : "failed") + Stats::get_static_profiles(); LOG;
+        t = format("... test {} ==== {} ====.\n", test, ok ? "PASSED" : "FAILED") + Stats::get_static_profiles(); LOG;
         return ok;
     }
     bool get_file(std::string &val, bool keys)
@@ -886,6 +959,7 @@ private:
 };
 std::map<std::string, Table*> Table::tables;
 std::atomic_bool Table::tables_lock = false;
+bool Table::mode_async = false;
 
 class DefaultHandle : public httpd::handler_base {
 public:
@@ -896,23 +970,30 @@ public:
         sstring s;
         s += plain_text ?
             format("{}.{}\n", VERSION) +
+            format("Global stats: {}\n", Stats::get_static_profiles()) +
             format("Global commands\n")
         :
             sstring("<h1>") + VERSION + "</h1>\n" +
+            format("Global stats: {}<br/>\n", Stats::get_static_profiles()) +
             "<html>\n<head>\n<style>\n"
-            "body {background-color: white;}\n"
-            "h1   {color: black;}\n"
-            "span {color: black; min-width: 25%; display: inline-block;}\n"
-            "p    {color: red;background-color: FloralWhite;}\n"
-            "a {text-decoration: none;}"
+            "html *{font-size: 1em !important;}\n"
+            "body  {background-color: white;}\n"
+            "h1    {color: black;}\n"
+            "span  {color: black; min-width: 25%; display: inline-block;}\n"
+            "p     {color: red;background-color: FloralWhite;}\n"
+            "a     {text-decoration: none;}"
             "</style>\n</head>\n<body>\n" +
             sstring("<h1>Global commands:</h1>\n<p>");
         struct {const char*label, *str; } args_global[] =
         {
+            //{"Prometeus server",    "metrics?__name__=http*"},
             {"QUIT",                "quit"},
             {"trace level all ON",  "?trace_level=11111"},
             {"trace level all OFF", "?trace_level=00000"},
             {"list tables in use",  "?used"},
+            {"mode async",          "?mode=async"},
+            {"mode sync(default)",  "?mode=sync"},
+            {"view console file",   "?file_console"},
         };
         for (auto arg : args_global)
             s += plain_text ?
@@ -1011,6 +1092,7 @@ public:
         sstring s = "";
         bool plain = plain_text;
         auto it_table = Table::tables.end();
+        Stats::requests++;
         if (req->query_parameters.size()==0) // HELP
             s += build_help(url, host, table_name);
         else if (req->query_parameters.contains("trace_level"))
@@ -1040,7 +1122,41 @@ public:
             }
             s = format("Changing trace_level from {} to {}", old_tl, new_tl);
             trace_level = new_trace_level;
-            plain = true;
+        }
+        else if (req->query_parameters.contains("mode"))
+        {
+            auto level = req->query_parameters.at("mode");
+            bool old_mode = Table::mode_async;
+            bool new_mode = old_mode;
+            if (level=="async")
+                new_mode=true;
+            else if (level=="sync")
+                new_mode=false;
+            s = format("Changing mode from {} to {}", old_mode ? "async" : "sync", new_mode ? "async" : "sync");
+            Table::mode_async = new_mode;
+        }
+        else if (req->query_parameters.contains("file_console"))
+        {
+            auto fid_console = open((Table::db_prefix + std::string("") + Table::console_fname).c_str(), O_RDWR /*| O_TMPFILE*/, S_IREAD|S_IWRITE|S_IRGRP|S_IROTH);
+            std::string text;
+            if (fid_console>0)
+            {
+                auto fsize = lseek(fid_console, 0, SEEK_END);
+                ssize_t max_size = 0x10000;
+                size_t fpos = (max_size < fsize) ? 0 : (fsize - max_size);
+                if (fpos>0)
+                    max_size = fsize - fpos;
+                lseek(fid_console, fpos, SEEK_SET);
+                text.resize(max_size);
+                if (::read(fid_console, (char*)text.c_str(), max_size) != max_size)
+                    text = format(", Error {} reading console file\n", errno) + text;
+                ::close(fid_console);
+            }
+            else
+                text = format(", Error {} opening console file", errno);
+            if (trace_level & (1 << ETrace::FILEIO))
+                applog.info("SERVER: {}{}{}", s, "console", text);
+            s += text;
         }
         else if (req->query_parameters.contains("use"))
         {
@@ -1066,7 +1182,9 @@ public:
             int l;
             sscanf(loop.c_str(),"%d", &l);
             std::string text;
-            bool result = Table::self_test(tn, l, text);
+            bool result = Table::mode_async ?
+                std::async([tn,l,&text]{ return Table::_self_test(tn, l, text); }).get() :
+                Table::_self_test(tn, l, text);
             std::string::size_type n = 0;
             const std::string rwhat = "\n";
             const std::string rwith = "<br/>\n";
@@ -1100,12 +1218,8 @@ public:
                 else if (req->query_parameters.contains("stats"))
                     s += sstring(s.length() > 0 ? "\n" : "") + format(
                         "{}"
-                        "LockPasses:{}\n"
-                        "LockCollisions:{}\n"
                         ,
-                        (std::string)table,
-                        Lock::passes,
-                        Lock::collisions);
+                        (std::string)table);
                 else if (req->query_parameters.contains("drop"))
                 {
                     s += table.purge(true);
@@ -1161,7 +1275,7 @@ public:
                 }
             }
             if (trace_level & (1 << ETrace::SERVER))
-                applog.info("SERVER: DB request {} on table {}, {}", Stats::requests++, table_name, s);
+                applog.info("SERVER: DB request {} on table {}, {}", Stats::requests, table_name, s);
             plain = true;
         }
         rep->_content = s;
@@ -1170,21 +1284,33 @@ public:
     }
 } defaultHandle(false);
 
+class QuitHandle : public httpd::handler_base {
+public:
+    virtual future<std::unique_ptr<http::reply> > handle(const sstring& path,
+        std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep)
+    {
+        // Need to quit the reactor, but also back the web browser.
+        // Set a future to trigger after the page is sent-out for rendering
+        auto rv = seastar::sleep(1s).then([] {
+            if (trace_level & (1 << ETrace::SERVER))
+                applog.info("SERVER: exiting...");
+            // This doesn't do the job: seastar::engine().exit(0); // gracefully...
+            exit(0); // not so gracefully...
+        });
+        rep->_content = "<body onload=\"history.back()\"\n<h1>Server shutting down</h1>\n</body>";
+        rep->done("html");
+        return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
+    }
+} quitHandle;
+
 void set_routes(routes& r) {
-    function_handler* h4 = new function_handler([](const_req req) {
-        std::string s = "Server shutting down";
-        exit(0);
-        if (trace_level & (1 << ETrace::SERVER))
-            applog.info("SERVER: {}", s);
-        return s;
-    });
     r.add_default_handler(&defaultHandle);
-    r.add(operation_type::GET, url("/quit"), h4);
+    r.add(operation_type::GET, url("/quit"), &quitHandle);
     r.add(operation_type::GET, url("/file").remainder("path"), new directory_handler("/"));
 }
 
 int main(int ac, char** av) {
-    applog.info("Db demo {}", VERSION);
+    applog.info("{}", VERSION);
     httpd::http_server_control prometheus_server;
     prometheus::config pctx;
     app_template app;
