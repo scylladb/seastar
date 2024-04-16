@@ -55,9 +55,9 @@ future<> sleep(std::chrono::duration<Rep, Period> dur) {
             tmr.arm(dur);
         }
     };
-    sleeper *s = new sleeper(dur);
+    auto s = std::make_unique<sleeper>(dur);
     future<> fut = s->done.get_future();
-    return fut.then([s] { delete s; });
+    return fut.finally([s = std::move(s)] {});
 }
 
 /// exception that is thrown when application is in process of been stopped
