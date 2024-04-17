@@ -1046,6 +1046,7 @@ public:
         bool plain = true;
         auto it_table = Table::tables.end();
         Stats::requests++;
+        bool is_console_dump = false;
         if (req->query_parameters.size()==0) // HELP
         {
             s += build_help(url, host, table_name);
@@ -1113,12 +1114,13 @@ public:
                 ::close(fid_console);
             }
             else
-                text = format(", Error {} opening console file {}", errno, fname);
+                text = format("Error {} opening console file {}", errno, fname);
             if (err)
                 if (trace_level & (1 << ETrace::SERVER))
                     applog.info("SERVER: {}{}{}", s, "console", text);
             s += text;
             plain = true;
+            is_console_dump = true;
         }
         else if (req->query_parameters.contains("use"))
         {
@@ -1242,7 +1244,10 @@ public:
             plain = true;
         }
         if (trace_level & (1 << ETrace::SERVER))
-            applog.info("SERVER: DB request {} on table {}, {}", Stats::requests, table_name, plain ? s : "HTML not shown in console");
+            applog.info("SERVER: DB request {} on table {}, {}", Stats::requests, table_name,
+                        !plain ? "HTML help not shown in console" :
+                        is_console_dump ? "Console log is not re-logged" :
+                        s);
         rep->_content = s;
         rep->done(plain ? "plain" : "html");
         co_return co_await make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
