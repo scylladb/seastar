@@ -22,11 +22,14 @@
 #pragma once
 
 #ifndef SEASTAR_MODULE
+#include <seastar/core/coroutine.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/chunked_fifo.hh>
 #include <seastar/util/modules.hh>
 #include <cassert>
+#include <mutex>
 #include <utility>
+#include <shared_mutex>
 #endif
 
 namespace seastar {
@@ -231,6 +234,69 @@ with_lock(shared_mutex& sm, Func&& func) noexcept {
         });
     } catch (...) {
         return futurize<std::invoke_result_t<Func>>::current_exception_as_future();
+    }
+}
+
+namespace internal {
+
+/// Seastar analogue of the `BasicLockable` named requirement, see:
+///   [https://eel.is/c++draft/thread.req.lockable.basic#def:Cpp17BasicLockable]
+template <typename T>
+concept FutureBasicLockable = requires (T& t) {
+    { t.lock() } -> std::same_as<future<>>;
+    { t.unlock() } noexcept -> std::same_as<void>;
+};
+
+/// Seastar analogue of the `SharedLockable` named requirement, see:
+///   [https://eel.is/c++draft/thread.req.lockable.shared#def:Cpp17SharedLockable]
+/// It's called `basic` because the concept doesn't require the type
+/// to define `try_lock_shared()` method to satisfy the constraint, similarly
+/// to the `BasicLockable` named requirement.
+template <typename T>
+concept FutureBasicSharedLockable = requires (T& t) {
+    { t.lock_shared() } -> std::same_as<future<>>;
+    { t.unlock_shared() } noexcept -> std::same_as<void>;
+};
+
+} // namespace internal
+
+/// \brief Construct a RAII-based shared lock corresponding to a given object.
+///
+/// Since constructors cannot be exectued asynchronously, use this function
+/// to shared lock the passed object and construct an std::shared_lock
+/// that will unlock it when the lock is being destroyed.
+///
+/// The caller is responsible for keeping the passed object
+/// alive at least until the returned lock is destroyed.
+template <internal::FutureBasicSharedLockable T>
+future<std::shared_lock<T>> get_shared_lock(T& t) {
+    co_await t.lock_shared();
+
+    try {
+        co_return std::shared_lock<T>{t, std::adopt_lock_t{}};
+    } catch (...) {
+        t.unlock_shared();
+        throw;
+    }
+}
+
+/// \brief Construct a RAII-based unique lock corresponding to a given object.
+///
+/// Since constructors cannot be exectued asynchronously, use this function
+/// to lock the passed object and construct an std::unique_lock
+/// that will unlock it when the lock is being destroyed.
+///
+/// The caller is responsible for keeping the passed object
+/// alive at least until the returned lock is destroyed.
+template <internal::FutureBasicLockable T>
+future<std::unique_lock<T>> get_unique_lock(T& t) {
+    co_await t.lock();
+
+    try {
+        co_return std::unique_lock<T>{t, std::adopt_lock_t{}};
+    } catch (...) {
+        t.unlock();
+        throw;
     }
 }
 
