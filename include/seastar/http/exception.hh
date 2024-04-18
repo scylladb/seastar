@@ -80,10 +80,22 @@ private:
  */
 class redirect_exception : public base_exception {
 public:
-    redirect_exception(const std::string& url, http::reply::status_type status = http::reply::status_type::moved_permanently)
-            : base_exception("", status), url(url) {
+    redirect_exception(const std::string& url, http::reply::status_type status = http::reply::status_type::moved_permanently, const std::optional<int>& retry_after = std::nullopt)
+            : base_exception("", status), url(url), retry_after(retry_after) {
     }
+
+    http::reply to_reply() const {
+        http::reply reply{};
+        reply.add_header("Location", url);
+        if (retry_after.has_value()) {
+            reply.add_header("Retry-After", std::to_string(retry_after.value()));
+        }
+        reply.set_status(status());
+        return reply;
+    }
+
     std::string url;
+    std::optional<int> retry_after;
 };
 
 /**
