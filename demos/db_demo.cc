@@ -63,7 +63,6 @@
  * - Cache is currently WRITETHROUGH.
  */
 
-#include "seastar/coroutine/maybe_yield.hh"
 #include <seastar/http/httpd.hh>
 #include <seastar/http/handlers.hh>
 #include <seastar/http/function_handlers.hh>
@@ -77,7 +76,6 @@
 #include <seastar/net/inet_address.hh>
 #include <seastar/util/defer.hh>
 #include <seastar/core/sleep.hh>
-#include <future>
 
 #pragma GCC diagnostic ignored "-Wunused-variable"
 #pragma GCC diagnostic ignored "-Wstringop-truncation"
@@ -87,73 +85,11 @@ namespace bpo = boost::program_options;
 using namespace seastar;
 using namespace httpd;
 
-const char*VERSION="Demo Database Server 0.6";
+const char*VERSION="Demo Database Server 0.7";
 const char* available_trace_levels[] = {"LOCKS", "FILEIO", "CACHE", "SERVER", "TEST"};
 enum ETrace { LOCKS, FILEIO, CACHE, SERVER, TEST, MAX};
 int trace_level = (1 << ETrace::FILEIO) | (1 << ETrace::CACHE) | (1 << ETrace::SERVER) | (1 << ETrace::TEST);
 logger applog("app");
-
-// Tried to use seastar::coroutine::experimental::generator<Index>.
-// Resorted to adopting the following ugly construct for the index revolver coroutine.
-// Generator should be part of std, if not a compiler generated construct.
-// C++ coroutines are trully a mess.
-
-template<typename T>
-struct Generator
-{
-    struct promise_type;
-    using handle_type = std::coroutine_handle<promise_type>;
-    struct promise_type // required
-    {
-        Generator get_return_object() // This is fundamental
-        {
-            return Generator(handle_type::from_promise(*this));
-        }
-        std::suspend_always initial_suspend() { return {}; }
-        std::suspend_always final_suspend() noexcept { return {}; }
-        void unhandled_exception() { exception_ = std::current_exception(); } // saving
-        // exception
-        template<std::convertible_to<T> From> // C++20 concept
-        std::suspend_always yield_value(From&& from)
-        {
-            value_ = std::forward<From>(from); // caching the result in promise
-            return {};
-        }
-        void return_void() {}
-    private:
-        friend struct Generator;
-        T value_;
-        std::exception_ptr exception_;
-    };
-    Generator(handle_type h) : h_(h) {}
-    ~Generator() { h_.destroy(); }
-    explicit operator bool()
-    {
-        fill();
-        return !h_.done();
-    }
-    T operator()()
-    {
-        fill();
-        full_ = false; // we are going to move out previously cached
-            // result to make promise empty again
-        return std::move(h_.promise().value_);
-    }
-private:
-    handle_type h_;
-    bool full_ = false;
-    void fill()
-    {
-        if (!full_)
-        {
-            h_();
-            if (h_.promise().exception_)
-                std::rethrow_exception(h_.promise().exception_);
-            // propagate coroutine exception in called context
-            full_ = true;
-        }
-    }
-};
 
 struct Lock
 {
@@ -457,12 +393,12 @@ struct Table : Stats {
     }
 
     int delete_index = false;
-    Generator<Index> co_index_locked = index_revolver(false, delete_index);
-    Generator<Index> co_index_unlocked = index_revolver(true, delete_index);
+    seastar::coroutine::experimental::generator<Index> co_index_locked = index_revolver(false, delete_index);
+    seastar::coroutine::experimental::generator<Index> co_index_unlocked = index_revolver(true, delete_index);
 
     // The challenge is to get the list of keys while inserts and deletes are pounding.
     // Poorer performance than scanning the file top-down, but allows concurrent access while the list is built.
-    std::string list(bool locked)
+    seastar::future<std::string> list(bool locked)
     {
         std::set<std::string> keys;
         int count = 0;
@@ -470,10 +406,12 @@ struct Table : Stats {
         while (true)
         {
             {
-                auto [index, key, vfpos, vsz] = locked ? co_index_locked() : co_index_unlocked();
-                if (vfpos!=Index::end_marker) // reached the end, must roll over
+                auto &generator = locked ? co_index_locked : co_index_unlocked;
+                auto val = co_await generator();
+                auto [index, key, vfpos, vsz] = val.value();
+                if (vfpos != Index::end_marker)
                     keys.insert(key);
-                else
+                else // reached the end, must roll over
                     if ((max_count = -index) == 0)
                         break;
             }
@@ -486,7 +424,7 @@ struct Table : Stats {
             s += key + "\n";
         if (trace_level & (1 << ETrace::FILEIO))
             applog.info("FILEIO: list: {}", s);
-        return s;
+        co_return s;
     }
     auto get(const std::string &key, std::string &value, bool remove = false, bool reentered = false)
     {
@@ -812,7 +750,7 @@ struct Table : Stats {
                     t = format("Unexpected number of keys in table {}: {}, expected {}", table.name, table.entries, count); LOG;
                     ok = false;
                 }
-                t = table.list(true); LOG; // revolve though index keys once
+                t = table.list(true).get(); LOG; // revolve though index keys once
             }
         }
         t = format("... test {} ==== {} ====.\n", test, ok ? "PASSED" : "FAILED") + Stats::get_static_profiles(); LOG;
@@ -881,8 +819,7 @@ private:
         }
         return "Evition not required";
     }
-    // Tried to use seastar::coroutine::experimental::generator<Index>
-    Generator<Index> index_revolver(bool locked, int &remove)
+    seastar::coroutine::experimental::generator<Index> index_revolver(bool locked, int &remove)
     {
         off_t fpos = 0;
         int count = 0;
@@ -1175,7 +1112,7 @@ public:
             {
                 auto &table = *it_table->second;
                 if (req->query_parameters.contains("list"))
-                    s = table.list(false);
+                    s = co_await table.list(true);
                 else if (req->query_parameters.contains("invalidate"))
                     s = table.purge(false);
                 else if (req->query_parameters.contains("compact"))
@@ -1183,14 +1120,10 @@ public:
                 else if (req->query_parameters.contains("purge"))
                     s = table.purge(true);
                 else if (req->query_parameters.contains("stats"))
-                    s += sstring(s.length() > 0 ? "\n" : "") + format(
-                        "{}"
-                        ,
-                        (std::string)table);
+                    s += sstring(s.length() > 0 ? "\n" : "") + format("{}", (std::string)table);
                 else if (req->query_parameters.contains("drop"))
                 {
-                    s += table.purge(true);
-                    s += table.close(true);
+                    s += table.purge(true) + "\n" + table.close(true);
                     Table::tables.erase(it_table);
                 }
                 else if (req->query_parameters.contains("max_cache"))
@@ -1218,8 +1151,9 @@ public:
                 }
                 else if (req->query_parameters.contains("rownext"))
                 {
-                    auto [index, key, fpos, sz] = table.co_index_locked();
-                    s = format("test index {}, key:{}, valpos:{}, valsz:{}, value:{}", index, key, fpos, sz, "?");
+                    auto entry = co_await table.co_index_locked();
+                    auto [index, key, vfpos, sz] = entry.value();
+                    s = format("test index {}, key:{}, valpos:{}, valsz:{}, value:{}", index, key, vfpos, sz, "?");
                 }
                 else if (req->query_parameters.contains("op"))
                 {
@@ -1312,7 +1246,6 @@ int main(int ac, char** av) {
                 bool stopping() const { return _caught; }
             } stop_signal;
             auto&& config = app.configuration();
-            //bool prometheus_started = false;
             http_server_control server;
             uint16_t port = config["port"].as<uint16_t>();
             server.start("prometheus").get();
