@@ -56,10 +56,10 @@
  * - The size of the value file can be compared to the Stats::gaps profile to decide if a compaction should be initiated.
  * - All read/write operations on the data set are protected by a spinlock. Pass/Collision ratio is monitored.
  * - For performance reasons, deleted keys are marked and kept in the index file for lazy compaction. Searching for keys are constantly reducing deleted keys.
+ * - The empty string in queries has special meaning. Keys cannot be empty, values can.
  * Limitations:
  * - To keep the index human-readable, a CSV format was chosen: (key-name,off_values,size_value, padding).
  * - This format implies that keys must not contain comma characters.
- * - The empty string in queries has special meaning. Keys cannot be empty, values can.
  * - Cache is currently WRITETHROUGH.
  */
 
@@ -175,7 +175,6 @@ std::atomic_int Stats::self_tests = 0;
 struct Table : Stats {
     std::string name;
     size_t max_cache {2};
-    static bool mode_async;
 
     constexpr static auto db_prefix = "db_";
     constexpr static auto keys_fname = "_keys.txt";
@@ -308,14 +307,12 @@ struct Table : Stats {
             applog.info("FILEIO: Opened {} returned {}", name+keys_fname, fid_values, errno);
         creates++;
     }
-    std::string close(bool remove_files)
+    std::string remove_storage()
     {
         if (fid_keys>0)
             ::close(fid_keys);
         if (fid_values>0)
             ::close(fid_values);
-        if (!remove_files)
-            return "Closed files " + (db_prefix+name+keys_fname) + " and " + (db_prefix+name+values_fname);
         drops++;
         unlink((db_prefix+name+keys_fname).c_str());
         unlink((db_prefix+name+values_fname).c_str());
@@ -343,7 +340,7 @@ struct Table : Stats {
             applog.info("CACHE|FILEIO: purge cache{}", files ? " and files" : "");
         return s;
     }
-    std::string compact()
+    future<std::string> compact()
     {
         Lock l(lock_cache);
         std::string s = purge(false);
@@ -389,16 +386,16 @@ struct Table : Stats {
             msg+=format(", Error {} creating temp values file", errno);
         if (trace_level & (1 << ETrace::FILEIO))
             applog.info("FILEIO: {}{}{}", s, db_prefix+name+compact_fname, msg);
-        return s;
+        co_return s;
     }
 
     int delete_index = false;
-    seastar::coroutine::experimental::generator<Index> co_index_locked = index_revolver(false, delete_index);
-    seastar::coroutine::experimental::generator<Index> co_index_unlocked = index_revolver(true, delete_index);
+    coroutine::experimental::generator<Index> co_index_locked = index_revolver(false, delete_index);
+    coroutine::experimental::generator<Index> co_index_unlocked = index_revolver(true, delete_index);
 
     // The challenge is to get the list of keys while inserts and deletes are pounding.
     // Poorer performance than scanning the file top-down, but allows concurrent access while the list is built.
-    seastar::future<std::string> list(bool locked)
+    future<std::string> list(bool locked)
     {
         std::set<std::string> keys;
         int count = 0;
@@ -426,11 +423,11 @@ struct Table : Stats {
             applog.info("FILEIO: list: {}", s);
         co_return s;
     }
-    auto get(const std::string &key, std::string &value, bool remove = false, bool reentered = false)
+    // _get is used internally by both get and set.
+    auto _get(const std::string &key, std::string &value, bool remove = false, bool reentered = false)
     {
         Lock l(lock_cache, reentered);
         auto x = xref.begin();
-        bool found = true;
         if (key=="")
         {
             if (remove) // clear the cache
@@ -442,6 +439,7 @@ struct Table : Stats {
                 if (trace_level & (1 << ETrace::CACHE))
                     applog.info("CACHE: get (cache) {}", value);
             }
+            x = xref.begin();
         }
         else if ((x = xref.find(key)) != xref.end())
         {
@@ -459,6 +457,7 @@ struct Table : Stats {
                 values.erase(x->second->it_value);
                 keys.erase(x->second);
                 xref.erase(x);
+                x = xref.begin();
                 entries--;
             }
             else
@@ -487,6 +486,7 @@ struct Table : Stats {
                     entries--;
                     if (trace_level & ((1 << ETrace::FILEIO) | (1 << ETrace::CACHE)))
                         applog.info("CACHE|FILEIO: get (remove) {} {}", key, value);
+                    x = xref.end();
                 }
                 else
                 {
@@ -502,25 +502,24 @@ struct Table : Stats {
             }
             else
             {
-                found = false;
                 x = xref.end();
                 if (trace_level & ((1 << ETrace::FILEIO) | (1 << ETrace::CACHE)))
                     applog.info("CACHE|FILEIO: get key {} not found", key);
             }
         }
-        struct RV{bool found; decltype(x) it; };
-        return RV{found, x};
+        return x;
     }
-    bool set(const std::string &key, const std::string &value, bool update, bool reentered = false)
+    future<bool> get(const std::string &key, std::string &value, bool remove = false, bool reentered = false)
+    {
+        co_return _get(key, value, remove, reentered) != xref.end();
+    }
+    future<bool> set(const std::string &key, const std::string &value, bool update, bool reentered = false)
     {
         std::string branch;
-        if (key=="null")
-            if (value=="")
-                branch = "trap ";
-
         Lock l(lock_cache, reentered);
         std::string old_val;
-        auto [found, x] = get(key, old_val, false, true);
+        auto x = _get(key, old_val, false, true);
+        bool found = x!=xref.end();
         if (update && found && value == old_val)
             branch += "ignore"; // ignore update with the same value
         else if (found == update)
@@ -565,7 +564,7 @@ struct Table : Stats {
         }
         if (trace_level & ((1 << ETrace::FILEIO) | (1 << ETrace::CACHE)))
             applog.info("CACHE|FILEIO: set {} {}={} {}", branch, key, value, update == found ? "ok" : "fail");
-        return update == found;
+        co_return update == found;
     }
     operator std::string() const
     {
@@ -587,7 +586,7 @@ struct Table : Stats {
             spaces
         );
     }
-    static bool self_test(int test, int loop, std::string &s)
+    static future<bool> self_test(int test, int loop, std::string &s)
     {
         bool ok = true;
         sstring t;
@@ -597,9 +596,7 @@ struct Table : Stats {
             for (int i=0; i<loop; i++)
             {
                 std::string localt;
-                bool local_ok = ok && mode_async ?
-                    co_self_test(test, 1, localt).get() :
-                    self_test(test, 1, localt);
+                bool local_ok = ok && co_await self_test(test, 1, localt);
                 if (local_ok != ok)
                 {
                     t = localt;
@@ -620,7 +617,7 @@ struct Table : Stats {
                 auto &table = *it_table->second;
                 t = "Using table " + table_name; LOG;
                 t = table.purge(true); LOG;
-                t = table.close(true); LOG;
+                t = table.remove_storage(); LOG;
                 Table::tables.erase(it_table);
                 t = "Dropping table " + table_name; LOG;
                 it_table = tables.emplace(table_name, new Table(table_name)).first;
@@ -632,7 +629,7 @@ struct Table : Stats {
                 std::string keys[] = {"aaa", "bbb"};
                 std::string values0[] = {"_aaa_", "_bbb_"};
                 for (int i=0; auto key : keys)
-                    if (auto value = values0[i++]; !table.set(key, value, false))   // insert (key=value)s
+                    if (auto value = values0[i++]; !co_await table.set(key, value, false))   // insert (key=value)s
                     {
                         t = format("Failed to insert {}={}", key, value); LOG;
                         ok = false;
@@ -640,7 +637,7 @@ struct Table : Stats {
                 for (int i=0; auto key : keys)                                      // retrieve values of keys
                 {
                     std::string value;
-                    if (!table.get(key, value).found)  // read
+                    if (!co_await table.get(key, value))  // read
                     {
                         t = format("Failed to retrieve {}", key); LOG;
                         ok = false;
@@ -652,7 +649,7 @@ struct Table : Stats {
                     }
                     i++;
                 }
-                if (std::string value; !table.get(keys[0], value, true).found) // delete
+                if (std::string value; !co_await table.get(keys[0], value, true)) // delete
                 {
                     t = format("Delete failed for key {}", keys[0]); LOG;
                     ok = false;
@@ -660,7 +657,7 @@ struct Table : Stats {
                 for (int i=0; auto key : keys)                                      // retrieve values of keys
                 {
                     std::string value;
-                    bool found = table.get(key, value).found;  // read
+                    bool found = co_await table.get(key, value);  // read
                     if (i==0)
                     {
                         if (found)
@@ -682,7 +679,7 @@ struct Table : Stats {
                 std::string keys[] = {"aaa", "bbb", "ccc", "null"};
                 std::string values0[] = {"_aaa_", "_bbb_", "_ccc_", ""};
                 for (int i=0; auto key : keys)
-                    if (auto value = values0[i++]; !table.set(key, value, false))   // insert (key=value)s
+                    if (auto value = values0[i++]; !co_await table.set(key, value, false))   // insert (key=value)s
                     {
                         t = format("Failed to insert {}={}", key, value); LOG;
                         ok = false;
@@ -690,7 +687,7 @@ struct Table : Stats {
                 for (int i=0; auto key : keys)                                      // retrieve values of keys
                 {
                     std::string value;
-                    if (!table.get(key, value).found)  // read
+                    if (!co_await table.get(key, value))  // read
                     {
                         t = format("Failed to retrieve {}", key); LOG;
                         ok = false;
@@ -703,26 +700,26 @@ struct Table : Stats {
                     i++;
                 }
                 for (int i=0; auto key : keys)
-                    if (auto value = values0[i++]; table.set(key, value, false))    // try to overinsert (key=value)s
+                    if (auto value = values0[i++]; co_await table.set(key, value, false))    // try to overinsert (key=value)s
                     {
                         t = format("Failed to prevent overinsertion on pre-existing key {}={}", key, value); LOG;
                         ok = false;
                     }
                 std::string values1[] = {"_AAAA_", "_BBB_", "_CC_", "_null_"};
                 for (int i=0; auto key : keys)
-                    if (auto value = values1[i++]; !table.set(key, value, true))    // update (key=value)s
+                    if (auto value = values1[i++]; !co_await table.set(key, value, true))    // update (key=value)s
                     {
                         t = format("Failed to update existing key {}={}", key, value); LOG;
                         ok = false;
                     }
-                if (auto key = "ddd", value="_ddd_"; table.set(key, value, true))  // try to update non-existent key
+                if (auto key = "ddd", value="_ddd_"; co_await table.set(key, value, true))  // try to update non-existent key
                 {
                     t = format("Failed to prevent updating of non-existent key {}={}", key, value); LOG;
                     ok = false;
                 }
                 for (int i=0; auto key : keys)
                 {
-                    if (std::string value; !table.get(key, value).found || value!=values1[i])
+                    if (std::string value; !co_await table.get(key, value) || value!=values1[i])
                     {
                         t = format("Different value for key {}={}, expected {}", key, value, values1[i]); LOG;
                         ok = false;
@@ -733,34 +730,30 @@ struct Table : Stats {
                 {
                     t = format("Table {} expected to have {} internal fragmentation", table.name, "non-zero"); LOG;
                 }
-                t = table.compact(); LOG;   // Compacting must reorder the values file.
+                t = co_await table.compact(); LOG;   // Compacting must reorder the values file.
                 for (int i=0; auto key : keys)
                 {
                     if (i%2) // delete every second key
-                        if (std::string value; !table.get(key, value, true).found) // delete key
+                        if (std::string value; co_await table.get(key, value, true)) // delete key
                         {
-                            t = format("Delete failed for key {}={}, expected {}", key, value, values1[i]); LOG;
+                            t = format("Delete failed for key {}={}", key, value); LOG;
                             ok = false;
                         }
                     i++;
                 }
-                t = table.compact(); LOG; // Compacting remove all index entries marked as "deleted" and reorders the value file.
+                t = co_await table.compact(); LOG; // Compacting remove all index entries marked as "deleted" and reorders the value file.
                 if (auto count = (sizeof(keys)/sizeof(keys[0])+1) / 2; table.entries != count)
                 {
                     t = format("Unexpected number of keys in table {}: {}, expected {}", table.name, table.entries, count); LOG;
                     ok = false;
                 }
-                t = table.list(true).get(); LOG; // revolve though index keys once
+                t = co_await table.list(true); LOG; // revolve though index keys once
             }
         }
         t = format("... test {} ==== {} ====.\n", test, ok ? "PASSED" : "FAILED") + Stats::get_static_profiles(); LOG;
-        return ok;
+        co_return ok;
     }
-    static seastar::future<bool> co_self_test(int test, int loop, std::string &s)
-    {
-        co_return self_test(test, loop, s);
-    }
-    bool get_file(std::string &val, bool keys)
+    bool get_storage_file(std::string &val, bool keys)
     {
         auto fid = keys ? fid_keys : fid_values;
         if (fid<=0)
@@ -819,7 +812,7 @@ private:
         }
         return "Evition not required";
     }
-    seastar::coroutine::experimental::generator<Index> index_revolver(bool locked, int &remove)
+    coroutine::experimental::generator<Index> index_revolver(bool locked, int &remove)
     {
         off_t fpos = 0;
         int count = 0;
@@ -868,7 +861,6 @@ private:
 };
 std::map<std::string, Table*> Table::tables;
 std::atomic_bool Table::tables_lock = false;
-bool Table::mode_async = false;
 
 class DefaultHandle : public httpd::handler_base {
 public:
@@ -892,8 +884,6 @@ public:
             {"trace level all ON",  "?trace_level=11111"},
             {"trace level all OFF", "?trace_level=00000"},
             {"list tables in use",  "?used"},
-            {"mode async",          "?mode=async"},
-            {"mode sync(default)",  "?mode=sync"},
             {"view console file",   "?file_console"},
             {"Prometeus server",    "metrics?__name__=http*"},
         };
@@ -1017,18 +1007,6 @@ public:
             s = format("Changing trace_level from {} to {}", old_tl, new_tl);
             trace_level = new_trace_level;
         }
-        else if (req->query_parameters.contains("mode"))
-        {
-            auto level = req->query_parameters.at("mode");
-            bool old_mode = Table::mode_async;
-            bool new_mode = old_mode;
-            if (level=="async")
-                new_mode=true;
-            else if (level=="sync")
-                new_mode=false;
-            s = format("Changing mode from {} to {}", old_mode ? "async" : "sync", new_mode ? "async" : "sync");
-            Table::mode_async = new_mode;
-        }
         else if (req->query_parameters.contains("file_console"))
         {
             auto fname = Table::db_prefix + std::string("") + Table::console_fname;
@@ -1083,9 +1061,7 @@ public:
             int l;
             sscanf(loop.c_str(),"%d", &l);
             std::string text;
-            bool result = Table::mode_async ?
-                co_await Table::co_self_test(tn, l, text) :
-                Table::self_test(tn, l, text);
+            co_await Table::self_test(tn, l, text);
             if (!plain)
             {
                 std::string::size_type n = 0;
@@ -1116,14 +1092,14 @@ public:
                 else if (req->query_parameters.contains("invalidate"))
                     s = table.purge(false);
                 else if (req->query_parameters.contains("compact"))
-                    s = table.compact();
+                    s = co_await table.compact();
                 else if (req->query_parameters.contains("purge"))
                     s = table.purge(true);
                 else if (req->query_parameters.contains("stats"))
                     s += sstring(s.length() > 0 ? "\n" : "") + format("{}", (std::string)table);
                 else if (req->query_parameters.contains("drop"))
                 {
-                    s += table.purge(true) + "\n" + table.close(true);
+                    s += table.purge(true) + "\n" + table.remove_storage();
                     Table::tables.erase(it_table);
                 }
                 else if (req->query_parameters.contains("max_cache"))
@@ -1144,15 +1120,14 @@ public:
                 {
                     auto val = req->query_parameters.at("file");
                     std::string text;
-                    if (table.get_file(text, val=="keys"))
+                    if (table.get_storage_file(text, val=="keys"))
                         s += text;
                     else
                         s += format("Error reading {} file", val);
                 }
                 else if (req->query_parameters.contains("rownext"))
                 {
-                    auto entry = co_await table.co_index_locked();
-                    auto [index, key, vfpos, sz] = entry.value();
+                    auto [index, key, vfpos, sz] = (co_await table.co_index_locked()).value();
                     s = format("test index {}, key:{}, valpos:{}, valsz:{}, value:{}", index, key, vfpos, sz, "?");
                 }
                 else if (req->query_parameters.contains("op"))
@@ -1161,18 +1136,18 @@ public:
                     auto key = req->query_parameters.contains("key") ? req->query_parameters.at("key") : "";
                     auto value = req->query_parameters.contains("value") ? req->query_parameters.at("value") : "";
                     if (op=="insert")
-                        s = table.set(key, value, false) ? "ok" : "fail";
+                        s = co_await table.set(key, value, false) ? "ok" : "fail";
                     else if (op=="update")
-                        s = table.set(key, value, true) ? "ok" : "fail";
+                        s = co_await table.set(key, value, true) ? "ok" : "fail";
                     else if (op=="delete")
-                        s = table.get(key, new_val, false, true).found ? sstring(new_val) : format("Key {} not found", key);
+                        s = co_await table.get(key, new_val, false, true) ? sstring(new_val) : format("Key {} not found", key);
                     else // any other op is a key read
-                        s = table.get(key, new_val).found ? sstring(new_val) : format("Key {} not found", key);
+                        s = co_await table.get(key, new_val) ? sstring(new_val) : format("Key {} not found", key);
                 }
                 else if (req->query_parameters.contains("key"))
                 {
                     auto key = req->query_parameters.at("key");
-                    s = table.get(key, new_val).found ? sstring(new_val) : format("Key {} not found", key);
+                    s = co_await table.get(key, new_val) ? sstring(new_val) : format("Key {} not found", key);
                 }
             }
             plain = true;
@@ -1195,7 +1170,7 @@ public:
     {
         // Need to quit the reactor, but also back the web browser.
         // Set a future to trigger after the page is sent-out for rendering
-        auto rv = seastar::sleep(1s).then([] {
+        auto rv = sleep(1s).then([] {
             if (trace_level & (1 << ETrace::SERVER))
                 applog.info("SERVER: exiting...");
             // This doesn't do the job: seastar::engine().exit(0); // gracefully...
@@ -1223,10 +1198,10 @@ int main(int ac, char** av) {
     app.add_options()("prefix", bpo::value<sstring>()->default_value("seastar_httpd"), "Prometheus metrics prefix");
 
     return app.run(ac, av, [&] {
-        return seastar::async([&] {
+        return async([&] {
             struct stop_signal {
                 bool _caught = false;
-                seastar::condition_variable _cond;
+                condition_variable _cond;
                 void signaled() {
                     if (_caught)
                         return;
@@ -1234,15 +1209,15 @@ int main(int ac, char** av) {
                     _cond.broadcast();
                 }
                 stop_signal() {
-                    seastar::engine().handle_signal(SIGINT, [this] { signaled(); });
-                    seastar::engine().handle_signal(SIGTERM, [this] { signaled(); });
+                    engine().handle_signal(SIGINT, [this] { signaled(); });
+                    engine().handle_signal(SIGTERM, [this] { signaled(); });
                 }
                 ~stop_signal() {
                     // There's no way to unregister a handler yet, so register a no-op handler instead.
-                    seastar::engine().handle_signal(SIGINT, [] {});
-                    seastar::engine().handle_signal(SIGTERM, [] {});
+                    engine().handle_signal(SIGINT, [] {});
+                    engine().handle_signal(SIGTERM, [] {});
                 }
-                seastar::future<> wait() { return _cond.wait([this] { return _caught; }); }
+                future<> wait() { return _cond.wait([this] { return _caught; }); }
                 bool stopping() const { return _caught; }
             } stop_signal;
             auto&& config = app.configuration();
@@ -1256,7 +1231,7 @@ int main(int ac, char** av) {
             server.set_routes([rb](routes& r){rb->set_api_doc(r);}).get();
             server.set_routes([rb](routes& r) {rb->register_function(r, "demo", "hello world application");}).get();
             server.listen(port).handle_exception([addr, port] (auto ep) {
-                std::cerr << seastar::format("Could not start DB server on {}:{}: {}\n", addr, port, ep);
+                std::cerr << format("Could not start DB server on {}:{}: {}\n", addr, port, ep);
                 return make_exception_future<>(ep);
             }).get();
             std::cout << VERSION << " listening on port " << port << " ...\n";
