@@ -435,7 +435,7 @@ template <> struct fmt::formatter<seastar::rpc::connection_id> : fmt::ostream_fo
 #if FMT_VERSION < 100000
 // fmt v10 introduced formatter for std::exception
 template <std::derived_from<seastar::rpc::error> T>
-struct fmt::formatter<T> : fmt::formatter<std::string_view> {
+struct fmt::formatter<T> : fmt::formatter<string_view> {
     auto format(const T& e, fmt::format_context& ctx) const {
         return fmt::format_to(ctx.out(), "{}", e.what());
     }

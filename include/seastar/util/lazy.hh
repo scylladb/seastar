@@ -153,7 +153,7 @@ ostream& operator<<(ostream& os, seastar::lazy_deref_wrapper<T> ld) {
 }
 
 template <typename Func>
-struct fmt::formatter<seastar::lazy_eval<Func>> : fmt::formatter<std::string_view> {
+struct fmt::formatter<seastar::lazy_eval<Func>> : fmt::formatter<string_view> {
     template <typename FormatContext>
     auto format(const seastar::lazy_eval<Func>& lf, FormatContext& ctx) const {
         return fmt::format_to(ctx.out(), "{}", lf());
@@ -161,7 +161,7 @@ struct fmt::formatter<seastar::lazy_eval<Func>> : fmt::formatter<std::string_vie
 };
 
 template <typename T>
-struct fmt::formatter<seastar::lazy_deref_wrapper<T>> : fmt::formatter<std::string_view> {
+struct fmt::formatter<seastar::lazy_deref_wrapper<T>> : fmt::formatter<string_view> {
     template <typename FormatContext>
     auto format(const seastar::lazy_deref_wrapper<T>& ld, FormatContext& ctx) const {
         if (ld.p) {

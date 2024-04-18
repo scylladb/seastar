@@ -201,7 +201,7 @@ SEASTAR_MODULE_EXPORT_END
 #if FMT_VERSION < 100000
 // fmt v10 introduced formatter for std::exception
 template <>
-struct fmt::formatter<seastar::abort_requested_exception> : fmt::formatter<std::string_view> {
+struct fmt::formatter<seastar::abort_requested_exception> : fmt::formatter<string_view> {
     auto format(const seastar::abort_requested_exception& e, fmt::format_context& ctx) const {
         return fmt::format_to(ctx.out(), "{}", e.what());
     }

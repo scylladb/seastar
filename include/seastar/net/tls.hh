@@ -25,6 +25,7 @@
 #include <unordered_set>
 #include <map>
 #include <boost/any.hpp>
+#include <fmt/format.h>
 #endif
 
 #include <seastar/core/future.hh>
@@ -497,14 +498,14 @@ namespace tls {
 }
 }
 
-template <> struct fmt::formatter<seastar::tls::subject_alt_name_type> : fmt::formatter<std::string_view> {
+template <> struct fmt::formatter<seastar::tls::subject_alt_name_type> : fmt::formatter<string_view> {
     template <typename FormatContext>
     auto format(seastar::tls::subject_alt_name_type type, FormatContext& ctx) const {
-        return formatter<std::string_view>::format(format_as(type), ctx);
+        return formatter<string_view>::format(format_as(type), ctx);
     }
 };
 
-template <> struct fmt::formatter<seastar::tls::subject_alt_name::value_type> : fmt::formatter<std::string_view> {
+template <> struct fmt::formatter<seastar::tls::subject_alt_name::value_type> : fmt::formatter<string_view> {
     template <typename FormatContext>
     auto format(const seastar::tls::subject_alt_name::value_type& value, FormatContext& ctx) const {
         return std::visit([&](const auto& v) {
@@ -513,7 +514,7 @@ template <> struct fmt::formatter<seastar::tls::subject_alt_name::value_type> : 
     }
 };
 
-template <> struct fmt::formatter<seastar::tls::subject_alt_name> : fmt::formatter<std::string_view> {
+template <> struct fmt::formatter<seastar::tls::subject_alt_name> : fmt::formatter<string_view> {
     template <typename FormatContext>
     auto format(const seastar::tls::subject_alt_name& name, FormatContext& ctx) const {
         return fmt::format_to(ctx.out(), "{}={}", name.type, name.value);
