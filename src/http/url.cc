@@ -49,7 +49,7 @@ short hex_to_byte(char c) {
 /**
  * Convert a hex encoded 2 bytes substring to char
  */
-char hexstr_to_char(const std::string_view& in, size_t from) {
+char hexstr_to_char(std::string_view in, size_t from) {
 
     return static_cast<char>(hex_to_byte(in[from]) * 16 + hex_to_byte(in[from + 1]));
 }
@@ -67,9 +67,7 @@ inline char char_to_hex(unsigned char val) {
     return "0123456789ABCDEF"[val];
 }
 
-}
-
-bool url_decode(const std::string_view& in, sstring& out) {
+bool decode(bool replace_plus, std::string_view in, sstring& out) {
     size_t pos = 0;
     sstring buff(in.length(), 0);
     for (size_t i = 0; i < in.length(); ++i) {
@@ -80,7 +78,7 @@ bool url_decode(const std::string_view& in, sstring& out) {
             } else {
                 return false;
             }
-        } else if (in[i] == '+') {
+        } else if (replace_plus && in[i] == '+') {
             buff[pos++] = ' ';
         } else {
             buff[pos++] = in[i];
@@ -91,7 +89,18 @@ bool url_decode(const std::string_view& in, sstring& out) {
     return true;
 }
 
-sstring url_encode(const std::string_view& in) {
+}
+
+bool url_decode(std::string_view in, sstring& out) {
+    return decode(true, in, out);
+}
+
+bool path_decode(std::string_view in, sstring& out) {
+    return decode(false, in, out);
+}
+
+
+sstring url_encode(std::string_view in) {
     size_t encodable_chars = 0;
     for (size_t i = 0; i < in.length(); i++) {
         if (should_encode(in[i])) {

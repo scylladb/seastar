@@ -16,6 +16,7 @@
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include "loopback_socket.hh"
+#include "seastar/http/reply.hh"
 #include <boost/algorithm/string.hpp>
 #include <seastar/core/thread.hh>
 #include <seastar/util/noncopyable_function.hh>
@@ -64,7 +65,7 @@ SEASTAR_TEST_CASE(test_param_matcher)
     parameters param;
     BOOST_REQUIRE_EQUAL(m.match("/abc/hello", 4, param), 10u);
     BOOST_REQUIRE_EQUAL(param.path("param"), "/hello");
-    BOOST_REQUIRE_EQUAL(param["param"], "hello");
+    BOOST_REQUIRE_EQUAL(param.get_decoded_param("param"), "hello");
     return make_ready_future<>();
 }
 
@@ -77,10 +78,16 @@ SEASTAR_TEST_CASE(test_match_rule)
     mr.add_str("/hello").add_param("param");
     httpd::handler_base* res = mr.get("/hello/val1", param);
     BOOST_REQUIRE_EQUAL(res, h);
-    BOOST_REQUIRE_EQUAL(param["param"], "val1");
+    BOOST_REQUIRE_EQUAL(param.get_decoded_param("param"), "val1");
     res = mr.get("/hell/val1", param);
     httpd::handler_base* nl = nullptr;
     BOOST_REQUIRE_EQUAL(res, nl);
+
+    // Test that URL decoding happens correctly on the path part of
+    // the URL. Reproduces issue #725.
+    res = mr.get("/hello/hello%21hi", param);
+    BOOST_REQUIRE_EQUAL(param.get_decoded_param("param"), "hello!hi");
+
     return make_ready_future<>();
 }
 
@@ -205,6 +212,24 @@ SEASTAR_TEST_CASE(test_decode_url) {
     return make_ready_future<>();
 }
 
+SEASTAR_TEST_CASE(test_decode_path) {
+    http::request req;
+    req.param = httpd::parameters();
+    req.param.set("param1", "/a+b");
+    req.param.set("param2", "/same%2Ba%2Bb");
+    req.param.set("param3", "/another_param");
+    req.param.set("param4", "/yet%20another");
+    req.param.set("invalid_param", "/%2");
+
+    BOOST_REQUIRE_EQUAL(req.get_path_param("param1"), "a+b");
+    BOOST_REQUIRE_EQUAL(req.get_path_param("param2"), "same+a+b");
+    BOOST_REQUIRE_EQUAL(req.get_path_param("param3"), "another_param");
+    BOOST_REQUIRE_EQUAL(req.get_path_param("param4"), "yet another");
+    BOOST_REQUIRE_EQUAL(req.get_path_param("invalid_param"), "");
+    BOOST_REQUIRE_EQUAL(req.get_path_param("missing_param"), "");
+    return make_ready_future<>();
+}
+
 SEASTAR_TEST_CASE(test_routes) {
     handl* h1 = new handl();
     handl* h2 = new handl();
@@ -254,6 +279,7 @@ SEASTAR_TEST_CASE(test_json_path) {
     shared_ptr<bool> res1 = make_shared<bool>(false);
     shared_ptr<bool> res2 = make_shared<bool>(false);
     shared_ptr<bool> res3 = make_shared<bool>(false);
+    shared_ptr<bool> res4 = make_shared<bool>(false);
     shared_ptr<routes> route = make_shared<routes>();
     path_description path1("/my/path",GET,"path1",
         {{"param1", path_description::url_component_type::PARAM}
@@ -264,44 +290,57 @@ SEASTAR_TEST_CASE(test_json_path) {
     path_description path3("/my/path",GET,"path3",
             {{"param1", path_description::url_component_type::PARAM}
             ,{"param2", path_description::url_component_type::PARAM_UNTIL_END_OF_PATH}},{});
+    path_description path4("/double/encoded",GET,"path4",
+            {{"param1", path_description::url_component_type::PARAM_UNTIL_END_OF_PATH}},{});
 
     path1.set(*route, [res1] (const_req req) {
         (*res1) = true;
-        BOOST_REQUIRE_EQUAL(req.param["param1"], "value1");
+        BOOST_REQUIRE_EQUAL(req.get_path_param("param1"), "value1");
         return "";
     });
 
     path2.set(*route, [res2] (const_req req) {
         (*res2) = true;
-        BOOST_REQUIRE_EQUAL(req.param["param1"], "value2");
-        BOOST_REQUIRE_EQUAL(req.param["param2"], "text1");
+        BOOST_REQUIRE_EQUAL(req.get_path_param("param1"), "value4+value4 value4");
+
+        BOOST_REQUIRE_EQUAL(req.get_path_param("param2"), "text4+text4");
         return "";
     });
 
     path3.set(*route, [res3] (const_req req) {
         (*res3) = true;
-        BOOST_REQUIRE_EQUAL(req.param["param1"], "value3");
-        BOOST_REQUIRE_EQUAL(req.param["param2"], "text2/text3");
+        BOOST_REQUIRE_EQUAL(req.get_path_param("param1"), "value3");
+
+        BOOST_REQUIRE_EQUAL(req.get_path_param("param2"), "text2/text3");
         return "";
     });
 
-    auto f1 = route->handle("/my/path/value1/text", std::make_unique<http::request>(), std::make_unique<http::reply>()).then([res1, route] (auto f) {
-        BOOST_REQUIRE_EQUAL(*res1, true);
+    path4.set(*route, [res4] (const_req req) {
+        (*res4) = true;
+        BOOST_REQUIRE_EQUAL(req.get_path_param("param1"), "example%20");
+        return "";
     });
 
-    auto f2 = route->handle("/my/path/value2/text1", std::make_unique<http::request>(), std::make_unique<http::reply>()).then([res2, route] (auto f) {
-        BOOST_REQUIRE_EQUAL(*res2, true);
-    });
+    auto check_handler = [route](auto raw_url, auto res) {
+        http::request req;
+        req._url = raw_url;
+        sstring url = req.parse_query_param();
+        return route->handle(url, std::make_unique<http::request>(), std::make_unique<http::reply>()).then([res, route] (auto f) {
+            BOOST_REQUIRE_EQUAL(*res, true);
+        });
+    };
 
-    auto f3 = route->handle("/my/path/value3/text2/text3", std::make_unique<http::request>(), std::make_unique<http::reply>()).then([res3, route] (auto f) {
-        BOOST_REQUIRE_EQUAL(*res3, true);
-    });
+    auto f1 = check_handler("/my/path/value1/text", res1);
+    auto f2 = check_handler("/my/path/value4+value4%20value4/text4%2Btext4", res2);
+    auto f3 = check_handler("/my/path/value3/text2/text3", res3);
+    auto f4 = check_handler("/double/encoded/example%2520", res4);
 
-    return when_all(std::move(f1), std::move(f2), std::move(f3))
-                .then([] (std::tuple<future<>, future<>, future<>> fs) {
+    return when_all(std::move(f1), std::move(f2), std::move(f3), std::move(f4))
+                .then([] (auto fs) {
             std::get<0>(fs).get();
             std::get<1>(fs).get();
             std::get<2>(fs).get();
+            std::get<3>(fs).get();
     });
 }
 
@@ -1509,4 +1548,25 @@ SEASTAR_TEST_CASE(test_redirect_exception) {
         client.get();
         server.stop().get();
     });
+}
+
+BOOST_AUTO_TEST_CASE(test_path_decode_unchanged) {
+    auto unchanged_chars = seastar::sstring{
+      "~abcdefghijklmnopqrstuvwhyz-ABCDEFGHIJKLMNOPQRSTUVWXYZ_0123456789.+"};
+    auto result = seastar::sstring{};
+    auto success = http::internal::path_decode(unchanged_chars, result);
+
+    BOOST_REQUIRE(success);
+    BOOST_REQUIRE_EQUAL(result, unchanged_chars);
+}
+
+BOOST_AUTO_TEST_CASE(test_path_decode_changed) {
+    auto changed_chars = seastar::sstring{"%20"};
+    auto result = seastar::sstring{};
+    auto success = http::internal::path_decode(changed_chars, result);
+
+    BOOST_REQUIRE(success);
+
+    auto expected_chars = seastar::sstring{" "};
+    BOOST_REQUIRE_EQUAL(result, expected_chars);
 }
