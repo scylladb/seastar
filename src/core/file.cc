@@ -204,7 +204,8 @@ posix_file_impl::flush() noexcept {
 
 future<struct stat>
 posix_file_impl::stat() noexcept {
-    auto ret = co_await engine()._thread_pool->submit<syscall_result_extra<struct stat>>([fd = _fd] {
+    auto ret = co_await engine()._thread_pool->submit<syscall_result_extra<struct stat>>(
+            internal::thread_pool_submit_reason::file_operation, [fd = _fd] {
         struct stat st;
         auto ret = ::fstat(fd, &st);
         return wrap_syscall(ret, st);
@@ -215,7 +216,8 @@ posix_file_impl::stat() noexcept {
 
 future<>
 posix_file_impl::truncate(uint64_t length) noexcept {
-    auto sr = co_await engine()._thread_pool->submit<syscall_result<int>>([this, length] {
+    auto sr = co_await engine()._thread_pool->submit<syscall_result<int>>(
+            internal::thread_pool_submit_reason::file_operation, [this, length] {
         return wrap_syscall<int>(::ftruncate(_fd, length));
     });
     sr.throw_if_error();
@@ -223,7 +225,8 @@ posix_file_impl::truncate(uint64_t length) noexcept {
 
 future<int>
 posix_file_impl::ioctl(uint64_t cmd, void* argp) noexcept {
-    auto sr = co_await engine()._thread_pool->submit<syscall_result<int>>([this, cmd, argp] () mutable {
+    auto sr = co_await engine()._thread_pool->submit<syscall_result<int>>(
+            internal::thread_pool_submit_reason::file_operation, [this, cmd, argp] () mutable {
         return wrap_syscall<int>(::ioctl(_fd, cmd, argp));
     });
     sr.throw_if_error();
@@ -243,7 +246,8 @@ posix_file_impl::ioctl_short(uint64_t cmd, void* argp) noexcept {
 
 future<int>
 posix_file_impl::fcntl(int op, uintptr_t arg) noexcept {
-    auto sr = co_await engine()._thread_pool->submit<syscall_result<int>>([this, op, arg] () mutable {
+    auto sr = co_await engine()._thread_pool->submit<syscall_result<int>>(
+            internal::thread_pool_submit_reason::file_operation, [this, op, arg] () mutable {
         return wrap_syscall<int>(::fcntl(_fd, op, arg));
     });
     sr.throw_if_error();
@@ -264,7 +268,7 @@ posix_file_impl::fcntl_short(int op, uintptr_t arg) noexcept {
 future<>
 posix_file_impl::discard(uint64_t offset, uint64_t length) noexcept {
     auto sr = co_await engine()._thread_pool->submit<syscall_result<int>>(
-            [this, offset, length] () mutable {
+            internal::thread_pool_submit_reason::file_operation, [this, offset, length] () mutable {
         return wrap_syscall<int>(::fallocate(_fd, FALLOC_FL_PUNCH_HOLE|FALLOC_FL_KEEP_SIZE,
             offset, length));
     });
@@ -280,7 +284,7 @@ posix_file_impl::allocate(uint64_t position, uint64_t length) noexcept {
         co_return;
     }
     auto sr = co_await engine()._thread_pool->submit<syscall_result<int>>(
-            [this, position, length] () mutable {
+            internal::thread_pool_submit_reason::file_operation, [this, position, length] () mutable {
         auto ret = ::fallocate(_fd, FALLOC_FL_ZERO_RANGE|FALLOC_FL_KEEP_SIZE, position, length);
         if (ret == -1 && errno == EOPNOTSUPP) {
             ret = 0;
@@ -325,7 +329,8 @@ posix_file_impl::close() noexcept {
     } else {
         closed = std::invoke([fd] () noexcept {
             try {
-                return engine()._thread_pool->submit<syscall_result<int>>([fd] {
+                return engine()._thread_pool->submit<syscall_result<int>>(
+                        internal::thread_pool_submit_reason::file_operation, [fd] {
                     return wrap_syscall<int>(::close(fd));
                 });
             } catch (...) {
@@ -345,7 +350,8 @@ posix_file_impl::close() noexcept {
 
 future<uint64_t>
 blockdev_file_impl::size() noexcept {
-    auto ret = co_await engine()._thread_pool->submit<syscall_result_extra<size_t>>([this] {
+    auto ret = co_await engine()._thread_pool->submit<syscall_result_extra<size_t>>(
+            internal::thread_pool_submit_reason::file_operation, [this] {
         uint64_t size;
         int ret = ::ioctl(_fd, BLKGETSIZE64, &size);
         return wrap_syscall(ret, size);
@@ -644,7 +650,7 @@ blockdev_file_impl::truncate(uint64_t length) noexcept {
 future<>
 blockdev_file_impl::discard(uint64_t offset, uint64_t length) noexcept {
     auto sr = co_await engine()._thread_pool->submit<syscall_result<int>>(
-            [this, offset, length] () mutable {
+            internal::thread_pool_submit_reason::file_operation, [this, offset, length] () mutable {
         uint64_t range[2] { offset, length };
         return wrap_syscall<int>(::ioctl(_fd, BLKDISCARD, &range));
     });
