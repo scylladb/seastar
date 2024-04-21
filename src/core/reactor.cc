@@ -1792,7 +1792,7 @@ reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_opt
             }
             close_fd.cancel();
             return wrap_syscall(fd, st);
-        }).then([&options, name = std::move(name), &open_flags] (syscall_result_extra<struct stat> sr) {
+        }, submit_reason::file_operation).then([&options, name = std::move(name), &open_flags] (syscall_result_extra<struct stat> sr) {
             sr.throw_fs_exception_if_error("open failed", name);
             return make_file_impl(sr.result, options, open_flags, sr.extra);
         }).then([] (shared_ptr<file_impl> impl) {
@@ -1807,7 +1807,7 @@ reactor::remove_file(std::string_view pathname) noexcept {
     return futurize_invoke([this, pathname] {
         return _thread_pool->submit<syscall_result<int>>([pathname = sstring(pathname)] {
             return wrap_syscall<int>(::remove(pathname.c_str()));
-        }).then([pathname = sstring(pathname)] (syscall_result<int> sr) {
+        }, submit_reason::file_operation).then([pathname = sstring(pathname)] (syscall_result<int> sr) {
             sr.throw_fs_exception_if_error("remove failed", pathname);
             return make_ready_future<>();
         });
@@ -1820,7 +1820,8 @@ reactor::rename_file(std::string_view old_pathname, std::string_view new_pathnam
     return futurize_invoke([this, old_pathname, new_pathname] {
         return _thread_pool->submit<syscall_result<int>>([old_pathname = sstring(old_pathname), new_pathname = sstring(new_pathname)] {
             return wrap_syscall<int>(::rename(old_pathname.c_str(), new_pathname.c_str()));
-        }).then([old_pathname = sstring(old_pathname), new_pathname = sstring(new_pathname)] (syscall_result<int> sr) {
+        }, submit_reason::file_operation
+        ).then([old_pathname = sstring(old_pathname), new_pathname = sstring(new_pathname)] (syscall_result<int> sr) {
             sr.throw_fs_exception_if_error("rename failed",  old_pathname, new_pathname);
             return make_ready_future<>();
         });
@@ -1833,7 +1834,7 @@ reactor::link_file(std::string_view oldpath, std::string_view newpath) noexcept 
     return futurize_invoke([this, oldpath, newpath] {
         return _thread_pool->submit<syscall_result<int>>([oldpath = sstring(oldpath), newpath = sstring(newpath)] {
             return wrap_syscall<int>(::link(oldpath.c_str(), newpath.c_str()));
-        }).then([oldpath = sstring(oldpath), newpath = sstring(newpath)] (syscall_result<int> sr) {
+        }, submit_reason::file_operation).then([oldpath = sstring(oldpath), newpath = sstring(newpath)] (syscall_result<int> sr) {
             sr.throw_fs_exception_if_error("link failed", oldpath, newpath);
             return make_ready_future<>();
         });
@@ -1847,7 +1848,7 @@ reactor::chmod(std::string_view name, file_permissions permissions) noexcept {
     return futurize_invoke([name, mode, this] {
         return _thread_pool->submit<syscall_result<int>>([name = sstring(name), mode] {
             return wrap_syscall<int>(::chmod(name.c_str(), mode));
-        }).then([name = sstring(name), mode] (syscall_result<int> sr) {
+        }, submit_reason::file_operation).then([name = sstring(name), mode] (syscall_result<int> sr) {
             if (sr.result == -1) {
                 auto reason = format("chmod(0{:o}) failed", mode);
                 sr.throw_fs_exception(reason, fs::path(name));
@@ -1891,7 +1892,7 @@ reactor::file_type(std::string_view name, follow_symlink follow) noexcept {
             auto stat_syscall = follow ? stat : lstat;
             auto ret = stat_syscall(name.c_str(), &st);
             return wrap_syscall(ret, st);
-        }).then([name = sstring(name)] (syscall_result_extra<struct stat> sr) {
+        }, submit_reason::file_operation).then([name = sstring(name)] (syscall_result_extra<struct stat> sr) {
             if (long(sr.result) == -1) {
                 if (sr.error != ENOENT && sr.error != ENOTDIR) {
                     sr.throw_fs_exception_if_error("stat failed", name);
@@ -1921,7 +1922,7 @@ future<size_t> reactor::read_directory(int fd, char* buffer, size_t buffer_size)
     return _thread_pool->submit<syscall_result<long>>([fd, buffer, buffer_size] () {
         auto ret = ::syscall(__NR_getdents64, fd, reinterpret_cast<linux_dirent64*>(buffer), buffer_size);
         return wrap_syscall(ret);
-    }).then([] (syscall_result<long> ret) {
+    }, submit_reason::file_operation).then([] (syscall_result<long> ret) {
         ret.throw_if_error();
         return make_ready_future<size_t>(ret.result);
     });
@@ -1934,7 +1935,7 @@ reactor::inotify_add_watch(int fd, std::string_view path, uint32_t flags) {
         return _thread_pool->submit<syscall_result<int>>([fd, path = sstring(path), flags] {
             auto ret = ::inotify_add_watch(fd, path.c_str(), flags);
             return wrap_syscall(ret);
-        }).then([] (syscall_result<int> ret) {
+        }, submit_reason::file_operation).then([] (syscall_result<int> ret) {
             ret.throw_if_error();
             return make_ready_future<int>(ret.result);
         });
@@ -2036,7 +2037,7 @@ reactor::spawn(std::string_view pathname,
                     return wrap_syscall<int>(::posix_spawn(&child_pid, pathname.c_str(), &actions, &attr,
                                                            const_cast<char* const *>(argv.data()),
                                                            const_cast<char* const *>(env.data())));
-            });
+            }, submit_reason::process_operation);
         }).finally([&actions, &attr] {
             posix_spawn_file_actions_destroy(&actions);
             posix_spawnattr_destroy(&attr);
@@ -2074,7 +2075,7 @@ static auto next_waitpid_timeout(std::chrono::milliseconds this_timeout) {
 future<int> reactor::waitpid(pid_t pid) {
     syscall_result<int> pidfd = co_await _thread_pool->submit<syscall_result<int>>([pid] {
         return wrap_syscall<int>(syscall(__NR_pidfd_open, pid, O_NONBLOCK));
-    });
+    }, submit_reason::process_operation);
     // pidfd_open() was introduced in linux 5.3, so the pidfd.error could be ENOSYS on
     // older kernels. But it could be other error like EMFILE or ENFILE. anyway, we
     // should always waitpid().
@@ -2166,7 +2167,7 @@ reactor::file_stat(std::string_view pathname, follow_symlink follow) noexcept {
             auto stat_syscall = follow ? stat : lstat;
             auto ret = stat_syscall(pathname.c_str(), &st);
             return wrap_syscall(ret, st);
-        }).then([pathname = sstring(pathname)] (syscall_result_extra<struct stat> sr) {
+        }, submit_reason::file_operation).then([pathname = sstring(pathname)] (syscall_result_extra<struct stat> sr) {
             sr.throw_fs_exception_if_error("stat failed", pathname);
             struct stat& st = sr.extra;
             stat_data sd;
@@ -2204,7 +2205,7 @@ reactor::file_accessible(std::string_view pathname, access_flags flags) noexcept
             auto aflags = std::underlying_type_t<access_flags>(flags);
             auto ret = ::access(pathname.c_str(), aflags);
             return wrap_syscall(ret);
-        }).then([pathname = sstring(pathname), flags] (syscall_result<int> sr) {
+        }, submit_reason::file_operation).then([pathname = sstring(pathname), flags] (syscall_result<int> sr) {
             if (sr.result < 0) {
                 if ((sr.error == ENOENT && flags == access_flags::exists) ||
                     (sr.error == EACCES && flags != access_flags::exists)) {
@@ -2226,7 +2227,7 @@ reactor::file_system_at(std::string_view pathname) noexcept {
             struct statfs st;
             auto ret = statfs(pathname.c_str(), &st);
             return wrap_syscall(ret, st);
-        }).then([pathname = sstring(pathname)] (syscall_result_extra<struct statfs> sr) {
+        }, submit_reason::file_operation).then([pathname = sstring(pathname)] (syscall_result_extra<struct statfs> sr) {
             static std::unordered_map<long int, fs_type> type_mapper = {
                 { internal::fs_magic::xfs, fs_type::xfs },
                 { internal::fs_magic::ext2, fs_type::ext2 },
@@ -2253,7 +2254,7 @@ reactor::fstatfs(int fd) noexcept {
         struct statfs st;
         auto ret = ::fstatfs(fd, &st);
         return wrap_syscall(ret, st);
-    }).then([] (syscall_result_extra<struct statfs> sr) {
+    }, submit_reason::file_operation).then([] (syscall_result_extra<struct statfs> sr) {
         sr.throw_if_error();
         struct statfs st = sr.extra;
         return make_ready_future<struct statfs>(std::move(st));
@@ -2279,7 +2280,7 @@ reactor::statvfs(std::string_view pathname) noexcept {
             struct statvfs st;
             auto ret = ::statvfs(pathname.c_str(), &st);
             return wrap_syscall(ret, st);
-        }).then([pathname = sstring(pathname)] (syscall_result_extra<struct statvfs> sr) {
+        }, submit_reason::file_operation).then([pathname = sstring(pathname)] (syscall_result_extra<struct statvfs> sr) {
             sr.throw_fs_exception_if_error("statvfs failed", pathname);
             struct statvfs st = sr.extra;
             return make_ready_future<struct statvfs>(std::move(st));
@@ -2303,7 +2304,7 @@ reactor::open_directory(std::string_view name) noexcept {
                 }
             }
             return wrap_syscall(fd, st);
-        }).then([name = sstring(name), oflags] (syscall_result_extra<struct stat> sr) {
+        }, submit_reason::file_operation).then([name = sstring(name), oflags] (syscall_result_extra<struct stat> sr) {
             sr.throw_fs_exception_if_error("open failed", name);
             return make_file_impl(sr.result, file_open_options(), oflags, sr.extra);
         }).then([] (shared_ptr<file_impl> file_impl) {
@@ -2319,7 +2320,7 @@ reactor::make_directory(std::string_view name, file_permissions permissions) noe
         return _thread_pool->submit<syscall_result<int>>([name = sstring(name), permissions] {
             auto mode = static_cast<mode_t>(permissions);
             return wrap_syscall<int>(::mkdir(name.c_str(), mode));
-        }).then([name = sstring(name)] (syscall_result<int> sr) {
+        }, submit_reason::file_operation).then([name = sstring(name)] (syscall_result<int> sr) {
             sr.throw_fs_exception_if_error("mkdir failed", name);
         });
     });
@@ -2332,7 +2333,7 @@ reactor::touch_directory(std::string_view name, file_permissions permissions) no
         return _thread_pool->submit<syscall_result<int>>([name = sstring(name), permissions] {
             auto mode = static_cast<mode_t>(permissions);
             return wrap_syscall<int>(::mkdir(name.c_str(), mode));
-        }).then([name = sstring(name)] (syscall_result<int> sr) {
+        }, submit_reason::file_operation).then([name = sstring(name)] (syscall_result<int> sr) {
             if (sr.result == -1 && sr.error != EEXIST) {
                 sr.throw_fs_exception("mkdir failed", fs::path(name));
             }
@@ -2377,7 +2378,7 @@ reactor::fdatasync(int fd) noexcept {
     }
     return _thread_pool->submit<syscall_result<int>>([fd] {
         return wrap_syscall<int>(::fdatasync(fd));
-    }).then([] (syscall_result<int> sr) {
+    }, submit_reason::file_operation).then([] (syscall_result<int> sr) {
         sr.throw_if_error();
         return make_ready_future<>();
     });
@@ -2509,6 +2510,12 @@ void reactor::register_metrics() {
 
     namespace sm = seastar::metrics;
 
+    auto io_fallback_counter = [this](const sstring& reason_str, submit_reason r) {
+        static auto reason_label = sm::label("reason");
+        return sm::make_counter("io_threaded_fallbacks", std::bind(&thread_pool::count, _thread_pool.get(), r),
+                sm::description("Total number of io-threaded-fallbacks operations"), { reason_label(reason_str), });
+    };
+
     _metric_groups.add_group("reactor", {
             sm::make_gauge("tasks_pending", std::bind(&reactor::pending_task_count, this), sm::description("Number of pending tasks in the queue")),
             // total_operations value:DERIVE:0:U
@@ -2540,9 +2547,13 @@ void reactor::register_metrics() {
             // total_operations value:DERIVE:0:U
             sm::make_counter("fsyncs", _fsyncs, sm::description("Total number of fsync operations")),
             // total_operations value:DERIVE:0:U
-            sm::make_counter("io_threaded_fallbacks", std::bind(&thread_pool::operation_count, _thread_pool.get()),
-                    sm::description("Total number of io-threaded-fallbacks operations")),
-
+            io_fallback_counter("aio_fallback", submit_reason::aio_fallback),
+            // total_operations value:DERIVE:0:U
+            io_fallback_counter("file_operation", submit_reason::file_operation),
+            // total_operations value:DERIVE:0:U
+            io_fallback_counter("process_operation", submit_reason::process_operation),
+            // total_operations value:DERIVE:0:U
+            io_fallback_counter("unknown", submit_reason::unknown),
     });
 
     _metric_groups.add_group("memory", {

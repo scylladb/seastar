@@ -208,7 +208,7 @@ posix_file_impl::stat() noexcept {
         struct stat st;
         auto ret = ::fstat(fd, &st);
         return wrap_syscall(ret, st);
-    });
+    }, submit_reason::file_operation);
     ret.throw_if_error();
     co_return ret.extra;
 }
@@ -217,7 +217,7 @@ future<>
 posix_file_impl::truncate(uint64_t length) noexcept {
     auto sr = co_await engine()._thread_pool->submit<syscall_result<int>>([this, length] {
         return wrap_syscall<int>(::ftruncate(_fd, length));
-    });
+    }, submit_reason::file_operation);
     sr.throw_if_error();
 }
 
@@ -225,7 +225,7 @@ future<int>
 posix_file_impl::ioctl(uint64_t cmd, void* argp) noexcept {
     auto sr = co_await engine()._thread_pool->submit<syscall_result<int>>([this, cmd, argp] () mutable {
         return wrap_syscall<int>(::ioctl(_fd, cmd, argp));
-    });
+    }, submit_reason::file_operation);
     sr.throw_if_error();
     // Some ioctls require to return a positive integer back.
     co_return sr.result;
@@ -245,7 +245,7 @@ future<int>
 posix_file_impl::fcntl(int op, uintptr_t arg) noexcept {
     auto sr = co_await engine()._thread_pool->submit<syscall_result<int>>([this, op, arg] () mutable {
         return wrap_syscall<int>(::fcntl(_fd, op, arg));
-    });
+    }, submit_reason::file_operation);
     sr.throw_if_error();
     // Some fcntls require to return a positive integer back.
     co_return sr.result;
@@ -267,7 +267,7 @@ posix_file_impl::discard(uint64_t offset, uint64_t length) noexcept {
             [this, offset, length] () mutable {
         return wrap_syscall<int>(::fallocate(_fd, FALLOC_FL_PUNCH_HOLE|FALLOC_FL_KEEP_SIZE,
             offset, length));
-    });
+    }, submit_reason::file_operation);
     sr.throw_if_error();
 }
 
@@ -287,7 +287,7 @@ posix_file_impl::allocate(uint64_t position, uint64_t length) noexcept {
             supported = false; // Racy, but harmless.  At most we issue an extra call or two.
         }
         return wrap_syscall<int>(ret);
-    });
+    }, submit_reason::file_operation);
     sr.throw_if_error();
 #else
     return make_ready_future<>();
@@ -327,7 +327,7 @@ posix_file_impl::close() noexcept {
             try {
                 return engine()._thread_pool->submit<syscall_result<int>>([fd] {
                     return wrap_syscall<int>(::close(fd));
-                });
+                }, submit_reason::file_operation);
             } catch (...) {
                 report_exception("Running ::close() in reactor thread, submission failed with exception", std::current_exception());
                 return make_ready_future<syscall_result<int>>(wrap_syscall<int>(::close(fd)));
@@ -349,7 +349,7 @@ blockdev_file_impl::size() noexcept {
         uint64_t size;
         int ret = ::ioctl(_fd, BLKGETSIZE64, &size);
         return wrap_syscall(ret, size);
-    });
+    }, submit_reason::file_operation);
     ret.throw_if_error();
     co_return ret.extra;
 }
@@ -647,7 +647,7 @@ blockdev_file_impl::discard(uint64_t offset, uint64_t length) noexcept {
             [this, offset, length] () mutable {
         uint64_t range[2] { offset, length };
         return wrap_syscall<int>(::ioctl(_fd, BLKDISCARD, &range));
-    });
+    }, submit_reason::file_operation);
     sr.throw_if_error();
 }
 

@@ -269,7 +269,7 @@ void aio_storage_context::schedule_retry() {
         return _r._thread_pool->submit<syscall_result<int>>([this] () mutable {
             auto r = io_submit(_io_context, _aio_retries.size(), _aio_retries.data());
             return wrap_syscall<int>(r);
-        }).then_wrapped([this] (future<syscall_result<int>> f) {
+        }, submit_reason::aio_fallback).then_wrapped([this] (future<syscall_result<int>> f) {
             // If submit failed, just log the error and exit the loop.
             // The next call to submit_work will call schedule_retry again.
             if (f.failed()) {
