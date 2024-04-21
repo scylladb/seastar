@@ -266,7 +266,8 @@ void aio_storage_context::schedule_retry() {
         }
         return false;
     }, [this] {
-        return _r._thread_pool->submit<syscall_result<int>>([this] () mutable {
+        return _r._thread_pool->submit<syscall_result<int>>(
+                internal::thread_pool_submit_reason::aio_fallback, [this] () mutable {
             auto r = io_submit(_io_context, _aio_retries.size(), _aio_retries.data());
             return wrap_syscall<int>(r);
         }).then_wrapped([this] (future<syscall_result<int>> f) {
