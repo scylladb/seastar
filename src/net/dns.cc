@@ -262,6 +262,8 @@ public:
 // The following pragma is needed to work around a false-positive warning
 // in Gcc 11 (see https://gcc.gnu.org/bugzilla/show_bug.cgi?id=96003).
 #pragma GCC diagnostic ignored "-Wnonnull"
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
         ares_gethostbyname(_channel, p->name.c_str(), af, [](void* arg, int status, int timeouts, ::hostent* host) {
             // we do potentially allocating operations below, so wrap the pointer in a
             // unique here.
@@ -278,7 +280,7 @@ public:
             }
 
         }, reinterpret_cast<void *>(p));
-
+#pragma GCC diagnostic pop
 
         poll_sockets();
 
@@ -343,6 +345,8 @@ public:
 
         dns_call call(*this);
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
         ares_query(_channel, query.c_str(), ns_c_in, ns_t_srv,
                    [](void* arg, int status, int timeouts,
                       unsigned char* buf, int len) {
@@ -367,6 +371,7 @@ public:
             }
             ares_free_data(start);
         }, reinterpret_cast<void *>(p.release()));
+#pragma GCC diagnostic pop
 
 
         poll_sockets();
@@ -433,7 +438,10 @@ private:
             FD_ZERO(&readers);
             FD_ZERO(&writers);
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
             n = ares_fds(_channel, &readers, &writers);
+#pragma GCC diagnostic pop
 
             dns_log.trace("ares_fds: {}", n);
 
@@ -466,7 +474,10 @@ private:
                 }
             }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
             ares_process(_channel, &readers, &writers);
+#pragma GCC diagnostic pop
         } while (n != 0);
     }
 
