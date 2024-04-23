@@ -563,13 +563,23 @@ public:
 
     future<io_rates> write_random_data(size_t buffer_size, std::chrono::duration<double> duration) {
         return _iotune_test_file.map_reduce0([buffer_size, this, duration] (test_file& tf) {
-            return tf.write_workload(buffer_size, test_file::pattern::random, per_shard_io_depth(), duration, sharded_rates.local());
+            const auto shard_io_depth = per_shard_io_depth();
+            if (shard_io_depth == 0) {
+                return make_ready_future<io_rates>();
+            } else {
+                return tf.write_workload(buffer_size, test_file::pattern::random, shard_io_depth, duration, sharded_rates.local());
+            }
         }, io_rates(), std::plus<io_rates>());
     }
 
     future<io_rates> read_random_data(size_t buffer_size, std::chrono::duration<double> duration) {
         return _iotune_test_file.map_reduce0([buffer_size, this, duration] (test_file& tf) {
-            return tf.read_workload(buffer_size, test_file::pattern::random, per_shard_io_depth(), duration, sharded_rates.local());
+            const auto shard_io_depth = per_shard_io_depth();
+            if (shard_io_depth == 0) {
+                return make_ready_future<io_rates>();
+            } else {
+                return tf.read_workload(buffer_size, test_file::pattern::random, shard_io_depth, duration, sharded_rates.local());
+            }
         }, io_rates(), std::plus<io_rates>());
     }
 
@@ -773,6 +783,12 @@ int main(int ac, char** av) {
                 test_directory.discover_directory().get();
                 iotune_logger.info("Disk parameters: max_iodepth={} disks_per_array={} minimum_io_size={}",
                         test_directory.max_iodepth(), test_directory.disks_per_array(), test_directory.minimum_io_size());
+
+                if (test_directory.max_iodepth() < smp::count) {
+                    iotune_logger.warn("smp::count={} is greater than max_iodepth={} - shards above max_io_depth "
+                                       "will be ignored during random read and random write measurements",
+                                       smp::count, test_directory.max_iodepth());
+                }
 
                 ::iotune_multi_shard_context iotune_tests(test_directory);
                 iotune_tests.start().get();
