@@ -439,6 +439,9 @@ public:
             options.extent_allocation_size_hint = _file_size;
             return open_file_dma(testfile.string(), open_flags::rw | open_flags::create, std::move(options)).then([this, testfile] (file file) {
                 _file = file;
+                if (this_shard_id() == 0) {
+                    iotune_logger.info("Filesystem parameters: read alignment {}, write alignment {}", _file.disk_read_dma_alignment(), _file.disk_write_dma_alignment());
+                }
                 return remove_file(testfile.string()).then([this] {
                     return remove_file(_dirpath.string());
                 });
