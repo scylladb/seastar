@@ -805,7 +805,10 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     list (APPEND Seastar_PRIVATE_CXX_FLAGS
       -Wno-error=stringop-overflow
       -Wno-error=array-bounds)
-  endif()
+  endif ()
+  list (APPEND Seastar_PRIVATE_CXX_FLAGS
+    -Wdeprecated-declarations
+    -Wno-error=deprecated-declarations)
 endif ()
 
 if (NOT BUILD_SHARED_LIBS)
