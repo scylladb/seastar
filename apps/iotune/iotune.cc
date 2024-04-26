@@ -417,6 +417,7 @@ private:
     fs::path _dirpath;
     uint64_t _file_size;
     file _file;
+    uint64_t _forced_random_io_buffer_size;
 
     std::unique_ptr<position_generator> get_position_generator(size_t buffer_size, pattern access_pattern) {
         if (access_pattern == pattern::sequential) {
@@ -425,10 +426,20 @@ private:
             return std::make_unique<random_issuer>(buffer_size, _file_size);
         }
     }
+
+    uint64_t calculate_buffer_size(pattern access_pattern, uint64_t buffer_size, uint64_t operation_alignment) const {
+        if (access_pattern == pattern::random && _forced_random_io_buffer_size != 0u) {
+            return _forced_random_io_buffer_size;
+        }
+
+        return std::max(buffer_size, operation_alignment);
+    }
+
 public:
-    test_file(const ::evaluation_directory& dir, uint64_t maximum_size)
+    test_file(const ::evaluation_directory& dir, uint64_t maximum_size, uint64_t random_io_buffer_size)
         : _dirpath(dir.path() / fs::path(fmt::format("ioqueue-discovery-{}", this_shard_id())))
         , _file_size(maximum_size)
+        , _forced_random_io_buffer_size(random_io_buffer_size)
     {}
 
     future<> create_data_file() {
@@ -479,13 +490,13 @@ public:
     }
 
     future<io_rates> read_workload(size_t buffer_size, pattern access_pattern, unsigned max_os_concurrency, std::chrono::duration<double> duration, std::vector<unsigned>& rates) {
-        buffer_size = std::max(buffer_size, _file.disk_read_dma_alignment());
+        buffer_size = calculate_buffer_size(access_pattern, buffer_size, _file.disk_read_dma_alignment());
         auto worker = std::make_unique<io_worker>(buffer_size, duration, std::make_unique<read_request_issuer>(_file), get_position_generator(buffer_size, access_pattern), rates);
         return do_workload(std::move(worker), max_os_concurrency);
     }
 
     future<io_rates> write_workload(size_t buffer_size, pattern access_pattern, unsigned max_os_concurrency, std::chrono::duration<double> duration, std::vector<unsigned>& rates) {
-        buffer_size = std::max(buffer_size, _file.disk_write_dma_alignment());
+        buffer_size = calculate_buffer_size(access_pattern, buffer_size, _file.disk_write_dma_alignment());
         auto worker = std::make_unique<io_worker>(buffer_size, duration, std::make_unique<write_request_issuer>(_file), get_position_generator(buffer_size, access_pattern), rates);
         bool update_file_size = worker->is_sequential();
         return do_workload(std::move(worker), max_os_concurrency, update_file_size).then([this] (io_rates r) {
@@ -502,6 +513,7 @@ public:
 
 class iotune_multi_shard_context {
     ::evaluation_directory _test_directory;
+    uint64_t _random_io_buffer_size;
 
     unsigned per_shard_io_depth() const {
         auto iodepth = _test_directory.max_iodepth() / smp::count;
@@ -521,7 +533,8 @@ public:
     }
 
     future<> start() {
-       return _iotune_test_file.start(_test_directory, _test_directory.available_space() / (2 * smp::count)).then([this] {
+       const auto maximum_size = (_test_directory.available_space() / (2 * smp::count));
+       return _iotune_test_file.start(_test_directory, maximum_size, _random_io_buffer_size).then([this] {
            return sharded_rates.start();
        });
     }
@@ -609,8 +622,9 @@ public:
         return saturate(rate_threshold, buffer_size, duration, &test_file::read_workload);
     }
 
-    iotune_multi_shard_context(::evaluation_directory dir)
+    iotune_multi_shard_context(::evaluation_directory dir, uint64_t random_io_buffer_size)
         : _test_directory(dir)
+        , _random_io_buffer_size(random_io_buffer_size)
     {}
 };
 
@@ -707,6 +721,7 @@ int main(int ac, char** av) {
         ("fs-check", bpo::bool_switch(&fs_check), "perform FS check only")
         ("accuracy", bpo::value<unsigned>()->default_value(3), "acceptable deviation of measurements (percents)")
         ("saturation", bpo::value<sstring>()->default_value(""), "measure saturation lengths (read | write | both) (this is very slow!)")
+        ("random-io-buffer-size", bpo::value<unsigned>()->default_value(0), "force buffer size for random write and random read")
     ;
 
     return app.run(ac, av, [&] {
@@ -717,6 +732,7 @@ int main(int ac, char** av) {
             auto duration = std::chrono::duration<double>(configuration["duration"].as<unsigned>() * 1s);
             auto accuracy = configuration["accuracy"].as<unsigned>();
             auto saturation = configuration["saturation"].as<sstring>();
+            auto random_io_buffer_size = configuration["random-io-buffer-size"].as<unsigned>();
 
             bool read_saturation, write_saturation;
             if (saturation == "") {
@@ -790,7 +806,11 @@ int main(int ac, char** av) {
                                        smp::count, test_directory.max_iodepth());
                 }
 
-                ::iotune_multi_shard_context iotune_tests(test_directory);
+                if (random_io_buffer_size != 0u) {
+                    iotune_logger.info("Forcing buffer_size={} for random IO!", random_io_buffer_size);
+                }
+
+                ::iotune_multi_shard_context iotune_tests(test_directory, random_io_buffer_size);
                 iotune_tests.start().get();
                 auto stop = defer([&iotune_tests] () noexcept {
                     try {
