@@ -339,6 +339,18 @@ struct gnutls_datum : public gnutls_datum_t {
         data = nullptr;
         size = 0;
     }
+    gnutls_datum(const gnutls_datum&) = delete;
+    gnutls_datum& operator=(gnutls_datum&& other) {
+        if (this == &other) {
+            return *this;
+        }
+        if (data != nullptr) {
+            ::gnutls_free(data);
+        }
+        data = std::exchange(other.data, nullptr);
+        size = std::exchange(other.size, 0);
+        return *this;
+    }
     ~gnutls_datum() {
         if (data != nullptr) {
             ::gnutls_free(data);
