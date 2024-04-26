@@ -1130,7 +1130,7 @@ SEASTAR_THREAD_TEST_CASE(test_reload_certificates_with_creds) {
         BOOST_CHECK(trust_list_info.has_value() && trust_list_info.value().empty());
         BOOST_CHECK(!trust_file_contents.has_value());
 
-    }).get0();
+    }).get();
 
     BOOST_CHECK(certs != nullptr);
 
@@ -1738,10 +1738,10 @@ SEASTAR_THREAD_TEST_CASE(test_tls13_session_tickets) {
         fout.get();
         fin.get();
 
-        BOOST_REQUIRE(!tls::check_session_is_resumed(c).get0()); // no resume data
+        BOOST_REQUIRE(!tls::check_session_is_resumed(c).get()); // no resume data
 
         // get ticket data
-        sess_data = tls::get_session_resume_data(c).get0();
+        sess_data = tls::get_session_resume_data(c).get();
         BOOST_REQUIRE(!sess_data.empty());
 
         in.close().get();
@@ -1781,7 +1781,7 @@ SEASTAR_THREAD_TEST_CASE(test_tls13_session_tickets) {
         fout.get();
         fin.get();
 
-        BOOST_REQUIRE(f.get0()); // Should work
+        BOOST_REQUIRE(f.get()); // Should work
 
         in.close().get();
         out.close().get();
