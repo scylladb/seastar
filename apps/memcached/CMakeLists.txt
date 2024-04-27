@@ -38,7 +38,8 @@ seastar_add_app (memcached
 target_include_directories (app_memcached
   PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
-add_dependencies (app_memcached app_memcached_ascii)
+target_link_libraries (app_memcached
+  PRIVATE app_memcached_ascii)
 
 #
 # Tests.

@@ -443,8 +443,11 @@ function (seastar_generate_ragel)
     COMMAND ${ragel_RAGEL_EXECUTABLE} -G2 -o ${args_OUT_FILE} ${args_IN_FILE}
     COMMAND sed -i -e "'1h;2,$$H;$$!d;g'" -re "'s/static const char _nfa[^;]*;//g'" ${args_OUT_FILE})
 
-  add_custom_target (${args_TARGET}
-    DEPENDS ${args_OUT_FILE})
+  add_library (${args_TARGET} INTERFACE)
+  target_sources(${args_TARGET}
+    PRIVATE
+      ${args_OUT_FILE})
+  target_include_directories(${args_TARGET} INTERFACE "${out_dir}")
 
   set (${args_VAR} ${args_OUT_FILE} PARENT_SCOPE)
 endfunction ()
@@ -777,9 +780,6 @@ add_library (seastar
 add_library (Seastar::seastar ALIAS seastar)
 
 add_dependencies (seastar
-  seastar_http_chunk_parsers
-  seastar_http_request_parser
-  seastar_http_response_parser
   seastar_proto_metrics2)
 
 target_include_directories (seastar
@@ -828,6 +828,9 @@ target_link_libraries (seastar
     lz4::lz4
     SourceLocation::source_location
   PRIVATE
+    seastar_http_chunk_parsers
+    seastar_http_request_parser
+    seastar_http_response_parser
     ${CMAKE_DL_LIBS}
     GnuTLS::gnutls
     StdAtomic::atomic
