@@ -447,7 +447,8 @@ function (seastar_generate_ragel)
   target_sources(${args_TARGET}
     PRIVATE
       ${args_OUT_FILE})
-  target_include_directories(${args_TARGET} INTERFACE "${out_dir}")
+  target_include_directories(${args_TARGET} SYSTEM
+    INTERFACE "${out_dir}")
 
   set (${args_VAR} ${args_OUT_FILE} PARENT_SCOPE)
 endfunction ()
