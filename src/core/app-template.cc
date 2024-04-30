@@ -212,15 +212,15 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
             std::cout << _opts.description << "\n";
         }
         std::cout << _app_opts << "\n";
-        return 1;
+        return 0;
     }
     if (configuration.count("help-seastar")) {
         std::cout << _seastar_opts << "\n";
-        return 1;
+        return 0;
     }
     if (configuration.count("help-loggers")) {
         log_cli::print_available_loggers(std::cout);
-        return 1;
+        return 0;
     }
 
     try {
