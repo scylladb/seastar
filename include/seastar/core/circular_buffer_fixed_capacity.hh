@@ -30,6 +30,7 @@
 
 #ifndef SEASTAR_MODULE
 #include <type_traits>
+#include <algorithm>
 #include <cstddef>
 #include <iterator>
 #include <utility>

@@ -46,7 +46,7 @@ module seastar;
 #endif
 
 namespace seastar {
-logger http_log("http");
+logger http_log("seastar_http_client");
 namespace http {
 namespace internal {
 

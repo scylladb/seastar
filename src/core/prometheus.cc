@@ -373,11 +373,11 @@ public:
     /** @} */
 };
 
-static future<> get_map_value(metrics_families_per_shard& vec) {
+static future<> get_map_value(metrics_families_per_shard& vec, int handle) {
     vec.resize(smp::count);
-    return parallel_for_each(boost::irange(0u, smp::count), [&vec] (auto cpu) {
-        return smp::submit_to(cpu, [] {
-            return mi::get_values();
+    return parallel_for_each(boost::irange(0u, smp::count), [handle, &vec] (auto cpu) {
+        return smp::submit_to(cpu, [handle] {
+            return mi::get_values(handle);
         }).then([&vec, cpu] (auto res) {
             vec[cpu] = std::move(res);
         });
@@ -900,7 +900,7 @@ public:
         rep->write_body(is_protobuf_format ? "proto" : "txt", [this, is_protobuf_format, metric_family_name, prefix, show_help, filter] (output_stream<char>&& s) {
             return do_with(metrics_families_per_shard(), output_stream<char>(std::move(s)),
                     [this, is_protobuf_format, prefix, &metric_family_name, show_help, filter] (metrics_families_per_shard& families, output_stream<char>& s) mutable {
-                return get_map_value(families).then([&s, &families, this, is_protobuf_format, prefix, &metric_family_name, show_help, filter]() mutable {
+                return get_map_value(families, _ctx.handle).then([&s, &families, this, is_protobuf_format, prefix, &metric_family_name, show_help, filter]() mutable {
                     return do_with(get_range(families, metric_family_name, prefix),
                             [&s, this, is_protobuf_format, show_help, filter](metric_family_range& m) {
                         return (is_protobuf_format) ?  write_protobuf_representation(s, _ctx, m, filter) :
@@ -920,7 +920,7 @@ std::function<bool(const mi::labels_type&)> metrics_handler::_true_function = []
 };
 
 future<> add_prometheus_routes(httpd::http_server& server, config ctx) {
-    server._routes.put(httpd::GET, "/metrics", new metrics_handler(ctx));
+    server._routes.put(httpd::GET, ctx.route, new metrics_handler(ctx));
     return make_ready_future<>();
 }
 

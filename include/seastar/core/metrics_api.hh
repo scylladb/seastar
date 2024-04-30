@@ -42,6 +42,9 @@ namespace metrics {
 namespace impl {
 
 using labels_type = std::map<sstring, sstring>;
+
+int default_handle();
+
 }
 }
 }
@@ -200,25 +203,29 @@ struct metric_info {
 using metrics_registration = std::vector<metric_id>;
 
 class metric_groups_impl : public metric_groups_def {
+    int _handle;
     metrics_registration _registration;
 public:
-    metric_groups_impl() = default;
+    explicit metric_groups_impl(int handle = default_handle());
     ~metric_groups_impl();
     metric_groups_impl(const metric_groups_impl&) = delete;
     metric_groups_impl(metric_groups_impl&&) = default;
     metric_groups_impl& add_metric(group_name_type name, const metric_definition& md);
     metric_groups_impl& add_group(group_name_type name, const std::initializer_list<metric_definition>& l);
     metric_groups_impl& add_group(group_name_type name, const std::vector<metric_definition>& l);
+    int get_handle() const;
 };
 
 class impl;
+using metric_implementations = std::unordered_map<int, ::seastar::shared_ptr<impl>>;
+metric_implementations& get_metric_implementations();
 
 class registered_metric final {
     metric_info _info;
     metric_function _f;
     shared_ptr<impl> _impl;
 public:
-    registered_metric(metric_id id, metric_function f, bool enabled=true, skip_when_empty skip=skip_when_empty::no);
+    registered_metric(metric_id id, metric_function f, bool enabled=true, skip_when_empty skip=skip_when_empty::no, int handle=default_handle());
     metric_value operator()() const {
         return _f();
     }
@@ -233,6 +240,11 @@ public:
     void set_skip_when_empty(skip_when_empty skip) noexcept {
         _info.should_skip_when_empty = skip;
     }
+
+    skip_when_empty get_skip_when_empty() const {
+        return _info.should_skip_when_empty;
+    }
+
     const metric_id& get_id() const {
         return _info.id;
     }
@@ -366,6 +378,7 @@ class impl {
     std::vector<std::deque<metric_function>> _current_metrics;
     std::vector<relabel_config> _relabel_configs;
     std::vector<metric_family_config> _metric_family_configs;
+    std::unordered_multimap<seastar::sstring, int> _metric_families_to_replicate;
 public:
     value_map& get_value_map() {
         return _value_map;
@@ -375,7 +388,8 @@ public:
         return _value_map;
     }
 
-    void add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled, skip_when_empty skip, const std::vector<std::string>& aggregate_labels);
+    void add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled, skip_when_empty skip, const std::vector<std::string>& aggregate_labels, int handle = default_handle());
+    void update_aggregate_labels(const metric_id& id, const std::vector<label>& aggregate_labels);
     void remove_registration(const metric_id& id);
     future<> stop() {
         return make_ready_future<>();
@@ -406,6 +420,7 @@ public:
     const std::vector<relabel_config>& get_relabel_configs() const noexcept {
         return _relabel_configs;
     }
+
     const std::vector<metric_family_config>& get_metric_family_configs() const noexcept {
         return _metric_family_configs;
     }
@@ -413,16 +428,48 @@ public:
     void set_metric_family_configs(const std::vector<metric_family_config>& metrics_config);
 
     void update_aggregate(metric_family_info& mf) const noexcept;
+
+    // Set the metrics families to be replicated from this metrics::impl.
+    // All metrics families that match one of the keys of
+    // the 'metric_families_to_replicate' argument will be replicated
+    // on the metrics::impl identified by the corresponding value.
+    //
+    // If this function was called previously, any previously
+    // replicated metrics will be removed before the provided ones are
+    // replicated.
+    //
+    // Metric replication spans the full life cycle of this class.
+    // Newly registered metrics that belong to a replicated family
+    // be replicated too and unregistering a replicated metric will
+    // unregister the replica.
+    void set_metric_families_to_replicate(
+            std::unordered_multimap<seastar::sstring, int> metric_families_to_replicate);
+
+private:
+    void replicate_metric_family(const seastar::sstring& name,
+                                 int destination_handle) const;
+    void replicate_metric_if_required(const shared_ptr<registered_metric>& metric) const;
+    void replicate_metric(const shared_ptr<registered_metric>& metric,
+                          const metric_family& family,
+                          const shared_ptr<impl>& destination,
+                          int destination_handle) const;
+
+    void remove_metric_replica_family(const seastar::sstring& name,
+                                      int destination_handle) const;
+    void remove_metric_replica(const metric_id& id,
+                               const shared_ptr<impl>& destination) const;
+    void remove_metric_replica_if_required(const metric_id& id) const;
 };
 
-const value_map& get_value_map();
+const value_map& get_value_map(int handle = default_handle());
 using values_reference = shared_ptr<values_copy>;
 
-foreign_ptr<values_reference> get_values();
+foreign_ptr<values_reference> get_values(int handle = default_handle());
 
-shared_ptr<impl> get_local_impl();
+shared_ptr<impl> get_local_impl(int handle = default_handle());
 
-void unregister_metric(const metric_id & id);
+
+void unregister_metric(const metric_id & id, int handle = default_handle());
 
 /*!
  * \brief initialize metric group
@@ -430,7 +477,7 @@ void unregister_metric(const metric_id & id);
  * Create a metric_group_def.
  * No need to use it directly.
  */
-std::unique_ptr<metric_groups_def> create_metric_groups();
+std::unique_ptr<metric_groups_def> create_metric_groups(int handle = default_handle());
 
 }
 
@@ -447,7 +494,7 @@ struct options : public program_options::option_group {
 /*!
  * \brief set the metrics configuration
  */
-future<> configure(const options& opts);
+future<> configure(const options& opts, int handle = default_handle());
 
 /*!
  * \brief Perform relabeling and operation on metrics dynamically.
@@ -525,5 +572,12 @@ void set_metric_family_configs(const std::vector<metric_family_config>& metrics_
  * This function returns a vector of the current metrics family config
  */
 const std::vector<metric_family_config>& get_metric_family_configs();
+
+/*!
+ * \brief replicate metric families accross internal metrics implementations
+ */
+future<>
+replicate_metric_families(int source_handle, std::unordered_multimap<seastar::sstring, int> metric_families_to_replicate);
+
 }
 }

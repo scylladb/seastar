@@ -319,6 +319,7 @@ bool aio_storage_context::can_sleep() const {
 
 aio_general_context::aio_general_context(size_t nr)
         : iocbs(new iocb*[nr])
+        , begin(iocbs.get())
         , last(iocbs.get())
         , end(iocbs.get() + nr)
 {
@@ -330,32 +331,50 @@ aio_general_context::~aio_general_context() {
 }
 
 void aio_general_context::queue(linux_abi::iocb* iocb) {
-    assert(last < end);
-    *last++ = iocb;
+    if (last < end) {
+        *last++ = iocb;
+    } else {
+        iocbs_backlog.push_back(iocb);
+    }
 }
 
 size_t aio_general_context::flush() {
-    auto begin = iocbs.get();
-    using clock = std::chrono::steady_clock;
-    constexpr clock::time_point no_time_point = clock::time_point(clock::duration(0));
-    auto retry_until = no_time_point;
+    auto original_begin = begin;
     while (begin != last) {
         auto r = io_submit(io_context, last - begin, begin);
-        if (__builtin_expect(r > 0, true)) {
-            begin += r;
-            continue;
+        if (__builtin_expect(r <= 0, false)) {
+            // EAGAIN is expected here when "Insufficient resources are available to queue any iocbs" (see io_submit(2)).
+            // This indicates overload on the kernel internal queue.
+            // Returning early below will allow us to reap completions to free up resources for further iocb:s.
+            // Abort on any other error, as those indicate an internal error on our side.
+            if (r < 0 && errno != EAGAIN) {
+                on_fatal_internal_error(seastar_logger, format("aio_general_context::flush: io_submit failed with unexpected system error: {}", errno));
+            }
+            break;
         }
-        // errno == EAGAIN is expected here. We don't explicitly assert that
-        // since the assert below prevents an endless loop for any reason.
-        if (retry_until == no_time_point) {
-            // allow retrying for 1 second
-            retry_until = clock::now() + 1s;
-        } else {
-            assert(clock::now() < retry_until);
+        begin += r;
+    }
+
+    auto nr = begin - original_begin;
+
+    if (nr != 0 && begin == last) {
+        // If we have succesfully committed all iocbs (begin == last) then we
+        // reset the pointers. Further at this point we move iocbs from the
+        // backlog to the main `iocbs` array if there are any.
+        // We only do this once `iocbs` is fully empty to get batching behaviour
+        // and avoid degenarate cases where only one element gets submitted
+        // which would result in excessive shifting of the elements in `iocbs`
+        // array or the backlog.
+        begin = iocbs.get();
+        last = iocbs.get();
+
+        if (!iocbs_backlog.empty()) {
+            auto max_to_copy = std::min(size_t(end - begin), iocbs_backlog.size());
+            last = std::move(iocbs_backlog.begin(), iocbs_backlog.begin() + max_to_copy, begin);
+            iocbs_backlog.erase(iocbs_backlog.begin(), iocbs_backlog.begin() + max_to_copy);
         }
     }
-    auto nr = last - iocbs.get();
-    last = iocbs.get();
+
     return nr;
 }
 
@@ -2033,15 +2052,15 @@ reactor_backend_selector reactor_backend_selector::default_backend() {
 
 std::vector<reactor_backend_selector> reactor_backend_selector::available() {
     std::vector<reactor_backend_selector> ret;
+    if (has_enough_aio_nr() && detect_aio_poll()) {
+        ret.push_back(reactor_backend_selector("linux-aio"));
+    }
+    ret.push_back(reactor_backend_selector("epoll"));
 #ifdef SEASTAR_HAVE_URING
     if (detect_io_uring()) {
         ret.push_back(reactor_backend_selector("io_uring"));
     }
 #endif
-    if (has_enough_aio_nr() && detect_aio_poll()) {
-        ret.push_back(reactor_backend_selector("linux-aio"));
-    }
-    ret.push_back(reactor_backend_selector("epoll"));
     return ret;
 }
 

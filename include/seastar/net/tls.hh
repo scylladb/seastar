@@ -220,6 +220,24 @@ namespace tls {
          */
         void set_dn_verification_callback(dn_callback);
 
+        /**
+         * Retrieve information about loaded certificates.
+         *
+         * Returns a std::vector of cert_info, each extracted from a loaded
+         * certificate, std::nullopt if the impl does not exist or we detect
+         * an error during extraction.
+         */
+        std::optional<std::vector<cert_info>> get_cert_info() const noexcept;
+
+        /**
+         * Retrieve information about the loaded current trust list.
+         *
+         * Returns a std::vector of cert_info, each extracted from a CA in the
+         * trust list, std::nullopt if the impl does not exist or we detect
+         * an error during extraction.
+         */
+        std::optional<std::vector<cert_info>> get_trust_list_info() const noexcept;
+
     private:
         class impl;
         friend class session;
@@ -263,6 +281,7 @@ namespace tls {
     class reloadable_credentials_base;
 
     using reload_callback = std::function<void(const std::unordered_set<sstring>&, std::exception_ptr)>;
+    using reload_callback_with_creds = std::function<void(const std::unordered_set<sstring> &, const certificate_credentials &, std::exception_ptr, std::optional<blob>)>;
 
     /**
      * Intentionally "primitive", and more importantly, copyable
@@ -300,7 +319,11 @@ namespace tls {
         // same as above, but any files used for certs/keys etc will be watched
         // for modification and reloaded if changed
         future<shared_ptr<certificate_credentials>> build_reloadable_certificate_credentials(reload_callback = {}, std::optional<std::chrono::milliseconds> tolerance = {}) const;
+        future<shared_ptr<certificate_credentials>> build_reloadable_certificate_credentials(reload_callback_with_creds, std::optional<std::chrono::milliseconds> tolerance = {}) const;
         future<shared_ptr<server_credentials>> build_reloadable_server_credentials(reload_callback = {}, std::optional<std::chrono::milliseconds> tolerance = {}) const;
+        future<shared_ptr<server_credentials>> build_reloadable_server_credentials(reload_callback_with_creds, std::optional<std::chrono::milliseconds> tolerance = {}) const;
+
+        std::optional<blob> get_trust_file_blob() const;
     private:
         friend class reloadable_credentials_base;
 

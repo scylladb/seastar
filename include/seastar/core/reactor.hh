@@ -127,11 +127,13 @@ class reactor_backend_selector;
 
 class reactor_backend;
 struct pollfn;
+struct cpu_profiler_trace;
 
 namespace internal {
 
 class reactor_stall_sampler;
 class cpu_stall_detector;
+class cpu_profiler;
 class buffer_allocator;
 class priority_class;
 class poller;
@@ -264,6 +266,7 @@ private:
     uint64_t _polls = 0;
     metrics::internal::time_estimated_histogram _stalls_histogram;
     std::unique_ptr<internal::cpu_stall_detector> _cpu_stall_detector;
+    std::unique_ptr<internal::cpu_profiler> _cpu_profiler;
 
     unsigned _max_task_backlog = 1000;
     timer_set<timer<>, &timer<>::_link> _timers;
@@ -674,6 +677,21 @@ public:
     void set_bypass_fsync(bool value);
     void update_blocked_reactor_notify_ms(std::chrono::milliseconds ms);
     std::chrono::milliseconds get_blocked_reactor_notify_ms() const;
+
+    bool get_cpu_profiler_enabled();
+    void set_cpu_profiler_enabled(bool);
+    std::chrono::nanoseconds get_cpu_profiler_period();
+    void set_cpu_profiler_period(std::chrono::nanoseconds);
+    /// Copies all profiler samples that were collected since the function
+    /// was last called into `results_buffer`.
+    ///
+    /// Returns the number of samples that had to be dropped since the function
+    /// was last called due to a full internal buffer.
+    ///
+    /// Note: All existing data in `results_buffer` will be overriden. And if
+    /// `results_buffer` does not have enough capacity to hold all samples it's
+    /// capacity will be increased internally. The capacity is never shrunk though.
+    size_t profiler_results(std::vector<cpu_profiler_trace>& results_buffer);
 
     class test {
     public:

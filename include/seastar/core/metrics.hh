@@ -404,6 +404,7 @@ public:
     virtual metric_groups_def& add_metric(group_name_type name, const metric_definition& md) = 0;
     virtual metric_groups_def& add_group(group_name_type name, const std::initializer_list<metric_definition>& l) = 0;
     virtual metric_groups_def& add_group(group_name_type name, const std::vector<metric_definition>& l) = 0;
+    virtual int get_handle() const = 0;
 };
 
 instance_id_type shard();
@@ -677,6 +678,13 @@ impl::metric_definition_impl make_total_operations(metric_name_type name,
         instance_id_type = impl::shard()) {
     return make_counter(name, std::forward<T>(val), d, labels).set_type("total_operations");
 }
+
+/*!
+ * \brief Update the aggregation labels of a metric family
+ */
+void update_aggregate_labels(const group_name_type& group_name,
+                             const metric_name_type& metric_name,
+                             const std::vector<label>& aggregate_labels);
 
 /*! @} */
 }

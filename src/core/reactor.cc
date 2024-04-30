@@ -137,6 +137,7 @@ module seastar;
 #include <seastar/core/make_task.hh>
 #include <seastar/core/memory.hh>
 #include <seastar/core/metrics.hh>
+#include <seastar/core/metrics_api.hh>
 #include <seastar/core/posix.hh>
 #include <seastar/core/prefetch.hh>
 #include <seastar/core/print.hh>
@@ -154,10 +155,12 @@ module seastar;
 #include <seastar/core/when_all.hh>
 #include <seastar/core/with_scheduling_group.hh>
 #include <seastar/core/internal/buffer_allocator.hh>
+#include <seastar/core/internal/cpu_profiler.hh>
 #include <seastar/core/internal/io_desc.hh>
 #include <seastar/core/internal/uname.hh>
 #include <seastar/core/internal/stall_detector.hh>
 #include <seastar/core/internal/run_in_background.hh>
+#include <seastar/core/internal/timers.hh>
 #include <seastar/net/native-stack.hh>
 #include <seastar/net/packet.hh>
 #include <seastar/net/posix-stack.hh>
@@ -167,6 +170,7 @@ module seastar;
 #include <seastar/util/defer.hh>
 #include <seastar/util/log.hh>
 #include <seastar/util/memory_diagnostics.hh>
+#include <seastar/util/noncopyable_function.hh>
 #include <seastar/util/print_safe.hh>
 #include <seastar/util/process.hh>
 #include <seastar/util/read_first_line.hh>
@@ -176,6 +180,7 @@ module seastar;
 #include "core/reactor_backend.hh"
 #include "core/syscall_result.hh"
 #include "core/thread_pool.hh"
+#include "core/scollectd-impl.hh"
 #include "syscall_work_queue.hh"
 #include "cgroup.hh"
 #ifdef SEASTAR_HAVE_DPDK
@@ -977,7 +982,7 @@ reactor::task_queue::register_stats() {
         }, sm::description("Total amount in milliseconds we were in violation of the task quota"),
            {group_label}),
     });
-    _metrics = std::exchange(new_metrics, {});
+    _metrics = std::exchange(new_metrics, sm::metric_groups{});
 }
 
 void
@@ -1048,6 +1053,7 @@ reactor::reactor(std::shared_ptr<smp> smp, alien::instance& alien, unsigned id, 
 #endif
     , _cpu_started(0)
     , _cpu_stall_detector(internal::make_cpu_stall_detector())
+    , _cpu_profiler(internal::make_cpu_profiler())
     , _reuseport(posix_reuseport_detect())
     , _thread_pool(std::make_unique<thread_pool>(*this, seastar::format("syscall-{}", id))) {
     /*
@@ -1070,6 +1076,7 @@ reactor::reactor(std::shared_ptr<smp> smp, alien::instance& alien, unsigned id, 
     sigset_t mask;
     sigemptyset(&mask);
     sigaddset(&mask, internal::cpu_stall_detector::signal_number());
+    sigaddset(&mask, internal::cpu_profiler::signal_number());
     auto r = ::pthread_sigmask(SIG_UNBLOCK, &mask, NULL);
     assert(r == 0);
 #endif
@@ -1084,6 +1091,7 @@ reactor::~reactor() {
     sigset_t mask;
     sigemptyset(&mask);
     sigaddset(&mask, internal::cpu_stall_detector::signal_number());
+    sigaddset(&mask, internal::cpu_profiler::signal_number());
     auto r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
     assert(r == 0);
 
@@ -1165,6 +1173,186 @@ void reactor::start_handling_signal() {
 
 namespace internal {
 
+posix_timer::posix_timer(timer_cfg cfg, clockid_t clock_id) {
+    struct sigevent sev = {};
+    sev.sigev_notify = SIGEV_THREAD_ID;
+    sev.sigev_signo = cfg.signal_number;
+    sev._sigev_un._tid = syscall(SYS_gettid);
+    int err = timer_create(clock_id, &sev, &_timer);
+    if (err) {
+        throw std::system_error(std::error_code(err, std::system_category()));
+    }
+}
+
+posix_timer::~posix_timer() {
+    timer_delete(_timer);
+}
+
+void posix_timer::arm_timer(std::chrono::nanoseconds duration) {
+    auto its = posix::to_relative_itimerspec(duration, 0s);
+    timer_settime(_timer, 0, &its, nullptr);
+}
+
+void posix_timer::disarm_timer() {
+    auto its = posix::to_relative_itimerspec(0s,  0s);
+    timer_settime(_timer, 0, &its, nullptr);
+}
+
+static long
+perf_event_open(struct perf_event_attr* hw_event, pid_t pid, int cpu, int group_fd, unsigned long flags) {
+    return syscall(__NR_perf_event_open, hw_event, pid, cpu, group_fd, flags);
+}
+
+linux_perf_event linux_perf_event::try_make(timer_cfg cfg) {
+    ::perf_event_attr pea = {
+        .type = PERF_TYPE_SOFTWARE,
+        .size = sizeof(pea),
+        .config = PERF_COUNT_SW_TASK_CLOCK, // more likely to work on virtual machines than hardware events
+        .sample_period = 1'000'000'000, // Needs non-zero value or PERF_IOC_PERIOD gets confused
+        .sample_type = PERF_SAMPLE_CALLCHAIN,
+        .disabled = 1,
+        .exclude_callchain_user = 1,  // we're using backtrace() to capture the user callchain
+        .wakeup_events = 1,
+    };
+    unsigned long flags = 0;
+    if (internal::kernel_uname().whitelisted({"3.14"})) {
+        flags |= PERF_FLAG_FD_CLOEXEC;
+    }
+    int fd = perf_event_open(&pea, 0, -1, -1, flags);
+    if (fd == -1) {
+        throw std::system_error(errno, std::system_category(), "perf_event_open() failed");
+    }
+    auto desc = file_desc::from_fd(fd);
+    struct f_owner_ex sig_owner = {
+        .type = F_OWNER_TID,
+        .pid = static_cast<pid_t>(syscall(SYS_gettid)),
+    };
+    auto ret1 = ::fcntl(fd, F_SETOWN_EX, &sig_owner);
+    if (ret1 == -1) {
+        abort();
+    }
+    auto ret2 = ::fcntl(fd, F_SETSIG, cfg.signal_number);
+    if (ret2 == -1) {
+        abort();
+    }
+    auto fd_flags = ::fcntl(fd, F_GETFL);
+    if (fd_flags == -1) {
+        abort();
+    }
+    auto ret3 = ::fcntl(fd, F_SETFL, fd_flags | O_ASYNC);
+    if (ret3 == -1) {
+        abort();
+    }
+
+    return linux_perf_event(std::move(desc));
+}
+
+linux_perf_event::linux_perf_event(file_desc fd) : _fd(std::move(fd)) {
+    void* ret = ::mmap(nullptr, 2*getpagesize(), PROT_READ|PROT_WRITE, MAP_SHARED, _fd.get(), 0);
+    if (ret == MAP_FAILED) {
+        abort();
+    }
+    _mmap = static_cast<struct ::perf_event_mmap_page*>(ret);
+    _data_area = reinterpret_cast<char*>(_mmap) + getpagesize();
+    _data_area_mask = getpagesize() - 1;
+}
+
+linux_perf_event::linux_perf_event(linux_perf_event&& o)
+      : _fd(std::move(o._fd))
+      , _enabled(o._enabled)
+      , _current_period(o._current_period)
+      , _mmap(o._mmap)
+      , _data_area(o._data_area)
+      , _data_area_mask(o._data_area_mask)
+      , _next_signal_time(o._next_signal_time) {
+    o._mmap = nullptr;
+}
+
+linux_perf_event::~linux_perf_event() {
+    if (_mmap != nullptr) {
+        ::munmap(_mmap, 2*getpagesize());
+    }
+}
+
+void linux_perf_event::arm_timer(std::chrono::nanoseconds period) {
+    uint64_t ns =  period / 1ns;
+    _next_signal_time = reactor::now() + period;
+    
+    // clear out any existing records in the ring buffer, so when we get interrupted next time
+    // we have only the stack associated with that interrupt, and so we don't overflow.
+    data_area_reader(*this).skip_all();
+    if (__builtin_expect(_enabled && _current_period == ns, 1)) {
+        // Common case - we're re-arming with the same period, the counter
+        // is already enabled.
+
+        // We want to set the next interrupt to ns from now, and somewhat oddly the
+        // way to do this is PERF_EVENT_IOC_PERIOD, even with the same period as
+        // already configured, see the code at:
+        //
+        // https://elixir.bootlin.com/linux/v5.15.86/source/kernel/events/core.c#L5636
+        //
+        // Ths change is intentional: kernel commit bad7192b842c83e580747ca57104dd51fe08c223
+        // so we can resumably rely on it.
+        _fd.ioctl(PERF_EVENT_IOC_PERIOD, ns);
+
+    } else {
+        // Uncommon case - we're moving from disabled to enabled, or changing
+        // the period. Issue more calls and be careful.
+        _fd.ioctl(PERF_EVENT_IOC_DISABLE, 0); // avoid false alarms while we modify stuff
+        _fd.ioctl(PERF_EVENT_IOC_PERIOD, ns);
+        _fd.ioctl(PERF_EVENT_IOC_RESET, 0);
+        _fd.ioctl(PERF_EVENT_IOC_ENABLE, 0);
+        _enabled = true;
+        _current_period = ns;
+    }
+}
+
+void linux_perf_event::disarm_timer() {
+    _fd.ioctl(PERF_EVENT_IOC_DISABLE, 0);
+    _enabled = false;
+}
+
+bool linux_perf_event::is_spurious_signal() {
+    // If the current time is before the expected signal time, it is
+    // probably a spurious signal. One reason this could occur is that
+    // PERF_EVENT_IOC_PERIOD does not reset the current overflow point
+    // on kernels prior to 3.14 (or 3.7 on Arm).
+    return reactor::now() < _next_signal_time;
+}
+
+void linux_perf_event::kernel_backtrace::read_backtrace(std::function<void (uintptr_t)> fn) {
+    if (_reader.have_data()) {
+        auto nr = _reader.read_u64();
+        for (uint64_t i = 0; i < nr; ++i) {
+            // TODO: the first u64 here will be a non-address token
+            // used by perf to indicate which type of callchain this is.
+            // Should we check that it is PERF_CONTEXT_KERNEL and skip 
+            // outputting that value as it's not an address?
+            // See: https://github.com/torvalds/linux/commit/f9188e023c248d73f
+            fn(uintptr_t(_reader.read_u64()));
+        }
+    }
+}
+
+std::optional<linux_perf_event::kernel_backtrace> linux_perf_event::try_get_kernel_backtrace() {
+    data_area_reader reader(*this);
+    auto current_record = [&] () -> ::perf_event_header {
+        return reader.read_struct<perf_event_header>();
+    };
+
+    while (reader.have_data()) {
+        auto record = current_record();
+
+        if (record.type != PERF_RECORD_SAMPLE) {
+            reader.skip(record.size - sizeof(record));
+        } else {
+            return {kernel_backtrace{std::move(reader)}};
+        }
+    }
+
+    return std::nullopt;
+}
+
 cpu_stall_detector::cpu_stall_detector(cpu_stall_detector_config cfg)
         : _shard_id(this_shard_id()) {
     // glib's backtrace() calls dlopen("libgcc_s.so.1") once to resolve unwind related symbols.
@@ -1182,23 +1370,8 @@ cpu_stall_detector::cpu_stall_detector(cpu_stall_detector_config cfg)
     // note: if something is added here that can, it should take care to destroy _timer.
 }
 
-cpu_stall_detector_posix_timer::cpu_stall_detector_posix_timer(cpu_stall_detector_config cfg) : cpu_stall_detector(cfg) {
-    struct sigevent sev = {};
-    sev.sigev_notify = SIGEV_THREAD_ID;
-    sev.sigev_signo = signal_number();
-#ifndef sigev_notify_thread_id
-#define sigev_notify_thread_id _sigev_un._tid
-#endif
-    sev.sigev_notify_thread_id = syscall(SYS_gettid);
-    int err = timer_create(CLOCK_THREAD_CPUTIME_ID, &sev, &_timer);
-    if (err) {
-        throw std::system_error(std::error_code(err, std::system_category()));
-    }
-}
-
-cpu_stall_detector_posix_timer::~cpu_stall_detector_posix_timer() {
-    timer_delete(_timer);
-}
+cpu_stall_detector_posix_timer::cpu_stall_detector_posix_timer(cpu_stall_detector_config cfg)
+    : cpu_stall_detector(cfg), _timer({signal_number()}) { }
 
 cpu_stall_detector_config
 cpu_stall_detector::get_config() const {
@@ -1269,8 +1442,8 @@ cpu_stall_detector::reset_suppression_state(sched_clock::time_point now) {
 }
 
 void cpu_stall_detector_posix_timer::arm_timer() {
-    auto its = posix::to_relative_itimerspec(_threshold * _report_at + _slack, 0s);
-    timer_settime(_timer, 0, &its, nullptr);
+    std::chrono::nanoseconds dur = _threshold * _report_at + _slack;
+    _timer.arm_timer(dur);
 }
 
 void cpu_stall_detector::start_task_run(sched_clock::time_point now) {
@@ -1291,153 +1464,53 @@ void cpu_stall_detector::end_task_run(sched_clock::time_point now) {
 }
 
 void cpu_stall_detector_posix_timer::start_sleep() {
-    auto its = posix::to_relative_itimerspec(0s,  0s);
-    timer_settime(_timer, 0, &its, nullptr);
+    _timer.disarm_timer();
     _rearm_timer_at = reactor::now();
 }
 
 void cpu_stall_detector::end_sleep() {
 }
 
-static long
-perf_event_open(struct perf_event_attr* hw_event, pid_t pid, int cpu, int group_fd, unsigned long flags) {
-    return syscall(__NR_perf_event_open, hw_event, pid, cpu, group_fd, flags);
-}
-
-cpu_stall_detector_linux_perf_event::cpu_stall_detector_linux_perf_event(file_desc fd, cpu_stall_detector_config cfg)
-        : cpu_stall_detector(cfg), _fd(std::move(fd)) {
-    void* ret = ::mmap(nullptr, 2*getpagesize(), PROT_READ|PROT_WRITE, MAP_SHARED, _fd.get(), 0);
-    if (ret == MAP_FAILED) {
-        abort();
-    }
-    _mmap = static_cast<struct ::perf_event_mmap_page*>(ret);
-    _data_area = reinterpret_cast<char*>(_mmap) + getpagesize();
-    _data_area_mask = getpagesize() - 1;
-}
-
-cpu_stall_detector_linux_perf_event::~cpu_stall_detector_linux_perf_event() {
-    ::munmap(_mmap, 2*getpagesize());
+cpu_stall_detector_linux_perf_event::cpu_stall_detector_linux_perf_event(linux_perf_event perf_event, cpu_stall_detector_config cfg)
+        : cpu_stall_detector(cfg), _perf_event(std::move(perf_event)) {
 }
 
 void
 cpu_stall_detector_linux_perf_event::arm_timer() {
     auto period = _threshold * _report_at + _slack;
-    uint64_t ns =  period / 1ns;
-    _next_signal_time = reactor::now() + period;
-
-    // clear out any existing records in the ring buffer, so when we get interrupted next time
-    // we have only the stack associated with that interrupt, and so we don't overflow.
-    data_area_reader(*this).skip_all();
-    if (__builtin_expect(_enabled && _current_period == ns, 1)) {
-        // Common case - we're re-arming with the same period, the counter
-        // is already enabled.
-
-        // We want to set the next interrupt to ns from now, and somewhat oddly the
-        // way to do this is PERF_EVENT_IOC_PERIOD, even with the same period as
-        // already configured, see the code at:
-        //
-        // https://elixir.bootlin.com/linux/v5.15.86/source/kernel/events/core.c#L5636
-        //
-        // Ths change is intentional: kernel commit bad7192b842c83e580747ca57104dd51fe08c223
-        // so we can resumably rely on it.
-        _fd.ioctl(PERF_EVENT_IOC_PERIOD, ns);
-
-    } else {
-        // Uncommon case - we're moving from disabled to enabled, or changing
-        // the period. Issue more calls and be careful.
-        _fd.ioctl(PERF_EVENT_IOC_DISABLE, 0); // avoid false alarms while we modify stuff
-        _fd.ioctl(PERF_EVENT_IOC_PERIOD, ns);
-        _fd.ioctl(PERF_EVENT_IOC_RESET, 0);
-        _fd.ioctl(PERF_EVENT_IOC_ENABLE, 0);
-        _enabled = true;
-        _current_period = ns;
-    }
+    _perf_event.arm_timer(period);
 }
 
 void
 cpu_stall_detector_linux_perf_event::start_sleep() {
-    _fd.ioctl(PERF_EVENT_IOC_DISABLE, 0);
-    _enabled = false;
+    _perf_event.disarm_timer();
 }
 
 bool
 cpu_stall_detector_linux_perf_event::is_spurious_signal() {
-    // If the current time is before the expected signal time, it is
-    // probably a spurious signal. One reason this could occur is that
-    // PERF_EVENT_IOC_PERIOD does not reset the current overflow point
-    // on kernels prior to 3.14 (or 3.7 on Arm).
-    return reactor::now() < _next_signal_time;
+    return _perf_event.is_spurious_signal();
 }
 
 void
 cpu_stall_detector_linux_perf_event::maybe_report_kernel_trace() {
-    data_area_reader reader(*this);
-    auto current_record = [&] () -> ::perf_event_header {
-        return reader.read_struct<perf_event_header>();
-    };
-
-    while (reader.have_data()) {
-        auto record = current_record();
-
-        if (record.type != PERF_RECORD_SAMPLE) {
-            reader.skip(record.size - sizeof(record));
-            continue;
-        }
-
-        auto nr = reader.read_u64();
+    auto kernel_bt = _perf_event.try_get_kernel_backtrace();
+    if(kernel_bt) {
         backtrace_buffer buf;
         buf.append("kernel callstack:");
-        for (uint64_t i = 0; i < nr; ++i) {
+
+        kernel_bt->read_backtrace([&] (uintptr_t addr) {
             buf.append(" 0x");
-            buf.append_hex(uintptr_t(reader.read_u64()));
-        }
+            buf.append_hex(addr);
+        });
+
         buf.append("\n");
         buf.flush();
-    };
+    }
 }
 
 std::unique_ptr<cpu_stall_detector_linux_perf_event>
 cpu_stall_detector_linux_perf_event::try_make(cpu_stall_detector_config cfg) {
-    ::perf_event_attr pea = {
-        .type = PERF_TYPE_SOFTWARE,
-        .size = sizeof(pea),
-        .config = PERF_COUNT_SW_TASK_CLOCK, // more likely to work on virtual machines than hardware events
-        .sample_period = 1'000'000'000, // Needs non-zero value or PERF_IOC_PERIOD gets confused
-        .sample_type = PERF_SAMPLE_CALLCHAIN,
-        .disabled = 1,
-        .exclude_callchain_user = 1,  // we're using backtrace() to capture the user callchain
-        .wakeup_events = 1,
-    };
-    unsigned long flags = 0;
-    if (internal::kernel_uname().whitelisted({"3.14"})) {
-        flags |= PERF_FLAG_FD_CLOEXEC;
-    }
-    int fd = perf_event_open(&pea, 0, -1, -1, flags);
-    if (fd == -1) {
-        throw std::system_error(errno, std::system_category(), "perf_event_open() failed");
-    }
-    auto desc = file_desc::from_fd(fd);
-    struct f_owner_ex sig_owner = {
-        .type = F_OWNER_TID,
-        .pid = static_cast<pid_t>(syscall(SYS_gettid)),
-    };
-    auto ret1 = ::fcntl(fd, F_SETOWN_EX, &sig_owner);
-    if (ret1 == -1) {
-        abort();
-    }
-    auto ret2 = ::fcntl(fd, F_SETSIG, signal_number());
-    if (ret2 == -1) {
-        abort();
-    }
-    auto fd_flags = ::fcntl(fd, F_GETFL);
-    if (fd_flags == -1) {
-        abort();
-    }
-    auto ret3 = ::fcntl(fd, F_SETFL, fd_flags | O_ASYNC);
-    if (ret3 == -1) {
-        abort();
-    }
-    return std::make_unique<cpu_stall_detector_linux_perf_event>(std::move(desc), std::move(cfg));
+    return std::make_unique<cpu_stall_detector_linux_perf_event>(linux_perf_event::try_make({signal_number()}), std::move(cfg));
 }
 
 
@@ -1515,9 +1588,33 @@ reactor::test::get_stall_detector_report_function() {
     return engine()._cpu_stall_detector->get_config().report;
 }
 
+bool reactor::get_cpu_profiler_enabled() {
+    return _cpu_profiler->is_enabled();
+}
+
+void reactor::set_cpu_profiler_enabled(bool b) {
+    _cpu_profiler->update_config({b, _cpu_profiler->period()});
+}
+
+std::chrono::nanoseconds reactor::get_cpu_profiler_period() {
+    return _cpu_profiler->period();
+}
+
+void reactor::set_cpu_profiler_period(std::chrono::nanoseconds ns) {
+    _cpu_profiler->update_config({_cpu_profiler->is_enabled(), ns});
+}
+
+size_t reactor::profiler_results(std::vector<cpu_profiler_trace>& results_buffer) {
+    return _cpu_profiler->results(results_buffer);
+}
+
 void
-reactor::block_notifier(int) {
-    engine()._cpu_stall_detector->on_signal();
+reactor::block_notifier(int signal) {
+    if(signal == internal::cpu_stall_detector::signal_number()) {
+        engine()._cpu_stall_detector->on_signal();
+    } else {
+        engine()._cpu_profiler->on_signal();
+    }
 }
 
 template <typename T, typename E, typename EnableFunc>
@@ -1607,6 +1704,11 @@ void reactor::configure(const reactor_options& opts) {
     csdc.stall_detector_reports_per_minute = opts.blocked_reactor_reports_per_minute.get_value();
     csdc.oneline = opts.blocked_reactor_report_format_oneline.get_value();
     _cpu_stall_detector->update_config(csdc);
+
+    internal::cpu_profiler_config prof_cfg;
+    prof_cfg.enabled = opts.profiler_enabled.get_value();
+    prof_cfg.period = std::chrono::milliseconds(opts.profiler_sample_period_ms.get_value());
+    _cpu_profiler->update_config(prof_cfg);
 
     _max_task_backlog = opts.max_task_backlog.get_value();
     _max_poll_time = opts.idle_poll_time_us.get_value() * 1us;
@@ -3302,20 +3404,35 @@ int reactor::do_run() {
     _task_quota_timer.timerfd_settime(0, its);
     auto& task_quote_itimerspec = its;
 
+    // Ensure that the same signal isn't being used more than once.
+    auto set_signal = [](sigset_t* mask, int s) {
+        assert(!sigismember(mask, s));
+        sigaddset(mask, s);
+    };
+
+    sigset_t block_mask;
+    sigemptyset(&block_mask);
+    set_signal(&block_mask, internal::cpu_stall_detector::signal_number());
+    set_signal(&block_mask, internal::cpu_profiler::signal_number());
+
     struct sigaction sa_block_notifier = {};
     sa_block_notifier.sa_handler = &reactor::block_notifier;
     sa_block_notifier.sa_flags = SA_RESTART;
+    sa_block_notifier.sa_mask = block_mask;
     auto r = sigaction(internal::cpu_stall_detector::signal_number(), &sa_block_notifier, nullptr);
+    assert(r == 0);
+    r = sigaction(internal::cpu_profiler::signal_number(), &sa_block_notifier, nullptr);
     assert(r == 0);
 
     bool idle = false;
 
-    std::function<bool()> check_for_work = [this] () {
+    auto check_for_work = [this] () {
         return poll_once() || have_more_tasks();
     };
-    std::function<bool()> pure_check_for_work = [this] () {
+    const noncopyable_function<bool()> pure_check_for_work = [this] () {
         return pure_poll_once() || have_more_tasks();
     };
+    _cpu_profiler->start();
     while (true) {
         run_some_tasks();
         if (_stopped) {
@@ -3369,7 +3486,9 @@ int reactor::do_run() {
                     _task_quota_timer.timerfd_settime(0, zero_itimerspec);
                     auto start_sleep = now();
                     _cpu_stall_detector->start_sleep();
+                    _cpu_profiler->stop();
                     sleep();
+                    _cpu_profiler->start();
                     _cpu_stall_detector->end_sleep();
                     // We may have slept for a while, so freshen idle_end
                     idle_end = now();
@@ -3383,6 +3502,7 @@ int reactor::do_run() {
             }
         }
     }
+    _cpu_profiler->stop();
     // To prevent ordering issues from rising, destroy the I/O queue explicitly at this point.
     // This is needed because the reactor is destroyed from the thread_local destructors. If
     // the I/O queue happens to use any other infrastructure that is also kept this way (for
@@ -3868,6 +3988,8 @@ reactor_options::reactor_options(program_options::option_group* parent_group)
     , blocked_reactor_notify_ms(*this, "blocked-reactor-notify-ms", 25, "threshold in miliseconds over which the reactor is considered blocked if no progress is made")
     , blocked_reactor_reports_per_minute(*this, "blocked-reactor-reports-per-minute", 5, "Maximum number of backtraces reported by stall detector per minute")
     , blocked_reactor_report_format_oneline(*this, "blocked-reactor-report-format-oneline", true, "Print a simplified backtrace on a single line")
+    , profiler_sample_period_ms(*this, "profiler-sample-period-ms", 100, "Profiler sample rate")
+    , profiler_enabled(*this, "profiler-enabled", false, "Enable the profiler")
     , relaxed_dma(*this, "relaxed-dma", "allow using buffered I/O if DMA is not available (reduces performance)")
     , linux_aio_nowait(*this, "linux-aio-nowait", aio_nowait_supported,
                 "use the Linux NOWAIT AIO feature, which reduces reactor stalls due to aio (autodetected)")
@@ -3929,6 +4051,12 @@ smp_options::smp_options(program_options::option_group* parent_group)
     , allow_cpus_in_remote_numa_nodes(*this, "allow-cpus-in-remote-numa-nodes", program_options::unused{})
 #endif
 {
+}
+
+thread_local metrics::impl::metric_implementations metric_impls;
+
+metrics::impl::metric_implementations& metrics::impl::get_metric_implementations() {
+    return metric_impls;
 }
 
 struct reactor_deleter {
@@ -4221,6 +4349,11 @@ public:
         // scheduler will self-tune to allow for the single 64k request, while it would
         // be better to sacrifice some IO latency, but allow for larger concurrency
         cfg.block_count_limit_min = (64 << 10) >> io_queue::block_size_shift;
+
+        cfg.read_bytes_rate = p.read_bytes_rate;
+        cfg.write_bytes_rate = p.write_bytes_rate;
+        cfg.read_req_rate = p.read_req_rate;
+        cfg.write_req_rate = p.write_req_rate;
 
         return cfg;
     }
@@ -5012,6 +5145,16 @@ future<> scheduling_group::update_io_bandwidth(uint64_t bandwidth) const {
     return engine().update_bandwidth_for_queues(internal::priority_class(*this), bandwidth);
 }
 #endif
+
+scheduling_group::stats
+scheduling_group::get_stats() const noexcept {
+    const auto * const tq = engine()._task_queues[_id].get();
+    return {
+        .runtime = tq->_runtime,
+        .waittime = tq->_waittime,
+        .starvetime = tq->_starvetime
+    };
+}
 
 future<scheduling_group>
 create_scheduling_group(sstring name, sstring shortname, float shares) noexcept {
