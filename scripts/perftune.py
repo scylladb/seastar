@@ -139,7 +139,6 @@ def restart_irqbalance(banned_irqs):
     if os.path.exists('/lib/systemd/system/irqbalance.service') or \
         os.path.exists('/usr/lib/systemd/system/irqbalance.service'):
         options_key = 'IRQBALANCE_ARGS'
-        systemd = True
 
     if not os.path.exists(config_file):
         if os.path.exists('/etc/sysconfig/irqbalance'):
@@ -147,12 +146,13 @@ def restart_irqbalance(banned_irqs):
         elif os.path.exists('/etc/conf.d/irqbalance'):
             config_file = '/etc/conf.d/irqbalance'
             options_key = 'IRQBALANCE_OPTS'
-            with open('/proc/1/comm', 'r') as comm:
-                systemd = 'systemd' in comm.read()
         else:
             perftune_print("Unknown system configuration - not restarting irqbalance!")
             perftune_print("You have to prevent it from moving IRQs {} manually!".format(banned_irqs_list))
             return
+
+    with open('/proc/1/comm', 'r') as comm:
+        systemd = 'systemd' in comm.read()
 
     orig_file = "{}.scylla.orig".format(config_file)
 
