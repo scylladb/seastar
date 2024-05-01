@@ -241,7 +241,11 @@ struct marshall_one {
             auto do_do_marshall = [&serializer, &out] (const auto&... args) {
                 do_marshall(serializer, out, args...);
             };
-            std::apply(do_do_marshall, arg);
+            // since C++23, std::apply() only accepts tuple-like types, while
+            // rpc::tuple is not a tuple-like type from the tuple-like C++
+            // concept's perspective. so we have to cast it to std::tuple to
+            // appease std::apply()
+            std::apply(do_do_marshall, static_cast<const std::tuple<T...>&>(arg));
         }
     };
 };
