@@ -20,10 +20,12 @@
  */
 
 #include <seastar/core/memory.hh>
+#include <seastar/core/shard_id.hh>
 #include <seastar/core/smp.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/testing/perf_tests.hh>
 #include <seastar/testing/test_case.hh>
+#include <seastar/testing/thread_test_case.hh>
 #include <seastar/util/log.hh>
 #include <seastar/util/memory_diagnostics.hh>
 
@@ -154,6 +156,59 @@ SEASTAR_TEST_CASE(test_memory_diagnostics) {
 #endif
     return make_ready_future<>();
 }
+
+SEASTAR_THREAD_TEST_CASE(test_cross_thread_realloc) {
+    // Tests that realloc seems to do the right thing with various sizes of
+    // buffer, including cases where the initial allocation is on another
+    // shard.
+    // Needs at least 2 shards to usefully test the cross-shard aspect but
+    // still passes when only 1 shard is used.
+    auto do_xshard_realloc = [](bool cross_shard, size_t initial_size, size_t realloc_size) { 
+        BOOST_TEST_CONTEXT("cross_shard=" << cross_shard << ", initial="
+                << initial_size << ", realloc_size=" << realloc_size) {
+                    
+            auto other_shard = (this_shard_id() + cross_shard) % smp::count;
+
+            char *p = static_cast<char *>(malloc(initial_size));
+
+            // write some sentinels and check them after realloc
+            // x start of region
+            // y end of realloc'd region (if it falls within the initial size)
+            // z end of initial region
+            if (initial_size > 0) {
+                p[0] = 'x';
+                p[initial_size - 1] = 'z';
+                if (realloc_size > 0 && realloc_size <= initial_size) {
+                    p[realloc_size - 1] = 'y';
+                }
+            }
+            smp::submit_to(other_shard, [=] {
+                char* p2 = static_cast<char *>(realloc(p, realloc_size));
+                if (initial_size > 0 && realloc_size > 0) {
+                    BOOST_REQUIRE_EQUAL(p2[0], 'x');
+                    if (realloc_size <= initial_size) {
+                        BOOST_REQUIRE_EQUAL(p2[realloc_size - 1], 'y');
+                    }
+                    if (realloc_size > initial_size) {
+                        BOOST_REQUIRE_EQUAL(p2[initial_size - 1], 'z');
+                    }
+                }
+                free(p2);
+            }).get();
+        }
+    };
+
+    for (auto& cross_shard : {false, true}) {
+        do_xshard_realloc(cross_shard, 0, 0);
+        do_xshard_realloc(cross_shard, 0, 1);
+        do_xshard_realloc(cross_shard, 1, 0);
+        do_xshard_realloc(cross_shard, 50, 100);
+        do_xshard_realloc(cross_shard, 100, 50);
+        do_xshard_realloc(cross_shard, 100000, 500000);
+        do_xshard_realloc(cross_shard, 500000, 100000);
+    }
+}
+
 
 #ifndef SEASTAR_DEFAULT_ALLOCATOR
 

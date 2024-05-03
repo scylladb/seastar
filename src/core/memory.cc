@@ -2286,8 +2286,6 @@ void* realloc(void* ptr, size_t size) {
         abort();
     }
     // if we're here, it's a non-null seastar memory ptr
-    // or original functions aren't available.
-    // at any rate, using the seastar allocator is OK now.
     auto old_size = ptr ? object_size(ptr) : 0;
     if (size == old_size) {
         return ptr;
@@ -2296,10 +2294,16 @@ void* realloc(void* ptr, size_t size) {
         ::free(ptr);
         return nullptr;
     }
-    if (size < old_size) {
+    if (size < old_size && cpu_pages::is_local_pointer(ptr)) {
+        // local pointers can sometimes be shrunk by returning freed
+        // pages to the buddy allocator
         seastar::memory::shrink(ptr, size);
         return ptr;
     }
+
+    // either a request to realloc larger than the existing allocation size
+    // or a cross-shard pointer: in either case we allocate a new local
+    // pointer and copy the contents
     auto nptr = malloc(size);
     if (!nptr) {
         return nptr;
