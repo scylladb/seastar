@@ -143,6 +143,7 @@ module seastar;
 #include <seastar/core/reactor.hh>
 #include <seastar/core/report_exception.hh>
 #include <seastar/core/resource.hh>
+#include <seastar/core/scheduling.hh>
 #include <seastar/core/scheduling_specific.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/smp_options.hh>
@@ -848,6 +849,9 @@ static void print_with_backtrace(backtrace_buffer& buf, bool oneline) noexcept {
     if (local_engine) {
         buf.append(" on shard ");
         buf.append_decimal(this_shard_id());
+
+        buf.append(", in scheduling group ");
+        buf.append(current_scheduling_group().name().c_str());
     }
 
   if (!oneline) {
