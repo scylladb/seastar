@@ -24,6 +24,7 @@ import re
 import sys
 import subprocess
 from enum import Enum
+from functools import cache
 from typing import Any
 
 # special binary path/module indicating that the address is from the kernel
@@ -297,6 +298,7 @@ class BacktraceResolver:
     def __exit__(self, type, value, tb):
         self._print_current_backtrace()
 
+    @cache
     def resolve_address(self, address, module=None, verbose=None):
         if module is None:
             module = self._executable
