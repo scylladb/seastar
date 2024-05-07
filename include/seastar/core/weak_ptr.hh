@@ -46,6 +46,8 @@ template<typename T>
 class weak_ptr {
     template<typename U>
     friend class weakly_referencable;
+    template <typename U>
+    friend class weak_ptr;
 private:
     using hook_type = boost::intrusive::list_member_hook<boost::intrusive::link_mode<boost::intrusive::auto_unlink>>;
     hook_type _hook;
@@ -59,7 +61,18 @@ private:
         _hook.swap_nodes(o._hook);
         std::swap(_ptr, o._ptr);
     }
+
 public:
+    template <typename U>
+    requires std::convertible_to<U*, T*>
+    weak_ptr(weak_ptr<U>&& o)
+    {
+        if (o._ptr) {
+            _ptr = std::exchange(o._ptr, nullptr);
+            _hook.swap_nodes(o._hook);
+        }
+    }
+
     // Note: The default constructor's body is implemented as no-op
     // rather than `noexcept = default` due to a bug with gcc 9.3.1
     // that deletes the constructor since boost::intrusive::list_member_hook
@@ -138,6 +151,10 @@ public:
         weak_ptr<T> ptr(static_cast<T*>(this));
         _ptr_list.push_back(ptr);
         return ptr;
+    }
+
+    weak_ptr<const T> weak_from_this() const noexcept {
+        return const_cast<weakly_referencable*>(this)->weak_from_this();
     }
 };
 
