@@ -48,6 +48,33 @@ BOOST_AUTO_TEST_CASE(test_weak_ptr_is_reset) {
     BOOST_REQUIRE(!bool(wp));
 }
 
+BOOST_AUTO_TEST_CASE(test_const_weak_ptr) {
+    auto owning_ptr = std::make_unique<myclass>();
+
+    weak_ptr<const myclass> cwptr = const_cast<const myclass&>(*owning_ptr).weak_from_this();
+    BOOST_REQUIRE(bool(cwptr));
+    owning_ptr.reset();
+    BOOST_REQUIRE(!bool(cwptr));
+}
+
+class baseclass {};
+class myiclass : public baseclass, public weakly_referencable<myiclass> {};
+
+BOOST_AUTO_TEST_CASE(test_base_class_weak_ptr) {
+    auto owning_ptr = std::make_unique<myiclass>();
+
+    auto get_checker = [] (weak_ptr<baseclass> p) {
+        return [p = std::move(p)] (bool v) {
+            BOOST_REQUIRE_EQUAL(bool(p), v);
+        };
+    };
+
+    auto checker = get_checker(owning_ptr->weak_from_this());
+    checker(true);
+    owning_ptr.reset();
+    checker(false);
+}
+
 BOOST_AUTO_TEST_CASE(test_weak_ptr_can_be_moved) {
     auto owning_ptr = std::make_unique<myclass>();
     weak_ptr<myclass> wp1 = owning_ptr->weak_from_this();
