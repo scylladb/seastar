@@ -25,6 +25,7 @@
 #include <chrono>
 #include <memory>
 #include <vector>
+#include <cstddef>
 #include <cstring>
 #include <sys/types.h>
 #endif
@@ -178,9 +179,7 @@ struct session_dn {
 
   /// Information about a certificate
 struct cert_info {
-    static constexpr size_t bytes_inline_size = 31;
-    using bytes = basic_sstring<uint8_t, uint32_t, bytes_inline_size, false>;
-    bytes serial;
+    std::vector<std::byte> serial;
     time_t expiry;
 };
 
