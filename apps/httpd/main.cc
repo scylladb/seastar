@@ -19,6 +19,7 @@
  * Copyright 2015 Cloudius Systems
  */
 
+#include <memory>
 #include <seastar/http/httpd.hh>
 #include <seastar/http/handlers.hh>
 #include <seastar/http/function_handlers.hh>
@@ -118,7 +119,7 @@ int main(int ac, char** av) {
             }
 
             uint16_t port = config["port"].as<uint16_t>();
-            auto server = new http_server_control();
+            auto server = std::make_unique<http_server_control>();
             auto rb = make_shared<api_registry_builder>("apps/httpd/");
             server->start().get();
 
