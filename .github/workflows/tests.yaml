@@ -21,19 +21,47 @@ jobs:
         standard: [20, 23]
         mode: [dev, debug, release]
         include:
-          # in addition to the above combinations, add a combination to build with
-          # dpdk. but only build this combination when dpdk is enabled, so we don't
-          # double the size of the test matrix, and can at least test the build
-          # with dpdk enabled.
+          - compiler: clang++-18
+            standard: 20
+            mode: dev
+          - compiler: clang++-18
+            standard: 20
+            mode: debug
+          - compiler: clang++-18
+            standard: 20
+            mode: release
+          - compiler: clang++-18
+            standard: 23
+            mode: dev
+          - compiler: clang++-18
+            standard: 23
+            mode: debug
+          - compiler: clang++-18
+            standard: 23
+            mode: release
+          - compiler: gcc-13
+            standard: 20
+            mode: dev
+          - compiler: gcc-13
+            standard: 20
+            mode: debug
+          - compiler: gcc-13
+            standard: 20
+            mode: release
+          - compiler: gcc-13
+            standard: 23
+            mode: dev
+          - compiler: gcc-13
+            standard: 23
+            mode: debug
+          - compiler: gcc-13
+            standard: 23
+            mode: release
           - compiler: clang++-18
             standard: 23
             mode: release
             cooks: --cook dpdk
             enables: --enable-dpdk
-          # in addition to the above combinations, add a combination to build with
-          # C++20 modules. but only build this combination with C++20 modules enabled,
-          # so we don't double the size of the test matrix, and can at least test the
-          # build with C++20 modules enabled.
           - compiler: clang++-18
             standard: 23
             mode: debug
