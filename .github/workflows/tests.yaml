@@ -60,7 +60,7 @@ jobs:
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1
         with:
-          key: ${{ matrix.compiler }}-${{ matrix.standard }}-${{ matrix.mode }}
+          key: ${{ matrix.compiler }}-${{ matrix.standard }}-${{ matrix.mode }}-${{ matrix.enables }}
 
       - name: Configure
         run: >
