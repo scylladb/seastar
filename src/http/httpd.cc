@@ -505,7 +505,7 @@ future<> http_server_control::start(const sstring& name) {
     return _server_dist->start(name);
 }
 
-future<> http_server_control::stop() {
+future<> http_server_control::stop() noexcept {
     return _server_dist->stop();
 }
 
