@@ -44,7 +44,7 @@ To get all metrics without a `service` label:
 http://localhost:9180/metrics?service=
 
 To get all metrics with a `service` label equals `prometheus` and from shard `0`:
-http://localhost:9180/service=prometheus&shard=0
+http://localhost:9180/metrics?service=prometheus&shard=0
 
 ## Remove the help lines
 Sending the help associated with each metric on each request is an overhead.
