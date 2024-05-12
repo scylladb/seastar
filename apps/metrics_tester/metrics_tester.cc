@@ -136,17 +136,15 @@ int main(int ac, char** av) {
                     });
             }).get();
 
-            if (port) {
-                prometheus_server.start("prometheus").get();
+            prometheus_server.start("prometheus").get();
 
-                prometheus::config pctx;
-                pctx.allow_protobuf = true;
-                prometheus::start(prometheus_server, pctx).get();
-                prometheus_server.listen(socket_address{listen, port}).handle_exception([] (auto ep) {
-                    return make_exception_future<>(ep);
-                }).get();
-                stop_signal.wait().get();
-            }
+            prometheus::config pctx;
+            pctx.allow_protobuf = true;
+            prometheus::start(prometheus_server, pctx).get();
+            prometheus_server.listen(socket_address{listen, port}).handle_exception([] (auto ep) {
+                return make_exception_future<>(ep);
+            }).get();
+            stop_signal.wait().get();
         });
     });
 }
