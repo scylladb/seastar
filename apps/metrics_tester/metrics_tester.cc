@@ -25,6 +25,7 @@
 #include <seastar/core/metrics.hh>
 #include <seastar/core/relabel_config.hh>
 #include <seastar/core/internal/estimated_histogram.hh>
+#include <seastar/util/defer.hh>
 #include "../lib/stop_signal.hh"
 #include <yaml-cpp/yaml.h>
 using namespace seastar;
@@ -137,6 +138,9 @@ int main(int ac, char** av) {
             }).get();
 
             prometheus_server.start("prometheus").get();
+            auto stop_server = defer([&] () noexcept {
+                prometheus_server.stop().get();
+            });
 
             prometheus::config pctx;
             pctx.allow_protobuf = true;
