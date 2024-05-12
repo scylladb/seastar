@@ -2701,6 +2701,7 @@ void reactor::run_tasks(task_queue& tq) {
                 // need_preempt() checks breaking out of loops and .then() calls. See
                 // #302.
                 reset_preemption_monitor();
+                lowres_clock::update();
             }
         }
     }
