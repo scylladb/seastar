@@ -757,3 +757,10 @@ add_test (
 set_tests_properties (Seastar.unit.json2code
   PROPERTIES
     TIMEOUT ${Seastar_TEST_TIMEOUT})
+
+add_executable (metrics_tester
+  metrics_tester.cc)
+target_link_libraries (metrics_tester
+  PRIVATE
+    seastar_private
+    yaml-cpp::yaml-cpp)
