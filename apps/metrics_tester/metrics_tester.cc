@@ -138,7 +138,7 @@ int main(int ac, char** av) {
                     rl[0].action = metrics::relabel_config::relabel_action::drop;
 
                     rl[1].source_labels = {"private"};
-                    rl[1].expr = "1";
+                    rl[1].expr = ".*";
                     rl[1].action = metrics::relabel_config::relabel_action::keep;
                     return metrics::set_relabel_configs(rl).then([](metrics::metric_relabeling_result) {
                         return;
