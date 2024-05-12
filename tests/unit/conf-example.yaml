@@ -14,3 +14,17 @@ metrics:
   labels:
     private: "1"
   values: [7]
+- name: counter_1
+  type: counter
+  labels:
+    private: "2"
+  values: [1]
+- name: counter_1
+  type: counter
+  labels:
+    private: "3"
+  values: [2]
+metric_family_config:
+- name: test_group_counter_1
+  aggregate_labels:
+    - private

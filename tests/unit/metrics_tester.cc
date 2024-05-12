@@ -44,7 +44,9 @@ struct metric_def {
 
 struct config {
     std::vector<metric_def> metrics;
+    std::vector<sm::metric_family_config> metric_family_config;
 };
+
 namespace YAML {
 template<>
 struct convert<metric_def> {
@@ -67,15 +69,36 @@ struct convert<metric_def> {
         return true;
     }
 };
+
+template<>
+struct convert<sm::metric_family_config> {
+    static bool decode(const Node& node, sm::metric_family_config& cfg) {
+        if (node["name"]) {
+            cfg.name = node["name"].as<std::string>();
+        }
+        if (node["regex_name"]) {
+            cfg.regex_name = node["regex_name"].as<std::string>();
+        }
+        if (node["aggregate_labels"]) {
+            cfg.aggregate_labels = node["aggregate_labels"].as<std::vector<std::string>>();
+        }
+        return true;
+    }
+};
+
 template<>
 struct convert<config> {
     static bool decode(const Node& node, config& cfg) {
         if (node["metrics"]) {
             cfg.metrics = node["metrics"].as<std::vector<metric_def>>();
         }
+        if (node["metric_family_config"]) {
+            cfg.metric_family_config = node["metric_family_config"].as<std::vector<sm::metric_family_config>>();
+        }
         return true;
     }
 };
+
 }
 std::function<sm::internal::time_estimated_histogram()> make_histogram_fun(const metric_def& c) {
     sm::internal::time_estimated_histogram histogram;
@@ -145,6 +168,10 @@ int main(int ac, char** av) {
                     });
             }).get();
 
+            if (!cfg.metric_family_config.empty()) {
+                sm::set_metric_family_configs(cfg.metric_family_config);
+            }
+
             prometheus_server.start("prometheus").get();
             auto stop_server = defer([&] () noexcept {
                 prometheus_server.stop().get();
@@ -156,6 +183,10 @@ int main(int ac, char** av) {
             prometheus_server.listen(socket_address{listen, port}).handle_exception([] (auto ep) {
                 return make_exception_future<>(ep);
             }).get();
+
+            fmt::print("{}\n", port);
+            fflush(stdout);
+
             stop_signal.wait().get();
         });
     });
