@@ -5,6 +5,6 @@ metrics:
 - name: gag1
   type: gauge
   values: [5]
-- name: caunt1
-  type: caunter
+- name: count1
+  type: counter
   values: [7]
