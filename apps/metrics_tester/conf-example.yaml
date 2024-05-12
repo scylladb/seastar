@@ -2,9 +2,15 @@ metrics:
 - name: hist1
   type: histogram
   values: [1000,2000,3000]
+  labels:
+    private: "1"
 - name: gag1
   type: gauge
   values: [5]
+  labels:
+    private: "1"
 - name: count1
   type: counter
+  labels:
+    private: "1"
   values: [7]
