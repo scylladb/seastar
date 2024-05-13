@@ -757,3 +757,25 @@ add_test (
 set_tests_properties (Seastar.unit.json2code
   PROPERTIES
     TIMEOUT ${Seastar_TEST_TIMEOUT})
+
+add_executable (metrics_tester
+  metrics_tester.cc)
+target_link_libraries (metrics_tester
+  PRIVATE
+    seastar_private
+    yaml-cpp::yaml-cpp)
+
+add_dependencies (unit_tests metrics_tester)
+add_custom_target (test_unit_prometheus_run
+  COMMAND ${CMAKE_COMMAND} -E env ${Seastar_TEST_ENVIRONMENT}
+    ${CMAKE_CURRENT_SOURCE_DIR}/prometheus_test.py
+    --exporter $<TARGET_FILE:metrics_tester>
+    --config ${CMAKE_CURRENT_SOURCE_DIR}/conf-example.yaml
+  USES_TERMINAL)
+add_dependencies (test_unit_prometheus_run metrics_tester)
+add_test (
+  NAME Seastar.unit.prometheus
+  COMMAND ${CMAKE_COMMAND} --build ${Seastar_BINARY_DIR} --target test_unit_prometheus_run)
+set_tests_properties (Seastar.unit.prometheus
+  PROPERTIES
+    TIMEOUT ${Seastar_TEST_TIMEOUT})

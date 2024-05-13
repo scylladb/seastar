@@ -1,0 +1,30 @@
+metrics:
+- name: hist1
+  type: histogram
+  values: [1000,2000,3000]
+  labels:
+    private: "1"
+- name: gag1
+  type: gauge
+  values: [5]
+  labels:
+    private: "1"
+- name: count1
+  type: counter
+  labels:
+    private: "1"
+  values: [7]
+- name: counter_1
+  type: counter
+  labels:
+    private: "2"
+  values: [1]
+- name: counter_1
+  type: counter
+  labels:
+    private: "3"
+  values: [2]
+metric_family_config:
+- name: test_group_counter_1
+  aggregate_labels:
+    - private

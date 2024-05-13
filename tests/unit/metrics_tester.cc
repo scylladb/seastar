@@ -25,7 +25,10 @@
 #include <seastar/core/metrics.hh>
 #include <seastar/core/relabel_config.hh>
 #include <seastar/core/internal/estimated_histogram.hh>
-#include "../lib/stop_signal.hh"
+#include <seastar/util/defer.hh>
+#include "../../apps/lib/stop_signal.hh"
+#include <map>
+#include <vector>
 #include <yaml-cpp/yaml.h>
 using namespace seastar;
 using namespace std::chrono_literals;
@@ -36,11 +39,14 @@ struct metric_def {
     sstring name;
     sstring type;
     std::vector<double> values;
+    std::vector<sm::label_instance> labels;
 };
 
 struct config {
     std::vector<metric_def> metrics;
+    std::vector<sm::metric_family_config> metric_family_config;
 };
+
 namespace YAML {
 template<>
 struct convert<metric_def> {
@@ -54,18 +60,45 @@ struct convert<metric_def> {
         if (node["values"]) {
             cfg.values = node["values"].as<std::vector<double>>();
         }
+        if (node["labels"]) {
+            const auto labels = node["labels"].as<std::map<std::string, std::string>>();
+            for (auto& [key, value]: labels) {
+                cfg.labels.emplace_back(key, value);
+            }
+        }
         return true;
     }
 };
+
+template<>
+struct convert<sm::metric_family_config> {
+    static bool decode(const Node& node, sm::metric_family_config& cfg) {
+        if (node["name"]) {
+            cfg.name = node["name"].as<std::string>();
+        }
+        if (node["regex_name"]) {
+            cfg.regex_name = node["regex_name"].as<std::string>();
+        }
+        if (node["aggregate_labels"]) {
+            cfg.aggregate_labels = node["aggregate_labels"].as<std::vector<std::string>>();
+        }
+        return true;
+    }
+};
+
 template<>
 struct convert<config> {
     static bool decode(const Node& node, config& cfg) {
         if (node["metrics"]) {
             cfg.metrics = node["metrics"].as<std::vector<metric_def>>();
         }
+        if (node["metric_family_config"]) {
+            cfg.metric_family_config = node["metric_family_config"].as<std::vector<sm::metric_family_config>>();
+        }
         return true;
     }
 };
+
 }
 std::function<sm::internal::time_estimated_histogram()> make_histogram_fun(const metric_def& c) {
     sm::internal::time_estimated_histogram histogram;
@@ -75,21 +108,21 @@ std::function<sm::internal::time_estimated_histogram()> make_histogram_fun(const
     return [histogram]() {return histogram;};
 }
 
-sm::impl::metric_definition_impl make_metrics_definition(const metric_def& jc, sm::label_instance private_label) {
+sm::impl::metric_definition_impl make_metrics_definition(const metric_def& jc) {
     if (jc.type == "histogram") {
         sm::internal::time_estimated_histogram histogram;
         for (const auto& v : jc.values) {
             histogram.add_micro(v);
         }
         return sm::make_histogram(jc.name, [histogram]() {return histogram.to_metrics_histogram();},
-                sm::description(jc.name),{private_label} );
+                sm::description(jc.name), jc.labels );
     }
     if (jc.type == "gauge") {
         return sm::make_gauge(jc.name, [val=jc.values[0]] { return val; },
-                sm::description(jc.name),{private_label} );
+                sm::description(jc.name), jc.labels );
     }
     return sm::make_counter(jc.name, [val=jc.values[0]] { return val; },
-            sm::description(jc.name),{private_label} );
+            sm::description(jc.name), jc.labels );
 }
 
 int main(int ac, char** av) {
@@ -110,7 +143,6 @@ int main(int ac, char** av) {
             seastar_apps_lib::stop_signal stop_signal;
             auto& opts = app.configuration();
             auto& listen = opts["listen"].as<sstring>();
-            auto private_label = sm::label_instance("private", "1");
             auto& port = opts["port"].as<uint16_t>();
             auto& conf = opts["conf"].as<sstring>();
 
@@ -119,7 +151,7 @@ int main(int ac, char** av) {
 
             for (auto&& jc : cfg.metrics) {
                 _metrics.add_group("test_group", {
-                        make_metrics_definition(jc, private_label)
+                        make_metrics_definition(jc)
                 });
             }
             smp::invoke_on_all([] {
@@ -129,24 +161,33 @@ int main(int ac, char** av) {
                     rl[0].action = metrics::relabel_config::relabel_action::drop;
 
                     rl[1].source_labels = {"private"};
-                    rl[1].expr = "1";
+                    rl[1].expr = ".*";
                     rl[1].action = metrics::relabel_config::relabel_action::keep;
                     return metrics::set_relabel_configs(rl).then([](metrics::metric_relabeling_result) {
                         return;
                     });
             }).get();
 
-            if (port) {
-                prometheus_server.start("prometheus").get();
-
-                prometheus::config pctx;
-                pctx.allow_protobuf = true;
-                prometheus::start(prometheus_server, pctx).get();
-                prometheus_server.listen(socket_address{listen, port}).handle_exception([] (auto ep) {
-                    return make_exception_future<>(ep);
-                }).get();
-                stop_signal.wait().get();
+            if (!cfg.metric_family_config.empty()) {
+                sm::set_metric_family_configs(cfg.metric_family_config);
             }
+
+            prometheus_server.start("prometheus").get();
+            auto stop_server = defer([&] () noexcept {
+                prometheus_server.stop().get();
+            });
+
+            prometheus::config pctx;
+            pctx.allow_protobuf = true;
+            prometheus::start(prometheus_server, pctx).get();
+            prometheus_server.listen(socket_address{listen, port}).handle_exception([] (auto ep) {
+                return make_exception_future<>(ep);
+            }).get();
+
+            fmt::print("{}\n", port);
+            fflush(stdout);
+
+            stop_signal.wait().get();
         });
     });
 }
