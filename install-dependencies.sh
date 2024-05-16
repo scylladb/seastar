@@ -61,6 +61,7 @@ debian_packages=(
     pkg-config
     libprotobuf-dev
     protobuf-compiler
+    libudev-dev
 )
 
 # seastar doesn't directly depend on these packages. They are
@@ -99,6 +100,7 @@ redhat_packages=(
     valgrind-devel
     protobuf-devel
     protobuf-compiler
+    libudev-devel
     "${transitive[@]}"
 )
 
