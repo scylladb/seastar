@@ -139,6 +139,7 @@ arg_parser.add_argument('--split-dwarf', dest='split_dwarf', action='store_true'
 arg_parser.add_argument('--compile-commands-json', dest='cc_json', action='store_true',
                         help='Generate a compile_commands.json file for integration with clangd and other tools.')
 arg_parser.add_argument('--heap-profiling', dest='heap_profiling', action='store_true', default=False, help='Enable heap profiling')
+arg_parser.add_argument('--dpdk-machine', default='native', help='Specify the target architecture')
 add_tristate(arg_parser, name='deferred-action-require-noexcept', dest='deferred_action_require_noexcept', help='noexcept requirement for deferred actions', default=True)
 arg_parser.add_argument('--prefix', dest='install_prefix', default='/usr/local', help='Root installation path of Seastar files')
 args = arg_parser.parse_args()
@@ -197,6 +198,7 @@ def configure_mode(mode):
         tr(LDFLAGS, 'LD_FLAGS'),
         tr(args.cxx_modules, 'MODULE'),
         tr(args.dpdk, 'DPDK'),
+        tr(args.dpdk_machine, 'DPDK_MACHINE'),
         tr(args.hwloc, 'HWLOC', value_when_none='yes'),
         tr(args.io_uring, 'IO_URING', value_when_none=None),
         tr(args.alloc_failure_injection, 'ALLOC_FAILURE_INJECTION', value_when_none='DEFAULT'),
