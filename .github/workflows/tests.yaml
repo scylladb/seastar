@@ -60,7 +60,7 @@ jobs:
           - compiler: clang++-18
             standard: 23
             mode: release
-            cooks: --cook dpdk
+            options: --cook dpdk --dpdk-machine haswell
             enables: --enable-dpdk
           - compiler: clang++-18
             standard: 23
@@ -69,7 +69,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: "${{ contains(matrix.cooks, 'dpdk') }}"
+          submodules: "${{ contains(matrix.enables, 'dpdk') }}"
 
       - name: Install build dependencies
         run: |
@@ -98,7 +98,7 @@ jobs:
           --compiler $CXX
           --c-compiler $CC
           --mode ${{ matrix.mode }}
-          ${{ matrix.cooks }}
+          ${{ matrix.options }}
           ${{ matrix.enables }} ;
 
       - name: Build
