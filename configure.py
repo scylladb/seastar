@@ -139,6 +139,7 @@ arg_parser.add_argument('--split-dwarf', dest='split_dwarf', action='store_true'
 arg_parser.add_argument('--compile-commands-json', dest='cc_json', action='store_true',
                         help='Generate a compile_commands.json file for integration with clangd and other tools.')
 arg_parser.add_argument('--heap-profiling', dest='heap_profiling', action='store_true', default=False, help='Enable heap profiling')
+arg_parser.add_argument('--dpdk-machine', default='native', help='Specify the target architecture')
 add_tristate(arg_parser, name='deferred-action-require-noexcept', dest='deferred_action_require_noexcept', help='noexcept requirement for deferred actions', default=True)
 arg_parser.add_argument('--prefix', dest='install_prefix', default='/usr/local', help='Root installation path of Seastar files')
 args = arg_parser.parse_args()
@@ -161,32 +162,6 @@ def identify_best_standard(cpp_standards, compiler):
 if args.cpp_standard == '':
     cpp_standards = ['23', '20']
     args.cpp_standard = identify_best_standard(cpp_standards, compiler=args.cxx)
-
-
-def infer_dpdk_machine(user_cflags):
-    """Infer the DPDK machine identifier (e.g., 'ivb') from the space-separated
-    string of user cflags by scraping the value of `-march` if it is present.
-
-    The default if no architecture is indicated is 'native'.
-    """
-    arch = 'native'
-
-    # `-march` may be repeated, and we want the last one.
-    # strip features, leave only the arch: armv8-a+crc+crypto -> armv8-a
-    for flag in user_cflags.split():
-        if flag.startswith('-march'):
-            arch = flag[7:].split('+')[0]
-
-    MAPPING = {
-        'native': 'native',
-        'nehalem': 'nhm',
-        'westmere': 'wsm',
-        'sandybridge': 'snb',
-        'ivybridge': 'ivb',
-        'armv8-a': 'armv8a',
-    }
-
-    return MAPPING.get(arch, 'native')
 
 
 MODES = seastar_cmake.SUPPORTED_MODES if args.mode == 'all' else [args.mode]
@@ -223,7 +198,7 @@ def configure_mode(mode):
         tr(LDFLAGS, 'LD_FLAGS'),
         tr(args.cxx_modules, 'MODULE'),
         tr(args.dpdk, 'DPDK'),
-        tr(infer_dpdk_machine(args.user_cflags), 'DPDK_MACHINE'),
+        tr(args.dpdk_machine, 'DPDK_MACHINE'),
         tr(args.hwloc, 'HWLOC', value_when_none='yes'),
         tr(args.io_uring, 'IO_URING', value_when_none=None),
         tr(args.alloc_failure_injection, 'ALLOC_FAILURE_INJECTION', value_when_none='DEFAULT'),
