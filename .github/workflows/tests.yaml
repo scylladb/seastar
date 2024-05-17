@@ -12,7 +12,7 @@ concurrency:
 jobs:
   test:
     name: "Tests (${{ matrix.compiler }}, C++${{ matrix.standard}}, ${{ matrix.mode }}, ${{ matrix.enables }})"
-    runs-on: ubuntu-latest
+    uses: ./.github/workflows/test.yaml
     strategy:
       fail-fast: false
       matrix:
@@ -66,52 +66,9 @@ jobs:
             standard: 23
             mode: debug
             enables: --enable-cxx-modules
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: "${{ contains(matrix.enables, 'dpdk') }}"
-
-      - name: Install build dependencies
-        run: |
-          sudo ./install-dependencies.sh
-
-      - name: Install ${{ matrix.compiler }}
-        uses: aminya/setup-cpp@master
-        with:
-          compiler: ${{ matrix.compiler }}
-          ccache: true
-          # ubuntu:latest comes with CMake 3.29, so we just need to install
-          # ninja. see
-          # https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2204-Readme.md#tools
-          ninja: "${{ contains(matrix.enables, 'cxx-modules') }}"
-
-      - name: Setup ccache
-        uses: hendrikmuhs/ccache-action@v1
-        with:
-          key: ${{ matrix.compiler }}-${{ matrix.standard }}-${{ matrix.mode }}-${{ matrix.enables }}
-
-      - name: Configure
-        run: >
-          ./configure.py
-          --ccache
-          --c++-standard ${{ matrix.standard }}
-          --compiler $CXX
-          --c-compiler $CC
-          --mode ${{ matrix.mode }}
-          ${{ matrix.options }}
-          ${{ matrix.enables }} ;
-
-      - name: Build
-        run: cmake --build build/${{matrix.mode}}
-
-      - name: Check Header
-        if: ${{ matrix.mode == 'dev' && matrix.compiler == 'clang++-18' }}
-        run: cmake --build build/${{ matrix.mode }} --target checkheaders
-
-      - name: Build with C++20 modules
-        if: ${{ contains(matrix.enables, 'cxx-modules') }}
-        run: cmake --build build/${{ matrix.mode }} --target hello_cxx_module
-
-      - name: Test
-        if: ${{ ! contains(matrix.enables, 'cxx-modules') }}
-        run: ./test.py --mode=${{ matrix.mode }}
+    with:
+      compiler: ${{ matrix.compiler }}
+      standard: ${{ matrix.standard }}
+      mode: ${{ matrix.mode }}
+      enables: ${{ matrix.enables }}
+      options: ${{ matrix.options }}

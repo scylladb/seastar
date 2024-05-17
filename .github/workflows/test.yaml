@@ -1,0 +1,84 @@
+name: Test
+
+permissions:
+  contents: read
+
+on:
+  workflow_call:
+    inputs:
+      compiler:
+        # only the compilers supported by setup-cpp can be used
+        description: 'the C++ compiler to use'
+        type: string
+        required: true
+      standard:
+        description: 'the C++ standard to use'
+        type: number
+        required: true
+      mode:
+        description: 'build mode (debug, dev or release)'
+        type: string
+        required: true
+      enables:
+        description: 'the --enable-* option passed to configure.py'
+        type: string
+        default: ''
+        required: false
+      options:
+        description: 'additional options passed to configure.py'
+        type: string
+        default: ''
+        required: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: "${{ contains(inputs.enables, 'dpdk') }}"
+
+      - name: Install build dependencies
+        run: |
+          sudo ./install-dependencies.sh
+
+      - name: Install ${{ inputs.compiler }}
+        uses: aminya/setup-cpp@master
+        with:
+          compiler: ${{ inputs.compiler }}
+          ccache: true
+          # ubuntu:latest comes with CMake 3.29, so we just need to install
+          # ninja. see
+          # https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2204-Readme.md#tools
+          ninja: "${{ contains(inputs.enables, 'cxx-modules') }}"
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1
+        with:
+          key: ${{ inputs.compiler }}-${{ inputs.standard }}-${{ inputs.mode }}-${{ inputs.enables }}
+
+      - name: Configure
+        run: >
+          ./configure.py
+          --ccache
+          --c++-standard ${{ inputs.standard }}
+          --compiler $CXX
+          --c-compiler $CC
+          --mode ${{ inputs.mode }}
+          ${{ inputs.options }}
+          ${{ inputs.enables }} ;
+
+      - name: Build
+        run: cmake --build build/${{inputs.mode}}
+
+      - name: Check Header
+        if: ${{ inputs.mode == 'dev' && inputs.compiler == 'clang++-18' }}
+        run: cmake --build build/${{ inputs.mode }} --target checkheaders
+
+      - name: Build with C++20 modules
+        if: ${{ contains(inputs.enables, 'cxx-modules') }}
+        run: cmake --build build/${{ inputs.mode }} --target hello_cxx_module
+
+      - name: Test
+        if: ${{ ! contains(inputs.enables, 'cxx-modules') }}
+        run: ./test.py --mode=${{ inputs.mode }}
