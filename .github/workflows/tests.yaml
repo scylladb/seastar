@@ -16,8 +16,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # only the compilers supported by setup-cpp
-        compiler: [clang++-18, gcc-13]
+        compiler: [clang++, g++]
         standard: [20, 23]
         mode: [dev, debug, release]
     with:
@@ -32,7 +31,7 @@ jobs:
     strategy:
       fail-fast: false
     with:
-      compiler: clang++-18
+      compiler: clang++
       standard: 23
       mode: release
       enables: --enable-dpdk
@@ -43,7 +42,7 @@ jobs:
     strategy:
       fail-fast: false
     with:
-      compiler: clang++-18
+      compiler: clang++
       standard: 23
       mode: debug
       enables: --enable-cxx-modules

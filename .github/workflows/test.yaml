@@ -7,7 +7,6 @@ on:
   workflow_call:
     inputs:
       compiler:
-        # only the compilers supported by setup-cpp can be used
         description: 'the C++ compiler to use'
         type: string
         required: true
@@ -33,7 +32,12 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    container: fedora:40
     steps:
+      - name: Install Git
+        run: |
+          sudo dnf -y install git
+
       - uses: actions/checkout@v4
         with:
           submodules: "${{ contains(inputs.enables, 'dpdk') }}"
@@ -42,15 +46,19 @@ jobs:
         run: |
           sudo ./install-dependencies.sh
 
-      - name: Install ${{ inputs.compiler }}
-        uses: aminya/setup-cpp@master
-        with:
-          compiler: ${{ inputs.compiler }}
-          ccache: true
-          # ubuntu:latest comes with CMake 3.29, so we just need to install
-          # ninja. see
-          # https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2204-Readme.md#tools
-          ninja: "${{ contains(inputs.enables, 'cxx-modules') }}"
+      - name: Install clang++
+        if: ${{ inputs.compiler == 'clang++' }}
+        run: |
+          sudo dnf -y install clang
+
+      - name: Install clang-scan-deps
+        if: ${{ contains(inputs.enables, 'cxx-modules') }}
+        run: |
+          sudo dnf -y install clang-tools-extra
+
+      - name: Install ccache
+        run: |
+          sudo dnf -y install ccache
 
       - name: Setup ccache
         uses: hendrikmuhs/ccache-action@v1
@@ -58,15 +66,20 @@ jobs:
           key: ${{ inputs.compiler }}-${{ inputs.standard }}-${{ inputs.mode }}-${{ inputs.enables }}
 
       - name: Configure
-        run: >
-          ./configure.py
-          --ccache
-          --c++-standard ${{ inputs.standard }}
-          --compiler $CXX
-          --c-compiler $CC
-          --mode ${{ inputs.mode }}
-          ${{ inputs.options }}
-          ${{ inputs.enables }} ;
+        run: |
+          if [ ${{ inputs.compiler }} = "clang++" ]; then
+            CC=clang
+          else
+            CC=gcc
+          fi
+          ./configure.py                          \
+            --ccache                              \
+            --c++-standard ${{ inputs.standard }} \
+            --compiler ${{ inputs.compiler }}     \
+            --c-compiler $CC                      \
+            --mode ${{ inputs.mode }}             \
+            ${{ inputs.options }}                 \
+            ${{ inputs.enables }}
 
       - name: Build
         run: cmake --build build/${{inputs.mode}}
