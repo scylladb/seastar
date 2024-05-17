@@ -10,8 +10,8 @@ concurrency:
   cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
 
 jobs:
-  test:
-    name: "Tests (${{ matrix.compiler }}, C++${{ matrix.standard}}, ${{ matrix.mode }}, ${{ matrix.enables }})"
+  regular_test:
+    name: "Test (${{ matrix.compiler }}, C++${{ matrix.standard}}, ${{ matrix.mode }})"
     uses: ./.github/workflows/test.yaml
     strategy:
       fail-fast: false
@@ -20,55 +20,30 @@ jobs:
         compiler: [clang++-18, gcc-13]
         standard: [20, 23]
         mode: [dev, debug, release]
-        include:
-          - compiler: clang++-18
-            standard: 20
-            mode: dev
-          - compiler: clang++-18
-            standard: 20
-            mode: debug
-          - compiler: clang++-18
-            standard: 20
-            mode: release
-          - compiler: clang++-18
-            standard: 23
-            mode: dev
-          - compiler: clang++-18
-            standard: 23
-            mode: debug
-          - compiler: clang++-18
-            standard: 23
-            mode: release
-          - compiler: gcc-13
-            standard: 20
-            mode: dev
-          - compiler: gcc-13
-            standard: 20
-            mode: debug
-          - compiler: gcc-13
-            standard: 20
-            mode: release
-          - compiler: gcc-13
-            standard: 23
-            mode: dev
-          - compiler: gcc-13
-            standard: 23
-            mode: debug
-          - compiler: gcc-13
-            standard: 23
-            mode: release
-          - compiler: clang++-18
-            standard: 23
-            mode: release
-            options: --cook dpdk --dpdk-machine haswell
-            enables: --enable-dpdk
-          - compiler: clang++-18
-            standard: 23
-            mode: debug
-            enables: --enable-cxx-modules
     with:
       compiler: ${{ matrix.compiler }}
       standard: ${{ matrix.standard }}
       mode: ${{ matrix.mode }}
       enables: ${{ matrix.enables }}
       options: ${{ matrix.options }}
+  build_with_dpdk:
+    name: "Test with DPDK enabled"
+    uses: ./.github/workflows/test.yaml
+    strategy:
+      fail-fast: false
+    with:
+      compiler: clang++-18
+      standard: 23
+      mode: release
+      enables: --enable-dpdk
+      options: --cook dpdk --dpdk-machine haswell
+  build_with_cxx_modules:
+    name: "Test with C++20 modules enabled"
+    uses: ./.github/workflows/test.yaml
+    strategy:
+      fail-fast: false
+    with:
+      compiler: clang++-18
+      standard: 23
+      mode: debug
+      enables: --enable-cxx-modules
