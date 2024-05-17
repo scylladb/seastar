@@ -517,6 +517,13 @@ namespace tls {
     extern const int ERROR_UNSAFE_RENEGOTIATION_DENIED;
     extern const int ERROR_UNKNOWN_SRP_USERNAME;
     extern const int ERROR_PREMATURE_TERMINATION;
+    extern const int ERROR_PUSH;
+    extern const int ERROR_PULL;
+    extern const int ERROR_UNEXPECTED_PACKET;
+    extern const int ERROR_UNSUPPORTED_VERSION;
+    extern const int ERROR_NO_CIPHER_SUITES;
+    extern const int ERROR_DECRYPTION_FAILED;
+    extern const int ERROR_MAC_VERIFY_FAILED;
 }
 }
 
