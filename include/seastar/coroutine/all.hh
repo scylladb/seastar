@@ -134,8 +134,9 @@ class [[nodiscard("must co_await an all() object")]] all {
                     std::get<idx>(container.state._futures) = make_ready_future<value_type>(std::move(this->_state).get());
                 }
             }
+            awaiter& c = container;
             this->~intermediate_task();
-            container.template process<idx+1>();
+            c.template process<idx+1>();
         }
     };
     template <typename IndexSequence>
