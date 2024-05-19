@@ -22,9 +22,11 @@
 
 import argparse
 import math
+import json
 import re
 import subprocess
 import sys
+import time
 import unittest
 import urllib.request
 import urllib.parse
@@ -218,6 +220,8 @@ class TestPrometheus(unittest.TestCase):
     exporter_process = None
     exporter_config = None
     port = 10001
+    prometheus = None
+    prometheus_scrape_interval = 15
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -322,6 +326,54 @@ class TestPrometheus(unittest.TestCase):
                 else:
                     self.assertIsNone(msg)
 
+    @staticmethod
+    def _from_native_histogram(values) -> dict[float, float]:
+        results = {}
+        for v in values:
+            bucket = Exposition.value_to_bucket(float(v[2]) - 1)
+            results[bucket] = float(v[3])
+        return results
+
+    @staticmethod
+    def _query_prometheus(host: str, query: str, type_: str) -> float | dict[float, float]:
+        url = f'http://{host}/api/v1/query?query={query}'
+        headers = {"Accept": "application/json"}
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req) as f:
+            results = json.load(f)["data"]["result"][0]
+            if type_ == 'histogram':
+                buckets = results["histogram"][1]["buckets"]
+                return TestPrometheus._from_native_histogram(buckets)
+            return float(results["value"][1])
+
+    def test_protobuf(self) -> None:
+        if self.prometheus is None:
+            self.skipTest("prometheus is not configured")
+
+        # Prometheus does not allow us to push metrics to it, neither
+        # can we force it to scrape an exporter, so we have to wait
+        # until prometheus scrapes the server
+        time.sleep(self.prometheus_scrape_interval + 1)
+        with open(self.exporter_config, encoding='utf-8') as f:
+            config = yaml.safe_load(f)
+
+        labels = {'private': '1'}
+        for metric in config['metrics']:
+            name = metric['name']
+            metric_name = f'{Metrics.prefix}_{Metrics.group}_{name}'
+            metric_labels = metric['labels']
+            if metric_labels != labels:
+                continue
+            metric_type = metric['type']
+            metric_value = metric['values']
+            e = Exposition.from_conf(metric_name,
+                                     metric_type,
+                                     metric_value,
+                                     metric_labels)
+            res = self._query_prometheus(self.prometheus,
+                                         metric_name,
+                                         metric_type)
+            self.assertEqual(res, e.value)
 
 
 if __name__ == '__main__':
@@ -332,8 +384,16 @@ if __name__ == '__main__':
     parser.add_argument('--config',
                         required=True,
                         help='Path to the metrics definition file')
+    parser.add_argument('--prometheus',
+                        help='A Prometheus to connect to')
+    parser.add_argument('--prometheus-scrape-interval',
+                        type=int,
+                        help='Prometheus scrape interval (in seconds)',
+                        default=15)
     opts, remaining = parser.parse_known_args()
     remaining.insert(0, sys.argv[0])
     TestPrometheus.exporter_path = opts.exporter
     TestPrometheus.exporter_config = opts.config
+    TestPrometheus.prometheus = opts.prometheus
+    TestPrometheus.prometheus_scrape_interval = opts.prometheus_scrape_interval
     unittest.main(argv=remaining)
