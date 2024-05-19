@@ -144,11 +144,11 @@ There are also instructions for building on any host that supports [Docker](doc/
 
 Use of the [DPDK](http://dpdk.org) is [optional](doc/building-dpdk.md).
 
-#### Seastar's C++ standard: C++17 or C++20
+#### Seastar's C++ standard: C++20 or C++23
 
-Seastar supports both C++17, and C++20. The build defaults to the latest
+Seastar supports both C++20, and C++23. The build defaults to the latest
 standard supported by your compiler, but can be explicitly selected with
-the `--c++-standard` configure option, e.g., `--c++-standard=17`,
+the `--c++-standard` configure option, e.g., `--c++-standard=20`,
 or if using CMake directly, by setting on the `CMAKE_CXX_STANDARD` CMake
 variable.
 
