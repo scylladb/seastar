@@ -118,7 +118,9 @@ module;
 #include <fmt/ostream.h>
 #include <fmt/printf.h>
 #include <gnutls/crypto.h>
-
+#ifdef SEASTAR_HAVE_HWLOC
+#include <hwloc.h>
+#endif
 #if defined(__x86_64__) || defined(__i386__)
 #include <xmmintrin.h>
 #endif

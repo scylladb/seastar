@@ -35,6 +35,10 @@ module;
 #include <limits>
 #include <filesystem>
 #include <unordered_map>
+#include <fmt/core.h>
+#if SEASTAR_HAVE_HWLOC
+#include <hwloc/glibc-sched.h>
+#endif
 
 #ifdef SEASTAR_MODULE
 module seastar;
@@ -48,10 +52,6 @@ module seastar;
 #include <seastar/core/io_queue.hh>
 #include <seastar/core/print.hh>
 #include "cgroup.hh"
-
-#if SEASTAR_HAVE_HWLOC
-#include <hwloc/glibc-sched.h>
-#endif
 
 #endif
 

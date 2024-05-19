@@ -36,6 +36,7 @@ module;
 #include <sys/syscall.h>
 #include <sys/resource.h>
 #include <boost/container/small_vector.hpp>
+#include <fmt/core.h>
 
 #ifdef SEASTAR_HAVE_URING
 #include <liburing.h>
