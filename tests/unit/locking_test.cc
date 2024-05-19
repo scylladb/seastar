@@ -25,6 +25,8 @@
 #include <exception>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
+#include <seastar/core/coroutine.hh>
+#include <seastar/coroutine/parallel_for_each.hh>
 #include <seastar/core/do_with.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/core/sleep.hh>
@@ -419,4 +421,73 @@ SEASTAR_THREAD_TEST_CASE(test_with_lock_typed_return_throwing_move_func) {
             BOOST_FAIL(format("Unexpected exception type: {}", e.what()));
         }
     }
+}
+
+SEASTAR_TEST_CASE(test_shared_mutex_locks) {
+    shared_mutex sm;
+
+    {
+        const auto ulock = co_await get_unique_lock(sm);
+        BOOST_REQUIRE(!sm.try_lock());
+        BOOST_REQUIRE(!sm.try_lock_shared());
+    }
+
+    BOOST_REQUIRE(sm.try_lock());
+    sm.unlock();
+
+    {
+        const auto slock1 = co_await get_shared_lock(sm);
+        BOOST_REQUIRE(!sm.try_lock());
+        BOOST_REQUIRE(sm.try_lock_shared());
+
+        const auto slock2 = co_await get_shared_lock(sm);
+
+        // This balances out the call to `try_lock_shared()` above.
+        sm.unlock_shared();
+    }
+
+    BOOST_REQUIRE(sm.try_lock());
+    sm.unlock();
+}
+
+SEASTAR_TEST_CASE(test_shared_mutex_exclusive_locks) {
+    shared_mutex sm{};
+    unsigned counter = 0;
+
+    co_await coroutine::parallel_for_each(boost::irange(0, 10), coroutine::lambda([&sm, &counter] (auto&&) -> future<> {
+        const auto ulock = co_await get_unique_lock(sm);
+        BOOST_REQUIRE_EQUAL(counter, 0u);
+        ++counter;
+        co_await sleep(1ms);
+        --counter;
+        BOOST_REQUIRE_EQUAL(counter, 0u);
+    }));
+}
+
+SEASTAR_TEST_CASE(test_shared_mutex_exception_locks) {
+    shared_mutex sm;
+
+    // Verify that the shared_mutex is unlocked when an exception is thrown.
+    try {
+        const auto slock = co_await get_shared_lock(sm);
+        throw std::runtime_error("injected");
+    } catch (const std::runtime_error&) {
+        BOOST_REQUIRE(sm.try_lock());
+        sm.unlock();
+    } catch (...) {
+        BOOST_FAIL(format("Unexpected exception type: {}", std::current_exception()));
+    }
+
+    try {
+        const auto ulock = co_await get_unique_lock(sm);
+        throw std::runtime_error("injected");
+    } catch (const std::runtime_error&) {
+        BOOST_REQUIRE(sm.try_lock());
+        sm.unlock();
+    } catch (...) {
+        BOOST_FAIL(format("Unexpected exception type: {}", std::current_exception()));
+    }
+
+    BOOST_REQUIRE(sm.try_lock());
+    sm.unlock();
 }
