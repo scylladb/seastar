@@ -26,13 +26,10 @@
 
 #include <fmt/format.h>
 
+#include <seastar/core/coroutine.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/testing/linux_perf_event.hh>
-
-#ifdef SEASTAR_COROUTINES_ENABLED
-#include <seastar/core/coroutine.hh>
-#endif
 
 using namespace seastar;
 
@@ -362,7 +359,6 @@ void do_not_optimize(const T& v)
     test_##test_group##_##test_case##_registrar(#test_group, #test_case); \
     [[gnu::always_inline]] auto test_##test_group##_##test_case::run()
 
-#ifdef SEASTAR_COROUTINES_ENABLED
 
 #define PERF_TEST_C(test_group, test_case) \
     struct test_##test_group##_##test_case : test_group { \
@@ -379,5 +375,3 @@ void do_not_optimize(const T& v)
     static ::perf_tests::internal::test_registrar<test_##test_group##_##test_case> \
     test_##test_group##_##test_case##_registrar(#test_group, #test_case); \
     future<size_t> test_##test_group##_##test_case::run()
-
-#endif // SEASTAR_COROUTINES_ENABLED

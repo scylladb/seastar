@@ -25,9 +25,7 @@ module;
 
 #include <algorithm>
 #include <atomic>
-#ifdef SEASTAR_COROUTINES_ENABLED
 #include <coroutine>
-#endif
 #include <deque>
 #include <filesystem>
 #include <functional>
@@ -399,7 +397,6 @@ static std::optional<directory_entry_type> dirent_type(const linux_dirent64& de)
     return type;
 }
 
-#ifdef SEASTAR_COROUTINES_ENABLED
 static coroutine::experimental::generator<directory_entry> make_list_directory_generator(int fd) {
     temporary_buffer<char> buf(8192);
 
@@ -432,7 +429,6 @@ coroutine::experimental::generator<directory_entry> posix_file_impl::experimenta
     // is allocated out of this buffer, so the buffer would grow up to ~200 bytes
     return make_list_directory_generator(_fd);
 }
-#endif
 
 subscription<directory_entry>
 posix_file_impl::list_directory(std::function<future<> (directory_entry de)> next) {
@@ -1167,11 +1163,9 @@ file::list_directory(std::function<future<>(directory_entry de)> next) {
     return _file_impl->list_directory(std::move(next));
 }
 
-#ifdef SEASTAR_COROUTINES_ENABLED
 coroutine::experimental::generator<directory_entry> file::experimental_list_directory() {
     return _file_impl->experimental_list_directory();
 }
-#endif
 
 future<int> file::ioctl(uint64_t cmd, void* argp) noexcept {
     return _file_impl->ioctl(cmd, argp);
@@ -1376,7 +1370,6 @@ file_impl::dup() {
     throw std::runtime_error("this file type cannot be duplicated");
 }
 
-#ifdef SEASTAR_COROUTINES_ENABLED
 static coroutine::experimental::generator<directory_entry> make_list_directory_fallback_generator(file_impl& me) {
     queue<std::optional<directory_entry>> ents(16);
     auto lister = me.list_directory([&ents] (directory_entry de) {
@@ -1400,7 +1393,6 @@ static coroutine::experimental::generator<directory_entry> make_list_directory_f
 coroutine::experimental::generator<directory_entry> file_impl::experimental_list_directory() {
     return make_list_directory_fallback_generator(*this);
 }
-#endif
 
 future<int> file_impl::ioctl(uint64_t cmd, void* argp) noexcept {
     return make_exception_future<int>(std::runtime_error("this file type does not support ioctl"));

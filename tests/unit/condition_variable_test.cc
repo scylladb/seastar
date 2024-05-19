@@ -222,8 +222,6 @@ SEASTAR_THREAD_TEST_CASE(test_condition_variable_has_waiter) {
     BOOST_REQUIRE_EQUAL(cv.has_waiters(), false);
 }
 
-#ifdef SEASTAR_COROUTINES_ENABLED
-
 SEASTAR_TEST_CASE(test_condition_variable_signal_consume_coroutine) {
     condition_variable cv;
 
@@ -365,5 +363,3 @@ SEASTAR_TEST_CASE(test_condition_variable_when_timeout) {
 
     co_await std::move(f);
 }
-
-#endif
