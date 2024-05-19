@@ -877,13 +877,6 @@ endif ()
 set( MEMORYCHECK_COMMAND_OPTIONS "--error-exitcode=1 --leak-check=no --trace-children=yes" )
 include (CTest)
 
-if (Seastar_MODULE)
-  if (POLICY CMP0155)
-    cmake_policy (SET CMP0155 NEW)
-  endif ()
-  include (CxxModulesRules)
-  add_subdirectory (src)
-endif ()
 #
 # We want asserts enabled on all modes, but cmake defaults to passing
 # -DNDEBUG in some modes. We add -UNDEBUG to our private options to
@@ -1182,6 +1175,14 @@ if (Seastar_INSTALL OR Seastar_TESTING)
     PUBLIC
     seastar)
 
+endif ()
+
+if (Seastar_MODULE)
+  if (POLICY CMP0155)
+    cmake_policy (SET CMP0155 NEW)
+  endif ()
+  include (CxxModulesRules)
+  add_subdirectory (src)
 endif ()
 
 #
