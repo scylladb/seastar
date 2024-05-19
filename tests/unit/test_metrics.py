@@ -29,44 +29,6 @@ def query_prometheus(host, query, type):
     )
 
 
-def validate_text(url):
-    resp = requests.get("http://" + url)
-    val = None
-    res = {}
-    for l in resp.iter_lines():
-        if not l:
-            continue
-        ln = l.decode("utf-8")
-        if "HELP" in ln:
-            continue
-        if "TYPE" in ln:
-            if val:
-                res[name] = {"name": name, "type": type, "value": val}
-            m = MATCH_TYPE.match(ln)
-            name = m.group(1)
-            type = m.group(2)
-            last_val = 0
-            val = None
-        else:
-            if type == "histogram":
-                m = MATCH_HISTOGRAM.match(ln)
-                if not m:
-                    continue
-                le = val_to_bucket(float(m.group(1)) - 1)
-                value = float(m.group(2))
-                if not val:
-                    val = {}
-                if value > last_val:
-                    val[le] = value - last_val
-                    last_val = value
-            else:
-                m = MATCH_VALUE.match(ln)
-                val = float(m.group(1))
-    if val:
-        res[name] = {"name": name, "type": type, "value": val}
-    return res
-
-
 def val_to_bucket(val):
     low = 2 ** math.floor(math.log(val, 2))
     high = 2 * low
@@ -117,16 +79,6 @@ args = parser.parse_args()
 with open(args.config, "r") as file:
     metrics = yaml.safe_load(file)
     conf_metrics = conf_to_metrics(metrics)
-
-from_text_metrics = validate_text(args.host)
-
-# Validate text format
-for v in conf_metrics:
-    if v not in from_text_metrics:
-        print("Text format: metrics ", v, "is missing")
-    if from_text_metrics[v]["value"] != conf_metrics[v]["value"]:
-        print('Text format: Metrics', v, 'type', from_text_metrics[v]['type'],
-              'Mismatch, expected', from_text_metrics[v]['value'], '!=', conf_metrics[v]['value'])
 
 # Validate protobuf
 for v in conf_metrics:
