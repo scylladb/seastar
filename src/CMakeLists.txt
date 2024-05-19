@@ -96,7 +96,8 @@ target_compile_definitions (seastar-module
     SEASTAR_SCHEDULING_GROUPS_COUNT=${Seastar_SCHEDULING_GROUPS_COUNT}
     SEASTAR_COROUTINES_ENABLED
   PRIVATE
-    SEASTAR_MODULE)
+    SEASTAR_MODULE
+    ${Seastar_PRIVATE_COMPILE_DEFINITIONS})
 target_compile_options (seastar-module
   PUBLIC
     -U_FORTIFY_SOURCE)
@@ -126,6 +127,18 @@ target_link_libraries (seastar-module
     yaml-cpp::yaml-cpp
     "$<BUILD_INTERFACE:Valgrind::valgrind>"
     Threads::Threads)
+if (Seastar_NUMA)
+  target_link_libraries (seastar-module
+    PRIVATE numactl::numactl)
+endif ()
+if (Seastar_HWLOC)
+  target_link_libraries (seastar-module
+    PRIVATE hwloc::hwloc)
+endif ()
+if (Seastar_IO_URING)
+  target_link_libraries (seastar-module
+    PRIVATE URING::uring)
+endif ()
 
 install (
   TARGETS seastar-module
