@@ -28,10 +28,8 @@
 #include <functional>
 #endif
 
+#include <seastar/core/coroutine.hh>
 #include <seastar/core/timer.hh>
-#ifdef SEASTAR_COROUTINES_ENABLED
-#   include <seastar/core/coroutine.hh>
-#endif
 #include <seastar/core/loop.hh>
 #include <seastar/util/modules.hh>
 
@@ -102,7 +100,6 @@ private:
         }
     };
 
-#ifdef SEASTAR_COROUTINES_ENABLED
     struct [[nodiscard("must co_await a when() call")]] awaiter : public waiter {
         condition_variable* _cv;
         promise<> _p;
@@ -183,7 +180,6 @@ private:
             }
         }
     };
-#endif
 
     boost::intrusive::list<waiter, boost::intrusive::constant_time_size<false>> _waiters;
     std::exception_ptr _ex; //"broken" exception
@@ -298,7 +294,6 @@ public:
         return wait(timer<>::clock::now() + timeout, std::forward<Pred>(pred));
     }
 
-#ifdef SEASTAR_COROUTINES_ENABLED
     /// Coroutine/co_await only waiter.
     /// Waits until condition variable is signaled, may wake up without condition been met
     ///
@@ -380,8 +375,6 @@ public:
     auto when(std::chrono::duration<Rep, Period> timeout, Pred&& pred) noexcept {
         return when(timer<>::clock::now() + timeout, std::forward<Pred>(pred));
     }
-
-#endif
 
     /// Whether or not the condition variable currently has pending waiter(s)
     /// The returned answer is valid until next continuation/fiber switch.

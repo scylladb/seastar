@@ -40,14 +40,6 @@ namespace std::pmr {
 }
 #endif
 
-#if defined(__cpp_impl_coroutine) || defined(__cpp_coroutines)
-#if __has_include(<coroutine>)
-#define SEASTAR_COROUTINES_ENABLED
-#else
-#error Please use a C++ compiler with C++20 coroutines support
-#endif
-#endif
-
 // Defining SEASTAR_ASAN_ENABLED in here is a bit of a hack, but
 // convenient since it is build system independent and in practice
 // everything includes this header.

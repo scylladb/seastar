@@ -24,25 +24,10 @@
 #include <ranges>
 
 #include <seastar/core/circular_buffer.hh>
-#include <seastar/core/future-util.hh>
-#include <seastar/testing/test_case.hh>
-#include <seastar/core/sleep.hh>
-#include <seastar/util/later.hh>
-#include <seastar/core/thread.hh>
-#include <seastar/testing/random.hh>
-
-using namespace seastar;
-using namespace std::chrono_literals;
-
-#ifndef SEASTAR_COROUTINES_ENABLED
-
-SEASTAR_TEST_CASE(test_coroutines_not_compiled_in) {
-    return make_ready_future<>();
-}
-
-#else
-
 #include <seastar/core/coroutine.hh>
+#include <seastar/core/future-util.hh>
+#include <seastar/core/sleep.hh>
+#include <seastar/core/thread.hh>
 #include <seastar/coroutine/all.hh>
 #include <seastar/coroutine/maybe_yield.hh>
 #include <seastar/coroutine/switch_to.hh>
@@ -50,6 +35,12 @@ SEASTAR_TEST_CASE(test_coroutines_not_compiled_in) {
 #include <seastar/coroutine/as_future.hh>
 #include <seastar/coroutine/exception.hh>
 #include <seastar/coroutine/generator.hh>
+#include <seastar/testing/random.hh>
+#include <seastar/testing/test_case.hh>
+#include <seastar/util/later.hh>
+
+using namespace seastar;
+using namespace std::chrono_literals;
 
 namespace {
 
@@ -520,7 +511,7 @@ SEASTAR_TEST_CASE(test_maybe_yield) {
     BOOST_REQUIRE(true); // the test will hang if it doesn't work.
 }
 
-#if __has_include(<coroutine>) && !defined(__clang__)
+#ifndef __clang__
 
 #include "tl-generator.hh"
 tl::generator<int> simple_generator(int max)
@@ -917,5 +908,3 @@ SEASTAR_TEST_CASE(test_lambda_coroutine_in_continuation) {
     }));
     BOOST_REQUIRE_EQUAL(sin1, sin2);
 }
-
-#endif

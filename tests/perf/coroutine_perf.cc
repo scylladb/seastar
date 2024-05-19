@@ -21,8 +21,6 @@
 
 #include <seastar/testing/perf_tests.hh>
 
-#ifdef SEASTAR_COROUTINES_ENABLED
-
 #include <seastar/core/coroutine.hh>
 #include <seastar/coroutine/maybe_yield.hh>
 
@@ -48,5 +46,3 @@ PERF_TEST_C(coroutine_test, maybe_yield)
 {
     co_await coroutine::maybe_yield();
 }
-
-#endif // SEASTAR_COROUTINES_ENABLED

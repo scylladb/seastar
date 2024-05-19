@@ -23,13 +23,10 @@
 #include <boost/range/irange.hpp>
 
 #include <seastar/testing/perf_tests.hh>
-#include <seastar/core/loop.hh>
-#include <seastar/util/later.hh>
-
-#ifdef SEASTAR_COROUTINES_ENABLED
 #include <seastar/core/coroutine.hh>
 #include <seastar/coroutine/parallel_for_each.hh>
-#endif
+#include <seastar/core/loop.hh>
+#include <seastar/util/later.hh>
 
 struct parallel_for_each {
     std::vector<int> empty_range;
@@ -156,8 +153,6 @@ PERF_TEST_F(parallel_for_each, suspend_100)
         return range.size();
     });
 }
-
-#ifdef SEASTAR_COROUTINES_ENABLED
 
 PERF_TEST_C(parallel_for_each, cor_empty)
 {
@@ -352,5 +347,3 @@ PERF_TEST_CN(parallel_for_each, cor_pfe_suspend_100)
     perf_tests::do_not_optimize(value);
     co_return range.size();
 }
-
-#endif // SEASTAR_COROUTINES_ENABLED

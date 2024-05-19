@@ -86,7 +86,6 @@ future<> lister_test() {
     });
 }
 
-#ifdef SEASTAR_COROUTINES_ENABLED
 future<> lister_generator_test(file f) {
     auto lister = f.experimental_list_directory();
     while (auto de = co_await lister()) {
@@ -134,12 +133,6 @@ future<> lister_generator_test() {
     auto f2 = file(std::move(tf));
     co_await lister_generator_test(std::move(f2));
 }
-#else
-future<> lister_generator_test() {
-    fmt::print("Generator lister test skipped, coroutines not enabled\n");
-    return make_ready_future<>();
-}
-#endif
 
 int main(int ac, char** av) {
     return app_template().run(ac, av, [] {

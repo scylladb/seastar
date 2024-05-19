@@ -94,7 +94,6 @@ target_compile_definitions (seastar-module
     $<$<BOOL:${Seastar_SSTRING}>:SEASTAR_SSTRING>
     SEASTAR_API_LEVEL=${Seastar_API_LEVEL}
     SEASTAR_SCHEDULING_GROUPS_COUNT=${Seastar_SCHEDULING_GROUPS_COUNT}
-    SEASTAR_COROUTINES_ENABLED
   PRIVATE
     SEASTAR_MODULE)
 target_compile_options (seastar-module

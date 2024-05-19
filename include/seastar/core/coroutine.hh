@@ -29,9 +29,6 @@
 
 
 #ifndef SEASTAR_MODULE
-#ifndef SEASTAR_COROUTINES_ENABLED
-#error Coroutines support disabled.
-#endif
 #include <coroutine>
 #endif
 

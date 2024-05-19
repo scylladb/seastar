@@ -23,15 +23,6 @@
 
 #include <seastar/util/std-compat.hh>
 
-#ifndef SEASTAR_COROUTINES_ENABLED
-
-int main(int argc, char** argv) {
-    std::cout << "coroutines not available\n";
-    return 0;
-}
-
-#else
-
 #include <seastar/core/app-template.hh>
 #include <seastar/core/coroutine.hh>
 #include <seastar/core/fstream.hh>
@@ -68,5 +59,3 @@ int main(int argc, char** argv) {
         std::cout << "done\n";
     });
 }
-
-#endif

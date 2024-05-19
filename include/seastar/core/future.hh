@@ -1142,9 +1142,7 @@ protected:
 
     void do_wait() noexcept;
 
-#ifdef SEASTAR_COROUTINES_ENABLED
     void set_coroutine(task& coroutine) noexcept;
-#endif
 
     friend class promise_base;
 };
@@ -1769,9 +1767,8 @@ public:
         _state.ignore();
     }
 
-#ifdef SEASTAR_COROUTINES_ENABLED
     using future_base::set_coroutine;
-#endif
+
 private:
     void set_task(task& t) noexcept {
         assert(_promise);
