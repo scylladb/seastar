@@ -811,7 +811,16 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     -Wno-error=deprecated-declarations)
 endif ()
 
-if (NOT BUILD_SHARED_LIBS)
+if (BUILD_SHARED_LIBS)
+  # use initial-exec TLS, as it puts the TLS variables in the static TLS space
+  # instead of allocating them using malloc. otherwise intercepting mallocs and
+  # friends could lead to recursive call of malloc functions when a dlopen'ed
+  # shared object references a TLS variable and it in turn uses malloc. the
+  # downside of this workaround is that the static TLS space is used, and it is
+  # a global resource.
+  list (APPEND Seastar_PRIVATE_CXX_FLAGS
+    $<$<IN_LIST:$<CONFIG>,RelWithDebInfo;Dev>:-ftls-model=initial-exec>)
+else ()
   list (APPEND Seastar_PRIVATE_CXX_FLAGS -fvisibility=hidden)
 endif ()
 
