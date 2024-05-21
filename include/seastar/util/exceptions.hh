@@ -22,7 +22,7 @@
 
 #pragma once
 
-#include <seastar/util/std-compat.hh>
+#include <filesystem>
 
 namespace seastar {
 

@@ -21,7 +21,7 @@
 
 #pragma once
 
-#include <seastar/util/std-compat.hh>
+#include <variant>
 
 namespace seastar {
 

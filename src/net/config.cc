@@ -29,6 +29,7 @@ module;
 #include <yaml-cpp/yaml.h>
 #include <algorithm>
 #include <istream>
+#include <optional>
 #include <unordered_map>
 #include <string>
 

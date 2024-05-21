@@ -25,12 +25,6 @@
 
 #ifndef SEASTAR_MODULE
 
-#include <optional>
-#include <string_view>
-#include <variant>
-
-#include <filesystem>
-
 #if __has_include(<memory_resource>)
 #include <memory_resource>
 #else

@@ -23,8 +23,8 @@
 #pragma once
 
 #include <seastar/util/modules.hh>
-#include <seastar/util/std-compat.hh>
 #ifndef SEASTAR_MODULE
+#include <optional>
 #include <string>
 #include <initializer_list>
 #include <iosfwd>

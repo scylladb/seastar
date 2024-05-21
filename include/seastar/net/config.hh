@@ -21,7 +21,7 @@
 
 #pragma once
 
-#include <seastar/util/std-compat.hh>
+#include <optional>
 #include <istream>
 #include <string>
 #include <unordered_map>
