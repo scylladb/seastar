@@ -65,6 +65,10 @@ option (Seastar_SSTRING
   "Use seastar's own string implementation"
   ON)
 
+option (Seastar_DEPRECATED_OSTREAM_FORMATTERS
+  "Enable operator<< for formatting standard library containers, which will be deprecated in future"
+  ON)
+
 set (Seastar_API_LEVEL
   "7"
   CACHE
@@ -925,6 +929,11 @@ endif ()
 if (Seastar_SSTRING)
   target_compile_definitions (seastar
     PUBLIC SEASTAR_SSTRING)
+endif ()
+
+if (Seastar_DEPRECATED_OSTREAM_FORMATTERS)
+  target_compile_definitions (seastar
+    PUBLIC SEASTAR_DEPRECATED_OSTREAM_FORMATTERS)
 endif ()
 
 if (LinuxMembarrier_FOUND)
