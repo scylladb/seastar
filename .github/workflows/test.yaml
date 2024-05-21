@@ -1,0 +1,97 @@
+name: Test
+
+permissions:
+  contents: read
+
+on:
+  workflow_call:
+    inputs:
+      compiler:
+        description: 'the C++ compiler to use'
+        type: string
+        required: true
+      standard:
+        description: 'the C++ standard to use'
+        type: number
+        required: true
+      mode:
+        description: 'build mode (debug, dev or release)'
+        type: string
+        required: true
+      enables:
+        description: 'the --enable-* option passed to configure.py'
+        type: string
+        default: ''
+        required: false
+      options:
+        description: 'additional options passed to configure.py'
+        type: string
+        default: ''
+        required: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    container: fedora:40
+    steps:
+      - name: Install Git
+        run: |
+          sudo dnf -y install git
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: "${{ contains(inputs.enables, 'dpdk') }}"
+
+      - name: Install build dependencies
+        run: |
+          sudo ./install-dependencies.sh
+
+      - name: Install clang++
+        if: ${{ inputs.compiler == 'clang++' }}
+        run: |
+          sudo dnf -y install clang
+
+      - name: Install clang-scan-deps
+        if: ${{ contains(inputs.enables, 'cxx-modules') }}
+        run: |
+          sudo dnf -y install clang-tools-extra
+
+      - name: Install ccache
+        run: |
+          sudo dnf -y install ccache
+
+      - name: Setup ccache
+        uses: hendrikmuhs/ccache-action@v1
+        with:
+          key: ${{ inputs.compiler }}-${{ inputs.standard }}-${{ inputs.mode }}-${{ inputs.enables }}
+
+      - name: Configure
+        run: |
+          if [ ${{ inputs.compiler }} = "clang++" ]; then
+            CC=clang
+          else
+            CC=gcc
+          fi
+          ./configure.py                          \
+            --ccache                              \
+            --c++-standard ${{ inputs.standard }} \
+            --compiler ${{ inputs.compiler }}     \
+            --c-compiler $CC                      \
+            --mode ${{ inputs.mode }}             \
+            ${{ inputs.options }}                 \
+            ${{ inputs.enables }}
+
+      - name: Build
+        run: cmake --build build/${{inputs.mode}}
+
+      - name: Check Header
+        if: ${{ inputs.mode == 'dev' && inputs.compiler == 'clang++-18' }}
+        run: cmake --build build/${{ inputs.mode }} --target checkheaders
+
+      - name: Build with C++20 modules
+        if: ${{ contains(inputs.enables, 'cxx-modules') }}
+        run: cmake --build build/${{ inputs.mode }} --target hello_cxx_module
+
+      - name: Test
+        if: ${{ ! contains(inputs.enables, 'cxx-modules') }}
+        run: ./test.py --mode=${{ inputs.mode }}

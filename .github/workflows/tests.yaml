@@ -10,108 +10,39 @@ concurrency:
   cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
 
 jobs:
-  test:
-    name: "Tests (${{ matrix.compiler }}, C++${{ matrix.standard}}, ${{ matrix.mode }}, ${{ matrix.enables }})"
-    runs-on: ubuntu-latest
+  regular_test:
+    name: "Test (${{ matrix.compiler }}, C++${{ matrix.standard}}, ${{ matrix.mode }})"
+    uses: ./.github/workflows/test.yaml
     strategy:
       fail-fast: false
       matrix:
-        # only the compilers supported by setup-cpp
-        compiler: [clang++-18, gcc-13]
+        compiler: [clang++, g++]
         standard: [20, 23]
         mode: [dev, debug, release]
-        include:
-          - compiler: clang++-18
-            standard: 20
-            mode: dev
-          - compiler: clang++-18
-            standard: 20
-            mode: debug
-          - compiler: clang++-18
-            standard: 20
-            mode: release
-          - compiler: clang++-18
-            standard: 23
-            mode: dev
-          - compiler: clang++-18
-            standard: 23
-            mode: debug
-          - compiler: clang++-18
-            standard: 23
-            mode: release
-          - compiler: gcc-13
-            standard: 20
-            mode: dev
-          - compiler: gcc-13
-            standard: 20
-            mode: debug
-          - compiler: gcc-13
-            standard: 20
-            mode: release
-          - compiler: gcc-13
-            standard: 23
-            mode: dev
-          - compiler: gcc-13
-            standard: 23
-            mode: debug
-          - compiler: gcc-13
-            standard: 23
-            mode: release
-          - compiler: clang++-18
-            standard: 23
-            mode: release
-            options: --cook dpdk --dpdk-machine haswell
-            enables: --enable-dpdk
-          - compiler: clang++-18
-            standard: 23
-            mode: debug
-            enables: --enable-cxx-modules
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: "${{ contains(matrix.enables, 'dpdk') }}"
-
-      - name: Install build dependencies
-        run: |
-          sudo ./install-dependencies.sh
-
-      - name: Install ${{ matrix.compiler }}
-        uses: aminya/setup-cpp@master
-        with:
-          compiler: ${{ matrix.compiler }}
-          ccache: true
-          # ubuntu:latest comes with CMake 3.29, so we just need to install
-          # ninja. see
-          # https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2204-Readme.md#tools
-          ninja: "${{ contains(matrix.enables, 'cxx-modules') }}"
-
-      - name: Setup ccache
-        uses: hendrikmuhs/ccache-action@v1
-        with:
-          key: ${{ matrix.compiler }}-${{ matrix.standard }}-${{ matrix.mode }}-${{ matrix.enables }}
-
-      - name: Configure
-        run: >
-          ./configure.py
-          --ccache
-          --c++-standard ${{ matrix.standard }}
-          --compiler $CXX
-          --c-compiler $CC
-          --mode ${{ matrix.mode }}
-          ${{ matrix.options }}
-          ${{ matrix.enables }} ;
-
-      - name: Build
-        run: cmake --build build/${{matrix.mode}}
-
-      - name: Check Header
-        if: ${{ matrix.mode == 'dev' && matrix.compiler == 'clang++-18' }}
-        run: cmake --build build/${{ matrix.mode }} --target checkheaders
-
-      - name: Build with C++20 modules
-        if: ${{ contains(matrix.enables, 'cxx-modules') }}
-        run: cmake --build build/${{ matrix.mode }} --target hello_cxx_module
-
-      - name: Test
-        if: ${{ ! contains(matrix.enables, 'cxx-modules') }}
-        run: ./test.py --mode=${{ matrix.mode }}
+    with:
+      compiler: ${{ matrix.compiler }}
+      standard: ${{ matrix.standard }}
+      mode: ${{ matrix.mode }}
+      enables: ${{ matrix.enables }}
+      options: ${{ matrix.options }}
+  build_with_dpdk:
+    name: "Test with DPDK enabled"
+    uses: ./.github/workflows/test.yaml
+    strategy:
+      fail-fast: false
+    with:
+      compiler: clang++
+      standard: 23
+      mode: release
+      enables: --enable-dpdk
+      options: --cook dpdk --dpdk-machine haswell
+  build_with_cxx_modules:
+    name: "Test with C++20 modules enabled"
+    uses: ./.github/workflows/test.yaml
+    strategy:
+      fail-fast: false
+    with:
+      compiler: clang++
+      standard: 23
+      mode: debug
+      enables: --enable-cxx-modules
