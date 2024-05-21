@@ -21,12 +21,13 @@
 
 #pragma once
 
-#include <seastar/util/std-compat.hh>
 #include <seastar/util/spinlock.hh>
 #include <seastar/util/modules.hh>
 #ifndef SEASTAR_MODULE
 #include <cassert>
 #include <cstdlib>
+#include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 #include <set>
