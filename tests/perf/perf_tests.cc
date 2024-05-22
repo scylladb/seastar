@@ -124,11 +124,12 @@ uint64_t perf_stats::perf_tasks_processed() {
     return engine().get_sched_stats().tasks_processed;
 }
 
-perf_stats perf_stats::snapshot(linux_perf_event* instructions_retired_counter) {
+perf_stats perf_stats::snapshot(linux_perf_event* instructions_retired_counter, linux_perf_event* cpu_cycles_retired_counter) {
     return perf_stats(
         perf_mallocs(),
         perf_tasks_processed(),
-        instructions_retired_counter ? instructions_retired_counter->read() : 0
+        instructions_retired_counter ? instructions_retired_counter->read() : 0,
+        cpu_cycles_retired_counter ? cpu_cycles_retired_counter->read() : 0
     );
 }
 
@@ -177,6 +178,7 @@ struct result {
     double allocs = 0.;
     double tasks = 0.;
     double inst = 0.;
+    double cycles = 0.;
 };
 
 
@@ -210,18 +212,18 @@ struct stdout_printer final : result_printer {
                "number of runs:", c.number_of_runs,
                "number of cores:", smp::count,
                "random seed:", c.random_seed);
-    fmt::print(header_format_string, "test", name_column_length(), "iterations", "median", "mad", "min", "max", "allocs", "tasks", "inst");
+    fmt::print(header_format_string, "test", name_column_length(), "iterations", "median", "mad", "min", "max", "allocs", "tasks", "inst", "cycles");
   }
 
   virtual void print_result(const result& r) override {
     fmt::print(format_string, r.test_name, name_column_length(), r.total_iterations / r.runs, duration { r.median },
                duration { r.mad }, duration { r.min }, duration { r.max },
-               r.allocs, r.tasks, r.inst);
+               r.allocs, r.tasks, r.inst, r.cycles);
   }
 
 private:
-  static constexpr auto header_format_string ="{:<{}} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11}\n";
-  static constexpr auto format_string = "{:<{}} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11.3f} {:>11.3f} {:>11.1f}\n";
+  static constexpr auto header_format_string ="{:<{}} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11}\n";
+  static constexpr auto format_string = "{:<{}} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11.3f} {:>11.3f} {:>11.1f} {:>11.1f}\n";
 };
 
 class json_printer final : public result_printer {
@@ -250,6 +252,7 @@ public:
         result["allocs"] = r.allocs;
         result["tasks"] = r.tasks;
         result["inst"] = r.inst;
+        result["cycles"] = r.cycles;
     }
 };
 
@@ -327,6 +330,7 @@ void performance_test::do_run(const config& conf)
                 r.allocs += double(rr.stats.allocations) / _single_run_iterations;
                 r.tasks += double(rr.stats.tasks_executed) / _single_run_iterations;
                 r.inst += double(rr.stats.instructions_retired) / _single_run_iterations;
+                r.cycles += double(rr.stats.cpu_cycles_retired) / _single_run_iterations;
             });
         }).get();
     }
@@ -352,6 +356,7 @@ void performance_test::do_run(const config& conf)
     r.allocs /= conf.number_of_runs;
     r.tasks /= conf.number_of_runs;
     r.inst /= conf.number_of_runs;
+    r.cycles /= conf.number_of_runs;
 
     for (auto& rp : conf.printers) {
         rp->print_result(r);
