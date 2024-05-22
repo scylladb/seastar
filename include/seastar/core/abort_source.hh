@@ -134,13 +134,14 @@ public:
     /// Delays the invocation of the callback \c f until \ref request_abort() is called.
     /// \returns an engaged \ref optimized_optional containing a \ref subscription that can be used to control
     ///          the lifetime of the callback \c f, if \ref abort_requested() is \c false. Otherwise,
-    ///          returns a disengaged \ref optimized_optional.
+    ///          triggers a callback and returns a disengaged \ref optimized_optional.
     template <typename Func>
         requires (std::is_nothrow_invocable_r_v<void, Func, const std::optional<std::exception_ptr>&> ||
                   std::is_nothrow_invocable_r_v<void, Func>)
     [[nodiscard]]
     optimized_optional<subscription> subscribe(Func&& f) {
         if (abort_requested()) {
+            f(_ex);
             return { };
         }
         if constexpr (std::is_invocable_v<Func, std::exception_ptr>) {
