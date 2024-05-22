@@ -35,11 +35,13 @@ debian_packages=(
     libpciaccess-dev
     libcrypto++-dev
     libboost-all-dev
+    libunistring-dev
     libxml2-dev
     xfslibs-dev
     libgnutls28-dev
     liblz4-dev
     libsctp-dev
+    libudev-dev
     liburing-dev
     gcc
     make
@@ -77,6 +79,7 @@ redhat_packages=(
     libxml2-devel
     xfsprogs-devel
     gnutls-devel
+    libunistring-devel
     lksctp-tools-devel
     lz4-devel
     liburing-devel
@@ -85,6 +88,7 @@ redhat_packages=(
     meson
     python3
     python3-pyelftools
+    systemd-devel
     systemtap-sdt-devel
     libtool
     cmake
