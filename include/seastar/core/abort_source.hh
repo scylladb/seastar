@@ -185,6 +185,11 @@ public:
         }
     }
 
+    /// Returns an exception with which an abort was requested.
+    const std::exception_ptr& abort_requested_exception_ptr() const noexcept {
+        return _ex;
+    }
+
     /// Returns the default exception type (\ref abort_requested_exception) for this abort source.
     /// Overridable by derived classes.
     virtual std::exception_ptr get_default_exception() const noexcept {
