@@ -90,5 +90,6 @@ linux_perf_event::user_instructions_retired() {
             .disabled = 1,
             .exclude_kernel = 1,
             .exclude_hv = 1,
+            .exclude_idle = 1,
             }, 0, -1, -1, 0);
 }
