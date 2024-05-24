@@ -21,12 +21,10 @@
 
 #pragma once
 
-#include <seastar/util/std-compat.hh>
 #include <seastar/util/modules.hh>
 #ifndef SEASTAR_MODULE
-#include <concepts>
 #include <iostream>
-#include <memory>
+#include <optional>
 #include <type_traits>
 #include <fmt/core.h>
 #endif

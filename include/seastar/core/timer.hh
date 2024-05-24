@@ -29,6 +29,7 @@
 #ifndef SEASTAR_MODULE
 #include <boost/intrusive/list.hpp>
 #include <chrono>
+#include <optional>
 #endif
 
 /// \file
