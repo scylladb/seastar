@@ -23,7 +23,7 @@
 
 #include <mutex>
 #include <condition_variable>
-#include <seastar/util/std-compat.hh>
+#include <optional>
 
 namespace seastar {
 
