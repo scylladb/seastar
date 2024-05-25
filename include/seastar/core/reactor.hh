@@ -266,12 +266,12 @@ private:
     std::unique_ptr<internal::cpu_stall_detector> _cpu_stall_detector;
 
     unsigned _max_task_backlog = 1000;
-    timer_set<timer<>, &timer<>::_link> _timers;
-    timer_set<timer<>, &timer<>::_link>::timer_list_t _expired_timers;
-    timer_set<timer<lowres_clock>, &timer<lowres_clock>::_link> _lowres_timers;
-    timer_set<timer<lowres_clock>, &timer<lowres_clock>::_link>::timer_list_t _expired_lowres_timers;
-    timer_set<timer<manual_clock>, &timer<manual_clock>::_link> _manual_timers;
-    timer_set<timer<manual_clock>, &timer<manual_clock>::_link>::timer_list_t _expired_manual_timers;
+    timer<>::set_t _timers;
+    timer<>::set_t::timer_list_t _expired_timers;
+    timer<lowres_clock>::set_t _lowres_timers;
+    timer<lowres_clock>::set_t::timer_list_t _expired_lowres_timers;
+    timer<manual_clock>::set_t _manual_timers;
+    timer<manual_clock>::set_t::timer_list_t _expired_manual_timers;
     io_stats _io_stats;
     uint64_t _fsyncs = 0;
     uint64_t _cxx_exceptions = 0;

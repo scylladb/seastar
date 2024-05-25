@@ -219,6 +219,7 @@ public:
     }
     friend class reactor;
     friend class timer_set<timer, &timer::_link>;
+    using set_t = timer_set<timer, &timer::_link>;
 };
 
 extern template class timer<steady_clock_type>;
