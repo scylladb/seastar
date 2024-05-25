@@ -86,7 +86,7 @@ jobs:
         run: cmake --build build/${{inputs.mode}}
 
       - name: Check Header
-        if: ${{ inputs.mode == 'dev' && inputs.compiler == 'clang++-18' }}
+        if: ${{ inputs.mode == 'dev' && inputs.compiler == 'clang++' }}
         run: cmake --build build/${{ inputs.mode }} --target checkheaders
 
       - name: Build with C++20 modules
