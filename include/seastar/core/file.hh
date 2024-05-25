@@ -777,7 +777,6 @@ private:
     future<uint64_t> get_lifetime_hint_impl(int op) noexcept;
     future<> set_lifetime_hint_impl(int op, uint64_t hint) noexcept;
 
-    friend class reactor;
     friend class file_impl;
     friend class file_data_sink_impl;
     friend class file_data_source_impl;
