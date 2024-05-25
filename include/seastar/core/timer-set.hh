@@ -161,6 +161,19 @@ public:
     }
 
     /**
+     * Removes timer from the active set or the expired list, if the timer is expired
+     */
+    void remove(Timer& timer, timer_list_t& expired) noexcept
+    {
+        if (timer._expired) {
+            expired.erase(expired.iterator_to(timer));
+            timer._expired = false;
+        } else {
+            remove(timer);
+        }
+    }
+
+    /**
      * Expires active timers.
      *
      * The time points passed to this function must be monotonically increasing.

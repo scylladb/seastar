@@ -2463,12 +2463,7 @@ bool reactor::queue_timer(timer<steady_clock_type>* tmr) noexcept {
 }
 
 void reactor::del_timer(timer<steady_clock_type>* tmr) noexcept {
-    if (tmr->_expired) {
-        _expired_timers.erase(_expired_timers.iterator_to(*tmr));
-        tmr->_expired = false;
-    } else {
-        _timers.remove(*tmr);
-    }
+    _timers.remove(*tmr, _expired_timers);
 }
 
 void reactor::add_timer(timer<lowres_clock>* tmr) noexcept {
@@ -2482,12 +2477,7 @@ bool reactor::queue_timer(timer<lowres_clock>* tmr) noexcept {
 }
 
 void reactor::del_timer(timer<lowres_clock>* tmr) noexcept {
-    if (tmr->_expired) {
-        _expired_lowres_timers.erase(_expired_lowres_timers.iterator_to(*tmr));
-        tmr->_expired = false;
-    } else {
-        _lowres_timers.remove(*tmr);
-    }
+    _lowres_timers.remove(*tmr, _expired_lowres_timers);
 }
 
 void reactor::add_timer(timer<manual_clock>* tmr) noexcept {
@@ -2499,12 +2489,7 @@ bool reactor::queue_timer(timer<manual_clock>* tmr) noexcept {
 }
 
 void reactor::del_timer(timer<manual_clock>* tmr) noexcept {
-    if (tmr->_expired) {
-        _expired_manual_timers.erase(_expired_manual_timers.iterator_to(*tmr));
-        tmr->_expired = false;
-    } else {
-        _manual_timers.remove(*tmr);
-    }
+    _manual_timers.remove(*tmr, _expired_manual_timers);
 }
 
 void reactor::at_exit(noncopyable_function<future<> ()> func) {
