@@ -355,8 +355,6 @@ private:
     void expire_manual_timers() noexcept;
     void start_aio_eventfd_loop();
     void stop_aio_eventfd_loop();
-    template <typename T, typename E, typename EnableFunc>
-    void complete_timers(T&, E&, EnableFunc&& enable_fn) noexcept(noexcept(enable_fn()));
 
     /**
      * Returns TRUE if all pollers allow blocking.
