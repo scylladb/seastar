@@ -90,5 +90,19 @@ linux_perf_event::user_instructions_retired() {
             .disabled = 1,
             .exclude_kernel = 1,
             .exclude_hv = 1,
+            .exclude_idle = 1,
+            }, 0, -1, -1, 0);
+}
+
+linux_perf_event
+linux_perf_event::user_cpu_cycles_retired() {
+    return linux_perf_event(perf_event_attr{
+            .type = PERF_TYPE_HARDWARE,
+            .size = sizeof(struct perf_event_attr),
+            .config = PERF_COUNT_HW_CPU_CYCLES,
+            .disabled = 1,
+            .exclude_kernel = 1,
+            .exclude_hv = 1,
+            .exclude_idle = 1,
             }, 0, -1, -1, 0);
 }

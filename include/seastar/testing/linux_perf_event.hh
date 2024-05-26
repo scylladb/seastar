@@ -45,5 +45,6 @@ public:
     void disable();
 public:
     static linux_perf_event user_instructions_retired();
+    static linux_perf_event user_cpu_cycles_retired();
 };
 
