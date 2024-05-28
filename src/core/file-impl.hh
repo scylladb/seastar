@@ -72,7 +72,6 @@ public:
 
 class posix_file_impl : public file_impl {
     std::atomic<unsigned>* _refcount = nullptr;
-    const dev_t _device_id;
     const bool _nowait_works;
     io_queue& _io_queue;
     const open_flags _open_flags;
