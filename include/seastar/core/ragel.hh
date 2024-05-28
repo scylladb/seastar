@@ -28,7 +28,7 @@
 #include <algorithm>
 #include <memory>
 #include <cassert>
-#include <seastar/util/std-compat.hh>
+#include <optional>
 #include <seastar/util/modules.hh>
 #include <seastar/core/future.hh>
 #endif

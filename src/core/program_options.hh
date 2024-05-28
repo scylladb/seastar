@@ -21,6 +21,7 @@
 
 #ifndef SEASTAR_MODULE
 #include <boost/program_options.hpp>
+#include <optional>
 #include <stack>
 #endif
 

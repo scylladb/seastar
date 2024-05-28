@@ -25,6 +25,7 @@
 #include <iosfwd>
 #include <sys/types.h>
 #include <netinet/in.h>
+#include <optional>
 #include <stdexcept>
 #include <vector>
 #endif
