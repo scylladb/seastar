@@ -4862,17 +4862,18 @@ deallocate_scheduling_group_id(unsigned id) noexcept {
 
 void
 reactor::allocate_scheduling_group_specific_data(scheduling_group sg, scheduling_group_key key) {
+    auto key_id = key.id();
     auto& sg_data = _scheduling_group_specific_data;
     auto& this_sg = sg_data.per_scheduling_group_data[sg._id];
-    this_sg.specific_vals.resize(std::max<size_t>(this_sg.specific_vals.size(), key.id()+1));
-    this_sg.specific_vals[key.id()] =
-        aligned_alloc(sg_data.scheduling_group_key_configs[key.id()].alignment,
-                sg_data.scheduling_group_key_configs[key.id()].allocation_size);
-    if (!this_sg.specific_vals[key.id()]) {
+    this_sg.specific_vals.resize(std::max<size_t>(this_sg.specific_vals.size(), key_id+1));
+    this_sg.specific_vals[key_id] =
+        aligned_alloc(sg_data.scheduling_group_key_configs[key_id].alignment,
+                sg_data.scheduling_group_key_configs[key_id].allocation_size);
+    if (!this_sg.specific_vals[key_id]) {
         std::abort();
     }
-    if (sg_data.scheduling_group_key_configs[key.id()].constructor) {
-        sg_data.scheduling_group_key_configs[key.id()].constructor(this_sg.specific_vals[key.id()]);
+    if (sg_data.scheduling_group_key_configs[key_id].constructor) {
+        sg_data.scheduling_group_key_configs[key_id].constructor(this_sg.specific_vals[key_id]);
     }
 }
 
