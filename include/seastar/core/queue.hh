@@ -23,9 +23,9 @@
 
 #include <seastar/core/circular_buffer.hh>
 #include <seastar/core/future.hh>
-#include <seastar/util/std-compat.hh>
 #include <seastar/util/modules.hh>
 #ifndef SEASTAR_MODULE
+#include <optional>
 #include <queue>
 #endif
 
