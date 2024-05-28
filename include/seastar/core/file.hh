@@ -94,6 +94,10 @@ struct file_open_options {
 
     // The fsxattr.fsx_extsize is 32-bit
     static constexpr uint64_t max_extent_allocation_size_hint = 1 << 31;
+
+    // XFS ignores hints that are not aligned to the logical block size.
+    // To fulfill the requirement, we ensure that hint is aligned to 128KB (best guess).
+    static constexpr uint32_t min_extent_size_hint_alignment{128u << 10}; // 128KB
 };
 
 class file;
