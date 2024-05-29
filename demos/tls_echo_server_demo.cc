@@ -34,6 +34,7 @@ int main(int ac, char** av) {
     app.add_options()
                     ("port", bpo::value<uint16_t>()->default_value(10000), "Server port")
                     ("address", bpo::value<std::string>()->default_value("127.0.0.1"), "Server address")
+                    ("ca,a", bpo::value<std::string>()->default_value(""), "Server CA chain file")
                     ("cert,c", bpo::value<std::string>()->required(), "Server certificate file")
                     ("key,k", bpo::value<std::string>()->required(), "Certificate key")
                     ("verbose,v", bpo::value<bool>()->default_value(false)->implicit_value(true), "Verbose")
@@ -41,6 +42,7 @@ int main(int ac, char** av) {
     return app.run_deprecated(ac, av, [&] {
         auto&& config = app.configuration();
         uint16_t port = config["port"].as<uint16_t>();
+        auto ca = config["ca"].as<std::string>();
         auto crt = config["cert"].as<std::string>();
         auto key = config["key"].as<std::string>();
         auto addr = config["address"].as<std::string>();
@@ -52,7 +54,7 @@ int main(int ac, char** av) {
 
             auto server = ::make_shared<seastar::sharded<echoserver>>();
             return server->start(verbose).then([=]() {
-                return server->invoke_on_all(&echoserver::listen, socket_address(ia), sstring(crt), sstring(key), tls::client_auth::NONE);
+                return server->invoke_on_all(&echoserver::listen, socket_address(ia), sstring(crt), sstring(key), sstring(ca));
             }).handle_exception([=](auto e) {
                 std::cerr << "Error: " << e << std::endl;
                 engine().exit(1);
