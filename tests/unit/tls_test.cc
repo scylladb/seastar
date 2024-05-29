@@ -45,7 +45,9 @@
 #include "loopback_socket.hh"
 #include "tmpdir.hh"
 
+#ifndef SEASTAR_WITH_TLS_OSSL
 #include <gnutls/gnutls.h>
+#endif
 
 #if 0
 
@@ -161,6 +163,16 @@ SEASTAR_TEST_CASE(test_x509_client_with_builder_system_trust_multiple) {
 }
 
 SEASTAR_TEST_CASE(test_x509_client_with_system_trust_and_priority_strings) {
+#ifdef SEASTAR_WITH_TLS_OSSL
+    static std::vector<sstring> prios( {
+        "PSK-CHACHA20-POLY1305",
+        "DHE-PSK-AES128-GCM-SHA256",
+        "ECDHE-RSA-AES128-GCM-SHA256",
+        "RSA-PSK-AES128-CBC-SHA",
+        "ECDHE-ECDSA-AES256-GCM-SHA384",
+        "AES128-GCM-SHA256"
+    });
+#else
     static std::vector<sstring> prios( {
         "NORMAL:+ARCFOUR-128", // means normal ciphers plus ARCFOUR-128.
         "SECURE128:-VERS-SSL3.0:+COMP-DEFLATE", // means that only secure ciphers are enabled, SSL3.0 is disabled, and libz compression enabled.
@@ -172,6 +184,7 @@ SEASTAR_TEST_CASE(test_x509_client_with_system_trust_and_priority_strings) {
         "SECURE128:-VERS-TLS1.0:+COMP-DEFLATE",
         "SECURE128:+SECURE192:-VERS-TLS-ALL:+VERS-TLS1.2"
     });
+#endif
     return do_for_each(prios, [](const sstring & prio) {
         tls::credentials_builder b;
         (void)b.set_system_trust();
@@ -181,9 +194,15 @@ SEASTAR_TEST_CASE(test_x509_client_with_system_trust_and_priority_strings) {
 }
 
 SEASTAR_TEST_CASE(test_x509_client_with_system_trust_and_priority_strings_fail) {
+#ifdef SEASTAR_WITH_TLS_OSSL
+    static std::vector<sstring> prios( {
+        "RSA-MD5-AES256-CBC-SHA"
+    });
+#else
     static std::vector<sstring> prios( { "NONE",
         "NONE:+CURVE-SECP256R1"
     });
+#endif
     return do_for_each(prios, [](const sstring & prio) {
         tls::credentials_builder b;
         (void)b.set_system_trust();
@@ -298,6 +317,16 @@ SEASTAR_THREAD_TEST_CASE(test_x509_client_with_builder_multiple) {
 }
 
 SEASTAR_THREAD_TEST_CASE(test_x509_client_with_priority_strings) {
+#ifdef SEASTAR_WITH_TLS_OSSL
+    static std::vector<sstring> prios( {
+        "PSK-CHACHA20-POLY1305",
+        "DHE-PSK-AES128-GCM-SHA256",
+        "ECDHE-RSA-AES128-GCM-SHA256",
+        "RSA-PSK-AES128-CBC-SHA",
+        "ECDHE-ECDSA-AES256-GCM-SHA384",
+        "AES128-GCM-SHA256"
+    });
+#else
     static std::vector<sstring> prios( {
         "NORMAL:+ARCFOUR-128", // means normal ciphers plus ARCFOUR-128.
         "SECURE128:-VERS-SSL3.0:+COMP-DEFLATE", // means that only secure ciphers are enabled, SSL3.0 is disabled, and libz compression enabled.
@@ -309,6 +338,7 @@ SEASTAR_THREAD_TEST_CASE(test_x509_client_with_priority_strings) {
         "SECURE128:-VERS-TLS1.0:+COMP-DEFLATE",
         "SECURE128:+SECURE192:-VERS-TLS-ALL:+VERS-TLS1.2"
     });
+#endif
     tls::credentials_builder b;
     https_server server;
     b.set_x509_trust_file(server.cert(), tls::x509_crt_format::PEM).get();
@@ -320,9 +350,15 @@ SEASTAR_THREAD_TEST_CASE(test_x509_client_with_priority_strings) {
 }
 
 SEASTAR_THREAD_TEST_CASE(test_x509_client_with_priority_strings_fail) {
+#ifdef SEASTAR_WITH_TLS_OSSL
+    static std::vector<sstring> prios( {
+        "RSA-MD5-AES256-CBC-SHA"
+    });
+#else
     static std::vector<sstring> prios( { "NONE",
         "NONE:+CURVE-SECP256R1"
     });
+#endif
     tls::credentials_builder b;
     https_server server;
     b.set_x509_trust_file(server.cert(), tls::x509_crt_format::PEM).get();
@@ -653,7 +689,7 @@ SEASTAR_TEST_CASE(test_simple_x509_client_server_again) {
     return run_echo_test(message, 20, certfile("catest.pem"), "test.scylladb.org");
 }
 
-#if GNUTLS_VERSION_NUMBER >= 0x030600
+#if GNUTLS_VERSION_NUMBER >= 0x030600 || SEASTAR_WITH_TLS_OSSL
 // Test #769 - do not set dh_params in server certs - let gnutls negotiate.
 SEASTAR_TEST_CASE(test_simple_server_default_dhparams) {
     return run_echo_test(message, 20, certfile("catest.pem"), "test.scylladb.org",
@@ -1412,6 +1448,10 @@ SEASTAR_THREAD_TEST_CASE(test_dn_name_handling) {
         fout.get();
 
         auto dn = fdn.get();
+        BOOST_REQUIRE(dn.has_value());
+        BOOST_REQUIRE_EQUAL(dn->subject, fmt::format("C=GB,ST=London,L=London,O=Redpanda Data,OU=Core,CN={}", id));
+        BOOST_REQUIRE_EQUAL(dn->issuer, "C=GB,ST=London,L=London,O=Redpanda Data,OU=Core,CN=redpanda.com");
+
         auto client_id = fin.get();
 
         in.close().get();
