@@ -45,7 +45,9 @@ For example:
 * `type`: mandatory property, one of seqread, seqwrite, randread, randwrite, append, cpu, unlink
 * `shards`: mandatory property, either the string "all" or a list of shards where this class should place jobs.
 * `data_size`: optional property, used to divide the available disk space between workloads. Each shard inside the workload uses its portion of the assigned space. If not specified 1GB is used.
-* `files_count`: optional property, relevant only for unlink job class - in such case it is required. Describes the number of files that need to be created during startup to be unlinked during evaluation.
+* `files_count`: optional property, relevant only for unlink job class - in such case it is required. Describes the number of files that need to be created during startup to be unlinked during evaluation. Describes files count per shard.
+
+> **_NOTE:_** the actual file size is always aligned to 1MB.
 
 The properties under `shard_info` represent properties of the job that will
 be replicated to each shard. All properties under `shard_info` are optional, and in case not specified, defaults are used.

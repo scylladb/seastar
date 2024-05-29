@@ -64,6 +64,8 @@ using namespace seastar;
 using namespace std::chrono_literals;
 using namespace boost::accumulators;
 
+static constexpr uint64_t extent_size_hint_alignment{1u << 20}; // 1MB
+
 static auto random_seed = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 static thread_local std::default_random_engine random_generator(random_seed);
 
@@ -101,7 +103,8 @@ future<std::pair<file, uint64_t>> create_and_fill_file(sstring name, uint64_t fs
                     }
 
                     const uint64_t buffer_size{256ul << 10};
-                    const uint64_t buffers_count{static_cast<uint64_t>(fsize / buffer_size) + 1u};
+                    const uint64_t additional_iteration = (fsize % buffer_size == 0) ? 0 : 1;
+                    const uint64_t buffers_count{static_cast<uint64_t>(fsize / buffer_size) + additional_iteration};
                     const uint64_t last_buffer_id = (buffers_count - 1u);
                     const uint64_t last_write_position = buffer_size * last_buffer_id;
 
@@ -770,7 +773,7 @@ private:
 
         return max_concurrent_for_each(boost::irange(UINT64_C(0), files_count()), max_concurrency(), [this] (uint64_t file_id) {
             const auto fname = get_filename(file_id);
-            const auto fsize = _config.file_size / files_count();
+            const auto fsize = align_up<uint64_t>(_config.file_size / files_count(), extent_size_hint_alignment);
             const auto flags = open_flags::rw | open_flags::create;
 
             file_open_options options;
@@ -984,7 +987,8 @@ struct convert<job_config> {
         // constant) disk space between workloads. Each shard inside the
         // workload thus uses its portion of the assigned space.
         if (node["data_size"]) {
-            cl.file_size = node["data_size"].as<byte_size>().size / smp::count;
+            const uint64_t per_shard_bytes = node["data_size"].as<byte_size>().size / smp::count;
+            cl.file_size = align_up<uint64_t>(per_shard_bytes, extent_size_hint_alignment);
         } else {
             cl.file_size = 1ull << 30; // 1G by default
         }
