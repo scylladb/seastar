@@ -103,7 +103,8 @@ future<std::pair<file, uint64_t>> create_and_fill_file(sstring name, uint64_t fs
                     }
 
                     const uint64_t buffer_size{256ul << 10};
-                    const uint64_t buffers_count{static_cast<uint64_t>(fsize / buffer_size) + 1u};
+                    const uint64_t additional_iteration = (fsize % buffer_size == 0) ? 0 : 1;
+                    const uint64_t buffers_count{static_cast<uint64_t>(fsize / buffer_size) + additional_iteration};
                     const uint64_t last_buffer_id = (buffers_count - 1u);
                     const uint64_t last_write_position = buffer_size * last_buffer_id;
 
