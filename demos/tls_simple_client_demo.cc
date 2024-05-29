@@ -38,6 +38,8 @@ int main(int ac, char** av) {
                     ("port", bpo::value<uint16_t>()->default_value(10000), "Remote port")
                     ("address", bpo::value<std::string>()->default_value("127.0.0.1"), "Remote address")
                     ("trust,t", bpo::value<std::string>(), "Trust store")
+                    ("certificate", bpo::value<std::string>(), "Certficiate")
+                    ("key,k", bpo::value<std::string>(), "Private Keyfile")
                     ("msg,m", bpo::value<std::string>(), "Message to send")
                     ("bytes,b", bpo::value<size_t>()->default_value(512), "Use random bytes of length as message")
                     ("iterations,i", bpo::value<size_t>()->default_value(1), "Repeat X times")
@@ -66,6 +68,15 @@ int main(int ac, char** av) {
         if (config.count("trust")) {
             f = certs->set_x509_trust_file(config["trust"].as<std::string>(), tls::x509_crt_format::PEM);
         }
+
+        if (config.count("certificate") && config.count("key")) {
+            f = f.then([certs,
+                        cert = config["certificate"].as<std::string>(),
+                        key = config["key"].as<std::string>()]{
+                return certs->set_x509_key_file(cert, key, tls::x509_crt_format::PEM);
+            });
+        }
+
 
         seastar::shared_ptr<sstring> msg;
 
