@@ -654,7 +654,7 @@ function(seastar_gen_mtls_certs)
   seastar_sign_cert("mtls_server"
     CA ${cert_ca}
     SERIAL_NUM 1
-    COMMON_NAME "redpanda.com")
+    COMMON_NAME "server.org")
   # client1 certificates
   seastar_sign_cert("mtls_client1"
     CA ${cert_ca}
