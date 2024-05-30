@@ -277,7 +277,7 @@ shared_ptr<tls::certificate_credentials> tls::credentials_builder::build_certifi
 shared_ptr<tls::server_credentials> tls::credentials_builder::build_server_credentials() const {
     auto i = _blobs.find(dh_level_key);
     if (i == _blobs.end()) {
-#if GNUTLS_VERSION_NUMBER < 0x030600
+#if GNUTLS_VERSION_NUMBER < 0x030600 && !SEASTAR_WITH_TLS_OSSL
         throw std::invalid_argument("No DH level set");
 #else
         auto creds = make_shared<server_credentials>();

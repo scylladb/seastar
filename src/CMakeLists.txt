@@ -65,7 +65,8 @@ target_sources (seastar-module
     net/packet.cc
     net/inet_address.cc
     net/socket_address.cc
-    net/tls.cc
+    $<$<NOT:$<BOOL:${Seastar_WITH_OSSL}>>:net/tls.cc>
+    $<$<BOOL:${Seastar_WITH_OSSL}>:net/ossl.cc>
     net/virtio.cc
     http/client.cc
     http/common.cc
@@ -119,7 +120,9 @@ target_link_libraries (seastar-module
     SourceLocation::source_location
   PRIVATE
     ${CMAKE_DL_LIBS}
-    GnuTLS::gnutls
+    $<$<NOT:$<BOOL:${Seastar_WITH_OSSL}>>:GnuTLS::gnutls>
+    $<$<BOOL:${Seastar_WITH_OSSL}>:OpenSSL::SSL>
+    $<$<BOOL:${Seastar_WITH_OSSL}>:OpenSSL::Crypto>
     StdAtomic::atomic
     lksctp-tools::lksctp-tools
     rt::rt

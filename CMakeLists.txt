@@ -85,7 +85,10 @@ if (NOT Seastar_SCHEDULING_GROUPS_COUNT MATCHES "^[1-9][0-9]*")
   message(FATAL_ERROR "Seastar_SCHEDULING_GROUPS_COUNT must be a positive number (${Seastar_SCHEDULING_GROUPS_COUNT})")
 endif ()
 
-#
+option (Seastar_WITH_OSSL
+  "Use OpenSSL for underlying TLS mechanism"
+  OFF)
+
 # Add a dev build type.
 #
 # All pre-defined build modes include optimizations or debug info,
@@ -399,6 +402,10 @@ find_package (ragel 6.10 REQUIRED)
 find_package (Threads REQUIRED)
 find_package (PthreadSetName REQUIRED)
 find_package (Valgrind REQUIRED)
+# TODO(rob) - Add as cooking_ingredient instead
+if (Seastar_WITH_OSSL)
+  find_package (OpenSSL 3.0.0 REQUIRED)
+endif()
 
 cmake_dependent_option (Seastar_LOGGER_COMPILE_TIME_FMT
   "Enable the compile-time {fmt} check when formatting logging messages" ON
@@ -754,8 +761,9 @@ add_library (seastar
   src/net/socket_address.cc
   src/net/stack.cc
   src/net/tcp.cc
+  $<$<NOT:$<BOOL:${Seastar_WITH_OSSL}>>:src/net/tls.cc>
+  $<$<BOOL:${Seastar_WITH_OSSL}>:src/net/ossl.cc>
   src/net/tls-impl.cc
-  src/net/tls.cc
   src/net/udp.cc
   src/net/unix_address.cc
   src/net/virtio.cc
@@ -831,7 +839,9 @@ target_link_libraries (seastar
     SourceLocation::source_location
   PRIVATE
     ${CMAKE_DL_LIBS}
-    GnuTLS::gnutls
+    $<$<NOT:$<BOOL:${Seastar_WITH_OSSL}>>:GnuTLS::gnutls>
+    $<$<BOOL:${Seastar_WITH_OSSL}>:OpenSSL::SSL>
+    $<$<BOOL:${Seastar_WITH_OSSL}>:OpenSSL::Crypto>
     StdAtomic::atomic
     lksctp-tools::lksctp-tools
     protobuf::libprotobuf
@@ -901,6 +911,7 @@ target_compile_options (seastar
 target_compile_definitions(seastar
   PUBLIC
   SEASTAR_API_LEVEL=${Seastar_API_LEVEL}
+  $<$<BOOL:${Seastar_WITH_OSSL}>:SEASTAR_WITH_TLS_OSSL=1>
   $<$<BOOL:${BUILD_SHARED_LIBS}>:SEASTAR_BUILD_SHARED_LIBS>)
 
 target_compile_features(seastar

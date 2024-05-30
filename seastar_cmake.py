@@ -25,6 +25,8 @@ DEFAULT_BUILD_ROOT = 'build'
 
 COOKING_BASIC_ARGS = ['./cooking.sh']
 
+SUPPORTED_SSL_PROVIDERS = ['GnuTLS', 'OpenSSL']
+
 def build_path(mode, build_root):
     """Return the absolute path to the build directory for the given mode,
     i.e., seastar_dir/<build_root>/<mode>"""
