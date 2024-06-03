@@ -192,7 +192,6 @@ private:
     unsigned long id() const noexcept {
         return _id;
     }
-    friend class reactor;
     friend future<scheduling_group_key> scheduling_group_key_create(scheduling_group_key_config cfg) noexcept;
     template<typename T>
     friend T* internal::scheduling_group_get_specific_ptr(scheduling_group sg, scheduling_group_key key) noexcept;
