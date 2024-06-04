@@ -46,6 +46,8 @@ def get_command_line_parser():
     parser.add_argument('-b', '--branch-threshold', type=float, default=0.03,
                         help='Drop branches responsible for less than this threshold relative to the previous level, not global. (default 3%%)')
     parser.add_argument('file', nargs='?',
+                        type=argparse.FileType('r'),
+                        default=sys.stdin,
                         help='File containing reactor stall backtraces. Read from stdin if missing.')
     return parser
 
@@ -328,7 +330,6 @@ def print_command_line_options(args):
 
 def main():
     args = get_command_line_parser().parse_args()
-    input = open(args.file) if args.file else sys.stdin
     count = 0
     comment = re.compile(r'^\s*#')
     pattern = re.compile(r"Reactor stalled for (?P<stall>\d+) ms on shard (?P<shard>\d+).*Backtrace:")
@@ -340,7 +341,7 @@ def main():
         resolver = addr2line.BacktraceResolver(executable=args.executable,
                                                concise=not args.full_function_names)
     graph = Graph(resolver)
-    for s in input:
+    for s in args.file:
         if comment.search(s):
             continue
         # parse log line like:
