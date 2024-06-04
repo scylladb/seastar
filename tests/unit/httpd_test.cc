@@ -41,6 +41,15 @@ public:
     }
 };
 
+class loopback_http_factory : public http::experimental::connection_factory {
+    loopback_socket_impl lsi;
+public:
+    explicit loopback_http_factory(loopback_connection_factory& f) : lsi(f) {}
+    virtual future<connected_socket> make() override {
+        return lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr()));
+    }
+};
+
 SEASTAR_TEST_CASE(test_reply)
 {
     http::reply r;
@@ -840,15 +849,7 @@ SEASTAR_TEST_CASE(test_client_unexpected_reply_status) {
         httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
 
         future<> client = seastar::async([&lcf] {
-            class connection_factory : public http::experimental::connection_factory {
-                loopback_socket_impl lsi;
-            public:
-                explicit connection_factory(loopback_connection_factory& f) : lsi(f) {}
-                virtual future<connected_socket> make() override {
-                    return lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr()));
-                }
-            };
-            auto cln = http::experimental::client(std::make_unique<connection_factory>(lcf));
+            auto cln = http::experimental::client(std::make_unique<loopback_http_factory>(lcf));
             {
                 auto req = http::request::make("GET", "test", "/test");
                 BOOST_REQUIRE_THROW(cln.make_request(std::move(req), [] (const http::reply& rep, input_stream<char>&& in) {
@@ -1093,15 +1094,7 @@ static future<> test_basic_content(bool streamed, bool chunked_reply) {
         }
         httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
         future<> client = seastar::async([&lcf, chunked_reply] {
-            class connection_factory : public http::experimental::connection_factory {
-                loopback_socket_impl lsi;
-            public:
-                explicit connection_factory(loopback_connection_factory& f) : lsi(f) {}
-                virtual future<connected_socket> make() override {
-                    return lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr()));
-                }
-            };
-            auto cln = http::experimental::client(std::make_unique<connection_factory>(lcf));
+            auto cln = http::experimental::client(std::make_unique<loopback_http_factory>(lcf));
 
             {
                 fmt::print("Simple request test\n");
@@ -1512,15 +1505,7 @@ SEASTAR_TEST_CASE(test_redirect_exception) {
         httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
 
         future<> client = seastar::async([&lcf] {
-            class connection_factory : public http::experimental::connection_factory {
-                loopback_socket_impl lsi;
-            public:
-                explicit connection_factory(loopback_connection_factory& f) : lsi(f) {}
-                virtual future<connected_socket> make() override {
-                    return lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr()));
-                }
-            };
-            auto cln = http::experimental::client(std::make_unique<connection_factory>(lcf));
+            auto cln = http::experimental::client(std::make_unique<loopback_http_factory>(lcf));
 
             auto test = [&](sstring path, sstring expected_dest, http::reply::status_type expected_status) {
                 auto req = http::request::make("GET", "test", path);
