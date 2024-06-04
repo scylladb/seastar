@@ -220,7 +220,14 @@ public:
      * may re-use the sockets on its own
      *
      * \param f -- the factory pointer
+     * \param max_connections -- maximum number of connection a client is allowed to maintain
+     * (both active and cached in pool)
      *
+     * The client uses connections provided by factory to send requests over and receive responses
+     * back. Once request-response cycle is over the connection used for that is kept by a client
+     * in a "pool". Making another http request may then pick up the existing connection from the
+     * pool thus avoiding the extra latency of establishing new connection. Pool may thus accumulate
+     * more than one connection if user sends several requests in parallel.
      */
     explicit client(std::unique_ptr<connection_factory> f, unsigned max_connections = default_max_connections);
 
