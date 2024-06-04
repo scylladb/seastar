@@ -56,7 +56,7 @@ private:
     queue<temporary_buffer<char>> _q{1};
     loopback_error_injector* _error_injector;
     type _type;
-    promise<> _shutdown;
+    std::optional<promise<>> _shutdown;
 public:
     loopback_buffer(loopback_error_injector* error_injection, type t) : _error_injector(error_injection), _type(t) {}
     future<> push(temporary_buffer<char>&& b) {
@@ -92,16 +92,22 @@ public:
         return _q.pop_eventually();
     }
     void abort() noexcept {
-        if (!_aborted) {
-            // it can be called by both -- reader and writer socket impls
-            _shutdown.set_value();
-        }
+        shutdown();
         _aborted = true;
         _q.abort(std::make_exception_ptr(std::system_error(EPIPE, std::system_category())));
     }
+    void shutdown() noexcept {
+        // it can be called by both -- reader and writer socket impls
+        if (_shutdown.has_value()) {
+            _shutdown->set_value();
+            _shutdown.reset();
+        }
+    }
 
     future<> wait_input_shutdown() {
-        return _shutdown.get_future();
+        assert(!_shutdown.has_value());
+        _shutdown.emplace();
+        return _shutdown->get_future();
     }
 };
 
@@ -160,6 +166,8 @@ public:
     future<> close() override {
         if (!_eof) {
             _buffer->abort();
+        } else {
+            _buffer->shutdown();
         }
         return make_ready_future<>();
     }
