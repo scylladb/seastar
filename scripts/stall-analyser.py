@@ -331,7 +331,6 @@ def print_command_line_options(args):
 
 def main():
     args = get_command_line_parser().parse_args()
-    count = 0
     comment = re.compile(r'^\s*#')
     pattern = re.compile(r"Reactor stalled for (?P<stall>\d+) ms on shard (?P<shard>\d+).*Backtrace:")
     address_threshold = int(args.address_threshold, 0)
@@ -350,7 +349,6 @@ def main():
         m = pattern.search(s)
         if not m:
             continue
-        count += 1
         # extract the time in ms
         trace = s[m.span()[1]:].split()
         t = int(m.group("stall"))
