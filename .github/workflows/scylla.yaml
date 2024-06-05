@@ -1,0 +1,56 @@
+name: Build Scylla
+
+on:
+  schedule:
+    # 5AM everyday
+    - cron: '0 5 * * *'
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  BUILD_TYPE: RelWithDebInfo
+  BUILD_DIR: build
+
+jobs:
+  build-scylla:
+    runs-on: ubuntu-latest
+    container: fedora:40
+    strategy:
+      matrix:
+        build_type:
+          - Debug
+          - RelWithDebInfo
+          - Dev
+    steps:
+      - run: |
+          sudo dnf -y install git
+      - uses: actions/checkout@v4
+        with:
+          repository: scylladb/scylladb
+          submodules: true
+      - name: Update seastar submodule
+        run: |
+          cd seastar
+          git config --global --add safe.directory '*'
+          git fetch origin master
+          git reset --hard origin/master
+          git submodule sync
+          git submodule update --init --force --recursive
+          cd ..
+      - run: |
+          sudo ./install-dependencies.sh
+      - name: Generate the building system
+        run: |
+          cmake                                         \
+            -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+            -DCMAKE_C_COMPILER=clang                    \
+            -DCMAKE_CXX_COMPILER=clang++                \
+            -G Ninja                                    \
+            -B $BUILD_DIR                               \
+            -S .
+      - run: |
+          cmake --build $BUILD_DIR --target scylla
