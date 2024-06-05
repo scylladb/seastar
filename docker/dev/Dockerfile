@@ -2,9 +2,8 @@
 
 FROM ubuntu:mantic
 
-COPY install-dependencies.sh /tmp/
-
-RUN apt-get update && apt-get install -y \
+RUN --mount=type=bind,source=./install-dependencies.sh,target=./install-dependencies.sh \
+    apt-get update && apt-get install -y \
     curl \
     gnupg \
     && echo "deb http://apt.llvm.org/mantic/ llvm-toolchain-mantic-17 main" \
@@ -30,7 +29,7 @@ RUN apt-get update && apt-get install -y \
     && update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-17 17 \
     && update-alternatives --install /usr/bin/clang clang /usr/bin/clang-18 18 \
     && update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-18 18 \
-    && bash /tmp/install-dependencies.sh \
+    && bash ./install-dependencies.sh \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
