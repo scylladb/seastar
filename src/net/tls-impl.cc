@@ -215,9 +215,33 @@ void tls::credentials_builder::set_client_auth(client_auth auth) {
     _client_auth = auth;
 }
 
+#ifndef SEASTAR_WITH_TLS_OSSL
 void tls::credentials_builder::set_priority_string(const sstring& prio) {
     _priority = prio;
 }
+#endif
+
+#ifdef SEASTAR_WITH_TLS_OSSL
+void tls::credentials_builder::set_cipher_string(const sstring& cipher_string) {
+    _cipher_string = cipher_string;
+}
+
+void tls::credentials_builder::set_ciphersuites(const sstring& ciphersuites) {
+    _ciphersuites = ciphersuites;
+}
+
+void tls::credentials_builder::enable_server_precedence() {
+    _enable_server_precedence = true;
+}
+
+void tls::credentials_builder::set_minimum_tls_version(tls_version version) {
+    _min_tls_version.emplace(version);
+}
+
+void tls::credentials_builder::set_maximum_tls_version(tls_version version) {
+    _max_tls_version.emplace(version);
+}
+#endif
 
 template<typename Blobs, typename Visitor>
 static void visit_blobs(Blobs& blobs, Visitor&& visitor) {
@@ -261,9 +285,33 @@ void tls::credentials_builder::apply_to(certificate_credentials& creds) const {
         creds.enable_load_system_trust();
     }
 
+#ifndef SEASTAR_WITH_TLS_OSSL
     if (!_priority.empty()) {
         creds.set_priority_string(_priority);
     }
+#endif
+
+#ifdef SEASTAR_WITH_TLS_OSSL
+    if (!_cipher_string.empty()) {
+        creds.set_cipher_string(_cipher_string);
+    }
+
+    if (!_ciphersuites.empty()) {
+        creds.set_ciphersuites(_ciphersuites);
+    }
+
+    if (_enable_server_precedence) {
+        creds.enable_server_precedence();
+    }
+
+    if (_min_tls_version.has_value()) {
+        creds.set_minimum_tls_version(*_min_tls_version);
+    }
+
+    if (_max_tls_version.has_value()) {
+        creds.set_maximum_tls_version(*_max_tls_version);
+    }
+#endif
 
     creds.set_client_auth(_client_auth);
 }
@@ -674,6 +722,21 @@ std::string_view tls::format_as(subject_alt_name_type type) {
         default:
             return "UNKNOWN";
     }
+}
+
+std::ostream& tls::operator<<(std::ostream& os, const tls_version & version) {
+    switch(version) {
+    case tls::tls_version::tlsv1_0:
+        return os << "TLSv1.0";
+    case tls::tls_version::tlsv1_1:
+        return os << "TLSv1.1";
+    case tls::tls_version::tlsv1_2:
+        return os << "TLSv1.2";
+    case tls::tls_version::tlsv1_3:
+        return os << "TLSv1.3";
+    }
+
+    __builtin_unreachable();
 }
 
 std::ostream& tls::operator<<(std::ostream& os, subject_alt_name_type type) {

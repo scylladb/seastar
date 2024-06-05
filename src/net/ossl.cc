@@ -84,6 +84,21 @@ struct fmt::formatter<seastar::ossl_errc> : public fmt::formatter<std::string_vi
 
 namespace seastar {
 
+int tls_version_to_ossl(tls::tls_version version) {
+    switch(version) {
+    case tls::tls_version::tlsv1_0:
+        return TLS1_VERSION;
+    case tls::tls_version::tlsv1_1:
+        return TLS1_1_VERSION;
+    case tls::tls_version::tlsv1_2:
+        return TLS1_2_VERSION;
+    case tls::tls_version::tlsv1_3:
+        return TLS1_3_VERSION;
+    }
+
+    __builtin_unreachable();
+}
+
 class ossl_error_category : public std::error_category {
 public:
     constexpr ossl_error_category() noexcept : std::error_category{} {}
@@ -479,15 +494,49 @@ public:
         return _client_auth;
     }
 
-    void set_priority_string(const sstring& priority) {
-        _priority = priority;
-    }
-
     void set_dn_verification_callback(dn_callback cb) {
         _dn_callback = std::move(cb);
     }
 
-    const sstring& get_priority_string() const { return _priority; }
+    void set_cipher_string(const sstring& cipher_string) {
+        _cipher_string = cipher_string;
+    }
+
+    void set_ciphersuites(const sstring& ciphersuites) {
+        _ciphersuites = ciphersuites;
+    }
+
+    void enable_server_precedence() {
+        _enable_server_precedence = true;
+    }
+
+    void set_minimum_tls_version(tls_version version) {
+        _min_tls_version.emplace(version);
+    }
+
+    void set_maximum_tls_version(tls_version version) {
+        _max_tls_version.emplace(version);
+    }
+
+    const sstring& get_cipher_string() const noexcept {
+        return _cipher_string;
+    }
+
+    const sstring& get_ciphersuites() const noexcept {
+        return _ciphersuites;
+    }
+
+    bool is_server_precedence_enabled() {
+        return _enable_server_precedence;
+    }
+
+    const std::optional<tls_version>& minimum_tls_version() const noexcept {
+        return _min_tls_version;
+    }
+
+    const std::optional<tls_version>& maximum_tls_version() const noexcept {
+        return _max_tls_version;
+    }
 
     // Returns the certificate of last attempted verification attempt, if there was no attempt,
     // this will not be updated and will remain stale
@@ -520,7 +569,11 @@ private:
     client_auth _client_auth = client_auth::NONE;
     bool _load_system_trust = false;
     dn_callback _dn_callback;
-    sstring _priority;
+    sstring _cipher_string;
+    sstring _ciphersuites;
+    bool _enable_server_precedence = false;
+    std::optional<tls_version> _min_tls_version;
+    std::optional<tls_version> _max_tls_version;
     bool _crl_check_flag_set = false;
 };
 
@@ -561,8 +614,24 @@ future<> tls::certificate_credentials::set_system_trust() {
     return make_ready_future<>();
 }
 
-void tls::certificate_credentials::set_priority_string(const sstring& prio) {
-    _impl->set_priority_string(prio);
+void tls::certificate_credentials::set_cipher_string(const sstring& cipher_string) {
+    _impl->set_cipher_string(cipher_string);
+}
+
+void tls::certificate_credentials::set_ciphersuites(const sstring& ciphersuites) {
+    _impl->set_ciphersuites(ciphersuites);
+}
+
+void tls::certificate_credentials::enable_server_precedence() {
+    _impl->enable_server_precedence();
+}
+
+void tls::certificate_credentials::set_minimum_tls_version(tls_version version) {
+    _impl->set_minimum_tls_version(version);
+}
+
+void tls::certificate_credentials::set_maximum_tls_version(tls_version version) {
+    _impl->set_maximum_tls_version(version);
 }
 
 void tls::certificate_credentials::set_dn_verification_callback(dn_callback cb) {
@@ -1421,9 +1490,42 @@ private:
                 break;
             }
 
-            SSL_CTX_set_options(
-              ssl_ctx.get(), SSL_OP_ALL | SSL_OP_ALLOW_CLIENT_RENEGOTIATION);
+            auto options = SSL_OP_ALL | SSL_OP_ALLOW_CLIENT_RENEGOTIATION;
+            if (_creds->is_server_precedence_enabled()) {
+                options |= SSL_OP_CIPHER_SERVER_PREFERENCE;
+            }
+
+            SSL_CTX_set_options(ssl_ctx.get(), options);
+        } else {
+            if (_creds->is_server_precedence_enabled()) {
+                SSL_CTX_set_options(ssl_ctx.get(), SSL_OP_CIPHER_SERVER_PREFERENCE);
+            }
         }
+
+        auto & min_tls_version = _creds->minimum_tls_version();
+        auto & max_tls_version = _creds->maximum_tls_version();
+
+        if (min_tls_version.has_value()) {
+            if (!SSL_CTX_set_min_proto_version(ssl_ctx.get(),
+                tls_version_to_ossl(*min_tls_version))) {
+                throw ossl_error::make_ossl_error(
+                    fmt::format("Failed to set minimum TLS version to {}",
+                        *min_tls_version));
+            }
+        }
+
+        if (max_tls_version.has_value()) {
+            if (!SSL_CTX_set_max_proto_version(ssl_ctx.get(),
+                tls_version_to_ossl(*max_tls_version))) {
+                    throw ossl_error::make_ossl_error(
+                        fmt::format("Failed to set maximum TLS version to {}",
+                            *max_tls_version));
+            }
+        }
+
+        // This call is required to lower SSL's security level to permit TLSv1.0 and TLSv1.1
+        // See https://www.openssl.org/docs/man3.0/man3/SSL_CTX_set_security_level.html
+        SSL_CTX_set_security_level(ssl_ctx.get(), 0);
 
         // Servers must supply both certificate and key, clients may
         // optionally use these
@@ -1443,12 +1545,23 @@ private:
         // the certificate_manager call X509_STORE_free
         SSL_CTX_set1_cert_store(ssl_ctx.get(), *_creds);
 
-        if (_creds->get_priority_string() != "") {
+        if (!_creds->get_cipher_string().empty()) {
             if (SSL_CTX_set_cipher_list(ssl_ctx.get(),
-            _creds->get_priority_string().c_str()) != 1) {
-                throw ossl_error::make_ossl_error("Failed to set priority list");
+                    _creds->get_cipher_string().c_str()) != 1) {
+                throw ossl_error::make_ossl_error(
+                    fmt::format(
+                        "Failed to set cipher string '{}'", _creds->get_cipher_string()));
             }
         }
+
+        if (!_creds->get_ciphersuites().empty()) {
+            if (SSL_CTX_set_ciphersuites(ssl_ctx.get(), _creds->get_ciphersuites().c_str()) != 1) {
+                throw ossl_error::make_ossl_error(
+                    fmt::format(
+                        "Failed to set ciphersuites '{}'", _creds->get_ciphersuites()));
+            }
+        }
+
         return ssl_ctx;
     }
 

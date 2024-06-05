@@ -162,6 +162,18 @@ SEASTAR_TEST_CASE(test_x509_client_with_builder_system_trust_multiple) {
     });
 }
 
+static void set_priority_string(tls::credentials_builder & b, const sstring & prio, [[maybe_unused]] bool is_tls_v13 = false) {
+#ifndef SEASTAR_WITH_TLS_OSSL
+    b.set_priority_string(prio);
+#else
+    if (is_tls_v13) {
+        b.set_ciphersuites(prio);
+    } else {
+        b.set_cipher_string(prio);
+    }
+#endif
+}
+
 SEASTAR_TEST_CASE(test_x509_client_with_system_trust_and_priority_strings) {
 #ifdef SEASTAR_WITH_TLS_OSSL
     static std::vector<sstring> prios( {
@@ -188,7 +200,7 @@ SEASTAR_TEST_CASE(test_x509_client_with_system_trust_and_priority_strings) {
     return do_for_each(prios, [](const sstring & prio) {
         tls::credentials_builder b;
         (void)b.set_system_trust();
-        b.set_priority_string(prio);
+        set_priority_string(b, prio);
         return connect_to_ssl_google(b.build_certificate_credentials());
     });
 }
@@ -206,7 +218,11 @@ SEASTAR_TEST_CASE(test_x509_client_with_system_trust_and_priority_strings_fail) 
     return do_for_each(prios, [](const sstring & prio) {
         tls::credentials_builder b;
         (void)b.set_system_trust();
-        b.set_priority_string(prio);
+        set_priority_string(b, prio);
+#ifdef SEASTAR_WITH_TLS_OSSL
+        b.set_minimum_tls_version(tls::tls_version::tlsv1_0);
+        b.set_maximum_tls_version(tls::tls_version::tlsv1_1);
+#endif
         try {
             return connect_to_ssl_google(b.build_certificate_credentials()).then([] {
                 BOOST_FAIL("Expected exception");
@@ -344,7 +360,7 @@ SEASTAR_THREAD_TEST_CASE(test_x509_client_with_priority_strings) {
     b.set_x509_trust_file(server.cert(), tls::x509_crt_format::PEM).get();
     auto addr = server.addr();
     do_for_each(prios, [&b, addr](const sstring& prio) {
-        b.set_priority_string(prio);
+        set_priority_string(b, prio);
         return connect_to_ssl_addr(b.build_certificate_credentials(), addr);
     }).get();
 }
@@ -364,7 +380,74 @@ SEASTAR_THREAD_TEST_CASE(test_x509_client_with_priority_strings_fail) {
     b.set_x509_trust_file(server.cert(), tls::x509_crt_format::PEM).get();
     auto addr = server.addr();
     do_for_each(prios, [&b, addr](const sstring& prio) {
-        b.set_priority_string(prio);
+        set_priority_string(b, prio);
+#ifdef SEASTAR_WITH_TLS_OSSL
+        b.set_minimum_tls_version(tls::tls_version::tlsv1_0);
+        b.set_maximum_tls_version(tls::tls_version::tlsv1_1);
+#endif
+        try {
+            return connect_to_ssl_addr(b.build_certificate_credentials(), addr).then([] {
+                BOOST_FAIL("Expected exception");
+            }).handle_exception([](auto ep) {
+                // ok.
+            });
+        } catch (...) {
+            // also ok
+        }
+        return make_ready_future<>();
+    }).get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_x509_client_tls13) {
+#ifdef SEASTAR_WITH_TLS_OSSL
+    static std::vector<sstring> prios({
+        "TLS_AES_128_GCM_SHA256",
+        "TLS_AES_256_GCM_SHA384",
+        "TLS_CHACHA20_POLY1305_SHA256",
+    });
+#else
+    static std::vector<sstring> prios({
+        "NORMAL:-VERS-ALL:+VERS-TLS1.3:-CIPHER-ALL:+AES-128-GCM",
+        "NORMAL:-VERS-ALL:+VERS-TLS1.3:-CIPHER-ALL:+AES-256-GCM",
+        "NORMAL:-VERS-ALL:+VERS-TLS1.3:-CIPHER-ALL:+CHACHA20-POLY1305"
+    });
+#endif
+    tls::credentials_builder b;
+    https_server server;
+    b.set_x509_trust_file(server.cert(), tls::x509_crt_format::PEM).get();
+    auto addr = server.addr();
+    do_for_each(prios, [&b, addr](const sstring& prio) {
+        BOOST_TEST_CHECKPOINT("Checking priority string " << prio);
+        set_priority_string(b, prio, true);
+#ifdef SEASTAR_WITH_TLS_OSSL
+        b.set_minimum_tls_version(tls::tls_version::tlsv1_3);
+        b.set_maximum_tls_version(tls::tls_version::tlsv1_3);
+#endif
+        return connect_to_ssl_addr(b.build_certificate_credentials(), addr);
+    }).get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_x509_client_tls13_fail) {
+    #ifdef SEASTAR_WITH_TLS_OSSL
+    static std::vector<sstring> prios({
+        "TLS_AES_128_CCM_SHA256"
+    });
+#else
+    static std::vector<sstring> prios({
+        "NORMAL:-VERS-ALL:+VERS-TLS1.3:-CIPHER-ALL:+AES-128-CCM-8"
+    });
+#endif
+    tls::credentials_builder b;
+    https_server server;
+    b.set_x509_trust_file(server.cert(), tls::x509_crt_format::PEM).get();
+    auto addr = server.addr();
+    do_for_each(prios, [&b, addr](const sstring& prio) {
+        BOOST_TEST_CHECKPOINT("Checking priority string " << prio);
+        set_priority_string(b, prio, true);
+#ifdef SEASTAR_WITH_TLS_OSSL
+        b.set_minimum_tls_version(tls::tls_version::tlsv1_3);
+        b.set_maximum_tls_version(tls::tls_version::tlsv1_3);
+#endif
         try {
             return connect_to_ssl_addr(b.build_certificate_credentials(), addr).then([] {
                 BOOST_FAIL("Expected exception");
