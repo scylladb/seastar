@@ -330,9 +330,12 @@ public:
      * @param obj the date_time to format
      * @return the given json object in a json format
      */
-    static future<> write(output_stream<char>& s, const jsonable& obj) {
-      return s.write(to_json(obj));
-     }
+    template <std::derived_from<jsonable> Jsonable>
+    static future<> write(output_stream<char>& s, Jsonable obj) {
+        return do_with(std::move(obj), [&s] (const auto& obj) {
+            return obj.write(s);
+        });
+    }
 
     /**
      * return a json formatted unsigned long
