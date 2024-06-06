@@ -114,6 +114,15 @@ namespace tls {
         shared_ptr<impl> _impl;
     };
 
+    enum class tls_version {
+        tlsv1_0,
+        tlsv1_1,
+        tlsv1_2,
+        tlsv1_3
+    };
+
+    std::ostream& operator<<(std::ostream&, const tls_version&);
+
     class abstract_credentials {
     protected:
         abstract_credentials() = default;
@@ -156,6 +165,10 @@ namespace tls {
      */
     using dn_callback = noncopyable_function<void(session_type type, sstring subject, sstring issuer)>;
 
+    enum class client_auth {
+        NONE, REQUEST, REQUIRE
+    };
+
     /**
      * Holds certificates and keys.
      *
@@ -189,13 +202,54 @@ namespace tls {
 
         // TODO add methods for certificate verification
 
+#ifndef SEASTAR_WITH_TLS_OSSL
         /**
          * TLS handshake priority string. See gnutls docs and syntax at
          * https://gnutls.org/manual/html_node/Priority-Strings.html
          *
          * Allows specifying order and allowance for handshake alg.
+         *
          */
         void set_priority_string(const sstring&);
+#endif
+
+#ifdef SEASTAR_WITH_TLS_OSSL
+        /**
+         * Used to set the cipher string for TLS versions 1.2 and below
+         *
+         * See https://www.openssl.org/docs/manmaster/man3/SSL_CTX_set_cipher_list.html
+         * for documentation on the format of the cipher list string
+         */
+        void set_cipher_string(const sstring&);
+
+        /**
+         * Used to set the cipher suites to use for TLSv1.3
+         *
+         * See https://www.openssl.org/docs/manmaster/man3/SSL_CTX_set_ciphersuites.html
+         * for documentation on the format of the ciphersuites string.
+         */
+        void set_ciphersuites(const sstring&);
+
+        /**
+         * Call this when you want to enable server precedence when
+         * negotitating the TLS handshake.  Client precedence is on
+         * by default.
+         */
+        void enable_server_precedence();
+        /**
+         * @brief Set the minimum tls version for this connection
+         *
+         * If unset, will default to the minimum of the underlying
+         * implementation
+         */
+        void set_minimum_tls_version(tls_version);
+        /**
+         * @brief Set the maximum tls version for this connection
+         *
+         * If unset, will default to the maximum of the underly implementation
+         */
+        void set_maximum_tls_version(tls_version);
+#endif
 
         /**
          * Register a callback for receiving Distinguished Name (DN) information
@@ -238,6 +292,9 @@ namespace tls {
          */
         std::optional<std::vector<cert_info>> get_trust_list_info() const noexcept;
 
+        /// TODO(rob) comment these
+        void enable_load_system_trust();
+        void set_client_auth(client_auth);
     private:
         class impl;
         friend class session;
@@ -253,10 +310,6 @@ namespace tls {
     class verification_error : public std::runtime_error {
     public:
         using runtime_error::runtime_error;
-    };
-
-    enum class client_auth {
-        NONE, REQUEST, REQUIRE
     };
 
     /**
@@ -309,7 +362,17 @@ namespace tls {
 
         future<> set_system_trust();
         void set_client_auth(client_auth);
+#ifndef SEASTAR_WITH_TLS_OSSL
         void set_priority_string(const sstring&);
+#endif
+
+#ifdef SEASTAR_WITH_TLS_OSSL
+        void set_cipher_string(const sstring&);
+        void set_ciphersuites(const sstring&);
+        void enable_server_precedence();
+        void set_minimum_tls_version(tls_version);
+        void set_maximum_tls_version(tls_version);
+#endif
 
         void apply_to(certificate_credentials&) const;
 
@@ -330,6 +393,11 @@ namespace tls {
         std::multimap<sstring, boost::any> _blobs;
         client_auth _client_auth = client_auth::NONE;
         sstring _priority;
+        sstring _cipher_string;
+        sstring _ciphersuites;
+        bool _enable_server_precedence = false;
+        std::optional<tls_version> _min_tls_version;
+        std::optional<tls_version> _max_tls_version;
     };
 
     /// TLS configuration options

@@ -117,7 +117,11 @@ module;
 #include <fmt/format.h>
 #include <fmt/ostream.h>
 #include <fmt/printf.h>
+#ifdef SEASTAR_WITH_TLS_OSSL
+#include <openssl/evp.h>
+#else
 #include <gnutls/crypto.h>
+#endif
 
 #if defined(__x86_64__) || defined(__i386__)
 #include <xmmintrin.h>
