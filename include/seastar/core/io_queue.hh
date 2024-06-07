@@ -232,6 +232,7 @@ private:
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
     util::spinlock _lock;
     const shard_id _allocated_on;
+    std::vector<io_queue*> _io_queues;
 
     static fair_group::config make_fair_group_config(const io_queue::config& qcfg) noexcept;
     priority_class_data& find_or_create_class(internal::priority_class pc);

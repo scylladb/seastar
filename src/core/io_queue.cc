@@ -569,6 +569,7 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     , _sink(sink)
     , _flow_ratio_update([this] { update_flow_ratio(); })
 {
+    _group->_io_queues[this_shard_id()] = this;
     auto& cfg = get_config();
     if (cfg.duplex) {
         static_assert(internal::io_direction_and_length::write_idx == 0);
@@ -611,6 +612,7 @@ std::chrono::duration<double> io_group::io_latency_goal() const noexcept {
 io_group::io_group(io_queue::config io_cfg, unsigned nr_queues)
     : _config(std::move(io_cfg))
     , _allocated_on(this_shard_id())
+    , _io_queues(smp::count, nullptr)
 {
     auto fg_cfg = make_fair_group_config(_config);
     _fgs.emplace_back(fg_cfg, nr_queues);
