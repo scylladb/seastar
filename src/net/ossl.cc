@@ -445,7 +445,7 @@ public:
             x509_verify_param_ptr x509_vfy(X509_VERIFY_PARAM_new());
 
             if (1 != X509_VERIFY_PARAM_set_flags(
-                    x509_vfy.get(), X509_V_FLAG_CRL_CHECK)) {
+                    x509_vfy.get(), X509_V_FLAG_CRL_CHECK|X509_V_FLAG_CRL_CHECK_ALL)) {
                 throw ossl_error::make_ossl_error(
                     "Failed to set X509_V_FLAG_CRL_CHECK flag");
             }
