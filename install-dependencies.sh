@@ -56,6 +56,7 @@ debian_packages=(
     protobuf-compiler
     python3
     python3-pyelftools
+    python3-yaml
     ragel
     stow
     systemtap-sdt-dev
@@ -99,6 +100,7 @@ redhat_packages=(
     protobuf-devel
     python3
     python3-pyelftools
+    python3-pyyaml
     stow
     systemtap-sdt-devel
     valgrind-devel
@@ -188,6 +190,7 @@ arch_packages=(
     protobuf
     python3
     python-pyelftools
+    python-yaml
     ragel
     stow
     valgrind
@@ -225,6 +228,7 @@ opensuse_packages=(
     ninja
     openssl
     protobuf-devel
+    python3-PyYAML
     ragel
     stow
     xfsprogs-devel
