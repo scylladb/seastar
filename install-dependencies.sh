@@ -28,39 +28,39 @@ else
 fi
 
 debian_packages=(
-    ninja-build
-    ragel
+    cmake
+    diffutils
+    doxygen
+    g++
+    gcc
+    libboost-all-dev
+    libc-ares-dev
+    libcrypto++-dev
+    libfmt-dev
+    libgnutls28-dev
     libhwloc-dev
+    liblz4-dev
     libnuma-dev
     libpciaccess-dev
-    libcrypto++-dev
-    libboost-all-dev
-    libxml2-dev
-    xfslibs-dev
-    libgnutls28-dev
-    liblz4-dev
+    libprotobuf-dev
     libsctp-dev
+    libtool
     liburing-dev
-    gcc
+    libxml2-dev
+    libyaml-cpp-dev
     make
     meson
-    python3
-    python3-pyelftools
-    systemtap-sdt-dev
-    libtool
-    cmake
-    libyaml-cpp-dev
-    libc-ares-dev
-    stow
-    g++
-    libfmt-dev
-    diffutils
-    valgrind
-    doxygen
+    ninja-build
     openssl
     pkg-config
-    libprotobuf-dev
     protobuf-compiler
+    python3
+    python3-pyelftools
+    ragel
+    stow
+    systemtap-sdt-dev
+    valgrind
+    xfslibs-dev
 )
 
 # seastar doesn't directly depend on these packages. They are
@@ -68,85 +68,90 @@ debian_packages=(
 # has no way of saying "static seastar, but dynamic transitive
 # dependencies". They provide the various .so -> .so.ver symbolic
 # links.
-transitive=(libtool-ltdl-devel trousers-devel libidn2-devel libunistring-devel)
+transitive=(
+    libidn2-devel
+    libtool-ltdl-devel
+    libunistring-devel
+    trousers-devel
+)
 
 redhat_packages=(
-    hwloc-devel
-    numactl-devel
-    libpciaccess-devel
-    libxml2-devel
-    xfsprogs-devel
-    gnutls-devel
-    lksctp-tools-devel
-    lz4-devel
-    liburing-devel
-    gcc
-    make
-    meson
-    python3
-    python3-pyelftools
-    systemtap-sdt-devel
-    libtool
-    cmake
-    yaml-cpp-devel
+    boost-devel
     c-ares-devel
-    stow
+    cmake
     diffutils
     doxygen
-    openssl
     fmt-devel
-    boost-devel
-    valgrind-devel
-    protobuf-devel
+    gcc
+    gnutls-devel
+    hwloc-devel
+    libpciaccess-devel
+    libtool
+    liburing-devel
+    libxml2-devel
+    lksctp-tools-devel
+    lz4-devel
+    make
+    meson
+    numactl-devel
+    openssl
     protobuf-compiler
+    protobuf-devel
+    python3
+    python3-pyelftools
+    stow
+    systemtap-sdt-devel
+    valgrind-devel
+    xfsprogs-devel
+    yaml-cpp-devel
     "${transitive[@]}"
 )
 
 fedora_packages=(
     "${redhat_packages[@]}"
-    gcc-c++
-    ninja-build
-    ragel
     boost-devel
     fmt-devel
-    libubsan
+    gcc-c++
     libasan
     libatomic
+    libubsan
+    ninja-build
+    ragel
     valgrind-devel
 )
 
 centos7_packages=(
     "${redhat_packages[@]}"
-    ninja-build
-    ragel
     cmake3
-    rh-mongodb36-boost-devel
     devtoolset-11-gcc-c++
-    devtoolset-11-libubsan
     devtoolset-11-libasan
     devtoolset-11-libatomic
+    devtoolset-11-libubsan
+    ninja-build
+    ragel
+    rh-mongodb36-boost-devel
 )
 
 centos8_packages=(
     "${redhat_packages[@]}"
-    ninja-build
-    ragel
     gcc-toolset-11-gcc
     gcc-toolset-11-gcc-c++
-    gcc-toolset-11-libubsan-devel
     gcc-toolset-11-libasan-devel
     gcc-toolset-11-libatomic-devel
+    gcc-toolset-11-libubsan-devel
+    ninja-build
+    ragel
 )
 
 centos9_packages=(
     "${redhat_packages[@]}"
-    ninja-build
-    ragel
     gcc-toolset-13-gcc
     gcc-toolset-13-gcc-c++
-    gcc-toolset-13-libubsan-devel
     gcc-toolset-13-libasan-devel
     gcc-toolset-13-libatomic-devel
+    gcc-toolset-13-libubsan-devel
+    ninja-build
+    ragel
 )
 
 # 1) glibc 2.30-3 has sys/sdt.h (systemtap include)
@@ -157,43 +162,49 @@ centos9_packages=(
 # 3) aur installations require having sudo and being
 #    a sudoer. makepkg does not work otherwise.
 arch_packages=(
-    gcc
-    ninja
-    ragel
     boost
     boost-libs
-    hwloc
-    numactl
-    libpciaccess
+    c-ares
+    cmake
     crypto++
-    libxml2
-    xfsprogs
+    filesystem
+    fmt
+    gcc
+    glibc
     gnutls
+    hwloc
+    libpciaccess
+    libtool
+    liburing
+    libxml2
     lksctp-tools
     lz4
     make
     meson
-    python-pyelftools
-    protobuf
-    libtool
-    cmake
-    yaml-cpp
-    stow
-    c-ares
-    pkgconf
-    fmt
-    python3
-    glibc
-    filesystem
-    valgrind
+    ninja
+    numactl
     openssl
-    liburing
+    pkgconf
+    protobuf
+    python3
+    python-pyelftools
+    ragel
+    stow
+    valgrind
+    xfsprogs
+    yaml-cpp
 )
 
 opensuse_packages=(
     c-ares-devel
     cmake
     hwloc-devel
+    libboost_atomic1_66_0
+    libboost_atomic1_66_0-devel
+    libboost_chrono1_66_0
+    libboost_chrono1_66_0-devel
+    libboost_date_time1_66_0
+    libboost_date_time1_66_0-devel
     libboost_filesystem1_66_0
     libboost_filesystem1_66_0-devel
     libboost_program_options1_66_0
@@ -204,26 +215,20 @@ opensuse_packages=(
     libboost_test1_66_0-devel
     libboost_thread1_66_0
     libboost_thread1_66_0-devel
-    libboost_atomic1_66_0
-    libboost_atomic1_66_0-devel
-    libboost_date_time1_66_0
-    libboost_date_time1_66_0-devel
-    libboost_chrono1_66_0
-    libboost_chrono1_66_0-devel
     libgnutls-devel
     libgnutlsxx28
     liblz4-devel
     libnuma-devel
+    libtool
     lksctp-tools-devel
     meson
     ninja
+    openssl
+    protobuf-devel
     ragel
+    stow
     xfsprogs-devel
     yaml-cpp-devel
-    protobuf-devel
-    libtool
-    stow
-    openssl
 )
 
 case "$ID" in
