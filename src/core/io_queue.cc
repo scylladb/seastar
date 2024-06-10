@@ -941,7 +941,7 @@ io_queue::request_limits io_queue::get_request_limits() const noexcept {
     return l;
 }
 
-future<size_t> io_queue::queue_one_request(internal::priority_class pc, io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
+future<size_t> io_queue::queue_one_request_locally(internal::priority_class pc, io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
     return futurize_invoke([pc = std::move(pc), dnl = std::move(dnl), req = std::move(req), this, intent, iovs = std::move(iovs)] () mutable {
         // First time will hit here, and then we create the class. It is important
         // that we create the shared pointer in the same shard it will be used at later.
@@ -959,6 +959,41 @@ future<size_t> io_queue::queue_one_request(internal::priority_class pc, io_direc
         pclass.on_queue();
         _queued_requests++;
         return fut;
+    });
+}
+
+unsigned io_queue::get_request_target(const internal::io_request& req) const noexcept {
+    unsigned pos = 0;
+
+    switch (req.opcode()) {
+    case internal::io_request::operation::read:
+        pos = req.as<internal::io_request::operation::read>().pos;
+        break;
+    case internal::io_request::operation::write:
+        pos = req.as<internal::io_request::operation::write>().pos;
+        break;
+    case internal::io_request::operation::readv:
+        pos = req.as<internal::io_request::operation::readv>().pos;
+        break;
+    case internal::io_request::operation::writev:
+        pos = req.as<internal::io_request::operation::writev>().pos;
+        break;
+    default:
+        // cannot happen, but let's stay on the safe side
+        break;
+    }
+
+    return (this_shard_id() + (pos >> get_config().request_fanout_block_bits)) % smp::count;
+}
+
+future<size_t> io_queue::queue_one_request(internal::priority_class pc, io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
+    unsigned target = get_request_target(req);
+    if (target == this_shard_id()) {
+        return queue_one_request_locally(std::move(pc), std::move(dnl), std::move(req), intent, std::move(iovs));
+    }
+
+    return smp::submit_to(target, [pc = std::move(pc), dnl = std::move(dnl), req = std::move(req), iovs = std::move(iovs), g = _group] () mutable {
+        return g->_io_queues[this_shard_id()]->queue_one_request_locally(std::move(pc), std::move(dnl), std::move(req), nullptr, std::move(iovs));
     });
 }
 

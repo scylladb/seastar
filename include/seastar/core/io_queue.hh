@@ -105,9 +105,12 @@ private:
     friend struct ::io_queue_for_tests;
     friend const fair_group& internal::get_fair_group(const io_queue& ioq, unsigned stream);
 
+    unsigned get_request_target(const internal::io_request&) const noexcept;
+
     priority_class_data& find_or_create_class(internal::priority_class pc);
     future<size_t> queue_request(internal::priority_class pc, internal::io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept;
     future<size_t> queue_one_request(internal::priority_class pc, internal::io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept;
+    future<size_t> queue_one_request_locally(internal::priority_class pc, internal::io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept;
 
     // The fields below are going away, they are just here so we can implement deprecated
     // functions that used to be provided by the fair_queue and are going away (from both
@@ -157,6 +160,7 @@ public:
         unsigned flow_ratio_ticks = 100;
         double flow_ratio_ema_factor = 0.95;
         double flow_ratio_backpressure_threshold = 1.1;
+        unsigned request_fanout_block_bits = 24; // 16MB
     };
 
     io_queue(io_group_ptr group, internal::io_sink& sink);
