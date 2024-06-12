@@ -5,6 +5,7 @@ import sys
 import re
 
 import addr2line
+from itertools import dropwhile
 from typing import Self
 
 
@@ -46,6 +47,8 @@ def get_command_line_parser():
     parser.add_argument('-b', '--branch-threshold', type=float, default=0.03,
                         help='Drop branches responsible for less than this threshold relative to the previous level, not global. (default 3%%)')
     parser.add_argument('file', nargs='?',
+                        type=argparse.FileType('r'),
+                        default=sys.stdin,
                         help='File containing reactor stall backtraces. Read from stdin if missing.')
     return parser
 
@@ -328,8 +331,6 @@ def print_command_line_options(args):
 
 def main():
     args = get_command_line_parser().parse_args()
-    input = open(args.file) if args.file else sys.stdin
-    count = 0
     comment = re.compile(r'^\s*#')
     pattern = re.compile(r"Reactor stalled for (?P<stall>\d+) ms on shard (?P<shard>\d+).*Backtrace:")
     address_threshold = int(args.address_threshold, 0)
@@ -340,7 +341,7 @@ def main():
         resolver = addr2line.BacktraceResolver(executable=args.executable,
                                                concise=not args.full_function_names)
     graph = Graph(resolver)
-    for s in input:
+    for s in args.file:
         if comment.search(s):
             continue
         # parse log line like:
@@ -348,7 +349,6 @@ def main():
         m = pattern.search(s)
         if not m:
             continue
-        count += 1
         # extract the time in ms
         trace = s[m.span()[1]:].split()
         t = int(m.group("stall"))
@@ -367,12 +367,7 @@ def main():
         #  (inlined by) seastar::reactor::block_notifier(int) at ./build/release/seastar/./seastar/src/core/reactor.cc:1240
         # ?? ??:0
         if address_threshold:
-            for i in range(0, len(trace)):
-                if int(trace[i], 0) >= address_threshold:
-                    while int(trace[i], 0) >= address_threshold:
-                        i += 1
-                    trace = trace[i:]
-                    break
+            trace = list(dropwhile(lambda addr: int(addr, 0) >= address_threshold, trace))
         tmin = args.minimum or 0
         if t >= tmin:
             graph.process_trace(trace, t)

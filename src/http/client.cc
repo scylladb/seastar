@@ -137,7 +137,12 @@ future<connection::reply_ptr> connection::recv_reply() {
         parser.init();
         return _read_buf.consume(parser).then([this, &parser] {
             if (parser.eof()) {
-                throw std::runtime_error("Invalid response");
+                http_log.trace("Parsing response EOFed");
+                throw std::system_error(ECONNABORTED, std::system_category());
+            }
+            if (parser.failed()) {
+                http_log.trace("Parsing response failed");
+                throw std::runtime_error("Invalid http server response");
             }
 
             auto resp = parser.get_parsed_response();
@@ -151,19 +156,17 @@ future<connection::reply_ptr> connection::recv_reply() {
     });
 }
 
-future<connection::reply_ptr> connection::do_make_request(request req) {
-    return do_with(std::move(req), [this] (auto& req) {
-        setup_request(req);
-        return send_request_head(req).then([this, &req] {
-            return maybe_wait_for_continue(req).then([this, &req] (reply_ptr cont) {
-                if (cont) {
-                    return make_ready_future<reply_ptr>(std::move(cont));
-                }
+future<connection::reply_ptr> connection::do_make_request(request& req) {
+    setup_request(req);
+    return send_request_head(req).then([this, &req] {
+        return maybe_wait_for_continue(req).then([this, &req] (reply_ptr cont) {
+            if (cont) {
+                return make_ready_future<reply_ptr>(std::move(cont));
+            }
 
-                return write_body(req).then([this] {
-                    return _write_buf.flush().then([this] {
-                        return recv_reply();
-                    });
+            return write_body(req).then([this] {
+                return _write_buf.flush().then([this] {
+                    return recv_reply();
                 });
             });
         });
@@ -171,8 +174,10 @@ future<connection::reply_ptr> connection::do_make_request(request req) {
 }
 
 future<reply> connection::make_request(request req) {
-    return do_make_request(std::move(req)).then([] (reply_ptr rep) {
-        return make_ready_future<reply>(std::move(*rep));
+    return do_with(std::move(req), [this] (auto& req) {
+        return do_make_request(req).then([] (reply_ptr rep) {
+            return make_ready_future<reply>(std::move(*rep));
+        });
     });
 }
 
@@ -231,9 +236,10 @@ client::client(socket_address addr, shared_ptr<tls::certificate_credentials> cre
 {
 }
 
-client::client(std::unique_ptr<connection_factory> f, unsigned max_connections)
+client::client(std::unique_ptr<connection_factory> f, unsigned max_connections, retry_requests retry)
         : _new_connections(std::move(f))
         , _max_connections(max_connections)
+        , _retry(retry)
 {
 }
 
@@ -251,6 +257,10 @@ future<client::connection_ptr> client::get_connection() {
         });
     }
 
+    return make_connection();
+}
+
+future<client::connection_ptr> client::make_connection() {
     _total_new_connections++;
     return _new_connections->make().then([cr = internal::client_ref(this)] (connected_socket cs) mutable {
         http_log.trace("created new http connection {}", cs.local_address());
@@ -309,28 +319,62 @@ auto client::with_connection(Fn&& fn) {
     });
 }
 
+template <typename Fn>
+requires std::invocable<Fn, connection&>
+auto client::with_new_connection(Fn&& fn) {
+    return make_connection().then([this, fn = std::move(fn)] (connection_ptr con) mutable {
+        return fn(*con).finally([this, con = std::move(con)] () mutable {
+            return put_connection(std::move(con));
+        });
+    });
+}
+
 future<> client::make_request(request req, reply_handler handle, std::optional<reply::status_type> expected) {
-    return with_connection([req = std::move(req), handle = std::move(handle), expected] (connection& con) mutable {
-        return con.do_make_request(std::move(req)).then([&con, expected, handle = std::move(handle)] (connection::reply_ptr reply) mutable {
-            auto& rep = *reply;
-            if (expected.has_value() && rep._status != expected.value()) {
-                if (!http_log.is_enabled(log_level::debug)) {
-                    return make_exception_future<>(httpd::unexpected_status_error(rep._status));
+    return do_with(std::move(req), std::move(handle), [this, expected] (request& req, reply_handler& handle) mutable {
+        auto f = with_connection([this, &req, &handle, expected] (connection& con) {
+            return do_make_request(con, req, handle, expected);
+        });
+
+        if (_retry) {
+            f = f.handle_exception_type([this, &req, &handle, expected] (const std::system_error& ex) {
+                auto code = ex.code().value();
+                if ((code != EPIPE) && (code != ECONNABORTED)) {
+                    return make_exception_future<>(ex);
                 }
 
-                return do_with(con.in(rep), [reply = std::move(reply)] (auto& in) mutable {
-                    return util::read_entire_stream_contiguous(in).then([reply = std::move(reply)] (auto message) {
-                        http_log.debug("request finished with {}: {}", reply->_status, message);
-                        return make_exception_future<>(httpd::unexpected_status_error(reply->_status));
-                    });
+                // The 'con' connection may not yet be freed, so the total connection
+                // count still account for it and with_new_connection() may temporarily
+                // break the limit. That's OK, the 'con' will be closed really soon
+                return with_new_connection([this, &req, &handle, expected] (connection& con) {
+                    return do_make_request(con, req, handle, expected);
                 });
+            });
+        }
+
+        return f;
+    });
+}
+
+future<> client::do_make_request(connection& con, request& req, reply_handler& handle, std::optional<reply::status_type> expected) {
+    return con.do_make_request(req).then([&con, &handle, expected] (connection::reply_ptr reply) mutable {
+        auto& rep = *reply;
+        if (expected.has_value() && rep._status != expected.value()) {
+            if (!http_log.is_enabled(log_level::debug)) {
+                return make_exception_future<>(httpd::unexpected_status_error(rep._status));
             }
 
-            return handle(rep, con.in(rep)).finally([reply = std::move(reply)] {});
-        }).handle_exception([&con] (auto ex) mutable {
-            con._persistent = false;
-            return make_exception_future<>(std::move(ex));
-        });
+            return do_with(con.in(rep), [reply = std::move(reply)] (auto& in) mutable {
+                return util::read_entire_stream_contiguous(in).then([reply = std::move(reply)] (auto message) {
+                    http_log.debug("request finished with {}: {}", reply->_status, message);
+                    return make_exception_future<>(httpd::unexpected_status_error(reply->_status));
+                });
+            });
+        }
+
+        return handle(rep, con.in(rep)).finally([reply = std::move(reply)] {});
+    }).handle_exception([&con] (auto ex) mutable {
+        con._persistent = false;
+        return make_exception_future<>(std::move(ex));
     });
 }
 

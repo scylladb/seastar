@@ -144,15 +144,17 @@ SEASTAR_TEST_CASE(test_stream) {
 
 SEASTAR_TEST_CASE(test_stream_drop_sub) {
     auto s = make_lw_shared<stream<int>>();
+    const int expected = 42;
     std::optional<future<>> ret;
     {
-        auto sub = s->listen([](int x) {
+        auto sub = s->listen([expected](int actual) {
+            BOOST_REQUIRE_EQUAL(expected, actual);
             return make_ready_future<>();
         });
         ret = sub.done();
         // It is ok to drop the subscription when we only want the competition future.
     }
-    return s->produce(42).then([ret = std::move(*ret), s] () mutable {
+    return s->produce(expected).then([ret = std::move(*ret), s] () mutable {
         s->close();
         return std::move(ret);
     });

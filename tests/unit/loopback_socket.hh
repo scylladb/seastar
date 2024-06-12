@@ -56,7 +56,7 @@ private:
     queue<temporary_buffer<char>> _q{1};
     loopback_error_injector* _error_injector;
     type _type;
-    promise<> _shutdown;
+    std::optional<promise<>> _shutdown;
 public:
     loopback_buffer(loopback_error_injector* error_injection, type t) : _error_injector(error_injection), _type(t) {}
     future<> push(temporary_buffer<char>&& b) {
@@ -69,7 +69,7 @@ public:
                 return make_exception_future<>(std::runtime_error("test injected glitch on send"));
             }
             if (error == loopback_error_injector::error::abort) {
-                shutdown();
+                abort();
                 return make_exception_future<>(std::runtime_error("test injected error on send"));
             }
         }
@@ -85,23 +85,29 @@ public:
                 return make_exception_future<temporary_buffer<char>>(std::runtime_error("test injected glitch on receive"));
             }
             if (error == loopback_error_injector::error::abort) {
-                shutdown();
+                abort();
                 return make_exception_future<temporary_buffer<char>>(std::runtime_error("test injected error on receive"));
             }
         }
         return _q.pop_eventually();
     }
-    void shutdown() noexcept {
-        if (!_aborted) {
-            // it can be called by both -- reader and writer socket impls
-            _shutdown.set_value();
-        }
+    void abort() noexcept {
+        shutdown();
         _aborted = true;
         _q.abort(std::make_exception_ptr(std::system_error(EPIPE, std::system_category())));
     }
+    void shutdown() noexcept {
+        // it can be called by both -- reader and writer socket impls
+        if (_shutdown.has_value()) {
+            _shutdown->set_value();
+            _shutdown.reset();
+        }
+    }
 
     future<> wait_input_shutdown() {
-        return _shutdown.get_future();
+        assert(!_shutdown.has_value());
+        _shutdown.emplace();
+        return _shutdown->get_future();
     }
 };
 
@@ -159,6 +165,8 @@ public:
     }
     future<> close() override {
         if (!_eof) {
+            _buffer->abort();
+        } else {
             _buffer->shutdown();
         }
         return make_ready_future<>();
@@ -180,11 +188,11 @@ public:
         return data_sink(std::make_unique<loopback_data_sink_impl>(_tx, [this] { shutdown_input(); }));
     }
     void shutdown_input() override {
-        _rx->shutdown();
+        _rx->abort();
     }
     void shutdown_output() override {
         (void)smp::submit_to(_tx->get_owner_shard(), [tx = _tx] {
-            (*tx)->shutdown();
+            (*tx)->abort();
         });
     }
     void set_nodelay(bool nodelay) override {
@@ -330,9 +338,9 @@ public:
             _connect_abort->set_exception(std::make_exception_ptr(std::system_error(ECONNABORTED, std::system_category())));
             _connect_abort = std::nullopt;
         } else {
-            _b1->shutdown();
+            _b1->abort();
             (void)smp::submit_to(_b2.get_owner_shard(), [b2 = std::move(_b2)] {
-                b2->shutdown();
+                b2->abort();
             });
         }
     }

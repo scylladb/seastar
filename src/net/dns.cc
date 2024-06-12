@@ -262,6 +262,32 @@ public:
 // The following pragma is needed to work around a false-positive warning
 // in Gcc 11 (see https://gcc.gnu.org/bugzilla/show_bug.cgi?id=96003).
 #pragma GCC diagnostic ignored "-Wnonnull"
+#if ARES_VERSION >= 0x011000
+
+        ares_addrinfo_hints hints = {
+            .ai_flags = ARES_AI_CANONNAME,
+            .ai_family = af,
+            .ai_socktype = 0,
+            .ai_protocol = 0,
+        };
+        ares_getaddrinfo(_channel, p->name.c_str(), nullptr, &hints, [](void* arg, int status, int timeouts, ares_addrinfo* addrinfo) {
+            // we do potentially allocating operations below, so wrap the pointer in a
+            // unique here.
+            std::unique_ptr<promise_wrap> p(reinterpret_cast<promise_wrap *>(arg));
+
+            switch (status) {
+            default:
+                dns_log.debug("Query failed: {}", status);
+                p->set_exception(std::system_error(status, ares_errorc, p->name));
+                break;
+            case ARES_SUCCESS:
+                p->set_value(make_hostent(addrinfo));
+                break;
+            }
+            ares_freeaddrinfo(addrinfo);
+
+        }, reinterpret_cast<void *>(p));
+#else
         ares_gethostbyname(_channel, p->name.c_str(), af, [](void* arg, int status, int timeouts, ::hostent* host) {
             // we do potentially allocating operations below, so wrap the pointer in a
             // unique here.
@@ -278,7 +304,7 @@ public:
             }
 
         }, reinterpret_cast<void *>(p));
-
+#endif
 
         poll_sockets();
 
@@ -343,6 +369,47 @@ public:
 
         dns_call call(*this);
 
+#if ARES_VERSION >= 0x011c00
+        ares_query_dnsrec(_channel, query.c_str(), ARES_CLASS_IN, ARES_REC_TYPE_SRV,
+                          [](void* arg, ares_status_t status, size_t timeouts,
+                             const ares_dns_record *dnsrec) {
+            auto p = std::unique_ptr<promise<srv_records>>(
+                reinterpret_cast<promise<srv_records> *>(arg));
+            if (status != ARES_SUCCESS) {
+                dns_log.debug("Query failed: {}", fmt::underlying(status));
+                p->set_exception(std::system_error(status, ares_errorc));
+                return;
+            }
+            const size_t rr_count = ares_dns_record_rr_cnt(dnsrec, ARES_SECTION_ANSWER);
+            srv_records replies;
+            for (size_t i = 0; i < rr_count; i++) {
+                const ares_dns_rr_t* rr = ares_dns_record_rr_get(
+                    const_cast<ares_dns_record*>(dnsrec),
+                    ARES_SECTION_ANSWER, i);
+                if (!rr) {
+                    // not likely, but still..
+                    status = ARES_EBADRESP;
+                    break;
+                }
+                if (ares_dns_rr_get_class(rr) != ARES_CLASS_IN ||
+                    ares_dns_rr_get_type(rr) != ARES_REC_TYPE_SRV) {
+                    continue;
+                }
+                replies.push_back({
+                    ares_dns_rr_get_u16(rr, ARES_RR_SRV_PRIORITY),
+                    ares_dns_rr_get_u16(rr, ARES_RR_SRV_WEIGHT),
+                    ares_dns_rr_get_u16(rr, ARES_RR_SRV_PORT),
+                    sstring{ares_dns_rr_get_str(rr, ARES_RR_SRV_TARGET)}
+                });
+            }
+            if (status != ARES_SUCCESS) {
+                dns_log.debug("Parse failed: {}", fmt::underlying(status));
+                p->set_exception(std::system_error(status, ares_errorc));
+                return;
+            }
+             p->set_value(std::move(replies));
+        }, reinterpret_cast<void *>(p.release()), nullptr);
+#else
         ares_query(_channel, query.c_str(), ns_c_in, ns_t_srv,
                    [](void* arg, int status, int timeouts,
                       unsigned char* buf, int len) {
@@ -367,6 +434,7 @@ public:
             }
             ares_free_data(start);
         }, reinterpret_cast<void *>(p.release()));
+#endif
 
 
         poll_sockets();
@@ -482,6 +550,39 @@ private:
         return records;
     }
 
+#if ARES_VERSION >= 0x011000
+    static hostent make_hostent(const ares_addrinfo* ai) {
+        hostent e;
+        if (!ai) {
+            return e;
+        }
+        if (ai->cnames) {
+            e.names.emplace_back(ai->cnames->name);
+        } else {
+            e.names.emplace_back(ai->name);
+       }
+        for (auto cname = ai->cnames; cname != nullptr; cname = cname->next) {
+            if (cname->alias == nullptr) {
+                continue;
+            }
+            e.names.emplace_back(cname->alias);
+        }
+        for (auto node = ai->nodes; node != nullptr; node = node->ai_next) {
+            switch (node->ai_family) {
+                case AF_INET:
+                    e.addr_list.emplace_back(reinterpret_cast<const sockaddr_in*>(node->ai_addr)->sin_addr);
+                    break;
+                case AF_INET6:
+                    e.addr_list.emplace_back(reinterpret_cast<const sockaddr_in6*>(node->ai_addr)->sin6_addr);
+                    break;
+            }
+        }
+
+        dns_log.debug("Query success: {}/{}", e.names.front(), e.addr_list.front());
+
+        return e;
+    }
+#endif
     static hostent make_hostent(const ::hostent& host) {
         hostent e;
         e.names.emplace_back(host.h_name);
