@@ -1103,9 +1103,10 @@ namespace rpc {
 future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_type::time_point> timeout, int64_t msg_id, uint64_t type) {
     return wait_for_resources(28, timeout).then([this, timeout, msg_id, type] (auto permit) {
         // send unknown_verb exception back
-        snd_buf data(28);
-        static_assert(snd_buf::chunk_size >= 28, "send buffer chunk size is too small");
-        auto p = data.front().get_write() + 12;
+        constexpr size_t unknown_verb_message_size = response_frame_headroom + 2 * sizeof(uint32_t) + sizeof(uint64_t);
+        snd_buf data(unknown_verb_message_size);
+        static_assert(snd_buf::chunk_size >= unknown_verb_message_size, "send buffer chunk size is too small");
+        auto p = data.front().get_write() + response_frame_headroom;
         write_le<uint32_t>(p, uint32_t(exception_type::UNKNOWN_VERB));
         write_le<uint32_t>(p + 4, uint32_t(8));
         write_le<uint64_t>(p + 8, type);
