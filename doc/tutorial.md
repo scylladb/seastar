@@ -188,7 +188,7 @@ Couldn't start application: std::runtime_error (insufficient physical memory)
 ```
 
 # Introducing futures and continuations
-Futures and continuations, which we will introduce now, are the building blocks of asynchronous programming in Seastar. Their strength lies in the ease of composing them together into a large, complex, asynchronous program, while keeping the code fairly readable and understandable. 
+Futures and continuations, which we will introduce now, are the building blocks of asynchronous programming in Seastar. Their strength lies in the ease of composing them together into a large, complex, asynchronous program, while keeping the code fairly readable and understandable.
 
 A [future](\ref future) is a result of a computation that may not be available yet.
 Examples include:
@@ -412,9 +412,9 @@ another asynchronously. From the consumer of the view's perspective, it can retr
 the return value of the coroutine. From the coroutine's perspective, it is able to produce the elements multiple times
 using `co_yield` without "leaving" the coroutine. A function producing a sequence of values can be named "generator".
 But unlike the regular coroutine which returns a single `seastar::future<T>`, a generator should return
-`seastar::coroutine::experimental::generator<T, Container>`. Where `T` is the type of the elements, while `Container` 
-is a template, which is used to store the elements. Because, underneath of Seastar's generator implementation, a 
-bounded buffer is used for holding the elements not yet retrieved by the consumer, there is a design decision to make -- 
+`seastar::coroutine::experimental::generator<T, Container>`. Where `T` is the type of the elements, while `Container`
+is a template, which is used to store the elements. Because, underneath of Seastar's generator implementation, a
+bounded buffer is used for holding the elements not yet retrieved by the consumer, there is a design decision to make --
 what kind of container should be used, and what its maximum size should be. To define the bounded buffer, developers
 need to:
 
@@ -424,8 +424,8 @@ need to:
 
 But there is an exception, if the buffer's size is one, we assume that the programmer is likely to use `std::optional`
 for the bounded buffer, so it's not required to pass the maximum size of the buffer as the first parameter in this case.
-But if a coroutine uses `std::optional` as its buffer, and its function sigature still lists the size as its first 
-parameter, it will not break anything. As this parameter will just be ignored by the underlying implementation. 
+But if a coroutine uses `std::optional` as its buffer, and its function sigature still lists the size as its first
+parameter, it will not break anything. As this parameter will just be ignored by the underlying implementation.
 
 Following is an example
 
@@ -467,7 +467,7 @@ is too slow so that there are `max_dishes_on_table` dishes left on the table, th
 until the number of dishes is less than this setting. Please note, as explained above, despite that this
 parameter is not referenced by the coroutine's body, it is actually passed to the generator's promise
 constructor, which in turn creates the buffer, as we are not using `std::optional` here. On the other hand,
-apparently, if there is no dishes on the table, the diner would wait for new ones to be prepared by the chef. 
+apparently, if there is no dishes on the table, the diner would wait for new ones to be prepared by the chef.
 
 Please note, `generator<T, Container>` is still at its early stage of developing,
 the public interface this template is subject to change before it is stablized enough.
@@ -652,7 +652,7 @@ Using capture-by-*move* in continuations is also very useful in Seastar applicat
 int do_something(std::unique_ptr<T> obj) {
      // do some computation based on the contents of obj, let's say the result is 17
      return 17;
-     // at this point, obj goes out of scope so the compiler delete()s it.  
+     // at this point, obj goes out of scope so the compiler delete()s it.
 ```
 By using unique_ptr in this way, the caller passes an object to the function, but tells it the object is now its exclusive responsibility - and when the function is done with the object, it automatically deletes it. How do we use unique_ptr in a continuation? The following won't work:
 
@@ -976,7 +976,7 @@ seastar::future<> f() {
     }
 }
 ```
-`do_with` will *do* the given function *with* the given object alive. 
+`do_with` will *do* the given function *with* the given object alive.
 
 `do_with` saves the given object on the heap, and calls the given lambda with a reference to the new object. Finally it ensures that the new object is destroyed after the returned future is resolved. Usually, do_with is given an *rvalue*, i.e., an unnamed temporary object or an `std::move()`ed object, and `do_with` moves that object into its final place on the heap. `do_with` returns a future which resolves after everything described above is done (the lambda's future is resolved and the object is destroyed).
 
@@ -1069,7 +1069,7 @@ TODO: Talk about if we have a `future<int>` variable, as soon as we `get()` or `
 # Fibers
 Seastar continuations are normally short, but often chained to one another, so that one continuation does a bit of work and then schedules another continuation for later. Such chains can be long, and often even involve loopings - see the following section, "Loops". We call such chains "fibers" of execution.
 
-These fibers are not threads - each is just a string of continuations - but they share some common requirements with traditional threads.  For example, we want to avoid one fiber getting starved while a second fiber continuously runs its continuations one after another.  As another example, fibers may want to communicate - e.g., one fiber produces data that a second fiber consumes, and we wish to ensure that both fibers get a chance to run, and that if one stops prematurely, the other doesn't hang forever.  
+These fibers are not threads - each is just a string of continuations - but they share some common requirements with traditional threads.  For example, we want to avoid one fiber getting starved while a second fiber continuously runs its continuations one after another.  As another example, fibers may want to communicate - e.g., one fiber produces data that a second fiber consumes, and we wish to ensure that both fibers get a chance to run, and that if one stops prematurely, the other doesn't hang forever.
 
 TODO: Mention fiber-related sections like loops, semaphores, gates, pipes, etc.
 
@@ -1187,7 +1187,7 @@ The first variant of `when_all()` is variadic, i.e., the futures are given as se
 future<> f() {
     using namespace std::chrono_literals;
     future<int> slow_two = sleep(2s).then([] { return 2; });
-    return when_all(sleep(1s), std::move(slow_two), 
+    return when_all(sleep(1s), std::move(slow_two),
                     make_ready_future<double>(3.5)
            ).discard_result();
 }
@@ -1233,7 +1233,7 @@ future<> f() {
 
 Both futures are `available()` (resolved), but the second has `failed()` (resulted in an exception instead of a value). Note how we called `ignore_ready_future()` on this failed future, because silently ignoring a failed future is considered a bug, and will result in an "Exceptional future ignored" error message. More typically, an application will log the failed future instead of ignoring it.
 
-The above example demonstrate that `when_all()` is inconvenient and verbose to use properly. The results are wrapped in a tuple, leading to verbose tuple syntax, and uses ready futures which must all be inspected individually for an exception to avoid error messages. 
+The above example demonstrate that `when_all()` is inconvenient and verbose to use properly. The results are wrapped in a tuple, leading to verbose tuple syntax, and uses ready futures which must all be inspected individually for an exception to avoid error messages.
 
 So Seastar also provides an easier to use `when_all_succeed()` function. This function too returns a future which resolves when all the given futures have resolved. If all of them succeeded, it passes a tuple of the resulting values to continuation, without wrapping each of them in a future first. Sometimes, it could be tedious to unpack the tuple for consuming the resulting values. In that case, `then_unpack()` can be used in place of `then()`. `then_unpack()` unpacks the returned tuple and passes its elements to the following continuation as its parameters. If, however, one or more of the futures failed, `when_all_succeed()` resolves to a failed future, containing the exception from one of the failed futures. If more than one of the given future failed, one of those will be passed on (it is unspecified which one is chosen), and the rest will be silently ignored. For example,
 
@@ -1407,7 +1407,7 @@ seastar::future<> f() {
         return seastar::repeat([&limit] {
             return limit.wait(1).then([&limit] {
                 seastar::futurize_invoke(slow).finally([&limit] {
-                    limit.signal(1); 
+                    limit.signal(1);
                 });
                 return seastar::stop_iteration::no;
             });
@@ -1844,7 +1844,7 @@ return s.invoke_on(0, [] (my_service& local_service) {
 });
 ```
 
-This runs the lambda function on shard 0, with a reference to the local `my_service` object on that shard. 
+This runs the lambda function on shard 0, with a reference to the local `my_service` object on that shard.
 
 
 # Shutting down cleanly
@@ -2052,7 +2052,7 @@ seastar::future_state<>::~future_state() at include/seastar/core/future.hh:414
 f() at test.cc:12
 ```
 
-Here we see that the warning message was printed by the `seastar::report_failed_future()` function which was called when destroying a future (`future<>::~future`) that had not been handled. The future's destructor was called in line 11 of our test code (`26.cc`), which is indeed the line where we called `g()` and ignored its result.  
+Here we see that the warning message was printed by the `seastar::report_failed_future()` function which was called when destroying a future (`future<>::~future`) that had not been handled. The future's destructor was called in line 11 of our test code (`26.cc`), which is indeed the line where we called `g()` and ignored its result.
 This backtrace gives us an accurate understanding of where our code destroyed an exceptional future without handling it first, which is usually helpful in solving these kinds of bugs. Note that this technique does not tell us where the exception was first created, nor what code passed around the exceptional future before it was destroyed - we just learn where the future was destroyed. To learn where the exception was originally thrown, see the next section:
 
 ## Finding where an exception was thrown
