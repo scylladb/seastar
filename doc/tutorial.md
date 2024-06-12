@@ -316,9 +316,7 @@ The function `slow()` deserves more explanation. As usual, this function returns
 This example begins to show the convenience of the futures programming model, which allows the programmer to neatly encapsulate complex asynchronous operations. `slow()` might involve a complex asynchronous operation requiring multiple steps, but its user can use it just as easily as a simple `sleep()`, and Seastar's engine takes care of running the continuations whose futures have become ready at the right time.
 
 ## Ready futures
-A future value might already be ready when `then()` is called to chain a continuation to it. This important case is optimized, and *usually* the continuation is run immediately instead of being registered to run later in the next iteration of the event loop.
-
-This optimization is done *usually*, though sometimes it is avoided: The implementation of `then()` holds a counter of such immediate continuations, and after many continuations have been run immediately without returning to the event loop (currently the limit is 256), the next continuation is deferred to the event loop in any case. This is important because in some cases (such as future loops, discussed later) we could find that each ready continuation spawns a new one, and without this limit we can starve the event loop. It is important not to starve the event loop, as this would starve continuations of futures that weren't ready but have since become ready, and also starve the important **polling** done by the event loop (e.g., checking whether there is new activity on the network card).
+A future value might already be ready when `then()` is called to chain a continuation to it. This important case is optimized, and the continuation is run immediately instead of being registered to run later in the next iteration of the event loop.
 
 `make_ready_future<>` can be used to return a future which is already ready. The following example is identical to the previous one, except the promise function `fast()` returns a future which is already ready, and not one which will be ready in a second as in the previous example. The nice thing is that the consumer of the future does not care, and uses the future in the same way in both cases.
 
@@ -336,6 +334,16 @@ seastar::future<> f() {
     });
 }
 ```
+
+## Preemption and Task Quota
+
+As described above, an existing fiber of execution will yield back to the event loop when it performs a blocking operation such as IO or sleeping, as it has no more work to do until this blocking operation completes. Should a fiber have a lot of CPU bound work to do without any intervening blocking operations, however, it is important that execution is still yielded back to the event loop periodically.
+
+This is implemented via _preemption_: which can only occur at specific preemption points. At these points the fiber's remaining _task quota_ is checked and it has been exceeded the fiber yields. The task quota is a measure of how long tasks should be allowed to run before yielding to the event loop, and is set to 500 µs by default.
+
+It is important not to starve the event loop, as this would starve continuations of futures that weren't ready but have since become ready, and also starve the important **polling** done by the event loop (e.g., checking whether there is new activity on the network card). For example, iterating over a large container while doing CPU-bound work without any suspension points could starve the reactor and cause a _reactor stall_, which refers to a substantial period of time (e.g., more than 20 milliseconds) during which a task does not yield.
+
+Many seastar constructs such as looping constructs have built-in preemption points. You may also insert your own preemption points by calling `seastar::maybe_yield`, which performs a preemption check. Coroutines will also perform a preemption check at each `co_await`. Note that there is _not_ a preemption check between continuations attached to a future with `then()`, so a recursive future loop without explicit preemption checks may starve the reactor.
 
 # Coroutines
 
