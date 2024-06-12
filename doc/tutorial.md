@@ -432,7 +432,7 @@ need to:
 
 But there is an exception, if the buffer's size is one, we assume that the programmer is likely to use `std::optional`
 for the bounded buffer, so it's not required to pass the maximum size of the buffer as the first parameter in this case.
-But if a coroutine uses `std::optional` as its buffer, and its function sigature still lists the size as its first
+But if a coroutine uses `std::optional` as its buffer, and its function signature still lists the size as its first
 parameter, it will not break anything. As this parameter will just be ignored by the underlying implementation.
 
 Following is an example
@@ -478,7 +478,7 @@ constructor, which in turn creates the buffer, as we are not using `std::optiona
 apparently, if there is no dishes on the table, the diner would wait for new ones to be prepared by the chef.
 
 Please note, `generator<T, Container>` is still at its early stage of developing,
-the public interface this template is subject to change before it is stablized enough.
+the public interface this template is subject to change before it is stabilized enough.
 
 ## Exceptions in coroutines
 
@@ -743,7 +743,7 @@ Usually, aborting the current chain of operations and returning an exception is 
 1. `.then_wrapped()`: instead of passing the values carried by the future into the continuation, `.then_wrapped()` passes the input future to the continuation. The future is guaranteed to be in ready state, so the continuation can examine whether it contains a value or an exception, and take appropriate action.
 2. `.finally()`: similar to a Java finally block, a `.finally()` continuation is executed whether or not its input future carries an exception or not. The result of the finally continuation is its input future, so `.finally()` can be used to insert code in a flow that is executed unconditionally, but otherwise does not alter the flow.
 
-The following example illustates usage of `then_wrapped` and `finally`:
+The following example illustrates usage of `then_wrapped` and `finally`:
 
 ```cpp
 #include <seastar/core/future.hh>
@@ -1082,7 +1082,7 @@ These fibers are not threads - each is just a string of continuations - but they
 TODO: Mention fiber-related sections like loops, semaphores, gates, pipes, etc.
 
 # Loops
-A majority of time-consuming computations involve using loops. Seastar provides several primitives for expressing them in a way that composes nicely with the future/promise model. A very important aspect of Seastar loop primitives is that each iteration is followed by a preemption point, thus allowing other tasks to run inbetween iterations.
+A majority of time-consuming computations involve using loops. Seastar provides several primitives for expressing them in a way that composes nicely with the future/promise model. A very important aspect of Seastar loop primitives is that each iteration is followed by a preemption point, thus allowing other tasks to run in between iterations.
 
 ## repeat
 A loop created with `repeat` executes its body until it receives a `stop_iteration` object, which informs if the iteration should continue (`stop_iteration::no`) or stop (`stop_iteration::yes`). Next iteration will be launched only after the first one has finished. The loop body passed to `repeat` is expected to have a `future<stop_iteration>` return type.
@@ -1357,7 +1357,7 @@ seastar::future<> g() {
 
 Note the somewhat convoluted way that `get_units()` needs to be used: The continuations must be nested because we need the `units` object to be moved to the last continuation. If `slow()` returns a future (and does not throw immediately),  the `finally()` continuation captures the `units` object until everything is done, but does not run any code.
 
-Seastars programmers should generally avoid using the the `semaphore::wait()` and `semaphore::signal()` functions directly, and always prefer either `with_semaphore()` (when applicable) or `get_units()`.
+Seastar's programmers should generally avoid using the the `semaphore::wait()` and `semaphore::signal()` functions directly, and always prefer either `with_semaphore()` (when applicable) or `get_units()`.
 
 
 ## Limiting resource use
