@@ -219,7 +219,19 @@ private:
     token_bucket_t _token_bucket;
     const capacity_t _per_tick_threshold;
 
+    // Capacities accumulated by queues in this group. Each queue tries not
+    // to run too far ahead of the others, if it does -- it skips dispatch
+    // loop until next tick in the hope that other shards would grab the
+    // unused disk capacity and will move their counters forward.
+    std::vector<capacity_t> _balance;
+
 public:
+
+    // Maximum value the _balance entry can get
+    // It's also set when a queue goes idle and doesn't need to participate
+    // in accumulated races. This value is still suitable for comparisons
+    // of "active" queues
+    static constexpr capacity_t max_balance = std::numeric_limits<signed_capacity_t>::max();
 
     // Convert internal capacity value back into the real token
     static double capacity_tokens(capacity_t cap) noexcept {
@@ -267,6 +279,10 @@ public:
     }
 
     const token_bucket_t& token_bucket() const noexcept { return _token_bucket; }
+
+    capacity_t current_balance() const noexcept;
+    void update_balance(capacity_t) noexcept;
+    void reset_balance() noexcept;
 };
 
 /// \brief Fair queuing class
@@ -332,6 +348,15 @@ private:
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
     size_t _nr_classes = 0;
     capacity_t _last_accumulated = 0;
+    capacity_t _total_accumulated = 0;
+    // Maximum capacity that a queue can stay behind other shards
+    //
+    // This is similar to priority classes fall-back deviation and it's
+    // calculated as the number of capacity points a group with 1 share
+    // accumulates over tau
+    //
+    // Check max_deviation math in push_priority_class_from_idle())
+    const capacity_t _max_imbalance;
 
     /*
      * When the shared capacity os over the local queue delays
@@ -362,6 +387,8 @@ private:
     enum class grab_result { grabbed, cant_preempt, pending };
     grab_result grab_capacity(const fair_queue_entry& ent) noexcept;
     grab_result grab_pending_capacity(const fair_queue_entry& ent) noexcept;
+
+    bool balanced() noexcept;
 public:
     /// Constructs a fair queue with configuration parameters \c cfg.
     ///
