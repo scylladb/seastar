@@ -108,6 +108,7 @@ public:
     // a 'normalized' form -- converted from floating-point to fixed-point number
     // and scaled accrding to fair-group's token-bucket duration
     using capacity_t = uint64_t;
+    using signed_capacity_t = std::make_signed_t<capacity_t>;
     friend class fair_queue;
 
 private:
@@ -138,6 +139,7 @@ public:
 class fair_group {
 public:
     using capacity_t = fair_queue_entry::capacity_t;
+    using signed_capacity_t = fair_queue_entry::signed_capacity_t;
     using clock_type = std::chrono::steady_clock;
 
     /*
@@ -300,7 +302,7 @@ public:
     using class_id = unsigned int;
     class priority_class_data;
     using capacity_t = fair_group::capacity_t;
-    using signed_capacity_t = std::make_signed_t<capacity_t>;
+    using signed_capacity_t = fair_queue_entry::signed_capacity_t;
 
 private:
     using clock_type = std::chrono::steady_clock;
