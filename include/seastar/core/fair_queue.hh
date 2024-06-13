@@ -217,7 +217,6 @@ private:
      */
 
     token_bucket_t _token_bucket;
-    const capacity_t _per_tick_threshold;
 
     // Capacities accumulated by queues in this group. Each queue tries not
     // to run too far ahead of the others, if it does -- it skips dispatch
@@ -265,7 +264,6 @@ public:
     fair_group(fair_group&&) = delete;
 
     capacity_t maximum_capacity() const noexcept { return _token_bucket.limit(); }
-    capacity_t per_tick_grab_threshold() const noexcept { return _per_tick_threshold; }
     capacity_t grab_capacity(capacity_t cap) noexcept;
     clock_type::time_point replenished_ts() const noexcept { return _token_bucket.replenished_ts(); }
     void replenish_capacity(clock_type::time_point now) noexcept;
