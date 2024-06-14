@@ -90,7 +90,11 @@ make_linux_perf_event(unsigned config, pid_t pid = 0, int cpu = -1, int group_fd
             .disabled = 1,
             .exclude_kernel = 1,
             .exclude_hv = 1,
+#if defined(__x86_64__)
+            // exclude_idle is not supported on all architectures (e.g. aarch64)
+            // so enable it selectively only on architectures that support it.
             .exclude_idle = 1,
+#endif
             }, pid, cpu, group_fd, flags);
 }
 
