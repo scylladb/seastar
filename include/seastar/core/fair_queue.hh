@@ -189,7 +189,7 @@ public:
      * time period for which the speeds from F (in above formula) are taken.
      */
 
-    static constexpr float fixed_point_factor = float(1 << 24);
+    static constexpr float fixed_point_factor = float(1 << 21);
     using rate_resolution = std::milli;
     using token_bucket_t = internal::shared_token_bucket<capacity_t, rate_resolution, internal::capped_release::no>;
 

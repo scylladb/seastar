@@ -362,7 +362,7 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         // has chances to be translated into zero cost which, in turn, will make the
         // class show no progress and monopolize the queue.
         auto req_cap = req._capacity;
-        auto req_cost  = std::max(req_cap / h._shares, (capacity_t)1);
+        auto req_cost  = std::max((req_cap + h._shares - 1) / h._shares, (capacity_t)1);
         // signed overflow check to make push_priority_class_from_idle math work
         if (h._accumulated >= std::numeric_limits<signed_capacity_t>::max() - req_cost) {
             for (auto& pc : _priority_classes) {
