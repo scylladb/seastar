@@ -14,8 +14,10 @@
 #pragma once
 
 #include <seastar/core/bitset-iter.hh>
+#include <seastar/core/scheduling.hh>
 #ifndef SEASTAR_MODULE
 #include <boost/intrusive/list.hpp>
+#include <exception>
 #include <array>
 #include <bitset>
 #include <limits>
