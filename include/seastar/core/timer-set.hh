@@ -23,6 +23,10 @@
 
 namespace seastar {
 
+namespace internal {
+void log_timer_callback_exception(std::exception_ptr) noexcept;
+}
+
 /**
  * A data structure designed for holding and expiring timers. It's
  * optimized for timer non-delivery by deferring sorting cost until
@@ -85,6 +89,7 @@ private:
     {
         return bitsets::get_last_set(_non_empty_buckets);
     }
+
 public:
     timer_set() noexcept
         : _last(0)
@@ -156,6 +161,19 @@ public:
     }
 
     /**
+     * Removes timer from the active set or the expired list, if the timer is expired
+     */
+    void remove(Timer& timer, timer_list_t& expired) noexcept
+    {
+        if (timer._expired) {
+            expired.erase(expired.iterator_to(timer));
+            timer._expired = false;
+        } else {
+            remove(timer);
+        }
+    }
+
+    /**
      * Expires active timers.
      *
      * The time points passed to this function must be monotonically increasing.
@@ -207,6 +225,36 @@ public:
             }
         }
         return exp;
+    }
+
+    template <typename EnableFunc>
+    void complete(timer_list_t& expired_timers, EnableFunc&& enable_fn) noexcept(noexcept(enable_fn())) {
+        expired_timers = expire(this->now());
+        for (auto& t : expired_timers) {
+            t._expired = true;
+        }
+        const auto prev_sg = current_scheduling_group();
+        while (!expired_timers.empty()) {
+            auto t = &*expired_timers.begin();
+            expired_timers.pop_front();
+            t->_queued = false;
+            if (t->_armed) {
+                t->_armed = false;
+                if (t->_period) {
+                    t->readd_periodic();
+                }
+                try {
+                    *internal::current_scheduling_group_ptr() = t->_sg;
+                    t->_callback();
+                } catch (...) {
+                    internal::log_timer_callback_exception(std::current_exception());
+                }
+            }
+        }
+        // complete_timers() can be called from the context of run_tasks()
+        // as well so we need to restore the previous scheduling group (set by run_tasks()).
+        *internal::current_scheduling_group_ptr() = prev_sg;
+        enable_fn();
     }
 
     /**

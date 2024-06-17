@@ -1524,36 +1524,6 @@ reactor::block_notifier(int) {
     engine()._cpu_stall_detector->on_signal();
 }
 
-template <typename T, typename E, typename EnableFunc>
-void reactor::complete_timers(T& timers, E& expired_timers, EnableFunc&& enable_fn) noexcept(noexcept(enable_fn())) {
-    expired_timers = timers.expire(timers.now());
-    for (auto& t : expired_timers) {
-        t._expired = true;
-    }
-    const auto prev_sg = current_scheduling_group();
-    while (!expired_timers.empty()) {
-        auto t = &*expired_timers.begin();
-        expired_timers.pop_front();
-        t->_queued = false;
-        if (t->_armed) {
-            t->_armed = false;
-            if (t->_period) {
-                t->readd_periodic();
-            }
-            try {
-                *internal::current_scheduling_group_ptr() = t->_sg;
-                t->_callback();
-            } catch (...) {
-                seastar_logger.error("Timer callback failed: {}", std::current_exception());
-            }
-        }
-    }
-    // complete_timers() can be called from the context of run_tasks()
-    // as well so we need to restore the previous scheduling group (set by run_tasks()).
-    *internal::current_scheduling_group_ptr() = prev_sg;
-    enable_fn();
-}
-
 #ifdef HAVE_OSV
 void reactor::timer_thread_func() {
     sched::timer tmr(*sched::thread::current());
@@ -1566,7 +1536,7 @@ void reactor::timer_thread_func() {
                     _timer_due = 0;
                     _engine_thread->unsafe_stop();
                     _pending_tasks.push_front(make_task(default_scheduling_group(), [this] {
-                        complete_timers(_timers, _expired_timers, [this] {
+                        _timers.complete(_expired_timers, [this] {
                             if (!_timers.empty()) {
                                 enable_timer(_timers.get_next_timeout());
                             }
@@ -2495,12 +2465,7 @@ bool reactor::queue_timer(timer<steady_clock_type>* tmr) noexcept {
 }
 
 void reactor::del_timer(timer<steady_clock_type>* tmr) noexcept {
-    if (tmr->_expired) {
-        _expired_timers.erase(_expired_timers.iterator_to(*tmr));
-        tmr->_expired = false;
-    } else {
-        _timers.remove(*tmr);
-    }
+    _timers.remove(*tmr, _expired_timers);
 }
 
 void reactor::add_timer(timer<lowres_clock>* tmr) noexcept {
@@ -2514,12 +2479,7 @@ bool reactor::queue_timer(timer<lowres_clock>* tmr) noexcept {
 }
 
 void reactor::del_timer(timer<lowres_clock>* tmr) noexcept {
-    if (tmr->_expired) {
-        _expired_lowres_timers.erase(_expired_lowres_timers.iterator_to(*tmr));
-        tmr->_expired = false;
-    } else {
-        _lowres_timers.remove(*tmr);
-    }
+    _lowres_timers.remove(*tmr, _expired_lowres_timers);
 }
 
 void reactor::add_timer(timer<manual_clock>* tmr) noexcept {
@@ -2531,12 +2491,7 @@ bool reactor::queue_timer(timer<manual_clock>* tmr) noexcept {
 }
 
 void reactor::del_timer(timer<manual_clock>* tmr) noexcept {
-    if (tmr->_expired) {
-        _expired_manual_timers.erase(_expired_manual_timers.iterator_to(*tmr));
-        tmr->_expired = false;
-    } else {
-        _manual_timers.remove(*tmr);
-    }
+    _manual_timers.remove(*tmr, _expired_manual_timers);
 }
 
 void reactor::at_exit(noncopyable_function<future<> ()> func) {
@@ -2748,7 +2703,7 @@ bool
 reactor::do_expire_lowres_timers() noexcept {
     auto now = lowres_clock::now();
     if (now >= _lowres_next_timeout) {
-        complete_timers(_lowres_timers, _expired_lowres_timers, [this] () noexcept {
+        _lowres_timers.complete(_expired_lowres_timers, [this] () noexcept {
             if (!_lowres_timers.empty()) {
                 _lowres_next_timeout = _lowres_timers.get_next_timeout();
             } else {
@@ -2762,7 +2717,7 @@ reactor::do_expire_lowres_timers() noexcept {
 
 void
 reactor::expire_manual_timers() noexcept {
-    complete_timers(_manual_timers, _expired_manual_timers, [] () noexcept {});
+    _manual_timers.complete(_expired_manual_timers, [] () noexcept {});
 }
 
 void
@@ -3205,7 +3160,7 @@ reactor::activate(task_queue& tq) {
 }
 
 void reactor::service_highres_timer() noexcept {
-    complete_timers(_timers, _expired_timers, [this] () noexcept {
+    _timers.complete(_expired_timers, [this] () noexcept {
         if (!_timers.empty()) {
             enable_timer(_timers.get_next_timeout());
         }
@@ -5185,6 +5140,10 @@ size_t scheduling_group_count() {
 void
 run_in_background(future<> f) {
     engine().run_in_background(std::move(f));
+}
+
+void log_timer_callback_exception(std::exception_ptr ex) noexcept {
+    seastar_logger.error("Timer callback failed: {}", std::current_exception());
 }
 
 }
