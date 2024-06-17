@@ -302,18 +302,24 @@ public:
      * @return the given vector in a json format
      */
     template<typename... Args>
-    static future<> write(output_stream<char>& s, const std::vector<Args...>& vec) {
-        return write(s, state::array, vec.begin(), vec.end());
+    static future<> write(output_stream<char>& s, std::vector<Args...> vec) {
+        return do_with(std::move(vec), [&s] (const auto& vec) {
+            return write(s, state::array, vec.begin(), vec.end());
+        });
     }
 
     template<typename... Args>
-    static future<> write(output_stream<char>& s, const std::map<Args...>& map) {
-        return write(s, state::map, map.begin(), map.end());
+    static future<> write(output_stream<char>& s, std::map<Args...> map) {
+        return do_with(std::move(map), [&s] (const auto& map) {
+            return write(s, state::map, map.begin(), map.end());
+        });
     }
 
     template<typename... Args>
-    static future<> write(output_stream<char>& s, const std::unordered_map<Args...>& map) {
-        return write(s, state::map, map.begin(), map.end());
+    static future<> write(output_stream<char>& s, std::unordered_map<Args...> map) {
+        return do_with(std::move(map), [&s] (const auto& map) {
+            return write(s, state::map, map.begin(), map.end());
+        });
     }
 
     /**
@@ -330,9 +336,12 @@ public:
      * @param obj the date_time to format
      * @return the given json object in a json format
      */
-    static future<> write(output_stream<char>& s, const jsonable& obj) {
-      return s.write(to_json(obj));
-     }
+    template <std::derived_from<jsonable> Jsonable>
+    static future<> write(output_stream<char>& s, Jsonable obj) {
+        return do_with(std::move(obj), [&s] (const auto& obj) {
+            return obj.write(s);
+        });
+    }
 
     /**
      * return a json formatted unsigned long
