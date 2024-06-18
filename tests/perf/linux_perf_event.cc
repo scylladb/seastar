@@ -81,28 +81,25 @@ linux_perf_event::disable() {
     ::ioctl(_fd, PERF_EVENT_IOC_DISABLE, 0);
 }
 
-linux_perf_event
-linux_perf_event::user_instructions_retired() {
+static linux_perf_event
+make_linux_perf_event(unsigned config, pid_t pid = 0, int cpu = -1, int group_fd = -1, unsigned long flags = 0) {
     return linux_perf_event(perf_event_attr{
             .type = PERF_TYPE_HARDWARE,
             .size = sizeof(struct perf_event_attr),
-            .config = PERF_COUNT_HW_INSTRUCTIONS,
+            .config = config,
             .disabled = 1,
             .exclude_kernel = 1,
             .exclude_hv = 1,
             .exclude_idle = 1,
-            }, 0, -1, -1, 0);
+            }, pid, cpu, group_fd, flags);
+}
+
+linux_perf_event
+linux_perf_event::user_instructions_retired() {
+    return make_linux_perf_event(PERF_COUNT_HW_INSTRUCTIONS);
 }
 
 linux_perf_event
 linux_perf_event::user_cpu_cycles_retired() {
-    return linux_perf_event(perf_event_attr{
-            .type = PERF_TYPE_HARDWARE,
-            .size = sizeof(struct perf_event_attr),
-            .config = PERF_COUNT_HW_CPU_CYCLES,
-            .disabled = 1,
-            .exclude_kernel = 1,
-            .exclude_hv = 1,
-            .exclude_idle = 1,
-            }, 0, -1, -1, 0);
+    return make_linux_perf_event(PERF_COUNT_HW_CPU_CYCLES);
 }
