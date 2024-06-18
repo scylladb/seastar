@@ -726,7 +726,7 @@ std::string get_value(int size) {
 /*
  * A helper object that map to a big json string
  * in the format of:
- * {"valu": "aaa....aa", "valu": "aaa....aa", "valu": "aaa....aa"...}
+ * {"valu":"aaa....aa","valu":"aaa....aa","valu":"aaa....aa"...}
  *
  * The object can have an arbitrary size in multiplication of 10000 bytes
  *  */
@@ -734,10 +734,10 @@ struct extra_big_object : public json::json_base {
     json::json_element<sstring>* value;
     extra_big_object(size_t size) {
         value = new json::json_element<sstring>;
-        // size = brackets + (name + ": " + get_value) * n + ", " * (n-1)
-        // size = 2 + (name + 6 + get_value) * n - 2
+        // size = brackets + ("name" + ":" + get_value()) * n + "," * (n-1)
+        // size = 2 + (valu + 4 + get_value) * n - 1
         value->_name = "valu";
-        *value = get_value(9990);
+        *value = get_value(9992);
         for (size_t i = 0; i < size/10000; i++) {
             _elements.emplace_back(value);
         }
@@ -760,7 +760,9 @@ struct extra_big_object : public json::json_base {
 SEASTAR_TEST_CASE(json_stream) {
     std::vector<extra_big_object> vec;
     size_t num_objects = 1000;
-    size_t total_size = num_objects * 1000001 + 1;
+    // each object is 1000001 bytes plus a comma for all but the last and plus
+    // two for the [] backets
+    size_t total_size = num_objects * 1000002 + 1;
     for (size_t i = 0; i < num_objects; i++) {
         vec.emplace_back(1000000);
     }
