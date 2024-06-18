@@ -1798,8 +1798,9 @@ const int seastar::tls::ERROR_UNKNOWN_SRP_USERNAME = ERR_PACK(
   ERR_LIB_SSL, 0, SSL_R_INVALID_SRP_USERNAME);
 const int seastar::tls::ERROR_PREMATURE_TERMINATION = ERR_PACK(
   ERR_LIB_SSL, 0, SSL_R_UNEXPECTED_EOF_WHILE_READING);
-const int seastar::tls::ERROR_PUSH = ERR_PACK(
-  ERR_LIB_SSL, 0, SSL_R_BIO_NOT_SET);
+// System errors are not ERR_PACK'ed like other errors but instead
+// are OR'ed with ((unsigned int)INT_MAX + 1)
+const int seastar::tls::ERROR_PUSH = int(ERR_SYSTEM_FLAG | EPIPE);
 const int seastar::tls::ERROR_PULL = ERR_PACK(
   ERR_LIB_SSL, 0, SSL_R_READ_BIO_NOT_SET);
 const int seastar::tls::ERROR_UNEXPECTED_PACKET = ERR_PACK(
