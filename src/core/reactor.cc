@@ -3602,7 +3602,7 @@ void smp_message_queue::submit_item(shard_id t, smp_timeout_clock::time_point ti
 
 void smp_message_queue::respond(work_item* item) {
     _completed_fifo.push_back(item);
-    if (_completed_fifo.size() >= batch_size || engine()._stopped) {
+    if (_completed_fifo.size() >= batch_size || engine().stopped()) {
         flush_response_batch();
     }
 }

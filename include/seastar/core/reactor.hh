@@ -368,6 +368,8 @@ public:
     /// Register a user-defined signal handler
     void handle_signal(int signo, noncopyable_function<void ()>&& handler);
     void wakeup();
+    /// @private
+    bool stopped() const noexcept { return _stopped; }
 
 private:
     class signals {
