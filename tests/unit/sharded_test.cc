@@ -201,3 +201,23 @@ SEASTAR_THREAD_TEST_CASE(invoke_on_all_sharded_arg) {
     srv.stop().get();
     arg.stop().get();
 }
+
+SEASTAR_THREAD_TEST_CASE(invoke_on_modifiers) {
+    class checker {
+    public:
+        future<> fn(int a) {
+            return make_ready_future<>();
+        }
+    };
+
+    seastar::sharded<checker> srv;
+    srv.start().get();
+    int a = 42;
+
+    srv.invoke_on_all([a] (checker& s) { return s.fn(a); }).get();
+    srv.invoke_on_all([a] (checker& s) mutable { return s.fn(a); }).get();
+    srv.invoke_on_others([a] (checker& s) { return s.fn(a); }).get();
+    srv.invoke_on_others([a] (checker& s) mutable { return s.fn(a); }).get();
+
+    srv.stop().get();
+}
