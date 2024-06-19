@@ -26,7 +26,6 @@
 #include <seastar/http/exception.hh>
 #include <seastar/http/reply.hh>
 
-#include <unordered_map>
 
 namespace seastar {
 
