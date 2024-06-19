@@ -23,8 +23,6 @@
 
 #ifndef SEASTAR_MODULE
 #include <vector>
-#include <unordered_map>
-#include <tuple>
 #endif
 
 #include <seastar/http/common.hh>

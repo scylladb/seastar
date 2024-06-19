@@ -32,8 +32,6 @@
 
 #include <seastar/core/iostream.hh>
 #include <seastar/core/sstring.hh>
-#include <string>
-#include <vector>
 #include <strings.h>
 #include <seastar/http/common.hh>
 #include <seastar/http/mime_types.hh>
