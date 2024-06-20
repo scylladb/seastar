@@ -26,6 +26,7 @@
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/circular_buffer.hh>
 #include <seastar/core/metrics_registration.hh>
+#include <seastar/core/lowres_clock.hh>
 #include <seastar/util/shared_token_bucket.hh>
 
 #include <chrono>
@@ -347,6 +348,14 @@ private:
     size_t _nr_classes = 0;
     capacity_t _last_accumulated = 0;
     capacity_t _total_accumulated = 0;
+
+    // Amortize balance checking by assuming that once balance achieved,
+    // it would remain such for the "quiscent" duration. Increase this
+    // duration every time the assumption keeps true, but not more than
+    // tau. When the balance is lost, reset back to frequent checks.
+    static constexpr auto minimal_quiscent_duration = std::chrono::microseconds(100);
+    std::chrono::microseconds _balance_quiscent_duration = minimal_quiscent_duration;
+    timer<lowres_clock> _balance_timer;
     // Maximum capacity that a queue can stay behind other shards
     //
     // This is similar to priority classes fall-back deviation and it's

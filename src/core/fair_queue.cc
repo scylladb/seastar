@@ -182,6 +182,10 @@ fair_queue::fair_queue(fair_group& group, config cfg)
     : _config(std::move(cfg))
     , _group(group)
     , _group_replenish(clock_type::now())
+    , _balance_timer([this] {
+        auto new_qd = _balance_quiscent_duration * 2;
+        _balance_quiscent_duration = std::min(new_qd, _config.tau);
+    })
     , _max_imbalance(fair_group::fixed_point_factor * fair_group::token_bucket_t::rate_cast(_config.tau).count())
 {
     if (fair_group::max_balance > std::numeric_limits<capacity_t>::max() - _max_imbalance) {
@@ -358,11 +362,17 @@ fair_queue::clock_type::time_point fair_queue::next_pending_aio() const noexcept
 }
 
 bool fair_queue::balanced() noexcept {
+    if (_balance_timer.armed()) {
+        return true;
+    }
+
     capacity_t balance = _group.current_balance();
     if (_total_accumulated > balance + _max_imbalance) {
+        _balance_quiscent_duration = minimal_quiscent_duration;
         return false;
     }
 
+    _balance_timer.arm(_balance_quiscent_duration);
     return true;
 }
 
@@ -433,6 +443,7 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
     if (_total_accumulated >= fair_group::max_balance) [[unlikely]] {
         _group.reset_balance();
         _total_accumulated = 0;
+        _balance_quiscent_duration = minimal_quiscent_duration;
     }
     _group.update_balance(_handles.empty() ? fair_group::max_balance : _total_accumulated);
 }
