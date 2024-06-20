@@ -122,6 +122,7 @@ namespace tls {
         tlsv1_3
     };
 
+    std::string_view format_as(tls_version);
     std::ostream& operator<<(std::ostream&, const tls_version&);
 
     class abstract_credentials {
@@ -661,5 +662,12 @@ template <> struct fmt::formatter<seastar::tls::subject_alt_name> : fmt::formatt
     template <typename FormatContext>
     auto format(const seastar::tls::subject_alt_name& name, FormatContext& ctx) const {
         return fmt::format_to(ctx.out(), "{}={}", name.type, name.value);
+    }
+};
+
+template<> struct fmt::formatter<seastar::tls::tls_version> : fmt::formatter<std::string_view> {
+    template<typename FormatContext>
+    auto format(seastar::tls::tls_version version, FormatContext& ctx) const {
+        return fmt::format_to(ctx.out(), "{}", format_as(version));
     }
 };
