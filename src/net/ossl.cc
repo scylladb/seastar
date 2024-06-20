@@ -119,49 +119,31 @@ std::error_code make_error_code(ossl_errc e) {
     return std::error_code(static_cast<int>(e), tls::error_category());
 }
 
-class ossl_error : public std::system_error {
-public:
-    static ossl_error make_ossl_error(const sstring& msg) {
-        auto error_codes = build_error_codes();
-        auto formatted_msg = fmt::format(
-          "{}: {}", msg, error_codes);
-
-        if (error_codes.empty()) {
-            return ossl_error(std::move(formatted_msg));
-        } else {
-            return ossl_error(std::move(formatted_msg), std::move(error_codes));
-        }
+std::system_error make_ossl_error(const std::string & msg) {
+    std::vector<ossl_errc> error_codes;
+    for (auto code = ERR_get_error(); code != 0; code = ERR_get_error()) {
+        error_codes.push_back(static_cast<ossl_errc>(code));
     }
-
-    const std::vector<ossl_errc>& get_ossl_error_codes() const {
-        return _ossl_error_codes;
+    if (error_codes.empty()) {
+        return std::system_error{
+            static_cast<int>(ERR_PACK(ERR_LIB_USER, 0, ERR_R_OPERATION_FAIL)),
+            tls::error_category(),
+            msg};
+    } else {
+        return std::system_error(
+            static_cast<int>(error_codes.front()),
+            tls::error_category(),
+            fmt::format("{}: {}", msg, error_codes));
     }
+}
 
-private:
-    explicit ossl_error(std::string msg)
-        // Use a generic operation failed error if there are no errors
-        // in the SSL error stack
-      : std::system_error(ERR_PACK(ERR_LIB_USER, 0, ERR_R_OPERATION_FAIL),
-            tls::error_category(), std::move(msg)) {}
-    ossl_error(std::string msg, std::vector<ossl_errc> error_codes)
-      : std::system_error(
-        static_cast<int>(error_codes.front()),
-        tls::error_category(),
-        std::move(msg))
-      , _ossl_error_codes(std::move(error_codes)) {}
-
-    static std::vector<ossl_errc> build_error_codes() {
-        std::vector<ossl_errc> error_codes;
-        for (auto code = ERR_get_error(); code != 0; code = ERR_get_error()) {
-            error_codes.push_back(static_cast<ossl_errc>(code));
-        }
-
-        return error_codes;
+std::system_error make_error_from_errno(const std::string & msg) {
+    if (errno == 0) {
+        return make_ossl_error(msg);
+    } else {
+        return std::system_error(errno, std::generic_category(), msg);
     }
-
-private:
-    std::vector<ossl_errc> _ossl_error_codes;
-};
+}
 
 template<typename T>
 sstring asn1_str_to_str(T* asn1) {
@@ -310,7 +292,7 @@ public:
         auto infos = x509_infos_ptr(PEM_X509_INFO_read_bio(cert_bio.get(), nullptr, nullptr, nullptr));
         auto num_elements = sk_X509_INFO_num(infos.get());
         if (num_elements <= 0) {
-            throw ossl_error::make_ossl_error("Failed to parse PEM cert");
+            throw make_ossl_error("Failed to parse PEM cert");
         }
         for (auto i=0; i < num_elements; i++) {
             auto object = sk_X509_INFO_value(infos.get(), i);
@@ -330,7 +312,7 @@ public:
             break;
         }
         if (!cert) {
-            throw ossl_error::make_ossl_error("Failed to parse x509 certificate");
+            throw make_ossl_error("Failed to parse x509 certificate");
         }
         return cert;
     }
@@ -342,7 +324,7 @@ public:
         case tls::x509_crt_format::PEM:
             iterate_pem_certs(cert_bio, [this](X509_INFO* info){
                 if (!info->x509) {
-                    throw ossl_error::make_ossl_error("Failed to parse x509 cert");
+                    throw make_ossl_error("Failed to parse x509 cert");
                 }
                 X509_STORE_add_cert(*this, info->x509);
             });
@@ -350,7 +332,7 @@ public:
         case tls::x509_crt_format::DER:
             cert = x509_ptr(d2i_X509_bio(cert_bio.get(), nullptr));
             if (!cert) {
-                throw ossl_error::make_ossl_error("Failed to parse x509 certificate");
+                throw make_ossl_error("Failed to parse x509 certificate");
             }
             X509_STORE_add_cert(*this, cert.get());
             break;
@@ -364,7 +346,7 @@ public:
         case x509_crt_format::PEM:
             iterate_pem_certs(cert_bio, [this](X509_INFO* info) {
                 if (!info->crl) {
-                    throw ossl_error::make_ossl_error("Failed to parse CRL");
+                    throw make_ossl_error("Failed to parse CRL");
                 }
                 X509_STORE_add_crl(*this, info->crl);
             });
@@ -372,7 +354,7 @@ public:
         case x509_crt_format::DER:
             crl = x509_crl_ptr(d2i_X509_CRL_bio(cert_bio.get(), nullptr));
             if (!crl) {
-                throw ossl_error::make_ossl_error("Failed to parse x509 crl");
+                throw make_ossl_error("Failed to parse x509 crl");
             }
             X509_STORE_add_crl(*this, crl.get());
             break;
@@ -396,10 +378,10 @@ public:
             __builtin_unreachable();
         }
         if (!pkey) {
-            throw ossl_error::make_ossl_error("Error attempting to parse private key");
+            throw make_ossl_error("Error attempting to parse private key");
         }
         if (!X509_check_private_key(x509_cert.get(), pkey.get())) {
-            throw ossl_error::make_ossl_error("Failed to verify cert/key pair");
+            throw make_ossl_error("Failed to verify cert/key pair");
         }
         _cert_and_key = certkey_pair{.cert = std::move(x509_cert), .key = std::move(pkey)};
     }
@@ -413,13 +395,13 @@ public:
             X509 *cert = nullptr;
             STACK_OF(X509) *ca = nullptr;
             if (!PKCS12_parse(p12.get(), password.c_str(), &pkey, &cert, &ca)) {
-                throw ossl_error::make_ossl_error("Failed to extract cert key pair from pkcs12 file");
+                throw make_ossl_error("Failed to extract cert key pair from pkcs12 file");
             }
             // Ensure signature validation checks pass before continuing
             if (!X509_check_private_key(cert, pkey)) {
                 X509_free(cert);
                 EVP_PKEY_free(pkey);
-                throw ossl_error::make_ossl_error("Failed to verify cert/key pair");
+                throw make_ossl_error("Failed to verify cert/key pair");
             }
             _cert_and_key = certkey_pair{.cert = x509_ptr(cert), .key = evp_pkey_ptr(pkey)};
 
@@ -436,7 +418,7 @@ public:
                 }
             }
         } else {
-            throw ossl_error::make_ossl_error("Failed to parse pkcs12 file");
+            throw make_ossl_error("Failed to parse pkcs12 file");
         }
     }
 
@@ -446,12 +428,12 @@ public:
 
             if (1 != X509_VERIFY_PARAM_set_flags(
                     x509_vfy.get(), X509_V_FLAG_CRL_CHECK|X509_V_FLAG_CRL_CHECK_ALL)) {
-                throw ossl_error::make_ossl_error(
+                throw make_ossl_error(
                     "Failed to set X509_V_FLAG_CRL_CHECK flag");
             }
 
             if (1 != X509_STORE_set1_param(*this, x509_vfy.get())) {
-                throw ossl_error::make_ossl_error(
+                throw make_ossl_error(
                     "Failed to set verification parameters on X509 store");
             }
         }
@@ -723,7 +705,7 @@ public:
       , _ssl([this]() {
           auto ssl = SSL_new(_ctx.get());
           if (!ssl) {
-              throw ossl_error::make_ossl_error("Failed to create SSL session");
+              throw make_ossl_error("Failed to create SSL session");
           }
           return ssl;
       }())
@@ -734,10 +716,10 @@ public:
             throw std::runtime_error("Failed to create BIOs");
         }
         if (1 != BIO_ctrl(in_bio.get(), BIO_C_SET_POINTER, 0, this)) {
-            throw ossl_error::make_ossl_error("Failed to set bio ptr to in bio");
+            throw make_ossl_error("Failed to set bio ptr to in bio");
         }
         if (1 != BIO_ctrl(out_bio.get(), BIO_C_SET_POINTER, 0, this)) {
-            throw ossl_error::make_ossl_error("Failed to set bio ptr to out bio");
+            throw make_ossl_error("Failed to set bio ptr to out bio");
         }
         // SSL_set_bio transfers ownership of the read and write bios to the SSL
         // instance
@@ -773,16 +755,17 @@ public:
           });
     }
 
+    template<std::derived_from<std::exception> T>
     future<>
-    handle_output_error(std::exception_ptr ptr) {
-        _error = ptr;
-        return wait_for_output().then_wrapped([this, ptr](auto f) {
+    handle_output_error(T err) {
+        _error = std::make_exception_ptr(err);
+        return wait_for_output().then_wrapped([this, err](auto f) {
             try {
                 f.get();
                 // output was ok/done, just generate error exception
                 return make_exception_future(_error);
             } catch(...) {
-                std::throw_with_nested(ptr);
+                std::throw_with_nested(err);
             }
         });
     }
@@ -801,8 +784,8 @@ public:
             return make_ready_future<stop_iteration>(stop_iteration::no);
         case SSL_ERROR_SYSCALL:
         {
-            auto err = std::make_exception_ptr(std::system_error(errno, std::system_category(), "System error encountered during SSL write"));
-            return handle_output_error(err).then([] {
+            auto err = make_error_from_errno("System error encountered during SSL write");
+            return handle_output_error(std::move(err)).then([] {
                 return stop_iteration::yes;
             });
         }
@@ -814,18 +797,18 @@ public:
                 _eof = true;
                 return make_ready_future<stop_iteration>(stop_iteration::yes);
             }
-            auto err = make_exception_ptr(ossl_error::make_ossl_error(
-                "Error occurred during SSL write"));
-            return handle_output_error(err).then([] {
+            auto err = make_ossl_error(
+                "Error occurred during SSL write");
+            return handle_output_error(std::move(err)).then([] {
                 return stop_iteration::yes;
             });
         }
         default:
         {
             // Some other unhandled situation
-            auto err = std::make_exception_ptr(std::runtime_error(
-                "Unknown error encountered during SSL write"));
-            return handle_output_error(err).then([] {
+            auto err = std::runtime_error(
+                "Unknown error encountered during SSL write");
+            return handle_output_error(std::move(err)).then([] {
                 return stop_iteration::yes;
             });
         }
@@ -959,9 +942,8 @@ public:
                             });
                         case SSL_ERROR_SYSCALL:
                         {
-                            auto err = std::make_exception_ptr(std::system_error(
-                                errno, std::system_category(), "System error during handshake"));
-                            return handle_output_error(err);
+                            auto err = make_error_from_errno("System error during handshake");
+                            return handle_output_error(std::move(err));
                         }
                         case SSL_ERROR_SSL:
                         {
@@ -978,17 +960,15 @@ public:
                                 // may throw, otherwise fall through
                                 [[fallthrough]];
                             default:
-                                auto err = std::make_exception_ptr(
-                                    ossl_error::make_ossl_error(
-                                        "Failed to establish SSL handshake"));
-                                return handle_output_error(err);
+                                auto err = make_ossl_error("Failed to establish SSL handshake");
+                                return handle_output_error(std::move(err));
                             }
                             break;
                         }
                         default:
-                            auto err = std::make_exception_ptr(std::runtime_error(
-                            "Unknown error encountered during handshake"));
-                            return handle_output_error(err);
+                            auto err = std::runtime_error(
+                            "Unknown error encountered during handshake");
+                            return handle_output_error(std::move(err));
                         }
                     } else {
                         if (_type == session_type::CLIENT
@@ -1065,12 +1045,8 @@ public:
                     // return an empty buffer (the get() function will initiate a handshake)
                     return make_ready_future<buf_type>();
                 case SSL_ERROR_SYSCALL:
-                    // check to see if errno is 0, which may indicate some sort of shutdown
-                    if (errno == 0) {
-                        return make_ready_future<buf_type>();
-                    }
-                    _error = std::make_exception_ptr(std::system_error(
-                    errno, std::system_category(), "System error during SSL read"));
+                    _error = std::make_exception_ptr(
+                        make_error_from_errno("System error during SSL read"));
                     return make_exception_future<buf_type>(_error);
                 case SSL_ERROR_SSL:
                     {
@@ -1081,7 +1057,7 @@ public:
                             return make_ready_future<buf_type>();
                         }
                         _error = std::make_exception_ptr(
-                          ossl_error::make_ossl_error(
+                          make_ossl_error(
                             "Failure during processing SSL read"));
                         return make_exception_future<buf_type>(_error);
                     }
@@ -1152,21 +1128,19 @@ public:
                 });
             case SSL_ERROR_SYSCALL:
             {
-                auto err = std::make_exception_ptr(std::system_error(
-                    errno, std::system_category(), "System error during shutdown"));
-                return handle_output_error(err);
+                auto err = make_error_from_errno("System error during shutdown");
+                return handle_output_error(std::move(err));
             }
             case SSL_ERROR_SSL:
             {
-                auto err = std::make_exception_ptr(ossl_error::make_ossl_error(
-                  "Error occurred during SSL shutdown"));
-                return handle_output_error(err);
+                auto err = make_ossl_error("Error occurred during SSL shutdown");
+                return handle_output_error(std::move(err));
             }
             default:
             {
-                auto err = std::make_exception_ptr(std::runtime_error(
-                  "Unknown error occurred during SSL shutdown"));
-                return handle_output_error(err);
+                auto err = std::runtime_error(
+                  "Unknown error occurred during SSL shutdown");
+                return handle_output_error(std::move(err));
             }
             }
         }
@@ -1241,7 +1215,7 @@ public:
     future<> handshake() {
         if (_creds->need_load_system_trust()) {
             if (!SSL_CTX_set_default_verify_paths(_ctx.get())) {
-                throw ossl_error::make_ossl_error(
+                throw make_ossl_error(
                   "Could not load system trust");
             }
             _creds->set_load_system_trust(false);
@@ -1455,7 +1429,7 @@ private:
         auto subject = get_dn_string(X509_get_subject_name(peer_cert.get()));
         auto issuer = get_dn_string(X509_get_issuer_name(peer_cert.get()));
         if (!subject || !issuer) {
-            throw ossl_error::make_ossl_error(
+            throw make_ossl_error(
               "error while extracting certificate DN strings");
         }
         return session_dn{
@@ -1465,13 +1439,13 @@ private:
     ssl_ctx_ptr make_ssl_context(session_type type) {
         auto ssl_ctx = ssl_ctx_ptr(SSL_CTX_new(TLS_method()));
         if (!ssl_ctx) {
-            throw ossl_error::make_ossl_error(
+            throw make_ossl_error(
               "Failed to initialize SSL context");
         }
         const auto& ck_pair = _creds->get_certkey_pair();
         if (type == session_type::SERVER) {
             if (!ck_pair) {
-                throw ossl_error::make_ossl_error(
+                throw make_ossl_error(
                   "Cannot start session without cert/key pair for server");
             }
             switch (_creds->get_client_auth()) {
@@ -1508,7 +1482,7 @@ private:
         if (min_tls_version.has_value()) {
             if (!SSL_CTX_set_min_proto_version(ssl_ctx.get(),
                 tls_version_to_ossl(*min_tls_version))) {
-                throw ossl_error::make_ossl_error(
+                throw make_ossl_error(
                     fmt::format("Failed to set minimum TLS version to {}",
                         *min_tls_version));
             }
@@ -1517,7 +1491,7 @@ private:
         if (max_tls_version.has_value()) {
             if (!SSL_CTX_set_max_proto_version(ssl_ctx.get(),
                 tls_version_to_ossl(*max_tls_version))) {
-                    throw ossl_error::make_ossl_error(
+                    throw make_ossl_error(
                         fmt::format("Failed to set maximum TLS version to {}",
                             *max_tls_version));
             }
@@ -1536,7 +1510,7 @@ private:
                   ck_pair.key.get(),
                   nullptr,
                   1)) {
-                throw ossl_error::make_ossl_error(
+                throw make_ossl_error(
                   "Failed to load cert/key pair");
             }
         }
@@ -1548,7 +1522,7 @@ private:
         if (!_creds->get_cipher_string().empty()) {
             if (SSL_CTX_set_cipher_list(ssl_ctx.get(),
                     _creds->get_cipher_string().c_str()) != 1) {
-                throw ossl_error::make_ossl_error(
+                throw make_ossl_error(
                     fmt::format(
                         "Failed to set cipher string '{}'", _creds->get_cipher_string()));
             }
@@ -1556,7 +1530,7 @@ private:
 
         if (!_creds->get_ciphersuites().empty()) {
             if (SSL_CTX_set_ciphersuites(ssl_ctx.get(), _creds->get_ciphersuites().c_str()) != 1) {
-                throw ossl_error::make_ossl_error(
+                throw make_ossl_error(
                     fmt::format(
                         "Failed to set ciphersuites '{}'", _creds->get_ciphersuites()));
             }
@@ -1574,7 +1548,7 @@ private:
         char* bio_ptr = nullptr;
         auto len = BIO_get_mem_data(out.get(), &bio_ptr);
         if (len < 0) {
-            throw ossl_error::make_ossl_error("Failed to allocate DN string");
+            throw make_ossl_error("Failed to allocate DN string");
         }
         return sstring(bio_ptr, len);
     }
@@ -1743,27 +1717,27 @@ int bio_read_ex(BIO* b, char * data, size_t dlen, size_t *readbytes) {
 bio_method_ptr create_bio_method() {
     auto new_index = BIO_get_new_index();
     if (new_index == -1) {
-        throw ossl_error::make_ossl_error("Failed to obtain new BIO index");
+        throw make_ossl_error("Failed to obtain new BIO index");
     }
     bio_method_ptr meth(BIO_meth_new(new_index, "SS-OSSL"));
     if (!meth) {
-        throw ossl_error::make_ossl_error("Failed to create new BIO method");
+        throw make_ossl_error("Failed to create new BIO method");
     }
 
     if (1 != BIO_meth_set_create(meth.get(), bio_create)) {
-        throw ossl_error::make_ossl_error("Failed to set the BIO creation method");
+        throw make_ossl_error("Failed to set the BIO creation method");
     }
 
     if (1 != BIO_meth_set_ctrl(meth.get(), bio_ctrl)) {
-        throw ossl_error::make_ossl_error("Failed to set BIO control method");
+        throw make_ossl_error("Failed to set BIO control method");
     }
 
     if (1 != BIO_meth_set_write_ex(meth.get(), bio_write_ex)) {
-        throw ossl_error::make_ossl_error("Failed to set BIO write_ex method");
+        throw make_ossl_error("Failed to set BIO write_ex method");
     }
 
     if (1 != BIO_meth_set_read_ex(meth.get(), bio_read_ex)) {
-        throw ossl_error::make_ossl_error("Failed to set BIO read_ex method");
+        throw make_ossl_error("Failed to set BIO read_ex method");
     }
 
     return meth;
@@ -1775,7 +1749,7 @@ BIO_METHOD* get_method() {
     static thread_local bio_method_ptr method_ptr = [] {
         auto ptr = tls::create_bio_method();
         if (!ptr) {
-            throw ossl_error::make_ossl_error("Failed to construct BIO method");
+            throw make_ossl_error("Failed to construct BIO method");
         }
         return ptr;
     }();
@@ -1824,8 +1798,9 @@ const int seastar::tls::ERROR_UNKNOWN_SRP_USERNAME = ERR_PACK(
   ERR_LIB_SSL, 0, SSL_R_INVALID_SRP_USERNAME);
 const int seastar::tls::ERROR_PREMATURE_TERMINATION = ERR_PACK(
   ERR_LIB_SSL, 0, SSL_R_UNEXPECTED_EOF_WHILE_READING);
-const int seastar::tls::ERROR_PUSH = ERR_PACK(
-  ERR_LIB_SSL, 0, SSL_R_BIO_NOT_SET);
+// System errors are not ERR_PACK'ed like other errors but instead
+// are OR'ed with ((unsigned int)INT_MAX + 1)
+const int seastar::tls::ERROR_PUSH = int(ERR_SYSTEM_FLAG | EPIPE);
 const int seastar::tls::ERROR_PULL = ERR_PACK(
   ERR_LIB_SSL, 0, SSL_R_READ_BIO_NOT_SET);
 const int seastar::tls::ERROR_UNEXPECTED_PACKET = ERR_PACK(
