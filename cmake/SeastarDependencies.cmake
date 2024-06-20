@@ -125,7 +125,7 @@ macro (seastar_find_dependencies)
   seastar_set_dep_args (dpdk
     OPTION ${Seastar_DPDK})
   seastar_set_dep_args (fmt REQUIRED
-    VERSION 5.0.0)
+    VERSION 8.1.1)
   seastar_set_dep_args (lz4 REQUIRED
     VERSION 1.7.3)
   seastar_set_dep_args (GnuTLS REQUIRED
