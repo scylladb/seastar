@@ -1213,13 +1213,21 @@ try_create_uring(unsigned queue_len, bool throw_on_error) {
             IORING_OP_SEND,
             IORING_OP_RECV,
             };
+    auto required_flags =
+            IORING_SETUP_COOP_TASKRUN     // linux 5.19; required for performance
+            | IORING_SETUP_TASKRUN_FLAG   // linux 5.19; avoids a syscall if no event is ready
+            | IORING_SETUP_SINGLE_ISSUER  // linux 6.0; helps with performance
+            | IORING_SETUP_DEFER_TASKRUN  // linux 6.1; avoids context switches
+    ;
     auto maybe_throw = [&] (auto exception) {
         if (throw_on_error) {
             throw exception;
         }
     };
 
-    auto params = ::io_uring_params{};
+    auto params = ::io_uring_params{
+        .flags = required_flags,
+    };
     ::io_uring ring;
     auto err = ::io_uring_queue_init_params(queue_len, &ring, &params);
     if (err != 0) {
