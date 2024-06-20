@@ -724,19 +724,23 @@ std::string_view tls::format_as(subject_alt_name_type type) {
     }
 }
 
-std::ostream& tls::operator<<(std::ostream& os, const tls_version & version) {
+std::string_view tls::format_as(tls_version version) {
     switch(version) {
     case tls::tls_version::tlsv1_0:
-        return os << "TLSv1.0";
+        return "TLSv1.0";
     case tls::tls_version::tlsv1_1:
-        return os << "TLSv1.1";
+        return "TLSv1.1";
     case tls::tls_version::tlsv1_2:
-        return os << "TLSv1.2";
+        return "TLSv1.2";
     case tls::tls_version::tlsv1_3:
-        return os << "TLSv1.3";
+        return "TLSv1.3";
     }
 
     __builtin_unreachable();
+}
+
+std::ostream& tls::operator<<(std::ostream& os, const tls_version & version) {
+    return os << format_as(version);
 }
 
 std::ostream& tls::operator<<(std::ostream& os, subject_alt_name_type type) {
