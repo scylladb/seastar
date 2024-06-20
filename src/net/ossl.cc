@@ -747,16 +747,17 @@ public:
           });
     }
 
+    template<std::derived_from<std::exception> T>
     future<>
-    handle_output_error(std::exception_ptr ptr) {
-        _error = ptr;
-        return wait_for_output().then_wrapped([this, ptr](auto f) {
+    handle_output_error(T err) {
+        _error = std::make_exception_ptr(err);
+        return wait_for_output().then_wrapped([this, err](auto f) {
             try {
                 f.get();
                 // output was ok/done, just generate error exception
                 return make_exception_future(_error);
             } catch(...) {
-                std::throw_with_nested(ptr);
+                std::throw_with_nested(err);
             }
         });
     }
@@ -775,8 +776,8 @@ public:
             return make_ready_future<stop_iteration>(stop_iteration::no);
         case SSL_ERROR_SYSCALL:
         {
-            auto err = std::make_exception_ptr(std::system_error(errno, std::system_category(), "System error encountered during SSL write"));
-            return handle_output_error(err).then([] {
+            auto err = std::system_error(errno, std::system_category(), "System error encountered during SSL write");
+            return handle_output_error(std::move(err)).then([] {
                 return stop_iteration::yes;
             });
         }
@@ -788,18 +789,18 @@ public:
                 _eof = true;
                 return make_ready_future<stop_iteration>(stop_iteration::yes);
             }
-            auto err = make_exception_ptr(make_ossl_error(
-                "Error occurred during SSL write"));
-            return handle_output_error(err).then([] {
+            auto err = make_ossl_error(
+                "Error occurred during SSL write");
+            return handle_output_error(std::move(err)).then([] {
                 return stop_iteration::yes;
             });
         }
         default:
         {
             // Some other unhandled situation
-            auto err = std::make_exception_ptr(std::runtime_error(
-                "Unknown error encountered during SSL write"));
-            return handle_output_error(err).then([] {
+            auto err = std::runtime_error(
+                "Unknown error encountered during SSL write");
+            return handle_output_error(std::move(err)).then([] {
                 return stop_iteration::yes;
             });
         }
@@ -933,9 +934,9 @@ public:
                             });
                         case SSL_ERROR_SYSCALL:
                         {
-                            auto err = std::make_exception_ptr(std::system_error(
-                                errno, std::system_category(), "System error during handshake"));
-                            return handle_output_error(err);
+                            auto err = std::system_error(
+                                errno, std::system_category(), "System error during handshake");
+                            return handle_output_error(std::move(err));
                         }
                         case SSL_ERROR_SSL:
                         {
@@ -952,17 +953,15 @@ public:
                                 // may throw, otherwise fall through
                                 [[fallthrough]];
                             default:
-                                auto err = std::make_exception_ptr(
-                                    make_ossl_error(
-                                        "Failed to establish SSL handshake"));
-                                return handle_output_error(err);
+                                auto err = make_ossl_error("Failed to establish SSL handshake");
+                                return handle_output_error(std::move(err));
                             }
                             break;
                         }
                         default:
-                            auto err = std::make_exception_ptr(std::runtime_error(
-                            "Unknown error encountered during handshake"));
-                            return handle_output_error(err);
+                            auto err = std::runtime_error(
+                            "Unknown error encountered during handshake");
+                            return handle_output_error(std::move(err));
                         }
                     } else {
                         if (_type == session_type::CLIENT
@@ -1126,21 +1125,20 @@ public:
                 });
             case SSL_ERROR_SYSCALL:
             {
-                auto err = std::make_exception_ptr(std::system_error(
-                    errno, std::system_category(), "System error during shutdown"));
-                return handle_output_error(err);
+                auto err = std::system_error(
+                    errno, std::system_category(), "System error during shutdown");
+                return handle_output_error(std::move(err));
             }
             case SSL_ERROR_SSL:
             {
-                auto err = std::make_exception_ptr(make_ossl_error(
-                  "Error occurred during SSL shutdown"));
-                return handle_output_error(err);
+                auto err = make_ossl_error("Error occurred during SSL shutdown");
+                return handle_output_error(std::move(err));
             }
             default:
             {
-                auto err = std::make_exception_ptr(std::runtime_error(
-                  "Unknown error occurred during SSL shutdown"));
-                return handle_output_error(err);
+                auto err = std::runtime_error(
+                  "Unknown error occurred during SSL shutdown");
+                return handle_output_error(std::move(err));
             }
             }
         }
