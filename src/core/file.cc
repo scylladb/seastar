@@ -1078,8 +1078,9 @@ make_file_impl(int fd, file_open_options options, int flags, struct stat st) noe
     auto st_dev = st.st_dev;
     static thread_local std::unordered_map<decltype(st_dev), internal::fs_info> s_fstype;
 
-    future<> get_fs_info = s_fstype.count(st_dev) ? make_ready_future<>() :
-        engine().fstatfs(fd).then([fd, st_dev] (struct statfs sfs) {
+    auto i = s_fstype.find(st_dev);
+    if (i == s_fstype.end()) [[unlikely]] {
+        return engine().fstatfs(fd).then([fd, options = std::move(options), flags, st = std::move(st)] (struct statfs sfs) {
             internal::fs_info fsi;
             fsi.block_size = sfs.f_bsize;
             switch (sfs.f_type) {
@@ -1126,15 +1127,16 @@ make_file_impl(int fd, file_open_options options, int flags, struct stat st) noe
                 fsi.fsync_is_exclusive = true;
                 fsi.nowait_works = false;
             }
-            s_fstype[st_dev] = std::move(fsi);
+            s_fstype.insert(std::make_pair(st.st_dev, std::move(fsi)));
+            return make_file_impl(fd, std::move(options), flags, std::move(st));
         });
-    return get_fs_info.then([st_dev, fd, flags, options = std::move(options)] () mutable {
-        const internal::fs_info& fsi = s_fstype[st_dev];
-        if (!fsi.append_challenged || options.append_is_unlikely || ((flags & O_ACCMODE) == O_RDONLY)) {
-            return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_real_impl>(fd, open_flags(flags), std::move(options), fsi, st_dev));
-        }
-        return make_ready_future<shared_ptr<file_impl>>(make_shared<append_challenged_posix_file_impl>(fd, open_flags(flags), std::move(options), fsi, st_dev));
-    });
+    }
+
+    const internal::fs_info& fsi = i->second;
+    if (!fsi.append_challenged || options.append_is_unlikely || ((flags & O_ACCMODE) == O_RDONLY)) {
+        return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_real_impl>(fd, open_flags(flags), std::move(options), fsi, st_dev));
+    }
+    return make_ready_future<shared_ptr<file_impl>>(make_shared<append_challenged_posix_file_impl>(fd, open_flags(flags), std::move(options), fsi, st_dev));
 }
 
 file::file(seastar::file_handle&& handle) noexcept
