@@ -130,8 +130,17 @@ std::system_error make_ossl_error(const std::string & msg) {
             tls::error_category(),
             msg};
     } else {
+        auto err_code = static_cast<unsigned long>(error_codes.front());
+        if (ERR_LIB_SYS == ERR_GET_LIB(err_code)) {
+            // If the error code belongs to ERR_LIB_SYS, then the error is a system error
+            // Extract the errno using ERR_GET_REASON and throw a std::generic_category
+            return std::system_error(
+                ERR_GET_REASON(err_code),
+                std::generic_category(),
+                fmt::format("{}: {}", msg, error_codes));
+        }
         return std::system_error(
-            static_cast<int>(error_codes.front()),
+            static_cast<int>(err_code),
             tls::error_category(),
             fmt::format("{}: {}", msg, error_codes));
     }
