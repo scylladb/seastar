@@ -89,6 +89,12 @@ option (Seastar_WITH_OSSL
   "Use OpenSSL for underlying TLS mechanism"
   OFF)
 
+if (Seastar_WITH_OSSL)
+  set(Seastar_WITH_GNUTLS OFF)
+else ()
+  set(Seastar_WITH_GNUTLS ON)
+endif ()
+
 # Add a dev build type.
 #
 # All pre-defined build modes include optimizations or debug info,
