@@ -224,3 +224,37 @@ SEASTAR_TEST_CASE(socket_on_close_local_shutdown_test) {
         when_all(std::move(client), std::move(server)).discard_result().get();
     });
 }
+
+// The test makes sure it's possible to abort connect()-ing a socket before
+// it succeeds or fails. The way to abort the in-flight connection is to call
+// shutdown() on the socket. The connect()'s future<> must resolve shortly
+// after that with exception.
+//
+// The test currently fails on io_uring backend -- calling shutdown() doesn't
+// make connect() future<> to resolve, instead it resolves after kernel times
+// out the socket, which's not what test expects (see scylladb/seastar#2303)
+SEASTAR_TEST_CASE(socket_connect_abort_test) {
+    return seastar::async([&] {
+        bool too_late = false;
+        auto sk = make_socket();
+        auto cf = sk.connect(ipv4_addr("192.0.2.1", 12345)).then([] (auto cs) {
+            fmt::print("Connected\n");
+            BOOST_REQUIRE(false);
+        }).handle_exception([&too_late] (auto ex) {
+            fmt::print("Cannot connect {}\n", ex);
+            BOOST_REQUIRE(!too_late);
+        });
+
+        auto abort = sleep(std::chrono::milliseconds(500)).then([&sk] {
+            fmt::print("Abort connect\n");
+            sk.shutdown();
+        });
+
+        auto check = sleep(std::chrono::seconds(2)).then([&too_late] {
+            fmt::print("Connection must have been aborted already\n");
+            too_late = true;
+        });
+
+        when_all(std::move(cf), std::move(check), std::move(abort)).get();
+    });
+}
