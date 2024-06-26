@@ -891,6 +891,12 @@ static void read_simple_http_request(input_stream<char>& in) {
     }
 }
 
+static future<> make_failing_http_request(http::experimental::client& cln) {
+    return cln.make_request(http::request::make("GET", "test", "/test"), [] (const http::reply& rep, input_stream<char>&& in) {
+        return make_exception_future<>(std::runtime_error("Shouldn't happen"));
+    }, http::reply::status_type::ok);
+}
+
 SEASTAR_TEST_CASE(test_client_response_eof) {
     return seastar::async([] {
         loopback_connection_factory lcf(1);
@@ -908,10 +914,7 @@ SEASTAR_TEST_CASE(test_client_response_eof) {
 
         future<> client = seastar::async([&lcf] {
             auto cln = http::experimental::client(std::make_unique<loopback_http_factory>(lcf));
-            auto req = http::request::make("GET", "test", "/test");
-            BOOST_REQUIRE_EXCEPTION(cln.make_request(std::move(req), [] (const http::reply& rep, input_stream<char>&& in) {
-                return make_exception_future<>(std::runtime_error("Shouldn't happen"));
-            }, http::reply::status_type::ok).get(), std::system_error, [] (auto& ex) {
+            BOOST_REQUIRE_EXCEPTION(make_failing_http_request(cln).get(), std::system_error, [] (auto& ex) {
                 return ex.code().value() == ECONNABORTED;
             });
 
@@ -940,9 +943,7 @@ SEASTAR_TEST_CASE(test_client_response_parse_error) {
         future<> client = seastar::async([&lcf] {
             auto cln = http::experimental::client(std::make_unique<loopback_http_factory>(lcf));
             auto req = http::request::make("GET", "test", "/test");
-            BOOST_REQUIRE_EXCEPTION(cln.make_request(std::move(req), [] (const http::reply& rep, input_stream<char>&& in) {
-                return make_exception_future<>(std::runtime_error("Shouldn't happen"));
-            }, http::reply::status_type::ok).get(), std::runtime_error, [] (auto& ex) {
+            BOOST_REQUIRE_EXCEPTION(make_failing_http_request(cln).get(), std::runtime_error, [] (auto& ex) {
                 return sstring(ex.what()).contains("Invalid http server response");
             });
 
