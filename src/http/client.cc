@@ -28,6 +28,7 @@ module;
 #include <optional>
 #include <stdexcept>
 #include <utility>
+#include <chrono>
 
 #ifdef SEASTAR_MODULE
 module seastar;
@@ -252,7 +253,14 @@ future<client::connection_ptr> client::get_connection(clock_type::time_point tim
     }
 
     if (_nr_connections >= _max_connections) {
-        return _wait_con.wait().then([this, timeout] {
+        return _wait_con.wait(timeout).then_wrapped([this, timeout] (auto f) {
+            try {
+                f.get();
+            } catch (const condition_variable_timed_out&) {
+                return make_exception_future<connection_ptr>(httpd::timeout_error());
+            } catch (...) {
+                return current_exception_as_future<connection_ptr>();
+            }
             return get_connection(timeout);
         });
     }
@@ -262,9 +270,17 @@ future<client::connection_ptr> client::get_connection(clock_type::time_point tim
 
 future<client::connection_ptr> client::make_connection(clock_type::time_point timeout) {
     _total_new_connections++;
-    return _new_connections->make().then([cr = internal::client_ref(this)] (connected_socket cs) mutable {
+    return _new_connections->make().then([this, timeout, cr = internal::client_ref(this)] (connected_socket cs) mutable {
         http_log.trace("created new http connection {}", cs.local_address());
         auto con = seastar::make_shared<connection>(std::move(cs), std::move(cr));
+        if (clock_type::now() > timeout) {
+            // Factory made new connection, though it's too late already. Don't throw
+            // this effort out, but don't use it to serve current request either.
+            return put_connection(std::move(con)).then_wrapped([] (auto f) {
+                f.ignore_ready_future();
+                return make_exception_future<connection_ptr>(httpd::timeout_error());
+            });
+        }
         return make_ready_future<connection_ptr>(std::move(con));
     });
 }
