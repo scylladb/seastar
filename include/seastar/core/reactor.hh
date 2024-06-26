@@ -144,6 +144,7 @@ void increase_thrown_exceptions_counter() noexcept;
 
 class kernel_completion;
 class io_queue;
+class file_discard_queue;
 SEASTAR_MODULE_EXPORT
 class io_intent;
 
@@ -172,6 +173,7 @@ private:
     class reap_kernel_completions_pollfn;
     class kernel_submit_work_pollfn;
     class io_queue_submission_pollfn;
+    class file_discard_queue_submission_pollfn;
     class syscall_pollfn;
     class execution_stage_pollfn;
     friend class manual_clock;
@@ -247,6 +249,8 @@ private:
     // ... when dispatched all requests get into this single sink
     internal::io_sink _io_sink;
     unsigned _num_io_groups = 0;
+
+    std::unordered_map<dev_t, std::unique_ptr<file_discard_queue>> _file_discard_queues;
 
     std::vector<noncopyable_function<future<> ()>> _exit_funcs;
     unsigned _id = 0;
@@ -454,6 +458,8 @@ public:
         return now() - _start_time;
     }
 
+    file_discard_queue* get_file_discard_queue(dev_t devid) noexcept;
+
     io_queue& get_io_queue(dev_t devid = 0) {
         auto queue = _io_queues.find(devid);
         if (queue == _io_queues.end()) {
@@ -512,6 +518,7 @@ public:
     future<fs_type> file_system_at(std::string_view pathname) noexcept;
     future<struct statvfs> statvfs(std::string_view pathname) noexcept;
     future<> remove_file(std::string_view pathname) noexcept;
+    future<> remove_file_via_blocks_discarding(std::string_view pathname) noexcept;
     future<> rename_file(std::string_view old_pathname, std::string_view new_pathname) noexcept;
     future<> link_file(std::string_view oldpath, std::string_view newpath) noexcept;
     future<> chmod(std::string_view name, file_permissions permissions) noexcept;

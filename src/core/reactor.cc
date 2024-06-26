@@ -31,6 +31,7 @@ module;
 #include <exception>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <regex>
 #include <thread>
 
@@ -132,6 +133,7 @@ module seastar;
 #include <seastar/core/alien.hh>
 #include <seastar/core/exception_hacks.hh>
 #include <seastar/core/execution_stage.hh>
+#include <seastar/core/file_discard_queue.hh>
 #include <seastar/core/io_queue.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/core/make_task.hh>
@@ -198,9 +200,13 @@ struct mountpoint_params {
     uint64_t write_req_rate = std::numeric_limits<uint64_t>::max();
     uint64_t read_saturation_length = std::numeric_limits<uint64_t>::max();
     uint64_t write_saturation_length = std::numeric_limits<uint64_t>::max();
+    std::optional<uint64_t> discard_block_size{};
+    std::optional<uint64_t> discard_requests_per_second{};
     bool duplex = false;
     float rate_factor = 1.0;
 };
+
+directory_entry_type stat_to_entry_type(mode_t type);
 
 }
 
@@ -225,6 +231,12 @@ struct convert<seastar::mountpoint_params> {
         }
         if (node["rate_factor"]) {
             mp.rate_factor = node["rate_factor"].as<float>();
+        }
+        if (node["discard_block_size"]) {
+            mp.discard_block_size = parse_memory_size(node["discard_block_size"].as<std::string>());
+        }
+        if (node["discard_requests_per_second"]) {
+            mp.discard_requests_per_second = parse_memory_size(node["discard_requests_per_second"].as<std::string>());
         }
         return true;
     }
@@ -1926,6 +1938,41 @@ reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_opt
     });
 }
 
+file_discard_queue*
+reactor::get_file_discard_queue(dev_t devid) noexcept {
+    auto file_discard_queue_it = _file_discard_queues.find(devid);
+    if (file_discard_queue_it == _file_discard_queues.end()) {
+        return nullptr;
+    } else {
+        return file_discard_queue_it->second.get();
+    }
+}
+
+future<>
+reactor::remove_file_via_blocks_discarding(std::string_view pathname) noexcept {
+    return futurize_invoke([this, pathname] {
+        return _thread_pool->submit<syscall_result_extra<struct stat>>([name = sstring(pathname)] {
+            struct stat st;
+            int ret = ::stat(name.c_str(), &st);
+            return wrap_syscall(ret, st);
+        }).then([this, name = sstring(pathname)] (syscall_result_extra<struct stat> st) {
+            st.throw_fs_exception_if_error("remove_file_via_blocks_discarding: could not stat {}", name);
+
+            file_discard_queue* queue = get_file_discard_queue(st.extra.st_dev);
+            if (queue == nullptr) {
+                return make_exception_future(std::logic_error{fmt::format("File discard queue not configured for mountpoint that contains {}", name)});
+            }
+
+            auto type = stat_to_entry_type(st.extra.st_mode);
+            if (type == directory_entry_type::regular) {
+                return queue->enqueue_file_removal(name);
+            } else {
+                return remove_file(name);
+            }
+        });
+    });
+}
+
 future<>
 reactor::remove_file(std::string_view pathname) noexcept {
     // Allocating memory for a sstring can throw, hence the futurize_invoke
@@ -2855,6 +2902,37 @@ public:
     }
 };
 
+class reactor::file_discard_queue_submission_pollfn final : public reactor::pollfn {
+    reactor& _r;
+public:
+    file_discard_queue_submission_pollfn(reactor& r) : _r(r) {}
+
+    bool poll() final {
+        int work_done = 0;
+        for (auto& [dev_id, file_discard_queue] : _r._file_discard_queues) {
+            work_done |= static_cast<int>(file_discard_queue->try_discard_blocks());
+        }
+
+        return static_cast<bool>(work_done);
+    }
+
+    bool pure_poll() final {
+        int can_perform_work = 0;
+        for (auto& [dev_id, file_discard_queue] : _r._file_discard_queues) {
+            can_perform_work |= static_cast<int>(file_discard_queue->can_perform_work());
+        }
+
+        return static_cast<bool>(can_perform_work);
+    }
+
+    bool try_enter_interrupt_mode() final {
+        return true;
+    }
+
+    void exit_interrupt_mode() final {
+    }
+};
+
 class reactor::io_queue_submission_pollfn final : public reactor::pollfn {
     reactor& _r;
     // Wake-up the reactor with highres timer when the io-queue
@@ -3250,6 +3328,7 @@ int reactor::do_run() {
     poller io_queue_submission_poller(std::make_unique<io_queue_submission_pollfn>(*this));
     poller kernel_submit_work_poller(std::make_unique<kernel_submit_work_pollfn>(*this));
     poller final_real_kernel_completions_poller(std::make_unique<reap_kernel_completions_pollfn>(*this));
+    poller file_discard_queue_submission_poller(std::make_unique<file_discard_queue_submission_pollfn>(*this));
 
     poller batch_flush_poller(std::make_unique<batch_flush_pollfn>(*this));
     poller execution_stage_poller(std::make_unique<execution_stage_pollfn>());
@@ -3395,6 +3474,8 @@ int reactor::do_run() {
     // the I/O queue happens to use any other infrastructure that is also kept this way (for
     // instance, collectd), we will not have any way to guarantee who is destroyed first.
     _io_queues.clear();
+    _file_discard_queues.clear();
+
     return _return;
 }
 
@@ -4187,6 +4268,10 @@ public:
                         throw std::runtime_error(fmt::format("R/W bytes and req rates must not be zero"));
                     }
 
+                    if ((d.discard_block_size && !d.discard_requests_per_second) || (!d.discard_block_size && d.discard_requests_per_second)) {
+                        throw std::runtime_error(fmt::format("Discard I/O properties error! Either both or none of them must be specified"));
+                    }
+
                     seastar_logger.debug("dev_id: {} mountpoint: {}", st_dev, d.mountpoint);
                     _mountpoints.emplace(st_dev, d);
                 }
@@ -4230,6 +4315,20 @@ public:
         cfg.block_count_limit_min = (64 << 10) >> io_queue::block_size_shift;
 
         return cfg;
+    }
+
+    std::optional<file_discard_queue_config> generate_file_discard_queue_config(dev_t devid) noexcept {
+        auto mountpoint_it = _mountpoints.find(devid);
+        if (mountpoint_it == _mountpoints.end()) {
+            return std::nullopt;
+        }
+
+        auto& params = mountpoint_it->second;
+        if (params.discard_block_size && params.discard_requests_per_second) {
+            return file_discard_queue_config{*params.discard_block_size, *params.discard_requests_per_second};
+        }
+
+        return std::nullopt;
     }
 
     auto device_ids() {
@@ -4503,6 +4602,16 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
         }
     };
 
+    auto alloc_file_discard_queues = [&disk_config] () {
+        for (auto dev_id : disk_config.device_ids()) {
+            auto cfg = disk_config.generate_file_discard_queue_config(dev_id);
+            if (cfg) {
+                auto& new_file_discard_queue = engine()._file_discard_queues[dev_id];
+                new_file_discard_queue = std::make_unique<file_discard_queue>(*cfg);
+            }
+        }
+    };
+
     auto assign_io_queues = [&ioq_topology] (shard_id shard) {
         for (auto& [dev, io_info] : ioq_topology) {
             auto queue = std::move(io_info.queues[shard]);
@@ -4527,7 +4636,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     auto smp_tmain = smp::_tmain;
     for (i = 1; i < smp::count; i++) {
         auto allocation = allocations[i];
-        create_thread([this, smp_tmain, inited, &reactors_registered, &smp_queues_constructed, &smp_opts, &reactor_opts, &reactors, hugepages_path, i, allocation, assign_io_queues, alloc_io_queues, thread_affinity, heapprof_sampling_rate, mbind, backend_selector, reactor_cfg, &mtx, &layout, use_transparent_hugepages] {
+        create_thread([this, smp_tmain, inited, &reactors_registered, &smp_queues_constructed, &smp_opts, &reactor_opts, &reactors, hugepages_path, i, allocation, assign_io_queues, alloc_io_queues, alloc_file_discard_queues, thread_affinity, heapprof_sampling_rate, mbind, backend_selector, reactor_cfg, &mtx, &layout, use_transparent_hugepages] {
           try {
             // initialize thread_locals that are equal across all reacto threads of this smp instance
             smp::_tmain = smp_tmain;
@@ -4559,6 +4668,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
             allocate_reactor(i, backend_selector, reactor_cfg);
             reactors[i] = &engine();
             alloc_io_queues(i);
+            alloc_file_discard_queues();
             reactors_registered.wait();
             smp_queues_constructed.wait();
             // _qs_owner is only initialized here
@@ -4586,6 +4696,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
 
     reactors[0] = &engine();
     alloc_io_queues(0);
+    alloc_file_discard_queues();
 
 #ifdef SEASTAR_HAVE_DPDK
     if (_using_dpdk) {
