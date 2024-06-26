@@ -954,6 +954,74 @@ SEASTAR_TEST_CASE(test_client_response_parse_error) {
     });
 }
 
+SEASTAR_TEST_CASE(test_client_request_send_timeout_cached_conn) {
+    return seastar::async([] {
+        loopback_connection_factory lcf(1);
+        auto ss = lcf.get_server_socket();
+        promise<> server_started;
+        future<> server = ss.accept().then([&] (accept_result ar) {
+            server_started.set_value();
+            return seastar::async([sk = std::move(ar.connection)] () mutable {
+                input_stream<char> in = sk.input();
+                read_simple_http_request(in);
+                sleep(std::chrono::seconds(1)).get();
+                output_stream<char> out = sk.output();
+                out.close().get();
+            });
+        });
+
+        future<> client = seastar::async([&lcf, &server_started] {
+            auto cln = http::experimental::client(std::make_unique<loopback_http_factory>(lcf), 1 /* max connections */);
+            // this request gets handled by server and ...
+            auto f1 = make_failing_http_request(cln);
+            server_started.get_future().get();
+            // ... this should hang waiting for cached connection
+            auto f2 = cln.make_request(http::request::make("GET", "test", "/test"), [] (const auto& rep, auto&& in) {
+                return make_exception_future<>(std::runtime_error("Shouldn't happen"));
+            }, http::reply::status_type::ok, http::experimental::client::clock_type::now() + std::chrono::milliseconds(100));
+
+            BOOST_REQUIRE_THROW(f2.get(), httpd::timeout_error);
+            cln.close().get();
+            try {
+                f1.get();
+            } catch (...) {
+            }
+        });
+
+        when_all(std::move(client), std::move(server)).discard_result().get();
+    });
+}
+
+SEASTAR_TEST_CASE(test_client_request_send_timeout_new_conn) {
+    return seastar::async([] {
+        loopback_connection_factory lcf(1);
+        auto ss = lcf.get_server_socket();
+        future<> server = ss.accept().discard_result();
+
+        class delayed_factory : public loopback_http_factory {
+        public:
+            explicit delayed_factory(loopback_connection_factory& f) : loopback_http_factory(f) {}
+            virtual future<connected_socket> make() override {
+                return sleep(std::chrono::seconds(1)).then([this] {
+                    return loopback_http_factory::make();
+                });
+            }
+        };
+
+        auto client = async([&] {
+            auto cln = http::experimental::client(std::make_unique<delayed_factory>(lcf));
+            auto f = cln.make_request(http::request::make("GET", "test", "/test"), [] (const auto& rep, auto&& in) {
+                return make_exception_future<>(std::runtime_error("Shouldn't happen"));
+            }, http::reply::status_type::ok, http::experimental::client::clock_type::now() + std::chrono::milliseconds(100));
+
+            BOOST_REQUIRE_THROW(f.get(), httpd::timeout_error);
+            cln.close().get();
+        });
+
+        when_all(std::move(client), std::move(server)).discard_result().get();
+    });
+}
+
 SEASTAR_TEST_CASE(test_client_retry_request) {
     return seastar::async([] {
         loopback_connection_factory lcf(1);
