@@ -42,7 +42,7 @@ def get_command_line_parser():
                         help='Smart trim of long lines to width characters (0=disabled)')
     parser.add_argument('-d', '--direction', choices=['bottom-up', 'top-down'], default='bottom-up',
                         help='Print graph bottom-up (default, callees first) or top-down (callers first)')
-    parser.add_argument('-m', '--minimum', type=int, default=None,
+    parser.add_argument('-m', '--minimum', type=int, dest='tmin', default=0,
                         help='Process only stalls lasting the given time, in milliseconds, or longer')
     parser.add_argument('-b', '--branch-threshold', type=float, default=0.03,
                         help='Drop branches responsible for less than this threshold relative to the previous level, not global. (default 3%%)')
@@ -347,7 +347,6 @@ def main():
         resolver = addr2line.BacktraceResolver(executable=args.executable,
                                                concise=not args.full_function_names)
     graph = Graph(resolver)
-    tmin = args.minimum or 0
     for s in args.file:
         if comment.search(s):
             continue
@@ -375,7 +374,7 @@ def main():
         # ?? ??:0
         if address_threshold:
             trace = list(dropwhile(lambda addr: int(addr, 0) >= address_threshold, trace))
-        if t >= tmin:
+        if t >= args.tmin:
             graph.process_trace(trace, t)
 
     try:
@@ -383,7 +382,7 @@ def main():
             print("No input data found. Please run `stall-analyser.py --help` for usage instruction")
             sys.exit()
         print_command_line_options(args)
-        print_stats(tally, tmin)
+        print_stats(tally, args.tmin)
         graph.print_graph(args.direction, args.width, args.branch_threshold)
     except BrokenPipeError:
         pass
