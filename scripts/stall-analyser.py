@@ -126,9 +126,15 @@ class Graph:
         # Each node in the tree contains:
         self.count = 0
         self.total = 0
-        self.nodes = {}
+        self.nodes = dict[str, Node]()
         self.tail = Node('')
         self.head = Node('')
+
+    def empty(self):
+        return not self.nodes
+
+    def __bool__(self):
+        return not self.empty()
 
     def process_trace(self, trace: list[str], t: int) -> None:
         # process each backtrace and insert it to the tree
@@ -341,6 +347,7 @@ def main():
         resolver = addr2line.BacktraceResolver(executable=args.executable,
                                                concise=not args.full_function_names)
     graph = Graph(resolver)
+    tmin = args.minimum or 0
     for s in args.file:
         if comment.search(s):
             continue
@@ -368,11 +375,13 @@ def main():
         # ?? ??:0
         if address_threshold:
             trace = list(dropwhile(lambda addr: int(addr, 0) >= address_threshold, trace))
-        tmin = args.minimum or 0
         if t >= tmin:
             graph.process_trace(trace, t)
 
     try:
+        if not graph:
+            print("No input data found. Please run `stall-analyser.py --help` for usage instruction")
+            sys.exit()
         print_command_line_options(args)
         print_stats(tally, tmin)
         graph.print_graph(args.direction, args.width, args.branch_threshold)
