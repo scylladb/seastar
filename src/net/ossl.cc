@@ -1054,6 +1054,20 @@ public:
                     // return an empty buffer (the get() function will initiate a handshake)
                     return make_ready_future<buf_type>();
                 case SSL_ERROR_SYSCALL:
+                    if (errno == 0 && ERR_peek_error() == 0) {
+                        // SSL_get_error
+                        // (https://www.openssl.org/docs/man3.0/man3/SSL_get_error.html)
+                        // states that on OpenSSL versions prior to 3.0, an
+                        // SSL_ERROR_SYSCALL with nothing on the stack and errno
+                        // == 0 indicates EOF but future versions should report
+                        // SSL_ERROR_SSL with SSL_R_UNEXPECTED_EOF_WHILE_READING
+                        // on the stack.  However we are seeing situations on
+                        // OpenSSL versions 3.0.9 and 3.0.14 where SSL_ERROR_SYSCALL
+                        // is returned and errno == 0 and the stack is empty.
+                        // We will treat this as EOF
+                        _eof = true;
+                        return make_ready_future<buf_type>();
+                    }
                     _error = std::make_exception_ptr(
                         make_error_from_errno("System error during SSL read"));
                     return make_exception_future<buf_type>(_error);
