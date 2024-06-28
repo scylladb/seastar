@@ -784,7 +784,9 @@ private:
             options.append_is_unlikely = true;
 
             return create_and_fill_file(fname, fsize, flags, options).then([](std::pair<file, uint64_t> p) {
-                return p.first.close();
+                return do_with(std::move(p.first), [] (auto& f) {
+                    return f.close();
+                });
             });
         });
     }
