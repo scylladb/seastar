@@ -1102,6 +1102,60 @@ SEASTAR_TEST_CASE(test_unparsable_request) {
     });
 }
 
+SEASTAR_TEST_CASE(test_client_early_close) {
+    // Test if a message that cannot be parsed as a http request is being replied with a 400 Bad Request response
+    return seastar::async([] {
+        promise<> server_started;
+        promise<> stop_server;
+        loopback_connection_factory lcf(1);
+        http_server server("test");
+        loopback_socket_impl lsi(lcf);
+        httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
+        future<> client = seastar::async([&lsi, &stop_server, started = server_started.get_future()] () mutable {
+            connected_socket c_socket = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get();
+            input_stream<char> input(c_socket.input());
+            output_stream<char> output(c_socket.output());
+
+            fmt::print("client -- make request\n");
+            output.write(sstring("GET /test HTTP/1.1\r\nHost: myhost.org\r\n\r\n")).get();
+            output.flush().get();
+            fmt::print("client -- wait server to start handling\n");
+            started.get();
+            fmt::print("client -- bailing out\n");
+            input.close().get();
+            output.close().get();
+            fmt::print("client -- tell server we're out\n");
+            stop_server.set_value();
+        });
+
+        class slow_handler : public handler_base {
+            future<> _stop;
+            promise<> _started;
+        public:
+            slow_handler(future<> f, promise<> s) noexcept : _stop(std::move(f)), _started(std::move(s)) {}
+            future<std::unique_ptr<http::reply>> handle(const sstring& path, std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) override {
+                rep->write_body("txt", [this] (output_stream<char>&& out) {
+                    return async([out = std::move(out), this] () mutable {
+                        fmt::print("server -- writing partial response\n");
+                        out.write("foo").get();
+                        fmt::print("server -- tell client the buffers are full\n");
+                        this->_started.set_value();
+                        fmt::print("server -- wait for client to bail out\n");
+                        this->_stop.get();
+                    });
+                });
+                return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
+            }
+        };
+
+        server._routes.put(GET, "/test", new slow_handler(stop_server.get_future(), std::move(server_started)));
+        server.do_accepts(0).get();
+
+        client.get();
+        server.stop().get();
+    });
+}
+
 struct echo_handler : public handler_base {
     bool chunked_reply;
     echo_handler(bool chunked_reply_) : handler_base(), chunked_reply(chunked_reply_) {}
