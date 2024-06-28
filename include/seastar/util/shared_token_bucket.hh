@@ -83,9 +83,7 @@ struct rovers<T, capped_release::no> {
         return wrapping_difference(tail.load(std::memory_order_relaxed) + limit, head.load(std::memory_order_relaxed));
     }
 
-    void release(T) {
-        std::abort(); // FIXME shouldn't even be compiled
-    }
+    void release(T) = delete;
 };
 
 template <typename T, typename Period, capped_release Capped, typename Clock = std::chrono::steady_clock>
