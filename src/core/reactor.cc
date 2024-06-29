@@ -2545,7 +2545,9 @@ uint64_t
 reactor::pending_task_count() const {
     uint64_t ret = 0;
     for (auto&& tq : _task_queues) {
-        ret += tq->_q.size();
+        if (tq) {
+            ret += tq->_q.size();
+        }
     }
     return ret;
 }
