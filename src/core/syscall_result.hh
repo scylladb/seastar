@@ -55,7 +55,7 @@ struct syscall_result {
             throw_fs_exception(reason, fs::path(path1), fs::path(path2));
         }
     }
-protected:
+
     std::error_code ec() const {
         return std::error_code(error, std::system_category());
     }

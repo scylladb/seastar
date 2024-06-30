@@ -354,6 +354,9 @@ seastar_add_test (network_interface
 seastar_add_test (json_formatter
   SOURCES json_formatter_test.cc)
 
+seastar_add_test (libc_wrapper
+  SOURCES libc_wrapper_test.cc)
+
 seastar_add_test (locking
   SOURCES locking_test.cc)
 
