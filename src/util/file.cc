@@ -129,7 +129,6 @@ future<uint64_t> fs_free(std::string_view name) noexcept {
 }
 
 future<stat_data> file_stat(std::string_view name, follow_symlink follow) noexcept {
-    std::cout<< "@@@file_stat reached" << std::endl;
     return engine().file_stat(name, follow);
 }
 
