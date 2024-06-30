@@ -44,6 +44,7 @@ module;
 #include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/inotify.h>
+#include <grp.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -2216,6 +2217,45 @@ future<int> reactor::waitpid(pid_t pid) {
 void reactor::kill(pid_t pid, int sig) {
     auto ret = wrap_syscall<int>(::kill(pid, sig));
     ret.throw_if_error();
+}
+
+future<group_details> reactor::grp_detail(std::string_view groupname) noexcept {
+    return futurize_invoke([groupname, this] {
+        return _thread_pool->submit<syscall_result_extra<struct group>>([groupname = sstring(groupname)] {
+            struct group *gg = ::getgrnam(groupname.c_str());
+            if (!gg) {
+                return wrap_syscall(-1, *gg); // Simulating failure
+            }
+            return wrap_syscall(0, *gg);
+        }).then([groupname = sstring(groupname)] (syscall_result_extra<struct group> gr) {
+            gr.throw_fs_exception_if_error("group failed", groupname);
+            struct group& g = gr.extra;
+            group_details g_details;
+            g_details.group_name = g.gr_name;
+            g_details.group_password = g.gr_passwd;
+            g_details.group_gid = g.gr_gid;
+            g_details.group_member = g.gr_mem;
+            return make_ready_future<group_details>(std::move(g_details));
+        });
+    });
+}
+
+future<> reactor::change_ownership_of_file(std::string_view filepath, uint64_t groupid) noexcept {
+    return futurize_invoke([filepath, groupid, this] {
+        return _thread_pool->submit<syscall_result<int>>([filepath = sstring(filepath), groupid] {
+            int chown_result = ::chown(filepath.c_str(), ::geteuid(), groupid);
+            return wrap_syscall(chown_result);
+        }).then([filepath = sstring(filepath), groupid] (syscall_result<int> sr) {
+            if (sr.result < 0) {
+                if (sr.error == EPERM) {
+                    sr.throw_fs_exception(format("Failed to change group of {}: Permission denied. Make sure the user has the root privilege or is a member of the group {}.", filepath, groupid), fs::path(filepath));
+                } else {
+                    sr.throw_fs_exception(format("Failed to chown {}: {} ()", filepath, strerror(sr.error)), fs::path(filepath));
+                }
+            }
+            return make_ready_future<>();
+        });
+    });
 }
 
 future<stat_data>
