@@ -132,6 +132,14 @@ future<stat_data> file_stat(std::string_view name, follow_symlink follow) noexce
     return engine().file_stat(name, follow);
 }
 
+future<group_details> grp_detail(std::string_view groupname) noexcept {
+    return engine().grp_detail(groupname);
+}
+
+future<> change_ownership_of_file(std::string_view filepath, uint64_t groupgid) noexcept {
+    return engine().change_ownership_of_file(filepath, groupgid);
+}
+
 future<uint64_t> file_size(std::string_view name) noexcept {
     return engine().file_size(name);
 }

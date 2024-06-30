@@ -81,6 +81,7 @@ enum class transport;
 class file;
 struct file_open_options;
 struct stat_data;
+struct group_details;
 
 namespace net {
 
@@ -359,6 +360,17 @@ using follow_symlink = bool_class<follow_symlink_tag>;
 /// with follow_symlink::yes, or for the link itself, with follow_symlink::no.
 future<stat_data> file_stat(std::string_view name, follow_symlink fs = follow_symlink::yes) noexcept;
 
+/// Returns details of the group from the group database.
+/// \param groupname name of the group
+///
+/// \return group_details of the group identified by name.
+future<group_details> grp_detail(std::string_view groupname) noexcept;
+
+/// Change the owner and group of file. The owner is value computed after calling geteuid.
+/// \param filepath
+/// \param groupid
+///
+future<> change_ownership_of_file(std::string_view filepath, uint64_t groupid) noexcept;
 /// Return the size of a file.
 ///
 /// \param name name of the file to return the size
