@@ -27,12 +27,14 @@ module;
 #include <cassert>
 #include <chrono>
 #include <cmath>
+#include <coroutine> 
 #include <exception>
 #include <filesystem>
 #include <fstream>
 #include <regex>
 #include <thread>
 
+#include <grp.h>
 #include <spawn.h>
 #include <sys/syscall.h>
 #include <sys/vfs.h>
@@ -2198,6 +2200,47 @@ future<int> reactor::waitpid(pid_t pid) {
 void reactor::kill(pid_t pid, int sig) {
     auto ret = wrap_syscall<int>(::kill(pid, sig));
     ret.throw_if_error();
+}
+
+future<std::optional<struct group_details>> reactor::getgrnam(std::string_view name) {
+    syscall_result_extra<std::optional<struct group_details>> sr = co_await _thread_pool->submit<syscall_result_extra<std::optional<struct group_details>>>(
+        [name = sstring(name)] {
+            struct group grp;
+            struct group *result;
+            memset(&grp, 0, sizeof(struct group));
+            char buf[1024];
+            errno = 0;
+            int ret = ::getgrnam_r(name.c_str(), &grp, buf, sizeof(buf), &result);
+            if (!result) {
+                return wrap_syscall(ret, std::optional<struct group_details>(std::nullopt));
+            }
+
+            group_details gd;
+            gd.group_name = sstring(grp.gr_name);
+            gd.group_passwd = sstring(grp.gr_passwd);
+            gd.group_id = grp.gr_gid;
+            for (char **members = grp.gr_mem; *members != nullptr; ++members) {
+                gd.group_members.emplace_back(sstring(*members));
+            }
+            return wrap_syscall(ret, std::optional<struct group_details>(gd));
+        });
+
+    if (sr.result != 0) {
+        throw std::system_error(sr.ec());
+    }
+
+    co_return sr.extra;
+}
+
+future<> reactor::chown(std::string_view filepath, uid_t owner, gid_t group) {
+    syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
+        [filepath = sstring(filepath), owner, group] {
+            int ret = ::chown(filepath.c_str(), owner, group);
+            return wrap_syscall(ret);
+        });
+
+    sr.throw_if_error();
+    co_return;
 }
 
 future<stat_data>

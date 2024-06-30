@@ -61,6 +61,14 @@ struct directory_entry {
     std::optional<directory_entry_type> type;
 };
 
+/// Group details from the system group database
+struct group_details {
+    sstring group_name;
+    sstring group_passwd;
+    __gid_t group_id;
+    std::vector<sstring> group_members;
+};
+
 /// Filesystem object stat information
 struct stat_data {
     uint64_t  device_id;      // ID of device containing file
