@@ -13,3 +13,6 @@ tags
 compile_commands.json
 .clangd
 .cache
+/.vs/
+/CMakeLists.txt.user
+/CMakeSettings.json
