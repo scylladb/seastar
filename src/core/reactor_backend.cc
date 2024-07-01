@@ -1596,13 +1596,13 @@ public:
         delete pfd;
     }
     virtual future<std::tuple<pollable_fd, socket_address>> accept(pollable_fd_state& listenfd) override {
-        if (listenfd.take_speculation(POLLIN)) {
+        if (listenfd.check_and_revoke_speculation(POLLIN)) {
             try {
                 listenfd.maybe_no_more_recv();
                 socket_address sa;
                 auto maybe_fd = listenfd.fd.try_accept(sa, SOCK_CLOEXEC);
                 if (maybe_fd) {
-                    listenfd.speculate_epoll(EPOLLIN);
+                    listenfd.speculate(EPOLLIN);
                     pollable_fd pfd(std::move(*maybe_fd), pollable_fd::speculation(EPOLLOUT));
                     return make_ready_future<std::tuple<pollable_fd, socket_address>>(std::move(pfd), std::move(sa));
                 }
@@ -1618,7 +1618,7 @@ public:
             accept_completion(pollable_fd_state& listenfd)
                 : _listenfd(listenfd) {}
             void complete(size_t fd) noexcept final {
-                _listenfd.speculate_epoll(EPOLLIN);
+                _listenfd.speculate(EPOLLIN);
                 pollable_fd pfd(file_desc::from_fd(fd), pollable_fd::speculation(EPOLLOUT));
                 _result.set_value(std::move(pfd), std::move(_sa));
                 delete this;
@@ -1664,7 +1664,7 @@ public:
             connect_completion(pollable_fd_state& fd, const socket_address& sa)
                 : _fd(fd), _sa(sa) {}
             void complete(size_t fd) noexcept final {
-                _fd.speculate_epoll(POLLOUT);
+                _fd.speculate(POLLOUT);
                 _result.set_value();
                 delete this;
             }
@@ -1693,7 +1693,7 @@ public:
         return _r.do_read(fd, buffer, len);
     }
     virtual future<size_t> recvmsg(pollable_fd_state& fd, const std::vector<iovec>& iov) override {
-        if (fd.take_speculation(POLLIN)) {
+        if (fd.check_and_revoke_speculation(POLLIN)) {
             ::msghdr mh = {};
             mh.msg_iov = const_cast<iovec*>(iov.data());
             mh.msg_iovlen = iov.size();
@@ -1701,7 +1701,7 @@ public:
                 auto r = fd.fd.recvmsg(&mh, MSG_DONTWAIT);
                 if (r) {
                     if (size_t(*r) == internal::iovec_len(iov)) {
-                        fd.speculate_epoll(EPOLLIN);
+                        fd.speculate(EPOLLIN);
                     }
                     return make_ready_future<size_t>(*r);
                 }
@@ -1722,7 +1722,7 @@ public:
             }
             void complete(size_t bytes) noexcept final {
                 if (bytes == internal::iovec_len(_iov)) {
-                    _fd.speculate_epoll(EPOLLIN);
+                    _fd.speculate(EPOLLIN);
                 }
                 _result.set_value(bytes);
                 delete this;
@@ -1743,13 +1743,13 @@ public:
         return submit_request(std::move(desc), std::move(req));
     }
     virtual future<temporary_buffer<char>> read_some(pollable_fd_state& fd, internal::buffer_allocator* ba) override {
-        if (fd.take_speculation(POLLIN)) {
+        if (fd.check_and_revoke_speculation(POLLIN)) {
             auto buffer = ba->allocate_buffer();
             try {
                 auto r = fd.fd.read(buffer.get_write(), buffer.size());
                 if (r) {
                     if (size_t(*r) == buffer.size()) {
-                        fd.speculate_epoll(EPOLLIN);
+                        fd.speculate(EPOLLIN);
                     }
                     buffer.trim(*r);
                     return make_ready_future<temporary_buffer<char>>(std::move(buffer));
@@ -1768,7 +1768,7 @@ public:
                     : _fd(fd), _buffer(std::move(buffer)) {}
                 void complete(size_t bytes) noexcept final {
                     if (bytes == _buffer.size()) {
-                        _fd.speculate_epoll(EPOLLIN);
+                        _fd.speculate(EPOLLIN);
                     }
                     _buffer.trim(bytes);
                     _result.set_value(std::move(_buffer));
@@ -1794,7 +1794,7 @@ public:
         });
     }
     virtual future<size_t> sendmsg(pollable_fd_state& fd, net::packet& p) final {
-        if (fd.take_speculation(EPOLLOUT)) {
+        if (fd.check_and_revoke_speculation(EPOLLOUT)) {
             static_assert(offsetof(iovec, iov_base) == offsetof(net::fragment, base) &&
                 sizeof(iovec::iov_base) == sizeof(net::fragment::base) &&
                 offsetof(iovec, iov_len) == offsetof(net::fragment, size) &&
@@ -1810,7 +1810,7 @@ public:
                 auto r = fd.fd.sendmsg(&mh, MSG_NOSIGNAL | MSG_DONTWAIT);
                 if (r) {
                     if (size_t(*r) == p.len()) {
-                        fd.speculate_epoll(EPOLLOUT);
+                        fd.speculate(EPOLLOUT);
                     }
                     return make_ready_future<size_t>(*r);
                 }
@@ -1831,7 +1831,7 @@ public:
             }
             void complete(size_t bytes) noexcept final {
                 if (bytes == _to_write) {
-                    _fd.speculate_epoll(EPOLLOUT);
+                    _fd.speculate(EPOLLOUT);
                 }
                 _result.set_value(bytes);
                 delete this;
@@ -1852,12 +1852,12 @@ public:
         return submit_request(std::move(desc), std::move(req));
     }
     virtual future<size_t> send(pollable_fd_state& fd, const void* buffer, size_t len) override {
-        if (fd.take_speculation(EPOLLOUT)) {
+        if (fd.check_and_revoke_speculation(EPOLLOUT)) {
             try {
                 auto r = fd.fd.send(buffer, len, MSG_NOSIGNAL | MSG_DONTWAIT);
                 if (r) {
                     if (size_t(*r) == len) {
-                        fd.speculate_epoll(EPOLLOUT);
+                        fd.speculate(EPOLLOUT);
                     }
                     return make_ready_future<size_t>(*r);
                 }
@@ -1874,7 +1874,7 @@ public:
                 : _fd(fd), _to_write(to_write) {}
             void complete(size_t bytes) noexcept final {
                 if (bytes == _to_write) {
-                    _fd.speculate_epoll(EPOLLOUT);
+                    _fd.speculate(EPOLLOUT);
                 }
                 _result.set_value(bytes);
                 delete this;
@@ -1893,13 +1893,13 @@ public:
     }
 
     virtual future<temporary_buffer<char>> recv_some(pollable_fd_state& fd, internal::buffer_allocator* ba) override {
-        if (fd.take_speculation(POLLIN)) {
+        if (fd.check_and_revoke_speculation(POLLIN)) {
             auto buffer = ba->allocate_buffer();
             try {
                 auto r = fd.fd.recv(buffer.get_write(), buffer.size(), MSG_DONTWAIT);
                 if (r) {
                     if (size_t(*r) == buffer.size()) {
-                        fd.speculate_epoll(EPOLLIN);
+                        fd.speculate(EPOLLIN);
                     }
                     buffer.trim(*r);
                     return make_ready_future<temporary_buffer<char>>(std::move(buffer));
@@ -1917,7 +1917,7 @@ public:
                 : _fd(fd), _buffer(std::move(buffer)) {}
             void complete(size_t bytes) noexcept final {
                 if (bytes == _buffer.size()) {
-                    _fd.speculate_epoll(EPOLLIN);
+                    _fd.speculate(EPOLLIN);
                 }
                 _buffer.trim(bytes);
                 _result.set_value(std::move(_buffer));
