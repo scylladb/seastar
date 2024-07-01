@@ -346,14 +346,22 @@ public:
 
 class queued_read_write_request final : public queued_io_request {
 private:
+    internal::io_sink& _sink;
     internal::io_request _io_request;
     std::unique_ptr<io_desc_read_write> _desc;
 
     bool is_cancelled() const noexcept { return !_desc; }
 
 public:
-    queued_read_write_request(internal::io_request req, io_queue& q, fair_queue_entry::capacity_t cap, io_queue::priority_class_data& pc, io_direction_and_length dnl, iovec_keeper iovs)
+    queued_read_write_request(internal::io_sink& sink,
+                              internal::io_request req,
+                              io_queue& q,
+                              fair_queue_entry::capacity_t cap,
+                              io_queue::priority_class_data& pc,
+                              io_direction_and_length dnl,
+                              iovec_keeper iovs)
         : queued_io_request(q, q.request_stream(dnl), cap)
+        , _sink(sink)
         , _io_request(std::move(req))
         , _desc(std::make_unique<io_desc_read_write>(_ioq, pc, _stream, dnl, cap, std::move(iovs)))
     {}
@@ -371,7 +379,8 @@ public:
 
         _intent.maybe_dequeue();
         _desc->dispatch();
-        _ioq.submit_request(_desc.release(), std::move(_io_request));
+        _ioq.request_dispatched();
+        _sink.submit(_desc.release(), std::move(_io_request));
         delete this;
     }
 
@@ -999,7 +1008,7 @@ future<size_t> io_queue::queue_one_request(internal::priority_class pc, io_direc
         // that we create the shared pointer in the same shard it will be used at later.
         auto& pclass = find_or_create_class(pc);
         auto cap = request_capacity(dnl);
-        auto queued_req = std::make_unique<queued_read_write_request>(std::move(req), *this, cap, pclass, std::move(dnl), std::move(iovs));
+        auto queued_req = std::make_unique<queued_read_write_request>(_sink, std::move(req), *this, cap, pclass, std::move(dnl), std::move(iovs));
         auto fut = queued_req->get_future();
         if (intent != nullptr) {
             auto& cq = intent->find_or_create_cancellable_queue(dev_id(), pc.id());
@@ -1095,11 +1104,10 @@ void io_queue::poll_io_queue() {
     }
 }
 
-void io_queue::submit_request(io_desc_read_write* desc, internal::io_request req) noexcept {
+void io_queue::request_dispatched() noexcept {
     _queued_requests--;
     _requests_executing++;
     _requests_dispatched++;
-    _sink.submit(desc, std::move(req));
 }
 
 void io_queue::cancel_request(queued_io_request& req) noexcept {
