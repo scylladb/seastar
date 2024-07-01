@@ -124,7 +124,7 @@ struct expiration {
         return _time != never_expire_timepoint;
     }
 
-    time_point to_time_point() {
+    time_point to_time_point() const {
         return _time;
     }
 };
@@ -176,7 +176,7 @@ public:
     item(const item&) = delete;
     item(item&&) = delete;
 
-    clock_type::time_point get_timeout() {
+    clock_type::time_point get_timeout() const {
         return _expiry.to_time_point();
     }
 
