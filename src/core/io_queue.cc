@@ -273,28 +273,96 @@ public:
     stream_id stream() const noexcept { return _stream; }
 };
 
-class queued_io_request : private internal::io_request {
+// An abstract class that is used to represent I/O requests that are enqueued to I/O queue.
+// Serves as a base for specialized I/O requests that may be submitted in different ways.
+// Therefore, the interface provides three pure virtual functions:
+//  - dispatch() - shall submit the I/O operation related to the request.
+//  - cancel() - if possible, shall cancel the request.
+//  - get_future() - shall return a future object for the user to wait on.
+//
+// Each queued_io_request knows the io_queue to which it was enqueued. Moreover, it is aware
+// of the fair_queue ID (_stream) and its entry in it (_fq_entry).
+//
+// Aside from the above, queued_io_request provides means to retrieve itself from the entry of
+// fair_queue as well as from the link of cancellable_queue.
+class queued_io_request {
+protected:
     io_queue& _ioq;
     const stream_id _stream;
     fair_queue_entry _fq_entry;
     internal::cancellable_queue::link _intent;
+
+    // Disallow deleting the derived object via base pointer.
+    ~queued_io_request() = default;
+
+public:
+    // Constructs queued_io_request and stores the information about I/O queue, fair_queue ID and the capacity of request.
+    queued_io_request(io_queue& io_queue, stream_id stream, fair_queue_entry::capacity_t capacity)
+        : _ioq(io_queue)
+        , _stream(stream)
+        , _fq_entry(capacity)
+    {}
+
+    // The queued request is neither copyable nor movable.
+    queued_io_request(const queued_io_request& other) = delete;
+    queued_io_request(queued_io_request&& other) = delete;
+    queued_io_request& operator=(const queued_io_request& other) = delete;
+    queued_io_request& operator=(queued_io_request&& other) = delete;
+
+    // Retrieves queued_io_request object from fair_queue_entry.
+    static queued_io_request& from_fq_entry(fair_queue_entry& ent) noexcept {
+        return *boost::intrusive::get_parent_from_member(&ent, &queued_io_request::_fq_entry);
+    }
+
+    // Retrieves queued_io_request object from cancellable_queue::link.
+    static queued_io_request& from_cq_link(internal::cancellable_queue::link& link) noexcept {
+        return *boost::intrusive::get_parent_from_member(&link, &queued_io_request::_intent);
+    }
+
+    // Returns fair_queue_entry associated with the queued_io_request.
+    fair_queue_entry& queue_entry() noexcept {
+        return _fq_entry;
+    }
+
+    // Returns ID of a stream (io_queue::_streams) associated with queued_io_request.
+    stream_id stream() const noexcept {
+        return _stream;
+    }
+
+    // Pushes this queued_io_request to cancellable_queue via _intent object.
+    void set_intent(internal::cancellable_queue& cq) noexcept {
+        _intent.enqueue(cq);
+    }
+
+    // Dispatches the request to be executed.
+    virtual void dispatch() noexcept = 0;
+
+    // Cancels the request.
+    virtual void cancel() noexcept = 0;
+
+    // Returns the future for the user that enqueued the I/O request to wait on.
+    virtual future<size_t> get_future() noexcept = 0;
+};
+
+class queued_read_write_request final : public queued_io_request {
+private:
+    internal::io_request _io_request;
     std::unique_ptr<io_desc_read_write> _desc;
 
     bool is_cancelled() const noexcept { return !_desc; }
 
 public:
-    queued_io_request(internal::io_request req, io_queue& q, fair_queue_entry::capacity_t cap, io_queue::priority_class_data& pc, io_direction_and_length dnl, iovec_keeper iovs)
-        : io_request(std::move(req))
-        , _ioq(q)
-        , _stream(_ioq.request_stream(dnl))
-        , _fq_entry(cap)
+    queued_read_write_request(internal::io_request req, io_queue& q, fair_queue_entry::capacity_t cap, io_queue::priority_class_data& pc, io_direction_and_length dnl, iovec_keeper iovs)
+        : queued_io_request(q, q.request_stream(dnl), cap)
+        , _io_request(std::move(req))
         , _desc(std::make_unique<io_desc_read_write>(_ioq, pc, _stream, dnl, cap, std::move(iovs)))
-    {
-    }
+    {}
 
-    queued_io_request(queued_io_request&&) = delete;
+    ~queued_read_write_request() = default;
 
-    void dispatch() noexcept {
+    queued_read_write_request(queued_io_request&&) = delete;
+
+    void dispatch() noexcept override {
         if (is_cancelled()) {
             _ioq.complete_cancelled_request(*this);
             delete this;
@@ -303,29 +371,17 @@ public:
 
         _intent.maybe_dequeue();
         _desc->dispatch();
-        _ioq.submit_request(_desc.release(), std::move(*this));
+        _ioq.submit_request(_desc.release(), std::move(_io_request));
         delete this;
     }
 
-    void cancel() noexcept {
+    void cancel() noexcept override {
         _ioq.cancel_request(*this);
         _desc.release()->cancel();
     }
 
-    void set_intent(internal::cancellable_queue& cq) noexcept {
-        _intent.enqueue(cq);
-    }
-
-    future<size_t> get_future() noexcept { return _desc->get_future(); }
-    fair_queue_entry& queue_entry() noexcept { return _fq_entry; }
-    stream_id stream() const noexcept { return _stream; }
-
-    static queued_io_request& from_fq_entry(fair_queue_entry& ent) noexcept {
-        return *boost::intrusive::get_parent_from_member(&ent, &queued_io_request::_fq_entry);
-    }
-
-    static queued_io_request& from_cq_link(internal::cancellable_queue::link& link) noexcept {
-        return *boost::intrusive::get_parent_from_member(&link, &queued_io_request::_intent);
+    future<size_t> get_future() noexcept override {
+        return _desc->get_future();
     }
 };
 
@@ -943,7 +999,7 @@ future<size_t> io_queue::queue_one_request(internal::priority_class pc, io_direc
         // that we create the shared pointer in the same shard it will be used at later.
         auto& pclass = find_or_create_class(pc);
         auto cap = request_capacity(dnl);
-        auto queued_req = std::make_unique<queued_io_request>(std::move(req), *this, cap, pclass, std::move(dnl), std::move(iovs));
+        auto queued_req = std::make_unique<queued_read_write_request>(std::move(req), *this, cap, pclass, std::move(dnl), std::move(iovs));
         auto fut = queued_req->get_future();
         if (intent != nullptr) {
             auto& cq = intent->find_or_create_cancellable_queue(dev_id(), pc.id());
