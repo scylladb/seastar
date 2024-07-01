@@ -100,6 +100,13 @@ struct file_open_options {
     static constexpr uint32_t min_extent_size_hint_alignment{128u << 10}; // 128KB
 };
 
+struct group_details {
+    char *group_name;
+    char *group_password;
+    uint64_t group_gid;
+    char **group_member;
+};
+
 class file;
 class file_impl;
 class io_intent;

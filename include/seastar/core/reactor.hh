@@ -502,6 +502,8 @@ public:
     future<> touch_directory(std::string_view name, file_permissions permissions = file_permissions::default_dir_permissions) noexcept;
     future<std::optional<directory_entry_type>>  file_type(std::string_view name, follow_symlink = follow_symlink::yes) noexcept;
     future<stat_data> file_stat(std::string_view pathname, follow_symlink) noexcept;
+    future<> change_ownership_of_file(std::string_view filepath, uint64_t groupid) noexcept;
+    future<group_details> grp_detail(std::string_view groupname) noexcept;
     future<uint64_t> file_size(std::string_view pathname) noexcept;
     future<bool> file_accessible(std::string_view pathname, access_flags flags) noexcept;
     future<bool> file_exists(std::string_view pathname) noexcept {
