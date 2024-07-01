@@ -420,7 +420,9 @@ seastar_add_test (app-template
   SOURCES app-template_test.cc)
 
 seastar_add_test (socket
-  SOURCES socket_test.cc)
+  SOURCES socket_test.cc
+  # https://github.com/scylladb/seastar/issues/2302
+  RUN_ARGS --reactor-backend linux-aio)
 
 seastar_add_test (sstring
   KIND BOOST
