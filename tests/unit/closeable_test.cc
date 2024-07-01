@@ -378,3 +378,19 @@ SEASTAR_TEST_CASE(gate_holder_parallel_copy_test) {
         });
     });
 }
+
+SEASTAR_THREAD_TEST_CASE(gate_holder_try_close_test) {
+    gate g;
+    auto gh0 = g.try_hold();
+    BOOST_CHECK(gh0.has_value());
+    auto fut = g.close();
+    BOOST_CHECK(g.is_closed());
+    auto failed_gh = g.try_hold();
+    BOOST_CHECK(!failed_gh.has_value());
+    auto gh1 = std::move(gh0);
+    BOOST_CHECK(!fut.available());
+    gh0.reset();
+    BOOST_CHECK(!fut.available());
+    gh1.reset();
+    fut.get();
+}

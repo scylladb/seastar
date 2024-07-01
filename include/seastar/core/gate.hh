@@ -280,6 +280,13 @@ public:
         return holder(*this);
     }
 
+    /// Try getting an optional RAII-based gate::holder object that \ref enter "enter()s"
+    /// the gate when constructed and \ref leave "leave()s" it when destroyed.
+    /// Returns std::nullopt iff the gate is closed.
+    std::optional<holder> try_hold() noexcept {
+        return is_closed() ? std::nullopt : std::make_optional<holder>(*this);
+    }
+
 private:
 #ifdef SEASTAR_GATE_HOLDER_DEBUG
     using holders_list_t = boost::intrusive::list<holder,
