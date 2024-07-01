@@ -86,6 +86,14 @@ Actual negotiation looks like this:
     The server does not directly assign meaning to values of `isolation_cookie`;
     instead, the interpretation is left to user code.
 
+#### Handler duration
+    feature number: 5
+    data: none
+
+    Asks server to send "extended" response that includes the handler duration time. See
+    the response frame description for more details
+
+
 ##### Compressed frame format
     uint32_t len
     uint8_t compressed_data[len]
@@ -111,10 +119,14 @@ data is transparent for the protocol and serialized/deserialized by a user
 ## Response frame format
     int64_t msg_id
     uint32_t len
+    uint32_t handler_duration - present if handler duration is negotiated
     uint8_t data[len]
     
 if msg_id < 0 enclosed response contains an exception that came as a response to msg id abs(msg_id)
 data is transparent for the protocol and serialized/deserialized by a user 
+
+the handler_duration is in microseconds, the value of 0xffffffff means that it wasn't measured
+and should be disregarded by client
 
 ## Stream frame format
    uint32_t len

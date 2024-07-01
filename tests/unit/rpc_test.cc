@@ -339,6 +339,7 @@ SEASTAR_TEST_CASE(test_rpc_connect) {
 
     for (auto i = 0; i < 2; i++) {
         for (auto j = 0; j < 4; j++) {
+          for (bool with_delay : { true, false }) {
             auto factory = std::make_unique<cfactory>();
             rpc::server_options so;
             rpc::client_options co;
@@ -349,6 +350,7 @@ SEASTAR_TEST_CASE(test_rpc_connect) {
                 co.compressor_factory = factory.get();
             }
             co.send_timeout_data = j & 2;
+            co.send_handler_duration = with_delay;
             rpc_test_config cfg;
             cfg.server_options = so;
             auto f = rpc_test_env<>::do_with_thread(cfg, co, [] (rpc_test_env<>& env, test_rpc_proto::client& c1) {
@@ -368,6 +370,7 @@ SEASTAR_TEST_CASE(test_rpc_connect) {
                 }
             });
             fs.emplace_back(std::move(f));
+          }
         }
     }
     return when_all(fs.begin(), fs.end()).discard_result();

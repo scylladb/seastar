@@ -118,6 +118,7 @@ struct client_options {
     /// \see resource_limits::isolate_connection
     sstring isolation_cookie;
     sstring metrics_domain = "default";
+    bool send_handler_duration = true;
 };
 
 /// @}
@@ -179,6 +180,7 @@ enum class protocol_features : uint32_t {
     CONNECTION_ID = 2,
     STREAM_PARENT = 3,
     ISOLATION = 4,
+    HANDLER_DURATION = 5,
 };
 
 // internal representation of feature data
@@ -285,6 +287,7 @@ protected:
     std::unique_ptr<compressor> _compressor;
     bool _propagate_timeout = false;
     bool _timeout_negotiated = false;
+    bool _handler_duration_negotiated = false;
     // stream related fields
     bool _is_stream = false;
     connection_id _id = invalid_connection_id;
@@ -427,6 +430,7 @@ class client : public rpc::connection, public weakly_referencable<client> {
     struct reply_handler_base {
         timer<rpc_clock_type> t;
         cancellable* pcancel = nullptr;
+        rpc_clock_type::time_point start;
         virtual void operator()(client&, id_type, rcv_buf data) = 0;
         virtual void timeout() {}
         virtual void cancel() {}
@@ -487,7 +491,11 @@ private:
 private:
     future<> negotiate_protocol(feature_map map);
     void negotiate(feature_map server_features);
-    future<std::tuple<int64_t, std::optional<rcv_buf>>>
+    // Returned future is
+    // - message id
+    // - optional server-side handler duration
+    // - message payload
+    future<std::tuple<int64_t, std::optional<uint32_t>, std::optional<rcv_buf>>>
     read_response_frame_compressed(input_stream<char>& in);
 public:
     /**
@@ -592,7 +600,7 @@ public:
     public:
         connection(server& s, connected_socket&& fd, socket_address&& addr, const logger& l, void* seralizer, connection_id id);
         future<> process();
-        future<> respond(int64_t msg_id, snd_buf&& data, std::optional<rpc_clock_type::time_point> timeout);
+        future<> respond(int64_t msg_id, snd_buf&& data, std::optional<rpc_clock_type::time_point> timeout, std::optional<rpc_clock_type::duration> handler_duration);
         client_info& info() { return _info; }
         const client_info& info() const { return _info; }
         stats get_stats() const {
