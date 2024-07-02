@@ -23,7 +23,6 @@
 
 #include <seastar/core/sstring.hh>
 #include <seastar/core/linux-aio.hh>
-#include <seastar/core/internal/io_desc.hh>
 #include <seastar/core/on_internal_error.hh>
 #include <cassert>
 #include <cstdint>

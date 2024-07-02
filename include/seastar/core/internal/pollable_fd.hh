@@ -23,7 +23,6 @@
 
 #include <seastar/core/future.hh>
 #include <seastar/core/posix.hh>
-#include <seastar/core/internal/io_desc.hh>
 #include <seastar/util/bool_class.hh>
 #include <seastar/util/modules.hh>
 #ifndef SEASTAR_MODULE
