@@ -47,7 +47,6 @@ module seastar;
 #include <seastar/core/reactor.hh>
 #include <seastar/core/when_all.hh>
 #include <seastar/core/metrics.hh>
-#include <seastar/core/internal/io_desc.hh>
 #include <seastar/core/internal/io_sink.hh>
 #include <seastar/core/io_priority_class.hh>
 #include <seastar/util/log.hh>
@@ -212,67 +211,6 @@ public:
     metrics::metric_groups metric_groups;
 };
 
-class io_desc_read_write final : public io_completion {
-    io_queue& _ioq;
-    io_queue::priority_class_data& _pclass;
-    io_queue::clock_type::time_point _ts;
-    const stream_id _stream;
-    const io_direction_and_length _dnl;
-    const fair_queue_entry::capacity_t _fq_capacity;
-    promise<size_t> _pr;
-    iovec_keeper _iovs;
-
-public:
-    io_desc_read_write(io_queue& ioq, io_queue::priority_class_data& pc, stream_id stream, io_direction_and_length dnl, fair_queue_entry::capacity_t cap, iovec_keeper iovs)
-        : _ioq(ioq)
-        , _pclass(pc)
-        , _ts(io_queue::clock_type::now())
-        , _stream(stream)
-        , _dnl(dnl)
-        , _fq_capacity(cap)
-        , _iovs(std::move(iovs))
-    {
-        io_log.trace("dev {} : req {} queue  len {} capacity {}", _ioq.dev_id(), fmt::ptr(this), _dnl.length(), _fq_capacity);
-    }
-
-    virtual void set_exception(std::exception_ptr eptr) noexcept override {
-        io_log.trace("dev {} : req {} error", _ioq.dev_id(), fmt::ptr(this));
-        _pclass.on_error();
-        _ioq.complete_request(*this);
-        _pr.set_exception(eptr);
-        delete this;
-    }
-
-    virtual void complete(size_t res) noexcept override {
-        io_log.trace("dev {} : req {} complete", _ioq.dev_id(), fmt::ptr(this));
-        auto now = io_queue::clock_type::now();
-        _pclass.on_complete(std::chrono::duration_cast<std::chrono::duration<double>>(now - _ts));
-        _ioq.complete_request(*this);
-        _pr.set_value(res);
-        delete this;
-    }
-
-    void cancel() noexcept {
-        _pclass.on_cancel();
-        _pr.set_exception(std::make_exception_ptr(default_io_exception_factory::cancelled()));
-        delete this;
-    }
-
-    void dispatch() noexcept {
-        io_log.trace("dev {} : req {} submit", _ioq.dev_id(), fmt::ptr(this));
-        auto now = io_queue::clock_type::now();
-        _pclass.on_dispatch(_dnl, std::chrono::duration_cast<std::chrono::duration<double>>(now - _ts));
-        _ts = now;
-    }
-
-    future<size_t> get_future() {
-        return _pr.get_future();
-    }
-
-    fair_queue_entry::capacity_t capacity() const noexcept { return _fq_capacity; }
-    stream_id stream() const noexcept { return _stream; }
-};
-
 // An abstract class that is used to represent I/O requests that are enqueued to I/O queue.
 // Serves as a base for specialized I/O requests that may be submitted in different ways.
 // Therefore, the interface provides three pure virtual functions:
@@ -344,15 +282,38 @@ public:
     virtual future<size_t> get_future() noexcept = 0;
 };
 
-class queued_read_write_request final : public queued_io_request {
+// A class that is used to represent read and write I/O requests within io_queue.
+// Internally, io_sink object is used to submit low-level I/O operations.
+//
+// It is derived from two classes: queued_io_request and io_completion.
+// The former is required to plug the request into io_queue.
+// The latter is needed to submit the request into io_sink.
+//
+// IMPORTANT: the lifetime of queued_read_write_request object is quite specific
+//            and stems from the usage of io_queue and io_sink.
+// The overall flow is as follows:
+//  1. The request is created on heap and queued in io_queue.
+//  2. The requests are dispatched when io_queue is polled.
+//   2.1. If the request was cancelled, then the object is destroyed instead of
+//        being dispatched. The delete operator is called from dispatch() method.
+//   2.2. If the request was not cancelled, then it is submitted to io_sink that is
+//        later processed elsewhere. When the processing finishes, one of callback
+//        functions from io_completion interface is invoked - it ensures, that the
+//        object is destroyed -- the callbacks invoke the delete operator.
+class queued_read_write_request final : public queued_io_request
+                                      , public io_completion {
 private:
     internal::io_sink& _sink;
     internal::io_request _io_request;
-    std::unique_ptr<io_desc_read_write> _desc;
-
-    bool is_cancelled() const noexcept { return !_desc; }
+    io_queue::priority_class_data& _pclass;
+    io_queue::clock_type::time_point _ts;
+    io_direction_and_length _dnl;
+    promise<size_t> _pr;
+    iovec_keeper _iovs;
+    bool _cancelled;
 
 public:
+    // Constructs the request and stores all the data that is required to submit it to io_sink.
     queued_read_write_request(internal::io_sink& sink,
                               internal::io_request req,
                               io_queue& q,
@@ -363,34 +324,79 @@ public:
         : queued_io_request(q, q.request_stream(dnl), cap)
         , _sink(sink)
         , _io_request(std::move(req))
-        , _desc(std::make_unique<io_desc_read_write>(_ioq, pc, _stream, dnl, cap, std::move(iovs)))
-    {}
+        , _pclass(pc)
+        , _ts(io_queue::clock_type::now())
+        , _dnl(dnl)
+        , _iovs(std::move(iovs))
+        , _cancelled(false)
+    {
+        io_log.trace("dev {} : req {} queue  len {} capacity {}", _ioq.dev_id(), fmt::ptr(this), _dnl.length(), _fq_entry.capacity());
+    }
 
+    // Destroys the request.
     ~queued_read_write_request() = default;
 
-    queued_read_write_request(queued_io_request&&) = delete;
+    // The queued request is neither copyable nor movable.
+    queued_read_write_request(const queued_read_write_request& other) = delete;
+    queued_read_write_request(queued_read_write_request&& other) = delete;
+    queued_read_write_request& operator=(const queued_read_write_request& other) = delete;
+    queued_read_write_request& operator=(queued_read_write_request&& other) = delete;
 
+    // Implements the interface required by queued_io_request base class.
+    // If the request was not cancelled, then submits it to io_sink.
+    // Else, finalizes the execution via io_queue and destroys 'this' object.
     void dispatch() noexcept override {
-        if (is_cancelled()) {
+        if (_cancelled) {
             _ioq.complete_cancelled_request(*this);
             delete this;
             return;
         }
 
         _intent.maybe_dequeue();
-        _desc->dispatch();
+
+        io_log.trace("dev {} : req {} submit", _ioq.dev_id(), fmt::ptr(this));
+        auto now = io_queue::clock_type::now();
+        _pclass.on_dispatch(_dnl, std::chrono::duration_cast<std::chrono::duration<double>>(now - _ts));
+        _ts = now;
+
         _ioq.request_dispatched();
-        _sink.submit(_desc.release(), std::move(_io_request));
+        _sink.submit(this, std::move(_io_request));
+    }
+
+    // Implements the interface required by queued_io_request base class.
+    // Marks the request as cancelled and notifies the submitter about the error.
+    void cancel() noexcept override {
+        _ioq.cancel_request(*this);
+        _pclass.on_cancel();
+        _pr.set_exception(std::make_exception_ptr(default_io_exception_factory::cancelled()));
+        _cancelled = true;
+    }
+
+    // Implements the interface required by queued_io_request base class.
+    // Returns the future for the submitter of the request.
+    future<size_t> get_future() noexcept override {
+        return _pr.get_future();
+    }
+
+    // An error callaback from io_completion interface. Finalizes the execution via io_queue and
+    // forwards the error to the submitter. At the end it destroys 'this' object - it is the last reference.
+    void set_exception(std::exception_ptr eptr) noexcept override {
+        io_log.trace("dev {} : req {} error", _ioq.dev_id(), fmt::ptr(this));
+        _pclass.on_error();
+        _ioq.complete_request(*this);
+        _pr.set_exception(eptr);
         delete this;
     }
 
-    void cancel() noexcept override {
-        _ioq.cancel_request(*this);
-        _desc.release()->cancel();
-    }
-
-    future<size_t> get_future() noexcept override {
-        return _desc->get_future();
+    // A completion callaback from io_completion interface. Finalizes the execution via io_queue and
+    // notifies the submitter. At the end it destroys 'this' object - it is the last reference.
+    void complete(size_t res) noexcept override {
+        io_log.trace("dev {} : req {} complete", _ioq.dev_id(), fmt::ptr(this));
+        auto now = io_queue::clock_type::now();
+        _pclass.on_complete(std::chrono::duration_cast<std::chrono::duration<double>>(now - _ts));
+        _ioq.complete_request(*this);
+        _pr.set_value(res);
+        delete this;
     }
 };
 
@@ -613,11 +619,10 @@ void io_queue::update_flow_ratio() noexcept {
     }
 }
 
-void
-io_queue::complete_request(io_desc_read_write& desc) noexcept {
+void io_queue::complete_request(queued_io_request& req) noexcept {
     _requests_executing--;
     _requests_completed++;
-    _streams[desc.stream()].notify_request_finished(desc.capacity());
+    _streams[req.stream()].notify_request_finished(req.queue_entry().capacity());
 }
 
 fair_queue::config io_queue::make_fair_queue_config(const config& iocfg, sstring label) {

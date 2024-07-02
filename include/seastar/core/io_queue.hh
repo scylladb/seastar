@@ -65,7 +65,6 @@ class io_sink;
 using shard_id = unsigned;
 using stream_id = unsigned;
 
-class io_desc_read_write;
 class queued_io_request;
 class io_group;
 
@@ -166,7 +165,7 @@ public:
     void request_dispatched() noexcept;
     void cancel_request(queued_io_request& req) noexcept;
     void complete_cancelled_request(queued_io_request& req) noexcept;
-    void complete_request(io_desc_read_write& desc) noexcept;
+    void complete_request(queued_io_request& req) noexcept;
 
     [[deprecated("I/O queue users should not track individual requests, but resources (weight, size) passing through the queue")]]
     size_t queued_requests() const {
