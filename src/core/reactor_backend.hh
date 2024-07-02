@@ -23,6 +23,7 @@
 
 #include <seastar/core/future.hh>
 #include <seastar/core/posix.hh>
+#include <seastar/core/internal/io_desc.hh>
 #include <seastar/core/internal/pollable_fd.hh>
 #include <seastar/core/internal/poll.hh>
 #include <seastar/core/linux-aio.hh>

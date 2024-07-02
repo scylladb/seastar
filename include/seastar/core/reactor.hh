@@ -31,6 +31,7 @@
 #include <seastar/core/file.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/idle_cpu_handler.hh>
+#include <seastar/core/internal/io_desc.hh>
 #include <seastar/core/internal/io_request.hh>
 #include <seastar/core/internal/io_sink.hh>
 #include <seastar/core/iostream.hh>
@@ -140,7 +141,6 @@ void increase_thrown_exceptions_counter() noexcept;
 
 }
 
-class kernel_completion;
 class io_queue;
 SEASTAR_MODULE_EXPORT
 class io_intent;
