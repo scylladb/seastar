@@ -158,6 +158,17 @@ public:
     {}
 };
 
+/**
+ * Client-side exception to report that making request timed out
+ * prior to communicating to server
+ */
+class timeout_error : public base_exception {
+public:
+    timeout_error()
+        : base_exception("client timed out", http::reply::status_type::request_timeout)
+    {}
+};
+
 SEASTAR_MODULE_EXPORT_END
 }
 
