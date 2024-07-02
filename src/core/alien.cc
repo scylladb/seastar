@@ -54,10 +54,7 @@ void
 message_queue::lf_queue::maybe_wakeup() {
     // see also smp_message_queue::lf_queue::maybe_wakeup()
     std::atomic_signal_fence(std::memory_order_seq_cst);
-    if (remote->_sleeping.load(std::memory_order_relaxed)) {
-        remote->_sleeping.store(false, std::memory_order_relaxed);
-        remote->wakeup();
-    }
+    remote->wakeup();
 }
 
 void message_queue::submit_item(std::unique_ptr<message_queue::work_item> item) {
