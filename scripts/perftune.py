@@ -694,7 +694,7 @@ class NetPerfTuner(PerfTunerBase):
         op = "Enable"
         value = 'on'
 
-        if (self.args.enable_arfs is None and self.irqs_cpu_mask == self.cpu_mask) or self.args.enable_arfs is False:
+        if (self.args.enable_arfs is None and self.irqs_cpu_mask != self.cpu_mask) or self.args.enable_arfs is False:
             op = "Disable"
             value = 'off'
 
