@@ -66,22 +66,14 @@ SEASTAR_TEST_CASE(log_buf_insert_iterator_format_to) {
     memset(str, 'a', size);
     str[size] = '\0';
 
-#if FMT_VERSION >= 80000
     it = fmt::format_to(it, fmt::runtime(str), size);
-#else
-    it = fmt::format_to(it, str, size);
-#endif
     BOOST_REQUIRE_EQUAL(reinterpret_cast<uintptr_t>(b.data()), reinterpret_cast<uintptr_t>(external_buf_ptr));
 
     *it++ = '\n';
     BOOST_REQUIRE_NE(reinterpret_cast<uintptr_t>(b.data()), reinterpret_cast<uintptr_t>(external_buf_ptr));
 
     memset(str, 'b', size);
-#if FMT_VERSION >= 80000
     it = fmt::format_to(it, fmt::runtime(str), size);
-#else
-    it = fmt::format_to(it, str, size);
-#endif
     *it++ = '\n';
 
     const char* p = b.data();
