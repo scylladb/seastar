@@ -2,7 +2,7 @@
 
 FROM ubuntu:mantic
 
-RUN --mount=type=bind,source=./install-dependencies.sh,target=./install-dependencies.sh \
+RUN --mount=type=bind,source=./install-dependencies.sh,target=/install-dependencies.sh \
     apt-get update && apt-get install -y \
     curl \
     gnupg \
