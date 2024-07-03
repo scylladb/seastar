@@ -527,16 +527,16 @@ template <typename CharType>
 struct stream_copy_consumer {
 private:
     output_stream<CharType>& _os;
-    using unconsumed_remainder = std::optional<temporary_buffer<CharType>>;
+    using consumption_result_type = consumption_result<CharType>;
 public:
     stream_copy_consumer(output_stream<CharType>& os) : _os(os) {
     }
-    future<unconsumed_remainder> operator()(temporary_buffer<CharType> data) {
+    future<consumption_result_type> operator()(temporary_buffer<CharType> data) {
         if (data.empty()) {
-            return make_ready_future<unconsumed_remainder>(std::move(data));
+            return make_ready_future<consumption_result_type>(stop_consuming(std::move(data)));
         }
-        return _os.write(data.get(), data.size()).then([] () {
-            return make_ready_future<unconsumed_remainder>();
+        return _os.write(data.get(), data.size()).then([] {
+            return make_ready_future<consumption_result_type>(continue_consuming());
         });
     }
 };
