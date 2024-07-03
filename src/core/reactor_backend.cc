@@ -183,6 +183,15 @@ aio_storage_context::handle_aio_error(linux_abi::iocb* iocb, int ec) {
             // we will only remove it from _pending_io and try again.
             return 1;
         }
+        case ENOTSUP: {
+            seastar_logger.error("io_submit failed: this happens when "
+                                 "accessing filesystem which does not supports "
+                                 "asynchronous direct I/O");
+            auto desc = get_user_data<kernel_completion>(*iocb);
+            _iocb_pool.put_one(iocb);
+            desc->complete_with(-ENOTSUP);
+            return 1;
+        }
         default:
             ++_r._io_stats.aio_errors;
             throw std::system_error(ec, std::system_category(), "io_submit");
