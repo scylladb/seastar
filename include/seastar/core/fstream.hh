@@ -78,15 +78,21 @@ struct file_input_stream_options {
 input_stream<char> make_file_input_stream(
         file file, uint64_t offset, uint64_t len, file_input_stream_options options = {});
 
-// Create an input_stream for a given file, with the specified options.
-// Multiple fibers of execution (continuations) may safely open
-// multiple input streams concurrently for the same file.
+/// \brief Create an input_stream for a given file, reading starting at a given
+///        position of the given file, with the specified options.
+/// \param file File to read; multiple streams for the same file may coexist
+/// \param offset Starting offset to read from (no alignment restrictions)
+///
+/// \note Multiple fibers of execution (continuations) may safely open
+///       multiple input streams concurrently for the same file.
 input_stream<char> make_file_input_stream(
         file file, uint64_t offset, file_input_stream_options = {});
 
-// Create an input_stream for reading starting at a given position of the
-// given file. Multiple fibers of execution (continuations) may safely open
-// multiple input streams concurrently for the same file.
+/// Create an input_stream for a given file, with the specified options
+/// \param file File to read; multiple streams for the same file may coexist
+///
+/// \note Multiple fibers of execution (continuations) may safely open
+///       multiple input streams concurrently for the same file.
 input_stream<char> make_file_input_stream(
         file file, file_input_stream_options = {});
 
