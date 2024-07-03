@@ -47,7 +47,6 @@ module seastar;
 #include <seastar/core/reactor.hh>
 #include <seastar/core/when_all.hh>
 #include <seastar/core/metrics.hh>
-#include <seastar/core/linux-aio.hh>
 #include <seastar/core/internal/io_desc.hh>
 #include <seastar/core/internal/io_sink.hh>
 #include <seastar/core/io_priority_class.hh>
@@ -59,7 +58,6 @@ namespace seastar {
 logger io_log("io");
 
 using namespace std::chrono_literals;
-using namespace internal::linux_abi;
 using io_direction_and_length = internal::io_direction_and_length;
 static constexpr auto io_direction_read = io_direction_and_length::read_idx;
 static constexpr auto io_direction_write = io_direction_and_length::write_idx;

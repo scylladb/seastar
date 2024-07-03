@@ -34,7 +34,6 @@
 #include <seastar/core/internal/io_request.hh>
 #include <seastar/core/internal/io_sink.hh>
 #include <seastar/core/iostream.hh>
-#include <seastar/core/linux-aio.hh>
 #include <seastar/core/lowres_clock.hh>
 #include <seastar/core/make_task.hh>
 #include <seastar/core/manual_clock.hh>

@@ -21,7 +21,6 @@
 
 #pragma once
 
-#include <seastar/core/linux-aio.hh>
 #include <exception>
 
 namespace seastar {
