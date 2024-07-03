@@ -163,21 +163,6 @@ app_template::configuration() {
 }
 
 int
-app_template::run(int ac, char ** av, std::function<future<int> ()>&& func) noexcept {
-    return run_deprecated(ac, av, [func = std::move(func)] () mutable {
-        auto func_done = make_lw_shared<promise<>>();
-        engine().at_exit([func_done] { return func_done->get_future(); });
-        // No need to wait for this future.
-        // func's returned exit_code is communicated via engine().exit()
-        (void)futurize_invoke(func).finally([func_done] {
-            func_done->set_value();
-        }).then([] (int exit_code) {
-            return engine().exit(exit_code);
-        }).or_terminate();
-    });
-}
-
-int
 app_template::run(int ac, char ** av, std::function<future<> ()>&& func) noexcept {
     return run(ac, av, [func = std::move(func)] {
         return func().then([] () {
@@ -188,6 +173,13 @@ app_template::run(int ac, char ** av, std::function<future<> ()>&& func) noexcep
 
 int
 app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) noexcept {
+    return run(ac, av, [func = std::move(func)] {
+        return futurize_invoke(func);
+    });
+}
+
+int
+app_template::run(int ac, char ** av, std::function<future<int> ()>&& func) noexcept {
 #ifdef SEASTAR_DEBUG
     fmt::print(std::cerr, "WARNING: debug mode. Not for benchmarking or production\n");
 #endif
@@ -234,7 +226,15 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
         program_options::variables_map_extracting_visitor visitor(configuration);
         _opts.mutate(visitor);
     }
-    _opts.reactor_opts._argv0 = std::string(av[0]);
+
+    _configuration = {std::move(configuration)};
+    _opts.argv0 = std::move(av[0]);
+
+    return run(std::move(func));
+}
+
+int app_template::run(std::function<future<int>()>&& func) noexcept {
+    _opts.reactor_opts._argv0 = std::string(_opts.argv0);
     _opts.reactor_opts._auto_handle_sigint_sigterm = _opts.auto_handle_sigint_sigterm;
     if (auto* native_stack = dynamic_cast<net::native_stack_options*>(_opts.reactor_opts.network_stack.get_selected_candidate_opts())) {
         native_stack->_hugepages = _opts.smp_opts.hugepages;
@@ -254,7 +254,6 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
         std::cerr << "Could not initialize seastar: " << std::current_exception() << std::endl;
         return 1;
     }
-    _configuration = {std::move(configuration)};
     // No need to wait for this future.
     // func is waited on via engine().run()
     (void)engine().when_started().then([this] {
@@ -265,9 +264,9 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
         });
     }).then(
         std::move(func)
-    ).then_wrapped([] (auto&& f) {
+    ).then_wrapped([] (future<int>&& f) {
         try {
-            f.get();
+            engine().exit(f.get());
         } catch (std::exception& ex) {
             std::cout << "program failed with uncaught exception: " << ex.what() << "\n";
             engine().exit(1);
@@ -276,6 +275,14 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
     auto exit_code = engine().run();
     _smp->cleanup();
     return exit_code;
+}
+
+int app_template::run(std::function<future<>()>&& func) noexcept {
+    return run([func = std::move(func)] {
+        return func().then([] () {
+            return 0;
+        });
+    });
 }
 
 }
