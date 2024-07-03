@@ -1,0 +1,10 @@
+{
+    "name": "seastar-devcontainer",
+    "build": {
+        "dockerfile": "Dockerfile",
+        "context": "../"
+    },
+    "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/seastar,type=bind,consistency=default",
+    "workspaceFolder": "/workspaces/seastar",
+    "shutdownAction": "stopContainer"
+}
