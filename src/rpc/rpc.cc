@@ -667,6 +667,9 @@ namespace rpc {
           case protocol_features::TIMEOUT:
               _timeout_negotiated = true;
               break;
+          case protocol_features::HANDLER_DURATION:
+              _handler_duration_negotiated = true;
+              break;
           case protocol_features::CONNECTION_ID: {
               _id = deserialize_connection_id(e.second);
               break;
@@ -692,8 +695,8 @@ namespace rpc {
   //   ...  payload
   struct response_frame {
       using opt_buf_type = std::optional<rcv_buf>;
-      using return_type = std::tuple<int64_t, opt_buf_type>;
-      using header_type = std::tuple<int64_t>;
+      using return_type = std::tuple<int64_t, std::optional<uint32_t>, opt_buf_type>;
+      using header_type = std::tuple<int64_t, std::optional<uint32_t>>;
       static constexpr size_t raw_header_size = sizeof(int64_t) + sizeof(uint32_t);
       static size_t header_size() {
           static_assert(response_frame_headroom >= raw_header_size);
@@ -703,28 +706,68 @@ namespace rpc {
           return "client";
       }
       static auto empty_value() {
-          return std::make_tuple(0, std::nullopt);
+          return std::make_tuple(0, std::nullopt, std::nullopt);
       }
       static std::pair<uint32_t, header_type> decode_header(const char* ptr) {
           auto msgid = read_le<int64_t>(ptr);
           auto size = read_le<uint32_t>(ptr + 8);
-          return std::make_pair(size, std::make_tuple(msgid));
+          return std::make_pair(size, std::make_tuple(msgid, std::nullopt));
       }
-      static void encode_header(int64_t msg_id, snd_buf& data) {
+      static void encode_header(int64_t msg_id, snd_buf& data, size_t header_size = raw_header_size) {
           static_assert(snd_buf::chunk_size >= raw_header_size, "send buffer chunk size is too small");
           auto p = data.front().get_write();
           write_le<int64_t>(p, msg_id);
-          write_le<uint32_t>(p + 8, data.size - raw_header_size);
+          write_le<uint32_t>(p + 8, data.size - header_size);
       }
       static auto make_value(const header_type& t, rcv_buf data) {
-          return std::make_tuple(std::get<0>(t), std::move(data));
+          return std::make_tuple(std::get<0>(t), std::get<1>(t), std::move(data));
       }
   };
 
+  // The response frame is
+  //   le64 message ID
+  //   le32 payload size
+  //   le32 handler duration
+  //   ...  payload
+  struct response_frame_with_handler_time : public response_frame {
+      using super = response_frame;
+      static constexpr size_t raw_header_size = super::raw_header_size + sizeof(uint32_t);
+      static size_t header_size() {
+          static_assert(response_frame_headroom >= raw_header_size);
+          return raw_header_size;
+      }
+      static std::pair<uint32_t, header_type> decode_header(const char* ptr) {
+          auto p = super::decode_header(ptr);
+          auto ht = read_le<uint32_t>(ptr + 12);
+          if (ht != -1U) {
+              std::get<1>(p.second) = ht;
+          }
+          return p;
+      }
+      static uint32_t encode_handler_duration(const std::optional<rpc_clock_type::duration>& ht) noexcept {
+          if (ht.has_value()) {
+              std::chrono::microseconds us = std::chrono::duration_cast<std::chrono::microseconds>(*ht);
+              if (us.count() < std::numeric_limits<uint32_t>::max()) {
+                  return us.count();
+              }
+          }
+          return -1U;
+      }
+      static void encode_header(int64_t msg_id, std::optional<rpc_clock_type::duration> ht, snd_buf& data) {
+          static_assert(snd_buf::chunk_size >= raw_header_size);
+          auto p = data.front().get_write();
+          super::encode_header(msg_id, data, raw_header_size);
+          write_le<uint32_t>(p + 12, encode_handler_duration(ht));
+      }
+  };
 
   future<response_frame::return_type>
   client::read_response_frame_compressed(input_stream<char>& in) {
-      return read_frame_compressed<response_frame>(_server_addr, _compressor, in);
+      if (_handler_duration_negotiated) {
+          return read_frame_compressed<response_frame_with_handler_time>(_server_addr, _compressor, in);
+      } else {
+          return read_frame_compressed<response_frame>(_server_addr, _compressor, in);
+      }
   }
 
   stats client::get_stats() const {
@@ -843,6 +886,15 @@ namespace rpc {
                         sm::description("Total number of exceptional responses received"), { domain_l }).set_skip_when_empty(),
                 sm::make_counter("timeout", std::bind(&domain::count_all, this, &stats::timeout),
                         sm::description("Total number of timeout responses"), { domain_l }).set_skip_when_empty(),
+                sm::make_counter("delay_samples", std::bind(&domain::count_all, this, &stats::delay_samples),
+                        sm::description("Total number of delay samples"), { domain_l }),
+                sm::make_counter("delay_total", [this] () -> double {
+                            std::chrono::duration<double> res(0);
+                            for (const auto& m : list) {
+                                res += m._c._stats.delay_total;
+                            }
+                            return res.count();
+                        }, sm::description("Total delay in seconds"), { domain_l }),
                 sm::make_gauge("pending", std::bind(&domain::count_all_fn, this, &client::outgoing_queue_length),
                     sm::description("Number of queued outbound messages"), { domain_l }),
                 sm::make_gauge("wait_reply", std::bind(&domain::count_all_fn, this, &client::incoming_queue_length),
@@ -870,6 +922,8 @@ namespace rpc {
       _domain.dead.exception_received += _c._stats.exception_received;
       _domain.dead.sent_messages += _c._stats.sent_messages;
       _domain.dead.timeout += _c._stats.timeout;
+      _domain.dead.delay_samples += _c._stats.delay_samples;
+      _domain.dead.delay_total += _c._stats.delay_total;
   }
 
   client::client(const logger& l, void* s, client_options ops, socket socket, const socket_address& addr, const socket_address& local)
@@ -894,6 +948,9 @@ namespace rpc {
           if (_options.send_timeout_data) {
               features[protocol_features::TIMEOUT] = "";
           }
+          if (_options.send_handler_duration) {
+              features[protocol_features::HANDLER_DURATION] = "";
+          }
           if (_options.stream_parent) {
               features[protocol_features::STREAM_PARENT] = serialize_connection_id(_options.stream_parent);
           }
@@ -910,14 +967,19 @@ namespace rpc {
                   }
                   return read_response_frame_compressed(_read_buf).then([this] (response_frame::return_type msg_id_and_data) {
                       auto& msg_id = std::get<0>(msg_id_and_data);
-                      auto& data = std::get<1>(msg_id_and_data);
+                      auto& data = std::get<2>(msg_id_and_data);
                       auto it = _outstanding.find(std::abs(msg_id));
                       if (!data) {
                           _error = true;
                       } else if (it != _outstanding.end()) {
                           auto handler = std::move(it->second);
+                          auto ht = std::get<1>(msg_id_and_data);
                           _outstanding.erase(it);
                           (*handler)(*this, msg_id, std::move(data.value()));
+                          if (ht) {
+                              _stats.delay_samples++;
+                              _stats.delay_total += (rpc_clock_type::now() - handler->start) - std::chrono::microseconds(*ht);
+                          }
                       } else if (msg_id < 0) {
                           try {
                               std::rethrow_exception(unmarshal_exception(data.value()));
@@ -1008,6 +1070,10 @@ namespace rpc {
               _timeout_negotiated = true;
               ret[protocol_features::TIMEOUT] = "";
               break;
+          case protocol_features::HANDLER_DURATION:
+              _handler_duration_negotiated = true;
+              ret[protocol_features::HANDLER_DURATION] = "";
+              break;
           case protocol_features::STREAM_PARENT: {
               if (!get_server()._options.streaming_domain) {
                   f = f.then([] {
@@ -1095,17 +1161,24 @@ namespace rpc {
   }
 
   future<>
-  server::connection::respond(int64_t msg_id, snd_buf&& data, std::optional<rpc_clock_type::time_point> timeout) {
-      response_frame::encode_header(msg_id, data);
+  server::connection::respond(int64_t msg_id, snd_buf&& data, std::optional<rpc_clock_type::time_point> timeout, std::optional<rpc_clock_type::duration> handler_duration) {
+      if (_handler_duration_negotiated) {
+          response_frame_with_handler_time::encode_header(msg_id, handler_duration, data);
+      } else {
+          data.front().trim_front(sizeof(uint32_t));
+          data.size -= sizeof(uint32_t);
+          response_frame::encode_header(msg_id, data);
+      }
       return send(std::move(data), timeout);
   }
 
 future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_type::time_point> timeout, int64_t msg_id, uint64_t type) {
     return wait_for_resources(28, timeout).then([this, timeout, msg_id, type] (auto permit) {
         // send unknown_verb exception back
-        snd_buf data(28);
-        static_assert(snd_buf::chunk_size >= 28, "send buffer chunk size is too small");
-        auto p = data.front().get_write() + 12;
+        constexpr size_t unknown_verb_message_size = response_frame_headroom + 2 * sizeof(uint32_t) + sizeof(uint64_t);
+        snd_buf data(unknown_verb_message_size);
+        static_assert(snd_buf::chunk_size >= unknown_verb_message_size, "send buffer chunk size is too small");
+        auto p = data.front().get_write() + response_frame_headroom;
         write_le<uint32_t>(p, uint32_t(exception_type::UNKNOWN_VERB));
         write_le<uint32_t>(p + 4, uint32_t(8));
         write_le<uint64_t>(p + 8, type);
@@ -1115,7 +1188,7 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
             (void)with_gate(get_server()._reply_gate, [this, timeout, msg_id, data = std::move(data), permit = std::move(permit)] () mutable {
                 // workaround for https://gcc.gnu.org/bugzilla/show_bug.cgi?id=83268
                 auto c = shared_from_this();
-                return respond(-msg_id, std::move(data), timeout).then([c = std::move(c), permit = std::move(permit)] {});
+                return respond(-msg_id, std::move(data), timeout, std::nullopt).then([c = std::move(c), permit = std::move(permit)] {});
             });
         } catch(gate_closed_exception&) {/* ignore */}
     });
