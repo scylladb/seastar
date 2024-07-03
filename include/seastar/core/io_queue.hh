@@ -60,12 +60,6 @@ class io_intent;
 
 namespace internal {
 class io_sink;
-namespace linux_abi {
-
-struct io_event;
-struct iocb;
-
-}
 }
 
 using shard_id = unsigned;

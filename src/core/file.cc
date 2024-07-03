@@ -63,7 +63,6 @@ module seastar;
 #include <seastar/core/reactor.hh>
 #include <seastar/core/file.hh>
 #include <seastar/core/report_exception.hh>
-#include <seastar/core/linux-aio.hh>
 #include <seastar/util/later.hh>
 #include <seastar/util/internal/magic.hh>
 #include <seastar/util/internal/iovec_utils.hh>
