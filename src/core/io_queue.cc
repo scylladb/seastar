@@ -41,7 +41,6 @@ module;
 module seastar;
 #else
 #include <seastar/core/file.hh>
-#include <seastar/core/fair_queue.hh>
 #include <seastar/core/io_queue.hh>
 #include <seastar/core/io_intent.hh>
 #include <seastar/core/reactor.hh>

@@ -27,7 +27,6 @@
 #include <seastar/core/circular_buffer_fixed_capacity.hh>
 #include <seastar/core/condition-variable.hh>
 #include <seastar/core/enum.hh>
-#include <seastar/core/fair_queue.hh>
 #include <seastar/core/file.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/idle_cpu_handler.hh>
