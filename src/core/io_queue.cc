@@ -211,6 +211,10 @@ public:
     metrics::metric_groups metric_groups;
 };
 
+io_queue::stream::stream(shared_throttle& st, fair_queue::config cfg)
+        : fq(st, std::move(cfg))
+{ }
+
 class io_desc_read_write final : public io_completion {
     io_queue& _ioq;
     io_queue::priority_class_data& _pclass;
@@ -551,7 +555,7 @@ void
 io_queue::complete_request(io_desc_read_write& desc) noexcept {
     _requests_executing--;
     _requests_completed++;
-    _streams[desc.stream()].notify_request_finished(desc.capacity());
+    _streams[desc.stream()].fq.notify_request_finished(desc.capacity());
 }
 
 fair_queue::config io_queue::make_fair_queue_config(const config& iocfg, sstring label) {
@@ -661,7 +665,7 @@ io_queue::~io_queue() {
     for (auto&& pc_data : _priority_classes) {
         if (pc_data) {
             for (auto&& s : _streams) {
-                s.unregister_priority_class(pc_data->fq_class());
+                s.fq.unregister_priority_class(pc_data->fq_class());
             }
         }
     }
@@ -833,8 +837,8 @@ void io_queue::register_stats(sstring name, priority_class_data& pc) {
     }
 
     for (auto&& s : _streams) {
-        for (auto&& m : s.metrics(pc.fq_class())) {
-            m(owner_l)(mnt_l)(class_l)(group_l)(sm::label("stream")(s.label()));
+        for (auto&& m : s.fq.metrics(pc.fq_class())) {
+            m(owner_l)(mnt_l)(class_l)(group_l)(sm::label("stream")(s.fq.label()));
             metrics.emplace_back(std::move(m));
         }
     }
@@ -866,7 +870,7 @@ io_queue::priority_class_data& io_queue::find_or_create_class(internal::priority
         // This conveys all the information we need and allows one to easily group all classes from
         // the same I/O queue (by filtering by shard)
         for (auto&& s : _streams) {
-            s.register_priority_class(id, shares);
+            s.fq.register_priority_class(id, shares);
         }
         auto& pg = _group->find_or_create_class(pc);
         auto pc_data = std::make_unique<priority_class_data>(pc, shares, *this, pg);
@@ -920,12 +924,12 @@ fair_queue_entry::capacity_t io_queue::request_capacity(io_direction_and_length 
     const auto& cfg = get_config();
     auto tokens = internal::request_tokens(dnl, cfg);
     if (_flow_ratio <= cfg.flow_ratio_backpressure_threshold) {
-        return _streams[request_stream(dnl)].tokens_capacity(tokens);
+        return _streams[request_stream(dnl)].fq.tokens_capacity(tokens);
     }
 
     auto stream = request_stream(dnl);
-    auto cap = _streams[stream].tokens_capacity(tokens * _flow_ratio);
-    auto max_cap = _streams[stream].maximum_capacity();
+    auto cap = _streams[stream].fq.tokens_capacity(tokens * _flow_ratio);
+    auto max_cap = _streams[stream].fq.maximum_capacity();
     return std::min(cap, max_cap);
 }
 
@@ -949,7 +953,7 @@ future<size_t> io_queue::queue_one_request(internal::priority_class pc, io_direc
             queued_req->set_intent(cq);
         }
 
-        _streams[queued_req->stream()].queue(pclass.fq_class(), queued_req->queue_entry());
+        _streams[queued_req->stream()].fq.queue(pclass.fq_class(), queued_req->queue_entry());
         queued_req.release();
         pclass.on_queue();
         _queued_requests++;
@@ -1032,7 +1036,7 @@ future<size_t> io_queue::submit_io_write(internal::priority_class pc, size_t len
 
 void io_queue::poll_io_queue() {
     for (auto&& st : _streams) {
-        st.dispatch_requests([] (fair_queue_entry& fqe) {
+        st.fq.dispatch_requests([] (fair_queue_entry& fqe) {
             queued_io_request::from_fq_entry(fqe).dispatch();
         });
     }
@@ -1047,18 +1051,18 @@ void io_queue::submit_request(io_desc_read_write* desc, internal::io_request req
 
 void io_queue::cancel_request(queued_io_request& req) noexcept {
     _queued_requests--;
-    _streams[req.stream()].notify_request_cancelled(req.queue_entry());
+    _streams[req.stream()].fq.notify_request_cancelled(req.queue_entry());
 }
 
 void io_queue::complete_cancelled_request(queued_io_request& req) noexcept {
-    _streams[req.stream()].notify_request_finished(req.queue_entry().capacity());
+    _streams[req.stream()].fq.notify_request_finished(req.queue_entry().capacity());
 }
 
 io_queue::clock_type::time_point io_queue::next_pending_aio() const noexcept {
     clock_type::time_point next = clock_type::time_point::max();
 
     for (const auto& s : _streams) {
-        clock_type::time_point n = s.next_pending_aio();
+        clock_type::time_point n = s.fq.next_pending_aio();
         if (n < next) {
             next = std::move(n);
         }
@@ -1072,7 +1076,7 @@ io_queue::update_shares_for_class(internal::priority_class pc, size_t new_shares
     auto& pclass = find_or_create_class(pc);
     pclass.update_shares(new_shares);
     for (auto&& s : _streams) {
-        s.update_shares_for_class(pclass.fq_class(), new_shares);
+        s.fq.update_shares_for_class(pclass.fq_class(), new_shares);
     }
 }
 
@@ -1102,13 +1106,13 @@ io_queue::rename_priority_class(internal::priority_class pc, sstring new_name) {
 
 void io_queue::throttle_priority_class(const priority_class_data& pc) noexcept {
     for (auto&& s : _streams) {
-        s.unplug_class(pc.fq_class());
+        s.fq.unplug_class(pc.fq_class());
     }
 }
 
 void io_queue::unthrottle_priority_class(const priority_class_data& pc) noexcept {
     for (auto&& s : _streams) {
-        s.plug_class(pc.fq_class());
+        s.fq.plug_class(pc.fq_class());
     }
 }
 
