@@ -35,7 +35,6 @@ module seastar;
 #include <seastar/util/memory_diagnostics.hh>
 #include <seastar/core/reactor_config.hh>
 #include <seastar/core/resource.hh>
-#include <seastar/core/smp.hh>
 #endif
 
 namespace seastar::program_options {
