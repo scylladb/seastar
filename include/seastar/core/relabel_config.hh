@@ -18,6 +18,9 @@
 /*
  * Copyright 2022 ScyllaDB
  */
+
+#pragma once
+
 #ifndef SEASTAR_MODULE
 #include <regex>
 #endif

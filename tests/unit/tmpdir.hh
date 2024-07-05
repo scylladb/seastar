@@ -20,6 +20,8 @@
  * Copyright (C) 2020 ScyllaDB Ltd.
  */
 
+#pragma once
+
 #include <seastar/util/tmp_file.hh>
 
 namespace seastar {
