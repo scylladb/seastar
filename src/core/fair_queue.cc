@@ -128,8 +128,7 @@ bool fair_queue::class_compare::operator() (const priority_class_ptr& lhs, const
 
 fair_queue::fair_queue(shared_throttle& group, config cfg)
     : _config(std::move(cfg))
-    , _group(group)
-    , _group_replenish(clock_type::now())
+    , _throttle(group)
 {
 }
 
@@ -192,7 +191,7 @@ void fair_queue::unplug_class(class_id cid) noexcept {
     unplug_priority_class(*_priority_classes[cid]);
 }
 
-auto fair_queue::grab_pending_capacity(capacity_t cap) noexcept -> grab_result {
+auto throttle::grab_pending_capacity(shared_throttle::capacity_t cap) noexcept -> grab_result {
     _group.maybe_replenish_capacity(_group_replenish);
 
     if (_group.capacity_deficiency(_pending->head)) {
@@ -207,12 +206,12 @@ auto fair_queue::grab_pending_capacity(capacity_t cap) noexcept -> grab_result {
     return grab_result::grabbed;
 }
 
-auto fair_queue::grab_capacity(capacity_t cap) noexcept -> grab_result {
+auto throttle::grab_capacity(shared_throttle::capacity_t cap) noexcept -> grab_result {
     if (_pending) {
         return grab_pending_capacity(cap);
     }
 
-    capacity_t want_head = _group.grab_capacity(cap);
+    auto want_head = _group.grab_capacity(cap);
     if (_group.capacity_deficiency(want_head)) {
         _pending.emplace(want_head, cap);
         return grab_result::pending;
@@ -274,6 +273,10 @@ void fair_queue::notify_request_cancelled(fair_queue_entry& ent) noexcept {
 }
 
 fair_queue::clock_type::time_point fair_queue::next_pending_aio() const noexcept {
+    return _throttle.next_pending();
+}
+
+throttle::clock_type::time_point throttle::next_pending() const noexcept {
     if (_pending) {
         /*
          * We expect the disk to release the ticket within some time,
@@ -297,7 +300,7 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
     capacity_t dispatched = 0;
     boost::container::small_vector<priority_class_ptr, 2> preempt;
 
-    while (!_handles.empty() && (dispatched < _group.per_tick_grab_threshold())) {
+    while (!_handles.empty() && (dispatched < _throttle.per_tick_grab_threshold())) {
         priority_class_data& h = *_handles.top();
         if (h._queue.empty() || !h._plugged) {
             pop_priority_class(h);
@@ -305,7 +308,7 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         }
 
         auto& req = h._queue.front();
-        auto gr = grab_capacity(req._capacity);
+        auto gr = _throttle.grab_capacity(req._capacity);
         if (gr == grab_result::pending) {
             break;
         }

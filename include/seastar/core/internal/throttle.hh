@@ -168,4 +168,53 @@ public:
     const token_bucket_t& token_bucket() const noexcept { return _token_bucket; }
 };
 
+class throttle {
+    using clock_type = std::chrono::steady_clock;
+
+    /*
+     * When the shared capacity os over the local queue delays
+     * further dispatching untill better times
+     *
+     * \head  -- the value group head rover is expected to cross
+     * \cap   -- the capacity that's accounted on the group
+     *
+     * The last field is needed to "rearm" the wait in case
+     * queue decides that it wants to dispatch another capacity
+     * in the middle of the waiting
+     */
+    struct pending {
+        shared_throttle::capacity_t head;
+        shared_throttle::capacity_t cap;
+
+        pending(shared_throttle::capacity_t t, shared_throttle::capacity_t c) noexcept : head(t), cap(c) {}
+    };
+
+    shared_throttle& _group;
+    clock_type::time_point _group_replenish;
+    std::optional<pending> _pending;
+public:
+    throttle(shared_throttle& st) noexcept
+        : _group(st)
+        , _group_replenish(clock_type::now())
+    {}
+
+    enum class grab_result { grabbed, cant_preempt, pending };
+    grab_result grab_capacity(shared_throttle::capacity_t) noexcept;
+    grab_result grab_pending_capacity(shared_throttle::capacity_t) noexcept;
+
+    shared_throttle::capacity_t tokens_capacity(double tokens) const noexcept {
+        return _group.tokens_capacity(tokens);
+    }
+
+    shared_throttle::capacity_t maximum_capacity() const noexcept {
+        return _group.maximum_capacity();
+    }
+
+    shared_throttle::capacity_t per_tick_grab_threshold() const noexcept {
+        return _group.per_tick_grab_threshold();
+    }
+
+    clock_type::time_point next_pending() const noexcept;
+};
+
 } // seastar namespace

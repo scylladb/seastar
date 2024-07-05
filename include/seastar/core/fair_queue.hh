@@ -180,8 +180,6 @@ private:
     };
 
     config _config;
-    shared_throttle& _group;
-    clock_type::time_point _group_replenish;
     fair_queue_ticket _resources_executing;
     fair_queue_ticket _resources_queued;
     priority_queue _handles;
@@ -189,25 +187,7 @@ private:
     size_t _nr_classes = 0;
     capacity_t _last_accumulated = 0;
 
-    /*
-     * When the shared capacity os over the local queue delays
-     * further dispatching untill better times
-     *
-     * \head  -- the value group head rover is expected to cross
-     * \cap   -- the capacity that's accounted on the group
-     *
-     * The last field is needed to "rearm" the wait in case
-     * queue decides that it wants to dispatch another capacity
-     * in the middle of the waiting
-     */
-    struct pending {
-        capacity_t head;
-        capacity_t cap;
-
-        pending(capacity_t t, capacity_t c) noexcept : head(t), cap(c) {}
-    };
-
-    std::optional<pending> _pending;
+    throttle _throttle;
 
     void push_priority_class(priority_class_data& pc) noexcept;
     void push_priority_class_from_idle(priority_class_data& pc) noexcept;
@@ -215,9 +195,7 @@ private:
     void plug_priority_class(priority_class_data& pc) noexcept;
     void unplug_priority_class(priority_class_data& pc) noexcept;
 
-    enum class grab_result { grabbed, cant_preempt, pending };
-    grab_result grab_capacity(capacity_t) noexcept;
-    grab_result grab_pending_capacity(capacity_t) noexcept;
+    using grab_result = throttle::grab_result;
 public:
     /// Constructs a fair queue with configuration parameters \c cfg.
     ///
@@ -247,11 +225,11 @@ public:
     fair_queue_ticket resources_currently_executing() const;
 
     capacity_t tokens_capacity(double tokens) const noexcept {
-        return _group.tokens_capacity(tokens);
+        return _throttle.tokens_capacity(tokens);
     }
 
     capacity_t maximum_capacity() const noexcept {
-        return _group.maximum_capacity();
+        return _throttle.maximum_capacity();
     }
 
     /// Queue the entry \c ent through this class' \ref fair_queue
