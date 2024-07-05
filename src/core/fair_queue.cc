@@ -42,7 +42,6 @@ module seastar;
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/circular_buffer.hh>
 #include <seastar/util/noncopyable_function.hh>
-#include <seastar/core/reactor.hh>
 #include <seastar/core/metrics.hh>
 #endif
 
