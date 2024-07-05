@@ -16,6 +16,7 @@ target_sources (seastar-module
     core/exception_hacks.cc
     core/execution_stage.cc
     core/fair_queue.cc
+    core/throttle.cc
     core/file.cc
     core/fsnotify.cc
     core/fstream.cc

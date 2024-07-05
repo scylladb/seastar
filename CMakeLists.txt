@@ -691,6 +691,7 @@ add_library (seastar
   src/core/alien.cc
   src/core/file.cc
   src/core/fair_queue.cc
+  src/core/throttle.cc
   src/core/reactor_backend.cc
   src/core/thread_pool.cc
   src/core/app-template.cc
