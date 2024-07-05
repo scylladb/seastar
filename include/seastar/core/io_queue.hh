@@ -222,7 +222,7 @@ private:
 
     const io_queue::config _config;
     size_t _max_request_length[2];
-    boost::container::static_vector<shared_throttle, 2> _fgs;
+    boost::container::static_vector<shared_throttle, 2> _throttle;
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
     util::spinlock _lock;
     const shard_id _allocated_on;
