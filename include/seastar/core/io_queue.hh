@@ -171,7 +171,6 @@ public:
     throttle::grab_result can_dispatch_request(const queued_io_request& rq) noexcept;
     void submit_request(io_desc_read_write* desc, internal::io_request req) noexcept;
     void cancel_request(queued_io_request& req) noexcept;
-    void complete_cancelled_request(queued_io_request& req) noexcept;
     void complete_request(io_desc_read_write& desc) noexcept;
 
     [[deprecated("I/O queue users should not track individual requests, but resources (weight, size) passing through the queue")]]

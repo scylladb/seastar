@@ -304,7 +304,6 @@ public:
 
     virtual void dispatch() noexcept override {
         if (is_cancelled()) {
-            _ioq.complete_cancelled_request(*this);
             delete this;
             return;
         }
@@ -1053,9 +1052,6 @@ throttle::grab_result io_queue::can_dispatch_request(const queued_io_request& rq
 
 void io_queue::cancel_request(queued_io_request& req) noexcept {
     _queued_requests--;
-}
-
-void io_queue::complete_cancelled_request(queued_io_request& req) noexcept {
 }
 
 io_queue::clock_type::time_point io_queue::next_pending_aio() const noexcept {
