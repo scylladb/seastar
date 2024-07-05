@@ -46,7 +46,6 @@
 #include <seastar/core/scheduling_specific.hh>
 #include <seastar/core/seastar.hh>
 #include <seastar/core/semaphore.hh>
-#include <seastar/core/smp.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/core/thread_cputime_clock.hh>

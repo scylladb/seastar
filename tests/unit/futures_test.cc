@@ -33,6 +33,7 @@
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/core/sleep.hh>
+#include <seastar/core/smp.hh>
 #include <seastar/core/stream.hh>
 #include <seastar/util/backtrace.hh>
 #include <seastar/core/do_with.hh>
