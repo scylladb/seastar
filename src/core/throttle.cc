@@ -62,5 +62,53 @@ auto shared_throttle::capacity_deficiency(capacity_t from) const noexcept -> cap
     return _token_bucket.deficiency(from);
 }
 
+auto throttle::grab_pending_capacity(shared_throttle::capacity_t cap) noexcept -> grab_result {
+    _group.maybe_replenish_capacity(_group_replenish);
+
+    if (_group.capacity_deficiency(_pending->head)) {
+        return grab_result::pending;
+    }
+
+    if (cap > _pending->cap) {
+        return grab_result::cant_preempt;
+    }
+
+    _pending.reset();
+    return grab_result::grabbed;
+}
+
+auto throttle::grab_capacity(shared_throttle::capacity_t cap) noexcept -> grab_result {
+    if (_pending) {
+        return grab_pending_capacity(cap);
+    }
+
+    auto want_head = _group.grab_capacity(cap);
+    if (_group.capacity_deficiency(want_head)) {
+        _pending.emplace(want_head, cap);
+        return grab_result::pending;
+    }
+
+    return grab_result::grabbed;
+}
+
+throttle::clock_type::time_point throttle::next_pending() const noexcept {
+    if (_pending) {
+        /*
+         * We expect the disk to release the ticket within some time,
+         * but it's ... OK if it doesn't -- the pending wait still
+         * needs the head rover value to be ahead of the needed value.
+         *
+         * It may happen that the capacity gets released before we think
+         * it will, in this case we will wait for the full value again,
+         * which's sub-optimal. The expectation is that we think disk
+         * works faster, than it really does.
+         */
+        auto over = _group.capacity_deficiency(_pending->head);
+        auto ticks = _group.capacity_duration(over);
+        return std::chrono::steady_clock::now() + std::chrono::duration_cast<std::chrono::microseconds>(ticks);
+    }
+
+    return std::chrono::steady_clock::time_point::max();
+}
 
 } // seastar namespace
