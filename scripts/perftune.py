@@ -575,7 +575,7 @@ class NetPerfTuner(PerfTunerBase):
 
         self.nics=args.nics
 
-        self.__nic_is_bond_iface = self.__check_dev_is_bond_iface()
+        self.__nic_is_bond_iface = NetPerfTuner.__get_bond_ifaces()
         self.__slaves = self.__learn_slaves()
 
         # check that self.nics contain a HW device or a bonding interface
@@ -606,7 +606,7 @@ class NetPerfTuner(PerfTunerBase):
         fwriteln_and_log('/proc/sys/net/ipv4/tcp_max_syn_backlog', '4096')
 
     def nic_is_bond_iface(self, nic):
-        return self.__nic_is_bond_iface[nic]
+        return self.__nic_is_bond_iface.get(nic, False)
 
     def nic_exists(self, nic):
         return self.__iface_exists(nic)
@@ -732,15 +732,16 @@ class NetPerfTuner(PerfTunerBase):
     def __dev_is_hw_iface(self, iface):
         return os.path.exists("/sys/class/net/{}/device".format(iface))
 
-    def __check_dev_is_bond_iface(self):
-        bond_dict = {}
+    @staticmethod
+    def __get_bond_ifaces():
         if not os.path.exists('/sys/class/net/bonding_masters'):
-            for nic in self.nics:
-                bond_dict[nic] = False
-            #return False for every nic
-            return bond_dict
-        for nic in self.nics:
-            bond_dict[nic] = any([re.search(nic, line) for line in open('/sys/class/net/bonding_masters', 'r').readlines()])
+            return {}
+
+        bond_dict = {}
+        for line in open('/sys/class/net/bonding_masters', 'r').readlines():
+            for nic in line.split():
+                bond_dict[nic] = True
+
         return bond_dict
 
     def __learn_slaves_one(self, nic):
@@ -749,11 +750,18 @@ class NetPerfTuner(PerfTunerBase):
 
         :param nic: An interface to search slaves for
         """
-        slaves_list = []
+        slaves_list = set()
 
         if self.nic_is_bond_iface(nic):
-            slaves_list = list(itertools.chain.from_iterable(
+            top_slaves_list = set(itertools.chain.from_iterable(
                 [line.split() for line in open("/sys/class/net/{}/bonding/slaves".format(nic), 'r').readlines()]))
+
+            # Slaves can be themselves bonded devices: let's descend (DFS) all the way down to get physical devices
+            for s in top_slaves_list:
+                if self.nic_is_bond_iface(s):
+                    slaves_list |= self.__learn_slaves_one(s)
+                else:
+                    slaves_list.add(s)
 
         return slaves_list
 
@@ -765,7 +773,7 @@ class NetPerfTuner(PerfTunerBase):
         for nic in self.nics:
             current_slaves = self.__learn_slaves_one(nic)
             if current_slaves:
-                slaves_list_per_nic[nic] = current_slaves
+                slaves_list_per_nic[nic] = list(current_slaves)
 
         return slaves_list_per_nic
 
