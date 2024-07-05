@@ -523,6 +523,8 @@ sstring io_request::opname() const {
         return "poll remove";
     case io_request::operation::cancel:
         return "cancel";
+    case io_request::operation::discard:
+        return "discard";
     }
     std::abort();
 }
