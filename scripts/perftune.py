@@ -743,11 +743,29 @@ class NetPerfTuner(PerfTunerBase):
             bond_dict[nic] = any([re.search(nic, line) for line in open('/sys/class/net/bonding_masters', 'r').readlines()])
         return bond_dict
 
+    def __learn_slaves_one(self, nic):
+        """
+        Learn underlying physical devices a given NIC
+
+        :param nic: An interface to search slaves for
+        """
+        slaves_list = []
+
+        if self.nic_is_bond_iface(nic):
+            slaves_list = list(itertools.chain.from_iterable(
+                [line.split() for line in open("/sys/class/net/{}/bonding/slaves".format(nic), 'r').readlines()]))
+
+        return slaves_list
+
     def __learn_slaves(self):
+        """
+        Resolve underlying physical devices for interfaces we are requested to configure
+        """
         slaves_list_per_nic = {}
         for nic in self.nics:
-            if self.nic_is_bond_iface(nic):
-                slaves_list_per_nic[nic] = list(itertools.chain.from_iterable([line.split() for line in open("/sys/class/net/{}/bonding/slaves".format(nic), 'r').readlines()]))
+            current_slaves = self.__learn_slaves_one(nic)
+            if current_slaves:
+                slaves_list_per_nic[nic] = current_slaves
 
         return slaves_list_per_nic
 
