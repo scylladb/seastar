@@ -95,6 +95,7 @@ private:
     io_group_ptr _group;
     struct stream {
         fair_queue fq;
+        throttle thr;
         stream(shared_throttle&, fair_queue::config);
     };
     boost::container::static_vector<stream, 2> _streams;
@@ -167,6 +168,7 @@ public:
     future<size_t> submit_io_write(internal::priority_class priority_class,
             size_t len, internal::io_request req, io_intent* intent, iovec_keeper iovs = {}) noexcept;
 
+    throttle::grab_result can_dispatch_request(const queued_io_request& rq) noexcept;
     void submit_request(io_desc_read_write* desc, internal::io_request req) noexcept;
     void cancel_request(queued_io_request& req) noexcept;
     void complete_cancelled_request(queued_io_request& req) noexcept;

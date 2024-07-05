@@ -212,7 +212,8 @@ public:
 };
 
 io_queue::stream::stream(shared_throttle& st, fair_queue::config cfg)
-        : fq(st, std::move(cfg))
+        : fq(std::move(cfg))
+        , thr(st)
 { }
 
 class io_desc_read_write final : public io_completion {
@@ -296,6 +297,10 @@ public:
 
     queued_io_request(queued_io_request&&) = delete;
     ~queued_io_request() = default;
+
+    virtual throttle::grab_result can_dispatch() const noexcept {
+        return _ioq.can_dispatch_request(*this);
+    }
 
     virtual void dispatch() noexcept override {
         if (is_cancelled()) {
@@ -919,12 +924,12 @@ fair_queue_entry::capacity_t io_queue::request_capacity(io_direction_and_length 
     const auto& cfg = get_config();
     auto tokens = internal::request_tokens(dnl, cfg);
     if (_flow_ratio <= cfg.flow_ratio_backpressure_threshold) {
-        return _streams[request_stream(dnl)].fq.tokens_capacity(tokens);
+        return _streams[request_stream(dnl)].thr.tokens_capacity(tokens);
     }
 
     auto stream = request_stream(dnl);
-    auto cap = _streams[stream].fq.tokens_capacity(tokens * _flow_ratio);
-    auto max_cap = _streams[stream].fq.maximum_capacity();
+    auto cap = _streams[stream].thr.tokens_capacity(tokens * _flow_ratio);
+    auto max_cap = _streams[stream].thr.maximum_capacity();
     return std::min(cap, max_cap);
 }
 
@@ -1042,6 +1047,10 @@ void io_queue::submit_request(io_desc_read_write* desc, internal::io_request req
     _sink.submit(desc, std::move(req));
 }
 
+throttle::grab_result io_queue::can_dispatch_request(const queued_io_request& rq) noexcept {
+    return _streams[rq.stream()].thr.grab_capacity(rq.capacity());
+}
+
 void io_queue::cancel_request(queued_io_request& req) noexcept {
     _queued_requests--;
     _streams[req.stream()].fq.notify_request_cancelled(req);
@@ -1055,7 +1064,7 @@ io_queue::clock_type::time_point io_queue::next_pending_aio() const noexcept {
     clock_type::time_point next = clock_type::time_point::max();
 
     for (const auto& s : _streams) {
-        clock_type::time_point n = s.fq.next_pending_aio();
+        clock_type::time_point n = s.thr.next_pending();
         if (n < next) {
             next = std::move(n);
         }

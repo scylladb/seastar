@@ -32,22 +32,15 @@
 static constexpr fair_queue::class_id cid = 0;
 
 struct local_fq_and_class {
-    seastar::shared_throttle fg;
     seastar::fair_queue fq;
     seastar::fair_queue sfq;
     unsigned executed = 0;
 
-    static shared_throttle::config fg_config() {
-        shared_throttle::config cfg;
-        return cfg;
-    }
-
     seastar::fair_queue& queue(bool local) noexcept { return local ? fq : sfq; }
 
-    local_fq_and_class(seastar::shared_throttle& sfg)
-        : fg(fg_config(), 1)
-        , fq(fg, seastar::fair_queue::config())
-        , sfq(sfg, seastar::fair_queue::config())
+    local_fq_and_class()
+        : fq(seastar::fair_queue::config())
+        , sfq(seastar::fair_queue::config())
     {
         fq.register_priority_class(cid, 1);
         sfq.register_priority_class(cid, 1);
@@ -67,6 +60,10 @@ struct local_fq_entry final : public seastar::fair_queue_entry {
         : fair_queue_entry(cap)
         , submit(std::move(f)) {}
 
+    virtual throttle::grab_result can_dispatch() const noexcept override {
+        return throttle::grab_result::grabbed;
+    }
+
     virtual void dispatch() noexcept override {
         submit();
         delete this;
@@ -79,17 +76,9 @@ struct perf_fair_queue {
 
     seastar::sharded<local_fq_and_class> local_fq;
 
-    seastar::shared_throttle shared_fg;
-
-    static shared_throttle::config fg_config() {
-        shared_throttle::config cfg;
-        return cfg;
-    }
-
     perf_fair_queue()
-        : shared_fg(fg_config(), smp::count)
     {
-        local_fq.start(std::ref(shared_fg)).get();
+        local_fq.start().get();
     }
 
     ~perf_fair_queue() {
@@ -103,10 +92,9 @@ future<> perf_fair_queue::test(bool loc) {
 
     auto invokers = local_fq.invoke_on_all([loc] (local_fq_and_class& local) {
         return parallel_for_each(boost::irange(0u, requests_to_dispatch), [&local, loc] (unsigned dummy) {
-            auto cap = local.queue(loc).tokens_capacity(double(1) / std::numeric_limits<int>::max() + double(1) / std::numeric_limits<int>::max());
-            auto req = std::make_unique<local_fq_entry>(cap, [&local, loc, cap] {
+            auto req = std::make_unique<local_fq_entry>(100, [&local, loc] {
                 local.executed++;
-                local.queue(loc).notify_request_finished(cap);
+                local.queue(loc).notify_request_finished(100);
             });
             local.queue(loc).queue(cid, *req);
             req.release();

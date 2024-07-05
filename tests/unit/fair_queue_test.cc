@@ -47,6 +47,10 @@ struct request final : public fair_queue_entry {
         , index(index)
     {}
 
+    virtual throttle::grab_result can_dispatch() const noexcept override {
+        return throttle::grab_result::grabbed;
+    }
+
     virtual void dispatch() noexcept override {
         handle(*this);
         delete this;
@@ -54,18 +58,11 @@ struct request final : public fair_queue_entry {
 };
 
 class test_env {
-    shared_throttle _fg;
     fair_queue _fq;
     std::vector<int> _results;
     std::vector<std::vector<std::exception_ptr>> _exceptions;
     fair_queue::class_id _nr_classes = 0;
     std::vector<request> _inflight;
-
-    static shared_throttle::config fg_config(unsigned cap) {
-        shared_throttle::config cfg;
-        cfg.rate_limit_duration = std::chrono::microseconds(cap);
-        return cfg;
-    }
 
     static fair_queue::config fq_config() {
         fair_queue::config cfg;
@@ -74,21 +71,13 @@ class test_env {
     }
 
     void drain() {
-        while (true) {
-            if (tick()) {
-                continue;
-            }
-            auto ts = _fq.next_pending_aio();
-            if (ts == std::chrono::steady_clock::time_point::max()) {
-                break;
-            }
-            sleep(ts - std::chrono::steady_clock::now()).get();
+        while (tick()) {
+            continue;
         }
     }
 public:
     test_env(unsigned capacity)
-        : _fg(fg_config(capacity), 1)
-        , _fq(_fg, fq_config())
+        : _fq(fq_config())
     {}
 
     // As long as there is a request sitting in the queue, tick() will process
@@ -101,7 +90,6 @@ public:
     unsigned tick(unsigned n = 0) {
         unsigned processed = 0;
         while (true) {
-            _fg.replenish_capacity(_fg.replenished_ts() + std::chrono::microseconds(1));
             _fq.dispatch_requests();
 
             std::vector<request> curr;
@@ -137,8 +125,7 @@ public:
 
     void do_op(fair_queue::class_id id, unsigned weight) {
         unsigned index = id;
-        auto cap = _fq.tokens_capacity(double(weight) / 1'000'000);
-        auto req = std::make_unique<request>(cap, index, [this, index] (request& req) mutable noexcept {
+        auto req = std::make_unique<request>(weight * 1000, index, [this, index] (request& req) mutable noexcept {
             try {
                 _inflight.push_back(std::move(req));
             } catch (...) {

@@ -126,6 +126,7 @@ public:
             bi::member_hook<fair_queue_entry, bi::slist_member_hook<>, &fair_queue_entry::_hook>>;
 
     capacity_t capacity() const noexcept { return _capacity; }
+    virtual throttle::grab_result can_dispatch() const noexcept = 0;
     virtual void dispatch() = 0;
 };
 
@@ -191,20 +192,17 @@ private:
     size_t _nr_classes = 0;
     capacity_t _last_accumulated = 0;
 
-    throttle _throttle;
-
     void push_priority_class(priority_class_data& pc) noexcept;
     void push_priority_class_from_idle(priority_class_data& pc) noexcept;
     void pop_priority_class(priority_class_data& pc) noexcept;
     void plug_priority_class(priority_class_data& pc) noexcept;
     void unplug_priority_class(priority_class_data& pc) noexcept;
 
-    using grab_result = throttle::grab_result;
 public:
     /// Constructs a fair queue with configuration parameters \c cfg.
     ///
     /// \param cfg an instance of the class \ref config
-    explicit fair_queue(shared_throttle& shared, config cfg);
+    explicit fair_queue(config cfg);
     fair_queue(fair_queue&&) = delete;
     ~fair_queue();
 
@@ -228,14 +226,6 @@ public:
     /// \return the amount of resources (weight, size) currently executing
     fair_queue_ticket resources_currently_executing() const;
 
-    capacity_t tokens_capacity(double tokens) const noexcept {
-        return _throttle.tokens_capacity(tokens);
-    }
-
-    capacity_t maximum_capacity() const noexcept {
-        return _throttle.maximum_capacity();
-    }
-
     /// Queue the entry \c ent through this class' \ref fair_queue
     ///
     /// The user of this interface is supposed to call \ref notify_requests_finished when the
@@ -252,8 +242,6 @@ public:
 
     /// Try to execute new requests if there is capacity left in the queue.
     void dispatch_requests();
-
-    clock_type::time_point next_pending_aio() const noexcept;
 
     std::vector<seastar::metrics::impl::metric_definition_impl> metrics(class_id c);
 };

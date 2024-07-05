@@ -126,9 +126,8 @@ bool fair_queue::class_compare::operator() (const priority_class_ptr& lhs, const
     return lhs->_accumulated > rhs->_accumulated;
 }
 
-fair_queue::fair_queue(shared_throttle& group, config cfg)
+fair_queue::fair_queue(config cfg)
     : _config(std::move(cfg))
-    , _throttle(group)
 {
 }
 
@@ -243,15 +242,11 @@ void fair_queue::notify_request_cancelled(fair_queue_entry& ent) noexcept {
     ent._capacity = 0;
 }
 
-fair_queue::clock_type::time_point fair_queue::next_pending_aio() const noexcept {
-    return _throttle.next_pending();
-}
-
 void fair_queue::dispatch_requests() {
     capacity_t dispatched = 0;
     boost::container::small_vector<priority_class_ptr, 2> preempt;
 
-    while (!_handles.empty() && (dispatched < _throttle.per_tick_grab_threshold())) {
+    while (!_handles.empty()) {
         priority_class_data& h = *_handles.top();
         if (h._queue.empty() || !h._plugged) {
             pop_priority_class(h);
@@ -259,12 +254,12 @@ void fair_queue::dispatch_requests() {
         }
 
         auto& req = h._queue.front();
-        auto gr = _throttle.grab_capacity(req._capacity);
-        if (gr == grab_result::pending) {
+        auto gr = req.can_dispatch();
+        if (gr == throttle::grab_result::pending) {
             break;
         }
 
-        if (gr == grab_result::cant_preempt) {
+        if (gr == throttle::grab_result::cant_preempt) {
             pop_priority_class(h);
             preempt.emplace_back(&h);
             continue;
