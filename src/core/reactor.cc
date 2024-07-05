@@ -2219,40 +2219,36 @@ void reactor::kill(pid_t pid, int sig) {
     ret.throw_if_error();
 }
 
-future<group_details> reactor::grp_detail(std::string_view groupname) noexcept {
-    return futurize_invoke([groupname, this] {
-        return _thread_pool->submit<syscall_result_extra<struct group>>([groupname = sstring(groupname)] {
-            struct group *gg = ::getgrnam(groupname.c_str());
-            if (!gg) {
-                return wrap_syscall(-1, *gg); // Simulating failure
+future<std::optional<struct group>> reactor::getgrnam(std::string_view name, char *buf, size_t buflen) {
+    return futurize_invoke([name, buf, buflen, this] {
+        return _thread_pool->submit<syscall_result_extra<std::optional<struct group>>>([name = sstring(name), buf, buflen] {
+            errno = 0;
+            struct group grp;
+            struct group *result;
+            memset(&grp, 0, sizeof(struct group));
+            int ret = ::getgrnam_r(name.c_str(), &grp, buf, buflen, &result);
+            if (!result) {
+                return wrap_syscall(ret, std::optional<struct group>(std::nullopt));
             }
-            return wrap_syscall(0, *gg);
-        }).then([groupname = sstring(groupname)] (syscall_result_extra<struct group> gr) {
-            gr.throw_fs_exception_if_error("group failed", groupname);
-            struct group& g = gr.extra;
-            group_details g_details;
-            g_details.group_name = g.gr_name;
-            g_details.group_password = g.gr_passwd;
-            g_details.group_gid = g.gr_gid;
-            g_details.group_member = g.gr_mem;
-            return make_ready_future<group_details>(std::move(g_details));
+            return wrap_syscall(ret, std::optional<struct group>(*result));
+        }).then([] (syscall_result_extra<std::optional<struct group>> sr) {
+            if (sr.result != 0) {
+                // getgrnam_r, in case of error, an error number is returned (here it is stored in result), 
+                // which is the same as the error code in errno
+                throw std::error_code(sr.result, std::system_category());
+            }
+            return make_ready_future<std::optional<struct group>>(std::optional<struct group>(std::move(sr.extra)));
         });
     });
 }
 
-future<> reactor::change_ownership_of_file(std::string_view filepath, uint64_t groupid) noexcept {
-    return futurize_invoke([filepath, groupid, this] {
-        return _thread_pool->submit<syscall_result<int>>([filepath = sstring(filepath), groupid] {
-            int chown_result = ::chown(filepath.c_str(), ::geteuid(), groupid);
+future<> reactor::chown(std::string_view filepath, uid_t owner, gid_t group) {
+    return futurize_invoke([filepath, owner, group, this] {
+        return _thread_pool->submit<syscall_result<int>>([filepath = sstring(filepath), owner, group] {
+            int chown_result = ::chown(filepath.c_str(), owner, group);
             return wrap_syscall(chown_result);
-        }).then([filepath = sstring(filepath), groupid] (syscall_result<int> sr) {
-            if (sr.result < 0) {
-                if (sr.error == EPERM) {
-                    sr.throw_fs_exception(format("Failed to change group of {}: Permission denied. Make sure the user has the root privilege or is a member of the group {}.", filepath, groupid), fs::path(filepath));
-                } else {
-                    sr.throw_fs_exception(format("Failed to chown {}: {} ()", filepath, strerror(sr.error)), fs::path(filepath));
-                }
-            }
+        }).then([] (syscall_result<int> sr) {
+            sr.throw_if_error();
             return make_ready_future<>();
         });
     });
