@@ -192,14 +192,13 @@ void fair_queue::unplug_class(class_id cid) noexcept {
     unplug_priority_class(*_priority_classes[cid]);
 }
 
-auto fair_queue::grab_pending_capacity(const fair_queue_entry& ent) noexcept -> grab_result {
+auto fair_queue::grab_pending_capacity(capacity_t cap) noexcept -> grab_result {
     _group.maybe_replenish_capacity(_group_replenish);
 
     if (_group.capacity_deficiency(_pending->head)) {
         return grab_result::pending;
     }
 
-    capacity_t cap = ent._capacity;
     if (cap > _pending->cap) {
         return grab_result::cant_preempt;
     }
@@ -208,12 +207,11 @@ auto fair_queue::grab_pending_capacity(const fair_queue_entry& ent) noexcept -> 
     return grab_result::grabbed;
 }
 
-auto fair_queue::grab_capacity(const fair_queue_entry& ent) noexcept -> grab_result {
+auto fair_queue::grab_capacity(capacity_t cap) noexcept -> grab_result {
     if (_pending) {
-        return grab_pending_capacity(ent);
+        return grab_pending_capacity(cap);
     }
 
-    capacity_t cap = ent._capacity;
     capacity_t want_head = _group.grab_capacity(cap);
     if (_group.capacity_deficiency(want_head)) {
         _pending.emplace(want_head, cap);
@@ -307,7 +305,7 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         }
 
         auto& req = h._queue.front();
-        auto gr = grab_capacity(req);
+        auto gr = grab_capacity(req._capacity);
         if (gr == grab_result::pending) {
             break;
         }

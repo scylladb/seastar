@@ -216,8 +216,8 @@ private:
     void unplug_priority_class(priority_class_data& pc) noexcept;
 
     enum class grab_result { grabbed, cant_preempt, pending };
-    grab_result grab_capacity(const fair_queue_entry& ent) noexcept;
-    grab_result grab_pending_capacity(const fair_queue_entry& ent) noexcept;
+    grab_result grab_capacity(capacity_t) noexcept;
+    grab_result grab_pending_capacity(capacity_t) noexcept;
 public:
     /// Constructs a fair queue with configuration parameters \c cfg.
     ///
