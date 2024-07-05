@@ -767,8 +767,8 @@ class NetPerfTuner(PerfTunerBase):
         :param irq: IRQ number
         :return: HW queue index for Intel NICs and sys.maxsize for all other NICs
         """
-        intel_fp_irq_re = re.compile("\-TxRx\-(\d+)")
-        fdir_re = re.compile("fdir\-TxRx\-\d+")
+        intel_fp_irq_re = re.compile(r"-TxRx-(\d+)")
+        fdir_re = re.compile(r"fdir-TxRx-\d+")
 
         m = intel_fp_irq_re.search(self.__irqs2procline[irq])
         m1 = fdir_re.search(self.__irqs2procline[irq])
@@ -792,8 +792,8 @@ class NetPerfTuner(PerfTunerBase):
         :param irq: IRQ number
         :return: HW queue index for Mellanox NICs and sys.maxsize for all other NICs
         """
-        mlx5_fp_irq_re = re.compile("mlx5_comp(\d+)")
-        mlx4_fp_irq_re = re.compile("mlx4\-(\d+)")
+        mlx5_fp_irq_re = re.compile(r"mlx5_comp(\d+)")
+        mlx4_fp_irq_re = re.compile(r"mlx4-(\d+)")
 
         m5 = mlx5_fp_irq_re.search(self.__irqs2procline[irq])
         if m5:
@@ -878,7 +878,7 @@ class NetPerfTuner(PerfTunerBase):
         """
         # filter 'all_irqs' to only reference valid keys from 'irqs2procline' and avoid an IndexError on the 'irqs' search below
         all_irqs = set(learn_all_irqs_one("/sys/class/net/{}/device".format(iface), self.__irqs2procline, iface)).intersection(self.__irqs2procline.keys())
-        fp_irqs_re = re.compile("\-TxRx\-|\-fp\-|\-Tx\-Rx\-|mlx4-\d+@|mlx5_comp\d+@|virtio\d+-(input|output)")
+        fp_irqs_re = re.compile(r"-TxRx-|-fp-|-Tx-Rx-|mlx4-\d+@|mlx5_comp\d+@|virtio\d+-(input|output)")
         irqs = sorted(list(filter(lambda irq : fp_irqs_re.search(self.__irqs2procline[irq]), all_irqs)))
         if irqs:
             irqs.sort(key=self.__get_irq_to_queue_idx_functor(iface))
@@ -1388,7 +1388,7 @@ class DiskPerfTuner(PerfTunerBase):
                 #      /sys/devices/pci0000:00/0000:00:02.0/0000:02:00.0/host6/target6:2:0/6:2:0:0/block/sda/sda1
                 # We want only the path till the last BDF including - it contains the IRQs information.
 
-                patt = re.compile("^[0-9ABCDEFabcdef]{4}\:[0-9ABCDEFabcdef]{2}\:[0-9ABCDEFabcdef]{2}\.[0-9ABCDEFabcdef]$")
+                patt = re.compile(r"^[0-9ABCDEFabcdef]{4}:[0-9ABCDEFabcdef]{2}:[0-9ABCDEFabcdef]{2}\.[0-9ABCDEFabcdef]$")
                 for split_sys_path_branch in split_sys_path[4:]:
                     if patt.search(split_sys_path_branch):
                         controller_path_parts.append(split_sys_path_branch)
