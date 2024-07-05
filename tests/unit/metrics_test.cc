@@ -24,7 +24,6 @@
 #include <seastar/core/metrics.hh>
 #include <seastar/core/metrics_api.hh>
 #include <seastar/core/relabel_config.hh>
-#include <seastar/core/reactor.hh>
 #include <seastar/core/scheduling.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/sharded.hh>

@@ -19,7 +19,6 @@
 /*
  * Copyright (C) 2022 Kefu Chai ( tchaikov@gmail.com )
  */
-#include <seastar/core/reactor.hh>
 #include <seastar/core/seastar.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/util/log.hh>
