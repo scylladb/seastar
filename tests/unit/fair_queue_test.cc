@@ -55,15 +55,15 @@ struct request {
 };
 
 class test_env {
-    fair_group _fg;
+    shared_throttle _fg;
     fair_queue _fq;
     std::vector<int> _results;
     std::vector<std::vector<std::exception_ptr>> _exceptions;
     fair_queue::class_id _nr_classes = 0;
     std::vector<request> _inflight;
 
-    static fair_group::config fg_config(unsigned cap) {
-        fair_group::config cfg;
+    static shared_throttle::config fg_config(unsigned cap) {
+        shared_throttle::config cfg;
         cfg.rate_limit_duration = std::chrono::microseconds(cap);
         return cfg;
     }

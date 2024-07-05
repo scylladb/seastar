@@ -527,7 +527,7 @@ sstring io_request::opname() const {
     std::abort();
 }
 
-const fair_group& get_fair_group(const io_queue& ioq, unsigned stream) {
+const shared_throttle& io_throttle(const io_queue& ioq, unsigned stream) {
     return ioq._group->_fgs[stream];
 }
 
@@ -588,8 +588,8 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     });
 }
 
-fair_group::config io_group::make_fair_group_config(const io_queue::config& qcfg) noexcept {
-    fair_group::config cfg;
+shared_throttle::config io_group::make_throttle_config(const io_queue::config& qcfg) noexcept {
+    shared_throttle::config cfg;
     cfg.label = fmt::format("io-queue-{}", qcfg.devid);
     double min_weight = std::min(io_queue::read_request_base_count, qcfg.disk_req_write_to_read_multiplier);
     double min_size = std::min(io_queue::read_request_base_count, qcfg.disk_blocks_write_to_read_multiplier);
@@ -609,7 +609,7 @@ io_group::io_group(io_queue::config io_cfg, unsigned nr_queues)
     : _config(std::move(io_cfg))
     , _allocated_on(this_shard_id())
 {
-    auto fg_cfg = make_fair_group_config(_config);
+    auto fg_cfg = make_throttle_config(_config);
     _fgs.emplace_back(fg_cfg, nr_queues);
     if (_config.duplex) {
         _fgs.emplace_back(fg_cfg, nr_queues);
