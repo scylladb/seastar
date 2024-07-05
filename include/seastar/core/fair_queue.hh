@@ -114,6 +114,9 @@ private:
     capacity_t _capacity;
     bi::slist_member_hook<> _hook;
 
+protected:
+    ~fair_queue_entry() = default;
+
 public:
     fair_queue_entry(capacity_t c) noexcept
         : _capacity(c) {}
@@ -123,6 +126,7 @@ public:
             bi::member_hook<fair_queue_entry, bi::slist_member_hook<>, &fair_queue_entry::_hook>>;
 
     capacity_t capacity() const noexcept { return _capacity; }
+    virtual void dispatch() = 0;
 };
 
 /// \brief Fair queuing class
@@ -247,7 +251,7 @@ public:
     void notify_request_cancelled(fair_queue_entry& ent) noexcept;
 
     /// Try to execute new requests if there is capacity left in the queue.
-    void dispatch_requests(std::function<void(fair_queue_entry&)> cb);
+    void dispatch_requests();
 
     clock_type::time_point next_pending_aio() const noexcept;
 

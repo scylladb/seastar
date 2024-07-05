@@ -276,10 +276,9 @@ public:
     stream_id stream() const noexcept { return _stream; }
 };
 
-class queued_io_request : private internal::io_request {
+class queued_io_request final : private internal::io_request, public fair_queue_entry {
     io_queue& _ioq;
     const stream_id _stream;
-    fair_queue_entry _fq_entry;
     internal::cancellable_queue::link _intent;
     std::unique_ptr<io_desc_read_write> _desc;
 
@@ -288,16 +287,17 @@ class queued_io_request : private internal::io_request {
 public:
     queued_io_request(internal::io_request req, io_queue& q, fair_queue_entry::capacity_t cap, io_queue::priority_class_data& pc, io_direction_and_length dnl, iovec_keeper iovs)
         : io_request(std::move(req))
+        , fair_queue_entry(cap)
         , _ioq(q)
         , _stream(_ioq.request_stream(dnl))
-        , _fq_entry(cap)
         , _desc(std::make_unique<io_desc_read_write>(_ioq, pc, _stream, dnl, cap, std::move(iovs)))
     {
     }
 
     queued_io_request(queued_io_request&&) = delete;
+    ~queued_io_request() = default;
 
-    void dispatch() noexcept {
+    virtual void dispatch() noexcept override {
         if (is_cancelled()) {
             _ioq.complete_cancelled_request(*this);
             delete this;
@@ -320,12 +320,7 @@ public:
     }
 
     future<size_t> get_future() noexcept { return _desc->get_future(); }
-    fair_queue_entry& queue_entry() noexcept { return _fq_entry; }
     stream_id stream() const noexcept { return _stream; }
-
-    static queued_io_request& from_fq_entry(fair_queue_entry& ent) noexcept {
-        return *boost::intrusive::get_parent_from_member(&ent, &queued_io_request::_fq_entry);
-    }
 
     static queued_io_request& from_cq_link(internal::cancellable_queue::link& link) noexcept {
         return *boost::intrusive::get_parent_from_member(&link, &queued_io_request::_intent);
@@ -953,7 +948,7 @@ future<size_t> io_queue::queue_one_request(internal::priority_class pc, io_direc
             queued_req->set_intent(cq);
         }
 
-        _streams[queued_req->stream()].fq.queue(pclass.fq_class(), queued_req->queue_entry());
+        _streams[queued_req->stream()].fq.queue(pclass.fq_class(), *queued_req);
         queued_req.release();
         pclass.on_queue();
         _queued_requests++;
@@ -1036,9 +1031,7 @@ future<size_t> io_queue::submit_io_write(internal::priority_class pc, size_t len
 
 void io_queue::poll_io_queue() {
     for (auto&& st : _streams) {
-        st.fq.dispatch_requests([] (fair_queue_entry& fqe) {
-            queued_io_request::from_fq_entry(fqe).dispatch();
-        });
+        st.fq.dispatch_requests();
     }
 }
 
@@ -1051,11 +1044,11 @@ void io_queue::submit_request(io_desc_read_write* desc, internal::io_request req
 
 void io_queue::cancel_request(queued_io_request& req) noexcept {
     _queued_requests--;
-    _streams[req.stream()].fq.notify_request_cancelled(req.queue_entry());
+    _streams[req.stream()].fq.notify_request_cancelled(req);
 }
 
 void io_queue::complete_cancelled_request(queued_io_request& req) noexcept {
-    _streams[req.stream()].fq.notify_request_finished(req.queue_entry().capacity());
+    _streams[req.stream()].fq.notify_request_finished(req.capacity());
 }
 
 io_queue::clock_type::time_point io_queue::next_pending_aio() const noexcept {

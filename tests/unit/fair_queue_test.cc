@@ -36,19 +36,18 @@
 using namespace seastar;
 using namespace std::chrono_literals;
 
-struct request {
-    fair_queue_entry fqent;
+struct request final : public fair_queue_entry {
     std::function<void(request& req)> handle;
     unsigned index;
 
     template <typename Func>
     request(fair_queue_entry::capacity_t cap, unsigned index, Func&& h)
-        : fqent(cap)
+        : fair_queue_entry(cap)
         , handle(std::move(h))
         , index(index)
     {}
 
-    void submit() {
+    virtual void dispatch() noexcept override {
         handle(*this);
         delete this;
     }
@@ -103,9 +102,7 @@ public:
         unsigned processed = 0;
         while (true) {
             _fg.replenish_capacity(_fg.replenished_ts() + std::chrono::microseconds(1));
-            _fq.dispatch_requests([] (fair_queue_entry& ent) {
-                boost::intrusive::get_parent_from_member(&ent, &request::fqent)->submit();
-            });
+            _fq.dispatch_requests();
 
             std::vector<request> curr;
             curr.swap(_inflight);
@@ -114,7 +111,7 @@ public:
                 if (processed < n) {
                     _results[req.index]++;
                 }
-                _fq.notify_request_finished(req.fqent.capacity());
+                _fq.notify_request_finished(req.capacity());
                 processed++;
             }
             if (processed >= n) {
@@ -147,11 +144,11 @@ public:
             } catch (...) {
                 auto eptr = std::current_exception();
                 _exceptions[index].push_back(eptr);
-                _fq.notify_request_finished(req.fqent.capacity());
+                _fq.notify_request_finished(req.capacity());
             }
         });
 
-        _fq.queue(id, req->fqent);
+        _fq.queue(id, *req);
         req.release();
     }
 

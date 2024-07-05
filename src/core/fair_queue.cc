@@ -247,7 +247,7 @@ fair_queue::clock_type::time_point fair_queue::next_pending_aio() const noexcept
     return _throttle.next_pending();
 }
 
-void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
+void fair_queue::dispatch_requests() {
     capacity_t dispatched = 0;
     boost::container::small_vector<priority_class_ptr, 2> preempt;
 
@@ -297,7 +297,7 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         h._pure_accumulated += req_cap;
         dispatched += req_cap;
 
-        cb(req);
+        req.dispatch();
 
         if (h._plugged && !h._queue.empty()) {
             push_priority_class(h);
