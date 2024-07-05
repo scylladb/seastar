@@ -19,6 +19,8 @@
  * Copyright 2021 ScyllaDB
  */
 
+#pragma once
+
 #ifndef SEASTAR_MODULE
 #include <cstring>
 #endif

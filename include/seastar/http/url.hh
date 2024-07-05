@@ -19,6 +19,8 @@
  * Copyright (C) 2022 Scylladb, Ltd.
  */
 
+#pragma once
+
 #include <seastar/core/sstring.hh>
 
 namespace seastar {

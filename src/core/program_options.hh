@@ -19,6 +19,8 @@
  * Copyright (C) 2021 Cloudius Systems, Ltd.
  */
 
+#pragma once
+
 #ifndef SEASTAR_MODULE
 #include <boost/program_options.hpp>
 #include <optional>
