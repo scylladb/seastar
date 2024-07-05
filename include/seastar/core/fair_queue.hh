@@ -116,6 +116,7 @@ private:
 
 protected:
     ~fair_queue_entry() = default;
+    void cancel() noexcept { _capacity = 0; }
 
 public:
     fair_queue_entry(capacity_t c) noexcept
@@ -234,11 +235,6 @@ public:
 
     void plug_class(class_id c) noexcept;
     void unplug_class(class_id c) noexcept;
-
-    /// Notifies that ont request finished
-    /// \param desc an instance of \c fair_queue_ticket structure describing the request that just finished.
-    void notify_request_finished(fair_queue_entry::capacity_t cap) noexcept;
-    void notify_request_cancelled(fair_queue_entry& ent) noexcept;
 
     /// Try to execute new requests if there is capacity left in the queue.
     void dispatch_requests();

@@ -235,13 +235,6 @@ void fair_queue::queue(class_id id, fair_queue_entry& ent) noexcept {
     pc._queue.push_back(ent);
 }
 
-void fair_queue::notify_request_finished(fair_queue_entry::capacity_t cap) noexcept {
-}
-
-void fair_queue::notify_request_cancelled(fair_queue_entry& ent) noexcept {
-    ent._capacity = 0;
-}
-
 void fair_queue::dispatch_requests() {
     capacity_t dispatched = 0;
     boost::container::small_vector<priority_class_ptr, 2> preempt;

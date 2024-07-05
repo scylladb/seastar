@@ -94,7 +94,6 @@ future<> perf_fair_queue::test(bool loc) {
         return parallel_for_each(boost::irange(0u, requests_to_dispatch), [&local, loc] (unsigned dummy) {
             auto req = std::make_unique<local_fq_entry>(100, [&local, loc] {
                 local.executed++;
-                local.queue(loc).notify_request_finished(100);
             });
             local.queue(loc).queue(cid, *req);
             req.release();

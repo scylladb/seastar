@@ -317,6 +317,7 @@ public:
 
     void cancel() noexcept {
         _ioq.cancel_request(*this);
+        fair_queue_entry::cancel();
         _desc.release()->cancel();
     }
 
@@ -555,7 +556,6 @@ void
 io_queue::complete_request(io_desc_read_write& desc) noexcept {
     _requests_executing--;
     _requests_completed++;
-    _streams[desc.stream()].fq.notify_request_finished(desc.capacity());
 }
 
 fair_queue::config io_queue::make_fair_queue_config(const config& iocfg, sstring label) {
@@ -1053,11 +1053,9 @@ throttle::grab_result io_queue::can_dispatch_request(const queued_io_request& rq
 
 void io_queue::cancel_request(queued_io_request& req) noexcept {
     _queued_requests--;
-    _streams[req.stream()].fq.notify_request_cancelled(req);
 }
 
 void io_queue::complete_cancelled_request(queued_io_request& req) noexcept {
-    _streams[req.stream()].fq.notify_request_finished(req.capacity());
 }
 
 io_queue::clock_type::time_point io_queue::next_pending_aio() const noexcept {

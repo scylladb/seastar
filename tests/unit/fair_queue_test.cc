@@ -99,7 +99,6 @@ public:
                 if (processed < n) {
                     _results[req.index]++;
                 }
-                _fq.notify_request_finished(req.capacity());
                 processed++;
             }
             if (processed >= n) {
@@ -131,7 +130,6 @@ public:
             } catch (...) {
                 auto eptr = std::current_exception();
                 _exceptions[index].push_back(eptr);
-                _fq.notify_request_finished(req.capacity());
             }
         });
 
