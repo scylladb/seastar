@@ -428,6 +428,7 @@ private:
     future<temporary_buffer<char>>
     do_recv_some(pollable_fd_state& fd, internal::buffer_allocator* ba);
 
+    void configure(const reactor_options& opts);
     int do_run();
 public:
     explicit reactor(std::shared_ptr<smp> smp, alien::instance& alien, unsigned id, reactor_backend_selector rbs, reactor_config cfg);
@@ -468,8 +469,6 @@ public:
     void rename_queues(internal::priority_class pc, sstring new_name);
     /// @private
     void update_shares_for_queues(internal::priority_class pc, uint32_t shares);
-
-    void configure(const reactor_options& opts);
 
     server_socket listen(socket_address sa, listen_options opts = {});
 
