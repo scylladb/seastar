@@ -1569,7 +1569,6 @@ public:
 void reactor::configure(const reactor_options& opts) {
     _network_stack_ready = opts.network_stack.get_selected_candidate()(*opts.network_stack.get_selected_candidate_opts());
 
-    _handle_sigint = !opts.no_handle_interrupt;
     auto task_quota = opts.task_quota_ms.get_value() * 1ms;
     _task_quota = std::chrono::duration_cast<sched_clock::duration>(task_quota);
 
@@ -3219,7 +3218,7 @@ int reactor::do_run() {
     start_aio_eventfd_loop();
 
     if (_id == 0 && _cfg.auto_handle_sigint_sigterm) {
-       if (_handle_sigint) {
+       if (_cfg.handle_sigint) {
           _signals.handle_signal_once(SIGINT, [this] { stop(); });
        }
        _signals.handle_signal_once(SIGTERM, [this] { stop(); });
@@ -4396,6 +4395,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     }
 
     reactor_config reactor_cfg = {
+        .handle_sigint = !reactor_opts.no_handle_interrupt,
         .auto_handle_sigint_sigterm = reactor_opts._auto_handle_sigint_sigterm,
         .max_networking_aio_io_control_blocks = adjust_max_networking_aio_io_control_blocks(reactor_opts.max_networking_io_control_blocks.get_value()),
     };

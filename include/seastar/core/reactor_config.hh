@@ -29,6 +29,7 @@ namespace seastar {
 
 /// \cond internal
 struct reactor_config {
+    bool handle_sigint = true;
     bool auto_handle_sigint_sigterm = true;
     unsigned max_networking_aio_io_control_blocks = 10000;
 };

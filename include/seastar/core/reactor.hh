@@ -251,7 +251,6 @@ private:
     bool _stopped = false;
     bool _finished_running_tasks = false;
     condition_variable _stop_requested;
-    bool _handle_sigint = true;
     std::optional<future<std::unique_ptr<network_stack>>> _network_stack_ready;
     int _return = 0;
     promise<> _start_promise;
