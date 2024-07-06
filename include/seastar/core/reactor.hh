@@ -329,7 +329,6 @@ private:
     output_stream<char>::batch_flush_list_t _flush_batching;
     std::atomic<bool> _sleeping alignas(seastar::cache_line_size){0};
     pthread_t _thread_id alignas(seastar::cache_line_size) = pthread_self();
-    bool _strict_o_direct = true;
     std::atomic<bool> _dying{false};
     gate _background_gate;
 

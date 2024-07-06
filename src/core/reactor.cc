@@ -1144,7 +1144,7 @@ future<> reactor::poll_rdhup(pollable_fd_state& fd) {
 }
 
 void reactor::set_strict_dma(bool value) {
-    _strict_o_direct = value;
+    _cfg.strict_o_direct = value;
 }
 
 void reactor::set_bypass_fsync(bool value) {
@@ -1586,7 +1586,6 @@ void reactor::configure(const reactor_options& opts) {
     if (opts.overprovisioned && opts.idle_poll_time_us.defaulted() && !opts.poll_mode) {
         _max_poll_time = 0us;
     }
-    set_strict_dma(!opts.relaxed_dma);
     if (!opts.poll_aio.get_value() || (opts.poll_aio.defaulted() && opts.overprovisioned)) {
         _aio_eventfd = pollable_fd(file_desc::eventfd(0, 0));
     }
@@ -1818,7 +1817,7 @@ future<file>
 reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_options options) noexcept {
     return do_with(static_cast<int>(flags), std::move(options), [this, nameref] (auto& open_flags, file_open_options& options) {
         sstring name(nameref);
-        return _thread_pool->submit<syscall_result_extra<struct stat>>([this, name, &open_flags, &options, strict_o_direct = _strict_o_direct, bypass_fsync = _cfg.bypass_fsync] () mutable {
+        return _thread_pool->submit<syscall_result_extra<struct stat>>([this, name, &open_flags, &options, strict_o_direct = _cfg.strict_o_direct, bypass_fsync = _cfg.bypass_fsync] () mutable {
             // We want O_DIRECT, except in three cases:
             //   - tmpfs (which doesn't support it, but works fine anyway)
             //   - strict_o_direct == false (where we forgive it being not supported)
@@ -4397,6 +4396,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
         .kernel_page_cache = reactor_opts.kernel_page_cache.get_value(),
         .have_aio_fsync = reactor_opts.aio_fsync.get_value(),
         .max_task_backlog = reactor_opts.max_task_backlog.get_value(),
+        .strict_o_direct = !reactor_opts.relaxed_dma,
         .bypass_fsync = reactor_opts.unsafe_bypass_fsync.get_value(),
     };
 
