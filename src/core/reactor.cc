@@ -1576,13 +1576,6 @@ void reactor::configure(const reactor_options& opts) {
     csdc.oneline = opts.blocked_reactor_report_format_oneline.get_value();
     _cpu_stall_detector->update_config(csdc);
 
-    _max_poll_time = opts.idle_poll_time_us.get_value() * 1us;
-    if (opts.poll_mode) {
-        _max_poll_time = std::chrono::nanoseconds::max();
-    }
-    if (opts.overprovisioned && opts.idle_poll_time_us.defaulted() && !opts.poll_mode) {
-        _max_poll_time = 0us;
-    }
     if (!opts.poll_aio.get_value() || (opts.poll_aio.defaulted() && opts.overprovisioned)) {
         _aio_eventfd = pollable_fd(file_desc::eventfd(0, 0));
     }
@@ -3322,7 +3315,7 @@ int reactor::do_run() {
             }
             if (go_to_sleep) {
                 internal::cpu_relax();
-                if (idle_end - idle_start > _max_poll_time) {
+                if (idle_end - idle_start > _cfg.max_poll_time) {
                     // Turn off the task quota timer to avoid spurious wakeups
                     struct itimerspec zero_itimerspec = {};
                     _task_quota_timer.timerfd_settime(0, zero_itimerspec);
@@ -4387,6 +4380,15 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
 
     reactor_config reactor_cfg = {
         .task_quota = std::chrono::duration_cast<sched_clock::duration>(reactor_opts.task_quota_ms.get_value() * 1ms),
+        .max_poll_time = [&reactor_opts] () -> std::chrono::nanoseconds {
+            if (reactor_opts.poll_mode) {
+                return std::chrono::nanoseconds::max();
+            } else if (reactor_opts.overprovisioned && reactor_opts.idle_poll_time_us.defaulted()) {
+                return 0us;
+            } else {
+                return reactor_opts.idle_poll_time_us.get_value() * 1us;
+            }
+        }(),
         .handle_sigint = !reactor_opts.no_handle_interrupt,
         .auto_handle_sigint_sigterm = reactor_opts._auto_handle_sigint_sigterm,
         .max_networking_aio_io_control_blocks = adjust_max_networking_aio_io_control_blocks(reactor_opts.max_networking_io_control_blocks.get_value()),

@@ -324,7 +324,6 @@ private:
     sched_clock::duration _total_idle{0};
     sched_clock::duration _total_sleep;
     sched_clock::time_point _start_time = now();
-    std::chrono::nanoseconds _max_poll_time = calculate_poll_time();
     output_stream<char>::batch_flush_list_t _flush_batching;
     std::atomic<bool> _sleeping alignas(seastar::cache_line_size){0};
     pthread_t _thread_id alignas(seastar::cache_line_size) = pthread_self();
