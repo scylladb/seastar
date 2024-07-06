@@ -24,11 +24,13 @@
 #include <seastar/util/program-options.hh>
 #include <seastar/util/memory_diagnostics.hh>
 #include <seastar/util/modules.hh>
+#include <seastar/core/scheduling.hh>
 
 namespace seastar {
 
 /// \cond internal
 struct reactor_config {
+    sched_clock::duration task_quota;
     bool handle_sigint = true;
     bool auto_handle_sigint_sigterm = true;
     unsigned max_networking_aio_io_control_blocks = 10000;

@@ -1017,9 +1017,9 @@ reactor::task_queue::set_shares(float shares) noexcept {
 
 void
 reactor::account_runtime(task_queue& tq, sched_clock::duration runtime) {
-    if (runtime > (2 * _task_quota)) {
+    if (runtime > (2 * _cfg.task_quota)) {
         _stalls_histogram.add(runtime);
-        tq._time_spent_on_task_quota_violations += runtime - _task_quota;
+        tq._time_spent_on_task_quota_violations += runtime - _cfg.task_quota;
     }
     tq._vruntime += tq.to_vruntime(runtime);
     tq._runtime += runtime;
@@ -1568,9 +1568,6 @@ public:
 
 void reactor::configure(const reactor_options& opts) {
     _network_stack_ready = opts.network_stack.get_selected_candidate()(*opts.network_stack.get_selected_candidate_opts());
-
-    auto task_quota = opts.task_quota_ms.get_value() * 1ms;
-    _task_quota = std::chrono::duration_cast<sched_clock::duration>(task_quota);
 
     auto blocked_time = opts.blocked_reactor_notify_ms.get_value() * 1ms;
     internal::cpu_stall_detector_config csdc;
@@ -3260,7 +3257,7 @@ int reactor::do_run() {
     });
     load_timer.arm_periodic(1s);
 
-    itimerspec its = seastar::posix::to_relative_itimerspec(_task_quota, _task_quota);
+    itimerspec its = seastar::posix::to_relative_itimerspec(_cfg.task_quota, _cfg.task_quota);
     _task_quota_timer.timerfd_settime(0, its);
     auto& task_quote_itimerspec = its;
 
@@ -4389,6 +4386,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     }
 
     reactor_config reactor_cfg = {
+        .task_quota = std::chrono::duration_cast<sched_clock::duration>(reactor_opts.task_quota_ms.get_value() * 1ms),
         .handle_sigint = !reactor_opts.no_handle_interrupt,
         .auto_handle_sigint_sigterm = reactor_opts._auto_handle_sigint_sigterm,
         .max_networking_aio_io_control_blocks = adjust_max_networking_aio_io_control_blocks(reactor_opts.max_networking_io_control_blocks.get_value()),
