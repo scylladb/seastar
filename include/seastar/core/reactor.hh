@@ -330,7 +330,6 @@ private:
     std::atomic<bool> _sleeping alignas(seastar::cache_line_size){0};
     pthread_t _thread_id alignas(seastar::cache_line_size) = pthread_self();
     bool _strict_o_direct = true;
-    bool _bypass_fsync = false;
     std::atomic<bool> _dying{false};
     gate _background_gate;
 

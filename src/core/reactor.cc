@@ -1148,7 +1148,7 @@ void reactor::set_strict_dma(bool value) {
 }
 
 void reactor::set_bypass_fsync(bool value) {
-    _bypass_fsync = value;
+    _cfg.bypass_fsync = value;
 }
 
 void
@@ -1590,7 +1590,6 @@ void reactor::configure(const reactor_options& opts) {
     if (!opts.poll_aio.get_value() || (opts.poll_aio.defaulted() && opts.overprovisioned)) {
         _aio_eventfd = pollable_fd(file_desc::eventfd(0, 0));
     }
-    set_bypass_fsync(opts.unsafe_bypass_fsync.get_value());
     aio_nowait_supported = opts.linux_aio_nowait.get_value();
 }
 
@@ -1819,7 +1818,7 @@ future<file>
 reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_options options) noexcept {
     return do_with(static_cast<int>(flags), std::move(options), [this, nameref] (auto& open_flags, file_open_options& options) {
         sstring name(nameref);
-        return _thread_pool->submit<syscall_result_extra<struct stat>>([this, name, &open_flags, &options, strict_o_direct = _strict_o_direct, bypass_fsync = _bypass_fsync] () mutable {
+        return _thread_pool->submit<syscall_result_extra<struct stat>>([this, name, &open_flags, &options, strict_o_direct = _strict_o_direct, bypass_fsync = _cfg.bypass_fsync] () mutable {
             // We want O_DIRECT, except in three cases:
             //   - tmpfs (which doesn't support it, but works fine anyway)
             //   - strict_o_direct == false (where we forgive it being not supported)
@@ -2387,7 +2386,7 @@ reactor::touch_directory(std::string_view name, file_permissions permissions) no
 future<>
 reactor::fdatasync(int fd) noexcept {
     ++_fsyncs;
-    if (_bypass_fsync) {
+    if (_cfg.bypass_fsync) {
         return make_ready_future<>();
     }
     if (_cfg.have_aio_fsync) {
@@ -4398,6 +4397,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
         .kernel_page_cache = reactor_opts.kernel_page_cache.get_value(),
         .have_aio_fsync = reactor_opts.aio_fsync.get_value(),
         .max_task_backlog = reactor_opts.max_task_backlog.get_value(),
+        .bypass_fsync = reactor_opts.unsafe_bypass_fsync.get_value(),
     };
 
     std::mutex mtx;

@@ -36,6 +36,7 @@ struct reactor_config {
     bool kernel_page_cache = false;
     bool have_aio_fsync = false;
     unsigned max_task_backlog = 1000;
+    bool bypass_fsync = false;
 };
 /// \endcond
 
