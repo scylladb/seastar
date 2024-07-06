@@ -334,7 +334,6 @@ private:
     bool _force_io_getevents_syscall = false;
     bool _bypass_fsync = false;
     bool _have_aio_fsync = false;
-    bool _kernel_page_cache = false;
     std::atomic<bool> _dying{false};
     gate _background_gate;
 

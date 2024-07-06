@@ -1592,7 +1592,6 @@ void reactor::configure(const reactor_options& opts) {
         _aio_eventfd = pollable_fd(file_desc::eventfd(0, 0));
     }
     set_bypass_fsync(opts.unsafe_bypass_fsync.get_value());
-    _kernel_page_cache = opts.kernel_page_cache.get_value();
     _force_io_getevents_syscall = opts.force_aio_syscalls.get_value();
     aio_nowait_supported = opts.linux_aio_nowait.get_value();
     _have_aio_fsync = opts.aio_fsync.get_value();
@@ -1827,7 +1826,7 @@ reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_opt
             // We want O_DIRECT, except in three cases:
             //   - tmpfs (which doesn't support it, but works fine anyway)
             //   - strict_o_direct == false (where we forgive it being not supported)
-            //   - _kernel_page_cache == true (where we disable it for short-lived test processes)
+            //   - kernel_page_cache == true (where we disable it for short-lived test processes)
             // Because open() with O_DIRECT will fail, we open it without O_DIRECT, try
             // to update it to O_DIRECT with fcntl(), and if that fails, see if we
             // can forgive it.
@@ -1850,7 +1849,7 @@ reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_opt
                 return wrap_syscall(fd, st);
             }
             auto close_fd = defer([fd] () noexcept { ::close(fd); });
-            int o_direct_flag = _kernel_page_cache ? 0 : O_DIRECT;
+            int o_direct_flag = _cfg.kernel_page_cache ? 0 : O_DIRECT;
             int r = ::fcntl(fd, F_SETFL, open_flags | o_direct_flag);
             if (r == -1  && strict_o_direct) {
                 auto maybe_ret = wrap_syscall(r, st);  // capture errno (should be EINVAL)
@@ -1858,7 +1857,7 @@ reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_opt
                     return maybe_ret;
                 }
             }
-            if (fd != -1 && options.extent_allocation_size_hint && !_kernel_page_cache) {
+            if (fd != -1 && options.extent_allocation_size_hint && !_cfg.kernel_page_cache) {
                 fsxattr attr = {};
                 int r = ::ioctl(fd, XFS_IOC_FSGETXATTR, &attr);
                 // xfs delayed allocation is disabled when extent size hints are present.
@@ -4398,6 +4397,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
         .handle_sigint = !reactor_opts.no_handle_interrupt,
         .auto_handle_sigint_sigterm = reactor_opts._auto_handle_sigint_sigterm,
         .max_networking_aio_io_control_blocks = adjust_max_networking_aio_io_control_blocks(reactor_opts.max_networking_io_control_blocks.get_value()),
+        .kernel_page_cache = reactor_opts.kernel_page_cache.get_value(),
     };
 
     std::mutex mtx;

@@ -210,7 +210,7 @@ aio_storage_context::submit_work() {
         return true;
     });
 
-    if (__builtin_expect(_r._kernel_page_cache, false)) {
+    if (__builtin_expect(_r._cfg.kernel_page_cache, false)) {
         // linux-aio is not asynchronous when the page cache is used,
         // so we don't want to call io_submit() from the reactor thread.
         //
