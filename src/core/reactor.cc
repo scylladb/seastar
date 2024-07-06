@@ -1594,7 +1594,6 @@ void reactor::configure(const reactor_options& opts) {
     set_bypass_fsync(opts.unsafe_bypass_fsync.get_value());
     _force_io_getevents_syscall = opts.force_aio_syscalls.get_value();
     aio_nowait_supported = opts.linux_aio_nowait.get_value();
-    _have_aio_fsync = opts.aio_fsync.get_value();
 }
 
 pollable_fd
@@ -2393,7 +2392,7 @@ reactor::fdatasync(int fd) noexcept {
     if (_bypass_fsync) {
         return make_ready_future<>();
     }
-    if (_have_aio_fsync) {
+    if (_cfg.have_aio_fsync) {
         // Does not go through the I/O queue, but has to be deleted
         struct fsync_io_desc final : public io_completion {
             promise<> _pr;
@@ -4398,6 +4397,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
         .auto_handle_sigint_sigterm = reactor_opts._auto_handle_sigint_sigterm,
         .max_networking_aio_io_control_blocks = adjust_max_networking_aio_io_control_blocks(reactor_opts.max_networking_io_control_blocks.get_value()),
         .kernel_page_cache = reactor_opts.kernel_page_cache.get_value(),
+        .have_aio_fsync = reactor_opts.aio_fsync.get_value(),
     };
 
     std::mutex mtx;

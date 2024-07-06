@@ -33,6 +33,7 @@ struct reactor_config {
     bool auto_handle_sigint_sigterm = true;
     unsigned max_networking_aio_io_control_blocks = 10000;
     bool kernel_page_cache = false;
+    bool have_aio_fsync = false;
 };
 /// \endcond
 
