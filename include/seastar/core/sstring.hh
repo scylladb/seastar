@@ -716,7 +716,7 @@ string_type uninitialized_string(size_t size) {
     } else {
         string_type ret;
 #ifdef __cpp_lib_string_resize_and_overwrite
-        ret.resize_and_overwrite(size, [](string_type::value_type*, string_type::size_type n) { return n; });
+        ret.resize_and_overwrite(size, [](typename string_type::value_type*, typename string_type::size_type n) { return n; });
 #else
         ret.resize(size);
 #endif
