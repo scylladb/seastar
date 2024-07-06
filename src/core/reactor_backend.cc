@@ -465,11 +465,6 @@ file_desc reactor_backend_aio::make_timerfd() {
     return file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC|TFD_NONBLOCK);
 }
 
-unsigned
-reactor_backend_aio::max_polls() const {
-    return _r._cfg.max_networking_aio_io_control_blocks;
-}
-
 bool reactor_backend_aio::await_events(int timeout, const sigset_t* active_sigmask) {
     ::timespec ts = {};
     ::timespec* tsp = [&] () -> ::timespec* {
@@ -514,6 +509,7 @@ reactor_backend_aio::reactor_backend_aio(reactor& r)
     , _hrtimer_timerfd(make_timerfd())
     , _storage_context(_r)
     , _preempting_io(_r, _r._task_quota_timer, _hrtimer_timerfd)
+    , _polling_io(_r._cfg.max_networking_aio_io_control_blocks)
     , _hrtimer_poll_completion(_r, _hrtimer_timerfd)
     , _smp_wakeup_aio_completion(_r._notify_eventfd)
 {
