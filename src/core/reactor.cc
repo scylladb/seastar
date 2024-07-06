@@ -1592,7 +1592,6 @@ void reactor::configure(const reactor_options& opts) {
         _aio_eventfd = pollable_fd(file_desc::eventfd(0, 0));
     }
     set_bypass_fsync(opts.unsafe_bypass_fsync.get_value());
-    _force_io_getevents_syscall = opts.force_aio_syscalls.get_value();
     aio_nowait_supported = opts.linux_aio_nowait.get_value();
 }
 
@@ -4396,6 +4395,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
         .handle_sigint = !reactor_opts.no_handle_interrupt,
         .auto_handle_sigint_sigterm = reactor_opts._auto_handle_sigint_sigterm,
         .max_networking_aio_io_control_blocks = adjust_max_networking_aio_io_control_blocks(reactor_opts.max_networking_io_control_blocks.get_value()),
+        .force_io_getevents_syscall = reactor_opts.force_aio_syscalls.get_value(),
         .kernel_page_cache = reactor_opts.kernel_page_cache.get_value(),
         .have_aio_fsync = reactor_opts.aio_fsync.get_value(),
     };

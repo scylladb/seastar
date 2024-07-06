@@ -289,7 +289,7 @@ void aio_storage_context::schedule_retry() {
 bool aio_storage_context::reap_completions(bool allow_retry)
 {
     struct timespec timeout = {0, 0};
-    auto n = io_getevents(_io_context, 1, max_aio, _ev_buffer, &timeout, _r._force_io_getevents_syscall);
+    auto n = io_getevents(_io_context, 1, max_aio, _ev_buffer, &timeout, _r._cfg.force_io_getevents_syscall);
     if (n == -1 && errno == EINTR) {
         n = 0;
     }
