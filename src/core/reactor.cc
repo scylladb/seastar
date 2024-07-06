@@ -1050,6 +1050,7 @@ reactor::reactor(std::shared_ptr<smp> smp, alien::instance& alien, unsigned id, 
 #endif
     , _cpu_started(0)
     , _cpu_stall_detector(internal::make_cpu_stall_detector())
+    , _aio_eventfd(_cfg.no_poll_aio ? std::optional(pollable_fd(file_desc::eventfd(0, 0))) : std::nullopt)
     , _reuseport(posix_reuseport_detect())
     , _thread_pool(std::make_unique<thread_pool>(*this, seastar::format("syscall-{}", id))) {
     /*
@@ -1576,9 +1577,6 @@ void reactor::configure(const reactor_options& opts) {
     csdc.oneline = opts.blocked_reactor_report_format_oneline.get_value();
     _cpu_stall_detector->update_config(csdc);
 
-    if (!opts.poll_aio.get_value() || (opts.poll_aio.defaulted() && opts.overprovisioned)) {
-        _aio_eventfd = pollable_fd(file_desc::eventfd(0, 0));
-    }
     aio_nowait_supported = opts.linux_aio_nowait.get_value();
 }
 
@@ -4398,6 +4396,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
         .max_task_backlog = reactor_opts.max_task_backlog.get_value(),
         .strict_o_direct = !reactor_opts.relaxed_dma,
         .bypass_fsync = reactor_opts.unsafe_bypass_fsync.get_value(),
+        .no_poll_aio = !reactor_opts.poll_aio.get_value() || (reactor_opts.poll_aio.defaulted() && reactor_opts.overprovisioned),
     };
 
     std::mutex mtx;

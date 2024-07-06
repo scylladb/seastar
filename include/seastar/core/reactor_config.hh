@@ -41,6 +41,7 @@ struct reactor_config {
     unsigned max_task_backlog = 1000;
     bool strict_o_direct = true;
     bool bypass_fsync = false;
+    bool no_poll_aio = false;
 };
 /// \endcond
 
