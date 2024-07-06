@@ -442,7 +442,7 @@ inline auto wait_for_reply(no_wait_type, std::optional<rpc_clock_type::time_poin
 }
 
 template<typename Serializer, typename... InArgs>
-inline auto wait_for_reply(no_wait_type, std::optional<rpc_clock_type::time_point>, cancellable*, rpc::client&, id_type,
+inline auto wait_for_reply(no_wait_type, std::optional<rpc_clock_type::time_point>, rpc_clock_type::time_point, cancellable*, rpc::client&, id_type,
         signature<future<no_wait_type> (InArgs...)>) {  // future<no_wait> overload
     return make_ready_future<>();
 }
