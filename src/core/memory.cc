@@ -1865,9 +1865,9 @@ configure(std::vector<resource::memory> m, bool mbind,
         get_cpu_mem().replace_memory_backing(sys_alloc);
     }
     get_cpu_mem().resize(total, sys_alloc);
+#ifdef SEASTAR_HAVE_NUMA
     size_t pos = 0;
     for (auto&& x : m) {
-#ifdef SEASTAR_HAVE_NUMA
         unsigned long nodemask = 1UL << x.nodeid;
         if (mbind) {
             auto start = get_cpu_mem().mem() + pos;
@@ -1888,9 +1888,9 @@ configure(std::vector<resource::memory> m, bool mbind,
             }
             ret_layout.ranges.push_back({.start = start, .end = start + x.bytes, .numa_node_id = x.nodeid});
         }
-#endif
         pos += x.bytes;
     }
+#endif
     return ret_layout;
 }
 
