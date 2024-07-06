@@ -1579,7 +1579,6 @@ void reactor::configure(const reactor_options& opts) {
     csdc.oneline = opts.blocked_reactor_report_format_oneline.get_value();
     _cpu_stall_detector->update_config(csdc);
 
-    _max_task_backlog = opts.max_task_backlog.get_value();
     _max_poll_time = opts.idle_poll_time_us.get_value() * 1us;
     if (opts.poll_mode) {
         _max_poll_time = std::chrono::nanoseconds::max();
@@ -2651,7 +2650,7 @@ void reactor::run_tasks(task_queue& tq) {
         ++_global_tasks_processed;
         // check at end of loop, to allow at least one task to run
         if (internal::scheduler_need_preempt()) {
-            if (tasks.size() <= _max_task_backlog) {
+            if (tasks.size() <= _cfg.max_task_backlog) {
                 break;
             } else {
                 // While need_preempt() is set, task execution is inefficient due to
@@ -4398,6 +4397,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
         .force_io_getevents_syscall = reactor_opts.force_aio_syscalls.get_value(),
         .kernel_page_cache = reactor_opts.kernel_page_cache.get_value(),
         .have_aio_fsync = reactor_opts.aio_fsync.get_value(),
+        .max_task_backlog = reactor_opts.max_task_backlog.get_value(),
     };
 
     std::mutex mtx;

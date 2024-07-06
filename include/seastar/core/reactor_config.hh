@@ -35,6 +35,7 @@ struct reactor_config {
     bool force_io_getevents_syscall = false;
     bool kernel_page_cache = false;
     bool have_aio_fsync = false;
+    unsigned max_task_backlog = 1000;
 };
 /// \endcond
 

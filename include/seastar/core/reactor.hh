@@ -261,7 +261,6 @@ private:
     metrics::internal::time_estimated_histogram _stalls_histogram;
     std::unique_ptr<internal::cpu_stall_detector> _cpu_stall_detector;
 
-    unsigned _max_task_backlog = 1000;
     timer<>::set_t _timers;
     timer<>::set_t::timer_list_t _expired_timers;
     timer<lowres_clock>::set_t _lowres_timers;
