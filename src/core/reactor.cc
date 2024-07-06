@@ -1576,8 +1576,6 @@ void reactor::configure(const reactor_options& opts) {
     csdc.stall_detector_reports_per_minute = opts.blocked_reactor_reports_per_minute.get_value();
     csdc.oneline = opts.blocked_reactor_report_format_oneline.get_value();
     _cpu_stall_detector->update_config(csdc);
-
-    aio_nowait_supported = opts.linux_aio_nowait.get_value();
 }
 
 pollable_fd
@@ -4399,6 +4397,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
         .no_poll_aio = !reactor_opts.poll_aio.get_value() || (reactor_opts.poll_aio.defaulted() && reactor_opts.overprovisioned),
     };
 
+    aio_nowait_supported = reactor_opts.linux_aio_nowait.get_value();
     std::mutex mtx;
 
 #ifdef SEASTAR_HEAPPROF
