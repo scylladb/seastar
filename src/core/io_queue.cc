@@ -211,7 +211,7 @@ public:
     metrics::metric_groups metric_groups;
 };
 
-class io_desc_read_write final : public io_completion {
+class queued_io_request_completion final : public io_completion {
     io_queue& _ioq;
     io_queue::priority_class_data& _pclass;
     io_queue::clock_type::time_point _ts;
@@ -222,7 +222,7 @@ class io_desc_read_write final : public io_completion {
     iovec_keeper _iovs;
 
 public:
-    io_desc_read_write(io_queue& ioq, io_queue::priority_class_data& pc, stream_id stream, io_direction_and_length dnl, fair_queue_entry::capacity_t cap, iovec_keeper iovs)
+    queued_io_request_completion(io_queue& ioq, io_queue::priority_class_data& pc, stream_id stream, io_direction_and_length dnl, fair_queue_entry::capacity_t cap, iovec_keeper iovs)
         : _ioq(ioq)
         , _pclass(pc)
         , _ts(io_queue::clock_type::now())
@@ -277,7 +277,7 @@ class queued_io_request : private internal::io_request {
     const stream_id _stream;
     fair_queue_entry _fq_entry;
     internal::cancellable_queue::link _intent;
-    std::unique_ptr<io_desc_read_write> _desc;
+    std::unique_ptr<queued_io_request_completion> _desc;
 
     bool is_cancelled() const noexcept { return !_desc; }
 
@@ -287,7 +287,7 @@ public:
         , _ioq(q)
         , _stream(_ioq.request_stream(dnl))
         , _fq_entry(cap)
-        , _desc(std::make_unique<io_desc_read_write>(_ioq, pc, _stream, dnl, cap, std::move(iovs)))
+        , _desc(std::make_unique<queued_io_request_completion>(_ioq, pc, _stream, dnl, cap, std::move(iovs)))
     {
     }
 
@@ -548,7 +548,7 @@ void io_queue::update_flow_ratio() noexcept {
 }
 
 void
-io_queue::complete_request(io_desc_read_write& desc) noexcept {
+io_queue::complete_request(queued_io_request_completion& desc) noexcept {
     _requests_executing--;
     _requests_completed++;
     _streams[desc.stream()].notify_request_finished(desc.capacity());
@@ -1038,7 +1038,7 @@ void io_queue::poll_io_queue() {
     }
 }
 
-void io_queue::submit_request(io_desc_read_write* desc, internal::io_request req) noexcept {
+void io_queue::submit_request(queued_io_request_completion* desc, internal::io_request req) noexcept {
     _queued_requests--;
     _requests_executing++;
     _requests_dispatched++;
