@@ -373,15 +373,35 @@ public:
     }
 
     void set_x509_key(const blob& cert, const blob& key, x509_crt_format fmt) {
-        auto x509_cert = parse_x509_cert(cert, fmt);
+        x509_ptr x509_cert{nullptr};
         bio_ptr key_bio(BIO_new_mem_buf(key.begin(), key.size()));
         evp_pkey_ptr pkey;
         switch(fmt) {
         case x509_crt_format::PEM:
             pkey = evp_pkey_ptr(PEM_read_bio_PrivateKey(key_bio.get(), nullptr, nullptr, nullptr));
+            // The provided `cert` blob may contain more than one cert.  We need to be prepared
+            // for this situation.  So we will parse through the blob using `iterate_pem_certs`.
+            // The first cert encountered will be assigned to x509_cert and all subsequent certs
+            // will be added to the X509_STORE's trusted certificates
+            iterate_pem_certs(bio_ptr{BIO_new_mem_buf(cert.begin(), cert.size())}, [this, &x509_cert](X509_INFO* info) {
+                if (!info->x509) {
+                    throw make_ossl_error("Failed to parse X.509 certificate in loading key/cert chain");
+                }
+                if (!x509_cert) {
+                    x509_cert = x509_ptr{info->x509};
+                    // By setting x509 to nullptr, the sk_X509_INFO_pop_free function will not
+                    // call X509_free on it.  We have 'transfered' ownership above to the
+                    // x509_cert X509 ptr
+                    info->x509 = nullptr;
+                } else {
+                    X509_STORE_add_cert(*this, info->x509);
+                }
+            });
             break;
         case x509_crt_format::DER:
             pkey = evp_pkey_ptr(d2i_PrivateKey_bio(key_bio.get(), nullptr));
+            // We don't handle a chain of certs when encoded in DER
+            x509_cert = parse_x509_cert(cert, fmt);
             break;
         default:
             __builtin_unreachable();
