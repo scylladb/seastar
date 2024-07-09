@@ -21,16 +21,17 @@
 
 #include <seastar/testing/test_case.hh>
 
+#include <seastar/core/coroutine.hh>
 #include <seastar/core/do_with.hh>
 #include <seastar/core/lowres_clock.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/loop.hh>
+#include <seastar/util/later.hh>
 
 #include <ctime>
 
-#include <algorithm>
-#include <array>
 #include <chrono>
+#include <thread>
 
 using namespace seastar;
 
@@ -50,6 +51,29 @@ SEASTAR_TEST_CASE(steady_clock_sanity) {
             return make_ready_future<>();
         });
     });
+}
+
+//
+// Sanity check the accuracy of the steady low-resolution clock in debug mode
+// where preemption is handled differently.
+//
+SEASTAR_TEST_CASE(steady_clock_sanity_preempt) {
+    auto t1 = lowres_clock::now();
+
+    // Sleep duration must be higher than the task quota to ensure that
+    // preemption is requested before we yield.
+    static constexpr auto sleep_duration = std::chrono::milliseconds(100);
+    std::this_thread::sleep_for(sleep_duration);
+
+    // Yield to the reactor to give it a chance to update the
+    // low-resolution clock. Yield just schedules an empty task and
+    // waits for it to be executed. There is nothing special about it.
+    co_await ::seastar::yield();
+
+    auto const elapsed = lowres_clock::now() - t1;
+    auto const minimum_elapsed = 0.9 * sleep_duration;
+
+    BOOST_REQUIRE(elapsed >= minimum_elapsed);
 }
 
 //
