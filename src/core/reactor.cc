@@ -1994,6 +1994,15 @@ timespec_to_time_point(const timespec& ts) {
     return std::chrono::system_clock::time_point(d);
 }
 
+future<> reactor::punch_hole(int fd, uint64_t offset, uint64_t length) noexcept {
+    return _thread_pool->submit<syscall_result<int>>([fd, offset, length] () mutable {
+        return wrap_syscall<int>(::fallocate(fd, FALLOC_FL_PUNCH_HOLE|FALLOC_FL_KEEP_SIZE, offset, length));
+    }).then([] (syscall_result<int> sr) {
+        sr.throw_if_error();
+        return make_ready_future<>();
+    });
+}
+
 future<size_t> reactor::read_directory(int fd, char* buffer, size_t buffer_size) {
     return _thread_pool->submit<syscall_result<long>>([fd, buffer, buffer_size] () {
         auto ret = ::syscall(__NR_getdents64, fd, reinterpret_cast<linux_dirent64*>(buffer), buffer_size);

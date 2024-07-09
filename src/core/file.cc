@@ -268,13 +268,7 @@ posix_file_impl::fcntl_short(int op, uintptr_t arg) noexcept {
 
 future<>
 posix_file_impl::discard(uint64_t offset, uint64_t length) noexcept {
-    return engine()._thread_pool->submit<syscall_result<int>>([this, offset, length] () mutable {
-        return wrap_syscall<int>(::fallocate(_fd, FALLOC_FL_PUNCH_HOLE|FALLOC_FL_KEEP_SIZE,
-            offset, length));
-    }).then([] (syscall_result<int> sr) {
-        sr.throw_if_error();
-        return make_ready_future<>();
-    });
+    return engine().punch_hole(_fd, offset, length);
 }
 
 future<>

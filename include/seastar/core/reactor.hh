@@ -505,6 +505,7 @@ public:
     future<> link_file(std::string_view oldpath, std::string_view newpath) noexcept;
     future<> chmod(std::string_view name, file_permissions permissions) noexcept;
 
+    future<> punch_hole(int fd, uint64_t offset, uint64_t length) noexcept;
     future<size_t> read_directory(int fd, char* buffer, size_t buffer_size);
 
     future<int> inotify_add_watch(int fd, std::string_view path, uint32_t flags);
