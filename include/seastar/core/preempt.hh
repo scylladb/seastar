@@ -49,11 +49,9 @@ inline const preemption_monitor*& get_need_preempt_var() {
 
 void set_need_preempt_var(const preemption_monitor* pm);
 
-}
-
-SEASTAR_MODULE_EXPORT
-inline bool need_preempt() noexcept {
-#ifndef SEASTAR_DEBUG
+inline
+bool
+monitor_need_preempt() noexcept {
     // prevent compiler from eliminating loads in a loop
     std::atomic_signal_fence(std::memory_order_seq_cst);
     auto np = internal::get_need_preempt_var();
@@ -64,6 +62,14 @@ inline bool need_preempt() noexcept {
     // Possible optimization: read head and tail in a single 64-bit load,
     // and find a funky way to compare the two 32-bit halves.
     return __builtin_expect(head != tail, false);
+}
+
+}
+
+SEASTAR_MODULE_EXPORT
+inline bool need_preempt() noexcept {
+#ifndef SEASTAR_DEBUG
+    return internal::monitor_need_preempt();
 #else
     return true;
 #endif
@@ -87,8 +93,10 @@ scheduler_need_preempt() {
     // for I/O after every task. Since we don't care about latency in debug
     // mode, run some random-but-bounded number of tasks instead. Latency
     // will be high if those tasks are slow, but this is debug mode anyway.
+    // We still check if preemption was requested to allow lowres_clock
+    // updates.
     static thread_local unsigned counter = 0;
-    return ++counter % 64 == 0;
+    return ++counter % 64 == 0 || monitor_need_preempt();;
 #endif
 }
 
