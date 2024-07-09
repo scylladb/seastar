@@ -66,21 +66,35 @@ public:
     class subscription : public bi::list_base_hook<bi::link_mode<bi::auto_unlink>> {
         friend class abort_source;
 
-        subscription_callback_type _target;
+        subscription_callback_type _target = noop_handler;
 
         explicit subscription(abort_source& as, subscription_callback_type target)
                 : _target(std::move(target)) {
+          if (!as.abort_requested()) {
             as._subscriptions.push_back(*this);
+          }
         }
 
         struct naive_cb_tag {}; // to disambiguate constructors
         explicit subscription(naive_cb_tag, abort_source& as, naive_subscription_callback_type naive_cb)
                 : _target([cb = std::move(naive_cb)] (const std::optional<std::exception_ptr>&) noexcept { cb(); }) {
+          if (!as.abort_requested()) {
             as._subscriptions.push_back(*this);
+          }
         }
 
+    public:
+        static void noop_handler(const std::optional<std::exception_ptr>&) noexcept {}
+
+        /// Call the subscribed callback (at most once).
+        /// This method is called by the \ref abort_source on all listed \ref subscription objects
+        /// when \ref request_abort() is called.
+        /// It may be called indepdently by the user at any time, causing the \ref subscription
+        /// to be unlinked from the \ref abort_source subscriptions list.
         void on_abort(const std::optional<std::exception_ptr>& ex) noexcept {
-            _target(ex);
+            unlink();
+            auto target = std::exchange(_target, noop_handler);
+            target(ex);
         }
 
     public:
@@ -119,7 +133,6 @@ private:
         auto subs = std::move(_subscriptions);
         while (!subs.empty()) {
             subscription& s = subs.front();
-            s.unlink();
             s.on_abort(ex);
         }
     }
@@ -132,17 +145,25 @@ public:
     abort_source& operator=(abort_source&&) = default;
 
     /// Delays the invocation of the callback \c f until \ref request_abort() is called.
-    /// \returns an engaged \ref optimized_optional containing a \ref subscription that can be used to control
-    ///          the lifetime of the callback \c f, if \ref abort_requested() is \c false. Otherwise,
-    ///          returns a disengaged \ref optimized_optional.
+    /// \returns \ref optimized_optional containing a \ref subscription that can be used to control
+    ///          the lifetime of the callback \c f.
+    ///
+    /// Note: the returned \ref optimized_optional evaluates to \c true if and only if
+    /// \ref abort_requested() is \c false at the time \ref subscribe is called, and therefore
+    /// the \ref subscription is linked to the \ref abort_source subscriptions list.
+    ///
+    /// Once \ref request_abort() is called or the subscription's \ref on_abort() method are called,
+    /// the callback \c f is called (exactly once), and the \ref subscription is unlinked from
+    /// the \ref about_source, causing the \ref optimized_optional to evaluate to \c false.
+    ///
+    /// The returned \ref optimized_optional would initially evaluate to \c false if \ref request_abort()
+    /// was already called. In this case, an unlinked \ref subscription is returned as \ref optimized_optional.
+    /// That \ref subscription still allows the user to call \ref on_abort() to invoke the callback \c f.
     template <typename Func>
         requires (std::is_nothrow_invocable_r_v<void, Func, const std::optional<std::exception_ptr>&> ||
                   std::is_nothrow_invocable_r_v<void, Func>)
     [[nodiscard]]
     optimized_optional<subscription> subscribe(Func&& f) {
-        if (abort_requested()) {
-            return { };
-        }
         if constexpr (std::is_invocable_v<Func, std::exception_ptr>) {
             return { subscription(*this, std::forward<Func>(f)) };
         } else {

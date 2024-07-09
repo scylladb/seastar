@@ -195,3 +195,73 @@ SEASTAR_THREAD_TEST_CASE(test_request_abort_twice) {
     as.request_abort();
     BOOST_REQUIRE_THROW(as.check(), std::runtime_error);
 }
+
+SEASTAR_THREAD_TEST_CASE(test_on_abort_call_after_abort) {
+    std::exception_ptr signalled_ex;
+    auto as = abort_source();
+    auto sub = as.subscribe([&] (const std::optional<std::exception_ptr>& ex) noexcept {
+        BOOST_REQUIRE(!signalled_ex);
+        signalled_ex = *ex;
+    });
+    BOOST_REQUIRE_EQUAL(bool(sub), true);
+    BOOST_REQUIRE(signalled_ex == nullptr);
+
+    // on_abort should trigger the subscribed callback
+    as.request_abort_ex(std::make_exception_ptr(std::runtime_error("signaled")));
+    BOOST_REQUIRE_EQUAL(bool(sub), false);
+    BOOST_REQUIRE(signalled_ex != nullptr);
+    BOOST_REQUIRE_THROW(std::rethrow_exception(signalled_ex), std::runtime_error);
+
+    // on_abort is single-shot
+    signalled_ex = nullptr;
+    sub->on_abort(std::make_exception_ptr(std::runtime_error("signaled")));
+    BOOST_REQUIRE(signalled_ex == nullptr);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_on_abort_call_before_abort) {
+    std::exception_ptr signalled_ex;
+    auto as = abort_source();
+    auto sub = as.subscribe([&] (const std::optional<std::exception_ptr>& ex) noexcept {
+        BOOST_REQUIRE(!signalled_ex);
+        signalled_ex = *ex;
+    });
+    BOOST_REQUIRE_EQUAL(bool(sub), true);
+    BOOST_REQUIRE(signalled_ex == nullptr);
+
+    // on_abort should trigger the subscribed callback
+    sub->on_abort(std::make_exception_ptr(std::runtime_error("signaled")));
+    BOOST_REQUIRE_EQUAL(bool(sub), false);
+    BOOST_REQUIRE(signalled_ex != nullptr);
+    BOOST_REQUIRE_THROW(std::rethrow_exception(signalled_ex), std::runtime_error);
+
+    // subscription is single-shot
+    signalled_ex = nullptr;
+    as.request_abort_ex(std::make_exception_ptr(std::runtime_error("signaled")));
+    BOOST_REQUIRE(signalled_ex == nullptr);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_subscribe_aborted_source) {
+    std::exception_ptr signalled_ex;
+    auto as = abort_source();
+    as.request_abort();
+    auto sub = as.subscribe([&] (const std::optional<std::exception_ptr>& ex) noexcept {
+        BOOST_REQUIRE(!signalled_ex);
+        signalled_ex = *ex;
+    });
+
+    // subscription is expected to evaluate to false
+    // if abort_source was already aborted
+    BOOST_REQUIRE_EQUAL(bool(sub), false);
+    BOOST_REQUIRE(signalled_ex == nullptr);
+
+    // on_abort should trigger the subscribed callback
+    // if abort_source was already aborted
+    sub->on_abort(std::make_exception_ptr(std::runtime_error("signaled")));
+    BOOST_REQUIRE(signalled_ex != nullptr);
+    BOOST_REQUIRE_THROW(std::rethrow_exception(signalled_ex), std::runtime_error);
+
+    // on_abort is single-shot
+    signalled_ex = nullptr;
+    sub->on_abort(std::make_exception_ptr(std::runtime_error("signaled")));
+    BOOST_REQUIRE(signalled_ex == nullptr);
+}
