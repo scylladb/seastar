@@ -539,6 +539,7 @@ function(seastar_add_certgen name)
 
   set(CERT_CAPRIVKEY ca${CERT_NAME}.key)
   set(CERT_CAROOT ca${CERT_NAME}.pem)
+  set(CERT_COMBINED ${CERT_NAME}_combined.crt)
 
   configure_file("${CMAKE_CURRENT_SOURCE_DIR}/cert.cfg.in"
     "${CMAKE_CURRENT_BINARY_DIR}/${CERT_NAME}.cfg"
@@ -576,8 +577,14 @@ function(seastar_add_certgen name)
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
   )
 
+  add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${CERT_COMBINED}"
+    COMMAND cat ${CMAKE_CURRENT_BINARY_DIR}/${CERT_CERT} ${CMAKE_CURRENT_BINARY_DIR}/${CERT_CAROOT} > ${CMAKE_CURRENT_BINARY_DIR}/${CERT_COMBINED}
+    DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/${CERT_CERT}" "${CMAKE_CURRENT_BINARY_DIR}/${CERT_CAROOT}"
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+  )
+
   add_custom_target(${name}
-    DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/${CERT_CERT}"
+    DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/${CERT_COMBINED}"
   )
 endfunction()
 
