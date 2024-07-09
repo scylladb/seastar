@@ -65,7 +65,7 @@ class io_sink;
 using shard_id = unsigned;
 using stream_id = unsigned;
 
-class io_desc_read_write;
+class queued_io_request_completion;
 class queued_io_request;
 class io_group;
 
@@ -169,10 +169,10 @@ public:
     future<size_t> submit_io_write(internal::priority_class priority_class,
             size_t len, internal::io_request req, io_intent* intent, iovec_keeper iovs = {}) noexcept;
 
-    void submit_request(io_desc_read_write* desc, internal::io_request req) noexcept;
+    void submit_request(queued_io_request_completion* desc, internal::io_request req) noexcept;
     void cancel_request(queued_io_request& req) noexcept;
     void complete_cancelled_request(queued_io_request& req) noexcept;
-    void complete_request(io_desc_read_write& desc, std::chrono::duration<double> delay) noexcept;
+    void complete_request(queued_io_request_completion& desc, std::chrono::duration<double> delay) noexcept;
 
     [[deprecated("I/O queue users should not track individual requests, but resources (weight, size) passing through the queue")]]
     size_t queued_requests() const {
