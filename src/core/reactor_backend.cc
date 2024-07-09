@@ -1467,6 +1467,7 @@ private:
             case o::poll_add:
             case o::poll_remove:
             case o::cancel:
+            case o::discard:
                 // The reactor does not generate these types of I/O requests yet, so
                 // this path is unreachable. As more features of io_uring are exploited,
                 // we'll utilize more of these opcodes.

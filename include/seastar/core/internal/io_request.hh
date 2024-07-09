@@ -36,7 +36,7 @@ namespace internal {
 
 class io_request {
 public:
-    enum class operation : char { read, readv, write, writev, fdatasync, recv, recvmsg, send, sendmsg, accept, connect, poll_add, poll_remove, cancel };
+    enum class operation : char { read, readv, write, writev, fdatasync, recv, recvmsg, send, sendmsg, accept, connect, poll_add, poll_remove, cancel, discard };
 private:
     // the upper layers give us void pointers, but storing void pointers here is just
     // dangerous. The constructors seem to be happy to convert other pointers to void*,
@@ -108,7 +108,12 @@ private:
         int fd;
         char* addr;
     };
-
+    struct discard_op {
+        operation op;
+        int fd;
+        uint64_t offset;
+        uint64_t length;
+    };
     union {
         read_op _read;
         readv_op _readv;
@@ -124,6 +129,7 @@ private:
         poll_add_op _poll_add;
         poll_remove_op _poll_remove;
         cancel_op _cancel;
+        discard_op _discard;
     };
 
 public:
@@ -287,6 +293,17 @@ public:
         return req;
     }
 
+    static io_request make_discard(int fd, uint64_t offset, uint64_t length) {
+        io_request req;
+        req._discard = {
+            .op = operation::discard,
+            .fd = fd,
+            .offset = offset,
+            .length = length
+        };
+        return req;
+    }
+
     bool is_read() const {
         switch (opcode()) {
         case operation::read:
@@ -363,6 +380,9 @@ public:
         }
         if constexpr (Op == operation::cancel) {
             return _cancel;
+        }
+        if constexpr (Op == operation::discard) {
+            return _discard;
         }
     }
 
