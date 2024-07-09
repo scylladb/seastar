@@ -421,6 +421,9 @@ void io_sink::submit(io_completion* desc, io_request req) noexcept {
 
 std::vector<io_request::part> io_request::split(size_t max_length) {
     auto op = opcode();
+    if (op == operation::discard) {
+        return split_discard(max_length);
+    }
     if (op == operation::read || op == operation::write) {
         return split_buffer(max_length);
     }
@@ -430,6 +433,24 @@ std::vector<io_request::part> io_request::split(size_t max_length) {
 
     seastar_logger.error("Invalid operation for split: {}", static_cast<int>(op));
     std::abort();
+}
+
+std::vector<io_request::part> io_request::split_discard(size_t max_length) {
+    const auto& op = _discard;
+    const auto is_last_request_smaller = (op.length % max_length != 0);
+    const auto reqs_count = (op.length / max_length) + (is_last_request_smaller ? 1u : 0u);
+
+    std::vector<part> ret;
+    ret.reserve(reqs_count);
+
+    size_t off = 0;
+    do {
+        size_t len = std::min(op.length - off, max_length);
+        ret.push_back({ sub_req_discard(off, len), len, {} });
+        off += len;
+    } while (off < op.length);
+
+    return ret;
 }
 
 std::vector<io_request::part> io_request::split_buffer(size_t max_length) {
@@ -1063,6 +1084,10 @@ future<size_t> io_queue::submit_io_write(internal::priority_class pc, size_t len
     return queue_request(std::move(pc), io_direction_and_length(io_direction_write, len), std::move(req), intent, std::move(iovs));
 }
 
+future<size_t> io_queue::submit_io_discard(internal::priority_class pc, size_t len, internal::io_request req, io_intent* intent) noexcept {
+    return queue_request(std::move(pc), io_direction_and_length(io_direction_discard, len), std::move(req), intent, iovec_keeper{});
+}
+
 void io_queue::poll_io_queue() {
     for (auto&& st : _streams) {
         st.dispatch_requests([] (fair_queue_entry& fqe) {
@@ -1075,7 +1100,26 @@ void io_queue::submit_request(queued_io_request_completion* desc, internal::io_r
     _queued_requests--;
     _requests_executing++;
     _requests_dispatched++;
-    _sink.submit(desc, std::move(req));
+
+    if (req.opcode() != internal::io_request::operation::discard) {
+        _sink.submit(desc, std::move(req));
+    } else {
+        submit_blocks_discarding(desc, std::move(req));
+    }
+}
+
+void io_queue::submit_blocks_discarding(queued_io_request_completion* desc, internal::io_request req) noexcept {
+    auto& discard_req = req.as<internal::io_request::operation::discard>();
+
+    // Caller synchronizes using the future returned from `desc->get_future()`.
+    // The attached continuation resolves that future when `punch_hole()` finishes.
+    (void) engine().punch_hole(discard_req.fd, discard_req.offset, discard_req.length).then_wrapped([desc, len = discard_req.length] (future<> f) {
+        if (f.failed()) {
+            desc->set_exception(f.get_exception());
+        } else {
+            desc->complete(len);
+        }
+    });
 }
 
 void io_queue::cancel_request(queued_io_request& req) noexcept {

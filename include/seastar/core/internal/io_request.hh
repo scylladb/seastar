@@ -425,6 +425,12 @@ private:
         return sub_req;
     }
     std::vector<part> split_iovec(size_t max_length);
+
+    io_request sub_req_discard(size_t relative_offset, size_t new_length) const {
+        auto& op = _discard;
+        return make_discard(op.fd, op.offset + relative_offset, new_length);
+    }
+    std::vector<part> split_discard(size_t max_length);
 };
 
 struct io_request::part {
