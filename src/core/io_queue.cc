@@ -1043,6 +1043,10 @@ future<size_t> io_queue::submit_io_write(internal::priority_class pc, size_t len
     return queue_request(std::move(pc), io_direction_and_length(io_direction_write, len), std::move(req), intent, std::move(iovs));
 }
 
+future<size_t> io_queue::submit_io_discard(internal::priority_class pc, size_t len, internal::io_request req, io_intent* intent) noexcept {
+    return queue_one_request(std::move(pc), io_direction_and_length(io_direction_discard, len), std::move(req), intent, iovec_keeper{});
+}
+
 void io_queue::poll_io_queue() {
     for (auto&& st : _streams) {
         st.dispatch_requests([] (fair_queue_entry& fqe) {
@@ -1055,7 +1059,26 @@ void io_queue::submit_request(queued_io_request_completion* desc, internal::io_r
     _queued_requests--;
     _requests_executing++;
     _requests_dispatched++;
-    _sink.submit(desc, std::move(req));
+
+    if (req.opcode() != internal::io_request::operation::discard) {
+        _sink.submit(desc, std::move(req));
+    } else {
+        submit_blocks_discarding(desc, std::move(req));
+    }
+}
+
+void io_queue::submit_blocks_discarding(queued_io_request_completion* desc, internal::io_request req) noexcept {
+    auto& discard_req = req.as<internal::io_request::operation::discard>();
+
+    // Caller synchronizes using the future returned from `desc->get_future()`.
+    // The attached continuation resolves that future when `punch_hole()` finishes.
+    (void) engine().punch_hole(discard_req.fd, discard_req.offset, discard_req.length).then_wrapped([desc, len = discard_req.length] (future<> f) {
+        if (f.failed()) {
+            desc->set_exception(f.get_exception());
+        } else {
+            desc->complete(len);
+        }
+    });
 }
 
 void io_queue::cancel_request(queued_io_request& req) noexcept {
