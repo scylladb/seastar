@@ -679,7 +679,8 @@ static future<> run_echo_test(sstring message,
                 sstring client_key = {},
                 bool do_read = true,
                 bool use_dh_params = true,
-                tls::dn_callback distinguished_name_callback = {}
+                tls::dn_callback distinguished_name_callback = {},
+                bool set_server_trust = true
 )
 {
     static const auto port = 4711;
@@ -705,7 +706,7 @@ static future<> run_echo_test(sstring message,
     }).then([=] {
         return server->start(msg->size(), use_dh_params).then([=]() {
             sstring server_trust;
-            if (ca != tls::client_auth::NONE) {
+            if (ca != tls::client_auth::NONE && set_server_trust) {
                 server_trust = trust;
             }
             return server->invoke_on_all(&echoserver::listen, addr, crt, key, ca, server_trust);
@@ -847,6 +848,13 @@ SEASTAR_TEST_CASE(test_simple_x509_client_server_client_auth) {
     // server name
     // Server will require certificate auth. We supply one, so should succeed with connection
     return run_echo_test(message, 20, certfile("catest.pem"), "test.scylladb.org", certfile("test.crt"), certfile("test.key"), tls::client_auth::REQUIRE, certfile("test.crt"), certfile("test.key"));
+}
+
+
+SEASTAR_TEST_CASE(test_simple_x509_client_server_client_auth_combined_cert_file) {
+    // This test verifies that providing a chain in the cert file rather than the trust store
+    // will still verify the client's certificate.
+    return run_echo_test(message, 20, certfile("catest.pem"), "test.scylladb.org", certfile("test_combined.crt"), certfile("test.key"), tls::client_auth::REQUIRE, certfile("test.crt"), certfile("test.key"), true, true, {}, false);
 }
 
 SEASTAR_TEST_CASE(test_simple_x509_client_server_client_auth_with_dn_callback) {
