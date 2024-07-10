@@ -23,7 +23,6 @@
 module;
 #endif
 
-#include <compare>
 #include <atomic>
 #include <exception>
 #include <stdexcept>

@@ -27,7 +27,6 @@ module;
 #include <atomic>
 #include <coroutine>
 #include <deque>
-#include <filesystem>
 #include <functional>
 #include <memory>
 #include <optional>

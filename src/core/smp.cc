@@ -23,7 +23,7 @@ module;
 #endif
 
 #include <boost/range/algorithm/find_if.hpp>
-#include <memory>
+#include <atomic>
 #include <vector>
 #include <regex>
 #include <sys/mman.h>

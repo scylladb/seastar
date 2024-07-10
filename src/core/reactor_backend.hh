@@ -33,7 +33,6 @@
 #ifndef SEASTAR_MODULE
 #include <fmt/ostream.h>
 #include <sys/time.h>
-#include <signal.h>
 #include <thread>
 #include <stack>
 #include <boost/any.hpp>

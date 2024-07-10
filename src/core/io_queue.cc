@@ -23,8 +23,6 @@
 module;
 #endif
 
-#include <compare>
-#include <atomic>
 #include <cassert>
 #include <array>
 #include <chrono>
