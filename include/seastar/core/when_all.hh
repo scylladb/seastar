@@ -145,7 +145,7 @@ class when_all_state : public when_all_state_base {
     // We only schedule one continuation at a time, and store it in _cont.
     // This way, if while the future we wait for completes, some other futures
     // also complete, we won't need to schedule continuations for them.
-    std::aligned_union_t<1, when_all_state_component<Futures>...> _cont;
+    alignas(when_all_state_component<Futures>...) std::byte _cont[std::max({sizeof(when_all_state_component<Futures>)...})];
     when_all_process_element _processors[nr];
 public:
     typename ResolvedTupleTransform::promise_type p;
