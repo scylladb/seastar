@@ -778,6 +778,10 @@ add_library (seastar
   src/websocket/server.cc
   )
 
+# We disable _FORTIFY_SOURCE because it generates false positives with longjmp() (src/core/thread.cc)
+set_source_files_properties(src/core/thread.cc
+  PROPERTIES COMPILE_FLAGS -U_FORTIFY_SOURCE)
+
 add_library (Seastar::seastar ALIAS seastar)
 
 add_dependencies (seastar
@@ -898,12 +902,6 @@ include (CTest)
 #
 # To disable -Werror, pass -Wno-error to Seastar_CXX_FLAGS.
 #
-# We disable _FORTIFY_SOURCE because it generates false positives with longjmp() (src/core/thread.cc)
-#
-
-target_compile_options (seastar
-  PUBLIC
-    -U_FORTIFY_SOURCE)
 
 target_compile_definitions(seastar
   PUBLIC
