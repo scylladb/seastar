@@ -78,8 +78,8 @@ module;
 #include <unordered_set>
 #include <iostream>
 #include <optional>
-#include <thread>
 #include <memory_resource>
+#include <thread>
 
 #include <fmt/format.h>
 #include <fmt/ostream.h>

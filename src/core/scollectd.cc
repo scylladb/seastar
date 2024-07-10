@@ -30,7 +30,6 @@ module;
 #include <cstdint>
 #include <functional>
 #include <unordered_map>
-#include <forward_list>
 #include <utility>
 #include <string>
 #include <map>

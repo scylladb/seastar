@@ -23,7 +23,6 @@
 module;
 #endif
 
-#include <compare>
 #include <atomic>
 #include <cassert>
 #include <chrono>
@@ -34,7 +33,6 @@ module;
 #include <regex>
 #include <thread>
 
-#include <cinttypes>
 #include <spawn.h>
 #include <sys/syscall.h>
 #include <sys/vfs.h>

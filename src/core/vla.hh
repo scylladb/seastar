@@ -23,9 +23,7 @@
 
 #include <seastar/core/aligned_buffer.hh>
 #include <memory>
-#include <new>
 #include <assert.h>
-#include <type_traits>
 
 namespace seastar {
 

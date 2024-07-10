@@ -21,8 +21,9 @@
 #pragma once
 
 #include <atomic>
-#include <map>
 #include <optional>
+#include <unordered_map>
+#include <vector>
 
 #include <seastar/core/posix.hh>
 #include <seastar/core/resource.hh>

@@ -27,7 +27,6 @@ module;
 #include <unistd.h>
 #include <cassert>
 #include <atomic>
-#include <mutex>
 
 #if SEASTAR_HAS_MEMBARRIER
 #include <linux/membarrier.h>

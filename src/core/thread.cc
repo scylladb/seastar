@@ -24,10 +24,11 @@ module;
 #endif
 
 #include <ucontext.h>
+#ifndef SEASTAR_ASAN_ENABLED
 #include <setjmp.h>
+#endif
 #include <stdint.h>
 #include <valgrind/valgrind.h>
-#include <algorithm>
 #include <exception>
 #include <utility>
 #include <boost/intrusive/list.hpp>
