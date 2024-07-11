@@ -2227,17 +2227,12 @@ future<std::optional<struct group>> reactor::getgrnam(std::string_view name, cha
             struct group *result;
             memset(&grp, 0, sizeof(struct group));
             int ret = ::getgrnam_r(name.c_str(), &grp, buf, buflen, &result);
-            if (!result) {
-                return wrap_syscall(ret, std::optional<struct group>(std::nullopt));
-            }
-            return wrap_syscall(ret, std::optional<struct group>(*result));
+            return wrap_syscall(ret, result ? std::optional<struct group>(*result) : std::nullopt);
         }).then([] (syscall_result_extra<std::optional<struct group>> sr) {
             if (sr.result != 0) {
-                // getgrnam_r, in case of error, an error number is returned (here it is stored in result), 
-                // which is the same as the error code in errno
                 throw std::error_code(sr.result, std::system_category());
             }
-            return make_ready_future<std::optional<struct group>>(std::optional<struct group>(std::move(sr.extra)));
+            return make_ready_future<std::optional<struct group>>(std::move(sr.extra));
         });
     });
 }
