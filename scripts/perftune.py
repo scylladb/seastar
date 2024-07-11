@@ -21,6 +21,8 @@ import urllib.request
 import yaml
 import platform
 import shlex
+import psutil
+import mmap
 
 dry_run_mode = False
 def perftune_print(log_msg, *args, **kwargs):
@@ -605,6 +607,17 @@ class NetPerfTuner(PerfTunerBase):
         # Increase the maximum number of remembered connection requests, which are still
         # did not receive an acknowledgment from connecting client.
         fwriteln_and_log('/proc/sys/net/ipv4/tcp_max_syn_backlog', '4096')
+
+        self.tune_tcp_mem()
+
+    def tune_tcp_mem(self):
+        page_size = mmap.PAGESIZE
+        total_mem = psutil.virtual_memory().total
+        # We only tune for physical memory since tcp_mem is virtualized
+        def to_pages(bytes):
+            return math.ceil(bytes / page_size)
+        max = total_mem * self.args.tcp_mem_fraction
+        fwriteln_and_log('/proc/sys/net/ipv4/tcp_mem', f"{to_pages(max / 2)} {to_pages(max * 2/3)} {to_pages(max)}")
 
     def nic_is_bond_iface(self, nic):
         return self.__nic_is_bond_iface.get(nic, False)
@@ -1567,6 +1580,10 @@ class TuneModes(enum.Enum):
     def names():
         return list(TuneModes.__members__.keys())
 
+# Seastar defaults to allocating 93% of physical memory. The kernel's default allocation for TCP is ~9%. This adds up
+# to 102%. Reduce the TCP allocation to 3% to avoid OOM.
+default_tcp_mem_fraction = 0.03
+
 argp = argparse.ArgumentParser(description = 'Configure various system parameters in order to improve the seastar application performance.', formatter_class=argparse.RawDescriptionHelpFormatter,
                                epilog=
 '''
@@ -1629,6 +1646,7 @@ argp.add_argument('--irq-core-auto-detection-ratio', help="Use a given ratio for
                                                           "CPU cores out of available according to a 'cpu_mask' value."
                                                           "Default is 16",
                   type=int, default=16, dest='cores_per_irq_core')
+argp.add_argument('--tcp-mem-fraction', default=default_tcp_mem_fraction, type=float, help="Fraction of total memory to allocate for TCP buffers")
 
 def parse_cpu_mask_from_yaml(y, field_name, fname):
     hex_32bit_pattern='0x[0-9a-fA-F]{1,8}'
