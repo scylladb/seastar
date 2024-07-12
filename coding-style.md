@@ -127,7 +127,7 @@ Whitespace around operators should match their precedence: high precedence = no 
 
 ## Long lines
 
-If a line becomes excessively long (>120 characters?), or is just complicated, break it into two or more lines.  The second (and succeeding lines) are _continuation lines_, and have a double indent:
+If a line becomes excessively long (>160 characters?), or is just complicated, break it into two or more lines.  The second (and succeeding lines) are _continuation lines_, and have a double indent:
 
 ```c++
     if ((some_condition && some_other_condition)
