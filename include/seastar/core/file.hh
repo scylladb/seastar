@@ -677,7 +677,8 @@ public:
     /// Closes the file.
     ///
     /// Flushes any pending operations and release any resources associated with
-    /// the file (except for stable storage).
+    /// the file (except for stable storage). Resets the file object back to
+    /// uninitialized state as if by assigning file() to it.
     ///
     /// \note
     /// \c close() never fails. It just reports errors and swallows them.
