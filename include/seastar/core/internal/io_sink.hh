@@ -21,7 +21,7 @@
 
 #pragma once
 
-#include <seastar/core/circular_buffer.hh>
+#include <seastar/core/chunked_fifo.hh>
 #include <seastar/core/internal/io_request.hh>
 
 #include <concepts>
@@ -49,7 +49,7 @@ public:
 };
 
 class io_sink {
-    circular_buffer<pending_io_request> _pending_io;
+    chunked_fifo<pending_io_request> _pending_io;
 public:
     void submit(io_completion* desc, internal::io_request req) noexcept;
 
@@ -67,7 +67,7 @@ public:
             drained++;
         }
 
-        _pending_io.erase(_pending_io.begin(), it);
+        _pending_io.pop_front_n(drained);
         return drained;
     }
 };
