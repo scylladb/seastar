@@ -101,6 +101,11 @@ class chunked_fifo {
         // begin and end interpreted mod items_per_chunk
         unsigned begin;
         unsigned end;
+
+        // the number of elements in this chunk
+        size_t size() const {
+            return end - begin;
+        }
     };
     // We pop from the chunk at _front_chunk. This chunk is then linked to
     // the following chunks via the "next" link. _back_chunk points to the
@@ -184,6 +189,10 @@ public:
     inline void pop_front() noexcept;
     inline bool empty() const noexcept;
     inline size_t size() const noexcept;
+    // Pop the first n elements from the fifo. Equivalent to calling pop_front()
+    // n times, though likely to be faster for n greater than 1. The fifo must
+    // contain at least n elements or the behavior is undefined.
+    void pop_front_n(size_t n) noexcept;
     void clear() noexcept;
     // reserve(n) ensures that at least (n - size()) further push() calls can
     // be served without needing new memory allocation.
@@ -368,6 +377,29 @@ void chunked_fifo<T, items_per_chunk>::clear() noexcept {
     _nchunks = 0;
 #endif
 }
+
+template <typename T, size_t items_per_chunk>
+void chunked_fifo<T, items_per_chunk>::pop_front_n(size_t n) noexcept {
+    while (n) {
+        assert(_front_chunk && "pop_front_n n too large");
+
+        auto target = _front_chunk;
+        unsigned delete_count = std::min(target->size(), n);
+
+        for (auto i = target->begin, e = i + delete_count; i != e; i++) {
+            target->items[mask(i)].data.~T();
+        }
+
+        target->begin += delete_count;
+        n -= delete_count;
+
+        if (target->size() == 0) {
+            front_chunk_delete();
+        }
+    }
+}
+
+
 
 template <typename T, size_t items_per_chunk> void
 chunked_fifo<T, items_per_chunk>::shrink_to_fit() noexcept {
