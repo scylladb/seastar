@@ -738,9 +738,7 @@ public:
             }
         }
         future<connection> accept() {
-            return _q.not_empty().then([this] {
-                return make_ready_future<connection>(_q.pop());
-            });
+            return _q.pop_eventually();
         }
         void abort_accept() {
             _q.abort(std::make_exception_ptr(std::system_error(ECONNABORTED, std::system_category())));
