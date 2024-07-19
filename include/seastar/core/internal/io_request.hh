@@ -36,35 +36,38 @@ namespace internal {
 
 class io_request {
 public:
-    enum class operation { read, readv, write, writev, fdatasync, recv, recvmsg, send, sendmsg, accept, connect, poll_add, poll_remove, cancel };
+    enum class operation : char { read, readv, write, writev, fdatasync, recv, recvmsg, send, sendmsg, accept, connect, poll_add, poll_remove, cancel };
 private:
-    operation _op;
     // the upper layers give us void pointers, but storing void pointers here is just
     // dangerous. The constructors seem to be happy to convert other pointers to void*,
     // even if they are marked as explicit, and then you end up losing approximately 3 hours
     // and 15 minutes (hypothetically, of course), trying to chase the weirdest bug.
     // Let's store a char* for safety, and cast it back to void* in the accessor.
     struct read_op {
+        operation op;
+        bool nowait_works;
         int fd;
         uint64_t pos;
         char* addr;
         size_t size;
-        bool nowait_works;
     };
     struct readv_op {
+        operation op;
+        bool nowait_works;
         int fd;
         uint64_t pos;
         ::iovec* iovec;
         size_t iov_len;
-        bool nowait_works;
     };
     struct recv_op {
+        operation op;
         int fd;
         char* addr;
         size_t size;
         int flags;
     };
     struct recvmsg_op {
+        operation op;
         int fd;
         ::msghdr* msghdr;
         int flags;
@@ -74,31 +77,38 @@ private:
     using write_op = read_op;
     using writev_op = readv_op;
     struct fdatasync_op {
+        operation op;
         int fd;
     };
     struct accept_op {
+        operation op;
         int fd;
         ::sockaddr* sockaddr;
         socklen_t* socklen_ptr;
         int flags;
     };
     struct connect_op {
+        operation op;
         int fd;
         ::sockaddr* sockaddr;
         socklen_t socklen;
     };
     struct poll_add_op {
+        operation op;
         int fd;
         int events;
     };
     struct poll_remove_op {
+        operation op;
         int fd;
         char* addr;
     };
     struct cancel_op {
+        operation op;
         int fd;
         char* addr;
     };
+
     union {
         read_op _read;
         readv_op _readv;
@@ -119,34 +129,34 @@ private:
 public:
     static io_request make_read(int fd, uint64_t pos, void* address, size_t size, bool nowait_works) {
         io_request req;
-        req._op = operation::read;
         req._read = {
+          .op = operation::read,
+          .nowait_works = nowait_works,
           .fd = fd,
           .pos = pos,
           .addr = reinterpret_cast<char*>(address),
           .size = size,
-          .nowait_works = nowait_works,
         };
         return req;
     }
 
     static io_request make_readv(int fd, uint64_t pos, std::vector<iovec>& iov, bool nowait_works) {
         io_request req;
-        req._op = operation::readv;
         req._readv = {
+          .op = operation::readv,
+          .nowait_works = nowait_works,
           .fd = fd,
           .pos = pos,
           .iovec = iov.data(),
           .iov_len = iov.size(),
-          .nowait_works = nowait_works,
         };
         return req;
     }
 
     static io_request make_recv(int fd, void* address, size_t size, int flags) {
         io_request req;
-        req._op = operation::recv;
         req._recv = {
+          .op = operation::recv,
           .fd = fd,
           .addr = reinterpret_cast<char*>(address),
           .size = size,
@@ -157,8 +167,8 @@ public:
 
     static io_request make_recvmsg(int fd, ::msghdr* msg, int flags) {
         io_request req;
-        req._op = operation::recvmsg;
         req._recvmsg = {
+          .op = operation::recvmsg,
           .fd = fd,
           .msghdr = msg,
           .flags = flags,
@@ -168,8 +178,8 @@ public:
 
     static io_request make_send(int fd, const void* address, size_t size, int flags) {
         io_request req;
-        req._op = operation::send;
         req._send = {
+          .op = operation::send,
           .fd = fd,
           .addr = const_cast<char*>(reinterpret_cast<const char*>(address)),
           .size = size,
@@ -180,8 +190,8 @@ public:
 
     static io_request make_sendmsg(int fd, ::msghdr* msg, int flags) {
         io_request req;
-        req._op = operation::sendmsg;
         req._sendmsg = {
+          .op = operation::sendmsg,
           .fd = fd,
           .msghdr = msg,
           .flags = flags,
@@ -191,34 +201,34 @@ public:
 
     static io_request make_write(int fd, uint64_t pos, const void* address, size_t size, bool nowait_works) {
         io_request req;
-        req._op = operation::write;
         req._write = {
+          .op = operation::write,
+          .nowait_works = nowait_works,
           .fd = fd,
           .pos = pos,
           .addr = const_cast<char*>(reinterpret_cast<const char*>(address)),
           .size = size,
-          .nowait_works = nowait_works,
         };
         return req;
     }
 
     static io_request make_writev(int fd, uint64_t pos, std::vector<iovec>& iov, bool nowait_works) {
         io_request req;
-        req._op = operation::writev;
         req._writev = {
+          .op = operation::writev,  
+          .nowait_works = nowait_works,
           .fd = fd,
           .pos = pos,
           .iovec = iov.data(),
           .iov_len = iov.size(),
-          .nowait_works = nowait_works,
         };
         return req;
     }
 
     static io_request make_fdatasync(int fd) {
         io_request req;
-        req._op = operation::fdatasync;
         req._fdatasync = {
+          .op = operation::fdatasync,
           .fd = fd,
         };
         return req;
@@ -226,8 +236,8 @@ public:
 
     static io_request make_accept(int fd, struct sockaddr* addr, socklen_t* addrlen, int flags) {
         io_request req;
-        req._op = operation::accept;
         req._accept = {
+          .op = operation::accept,
           .fd = fd,
           .sockaddr = addr,
           .socklen_ptr = addrlen,
@@ -238,8 +248,8 @@ public:
 
     static io_request make_connect(int fd, struct sockaddr* addr, socklen_t addrlen) {
         io_request req;
-        req._op = operation::connect;
         req._connect = {
+          .op = operation::connect,
           .fd = fd,
           .sockaddr = addr,
           .socklen = addrlen,
@@ -249,8 +259,8 @@ public:
 
     static io_request make_poll_add(int fd, int events) {
         io_request req;
-        req._op = operation::poll_add;
         req._poll_add = {
+          .op = operation::poll_add,
           .fd = fd,
           .events = events,
         };
@@ -259,8 +269,8 @@ public:
 
     static io_request make_poll_remove(int fd, void *addr) {
         io_request req;
-        req._op = operation::poll_remove;
         req._poll_remove = {
+          .op = operation::poll_remove,
           .fd = fd,
           .addr = reinterpret_cast<char*>(addr),
         };
@@ -269,8 +279,8 @@ public:
 
     static io_request make_cancel(int fd, void *addr) {
         io_request req;
-        req._op = operation::cancel;
         req._cancel = {
+          .op = operation::cancel,
           .fd = fd,
           .addr = reinterpret_cast<char*>(addr),
         };
@@ -278,7 +288,7 @@ public:
     }
 
     bool is_read() const {
-        switch (_op) {
+        switch (opcode()) {
         case operation::read:
         case operation::readv:
         case operation::recvmsg:
@@ -290,7 +300,7 @@ public:
     }
 
     bool is_write() const {
-        switch (_op) {
+        switch (opcode()) {
         case operation::write:
         case operation::writev:
         case operation::send:
@@ -303,8 +313,11 @@ public:
 
     sstring opname() const;
 
+    // All operation variants are tagged unions with an operation as
+    // the first member, which we read through the _read union member
+    // (chosen arbitrarily) which is allowed by the common-initial-subsequence rule.
     operation opcode() const {
-        return _op;
+        return _read.op;
     }
 
     template <operation Op>
@@ -359,17 +372,17 @@ public:
 private:
     io_request sub_req_buffer(size_t pos, size_t len) const {
         io_request sub_req;
-        sub_req._op = _op;
         // read_op and write_op share the same layout, so we don't handle
         // them separately
         auto& op = _read;
         auto& sub_op = sub_req._read;
         sub_op = {
+          .op = op.op,
+          .nowait_works = op.nowait_works,
           .fd = op.fd,
           .pos = op.pos + pos,
           .addr = op.addr + pos,
           .size = len,
-          .nowait_works = op.nowait_works,
         };
         return sub_req;
     }
@@ -377,17 +390,17 @@ private:
 
     io_request sub_req_iovec(size_t pos, std::vector<iovec>& iov) const {
         io_request sub_req;
-        sub_req._op = _op;
         // readv_op and writev_op share the same layout, so we don't handle
         // them separately
         auto& op = _readv;
         auto& sub_op = sub_req._readv;
         sub_op = {
+          .op = op.op,
+          .nowait_works = op.nowait_works,
           .fd = op.fd,
           .pos = op.pos + pos,
           .iovec = iov.data(),
           .iov_len = iov.size(),
-          .nowait_works = op.nowait_works,
         };
         return sub_req;
     }
