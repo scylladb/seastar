@@ -451,11 +451,7 @@ foreign_ptr<values_reference> get_values(int handle) {
 
 
 instance_id_type shard() {
-    if (engine_is_ready()) {
-        return to_sstring(this_shard_id());
-    }
-
-    return sstring("0");
+    return to_sstring(this_shard_id());
 }
 
 void
