@@ -335,47 +335,7 @@ chunked_fifo<T, items_per_chunk>::size() const noexcept{
 
 template <typename T, size_t items_per_chunk>
 void chunked_fifo<T, items_per_chunk>::clear() noexcept {
-#if 1
-    while (!empty()) {
-        pop_front();
-    }
-#else
-    // This is specialized code to free the contents of all the chunks and the
-    // chunks themselves. but since destroying a very full queue is not an
-    // important use case to optimize, the simple loop above is preferable.
-    if (!_front_chunk) {
-        // Empty, nothing to do
-        return;
-    }
-    // Delete front chunk (partially filled)
-    for (auto i = _front_chunk->begin; i != _front_chunk->end; ++i) {
-        _front_chunk->items[mask(i)].data.~T();
-    }
-    chunk *p = _front_chunk->next;
-    delete _front_chunk;
-    // Delete all the middle chunks (all completely filled)
-    if (p) {
-        while (p != _back_chunk) {
-            // These are full chunks
-            chunk *nextp = p->next;
-            for (auto i = 0; i != items_per_chunk; ++i) {
-                // Note we delete out of order (we don't start with p->begin).
-                // That should be fine..
-                p->items[i].data.~T();
-        }
-            delete p;
-            p = nextp;
-        }
-        // Finally delete back chunk (partially filled)
-        for (auto i = _back_chunk->begin; i != _back_chunk->end; ++i) {
-            _back_chunk->items[mask(i)].data.~T();
-        }
-        delete _back_chunk;
-    }
-    _front_chunk = nullptr;
-    _back_chunk = nullptr;
-    _nchunks = 0;
-#endif
+    pop_front_n(size());
 }
 
 template <typename T, size_t items_per_chunk>
