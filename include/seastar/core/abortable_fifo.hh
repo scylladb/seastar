@@ -46,7 +46,7 @@ struct noop_aborter {
 };
 
 
-/// Container for elements with support for cancelation of entries.
+/// Container for elements with support for cancellation of entries.
 ///
 /// OnAbort is a functor which will be called with a reference to T right before it expires.
 /// T is removed and destroyed from the container immediately after OnAbort returns.
