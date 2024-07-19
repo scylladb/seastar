@@ -58,19 +58,17 @@ public:
     // draining should try to drain more
     requires std::is_invocable_r<bool, Fn, internal::io_request&, io_completion*>::value
     size_t drain(Fn&& consume) {
-        size_t pending = _pending_io.size();
         size_t drained = 0;
+        auto it = _pending_io.begin();
 
-        while (pending > drained) {
-            pending_io_request& req = _pending_io[drained];
-
+        for (auto end = _pending_io.end(); it != end; ++it, ++drained) {
+            pending_io_request& req = *it;
             if (!consume(req, req._completion)) {
                 break;
             }
-            drained++;
         }
 
-        _pending_io.erase(_pending_io.begin(), _pending_io.begin() + drained);
+        _pending_io.erase(_pending_io.begin(), it);
         return drained;
     }
 };
