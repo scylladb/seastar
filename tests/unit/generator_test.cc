@@ -21,7 +21,7 @@
 
 #include <seastar/core/coroutine.hh>
 #include <seastar/coroutine/as_future.hh>
-#include <seastar/coroutine/async_generator.hh>
+#include <seastar/coroutine/generator.hh>
 #include <seastar/coroutine/exception.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/util/bool_class.hh>
@@ -56,7 +56,7 @@ sync_fibonacci_sequence(unsigned count) {
     }
 }
 
-coroutine::experimental::async_generator<int>
+coroutine::experimental::generator<int>
 async_fibonacci_sequence(unsigned count, do_suspend suspend) {
     auto a = 0, b = 1;
     for (unsigned i = 0; i < count; ++i) {
@@ -72,7 +72,7 @@ async_fibonacci_sequence(unsigned count, do_suspend suspend) {
 }
 
 seastar::future<>
-verify_fib_drained(coroutine::experimental::async_generator<int> actual_fibs, unsigned count) {
+verify_fib_drained(coroutine::experimental::generator<int> actual_fibs, unsigned count) {
     auto expected_fibs = sync_fibonacci_sequence(count);
     auto expected_fib = std::begin(expected_fibs);
 
@@ -86,33 +86,33 @@ verify_fib_drained(coroutine::experimental::async_generator<int> actual_fibs, un
     BOOST_REQUIRE(actual_fib == actual_fibs.end());
 }
 
-SEASTAR_TEST_CASE(test_async_generator_drained_with_suspend) {
+SEASTAR_TEST_CASE(test_generator_drained_with_suspend) {
     constexpr int count = 4;
     return verify_fib_drained(async_fibonacci_sequence(count, do_suspend::yes),
                               count);
 }
 
-SEASTAR_TEST_CASE(test_async_generator_drained_without_suspend) {
+SEASTAR_TEST_CASE(test_generator_drained_without_suspend) {
     constexpr int count = 4;
     return verify_fib_drained(async_fibonacci_sequence(count, do_suspend::no),
                               count);
 }
 
-seastar::future<> test_async_generator_not_drained(do_suspend suspend) {
+seastar::future<> test_generator_not_drained(do_suspend suspend) {
     auto fib = async_fibonacci_sequence(42, suspend);
     auto actual_fib = co_await fib.begin();
     BOOST_REQUIRE_EQUAL(*actual_fib, 0);
 }
 
-SEASTAR_TEST_CASE(test_async_generator_not_drained_with_suspend) {
-    return test_async_generator_not_drained(do_suspend::yes);
+SEASTAR_TEST_CASE(test_generator_not_drained_with_suspend) {
+    return test_generator_not_drained(do_suspend::yes);
 }
 
-SEASTAR_TEST_CASE(test_async_generator_not_drained_without_suspend) {
-    return test_async_generator_not_drained(do_suspend::no);
+SEASTAR_TEST_CASE(test_generator_not_drained_without_suspend) {
+    return test_generator_not_drained(do_suspend::no);
 }
 
-coroutine::experimental::async_generator<std::string_view, std::string>
+coroutine::experimental::generator<std::string_view, std::string>
 generate_value_and_ref(std::vector<std::string_view> strings) {
     co_yield "[";
     std::string s;
@@ -124,7 +124,7 @@ generate_value_and_ref(std::vector<std::string_view> strings) {
     co_yield "]";
 }
 
-SEASTAR_TEST_CASE(test_async_generator_value_reference) {
+SEASTAR_TEST_CASE(test_generator_value_reference) {
     using namespace std::literals;
     std::vector<std::string_view> expected_quoted = {"["sv, "foo,"sv, "bar,"sv, "]"sv};
     auto actual_quoted = generate_value_and_ref({"foo"sv, "bar"sv});
@@ -135,14 +135,14 @@ SEASTAR_TEST_CASE(test_async_generator_value_reference) {
     }
 }
 
-coroutine::experimental::async_generator<std::string>
+coroutine::experimental::generator<std::string>
 generate_yield_rvalue_reference(const std::vector<std::string> strings) {
     for (auto& s: strings) {
         co_yield s;
     }
 }
 
-SEASTAR_TEST_CASE(test_async_generator_rvalue_reference) {
+SEASTAR_TEST_CASE(test_generator_rvalue_reference) {
     std::vector<std::string> expected_strings = {"hello", "world"};
     auto actual_strings = generate_yield_rvalue_reference(expected_strings);
     auto actual = co_await actual_strings.begin();
@@ -152,13 +152,13 @@ SEASTAR_TEST_CASE(test_async_generator_rvalue_reference) {
     }
 }
 
-SEASTAR_TEST_CASE(test_async_generator_move_ctor) {
+SEASTAR_TEST_CASE(test_generator_move_ctor) {
     constexpr int count = 4;
     auto actual_fibs = async_fibonacci_sequence(count, do_suspend::no);
     return verify_fib_drained(std::move(actual_fibs), count);
 }
 
-SEASTAR_TEST_CASE(test_async_generator_swap) {
+SEASTAR_TEST_CASE(test_generator_swap) {
     int count_a = 4;
     int count_b = 42;
     auto fibs_a = async_fibonacci_sequence(count_a, do_suspend::no);
@@ -191,7 +191,7 @@ std::ostream& operator<<(std::ostream& os, const counter_t& c) {
     return os << c.n;
 }
 
-coroutine::experimental::async_generator<counter_t>
+coroutine::experimental::generator<counter_t>
 fiddle(int n, int* total) {
     int i = 0;
     while (true) {
@@ -202,7 +202,7 @@ fiddle(int n, int* total) {
     }
 }
 
-SEASTAR_TEST_CASE(test_async_generator_throws_from_generator) {
+SEASTAR_TEST_CASE(test_generator_throws_from_generator) {
     int total = 0;
     auto count_to = [total=&total](unsigned n) -> seastar::future<> {
         auto count = fiddle(n, total);
@@ -217,7 +217,7 @@ SEASTAR_TEST_CASE(test_async_generator_throws_from_generator) {
     BOOST_REQUIRE_EQUAL(total, 0);
 }
 
-SEASTAR_TEST_CASE(test_async_generator_throws_from_consumer) {
+SEASTAR_TEST_CASE(test_generator_throws_from_consumer) {
     int total = 0;
     auto count_to = [total=&total](unsigned n) -> seastar::future<> {
         auto count = fiddle(n, total);
