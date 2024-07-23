@@ -66,7 +66,8 @@ public:
     class subscription : public bi::list_base_hook<bi::link_mode<bi::auto_unlink>> {
         friend class abort_source;
 
-        subscription_callback_type _target = noop_handler;
+        subscription_callback_type _target;
+        bool _aborted = false;
 
         explicit subscription(abort_source& as, subscription_callback_type target)
                 : _target(std::move(target)) {
@@ -84,8 +85,6 @@ public:
         }
 
     public:
-        static void noop_handler(const std::optional<std::exception_ptr>&) noexcept {}
-
         /// Call the subscribed callback (at most once).
         /// This method is called by the \ref abort_source on all listed \ref subscription objects
         /// when \ref request_abort() is called.
@@ -93,21 +92,25 @@ public:
         /// to be unlinked from the \ref abort_source subscriptions list.
         void on_abort(const std::optional<std::exception_ptr>& ex) noexcept {
             unlink();
-            auto target = std::exchange(_target, noop_handler);
-            target(ex);
+            if (!std::exchange(_aborted, true)) {
+                _target(ex);
+            }
         }
 
     public:
         subscription() = default;
 
         subscription(subscription&& other) noexcept(std::is_nothrow_move_constructible_v<subscription_callback_type>)
-                : _target(std::move(other._target)) {
+                : _target(std::move(other._target))
+                , _aborted(std::exchange(other._aborted, true))
+        {
             subscription_list_type::node_algorithms::swap_nodes(other.this_ptr(), this_ptr());
         }
 
         subscription& operator=(subscription&& other) noexcept(std::is_nothrow_move_assignable_v<subscription_callback_type>) {
             if (this != &other) {
                 _target = std::move(other._target);
+                _aborted = std::exchange(other._aborted, true);
                 unlink();
                 subscription_list_type::node_algorithms::swap_nodes(other.this_ptr(), this_ptr());
             }
