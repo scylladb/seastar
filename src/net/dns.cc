@@ -37,7 +37,6 @@
 #include <seastar/core/reactor.hh>
 #include <seastar/core/gate.hh>
 #include <seastar/core/print.hh>
-#include <system_error>
 
 namespace seastar::net {
 
@@ -117,11 +116,9 @@ public:
     }
 };
 
-static const ares_error_category ares_errorc;
-
 static void check_ares_error(int error) {
     if (error != ARES_SUCCESS) {
-        throw std::system_error(error, ares_errorc);
+        throw std::system_error(error, net::dns::error_category());
     }
 }
 
@@ -270,7 +267,7 @@ public:
             switch (status) {
             default:
                 dns_log.debug("Query failed: {}", status);
-                p->set_exception(std::system_error(status, ares_errorc, p->name));
+                p->set_exception(std::system_error(status, net::dns::error_category(), p->name));
                 break;
             case ARES_SUCCESS:
                 p->set_value(make_hostent(*host));
@@ -311,7 +308,7 @@ public:
             switch (status) {
             default:
                 dns_log.debug("Query failed: {}", status);
-                p->set_exception(std::system_error(status, ares_errorc, boost::lexical_cast<std::string>(p->addr)));
+                p->set_exception(std::system_error(status, net::dns::error_category(), boost::lexical_cast<std::string>(p->addr)));
                 break;
             case ARES_SUCCESS:
                 p->set_value(make_hostent(*host));
@@ -350,14 +347,14 @@ public:
                 reinterpret_cast<promise<srv_records> *>(arg));
             if (status != ARES_SUCCESS) {
                 dns_log.debug("Query failed: {}", status);
-                p->set_exception(std::system_error(status, ares_errorc));
+                p->set_exception(std::system_error(status, net::dns::error_category()));
                 return;
             }
             ares_srv_reply* start = nullptr;
             status = ares_parse_srv_reply(buf, len, &start);
             if (status != ARES_SUCCESS) {
                 dns_log.debug("Parse failed: {}", status);
-                p->set_exception(std::system_error(status, ares_errorc));
+                p->set_exception(std::system_error(status, net::dns::error_category()));
                 return;
             }
             try {
@@ -1115,6 +1112,12 @@ future<std::vector<net::inet_address>> net::inet_address::find_all(
     return dns::get_host_by_name(name, f).then([](hostent e) {
         return make_ready_future<std::vector<net::inet_address>>(std::move(e.addr_list));
     });
+}
+
+const std::error_category& net::dns::error_category() {
+    static const ares_error_category ares_errorc;
+
+    return ares_errorc;
 }
 
 }

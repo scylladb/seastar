@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include <system_error>
 #include <vector>
 #include <unordered_map>
 #include <memory>
@@ -148,6 +149,13 @@ future<sstring> resolve_addr(const inet_address&);
 future<std::vector<srv_record>> get_srv_records(dns_resolver::srv_proto proto,
                                                 const sstring& service,
                                                 const sstring& domain);
+
+/**
+ * Error handling.
+ *
+ * The error_category instance used by exceptions thrown by DNS
+ */
+ const std::error_category& error_category();
 
 }
 
