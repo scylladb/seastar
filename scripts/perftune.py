@@ -1157,8 +1157,10 @@ class ClocksourceManager:
     def _get_arch(self):
         try:
             virt = run_read_only_command(['systemd-detect-virt']).strip()
-            if virt == "kvm":
-                return virt
+            # According to https://www.freedesktop.org/software/systemd/man/latest/systemd-detect-virt.html
+            # 'amazon' and 'google' are returned for KVM guests.
+            if virt in ["kvm", "amazon", "google"]:
+                return "kvm"
         except:
             pass
         return platform.machine()
