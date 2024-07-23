@@ -823,6 +823,7 @@ public:
             if (ec == SSL_R_UNEXPECTED_EOF_WHILE_READING) {
                 // Probably shouldn't have during a write, but
                 // let's handle this gracefully
+                ERR_clear_error();
                 _eof = true;
                 return make_ready_future<stop_iteration>(stop_iteration::yes);
             }
@@ -980,11 +981,13 @@ public:
                             switch (ec) {
                             case SSL_R_UNEXPECTED_EOF_WHILE_READING:
                                 // well in this situation, the remote end closed
+                                ERR_clear_error();
                                 _eof = true;
                                 return make_ready_future<>();
                             case SSL_R_PEER_DID_NOT_RETURN_A_CERTIFICATE:
                             case SSL_R_CERTIFICATE_VERIFY_FAILED:
                             case SSL_R_NO_CERTIFICATES_RETURNED:
+                                ERR_clear_error();
                                 verify();
                                 // may throw, otherwise fall through
                                 [[fallthrough]];
@@ -1096,6 +1099,7 @@ public:
                         auto ec = ERR_GET_REASON(ERR_peek_error());
                         if (ec == SSL_R_UNEXPECTED_EOF_WHILE_READING) {
                             // in this situation, the remote end hung up
+                            ERR_clear_error();
                             _eof = true;
                             return make_ready_future<buf_type>();
                         }
@@ -1176,6 +1180,12 @@ public:
             }
             case SSL_ERROR_SSL:
             {
+                if (ERR_GET_REASON(ERR_peek_error()) == SSL_R_APPLICATION_DATA_AFTER_CLOSE_NOTIFY) {
+                    // This may have resulted in a race condition where we receive a packet immediately after
+                    // sending out the close notify alert.  In this situation, retry shutdown silently
+                    ERR_clear_error();
+                    return yield().then([this] { return do_shutdown(); });
+                }
                 auto err = make_ossl_error("Error occurred during SSL shutdown");
                 return handle_output_error(std::move(err));
             }
