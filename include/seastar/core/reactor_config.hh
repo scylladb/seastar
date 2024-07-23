@@ -24,13 +24,24 @@
 #include <seastar/util/program-options.hh>
 #include <seastar/util/memory_diagnostics.hh>
 #include <seastar/util/modules.hh>
+#include <seastar/core/scheduling.hh>
 
 namespace seastar {
 
 /// \cond internal
 struct reactor_config {
+    sched_clock::duration task_quota;
+    std::chrono::nanoseconds max_poll_time;
+    bool handle_sigint = true;
     bool auto_handle_sigint_sigterm = true;
     unsigned max_networking_aio_io_control_blocks = 10000;
+    bool force_io_getevents_syscall = false;
+    bool kernel_page_cache = false;
+    bool have_aio_fsync = false;
+    unsigned max_task_backlog = 1000;
+    bool strict_o_direct = true;
+    bool bypass_fsync = false;
+    bool no_poll_aio = false;
 };
 /// \endcond
 

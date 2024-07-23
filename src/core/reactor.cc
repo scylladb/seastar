@@ -1017,9 +1017,9 @@ reactor::task_queue::set_shares(float shares) noexcept {
 
 void
 reactor::account_runtime(task_queue& tq, sched_clock::duration runtime) {
-    if (runtime > (2 * _task_quota)) {
+    if (runtime > (2 * _cfg.task_quota)) {
         _stalls_histogram.add(runtime);
-        tq._time_spent_on_task_quota_violations += runtime - _task_quota;
+        tq._time_spent_on_task_quota_violations += runtime - _cfg.task_quota;
     }
     tq._vruntime += tq.to_vruntime(runtime);
     tq._runtime += runtime;
@@ -1039,7 +1039,7 @@ struct reactor::task_queue::indirect_compare {
 reactor::reactor(std::shared_ptr<smp> smp, alien::instance& alien, unsigned id, reactor_backend_selector rbs, reactor_config cfg)
     : _smp(std::move(smp))
     , _alien(alien)
-    , _cfg(cfg)
+    , _cfg(std::move(cfg))
     , _notify_eventfd(file_desc::eventfd(0, EFD_CLOEXEC))
     , _task_quota_timer(file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC))
     , _id(id)
@@ -1050,6 +1050,7 @@ reactor::reactor(std::shared_ptr<smp> smp, alien::instance& alien, unsigned id, 
 #endif
     , _cpu_started(0)
     , _cpu_stall_detector(internal::make_cpu_stall_detector())
+    , _aio_eventfd(_cfg.no_poll_aio ? std::optional(pollable_fd(file_desc::eventfd(0, 0))) : std::nullopt)
     , _reuseport(posix_reuseport_detect())
     , _thread_pool(std::make_unique<thread_pool>(*this, seastar::format("syscall-{}", id))) {
     /*
@@ -1144,11 +1145,11 @@ future<> reactor::poll_rdhup(pollable_fd_state& fd) {
 }
 
 void reactor::set_strict_dma(bool value) {
-    _strict_o_direct = value;
+    _cfg.strict_o_direct = value;
 }
 
 void reactor::set_bypass_fsync(bool value) {
-    _bypass_fsync = value;
+    _cfg.bypass_fsync = value;
 }
 
 void
@@ -1569,34 +1570,12 @@ public:
 void reactor::configure(const reactor_options& opts) {
     _network_stack_ready = opts.network_stack.get_selected_candidate()(*opts.network_stack.get_selected_candidate_opts());
 
-    _handle_sigint = !opts.no_handle_interrupt;
-    auto task_quota = opts.task_quota_ms.get_value() * 1ms;
-    _task_quota = std::chrono::duration_cast<sched_clock::duration>(task_quota);
-
     auto blocked_time = opts.blocked_reactor_notify_ms.get_value() * 1ms;
     internal::cpu_stall_detector_config csdc;
     csdc.threshold = blocked_time;
     csdc.stall_detector_reports_per_minute = opts.blocked_reactor_reports_per_minute.get_value();
     csdc.oneline = opts.blocked_reactor_report_format_oneline.get_value();
     _cpu_stall_detector->update_config(csdc);
-
-    _max_task_backlog = opts.max_task_backlog.get_value();
-    _max_poll_time = opts.idle_poll_time_us.get_value() * 1us;
-    if (opts.poll_mode) {
-        _max_poll_time = std::chrono::nanoseconds::max();
-    }
-    if (opts.overprovisioned && opts.idle_poll_time_us.defaulted() && !opts.poll_mode) {
-        _max_poll_time = 0us;
-    }
-    set_strict_dma(!opts.relaxed_dma);
-    if (!opts.poll_aio.get_value() || (opts.poll_aio.defaulted() && opts.overprovisioned)) {
-        _aio_eventfd = pollable_fd(file_desc::eventfd(0, 0));
-    }
-    set_bypass_fsync(opts.unsafe_bypass_fsync.get_value());
-    _kernel_page_cache = opts.kernel_page_cache.get_value();
-    _force_io_getevents_syscall = opts.force_aio_syscalls.get_value();
-    aio_nowait_supported = opts.linux_aio_nowait.get_value();
-    _have_aio_fsync = opts.aio_fsync.get_value();
 }
 
 pollable_fd
@@ -1824,11 +1803,11 @@ future<file>
 reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_options options) noexcept {
     return do_with(static_cast<int>(flags), std::move(options), [this, nameref] (auto& open_flags, file_open_options& options) {
         sstring name(nameref);
-        return _thread_pool->submit<syscall_result_extra<struct stat>>([this, name, &open_flags, &options, strict_o_direct = _strict_o_direct, bypass_fsync = _bypass_fsync] () mutable {
+        return _thread_pool->submit<syscall_result_extra<struct stat>>([this, name, &open_flags, &options, strict_o_direct = _cfg.strict_o_direct, bypass_fsync = _cfg.bypass_fsync] () mutable {
             // We want O_DIRECT, except in three cases:
             //   - tmpfs (which doesn't support it, but works fine anyway)
             //   - strict_o_direct == false (where we forgive it being not supported)
-            //   - _kernel_page_cache == true (where we disable it for short-lived test processes)
+            //   - kernel_page_cache == true (where we disable it for short-lived test processes)
             // Because open() with O_DIRECT will fail, we open it without O_DIRECT, try
             // to update it to O_DIRECT with fcntl(), and if that fails, see if we
             // can forgive it.
@@ -1851,7 +1830,7 @@ reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_opt
                 return wrap_syscall(fd, st);
             }
             auto close_fd = defer([fd] () noexcept { ::close(fd); });
-            int o_direct_flag = _kernel_page_cache ? 0 : O_DIRECT;
+            int o_direct_flag = _cfg.kernel_page_cache ? 0 : O_DIRECT;
             int r = ::fcntl(fd, F_SETFL, open_flags | o_direct_flag);
             if (r == -1  && strict_o_direct) {
                 auto maybe_ret = wrap_syscall(r, st);  // capture errno (should be EINVAL)
@@ -1859,7 +1838,7 @@ reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_opt
                     return maybe_ret;
                 }
             }
-            if (fd != -1 && options.extent_allocation_size_hint && !_kernel_page_cache) {
+            if (fd != -1 && options.extent_allocation_size_hint && !_cfg.kernel_page_cache) {
                 fsxattr attr = {};
                 int r = ::ioctl(fd, XFS_IOC_FSGETXATTR, &attr);
                 // xfs delayed allocation is disabled when extent size hints are present.
@@ -2392,10 +2371,10 @@ reactor::touch_directory(std::string_view name, file_permissions permissions) no
 future<>
 reactor::fdatasync(int fd) noexcept {
     ++_fsyncs;
-    if (_bypass_fsync) {
+    if (_cfg.bypass_fsync) {
         return make_ready_future<>();
     }
-    if (_have_aio_fsync) {
+    if (_cfg.have_aio_fsync) {
         // Does not go through the I/O queue, but has to be deleted
         struct fsync_io_desc final : public io_completion {
             promise<> _pr;
@@ -2655,7 +2634,7 @@ void reactor::run_tasks(task_queue& tq) {
         ++_global_tasks_processed;
         // check at end of loop, to allow at least one task to run
         if (internal::scheduler_need_preempt()) {
-            if (tasks.size() <= _max_task_backlog) {
+            if (tasks.size() <= _cfg.max_task_backlog) {
                 break;
             } else {
                 // While need_preempt() is set, task execution is inefficient due to
@@ -3219,7 +3198,7 @@ int reactor::do_run() {
     start_aio_eventfd_loop();
 
     if (_id == 0 && _cfg.auto_handle_sigint_sigterm) {
-       if (_handle_sigint) {
+       if (_cfg.handle_sigint) {
           _signals.handle_signal_once(SIGINT, [this] { stop(); });
        }
        _signals.handle_signal_once(SIGTERM, [this] { stop(); });
@@ -3267,7 +3246,7 @@ int reactor::do_run() {
     });
     load_timer.arm_periodic(1s);
 
-    itimerspec its = seastar::posix::to_relative_itimerspec(_task_quota, _task_quota);
+    itimerspec its = seastar::posix::to_relative_itimerspec(_cfg.task_quota, _cfg.task_quota);
     _task_quota_timer.timerfd_settime(0, its);
     auto& task_quote_itimerspec = its;
 
@@ -3332,7 +3311,7 @@ int reactor::do_run() {
             }
             if (go_to_sleep) {
                 internal::cpu_relax();
-                if (idle_end - idle_start > _max_poll_time) {
+                if (idle_end - idle_start > _cfg.max_poll_time) {
                     // Turn off the task quota timer to avoid spurious wakeups
                     struct itimerspec zero_itimerspec = {};
                     _task_quota_timer.timerfd_settime(0, zero_itimerspec);
@@ -4395,10 +4374,30 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
         memory::set_dump_memory_diagnostics_on_alloc_failure_kind(reactor_opts.dump_memory_diagnostics_on_alloc_failure_kind.get_value());
     }
 
-    reactor_config reactor_cfg;
-    reactor_cfg.auto_handle_sigint_sigterm = reactor_opts._auto_handle_sigint_sigterm;
-    reactor_cfg.max_networking_aio_io_control_blocks = adjust_max_networking_aio_io_control_blocks(reactor_opts.max_networking_io_control_blocks.get_value());
+    reactor_config reactor_cfg = {
+        .task_quota = std::chrono::duration_cast<sched_clock::duration>(reactor_opts.task_quota_ms.get_value() * 1ms),
+        .max_poll_time = [&reactor_opts] () -> std::chrono::nanoseconds {
+            if (reactor_opts.poll_mode) {
+                return std::chrono::nanoseconds::max();
+            } else if (reactor_opts.overprovisioned && reactor_opts.idle_poll_time_us.defaulted()) {
+                return 0us;
+            } else {
+                return reactor_opts.idle_poll_time_us.get_value() * 1us;
+            }
+        }(),
+        .handle_sigint = !reactor_opts.no_handle_interrupt,
+        .auto_handle_sigint_sigterm = reactor_opts._auto_handle_sigint_sigterm,
+        .max_networking_aio_io_control_blocks = adjust_max_networking_aio_io_control_blocks(reactor_opts.max_networking_io_control_blocks.get_value()),
+        .force_io_getevents_syscall = reactor_opts.force_aio_syscalls.get_value(),
+        .kernel_page_cache = reactor_opts.kernel_page_cache.get_value(),
+        .have_aio_fsync = reactor_opts.aio_fsync.get_value(),
+        .max_task_backlog = reactor_opts.max_task_backlog.get_value(),
+        .strict_o_direct = !reactor_opts.relaxed_dma,
+        .bypass_fsync = reactor_opts.unsafe_bypass_fsync.get_value(),
+        .no_poll_aio = !reactor_opts.poll_aio.get_value() || (reactor_opts.poll_aio.defaulted() && reactor_opts.overprovisioned),
+    };
 
+    aio_nowait_supported = reactor_opts.linux_aio_nowait.get_value();
     std::mutex mtx;
 
 #ifdef SEASTAR_HEAPPROF
