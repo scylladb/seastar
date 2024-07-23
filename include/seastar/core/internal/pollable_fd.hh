@@ -62,7 +62,6 @@ using pollable_fd_state_ptr = boost::intrusive_ptr<pollable_fd_state>;
 class pollable_fd_state {
     unsigned _refs = 0;
 public:
-    virtual ~pollable_fd_state() {}
     struct speculation {
         int events = 0;
         explicit speculation(int epoll_events_guessed = 0) : events(epoll_events_guessed) {}
@@ -122,6 +121,7 @@ public:
 protected:
     explicit pollable_fd_state(file_desc fd, speculation speculate = speculation())
         : fd(std::move(fd)), events_known(speculate.events) {}
+    ~pollable_fd_state() {};
 private:
     void maybe_no_more_recv();
     void maybe_no_more_send();
