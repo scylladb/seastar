@@ -1142,7 +1142,7 @@ class ClocksourceManager:
 
     def __init__(self, args):
         self.__args = args
-        self._preferred = {"x86_64": "tsc", "kvm": "kvm-clock"}
+        self._preferred = {"x86_64": "tsc", "kvm": "kvm-clock", "amazon": "kvm-clock"}
         self._arch = self._get_arch()
         self._available_clocksources_file = "/sys/devices/system/clocksource/clocksource0/available_clocksource"
         self._current_clocksource_file = "/sys/devices/system/clocksource/clocksource0/current_clocksource"
@@ -1157,7 +1157,7 @@ class ClocksourceManager:
     def _get_arch(self):
         try:
             virt = run_read_only_command(['systemd-detect-virt']).strip()
-            if virt == "kvm":
+            if virt == "kvm" or virt == "amazon":
                 return virt
         except:
             pass
