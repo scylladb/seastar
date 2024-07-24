@@ -1050,7 +1050,6 @@ reactor::reactor(std::shared_ptr<smp> smp, alien::instance& alien, unsigned id, 
 #endif
     , _cpu_started(0)
     , _cpu_stall_detector(internal::make_cpu_stall_detector())
-    , _aio_eventfd(_cfg.no_poll_aio ? std::optional(pollable_fd(file_desc::eventfd(0, 0))) : std::nullopt)
     , _reuseport(posix_reuseport_detect())
     , _thread_pool(std::make_unique<thread_pool>(*this, seastar::format("syscall-{}", id))) {
     /*
@@ -1576,6 +1575,10 @@ void reactor::configure(const reactor_options& opts) {
     csdc.stall_detector_reports_per_minute = opts.blocked_reactor_reports_per_minute.get_value();
     csdc.oneline = opts.blocked_reactor_report_format_oneline.get_value();
     _cpu_stall_detector->update_config(csdc);
+
+    if (_cfg.no_poll_aio) {
+        _aio_eventfd = pollable_fd(file_desc::eventfd(0, 0));
+    }
 }
 
 pollable_fd
