@@ -23,6 +23,11 @@ on:
         type: string
         default: ''
         required: false
+      enable-ccache:
+        description: 'build with ccache enabled'
+        type: boolean
+        default: true
+        required: false
       options:
         description: 'additional options passed to configure.py'
         type: string
@@ -58,10 +63,12 @@ jobs:
           sudo dnf -y install clang-tools-extra
 
       - name: Install ccache
+        if: ${{ inputs.enable-ccache }}
         run: |
           sudo dnf -y install ccache
 
       - name: Setup ccache
+        if: ${{ inputs.enable-ccache }}
         uses: hendrikmuhs/ccache-action@v1
         with:
           key: ${{ inputs.compiler }}-${{ inputs.standard }}-${{ inputs.mode }}-${{ inputs.enables }}
@@ -73,12 +80,15 @@ jobs:
           else
             CC=gcc
           fi
+          if ${{ inputs.enable-ccache }}; then
+            MAYBE_CCACHE_OPT="--ccache"
+          fi
           ./configure.py                          \
-            --ccache                              \
             --c++-standard ${{ inputs.standard }} \
             --compiler ${{ inputs.compiler }}     \
             --c-compiler $CC                      \
             --mode ${{ inputs.mode }}             \
+            $MAYBE_CCACHE_OPT                     \
             ${{ inputs.options }}                 \
             ${{ inputs.enables }}
 
