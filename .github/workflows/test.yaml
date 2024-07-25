@@ -37,16 +37,14 @@ on:
 jobs:
   test:
     timeout-minutes: 40
-    runs-on: ubuntu-latest
-    container: fedora:40
+    runs-on: ubuntu-24.04
     steps:
-      - name: Install Git
-        run: |
-          sudo dnf -y install git
-
       - uses: actions/checkout@v4
         with:
           submodules: "${{ contains(inputs.enables, 'dpdk') }}"
+
+      - run: |
+          sudo apt-get update
 
       - name: Install build dependencies
         run: |
@@ -55,17 +53,17 @@ jobs:
       - name: Install clang++
         if: ${{ inputs.compiler == 'clang++' }}
         run: |
-          sudo dnf -y install clang
+          sudo apt-get -y install clang
 
       - name: Install clang-scan-deps
         if: ${{ contains(inputs.enables, 'cxx-modules') }}
         run: |
-          sudo dnf -y install clang-tools-extra
+          sudo apt-get -y install clang-tools
 
       - name: Install ccache
         if: ${{ inputs.enable-ccache }}
         run: |
-          sudo dnf -y install ccache
+          sudo apt-get -y install ccache
 
       - name: Setup ccache
         if: ${{ inputs.enable-ccache }}
