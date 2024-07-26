@@ -54,7 +54,6 @@ module;
 module seastar;
 #else
 #include <seastar/util/log.hh>
-#include <seastar/core/smp.hh>
 #include <seastar/util/log-cli.hh>
 
 #include <seastar/core/array_map.hh>

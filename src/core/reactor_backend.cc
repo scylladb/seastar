@@ -56,6 +56,7 @@ module seastar;
 #include <seastar/core/internal/uname.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/core/smp.hh>
 #include <seastar/util/defer.hh>
 #include <seastar/util/read_first_line.hh>
 #endif

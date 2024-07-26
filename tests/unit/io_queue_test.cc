@@ -26,7 +26,6 @@
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/testing/test_runner.hh>
 #include <seastar/core/reactor.hh>
-#include <seastar/core/smp.hh>
 #include <seastar/core/when_all.hh>
 #include <seastar/core/file.hh>
 #include <seastar/core/io_queue.hh>
