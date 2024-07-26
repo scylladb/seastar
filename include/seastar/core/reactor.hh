@@ -358,6 +358,8 @@ public:
     void wakeup();
     /// @private
     bool stopped() const noexcept { return _stopped; }
+    /// @private
+    uint64_t polls() const noexcept { return _polls; }
 
 private:
     class signals {
