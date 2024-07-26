@@ -218,6 +218,7 @@ class io_desc_read_write final : public io_completion {
     const fair_queue_entry::capacity_t _fq_capacity;
     promise<size_t> _pr;
     iovec_keeper _iovs;
+    uint64_t _dispatched_polls;
 
 public:
     io_desc_read_write(io_queue& ioq, io_queue::priority_class_data& pc, stream_id stream, io_direction_and_length dnl, fair_queue_entry::capacity_t cap, iovec_keeper iovs)
@@ -235,7 +236,7 @@ public:
     virtual void set_exception(std::exception_ptr eptr) noexcept override {
         io_log.trace("dev {} : req {} error", _ioq.dev_id(), fmt::ptr(this));
         _pclass.on_error();
-        _ioq.complete_request(*this);
+        _ioq.complete_request(*this, std::chrono::duration<double>(0.0));
         _pr.set_exception(eptr);
         delete this;
     }
@@ -245,7 +246,7 @@ public:
         auto now = io_queue::clock_type::now();
         auto delay = std::chrono::duration_cast<std::chrono::duration<double>>(now - _ts);
         _pclass.on_complete(delay);
-        _ioq.complete_request(*this);
+        _ioq.complete_request(*this, delay);
         _pr.set_value(res);
         delete this;
     }
@@ -261,6 +262,7 @@ public:
         auto now = io_queue::clock_type::now();
         _pclass.on_dispatch(_dnl, std::chrono::duration_cast<std::chrono::duration<double>>(now - _ts));
         _ts = now;
+        _dispatched_polls = engine().polls();
     }
 
     future<size_t> get_future() {
@@ -269,6 +271,7 @@ public:
 
     fair_queue_entry::capacity_t capacity() const noexcept { return _fq_capacity; }
     stream_id stream() const noexcept { return _stream; }
+    uint64_t polls() const noexcept { return _dispatched_polls; }
 };
 
 class queued_io_request : private internal::io_request {
@@ -546,11 +549,23 @@ void io_queue::update_flow_ratio() noexcept {
     }
 }
 
+void io_queue::lower_stall_threshold() noexcept {
+    auto new_threshold = _stall_threshold - std::chrono::milliseconds(1);
+    _stall_threshold = std::max(_stall_threshold_min, new_threshold);
+}
+
 void
-io_queue::complete_request(io_desc_read_write& desc) noexcept {
+io_queue::complete_request(io_desc_read_write& desc, std::chrono::duration<double> delay) noexcept {
     _requests_executing--;
     _requests_completed++;
     _streams[desc.stream()].notify_request_finished(desc.capacity());
+
+    if (delay > _stall_threshold) {
+        _stall_threshold *= 2;
+        io_log.warn("Request took {:.3f}ms ({} polls) to execute, queued {} executing {}",
+            std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(delay).count(),
+            engine().polls() - desc.polls(), _queued_requests, _requests_executing);
+    }
 }
 
 fair_queue::config io_queue::make_fair_queue_config(const config& iocfg, sstring label) {
@@ -565,7 +580,10 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     , _sink(sink)
     , _averaging_decay_timer([this] {
         update_flow_ratio();
+        lower_stall_threshold();
     })
+    , _stall_threshold_min(std::max(get_config().stall_threshold, 1ms))
+    , _stall_threshold(_stall_threshold_min)
 {
     auto& cfg = get_config();
     if (cfg.duplex) {
