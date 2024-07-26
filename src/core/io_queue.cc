@@ -243,7 +243,8 @@ public:
     virtual void complete(size_t res) noexcept override {
         io_log.trace("dev {} : req {} complete", _ioq.dev_id(), fmt::ptr(this));
         auto now = io_queue::clock_type::now();
-        _pclass.on_complete(std::chrono::duration_cast<std::chrono::duration<double>>(now - _ts));
+        auto delay = std::chrono::duration_cast<std::chrono::duration<double>>(now - _ts);
+        _pclass.on_complete(delay);
         _ioq.complete_request(*this);
         _pr.set_value(res);
         delete this;
