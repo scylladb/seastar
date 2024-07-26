@@ -116,6 +116,7 @@ module;
 
 #include <fmt/format.h>
 #include <fmt/ostream.h>
+#include <fmt/ranges.h>
 #include <fmt/printf.h>
 #include <gnutls/crypto.h>
 #ifdef SEASTAR_HAVE_HWLOC
