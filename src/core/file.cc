@@ -269,7 +269,11 @@ posix_file_impl::fcntl_short(int op, uintptr_t arg) noexcept {
 
 future<>
 posix_file_impl::discard(uint64_t offset, uint64_t length) noexcept {
-    return engine().punch_hole(_fd, offset, length);
+    internal::maybe_priority_class_ref io_priority_class;
+    auto req = internal::io_request::make_discard(_fd, offset, length);
+    return _io_queue.submit_io_discard(internal::priority_class(io_priority_class), length, std::move(req), nullptr).then([] (auto len) {
+        return make_ready_future<>();
+    });
 }
 
 future<>
