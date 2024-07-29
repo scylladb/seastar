@@ -37,6 +37,7 @@ module seastar;
 #else
 #include <seastar/core/reactor.hh>
 #include <seastar/core/seastar.hh>
+#include <seastar/core/when_all.hh>
 #include <seastar/util/file.hh>
 #endif
 
@@ -224,6 +225,70 @@ future<std::vector<temporary_buffer<char>>> read_entire_file(std::filesystem::pa
 future<sstring> read_entire_file_contiguous(std::filesystem::path path) {
     return with_file_input_stream(path, [] (input_stream<char>& in) {
         return read_entire_stream_contiguous(in);
+    });
+}
+
+future<> remove_file_via_blocks_discarding(std::string_view name) noexcept {
+    return open_file_dma(name, open_flags::rw, file_open_options{}).then([name = sstring(name)](file f) mutable {
+        return f.size().then_wrapped([f, name = std::move(name)](future<uint64_t> fut) mutable {
+            // If getting size failed then close file and report error gracefully.
+            if (fut.failed()) {
+                return f.close().then([f, ex = fut.get_exception()] () mutable {
+                    return make_exception_future(ex);
+                });
+            }
+
+            return remove_file(name).then_wrapped([f, fsize = fut.get()] (future<> fut) mutable {
+                // If unlink failed, then close file and report error gracefully.
+                if (fut.failed()) {
+                    return f.close().then([f, ex = fut.get_exception()] () mutable {
+                        return make_exception_future(ex);
+                    });
+                }
+
+                // If file was empty, then unlink is sufficient.
+                if (fsize == 0u) {
+                    return f.close().finally([f](){});
+                }
+
+                // Else, issue discards for all blocks.
+                const uint64_t block_size{32u << 20u}; // 32MiB
+                const uint64_t additional_iteration = (fsize % block_size == 0) ? 0 : 1;
+                const uint64_t blocks_count{static_cast<uint64_t>(fsize / block_size) + additional_iteration};
+
+                lw_shared_ptr<std::vector<future<>>> futs;
+                try {
+                    futs = make_lw_shared<std::vector<future<>>>();
+                    futs->reserve(blocks_count);
+                } catch (...) {
+                    return f.close().then([f, ex = std::current_exception()] {
+                        return make_exception_future(ex);
+                    });
+                }
+
+                for (uint64_t i = 0u; i < blocks_count; ++i) {
+                    auto offset = i * block_size;
+                    auto discard_end = std::min(offset + block_size, fsize);
+                    auto length = discard_end - offset;
+                    futs->push_back(f.discard(offset, length));
+                }
+
+                // Wait until all finish and close file.
+                return when_all(futs->begin(), futs->end()).then([futs, f] (auto results) mutable {
+                    for (auto&& res : results) {
+                        if (res.failed()) {
+                            return f.close().then([f, ex = res.get_exception()] () mutable {
+                                return make_exception_future<>(ex);
+                            });
+                        }
+
+                        res.ignore_ready_future();
+                    }
+
+                    return f.close().finally([f](){});
+                });
+            });
+        });
     });
 }
 
