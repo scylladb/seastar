@@ -1632,7 +1632,7 @@ public:
      * If the original return value or the callback return value is an
      * exceptional future it will be propagated.
      *
-     * If both of them are exceptional - the std::nested_exception exception
+     * If both of them are exceptional - the seastar::nested_exception exception
      * with the callback exception on top and the original future exception
      * nested will be propagated.
      */
