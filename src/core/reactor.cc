@@ -3992,8 +3992,8 @@ void install_oneshot_signal_handler() {
         std::lock_guard<util::spinlock> g(lock);
         if (!handled) {
             handled = true;
-            Func();
             signal(sig, SIG_DFL);
+            Func();
         }
     };
     sigfillset(&sa.sa_mask);
