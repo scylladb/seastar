@@ -167,6 +167,7 @@ module seastar;
 #include <seastar/util/defer.hh>
 #include <seastar/util/log.hh>
 #include <seastar/util/memory_diagnostics.hh>
+#include <seastar/util/noncopyable_function.hh>
 #include <seastar/util/print_safe.hh>
 #include <seastar/util/process.hh>
 #include <seastar/util/read_first_line.hh>

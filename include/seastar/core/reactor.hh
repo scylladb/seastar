@@ -55,8 +55,9 @@
 #include <seastar/net/api.hh>
 #include <seastar/util/eclipse.hh>
 #include <seastar/util/log.hh>
-#include <seastar/util/std-compat.hh>
 #include <seastar/util/modules.hh>
+#include <seastar/util/noncopyable_function.hh>
+#include <seastar/util/std-compat.hh>
 #include "internal/pollable_fd.hh"
 
 #ifndef SEASTAR_MODULE
