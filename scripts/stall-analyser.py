@@ -5,8 +5,9 @@ import sys
 import re
 
 import addr2line
-from itertools import dropwhile
-from typing import Self
+from collections import defaultdict
+from itertools import chain, dropwhile
+from typing import Iterator, Self
 
 
 def get_command_line_parser():
@@ -46,6 +47,8 @@ def get_command_line_parser():
                         help='Process only stalls lasting the given time, in milliseconds, or longer')
     parser.add_argument('-b', '--branch-threshold', type=float, default=0.03,
                         help='Drop branches responsible for less than this threshold relative to the previous level, not global. (default 3%%)')
+    parser.add_argument('--format', choices=['graph', 'trace'], default='graph',
+                        help='The output format, default is %(default)s. `trace` is suitable as input for flamegraph.pl')
     parser.add_argument('file', nargs='?',
                         type=argparse.FileType('r'),
                         default=sys.stdin,
@@ -280,6 +283,58 @@ Use --direction={'bottom-up' if top_down else 'top-down'} to print {'callees' if
         _recursive_print_graph(r)
 
 
+class StackCollapse:
+    # collapse stall backtraces into single lines
+    def __init__(self, resolver: addr2line.BacktraceResolver) -> None:
+        self.resolver = resolver
+        # track every stack and the its total sample counts
+        self.collapsed = defaultdict(int)
+        # to match lines like
+        # (inlined by) position_in_partition::tri_compare::operator() at ././position_in_partition.hh:485
+        self.pattern = re.compile(r'''(.+)\s                 # function signature
+                                      at\s                   #
+                                      [^:]+:(?:\?|\d+)       # <source>:<line number>''', re.X)
+
+    def process_trace(self, frames: list[str], count: int) -> None:
+        # each stall report is mapped to a line of perf samples
+        # so the output looks like:
+        # row_cache::update;row_cache::do_update;row_cache::upgrade_entry 42
+        # from outer-most caller to the inner-most callee, and 42 is the time
+        # in ms, but we use it for the count of samples.
+        self.collapsed[';'.join(frames)] += count
+
+    def _annotate_func(self, line: str) -> str:
+        # sample input:
+        #   (inlined by) position_in_partition::tri_compare::operator() at ././position_in_partition.hh:485
+        # sample output:
+        #   position_in_partition::tri_compare::operator()_[i]
+        if line.startswith("??"):
+            return ""
+
+        inlined_prefix = ' (inlined by) '
+        inlined = line.startswith(inlined_prefix)
+        if inlined:
+            line = line[len(inlined_prefix):]
+
+        matched = self.pattern.match(line)
+        assert matched, f"bad line: {line}"
+        func = matched.groups()[0]
+        # annotations
+        if inlined:
+            func += "_[i]"
+        return func
+
+    def _resolve(self, addr: str) -> Iterator[str]:
+        lines = self.resolver.resolve_address(addr).splitlines()
+        return (self._annotate_func(line) for line in lines)
+
+    def print_graph(self, *_) -> None:
+        for stack, count in self.collapsed.items():
+            frames = filter(lambda frame: frame,
+                            chain.from_iterable(self._resolve(addr) for addr in stack.split(';')))
+            print(';'.join(reversed(list(frames))), count)
+
+
 def print_stats(tally: dict, tmin: int) -> None:
     data = []
     total_time = 0
@@ -346,7 +401,11 @@ def main():
     if args.executable:
         resolver = addr2line.BacktraceResolver(executable=args.executable,
                                                concise=not args.full_function_names)
-    graph = Graph(resolver)
+    if args.format == 'graph':
+        render = Graph(resolver)
+    else:
+        render = StackCollapse(resolver)
+
     for s in args.file:
         if comment.search(s):
             continue
@@ -375,15 +434,16 @@ def main():
         if address_threshold:
             trace = list(dropwhile(lambda addr: int(addr, 0) >= address_threshold, trace))
         if t >= args.tmin:
-            graph.process_trace(trace, t)
+            render.process_trace(trace, t)
 
     try:
-        if not graph:
+        if not render:
             print("No input data found. Please run `stall-analyser.py --help` for usage instruction")
             sys.exit()
-        print_command_line_options(args)
-        print_stats(tally, args.tmin)
-        graph.print_graph(args.direction, args.width, args.branch_threshold)
+        if args.format == 'graph':
+            print_command_line_options(args)
+            print_stats(tally, tmin)
+        render.print_graph(args.direction, args.width, args.branch_threshold)
     except BrokenPipeError:
         pass
 
