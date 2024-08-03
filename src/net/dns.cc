@@ -61,7 +61,7 @@ template <> struct fmt::formatter<seastar::net::opt_family> : fmt::ostream_forma
 
 #include <seastar/util/log.hh>
 
-namespace seastar {
+namespace seastar::net {
 
 static logger dns_log("dns_resolver");
 
@@ -118,7 +118,7 @@ public:
 
 static void check_ares_error(int error) {
     if (error != ARES_SUCCESS) {
-        throw std::system_error(error, net::dns::error_category());
+        throw std::system_error(error, dns::error_category());
     }
 }
 
@@ -131,7 +131,7 @@ struct ares_initializer {
     }
 };
 
-class net::dns_resolver::impl
+class dns_resolver::impl
     : public enable_shared_from_this<impl>
 {
 public:
@@ -274,7 +274,7 @@ public:
             switch (status) {
             default:
                 dns_log.debug("Query failed: {}", status);
-                p->set_exception(std::system_error(status, net::dns::error_category(), p->name));
+                p->set_exception(std::system_error(status, dns::error_category(), p->name));
                 break;
             case ARES_SUCCESS:
                 p->set_value(make_hostent(addrinfo));
@@ -315,7 +315,7 @@ public:
             switch (status) {
             default:
                 dns_log.debug("Query failed: {}", status);
-                p->set_exception(std::system_error(status, net::dns::error_category(), boost::lexical_cast<std::string>(p->addr)));
+                p->set_exception(std::system_error(status, dns::error_category(), boost::lexical_cast<std::string>(p->addr)));
                 break;
             case ARES_SUCCESS:
                 p->set_value(make_hostent(*host));
@@ -355,7 +355,7 @@ public:
                 reinterpret_cast<promise<srv_records> *>(arg));
             if (status != ARES_SUCCESS) {
                 dns_log.debug("Query failed: {}", fmt::underlying(status));
-                p->set_exception(std::system_error(status, net::dns::error_category()));
+                p->set_exception(std::system_error(status, dns::error_category()));
                 return;
             }
             const size_t rr_count = ares_dns_record_rr_cnt(dnsrec, ARES_SECTION_ANSWER);
@@ -382,7 +382,7 @@ public:
             }
             if (status != ARES_SUCCESS) {
                 dns_log.debug("Parse failed: {}", fmt::underlying(status));
-                p->set_exception(std::system_error(status, net::dns::error_category()));
+                p->set_exception(std::system_error(status, dns::error_category()));
                 return;
             }
              p->set_value(std::move(replies));
@@ -395,14 +395,14 @@ public:
                 reinterpret_cast<promise<srv_records> *>(arg));
             if (status != ARES_SUCCESS) {
                 dns_log.debug("Query failed: {}", status);
-                p->set_exception(std::system_error(status, net::dns::error_category()));
+                p->set_exception(std::system_error(status, dns::error_category()));
                 return;
             }
             ares_srv_reply* start = nullptr;
             status = ares_parse_srv_reply(buf, len, &start);
             if (status != ARES_SUCCESS) {
                 dns_log.debug("Parse failed: {}", status);
-                p->set_exception(std::system_error(status, net::dns::error_category()));
+                p->set_exception(std::system_error(status, dns::error_category()));
                 return;
             }
             try {
@@ -826,7 +826,7 @@ private:
                         use(fd);
                         dns_log.trace("Read {}: data unavailable", fd);
                         // FIXME: future is discarded
-                        (void)f.then_wrapped([me = shared_from_this(), &e, fd](future<net::datagram> f) {
+                        (void)f.then_wrapped([me = shared_from_this(), &e, fd](future<datagram> f) {
                             try {
                                 auto d = f.get();
                                 dns_log.trace("Read {} -> {} bytes", fd, d.get_data().len());
@@ -899,10 +899,10 @@ private:
                     return -1;
                 }
 
-                net::packet p;
+                packet p;
                 p.reserve(len);
                 for (int i = 0; i < len; ++i) {
-                    p = net::packet(std::move(p), net::fragment{reinterpret_cast<char *>(vec[i].iov_base), vec[i].iov_len});
+                    p = packet(std::move(p), fragment{reinterpret_cast<char *>(vec[i].iov_base), vec[i].iov_len});
                 }
 
                 auto bytes = p.len();
@@ -1014,11 +1014,11 @@ private:
         temporary_buffer<char> indata;
     };
     struct udp_entry {
-        udp_entry(net::datagram_channel c)
+        udp_entry(datagram_channel c)
                         : channel(std::move(c)) {
         }
-        net::datagram_channel channel;
-        std::optional<net::datagram> in;;
+        datagram_channel channel;
+        std::optional<datagram> in;;
         socket_address dst;
         future<> f = make_ready_future<>();
     };
@@ -1052,7 +1052,7 @@ private:
             : tcp(tcp_entry{std::move(s)})
             , typ(type::tcp)
         {}
-        sock_entry(net::datagram_channel c)
+        sock_entry(datagram_channel c)
             : udp(udp_entry{std::move(c)})
             , typ(type::udp)
         {}
@@ -1089,113 +1089,113 @@ private:
     bool _closed = false;
 };
 
-net::dns_resolver::dns_resolver()
+dns_resolver::dns_resolver()
     : dns_resolver(options())
 {}
 
-net::dns_resolver::dns_resolver(const options& opts)
+dns_resolver::dns_resolver(const options& opts)
     : dns_resolver(engine().net(), opts)
 {}
 
-net::dns_resolver::dns_resolver(network_stack& stack, const options& opts)
+dns_resolver::dns_resolver(network_stack& stack, const options& opts)
     : _impl(make_shared<impl>(stack, opts))
 {}
 
-net::dns_resolver::~dns_resolver()
+dns_resolver::~dns_resolver()
 {}
 
-net::dns_resolver::dns_resolver(dns_resolver&&) noexcept = default;
-net::dns_resolver& net::dns_resolver::operator=(dns_resolver&&) noexcept = default;
+dns_resolver::dns_resolver(dns_resolver&&) noexcept = default;
+dns_resolver& dns_resolver::operator=(dns_resolver&&) noexcept = default;
 
-future<net::hostent> net::dns_resolver::get_host_by_name(const sstring& name, opt_family family) {
+future<hostent> dns_resolver::get_host_by_name(const sstring& name, opt_family family) {
     return _impl->get_host_by_name(name, family);
 }
 
-future<net::hostent> net::dns_resolver::get_host_by_addr(const inet_address& addr) {
+future<hostent> dns_resolver::get_host_by_addr(const inet_address& addr) {
     return _impl->get_host_by_addr(addr);
 }
 
-future<net::inet_address> net::dns_resolver::resolve_name(const sstring& name, opt_family family) {
+future<inet_address> dns_resolver::resolve_name(const sstring& name, opt_family family) {
     return _impl->resolve_name(name, family);
 }
 
-future<sstring> net::dns_resolver::resolve_addr(const inet_address& addr) {
+future<sstring> dns_resolver::resolve_addr(const inet_address& addr) {
     return _impl->resolve_addr(addr);
 }
 
-future<net::dns_resolver::srv_records> net::dns_resolver::get_srv_records(net::dns_resolver::srv_proto proto,
+future<dns_resolver::srv_records> dns_resolver::get_srv_records(dns_resolver::srv_proto proto,
                                                                           const sstring& service,
                                                                           const sstring& domain) {
     return _impl->get_srv_records(proto, service, domain);
 }
 
-future<> net::dns_resolver::close() {
+future<> dns_resolver::close() {
     return _impl->close();
 }
 
-static net::dns_resolver& resolver() {
-    static thread_local net::dns_resolver resolver;
+static dns_resolver& resolver() {
+    static thread_local dns_resolver resolver;
     return resolver;
 }
 
 
-future<net::hostent> net::dns::get_host_by_name(const sstring& name, opt_family family) {
+future<hostent> dns::get_host_by_name(const sstring& name, opt_family family) {
     return resolver().get_host_by_name(name, family);
 }
 
-future<net::hostent> net::dns::get_host_by_addr(const inet_address& addr) {
+future<hostent> dns::get_host_by_addr(const inet_address& addr) {
     return resolver().get_host_by_addr(addr);
 }
 
-future<net::inet_address> net::dns::resolve_name(const sstring& name, opt_family family) {
+future<inet_address> dns::resolve_name(const sstring& name, opt_family family) {
     return resolver().resolve_name(name, family);
 }
 
-future<sstring> net::dns::resolve_addr(const inet_address& addr) {
+future<sstring> dns::resolve_addr(const inet_address& addr) {
     return resolver().resolve_addr(addr);
 }
 
-future<net::dns_resolver::srv_records> net::dns::get_srv_records(net::dns_resolver::srv_proto proto,
+future<dns_resolver::srv_records> dns::get_srv_records(dns_resolver::srv_proto proto,
                                                                  const sstring& service,
                                                                  const sstring& domain) {
     return resolver().get_srv_records(proto, service, domain);
 }
 
-future<sstring> net::inet_address::hostname() const {
+future<sstring> inet_address::hostname() const {
     return dns::resolve_addr(*this);
 }
 
-future<std::vector<sstring>> net::inet_address::aliases() const {
+future<std::vector<sstring>> inet_address::aliases() const {
     return dns::get_host_by_addr(*this).then([](hostent e) {
         return make_ready_future<std::vector<sstring>>(std::move(e.names));
     });
 }
 
-future<net::inet_address> net::inet_address::find(
+future<inet_address> inet_address::find(
                 const sstring& name) {
     return dns::resolve_name(name);
 }
 
-future<net::inet_address> net::inet_address::find(
+future<inet_address> inet_address::find(
                 const sstring& name, family f) {
     return dns::resolve_name(name, f);
 }
 
-future<std::vector<net::inet_address>> net::inet_address::find_all(
+future<std::vector<inet_address>> inet_address::find_all(
                 const sstring& name) {
     return dns::get_host_by_name(name).then([](hostent e) {
-        return make_ready_future<std::vector<net::inet_address>>(std::move(e.addr_list));
+        return make_ready_future<std::vector<inet_address>>(std::move(e.addr_list));
     });
 }
 
-future<std::vector<net::inet_address>> net::inet_address::find_all(
+future<std::vector<inet_address>> inet_address::find_all(
                 const sstring& name, family f) {
     return dns::get_host_by_name(name, f).then([](hostent e) {
-        return make_ready_future<std::vector<net::inet_address>>(std::move(e.addr_list));
+        return make_ready_future<std::vector<inet_address>>(std::move(e.addr_list));
     });
 }
 
-const std::error_category& net::dns::error_category() {
+const std::error_category& dns::error_category() {
     static const ares_error_category ares_errorc;
 
     return ares_errorc;
