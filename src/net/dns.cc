@@ -259,7 +259,6 @@ public:
 // The following pragma is needed to work around a false-positive warning
 // in Gcc 11 (see https://gcc.gnu.org/bugzilla/show_bug.cgi?id=96003).
 #pragma GCC diagnostic ignored "-Wnonnull"
-#if ARES_VERSION >= 0x011000
 
         ares_addrinfo_hints hints = {
             .ai_flags = ARES_AI_CANONNAME,
@@ -284,24 +283,6 @@ public:
             ares_freeaddrinfo(addrinfo);
 
         }, reinterpret_cast<void *>(p));
-#else
-        ares_gethostbyname(_channel, p->name.c_str(), af, [](void* arg, int status, int timeouts, ::hostent* host) {
-            // we do potentially allocating operations below, so wrap the pointer in a
-            // unique here.
-            std::unique_ptr<promise_wrap> p(reinterpret_cast<promise_wrap *>(arg));
-
-            switch (status) {
-            default:
-                dns_log.debug("Query failed: {}", status);
-                p->set_exception(std::system_error(status, net::dns::error_category(), p->name));
-                break;
-            case ARES_SUCCESS:
-                p->set_value(make_hostent(*host));
-                break;
-            }
-
-        }, reinterpret_cast<void *>(p));
-#endif
 
         poll_sockets();
 
@@ -547,7 +528,6 @@ private:
         return records;
     }
 
-#if ARES_VERSION >= 0x011000
     static hostent make_hostent(const ares_addrinfo* ai) {
         hostent e;
         if (!ai) {
@@ -579,7 +559,7 @@ private:
 
         return e;
     }
-#endif
+
     static hostent make_hostent(const ::hostent& host) {
         hostent e;
         e.names.emplace_back(host.h_name);
