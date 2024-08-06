@@ -360,14 +360,14 @@ using follow_symlink = bool_class<follow_symlink_tag>;
 /// with follow_symlink::yes, or for the link itself, with follow_symlink::no.
 future<stat_data> file_stat(std::string_view name, follow_symlink fs = follow_symlink::yes) noexcept;
 
-/// Returns details of the group from the group database. Wrapper around getgrnam_t.
+/// Wrapper around getgrnam_t.
 /// If the group is found, the std::optional contains the struct group information; otherwise, it is empty.
 /// The function throws std::error_code, when the getgrnam_t syscall fails.
 /// \param groupname name of the group
 /// \param buf buffer to store the string fields pointed to by the members of group structure.
 /// \param buflen size of the buffer
 ///
-/// \return optional group_info of the group identified by name.
+/// \return optional struct group of the group identified by name. struct group has details of the group from the group database.
 future<std::optional<struct group>> getgrnam(std::string_view name, char *buf, size_t buflen);
 
 /// Change the owner and group of file. This is a wrapper around chown syscall.
@@ -375,7 +375,6 @@ future<std::optional<struct group>> getgrnam(std::string_view name, char *buf, s
 /// \param filepath
 /// \param owner
 /// \param group
-///
 future<> chown(std::string_view filepath, uid_t owner, gid_t group);
 /// Return the size of a file.
 ///

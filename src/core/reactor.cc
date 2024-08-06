@@ -2220,33 +2220,32 @@ void reactor::kill(pid_t pid, int sig) {
 }
 
 future<std::optional<struct group>> reactor::getgrnam(std::string_view name, char *buf, size_t buflen) {
-    return futurize_invoke([name, buf, buflen, this] {
-        return _thread_pool->submit<syscall_result_extra<std::optional<struct group>>>([name = sstring(name), buf, buflen] {
-            errno = 0;
+    syscall_result_extra<std::optional<struct group>> sr = co_await _thread_pool->submit<syscall_result_extra<std::optional<struct group>>>(
+        [name = sstring(name), buf, buflen] {
             struct group grp;
             struct group *result;
             memset(&grp, 0, sizeof(struct group));
+            errno = 0;
             int ret = ::getgrnam_r(name.c_str(), &grp, buf, buflen, &result);
             return wrap_syscall(ret, result ? std::optional<struct group>(*result) : std::nullopt);
-        }).then([] (syscall_result_extra<std::optional<struct group>> sr) {
-            if (sr.result != 0) {
-                throw std::error_code(sr.result, std::system_category());
-            }
-            return make_ready_future<std::optional<struct group>>(std::move(sr.extra));
         });
-    });
+
+    if (sr.result != 0) {
+        throw std::error_code(sr.result, std::system_category());
+    }
+
+    co_return std::move(sr.extra);
 }
 
 future<> reactor::chown(std::string_view filepath, uid_t owner, gid_t group) {
-    return futurize_invoke([filepath, owner, group, this] {
-        return _thread_pool->submit<syscall_result<int>>([filepath = sstring(filepath), owner, group] {
-            int chown_result = ::chown(filepath.c_str(), owner, group);
-            return wrap_syscall(chown_result);
-        }).then([] (syscall_result<int> sr) {
-            sr.throw_if_error();
-            return make_ready_future<>();
+    syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
+        [filepath = sstring(filepath), owner, group] {
+            int ret = ::chown(filepath.c_str(), owner, group);
+            return wrap_syscall(ret);
         });
-    });
+
+    sr.throw_if_error();
+    co_return;
 }
 
 future<stat_data>
