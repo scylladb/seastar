@@ -582,6 +582,7 @@ add_library (seastar
   include/seastar/core/shared_ptr_debug_helper.hh
   include/seastar/core/shared_ptr_incomplete.hh
   include/seastar/core/simple-stream.hh
+  include/seastar/core/signal.hh
   include/seastar/core/slab.hh
   include/seastar/core/sleep.hh
   include/seastar/core/sstring.hh
@@ -715,6 +716,7 @@ add_library (seastar
   src/core/sharded.cc
   src/core/scollectd.cc
   src/core/scollectd-impl.hh
+  src/core/signal.cc
   src/core/systemwide_memory_barrier.cc
   src/core/smp.cc
   src/core/sstring.cc

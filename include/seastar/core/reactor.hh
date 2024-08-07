@@ -354,6 +354,7 @@ private:
     bool pure_poll_once();
 public:
     /// Register a user-defined signal handler
+    [[deprecated("Use seastar::handle_signal(signo, handler, once); instead")]]
     void handle_signal(int signo, noncopyable_function<void ()>&& handler);
     void wakeup();
     /// @private
@@ -385,6 +386,8 @@ private:
     friend class thread_pool;
     friend class thread_context;
     friend class internal::cpu_stall_detector;
+
+    friend void handle_signal(int signo, noncopyable_function<void ()>&& handler, bool once);
 
     uint64_t pending_task_count() const;
     void run_tasks(task_queue& tq);

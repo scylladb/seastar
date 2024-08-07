@@ -15,34 +15,26 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-/*
- * Copyright (C) 2014 Cloudius Systems, Ltd.
- */
 
-#include <seastar/core/signal.hh>
-#include <seastar/core/shared_ptr.hh>
-#include <seastar/core/do_with.hh>
-#include <seastar/testing/test_case.hh>
+#pragma once
 
-using namespace seastar;
+/// \file
 
-extern "C" {
-#include <signal.h>
-#include <sys/types.h>
-#include <unistd.h>
+// Seastar interface for POSIX signals.
+#include <seastar/util/modules.hh>
+#include <seastar/util/noncopyable_function.hh>
+
+namespace seastar {
+
+SEASTAR_MODULE_EXPORT_BEGIN
+
+/// \brief Sets a signal handler for the specified signal. 
+///
+/// \param signo Signal number.
+/// \param handler Function to handle the signal.
+/// \param once Should the handler be invoked only once.   
+void handle_signal(int signo, noncopyable_function<void ()>&& handler, bool once = false);
+
+SEASTAR_MODULE_EXPORT_END
+
 }
-
-SEASTAR_TEST_CASE(test_sighup) {
-    return do_with(make_lw_shared<promise<>>(), false, [](auto const& p, bool& signaled) {
-        seastar::handle_signal(SIGHUP, [p, &signaled] {
-            signaled = true;
-            p->set_value();
-        });
-
-        kill(getpid(), SIGHUP);
-
-        return p->get_future().then([&] {
-            BOOST_REQUIRE_EQUAL(signaled, true);
-        });
-    });
-} 

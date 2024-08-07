@@ -34,6 +34,7 @@ target_sources (seastar-module
     core/sharded.cc
     core/scollectd.cc
     core/semaphore.cc
+    core/signal.cc
     core/smp.cc
     core/sstring.cc
     core/systemwide_memory_barrier.cc
