@@ -118,13 +118,13 @@ bool operator==(const ::sockaddr_in a, const ::sockaddr_in b);
 
 namespace seastar {
 
-class thread_pool;
-class smp;
-
-class reactor_backend_selector;
-
-class reactor_backend;
 struct pollfn;
+class reactor_backend_selector;
+class reactor_backend;
+SEASTAR_MODULE_EXPORT
+struct signal_handler;
+class smp;
+class thread_pool;
 
 namespace internal {
 
@@ -354,6 +354,7 @@ private:
     bool pure_poll_once();
 public:
     /// Register a user-defined signal handler
+    [[deprecated("Use seastar::signal_handler sh(signo, handler); instead")]]
     void handle_signal(int signo, noncopyable_function<void ()>&& handler);
     void wakeup();
     /// @private
@@ -361,6 +362,15 @@ public:
 
 private:
     class signals {
+        struct _signal_handler {
+            noncopyable_function<void ()> _handler;
+            
+            _signal_handler(int signo, noncopyable_function<void ()>&& handler);
+        };
+
+        std::atomic<uint64_t> _pending_signals;
+        std::unordered_map<int, _signal_handler> _signal_handlers;
+
     public:
         signals();
         ~signals();
@@ -371,20 +381,15 @@ private:
         void handle_signal_once(int signo, noncopyable_function<void ()>&& handler);
         static void action(int signo, siginfo_t* siginfo, void* ignore);
         static void failed_to_handle(int signo);
-    private:
-        struct signal_handler {
-            signal_handler(int signo, noncopyable_function<void ()>&& handler);
-            noncopyable_function<void ()> _handler;
-        };
-        std::atomic<uint64_t> _pending_signals;
-        std::unordered_map<int, signal_handler> _signal_handlers;
     };
-
+    
     signals _signals;
     std::unique_ptr<thread_pool> _thread_pool;
+    
     friend class thread_pool;
     friend class thread_context;
     friend class internal::cpu_stall_detector;
+    friend struct signal_handler;
 
     uint64_t pending_task_count() const;
     void run_tasks(task_queue& tq);

@@ -31,6 +31,7 @@ module;
 #include <filesystem>
 #include <fstream>
 #include <regex>
+#include <stdexcept>
 #include <thread>
 
 #include <spawn.h>
@@ -143,6 +144,7 @@ module seastar;
 #include <seastar/core/resource.hh>
 #include <seastar/core/scheduling.hh>
 #include <seastar/core/scheduling_specific.hh>
+#include <seastar/core/signal.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/smp.hh>
 #include <seastar/core/smp_options.hh>
@@ -711,13 +713,28 @@ reactor::signals::~signals() {
     ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
 }
 
-reactor::signals::signal_handler::signal_handler(int signo, noncopyable_function<void ()>&& handler)
-        : _handler(std::move(handler)) {
+reactor::signals::_signal_handler::_signal_handler(int signo, noncopyable_function<void ()>&& handler)
+        : _handler(std::move(handler)) {}
+
+static reactor& engine_or_throw() {
+    if (!engine_is_ready()) {
+        throw std::logic_error("The reactor must be initialized before setting a signal handler.");
+    }
+    return engine();
+}
+
+signal_handler::signal_handler(int signo, noncopyable_function<void ()>&& handler, bool once) {
+    auto& r = engine_or_throw();
+    if (once) {
+        r._signals.handle_signal_once(signo, std::move(handler));
+    } else {
+        r._signals.handle_signal(signo, std::move(handler));
+    }
 }
 
 void
 reactor::signals::handle_signal(int signo, noncopyable_function<void ()>&& handler) {
-    signal_handler h(signo, std::move(handler));
+    _signal_handler h(signo, std::move(handler));
     auto [_, inserted] =  _signal_handlers.insert_or_assign(signo, std::move(h));
     if (!inserted) {
         // since we register the same handler to OS for all signals, we could
