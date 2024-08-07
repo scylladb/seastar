@@ -435,18 +435,23 @@ struct io_request::part {
 
 // Helper pair of IO direction and length
 struct io_direction_and_length {
-    size_t _directed_length; // bit 0 is R/W flag
+    size_t _directed_length; // bits 0 and 1 depict R/W/D flags
+
+    static constexpr int direction_bits_count = 2;
+    static constexpr int direction_bits_mask = (1 << direction_bits_count) - 1;
 
 public:
-    size_t length() const noexcept { return _directed_length >> 1; }
-    int rw_idx() const noexcept { return _directed_length & 0x1; }
+    size_t length() const noexcept { return _directed_length >> direction_bits_count; }
+    int rwd_idx() const noexcept { return _directed_length & direction_bits_mask; }
+
+    static constexpr int discard_idx = 2;
     static constexpr int read_idx = 1;
     static constexpr int write_idx = 0;
 
     io_direction_and_length(int idx, size_t val) noexcept
-            : _directed_length((val << 1) | idx)
+            : _directed_length((val << direction_bits_count) | idx)
     {
-        assert(idx == read_idx || idx == write_idx);
+        assert(idx == read_idx || idx == write_idx || idx == discard_idx);
     }
 };
 

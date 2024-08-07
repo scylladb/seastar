@@ -93,7 +93,7 @@ public:
 private:
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
     io_group_ptr _group;
-    boost::container::static_vector<fair_queue, 2> _streams;
+    boost::container::static_vector<fair_queue, 3> _streams;
     internal::io_sink& _sink;
 
     friend struct ::io_queue_for_tests;
@@ -205,6 +205,7 @@ public:
     struct request_limits {
         size_t max_read;
         size_t max_write;
+        size_t max_discard;
     };
 
     request_limits get_request_limits() const noexcept;
@@ -229,8 +230,8 @@ private:
     friend const fair_group& internal::get_fair_group(const io_queue& ioq, unsigned stream);
 
     const io_queue::config _config;
-    size_t _max_request_length[2];
-    boost::container::static_vector<fair_group, 2> _fgs;
+    size_t _max_request_length[3];
+    boost::container::static_vector<fair_group, 3> _fgs;
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
     util::spinlock _lock;
     const shard_id _allocated_on;
