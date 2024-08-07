@@ -234,6 +234,7 @@ export module seastar;
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/shared_ptr_debug_helper.hh>
 #include <seastar/core/shared_ptr_incomplete.hh>
+#include <seastar/core/signal.hh>
 #include <seastar/core/simple-stream.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/smp.hh>

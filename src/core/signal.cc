@@ -15,34 +15,29 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-/*
- * Copyright (C) 2014 Cloudius Systems, Ltd.
- */
 
+#ifdef SEASTAR_MODULE
+module;
+#endif
+
+#include <stdexcept>
+
+#ifdef SEASTAR_MODULE
+module seastar;
+#else
 #include <seastar/core/signal.hh>
-#include <seastar/core/shared_ptr.hh>
-#include <seastar/core/do_with.hh>
-#include <seastar/testing/test_case.hh>
+#include <seastar/core/reactor.hh>
+#endif
 
-using namespace seastar;
+namespace seastar {
 
-extern "C" {
-#include <signal.h>
-#include <sys/types.h>
-#include <unistd.h>
+void handle_signal(int signo, noncopyable_function<void ()>&& handler, bool once) {
+    auto& r = engine();
+    if (once) {
+        r._signals.handle_signal_once(signo, std::move(handler));
+    } else {
+        r._signals.handle_signal(signo, std::move(handler));
+    }
 }
 
-SEASTAR_TEST_CASE(test_sighup) {
-    return do_with(make_lw_shared<promise<>>(), false, [](auto const& p, bool& signaled) {
-        seastar::handle_signal(SIGHUP, [p, &signaled] {
-            signaled = true;
-            p->set_value();
-        });
-
-        kill(getpid(), SIGHUP);
-
-        return p->get_future().then([&] {
-            BOOST_REQUIRE_EQUAL(signaled, true);
-        });
-    });
-} 
+}

@@ -68,7 +68,7 @@ public:
         /// When false, Seastar will not set up signal handlers for SIGINT/SIGTERM
         /// automatically. The default behavior (terminate the program) will be kept.
         /// You can adjust the behavior of SIGINT/SIGTERM by installing signal handlers
-        /// via reactor::handle_signal().
+        /// via seastar::handle_signal(signo, handler, once); instead.
         bool auto_handle_sigint_sigterm = true;
         /// Specifies the default value for linux-aio I/O control blocks. This translates
         /// to the maximum number of sockets the shard can handle.
@@ -104,7 +104,7 @@ public:
         /// When false, Seastar will not set up signal handlers for SIGINT/SIGTERM
         /// automatically. The default behavior (terminate the program) will be kept.
         /// You can adjust the behavior of SIGINT/SIGTERM by installing signal handlers
-        /// via reactor::handle_signal().
+        /// via seastar::handle_signal(signo, handler, once); instead.
         bool auto_handle_sigint_sigterm = true;
         /// Configuration options for the reactor.
         reactor_options reactor_opts;

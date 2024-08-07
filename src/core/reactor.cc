@@ -139,6 +139,7 @@ module seastar;
 #include <seastar/core/resource.hh>
 #include <seastar/core/scheduling.hh>
 #include <seastar/core/scheduling_specific.hh>
+#include <seastar/core/signal.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/smp.hh>
 #include <seastar/core/smp_options.hh>
