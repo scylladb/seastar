@@ -200,6 +200,7 @@ struct mountpoint_params {
     uint64_t write_saturation_length = std::numeric_limits<uint64_t>::max();
     bool duplex = false;
     float rate_factor = 1.0;
+    double discard_to_write_ratio = 1.0f;
 };
 
 }
@@ -225,6 +226,9 @@ struct convert<seastar::mountpoint_params> {
         }
         if (node["rate_factor"]) {
             mp.rate_factor = node["rate_factor"].as<float>();
+        }
+        if (node["discard_to_write_ratio"]) {
+            mp.discard_to_write_ratio = node["discard_to_write_ratio"].as<double>();
         }
         return true;
     }
@@ -4156,6 +4160,10 @@ public:
                         throw std::runtime_error(fmt::format("R/W bytes and req rates must not be zero"));
                     }
 
+                    if (d.discard_to_write_ratio < 0) {
+                        throw std::runtime_error(fmt::format("discard_to_write_ratio cannot be negative!"));
+                    }
+
                     seastar_logger.debug("dev_id: {} mountpoint: {}", st_dev, d.mountpoint);
                     _mountpoints.emplace(st_dev, d);
                 }
@@ -4177,10 +4185,12 @@ public:
         if (p.read_bytes_rate != std::numeric_limits<uint64_t>::max()) {
             cfg.blocks_count_rate = (io_queue::read_request_base_count * (unsigned long)per_io_group(p.read_bytes_rate, nr_groups)) >> io_queue::block_size_shift;
             cfg.disk_blocks_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_bytes_rate) / p.write_bytes_rate;
+            cfg.disk_blocks_discard_to_read_multiplier = static_cast<uint64_t>(p.discard_to_write_ratio * cfg.disk_blocks_write_to_read_multiplier);
         }
         if (p.read_req_rate != std::numeric_limits<uint64_t>::max()) {
             cfg.req_count_rate = io_queue::read_request_base_count * (unsigned long)per_io_group(p.read_req_rate, nr_groups);
             cfg.disk_req_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_req_rate) / p.write_req_rate;
+            cfg.disk_req_discard_to_read_multiplier = static_cast<uint64_t>(p.discard_to_write_ratio * cfg.disk_req_write_to_read_multiplier);
         }
         if (p.read_saturation_length != std::numeric_limits<uint64_t>::max()) {
             cfg.disk_read_saturation_length = p.read_saturation_length;
