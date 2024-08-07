@@ -336,6 +336,18 @@ future<> sync_directory(std::string_view name) noexcept;
 /// containing directory is sync'ed.
 future<> remove_file(std::string_view name) noexcept;
 
+/// Removes a regular file via blocks discarding.
+///
+/// \param name name of the file to remove.
+///
+/// \note
+/// The removal is processed according to the configured discard bandwidth.
+/// If the discard bandwidth has not been configured for the mountpoint
+/// containing the removed file, then returns exception.
+/// The removal may be delayed when the bandwidth is not available. The user
+/// must ensure, that the file is not used until the removal finishes.
+future<> remove_file_via_blocks_discarding(std::string_view name) noexcept;
+
 /// Renames (moves) a file.
 ///
 /// \param old_name existing file name
