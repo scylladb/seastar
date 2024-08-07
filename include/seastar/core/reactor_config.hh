@@ -85,6 +85,11 @@ struct reactor_options : public program_options::option_group {
     ///
     /// Default: 1.1
     program_options::value<double> io_flow_ratio_threshold;
+    /// \brief If an IO request is executed longer than that, this is printed to
+    /// logs with extra debugging
+    ///
+    /// Default: infinite (detection is OFF)
+    program_options::value<unsigned> io_completion_notify_ms;
     /// \brief Maximum number of task backlog to allow.
     ///
     /// When the number of tasks grow above this, we stop polling (e.g. I/O)
