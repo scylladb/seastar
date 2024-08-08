@@ -3813,6 +3813,7 @@ reactor_options::reactor_options(program_options::option_group* parent_group)
     , task_quota_ms(*this, "task-quota-ms", 0.5, "Max time (ms) between polls")
     , io_latency_goal_ms(*this, "io-latency-goal-ms", {}, "Max time (ms) io operations must take (1.5 * task-quota-ms if not set)")
     , io_flow_ratio_threshold(*this, "io-flow-rate-threshold", 1.1, "Dispatch rate to completion rate threshold")
+    , io_completion_notify_ms(*this, "io-completion-notify-ms", {}, "Threshold in milliseconds over which IO request completion is reported to logs")
     , max_task_backlog(*this, "max-task-backlog", 1000, "Maximum number of task backlog to allow; above this we ignore I/O")
     , blocked_reactor_notify_ms(*this, "blocked-reactor-notify-ms", 25, "threshold in miliseconds over which the reactor is considered blocked if no progress is made")
     , blocked_reactor_reports_per_minute(*this, "blocked-reactor-reports-per-minute", 5, "Maximum number of backtraces reported by stall detector per minute")
@@ -4046,6 +4047,7 @@ private:
     unsigned _num_io_groups = 0;
     std::unordered_map<dev_t, mountpoint_params> _mountpoints;
     std::chrono::duration<double> _latency_goal;
+    std::chrono::milliseconds _stall_threshold;
     double _flow_ratio_backpressure_threshold;
 
 public:
@@ -4063,6 +4065,10 @@ public:
         return _latency_goal;
     }
 
+    std::chrono::milliseconds stall_threshold() const {
+        return _stall_threshold;
+    }
+
     double latency_goal_opt(const reactor_options& opts) const {
         return opts.io_latency_goal_ms ?
                 opts.io_latency_goal_ms.get_value() :
@@ -4075,6 +4081,7 @@ public:
         seastar_logger.debug("latency_goal: {}", latency_goal().count());
         _flow_ratio_backpressure_threshold = reactor_opts.io_flow_ratio_threshold.get_value();
         seastar_logger.debug("flow-ratio threshold: {}", _flow_ratio_backpressure_threshold);
+        _stall_threshold = reactor_opts.io_completion_notify_ms.defaulted() ? std::chrono::milliseconds::max() : reactor_opts.io_completion_notify_ms.get_value() * 1ms;
 
         if (smp_opts.num_io_groups) {
             _num_io_groups = smp_opts.num_io_groups.get_value();
@@ -4170,6 +4177,7 @@ public:
         // scheduler will self-tune to allow for the single 64k request, while it would
         // be better to sacrifice some IO latency, but allow for larger concurrency
         cfg.block_count_limit_min = (64 << 10) >> io_queue::block_size_shift;
+        cfg.stall_threshold = stall_threshold();
 
         return cfg;
     }
