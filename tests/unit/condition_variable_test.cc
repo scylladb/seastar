@@ -363,3 +363,34 @@ SEASTAR_TEST_CASE(test_condition_variable_when_timeout) {
 
     co_await std::move(f);
 }
+
+// Check that exception from a predicate is propogated to the waiter
+SEASTAR_THREAD_TEST_CASE(test_condition_variable_wait_predicate_throws) {
+    condition_variable cv;
+
+    auto f = cv.wait([i = 1] () mutable {
+                     if (i == 0) {
+                        throw std::runtime_error("Predicate error");
+                     }
+                     i--;
+                     return false;
+             });
+    cv.signal();
+    BOOST_REQUIRE_THROW(f.get(), std::runtime_error);
+}
+
+// Check that exception from a predicate is propogated to the waiter
+SEASTAR_TEST_CASE(test_condition_variable_when_predicate_throws) {
+    condition_variable cv;
+
+    (void)sleep(100ms).then([&] { cv.signal(); });
+
+    BOOST_REQUIRE_THROW(co_await
+              cv.when([i = 1] () mutable {
+                     if (i == 0) {
+                        throw std::runtime_error("Predicate error");
+                     }
+                     i--;
+                     return false;
+             }), std::runtime_error);
+}

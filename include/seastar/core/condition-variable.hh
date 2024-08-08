@@ -28,6 +28,7 @@
 #include <functional>
 #endif
 
+#include <seastar/core/future.hh>
 #include <seastar/core/coroutine.hh>
 #include <seastar/core/timer.hh>
 #include <seastar/core/loop.hh>
@@ -161,22 +162,30 @@ private:
             , _func(std::move(func))
         {}
         void signal() noexcept override {
-            if (_func()) {
-                Base::signal();
-            } else {
-                // must re-enter waiter queue
-                // this maintains "wait" version
-                // semantics of moving to back of queue
-                // if predicate fails
-                Base::_cv->add_waiter(*this);
+            try {
+                if (_func()) {
+                    Base::signal();
+                } else {
+                    // must re-enter waiter queue
+                    // this maintains "wait" version
+                    // semantics of moving to back of queue
+                    // if predicate fails
+                    Base::_cv->add_waiter(*this);
+                }
+            } catch(...) {
+                Base::set_exception(std::current_exception());
             }
         }
         auto operator co_await() {
-            if (_func()) {
-                return ::seastar::internal::awaiter<false, void>(make_ready_future<>());
-            } else {
-                Base::_cv->check_and_consume_signal(); // clear out any signal state
-                return Base::operator co_await();
+            try {
+                if (_func()) {
+                    return ::seastar::internal::awaiter<false, void>(make_ready_future<>());
+                } else {
+                    Base::_cv->check_and_consume_signal(); // clear out any signal state
+                    return Base::operator co_await();
+                }
+            } catch (...) {
+                return ::seastar::internal::awaiter<false, void>(make_exception_future(std::current_exception()));
             }
         }
     };
