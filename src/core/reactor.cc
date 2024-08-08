@@ -42,6 +42,7 @@ module;
 #include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/inotify.h>
+#include <grp.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -2198,6 +2199,35 @@ future<int> reactor::waitpid(pid_t pid) {
 void reactor::kill(pid_t pid, int sig) {
     auto ret = wrap_syscall<int>(::kill(pid, sig));
     ret.throw_if_error();
+}
+
+future<std::optional<struct group>> reactor::getgrnam(std::string_view name, char *buf, size_t buflen) {
+    syscall_result_extra<std::optional<struct group>> sr = co_await _thread_pool->submit<syscall_result_extra<std::optional<struct group>>>(
+        [name = sstring(name), buf, buflen] {
+            struct group grp;
+            struct group *result;
+            memset(&grp, 0, sizeof(struct group));
+            errno = 0;
+            int ret = ::getgrnam_r(name.c_str(), &grp, buf, buflen, &result);
+            return wrap_syscall(ret, result ? std::optional<struct group>(*result) : std::nullopt);
+        });
+
+    if (sr.result != 0) {
+        throw std::error_code(sr.result, std::system_category());
+    }
+
+    co_return std::move(sr.extra);
+}
+
+future<> reactor::chown(std::string_view filepath, uid_t owner, gid_t group) {
+    syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
+        [filepath = sstring(filepath), owner, group] {
+            int ret = ::chown(filepath.c_str(), owner, group);
+            return wrap_syscall(ret);
+        });
+
+    sr.throw_if_error();
+    co_return;
 }
 
 future<stat_data>

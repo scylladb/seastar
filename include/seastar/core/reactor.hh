@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include <grp.h>
 #include <seastar/core/aligned_buffer.hh>
 #include <seastar/core/cacheline.hh>
 #include <seastar/core/circular_buffer.hh>
@@ -493,6 +494,8 @@ public:
     future<> touch_directory(std::string_view name, file_permissions permissions = file_permissions::default_dir_permissions) noexcept;
     future<std::optional<directory_entry_type>>  file_type(std::string_view name, follow_symlink = follow_symlink::yes) noexcept;
     future<stat_data> file_stat(std::string_view pathname, follow_symlink) noexcept;
+    future<> chown(std::string_view filepath, uid_t owner, gid_t group);
+    future<std::optional<struct group>> getgrnam(std::string_view name, char *buf, size_t buflen);
     future<uint64_t> file_size(std::string_view pathname) noexcept;
     future<bool> file_accessible(std::string_view pathname, access_flags flags) noexcept;
     future<bool> file_exists(std::string_view pathname) noexcept {
