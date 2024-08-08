@@ -20,6 +20,7 @@
  */
 
 #include <seastar/core/reactor.hh>
+#include <seastar/core/signal.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/do_with.hh>
 #include <seastar/testing/test_case.hh>
@@ -34,7 +35,7 @@ extern "C" {
 
 SEASTAR_TEST_CASE(test_sighup) {
     return do_with(make_lw_shared<promise<>>(), false, [](auto const& p, bool& signaled) {
-        engine().handle_signal(SIGHUP, [p, &signaled] {
+        seastar::signal_handler sighup(SIGHUP, [p, &signaled] {
             signaled = true;
             p->set_value();
         });

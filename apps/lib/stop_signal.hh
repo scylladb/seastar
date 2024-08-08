@@ -25,6 +25,7 @@
 #include <seastar/core/sharded.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/condition-variable.hh>
+#include <seastar/core/signal.hh>
 
 /// Seastar apps lib namespace
 
@@ -61,13 +62,13 @@ private:
     }
 public:
     stop_signal() {
-        seastar::engine().handle_signal(SIGINT, [this] { signaled(); });
-        seastar::engine().handle_signal(SIGTERM, [this] { signaled(); });
+        seastar::signal_handler sigint(SIGINT, [this] { signaled(); });
+        seastar::signal_handler sigterm(SIGTERM, [this] { signaled(); });
     }
     ~stop_signal() {
         // There's no way to unregister a handler yet, so register a no-op handler instead.
-        seastar::engine().handle_signal(SIGINT, [] {});
-        seastar::engine().handle_signal(SIGTERM, [] {});
+        seastar::signal_handler sigint(SIGINT, [] {});
+        seastar::signal_handler sigterm(SIGTERM, [] {});
     }
     seastar::future<> wait() {
         return _cond.wait([this] { return _caught; });
