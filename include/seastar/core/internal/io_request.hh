@@ -36,7 +36,7 @@ namespace internal {
 
 class io_request {
 public:
-    enum class operation { read, readv, write, writev, fdatasync, recv, recvmsg, send, sendmsg, accept, connect, poll_add, poll_remove, cancel };
+    enum class operation { read, readv, write, writev, fdatasync, recv, recvmsg, send, sendmsg, accept, connect, poll_add, poll_remove, cancel, discard };
 private:
     operation _op;
     // the upper layers give us void pointers, but storing void pointers here is just
@@ -99,6 +99,11 @@ private:
         int fd;
         char* addr;
     };
+    struct discard_op {
+        int fd;
+        uint64_t offset;
+        uint64_t length;
+    };
     union {
         read_op _read;
         readv_op _readv;
@@ -114,6 +119,7 @@ private:
         poll_add_op _poll_add;
         poll_remove_op _poll_remove;
         cancel_op _cancel;
+        discard_op _discard;
     };
 
 public:
@@ -277,6 +283,17 @@ public:
         return req;
     }
 
+    static io_request make_discard(int fd, uint64_t offset, uint64_t length) {
+        io_request req;
+        req._op = operation::discard;
+        req._discard = {
+            .fd = fd,
+            .offset = offset,
+            .length = length
+        };
+        return req;
+    }
+
     bool is_read() const {
         switch (_op) {
         case operation::read:
@@ -351,6 +368,9 @@ public:
         if constexpr (Op == operation::cancel) {
             return _cancel;
         }
+        if constexpr (Op == operation::discard) {
+            return _discard;
+        }
     }
 
     struct part;
@@ -402,18 +422,23 @@ struct io_request::part {
 
 // Helper pair of IO direction and length
 struct io_direction_and_length {
-    size_t _directed_length; // bit 0 is R/W flag
+    size_t _directed_length; // bits 0 and 1 depict R/W/D flags
+
+    static constexpr int direction_bits_count = 2;
+    static constexpr int direction_bits_mask = (1 << direction_bits_count) - 1;
 
 public:
-    size_t length() const noexcept { return _directed_length >> 1; }
-    int rw_idx() const noexcept { return _directed_length & 0x1; }
+    size_t length() const noexcept { return _directed_length >> direction_bits_count; }
+    int rwd_idx() const noexcept { return _directed_length & direction_bits_mask; }
+
+    static constexpr int discard_idx = 2;
     static constexpr int read_idx = 1;
     static constexpr int write_idx = 0;
 
     io_direction_and_length(int idx, size_t val) noexcept
-            : _directed_length((val << 1) | idx)
+            : _directed_length((val << direction_bits_count) | idx)
     {
-        assert(idx == read_idx || idx == write_idx);
+        assert(idx == read_idx || idx == write_idx || idx == discard_idx);
     }
 };
 
