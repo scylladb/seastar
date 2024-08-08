@@ -85,3 +85,6 @@ seastar_add_test (coroutine
 
 seastar_add_test (allocator
   SOURCES allocator_perf.cc)
+
+seastar_add_test (container
+  SOURCES container_perf.cc)
