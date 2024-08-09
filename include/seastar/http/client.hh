@@ -28,6 +28,7 @@
 #include <seastar/http/reply.hh>
 #include <seastar/core/condition-variable.hh>
 #include <seastar/core/iostream.hh>
+#include <seastar/core/lowres_clock.hh>
 #include <seastar/util/modules.hh>
 
 namespace bi = boost::intrusive;
@@ -169,6 +170,7 @@ class client {
 public:
     using reply_handler = noncopyable_function<future<>(const reply&, input_stream<char>&& body)>;
     using retry_requests = bool_class<struct retry_requests_tag>;
+    using clock_type = lowres_clock;
 
 private:
     friend class http::internal::client_ref;
@@ -185,17 +187,17 @@ private:
 
     using connection_ptr = seastar::shared_ptr<connection>;
 
-    future<connection_ptr> get_connection();
-    future<connection_ptr> make_connection();
+    future<connection_ptr> get_connection(clock_type::time_point timeout);
+    future<connection_ptr> make_connection(clock_type::time_point timeout);
     future<> put_connection(connection_ptr con);
     future<> shrink_connections();
 
     template <std::invocable<connection&> Fn>
-    auto with_connection(Fn&& fn);
+    auto with_connection(Fn&& fn, clock_type::time_point timeout);
 
     template <typename Fn>
     requires std::invocable<Fn, connection&>
-    auto with_new_connection(Fn&& fn);
+    auto with_new_connection(Fn&& fn, clock_type::time_point timeout);
 
     future<> do_make_request(connection& con, request& req, reply_handler& handle, std::optional<reply::status_type> expected);
 
@@ -275,12 +277,13 @@ public:
      * \param req -- request to be sent
      * \param handle -- the response handler
      * \param expected -- the optional expected reply status code, default is std::nullopt
+     * \param send_timeout -- time point at which make_request will stop waiting for transport
      *
      * Note that the handle callback should be prepared to be called more than once, because
      * client may restart the whole request processing in case server closes the connection
      * in the middle of operation
      */
-    future<> make_request(request req, reply_handler handle, std::optional<reply::status_type> expected = std::nullopt);
+    future<> make_request(request req, reply_handler handle, std::optional<reply::status_type> expected = std::nullopt, clock_type::time_point send_timeout = clock_type::time_point::max());
 
     /**
      * \brief Updates the maximum number of connections a client may have
