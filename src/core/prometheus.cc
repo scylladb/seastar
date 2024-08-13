@@ -35,6 +35,7 @@
 #include <seastar/core/thread.hh>
 #include <seastar/core/loop.hh>
 #include <regex>
+#include <string_view>
 
 namespace seastar {
 
@@ -226,11 +227,29 @@ static std::string to_str(const seastar::metrics::impl::metric_value& v) {
     return ""; // we should never get here but it makes the compiler happy
 }
 
+/*
+ * Sanitizes the prometheus label value as per the line format rules and writes it out to the ostream:
+ * > label_value can be any sequence of UTF-8 characters, but the backslash (\), double-quote ("), and
+ * > line feed (\n) characters have to be escaped as \\, \", and \n, respectively.
+ */
+static void escape_and_write_label_value(std::ostream& s, std::string_view label_value) {
+    for (char c : label_value) {
+        switch (c) {
+            case '\\': s << "\\\\"; break;
+            case '\"': s << "\\\""; break;
+            case '\n': s << "\\n"; break;
+            default:   s << c;
+        }
+    }
+}
+
 static void add_name(std::ostream& s, const sstring& name, const std::map<sstring, sstring>& labels, const config& ctx) {
     s << name << "{";
     const char* delimiter = "";
     if (ctx.label) {
-        s << ctx.label->key()  << "=\"" << ctx.label->value() << '"';
+        s << ctx.label->key()  << "=\"";
+        escape_and_write_label_value(s, ctx.label->value());
+        s << '"';
         delimiter = ",";
     }
 
@@ -238,7 +257,9 @@ static void add_name(std::ostream& s, const sstring& name, const std::map<sstrin
         for (auto l : labels) {
             if (!boost::algorithm::starts_with(l.first, "__")) {
                 s << delimiter;
-                s << l.first  << "=\"" << l.second << '"';
+                s << l.first  << "=\"";
+                escape_and_write_label_value(s, l.second);
+                s << '"';
                 delimiter = ",";
             }
         }
