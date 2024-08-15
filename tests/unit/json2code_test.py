@@ -32,11 +32,11 @@ import urllib.parse
 class TestJson2Code(unittest.TestCase):
     rest_api_httpd = None
     server = None
-    port = 10000
+    port = 15789
 
     @classmethod
     def setUpClass(cls):
-        args = [cls.rest_api_httpd, '--port', '10000', '--smp=2']
+        args = [cls.rest_api_httpd, '--port', f'{cls.port}', '--smp=2']
         cls.server = subprocess.Popen(args,
                                       stdin=subprocess.PIPE,
                                       stdout=subprocess.PIPE,
