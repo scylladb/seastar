@@ -35,6 +35,7 @@
 #include <seastar/core/thread.hh>
 #include <seastar/core/loop.hh>
 #include <regex>
+#include <string_view>
 
 namespace seastar {
 
@@ -197,40 +198,58 @@ static void fill_metric(pm::MetricFamily& mf, const metrics::impl::metric_value&
     }
 }
 
-static std::string to_str(seastar::metrics::impl::data_type dt) {
+static std::ostream& operator<<(std::ostream& os, seastar::metrics::impl::data_type dt) {
     switch (dt) {
     case seastar::metrics::impl::data_type::GAUGE:
-        return "gauge";
+        return os << "gauge";
     case seastar::metrics::impl::data_type::COUNTER:
     case seastar::metrics::impl::data_type::REAL_COUNTER:
-        return "counter";
+        return os << "counter";
     case seastar::metrics::impl::data_type::HISTOGRAM:
-        return "histogram";
+        return os << "histogram";
     case seastar::metrics::impl::data_type::SUMMARY:
-        return "summary";
+        return os << "summary";
     }
-    return "untyped";
+    return os << "untyped";
 }
 
-static std::string to_str(const seastar::metrics::impl::metric_value& v) {
+static std::ostream& operator<<(std::ostream& os, const seastar::metrics::impl::metric_value& v) {
     switch (v.type()) {
     case seastar::metrics::impl::data_type::GAUGE:
     case seastar::metrics::impl::data_type::REAL_COUNTER:
-        return std::to_string(v.d());
+        return os << v.d();
     case seastar::metrics::impl::data_type::COUNTER:
-        return std::to_string(v.i());
+        return os << v.i();
     case seastar::metrics::impl::data_type::HISTOGRAM:
     case seastar::metrics::impl::data_type::SUMMARY:
         break;
     }
-    return ""; // we should never get here but it makes the compiler happy
+    return os; // we should never get here but it makes the compiler happy
+}
+
+/*
+ * Sanitizes the prometheus label value as per the line format rules and writes it out to the ostream:
+ * > label_value can be any sequence of UTF-8 characters, but the backslash (\), double-quote ("), and
+ * > line feed (\n) characters have to be escaped as \\, \", and \n, respectively.
+ */
+static void escape_and_write_label_value(std::ostream& s, std::string_view label_value) {
+    for (char c : label_value) {
+        switch (c) {
+            case '\\': s << "\\\\"; break;
+            case '\"': s << "\\\""; break;
+            case '\n': s << "\\n"; break;
+            default:   s << c;
+        }
+    }
 }
 
 static void add_name(std::ostream& s, const sstring& name, const std::map<sstring, sstring>& labels, const config& ctx) {
     s << name << "{";
     const char* delimiter = "";
     if (ctx.label) {
-        s << ctx.label->key()  << "=\"" << ctx.label->value() << '"';
+        s << ctx.label->key()  << "=\"";
+        escape_and_write_label_value(s, ctx.label->value());
+        s << '"';
         delimiter = ",";
     }
 
@@ -238,7 +257,9 @@ static void add_name(std::ostream& s, const sstring& name, const std::map<sstrin
         for (auto l : labels) {
             if (!boost::algorithm::starts_with(l.first, "__")) {
                 s << delimiter;
-                s << l.first  << "=\"" << l.second << '"';
+                s << l.first  << "=\"";
+                escape_and_write_label_value(s, l.second);
+                s << '"';
                 delimiter = ",";
             }
         }
@@ -719,20 +740,19 @@ public:
     }
 };
 
-std::string get_value_as_string(std::stringstream& s, const mi::metric_value& value) noexcept {
+void write_value_as_string(std::stringstream& s, const mi::metric_value& value) noexcept {
     std::string value_str;
     try {
-        value_str = to_str(value);
+        s << value;
     } catch (const std::range_error& e) {
-        seastar_logger.debug("prometheus: get_value_as_string: {}: {}", s.str(), e.what());
-        value_str = "NaN";
+        seastar_logger.debug("prometheus: write_value_as_string: {}: {}", s.str(), e.what());
+        s << "NaN";
     } catch (...) {
         auto ex = std::current_exception();
         // print this error as it's ignored later on by `connection::start_response`
-        seastar_logger.error("prometheus: get_value_as_string: {}: {}", s.str(), ex);
+        seastar_logger.error("prometheus: write_value_as_string: {}: {}", s.str(), ex);
         std::rethrow_exception(std::move(ex));
     }
-    return value_str;
 }
 
 future<> write_text_representation(output_stream<char>& out, const config& ctx, const metric_family_range& m, bool show_help, std::function<bool(const mi::labels_type&)> filter) {
@@ -754,7 +774,7 @@ future<> write_text_representation(output_stream<char>& out, const config& ctx, 
                     if (show_help && metric_family.metadata().d.str() != "") {
                         s << "# HELP " << name << " " <<  metric_family.metadata().d.str() << '\n';
                     }
-                    s << "# TYPE " << name << " " << to_str(metric_family.metadata().type) << '\n';
+                    s << "# TYPE " << name << " " << metric_family.metadata().type << '\n';
                     found = true;
                 }
                 if (should_aggregate) {
@@ -765,7 +785,8 @@ future<> write_text_representation(output_stream<char>& out, const config& ctx, 
                     write_histogram(s, ctx, name, value.get_histogram(), value_info.id.labels());
                 } else {
                     add_name(s, name, value_info.id.labels(), ctx);
-                    s << get_value_as_string(s, value) << '\n';
+                    write_value_as_string(s, value);
+                    s << '\n';
                 }
                 out.write(s.str()).get();
                 thread::maybe_yield();
@@ -778,7 +799,8 @@ future<> write_text_representation(output_stream<char>& out, const config& ctx, 
                         write_histogram(s, ctx, name, h.second.get_histogram(), h.first);
                     } else {
                         add_name(s, name, h.first, ctx);
-                        s << get_value_as_string(s, h.second) << '\n';
+                        write_value_as_string(s, h.second);
+                        s << '\n';
                     }
                     out.write(s.str()).get();
                     thread::maybe_yield();
