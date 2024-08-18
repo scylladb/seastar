@@ -22,6 +22,9 @@
 
 #define BOOST_TEST_MODULE core
 
+#include <boost/range/irange.hpp>
+#include <boost/test/tools/context.hpp>
+
 #include <boost/test/unit_test.hpp>
 #include <seastar/core/chunked_fifo.hh>
 #include <seastar/core/circular_buffer.hh>
@@ -104,6 +107,73 @@ BOOST_AUTO_TEST_CASE(chunked_fifo_fullchunk) {
     }
     BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
     BOOST_REQUIRE_EQUAL(fifo.empty(), true);
+}
+
+struct trackable_totals {
+    size_t cons_called = 0, dtor_called = 0;
+};
+
+struct trackable {
+    trackable(trackable_totals& tracker) : _tracker{tracker} {
+        _tracker.cons_called++;
+    }
+
+    trackable(const trackable&) = delete;
+    trackable(trackable&&) = delete;
+    void operator=(const trackable&) = delete;
+    void operator=(trackable&&) = delete;
+
+    ~trackable() {
+        _tracker.dtor_called++;
+    }
+
+    trackable_totals& _tracker;
+};
+
+BOOST_AUTO_TEST_CASE(chunked_fifo_pop_n) {
+    trackable_totals ctor_calls;
+    constexpr size_t N = 4;
+    chunked_fifo<trackable, N / 2> fifo;
+
+    auto fill_and_reset = [&](size_t size) {
+        fifo.clear();
+        ctor_calls = {};
+        for (size_t i = 0; i < size; i++) {
+            // we add 2, remove 1 in order to stress the case where chunk::begin and end
+            // are outside the range [0, items_per_chunk], i.e., where proper use of mask()
+            // is required
+            fifo.emplace_back(ctor_calls);
+            fifo.emplace_back(ctor_calls);
+            fifo.pop_front_n(1);
+        }
+    };
+
+    for (size_t size : boost::irange((size_t)0, 2 * N) ) {
+        for (size_t pop_count : boost::irange((size_t)0, size + 1) ) {
+            BOOST_TEST_CONTEXT("size: " << size << ", pop_count: " << pop_count) {
+                fill_and_reset(size);
+
+                // note that we add 2 and delete 1 element for every element added in
+                // fill_and_reset so that affects the numbers below
+
+                BOOST_REQUIRE_EQUAL(fifo.size(), size);
+                BOOST_REQUIRE_EQUAL(ctor_calls.cons_called, size * 2);
+                BOOST_REQUIRE_EQUAL(ctor_calls.dtor_called, size);
+
+                fifo.pop_front_n(pop_count);
+
+                BOOST_REQUIRE_EQUAL(fifo.size(), size - pop_count);
+                BOOST_REQUIRE_EQUAL(ctor_calls.cons_called, size * 2);
+                BOOST_REQUIRE_EQUAL(ctor_calls.dtor_called, size + pop_count);
+
+                fifo.emplace_back(ctor_calls);
+
+                BOOST_REQUIRE_EQUAL(fifo.size(), size - pop_count + 1);
+                BOOST_REQUIRE_EQUAL(ctor_calls.cons_called, size * 2 + 1);
+                BOOST_REQUIRE_EQUAL(ctor_calls.dtor_called, size + pop_count);
+            }
+        }
+    }
 }
 
 BOOST_AUTO_TEST_CASE(chunked_fifo_big) {

@@ -419,14 +419,15 @@ void io_sink::submit(io_completion* desc, io_request req) noexcept {
 }
 
 std::vector<io_request::part> io_request::split(size_t max_length) {
-    if (_op == operation::read || _op == operation::write) {
+    auto op = opcode();
+    if (op == operation::read || op == operation::write) {
         return split_buffer(max_length);
     }
-    if (_op == operation::readv || _op == operation::writev) {
+    if (op == operation::readv || op == operation::writev) {
         return split_iovec(max_length);
     }
 
-    seastar_logger.error("Invalid operation for split: {}", static_cast<int>(_op));
+    seastar_logger.error("Invalid operation for split: {}", static_cast<int>(op));
     std::abort();
 }
 
@@ -496,7 +497,7 @@ std::vector<io_request::part> io_request::split_iovec(size_t max_length) {
 }
 
 sstring io_request::opname() const {
-    switch (_op) {
+    switch (opcode()) {
     case io_request::operation::fdatasync:
         return "fdatasync";
     case io_request::operation::write:

@@ -21,7 +21,7 @@
 
 #pragma once
 
-#include <seastar/core/circular_buffer.hh>
+#include <seastar/core/chunked_fifo.hh>
 #include <seastar/core/internal/io_request.hh>
 
 #include <concepts>
@@ -49,7 +49,7 @@ public:
 };
 
 class io_sink {
-    circular_buffer<pending_io_request> _pending_io;
+    chunked_fifo<pending_io_request> _pending_io;
 public:
     void submit(io_completion* desc, internal::io_request req) noexcept;
 
@@ -58,19 +58,16 @@ public:
     // draining should try to drain more
     requires std::is_invocable_r<bool, Fn, internal::io_request&, io_completion*>::value
     size_t drain(Fn&& consume) {
-        size_t pending = _pending_io.size();
         size_t drained = 0;
 
-        while (pending > drained) {
-            pending_io_request& req = _pending_io[drained];
-
+        for (auto& req : _pending_io) {
             if (!consume(req, req._completion)) {
                 break;
             }
             drained++;
         }
 
-        _pending_io.erase(_pending_io.begin(), _pending_io.begin() + drained);
+        _pending_io.pop_front_n(drained);
         return drained;
     }
 };

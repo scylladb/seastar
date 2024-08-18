@@ -101,6 +101,11 @@ class chunked_fifo {
         // begin and end interpreted mod items_per_chunk
         unsigned begin;
         unsigned end;
+
+        // the number of elements in this chunk
+        size_t size() const {
+            return end - begin;
+        }
     };
     // We pop from the chunk at _front_chunk. This chunk is then linked to
     // the following chunks via the "next" link. _back_chunk points to the
@@ -184,6 +189,10 @@ public:
     inline void pop_front() noexcept;
     inline bool empty() const noexcept;
     inline size_t size() const noexcept;
+    // Pop the first n elements from the fifo. Equivalent to calling pop_front()
+    // n times, though likely to be faster for n greater than 1. The fifo must
+    // contain at least n elements or the behavior is undefined.
+    void pop_front_n(size_t n) noexcept;
     void clear() noexcept;
     // reserve(n) ensures that at least (n - size()) further push() calls can
     // be served without needing new memory allocation.
@@ -326,48 +335,31 @@ chunked_fifo<T, items_per_chunk>::size() const noexcept{
 
 template <typename T, size_t items_per_chunk>
 void chunked_fifo<T, items_per_chunk>::clear() noexcept {
-#if 1
-    while (!empty()) {
-        pop_front();
-    }
-#else
-    // This is specialized code to free the contents of all the chunks and the
-    // chunks themselves. but since destroying a very full queue is not an
-    // important use case to optimize, the simple loop above is preferable.
-    if (!_front_chunk) {
-        // Empty, nothing to do
-        return;
-    }
-    // Delete front chunk (partially filled)
-    for (auto i = _front_chunk->begin; i != _front_chunk->end; ++i) {
-        _front_chunk->items[mask(i)].data.~T();
-    }
-    chunk *p = _front_chunk->next;
-    delete _front_chunk;
-    // Delete all the middle chunks (all completely filled)
-    if (p) {
-        while (p != _back_chunk) {
-            // These are full chunks
-            chunk *nextp = p->next;
-            for (auto i = 0; i != items_per_chunk; ++i) {
-                // Note we delete out of order (we don't start with p->begin).
-                // That should be fine..
-                p->items[i].data.~T();
-        }
-            delete p;
-            p = nextp;
-        }
-        // Finally delete back chunk (partially filled)
-        for (auto i = _back_chunk->begin; i != _back_chunk->end; ++i) {
-            _back_chunk->items[mask(i)].data.~T();
-        }
-        delete _back_chunk;
-    }
-    _front_chunk = nullptr;
-    _back_chunk = nullptr;
-    _nchunks = 0;
-#endif
+    pop_front_n(size());
 }
+
+template <typename T, size_t items_per_chunk>
+void chunked_fifo<T, items_per_chunk>::pop_front_n(size_t n) noexcept {
+    while (n) {
+        assert(_front_chunk && "pop_front_n n too large");
+
+        auto target = _front_chunk;
+        unsigned delete_count = std::min(target->size(), n);
+
+        for (auto i = target->begin, e = i + delete_count; i != e; i++) {
+            target->items[mask(i)].data.~T();
+        }
+
+        target->begin += delete_count;
+        n -= delete_count;
+
+        if (target->size() == 0) {
+            front_chunk_delete();
+        }
+    }
+}
+
+
 
 template <typename T, size_t items_per_chunk> void
 chunked_fifo<T, items_per_chunk>::shrink_to_fit() noexcept {
