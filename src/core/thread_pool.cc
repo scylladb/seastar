@@ -36,8 +36,6 @@ module seastar;
 
 namespace seastar {
 
-/* not yet implemented for OSv. TODO: do the notification like we do class smp. */
-#ifndef HAVE_OSV
 thread_pool::thread_pool(reactor& r, sstring name) : _reactor(r), _worker_thread([this, name] { work(name); }) {
 }
 
@@ -79,6 +77,5 @@ thread_pool::~thread_pool() {
     inter_thread_wq._start_eventfd.signal(1);
     _worker_thread.join();
 }
-#endif
 
 }

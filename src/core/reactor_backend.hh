@@ -39,9 +39,6 @@
 #include <boost/program_options.hpp>
 #include <boost/container/static_vector.hpp>
 
-#ifdef HAVE_OSV
-#include <osv/newpoll.hh>
-#endif
 #endif
 
 namespace seastar {
@@ -172,8 +169,8 @@ public:
 
 // The "reactor_backend" interface provides a method of waiting for various
 // basic events on one thread. We have one implementation based on epoll and
-// file-descriptors (reactor_backend_epoll) and one implementation based on
-// OSv-specific file-descriptor-less mechanisms (reactor_backend_osv).
+// file-descriptors (reactor_backend_epoll), one implementation based on
+// linux aio, and one implementation based on io_uring.
 class reactor_backend {
 public:
     virtual ~reactor_backend() {};
@@ -337,45 +334,6 @@ public:
     virtual pollable_fd_state_ptr
     make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) override;
 };
-
-#ifdef HAVE_OSV
-// reactor_backend using OSv-specific features, without any file descriptors.
-// This implementation cannot currently wait on file descriptors, but unlike
-// reactor_backend_epoll it doesn't need file descriptors for waiting on a
-// timer, for example, so file descriptors are not necessary.
-class reactor_backend_osv : public reactor_backend {
-private:
-    osv::newpoll::poller _poller;
-    future<> get_poller_future(reactor_notifier_osv *n);
-    promise<> _timer_promise;
-public:
-    reactor_backend_osv();
-    virtual ~reactor_backend_osv() override { }
-
-    virtual bool reap_kernel_completions() override;
-    virtual bool kernel_submit_work() override;
-    virtual bool kernel_events_can_sleep() const override;
-    virtual void wait_and_process_events(const sigset_t* active_sigmask) override;
-    virtual future<> readable(pollable_fd_state& fd) override;
-    virtual future<> writeable(pollable_fd_state& fd) override;
-    virtual void forget(pollable_fd_state& fd) noexcept override;
-
-    virtual future<std::tuple<pollable_fd, socket_address>>
-    accept(pollable_fd_state& listenfd) override;
-    virtual future<> connect(pollable_fd_state& fd, socket_address& sa) override;
-    virtual void shutdown(pollable_fd_state& fd, int how) override;
-    virtual future<size_t> read(pollable_fd_state& fd, void* buffer, size_t len) override;
-    virtual future<size_t> recvmsg(pollable_fd_state& fd, const std::vector<iovec>& iov) override;
-    virtual future<temporary_buffer<char>> read_some(pollable_fd_state& fd, internal::buffer_allocator* ba) override;
-    virtual future<size_t> sendmsg(pollable_fd_state& fd, net::packet& p) override;
-    virtual future<size_t> send(pollable_fd_state& fd, const void* buffer, size_t len) override;
-    virtual future<temporary_buffer<char>> recv_some(pollable_fd_state& fd, internal::buffer_allocator* ba) override;
-
-    void enable_timer(steady_clock_type::time_point when);
-    virtual pollable_fd_state_ptr
-    make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) override;
-};
-#endif /* HAVE_OSV */
 
 class reactor_backend_uring;
 

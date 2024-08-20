@@ -37,11 +37,6 @@ module;
 #include <arpa/inet.h>
 #include <unistd.h>
 
-#ifdef HAVE_OSV
-#include <osv/firmware.hh>
-#include <gnu/libc-version.h>
-#endif
-
 #ifdef SEASTAR_MODULE
 module seastar;
 #else
@@ -90,8 +85,8 @@ void create_native_net_device(const native_stack_options& opts) {
              dev = create_dpdk_net_device(opts.dpdk_opts.dpdk_port_index.get_value(), smp::count,
                 !(opts.lro && opts.lro.get_value() == "off"),
                 !(opts.dpdk_opts.hw_fc && opts.dpdk_opts.hw_fc.get_value() == "off"));
-       } else 
-#endif  
+       } else
+#endif
         dev = create_virtio_net_device(opts.virtio_opts, opts.lro);
     }
     else {
@@ -102,15 +97,15 @@ void create_native_net_device(const native_stack_options& opts) {
         }
 
         for ( auto&& device_config : device_configs) {
-            auto& hw_config = device_config.second.hw_cfg;   
+            auto& hw_config = device_config.second.hw_cfg;
 #ifdef SEASTAR_HAVE_DPDK
             if ( hw_config.port_index || !hw_config.pci_address.empty() ) {
 	            dev = create_dpdk_net_device(hw_config);
-	        } else 
-#endif  
+	        } else
+#endif
             {
-                (void)hw_config;        
-                std::runtime_error("only DPDK supports new configuration format"); 
+                (void)hw_config;
+                std::runtime_error("only DPDK supports new configuration format");
             }
         }
     }
@@ -401,13 +396,13 @@ public:
         return name();
     }
     const std::vector<net::inet_address>& addresses() const override {
-        return _addresses;            
+        return _addresses;
     }
     const std::vector<uint8_t> hardware_address() const override {
         return _hardware_address;
     }
     bool is_loopback() const override {
-        return false;   
+        return false;
     }
     bool is_virtual() const override {
         return false;

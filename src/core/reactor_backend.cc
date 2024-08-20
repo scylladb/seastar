@@ -41,10 +41,6 @@ module;
 #include <liburing.h>
 #endif
 
-#ifdef HAVE_OSV
-#include <osv/newpoll.hh>
-#endif
-
 #ifdef SEASTAR_MODULE
 module seastar;
 #else
@@ -1084,109 +1080,6 @@ void reactor_backend_epoll::reset_preemption_monitor() {
     _r._preemption_monitor.head.store(0, std::memory_order_relaxed);
 }
 
-#ifdef HAVE_OSV
-reactor_backend_osv::reactor_backend_osv() {
-}
-
-bool
-reactor_backend_osv::reap_kernel_completions() {
-    _poller.process();
-    // osv::poller::process runs pollable's callbacks, but does not currently
-    // have a timer expiration callback - instead if gives us an expired()
-    // function we need to check:
-    if (_poller.expired()) {
-        _timer_promise.set_value();
-        _timer_promise = promise<>();
-    }
-    return true;
-}
-
-reactor_backend_osv::kernel_submit_work() {
-}
-
-void
-reactor_backend_osv::wait_and_process_events(const sigset_t* sigset) {
-    return process_events_nowait();
-}
-
-future<>
-reactor_backend_osv::readable(pollable_fd_state& fd) {
-    std::cerr << "reactor_backend_osv does not support file descriptors - readable() shouldn't have been called!\n";
-    abort();
-}
-
-future<>
-reactor_backend_osv::writeable(pollable_fd_state& fd) {
-    std::cerr << "reactor_backend_osv does not support file descriptors - writeable() shouldn't have been called!\n";
-    abort();
-}
-
-void
-reactor_backend_osv::forget(pollable_fd_state& fd) noexcept {
-    std::cerr << "reactor_backend_osv does not support file descriptors - forget() shouldn't have been called!\n";
-    abort();
-}
-
-future<std::tuple<pollable_fd, socket_address>>
-reactor_backend_osv::accept(pollable_fd_state& listenfd) {
-    return engine().do_accept(listenfd);
-}
-
-future<> reactor_backend_osv::connect(pollable_fd_state& fd, socket_address& sa) {
-    return engine().do_connect(fd, sa);
-}
-
-void reactor_backend_osv::shutdown(pollable_fd_state& fd, int how) {
-    fd.fd.shutdown(how);
-}
-
-future<size_t>
-reactor_backend_osv::recv(pollable_fd_state& fd, void* buffer, size_t len) {
-    return engine().recv(fd, buffer, len);
-}
-
-future<size_t>
-reactor_backend_osv::read(pollable_fd_state& fd, void* buffer, size_t len) {
-    return engine().do_read_some(fd, buffer, len);
-}
-
-future<size_t>
-reactor_backend_osv::recvmsg(pollable_fd_state& fd, const std::vector<iovec>& iov) {
-    return engine().do_read_some(fd, iov);
-}
-
-future<temporary_buffer<char>>
-reactor_backend_osv::read_some(pollable_fd_state& fd, internal::buffer_allocator* ba) {
-    return engine().do_read_some(fd, ba);
-}
-
-future<size_t>
-reactor_backend_osv::send(pollable_fd_state& fd, const void* buffer, size_t len) {
-    return engine().do_send(fd, buffer, len);
-}
-
-future<size_t>
-reactor_backend_osv::sendmsg(pollable_fd_state& fd, net::packet& p) {
-    return engine().do_sendmsg(fd, p);
-}
-
-future<temporary_buffer<char>>
-reactor_backend_osv::recv_some(pollable_fd_state& fd, internal::buffer_allocator* ba) {
-    return engine().do_recv_some(fd, p);
-}
-
-void
-reactor_backend_osv::enable_timer(steady_clock_type::time_point when) {
-    _poller.set_timer(when);
-}
-
-pollable_fd_state_ptr
-reactor_backend_osv::make_pollable_fd_state(file_desc fd, pollable_fd::speculation speculate) {
-    std::cerr << "reactor_backend_osv does not support file descriptors - make_pollable_fd_state() shouldn't have been called!\n";
-    abort();
-}
-#endif
-
 #ifdef SEASTAR_HAVE_URING
 
 static
@@ -1291,7 +1184,7 @@ class reactor_backend_uring final : public reactor_backend {
     // s_queue_len is more or less arbitrary. Too low and we'll be
     // issuing too small batches, too high and we require too much locked
     // memory, but otherwise it doesn't matter.
-    static constexpr unsigned s_queue_len = 200;  
+    static constexpr unsigned s_queue_len = 200;
     reactor& _r;
     ::io_uring _uring;
     bool _did_work_while_getting_sqe = false;
