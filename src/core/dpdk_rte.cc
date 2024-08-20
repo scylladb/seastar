@@ -73,9 +73,6 @@ void eal::init(cpuset cpus, const std::string& argv0, const std::optional<std::s
     } else if (!dpdk_pmd) {
         args.push_back(string2vector("--no-huge"));
     }
-#ifdef HAVE_OSV
-    args.push_back(string2vector("--no-shconf"));
-#endif
 
     std::vector<char*> cargs;
 

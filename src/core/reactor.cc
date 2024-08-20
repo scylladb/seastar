@@ -99,10 +99,6 @@ module;
 #define STAP_PROBE(provider, name)
 #endif
 
-#ifdef HAVE_OSV
-#include <osv/newpoll.hh>
-#endif
-
 #if defined(__x86_64__) || defined(__i386__)
 #include <xmmintrin.h>
 #endif
@@ -1045,11 +1041,6 @@ reactor::reactor(std::shared_ptr<smp> smp, alien::instance& alien, unsigned id, 
     , _notify_eventfd(file_desc::eventfd(0, EFD_CLOEXEC))
     , _task_quota_timer(file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC))
     , _id(id)
-#ifdef HAVE_OSV
-    , _timer_thread(
-        [&] { timer_thread_func(); }, sched::thread::attr().stack(4096).name("timer_thread").pin(sched::cpu::current()))
-    , _engine_thread(sched::thread::current())
-#endif
     , _cpu_started(0)
     , _cpu_stall_detector(internal::make_cpu_stall_detector())
     , _reuseport(posix_reuseport_detect())
@@ -1068,15 +1059,11 @@ reactor::reactor(std::shared_ptr<smp> smp, alien::instance& alien, unsigned id, 
     seastar::thread_impl::init();
     _backend->start_tick();
 
-#ifdef HAVE_OSV
-    _timer_thread.start();
-#else
     sigset_t mask;
     sigemptyset(&mask);
     sigaddset(&mask, internal::cpu_stall_detector::signal_number());
     auto r = ::pthread_sigmask(SIG_UNBLOCK, &mask, NULL);
     assert(r == 0);
-#endif
     memory::set_reclaim_hook([this] (std::function<void ()> reclaim_fn) {
         add_high_priority_task(make_task(default_scheduling_group(), [fn = std::move(reclaim_fn)] {
             fn();
@@ -1523,41 +1510,6 @@ void
 reactor::block_notifier(int) {
     engine()._cpu_stall_detector->on_signal();
 }
-
-#ifdef HAVE_OSV
-void reactor::timer_thread_func() {
-    sched::timer tmr(*sched::thread::current());
-    WITH_LOCK(_timer_mutex) {
-        while (!_stopped) {
-            if (_timer_due != 0) {
-                set_timer(tmr, _timer_due);
-                _timer_cond.wait(_timer_mutex, &tmr);
-                if (tmr.expired()) {
-                    _timer_due = 0;
-                    _engine_thread->unsafe_stop();
-                    _pending_tasks.push_front(make_task(default_scheduling_group(), [this] {
-                        _timers.complete(_expired_timers, [this] {
-                            if (!_timers.empty()) {
-                                enable_timer(_timers.get_next_timeout());
-                            }
-                        });
-                    }));
-                    _engine_thread->wake();
-                } else {
-                    tmr.cancel();
-                }
-            } else {
-                _timer_cond.wait(_timer_mutex);
-            }
-        }
-    }
-}
-
-void reactor::set_timer(sched::timer &tmr, s64 t) {
-    using namespace osv::clock;
-    tmr.set(wall::time_point(std::chrono::nanoseconds(t)));
-}
-#endif
 
 class network_stack_factory {
     network_stack_entry::factory_func _func;
@@ -2417,7 +2369,6 @@ reactor::fdatasync(int fd) noexcept {
 
 // Note: terminate if arm_highres_timer throws
 // `when` should always be valid
-#ifndef HAVE_OSV
 void reactor::enable_timer(steady_clock_type::time_point when) noexcept
 {
     itimerspec its;
@@ -2425,16 +2376,7 @@ void reactor::enable_timer(steady_clock_type::time_point when) noexcept
     its.it_value = to_timespec(when);
     _backend->arm_highres_timer(its);
 }
-#else
-void reactor::enable_timer(steady_clock_type::time_point when) noexcept
-{
-    using ns = std::chrono::nanoseconds;
-    WITH_LOCK(_timer_mutex) {
-        _timer_due = std::chrono::duration_cast<ns>(when.time_since_epoch()).count();
-        _timer_cond.wake_one();
-    }
-}
-#endif
+
 
 void reactor::add_timer(timer<steady_clock_type>* tmr) noexcept {
     if (queue_timer(tmr)) {
@@ -2726,8 +2668,6 @@ reactor::do_check_lowres_timers() const noexcept {
     return lowres_clock::now() > _lowres_next_timeout;
 }
 
-#ifndef HAVE_OSV
-
 class reactor::kernel_submit_work_pollfn final : public simple_pollfn<true> {
     reactor& _r;
 public:
@@ -2736,8 +2676,6 @@ public:
         return _r._backend->kernel_submit_work();
     }
 };
-
-#endif
 
 class reactor::signal_pollfn final : public reactor::pollfn {
     reactor& _r;

@@ -80,12 +80,6 @@
 #include <sys/socket.h>
 #include <netinet/ip.h>
 
-#ifdef HAVE_OSV
-#include <osv/sched.hh>
-#include <osv/mutex.h>
-#include <osv/condvar.h>
-#include <osv/newpoll.hh>
-#endif
 #endif
 
 struct statfs;
@@ -222,16 +216,7 @@ private:
     reactor_config _cfg;
     file_desc _notify_eventfd;
     file_desc _task_quota_timer;
-#ifdef HAVE_OSV
-    reactor_backend_osv _backend;
-    sched::thread _timer_thread;
-    sched::thread *_engine_thread;
-    mutable mutex _timer_mutex;
-    condvar _timer_cond;
-    s64 _timer_due = 0;
-#else
     std::unique_ptr<reactor_backend> _backend;
-#endif
     sigset_t _active_sigmask; // holds sigmask while sleeping with sig disabled
     std::vector<pollfn*> _pollers;
 
@@ -308,7 +293,7 @@ private:
     task* _current_task = nullptr;
     /// Handler that will be called when there is no task to execute on cpu.
     /// It represents a low priority work.
-    /// 
+    ///
     /// Handler's return value determines whether handler did any actual work. If no work was done then reactor will go
     /// into sleep.
     ///
@@ -556,7 +541,7 @@ public:
 
     /// Set a handler that will be called when there is no task to execute on cpu.
     /// Handler should do a low priority work.
-    /// 
+    ///
     /// Handler's return value determines whether handler did any actual work. If no work was done then reactor will go
     /// into sleep.
     ///
@@ -588,10 +573,6 @@ public:
     /// \return An object containing a snapshot of the statistics at this point in time.
     sched_stats get_sched_stats() const;
     uint64_t abandoned_failed_futures() const { return _abandoned_failed_futures; }
-#ifdef HAVE_OSV
-    void timer_thread_func();
-    void set_timer(sched::timer &tmr, s64 t);
-#endif
 private:
     /**
      * Add a new "poller" - a non-blocking function returning a boolean, that

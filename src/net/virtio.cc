@@ -36,9 +36,6 @@ module;
 #include <linux/vhost.h>
 #include <linux/if_tun.h>
 #include <net/if.h>
-#ifdef HAVE_OSV
-#include <osv/virtio-assign.hh>
-#endif
 
 #ifdef SEASTAR_MODULE
 module seastar;
@@ -68,19 +65,9 @@ namespace virtio {
 
 using phys = uint64_t;
 
-#ifndef HAVE_OSV
-
 phys virt_to_phys(void* p) {
     return reinterpret_cast<uintptr_t>(p);
 }
-
-#else
-
-phys virt_to_phys(void* p) {
-    return osv::assigned_virtio::virt_to_phys(p);
-}
-
-#endif
 
 class device : public net::device {
 private:
@@ -178,22 +165,6 @@ public:
         : _kick(std::move(kick)) {}
 };
 
-#ifdef HAVE_OSV
-class notifier_osv : public notifier {
-private:
-    uint16_t _q_index;
-    osv::assigned_virtio &_virtio;
-public:
-    virtual void notify() override {
-        _virtio.kick(_q_index);
-    }
-    notifier_osv(osv::assigned_virtio &virtio, uint16_t q_index)
-        : _q_index(q_index)
-        , _virtio(virtio)
-    {
-    }
-};
-#endif
 
 struct ring_config {
     char* descs;
@@ -913,94 +884,12 @@ qp_vhost::qp_vhost(device *dev, const native_stack_options& opts)
     _vhost_fd.ioctl(VHOST_NET_SET_BACKEND, vhost_vring_file{1, tap_fd.get()});
 }
 
-#ifdef HAVE_OSV
-class qp_osv : public qp {
-private:
-    ethernet_address _mac;
-    osv::assigned_virtio &_virtio;
-public:
-    qp_osv(device *dev, osv::assigned_virtio &virtio,
-            const native_stack_options& opts);
-};
-
-qp_osv::qp_osv(device *dev, osv::assigned_virtio &virtio,
-        const native_stack_options& opts)
-        : qp(dev, virtio.queue_size(0), virtio.queue_size(1))
-        , _virtio(virtio)
-{
-    // Read the host's virtio supported feature bitmask, AND it with the
-    // features we want to use, and tell the host of the result:
-    uint32_t subset = _virtio.init_features(_dev->features());
-    if (subset & VIRTIO_NET_F_MRG_RXBUF) {
-        _header_len = sizeof(net_hdr_mrg);
-    } else {
-        _header_len = sizeof(net_hdr);
-    }
-
-    // TODO: save bits from "subset" in _hw_features?
-//    bool _mergeable_bufs = subset & VIRTIO_NET_F_MRG_RXBUF;
-//    bool _status = subset & VIRTIO_NET_F_STATUS;
-//    bool _tso_ecn = subset & VIRTIO_NET_F_GUEST_ECN;
-//    bool _host_tso_ecn = subset & VIRTIO_NET_F_HOST_ECN;
-//    bool _csum = subset & VIRTIO_NET_F_CSUM;
-//    bool _guest_csum = subset & VIRTIO_NET_F_GUEST_CSUM;
-//    bool _guest_tso4 = subset & VIRTIO_NET_F_GUEST_TSO4;
-//    bool _host_tso4 = subset & VIRTIO_NET_F_HOST_TSO4;
-//    bool _guest_ufo = subset & VIRTIO_NET_F_GUEST_UFO;
-
-    // Get the MAC address set by the host
-    assert(subset & VIRTIO_NET_F_MAC);
-    struct net_config {
-        /* The ring_config defining mac address (if VIRTIO_NET_F_MAC) */
-        uint8_t mac[6];
-        /* See VIRTIO_NET_F_STATUS and VIRTIO_NET_S_* */
-        uint16_t status;
-        /* Maximum number of each of transmit and receive queues;
-         * see VIRTIO_NET_F_MQ and VIRTIO_NET_CTRL_MQ.
-         * Legal values are between 1 and 0x8000
-         */
-        uint16_t max_virtqueue_pairs;
-    } __attribute__((packed)) host_config;
-    _virtio.conf_read(&host_config, sizeof(host_config));
-    _mac = { host_config.mac[0], host_config.mac[1], host_config.mac[2],
-             host_config.mac[3], host_config.mac[4], host_config.mac[5] };
-
-    // Setup notifiers
-    _rxq.set_notifier(std::make_unique<notifier_osv>(_virtio, 0));
-    _txq.set_notifier(std::make_unique<notifier_osv>(_virtio, 1));
-
-
-    // Tell the host where we put the rings (we already allocated them earlier)
-    _virtio.set_queue_pfn(
-            0, virt_to_phys(_rxq.getconfig().descs));
-    _virtio.set_queue_pfn(
-            1, virt_to_phys(_txq.getconfig().descs));
-
-    // Set up interrupts
-    // FIXME: in OSv, the first thing we do in the handler is to call
-    // _rqx.disable_interrupts(). Here in seastar, we only do it much later
-    // in the main engine(). Probably needs to do it like in osv - in the beginning of the handler.
-    _virtio.enable_interrupt(
-            0, [&] { _rxq.wake_notifier_wait(); } );
-    _virtio.enable_interrupt(
-            1, [&] { _txq.wake_notifier_wait(); } );
-
-    _virtio.set_driver_ok();
-}
-#endif
-
 std::unique_ptr<net::qp> device::init_local_queue(const program_options::option_group& opts, uint16_t qid) {
     static bool called = false;
     assert(!qid);
     assert(!called);
     called = true;
 
-#ifdef HAVE_OSV
-    if (osv::assigned_virtio::get && osv::assigned_virtio::get()) {
-        std::cout << "In OSv and assigned host's virtio device\n";
-        return std::make_unique<qp_osv>(this, *osv::assigned_virtio::get(), opts);
-    }
-#endif
     auto net_opts = dynamic_cast<const net::native_stack_options*>(&opts);
     assert(net_opts);
     return std::make_unique<qp_vhost>(this, *net_opts);
@@ -1033,10 +922,3 @@ std::unique_ptr<net::device> create_virtio_net_device(const virtio_options& opts
 }
 
 }
-
-// Locks the shared object in memory and forces on-load function resolution.
-// Needed if the function passed to enable_interrupt() is run at interrupt
-// time.
-// TODO: Instead of doing this, _virtio.enable_interrupt() could take a
-// pollable to wake instead of a function, then this won't be needed.
-asm(".pushsection .note.osv-mlock, \"a\"; .long 0, 0, 0; .popsection");

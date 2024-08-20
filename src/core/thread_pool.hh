@@ -30,7 +30,6 @@ class reactor;
 class thread_pool {
     reactor& _reactor;
     uint64_t _aio_threaded_fallbacks = 0;
-#ifndef HAVE_OSV
     syscall_work_queue inter_thread_wq;
     posix_thread _worker_thread;
     std::atomic<bool> _stopped = { false };
@@ -58,11 +57,6 @@ public:
     // harmless.
     void exit_interrupt_mode() { _main_thread_idle.store(false, std::memory_order_relaxed); }
 
-#else
-public:
-    template <typename T, typename Func>
-    future<T> submit(Func func) { std::cerr << "thread_pool not yet implemented on osv\n"; abort(); }
-#endif
 private:
     void work(sstring thread_name);
 };
