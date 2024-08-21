@@ -4125,6 +4125,28 @@ public:
     }
 };
 
+void smp::log_aiocbs(log_level level, unsigned storage, unsigned preempt, unsigned network) {
+    // Each cell in the table should be
+    // - as wide as the grand total,
+    // - as wide as its containing column's header,
+    // whichever is wider.
+    std::string percpu_hdr = format("per cpu");
+    std::string allcpus_hdr = format("all {} cpus", smp::count);
+    unsigned percpu_total = storage + preempt + network;
+    unsigned allcpus_total = percpu_total * smp::count;
+    size_t num_width = format("{}", allcpus_total).length();
+    size_t percpu_width = std::max(num_width, percpu_hdr.length());
+    size_t allcpus_width = std::max(num_width, allcpus_hdr.length());
+
+    seastar_logger.log(level, "purpose  {:{}}  {:{}}",     percpu_hdr,   percpu_width, allcpus_hdr,          allcpus_width);
+    seastar_logger.log(level, "-------  {:-<{}}  {:-<{}}", "",           percpu_width, "",                   allcpus_width);
+    seastar_logger.log(level, "storage  {:{}}  {:{}}",     storage,      percpu_width, storage * smp::count, allcpus_width);
+    seastar_logger.log(level, "preempt  {:{}}  {:{}}",     preempt,      percpu_width, preempt * smp::count, allcpus_width);
+    seastar_logger.log(level, "network  {:{}}  {:{}}",     network,      percpu_width, network * smp::count, allcpus_width);
+    seastar_logger.log(level, "-------  {:-<{}}  {:-<{}}", "",           percpu_width, "",                   allcpus_width);
+    seastar_logger.log(level, "total    {:{}}  {:{}}",     percpu_total, percpu_width, allcpus_total,        allcpus_width);
+}
+
 unsigned smp::adjust_max_networking_aio_io_control_blocks(unsigned network_iocbs)
 {
     static unsigned constexpr storage_iocbs = reactor::max_aio;
@@ -4136,15 +4158,39 @@ unsigned smp::adjust_max_networking_aio_io_control_blocks(unsigned network_iocbs
     auto requested_aio_network = network_iocbs * smp::count;
     auto requested_aio_other = (storage_iocbs + preempt_iocbs) * smp::count;
     auto requested_aio = requested_aio_network + requested_aio_other;
-    auto network_iocbs_old = network_iocbs;
+
+    seastar_logger.debug("Intended AIO control block usage:");
+    seastar_logger.debug("");
+    log_aiocbs(log_level::debug, storage_iocbs, preempt_iocbs, network_iocbs);
+    seastar_logger.debug("");
+    seastar_logger.debug("Available AIO control blocks = aio-max-nr - aio-nr = {} - {} = {}", aio_max_nr, aio_nr, available_aio);
 
     if (available_aio < requested_aio) {
-        seastar_logger.warn("Requested AIO slots too large, please increase request capacity in /proc/sys/fs/aio-max-nr. configured:{} available:{} requested:{}", aio_max_nr, available_aio, requested_aio);
         if (available_aio >= requested_aio_other + smp::count) { // at least one queue for each shard
             network_iocbs = (available_aio - requested_aio_other) / smp::count;
-            seastar_logger.warn("max-networking-io-control-blocks adjusted from {} to {}, since AIO slots are unavailable", network_iocbs_old, network_iocbs);
+            seastar_logger.warn("Your system does not have enough AIO capacity for optimal network performance; reducing `max-networking-io-control-blocks'.");
+            seastar_logger.warn("Resultant AIO control block usage:");
+            seastar_logger.warn("");
+            log_aiocbs(log_level::warn, storage_iocbs, preempt_iocbs, network_iocbs);
+            seastar_logger.warn("");
+            seastar_logger.warn("For optimal network performance, set /proc/sys/fs/aio-max-nr to at least {}.", aio_nr + requested_aio);
         } else {
-            throw std::runtime_error("Could not setup Async I/O: Not enough request capacity in /proc/sys/fs/aio-max-nr. Try increasing that number or reducing the amount of logical CPUs available for your application");
+            std::string err = format("Your system does not satisfy minimum AIO requirements. "
+                                     "Set /proc/sys/fs/aio-max-nr to at least {} (minimum) or {} (recommended for networking performance)",
+                                     aio_nr + (requested_aio_other + smp::count), aio_nr + requested_aio);
+
+            unsigned smp_count_max = available_aio / (storage_iocbs + preempt_iocbs + 1);
+            if (smp_count_max > 0) {
+                err.append(format(", or decrease the logical CPU count of the application to {} (maximum)", smp_count_max));
+
+                unsigned smp_count_recommended = available_aio / (storage_iocbs + preempt_iocbs + network_iocbs);
+                if (smp_count_recommended > 0) {
+                    err.append(format(" or {} (recommended for networking performance)", smp_count_recommended));
+                }
+            }
+
+            err.append(".");
+            throw std::runtime_error(err);
         }
     }
 
