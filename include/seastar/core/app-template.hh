@@ -129,6 +129,7 @@ private:
     std::shared_ptr<smp> _smp;
     seastar_options _opts;
     boost::program_options::options_description _app_opts;
+    boost::program_options::options_description* _app_visible_opts_for_help = nullptr;
     boost::program_options::options_description _seastar_opts;
     boost::program_options::options_description _opts_conf_file;
     boost::program_options::positional_options_description _pos_opts;
@@ -136,6 +137,7 @@ private:
     configuration_reader _conf_reader;
 
     configuration_reader get_default_configuration_reader();
+    void add_extra_options(boost::program_options::options_description& opts);
 public:
     struct positional_option {
         const char* name;
@@ -153,6 +155,7 @@ public:
     boost::program_options::options_description& get_options_description();
     boost::program_options::options_description& get_conf_file_options_description();
     boost::program_options::options_description_easy_init add_options();
+    void set_app_visible_options_for_help(boost::program_options::options_description* opts);
     void add_positional_options(std::initializer_list<positional_option> options);
     boost::program_options::variables_map& configuration();
     int run_deprecated(int ac, char ** av, std::function<void ()>&& func) noexcept;

@@ -85,16 +85,7 @@ app_template::app_template(app_template::seastar_options opts)
         if (!alien::internal::default_instance) {
             alien::internal::default_instance = _alien.get();
         }
-        _app_opts.add_options()
-                ("help,h", "show help message")
-                ;
-        _app_opts.add_options()
-                ("help-seastar", "show help message about seastar options")
-                ;
-        _app_opts.add_options()
-                ("help-loggers", "print a list of logger names and exit")
-                ;
-
+        add_extra_options(_app_opts);
         {
             program_options::options_description_building_visitor visitor;
             _opts.describe(visitor);
@@ -109,10 +100,31 @@ app_template::app_template(app_template::config cfg)
 {
 }
 
+void
+app_template::add_extra_options(boost::program_options::options_description& opts) {
+    opts.add_options()
+            ("help,h", "show help message")
+            ;
+    opts.add_options()
+            ("help-seastar", "show help message about seastar options")
+            ;
+    opts.add_options()
+            ("help-loggers", "print a list of logger names and exit")
+            ;
+}
+
 app_template::~app_template() = default;
 
 const app_template::seastar_options& app_template::options() const {
     return _opts;
+}
+
+void
+app_template::set_app_visible_options_for_help(boost::program_options::options_description* opts) {
+    _app_visible_opts_for_help = opts;
+    if (_app_visible_opts_for_help) {
+        add_extra_options(*_app_visible_opts_for_help);
+    }
 }
 
 app_template::configuration_reader app_template::get_default_configuration_reader() {
@@ -211,7 +223,8 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
         if (!_opts.description.empty()) {
             std::cout << _opts.description << "\n";
         }
-        std::cout << _app_opts << "\n";
+        auto& which_opts = _app_visible_opts_for_help ? *_app_visible_opts_for_help : _app_opts;
+        std::cout << which_opts << "\n";
         return 0;
     }
     if (configuration.count("help-seastar")) {
