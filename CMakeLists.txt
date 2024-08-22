@@ -182,11 +182,45 @@ mark_as_advanced (
     CMAKE_EXE_LINKER_FLAGS_SANITIZE
     CMAKE_SHARED_LINKER_FLAGS_SANITIZE)
 
+set (CMAKE_CXX_FLAGS_SANITIZETHREAD
+  "-Os -g"
+  CACHE
+  STRING
+  "Flags used by the C++ compiler during sanitize-thread builds."
+  FORCE)
+
+set (CMAKE_C_FLAGS_SANITIZETHREAD
+  "-Os -g"
+  CACHE
+  STRING
+  "Flags used by the C compiler during sanitize-thread builds."
+  FORCE)
+
+set (CMAKE_EXE_LINKER_FLAGS_SANITIZETHREAD
+  ""
+  CACHE
+  STRING
+  "Flags used for linking binaries during sanitize-thread builds."
+  FORCE)
+
+set (CMAKE_SHARED_LINKER_FLAGS_SANITIZETHREAD
+  ""
+  CACHE
+  STRING
+  "Flags used by the shared libraries linker during sanitize-thread builds."
+  FORCE)
+
+mark_as_advanced (
+    CMAKE_CXX_FLAGS_SANITIZETHREAD
+    CMAKE_C_FLAGS_SANITIZETHREAD
+    CMAKE_EXE_LINKER_FLAGS_SANITIZETHREAD
+    CMAKE_SHARED_LINKER_FLAGS_SANITIZETHREAD)
+
 set (CMAKE_BUILD_TYPE
   "${CMAKE_BUILD_TYPE}"
   CACHE
   STRING
-  "Choose the type of build, options are: None Debug Release RelWithDebInfo MinSizeRel Dev Sanitize."
+  "Choose the type of build, options are: None Debug Release RelWithDebInfo Dev Sanitize SanitizeThread."
   FORCE)
 
 if (NOT CMAKE_BUILD_TYPE)
@@ -356,7 +390,7 @@ endif ()
 
 
 set (Seastar_TEST_ENVIRONMENT
-  "ASAN_OPTIONS=${Seastar_ASAN_OPTIONS};UBSAN_OPTIONS=halt_on_error=1:abort_on_error=1;BOOST_TEST_CATCH_SYSTEM_ERRORS=no"
+  "ASAN_OPTIONS=${Seastar_ASAN_OPTIONS};UBSAN_OPTIONS=halt_on_error=1:abort_on_error=1;TSAN_OPTIONS=halt_on_error=1;BOOST_TEST_CATCH_SYSTEM_ERRORS=no"
   CACHE
   STRING
   "Environment variables for running tests")
@@ -376,6 +410,12 @@ set (Seastar_SANITIZE
   CACHE
   STRING
   "Enable ASAN and UBSAN. Can be ON, OFF or DEFAULT (which enables it for Debug and Sanitize)")
+
+set (Seastar_SANITIZE_THREAD
+  "DEFAULT"
+  CACHE
+  STRING
+  "Enable TSAN. Can be ON, OFF or DEFAULT (which enables it for SanitizeThread)")
 
 set (Seastar_DEBUG_SHARED_PTR
   "DEFAULT"
@@ -888,6 +928,26 @@ if (condition)
       $<${condition}:Sanitizers::undefined_behavior>)
 endif ()
 
+tri_state_option (${Seastar_SANITIZE_THREAD}
+  DEFAULT_BUILD_TYPES "SanitizeThread"
+  CONDITION condition)
+if (condition)
+  if (NOT ThreadSanitizer_FOUND)
+    message (FATAL_ERROR "Thread sanitizer not found!")
+  endif ()
+  set (Seastar_Sanitizers_OPTIONS ${ThreadSanitizer_COMPILER_OPTIONS})
+  target_link_libraries (seastar
+    PUBLIC
+      $<${condition}:Sanitizers::thread>)
+  target_compile_definitions(seastar
+    PUBLIC
+      SEASTAR_NO_EXCEPTION_HACK)
+  if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    # Disabled because tsan doesn't support std::atomic_thread_fence
+    list (APPEND Seastar_PRIVATE_CXX_FLAGS -Wno-error=tsan)
+  endif ()
+endif ()
+
 # We only need valgrind to find uninitialized memory uses, so disable
 # the leak sanitizer.
 # To test with valgrind run "ctest -T memcheck"
@@ -961,6 +1021,10 @@ endif ()
 
 if (Sanitizers_FIBER_SUPPORT)
   list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_HAVE_ASAN_FIBER_SUPPORT)
+endif ()
+
+if (ThreadSanitizer_FIBER_SUPPORT)
+  list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_HAVE_TSAN_FIBER_SUPPORT)
 endif ()
 
 if (Seastar_ALLOC_PAGE_SIZE)
@@ -1079,11 +1143,11 @@ foreach (definition
     SEASTAR_SHUFFLE_TASK_QUEUE)
   target_compile_definitions (seastar
     PUBLIC
-      $<$<IN_LIST:$<CONFIG>,Debug;Sanitize>:${definition}>)
+      $<$<IN_LIST:$<CONFIG>,Debug;Sanitize;SanitizeThread>:${definition}>)
 endforeach ()
 
 tri_state_option (${Seastar_DEBUG_SHARED_PTR}
-  DEFAULT_BUILD_TYPES "Debug" "Sanitize"
+  DEFAULT_BUILD_TYPES "Debug" "Sanitize" "SanitizeThread"
   CONDITION condition)
 if (condition)
   target_compile_definitions (seastar
@@ -1092,7 +1156,7 @@ if (condition)
 endif ()
 
 tri_state_option (${Seastar_DEBUG_SHARED_PTR}
-  DEFAULT_BUILD_TYPES "Debug" "Sanitize"
+  DEFAULT_BUILD_TYPES "Debug" "Sanitize" "SanitizeThread"
   CONDITION condition)
 if (condition)
   target_compile_definitions (seastar
@@ -1103,7 +1167,7 @@ endif ()
 include (CheckLibc)
 
 tri_state_option (${Seastar_STACK_GUARDS}
-  DEFAULT_BUILD_TYPES "Debug" "Sanitize" "Dev"
+  DEFAULT_BUILD_TYPES "Debug" "Sanitize" "SanitizeThread" "Dev"
   CONDITION condition)
 if (condition)
   # check for -fstack-clash-protection together with -Werror, because

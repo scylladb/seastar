@@ -36,11 +36,17 @@ class thread_context;
 class scheduling_group;
 
 struct jmp_buf_link {
-#ifdef SEASTAR_ASAN_ENABLED
+#if defined(SEASTAR_ASAN_ENABLED) || defined(SEASTAR_TSAN_ENABLED)
     ucontext_t context;
+#ifdef SEASTAR_ASAN_ENABLED
     void* fake_stack = nullptr;
     const void* stack_bottom;
     size_t stack_size;
+#endif
+#ifdef SEASTAR_TSAN_ENABLED
+    void* fiber = nullptr;
+    bool destroy_tsan_fiber = false;
+#endif
 #else
     jmp_buf jmpbuf;
 #endif
@@ -52,6 +58,9 @@ public:
     void switch_out();
     void initial_switch_in_completed();
     void final_switch_out();
+#ifdef SEASTAR_TSAN_ENABLED
+    ~jmp_buf_link();
+#endif
 };
 
 extern thread_local jmp_buf_link* g_current_context;

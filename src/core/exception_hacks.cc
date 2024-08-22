@@ -71,6 +71,8 @@ module seastar;
 #endif
 
 namespace seastar {
+
+#ifndef SEASTAR_NO_EXCEPTION_HACK
 using dl_iterate_fn = int (*) (int (*callback) (struct dl_phdr_info *info, size_t size, void *data), void *data);
 
 [[gnu::no_sanitize_address]]
@@ -102,6 +104,9 @@ void init_phdr_cache() {
         return 0;
     }, nullptr);
 }
+#else
+void init_phdr_cache() {}
+#endif
 
 void internal::increase_thrown_exceptions_counter() noexcept {
     seastar::engine()._cxx_exceptions++;
@@ -124,6 +129,7 @@ void log_exception_trace() noexcept {}
 
 }
 
+#ifndef SEASTAR_NO_EXCEPTION_HACK
 extern "C"
 [[gnu::visibility("default")]]
 [[gnu::used]]
@@ -146,6 +152,7 @@ int dl_iterate_phdr(int (*callback) (struct dl_phdr_info *info, size_t size, voi
     }
     return r;
 }
+#endif
 
 #ifndef NO_EXCEPTION_INTERCEPT
 extern "C"
@@ -153,11 +160,8 @@ extern "C"
 [[gnu::used]]
 int _Unwind_RaiseException(struct ::_Unwind_Exception *h) {
     using throw_fn =  int (*)(void *);
-    static throw_fn org = nullptr;
+    static throw_fn org = (throw_fn)dlsym (RTLD_NEXT, "_Unwind_RaiseException");
 
-    if (!org) {
-        org = (throw_fn)dlsym (RTLD_NEXT, "_Unwind_RaiseException");
-    }
     if (seastar::local_engine) {
         seastar::internal::increase_thrown_exceptions_counter();
         seastar::log_exception_trace();

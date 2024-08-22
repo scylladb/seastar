@@ -24,7 +24,7 @@ module;
 #endif
 
 #include <ucontext.h>
-#ifndef SEASTAR_ASAN_ENABLED
+#if !defined(SEASTAR_ASAN_ENABLED) && !defined(SEASTAR_TSAN_ENABLED)
 #include <setjmp.h>
 #endif
 #include <stdint.h>
@@ -48,11 +48,11 @@ namespace seastar {
 thread_local jmp_buf_link g_unthreaded_context;
 thread_local jmp_buf_link* g_current_context;
 
-#ifdef SEASTAR_ASAN_ENABLED
+#if defined(SEASTAR_ASAN_ENABLED) || defined(SEASTAR_TSAN_ENABLED)
 
 namespace {
 
-#ifdef SEASTAR_HAVE_ASAN_FIBER_SUPPORT
+#if defined(SEASTAR_ASAN_ENABLED) && defined(SEASTAR_HAVE_ASAN_FIBER_SUPPORT)
 // ASan provides two functions as a means of informing it that user context
 // switch has happened. First __sanitizer_start_switch_fiber() needs to be
 // called with a place to store the fake stack pointer and the new stack
@@ -60,14 +60,27 @@ namespace {
 // __sanitizer_finish_switch_fiber() needs to be called with a pointer to the
 // current context fake stack and a place to store stack information of the
 // previous ucontext.
-
 extern "C" {
 void __sanitizer_start_switch_fiber(void** fake_stack_save, const void* stack_bottom, size_t stack_size);
 void __sanitizer_finish_switch_fiber(void* fake_stack_save, const void** stack_bottom_old, size_t* stack_size_old);
 }
-#else
+#elif defined(SEASTAR_ASAN_ENABLED)
 static inline void __sanitizer_start_switch_fiber(...) { }
 static inline void __sanitizer_finish_switch_fiber(...) { }
+#endif
+
+#if defined(SEASTAR_TSAN_ENABLED) && defined(SEASTAR_HAVE_TSAN_FIBER_SUPPORT)
+extern "C" {
+void* __tsan_get_current_fiber();
+void* __tsan_create_fiber(unsigned flags);
+void __tsan_destroy_fiber(void* fiber);
+void __tsan_switch_to_fiber(void* fiber, unsigned flags);
+}
+#elif defined(SEASTAR_TSAN_ENABLED)
+static inline void* __tsan_get_current_fiber(...) { return nullptr; }
+static inline void* __tsan_create_fiber(...) { return nullptr; }
+static inline void __tsan_destroy_fiber(...) { }
+static inline void __tsan_switch_to_fiber(...) { }
 #endif
 
 thread_local jmp_buf_link* g_previous_context;
@@ -79,10 +92,20 @@ void jmp_buf_link::initial_switch_in(ucontext_t* initial_context, const void* st
     auto prev = std::exchange(g_current_context, this);
     link = prev;
     g_previous_context = prev;
+#ifdef SEASTAR_ASAN_ENABLED
     __sanitizer_start_switch_fiber(&prev->fake_stack, stack_bottom, stack_size);
+#endif
+#ifdef SEASTAR_TSAN_ENABLED
+    g_current_context->destroy_tsan_fiber = true;
+    g_current_context->fiber = __tsan_create_fiber(0);
+    g_previous_context->fiber = __tsan_get_current_fiber();
+    __tsan_switch_to_fiber(g_current_context->fiber, 0);
+#endif
     swapcontext(&prev->context, initial_context);
+#ifdef SEASTAR_ASAN_ENABLED
     __sanitizer_finish_switch_fiber(g_current_context->fake_stack, &g_previous_context->stack_bottom,
                                     &g_previous_context->stack_size);
+#endif
 }
 
 void jmp_buf_link::switch_in()
@@ -90,39 +113,74 @@ void jmp_buf_link::switch_in()
     auto prev = std::exchange(g_current_context, this);
     link = prev;
     g_previous_context = prev;
+#ifdef SEASTAR_ASAN_ENABLED
     __sanitizer_start_switch_fiber(&prev->fake_stack, stack_bottom, stack_size);
+#endif
+#ifdef SEASTAR_TSAN_ENABLED
+    g_previous_context->fiber = __tsan_get_current_fiber();
+    __tsan_switch_to_fiber(g_current_context->fiber, 0);
+#endif
     swapcontext(&prev->context, &context);
+#ifdef SEASTAR_ASAN_ENABLED
     __sanitizer_finish_switch_fiber(g_current_context->fake_stack, &g_previous_context->stack_bottom,
                                     &g_previous_context->stack_size);
+#endif
 }
 
 void jmp_buf_link::switch_out()
 {
     g_current_context = link;
     g_previous_context = this;
+#ifdef SEASTAR_ASAN_ENABLED
     __sanitizer_start_switch_fiber(&fake_stack, g_current_context->stack_bottom,
                                    g_current_context->stack_size);
+#endif
+#ifdef SEASTAR_TSAN_ENABLED
+    g_previous_context->fiber = __tsan_get_current_fiber();
+    __tsan_switch_to_fiber(g_current_context->fiber, 0);
+#endif
     swapcontext(&context, &g_current_context->context);
+#ifdef SEASTAR_ASAN_ENABLED
     __sanitizer_finish_switch_fiber(g_current_context->fake_stack, &g_previous_context->stack_bottom,
                                     &g_previous_context->stack_size);
+#endif
 }
 
 void jmp_buf_link::initial_switch_in_completed()
 {
+#ifdef SEASTAR_ASAN_ENABLED
     // This is a new thread and it doesn't have the fake stack yet. ASan will
     // create it lazily, for now just pass nullptr.
     __sanitizer_finish_switch_fiber(nullptr, &g_previous_context->stack_bottom, &g_previous_context->stack_size);
+#endif
 }
 
 void jmp_buf_link::final_switch_out()
 {
     g_current_context = link;
     g_previous_context = this;
+#ifdef SEASTAR_ASAN_ENABLED
     // Since the thread is about to die we pass nullptr as fake_stack_save argument
     // so that ASan knows it can destroy the fake stack if it exists.
     __sanitizer_start_switch_fiber(nullptr, g_current_context->stack_bottom, g_current_context->stack_size);
+#endif
+#ifdef SEASTAR_TSAN_ENABLED
+    g_previous_context->fiber = __tsan_get_current_fiber();
+    __tsan_switch_to_fiber(g_current_context->fiber, 0);
+#endif
     setcontext(&g_current_context->context);
 }
+
+#ifdef SEASTAR_TSAN_ENABLED
+jmp_buf_link::~jmp_buf_link()
+{
+    // Do not destroy main context
+    if (destroy_tsan_fiber)
+    {
+        __tsan_destroy_fiber(fiber);
+    }
+}
+#endif
 
 #else
 
@@ -164,16 +222,16 @@ inline void jmp_buf_link::final_switch_out()
 
 #endif
 
-// Both asan and optimizations can increase the stack used by a
+// Both asan/tsan and optimizations can increase the stack used by a
 // function. When both are used, we need more than 128 KiB.
-#if defined(SEASTAR_ASAN_ENABLED)
+#if defined(SEASTAR_ASAN_ENABLED) || defined(SEASTAR_TSAN_ENABLED)
 static constexpr size_t base_stack_size = 256 * 1024;
 #else
 static constexpr size_t base_stack_size = 128 * 1024;
 #endif
 
 static size_t get_stack_size(thread_attributes attr) {
-#if defined(__OPTIMIZE__) && defined(SEASTAR_ASAN_ENABLED)
+#if defined(__OPTIMIZE__) && (defined(SEASTAR_ASAN_ENABLED) || defined(SEASTAR_TSAN_ENABLED))
     return std::max(base_stack_size, attr.stack_size);
 #else
     return attr.stack_size ? attr.stack_size : base_stack_size;

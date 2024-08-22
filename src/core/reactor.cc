@@ -867,7 +867,7 @@ static void print_with_backtrace(const char* cause, bool oneline = false) noexce
     print_with_backtrace(buf, oneline);
 }
 
-#ifndef SEASTAR_ASAN_ENABLED
+#if !defined(SEASTAR_ASAN_ENABLED) && !defined(SEASTAR_TSAN_ENABLED)
 // Installs signal handler stack for current thread.
 // The stack remains installed as long as the returned object is kept alive.
 // When it goes out of scope the previous handler is restored.
@@ -893,7 +893,7 @@ static decltype(auto) install_signal_handler_stack() {
 }
 #else
 // SIGSTKSZ is too small when using asan. We also don't need to
-// handle SIGSEGV ourselves when using asan, so just don't install
+// handle SIGSEGV ourselves when using asan/tsan, so just don't install
 // a signal handler stack.
 auto install_signal_handler_stack() {
     struct nothing { ~nothing() {} };
@@ -3960,8 +3960,8 @@ static void sigabrt_action() noexcept {
     reraise_signal(SIGABRT);
 }
 
-// We don't need to handle SIGSEGV when asan is enabled.
-#ifdef SEASTAR_ASAN_ENABLED
+// We don't need to handle SIGSEGV when asan/tsan is enabled.
+#if defined(SEASTAR_ASAN_ENABLED) || defined(SEASTAR_TSAN_ENABLED)
 template<>
 void install_oneshot_signal_handler<SIGSEGV, sigsegv_action>() {
     (void)sigsegv_action;
