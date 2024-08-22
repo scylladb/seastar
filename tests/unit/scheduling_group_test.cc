@@ -71,8 +71,8 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_after_sg_create) {
         }
 
         for (int i=0; i < num_scheduling_groups; i++) {
-            BOOST_REQUIRE_EQUAL(sgs[i].get_specific<int>(key1) = (i + 1) * factor, (i + 1) * factor);
-            BOOST_REQUIRE_EQUAL(sgs[i].get_specific<ivec>(key2)[0], (i + 1) * factor);
+            assert(sgs[i].get_specific<int>(key1) == (i + 1) * factor);
+            assert(sgs[i].get_specific<ivec>(key2)[0] == (i + 1) * factor);
         }
 
     }).get();
@@ -81,7 +81,7 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_after_sg_create) {
         return reduce_scheduling_group_specific<int>(std::plus<int>(), int(0), key1).then([] (int sum) {
             int factor = this_shard_id() + 1;
             int expected_sum = ((1 + num_scheduling_groups)*num_scheduling_groups) * factor /2;
-            BOOST_REQUIRE_EQUAL(expected_sum, sum);
+            assert(expected_sum == sum);
         }). then([key2] {
             auto ivec_to_int = [] (ivec& v) {
                 return v.size() ? v[0] : 0;
@@ -90,7 +90,7 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_after_sg_create) {
             return map_reduce_scheduling_group_specific<ivec>(ivec_to_int, std::plus<int>(), int(0), key2).then([] (int sum) {
                 int factor = this_shard_id() + 1;
                 int expected_sum = ((1 + num_scheduling_groups)*num_scheduling_groups) * factor /2;
-                BOOST_REQUIRE_EQUAL(expected_sum, sum);
+                assert(expected_sum == sum);
             });
 
         });
@@ -129,8 +129,8 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_before_sg_create) {
         }
 
         for (int i=0; i < num_scheduling_groups; i++) {
-            BOOST_REQUIRE_EQUAL(sgs[i].get_specific<int>(key1) = (i + 1) * factor, (i + 1) * factor);
-            BOOST_REQUIRE_EQUAL(sgs[i].get_specific<ivec>(key2)[0], (i + 1) * factor);
+            assert(sgs[i].get_specific<int>(key1) == (i + 1) * factor);
+            assert(sgs[i].get_specific<ivec>(key2)[0] == (i + 1) * factor);
         }
 
     }).get();
@@ -139,7 +139,7 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_before_sg_create) {
         return reduce_scheduling_group_specific<int>(std::plus<int>(), int(0), key1).then([] (int sum) {
             int factor = this_shard_id() + 1;
             int expected_sum = ((1 + num_scheduling_groups)*num_scheduling_groups) * factor /2;
-            BOOST_REQUIRE_EQUAL(expected_sum, sum);
+            assert(expected_sum == sum);
         }). then([key2] {
             auto ivec_to_int = [] (ivec& v) {
                 return v.size() ? v[0] : 0;
@@ -148,7 +148,7 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_before_sg_create) {
             return map_reduce_scheduling_group_specific<ivec>(ivec_to_int, std::plus<int>(), int(0), key2).then([] (int sum) {
                 int factor = this_shard_id() + 1;
                 int expected_sum = ((1 + num_scheduling_groups)*num_scheduling_groups) * factor /2;
-                BOOST_REQUIRE_EQUAL(expected_sum, sum);
+                assert(expected_sum == sum);
             });
 
         });
@@ -191,8 +191,8 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_before_and_after_sg_create) {
         }
 
         for (int i=0; i < num_scheduling_groups; i++) {
-            BOOST_REQUIRE_EQUAL(sgs[i].get_specific<int>(key1) = (i + 1) * factor, (i + 1) * factor);
-            BOOST_REQUIRE_EQUAL(sgs[i].get_specific<ivec>(key2)[0], (i + 1) * factor);
+            assert(sgs[i].get_specific<int>(key1) == (i + 1) * factor);
+            assert(sgs[i].get_specific<ivec>(key2)[0] == (i + 1) * factor);
         }
 
     }).get();
@@ -201,7 +201,7 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_before_and_after_sg_create) {
         return reduce_scheduling_group_specific<int>(std::plus<int>(), int(0), key1).then([] (int sum) {
             int factor = this_shard_id() + 1;
             int expected_sum = ((1 + num_scheduling_groups)*num_scheduling_groups) * factor /2;
-            BOOST_REQUIRE_EQUAL(expected_sum, sum);
+            assert(expected_sum == sum);
         }). then([key2] {
             auto ivec_to_int = [] (ivec& v) {
                 return v.size() ? v[0] : 0;
@@ -210,7 +210,7 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_before_and_after_sg_create) {
             return map_reduce_scheduling_group_specific<ivec>(ivec_to_int, std::plus<int>(), int(0), key2).then([] (int sum) {
                 int factor = this_shard_id() + 1;
                 int expected_sum = ((1 + num_scheduling_groups)*num_scheduling_groups) * factor /2;
-                BOOST_REQUIRE_EQUAL(expected_sum, sum);
+                assert(expected_sum == sum);
             });
 
         });
@@ -234,7 +234,7 @@ SEASTAR_THREAD_TEST_CASE(sg_scheduling_group_inheritance_in_seastar_async_test) 
                                 internal::scheduling_group_index(*(attr.sched_group)));
 
             smp::invoke_on_all([sched_group_idx = internal::scheduling_group_index(*(attr.sched_group))] () {
-                BOOST_REQUIRE_EQUAL(internal::scheduling_group_index(current_scheduling_group()), sched_group_idx);
+                assert(internal::scheduling_group_index(current_scheduling_group()) == sched_group_idx);
             }).get();
         }).get();
     }).get();
@@ -326,7 +326,7 @@ SEASTAR_THREAD_TEST_CASE(sg_rename_callback) {
     smp::invoke_on_all([&sgs, &keys] () {
         for (size_t s = 0; s < std::size(sgs); ++s) {
             for (size_t k = 0; k < std::size(keys); ++k) {
-                BOOST_REQUIRE_EQUAL(sgs[s].get_specific<value>(keys[k])._sg_name, fmt::format("sg-old-{}", s));
+                assert(sgs[s].get_specific<value>(keys[k])._sg_name == fmt::format("sg-old-{}", s));
                 sgs[s].get_specific<value>(keys[k])._id = 1;
             }
         }
@@ -339,9 +339,9 @@ SEASTAR_THREAD_TEST_CASE(sg_rename_callback) {
     smp::invoke_on_all([&sgs, &keys] () {
         for (size_t s = 0; s < std::size(sgs); ++s) {
             for (size_t k = 0; k < std::size(keys); ++k) {
-                BOOST_REQUIRE_EQUAL(sgs[s].get_specific<value>(keys[k])._sg_name, fmt::format("sg-new-{}", s));
+                assert(sgs[s].get_specific<value>(keys[k])._sg_name == fmt::format("sg-new-{}", s));
                 // Checks that the value only saw a rename(), not a reconstruction.
-                BOOST_REQUIRE_EQUAL(sgs[s].get_specific<value>(keys[k])._id, 1);
+                assert(sgs[s].get_specific<value>(keys[k])._id == 1);
             }
         }
     }).get();
@@ -364,7 +364,7 @@ SEASTAR_THREAD_TEST_CASE(sg_create_check_unique_constructor_invocation) {
         check() {
             auto sg = current_scheduling_group();
             auto id = internal::scheduling_group_index(sg);
-            BOOST_REQUIRE(groups.count(id) == 0);
+            assert(groups.count(id) == 0);
             groups.emplace(id);
         }
     };
