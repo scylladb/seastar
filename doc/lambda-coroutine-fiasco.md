@@ -30,9 +30,9 @@ struct lambda {
 
 ## Lambda coroutines and coroutine argument capture
 
-In addition to a lambda capturing variables from its environment, the
-coroutine also captures its arguments. This capture can happen by value
-or reference, depending on how each argument is declared.
+Coroutines, like lambdas, can capture variables from their enclosing
+scope. Additionally, coroutines capture their arguments, which can occur
+by value or by reference, depending on the argument's declaration.
 
 The lambda's captures however are captured by reference. To understand why,
 consider that the coroutine translation process notionally transforms a member function
