@@ -326,17 +326,23 @@ private:
         }
     }
 
+    future<> issue_request(char* buf, io_intent* intent, std::chrono::steady_clock::time_point start, std::chrono::steady_clock::time_point stop) {
+        return issue_request(buf, intent).then([this, start, stop] (auto size) {
+            auto now = std::chrono::steady_clock::now();
+            if (now < stop) {
+                this->add_result(size, std::chrono::duration_cast<std::chrono::microseconds>(now - start));
+            }
+            return make_ready_future<>();
+        });
+    }
+
     future<> issue_requests_in_parallel(std::chrono::steady_clock::time_point stop) {
         return parallel_for_each(boost::irange(0u, parallelism()), [this, stop] (auto dummy) mutable {
             auto bufptr = allocate_aligned_buffer<char>(this->req_size(), _alignment);
             auto buf = bufptr.get();
             return do_until([this, stop] { return std::chrono::steady_clock::now() > stop || requests() > limit(); }, [this, buf, stop] () mutable {
                 auto start = std::chrono::steady_clock::now();
-                return issue_request(buf, nullptr).then([this, start, stop] (auto size) {
-                    auto now = std::chrono::steady_clock::now();
-                    if (now < stop) {
-                        this->add_result(size, std::chrono::duration_cast<std::chrono::microseconds>(now - start));
-                    }
+                return issue_request(buf, nullptr, start, stop).then([this] {
                     return think();
                 });
             }).finally([bufptr = std::move(bufptr)] {});
@@ -354,11 +360,8 @@ private:
                     return do_until([this, stop] { return std::chrono::steady_clock::now() > stop || requests() > limit(); }, [this, buf, stop, pause, &intent, &in_flight] () mutable {
                         auto start = std::chrono::steady_clock::now();
                         in_flight++;
-                        return issue_request(buf, &intent).then([this, start, pause, stop] (auto size) {
+                        return issue_request(buf, &intent, start, stop).then([this, start, pause] {
                             auto now = std::chrono::steady_clock::now();
-                            if (now < stop) {
-                                this->add_result(size, std::chrono::duration_cast<std::chrono::microseconds>(now - start));
-                            }
                             auto p = pause->template get_as<std::chrono::microseconds>();
                             auto next = start + p;
 
