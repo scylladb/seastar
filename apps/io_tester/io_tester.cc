@@ -219,6 +219,7 @@ public:
 struct shard_info {
     unsigned parallelism = 0;
     unsigned rps = 0;
+    unsigned batch = 1;
     unsigned limit = std::numeric_limits<unsigned>::max();
     unsigned shares = 10;
     std::string sched_class = "";
@@ -360,7 +361,9 @@ private:
                     return do_until([this, stop] { return std::chrono::steady_clock::now() > stop || requests() > limit(); }, [this, buf, stop, pause, &intent, &in_flight] () mutable {
                         auto start = std::chrono::steady_clock::now();
                         in_flight++;
-                        return issue_request(buf, &intent, start, stop).then([this, start, pause] {
+                        return parallel_for_each(boost::irange(0u, batch()), [this, buf, &intent, start, stop] (auto dummy) {
+                            return issue_request(buf, &intent, start, stop);
+                        }).then([this, start, pause] {
                             auto now = std::chrono::steady_clock::now();
                             auto p = pause->template get_as<std::chrono::microseconds>();
                             auto next = start + p;
@@ -472,6 +475,10 @@ protected:
 
     unsigned rps() const {
         return _config.shard_info.rps;
+    }
+
+    unsigned batch() const {
+        return _config.shard_info.batch;
     }
 
     unsigned limit() const noexcept {
@@ -919,6 +926,9 @@ struct convert<shard_info> {
         }
         if (node["rps"]) {
             sl.rps = node["rps"].as<unsigned>();
+        }
+        if (node["batch"]) {
+            sl.batch = node["batch"].as<unsigned>();
         }
         if (node["limit"]) {
             sl.limit = node["limit"].as<unsigned>();
