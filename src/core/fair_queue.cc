@@ -140,6 +140,7 @@ class fair_queue::priority_class_data {
     fair_queue_entry::container_list_t _queue;
     bool _queued = false;
     bool _plugged = true;
+    uint32_t _activations = 0;
 
 public:
     explicit priority_class_data(uint32_t shares) noexcept : _shares(std::max(shares, 1u)) {}
@@ -190,6 +191,7 @@ void fair_queue::push_priority_class_from_idle(priority_class_data& pc) noexcept
         _handles.assert_enough_capacity();
         _handles.push(&pc);
         pc._queued = true;
+        pc._activations++;
     }
 }
 
@@ -396,6 +398,9 @@ std::vector<seastar::metrics::impl::metric_definition_impl> fair_queue::metrics(
             sm::make_counter("adjusted_consumption",
                     [&pc] { return fair_group::capacity_tokens(pc._accumulated); },
                     sm::description("Consumed disk capacity units adjusted for class shares and idling preemption")),
+            sm::make_counter("activations",
+                    [&pc] { return pc._activations; },
+                    sm::description("The number of times the class was woken up from idle")),
     });
 }
 
