@@ -326,8 +326,8 @@ private:
         }
     }
 
-    future<> issue_requests_in_parallel(std::chrono::steady_clock::time_point stop, unsigned parallelism) {
-        return parallel_for_each(boost::irange(0u, parallelism), [this, stop] (auto dummy) mutable {
+    future<> issue_requests_in_parallel(std::chrono::steady_clock::time_point stop) {
+        return parallel_for_each(boost::irange(0u, parallelism()), [this, stop] (auto dummy) mutable {
             auto bufptr = allocate_aligned_buffer<char>(this->req_size(), _alignment);
             auto buf = bufptr.get();
             return do_until([this, stop] { return std::chrono::steady_clock::now() > stop || requests() > limit(); }, [this, buf, stop] () mutable {
@@ -343,14 +343,14 @@ private:
         });
     }
 
-    future<> issue_requests_at_rate(std::chrono::steady_clock::time_point stop, unsigned rps, unsigned parallelism) {
-        return do_with(io_intent{}, 0u, [this, stop, rps, parallelism] (io_intent& intent, unsigned& in_flight) {
-            return parallel_for_each(boost::irange(0u, parallelism), [this, stop, rps, &intent, &in_flight, parallelism] (auto dummy) mutable {
+    future<> issue_requests_at_rate(std::chrono::steady_clock::time_point stop) {
+        return do_with(io_intent{}, 0u, [this, stop] (io_intent& intent, unsigned& in_flight) {
+            return parallel_for_each(boost::irange(0u, parallelism()), [this, stop, &intent, &in_flight] (auto dummy) mutable {
                 auto bufptr = allocate_aligned_buffer<char>(this->req_size(), _alignment);
                 auto buf = bufptr.get();
-                auto pause = std::chrono::duration_cast<std::chrono::microseconds>(1s) / rps;
+                auto pause = std::chrono::duration_cast<std::chrono::microseconds>(1s) / rps();
                 auto pause_dist = _config.options.pause_fn(pause);
-                return seastar::sleep((pause / parallelism) * dummy).then([this, buf, stop, pause = pause_dist.get(), &intent, &in_flight] () mutable {
+                return seastar::sleep((pause / parallelism()) * dummy).then([this, buf, stop, pause = pause_dist.get(), &intent, &in_flight] () mutable {
                     return do_until([this, stop] { return std::chrono::steady_clock::now() > stop || requests() > limit(); }, [this, buf, stop, pause, &intent, &in_flight] () mutable {
                         auto start = std::chrono::steady_clock::now();
                         in_flight++;
@@ -387,9 +387,9 @@ public:
         _start = std::chrono::steady_clock::now();
         return with_scheduling_group(_sg, [this, stop] {
             if (rps() == 0) {
-                return issue_requests_in_parallel(stop, parallelism());
+                return issue_requests_in_parallel(stop);
             } else {
-                return issue_requests_at_rate(stop, rps(), parallelism());
+                return issue_requests_at_rate(stop);
             }
         }).then([this] {
             _total_duration = std::chrono::steady_clock::now() - _start;
