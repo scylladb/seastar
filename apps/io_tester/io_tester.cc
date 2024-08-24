@@ -354,21 +354,11 @@ private:
                     return do_until([this, stop] { return std::chrono::steady_clock::now() > stop || requests() > limit(); }, [this, buf, stop, pause, &intent, &in_flight] () mutable {
                         auto start = std::chrono::steady_clock::now();
                         in_flight++;
-                        return issue_request(buf, &intent).then_wrapped([this, start, pause, stop, &in_flight] (auto size_f) {
-                            size_t size;
-                            try {
-                                size = size_f.get();
-                            } catch (...) {
-                                // cancelled
-                                in_flight--;
-                                return make_ready_future<>();
-                            }
-
+                        return issue_request(buf, &intent).then([this, start, pause, stop] (auto size) {
                             auto now = std::chrono::steady_clock::now();
                             if (now < stop) {
                                 this->add_result(size, std::chrono::duration_cast<std::chrono::microseconds>(now - start));
                             }
-                            in_flight--;
                             auto p = pause->template get_as<std::chrono::microseconds>();
                             auto next = start + p;
 
@@ -378,6 +368,10 @@ private:
                                 // probably the system cannot keep-up with this rate
                                 return make_ready_future<>();
                             }
+                        }).handle_exception_type([] (const cancelled_error&) {
+                            // expected
+                        }).finally([&in_flight] {
+                            in_flight--;
                         });
                     });
                 }).then([&intent, &in_flight] {
