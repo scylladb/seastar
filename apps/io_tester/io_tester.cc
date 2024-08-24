@@ -374,10 +374,10 @@ private:
                             in_flight--;
                         });
                     });
-                }).then([&intent, &in_flight] {
-                    intent.cancel();
-                    return do_until([&in_flight] { return in_flight == 0; }, [] { return seastar::sleep(100ms /* ¯\_(ツ)_/¯ */); });
                 }).finally([bufptr = std::move(bufptr), pause = std::move(pause_dist)] {});
+            }).then([&intent, &in_flight] {
+                intent.cancel();
+                return do_until([&in_flight] { return in_flight == 0; }, [] { return seastar::sleep(100ms /* ¯\_(ツ)_/¯ */); });
             });
         });
     }
