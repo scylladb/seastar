@@ -27,9 +27,7 @@
 #include <chrono>
 #include <deque>
 #include <random>
-#if __has_include(<ranges>)
 #include <ranges>
-#endif
 #if __has_include(<version>)
 #include <version>
 #endif
@@ -38,9 +36,7 @@
 
 using namespace seastar;
 
-#ifdef __cpp_lib_ranges
 static_assert(std::ranges::range<circular_buffer<int>>);
-#endif
 
 BOOST_AUTO_TEST_CASE(test_erasing) {
     circular_buffer<int> buf;
