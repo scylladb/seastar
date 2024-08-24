@@ -32,25 +32,19 @@
 #include <chrono>
 #include <deque>
 #include <iterator>
-#if __has_include(<ranges>)
 #include <ranges>
-#endif
 #if __has_include(<version>)
 #include <version>
 #endif
 
 using namespace seastar;
 
-#ifdef __cpp_lib_concepts
 static_assert(std::weakly_incrementable<chunked_fifo<int>::iterator>);
 static_assert(std::weakly_incrementable<chunked_fifo<int>::const_iterator>);
 static_assert(std::sentinel_for<chunked_fifo<int>::iterator, chunked_fifo<int>::iterator>);
 static_assert(std::sentinel_for<chunked_fifo<int>::const_iterator, chunked_fifo<int>::const_iterator>);
-#endif
 
-#ifdef __cpp_lib_ranges
 static_assert(std::ranges::range<chunked_fifo<const int>>);
-#endif
 
 BOOST_AUTO_TEST_CASE(chunked_fifo_small) {
     // Check all the methods of chunked_fifo but with a trivial type (int) and
