@@ -28,6 +28,7 @@
 #include <seastar/http/url.hh>
 #include <seastar/util/later.hh>
 #include <seastar/util/short_streams.hh>
+#include <seastar/util/closeable.hh>
 
 using namespace seastar;
 using namespace httpd;
@@ -946,6 +947,150 @@ SEASTAR_TEST_CASE(test_client_response_parse_error) {
                 return sstring(ex.what()).contains("Invalid http server response");
             });
 
+            cln.close().get();
+        });
+
+        when_all(std::move(client), std::move(server)).discard_result().get();
+    });
+}
+
+SEASTAR_TEST_CASE(test_client_abort_new_conn) {
+    class delayed_factory : public http::experimental::connection_factory {
+    public:
+        virtual future<connected_socket> make(abort_source* as) override {
+            assert(as != nullptr);
+            return sleep_abortable(std::chrono::seconds(1), *as).then([] {
+                return make_exception_future<connected_socket>(std::runtime_error("Shouldn't happen"));
+            });
+        }
+    };
+
+    return seastar::async([] {
+        auto cln = http::experimental::client(std::make_unique<delayed_factory>());
+        abort_source as;
+        auto f = cln.make_request(http::request::make("GET", "test", "/test"), [] (const auto& rep, auto&& in) {
+            return make_exception_future<>(std::runtime_error("Shouldn't happen"));
+        }, as, http::reply::status_type::ok);
+
+        as.request_abort();
+        BOOST_REQUIRE_THROW(f.get(), abort_requested_exception);
+        cln.close().get();
+    });
+}
+
+SEASTAR_TEST_CASE(test_client_abort_cached_conn) {
+    return seastar::async([] {
+        loopback_connection_factory lcf(1);
+        auto ss = lcf.get_server_socket();
+        promise<> server_paused;
+        promise<> server_resume;
+        future<> server = ss.accept().then([&] (accept_result ar) {
+            return seastar::async([&server_paused, &server_resume, sk = std::move(ar.connection)] () mutable {
+                input_stream<char> in = sk.input();
+                read_simple_http_request(in);
+                server_paused.set_value();
+                server_resume.get_future().get();
+                output_stream<char> out = sk.output();
+                out.close().get();
+            });
+        });
+
+        future<> client = seastar::async([&] {
+            auto cln = http::experimental::client(std::make_unique<loopback_http_factory>(lcf), 1 /* max connections */);
+            // this request gets handled by server and ...
+            auto f1 = cln.make_request(http::request::make("GET", "test", "/test"), [] (const auto& rep, auto&& in) {
+                return make_exception_future<>(std::runtime_error("Shouldn't happen"));
+            }, http::reply::status_type::ok);
+            server_paused.get_future().get();
+            // ... this should hang waiting for cached connection
+            abort_source as;
+            auto f2 = cln.make_request(http::request::make("GET", "test", "/test"), [] (const auto& rep, auto&& in) {
+                return make_exception_future<>(std::runtime_error("Shouldn't happen"));
+            }, as, http::reply::status_type::ok);
+
+            as.request_abort();
+            BOOST_REQUIRE_THROW(f2.get(), abort_requested_exception);
+            server_resume.set_value();
+            cln.close().get();
+            try {
+                f1.get();
+            } catch (...) {
+            }
+        });
+
+        when_all(std::move(client), std::move(server)).discard_result().get();
+    });
+}
+
+SEASTAR_TEST_CASE(test_client_abort_send_request) {
+    return seastar::async([] {
+        loopback_connection_factory lcf(1);
+        auto ss = lcf.get_server_socket();
+        future<> server = ss.accept().then([&] (accept_result ar) {
+            return seastar::async([sk = std::move(ar.connection)] () mutable {
+                input_stream<char> in = sk.input();
+                read_simple_http_request(in);
+                output_stream<char> out = sk.output();
+                out.close().get();
+            });
+        });
+
+        future<> client = seastar::async([&] {
+            auto cln = http::experimental::client(std::make_unique<loopback_http_factory>(lcf), 1 /* max connections */);
+            abort_source as;
+            auto req = http::request::make("GET", "test", "/test");
+            promise<> client_paused;
+            promise<> client_resume;
+            req.write_body("txt", [&] (output_stream<char>&& out) {
+                return seastar::async([&client_paused, &client_resume, out = std::move(out)] () mutable {
+                    auto cl = deferred_close(out);
+                    client_paused.set_value();
+                    client_resume.get_future().get();
+                    out.write("foo").get();
+                    out.flush().get();
+                });
+            });
+            auto f = cln.make_request(std::move(req), [] (const auto& rep, auto&& in) {
+                return make_exception_future<>(std::runtime_error("Shouldn't happen"));
+            }, as, http::reply::status_type::ok);
+            client_paused.get_future().get();
+            as.request_abort();
+            client_resume.set_value();
+            BOOST_REQUIRE_THROW(f.get(), abort_requested_exception);
+            cln.close().get();
+        });
+
+        when_all(std::move(client), std::move(server)).discard_result().get();
+    });
+}
+
+SEASTAR_TEST_CASE(test_client_abort_recv_response) {
+    return seastar::async([] {
+        loopback_connection_factory lcf(1);
+        auto ss = lcf.get_server_socket();
+        promise<> server_paused;
+        promise<> server_resume;
+        future<> server = ss.accept().then([&] (accept_result ar) {
+            return seastar::async([&server_paused, &server_resume, sk = std::move(ar.connection)] () mutable {
+                input_stream<char> in = sk.input();
+                read_simple_http_request(in);
+                server_paused.set_value();
+                server_resume.get_future().get();
+                output_stream<char> out = sk.output();
+                out.close().get();
+            });
+        });
+
+        future<> client = seastar::async([&] {
+            auto cln = http::experimental::client(std::make_unique<loopback_http_factory>(lcf), 1 /* max connections */);
+            abort_source as;
+            auto f = cln.make_request(http::request::make("GET", "test", "/test"), [] (const auto& rep, auto&& in) {
+                return make_exception_future<>(std::runtime_error("Shouldn't happen"));
+            }, as, http::reply::status_type::ok);
+            server_paused.get_future().get();
+            as.request_abort();
+            BOOST_REQUIRE_THROW(f.get(), abort_requested_exception);
+            server_resume.set_value();
             cln.close().get();
         });
 
