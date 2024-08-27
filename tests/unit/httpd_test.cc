@@ -45,7 +45,7 @@ class loopback_http_factory : public http::experimental::connection_factory {
     loopback_socket_impl lsi;
 public:
     explicit loopback_http_factory(loopback_connection_factory& f) : lsi(f) {}
-    virtual future<connected_socket> make() override {
+    virtual future<connected_socket> make(abort_source* as) override {
         return lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr()));
     }
 };

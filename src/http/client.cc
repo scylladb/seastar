@@ -205,7 +205,7 @@ public:
             : _addr(std::move(addr))
     {
     }
-    virtual future<connected_socket> make() override {
+    virtual future<connected_socket> make(abort_source* as) override {
         return seastar::connect(_addr, {}, transport::TCP);
     }
 };
@@ -226,7 +226,7 @@ public:
             , _host(std::move(host))
     {
     }
-    virtual future<connected_socket> make() override {
+    virtual future<connected_socket> make(abort_source* as) override {
         return tls::connect(_creds, _addr, tls::tls_options{.server_name = _host});
     }
 };
@@ -262,7 +262,7 @@ future<client::connection_ptr> client::get_connection(abort_source* as) {
 
 future<client::connection_ptr> client::make_connection(abort_source* as) {
     _total_new_connections++;
-    return _new_connections->make().then([cr = internal::client_ref(this)] (connected_socket cs) mutable {
+    return _new_connections->make(as).then([cr = internal::client_ref(this)] (connected_socket cs) mutable {
         http_log.trace("created new http connection {}", cs.local_address());
         auto con = seastar::make_shared<connection>(std::move(cs), std::move(cr));
         return make_ready_future<connection_ptr>(std::move(con));
