@@ -189,6 +189,11 @@ input_stream<char> connection::in(reply& rep) {
     return input_stream<char>(data_source(std::make_unique<httpd::internal::content_length_source_impl>(_read_buf, rep.content_length)));
 }
 
+void connection::shutdown() noexcept {
+    _persistent = false;
+    _fd.shutdown_input();
+}
+
 future<> connection::close() {
     return when_all(_read_buf.close(), _write_buf.close()).discard_result().then([this] {
         auto la = _fd.local_address();
@@ -342,6 +347,10 @@ future<> client::do_make_request(request req, reply_handler handle, abort_source
         return with_connection([this, &req, &handle, as, expected] (connection& con) {
             return do_make_request(con, req, handle, as, expected);
         }, as).handle_exception_type([this, &req, &handle, as, expected] (const std::system_error& ex) {
+            if (as && as->abort_requested()) {
+                return make_exception_future<>(as->abort_requested_exception_ptr());
+            }
+
             if (!_retry) {
                 return make_exception_future<>(ex);
             }
@@ -362,6 +371,7 @@ future<> client::do_make_request(request req, reply_handler handle, abort_source
 }
 
 future<> client::do_make_request(connection& con, request& req, reply_handler& handle, abort_source* as, std::optional<reply::status_type> expected) {
+    auto sub = as ? as->subscribe([&con] () noexcept { con.shutdown(); }) : std::nullopt;
     return con.do_make_request(req).then([&con, &handle, expected] (connection::reply_ptr reply) mutable {
         auto& rep = *reply;
         if (expected.has_value() && rep._status != expected.value()) {
@@ -381,7 +391,7 @@ future<> client::do_make_request(connection& con, request& req, reply_handler& h
     }).handle_exception([&con] (auto ex) mutable {
         con._persistent = false;
         return make_exception_future<>(std::move(ex));
-    });
+    }).finally([sub = std::move(sub)] {});
 }
 
 future<> client::close() {
