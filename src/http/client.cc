@@ -331,12 +331,13 @@ auto client::with_new_connection(Fn&& fn) {
 
 future<> client::make_request(request req, reply_handler handle, std::optional<reply::status_type> expected) {
     return do_with(std::move(req), std::move(handle), [this, expected] (request& req, reply_handler& handle) mutable {
-        auto f = with_connection([this, &req, &handle, expected] (connection& con) {
+        return with_connection([this, &req, &handle, expected] (connection& con) {
             return do_make_request(con, req, handle, expected);
-        });
+        }).handle_exception_type([this, &req, &handle, expected] (const std::system_error& ex) {
+                if (!_retry) {
+                    return make_exception_future<>(ex);
+                }
 
-        if (_retry) {
-            f = f.handle_exception_type([this, &req, &handle, expected] (const std::system_error& ex) {
                 auto code = ex.code().value();
                 if ((code != EPIPE) && (code != ECONNABORTED)) {
                     return make_exception_future<>(ex);
@@ -349,9 +350,6 @@ future<> client::make_request(request req, reply_handler handle, std::optional<r
                     return do_make_request(con, req, handle, expected);
                 });
             });
-        }
-
-        return f;
     });
 }
 
