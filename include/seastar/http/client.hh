@@ -185,19 +185,20 @@ private:
 
     using connection_ptr = seastar::shared_ptr<connection>;
 
-    future<connection_ptr> get_connection();
-    future<connection_ptr> make_connection();
+    future<connection_ptr> get_connection(abort_source* as);
+    future<connection_ptr> make_connection(abort_source* as);
     future<> put_connection(connection_ptr con);
     future<> shrink_connections();
 
     template <std::invocable<connection&> Fn>
-    auto with_connection(Fn&& fn);
+    auto with_connection(Fn&& fn, abort_source*);
 
     template <typename Fn>
     requires std::invocable<Fn, connection&>
-    auto with_new_connection(Fn&& fn);
+    auto with_new_connection(Fn&& fn, abort_source*);
 
-    future<> do_make_request(connection& con, request& req, reply_handler& handle, std::optional<reply::status_type> expected);
+    future<> do_make_request(request req, reply_handler handle, abort_source*, std::optional<reply::status_type> expected);
+    future<> do_make_request(connection& con, request& req, reply_handler& handle, abort_source*, std::optional<reply::status_type> expected);
 
 public:
     /**

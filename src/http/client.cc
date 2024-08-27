@@ -243,7 +243,7 @@ client::client(std::unique_ptr<connection_factory> f, unsigned max_connections, 
 {
 }
 
-future<client::connection_ptr> client::get_connection() {
+future<client::connection_ptr> client::get_connection(abort_source* as) {
     if (!_pool.empty()) {
         connection_ptr con = _pool.front().shared_from_this();
         _pool.pop_front();
@@ -252,15 +252,15 @@ future<client::connection_ptr> client::get_connection() {
     }
 
     if (_nr_connections >= _max_connections) {
-        return _wait_con.wait().then([this] {
-            return get_connection();
+        return _wait_con.wait().then([this, as] {
+            return get_connection(as);
         });
     }
 
-    return make_connection();
+    return make_connection(as);
 }
 
-future<client::connection_ptr> client::make_connection() {
+future<client::connection_ptr> client::make_connection(abort_source* as) {
     _total_new_connections++;
     return _new_connections->make().then([cr = internal::client_ref(this)] (connected_socket cs) mutable {
         http_log.trace("created new http connection {}", cs.local_address());
@@ -311,8 +311,8 @@ future<> client::set_maximum_connections(unsigned nr) {
 }
 
 template <std::invocable<connection&> Fn>
-auto client::with_connection(Fn&& fn) {
-    return get_connection().then([this, fn = std::move(fn)] (connection_ptr con) mutable {
+auto client::with_connection(Fn&& fn, abort_source* as) {
+    return get_connection(as).then([this, fn = std::move(fn)] (connection_ptr con) mutable {
         return fn(*con).finally([this, con = std::move(con)] () mutable {
             return put_connection(std::move(con));
         });
@@ -321,8 +321,8 @@ auto client::with_connection(Fn&& fn) {
 
 template <typename Fn>
 requires std::invocable<Fn, connection&>
-auto client::with_new_connection(Fn&& fn) {
-    return make_connection().then([this, fn = std::move(fn)] (connection_ptr con) mutable {
+auto client::with_new_connection(Fn&& fn, abort_source* as) {
+    return make_connection(as).then([this, fn = std::move(fn)] (connection_ptr con) mutable {
         return fn(*con).finally([this, con = std::move(con)] () mutable {
             return put_connection(std::move(con));
         });
@@ -330,10 +330,14 @@ auto client::with_new_connection(Fn&& fn) {
 }
 
 future<> client::make_request(request req, reply_handler handle, std::optional<reply::status_type> expected) {
-    return do_with(std::move(req), std::move(handle), [this, expected] (request& req, reply_handler& handle) mutable {
-        return with_connection([this, &req, &handle, expected] (connection& con) {
-            return do_make_request(con, req, handle, expected);
-        }).handle_exception_type([this, &req, &handle, expected] (const std::system_error& ex) {
+    return do_make_request(std::move(req), std::move(handle), nullptr, std::move(expected));
+}
+
+future<> client::do_make_request(request req, reply_handler handle, abort_source* as, std::optional<reply::status_type> expected) {
+    return do_with(std::move(req), std::move(handle), [this, as, expected] (request& req, reply_handler& handle) mutable {
+        return with_connection([this, &req, &handle, as, expected] (connection& con) {
+            return do_make_request(con, req, handle, as, expected);
+        }, as).handle_exception_type([this, &req, &handle, as, expected] (const std::system_error& ex) {
             if (!_retry) {
                 return make_exception_future<>(ex);
             }
@@ -346,14 +350,14 @@ future<> client::make_request(request req, reply_handler handle, std::optional<r
             // The 'con' connection may not yet be freed, so the total connection
             // count still account for it and with_new_connection() may temporarily
             // break the limit. That's OK, the 'con' will be closed really soon
-            return with_new_connection([this, &req, &handle, expected] (connection& con) {
-                return do_make_request(con, req, handle, expected);
-            });
+            return with_new_connection([this, &req, &handle, as, expected] (connection& con) {
+                return do_make_request(con, req, handle, as, expected);
+            }, as);
         });
     });
 }
 
-future<> client::do_make_request(connection& con, request& req, reply_handler& handle, std::optional<reply::status_type> expected) {
+future<> client::do_make_request(connection& con, request& req, reply_handler& handle, abort_source* as, std::optional<reply::status_type> expected) {
     return con.do_make_request(req).then([&con, &handle, expected] (connection::reply_ptr reply) mutable {
         auto& rep = *reply;
         if (expected.has_value() && rep._status != expected.value()) {
