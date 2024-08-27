@@ -334,22 +334,22 @@ future<> client::make_request(request req, reply_handler handle, std::optional<r
         return with_connection([this, &req, &handle, expected] (connection& con) {
             return do_make_request(con, req, handle, expected);
         }).handle_exception_type([this, &req, &handle, expected] (const std::system_error& ex) {
-                if (!_retry) {
-                    return make_exception_future<>(ex);
-                }
+            if (!_retry) {
+                return make_exception_future<>(ex);
+            }
 
-                auto code = ex.code().value();
-                if ((code != EPIPE) && (code != ECONNABORTED)) {
-                    return make_exception_future<>(ex);
-                }
+            auto code = ex.code().value();
+            if ((code != EPIPE) && (code != ECONNABORTED)) {
+                return make_exception_future<>(ex);
+            }
 
-                // The 'con' connection may not yet be freed, so the total connection
-                // count still account for it and with_new_connection() may temporarily
-                // break the limit. That's OK, the 'con' will be closed really soon
-                return with_new_connection([this, &req, &handle, expected] (connection& con) {
-                    return do_make_request(con, req, handle, expected);
-                });
+            // The 'con' connection may not yet be freed, so the total connection
+            // count still account for it and with_new_connection() may temporarily
+            // break the limit. That's OK, the 'con' will be closed really soon
+            return with_new_connection([this, &req, &handle, expected] (connection& con) {
+                return do_make_request(con, req, handle, expected);
             });
+        });
     });
 }
 
