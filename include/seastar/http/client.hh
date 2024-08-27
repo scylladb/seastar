@@ -286,6 +286,18 @@ public:
     future<> make_request(request req, reply_handler handle, std::optional<reply::status_type> expected = std::nullopt);
 
     /**
+     * \brief Send the request and handle the response (abortable)
+     *
+     * Same as previous method, but aborts the request upon as.request_abort() call
+     *
+     * \param req -- request to be sent
+     * \param handle -- the response handler
+     * \param as -- abort source that aborts the request
+     * \param expected -- the optional expected reply status code, default is std::nullopt
+     */
+    future<> make_request(request req, reply_handler handle, abort_source& as, std::optional<reply::status_type> expected = std::nullopt);
+
+    /**
      * \brief Updates the maximum number of connections a client may have
      *
      * If the new limit is less than the amount of connections a client has, they will be
