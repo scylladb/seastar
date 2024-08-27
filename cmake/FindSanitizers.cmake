@@ -20,54 +20,63 @@
 # Copyright (C) 2018 Scylladb, Ltd.
 #
 
-include (CheckCXXSourceCompiles)
+if(NOT Sanitizers_FIND_COMPONENTS)
+  set(Sanitizers_FIND_COMPONENTS
+    address
+    undefined_behavior)
+endif()
 
-set (CMAKE_REQUIRED_FLAGS -fsanitize=address)
-check_cxx_source_compiles ("int main() {}" Sanitizers_ADDRESS_FOUND)
+foreach (component ${Sanitizers_FIND_COMPONENTS})
+  string (TOUPPER ${component} COMPONENT)
+  set (compile_options "Sanitizers_${COMPONENT}_COMPILE_OPTIONS")
+  if (component STREQUAL "address")
+    list (APPEND ${compile_options} -fsanitize=address)
+  elseif (component STREQUAL "undefined_behavior")
+    list (APPEND ${compile_options} -fsanitize=undefined)
+    # Disable vptr because of https://gcc.gnu.org/bugzilla/show_bug.cgi?id=88684
+    list (APPEND ${compile_options} -fno-sanitize=vptr)
+  else ()
+    message (FATAL_ERROR "Unsupported sanitizer: ${component}")
+  endif ()
+  list(APPEND Sanitizers_COMPILE_OPTIONS "${${compile_options}}")
+endforeach ()
 
-if (Sanitizers_ADDRESS_FOUND)
-  set (Sanitizers_ADDRESS_COMPILER_OPTIONS -fsanitize=address)
+include(CheckCXXSourceCompiles)
+include(CMakePushCheckState)
+
+# -fsanitize=address cannot be combined with -fsanitize=thread, so let's test
+# the combination of the compiler options.
+cmake_push_check_state()
+string (REPLACE ";" " " CMAKE_REQUIRED_FLAGS "${Sanitizers_COMPILE_OPTIONS}")
+set(CMAKE_REQUIRED_FLAGS ${Sanitizers_COMPILE_OPTIONS})
+check_cxx_source_compiles("int main() {}"
+  Sanitizers_SUPPORTED)
+if (Sanitizers_SUPPORTED)
+  if ("address" IN_LIST Sanitizers_FIND_COMPONENTS)
+    file (READ ${CMAKE_CURRENT_LIST_DIR}/code_tests/Sanitizers_fiber_test.cc _sanitizers_fiber_test_code)
+    check_cxx_source_compiles ("${_sanitizers_fiber_test_code}"
+      Sanitizers_FIBER_SUPPORT)
+  endif ()
 endif ()
-
-set (CMAKE_REQUIRED_FLAGS -fsanitize=undefined)
-check_cxx_source_compiles ("int main() {}" Sanitizers_UNDEFINED_BEHAVIOR_FOUND)
-
-if (Sanitizers_UNDEFINED_BEHAVIOR_FOUND)
-  # Disable vptr because of https://gcc.gnu.org/bugzilla/show_bug.cgi?id=88684
-  set (Sanitizers_UNDEFINED_BEHAVIOR_COMPILER_OPTIONS "-fsanitize=undefined;-fno-sanitize=vptr")
-endif ()
-
-set (Sanitizers_COMPILER_OPTIONS
-  ${Sanitizers_ADDRESS_COMPILER_OPTIONS}
-  ${Sanitizers_UNDEFINED_BEHAVIOR_COMPILER_OPTIONS})
-
-file (READ ${CMAKE_CURRENT_LIST_DIR}/code_tests/Sanitizers_fiber_test.cc _sanitizers_fiber_test_code)
-set (CMAKE_REQUIRED_FLAGS ${Sanitizers_COMPILER_OPTIONS})
-check_cxx_source_compiles ("${_sanitizers_fiber_test_code}" Sanitizers_FIBER_SUPPORT)
+cmake_pop_check_state()
 
 include (FindPackageHandleStandardArgs)
 
 find_package_handle_standard_args (Sanitizers
   REQUIRED_VARS
-    Sanitizers_ADDRESS_COMPILER_OPTIONS
-    Sanitizers_UNDEFINED_BEHAVIOR_COMPILER_OPTIONS)
+    Sanitizers_COMPILE_OPTIONS
+    Sanitizers_SUPPORTED)
 
 if (Sanitizers_FOUND)
-  if (NOT (TARGET Sanitizers::address))
-    add_library (Sanitizers::address INTERFACE IMPORTED)
-
-    set_target_properties (Sanitizers::address
-      PROPERTIES
-        INTERFACE_COMPILE_OPTIONS ${Sanitizers_ADDRESS_COMPILER_OPTIONS}
-        INTERFACE_LINK_LIBRARIES ${Sanitizers_ADDRESS_COMPILER_OPTIONS})
-  endif ()
-
-  if (NOT (TARGET Sanitizers::undefined_behavior))
-    add_library (Sanitizers::undefined_behavior INTERFACE IMPORTED)
-
-    set_target_properties (Sanitizers::undefined_behavior
-      PROPERTIES
-        INTERFACE_COMPILE_OPTIONS "${Sanitizers_UNDEFINED_BEHAVIOR_COMPILER_OPTIONS}"
-        INTERFACE_LINK_LIBRARIES "${Sanitizers_UNDEFINED_BEHAVIOR_COMPILER_OPTIONS}")
-  endif ()
+  foreach (component ${Sanitizers_FIND_COMPONENTS})
+    string (TOUPPER ${component} COMPONENT)
+    set (library Sanitizers::${component})
+    if (NOT TARGET ${library})
+      add_library (${library} INTERFACE IMPORTED)
+      set_target_properties (${library}
+        PROPERTIES
+          INTERFACE_COMPILE_OPTIONS "${Sanitizers_${COMPONENT}_COMPILE_OPTIONS}"
+          INTERFACE_LINK_LIBRARIES "${Sanitizers_${COMPONENT}_COMPILE_OPTIONS}")
+    endif ()
+  endforeach ()
 endif ()
