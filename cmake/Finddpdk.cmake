@@ -129,6 +129,13 @@ find_package_handle_standard_args (dpdk
   REQUIRED_VARS
     ${dpdk_REQUIRED})
 
+# Depending on whether libbsd-dev exists at build time, DPDK may be built with a dependency on
+# libbsd. Note that other libraries in dpdk_PC_LIBRARIES are handled using separate logic
+# (see rte_libs above), thus the additional dependencies must be handled on a case by case basis.
+if ("bsd" IN_LIST dpdk_PC_LIBRARIES)
+  list (APPEND dpdk_dependencies "bsd")
+endif ()
+
 if (dpdk_FOUND AND NOT (TARGET dpdk))
   get_filename_component (library_suffix "${dpdk_EAL_LIBRARY}" LAST_EXT)
   # strictly speaking, we should have being using check_c_compiler_flag()
@@ -163,6 +170,7 @@ if (dpdk_FOUND AND NOT (TARGET dpdk))
     set_target_properties (dpdk
       PROPERTIES
         INTERFACE_INCLUDE_DIRECTORIES ${dpdk_INCLUDE_DIR}
+        INTERFACE_LINK_LIBRARIES "${dpdk_dependencies}"
         IMPORTED_OBJECTS ${dpdk_object_path}
         ${compile_options})
     # we include dpdk in seastar already, so no need to expose it with
@@ -175,7 +183,7 @@ if (dpdk_FOUND AND NOT (TARGET dpdk))
     set_target_properties (DPDK::dpdk
       PROPERTIES
         INTERFACE_INCLUDE_DIRECTORIES "${dpdk_PC_INCLUDE_DIRS}"
-        INTERFACE_LINK_LIBRARIES "${_dpdk_libraries}"
+        INTERFACE_LINK_LIBRARIES "${_dpdk_libraries};${dpdk_dependencies}"
         ${compile_options})
   endif()
 endif ()
