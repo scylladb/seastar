@@ -21,6 +21,7 @@
  */
 
 #include <seastar/core/thread.hh>
+#include <seastar/testing/random.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/testing/test_runner.hh>

@@ -24,11 +24,9 @@
 #include <memory>
 #include <functional>
 #include <atomic>
-#include <random>
 #include <seastar/core/future.hh>
 #include <seastar/core/posix.hh>
 #include <seastar/testing/exchanger.hh>
-#include <seastar/testing/random.hh>
 
 namespace seastar {
 

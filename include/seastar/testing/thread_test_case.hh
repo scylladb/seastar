@@ -22,9 +22,11 @@
 
 #pragma once
 
+// IWYU pragma: begin_keep
 #include <seastar/core/future.hh>
 #include <seastar/core/thread.hh>
-
+// IWYU pragma: end_keep
+//
 #include <boost/preprocessor/control/iif.hpp>
 #include <boost/preprocessor/comparison/equal.hpp>
 #include <boost/preprocessor/variadic/size.hpp>

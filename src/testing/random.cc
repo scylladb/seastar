@@ -19,6 +19,7 @@
  * Copyright (C) 2020 Cloudius Systems, Ltd.
  */
 
+#include <random>
 #include <seastar/testing/test_runner.hh>
 
 namespace seastar {

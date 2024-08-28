@@ -20,6 +20,7 @@
  * Copyright (C) 2018 ScyllaDB Ltd.
  */
 
+#include <boost/test/unit_test.hpp>
 #include <seastar/testing/entry_point.hh>
 #include <seastar/testing/seastar_test.hh>
 #include <seastar/testing/test_runner.hh>
