@@ -1030,4 +1030,19 @@ void io_queue::unthrottle_priority_class(const priority_class_data& pc) noexcept
     }
 }
 
+future<> io_queue::start_tracing(std::chrono::seconds timeout, size_t max_size) {
+    auto f = co_await open_file_dma(format("trace.{}.bin", this_shard_id()), open_flags::wo | open_flags::create | open_flags::exclusive);
+    seastar_logger.info("Started IO-tracing for {}s (max size {})", timeout.count(), max_size);
+    _tracer.enable(timeout, max_size, std::move(f), [] (char* buf) {
+        std::string o;
+        for (int i = 0; i < (int)internal::scheduling_group_count(); i++) {
+            auto sg = internal::scheduling_group_from_index(i);
+            o += format("{}:{},", i, sg.short_name());
+        }
+        auto len = o.size() - 1; // trim trailing comma
+        std::strncpy(buf, o.c_str(), len);
+        return len;
+    });
+}
+
 } // seastar namespace
