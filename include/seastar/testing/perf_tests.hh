@@ -26,7 +26,6 @@
 
 #include <fmt/format.h>
 
-#include <seastar/core/coroutine.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/testing/linux_perf_event.hh>

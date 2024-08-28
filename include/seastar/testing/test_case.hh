@@ -26,7 +26,7 @@
 #include <boost/preprocessor/comparison/equal.hpp>
 #include <boost/preprocessor/variadic/size.hpp>
 
-#include <seastar/core/future.hh>
+#include <seastar/core/future.hh> // IWYU pragma: keep
 
 #include <seastar/testing/seastar_test.hh>
 

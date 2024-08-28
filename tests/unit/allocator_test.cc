@@ -21,6 +21,7 @@
 
 #include <seastar/core/memory.hh>
 #include <seastar/core/timer.hh>
+#include <seastar/testing/random.hh>
 #include <seastar/testing/test_runner.hh>
 #include <cmath>
 #include <iostream>

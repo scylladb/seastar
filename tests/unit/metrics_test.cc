@@ -31,6 +31,7 @@
 #include <seastar/core/io_queue.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/core/internal/estimated_histogram.hh>
+#include <seastar/testing/random.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/testing/test_runner.hh>

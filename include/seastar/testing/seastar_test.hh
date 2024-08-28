@@ -22,21 +22,13 @@
 
 #pragma once
 
-#include <vector>
-
-#include <boost/test/unit_test.hpp>
-
+#include <exception>
+#include <string_view>
+#include <boost/test/unit_test.hpp> // IWYU pragma: export
 #include <seastar/core/future.hh>
-#include <seastar/util/std-compat.hh>
-#include <seastar/testing/entry_point.hh>
+#include <seastar/testing/entry_point.hh> // IWYU pragma: keep
 
 #define SEASTAR_TEST_INVOKE(func, ...) func(__VA_ARGS__)
-
-namespace boost::unit_test::decorator {
-
-class collector_t;
-
-}
 
 namespace seastar {
 
