@@ -688,6 +688,7 @@ add_library (seastar
   include/seastar/util/closeable.hh
   include/seastar/util/source_location-compat.hh
   include/seastar/util/short_streams.hh
+  include/seastar/util/trace.hh
   include/seastar/websocket/server.hh
   src/core/alien.cc
   src/core/file.cc
@@ -777,6 +778,7 @@ add_library (seastar
   src/util/read_first_line.cc
   src/util/tmp_file.cc
   src/util/short_streams.cc
+  src/util/trace.cc
   src/websocket/server.cc
   )
 
