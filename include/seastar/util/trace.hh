@@ -37,6 +37,12 @@ enum class trace_event {
     BUFFER_HEAD,
     T800,
     TICK,
+
+    // IO events
+    IO_POLL,
+    IO_QUEUE,
+    IO_DISPATCH,
+    IO_COMPLETE,
 };
 
 size_t tick_event_size();

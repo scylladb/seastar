@@ -32,6 +32,14 @@ size_t event_body_size(internal::trace_event ev) {
     switch (ev) {
     case internal::trace_event::TICK:
         return 0;
+    case internal::trace_event::IO_POLL:
+        return internal::event_tracer<internal::trace_event::IO_POLL>::size();
+    case internal::trace_event::IO_QUEUE:
+        return internal::event_tracer<internal::trace_event::IO_QUEUE>::size();
+    case internal::trace_event::IO_DISPATCH:
+        return internal::event_tracer<internal::trace_event::IO_DISPATCH>::size();
+    case internal::trace_event::IO_COMPLETE:
+        return internal::event_tracer<internal::trace_event::IO_COMPLETE>::size();
     case internal::trace_event::BUFFER_HEAD:
     case internal::trace_event::OPENING:
     case internal::trace_event::T800:
@@ -50,10 +58,47 @@ std::string parse<internal::trace_event::TICK>(temporary_buffer<char> body) {
     return "TICK";
 }
 
+template<>
+std::string parse<internal::trace_event::IO_POLL>(temporary_buffer<char> body) {
+    return "IO_POLL";
+}
+
+template<>
+std::string parse<internal::trace_event::IO_QUEUE>(temporary_buffer<char> body) {
+    const char* b = body.get();
+    auto rw = read_le<uint8_t>(b + 0);
+    auto cid = read_le<uint8_t>(b + 1);
+    auto len = read_le<uint16_t>(b + 2);
+    auto rq = read_le<uint32_t>(b + 4);
+    return format("IO Q {:04x} {} class {} {}", rq, rw == 0 ? "w" : "r", cid, len << 9);
+}
+
+template<>
+std::string parse<internal::trace_event::IO_DISPATCH>(temporary_buffer<char> body) {
+    const char* b = body.get();
+    auto rq = read_le<uint32_t>(b);
+    return format("IO D {:04x}", rq);
+}
+
+template<>
+std::string parse<internal::trace_event::IO_COMPLETE>(temporary_buffer<char> body) {
+    const char* b = body.get();
+    auto rq = read_le<uint32_t>(b);
+    return format("IO C {:04x}", rq);
+}
+
 std::string parse_event(internal::trace_event ev, temporary_buffer<char> body) {
     switch (ev) {
     case internal::trace_event::TICK:
         return parse<internal::trace_event::TICK>(std::move(body));
+    case internal::trace_event::IO_POLL:
+        return parse<internal::trace_event::IO_POLL>(std::move(body));
+    case internal::trace_event::IO_QUEUE:
+        return parse<internal::trace_event::IO_QUEUE>(std::move(body));
+    case internal::trace_event::IO_DISPATCH:
+        return parse<internal::trace_event::IO_DISPATCH>(std::move(body));
+    case internal::trace_event::IO_COMPLETE:
+        return parse<internal::trace_event::IO_COMPLETE>(std::move(body));
     case internal::trace_event::BUFFER_HEAD:
     case internal::trace_event::OPENING:
     case internal::trace_event::T800:

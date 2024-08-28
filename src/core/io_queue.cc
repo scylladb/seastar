@@ -48,6 +48,7 @@ module seastar;
 #include <seastar/core/internal/io_sink.hh>
 #include <seastar/core/io_priority_class.hh>
 #include <seastar/util/log.hh>
+#include <seastar/core/internal/io_trace.hh>
 #endif
 
 namespace seastar {
@@ -231,6 +232,7 @@ public:
         , _iovs(std::move(iovs))
     {
         io_log.trace("dev {} : req {} queue  len {} capacity {}", _ioq.dev_id(), fmt::ptr(this), _dnl.length(), _fq_capacity);
+        _ioq.trace<internal::trace_event::IO_QUEUE>(*this, _pclass.fq_class(), _dnl.rw_idx(), _dnl.length() >> io_queue::block_size_shift);
     }
 
     virtual void set_exception(std::exception_ptr eptr) noexcept override {
@@ -243,6 +245,7 @@ public:
 
     virtual void complete(size_t res) noexcept override {
         io_log.trace("dev {} : req {} complete", _ioq.dev_id(), fmt::ptr(this));
+        _ioq.trace<internal::trace_event::IO_COMPLETE>(*this);
         auto now = io_queue::clock_type::now();
         auto delay = std::chrono::duration_cast<std::chrono::duration<double>>(now - _ts);
         _pclass.on_complete(delay);
@@ -259,6 +262,7 @@ public:
 
     void dispatch() noexcept {
         io_log.trace("dev {} : req {} submit", _ioq.dev_id(), fmt::ptr(this));
+        _ioq.trace<internal::trace_event::IO_DISPATCH>(*this);
         auto now = io_queue::clock_type::now();
         _pclass.on_dispatch(_dnl, std::chrono::duration_cast<std::chrono::duration<double>>(now - _ts));
         _ts = now;
