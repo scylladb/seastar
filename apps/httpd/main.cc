@@ -73,8 +73,6 @@ void set_routes(routes& r) {
 }
 
 int main(int ac, char** av) {
-    httpd::http_server_control prometheus_server;
-    prometheus::config pctx;
     app_template app;
 
     app.add_options()("port", bpo::value<uint16_t>()->default_value(10000), "HTTP Server port");
