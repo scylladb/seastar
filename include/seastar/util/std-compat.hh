@@ -47,6 +47,10 @@ namespace std::pmr {
 #define SEASTAR_ASAN_ENABLED
 #endif
 
+#if __has_feature(thread_sanitizer) || defined(__SANITIZE_THREAD__)
+#define SEASTAR_TSAN_ENABLED
+#endif
+
 #if __has_include(<source_location>)
 #include <source_location>
 #endif

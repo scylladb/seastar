@@ -46,13 +46,13 @@ static void install_dummy_handler(int sig) {
 }
 
 int entry_point(int argc, char** argv) {
-#ifndef SEASTAR_ASAN_ENABLED
+#if !defined(SEASTAR_ASAN_ENABLED) && !defined(SEASTAR_TSAN_ENABLED)
     // Before we call into boost, install some dummy signal
     // handlers. This seems to be the only way to stop boost from
     // installing its own handlers, which disables our backtrace
     // printer. The real handler will be installed when the reactor is
     // constructed.
-    // If we are using ASAN, it has already installed a signal handler
+    // If we are using asan/tsan, it has already installed a signal handler
     // that does its own stack printing.
     for (int sig : {SIGSEGV, SIGABRT}) {
         install_dummy_handler(sig);

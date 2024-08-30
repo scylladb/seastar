@@ -37,6 +37,13 @@ if (Sanitizers_UNDEFINED_BEHAVIOR_FOUND)
   set (Sanitizers_UNDEFINED_BEHAVIOR_COMPILER_OPTIONS "-fsanitize=undefined;-fno-sanitize=vptr")
 endif ()
 
+set (CMAKE_REQUIRED_FLAGS -fsanitize=thread)
+check_cxx_source_compiles ("int main() {}" Sanitizers_THREAD_FOUND)
+
+if (Sanitizers_THREAD_FOUND)
+  set (ThreadSanitizer_COMPILER_OPTIONS -fsanitize=thread)
+endif ()
+
 set (Sanitizers_COMPILER_OPTIONS
   ${Sanitizers_ADDRESS_COMPILER_OPTIONS}
   ${Sanitizers_UNDEFINED_BEHAVIOR_COMPILER_OPTIONS})
@@ -45,12 +52,20 @@ file (READ ${CMAKE_CURRENT_LIST_DIR}/code_tests/Sanitizers_fiber_test.cc _saniti
 set (CMAKE_REQUIRED_FLAGS ${Sanitizers_COMPILER_OPTIONS})
 check_cxx_source_compiles ("${_sanitizers_fiber_test_code}" Sanitizers_FIBER_SUPPORT)
 
+file (READ ${CMAKE_CURRENT_LIST_DIR}/code_tests/ThreadSanitizer_fiber_test.cc _thread_sanitizer_fiber_test_code)
+set (CMAKE_REQUIRED_FLAGS ${ThreadSanitizer_COMPILER_OPTIONS})
+check_cxx_source_compiles ("${_thread_sanitizer_fiber_test_code}" ThreadSanitizer_FIBER_SUPPORT)
+
 include (FindPackageHandleStandardArgs)
 
 find_package_handle_standard_args (Sanitizers
   REQUIRED_VARS
     Sanitizers_ADDRESS_COMPILER_OPTIONS
     Sanitizers_UNDEFINED_BEHAVIOR_COMPILER_OPTIONS)
+
+find_package_handle_standard_args (ThreadSanitizer
+  REQUIRED_VARS
+    ThreadSanitizer_COMPILER_OPTIONS)
 
 if (Sanitizers_FOUND)
   if (NOT (TARGET Sanitizers::address))
@@ -69,5 +84,16 @@ if (Sanitizers_FOUND)
       PROPERTIES
         INTERFACE_COMPILE_OPTIONS "${Sanitizers_UNDEFINED_BEHAVIOR_COMPILER_OPTIONS}"
         INTERFACE_LINK_LIBRARIES "${Sanitizers_UNDEFINED_BEHAVIOR_COMPILER_OPTIONS}")
+  endif ()
+endif ()
+
+if (ThreadSanitizer_FOUND)
+  if (NOT (TARGET Sanitizers::thread))
+    add_library (Sanitizers::thread INTERFACE IMPORTED)
+
+    set_target_properties (Sanitizers::thread
+      PROPERTIES
+        INTERFACE_COMPILE_OPTIONS ${ThreadSanitizer_COMPILER_OPTIONS}
+        INTERFACE_LINK_LIBRARIES ${ThreadSanitizer_COMPILER_OPTIONS})
   endif ()
 endif ()

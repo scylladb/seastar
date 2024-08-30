@@ -103,7 +103,7 @@ posix_thread::posix_thread(attr a, std::function<void ()> func)
         throw std::system_error(r, std::system_category());
     }
 
-#ifndef SEASTAR_ASAN_ENABLED
+#if !defined(SEASTAR_ASAN_ENABLED) && !defined(SEASTAR_TSAN_ENABLED)
     auto stack_size = a._stack_size.size;
     if (!stack_size) {
         stack_size = 2 << 20;

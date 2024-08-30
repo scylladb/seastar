@@ -142,7 +142,7 @@ SEASTAR_TEST_CASE(test_map_reduce_lifetime) {
         }
         auto operator()(const X& x) {
             return yield().then([this, &x] {
-                BOOST_REQUIRE(!destroyed);
+                assert(!destroyed);
                 return x.cpu_id_squared();
             });
         }
@@ -158,7 +158,7 @@ SEASTAR_TEST_CASE(test_map_reduce_lifetime) {
         }
         auto operator()(int x) {
             return yield().then([this, x] {
-                BOOST_REQUIRE(!destroyed);
+                assert(!destroyed);
                 res += x;
             });
         }
@@ -169,7 +169,7 @@ SEASTAR_TEST_CASE(test_map_reduce_lifetime) {
                 return x.map_reduce(reduce{result}, map{}).then([&result] {
                     long n = smp::count - 1;
                     long expected = (n * (n + 1) * (2*n + 1)) / 6;
-                    BOOST_REQUIRE_EQUAL(result, expected);
+                    assert(result == expected);
                 });
             });
         });
@@ -186,7 +186,7 @@ SEASTAR_TEST_CASE(test_map_reduce0_lifetime) {
         }
         auto operator()(const X& x) const {
             return yield().then([this, &x] {
-                BOOST_REQUIRE(!destroyed);
+                assert(!destroyed);
                 return x.cpu_id_squared();
             });
         }
@@ -199,7 +199,7 @@ SEASTAR_TEST_CASE(test_map_reduce0_lifetime) {
             destroyed = true;
         }
         auto operator()(long res, int x) {
-            BOOST_REQUIRE(!destroyed);
+            assert(!destroyed);
             return res + x;
         }
     };
@@ -208,7 +208,7 @@ SEASTAR_TEST_CASE(test_map_reduce0_lifetime) {
             return x.map_reduce0(map{}, 0L, reduce{}).then([] (long result) {
                 long n = smp::count - 1;
                 long expected = (n * (n + 1) * (2*n + 1)) / 6;
-                BOOST_REQUIRE_EQUAL(result, expected);
+                assert(result == expected);
             });
         });
     });
@@ -224,7 +224,7 @@ SEASTAR_TEST_CASE(test_map_lifetime) {
         }
         auto operator()(const X& x) const {
             return yield().then([this, &x] {
-                BOOST_REQUIRE(!destroyed);
+                assert(!destroyed);
                 return x.cpu_id_squared();
             });
         }
@@ -232,9 +232,9 @@ SEASTAR_TEST_CASE(test_map_lifetime) {
     return do_with_distributed<X>([] (distributed<X>& x) {
         return x.start().then([&x] {
             return x.map(map{}).then([] (std::vector<int> result) {
-                BOOST_REQUIRE_EQUAL(result.size(), smp::count);
+                assert(result.size() == smp::count);
                 for (size_t i = 0; i < (size_t)smp::count; i++) {
-                    BOOST_REQUIRE_EQUAL(result[i], i * i);
+                    assert(std::cmp_equal(result[i], i * i));
                 }
             });
         });
