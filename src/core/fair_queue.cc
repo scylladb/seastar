@@ -249,6 +249,7 @@ auto fair_queue::grab_capacity(const fair_queue_entry& ent) noexcept -> grab_res
     capacity_t cap = ent._capacity;
     capacity_t want_head = _group.grab_capacity(cap);
     if (_group.capacity_deficiency(want_head)) {
+        _tracer.trace<internal::trace_event::FQ_WAIT_CAPACITY>();
         _pending.emplace(want_head, cap);
         return grab_result::pending;
     }
