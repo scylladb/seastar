@@ -43,6 +43,7 @@ enum class trace_event {
     IO_QUEUE,
     IO_DISPATCH,
     IO_COMPLETE,
+    FQ_WAIT_CAPACITY,
 };
 
 size_t tick_event_size();

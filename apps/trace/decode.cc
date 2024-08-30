@@ -25,6 +25,7 @@
 #include <seastar/util/trace.hh>
 #include <seastar/core/byteorder.hh>
 #include <seastar/core/internal/io_trace.hh>
+#include <seastar/core/internal/fq_trace.hh>
 
 using namespace seastar;
 
@@ -40,6 +41,8 @@ size_t event_body_size(internal::trace_event ev) {
         return internal::event_tracer<internal::trace_event::IO_DISPATCH>::size();
     case internal::trace_event::IO_COMPLETE:
         return internal::event_tracer<internal::trace_event::IO_COMPLETE>::size();
+    case internal::trace_event::FQ_WAIT_CAPACITY:
+        return internal::event_tracer<internal::trace_event::FQ_WAIT_CAPACITY>::size();
     case internal::trace_event::BUFFER_HEAD:
     case internal::trace_event::OPENING:
     case internal::trace_event::T800:
@@ -87,6 +90,11 @@ std::string parse<internal::trace_event::IO_COMPLETE>(temporary_buffer<char> bod
     return format("IO C {:04x}", rq);
 }
 
+template<>
+std::string parse<internal::trace_event::FQ_WAIT_CAPACITY>(temporary_buffer<char> body) {
+    return "FQ WAIT";
+}
+
 std::string parse_event(internal::trace_event ev, temporary_buffer<char> body) {
     switch (ev) {
     case internal::trace_event::TICK:
@@ -99,6 +107,8 @@ std::string parse_event(internal::trace_event ev, temporary_buffer<char> body) {
         return parse<internal::trace_event::IO_DISPATCH>(std::move(body));
     case internal::trace_event::IO_COMPLETE:
         return parse<internal::trace_event::IO_COMPLETE>(std::move(body));
+    case internal::trace_event::FQ_WAIT_CAPACITY:
+        return parse<internal::trace_event::FQ_WAIT_CAPACITY>(std::move(body));
     case internal::trace_event::BUFFER_HEAD:
     case internal::trace_event::OPENING:
     case internal::trace_event::T800:
