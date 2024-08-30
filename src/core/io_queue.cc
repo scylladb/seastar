@@ -579,11 +579,11 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     auto& cfg = get_config();
     if (cfg.duplex) {
         static_assert(internal::io_direction_and_length::write_idx == 0);
-        _streams.emplace_back(_group->_fgs[0], make_fair_queue_config(cfg, "write"));
+        _streams.emplace_back(_group->_fgs[0], _tracer, make_fair_queue_config(cfg, "write"));
         static_assert(internal::io_direction_and_length::read_idx == 1);
-        _streams.emplace_back(_group->_fgs[1], make_fair_queue_config(cfg, "read"));
+        _streams.emplace_back(_group->_fgs[1], _tracer, make_fair_queue_config(cfg, "read"));
     } else {
-        _streams.emplace_back(_group->_fgs[0], make_fair_queue_config(cfg, "rw"));
+        _streams.emplace_back(_group->_fgs[0], _tracer, make_fair_queue_config(cfg, "rw"));
     }
     _averaging_decay_timer.arm_periodic(std::chrono::duration_cast<std::chrono::milliseconds>(_group->io_latency_goal() * cfg.averaging_decay_ticks));
 

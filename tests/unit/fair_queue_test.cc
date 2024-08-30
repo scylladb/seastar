@@ -31,6 +31,7 @@
 #include <seastar/util/later.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/print.hh>
+#include <seastar/util/trace.hh>
 #include <boost/range/irange.hpp>
 #include <chrono>
 
@@ -56,6 +57,7 @@ struct request {
 };
 
 class test_env {
+    internal::tracer _trace;
     fair_group _fg;
     fair_queue _fq;
     std::vector<int> _results;
@@ -81,7 +83,7 @@ class test_env {
 public:
     test_env(unsigned capacity)
         : _fg(fg_config(capacity), 1)
-        , _fq(_fg, fq_config())
+        , _fq(_fg, _trace, fq_config())
     {}
 
     // As long as there is a request sitting in the queue, tick() will process
