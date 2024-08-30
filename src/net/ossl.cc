@@ -26,11 +26,13 @@ module;
 
 #include <fmt/ranges.h>
 #include <openssl/bio.h>
+#include <openssl/core_names.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
 #include <openssl/pem.h>
 #include <openssl/pkcs12.h>
 #include <openssl/provider.h>
+#include <openssl/rand.h>
 #include <openssl/safestack.h>
 #include <openssl/ssl.h>
 #include <openssl/sslerr.h>
@@ -38,6 +40,7 @@ module;
 #include <openssl/x509_vfy.h>
 #include <openssl/x509v3.h>
 
+#include <span>
 #include <system_error>
 
 #ifdef SEASTAR_MODULE
@@ -215,9 +218,59 @@ using pkcs12 = ssl_handle<PKCS12, PKCS12_free>;
 using ssl_ctx_ptr = ssl_handle<SSL_CTX, SSL_CTX_free>;
 using ssl_ptr = ssl_handle<SSL, SSL_free>;
 using x509_verify_param_ptr = ssl_handle<X509_VERIFY_PARAM, X509_VERIFY_PARAM_free>;
+using ssl_session_ptr = ssl_handle<SSL_SESSION, SSL_SESSION_free>;
+
+/**
+ * The purpose of this structure is to hold the AES and HMAC keys used to encrypt/decrypt TLS 1.3
+ * session tickets given to and presented by, the TLS client.
+ */
+struct session_ticket_keys {
+    std::array<uint8_t, 16> key_name;
+    std::array<uint8_t, 32> aes_key;
+    std::array<uint8_t, 32> hmac_key;
+
+    void generate_keys() {
+        generate_key(key_name);
+        generate_key(aes_key);
+        generate_key(hmac_key);
+    }
+
+    ~session_ticket_keys() {
+        clear_key(aes_key);
+        clear_key(hmac_key);
+    }
+
+private:
+    /**
+     * This will zeroize the key contents by writing 0xff, then 0x00,
+     * and finally 0xff over the memory that held the key
+     * @tparam N Size of the array
+     * @param key The key to clear
+     */
+    template<std::size_t N>
+    static void clear_key(std::array<uint8_t, N>& key) {
+        // Zeroize sensitive key data
+        OPENSSL_cleanse(key.data(), N);
+    }
+
+    /**
+     * Generates a key
+     * @tparam N The size of the key
+     * @param key The key to generate
+     * @throws ossl_error if unable to generate random data
+     */
+    template<std::size_t N>
+    static void generate_key(std::array<uint8_t, N>& key) {
+        if (RAND_priv_bytes(key.data(), N) <= 0) {
+            throw make_ossl_error("Failed to generate key");
+        }
+    }
+};
 
 // sufficiently large enough to avoid collision with OpenSSL BIO controls
 #define BIO_C_SET_POINTER 1000
+// Index into ex data for SSL structure to fetch a pointer to session
+#define SSL_EX_DATA_SESSION 0
 
 BIO_METHOD* get_method();
 
@@ -506,10 +559,17 @@ public:
     }
     void set_session_resume_mode(session_resume_mode m) {
         _session_resume_mode = m;
+        if (m != session_resume_mode::NONE) {
+            _session_ticket_keys.generate_keys();
+        }
     }
 
     session_resume_mode get_session_resume_mode() {
         return _session_resume_mode;
+    }
+
+    const session_ticket_keys & get_session_ticket_keys() const {
+        return _session_ticket_keys;
     }
 
     void set_dn_verification_callback(dn_callback cb) {
@@ -579,21 +639,22 @@ private:
         return _load_system_trust;
     }
 
+    certkey_pair _cert_and_key;
+    session_ticket_keys _session_ticket_keys;
     x509_ptr _last_cert;
     x509_store_ptr _creds;
+    dn_callback _dn_callback;
+    std::optional<tls_version> _min_tls_version;
+    std::optional<tls_version> _max_tls_version;
+    sstring _cipher_string;
+    sstring _ciphersuites;
 
-    certkey_pair _cert_and_key;
-    std::shared_ptr<tls::dh_params::impl> _dh_params;
     client_auth _client_auth = client_auth::NONE;
     session_resume_mode _session_resume_mode = session_resume_mode::NONE;
     bool _load_system_trust = false;
-    dn_callback _dn_callback;
-    sstring _cipher_string;
-    sstring _ciphersuites;
     bool _enable_server_precedence = false;
-    std::optional<tls_version> _min_tls_version;
-    std::optional<tls_version> _max_tls_version;
     bool _crl_check_flag_set = false;
+
 };
 
 tls::certificate_credentials::certificate_credentials()
@@ -716,6 +777,11 @@ void tls::server_credentials::set_client_auth(client_auth ca) {
 }
 
 namespace tls {
+
+int session_ticket_cb(SSL * s, unsigned char key_name[16],
+                      unsigned char iv[EVP_MAX_IV_LENGTH],
+                      EVP_CIPHER_CTX * ctx, EVP_MAC_CTX *hctx, int enc);
+
 /**
  * Session wraps an OpenSSL SSL session and context,
  * and is the actual conduit for an TLS/SSL data flow.
@@ -751,6 +817,9 @@ public:
           return ssl;
       }())
       , _type(t) {
+        if (1 != SSL_set_ex_data(_ssl.get(), SSL_EX_DATA_SESSION, this)) {
+            throw make_ossl_error("Failed to set EX data for SSL session");
+        }
         bio_ptr in_bio(BIO_new(get_method()));
         bio_ptr out_bio(BIO_new(get_method()));
         if (!in_bio || !out_bio) {
@@ -775,6 +844,19 @@ public:
             }
             SSL_set_connect_state(_ssl.get());
         }
+
+        if (_type == session_type::CLIENT && !_options.session_resume_data.empty()) {
+            auto data_ptr = std::as_const(_options.session_resume_data).data();
+            long data_size = _options.session_resume_data.size();
+            auto sess = ssl_session_ptr(d2i_SSL_SESSION(nullptr, &data_ptr, data_size));
+            if (!sess) {
+                throw make_ossl_error("Failed to decode SSL_SESSION data for session resumption");
+            }
+            if (1 != SSL_set_session(_ssl.get(), sess.get())) {
+                throw make_ossl_error("Failed to set SSL_SESSION on SSL for session resumption");
+            }
+        }
+        _options.session_resume_data.clear();
     }
 
     session(session_type t, shared_ptr<certificate_credentials> creds,
@@ -1390,12 +1472,46 @@ public:
           do_get_alt_name_information(peer_cert, types));
     }
 
+    template<typename Func, typename... Args>
+    auto state_checked_access(Func&& f, Args&& ...args) {
+        using future_type = typename futurize<std::invoke_result_t<Func, Args...>>::type;
+        using result_t = typename future_type::value_type;
+        if (_error) {
+            return make_exception_future<result_t>(_error);
+        }
+        if (_shutdown) {
+            return make_exception_future<result_t>(std::system_error(ENOTCONN, std::system_category()));
+        }
+        if (!connected()) {
+            return handshake().then([this, f = std::move(f), ...args = std::forward<Args>(args)]() mutable {
+                return session::state_checked_access(std::move(f), std::forward<Args>(args)...);
+            });
+        }
+        return futurize_invoke(f, std::forward<Args>(args)...);
+    }
+
     future<bool> is_resumed() override {
-        co_return false;
+        return state_checked_access([this] {
+            return SSL_session_reused(_ssl.get()) == 1;
+        });
     }
 
     future<session_data> get_session_resume_data() override {
-        co_return session_data{};
+        return state_checked_access([this] {
+            // get0 does not increment reference counter so no clean up necessary
+            auto sess = SSL_get0_session(_ssl.get());
+            if (!sess || 0 == SSL_SESSION_is_resumable(sess)) {
+                return session_data{};
+            }
+            auto len = i2d_SSL_SESSION(sess, nullptr);
+            if (len == 0) {
+                return session_data{};
+            }
+            session_data data(len);
+            auto data_ptr = data.data();
+            i2d_SSL_SESSION(sess, &data_ptr);
+            return data;
+        });
     }
 
 private:
@@ -1543,6 +1659,18 @@ private:
             }
 
             SSL_CTX_set_options(ssl_ctx.get(), options);
+
+            switch(_creds->get_session_resume_mode()) {
+                case session_resume_mode::NONE:
+                    SSL_CTX_set_session_cache_mode(ssl_ctx.get(), SSL_SESS_CACHE_OFF);
+                    break;
+                case session_resume_mode::TLS13_SESSION_TICKET:
+                    // By default, SSL contexts have server size cache enabled
+                    if (1 != SSL_CTX_set_tlsext_ticket_key_evp_cb(ssl_ctx.get(), &session_ticket_cb)) {
+                        throw make_ossl_error("Failed to set session ticket callback function");
+                    }
+                    break;
+            }
         } else {
             if (_creds->is_server_precedence_enabled()) {
                 SSL_CTX_set_options(ssl_ctx.get(), SSL_OP_CIPHER_SERVER_PREFERENCE);
@@ -1653,7 +1781,65 @@ private:
     friend int bio_write_ex(BIO* b, const char * data, size_t dlen, size_t * written);
     friend int bio_read_ex(BIO* b, char * data, size_t dlen, size_t *readbytes);
     friend long bio_ctrl(BIO * b, int ctrl, long num, void * data);
+    friend int session_ticket_cb(SSL*, unsigned char[16], unsigned char[EVP_MAX_IV_LENGTH],
+                                 EVP_CIPHER_CTX*, EVP_MAC_CTX*, int);
 };
+
+// The following callback function is used whenever session tickets are generated or received by
+// the TLS server.  If TLS session resumption is enabled, then an AES and HMAC key are
+// generated and stored within the certificate_credentials (which is stored within the TLS session).
+// The call back uses these keys to initialize the encryption and MAC operations for both encryption (enc = 1)
+// and decryption (enc = 0).  Because the key lives with the certificate_credentials which is passed
+// to every instance of an SSL session, the same key can be used over and over again to encrypt/decrypt
+// session tickets across multiple instances of server sessions.  For more information see:
+// https://docs.openssl.org/3.0/man3/SSL_CTX_set_tlsext_ticket_key_cb/
+int session_ticket_cb(SSL * s, unsigned char key_name[16],
+                      unsigned char iv[EVP_MAX_IV_LENGTH],
+                      EVP_CIPHER_CTX * ctx, EVP_MAC_CTX *hctx, int enc) {
+    auto * sess = static_cast<const session *>(SSL_get_ex_data(s, SSL_EX_DATA_SESSION));
+    std::span<unsigned char, 16> key_name_span(key_name, 16);
+    const auto & gen_key_name = sess->_creds->get_session_ticket_keys().key_name;
+    const auto & aes_key = sess->_creds->get_session_ticket_keys().aes_key;
+    auto hmac_key_ptr = sess->_creds->get_session_ticket_keys().hmac_key.data();
+    auto hmac_key_size = sess->_creds->get_session_ticket_keys().hmac_key.size();
+    OSSL_PARAM params[3];
+    params[0] = OSSL_PARAM_construct_octet_string(OSSL_MAC_PARAM_KEY,
+                                                  const_cast<unsigned char *>(hmac_key_ptr),
+                                                  hmac_key_size);
+    params[1] = OSSL_PARAM_construct_utf8_string(OSSL_MAC_PARAM_DIGEST,
+                                                 const_cast<char *>("sha256"), 0);
+    params[2] = OSSL_PARAM_construct_end();
+
+    if (enc) {
+        if (RAND_bytes(iv, EVP_MAX_IV_LENGTH) <= 0) {
+            return -1;
+        }
+
+        std::copy(gen_key_name.begin(), gen_key_name.end(), key_name_span.begin());
+
+        if (EVP_EncryptInit_ex2(ctx, EVP_aes_256_cbc(), aes_key.data(), iv, nullptr) == 0) {
+            return -1;
+        }
+
+        if (EVP_MAC_CTX_set_params(hctx, params) == 0) {
+            return -1;
+        }
+
+        return 1;
+    } else {
+        if (!std::equal(key_name_span.begin(), key_name_span.end(), gen_key_name.begin())) {
+            return 0;
+        }
+        if (EVP_MAC_CTX_set_params(hctx, params) == 0) {
+            return -1;
+        }
+
+        if (EVP_DecryptInit_ex2(ctx, EVP_aes_256_cbc(), aes_key.data(), iv, nullptr) == 0) {
+            return -1;
+        }
+        return 1;
+    }
+}
 
 
 tls::session* unwrap_bio_ptr(void * ptr) {
