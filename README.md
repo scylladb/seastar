@@ -164,13 +164,16 @@ The documentation is available on the [web](http://docs.seastar.io/master/index.
 
 Resources
 ---------
-Ask questions and post patches on the development mailing list. Subscription
-information and archives are available [here](https://groups.google.com/forum/#!forum/seastar-dev),
-or just send an email to seastar-dev@googlegroups.com.
 
-Information can be found on the main [project website](http://seastar.io).
+* Seasatar Development Mailing List: Discuss challenges, propose improvements with
+  sending code contributions (patches), and get help from experienced developers.
+  Subscribe or browse archives: [here](https://groups.google.com/forum/#!forum/seastar-dev)
+  (or email seastar-dev@googlegroups.com).
+* GitHub Discussions: For more casual conversations and quick questions, consider
+  using the Seastar project's [discussions on Github](https://github.com/scylladb/seastar/discussions).
+* Issue Tracker: File bug reports on the project's [issue tracker](https://github.com/scylladb/seastar/issues).
 
-File bug reports on the project [issue tracker](https://github.com/scylladb/seastar/issues).
+Learn more about Seastar on the main [project website](http://seastar.io).
 
 The Native TCP/IP Stack
 -----------------------
