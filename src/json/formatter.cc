@@ -71,7 +71,7 @@ static bool needs_escaping(const string_view& str) {
 
 static sstring string_view_to_json(const string_view& str) {
     if (!needs_escaping(str)) {
-        return format("\"{}\"", str);
+        return seastar::format("\"{}\"", str);
     }
 
     ostringstream oss;

@@ -154,7 +154,7 @@ qp::qp(bool register_copy_stats,
         //
         // Tx
         sm::make_gauge(_queue_name + "_tx_packet_queue_last_bunch", _stats.tx.good.last_bunch,
-                        sm::description(format("Holds a number of packets sent in the bunch. "
+                        sm::description(seastar::format("Holds a number of packets sent in the bunch. "
                                         "A high value in conjunction with a high value of a {} indicates an efficient Tx packets bulking.", _queue_name + "_tx_packet_queue"))),
         // Rx
         sm::make_gauge(_queue_name + "_rx_packet_queue_last_bunch", _stats.rx.good.last_bunch,
@@ -165,10 +165,10 @@ qp::qp(bool register_copy_stats,
         //
         // Tx
         sm::make_counter(_queue_name + "_tx_frags", _stats.tx.good.nr_frags,
-                        sm::description(format("Counts a number of sent fragments. Divide this value by a {} to get an average number of fragments in a Tx packet.", _queue_name + "_tx_packets"))),
+                        sm::description(seastar::format("Counts a number of sent fragments. Divide this value by a {} to get an average number of fragments in a Tx packet.", _queue_name + "_tx_packets"))),
         // Rx
         sm::make_counter(_queue_name + "_rx_frags", _stats.rx.good.nr_frags,
-                        sm::description(format("Counts a number of received fragments. Divide this value by a {} to get an average number of fragments in an Rx packet.", _queue_name + "_rx_packets"))),
+                        sm::description(seastar::format("Counts a number of received fragments. Divide this value by a {} to get an average number of fragments in an Rx packet.", _queue_name + "_rx_packets"))),
     });
 
     if (register_copy_stats) {
@@ -178,20 +178,20 @@ qp::qp(bool register_copy_stats,
             //
             // Tx
             sm::make_counter(_queue_name + "_tx_copy_bytes", _stats.tx.good.copy_bytes,
-                        sm::description(format("Counts a number of sent bytes that were handled in a non-zero-copy way. Divide this value by a {} to get a portion of data sent using a non-zero-copy flow.", _queue_name + "_tx_bytes"))),
+                        sm::description(seastar::format("Counts a number of sent bytes that were handled in a non-zero-copy way. Divide this value by a {} to get a portion of data sent using a non-zero-copy flow.", _queue_name + "_tx_bytes"))),
             // Rx
             sm::make_counter(_queue_name + "_rx_copy_bytes", _stats.rx.good.copy_bytes,
-                        sm::description(format("Counts a number of received bytes that were handled in a non-zero-copy way. Divide this value by an {} to get a portion of received data handled using a non-zero-copy flow.", _queue_name + "_rx_bytes"))),
+                        sm::description(seastar::format("Counts a number of received bytes that were handled in a non-zero-copy way. Divide this value by an {} to get a portion of received data handled using a non-zero-copy flow.", _queue_name + "_rx_bytes"))),
 
             //
             // Non-zero-copy data fragments rate: DERIVE:0:u
             //
             // Tx
             sm::make_counter(_queue_name + "_tx_copy_frags", _stats.tx.good.copy_frags,
-                        sm::description(format("Counts a number of sent fragments that were handled in a non-zero-copy way. Divide this value by a {} to get a portion of fragments sent using a non-zero-copy flow.", _queue_name + "_tx_frags"))),
+                        sm::description(seastar::format("Counts a number of sent fragments that were handled in a non-zero-copy way. Divide this value by a {} to get a portion of fragments sent using a non-zero-copy flow.", _queue_name + "_tx_frags"))),
             // Rx
             sm::make_counter(_queue_name + "_rx_copy_frags", _stats.rx.good.copy_frags,
-                        sm::description(format("Counts a number of received fragments that were handled in a non-zero-copy way. Divide this value by a {} to get a portion of received fragments handled using a non-zero-copy flow.", _queue_name + "_rx_frags"))),
+                        sm::description(seastar::format("Counts a number of received fragments that were handled in a non-zero-copy way. Divide this value by a {} to get a portion of received fragments handled using a non-zero-copy flow.", _queue_name + "_rx_frags"))),
 
         });
     }
