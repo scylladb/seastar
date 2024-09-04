@@ -15,6 +15,39 @@ Seastar would reply based on the content type header, so pointing your browser t
 Starting from Prometheus 2.0, the binary protocol is no longer supported.
 While seastar still supports the binary protocol, it would be deprecated in a future release.
 
+## Server Setup
+
+The Seastar application needs to manually start the Prometheus server, using Seastar API provided in [seastar/core/prometheus.hh](../include/seastar/core/prometheus.hh).
+
+### Examples
+
+```C++
+#include <seastar/core/prometheus.hh>
+#include <seastar/http/httpd.hh>
+#include <seastar/net/inet_address.hh>
+
+int main(int argc, char** argv) {
+    seastar::app_template app;
+    return app.run(argc, argv, [] {
+      httpd::http_server_control prometheus_server;
+      
+      prometheus::config pctx;
+      pctx.metric_help = "seastar app statistics";
+      pctx.prefix = "app";
+
+      prometheus_server.start("prometheus").get();
+      prometheus::start(prometheus_server, pctx).get();
+
+      net::inet_address addr("127.0.0.1");
+      uint16_t port = 9180;
+      prometheus_server.listen(socket_address{addr, port}).get();
+    });
+}
+```
+
+- [apps/httpd/main.cc](../apps/httpd/main.cc)
+- [tests/unit/metrics_tester.cc](../tests/unit/metrics_tester.cc)
+
 ## Querying subset of the metrics
 Seastar supports querying for a subset of the metrics by their names and labels.
 
