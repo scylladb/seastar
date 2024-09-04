@@ -504,6 +504,13 @@ public:
     client_auth get_client_auth() const {
         return _client_auth;
     }
+    void set_session_resume_mode(session_resume_mode m) {
+        _session_resume_mode = m;
+    }
+
+    session_resume_mode get_session_resume_mode() {
+        return _session_resume_mode;
+    }
 
     void set_dn_verification_callback(dn_callback cb) {
         _dn_callback = std::move(cb);
@@ -578,6 +585,7 @@ private:
     certkey_pair _cert_and_key;
     std::shared_ptr<tls::dh_params::impl> _dh_params;
     client_auth _client_auth = client_auth::NONE;
+    session_resume_mode _session_resume_mode = session_resume_mode::NONE;
     bool _load_system_trust = false;
     dn_callback _dn_callback;
     sstring _cipher_string;
@@ -681,6 +689,10 @@ void tls::certificate_credentials::enable_load_system_trust() {
 
 void tls::certificate_credentials::set_client_auth(client_auth ca) {
     _impl->set_client_auth(ca);
+}
+
+void tls::certificate_credentials::set_session_resume_mode(session_resume_mode m) {
+    _impl->set_session_resume_mode(m);
 }
 
 tls::server_credentials::server_credentials()
@@ -1376,6 +1388,14 @@ public:
         }
         return make_ready_future<result_t>(
           do_get_alt_name_information(peer_cert, types));
+    }
+
+    future<bool> is_resumed() override {
+        co_return false;
+    }
+
+    future<session_data> get_session_resume_data() override {
+        co_return session_data{};
     }
 
 private:
