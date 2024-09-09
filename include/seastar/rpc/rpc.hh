@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include <type_traits>
 #include <unordered_map>
 #include <unordered_set>
 #include <list>
@@ -218,7 +219,13 @@ class logger {
         // i.e. when the user still only defines a level-less logger.
         } else if (_logger && level <= log_level::info) {
             fmt::memory_buffer out;
-            fmt::format_to(fmt::appender(out), fmt::runtime(fmt), std::forward<Args>(args)...);
+
+            if constexpr (std::is_same_v<const char*, decltype(fmt)>) {
+                fmt::format_to(fmt::appender(out), fmt::runtime(fmt), std::forward<Args>(args)...);
+            } else {
+                fmt::format_to(fmt::appender(out), fmt, std::forward<Args>(args)...);
+            }
+
             _logger(sstring{out.data(), out.size()});
         }
     }
