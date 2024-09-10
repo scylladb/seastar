@@ -345,6 +345,7 @@ struct gnutls_datum : public gnutls_datum_t {
             return *this;
         }
         if (data != nullptr) {
+            ::gnutls_memset(data, 0, size);
             ::gnutls_free(data);
         }
         data = std::exchange(other.data, nullptr);
@@ -353,6 +354,7 @@ struct gnutls_datum : public gnutls_datum_t {
     }
     ~gnutls_datum() {
         if (data != nullptr) {
+            ::gnutls_memset(data, 0, size);
             ::gnutls_free(data);
         }
     }
