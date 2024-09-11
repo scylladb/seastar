@@ -32,17 +32,6 @@
 #include <sstream>
 #endif
 
-#if 0
-inline
-std::ostream&
-operator<<(std::ostream& os, const void* ptr) {
-    auto flags = os.flags();
-    os << "0x" << std::hex << reinterpret_cast<uintptr_t>(ptr);
-    os.flags(flags);
-    return os;
-}
-#endif
-
 SEASTAR_MODULE_EXPORT
 inline
 std::ostream&
