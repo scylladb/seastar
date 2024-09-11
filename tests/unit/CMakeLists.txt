@@ -471,10 +471,6 @@ seastar_add_test (source_location
 seastar_add_test (shared_token_bucket
   SOURCES shared_token_bucket_test.cc)
 
-seastar_add_test (prometheus_http
-  SOURCES
-    prometheus_http_test.cc)
-
 function(seastar_add_certgen name)
   cmake_parse_arguments(CERT
     ""
