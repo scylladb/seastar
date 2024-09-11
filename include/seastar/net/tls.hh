@@ -324,14 +324,6 @@ namespace tls {
     };
 
     /**
-     * Session resumption support. 
-     * We only support TLS1.3 session tickets.
-    */
-    enum class session_resume_mode {
-        NONE, TLS13_SESSION_TICKET
-    };
-
-    /**
      * Extending certificates and keys for server usage.
      * More probably goes in here...
      */

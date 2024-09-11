@@ -1375,12 +1375,6 @@ future<connected_socket> tls::wrap_server(shared_ptr<server_credentials> cred, c
     return make_ready_future<connected_socket>(std::move(sock));
 }
 
-future<connected_socket> tls::wrap_server(shared_ptr<server_credentials> cred, connected_socket&& s) {
-    session::session_ref sess(make_lw_shared<session>(session::type::SERVER, std::move(cred), std::move(s)));
-    connected_socket sock(std::make_unique<tls_connected_socket_impl>(std::move(sess)));
-    return make_ready_future<connected_socket>(std::move(sock));
-}
-
 }
 
 const int seastar::tls::ERROR_UNKNOWN_COMPRESSION_ALGORITHM = GNUTLS_E_UNKNOWN_COMPRESSION_ALGORITHM;
