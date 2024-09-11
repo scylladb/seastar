@@ -132,6 +132,8 @@ private:
     future<reply_ptr> maybe_wait_for_continue(const request& req);
     future<> write_body(const request& rq);
     future<reply_ptr> recv_reply();
+
+    void shutdown() noexcept;
 };
 
 /**
@@ -150,7 +152,7 @@ public:
      * The implementations of this method should return ready-to-use socket that will
      * be used by \ref client as transport for its http connections
      */
-    virtual future<connected_socket> make() = 0;
+    virtual future<connected_socket> make(abort_source*) = 0;
     virtual ~connection_factory() {}
 };
 
@@ -185,19 +187,20 @@ private:
 
     using connection_ptr = seastar::shared_ptr<connection>;
 
-    future<connection_ptr> get_connection();
-    future<connection_ptr> make_connection();
+    future<connection_ptr> get_connection(abort_source* as);
+    future<connection_ptr> make_connection(abort_source* as);
     future<> put_connection(connection_ptr con);
     future<> shrink_connections();
 
     template <std::invocable<connection&> Fn>
-    auto with_connection(Fn&& fn);
+    auto with_connection(Fn&& fn, abort_source*);
 
     template <typename Fn>
     requires std::invocable<Fn, connection&>
-    auto with_new_connection(Fn&& fn);
+    auto with_new_connection(Fn&& fn, abort_source*);
 
-    future<> do_make_request(connection& con, request& req, reply_handler& handle, std::optional<reply::status_type> expected);
+    future<> do_make_request(request req, reply_handler handle, abort_source*, std::optional<reply::status_type> expected);
+    future<> do_make_request(connection& con, request& req, reply_handler& handle, abort_source*, std::optional<reply::status_type> expected);
 
 public:
     /**
@@ -281,6 +284,18 @@ public:
      * in the middle of operation
      */
     future<> make_request(request req, reply_handler handle, std::optional<reply::status_type> expected = std::nullopt);
+
+    /**
+     * \brief Send the request and handle the response (abortable)
+     *
+     * Same as previous method, but aborts the request upon as.request_abort() call
+     *
+     * \param req -- request to be sent
+     * \param handle -- the response handler
+     * \param as -- abort source that aborts the request
+     * \param expected -- the optional expected reply status code, default is std::nullopt
+     */
+    future<> make_request(request req, reply_handler handle, abort_source& as, std::optional<reply::status_type> expected = std::nullopt);
 
     /**
      * \brief Updates the maximum number of connections a client may have

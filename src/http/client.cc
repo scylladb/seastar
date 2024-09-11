@@ -189,6 +189,11 @@ input_stream<char> connection::in(reply& rep) {
     return input_stream<char>(data_source(std::make_unique<httpd::internal::content_length_source_impl>(_read_buf, rep.content_length)));
 }
 
+void connection::shutdown() noexcept {
+    _persistent = false;
+    _fd.shutdown_input();
+}
+
 future<> connection::close() {
     return when_all(_read_buf.close(), _write_buf.close()).discard_result().then([this] {
         auto la = _fd.local_address();
@@ -205,7 +210,7 @@ public:
             : _addr(std::move(addr))
     {
     }
-    virtual future<connected_socket> make() override {
+    virtual future<connected_socket> make(abort_source* as) override {
         return seastar::connect(_addr, {}, transport::TCP);
     }
 };
@@ -226,7 +231,7 @@ public:
             , _host(std::move(host))
     {
     }
-    virtual future<connected_socket> make() override {
+    virtual future<connected_socket> make(abort_source* as) override {
         return tls::connect(_creds, _addr, tls::tls_options{.server_name = _host});
     }
 };
@@ -243,7 +248,7 @@ client::client(std::unique_ptr<connection_factory> f, unsigned max_connections, 
 {
 }
 
-future<client::connection_ptr> client::get_connection() {
+future<client::connection_ptr> client::get_connection(abort_source* as) {
     if (!_pool.empty()) {
         connection_ptr con = _pool.front().shared_from_this();
         _pool.pop_front();
@@ -252,17 +257,21 @@ future<client::connection_ptr> client::get_connection() {
     }
 
     if (_nr_connections >= _max_connections) {
-        return _wait_con.wait().then([this] {
-            return get_connection();
+        auto sub = as ? as->subscribe([this] () noexcept { _wait_con.broadcast(); }) : std::nullopt;
+        return _wait_con.wait().then([this, as, sub = std::move(sub)] {
+            if (as != nullptr && as->abort_requested()) {
+                return make_exception_future<client::connection_ptr>(as->abort_requested_exception_ptr());
+            }
+            return get_connection(as);
         });
     }
 
-    return make_connection();
+    return make_connection(as);
 }
 
-future<client::connection_ptr> client::make_connection() {
+future<client::connection_ptr> client::make_connection(abort_source* as) {
     _total_new_connections++;
-    return _new_connections->make().then([cr = internal::client_ref(this)] (connected_socket cs) mutable {
+    return _new_connections->make(as).then([cr = internal::client_ref(this)] (connected_socket cs) mutable {
         http_log.trace("created new http connection {}", cs.local_address());
         auto con = seastar::make_shared<connection>(std::move(cs), std::move(cr));
         return make_ready_future<connection_ptr>(std::move(con));
@@ -311,8 +320,8 @@ future<> client::set_maximum_connections(unsigned nr) {
 }
 
 template <std::invocable<connection&> Fn>
-auto client::with_connection(Fn&& fn) {
-    return get_connection().then([this, fn = std::move(fn)] (connection_ptr con) mutable {
+auto client::with_connection(Fn&& fn, abort_source* as) {
+    return get_connection(as).then([this, fn = std::move(fn)] (connection_ptr con) mutable {
         return fn(*con).finally([this, con = std::move(con)] () mutable {
             return put_connection(std::move(con));
         });
@@ -321,8 +330,8 @@ auto client::with_connection(Fn&& fn) {
 
 template <typename Fn>
 requires std::invocable<Fn, connection&>
-auto client::with_new_connection(Fn&& fn) {
-    return make_connection().then([this, fn = std::move(fn)] (connection_ptr con) mutable {
+auto client::with_new_connection(Fn&& fn, abort_source* as) {
+    return make_connection(as).then([this, fn = std::move(fn)] (connection_ptr con) mutable {
         return fn(*con).finally([this, con = std::move(con)] () mutable {
             return put_connection(std::move(con));
         });
@@ -330,32 +339,43 @@ auto client::with_new_connection(Fn&& fn) {
 }
 
 future<> client::make_request(request req, reply_handler handle, std::optional<reply::status_type> expected) {
-    return do_with(std::move(req), std::move(handle), [this, expected] (request& req, reply_handler& handle) mutable {
-        auto f = with_connection([this, &req, &handle, expected] (connection& con) {
-            return do_make_request(con, req, handle, expected);
+    return do_make_request(std::move(req), std::move(handle), nullptr, std::move(expected));
+}
+
+future<> client::make_request(request req, reply_handler handle, abort_source& as, std::optional<reply::status_type> expected) {
+    return do_make_request(std::move(req), std::move(handle), &as, std::move(expected));
+}
+
+future<> client::do_make_request(request req, reply_handler handle, abort_source* as, std::optional<reply::status_type> expected) {
+    return do_with(std::move(req), std::move(handle), [this, as, expected] (request& req, reply_handler& handle) mutable {
+        return with_connection([this, &req, &handle, as, expected] (connection& con) {
+            return do_make_request(con, req, handle, as, expected);
+        }, as).handle_exception_type([this, &req, &handle, as, expected] (const std::system_error& ex) {
+            if (as && as->abort_requested()) {
+                return make_exception_future<>(as->abort_requested_exception_ptr());
+            }
+
+            if (!_retry) {
+                return make_exception_future<>(ex);
+            }
+
+            auto code = ex.code().value();
+            if ((code != EPIPE) && (code != ECONNABORTED)) {
+                return make_exception_future<>(ex);
+            }
+
+            // The 'con' connection may not yet be freed, so the total connection
+            // count still account for it and with_new_connection() may temporarily
+            // break the limit. That's OK, the 'con' will be closed really soon
+            return with_new_connection([this, &req, &handle, as, expected] (connection& con) {
+                return do_make_request(con, req, handle, as, expected);
+            }, as);
         });
-
-        if (_retry) {
-            f = f.handle_exception_type([this, &req, &handle, expected] (const std::system_error& ex) {
-                auto code = ex.code().value();
-                if ((code != EPIPE) && (code != ECONNABORTED)) {
-                    return make_exception_future<>(ex);
-                }
-
-                // The 'con' connection may not yet be freed, so the total connection
-                // count still account for it and with_new_connection() may temporarily
-                // break the limit. That's OK, the 'con' will be closed really soon
-                return with_new_connection([this, &req, &handle, expected] (connection& con) {
-                    return do_make_request(con, req, handle, expected);
-                });
-            });
-        }
-
-        return f;
     });
 }
 
-future<> client::do_make_request(connection& con, request& req, reply_handler& handle, std::optional<reply::status_type> expected) {
+future<> client::do_make_request(connection& con, request& req, reply_handler& handle, abort_source* as, std::optional<reply::status_type> expected) {
+    auto sub = as ? as->subscribe([&con] () noexcept { con.shutdown(); }) : std::nullopt;
     return con.do_make_request(req).then([&con, &handle, expected] (connection::reply_ptr reply) mutable {
         auto& rep = *reply;
         if (expected.has_value() && rep._status != expected.value()) {
@@ -375,7 +395,7 @@ future<> client::do_make_request(connection& con, request& req, reply_handler& h
     }).handle_exception([&con] (auto ex) mutable {
         con._persistent = false;
         return make_exception_future<>(std::move(ex));
-    });
+    }).finally([sub = std::move(sub)] {});
 }
 
 future<> client::close() {
