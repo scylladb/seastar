@@ -239,9 +239,9 @@ future<client::connection_ptr> client::make_connection(abort_source* as) {
     _total_new_connections++;
     auto cr = internal::client_ref(this);
     connected_socket cs = co_await _new_connections->make(as);
-        http_log.trace("created new http connection {}", cs.local_address());
-        auto con = seastar::make_shared<connection>(std::move(cs), std::move(cr));
-        co_return con;
+    http_log.trace("created new http connection {}", cs.local_address());
+    auto con = seastar::make_shared<connection>(std::move(cs), std::move(cr));
+    co_return con;
 }
 
 future<> client::put_connection(connection_ptr con) {
