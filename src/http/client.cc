@@ -227,10 +227,10 @@ try_again:
     if (_nr_connections >= _max_connections) {
         auto sub = as ? as->subscribe([this] () noexcept { _wait_con.broadcast(); }) : std::nullopt;
         co_await _wait_con.wait();
-            if (as != nullptr && as->abort_requested()) {
-                std::rethrow_exception(as->abort_requested_exception_ptr());
-            }
-            goto try_again;
+        if (as != nullptr && as->abort_requested()) {
+            std::rethrow_exception(as->abort_requested_exception_ptr());
+        }
+        goto try_again;
     }
 
     co_return co_await make_connection(as);
