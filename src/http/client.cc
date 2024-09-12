@@ -336,26 +336,25 @@ future<> client::do_make_request(request req, reply_handler handle, abort_source
 
 future<> client::do_make_request(connection& con, request& req, reply_handler& handle, abort_source* as, std::optional<reply::status_type> expected) {
     auto sub = as ? as->subscribe([&con] () noexcept { con.shutdown(); }) : std::nullopt;
-    return con.do_make_request(req).then([&con, &handle, expected] (connection::reply_ptr reply) mutable {
+    try {
+        connection::reply_ptr reply = co_await con.do_make_request(req);
         auto& rep = *reply;
         if (expected.has_value() && rep._status != expected.value()) {
             if (!http_log.is_enabled(log_level::debug)) {
-                return make_exception_future<>(httpd::unexpected_status_error(rep._status));
+                throw httpd::unexpected_status_error(reply->_status);
             }
 
-            return do_with(con.in(rep), [reply = std::move(reply)] (auto& in) mutable {
-                return util::read_entire_stream_contiguous(in).then([reply = std::move(reply)] (auto message) {
-                    http_log.debug("request finished with {}: {}", reply->_status, message);
-                    return make_exception_future<>(httpd::unexpected_status_error(reply->_status));
-                });
-            });
+            auto in = con.in(*reply);
+            auto message = co_await util::read_entire_stream_contiguous(in);
+            http_log.debug("request finished with {}: {}", reply->_status, message);
+            throw httpd::unexpected_status_error(reply->_status);
         }
 
-        return handle(rep, con.in(rep)).finally([reply = std::move(reply)] {});
-    }).handle_exception([&con] (auto ex) mutable {
+        co_await handle(rep, con.in(rep));
+    } catch (...) {
         con._persistent = false;
-        return make_exception_future<>(std::move(ex));
-    }).finally([sub = std::move(sub)] {});
+        throw;
+    }
 }
 
 future<> client::close() {
