@@ -122,9 +122,8 @@ future<> connection::send_request_head(const request& req) {
 
 future<connection::reply_ptr> connection::recv_reply() {
     http_response_parser parser;
-    return do_with(std::move(parser), [this] (auto& parser) {
-        parser.init();
-        return _read_buf.consume(parser).then([this, &parser] {
+    parser.init();
+    co_await _read_buf.consume(parser);
             if (parser.eof()) {
                 http_log.trace("Parsing response EOFed");
                 throw std::system_error(ECONNABORTED, std::system_category());
@@ -140,9 +139,7 @@ future<connection::reply_ptr> connection::recv_reply() {
             if ((resp->_version != "1.1") || seastar::internal::case_insensitive_cmp()(resp->get_header("Connection"), "close")) {
                 _persistent = false;
             }
-            return make_ready_future<reply_ptr>(std::move(resp));
-        });
-    });
+            co_return resp;
 }
 
 future<connection::reply_ptr> connection::do_make_request(request& req) {
