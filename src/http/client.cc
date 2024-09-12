@@ -163,12 +163,10 @@ void connection::shutdown() noexcept {
 }
 
 future<> connection::close() {
-    return when_all(_read_buf.close(), _write_buf.close()).discard_result().then([this] {
+    co_await when_all(_read_buf.close(), _write_buf.close());
         auto la = _fd.local_address();
-        return std::move(_closed).then([la = std::move(la)] {
+        co_await std::move(_closed);
             http_log.trace("destroyed connection {}", la);
-        });
-    });
 }
 
 class basic_connection_factory : public connection_factory {
