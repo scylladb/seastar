@@ -307,31 +307,31 @@ future<> client::make_request(request req, reply_handler handle, abort_source& a
 }
 
 future<> client::do_make_request(request req, reply_handler handle, abort_source* as, std::optional<reply::status_type> expected) {
-    return do_with(std::move(req), std::move(handle), [this, as, expected] (request& req, reply_handler& handle) mutable {
-        return with_connection([this, &req, &handle, as, expected] (connection& con) {
-            return do_make_request(con, req, handle, as, expected);
-        }, as).handle_exception_type([this, &req, &handle, as, expected] (const std::system_error& ex) {
+    try {
+        co_return co_await with_connection(coroutine::lambda([this, &req, &handle, as, expected] (connection& con) -> future<> {
+            co_await do_make_request(con, req, handle, as, expected);
+        }), as);
+    } catch (const std::system_error& ex) {
             if (as && as->abort_requested()) {
-                return make_exception_future<>(as->abort_requested_exception_ptr());
+                std::rethrow_exception(as->abort_requested_exception_ptr());
             }
 
             if (!_retry) {
-                return make_exception_future<>(ex);
+                throw;
             }
 
             auto code = ex.code().value();
             if ((code != EPIPE) && (code != ECONNABORTED)) {
-                return make_exception_future<>(ex);
+                throw;
             }
+    }
 
             // The 'con' connection may not yet be freed, so the total connection
             // count still account for it and with_new_connection() may temporarily
             // break the limit. That's OK, the 'con' will be closed really soon
-            return with_new_connection([this, &req, &handle, as, expected] (connection& con) {
-                return do_make_request(con, req, handle, as, expected);
-            }, as);
-        });
-    });
+            co_await with_new_connection(coroutine::lambda([this, &req, &handle, as, expected] (connection& con) -> future<> {
+                co_await do_make_request(con, req, handle, as, expected);
+            }), as);
 }
 
 future<> client::do_make_request(connection& con, request& req, reply_handler& handle, abort_source* as, std::optional<reply::status_type> expected) {
