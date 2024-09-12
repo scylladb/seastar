@@ -359,16 +359,12 @@ future<> client::do_make_request(connection& con, request& req, reply_handler& h
 }
 
 future<> client::close() {
-    if (_pool.empty()) {
-        return make_ready_future<>();
-    }
-
+  while (!_pool.empty()) {
     connection_ptr con = _pool.front().shared_from_this();
     _pool.pop_front();
     http_log.trace("closing connection {}", con->_fd.local_address());
-    return con->close().then([this, con] {
-        return close();
-    });
+    co_await con->close();
+  }
 }
 
 } // experimental namespace
