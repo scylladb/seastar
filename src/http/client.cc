@@ -273,11 +273,11 @@ future<> client::set_maximum_connections(unsigned nr) {
     if (nr > _max_connections) {
         _max_connections = nr;
         _wait_con.broadcast();
-        return make_ready_future<>();
+        co_return;
     }
 
     _max_connections = nr;
-    return shrink_connections();
+    co_await shrink_connections();
 }
 
 template <std::invocable<connection&> Fn>
