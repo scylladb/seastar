@@ -144,19 +144,15 @@ future<connection::reply_ptr> connection::recv_reply() {
 
 future<connection::reply_ptr> connection::do_make_request(request& req) {
     setup_request(req);
-    return send_request_head(req).then([this, &req] {
-        return maybe_wait_for_continue(req).then([this, &req] (reply_ptr cont) {
+    co_await send_request_head(req);
+    reply_ptr cont = co_await maybe_wait_for_continue(req);
             if (cont) {
-                return make_ready_future<reply_ptr>(std::move(cont));
+                co_return cont;
             }
 
-            return write_body(req).then([this] {
-                return _write_buf.flush().then([this] {
-                    return recv_reply();
-                });
-            });
-        });
-    });
+    co_await write_body(req);
+    co_await _write_buf.flush();
+    co_return co_await recv_reply();
 }
 
 future<reply> connection::make_request(request req) {
