@@ -195,7 +195,7 @@ private:
 
     template <typename Fn>
     requires std::invocable<Fn, connection&>
-    auto with_new_connection(Fn&& fn, abort_source*);
+    futurize_t<std::invoke_result_t<Fn, connection&>> with_new_connection(Fn fn, abort_source*);
 
     future<> do_make_request(request req, reply_handler handle, abort_source*, std::optional<reply::status_type> expected);
     future<> do_make_request(connection& con, request& req, reply_handler& handle, abort_source*, std::optional<reply::status_type> expected);

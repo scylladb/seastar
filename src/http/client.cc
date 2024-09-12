@@ -291,12 +291,11 @@ futurize_t<std::invoke_result_t<Fn, connection&>> client::with_connection(Fn fn,
 
 template <typename Fn>
 requires std::invocable<Fn, connection&>
-auto client::with_new_connection(Fn&& fn, abort_source* as) {
-    return make_connection(as).then([this, fn = std::move(fn)] (connection_ptr con) mutable {
-        return fn(*con).finally([this, con = std::move(con)] () mutable {
-            return put_connection(std::move(con));
-        });
-    });
+futurize_t<std::invoke_result_t<Fn, connection&>> client::with_new_connection(Fn fn, abort_source* as) {
+    connection_ptr con = co_await make_connection(as);
+    auto f = co_await coroutine::as_future(futurize_invoke(std::move(fn), *con));
+    co_await put_connection(std::move(con));
+    co_return co_await std::move(f);
 }
 
 future<> client::make_request(request req, reply_handler handle, std::optional<reply::status_type> expected) {
