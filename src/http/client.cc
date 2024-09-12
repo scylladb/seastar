@@ -340,13 +340,11 @@ future<> client::do_make_request(connection& con, request& req, reply_handler& h
         connection::reply_ptr reply = co_await con.do_make_request(req);
         auto& rep = *reply;
         if (expected.has_value() && rep._status != expected.value()) {
-            if (!http_log.is_enabled(log_level::debug)) {
-                throw httpd::unexpected_status_error(reply->_status);
+            if (http_log.is_enabled(log_level::debug)) {
+                auto in = con.in(*reply);
+                auto message = co_await util::read_entire_stream_contiguous(in);
+                http_log.debug("request finished with {}: {}", reply->_status, message);
             }
-
-            auto in = con.in(*reply);
-            auto message = co_await util::read_entire_stream_contiguous(in);
-            http_log.debug("request finished with {}: {}", reply->_status, message);
             throw httpd::unexpected_status_error(reply->_status);
         }
 
