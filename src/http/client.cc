@@ -249,11 +249,11 @@ future<> client::put_connection(connection_ptr con) {
         http_log.trace("push http connection {} to pool", con->_fd.local_address());
         _pool.push_back(*con);
         _wait_con.signal();
-        return make_ready_future<>();
+        co_return;
     }
 
     http_log.trace("dropping connection {}", con->_fd.local_address());
-    return con->close().finally([con] {});
+    co_await con->close();
 }
 
 future<> client::shrink_connections() {
