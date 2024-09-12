@@ -257,16 +257,16 @@ future<> client::put_connection(connection_ptr con) {
 }
 
 future<> client::shrink_connections() {
-  while (_nr_connections > _max_connections) {
-    if (!_pool.empty()) {
-        connection_ptr con = _pool.front().shared_from_this();
-        _pool.pop_front();
-        co_await con->close();
-        continue;
-    }
+    while (_nr_connections > _max_connections) {
+        if (!_pool.empty()) {
+            connection_ptr con = _pool.front().shared_from_this();
+            _pool.pop_front();
+            co_await con->close();
+            continue;
+        }
 
-    co_await _wait_con.wait();
-  }
+        co_await _wait_con.wait();
+    }
 }
 
 future<> client::set_maximum_connections(unsigned nr) {
