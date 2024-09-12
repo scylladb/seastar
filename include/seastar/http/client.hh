@@ -152,7 +152,7 @@ public:
      * The implementations of this method should return ready-to-use socket that will
      * be used by \ref client as transport for its http connections
      */
-    virtual future<connected_socket> make(abort_source*) = 0;
+    virtual future<connected_socket> make(abort_source* = nullptr) = 0;
     virtual ~connection_factory() {}
 };
 

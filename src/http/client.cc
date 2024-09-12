@@ -210,7 +210,7 @@ public:
             : _addr(std::move(addr))
     {
     }
-    virtual future<connected_socket> make(abort_source* as) override {
+    virtual future<connected_socket> make(abort_source* as = nullptr) override {
         return seastar::connect(_addr, {}, transport::TCP);
     }
 };

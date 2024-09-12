@@ -46,7 +46,7 @@ class loopback_http_factory : public http::experimental::connection_factory {
     loopback_socket_impl lsi;
 public:
     explicit loopback_http_factory(loopback_connection_factory& f) : lsi(f) {}
-    virtual future<connected_socket> make(abort_source* as) override {
+    virtual future<connected_socket> make(abort_source* as = nullptr) override {
         return lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr()));
     }
 };
@@ -957,7 +957,7 @@ SEASTAR_TEST_CASE(test_client_response_parse_error) {
 SEASTAR_TEST_CASE(test_client_abort_new_conn) {
     class delayed_factory : public http::experimental::connection_factory {
     public:
-        virtual future<connected_socket> make(abort_source* as) override {
+        virtual future<connected_socket> make(abort_source* as = nullptr) override {
             assert(as != nullptr);
             return sleep_abortable(std::chrono::seconds(1), *as).then([] {
                 return make_exception_future<connected_socket>(std::runtime_error("Shouldn't happen"));
