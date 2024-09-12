@@ -356,7 +356,13 @@ set (Seastar_SANITIZE
   "DEFAULT"
   CACHE
   STRING
-  "Enable ASAN and UBSAN. Can be ON, OFF or DEFAULT (which enables it for Debug and Sanitize)")
+  "Enable sanitizers. Can be ON, OFF or DEFAULT (which enables it for Debug and Sanitize)")
+
+set (Seastar_SANITIZERS
+  "address;undefined_behavior"
+  CACHE
+  STRING
+  "Sanitizers enabled when building Seastar")
 
 set (Seastar_DEBUG_SHARED_PTR
   "DEFAULT"
@@ -372,9 +378,29 @@ set (Seastar_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set (Seastar_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
 set (Seastar_GEN_BINARY_DIR ${Seastar_BINARY_DIR}/gen)
 
+include (TriStateOption)
+tri_state_option (${Seastar_SANITIZE}
+  DEFAULT_BUILD_TYPES "Debug" "Sanitize"
+  CONDITION sanitizers_enabled)
+
+if (NOT sanitizers_enabled)
+  set (Seastar_SANITIZERS "")
+endif ()
+
 #
 # Dependencies.
 #
+
+if (NOT Seastar_SANITIZE)
+  # Sanitizers are disabled for all build modes
+  set (Seastar_SANITIZERS_COMPONENTS)
+elseif (Seastar_SANITIZE STREQUAL "ON")
+  # Sanitizers are enabled for all build modes
+  set (Seastar_SANITIZERS_COMPONENTS ${Seastar_SANITIZERS})
+elseif (CMAKE_BUILD_TYPE MATCHES "Debug|Sanitize")
+  # Sanitizers are enabled only for preconfigured modes
+  set (Seastar_SANITIZERS_COMPONENTS ${Seastar_SANITIZERS})
+endif ()
 
 include (SeastarDependencies)
 seastar_find_dependencies ()
@@ -863,19 +889,16 @@ if (Seastar_DPDK)
       DPDK::dpdk)
 endif ()
 
-include (TriStateOption)
-tri_state_option (${Seastar_SANITIZE}
-  DEFAULT_BUILD_TYPES "Debug" "Sanitize"
-  CONDITION condition)
-if (condition)
+if (sanitizers_enabled)
   if (NOT Sanitizers_FOUND)
     message (FATAL_ERROR "Sanitizers not found!")
   endif ()
-  set (Seastar_Sanitizers_OPTIONS $<${condition}:${Sanitizers_COMPILE_OPTIONS}>)
-  target_link_libraries (seastar
-    PUBLIC
-      $<${condition}:Sanitizers::address>
-      $<${condition}:Sanitizers::undefined_behavior>)
+  set (Seastar_Sanitizers_OPTIONS $<${sanitizers_enabled}:${Sanitizers_COMPILE_OPTIONS}>)
+  foreach (component ${Seastar_SANITIZERS})
+    target_link_libraries (seastar
+      PUBLIC
+        $<${sanitizers_enabled}:Sanitizers::${component}>)
+  endforeach ()
 endif ()
 
 # We only need valgrind to find uninitialized memory uses, so disable
