@@ -216,24 +216,24 @@ client::client(std::unique_ptr<connection_factory> f, unsigned max_connections, 
 }
 
 future<client::connection_ptr> client::get_connection(abort_source* as) {
+try_again:
     if (!_pool.empty()) {
         connection_ptr con = _pool.front().shared_from_this();
         _pool.pop_front();
         http_log.trace("pop http connection {} from pool", con->_fd.local_address());
-        return make_ready_future<connection_ptr>(con);
+        co_return con;
     }
 
     if (_nr_connections >= _max_connections) {
         auto sub = as ? as->subscribe([this] () noexcept { _wait_con.broadcast(); }) : std::nullopt;
-        return _wait_con.wait().then([this, as, sub = std::move(sub)] {
+        co_await _wait_con.wait();
             if (as != nullptr && as->abort_requested()) {
-                return make_exception_future<client::connection_ptr>(as->abort_requested_exception_ptr());
+                std::rethrow_exception(as->abort_requested_exception_ptr());
             }
-            return get_connection(as);
-        });
+            goto try_again;
     }
 
-    return make_connection(as);
+    co_return co_await make_connection(as);
 }
 
 future<client::connection_ptr> client::make_connection(abort_source* as) {
