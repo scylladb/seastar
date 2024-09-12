@@ -24,6 +24,7 @@ module;
 #endif
 
 #include <concepts>
+#include <coroutine>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -77,21 +78,16 @@ connection::connection(connected_socket&& fd, internal::client_ref cr)
 future<> connection::write_body(const request& req) {
     if (req.body_writer) {
         if (req.content_length != 0) {
-            return req.body_writer(internal::make_http_content_length_output_stream(_write_buf, req.content_length, req._bytes_written)).then([&req] {
-                if (req.content_length == req._bytes_written) {
-                    return make_ready_future<>();
-                } else {
-                    return make_exception_future<>(std::runtime_error(format("partial request body write, need {} sent {}", req.content_length, req._bytes_written)));
-                }
-            });
+            co_await req.body_writer(internal::make_http_content_length_output_stream(_write_buf, req.content_length, req._bytes_written));
+            if (req.content_length != req._bytes_written) {
+                throw std::runtime_error(format("partial request body write, need {} sent {}", req.content_length, req._bytes_written));
+            }
+        } else {
+            co_await req.body_writer(internal::make_http_chunked_output_stream(_write_buf));
+            co_await _write_buf.write("0\r\n\r\n");
         }
-        return req.body_writer(internal::make_http_chunked_output_stream(_write_buf)).then([this] {
-            return _write_buf.write("0\r\n\r\n");
-        });
     } else if (!req.content.empty()) {
-        return _write_buf.write(req.content);
-    } else {
-        return make_ready_future<>();
+        co_await _write_buf.write(req.content);
     }
 }
 
