@@ -146,9 +146,9 @@ future<connection::reply_ptr> connection::do_make_request(request& req) {
     setup_request(req);
     co_await send_request_head(req);
     reply_ptr cont = co_await maybe_wait_for_continue(req);
-            if (cont) {
-                co_return cont;
-            }
+    if (cont) {
+        co_return cont;
+    }
 
     co_await write_body(req);
     co_await _write_buf.flush();
