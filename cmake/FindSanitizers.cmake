@@ -33,8 +33,6 @@ foreach (component ${Sanitizers_FIND_COMPONENTS})
     list (APPEND ${compile_options} -fsanitize=address)
   elseif (component STREQUAL "undefined_behavior")
     list (APPEND ${compile_options} -fsanitize=undefined)
-    # Disable vptr because of https://gcc.gnu.org/bugzilla/show_bug.cgi?id=88684
-    list (APPEND ${compile_options} -fno-sanitize=vptr)
   else ()
     message (FATAL_ERROR "Unsupported sanitizer: ${component}")
   endif ()
