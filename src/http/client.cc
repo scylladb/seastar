@@ -92,19 +92,14 @@ future<> connection::write_body(const request& req) {
 }
 
 future<connection::reply_ptr> connection::maybe_wait_for_continue(const request& req) {
-    if (req.get_header("Expect") == "") {
-        return make_ready_future<reply_ptr>(nullptr);
+    if (req.get_header("Expect") != "") {
+        co_await _write_buf.flush();
+        reply_ptr rep = co_await recv_reply();
+        if (rep->_status != reply::status_type::continue_) {
+            co_return rep;
+        }
     }
-
-    return _write_buf.flush().then([this] {
-        return recv_reply().then([] (reply_ptr rep) {
-            if (rep->_status == reply::status_type::continue_) {
-                return make_ready_future<reply_ptr>(nullptr);
-            } else {
-                return make_ready_future<reply_ptr>(std::move(rep));
-            }
-        });
-    });
+    co_return nullptr;
 }
 
 void connection::setup_request(request& req) {
