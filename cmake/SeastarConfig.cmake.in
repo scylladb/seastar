@@ -32,6 +32,21 @@ list (APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR})
 include (SeastarDependencies)
 seastar_find_dependencies ()
 
-if (NOT TARGET Seastar::seastar)
+if (NOT (TARGET Seastar::seastar-static OR TARGET Seastar::seastar-shared))
   include ("${CMAKE_CURRENT_LIST_DIR}/SeastarTargets.cmake")
 endif ()
+
+# make sure libraries like Seastar::seastar always exist
+foreach (component seastar seastar_testing seastar_perf_testing)
+  if (TARGET Seastar::${component})
+    continue ()
+  endif ()
+
+  # prefer static libraries over the shared ones
+  foreach (type static shared)
+    if (TARGET Seastar::${component}-${type})
+      add_library (Seastar::${component} ALIAS Seastar::${component}-${type})
+      break ()
+    endif ()
+  endforeach ()
+endforeach ()
