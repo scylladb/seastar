@@ -91,17 +91,6 @@ future<> connection::write_body(const request& req) {
     }
 }
 
-future<connection::reply_ptr> connection::maybe_wait_for_continue(const request& req) {
-    if (req.get_header("Expect") != "") {
-        co_await _write_buf.flush();
-        reply_ptr rep = co_await recv_reply();
-        if (rep->_status != reply::status_type::continue_) {
-            co_return rep;
-        }
-    }
-    co_return nullptr;
-}
-
 void connection::setup_request(request& req) {
     if (req._version.empty()) {
         req._version = "1.1";
@@ -145,9 +134,13 @@ future<connection::reply_ptr> connection::recv_reply() {
 future<connection::reply_ptr> connection::do_make_request(request& req) {
     setup_request(req);
     co_await send_request_head(req);
-    reply_ptr cont = co_await maybe_wait_for_continue(req);
-    if (cont) {
-        co_return cont;
+
+    if (req.get_header("Expect") != "") {
+        co_await _write_buf.flush();
+        reply_ptr rep = co_await recv_reply();
+        if (rep->_status != reply::status_type::continue_) {
+            co_return rep;
+        }
     }
 
     co_await write_body(req);
