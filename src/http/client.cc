@@ -312,26 +312,26 @@ future<> client::do_make_request(request req, reply_handler handle, abort_source
             co_await do_make_request(con, req, handle, as, expected);
         }), as);
     } catch (const std::system_error& ex) {
-            if (as && as->abort_requested()) {
-                std::rethrow_exception(as->abort_requested_exception_ptr());
-            }
+        if (as && as->abort_requested()) {
+            std::rethrow_exception(as->abort_requested_exception_ptr());
+        }
 
-            if (!_retry) {
-                throw;
-            }
+        if (!_retry) {
+            throw;
+        }
 
-            auto code = ex.code().value();
-            if ((code != EPIPE) && (code != ECONNABORTED)) {
-                throw;
-            }
+        auto code = ex.code().value();
+        if ((code != EPIPE) && (code != ECONNABORTED)) {
+            throw;
+        }
     }
 
-            // The 'con' connection may not yet be freed, so the total connection
-            // count still account for it and with_new_connection() may temporarily
-            // break the limit. That's OK, the 'con' will be closed really soon
-            co_await with_new_connection(coroutine::lambda([this, &req, &handle, as, expected] (connection& con) -> future<> {
-                co_await do_make_request(con, req, handle, as, expected);
-            }), as);
+    // The 'con' connection may not yet be freed, so the total connection
+    // count still account for it and with_new_connection() may temporarily
+    // break the limit. That's OK, the 'con' will be closed really soon
+    co_await with_new_connection(coroutine::lambda([this, &req, &handle, as, expected] (connection& con) -> future<> {
+        co_await do_make_request(con, req, handle, as, expected);
+    }), as);
 }
 
 future<> client::do_make_request(connection& con, request& req, reply_handler& handle, abort_source* as, std::optional<reply::status_type> expected) {
