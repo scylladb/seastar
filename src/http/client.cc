@@ -103,12 +103,6 @@ void connection::setup_request(request& req) {
     }
 }
 
-future<> connection::send_request_head(const request& req) {
-    co_await _write_buf.write(req.request_line());
-    co_await req.write_request_headers(_write_buf);
-    co_await _write_buf.write("\r\n", 2);
-}
-
 future<connection::reply_ptr> connection::recv_reply() {
     http_response_parser parser;
     parser.init();
@@ -133,7 +127,9 @@ future<connection::reply_ptr> connection::recv_reply() {
 
 future<connection::reply_ptr> connection::do_make_request(request& req) {
     setup_request(req);
-    co_await send_request_head(req);
+    co_await _write_buf.write(req.request_line());
+    co_await req.write_request_headers(_write_buf);
+    co_await _write_buf.write("\r\n", 2);
 
     if (req.get_header("Expect") != "") {
         co_await _write_buf.flush();
