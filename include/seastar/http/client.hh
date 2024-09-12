@@ -191,7 +191,7 @@ private:
     future<> shrink_connections();
 
     template <std::invocable<connection&> Fn>
-    auto with_connection(Fn&& fn, abort_source*);
+    futurize_t<std::invoke_result_t<Fn, connection&>> with_connection(Fn fn, abort_source*);
 
     template <typename Fn>
     requires std::invocable<Fn, connection&>

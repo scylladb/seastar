@@ -36,6 +36,7 @@ module seastar;
 #include <seastar/core/loop.hh>
 #include <seastar/core/when_all.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/coroutine/as_future.hh>
 #include <seastar/net/tls.hh>
 #include <seastar/http/client.hh>
 #include <seastar/http/request.hh>
@@ -281,12 +282,11 @@ future<> client::set_maximum_connections(unsigned nr) {
 }
 
 template <std::invocable<connection&> Fn>
-auto client::with_connection(Fn&& fn, abort_source* as) {
-    return get_connection(as).then([this, fn = std::move(fn)] (connection_ptr con) mutable {
-        return fn(*con).finally([this, con = std::move(con)] () mutable {
-            return put_connection(std::move(con));
-        });
-    });
+futurize_t<std::invoke_result_t<Fn, connection&>> client::with_connection(Fn fn, abort_source* as) {
+    connection_ptr con = co_await get_connection(as);
+    auto f = co_await coroutine::as_future(futurize_invoke(std::move(fn), *con));
+    co_await put_connection(std::move(con));
+    co_return co_await std::move(f);
 }
 
 template <typename Fn>
