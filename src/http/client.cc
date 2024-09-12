@@ -124,22 +124,22 @@ future<connection::reply_ptr> connection::recv_reply() {
     http_response_parser parser;
     parser.init();
     co_await _read_buf.consume(parser);
-            if (parser.eof()) {
-                http_log.trace("Parsing response EOFed");
-                throw std::system_error(ECONNABORTED, std::system_category());
-            }
-            if (parser.failed()) {
-                http_log.trace("Parsing response failed");
-                throw std::runtime_error("Invalid http server response");
-            }
+    if (parser.eof()) {
+        http_log.trace("Parsing response EOFed");
+        throw std::system_error(ECONNABORTED, std::system_category());
+    }
+    if (parser.failed()) {
+        http_log.trace("Parsing response failed");
+        throw std::runtime_error("Invalid http server response");
+    }
 
-            auto resp = parser.get_parsed_response();
-            sstring length_header = resp->get_header("Content-Length");
-            resp->content_length = strtol(length_header.c_str(), nullptr, 10);
-            if ((resp->_version != "1.1") || seastar::internal::case_insensitive_cmp()(resp->get_header("Connection"), "close")) {
-                _persistent = false;
-            }
-            co_return resp;
+    auto resp = parser.get_parsed_response();
+    sstring length_header = resp->get_header("Content-Length");
+    resp->content_length = strtol(length_header.c_str(), nullptr, 10);
+    if ((resp->_version != "1.1") || seastar::internal::case_insensitive_cmp()(resp->get_header("Connection"), "close")) {
+        _persistent = false;
+    }
+    co_return resp;
 }
 
 future<connection::reply_ptr> connection::do_make_request(request& req) {
