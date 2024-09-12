@@ -145,11 +145,8 @@ future<connection::reply_ptr> connection::do_make_request(request& req) {
 }
 
 future<reply> connection::make_request(request req) {
-    return do_with(std::move(req), [this] (auto& req) {
-        return do_make_request(req).then([] (reply_ptr rep) {
-            return make_ready_future<reply>(std::move(*rep));
-        });
-    });
+    reply_ptr rep = co_await do_make_request(req);
+    co_return std::move(*rep);
 }
 
 input_stream<char> connection::in(reply& rep) {
