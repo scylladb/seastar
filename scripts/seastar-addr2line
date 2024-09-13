@@ -19,21 +19,21 @@
 # Copyright (C) 2017 ScyllaDB
 
 import argparse
+from typing import Any, Optional, Sequence, TextIO
 import unittest
-import re
 import sys
 
 from addr2line import BacktraceResolver
 
 
-def read_backtrace(stdin):
+def read_backtrace(stdin: TextIO):
     """
     Read stdin char-by-char and stop when when user pressed Ctrl+D or the
     Enter twice. Altough reading char-by-char is slow this won't be a
     problem here as backtraces shouldn't be huge.
     """
     linefeeds = 0
-    line = []
+    line: list[str] = []
 
     while True:
         char = stdin.read(1)
@@ -52,12 +52,17 @@ def read_backtrace(stdin):
             break
 
 
+TestResult = dict[str, Any]
+MaybeTestResult = Optional[TestResult]
+TestList = Sequence[tuple[str, MaybeTestResult]]
+
+
 class TestStringMethods(unittest.TestCase):
 
     def setUp(self):
         self.parser = BacktraceResolver.BacktraceParser()
 
-    def _test(self, cases):
+    def _test(self, cases: TestList):
         for line, expected in cases:
             res = self.parser(line.strip() + '\n')
             self.assertEqual(res, expected, f"failed to parse {line}")
@@ -499,7 +504,6 @@ There are three operational modes:
         verbose=args.verbose,
         cmd_path=args.addr2line,
     ) as resolve:
-        p = re.compile(r'\W+')
         for line in list(lines):
             resolve(line.strip() + '\n')
 
