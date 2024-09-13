@@ -38,6 +38,7 @@
 #include <seastar/net/socket_defs.hh>
 #include <seastar/core/iostream.hh>
 #include <seastar/util/string_utils.hh>
+#include <seastar/util/iostream.hh>
 
 namespace seastar {
 
@@ -231,6 +232,20 @@ struct request {
      */
     void write_body(const sstring& content_type, noncopyable_function<future<>(output_stream<char>&&)>&& body_writer);
 
+    /*!
+     * \brief use and output stream to write the message body
+     *
+     * The same as above, but the caller can only .write() data into the stream, it will be
+     * closed (and flushed) automatically after the writer fn resolves
+     */
+    template <typename W>
+    requires std::is_invocable_r_v<future<>, W, output_stream<char>&>
+    void write_body(const sstring& content_type, W&& body_writer) {
+        write_body(content_type, [body_writer = std::move(body_writer)] (output_stream<char>&& out) mutable -> future<> {
+            return util::write_to_stream_and_close(std::move(out), std::move(body_writer));
+        });
+    }
+
     /**
      * \brief Use an output stream to write the message body
      *
@@ -254,6 +269,20 @@ struct request {
      *
      */
     void write_body(const sstring& content_type, size_t len, noncopyable_function<future<>(output_stream<char>&&)>&& body_writer);
+
+    /*!
+     * \brief use and output stream to write the message body
+     *
+     * The same as above, but the caller can only .write() data into the stream, it will be
+     * closed (and flushed) automatically after the writer fn resolves
+     */
+    template <typename W>
+    requires std::is_invocable_r_v<future<>, W, output_stream<char>&>
+    void write_body(const sstring& content_type, size_t len, W&& body_writer) {
+        write_body(content_type, len, [body_writer = std::move(body_writer)] (output_stream<char>&& out) mutable -> future<> {
+            return util::write_to_stream_and_close(std::move(out), std::move(body_writer));
+        });
+    }
 
     /**
      * \brief Make request send Expect header
