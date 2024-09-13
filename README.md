@@ -202,3 +202,4 @@ Projects using Seastar
 * [redpanda](https://vectorized.io/): A Kafka replacement for mission critical systems
 * [Scylla](https://github.com/scylladb/scylla): A fast and reliable NoSQL data store compatible with Cassandra and DynamoDB
 * [smf](https://github.com/smfrpc/smf): The fastest RPC in the West
+* [Ceph - Crimson](https://docs.ceph.com/en/reef/dev/crimson/crimson/): Next-generation OSD (Object Storage Daemon) implementation based on the Seastar framework
