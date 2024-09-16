@@ -57,7 +57,14 @@ class Addr2Line:
         r"(.*0x0: \?\? at .*\n)"  # llvm-addr2line pattern
     )
 
-    def __init__(self, binary: str, concise: bool = False, cmd_path: str = "addr2line"):
+    def __init__(
+        self,
+        parent: 'BacktraceResolver',
+        binary: str,
+        concise: bool = False,
+        cmd_path: str = "addr2line",
+    ):
+        self._parent = parent
         self._binary = binary
 
         # Print warning if binary has no debug info according to `file`.
@@ -68,9 +75,10 @@ class Addr2Line:
         if s.find('ELF') >= 0 and s.find('debug_info', len(self._binary)) < 0:
             print('{}'.format(s))
 
-        options = f"-{'C' if not concise else ''}fpia"
+        args = [cmd_path, f"-{'C' if not concise else ''}fpia", "-e", self._binary]
+        self._parent.debug(f"Addr2line invoking: {' '.join(args)}")
         self._input_proc = subprocess.Popen(
-            [cmd_path, options, "-e", self._binary],
+            args,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             universal_newlines=True,
@@ -105,7 +113,8 @@ class Addr2Line:
         return notNone(self._output_proc.stdout)
 
     def _read_resolved_address(self):
-        res = self._output.readline()
+        first = self._output.readline()
+        self._parent.debug('Addr2Line read output (first): ', first)
         # remove the address
         res = first.split(': ', 1)[1]
         while True:
@@ -122,7 +131,9 @@ class Addr2Line:
             return " ".join([self._binary, address, '\n'])
         # We print a dummy 0x0 address after the address we are interested in
         # which we can look for in _read_address
-        self._input.write(address + '\n0x0\n')
+        inputline = address + '\n0x0\n'
+        self._parent.debug('Add2Line sending input to stdin:', inputline)
+        self._input.write(inputline)
         self._input.flush()
         return self._read_resolved_address()
 
@@ -132,7 +143,7 @@ class KernelResolver:
 
     LAST_SYMBOL_MAX_SIZE = 1024
 
-    def __init__(self, kallsyms: str = '/proc/kallsyms'):
+    def __init__(self, parent: 'BacktraceResolver', kallsyms: str = '/proc/kallsyms'):
         syms: list[tuple[int, str]] = []
         ksym_re = re.compile(r'(?P<addr>[0-9a-f]+) (?P<type>.+) (?P<name>\S+)')
         warnings_left = 10
@@ -329,7 +340,9 @@ class BacktraceResolver:
         verbose: bool = False,
         concise: bool = False,
         cmd_path: str = 'addr2line',
+        debug: bool = False,
     ):
+        self._debug = debug
         self._executable = executable
         self._kallsyms = kallsyms
         self._current_backtrace: list[tuple[str, str]] = []
@@ -351,12 +364,17 @@ class BacktraceResolver:
         )  # fail fast if there is something wrong with the exe resolver
         self.parser = self.BacktraceParser()
 
+    def debug(self, *args: Any):
+        if self._debug:
+            print('DEBUG >>', *args, file=sys.stderr)
+
     def _get_resolver_for_module(self, module: str):
         if not module in self._known_modules:
             if module == KERNEL_MODULE:
-                resolver = KernelResolver(kallsyms=self._kallsyms)
+                resolver = KernelResolver(self, kallsyms=self._kallsyms)
             else:
-                resolver = Addr2Line(module, self._concise, self._cmd_path)
+                resolver = Addr2Line(self, module, self._concise, self._cmd_path)
+            self.debug(f'Adding resolver {resolver} for module: {module}')
             self._known_modules[module] = resolver
         return self._known_modules[module]
 
@@ -422,6 +440,10 @@ class BacktraceResolver:
 
         self._known_backtraces[backtrace] = self._i
 
+        self.debug(
+            f'Resolving and printing parsed backtrace with {len(self._current_backtrace)} frames'
+        )
+
         print("[Backtrace #{}]".format(self._i))
 
         for module, addr in self._current_backtrace:
@@ -436,6 +458,7 @@ class BacktraceResolver:
         res = self.parser(line)
 
         if not res:
+            self.debug('INPUT LINE [NO MATCH]:', line)
             self._print_current_backtrace()
             if self._before_lines > 0:
                 self._before_lines_queue.append(line)
@@ -444,8 +467,10 @@ class BacktraceResolver:
             else:
                 pass  # when == 0 no non-backtrace lines are printed
         elif res['type'] == self.BacktraceParser.Type.SEPARATOR:
+            self.debug('INPUT LINE [SEPARATOR]:', line)
             pass
         elif res['type'] == self.BacktraceParser.Type.ADDRESS:
+            self.debug('INPUT LINE [ADDRESS]:', line)
             addresses = cast(list[dict[str, Any]], res['addresses'])
             if len(addresses) > 1:
                 self._print_current_backtrace()
@@ -459,5 +484,6 @@ class BacktraceResolver:
             if len(addresses) > 1:
                 self._print_current_backtrace()
         else:
+            self.debug('INPUT LINE [UNKNOWN]:', line)
             print(f"Unknown '{line}': {res}")
             raise RuntimeError("Unknown result type {res}")

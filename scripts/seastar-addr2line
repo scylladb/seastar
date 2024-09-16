@@ -465,6 +465,10 @@ There are three operational modes:
     )
 
     cmdline_parser.add_argument(
+        '-d', '--debug', action='store_true', help='Emit debug logging to stderr.'
+    )
+
+    cmdline_parser.add_argument(
         '-t', '--test', action='store_true', default=False, help='Self-test'
     )
 
@@ -503,6 +507,7 @@ There are three operational modes:
         context_re=args.match,
         verbose=args.verbose,
         cmd_path=args.addr2line,
+        debug=args.debug,
     ) as resolve:
         for line in list(lines):
             resolve(line.strip() + '\n')
