@@ -36,10 +36,15 @@ class Addr2Line:
     # address, which we force by adding a dummy 0x0 address. The
     # pattern varies between binutils addr2line and llvm-addr2line
     # so we match both.
+    # The LLVM output is usually literally:
+    #  0x0: ?? at ??
+    # but not always, e.g., when ASAN is linked it may be (for example):
+    #  0x0: ?? at /v/llvm/llvm/src/compiler-rt/lib/asan/asan_fake_stack.h:133
+    # so that's why we liberally accept .* as the part after "at" below
     dummy_pattern = re.compile(
         r"(.*0x0000000000000000: \?\? \?\?:0\n)" # addr2line pattern
         r"|"
-        r"(.*0x0: \?\? at \?\?:0\n)"  # llvm-addr2line pattern
+        r"(.*0x0: \?\? at .*\n)"  # llvm-addr2line pattern
         )
 
     def __init__(self, binary, concise=False, cmd_path="addr2line"):
