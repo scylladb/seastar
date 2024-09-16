@@ -119,7 +119,9 @@ class http_chunked_data_sink_impl : public data_sink_impl {
 public:
     http_chunked_data_sink_impl(output_stream<char>& out) : _out(out) {
     }
-    virtual future<> put(net::packet data)  override { abort(); }
+    virtual future<> put(net::packet data) override {
+        return data_sink_impl::fallback_put(std::move(data));
+    }
     using data_sink_impl::put;
     virtual future<> put(temporary_buffer<char> buf) override {
         if (buf.size() == 0) {
@@ -166,7 +168,9 @@ public:
         // at the very beginning, 0 bytes were written
         _bytes_written = 0;
     }
-    virtual future<> put(net::packet data)  override { abort(); }
+    virtual future<> put(net::packet data) override {
+        return data_sink_impl::fallback_put(std::move(data));
+    }
     using data_sink_impl::put;
     virtual future<> put(temporary_buffer<char> buf) override {
         if (buf.size() == 0 || _bytes_written == _limit) {

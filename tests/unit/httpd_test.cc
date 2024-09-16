@@ -781,6 +781,22 @@ SEASTAR_TEST_CASE(json_stream) {
     });
 }
 
+// See issue https://github.com/scylladb/seastar/issues/1701
+SEASTAR_TEST_CASE(dont_abort) {
+    return test_client_server::run_test(
+            [](seastar::output_stream<char>&& stream_) -> future<> {
+        auto stream = std::move(stream_);
+        co_await stream.write(seastar::temporary_buffer<char>{3});
+        co_await stream.close();
+    }
+    , [](size_t s, http_consumer& h) {
+        BOOST_REQUIRE_EQUAL(h._size, 3);
+        return false;
+    });
+
+}
+
+
 class json_test_handler : public handler_base {
     std::function<future<>(output_stream<char> &&)> _write_func;
 public:

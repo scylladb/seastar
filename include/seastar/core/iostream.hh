@@ -36,6 +36,7 @@
 #pragma once
 
 #include <seastar/core/future.hh>
+#include <seastar/core/coroutine.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/core/scattered_message.hh>
 #include <seastar/util/std-compat.hh>
@@ -142,6 +143,20 @@ public:
 
     virtual void on_batch_flush_error() noexcept {
         assert(false && "Data sink must implement on_batch_flush_error() method");
+    }
+
+protected:
+    // This is a helper function that classes that inherit from data_sink_impl
+    // can use to implement the put overload for net::packet.
+    // Unfortunately, we currently cannot define this function as
+    // 'virtual future<> put(net::packet)', because we would get infinite
+    // recursion between this function and
+    // 'virtual future<> put(temporary_buffer<char>)'.
+    future<> fallback_put(net::packet data) {
+        auto buffers = data.release();
+        for (temporary_buffer<char>& buf : buffers) {
+            co_await this->put(std::move(buf));
+        }
     }
 };
 
