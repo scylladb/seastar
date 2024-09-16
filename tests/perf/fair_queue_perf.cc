@@ -27,11 +27,13 @@
 #include <seastar/core/semaphore.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/core/when_all.hh>
+#include <seastar/util/trace.hh>
 #include <boost/range/irange.hpp>
 
 static constexpr fair_queue::class_id cid = 0;
 
 struct local_fq_and_class {
+    seastar::internal::tracer trace;
     seastar::fair_group fg;
     seastar::fair_queue fq;
     seastar::fair_queue sfq;
@@ -46,8 +48,8 @@ struct local_fq_and_class {
 
     local_fq_and_class(seastar::fair_group& sfg)
         : fg(fg_config(), 1)
-        , fq(fg, seastar::fair_queue::config())
-        , sfq(sfg, seastar::fair_queue::config())
+        , fq(fg, trace, seastar::fair_queue::config())
+        , sfq(sfg, trace, seastar::fair_queue::config())
     {
         fq.register_priority_class(cid, 1);
         sfq.register_priority_class(cid, 1);
