@@ -1267,14 +1267,8 @@ struct echo_handler : public handler_base {
         if (!chunked_reply) {
             rep->write_body("txt", content);
         } else {
-            rep->write_body("txt", [ c = content ] (output_stream<char>&& out) {
-                return do_with(std::move(out), [ c = std::move(c) ] (output_stream<char>& out) {
-                    return out.write(std::move(c)).then([&out] {
-                        return out.flush().then([&out] {
-                            return out.close();
-                        });
-                    });
-                });
+            rep->write_body("txt", [ c = content ] (output_stream<char>& out) -> future<> {
+                co_await out.write(std::move(c));
             });
         }
         return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
@@ -1394,13 +1388,9 @@ static future<> test_basic_content(bool streamed, bool chunked_reply) {
             {
                 fmt::print("Request with content-length body\n");
                 auto req = http::request::make("GET", "test", "/test");
-                req.write_body("txt", 12, [] (output_stream<char>&& out) {
-                    return seastar::async([out = std::move(out)] () mutable {
-                        out.write(sstring("1234567890")).get();
-                        out.write(sstring("AB")).get();
-                        out.flush().get();
-                        out.close().get();
-                    });
+                req.write_body("txt", 12, [] (output_stream<char>& out) -> future<> {
+                    co_await out.write(sstring("1234567890"));
+                    co_await out.write(sstring("AB"));
                 });
                 cln.make_request(std::move(req), [&] (const http::reply& resp, input_stream<char>&& in) {
                     if (!chunked_reply) {
@@ -1423,12 +1413,8 @@ static future<> test_basic_content(bool streamed, bool chunked_reply) {
                     jumbo_copy.get_write()[i] = jumbo[i];
                 }
                 auto req = http::request::make("GET", "test", "/test");
-                req.write_body("txt", size, [jumbo = std::move(jumbo)] (output_stream<char>&& out) mutable {
-                    return seastar::async([out = std::move(out), jumbo = std::move(jumbo)] () mutable {
-                        out.write(jumbo.get(), jumbo.size()).get();
-                        out.flush().get();
-                        out.close().get();
-                    });
+                req.write_body("txt", size, [jumbo = std::move(jumbo)] (output_stream<char>& out) -> future<> {
+                    co_await out.write(jumbo.get(), jumbo.size());
                 });
                 cln.make_request(std::move(req), [chunked_reply, size, jumbo_copy = std::move(jumbo_copy)] (const http::reply& resp, input_stream<char>&& in) mutable {
                     if (!chunked_reply) {
@@ -1444,13 +1430,9 @@ static future<> test_basic_content(bool streamed, bool chunked_reply) {
             {
                 fmt::print("Request with chunked body\n");
                 auto req = http::request::make("GET", "test", "/test");
-                req.write_body("txt", [] (auto&& out) -> future<> {
-                    return seastar::async([out = std::move(out)] () mutable {
-                        out.write(sstring("req")).get();
-                        out.write(sstring("1234\r\n7890")).get();
-                        out.flush().get();
-                        out.close().get();
-                    });
+                req.write_body("txt", [] (output_stream<char>& out) -> future<> {
+                    co_await out.write(sstring("req"));
+                    co_await out.write(sstring("1234\r\n7890"));
                 });
                 cln.make_request(std::move(req), [&] (const http::reply& resp, input_stream<char>&& in) {
                     BOOST_REQUIRE_EQUAL(resp._status, http::reply::status_type::ok);
@@ -1484,12 +1466,8 @@ static future<> test_basic_content(bool streamed, bool chunked_reply) {
             {
                 fmt::print("Request with incomplete content-length body\n");
                 auto req = http::request::make("GET", "test", "/test");
-                req.write_body("txt", 12, [] (output_stream<char>&& out) {
-                    return seastar::async([out = std::move(out)] () mutable {
-                        out.write(sstring("1234567890A")).get();
-                        out.flush().get();
-                        out.close().get();
-                    });
+                req.write_body("txt", 12, [] (output_stream<char>& out) -> future<> {
+                    co_await out.write(sstring("1234567890A"));
                 });
                 BOOST_REQUIRE_THROW(cln.make_request(std::move(req), [] (const auto& resp, auto&& in) {
                     BOOST_REQUIRE(false); // should throw before handling response
