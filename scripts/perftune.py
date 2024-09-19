@@ -1092,6 +1092,10 @@ class NetPerfTuner(PerfTunerBase):
         # For such NICs we've sorted IRQs list so that IRQs that handle Rx are all at the head of the list.
         if rx_channels_set or max_num_rx_queues < len(all_irqs):
             num_rx_queues = self.__get_rx_queue_count(iface)
+            # Let's be optimistic during a dry run and assume that the RX channels setting was successful
+            if dry_run_mode:
+                num_rx_queues = num_rx_channels
+
             tcp_irqs_lower_bound = self.__irq_lower_bound_by_queue(iface, all_irqs, num_rx_queues)
             perftune_print(f"Distributing IRQs handling Rx and Tx for first {num_rx_queues} channels:")
             distribute_irqs(all_irqs[0:tcp_irqs_lower_bound], self.irqs_cpu_mask)
