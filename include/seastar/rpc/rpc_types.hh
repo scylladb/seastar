@@ -403,8 +403,10 @@ public:
 
 /// @}
 
+#ifndef SEASTAR_P2581R1
 template <typename... T>
 tuple(T&&...) ->  tuple<T...>;
+#endif
 
 } // namespace rpc
 

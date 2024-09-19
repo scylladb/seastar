@@ -821,6 +821,14 @@ if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
     -Wno-error=deprecated-declarations)
 endif ()
 
+if (CMAKE_CXX_STANDARD GREATER_EQUAL 23)
+  include (CheckP2582R1)
+  if (Cxx_Compiler_IMPLEMENTS_P2581R1)
+    target_compile_definitions (seastar
+      PUBLIC SEASTAR_P2581R1)
+  endif ()
+endif ()
+
 if (BUILD_SHARED_LIBS)
   # use initial-exec TLS, as it puts the TLS variables in the static TLS space
   # instead of allocating them using malloc. otherwise intercepting mallocs and
