@@ -22,12 +22,16 @@
 
 #ifdef SEASTAR_MODULE
 module;
+#endif
+
 #include <atomic>
 #include <cassert>
 #include <cstdint>
 #include <array>
 #include <pthread.h>
 #include <signal.h>
+
+#ifdef SEASTAR_MODULE
 module seastar;
 #else
 #include <seastar/core/reactor.hh>
