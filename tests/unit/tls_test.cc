@@ -428,9 +428,9 @@ SEASTAR_THREAD_TEST_CASE(test_x509_client_tls13) {
 }
 
 SEASTAR_THREAD_TEST_CASE(test_x509_client_tls13_fail) {
-    #ifdef SEASTAR_WITH_TLS_OSSL
+#ifdef SEASTAR_WITH_TLS_OSSL
     static std::vector<sstring> prios({
-        "TLS_AES_128_CCM_SHA256"
+        "TLS_AES_128_CCM_8_SHA256"
     });
 #else
     static std::vector<sstring> prios({

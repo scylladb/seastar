@@ -27,6 +27,10 @@ module;
 #include <boost/range/iterator_range.hpp>
 #include <boost/range/adaptor/map.hpp>
 
+#ifndef SEASTAR_WITH_TLS_OSSL
+#include <gnutls/gnutls.h>
+#endif
+
 #ifdef SEASTAR_MODULE
 module seastar;
 #else
