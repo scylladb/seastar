@@ -83,7 +83,7 @@ arg_parser.add_argument('--c-compiler', action='store', dest='cc', default='gcc'
 arg_parser.add_argument('--ccache', nargs='?', const='ccache', default='', metavar='CCACHE_BINARY_PATH',
                         help='Use ccache to cache compilation (and optionally provide a path to ccache binary)')
 arg_parser.add_argument('--c++-standard', action='store', dest='cpp_standard', default='',
-                        help='C++ standard to build with [default: %(default)s]')
+                        help='C++ standard to build with')
 arg_parser.add_argument('--cook', action='append', dest='cook', default=[],
                         help='Supply this dependency locally for development via `cmake-cooking` (can be repeated)')
 arg_parser.add_argument('--verbose', dest='verbose', action='store_true', help='Make configure output more verbose.')
@@ -159,7 +159,7 @@ def identify_best_standard(cpp_standards, compiler):
     raise Exception(f"{compiler} does not seem to support any of Seastar's preferred C++ standards - {cpp_standards}. Please upgrade your compiler.")
 
 
-if args.cpp_standard == '':
+if not args.cpp_standard:
     cpp_standards = ['23', '20']
     args.cpp_standard = identify_best_standard(cpp_standards, compiler=args.cxx)
 
