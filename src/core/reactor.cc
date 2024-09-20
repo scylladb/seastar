@@ -2906,7 +2906,8 @@ reactor::wakeup() {
     _sleeping.store(false, std::memory_order_relaxed);
 
     uint64_t one = 1;
-    ::write(_notify_eventfd.get(), &one, sizeof(one));
+    auto res = ::write(_notify_eventfd.get(), &one, sizeof(one));
+    assert(res == sizeof(one) && "write(2) failed on _reactor._notify_eventfd");
 }
 
 void reactor::start_aio_eventfd_loop() {
@@ -2916,7 +2917,7 @@ void reactor::start_aio_eventfd_loop() {
     future<> loop_done = repeat([this] {
         return _aio_eventfd->readable().then([this] {
             char garbage[8];
-            ::read(_aio_eventfd->get_fd(), garbage, 8); // totally uninteresting
+            std::ignore = ::read(_aio_eventfd->get_fd(), garbage, 8); // totally uninteresting
             return _stopping ? stop_iteration::yes : stop_iteration::no;
         });
     });
@@ -2931,7 +2932,8 @@ void reactor::stop_aio_eventfd_loop() {
         return;
     }
     uint64_t one = 1;
-    ::write(_aio_eventfd->get_fd(), &one, 8);
+    auto res = ::write(_aio_eventfd->get_fd(), &one, 8);
+    assert(res == 8 && "write(2) failed on _reactor._aio_eventfd");
 }
 
 inline

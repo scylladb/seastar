@@ -17,7 +17,7 @@
  */
 /*
  * Copyright (C) 2019 Red Hat, Inc.
- */ 
+ */
 
 #include <filesystem>
 
@@ -88,7 +88,7 @@ future<> ud_server_client::init_server() {
                     }
                 }
                 client_round();
-            } 
+            }
         });
 
         return do_until([this](){return rounds_left<=0;}, [&lstn,this]() {
@@ -131,7 +131,7 @@ future<> ud_server_client::init_server() {
 /// If 'client_path' is set, the client binds to the named path.
 // Runs in a seastar::thread.
 void ud_server_client::client_round() {
-    auto cc = client_path ? 
+    auto cc = client_path ?
         engine().net().connect(server_addr, socket_address{unix_domain_addr{*client_path}}).get() :
         engine().net().connect(server_addr).get();
 
@@ -154,11 +154,16 @@ future<> ud_server_client::run() {
 
 }
 
+void rm(std::string_view what) {
+    auto res = system(fmt::format("rm -f {}", what).c_str());
+    BOOST_REQUIRE_EQUAL(res, 0);
+}
+
 //  testing the various address types, both on the server and on the
 //  client side
 
 SEASTAR_TEST_CASE(unixdomain_server) {
-    system("rm -f /tmp/ry");
+    rm("/tmp/ry");
     ud_server_client uds("/tmp/ry", std::nullopt, 3);
     return do_with(std::move(uds), [](auto& uds){
         return uds.run();
@@ -205,7 +210,7 @@ SEASTAR_TEST_CASE(unixdomain_text) {
 }
 
 SEASTAR_TEST_CASE(unixdomain_bind) {
-    system("rm -f 111 112");
+    rm("111 112");
     ud_server_client uds("111"s, "112"s, 1);
     return do_with(std::move(uds), [](auto& uds){
         return uds.run();
@@ -213,7 +218,7 @@ SEASTAR_TEST_CASE(unixdomain_bind) {
 }
 
 SEASTAR_TEST_CASE(unixdomain_short) {
-    system("rm -f 3");
+    rm("3");
     ud_server_client uds("3"s, std::nullopt, 10);
     return do_with(std::move(uds), [](auto& uds){
         return uds.run();
