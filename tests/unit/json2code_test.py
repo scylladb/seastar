@@ -57,7 +57,7 @@ class TestJson2Code(unittest.TestCase):
         with urllib.request.urlopen(url) as f:
             response = json.loads(f.read().decode('utf-8'))
             self.assertEqual(response['var1'], f'/{var1}')
-            self.assertEqual(response['var2'], f'/{var2}')
+            self.assertEqual(response['var2']['var21'], f'/{var2}')
             self.assertEqual(response['enum_var'], query_enum)
 
     def test_bad_enum(self):
@@ -69,7 +69,7 @@ class TestJson2Code(unittest.TestCase):
         with urllib.request.urlopen(url) as f:
             response = json.loads(f.read().decode('utf-8'))
             self.assertEqual(response['var1'], f'/{var1}')
-            self.assertEqual(response['var2'], f'/{var2}')
+            self.assertEqual(response['var2']['var21'], f'/{var2}')
             self.assertEqual(response['enum_var'], 'Unknown')
 
     def test_missing_path_param(self):
