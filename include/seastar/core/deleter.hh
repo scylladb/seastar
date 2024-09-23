@@ -22,6 +22,7 @@
 #pragma once
 
 #ifndef SEASTAR_MODULE
+#include <atomic>
 #include <cassert>
 #include <cstdint>
 #include <cstdlib>
@@ -113,7 +114,7 @@ private:
 
 /// \cond internal
 struct deleter::impl {
-    unsigned refs = 1;
+    std::atomic<unsigned> refs = 1;
     deleter next;
     impl(deleter next) : next(std::move(next)) {}
     virtual ~impl() {}
