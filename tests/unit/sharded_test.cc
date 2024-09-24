@@ -21,7 +21,11 @@
 
 #include <seastar/testing/thread_test_case.hh>
 
+#include <seastar/core/shard_id.hh>
 #include <seastar/core/sharded.hh>
+#include <seastar/core/smp.hh>
+
+#include <ranges>
 
 using namespace seastar;
 
@@ -220,4 +224,81 @@ SEASTAR_THREAD_TEST_CASE(invoke_on_modifiers) {
     srv.invoke_on_others([a] (checker& s) mutable { return s.fn(a); }).get();
 
     srv.stop().get();
+}
+
+class coordinator_synced_shard_map : public peering_sharded_service<coordinator_synced_shard_map> {
+    std::vector<unsigned> unsigned_per_shard;
+    unsigned coordinator_id;
+
+public:
+    coordinator_synced_shard_map(unsigned coordinator_id) : unsigned_per_shard(smp::count), coordinator_id(coordinator_id) {}
+    
+    future<> sync(unsigned value) {
+        return container().invoke_on(coordinator_id, [shard_id = this_shard_id(), value] (coordinator_synced_shard_map& s) {
+            s.unsigned_per_shard[shard_id] = value;
+        });
+    }
+
+    unsigned get_synced(int shard_id) {
+        assert(this_shard_id() == coordinator_id);
+        return unsigned_per_shard[shard_id];
+    }
+};
+
+SEASTAR_THREAD_TEST_CASE(invoke_on_range_contiguous) {
+    sharded<coordinator_synced_shard_map> s;
+    auto coordinator_id = this_shard_id();
+    s.start(coordinator_id).get();
+
+    auto mid = smp::count / 2;
+    auto half1 = std::views::iota(0u, mid);
+    auto half1_id = 1;
+    auto half2 = std::views::iota(mid, smp::count);
+    auto half2_id = 2;
+
+    auto f1 = s.invoke_on(half1, [half1_id] (coordinator_synced_shard_map& s) { return s.sync(half1_id); });
+    auto f2 = s.invoke_on(half2, [half2_id] (coordinator_synced_shard_map& s) { return s.sync(half2_id); });
+    f1.get();
+    f2.get();
+
+    auto f3 = s.invoke_on(coordinator_id, [mid, half1_id, half2_id] (coordinator_synced_shard_map& s) { 
+        for (unsigned i = 0; i < mid; ++i) {
+            BOOST_REQUIRE_EQUAL(half1_id, s.get_synced(i));
+        }
+        for (unsigned i = mid; i < smp::count; ++i) {
+            BOOST_REQUIRE_EQUAL(half2_id, s.get_synced(i));
+        }
+    });
+    f3.get();
+
+    s.stop().get();
+}
+
+SEASTAR_THREAD_TEST_CASE(invoke_on_range_fragmented) {
+    sharded<coordinator_synced_shard_map> s;
+    auto coordinator_id = this_shard_id();
+    s.start(coordinator_id).get();
+
+    // TODO: migrate to C++23 std::views::stride
+    auto even = std::views::iota(0u, smp::count) | std::views::filter([](int i) { return i % 2 == 0; });
+    auto even_id = 1;
+    auto odd = std::views::iota(1u, smp::count) | std::views::filter([](int i) { return i % 2 == 1; });
+    auto odd_id = 2;
+
+    auto f1 = s.invoke_on(even, [even_id] (coordinator_synced_shard_map& s) { return s.sync(even_id); });
+    auto f2 = s.invoke_on(odd, [odd_id] (coordinator_synced_shard_map& s) { return s.sync(odd_id); });
+    f1.get();
+    f2.get();
+
+    auto f3 = s.invoke_on(coordinator_id, [even_id, odd_id] (coordinator_synced_shard_map& s) { 
+        for (unsigned i = 0; i < smp::count; i += 2) {
+            BOOST_REQUIRE_EQUAL(even_id, s.get_synced(i));
+        }
+        for (unsigned i = 1; i < smp::count; i += 2) {
+            BOOST_REQUIRE_EQUAL(odd_id, s.get_synced(i));
+        }
+    });
+    f3.get();
+
+    s.stop().get();
 }

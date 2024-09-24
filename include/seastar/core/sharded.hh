@@ -35,6 +35,8 @@
 #include <boost/iterator/counting_iterator.hpp>
 #include <concepts>
 #include <functional>
+#include <ranges>
+#include <type_traits>
 #endif
 
 /// \defgroup smp-module Multicore
@@ -99,6 +101,10 @@ using sharded_unwrap_evaluated_t = typename sharded_unwrap<T>::evaluated_type;
 
 template <typename T>
 using sharded_unwrap_t = typename sharded_unwrap<T>::type;
+
+template<typename R>
+concept unsigned_range = std::ranges::range<R>
+    && std::is_unsigned_v<std::ranges::range_value_t<R>>;
 
 } // internal
 
@@ -190,7 +196,7 @@ class sharded {
     };
     std::vector<entry> _instances;
 private:
-    using invoke_on_all_func_type = std::function<future<> (Service&)>;
+    using invoke_on_multiple_func_type = std::function<future<> (Service&)>;
 private:
     template <typename U, bool async>
     friend struct shared_ptr_make_helper;
@@ -337,6 +343,42 @@ public:
         return current_exception_as_future();
       }
     }
+
+    /// Invoke a callable on a range of instances of `Service`.
+    ///
+    /// \param range std::ranges::range of unsigned integers
+    /// \param options the options to forward to the \ref smp::submit_to()
+    ///         called behind the scenes.
+    /// \param func a callable with signature `Value (Service&, Args...)` or
+    ///        `future<Value> (Service&, Args...)` (for some `Value` type), or a pointer
+    ///        to a member function of Service
+    /// \param args parameters to the callable; will be copied or moved. To pass by reference,
+    ///              use std::ref().
+    /// \return Future that becomes ready once all calls have completed
+    template <typename R, typename Func, typename... Args>
+    requires std::invocable<Func, Service&, Args...>
+        && std::is_same_v<futurize_t<std::invoke_result_t<Func, Service&, internal::sharded_unwrap_t<Args>...>>, future<>>
+        && internal::unsigned_range<R>
+    future<>
+    invoke_on(R range, smp_submit_to_options options, Func func, Args... args) noexcept;
+
+    /// Invoke a callable on a range of instances of `Service`.
+    /// Passes the default \ref smp_submit_to_options to the
+    /// \ref smp::submit_to() called behind the scenes.
+    ///
+    /// \param range std::ranges::range of unsigned integers
+    /// \param func a callable with signature `Value (Service&, Args...)` or
+    ///        `future<Value> (Service&, Args...)` (for some `Value` type), or a pointer
+    ///        to a member function of Service
+    /// \param args parameters to the callable; will be copied or moved. To pass by reference,
+    ///              use std::ref().
+    /// \return Future that becomes ready once all calls have completed
+    template <typename R, typename Func, typename... Args>
+    requires std::invocable<Func, Service&, Args...>
+        && std::is_same_v<futurize_t<std::invoke_result_t<Func, Service&, internal::sharded_unwrap_t<Args>...>>, future<>>
+        && internal::unsigned_range<R>
+    future<>
+    invoke_on(R range, Func func, Args... args) noexcept;
 
     /// Invoke a callable on all instances of `Service` and reduce the results using
     /// `Reducer`.
@@ -761,7 +803,7 @@ sharded<Service>::invoke_on_all(smp_submit_to_options options, Func func, Args..
     static_assert(std::is_same_v<futurize_t<std::invoke_result_t<Func, Service&, internal::sharded_unwrap_t<Args>...>>, future<>>,
                   "invoke_on_all()'s func must return void or future<>");
   try {
-    return invoke_on_all(options, invoke_on_all_func_type([func = std::move(func), args = std::tuple(std::move(args)...)] (Service& service) mutable {
+    return invoke_on_all(options, invoke_on_multiple_func_type([func = std::move(func), args = std::tuple(std::move(args)...)] (Service& service) mutable {
         return std::apply([&service, &func] (Args&&... args) mutable {
             return futurize_apply(func, std::tuple_cat(std::forward_as_tuple(service), std::tuple(internal::unwrap_sharded_arg(std::forward<Args>(args))...)));
         }, std::move(args));
@@ -786,6 +828,48 @@ sharded<Service>::invoke_on_others(smp_submit_to_options options, Func func, Arg
   } catch (...) {
     return current_exception_as_future();
   }
+}
+
+template <typename Service>
+template <typename R, typename Func, typename... Args>
+requires std::invocable<Func, Service&, Args...>
+    && std::is_same_v<futurize_t<std::invoke_result_t<Func, Service&, internal::sharded_unwrap_t<Args>...>>, future<>>
+    && internal::unsigned_range<R>
+inline
+future<>
+sharded<Service>::invoke_on(R range, smp_submit_to_options options, Func func, Args... args) noexcept {
+    try {
+        auto func_futurized = invoke_on_multiple_func_type([func = std::move(func), args = std::tuple(std::move(args)...)] (Service& service) mutable {
+            // Avoid false-positive unused-lambda-capture warning on Clang
+            (void)args;
+            return futurize_apply(func, std::tuple_cat(std::forward_as_tuple(service), std::tuple(internal::unwrap_sharded_arg(std::forward<Args>(args))...)));
+        });
+        return parallel_for_each(range, [this, options, func = std::move(func_futurized)] (unsigned s) {
+            if (s > smp::count - 1) {
+                throw std::invalid_argument(format("Invalid shard id in range: {}. Must be in range [0,{})", s, smp::count));
+            }
+            return smp::submit_to(s, options, [this, func] {
+                return func(*get_local_service());
+            });
+        });
+    } catch(...) {
+        return current_exception_as_future();
+    }
+}
+
+template <typename Service>
+template <typename R, typename Func, typename... Args>
+requires std::invocable<Func, Service&, Args...>
+    && std::is_same_v<futurize_t<std::invoke_result_t<Func, Service&, internal::sharded_unwrap_t<Args>...>>, future<>>
+    && internal::unsigned_range<R>
+inline
+future<> 
+sharded<Service>::invoke_on(R range, Func func, Args... args) noexcept {
+    try {
+        return invoke_on(std::forward<R>(range), smp_submit_to_options{}, std::move(func), std::move(args)...);
+    } catch(...) {
+        return current_exception_as_future();
+    }
 }
 
 template <typename Service>
