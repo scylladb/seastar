@@ -75,6 +75,7 @@ module;
 #include <optional>
 #include <queue>
 #include <random>
+#include <ranges>
 #include <regex>
 #include <source_location>
 #include <sstream>
