@@ -104,11 +104,11 @@ class formatter {
     static future<> write(output_stream<char>& stream, state s, Iter i, Iter e) {
         return do_with(true, [&stream, s, i, e] (bool& first) {
             return stream.write(begin(s)).then([&first, &stream, s, i, e] {
-                return do_for_each(i, e, [&first, &stream] (auto& m) {
+                return do_for_each(i, e, [&first, &stream, s] (auto& m) {
                     auto f = (first) ? make_ready_future<>() : stream.write(",");
                     first = false;
-                    return f.then([&m, &stream] {
-                        return write(stream, m);
+                    return f.then([&m, &stream, s] {
+                        return write(stream, s, m);
                     });
                 }).then([&stream, s] {
                     return stream.write(end(s));
@@ -120,7 +120,7 @@ class formatter {
     // fallback template
     template<typename T>
     static future<> write(output_stream<char>& stream, state, const T& t) {
-        return stream.write(to_json(t));
+        return write(stream, t);
     }
 
 public:
