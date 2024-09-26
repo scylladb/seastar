@@ -338,16 +338,27 @@ auto client::with_new_connection(Fn&& fn, abort_source* as) {
     });
 }
 
-future<> client::make_request(request req, reply_handler handle, std::optional<reply::status_type> expected) {
-    return do_make_request(std::move(req), std::move(handle), nullptr, std::move(expected));
+future<> client::make_request(request&& req, reply_handler&& handle, std::optional<reply::status_type>&& expected) {
+    return do_with(std::move(req), std::move(handle), [this, expected](request& req, reply_handler& handle) mutable {
+        return do_make_request(req, handle, nullptr, std::move(expected));
+    });
 }
 
-future<> client::make_request(request req, reply_handler handle, abort_source& as, std::optional<reply::status_type> expected) {
-    return do_make_request(std::move(req), std::move(handle), &as, std::move(expected));
+future<> client::make_request(request&& req, reply_handler&& handle, abort_source& as, std::optional<reply::status_type>&& expected) {
+    return do_with(std::move(req), std::move(handle), [this, as{&as}, expected](request& req, reply_handler& handle) mutable {
+        return do_make_request(req, handle, as, std::move(expected));
+    });
 }
 
-future<> client::do_make_request(request req, reply_handler handle, abort_source* as, std::optional<reply::status_type> expected) {
-    return do_with(std::move(req), std::move(handle), [this, as, expected] (request& req, reply_handler& handle) mutable {
+future<> client::make_request(request& req, reply_handler& handle, std::optional<reply::status_type> expected) {
+    return do_make_request(req, handle, nullptr, std::move(expected));
+}
+
+future<> client::make_request(request& req, reply_handler& handle, abort_source& as, std::optional<reply::status_type> expected) {
+    return do_make_request(req, handle, &as, std::move(expected));
+}
+
+future<> client::do_make_request(request& req, reply_handler& handle, abort_source* as, std::optional<reply::status_type> expected) {
         return with_connection([this, &req, &handle, as, expected] (connection& con) {
             return do_make_request(con, req, handle, as, expected);
         }, as).handle_exception_type([this, &req, &handle, as, expected] (const std::system_error& ex) {
@@ -371,7 +382,6 @@ future<> client::do_make_request(request req, reply_handler handle, abort_source
                 return do_make_request(con, req, handle, as, expected);
             }, as);
         });
-    });
 }
 
 future<> client::do_make_request(connection& con, request& req, reply_handler& handle, abort_source* as, std::optional<reply::status_type> expected) {
