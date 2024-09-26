@@ -4415,6 +4415,12 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
         memory::set_dump_memory_diagnostics_on_alloc_failure_kind(reactor_opts.dump_memory_diagnostics_on_alloc_failure_kind.get_value());
     }
 
+    auto max_networking_aio_io_control_blocks = reactor_opts.max_networking_io_control_blocks.get_value();
+    // Prevent errors about insufficient AIO blocks, when they are not needed by the reactor backend.
+    if (reactor_opts.reactor_backend.get_selected_candidate().name() == "linux-aio") {
+        max_networking_aio_io_control_blocks = adjust_max_networking_aio_io_control_blocks(max_networking_aio_io_control_blocks);
+    }
+
     reactor_config reactor_cfg = {
         .task_quota = std::chrono::duration_cast<sched_clock::duration>(reactor_opts.task_quota_ms.get_value() * 1ms),
         .max_poll_time = [&reactor_opts] () -> std::chrono::nanoseconds {
@@ -4428,7 +4434,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
         }(),
         .handle_sigint = !reactor_opts.no_handle_interrupt,
         .auto_handle_sigint_sigterm = reactor_opts._auto_handle_sigint_sigterm,
-        .max_networking_aio_io_control_blocks = adjust_max_networking_aio_io_control_blocks(reactor_opts.max_networking_io_control_blocks.get_value()),
+        .max_networking_aio_io_control_blocks = max_networking_aio_io_control_blocks,
         .force_io_getevents_syscall = reactor_opts.force_aio_syscalls.get_value(),
         .kernel_page_cache = reactor_opts.kernel_page_cache.get_value(),
         .have_aio_fsync = reactor_opts.aio_fsync.get_value(),
