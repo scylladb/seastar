@@ -113,7 +113,7 @@ API Level History
 | 4   |  2020-06  | 2023-03 | Non-variadic futures in when_all_succeed()   |
 | 5   |  2020-08  | 2023-03 | future::get() returns std::monostate() instead of void |
 | 6   |  2020-09  | 2023-03 | future<T> instead of future<T...>            |
-| 7   |  2023-05  |         | unified CPU/IO scheduling groups             |
+| 7   |  2023-05  | 2024-09 | unified CPU/IO scheduling groups             |
 
 
 Note: The "mandatory" column indicates when backwards compatibility

@@ -240,26 +240,6 @@ shard_id reactor::cpu_id() const {
     return _id;
 }
 
-#if SEASTAR_API_LEVEL < 7
-io_priority_class
-reactor::register_one_priority_class(sstring name, uint32_t shares) {
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    return io_priority_class::register_one(std::move(name), shares);
-#pragma GCC diagnostic pop
-}
-
-future<>
-reactor::update_shares_for_class(io_priority_class pc, uint32_t shares) {
-    return pc.update_shares(shares);
-}
-
-future<>
-reactor::rename_priority_class(io_priority_class pc, sstring new_name) noexcept {
-    return pc.rename(std::move(new_name));
-}
-#endif
-
 void reactor::update_shares_for_queues(internal::priority_class pc, uint32_t shares) {
     for (auto&& q : _io_queues) {
         q.second->update_shares_for_class(pc, shares);
@@ -1725,18 +1705,6 @@ bool
 reactor::reap_kernel_completions() {
     return _backend->reap_kernel_completions();
 }
-
-#if SEASTAR_API_LEVEL < 7
-const io_priority_class& default_priority_class() {
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-    static thread_local auto shard_default_class = [] {
-        return io_priority_class::register_one("default", 1);
-    }();
-    return shard_default_class;
-#pragma GCC diagnostic pop
-}
-#endif
 
 namespace internal {
 
@@ -5016,16 +4984,12 @@ float scheduling_group::get_shares() const noexcept {
 void
 scheduling_group::set_shares(float shares) noexcept {
     engine()._task_queues[_id]->set_shares(shares);
-#if SEASTAR_API_LEVEL >= 7
     engine().update_shares_for_queues(internal::priority_class(*this), shares);
-#endif
 }
 
-#if SEASTAR_API_LEVEL >= 7
 future<> scheduling_group::update_io_bandwidth(uint64_t bandwidth) const {
     return engine().update_bandwidth_for_queues(internal::priority_class(*this), bandwidth);
 }
-#endif
 
 future<scheduling_group>
 create_scheduling_group(sstring name, sstring shortname, float shares) noexcept {
@@ -5058,13 +5022,6 @@ scheduling_group_key_create(scheduling_group_key_config cfg) noexcept {
     });
 }
 
-#if SEASTAR_API_LEVEL < 7
-future<>
-rename_priority_class(io_priority_class pc, sstring new_name) {
-    return pc.rename(std::move(new_name));
-}
-#endif
-
 future<>
 destroy_scheduling_group(scheduling_group sg) noexcept {
     if (sg == default_scheduling_group()) {
@@ -5092,9 +5049,7 @@ rename_scheduling_group(scheduling_group sg, sstring new_name, sstring new_short
     }
     return smp::invoke_on_all([sg, new_name, new_shortname] {
         engine()._task_queues[sg._id]->rename(new_name, new_shortname);
-#if SEASTAR_API_LEVEL >= 7
         engine().rename_queues(internal::priority_class(sg), new_name);
-#endif
         return engine().rename_scheduling_group_specific_data(sg);
     });
 }

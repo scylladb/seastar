@@ -326,7 +326,6 @@ public:
     /// the calling shard
     float get_shares() const noexcept;
 
-#if SEASTAR_API_LEVEL >= 7
     /// \brief Updates the current IO bandwidth for a given scheduling group
     ///
     /// The bandwidth applied is NOT shard-local, instead it is applied so that
@@ -335,7 +334,6 @@ public:
     /// \param bandwidth the new bandwidth value in bytes/second
     /// \return a future that is ready when the bandwidth update is applied
     future<> update_io_bandwidth(uint64_t bandwidth) const;
-#endif
 
     friend future<scheduling_group> create_scheduling_group(sstring name, sstring shortname, float shares) noexcept;
     friend future<> destroy_scheduling_group(scheduling_group sg) noexcept;
