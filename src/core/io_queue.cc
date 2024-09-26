@@ -332,21 +332,11 @@ public:
 
 namespace internal {
 
-#if SEASTAR_API_LEVEL < 7
-priority_class::priority_class(const io_priority_class& pc) noexcept : _id(pc.id())
-{ }
-#endif
-
 priority_class::priority_class(const scheduling_group& sg) noexcept : _id(internal::scheduling_group_index(sg))
 { }
 
-#if SEASTAR_API_LEVEL >= 7
 priority_class::priority_class(internal::maybe_priority_class_ref pc) noexcept : priority_class(current_scheduling_group())
 { }
-#else
-priority_class::priority_class(internal::maybe_priority_class_ref pc) noexcept : priority_class(pc.pc)
-{ }
-#endif
 
 cancellable_queue::cancellable_queue(cancellable_queue&& o) noexcept
         : _first(std::exchange(o._first, nullptr))
@@ -687,102 +677,10 @@ io_queue::~io_queue() {
     }
 }
 
-#if SEASTAR_API_LEVEL >= 7
 std::tuple<unsigned, sstring> get_class_info(io_priority_class_id pc) {
     auto sg = internal::scheduling_group_from_index(pc);
     return std::make_tuple(sg.get_shares(), sg.name());
 }
-#else
-
-std::mutex io_priority_class::_register_lock;
-std::array<io_priority_class::class_info, io_priority_class::_max_classes> io_priority_class::_infos;
-
-unsigned io_priority_class::get_shares() const {
-    return _infos.at(_id).shares;
-}
-
-sstring io_priority_class::get_name() const {
-    std::lock_guard<std::mutex> lock(_register_lock);
-    return _infos.at(_id).name;
-}
-
-io_priority_class io_priority_class::register_one(sstring name, uint32_t shares) {
-    std::lock_guard<std::mutex> lock(_register_lock);
-    for (unsigned i = 0; i < _max_classes; ++i) {
-        if (!_infos[i].registered()) {
-            _infos[i].shares = shares;
-            _infos[i].name = std::move(name);
-        } else if (_infos[i].name != name) {
-            continue;
-        } else {
-            // found an entry matching the name to be registered,
-            // make sure it was registered with the same number shares
-            // Note: those may change dynamically later on in the
-            // fair queue
-            assert(_infos[i].shares == shares);
-        }
-        return io_priority_class(i);
-    }
-    throw std::runtime_error("No more room for new I/O priority classes");
-}
-
-future<> io_priority_class::update_shares(uint32_t shares) const {
-    // Keep registered shares intact, just update the ones
-    // on reactor queues
-    return futurize_invoke([this, shares] {
-        engine().update_shares_for_queues(internal::priority_class(*this), shares);
-    });
-}
-
-future<> io_priority_class::update_bandwidth(uint64_t bandwidth) const {
-    return engine().update_bandwidth_for_queues(internal::priority_class(*this), bandwidth);
-}
-
-bool io_priority_class::rename_registered(sstring new_name) {
-    std::lock_guard<std::mutex> guard(_register_lock);
-    for (unsigned i = 0; i < _max_classes; ++i) {
-       if (!_infos[i].registered()) {
-           break;
-       }
-       if (_infos[i].name == new_name) {
-           if (i == id()) {
-               return false;
-           } else {
-               io_log.error("trying to rename priority class with id {} to \"{}\" but that name already exists", id(), new_name);
-               throw std::runtime_error(format("rename priority class: an attempt was made to rename a priority class to an"
-                       " already existing name ({})", new_name));
-           }
-       }
-    }
-    _infos[id()].name = new_name;
-    return true;
-}
-
-future<> io_priority_class::rename(sstring new_name) noexcept {
-    return futurize_invoke([this, new_name = std::move(new_name)] () mutable {
-        // Taking the lock here will prevent from newly registered classes
-        // to register under the old name (and will prevent undefined
-        // behavior since this array is shared cross shards. However, it
-        // doesn't prevent the case where a newly registered class (that
-        // got registered right after the lock release) will be unnecessarily
-        // renamed. This is not a real problem and it is a lot better than
-        // holding the lock until all cross shard activity is over.
-
-        if (!rename_registered(new_name)) {
-            return make_ready_future<>();
-        }
-
-        return smp::invoke_on_all([this, new_name = std::move(new_name)] {
-            engine().rename_queues(internal::priority_class(*this), new_name);
-        });
-    });
-}
-
-std::tuple<unsigned, sstring> get_class_info(io_priority_class_id pc) {
-    const auto& ci = io_priority_class::_infos.at(pc);
-    return std::make_tuple(ci.shares, ci.name);
-}
-#endif
 
 std::vector<seastar::metrics::impl::metric_definition_impl> io_queue::priority_class_data::metrics() {
     namespace sm = seastar::metrics;

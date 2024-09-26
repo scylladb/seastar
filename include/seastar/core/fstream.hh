@@ -60,9 +60,6 @@ class file_input_stream_history {
 struct file_input_stream_options {
     size_t buffer_size = 8192;    ///< I/O buffer size
     unsigned read_ahead = 0;      ///< Maximum number of extra read-ahead operations
-#if SEASTAR_API_LEVEL < 7
-    ::seastar::io_priority_class io_priority_class = default_priority_class();
-#endif
     lw_shared_ptr<file_input_stream_history> dynamic_adjustments = { }; ///< Input stream history, if null dynamic adjustments are disabled
 };
 
@@ -107,9 +104,6 @@ struct file_output_stream_options {
     unsigned buffer_size = 65536;
     unsigned preallocation_size = 0; ///< Preallocate extents. For large files, set to a large number (a few megabytes) to reduce fragmentation
     unsigned write_behind = 1; ///< Number of buffers to write in parallel
-#if SEASTAR_API_LEVEL < 7
-    ::seastar::io_priority_class io_priority_class = default_priority_class();
-#endif
 };
 
 /// Create an output_stream for writing starting at the position zero of a

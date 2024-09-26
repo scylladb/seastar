@@ -137,35 +137,11 @@ protected:
 public:
     virtual ~file_impl() {}
 
-#if SEASTAR_API_LEVEL >= 7
     virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, io_intent*) = 0;
     virtual future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, io_intent*) = 0;
     virtual future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, io_intent*) = 0;
     virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, io_intent*) = 0;
     virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, io_intent*) = 0;
-#else
-    virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc) = 0;
-    virtual future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc) = 0;
-    virtual future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc) = 0;
-    virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc) = 0;
-    virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc) = 0;
-
-    virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, const io_priority_class& pc, io_intent*) {
-        return write_dma(pos, buffer, len, pc);
-    }
-    virtual future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent*) {
-        return write_dma(pos, std::move(iov), pc);
-    }
-    virtual future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, const io_priority_class& pc, io_intent*) {
-        return read_dma(pos, buffer, len, pc);
-    }
-    virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent*) {
-        return read_dma(pos, std::move(iov), pc);
-    }
-    virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc, io_intent*) {
-        return dma_read_bulk(offset, range_size, pc);
-    }
-#endif
 
     virtual future<> flush() = 0;
     virtual future<struct stat> stat() = 0;
@@ -289,32 +265,6 @@ public:
         return _file_impl->_write_max_length;
     }
 
-#if SEASTAR_API_LEVEL < 7
-    /**
-     * Perform a single DMA read operation.
-     *
-     * @param aligned_pos offset to begin reading at (should be aligned)
-     * @param aligned_buffer output buffer (should be aligned)
-     * @param aligned_len number of bytes to read (should be aligned)
-     * @param pc the IO priority class under which to queue this operation
-     * @param intent the IO intention confirmation (\ref seastar::io_intent)
-     *
-     * Alignment is HW dependent but use 4KB alignment to be on the safe side as
-     * explained above.
-     *
-     * ATTN: The method is going to be deprecated
-     *
-     * @return number of bytes actually read
-     *         or exceptional future in case of I/O error
-     */
-    template <typename CharType>
-    [[deprecated("Use scheduling_groups and API level >= 7")]]
-    future<size_t>
-    dma_read(uint64_t aligned_pos, CharType* aligned_buffer, size_t aligned_len, const io_priority_class& pc, io_intent* intent = nullptr) noexcept {
-        return dma_read_impl(aligned_pos, reinterpret_cast<uint8_t*>(aligned_buffer), aligned_len, internal::maybe_priority_class_ref(pc), intent);
-    }
-#endif
-
     /**
      * Perform a single DMA read operation.
      *
@@ -334,34 +284,6 @@ public:
     dma_read(uint64_t aligned_pos, CharType* aligned_buffer, size_t aligned_len, io_intent* intent = nullptr) noexcept {
         return dma_read_impl(aligned_pos, reinterpret_cast<uint8_t*>(aligned_buffer), aligned_len, internal::maybe_priority_class_ref(), intent);
     }
-
-#if SEASTAR_API_LEVEL < 7
-    /**
-     * Read the requested amount of bytes starting from the given offset.
-     *
-     * @param pos offset to begin reading from
-     * @param len number of bytes to read
-     * @param pc the IO priority class under which to queue this operation
-     * @param intent the IO intention confirmation (\ref seastar::io_intent)
-     *
-     * @return temporary buffer containing the requested data.
-     *         or exceptional future in case of I/O error
-     *
-     * This function doesn't require any alignment for both "pos" and "len"
-     *
-     * ATTN: The method is going to be deprecated
-     *
-     * @note size of the returned buffer may be smaller than "len" if EOF is
-     *       reached or in case of I/O error.
-     */
-    template <typename CharType>
-    [[deprecated("Use scheduling_groups and API level >= 7")]]
-    future<temporary_buffer<CharType>> dma_read(uint64_t pos, size_t len, const io_priority_class& pc, io_intent* intent = nullptr) noexcept {
-        return dma_read_impl(pos, len, internal::maybe_priority_class_ref(pc), intent).then([] (temporary_buffer<uint8_t> t) {
-            return temporary_buffer<CharType>(reinterpret_cast<CharType*>(t.get_write()), t.size(), t.release());
-        });
-    }
-#endif
 
     /**
      * Read the requested amount of bytes starting from the given offset.
@@ -389,32 +311,6 @@ public:
     /// with \ref dma_read_exactly().
     class eof_error : public std::exception {};
 
-#if SEASTAR_API_LEVEL < 7
-    /**
-     * Read the exact amount of bytes.
-     *
-     * @param pos offset in a file to begin reading from
-     * @param len number of bytes to read
-     * @param pc the IO priority class under which to queue this operation
-     * @param intent the IO intention confirmation (\ref seastar::io_intent)
-     *
-     * ATTN: The method is going to be deprecated
-     *
-     * @return temporary buffer containing the read data
-     *        or exceptional future in case an error, holding:
-     *        end_of_file_error if EOF is reached, file_io_error or
-     *        std::system_error in case of I/O error.
-     */
-    template <typename CharType>
-    [[deprecated("Use scheduling_groups and API level >= 7")]]
-    future<temporary_buffer<CharType>>
-    dma_read_exactly(uint64_t pos, size_t len, const io_priority_class& pc, io_intent* intent = nullptr) noexcept {
-        return dma_read_exactly_impl(pos, len, internal::maybe_priority_class_ref(pc), intent).then([] (temporary_buffer<uint8_t> t) {
-            return temporary_buffer<CharType>(reinterpret_cast<CharType*>(t.get_write()), t.size(), t.release());
-        });
-    }
-#endif
-
     /**
      * Read the exact amount of bytes.
      *
@@ -435,25 +331,6 @@ public:
         });
     }
 
-#if SEASTAR_API_LEVEL < 7
-    /// Performs a DMA read into the specified iovec.
-    ///
-    /// \param pos offset to read from.  Must be aligned to \ref disk_read_dma_alignment.
-    /// \param iov vector of address/size pairs to read into.  Addresses must be
-    ///            aligned.
-    /// \param pc the IO priority class under which to queue this operation
-    /// \param intent the IO intention confirmation (\ref seastar::io_intent)
-    ///
-    /// ATTN: The method is going to be deprecated
-    ///
-    /// \return a future representing the number of bytes actually read.  A short
-    ///         read may happen due to end-of-file or an I/O error.
-    [[deprecated("Use scheduling_groups and API level >= 7")]]
-    future<size_t> dma_read(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent = nullptr) noexcept {
-        return dma_read_impl(pos, std::move(iov), internal::maybe_priority_class_ref(pc), intent);
-    }
-#endif
-
     /// Performs a DMA read into the specified iovec.
     ///
     /// \param pos offset to read from.  Must be aligned to \ref disk_read_dma_alignment.
@@ -466,27 +343,6 @@ public:
     future<size_t> dma_read(uint64_t pos, std::vector<iovec> iov, io_intent* intent = nullptr) noexcept {
         return dma_read_impl(pos, std::move(iov), internal::maybe_priority_class_ref(), intent);
     }
-
-#if SEASTAR_API_LEVEL < 7
-    /// Performs a DMA write from the specified buffer.
-    ///
-    /// \param pos offset to write into.  Must be aligned to \ref disk_write_dma_alignment.
-    /// \param buffer aligned address of buffer to read from.  Buffer must exists
-    ///               until the future is made ready.
-    /// \param len number of bytes to write.  Must be aligned.
-    /// \param pc the IO priority class under which to queue this operation
-    /// \param intent the IO intention confirmation (\ref seastar::io_intent)
-    ///
-    /// ATTN: The method is going to be deprecated
-    ///
-    /// \return a future representing the number of bytes actually written.  A short
-    ///         write may happen due to an I/O error.
-    template <typename CharType>
-    [[deprecated("Use scheduling_groups and API level >= 7")]]
-    future<size_t> dma_write(uint64_t pos, const CharType* buffer, size_t len, const io_priority_class& pc, io_intent* intent = nullptr) noexcept {
-        return dma_write_impl(pos, reinterpret_cast<const uint8_t*>(buffer), len, internal::maybe_priority_class_ref(pc), intent);
-    }
-#endif
 
     /// Performs a DMA write from the specified buffer.
     ///
@@ -502,25 +358,6 @@ public:
     future<size_t> dma_write(uint64_t pos, const CharType* buffer, size_t len, io_intent* intent = nullptr) noexcept {
         return dma_write_impl(pos, reinterpret_cast<const uint8_t*>(buffer), len, internal::maybe_priority_class_ref(), intent);
     }
-
-#if SEASTAR_API_LEVEL < 7
-    /// Performs a DMA write to the specified iovec.
-    ///
-    /// \param pos offset to write into.  Must be aligned to \ref disk_write_dma_alignment.
-    /// \param iov vector of address/size pairs to write from.  Addresses must be
-    ///            aligned.
-    /// \param pc the IO priority class under which to queue this operation
-    /// \param intent the IO intention confirmation (\ref seastar::io_intent)
-    ///
-    /// ATTN: The method is going to be deprecated
-    ///
-    /// \return a future representing the number of bytes actually written.  A short
-    ///         write may happen due to an I/O error.
-    [[deprecated("Use scheduling_groups and API level >= 7")]]
-    future<size_t> dma_write(uint64_t pos, std::vector<iovec> iov, const io_priority_class& pc, io_intent* intent = nullptr) noexcept {
-        return dma_write_impl(pos, std::move(iov), internal::maybe_priority_class_ref(pc), intent);
-    }
-#endif
 
     /// Performs a DMA write to the specified iovec.
     ///
@@ -701,34 +538,6 @@ public:
     // due to https://github.com/scylladb/seastar/issues/1913, we cannot use
     // buffered generator yet.
     coroutine::experimental::generator<directory_entry> experimental_list_directory();
-
-#if SEASTAR_API_LEVEL < 7
-    /**
-     * Read a data bulk containing the provided addresses range that starts at
-     * the given offset and ends at either the address aligned to
-     * dma_alignment (4KB) or at the file end.
-     *
-     * @param offset starting address of the range the read bulk should contain
-     * @param range_size size of the addresses range
-     * @param pc the IO priority class under which to queue this operation
-     * @param intent the IO intention confirmation (\ref seastar::io_intent)
-     *
-     * ATTN: The method is going to be deprecated
-     *
-     * @return temporary buffer containing the read data bulk.
-     *        or exceptional future holding:
-     *        system_error exception in case of I/O error or eof_error when
-     *        "offset" is beyond EOF.
-     */
-    template <typename CharType>
-    [[deprecated("Use scheduling_groups and API level >= 7")]]
-    future<temporary_buffer<CharType>>
-    dma_read_bulk(uint64_t offset, size_t range_size, const io_priority_class& pc, io_intent* intent = nullptr) noexcept {
-        return dma_read_bulk_impl(offset, range_size, internal::maybe_priority_class_ref(pc), intent).then([] (temporary_buffer<uint8_t> t) {
-            return temporary_buffer<CharType>(reinterpret_cast<CharType*>(t.get_write()), t.size(), t.release());
-        });
-    }
-#endif
 
     /**
      * Read a data bulk containing the provided addresses range that starts at

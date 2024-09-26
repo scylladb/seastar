@@ -442,17 +442,6 @@ public:
         }
     }
 
-#if SEASTAR_API_LEVEL < 7
-    [[deprecated("Use io_priority_class::register_one")]]
-    io_priority_class register_one_priority_class(sstring name, uint32_t shares);
-
-    [[deprecated("Use io_priority_class.update_shares")]]
-    future<> update_shares_for_class(io_priority_class pc, uint32_t shares);
-
-    [[deprecated("Use io_priority_class.rename")]]
-    static future<> rename_priority_class(io_priority_class pc, sstring new_name) noexcept;
-#endif
-
     /// @private
     future<> update_bandwidth_for_queues(internal::priority_class pc, uint64_t bandwidth);
     /// @private

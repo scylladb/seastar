@@ -73,11 +73,11 @@ set (Seastar_API_LEVEL
   "7"
   CACHE
   STRING
-  "Seastar compatibility API level (5=future<T>::get() returns T&&, 6=future is not variadic, 7=unified CPU/IO scheduling groups")
+  "Seastar compatibility API level (7=unified CPU/IO scheduling groups")
 
 set_property (CACHE Seastar_API_LEVEL
   PROPERTY
-  STRINGS 6)
+  STRINGS 7)
 
 set (Seastar_SCHEDULING_GROUPS_COUNT
   "16"
