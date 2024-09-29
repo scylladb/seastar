@@ -24,7 +24,7 @@
 #include <functional>
 #include <unordered_set>
 #include <map>
-#include <boost/any.hpp>
+#include <any>
 #include <fmt/format.h>
 #endif
 
@@ -322,7 +322,7 @@ namespace tls {
     private:
         friend class reloadable_credentials_base;
 
-        std::multimap<sstring, boost::any> _blobs;
+        std::multimap<sstring, std::any> _blobs;
         client_auth _client_auth = client_auth::NONE;
         session_resume_mode _session_resume_mode = session_resume_mode::NONE;
         sstring _priority;
