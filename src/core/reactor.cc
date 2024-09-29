@@ -1660,6 +1660,15 @@ reactor::posix_listen(socket_address sa, listen_options opts) {
     if (opts.reuse_address) {
         fd.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1);
     }
+
+    if (opts.so_sndbuf) {
+        fd.setsockopt(SOL_SOCKET, SO_SNDBUF, *opts.so_sndbuf);
+    }
+
+    if (opts.so_rcvbuf) {
+        fd.setsockopt(SOL_SOCKET, SO_RCVBUF, *opts.so_rcvbuf);
+    }
+
     if (_reuseport && !sa.is_af_unix())
         fd.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1);
 
