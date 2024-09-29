@@ -292,6 +292,7 @@ public:
     /// \return Future that becomes ready once all calls have completed
     template <typename Func, typename... Args>
     requires std::invocable<Func, Service&, internal::sharded_unwrap_t<Args>...>
+        && std::is_same_v<futurize_t<std::invoke_result_t<Func, Service&, internal::sharded_unwrap_t<Args>...>>, future<>>
     future<> invoke_on_all(smp_submit_to_options options, Func func, Args... args) noexcept;
 
     /// Invoke a function on all instances of `Service`.
@@ -301,6 +302,7 @@ public:
     /// \ref smp::submit_to() called behind the scenes.
     template <typename Func, typename... Args>
     requires std::invocable<Func, Service&, internal::sharded_unwrap_t<Args>...>
+        && std::is_same_v<futurize_t<std::invoke_result_t<Func, Service&, internal::sharded_unwrap_t<Args>...>>, future<>>
     future<> invoke_on_all(Func func, Args... args) noexcept {
       try {
         return invoke_on_all(smp_submit_to_options{}, std::move(func), std::move(args)...);
@@ -321,6 +323,7 @@ public:
     ///         processed the message.
     template <typename Func, typename... Args>
     requires std::invocable<Func, Service&, Args...>
+        && std::is_same_v<futurize_t<std::invoke_result_t<Func, Service&, Args...>>, future<>>
     future<> invoke_on_others(smp_submit_to_options options, Func func, Args... args) noexcept;
 
     /// Invoke a callable on all instances of  \c Service except the instance
@@ -336,6 +339,7 @@ public:
     /// \ref smp::submit_to() called behind the scenes.
     template <typename Func, typename... Args>
     requires std::invocable<Func, Service&, Args...>
+        && std::is_same_v<futurize_t<std::invoke_result_t<Func, Service&, Args...>>, future<>>
     future<> invoke_on_others(Func func, Args... args) noexcept {
       try {
         return invoke_on_others(smp_submit_to_options{}, std::move(func), std::move(args)...);
@@ -797,11 +801,10 @@ sharded<Service>::invoke_on_all(smp_submit_to_options options, std::function<fut
 template <typename Service>
 template <typename Func, typename... Args>
 requires std::invocable<Func, Service&, internal::sharded_unwrap_t<Args>...>
+    && std::is_same_v<futurize_t<std::invoke_result_t<Func, Service&, internal::sharded_unwrap_t<Args>...>>, future<>>
 inline
 future<>
 sharded<Service>::invoke_on_all(smp_submit_to_options options, Func func, Args... args) noexcept {
-    static_assert(std::is_same_v<futurize_t<std::invoke_result_t<Func, Service&, internal::sharded_unwrap_t<Args>...>>, future<>>,
-                  "invoke_on_all()'s func must return void or future<>");
   try {
     return invoke_on_all(options, invoke_on_multiple_func_type([func = std::move(func), args = std::tuple(std::move(args)...)] (Service& service) mutable {
         return std::apply([&service, &func] (Args&&... args) mutable {
@@ -816,11 +819,10 @@ sharded<Service>::invoke_on_all(smp_submit_to_options options, Func func, Args..
 template <typename Service>
 template <typename Func, typename... Args>
 requires std::invocable<Func, Service&, Args...>
+    && std::is_same_v<futurize_t<std::invoke_result_t<Func, Service&, Args...>>, future<>>
 inline
 future<>
 sharded<Service>::invoke_on_others(smp_submit_to_options options, Func func, Args... args) noexcept {
-    static_assert(std::is_same_v<futurize_t<std::invoke_result_t<Func, Service&, Args...>>, future<>>,
-                  "invoke_on_others()'s func must return void or future<>");
   try {
     return invoke_on_all(options, [orig = this_shard_id(), func = std::move(func), args = std::tuple(std::move(args)...)] (Service& s) mutable -> future<> {
         return this_shard_id() == orig ? make_ready_future<>() : futurize_apply(func, std::tuple_cat(std::forward_as_tuple(s), args));;
