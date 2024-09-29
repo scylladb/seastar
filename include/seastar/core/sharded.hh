@@ -33,6 +33,7 @@
 
 #ifndef SEASTAR_MODULE
 #include <boost/iterator/counting_iterator.hpp>
+#include <boost/range/irange.hpp>
 #include <concepts>
 #include <functional>
 #include <ranges>
