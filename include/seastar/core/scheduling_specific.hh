@@ -20,13 +20,13 @@
  */
 
 #ifndef SEASTAR_MODULE
-#include <boost/range/adaptor/filtered.hpp>
 #include <seastar/core/scheduling.hh>
 #include <seastar/core/map_reduce.hh>
 #include <seastar/util/modules.hh>
 #include <array>
 #include <typeindex>
 #include <vector>
+#include <ranges>
 #endif
 
 #pragma once
@@ -159,7 +159,7 @@ map_reduce_scheduling_group_specific(Mapper mapper, Reducer reducer,
 
     return map_reduce(
             data.per_scheduling_group_data
-            | boost::adaptors::filtered(std::mem_fn(&per_scheduling_group::queue_is_initialized)),
+            | std::views::filter(std::mem_fn(&per_scheduling_group::queue_is_initialized)),
             wrapped_mapper, std::move(initial_val), reducer);
 }
 
@@ -192,7 +192,7 @@ reduce_scheduling_group_specific(Reducer reducer, Initial initial_val, schedulin
 
     return map_reduce(
             data.per_scheduling_group_data
-            | boost::adaptors::filtered(std::mem_fn(&per_scheduling_group::queue_is_initialized)),
+            | std::views::filter(std::mem_fn(&per_scheduling_group::queue_is_initialized)),
             mapper, std::move(initial_val), reducer);
 }
 
