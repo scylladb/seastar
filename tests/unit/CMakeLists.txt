@@ -314,6 +314,16 @@ seastar_add_test (io_queue
 seastar_add_test (fair_queue
   SOURCES fair_queue_test.cc)
 
+seastar_add_test (file_discard_queue
+  SOURCES file_discard_queue_test.cc
+          create_file.hh
+          create_file.cc)
+
+seastar_add_app_test (file_discard_queue_global
+  SOURCES file_discard_queue_global_test.cc
+          create_file.hh
+          create_file.cc)
+
 seastar_add_test (file_io
   SOURCES file_io_test.cc)
 

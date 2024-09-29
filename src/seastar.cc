@@ -183,6 +183,7 @@ export module seastar;
 #include <seastar/core/execution_stage.hh>
 #include <seastar/core/expiring_fifo.hh>
 #include <seastar/core/file.hh>
+#include <seastar/core/file_discard_queue.hh>
 #include <seastar/core/file-types.hh>
 #include <seastar/core/fsnotify.hh>
 #include <seastar/core/fsqual.hh>

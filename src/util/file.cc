@@ -108,6 +108,10 @@ future<> remove_file(std::string_view pathname) noexcept {
     return engine().remove_file(pathname);
 }
 
+future<> remove_file_via_blocks_discarding(std::string_view pathname) noexcept {
+    return engine().remove_file_via_blocks_discarding(pathname);
+}
+
 future<> rename_file(std::string_view old_pathname, std::string_view new_pathname) noexcept {
     return engine().rename_file(old_pathname, new_pathname);
 }
