@@ -33,6 +33,8 @@
 #include <seastar/util/later.hh>
 #include <mutex>
 
+#include <boost/range/irange.hpp>
+
 using namespace seastar;
 using namespace std::chrono_literals;
 

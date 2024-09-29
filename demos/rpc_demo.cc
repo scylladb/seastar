@@ -27,6 +27,8 @@
 #include <seastar/util/log.hh>
 #include <seastar/core/loop.hh>
 
+#include <boost/range/irange.hpp>
+
 using namespace seastar;
 
 struct serializer {

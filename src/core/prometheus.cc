@@ -33,6 +33,7 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/range/algorithm.hpp>
 #include <boost/range/combine.hpp>
+#include <boost/range/irange.hpp>
 #include <seastar/core/thread.hh>
 #include <seastar/core/loop.hh>
 #include <regex>
