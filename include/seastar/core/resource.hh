@@ -32,7 +32,6 @@
 #include <vector>
 #include <set>
 #include <sched.h>
-#include <boost/any.hpp>
 #include <unordered_map>
 #ifdef SEASTAR_HAVE_HWLOC
 #include <hwloc.h>
