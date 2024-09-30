@@ -509,3 +509,28 @@ SEASTAR_TEST_CASE(test_request_iovec_split) {
 
     return make_ready_future<>();
 }
+
+SEASTAR_TEST_CASE(test_create_internal_discard_request) {
+    // Given discard request data.
+    const int fd{77};
+    const uint64_t offset{8192u};
+    const uint64_t length{4096u};
+
+    // When creating internal::io_request for it.
+    internal::io_request req = internal::io_request::make_discard(fd, offset, length);
+
+    // Then its opcode is set to discard.
+    BOOST_REQUIRE(req.opcode() == internal::io_request::operation::discard);
+
+    // And then its operation name is correct.
+    const std::string expected_name{"discard"};
+    BOOST_REQUIRE_EQUAL(req.opname(), expected_name);
+
+    // And then discard request can be accessed and has properly set fields.
+    auto& discard_req = req.as<internal::io_request::operation::discard>();
+    BOOST_REQUIRE_EQUAL(discard_req.fd, fd);
+    BOOST_REQUIRE_EQUAL(discard_req.offset, offset);
+    BOOST_REQUIRE_EQUAL(discard_req.length, length);
+
+    return make_ready_future<>();
+}

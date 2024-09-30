@@ -102,6 +102,18 @@ future<std::vector<temporary_buffer<char>>> read_entire_file(std::filesystem::pa
 /// \param path path of the file to be read.
 future<sstring> read_entire_file_contiguous(std::filesystem::path path);
 
+/// Removes a regular file via blocks discarding.
+///
+/// \param name name of the file to remove.
+///
+/// \note
+/// The removal is processed by the I/O queue according to its configuration.
+/// The removal may be delayed when the bandwidth is not available. The user
+/// must ensure, that the file is not used until the removal finishes.
+///
+/// Effectively: opens a file, unlinks it and punches holes until nothing is left.
+future<> remove_file_via_blocks_discarding(std::string_view name) noexcept;
+
 SEASTAR_MODULE_EXPORT_END
 /// @}
 
