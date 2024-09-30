@@ -31,6 +31,7 @@
 #include <seastar/core/do_with.hh>
 #include <seastar/net/stack.hh>
 #include <seastar/core/sharded.hh>
+#include <boost/range/irange.hpp>
 
 namespace seastar {
 

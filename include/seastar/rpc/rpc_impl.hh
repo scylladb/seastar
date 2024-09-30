@@ -26,8 +26,6 @@
 #include <seastar/core/when_all.hh>
 #include <seastar/util/is_smart_ptr.hh>
 #include <seastar/core/simple-stream.hh>
-#include <boost/range/numeric.hpp>
-#include <boost/range/adaptor/transformed.hpp>
 #include <seastar/net/packet-data-source.hh>
 #include <seastar/core/print.hh>
 

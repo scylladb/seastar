@@ -31,7 +31,7 @@
 #include <seastar/net/api.hh>
 #include <stdexcept>
 #include <string>
-#include <boost/any.hpp>
+#include <any>
 #include <boost/type.hpp>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/variant_utils.hh>
@@ -99,16 +99,16 @@ struct client_info {
     socket_address addr;
     rpc::server& server;
     connection_id conn_id;
-    std::unordered_map<sstring, boost::any> user_data;
+    std::unordered_map<sstring, std::any> user_data;
     template <typename T>
     void attach_auxiliary(const sstring& key, T&& object) {
-        user_data.emplace(key, boost::any(std::forward<T>(object)));
+        user_data.emplace(key, std::any(std::forward<T>(object)));
     }
     template <typename T>
     T& retrieve_auxiliary(const sstring& key) {
         auto it = user_data.find(key);
         assert(it != user_data.end());
-        return boost::any_cast<T&>(it->second);
+        return std::any_cast<T&>(it->second);
     }
     template <typename T>
     std::add_const_t<T>& retrieve_auxiliary(const sstring& key) const {
@@ -120,7 +120,7 @@ struct client_info {
         if (it == user_data.end()) {
             return nullptr;
         }
-        return &boost::any_cast<T&>(it->second);
+        return &std::any_cast<T&>(it->second);
     }
     template <typename T>
     const T* retrieve_auxiliary_opt(const sstring& key) const noexcept {
@@ -128,7 +128,7 @@ struct client_info {
         if (it == user_data.end()) {
             return nullptr;
         }
-        return &boost::any_cast<const T&>(it->second);
+        return &std::any_cast<const T&>(it->second);
     }
 };
 

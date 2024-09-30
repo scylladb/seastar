@@ -32,6 +32,8 @@
 #include <chrono>
 #include <sys/mman.h>
 
+#include <boost/range/irange.hpp>
+
 #ifndef SEASTAR_DEBUG
 
 using namespace seastar;

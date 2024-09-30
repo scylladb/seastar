@@ -32,7 +32,6 @@
 #include <seastar/util/modules.hh>
 
 #ifndef SEASTAR_MODULE
-#include <boost/iterator/counting_iterator.hpp>
 #include <concepts>
 #include <functional>
 #include <ranges>
@@ -388,8 +387,8 @@ public:
     inline
     auto map_reduce(Reducer&& r, Func&& func, Args&&... args) -> typename reducer_traits<Reducer>::future_type
     {
-        return ::seastar::map_reduce(boost::make_counting_iterator<unsigned>(0),
-                            boost::make_counting_iterator<unsigned>(_instances.size()),
+        auto rng = std::views::iota(size_t(0), _instances.size());
+        return ::seastar::map_reduce(rng.begin(), rng.end(),
             [this, func = std::forward<Func>(func), args = std::make_tuple(std::forward<Args>(args)...)] (unsigned c) mutable {
                 return smp::submit_to(c, [this, &func, args] () mutable {
                     return std::apply([this, &func] (Args&&... args) mutable {
@@ -405,8 +404,8 @@ public:
     inline
     auto map_reduce(Reducer&& r, Func&& func, Args&&... args) const -> typename reducer_traits<Reducer>::future_type
     {
-        return ::seastar::map_reduce(boost::make_counting_iterator<unsigned>(0),
-                            boost::make_counting_iterator<unsigned>(_instances.size()),
+        auto rng = std::views::iota(size_t(0), _instances.size());
+        return ::seastar::map_reduce(rng.begin(), rng.end(),
             [this, func = std::forward<Func>(func), args = std::make_tuple(std::forward<Args>(args)...)] (unsigned c) {
                 return smp::submit_to(c, [this, &func, args] () {
                     return std::apply([this, &func] (Args&&... args) {
@@ -480,7 +479,7 @@ public:
         return do_with(std::vector<return_type>(), std::move(mapper),
                 [this] (std::vector<return_type>& vec, Mapper& mapper) mutable {
             vec.resize(_instances.size());
-            return parallel_for_each(boost::irange<unsigned>(0, _instances.size()), [this, &vec, &mapper] (unsigned c) {
+            return parallel_for_each(std::views::iota(0u, _instances.size()), [this, &vec, &mapper] (unsigned c) {
                 return smp::submit_to(c, [this, &mapper] {
                     auto inst = get_local_service();
                     return mapper(*inst);

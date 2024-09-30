@@ -32,6 +32,8 @@
 #include <stdexcept>
 #include <tuple>
 
+#include <boost/range/irange.hpp>
+
 using namespace seastar;
 
 enum {

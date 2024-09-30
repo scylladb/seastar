@@ -42,6 +42,8 @@
 #include <seastar/util/noncopyable_function.hh>
 #include <seastar/util/later.hh>
 
+#include <boost/range/numeric.hpp>
+
 #include <span>
 
 using namespace seastar;

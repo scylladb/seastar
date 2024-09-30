@@ -23,6 +23,7 @@
 module;
 #endif
 
+#include <any>
 #include <filesystem>
 #include <stdexcept>
 #include <system_error>
@@ -703,7 +704,7 @@ static void visit_blobs(Blobs& blobs, Visitor&& visitor) {
     auto visit = [&](const sstring& key, auto* vt) {
         auto tr = blobs.equal_range(key);
         for (auto& p : boost::make_iterator_range(tr.first, tr.second)) {
-            auto* v = boost::any_cast<std::decay_t<decltype(*vt)>>(&p.second);
+            auto* v = std::any_cast<std::decay_t<decltype(*vt)>>(&p.second);
             visitor(key, *v);
         }
     };
@@ -766,7 +767,7 @@ shared_ptr<tls::server_credentials> tls::credentials_builder::build_server_crede
         return creds;
 #endif
     }
-    auto creds = make_shared<server_credentials>(dh_params(boost::any_cast<dh_params::level>(i->second)));
+    auto creds = make_shared<server_credentials>(dh_params(std::any_cast<dh_params::level>(i->second)));
     apply_to(*creds);
     return creds;
 }

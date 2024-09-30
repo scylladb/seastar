@@ -62,10 +62,6 @@
 
 #ifndef SEASTAR_MODULE
 #include <boost/container/static_vector.hpp>
-#include <boost/lockfree/spsc_queue.hpp>
-#include <boost/next_prior.hpp>
-#include <boost/range/irange.hpp>
-#include <boost/thread/barrier.hpp>
 #include <atomic>
 #include <cassert>
 #include <chrono>
