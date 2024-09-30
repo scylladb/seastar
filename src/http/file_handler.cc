@@ -102,9 +102,9 @@ future<std::unique_ptr<http::reply>> file_interaction_handler::read(
                 [file_name] (output_stream<char>& os) {
             return open_file_dma(file_name, open_flags::ro).then([&os] (file f) {
                 return do_with(make_file_input_stream(std::move(f)), [&os](input_stream<char>& is) {
-                    return copy(is, os).then([&os] {
+                    return copy(is, os).finally([&os] {
                         return os.close();
-                    }).then([&is] {
+                    }).finally([&is] {
                         return is.close();
                     });
                 });
