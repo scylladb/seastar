@@ -1,10 +1,13 @@
 #include <seastar/rpc/rpc.hh>
+#include <seastar/rpc/multi_algo_compressor_factory.hh>
 #include <seastar/core/align.hh>
 #include <seastar/core/seastar.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/core/metrics.hh>
 #include <boost/range/adaptor/map.hpp>
+#include <boost/range/adaptor/transformed.hpp>
+#include <boost/algorithm/string.hpp>
 
 #if FMT_VERSION >= 90000
 template <> struct fmt::formatter<seastar::rpc::streaming_domain_type> : fmt::ostream_formatter {};
@@ -1399,6 +1402,36 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
   isolation_config default_isolate_connection(sstring isolation_cookie) {
       return isolation_config{};
   }
+
+multi_algo_compressor_factory::multi_algo_compressor_factory(std::vector<const rpc::compressor::factory*> factories)
+        : _factories(std::move(factories)) {
+    _features =  boost::algorithm::join(_factories | boost::adaptors::transformed(std::mem_fn(&rpc::compressor::factory::supported)), sstring(","));
+}
+
+std::unique_ptr<compressor>
+multi_algo_compressor_factory::negotiate(sstring feature, bool is_server, std::function<future<>()> send_empty_frame) const {
+    std::vector<sstring> names;
+    boost::split(names, feature, boost::is_any_of(","));
+    std::unique_ptr<compressor> c;
+    if (is_server) {
+        for (auto&& n : names) {
+            for (auto&& f : _factories) {
+                if ((c = f->negotiate(n, is_server, send_empty_frame))) {
+                    return c;
+                }
+            }
+        }
+    } else {
+        for (auto&& f : _factories) {
+            for (auto&& n : names) {
+                if ((c = f->negotiate(n, is_server, send_empty_frame))) {
+                    return c;
+                }
+            }
+        }
+    }
+    return nullptr;
+}
 
 }
 
