@@ -802,6 +802,7 @@ target_include_directories (seastar
     ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 set (Seastar_PRIVATE_CXX_FLAGS
+  -fno-semantic-interposition
   -UNDEBUG
   -Wall
   -Werror
