@@ -25,6 +25,32 @@
 
 list (APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR})
 
+if (CMAKE_CXX_STANDARD)
+  set (current_cxx_standard ${CMAKE_CXX_STANDARD})
+else ()
+  set (current_cxx_standard ${CMAKE_CXX_STANDARD_DEFAULT})
+endif ()
+
+if (NOT (current_cxx_standard STREQUAL @CMAKE_CXX_STANDARD@))
+  message(WARNING
+    "C++ Standard mismatch detected:
+- Seastar was compiled with: C++@CMAKE_CXX_STANDARD@
+- This project is configured to use: C++${current_cxx_standard}
+This mismatch may lead to build failures due to differences in the supported \
+features of these two standards. Please adjust your project's C++ standard to \
+match Seastar.")
+endif ()
+
+if (NOT ((CMAKE_CXX_COMPILER_ID STREQUAL @CMAKE_CXX_COMPILER_ID@) AND
+         (CMAKE_CXX_COMPILER_VERSION VERSION_EQUAL @CMAKE_CXX_COMPILER_VERSION@)))
+  message (WARNING
+    "Compiler mismatch detected:
+- Seastar was compiled with: @CMAKE_CXX_COMPILER_ID@ @CMAKE_CXX_COMPILER_VERSION@ \
+- This project is configured to use: ${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}
+This mismatch may lead to build failures due to differences in supported features and ABI compatibility. \
+Please configure your project to use the same C++ compiler to match Seastar.")
+endif ()
+
 #
 # Dependencies.
 #
