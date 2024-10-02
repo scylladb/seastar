@@ -185,7 +185,7 @@ std::ostream& operator<<(std::ostream& os, reply::status_type st) {
     return os << status_strings::to_string(st);
 }
 
-sstring reply::response_line() {
+sstring reply::response_line() const {
     return seastar::format("HTTP/{} {}\r\n", _version, status_strings::to_string(_status));
 }
 

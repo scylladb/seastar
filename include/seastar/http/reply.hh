@@ -187,7 +187,7 @@ struct reply {
         _response_line = response_line();
         return *this;
     }
-    sstring response_line();
+    sstring response_line() const;
 
     /*!
      * \brief use an output stream to write the message body
