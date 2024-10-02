@@ -230,7 +230,7 @@ static void shutdown_socket_fd(pollable_fd& fd, int how) noexcept {
         // EBADF (invalid file descriptor) -- irretrievable
         fd.shutdown(how);
     } catch (...) {
-        on_internal_error(seastar_logger, seastar::format("socket shutdown({}, {}) failed: {}", fd.get_file_desc().fdinfo(), how, std::current_exception()));
+        on_internal_error(seastar_logger, ::seastar::format("socket shutdown({}, {}) failed: {}", fd.get_file_desc().fdinfo(), how, std::current_exception()));
     }
 }
 
@@ -946,7 +946,7 @@ public:
     virtual socket_address get_dst() override { return _dst; }
     virtual uint16_t get_dst_port() override {
         if (_dst.family() != AF_INET && _dst.family() != AF_INET6) {
-            throw std::runtime_error(format("get_dst_port() called on non-IP address: {}", _dst));
+            throw std::runtime_error(::seastar::format("get_dst_port() called on non-IP address: {}", _dst));
         }
         return _dst.port();
     }
