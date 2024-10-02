@@ -24,6 +24,7 @@
 #ifndef SEASTAR_MODULE
 #include <algorithm>
 #include <type_traits>
+#include <assert.h>
 #include <seastar/util/modules.hh>
 #endif
 
