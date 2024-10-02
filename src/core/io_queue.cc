@@ -42,6 +42,7 @@ module seastar;
 #include <seastar/core/io_queue.hh>
 #include <seastar/core/io_intent.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/core/smp.hh>
 #include <seastar/core/when_all.hh>
 #include <seastar/core/metrics.hh>
 #include <seastar/core/internal/io_desc.hh>
