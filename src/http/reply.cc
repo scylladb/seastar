@@ -186,7 +186,7 @@ std::ostream& operator<<(std::ostream& os, reply::status_type st) {
 }
 
 sstring reply::response_line() {
-    return "HTTP/" + _version + " " + status_strings::to_string(_status) + "\r\n";
+    return seastar::format("HTTP/{} {}\r\n", _version, status_strings::to_string(_status));
 }
 
 void reply::write_body(const sstring& content_type, noncopyable_function<future<>(output_stream<char>&&)>&& body_writer) {
