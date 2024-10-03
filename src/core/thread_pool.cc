@@ -66,7 +66,7 @@ void thread_pool::work(sstring name) {
             std::atomic_thread_fence(std::memory_order_seq_cst);
             if (_main_thread_idle.load(std::memory_order_relaxed)) {
                 uint64_t one = 1;
-                ::write(_reactor._notify_eventfd.get(), &one, 8);
+                (void)::write(_reactor._notify_eventfd.get(), &one, 8);
             }
         }
     }

@@ -61,7 +61,7 @@ linux_perf_event::read() {
         return 0;
     }
     uint64_t ret;
-    ::read(_fd, &ret, sizeof(ret));
+    (void)::read(_fd, &ret, sizeof(ret));
     return ret;
 }
 
