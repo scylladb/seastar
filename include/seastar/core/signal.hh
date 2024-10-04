@@ -28,11 +28,11 @@ namespace seastar {
 
 SEASTAR_MODULE_EXPORT_BEGIN
 
-/// \brief Sets a signal handler for the specified signal. 
+/// \brief Sets a signal handler for the specified signal.
 ///
 /// \param signo Signal number.
 /// \param handler Function to handle the signal.
-/// \param once Should the handler be invoked only once.   
+/// \param once Should the handler be invoked only once.
 void handle_signal(int signo, noncopyable_function<void ()>&& handler, bool once = false);
 
 SEASTAR_MODULE_EXPORT_END
