@@ -21,7 +21,7 @@
 
 #include <exception>
 
-#include <boost/range/irange.hpp>
+#include <ranges>
 
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
@@ -363,7 +363,7 @@ SEASTAR_TEST_CASE(gate_holder_parallel_copy_test) {
             auto gh = g.hold();
             // Copying the gate::holder in the lambda below should keep it open
             // until all instances complete
-            (void)parallel_for_each(boost::irange(0, expected), [&count, gh = gh] (int) {
+            (void)parallel_for_each(std::views::iota(0, expected), [&count, gh = gh] (int) {
                 count++;
                 return make_ready_future<>();
             });

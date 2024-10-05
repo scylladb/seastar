@@ -19,6 +19,7 @@
  * Copyright 2015 Cloudius Systems
  */
 #include <cmath>
+#include <ranges>
 
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/reactor.hh>
@@ -27,8 +28,6 @@
 #include <seastar/core/loop.hh>
 #include <seastar/net/dns.hh>
 #include "tls_echo_server.hh"
-
-#include <boost/range/irange.hpp>
 
 using namespace seastar;
 namespace bpo = boost::program_options;
@@ -97,7 +96,7 @@ int main(int ac, char** av) {
                 }
                 return tls::connect(certs, ia, options).then([=](::connected_socket s) {
                     auto strms = ::make_lw_shared<streams>(std::move(s));
-                    auto range = boost::irange(size_t(0), i);
+                    auto range = std::views::iota(size_t(0), i);
                     return do_for_each(range, [=](auto) {
                         auto f = strms->out.write(*msg);
                         if (!do_read) {

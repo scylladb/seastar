@@ -22,7 +22,6 @@
 
 #define BOOST_TEST_MODULE core
 
-#include <boost/range/irange.hpp>
 #include <boost/test/tools/context.hpp>
 
 #include <boost/test/unit_test.hpp>
@@ -142,8 +141,8 @@ BOOST_AUTO_TEST_CASE(chunked_fifo_pop_n) {
         }
     };
 
-    for (size_t size : boost::irange((size_t)0, 2 * N) ) {
-        for (size_t pop_count : boost::irange((size_t)0, size + 1) ) {
+    for (size_t size : std::views::iota((size_t)0, 2 * N) ) {
+        for (size_t pop_count : std::views::iota((size_t)0, size + 1) ) {
             BOOST_TEST_CONTEXT("size: " << size << ", pop_count: " << pop_count) {
                 fill_and_reset(size);
 

@@ -25,11 +25,11 @@
 #include <chrono>
 #include <random>
 #include <memory>
+#include <ranges>
 #include <vector>
 #include <cmath>
 #include <sys/vfs.h>
 #include <sys/sysmacros.h>
-#include <boost/range/irange.hpp>
 #include <boost/program_options.hpp>
 #include <boost/iterator/counting_iterator.hpp>
 #include <fstream>
@@ -468,7 +468,7 @@ public:
         }
 
         auto worker = worker_ptr.get();
-        auto concurrency = boost::irange<unsigned, unsigned>(0, max_os_concurrency, 1);
+        auto concurrency = std::views::iota(0u, max_os_concurrency);
         return parallel_for_each(std::move(concurrency), [worker] (unsigned idx) {
             auto bufptr = worker->get_buffer();
             auto buf = bufptr.get();

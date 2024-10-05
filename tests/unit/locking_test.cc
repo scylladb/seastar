@@ -21,8 +21,10 @@
  */
 
 #include <chrono>
-
 #include <exception>
+#include <ranges>
+#include <stdexcept>
+
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/core/coroutine.hh>
@@ -33,8 +35,6 @@
 #include <seastar/core/rwlock.hh>
 #include <seastar/core/shared_mutex.hh>
 #include <seastar/util/alloc_failure_injector.hh>
-#include <boost/range/irange.hpp>
-#include <stdexcept>
 
 using namespace seastar;
 using namespace std::chrono_literals;
@@ -67,7 +67,7 @@ SEASTAR_TEST_CASE(test_with_lock_mutable) {
 
 SEASTAR_TEST_CASE(test_rwlock_exclusive) {
     return do_with(rwlock(), unsigned(0), [] (rwlock& l, unsigned& counter) {
-        return parallel_for_each(boost::irange(0, 10), [&l, &counter] (int idx) {
+        return parallel_for_each(std::views::iota(0, 10), [&l, &counter] (int idx) {
             return with_lock(l.for_write(), [&counter] {
                 BOOST_REQUIRE_EQUAL(counter, 0u);
                 ++counter;
@@ -82,7 +82,7 @@ SEASTAR_TEST_CASE(test_rwlock_exclusive) {
 
 SEASTAR_TEST_CASE(test_rwlock_shared) {
     return do_with(rwlock(), unsigned(0), unsigned(0), [] (rwlock& l, unsigned& counter, unsigned& max) {
-        return parallel_for_each(boost::irange(0, 10), [&l, &counter, &max] (int idx) {
+        return parallel_for_each(std::views::iota(0, 10), [&l, &counter, &max] (int idx) {
             return with_lock(l.for_read(), [&counter, &max] {
                 ++counter;
                 max = std::max(max, counter);
@@ -216,7 +216,7 @@ SEASTAR_THREAD_TEST_CASE(test_shared_mutex) {
 
 SEASTAR_TEST_CASE(test_shared_mutex_exclusive) {
     return do_with(shared_mutex(), unsigned(0), [] (shared_mutex& sm, unsigned& counter) {
-        return parallel_for_each(boost::irange(0, 10), [&sm, &counter] (int idx) {
+        return parallel_for_each(std::views::iota(0, 10), [&sm, &counter] (int idx) {
             return with_lock(sm, [&counter] {
                 BOOST_REQUIRE_EQUAL(counter, 0u);
                 ++counter;
@@ -231,7 +231,7 @@ SEASTAR_TEST_CASE(test_shared_mutex_exclusive) {
 
 SEASTAR_TEST_CASE(test_shared_mutex_shared) {
     return do_with(shared_mutex(), unsigned(0), unsigned(0), [] (shared_mutex& sm, unsigned& counter, unsigned& max) {
-        return parallel_for_each(boost::irange(0, 10), [&sm, &counter, &max] (int idx) {
+        return parallel_for_each(std::views::iota(0, 10), [&sm, &counter, &max] (int idx) {
             return with_shared(sm, [&counter, &max] {
                 ++counter;
                 max = std::max(max, counter);
@@ -454,7 +454,7 @@ SEASTAR_TEST_CASE(test_shared_mutex_exclusive_locks) {
     shared_mutex sm{};
     unsigned counter = 0;
 
-    co_await coroutine::parallel_for_each(boost::irange(0, 10), coroutine::lambda([&sm, &counter] (auto&&) -> future<> {
+    co_await coroutine::parallel_for_each(std::views::iota(0, 10), coroutine::lambda([&sm, &counter] (auto&&) -> future<> {
         const auto ulock = co_await get_unique_lock(sm);
         BOOST_REQUIRE_EQUAL(counter, 0u);
         ++counter;

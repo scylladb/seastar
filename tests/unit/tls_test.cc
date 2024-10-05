@@ -20,6 +20,7 @@
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
+#include <ranges>
 #include <iostream>
 
 #include <seastar/core/do_with.hh>
@@ -156,7 +157,7 @@ SEASTAR_TEST_CASE(test_x509_client_with_builder_system_trust_multiple) {
         (void)b.set_system_trust();
         auto creds = b.build_certificate_credentials();
 
-        return parallel_for_each(boost::irange(0, 20), [creds](auto i) { return connect_to_ssl_google(creds); });
+        return parallel_for_each(std::views::iota(0, 20), [creds](auto i) { return connect_to_ssl_google(creds); });
     });
 }
 
@@ -292,7 +293,7 @@ SEASTAR_THREAD_TEST_CASE(test_x509_client_with_builder_multiple) {
     b.set_x509_trust_file(server.cert(), tls::x509_crt_format::PEM).get();
     auto creds = b.build_certificate_credentials();
     auto addr = server.addr();
-    parallel_for_each(boost::irange(0, 20), [creds, addr](auto i) {
+    parallel_for_each(std::views::iota(0, 20), [creds, addr](auto i) {
         return connect_to_ssl_addr(creds, addr);
     }).get();
 }
@@ -593,7 +594,7 @@ static future<> run_echo_test(sstring message,
         }).then([=] {
             return tls::connect(certs, addr, tls::tls_options{.server_name=name}).then([loops, msg, do_read](::connected_socket s) {
                 auto strms = ::make_lw_shared<streams>(std::move(s));
-                auto range = boost::irange(0, loops);
+                auto range = std::views::iota(0, loops);
                 return do_for_each(range, [strms, msg](auto) {
                     auto f = strms->out.write(*msg);
                     return f.then([strms, msg]() {
@@ -764,7 +765,7 @@ SEASTAR_TEST_CASE(test_many_large_message_x509_client_server) {
     // Sending a huge-ish message a and immediately closing the session (see params)
     // provokes case where tls::vec_push entered race and asserted on broken IO state
     // machine.
-    auto range = boost::irange(0, 20);
+    auto range = std::views::iota(0, 20);
     return do_for_each(range, [msg = std::move(msg)](auto) {
         return run_echo_test(std::move(msg), 1, certfile("catest.pem"), "test.scylladb.org", certfile("test.crt"), certfile("test.key"), tls::client_auth::NONE, {}, {}, false);
     });

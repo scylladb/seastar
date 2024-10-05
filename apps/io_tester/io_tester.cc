@@ -36,6 +36,7 @@
 #include <seastar/util/later.hh>
 #include <chrono>
 #include <optional>
+#include <ranges>
 #include <utility>
 #include <unordered_set>
 #include <vector>
@@ -108,7 +109,7 @@ future<std::pair<file, uint64_t>> create_and_fill_file(sstring name, uint64_t fs
                     const uint64_t last_buffer_id = (buffers_count - 1u);
                     const uint64_t last_write_position = buffer_size * last_buffer_id;
 
-                    return do_with(boost::irange(UINT64_C(0), buffers_count), [f, buffer_size] (auto& buffers_range) mutable {
+                    return do_with(std::views::iota(UINT64_C(0), buffers_count), [f, buffer_size] (auto& buffers_range) mutable {
                         return max_concurrent_for_each(buffers_range.begin(), buffers_range.end(), 64, [f, buffer_size] (auto buffer_id) mutable {
                             auto source_buffer = allocate_and_fill_buffer(buffer_size);
                             auto write_position = buffer_id * buffer_size;
@@ -338,7 +339,7 @@ private:
     }
 
     future<> issue_requests_in_parallel(std::chrono::steady_clock::time_point stop) {
-        return parallel_for_each(boost::irange(0u, parallelism()), [this, stop] (auto dummy) mutable {
+        return parallel_for_each(std::views::iota(0u, parallelism()), [this, stop] (auto dummy) mutable {
             auto bufptr = allocate_aligned_buffer<char>(this->req_size(), _alignment);
             auto buf = bufptr.get();
             return do_until([this, stop] { return std::chrono::steady_clock::now() > stop || requests() > limit(); }, [this, buf, stop] () mutable {
@@ -352,7 +353,7 @@ private:
 
     future<> issue_requests_at_rate(std::chrono::steady_clock::time_point stop) {
         return do_with(io_intent{}, 0u, [this, stop] (io_intent& intent, unsigned& in_flight) {
-            return parallel_for_each(boost::irange(0u, parallelism()), [this, stop, &intent, &in_flight] (auto dummy) mutable {
+            return parallel_for_each(std::views::iota(0u, parallelism()), [this, stop, &intent, &in_flight] (auto dummy) mutable {
                 auto bufptr = allocate_aligned_buffer<char>(this->req_size(), _alignment);
                 auto buf = bufptr.get();
                 auto pause = std::chrono::duration_cast<std::chrono::microseconds>(1s) / rps();
@@ -361,7 +362,7 @@ private:
                     return do_until([this, stop] { return std::chrono::steady_clock::now() > stop || requests() > limit(); }, [this, buf, stop, pause, &intent, &in_flight] () mutable {
                         auto start = std::chrono::steady_clock::now();
                         in_flight++;
-                        return parallel_for_each(boost::irange(0u, batch()), [this, buf, &intent, start, stop] (auto dummy) {
+                        return parallel_for_each(std::views::iota(0u, batch()), [this, buf, &intent, start, stop] (auto dummy) {
                             return issue_request(buf, &intent, start, stop);
                         }).then([this, start, pause] {
                             auto now = std::chrono::steady_clock::now();
@@ -752,7 +753,7 @@ private:
             return make_ready_future<>();
         }
 
-        return max_concurrent_for_each(boost::irange(_file_id_to_remove, files_count()), max_concurrency(), [this] (uint64_t file_id) {
+        return max_concurrent_for_each(std::views::iota(_file_id_to_remove, files_count()), max_concurrency(), [this] (uint64_t file_id) {
             const auto fname = get_filename(file_id);
             return remove_file(fname);
         });
@@ -779,7 +780,7 @@ private:
     future<> do_start_on_directory(sstring path) {
         _dir_path = std::move(path);
 
-        return max_concurrent_for_each(boost::irange(UINT64_C(0), files_count()), max_concurrency(), [this] (uint64_t file_id) {
+        return max_concurrent_for_each(std::views::iota(UINT64_C(0), files_count()), max_concurrency(), [this] (uint64_t file_id) {
             const auto fname = get_filename(file_id);
             const auto fsize = align_up<uint64_t>(_config.file_size / files_count(), extent_size_hint_alignment);
             const auto flags = open_flags::rw | open_flags::create;
