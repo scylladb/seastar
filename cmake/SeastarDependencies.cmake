@@ -166,4 +166,11 @@ macro (seastar_find_dependencies)
   else ()
     find_package(Protobuf 2.5.0 REQUIRED)
   endif ()
+
+  if (c-ares_VERSION VERSION_GREATER_EQUAL 1.33)
+    # https://github.com/scylladb/seastar/issues/2472
+    message (FATAL_ERROR
+      "c-ares ${c-ares_VERSION} is not supported. "
+      "Seastar requires c-ares version lower than 1.33")
+  endif ()
 endmacro ()
