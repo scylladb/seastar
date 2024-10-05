@@ -51,6 +51,7 @@ find_package_handle_standard_args (c-ares
 if (c-ares_FOUND)
   set (c-ares_LIBRARIES ${c-ares_LIBRARY})
   set (c-ares_INCLUDE_DIRS ${c-ares_INCLUDE_DIR})
+  set (c-ares_VERSION ${PC_c-ares_VERSION})
   if (NOT (TARGET c-ares::cares))
     add_library (c-ares::cares UNKNOWN IMPORTED)
 
