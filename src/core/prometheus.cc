@@ -33,9 +33,9 @@
 #include <boost/algorithm/string.hpp>
 #include <boost/range/algorithm.hpp>
 #include <boost/range/combine.hpp>
-#include <boost/range/irange.hpp>
 #include <seastar/core/thread.hh>
 #include <seastar/core/loop.hh>
+#include <ranges>
 #include <regex>
 #include <string_view>
 
@@ -400,7 +400,7 @@ public:
 
 static future<> get_map_value(metrics_families_per_shard& vec) {
     vec.resize(smp::count);
-    return parallel_for_each(boost::irange(0u, smp::count), [&vec] (auto cpu) {
+    return parallel_for_each(std::views::iota(0u, smp::count), [&vec] (auto cpu) {
         return smp::submit_to(cpu, [] {
             return mi::get_values();
         }).then([&vec, cpu] (auto res) {

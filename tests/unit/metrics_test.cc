@@ -36,6 +36,7 @@
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/testing/test_runner.hh>
 #include <boost/range/irange.hpp>
+#include <ranges>
 
 SEASTAR_TEST_CASE(test_add_group) {
     using namespace seastar::metrics;
@@ -84,7 +85,7 @@ SEASTAR_THREAD_TEST_CASE(test_renaming_scheuling_groups) {
     static const char* name1 = "A";
     static const char* name2 = "B";
     scheduling_group sg =  create_scheduling_group("hello", 111).get();
-    boost::integer_range<int> rng(0, 1000);
+    auto rng = std::views::iota(0, 1000);
     // repeatedly change the group name back and forth in
     // decresing time intervals to see if it generate double
     //registration statistics errors.

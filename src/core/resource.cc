@@ -28,7 +28,7 @@ module;
 #include <boost/algorithm/string.hpp>
 #include <boost/range/adaptor/map.hpp>
 #include <boost/range/algorithm/copy.hpp>
-#include <boost/range/irange.hpp>
+#include <ranges>
 #include <regex>
 #include <stdlib.h>
 #include <unistd.h>
@@ -401,7 +401,7 @@ allocate_io_queues(hwloc_topology_t topology, std::vector<cpu> cpus, std::unorde
     // above, hwloc won't do us any good here. Later on, we will use this information to assign
     // shards to coordinators that are node-local to themselves.
     std::unordered_map<unsigned, std::set<unsigned>> numa_nodes;
-    for (auto shard: boost::irange(0, int(cpus.size()))) {
+    for (auto shard: std::views::iota(0, int(cpus.size()))) {
         auto node_id = node_of_shard(shard);
 
         if (numa_nodes.count(node_id) == 0) {

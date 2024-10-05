@@ -30,9 +30,9 @@
 #include <seastar/core/reactor.hh>
 #include <seastar/util/later.hh>
 #include <stdexcept>
+#include <ranges>
 #include <tuple>
 
-#include <boost/range/irange.hpp>
 
 using namespace seastar;
 
@@ -70,7 +70,7 @@ int main(int argc, char** argv)
         });
         // test for alien::submit_to(), which returns a std::future<int>
         std::vector<std::future<int>> counts;
-        for (auto i : boost::irange(0u, smp::count)) {
+        for (auto i : std::views::iota(0u, smp::count)) {
             // send messages from alien.
             counts.push_back(alien::submit_to(app.alien(), i, [i] {
                 return seastar::make_ready_future<int>(i);
@@ -122,7 +122,7 @@ int main(int argc, char** argv)
         std::cerr << "Bad everything: " << everything << " != " << expected << std::endl;
         return 1;
     }
-    const auto shards = boost::irange(0u, smp::count);
+    const auto shards = std::views::iota(0u, smp::count);
     auto expected = std::accumulate(std::begin(shards), std::end(shards), 0);
     if (total != expected) {
         std::cerr << "Bad total: " << total << " != " << expected << std::endl;

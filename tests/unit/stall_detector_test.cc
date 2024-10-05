@@ -30,9 +30,9 @@
 #include <seastar/testing/thread_test_case.hh>
 #include <atomic>
 #include <chrono>
-#include <sys/mman.h>
+#include <ranges>
 
-#include <boost/range/irange.hpp>
+#include <sys/mman.h>
 
 #ifndef SEASTAR_DEBUG
 
@@ -118,7 +118,7 @@ SEASTAR_THREAD_TEST_CASE(no_poll_no_stall) {
     static constexpr unsigned tasks = 2000;
     promise<> p;
     auto f = p.get_future();
-    parallel_for_each(boost::irange(0u, tasks), [&p] (unsigned int i) {
+    parallel_for_each(std::views::iota(0u, tasks), [&p] (unsigned int i) {
         (void)yield().then([i, &p] {
             spin(500us);
             if (i == tasks - 1) {

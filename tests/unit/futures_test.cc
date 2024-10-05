@@ -19,12 +19,13 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#include "seastar/core/loop.hh"
 #include <boost/test/tools/old/interface.hpp>
 #include <cstddef>
 #include <exception>
 #include <forward_list>
 #include <iterator>
+#include <ranges>
+#include <stdexcept>
 #include <type_traits>
 #include <vector>
 #include <seastar/testing/test_case.hh>
@@ -32,6 +33,7 @@
 #include <seastar/core/reactor.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/future-util.hh>
+#include <seastar/core/loop.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/smp.hh>
 #include <seastar/core/stream.hh>
@@ -53,7 +55,6 @@
 #include <boost/range/irange.hpp>
 
 #include <seastar/core/internal/api-level.hh>
-#include <stdexcept>
 #include <unistd.h>
 
 using namespace seastar;
@@ -1011,7 +1012,7 @@ SEASTAR_TEST_CASE(test_parallel_for_each) {
 
 SEASTAR_TEST_CASE(test_parallel_for_each_early_failure) {
     return do_with(0, [] (int& counter) {
-        return parallel_for_each(boost::irange(0, 11000), [&counter] (int i) {
+        return parallel_for_each(std::views::iota(0, 11000), [&counter] (int i) {
             using namespace std::chrono_literals;
             // force scheduling
             return sleep((i % 31 + 1) * 1ms).then([&counter, i] {
@@ -1038,7 +1039,7 @@ SEASTAR_TEST_CASE(test_parallel_for_each_early_failure) {
 
 SEASTAR_TEST_CASE(test_parallel_for_each_waits_for_all_fibers_even_if_one_of_them_failed) {
     auto can_exit = make_lw_shared<bool>(false);
-    return parallel_for_each(boost::irange(0, 2), [can_exit] (int i) {
+    return parallel_for_each(std::views::iota(0, 2), [can_exit] (int i) {
         return yield().then([i, can_exit] {
             if (i == 1) {
                 throw expected_exception();

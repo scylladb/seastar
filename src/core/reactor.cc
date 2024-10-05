@@ -31,6 +31,7 @@ module;
 #include <exception>
 #include <filesystem>
 #include <fstream>
+#include <ranges>
 #include <regex>
 #include <thread>
 
@@ -62,7 +63,6 @@ module;
 #include <boost/intrusive/list.hpp>
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/range/adaptor/map.hpp>
-#include <boost/range/irange.hpp>
 #include <boost/range/numeric.hpp>
 #include <boost/range/algorithm/sort.hpp>
 #include <boost/range/algorithm/remove_if.hpp>
@@ -1078,7 +1078,7 @@ reactor::~reactor() {
             // The following line will preserve the convention that constructor and destructor functions
             // for the per sg values are called in the context of the containing scheduling group.
             *internal::current_scheduling_group_ptr() = scheduling_group(tq->_id);
-            for (size_t key : boost::irange<size_t>(0, sg_data.scheduling_group_key_configs.size())) {
+            for (size_t key : std::views::iota(0u, sg_data.scheduling_group_key_configs.size())) {
                 void* val = this_sg.specific_vals[key];
                 if (val) {
                     if (sg_data.scheduling_group_key_configs[key].destructor) {

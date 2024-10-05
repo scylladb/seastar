@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include <ranges>
 #include <system_error>
 #include <seastar/core/iostream.hh>
 #include <seastar/core/circular_buffer.hh>
@@ -31,7 +32,6 @@
 #include <seastar/core/do_with.hh>
 #include <seastar/net/stack.hh>
 #include <seastar/core/sharded.hh>
-#include <boost/range/irange.hpp>
 
 namespace seastar {
 
@@ -284,7 +284,7 @@ public:
         _pending[shard] = nullptr;
     }
     future<> destroy_all_shards() {
-        return parallel_for_each(boost::irange(0u, _shards_count), [this](shard_id shard) {
+        return parallel_for_each(std::views::iota(0u, _shards_count), [this](shard_id shard) {
             return smp::submit_to(shard, [this] {
                 destroy_shard(this_shard_id());
             });

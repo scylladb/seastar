@@ -22,9 +22,9 @@
 #include <vector>
 #include <chrono>
 #include <random>
+#include <ranges>
 #include <yaml-cpp/yaml.h>
 #include <fmt/core.h>
-#include <boost/range/irange.hpp>
 #pragma GCC diagnostic push
 // see https://github.com/boostorg/accumulators/pull/54
 #pragma GCC diagnostic ignored "-Wuninitialized"
@@ -429,7 +429,7 @@ public:
         co.tcp_nodelay = _ccfg.nodelay;
         co.isolation_cookie = _cfg.sg_name;
         _client = std::make_unique<rpc_protocol::client>(_rpc, co, _caddr);
-        return parallel_for_each(boost::irange(0u, _cfg.parallelism), [this] (auto dummy) {
+        return parallel_for_each(std::views::iota(0u, _cfg.parallelism), [this] (auto dummy) {
           auto f = make_ready_future<>();
           if (_cfg.sleep_time) {
               // Do initial small delay to de-synchronize fibers
@@ -513,7 +513,7 @@ public:
     virtual future<> run() override {
         _stop = std::chrono::steady_clock::now() + _cfg.duration;
         return with_scheduling_group(_cfg.sg, [this] {
-          return parallel_for_each(boost::irange(0u, _cfg.parallelism), [this] (auto dummy) {
+          return parallel_for_each(std::views::iota(0u, _cfg.parallelism), [this] (auto dummy) {
             return do_until([this] {
                 return std::chrono::steady_clock::now() > _stop;
             }, [this] {

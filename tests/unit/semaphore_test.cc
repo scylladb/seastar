@@ -31,7 +31,7 @@
 #include <seastar/core/map_reduce.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/shared_mutex.hh>
-#include <boost/range/irange.hpp>
+#include <ranges>
 
 using namespace seastar;
 using namespace std::chrono_literals;
@@ -175,7 +175,7 @@ SEASTAR_THREAD_TEST_CASE(test_non_default_broken_semaphore) {
 
 SEASTAR_TEST_CASE(test_shared_mutex_exclusive) {
     return do_with(shared_mutex(), unsigned(0), [] (shared_mutex& sm, unsigned& counter) {
-        return parallel_for_each(boost::irange(0, 10), [&sm, &counter] (int idx) {
+        return parallel_for_each(std::views::iota(0, 10), [&sm, &counter] (int idx) {
             return with_lock(sm, [&counter] {
                 BOOST_REQUIRE_EQUAL(counter, 0u);
                 ++counter;
@@ -200,7 +200,7 @@ SEASTAR_TEST_CASE(test_shared_mutex_shared) {
                 });
             });
         };
-        return map_reduce(boost::irange(0, 100), running_in_parallel, false, std::bit_or<bool>()).then([&counter] (bool result) {
+        return map_reduce(std::views::iota(0, 100), running_in_parallel, false, std::bit_or<bool>()).then([&counter] (bool result) {
             BOOST_REQUIRE_EQUAL(result, true);
             BOOST_REQUIRE_EQUAL(counter, 0u);
         });
@@ -237,7 +237,7 @@ SEASTAR_TEST_CASE(test_shared_mutex_mixed) {
                 return running_in_parallel(instance);
             }
         };
-        return map_reduce(boost::irange(0, 100), run, false, std::bit_or<bool>()).then([&counter] (bool result) {
+        return map_reduce(std::views::iota(0, 100), run, false, std::bit_or<bool>()).then([&counter] (bool result) {
             BOOST_REQUIRE_EQUAL(result, true);
             BOOST_REQUIRE_EQUAL(counter, 0u);
         });

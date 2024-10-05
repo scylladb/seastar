@@ -1619,7 +1619,7 @@ In the examples we saw earlier, `main()` ran our function `f()` only once, on th
 seastar::future<> service_loop();
 
 seastar::future<> f() {
-    return seastar::parallel_for_each(boost::irange<unsigned>(0, seastar::smp::count),
+    return seastar::parallel_for_each(std::views::iota(0u, seastar::smp::count),
             [] (unsigned c) {
         return seastar::smp::submit_to(c, service_loop);
     });
@@ -2320,7 +2320,7 @@ Consider the following asynchronous function `loop()`, which loops until some sh
 ```cpp
 seastar::future<long> loop(int parallelism, bool& stop) {
     return seastar::do_with(0L, [parallelism, &stop] (long& counter) {
-        return seastar::parallel_for_each(boost::irange<unsigned>(0, parallelism),
+        return seastar::parallel_for_each(std::views::iota(0u, parallelism),
             [&stop, &counter]  (unsigned c) {
                 return seastar::do_until([&stop] { return stop; }, [&counter] {
                     ++counter;
