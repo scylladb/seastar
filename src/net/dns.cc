@@ -594,51 +594,50 @@ dns_resolver::impl::end_call() {
 
 void
 dns_resolver::impl::poll_sockets() {
-    fd_set readers, writers;
-    int n = 0;
-
     dns_log.trace("Poll sockets");
 
-    do {
+    bool processed = false;
+    for (;;) {
         // Retrieve the set of file descriptors that the library wants us to monitor.
+        fd_set readers, writers;
         FD_ZERO(&readers);
         FD_ZERO(&writers);
 
-        n = ares_fds(_channel, &readers, &writers);
-
-        dns_log.trace("ares_fds: {}", n);
-
-        if (n == 0) {
+        int nr_fds = ares_fds(_channel, &readers, &writers);
+        dns_log.trace("ares_fds: {}", nr_fds);
+        if (nr_fds == 0) {
             break;
         }
 
-        n = 0;
+        int processed_fds = 0;
+        for (auto it = _sockets.begin(); it != _sockets.end();) {
+            auto& [fd, e] = *it++;
+            bool read_monitor = FD_ISSET(fd, &readers);
+            bool write_monitor = FD_ISSET(fd, &writers);
+            bool read_avail = e.avail & POLLIN;
+            bool write_avail = e.avail & POLLOUT;
 
-        for (auto & p : _sockets) {
-            auto & e = p.second;
-            auto fd = p.first;
-            auto r = FD_ISSET(p.first, &readers);
-            auto w = FD_ISSET(p.first, &writers);
-            auto ra = e.avail & POLLIN;
-            auto wa = e.avail & POLLOUT;
+            dns_log.trace("fd {} {}{}/{}{}", fd,
+                          read_monitor ? "r" : "",
+                          write_monitor ? "w" : "",
+                          read_avail ? "r" : "",
+                          write_avail ? "w" : "");
 
-            dns_log.trace("fd {} {}{}/{}{}", fd, (r ? "r" : ""),
-                            (w ? "w" : ""), (ra ? "r" : ""),
-                            (wa ? "w" : ""));
-
-            if (!wa) {
-                FD_CLR(fd, &writers);
-            }
-            if (!ra) {
-                FD_CLR(fd, &readers);
-            }
-            if (FD_ISSET(fd, &writers) || FD_ISSET(fd, &readers)) {
-                ++n;
+            ares_socket_t read_fd = read_monitor && read_avail ? fd : ARES_SOCKET_BAD;
+            ares_socket_t write_fd = write_monitor && write_avail ? fd : ARES_SOCKET_BAD;
+            if (read_fd != ARES_SOCKET_BAD || write_fd != ARES_SOCKET_BAD) {
+                ares_process_fd(_channel, read_fd, write_fd);
+                ++processed_fds;
             }
         }
-
-        ares_process(_channel, &readers, &writers);
-    } while (n != 0);
+        if (processed_fds == 0) {
+          break;
+        }
+        processed = true;
+    }
+    if (!processed) {
+      ares_process_fd(_channel, ARES_SOCKET_BAD, ARES_SOCKET_BAD);
+    }
 }
 
 dns_resolver::srv_records
