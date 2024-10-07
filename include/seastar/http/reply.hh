@@ -94,16 +94,21 @@ struct reply {
         uri_too_long = 414, //!< uri_too_long
         unsupported_media_type = 415, //!< unsupported_media_type
         expectation_failed = 417, //!< expectation_failed
+        page_expired = 419, //!< page_expired
         unprocessable_entity = 422, //!< unprocessable_entity
         upgrade_required = 426, //!< upgrade_required
         too_many_requests = 429, //!< too_many_requests
+        login_timeout = 440, //!< login_timeout
         internal_server_error = 500, //!< internal_server_error
         not_implemented = 501, //!< not_implemented
         bad_gateway = 502, //!< bad_gateway
         service_unavailable = 503,  //!< service_unavailable
         gateway_timeout = 504, //!< gateway_timeout
         http_version_not_supported = 505, //!< http_version_not_supported 
-        insufficient_storage = 507 //!< insufficient_storage
+        insufficient_storage = 507, //!< insufficient_storage
+        bandwidth_limit_exceeded = 509, //!< bandwidth_limit_exceeded
+        network_read_timeout = 598, //!< network_read_timeout
+        network_connect_timeout = 599, //!< network_connect_timeout
     } _status;
 
     /**
@@ -187,7 +192,7 @@ struct reply {
         _response_line = response_line();
         return *this;
     }
-    sstring response_line();
+    sstring response_line() const;
 
     /*!
      * \brief use an output stream to write the message body

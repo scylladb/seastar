@@ -33,6 +33,7 @@
 module;
 #include <iostream>
 #include <utility>
+#include <unordered_map>
 module seastar;
 #else
 #include <seastar/http/reply.hh>
@@ -49,144 +50,68 @@ namespace http {
 
 namespace status_strings {
 
-const sstring continue_ = "100 Continue";
-const sstring switching_protocols = "101 Switching Protocols";
-const sstring ok = "200 OK";
-const sstring created = "201 Created";
-const sstring accepted = "202 Accepted";
-const sstring nonauthoritative_information = "203 Non-Authoritative Information";
-const sstring no_content = "204 No Content";
-const sstring reset_content = "205 Reset Content";
-const sstring partial_content = "206 Partial Content";
-const sstring multiple_choices = "300 Multiple Choices";
-const sstring moved_permanently = "301 Moved Permanently";
-const sstring moved_temporarily = "302 Moved Temporarily";
-const sstring see_other = "303 See Other";
-const sstring not_modified = "304 Not Modified";
-const sstring use_proxy = "305 Use Proxy";
-const sstring temporary_redirect = "307 Temporary Redirect";
-const sstring bad_request = "400 Bad Request";
-const sstring unauthorized = "401 Unauthorized";
-const sstring payment_required = "402 Payment Required";
-const sstring forbidden = "403 Forbidden";
-const sstring not_found = "404 Not Found";
-const sstring method_not_allowed = "405 Method Not Allowed";
-const sstring not_acceptable = "406 Not Acceptable";
-const sstring request_timeout = "408 Request Timeout";
-const sstring conflict = "409 Conflict";
-const sstring gone = "410 Gone";
-const sstring length_required = "411 Length Required";
-const sstring payload_too_large = "413 Payload Too Large";
-const sstring uri_too_long = "414 URI Too Long";
-const sstring unsupported_media_type = "415 Unsupported Media Type";
-const sstring expectation_failed = "417 Expectation Failed";
-const sstring unprocessable_entity = "422 Unprocessable Entity";
-const sstring upgrade_required = "426 Upgrade Required";
-const sstring too_many_requests = "429 Too Many Requests";
-const sstring internal_server_error = "500 Internal Server Error";
-const sstring not_implemented = "501 Not Implemented";
-const sstring bad_gateway = "502 Bad Gateway";
-const sstring service_unavailable = "503 Service Unavailable";
-const sstring gateway_timeout = "504 Gateway Timeout";
-const sstring http_version_not_supported = "505 HTTP Version Not Supported";
-const sstring insufficient_storage = "507 Insufficient Storage";
+static const std::unordered_map<reply::status_type, std::string_view> status_strings = {
+    {reply::status_type::continue_, "100 Continue"},
+    {reply::status_type::switching_protocols, "101 Switching Protocols"},
+    {reply::status_type::ok, "200 OK"},
+    {reply::status_type::created, "201 Created"},
+    {reply::status_type::accepted, "202 Accepted"},
+    {reply::status_type::nonauthoritative_information, "203 Non-Authoritative Information"},
+    {reply::status_type::no_content, "204 No Content"},
+    {reply::status_type::reset_content, "205 Reset Content"},
+    {reply::status_type::partial_content, "206 Partial Content"},
+    {reply::status_type::multiple_choices, "300 Multiple Choices"},
+    {reply::status_type::moved_permanently, "301 Moved Permanently"},
+    {reply::status_type::moved_temporarily, "302 Moved Temporarily"},
+    {reply::status_type::see_other, "303 See Other"},
+    {reply::status_type::not_modified, "304 Not Modified"},
+    {reply::status_type::use_proxy, "305 Use Proxy"},
+    {reply::status_type::temporary_redirect, "307 Temporary Redirect"},
+    {reply::status_type::bad_request, "400 Bad Request"},
+    {reply::status_type::unauthorized, "401 Unauthorized"},
+    {reply::status_type::payment_required, "402 Payment Required"},
+    {reply::status_type::forbidden, "403 Forbidden"},
+    {reply::status_type::not_found, "404 Not Found"},
+    {reply::status_type::method_not_allowed, "405 Method Not Allowed"},
+    {reply::status_type::not_acceptable, "406 Not Acceptable"},
+    {reply::status_type::request_timeout, "408 Request Timeout"},
+    {reply::status_type::conflict, "409 Conflict"},
+    {reply::status_type::gone, "410 Gone"},
+    {reply::status_type::length_required, "411 Length Required"},
+    {reply::status_type::payload_too_large, "413 Payload Too Large"},
+    {reply::status_type::uri_too_long, "414 URI Too Long"},
+    {reply::status_type::unsupported_media_type, "415 Unsupported Media Type"},
+    {reply::status_type::expectation_failed, "417 Expectation Failed"},
+    {reply::status_type::page_expired, "419 Page Expired"},
+    {reply::status_type::unprocessable_entity, "422 Unprocessable Entity"},
+    {reply::status_type::upgrade_required, "426 Upgrade Required"},
+    {reply::status_type::too_many_requests, "429 Too Many Requests"},
+    {reply::status_type::login_timeout, "440 Login Timeout"},
+    {reply::status_type::internal_server_error, "500 Internal Server Error"},
+    {reply::status_type::not_implemented, "501 Not Implemented"},
+    {reply::status_type::bad_gateway, "502 Bad Gateway"},
+    {reply::status_type::service_unavailable, "503 Service Unavailable"},
+    {reply::status_type::gateway_timeout, "504 Gateway Timeout"},
+    {reply::status_type::http_version_not_supported, "505 HTTP Version Not Supported"},
+    {reply::status_type::insufficient_storage, "507 Insufficient Storage"},
+    {reply::status_type::bandwidth_limit_exceeded, "509 Bandwidth Limit Exceeded"},
+    {reply::status_type::network_read_timeout, "598 Network Read Timeout"},
+    {reply::status_type::network_connect_timeout, "599 Network Connect Timeout"}};
 
-static const sstring& to_string(reply::status_type status) {
-    switch (status) {
-    case reply::status_type::continue_:
-        return continue_;
-    case reply::status_type::switching_protocols:
-        return switching_protocols;
-    case reply::status_type::ok:
-        return ok;
-    case reply::status_type::created:
-        return created;
-    case reply::status_type::accepted:
-        return accepted;
-    case reply::status_type::nonauthoritative_information:
-        return nonauthoritative_information;
-    case reply::status_type::no_content:
-        return no_content;
-    case reply::status_type::reset_content:
-        return reset_content;
-    case reply::status_type::partial_content:
-        return partial_content;
-    case reply::status_type::multiple_choices:
-        return multiple_choices;
-    case reply::status_type::moved_permanently:
-        return moved_permanently;
-    case reply::status_type::moved_temporarily:
-        return moved_temporarily;
-    case reply::status_type::see_other:
-        return see_other;
-    case reply::status_type::not_modified:
-        return not_modified;
-    case reply::status_type::use_proxy:
-        return use_proxy;
-    case reply::status_type::temporary_redirect:
-        return temporary_redirect;
-    case reply::status_type::bad_request:
-        return bad_request;
-    case reply::status_type::unauthorized:
-        return unauthorized;
-    case reply::status_type::payment_required:
-        return payment_required;
-    case reply::status_type::forbidden:
-        return forbidden;
-    case reply::status_type::not_found:
-        return not_found;
-    case reply::status_type::method_not_allowed:
-        return method_not_allowed;
-    case reply::status_type::not_acceptable:
-        return not_acceptable;
-    case reply::status_type::request_timeout:
-        return request_timeout;
-    case reply::status_type::conflict:
-        return conflict;
-    case reply::status_type::gone:
-        return gone;
-    case reply::status_type::length_required:
-        return length_required;
-    case reply::status_type::payload_too_large:
-        return payload_too_large;
-    case reply::status_type::uri_too_long:
-        return uri_too_long;
-    case reply::status_type::unsupported_media_type:
-        return unsupported_media_type;
-    case reply::status_type::expectation_failed:
-        return expectation_failed;
-    case reply::status_type::unprocessable_entity:
-        return unprocessable_entity;
-    case reply::status_type::upgrade_required:
-        return upgrade_required;
-    case reply::status_type::too_many_requests:
-        return too_many_requests;
-    case reply::status_type::internal_server_error:
-        return internal_server_error;
-    case reply::status_type::not_implemented:
-        return not_implemented;
-    case reply::status_type::bad_gateway:
-        return bad_gateway;
-    case reply::status_type::service_unavailable:
-        return service_unavailable;
-    case reply::status_type::gateway_timeout:
-        return gateway_timeout;
-    case reply::status_type::http_version_not_supported:
-        return http_version_not_supported;
-    case reply::status_type::insufficient_storage:
-        return insufficient_storage;
-    default:
-        return internal_server_error;
-    }
+static const std::string_view& to_string_view(reply::status_type status) {
+  if (auto found = status_strings.find(status); found != status_strings.end()) [[likely]]
+    return found->second;
+  return status_strings.at(reply::status_type::internal_server_error);
 }
+
 } // namespace status_strings
 
 std::ostream& operator<<(std::ostream& os, reply::status_type st) {
-    return os << status_strings::to_string(st);
+    return os << status_strings::to_string_view(st);
 }
 
-sstring reply::response_line() {
-    return "HTTP/" + _version + " " + status_strings::to_string(_status) + "\r\n";
+sstring reply::response_line() const {
+    return seastar::format("HTTP/{} {}\r\n", _version, status_strings::to_string_view(_status));
 }
 
 void reply::write_body(const sstring& content_type, noncopyable_function<future<>(output_stream<char>&&)>&& body_writer) {
