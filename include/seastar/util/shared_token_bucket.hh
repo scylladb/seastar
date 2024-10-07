@@ -146,8 +146,8 @@ public:
             : _replenish_rate(std::min(rate, max_rate))
             , _replenish_limit(limit)
             , _replenish_threshold(std::clamp(threshold, (T)1, limit))
-            // pretend it was replenished yesterday to spot overflows early
-            , _replenished(Clock::now() - std::chrono::hours(add_replenish_iffset ? 24 : 0))
+            // pretend it was replenished max_delta ago to spot overflows early
+            , _replenished(Clock::now() - std::chrono::hours(add_replenish_iffset ? 1 : 0))
             , _rovers(_replenish_limit)
     {}
 
@@ -170,7 +170,10 @@ public:
         auto extra = accumulated_in(delta);
 
         if (extra >= _replenish_threshold) {
-            if (!_replenished.compare_exchange_weak(ts, ts + delta)) {
+            // accumulated_in() might have lost or accumulated some replenisher
+            // time due to rounding floating-point delta to integer tokens
+            auto real_delta = std::chrono::duration_cast<decltype(delta)>(duration_for(extra));
+            if (!_replenished.compare_exchange_weak(ts, ts + real_delta)) {
                 return; // next time or another shard
             }
 
