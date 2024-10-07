@@ -1508,6 +1508,48 @@ A `pipe<T>` resembles a Unix pipe, in that it has a read side, a write side, and
 The pipe's read and write interfaces are future-based blocking. I.e., the write() and read() methods return a future which is fulfilled when the operation is complete. The pipe is single-reader single-writer, meaning that until the future returned by read() is fulfilled, read() must not be called again (and same for write).
 Note: The pipe reader and writer are movable, but *not* copyable. It is often convenient to wrap each end in a shared pointer, so it can be copied (e.g., used in an std::function which needs to be copyable) or easily captured into multiple continuations.
 
+The following example demonstrates a scenario in which two different continuations communicate with each other by using a pipe.
+```cpp
+#include <seastar/core/future.hh>
+#include <seastar/core/do_with.hh>
+#include <seastar/core/sleep.hh>
+#include <seastar/core/pipe.hh>
+#include <seastar/core/coroutine.hh>
+#include <seastar/core/when_all.hh>
+#include <iostream>
+
+
+seastar::future<> f() {
+    return seastar::do_with(seastar::pipe<int>(1), [] (auto& pipe) {
+        auto reader = [&pipe]()->seastar::future<> {
+            std::cout << "[Reader] Waiting for data..." << std::endl;
+
+            auto data = co_await pipe.reader.read();
+            std::cout << "[Reader] In the first read we got " << data.value() << std::endl;
+            
+            data = co_await pipe.reader.read();
+            std::cout << "[Reader] In the second read we got " << data.value() << std::endl;
+        };
+
+        auto writer = [&pipe]()->seastar::future<> {
+            std::cout << "[Writer] Writing data to the queue..." << std::endl;
+
+            co_await pipe.writer.write(1);
+            std::cout << "[Writer] We finished write one" << std::endl;
+
+            co_await pipe.writer.write(2);
+            std::cout << "[Writer] We finished write two" << std::endl;
+        };
+
+        return seastar::when_all(std::move(reader), std::move(writer)).discard_result();
+    });
+}
+```
+
+In this example we have a function `reader` which gets a pipe and waits for data. We have a second function `writer` which sends data.
+We define a queue with buffer size 1. Thus, the writer can write a single object, int in our case, and wait for a read event before the next write.
+The reader blocks until there is data in the pipe and prints the value it got.
+
 # Shutting down a service with a gate
 Consider an application which has some long operation `slow()`, and many such operations may be started at any time. A number of `slow()` operations may even even be active in parallel.  Now, you want to shut down this service, but want to make sure that before that, all outstanding operations are completed. Moreover, you don't want to allow new `slow()` operations to start while the shut-down is in progress.
 
