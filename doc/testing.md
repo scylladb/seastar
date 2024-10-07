@@ -20,11 +20,11 @@ There are three categories of boost-based tests in our system:
 
 * Tests defined with `BOOST_AUTO_TEST_CASE` are driven by Boost.Test's built-in test runner. They require defining [`BOOST_TEST_MODULE`](https://www.boost.org/doc/libs/release/libs/test/doc/html/boost_test/utf_reference/link_references/link_boost_test_module_macro.html) to include the runner in the executable. These tests support additional features like fixtures and data-driven testing.
 * `SEASTAR_TEST_CASE` and `SEASTAR_THREAD_TEST_CASE` tests only support decorators and share a common test runner, allowing them to be co-located in the same test suite.
-* Seastar tests cannot be co-located with "native" Boost tests.
+* Seastar tests can be co-located with "native" Boost tests. The `SEASTAR_TEST_CASE` / `SEASTAR_THREAD_TEST_CASE` restrictions above apply to the entire test binary, and the `BOOST_TEST_MODULE` macro must not be defined.
 
 ## Adding Tests in `CMakeLists.txt`
 
-For Seastar tests:
+For Seastar tests (and binaries that contain both Seastar and Boost tests):
 
 ```cmake
 seastar_add_test(meow_test
@@ -41,7 +41,7 @@ seastar_add_test(meow_test
 
 The `KIND` parameter of `seastar_add_test()` function defaults to `SEASTAR`, using the Seastar test runner by defining the `SEASTAR_TESTING_MAIN` macro.
 
-For "native" Boost tests:
+For "native" Boost(-only) tests:
 
 ```cmake
 seastar_add_test(woof_test
