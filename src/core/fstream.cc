@@ -379,7 +379,13 @@ public:
         _options.buffer_size = select_buffer_size<unsigned>(_options.buffer_size, _file.disk_write_max_length());
         _write_behind_sem.ensure_space_for_waiters(1); // So that wait() doesn't throw
     }
-    future<> put(net::packet data) override { abort(); }
+    virtual future<> put(net::packet data) override {
+        return seastar::do_with(data.release(), [this](std::vector<seastar::temporary_buffer<char>>& bufs) {
+            return seastar::do_for_each(bufs, [this](seastar::temporary_buffer<char>& buf){
+                return this->put(std::move(buf));
+            });
+        });
+    }
     virtual temporary_buffer<char> allocate_buffer(size_t size) override {
         return temporary_buffer<char>::aligned(_file.memory_dma_alignment(), size);
     }
