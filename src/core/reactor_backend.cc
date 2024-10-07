@@ -345,26 +345,24 @@ void aio_general_context::queue(linux_abi::iocb* iocb) {
 
 size_t aio_general_context::flush() {
     auto begin = iocbs.get();
-    using clock = std::chrono::steady_clock;
-    constexpr clock::time_point no_time_point = clock::time_point(clock::duration(0));
-    auto retry_until = no_time_point;
     while (begin != last) {
         auto r = io_submit(io_context, last - begin, begin);
-        if (__builtin_expect(r > 0, true)) {
-            begin += r;
-            continue;
+        if (__builtin_expect(r <= 0, false)) {
+            // EAGAIN is expected here when "Insufficient resources are available to queue any iocbs" (see io_submit(2)).
+            // This indicates overload on the kernel internal queue.
+            // Returning early below will allow us to reap completions to free up resources for further iocb:s.
+            // Abort on any other error, as those indicate an internal error on our side.
+            if (r < 0 && errno != EAGAIN) {
+                on_fatal_internal_error(seastar_logger, format("aio_general_context::flush: io_submit failed with unexpected system error: {}", errno));
+            }
+            // just adjust the queue and return the number of iocbs we were able to submit
+            std::move(begin, last, iocbs.get());
+            break;
         }
-        // errno == EAGAIN is expected here. We don't explicitly assert that
-        // since the assert below prevents an endless loop for any reason.
-        if (retry_until == no_time_point) {
-            // allow retrying for 1 second
-            retry_until = clock::now() + 1s;
-        } else {
-            assert(clock::now() < retry_until);
-        }
+        begin += r;
     }
-    auto nr = last - iocbs.get();
-    last = iocbs.get();
+    auto nr = begin - iocbs.get();
+    last -= nr;
     return nr;
 }
 
