@@ -782,6 +782,22 @@ SEASTAR_TEST_CASE(json_stream) {
     });
 }
 
+// See issue https://github.com/scylladb/seastar/issues/1701
+SEASTAR_TEST_CASE(dont_abort) {
+    return test_client_server::run_test(
+            [](seastar::output_stream<char>&& stream_) -> future<> {
+        auto stream = std::move(stream_);
+        co_await stream.write(seastar::temporary_buffer<char>{3});
+        co_await stream.close();
+    }
+    , [](size_t s, http_consumer& h) {
+        BOOST_REQUIRE_EQUAL(h._size, 3);
+        return false;
+    });
+
+}
+
+
 class json_test_handler : public handler_base {
     std::function<future<>(output_stream<char> &&)> _write_func;
 public:
@@ -1425,6 +1441,25 @@ static future<> test_basic_content(bool streamed, bool chunked_reply) {
                         BOOST_REQUIRE_EQUAL(body, to_sstring(std::move(jumbo_copy)));
                     });
                 }, http::reply::status_type::ok).get();
+            }
+
+            {
+                fmt::print("Request whose content-length body is written via a temporary_buffer\n");
+                auto req = http::request::make("GET", "test", "/test");
+                req.write_body("txt", 5, [] (output_stream<char>& out) -> future<> {
+                    const char* msg = "hello";
+                    co_await out.write(seastar::temporary_buffer<char>{msg, 5});
+                });
+                cln.make_request(std::move(req), [&] (const http::reply& resp, input_stream<char>&& in) {
+                    BOOST_REQUIRE_EQUAL(resp._status, http::reply::status_type::ok);
+                    if (!chunked_reply) {
+                        BOOST_REQUIRE_EQUAL(resp.content_length, 5);
+                    }
+                    return seastar::async([in = std::move(in)] () mutable {
+                        sstring body = util::read_entire_stream_contiguous(in).get();
+                        BOOST_REQUIRE_EQUAL(body, sstring("hello"));
+                    });
+                }).get();
             }
 
             {
