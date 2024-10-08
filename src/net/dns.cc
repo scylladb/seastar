@@ -266,7 +266,7 @@ private:
     socket_map _sockets;
     network_stack & _stack;
 
-    ares_channel _channel = {};
+    ares_channel_t* _channel;
     uint64_t _calls = 0;
     std::chrono::milliseconds _timeout;
     timer<> _timer;
