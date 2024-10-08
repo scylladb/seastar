@@ -199,7 +199,7 @@ private:
     requires std::invocable<Fn, connection&>
     auto with_new_connection(Fn&& fn, abort_source*);
 
-    future<> do_make_request(request req, reply_handler handle, abort_source*, std::optional<reply::status_type> expected);
+    future<> do_make_request(request& req, reply_handler& handle, abort_source*, std::optional<reply::status_type> expected);
     future<> do_make_request(connection& con, request& req, reply_handler& handle, abort_source*, std::optional<reply::status_type> expected);
 
 public:
@@ -283,7 +283,7 @@ public:
      * client may restart the whole request processing in case server closes the connection
      * in the middle of operation
      */
-    future<> make_request(request req, reply_handler handle, std::optional<reply::status_type> expected = std::nullopt);
+    future<> make_request(request&& req, reply_handler&& handle, std::optional<reply::status_type>&& expected = std::nullopt);
 
     /**
      * \brief Send the request and handle the response (abortable)
@@ -295,7 +295,25 @@ public:
      * \param as -- abort source that aborts the request
      * \param expected -- the optional expected reply status code, default is std::nullopt
      */
-    future<> make_request(request req, reply_handler handle, abort_source& as, std::optional<reply::status_type> expected = std::nullopt);
+    future<> make_request(request&& req, reply_handler&& handle, abort_source& as, std::optional<reply::status_type>&& expected = std::nullopt);
+
+    /**
+     * \brief Send the request and handle the response, same as \ref make_request()
+     *
+     *  @attention Note that the method does not take the ownership of the
+     * `request and the `handle`, it caller's responsibility the make sure they
+     * are referencing valid instances
+     */
+    future<> make_request(request& req, reply_handler& handle, std::optional<reply::status_type> expected = std::nullopt);
+
+    /**
+     * \brief Send the request and handle the response (abortable), same as \ref make_request()
+     *
+     *  @attention Note that the method does not take the ownership of the
+     * `request and the `handle`, it caller's responsibility the make sure they
+     * are referencing valid instances
+     */
+    future<> make_request(request& req, reply_handler& handle, abort_source& as, std::optional<reply::status_type> expected = std::nullopt);
 
     /**
      * \brief Updates the maximum number of connections a client may have
