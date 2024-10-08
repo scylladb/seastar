@@ -24,6 +24,7 @@ module;
 #endif
 
 #include <concepts>
+#include <coroutine>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -35,6 +36,7 @@ module seastar;
 #include <seastar/core/loop.hh>
 #include <seastar/core/when_all.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/coroutine/as_future.hh>
 #include <seastar/net/tls.hh>
 #include <seastar/http/client.hh>
 #include <seastar/http/request.hh>
@@ -77,38 +79,17 @@ connection::connection(connected_socket&& fd, internal::client_ref cr)
 future<> connection::write_body(const request& req) {
     if (req.body_writer) {
         if (req.content_length != 0) {
-            return req.body_writer(internal::make_http_content_length_output_stream(_write_buf, req.content_length, req._bytes_written)).then([&req] {
-                if (req.content_length == req._bytes_written) {
-                    return make_ready_future<>();
-                } else {
-                    return make_exception_future<>(std::runtime_error(format("partial request body write, need {} sent {}", req.content_length, req._bytes_written)));
-                }
-            });
-        }
-        return req.body_writer(internal::make_http_chunked_output_stream(_write_buf)).then([this] {
-            return _write_buf.write("0\r\n\r\n");
-        });
-    } else if (!req.content.empty()) {
-        return _write_buf.write(req.content);
-    } else {
-        return make_ready_future<>();
-    }
-}
-
-future<connection::reply_ptr> connection::maybe_wait_for_continue(const request& req) {
-    if (req.get_header("Expect") == "") {
-        return make_ready_future<reply_ptr>(nullptr);
-    }
-
-    return _write_buf.flush().then([this] {
-        return recv_reply().then([] (reply_ptr rep) {
-            if (rep->_status == reply::status_type::continue_) {
-                return make_ready_future<reply_ptr>(nullptr);
-            } else {
-                return make_ready_future<reply_ptr>(std::move(rep));
+            co_await req.body_writer(internal::make_http_content_length_output_stream(_write_buf, req.content_length, req._bytes_written));
+            if (req.content_length != req._bytes_written) {
+                throw std::runtime_error(format("partial request body write, need {} sent {}", req.content_length, req._bytes_written));
             }
-        });
-    });
+        } else {
+            co_await req.body_writer(internal::make_http_chunked_output_stream(_write_buf));
+            co_await _write_buf.write("0\r\n\r\n");
+        }
+    } else if (!req.content.empty()) {
+        co_await _write_buf.write(req.content);
+    }
 }
 
 void connection::setup_request(request& req) {
@@ -123,62 +104,50 @@ void connection::setup_request(request& req) {
     }
 }
 
-future<> connection::send_request_head(const request& req) {
-    return _write_buf.write(req.request_line()).then([this, &req] {
-        return req.write_request_headers(_write_buf).then([this] {
-            return _write_buf.write("\r\n", 2);
-        });
-    });
-}
-
 future<connection::reply_ptr> connection::recv_reply() {
     http_response_parser parser;
-    return do_with(std::move(parser), [this] (auto& parser) {
-        parser.init();
-        return _read_buf.consume(parser).then([this, &parser] {
-            if (parser.eof()) {
-                http_log.trace("Parsing response EOFed");
-                throw std::system_error(ECONNABORTED, std::system_category());
-            }
-            if (parser.failed()) {
-                http_log.trace("Parsing response failed");
-                throw std::runtime_error("Invalid http server response");
-            }
+    parser.init();
+    co_await _read_buf.consume(parser);
+    if (parser.eof()) {
+        http_log.trace("Parsing response EOFed");
+        throw std::system_error(ECONNABORTED, std::system_category());
+    }
+    if (parser.failed()) {
+        http_log.trace("Parsing response failed");
+        throw std::runtime_error("Invalid http server response");
+    }
 
-            auto resp = parser.get_parsed_response();
-            sstring length_header = resp->get_header("Content-Length");
-            resp->content_length = strtol(length_header.c_str(), nullptr, 10);
-            if ((resp->_version != "1.1") || seastar::internal::case_insensitive_cmp()(resp->get_header("Connection"), "close")) {
-                _persistent = false;
-            }
-            return make_ready_future<reply_ptr>(std::move(resp));
-        });
-    });
+    auto resp = parser.get_parsed_response();
+    sstring length_header = resp->get_header("Content-Length");
+    resp->content_length = strtol(length_header.c_str(), nullptr, 10);
+    if ((resp->_version != "1.1") || seastar::internal::case_insensitive_cmp()(resp->get_header("Connection"), "close")) {
+        _persistent = false;
+    }
+    co_return resp;
 }
 
 future<connection::reply_ptr> connection::do_make_request(request& req) {
     setup_request(req);
-    return send_request_head(req).then([this, &req] {
-        return maybe_wait_for_continue(req).then([this, &req] (reply_ptr cont) {
-            if (cont) {
-                return make_ready_future<reply_ptr>(std::move(cont));
-            }
+    co_await _write_buf.write(req.request_line());
+    co_await req.write_request_headers(_write_buf);
+    co_await _write_buf.write("\r\n", 2);
 
-            return write_body(req).then([this] {
-                return _write_buf.flush().then([this] {
-                    return recv_reply();
-                });
-            });
-        });
-    });
+    if (req.get_header("Expect") != "") {
+        co_await _write_buf.flush();
+        reply_ptr rep = co_await recv_reply();
+        if (rep->_status != reply::status_type::continue_) {
+            co_return rep;
+        }
+    }
+
+    co_await write_body(req);
+    co_await _write_buf.flush();
+    co_return co_await recv_reply();
 }
 
 future<reply> connection::make_request(request req) {
-    return do_with(std::move(req), [this] (auto& req) {
-        return do_make_request(req).then([] (reply_ptr rep) {
-            return make_ready_future<reply>(std::move(*rep));
-        });
-    });
+    reply_ptr rep = co_await do_make_request(req);
+    co_return std::move(*rep);
 }
 
 input_stream<char> connection::in(reply& rep) {
@@ -195,12 +164,10 @@ void connection::shutdown() noexcept {
 }
 
 future<> connection::close() {
-    return when_all(_read_buf.close(), _write_buf.close()).discard_result().then([this] {
-        auto la = _fd.local_address();
-        return std::move(_closed).then([la = std::move(la)] {
-            http_log.trace("destroyed connection {}", la);
-        });
-    });
+    co_await when_all(_read_buf.close(), _write_buf.close());
+    auto la = _fd.local_address();
+    co_await std::move(_closed);
+    http_log.trace("destroyed connection {}", la);
 }
 
 class basic_connection_factory : public connection_factory {
@@ -249,33 +216,33 @@ client::client(std::unique_ptr<connection_factory> f, unsigned max_connections, 
 }
 
 future<client::connection_ptr> client::get_connection(abort_source* as) {
+try_again:
     if (!_pool.empty()) {
         connection_ptr con = _pool.front().shared_from_this();
         _pool.pop_front();
         http_log.trace("pop http connection {} from pool", con->_fd.local_address());
-        return make_ready_future<connection_ptr>(con);
+        co_return con;
     }
 
     if (_nr_connections >= _max_connections) {
         auto sub = as ? as->subscribe([this] () noexcept { _wait_con.broadcast(); }) : std::nullopt;
-        return _wait_con.wait().then([this, as, sub = std::move(sub)] {
-            if (as != nullptr && as->abort_requested()) {
-                return make_exception_future<client::connection_ptr>(as->abort_requested_exception_ptr());
-            }
-            return get_connection(as);
-        });
+        co_await _wait_con.wait();
+        if (as != nullptr && as->abort_requested()) {
+            std::rethrow_exception(as->abort_requested_exception_ptr());
+        }
+        goto try_again;
     }
 
-    return make_connection(as);
+    co_return co_await make_connection(as);
 }
 
 future<client::connection_ptr> client::make_connection(abort_source* as) {
     _total_new_connections++;
-    return _new_connections->make(as).then([cr = internal::client_ref(this)] (connected_socket cs) mutable {
-        http_log.trace("created new http connection {}", cs.local_address());
-        auto con = seastar::make_shared<connection>(std::move(cs), std::move(cr));
-        return make_ready_future<connection_ptr>(std::move(con));
-    });
+    auto cr = internal::client_ref(this);
+    connected_socket cs = co_await _new_connections->make(as);
+    http_log.trace("created new http connection {}", cs.local_address());
+    auto con = seastar::make_shared<connection>(std::move(cs), std::move(cr));
+    co_return con;
 }
 
 future<> client::put_connection(connection_ptr con) {
@@ -283,59 +250,52 @@ future<> client::put_connection(connection_ptr con) {
         http_log.trace("push http connection {} to pool", con->_fd.local_address());
         _pool.push_back(*con);
         _wait_con.signal();
-        return make_ready_future<>();
+        co_return;
     }
 
     http_log.trace("dropping connection {}", con->_fd.local_address());
-    return con->close().finally([con] {});
+    co_await con->close();
 }
 
 future<> client::shrink_connections() {
-    if (_nr_connections <= _max_connections) {
-        return make_ready_future<>();
-    }
+    while (_nr_connections > _max_connections) {
+        if (!_pool.empty()) {
+            connection_ptr con = _pool.front().shared_from_this();
+            _pool.pop_front();
+            co_await con->close();
+            continue;
+        }
 
-    if (!_pool.empty()) {
-        connection_ptr con = _pool.front().shared_from_this();
-        _pool.pop_front();
-        return con->close().finally([this, con] {
-            return shrink_connections();
-        });
+        co_await _wait_con.wait();
     }
-
-    return _wait_con.wait().then([this] {
-        return shrink_connections();
-    });
 }
 
 future<> client::set_maximum_connections(unsigned nr) {
     if (nr > _max_connections) {
         _max_connections = nr;
         _wait_con.broadcast();
-        return make_ready_future<>();
+        co_return;
     }
 
     _max_connections = nr;
-    return shrink_connections();
+    co_await shrink_connections();
 }
 
 template <std::invocable<connection&> Fn>
-auto client::with_connection(Fn&& fn, abort_source* as) {
-    return get_connection(as).then([this, fn = std::move(fn)] (connection_ptr con) mutable {
-        return fn(*con).finally([this, con = std::move(con)] () mutable {
-            return put_connection(std::move(con));
-        });
-    });
+futurize_t<std::invoke_result_t<Fn, connection&>> client::with_connection(Fn fn, abort_source* as) {
+    connection_ptr con = co_await get_connection(as);
+    auto f = co_await coroutine::as_future(futurize_invoke(std::move(fn), *con));
+    co_await put_connection(std::move(con));
+    co_return co_await std::move(f);
 }
 
 template <typename Fn>
 requires std::invocable<Fn, connection&>
-auto client::with_new_connection(Fn&& fn, abort_source* as) {
-    return make_connection(as).then([this, fn = std::move(fn)] (connection_ptr con) mutable {
-        return fn(*con).finally([this, con = std::move(con)] () mutable {
-            return put_connection(std::move(con));
-        });
-    });
+futurize_t<std::invoke_result_t<Fn, connection&>> client::with_new_connection(Fn fn, abort_source* as) {
+    connection_ptr con = co_await make_connection(as);
+    auto f = co_await coroutine::as_future(futurize_invoke(std::move(fn), *con));
+    co_await put_connection(std::move(con));
+    co_return co_await std::move(f);
 }
 
 future<> client::make_request(request req, reply_handler handle, std::optional<reply::status_type> expected) {
@@ -347,68 +307,61 @@ future<> client::make_request(request req, reply_handler handle, abort_source& a
 }
 
 future<> client::do_make_request(request req, reply_handler handle, abort_source* as, std::optional<reply::status_type> expected) {
-    return do_with(std::move(req), std::move(handle), [this, as, expected] (request& req, reply_handler& handle) mutable {
-        return with_connection([this, &req, &handle, as, expected] (connection& con) {
-            return do_make_request(con, req, handle, as, expected);
-        }, as).handle_exception_type([this, &req, &handle, as, expected] (const std::system_error& ex) {
-            if (as && as->abort_requested()) {
-                return make_exception_future<>(as->abort_requested_exception_ptr());
-            }
+    try {
+        co_return co_await with_connection(coroutine::lambda([this, &req, &handle, as, expected] (connection& con) -> future<> {
+            co_await do_make_request(con, req, handle, as, expected);
+        }), as);
+    } catch (const std::system_error& ex) {
+        if (as && as->abort_requested()) {
+            std::rethrow_exception(as->abort_requested_exception_ptr());
+        }
 
-            if (!_retry) {
-                return make_exception_future<>(ex);
-            }
+        if (!_retry) {
+            throw;
+        }
 
-            auto code = ex.code().value();
-            if ((code != EPIPE) && (code != ECONNABORTED)) {
-                return make_exception_future<>(ex);
-            }
+        auto code = ex.code().value();
+        if ((code != EPIPE) && (code != ECONNABORTED)) {
+            throw;
+        }
+    }
 
-            // The 'con' connection may not yet be freed, so the total connection
-            // count still account for it and with_new_connection() may temporarily
-            // break the limit. That's OK, the 'con' will be closed really soon
-            return with_new_connection([this, &req, &handle, as, expected] (connection& con) {
-                return do_make_request(con, req, handle, as, expected);
-            }, as);
-        });
-    });
+    // The 'con' connection may not yet be freed, so the total connection
+    // count still account for it and with_new_connection() may temporarily
+    // break the limit. That's OK, the 'con' will be closed really soon
+    co_await with_new_connection(coroutine::lambda([this, &req, &handle, as, expected] (connection& con) -> future<> {
+        co_await do_make_request(con, req, handle, as, expected);
+    }), as);
 }
 
 future<> client::do_make_request(connection& con, request& req, reply_handler& handle, abort_source* as, std::optional<reply::status_type> expected) {
     auto sub = as ? as->subscribe([&con] () noexcept { con.shutdown(); }) : std::nullopt;
-    return con.do_make_request(req).then([&con, &handle, expected] (connection::reply_ptr reply) mutable {
+    try {
+        connection::reply_ptr reply = co_await con.do_make_request(req);
         auto& rep = *reply;
         if (expected.has_value() && rep._status != expected.value()) {
-            if (!http_log.is_enabled(log_level::debug)) {
-                return make_exception_future<>(httpd::unexpected_status_error(rep._status));
+            if (http_log.is_enabled(log_level::debug)) {
+                auto in = con.in(*reply);
+                auto message = co_await util::read_entire_stream_contiguous(in);
+                http_log.debug("request finished with {}: {}", reply->_status, message);
             }
-
-            return do_with(con.in(rep), [reply = std::move(reply)] (auto& in) mutable {
-                return util::read_entire_stream_contiguous(in).then([reply = std::move(reply)] (auto message) {
-                    http_log.debug("request finished with {}: {}", reply->_status, message);
-                    return make_exception_future<>(httpd::unexpected_status_error(reply->_status));
-                });
-            });
+            throw httpd::unexpected_status_error(reply->_status);
         }
 
-        return handle(rep, con.in(rep)).finally([reply = std::move(reply)] {});
-    }).handle_exception([&con] (auto ex) mutable {
+        co_await handle(rep, con.in(rep));
+    } catch (...) {
         con._persistent = false;
-        return make_exception_future<>(std::move(ex));
-    }).finally([sub = std::move(sub)] {});
+        throw;
+    }
 }
 
 future<> client::close() {
-    if (_pool.empty()) {
-        return make_ready_future<>();
+    while (!_pool.empty()) {
+        connection_ptr con = _pool.front().shared_from_this();
+        _pool.pop_front();
+        http_log.trace("closing connection {}", con->_fd.local_address());
+        co_await con->close();
     }
-
-    connection_ptr con = _pool.front().shared_from_this();
-    _pool.pop_front();
-    http_log.trace("closing connection {}", con->_fd.local_address());
-    return con->close().then([this, con] {
-        return close();
-    });
 }
 
 } // experimental namespace
