@@ -124,7 +124,7 @@ static void check_ares_error(int error) {
 
 struct ares_initializer {
     ares_initializer() {
-        check_ares_error(ares_library_init(0));
+        check_ares_error(ares_library_init(ARES_LIB_INIT_NONE));
     }
     ~ares_initializer() {
         ares_library_cleanup();
