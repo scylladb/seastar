@@ -350,6 +350,29 @@ public:
     }
 
     /**
+     * Append the given character to the end of the string
+     * @param ch  The character to append
+     * @note unlike @c std::basic_string, sstring does not preallocate, so
+     *       this call always lead to reallocation if external storage is
+     *       used.
+     */
+    constexpr void push_back(char_type ch) {
+        if (is_internal()) {
+            if (static_cast<Size>(u.internal.size) < max_size) {
+                u.internal.str[u.internal.size++] = ch;
+                if (NulTerminate) {
+                    u.internal.str[u.internal.size] = '\0';
+                }
+                return;
+            }
+        }
+        basic_sstring new_str(initialized_later(), u.external.size + 1);
+        std::copy(begin(), end(), new_str.begin());
+        new_str.u.external.str[new_str.u.external.size - 1] = ch;
+        *this = std::move(new_str);
+    }
+
+    /**
      *  Resize string and use the specified @c op to modify the content and the length
      *  @param n  new size
      *  @param op the function object used for setting the new content of the string
