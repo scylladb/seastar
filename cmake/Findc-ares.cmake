@@ -37,15 +37,15 @@ find_path (c-ares_INCLUDE_DIR
     ${PC_c-ares_INCLUDE_DIRS})
 
 if (c-ares_INCLUDE_DIR)
-  file(STRINGS "${c-ares_INCLUDE_DIR}/ares_version.h" ares_VERSION_LINE
-    REGEX "^#define[ \t]+ARES_VERSION_STR \"[^\"]*\"$")
-  if (ares_VERSION_LINE MATCHES "ARES_VERSION_STR \"(([0-9]+)\\.([0-9]+)\\.([0-9]+))")
-    set (c-ares_VERSION "${CMAKE_MATCH_1}")
-    set (c-ares_VERSION_MAJOR "${CMAKE_MATCH_2}")
-    set (c-ares_VERSION_MINOR "${CMAKE_MATCH_3}")
-    set (c-ares_VERSION_PATCH "${CMAKE_MATCH_4}")
-  endif ()
-  unset (ares_VERSION_LINE)
+  foreach (v MAJOR MINOR PATCH)
+    file(STRINGS "${c-ares_INCLUDE_DIR}/ares_version.h" ares_VERSION_LINE
+      REGEX "^#define[ \t]+ARES_VERSION_${v}[ \t]+[0-9]+$")
+    if (ares_VERSION_LINE MATCHES "ARES_VERSION_${v} ([0-9]+)")
+      set (c-ares_VERSION_${v} "${CMAKE_MATCH_1}")
+    endif ()
+    unset (ares_VERSION_LINE)
+  endforeach ()
+  set (c-ares_VERSION ${c-ares_VERSION_MAJOR}.${c-ares_VERSION_MINOR}.${c-ares_VERSION_PATCH})
 endif ()
 
 mark_as_advanced (
