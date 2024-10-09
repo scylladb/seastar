@@ -124,7 +124,7 @@ static void check_ares_error(int error) {
 
 struct ares_initializer {
     ares_initializer() {
-        check_ares_error(ares_library_init(0));
+        check_ares_error(ares_library_init(ARES_LIB_INIT_NONE));
     }
     ~ares_initializer() {
         ares_library_cleanup();
@@ -266,7 +266,7 @@ private:
     socket_map _sockets;
     network_stack & _stack;
 
-    ares_channel _channel = {};
+    ares_channel_t* _channel;
     uint64_t _calls = 0;
     std::chrono::milliseconds _timeout;
     timer<> _timer;
