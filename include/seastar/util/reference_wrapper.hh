@@ -33,10 +33,10 @@ namespace seastar {
 /// allow implicit construction from a reference and the only way to construct
 /// it is to use either ref() or cref(). The reason for that discrepancy (and
 /// also the reason why seastar::reference_wrapper was introduced) is that it
-/// server different purpose than std::reference_wrapper. The latter protects
+/// serves a different purpose than std::reference_wrapper. The latter protects
 /// references from decaying and allows copying and assigning them.
-/// seastar::reference_wrapper is used mainly to force user to explicitly
-/// state that object is passed by reference thus reducing the chances that
+/// seastar::reference_wrapper is used mainly to force the user to explicitly
+/// state that an object is passed by reference thus reducing the chances of
 /// the referred object being prematurely destroyed in case the execution
 /// is deferred to a continuation.
 template<typename T>
