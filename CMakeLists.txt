@@ -317,17 +317,26 @@ set (Seastar_TEST_TIMEOUT
   STRING
   "Maximum allowed time for a test to run, in seconds.")
 
-option (BUILD_SHARED_LIBS
-  "Build seastar library as shared libraries instead of static"
-  OFF)
 cmake_dependent_option (Seastar_BUILD_SHARED_LIBS
   "Build Seastar as shared libraries" OFF
-  "NOT DEFINED BUILD_SHARED_LIB" OFF)
+  "NOT DEFINED BUILD_SHARED_LIBS" OFF)
 cmake_dependent_option (Seastar_BUILD_STATIC_LIBS
   "Build Seastar as static libraries" ON
-  "NOT DEFINED BUILD_SHARED_LIB" OFF)
+  "NOT DEFINED BUILD_SHARED_LIBS" OFF)
+if (DEFINED BUILD_SHARED_LIBS)
+  if (BUILD_SHARED_LIBS)
+    set (Seastar_BUILD_SHARED_LIBS ON)
+    set (Seastar_BUILD_STATIC_LIBS OFF)
+  else ()
+    set (Seastar_BUILD_SHARED_LIBS OFF)
+    set (Seastar_BUILD_STATIC_LIBS ON)
+  endif ()
+endif ()
 if (NOT (Seastar_BUILD_SHARED_LIBS OR Seastar_BUILD_STATIC_LIBS))
   message (FATAL_ERROR "Seastar_BUILD_STATIC_LIBS and Seastar_BUILD_STATIC_LIBS cannot both be disabled")
+endif ()
+if (Seastar_BUILD_SHARED_LIBS)
+  set (CMAKE_POSITION_INDEPENDENT_CODE ON)
 endif ()
 
 function (seastar_add_library name objects)
@@ -405,7 +414,7 @@ if ((NOT (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")) OR
     (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 10.2))
   string (APPEND Seastar_ASAN_OPTIONS ":detect_stack_use_after_return=1")
 endif ()
-if (BUILD_SHARED_LIBS)
+if (Seastar_BUILD_SHARED_LIBS)
   string (APPEND Seastar_ASAN_OPTIONS ":verify_asan_link_order=0")
 endif ()
 
@@ -883,7 +892,7 @@ if (CMAKE_CXX_STANDARD GREATER_EQUAL 23)
   endif ()
 endif ()
 
-if (BUILD_SHARED_LIBS OR Seastar_BUILD_SHARED_LIBS)
+if (Seastar_BUILD_SHARED_LIBS)
   # use initial-exec TLS, as it puts the TLS variables in the static TLS space
   # instead of allocating them using malloc. otherwise intercepting mallocs and
   # friends could lead to recursive call of malloc functions when a dlopen'ed
@@ -970,7 +979,7 @@ include (CTest)
 target_compile_definitions(seastar-objects
   PUBLIC
   SEASTAR_API_LEVEL=${Seastar_API_LEVEL}
-  $<$<BOOL:${BUILD_SHARED_LIBS}>:SEASTAR_BUILD_SHARED_LIBS>)
+  $<$<BOOL:${Seastar_BUILD_SHARED_LIBS}>:SEASTAR_BUILD_SHARED_LIBS>)
 
 target_compile_features(seastar-objects
   PUBLIC
