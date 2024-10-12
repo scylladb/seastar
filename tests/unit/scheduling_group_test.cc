@@ -273,16 +273,19 @@ SEASTAR_THREAD_TEST_CASE(sg_count) {
         try {
             BOOST_REQUIRE_LE(scheduling_group_count(), max_scheduling_groups());
             scheduling_groups_deferred_cleanup.emplace_back(create_scheduling_group(format("sg_{}", i), 10).get());
+            BOOST_REQUIRE_EQUAL(scheduling_group_free_slots(), max_scheduling_groups() - scheduling_group_count());
         } catch (std::runtime_error& e) {
             // make sure it is the right exception.
             BOOST_REQUIRE_EQUAL(e.what(), fmt::format("Scheduling group limit exceeded while creating sg_{}", i));
             // make sure that the scheduling group count makes sense
             BOOST_REQUIRE_EQUAL(scheduling_group_count(), max_scheduling_groups());
+            BOOST_REQUIRE_EQUAL(scheduling_group_free_slots(), 0);
             // make sure that we expect this exception at this point
             BOOST_REQUIRE_GE(i, max_scheduling_groups());
         }
     }
     BOOST_REQUIRE_EQUAL(scheduling_group_count(), max_scheduling_groups());
+    BOOST_REQUIRE_EQUAL(scheduling_group_free_slots(), 0);
 }
 
 SEASTAR_THREAD_TEST_CASE(sg_rename_callback) {

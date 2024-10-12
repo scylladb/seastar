@@ -129,6 +129,9 @@ future<> rename_scheduling_group(scheduling_group sg, sstring new_name, sstring 
 /// Returns number of active scheduling groups.
 size_t scheduling_group_count();
 
+/// Returns number of free scheduling group slots.
+size_t scheduling_group_free_slots();
+
 /**
  * Represents a configuration for a specific scheduling group value,
  * it contains all that is needed to maintain a scheduling group specific

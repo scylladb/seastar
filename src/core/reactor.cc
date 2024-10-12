@@ -5058,6 +5058,11 @@ size_t scheduling_group_count() {
     auto b = s_used_scheduling_group_ids_bitmap.load(std::memory_order_relaxed);
     return __builtin_popcountl(b);
 }
+
+size_t scheduling_group_free_slots() {
+    return max_scheduling_groups() - scheduling_group_count();
+}
+
 namespace internal {
 
 void add_to_flush_poller(output_stream<char>& os) noexcept {
