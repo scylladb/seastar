@@ -126,6 +126,8 @@ future<> rename_scheduling_group(scheduling_group sg, sstring new_name) noexcept
 /// \return a future that is ready when the scheduling group has been renamed
 future<> rename_scheduling_group(scheduling_group sg, sstring new_name, sstring new_shortname) noexcept;
 
+/// Returns number of active scheduling groups.
+size_t scheduling_group_count();
 
 /**
  * Represents a configuration for a specific scheduling group value,

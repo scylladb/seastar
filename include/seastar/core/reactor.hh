@@ -124,8 +124,6 @@ class buffer_allocator;
 class priority_class;
 class poller;
 
-size_t scheduling_group_count();
-
 void increase_thrown_exceptions_counter() noexcept;
 
 }

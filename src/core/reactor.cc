@@ -5054,6 +5054,10 @@ rename_scheduling_group(scheduling_group sg, sstring new_name, sstring new_short
     });
 }
 
+size_t scheduling_group_count() {
+    auto b = s_used_scheduling_group_ids_bitmap.load(std::memory_order_relaxed);
+    return __builtin_popcountl(b);
+}
 namespace internal {
 
 void add_to_flush_poller(output_stream<char>& os) noexcept {
@@ -5136,11 +5140,6 @@ std::ostream& operator<<(std::ostream& os, const stall_report& sr) {
         return std::chrono::duration<float>(d) / 1ms;
     };
     return os << format("{} stalls, {} ms stall time, {} ms run time", sr.kernel_stalls, to_ms(sr.stall_time), to_ms(sr.run_wall_time));
-}
-
-size_t scheduling_group_count() {
-    auto b = s_used_scheduling_group_ids_bitmap.load(std::memory_order_relaxed);
-    return __builtin_popcountl(b);
 }
 
 void
