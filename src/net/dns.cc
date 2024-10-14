@@ -55,6 +55,11 @@ std::ostream& operator<<(std::ostream& os, const opt_family& f) {
 
 }
 
+#if (ARES_VERSION < 0x011600)
+// ares_channel_t is only present since c-ares 1.22.0 (November 2023)
+typedef struct ares_channeldata ares_channel_t;
+#endif
+
 #if FMT_VERSION >= 90000
 template <> struct fmt::formatter<seastar::net::opt_family> : fmt::ostream_formatter {};
 #endif
