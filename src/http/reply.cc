@@ -110,6 +110,16 @@ std::ostream& operator<<(std::ostream& os, reply::status_type st) {
     return os << status_strings::to_string_view(st);
 }
 
+std::ostream& operator<<(std::ostream& os, reply::status_class sc) {
+    constexpr std::array<std::string_view, 6> status_strings{
+        "1xx: Informational", "2xx: Success", "3xx: Redirection", "4xx: Client Error", "5xx: Server Error", "Unclassified"};
+    auto status = static_cast<uint8_t>(sc) - 1;
+    if (status < 6) {
+        return os << status_strings[static_cast<uint8_t>(sc)];
+    }
+    return os << "Unclassified";
+}
+
 sstring reply::response_line() const {
     return seastar::format("HTTP/{} {}\r\n", _version, status_strings::to_string_view(_status));
 }
