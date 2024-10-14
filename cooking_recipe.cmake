@@ -262,8 +262,8 @@ cooking_ingredient (yaml-cpp
 
 cooking_ingredient (c-ares
   EXTERNAL_PROJECT_ARGS
-    URL https://c-ares.haxx.se/download/c-ares-1.13.0.tar.gz
-    URL_MD5 d2e010b43537794d8bedfb562ae6bba2
+    URL https://github.com/c-ares/c-ares/releases/download/v1.32.3/c-ares-1.32.3.tar.gz
+    URL_MD5 d5ed5967bc3a74191c051ce81ffe02fc
     CONFIGURE_COMMAND <SOURCE_DIR>/configure --prefix=<INSTALL_DIR> --srcdir=<SOURCE_DIR>
     BUILD_COMMAND <DISABLE>
     INSTALL_COMMAND ${make_command} install)
