@@ -112,6 +112,38 @@ struct reply {
     } _status;
 
     /**
+     * HTTP status classes
+     * See https://www.iana.org/assignments/http-status-codes/http-status-codes.xhtml
+     *
+     * 1xx: Informational - Request received, continuing process
+     * 2xx: Success - The action was successfully received, understood, and accepted
+     * 3xx: Redirection - Further action must be taken in order to complete the request
+     * 4xx: Client Error - The request contains bad syntax or cannot be fulfilled
+     * 5xx: Server Error - The server failed to fulfill an apparently valid request
+     */
+    enum class status_class : uint8_t {
+        informational = 1,
+        success = 2,
+        redirection = 3,
+        client_error = 4,
+        server_error = 5,
+        unclassified
+    };
+
+    /**
+     * Classify http status
+     * @param http_status the http status \ref status_type
+     * @return one of the \ref status_class values
+     */
+    static constexpr status_class classify_status(status_type http_status) {
+        auto sc = static_cast<std::underlying_type_t<status_type>>(http_status) / 100;
+        if (sc < 1 || sc > 5) [[unlikely]] {
+            return status_class::unclassified;
+        }
+        return static_cast<status_class>(sc);
+    }
+
+    /**
      * The headers to be included in the reply.
      */
     std::unordered_map<sstring, sstring, seastar::internal::case_insensitive_hash, seastar::internal::case_insensitive_cmp> _headers;
