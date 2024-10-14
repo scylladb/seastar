@@ -136,6 +136,13 @@ if ("bsd" IN_LIST dpdk_PC_LIBRARIES)
   list (APPEND dpdk_dependencies "bsd")
 endif ()
 
+# As of DPDK 23.07, if libarchive-dev is present, it will make DPDK depend on the library.
+# Unfortunately DPDK also has a bug in its .pc file generation and will not include libarchive
+# dependency under any circumstance. Accordingly, the dependency is added explicitly if libarchive
+# exists.
+pkg_check_modules(libarchive_PC libarchive)
+list(APPEND dpdk_dependencies ${libarchive_PC_LIBRARIES})
+
 if (dpdk_FOUND AND NOT (TARGET dpdk))
   get_filename_component (library_suffix "${dpdk_EAL_LIBRARY}" LAST_EXT)
   # strictly speaking, we should have being using check_c_compiler_flag()
