@@ -769,7 +769,7 @@ int main(int ac, char** av) {
                 auto eval_dir = eval.second;
 
                 if (!filesystem_has_good_aio_support(eval_dir, false)) {
-                    iotune_logger.error("Exception when qualifying filesystem at {}", eval_dir);
+                    iotune_logger.error("Linux AIO is not supported by filesystem at {}", eval_dir);
                     return 1;
                 }
 
