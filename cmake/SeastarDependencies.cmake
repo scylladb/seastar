@@ -141,6 +141,9 @@ macro (seastar_find_dependencies)
   seastar_set_dep_args (rt REQUIRED)
   seastar_set_dep_args (numactl
     OPTION ${Seastar_NUMA})
+  seastar_set_dep_args (Sanitizers
+    COMPONENTS
+      ${Seastar_SANITIZERS})
   seastar_set_dep_args (ucontext REQUIRED)
   seastar_set_dep_args (yaml-cpp REQUIRED
     VERSION 0.5.1)

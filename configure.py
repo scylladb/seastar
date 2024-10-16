@@ -142,6 +142,8 @@ arg_parser.add_argument('--heap-profiling', dest='heap_profiling', action='store
 arg_parser.add_argument('--dpdk-machine', default='native', help='Specify the target architecture')
 add_tristate(arg_parser, name='deferred-action-require-noexcept', dest='deferred_action_require_noexcept', help='noexcept requirement for deferred actions', default=True)
 arg_parser.add_argument('--prefix', dest='install_prefix', default='/usr/local', help='Root installation path of Seastar files')
+arg_parser.add_argument('--sanitizer', dest='sanitizers', action='append', default=[], help='Use specified sanitizer')
+arg_parser.add_argument('--no-sanitizers', dest='no_sanitizers', action='store_true', default=False, help='Do not use sanitizers')
 args = arg_parser.parse_args()
 
 
@@ -175,11 +177,17 @@ MODE_TO_CMAKE_BUILD_TYPE = {'release': 'RelWithDebInfo', 'debug': 'Debug', 'dev'
 def configure_mode(mode):
     BUILD_PATH = seastar_cmake.build_path(mode, build_root=args.build_root)
 
-    CFLAGS = seastar_cmake.convert_strings_to_cmake_list(
+    CFLAGS = seastar_cmake.whitespace_separated_strings_to_cmake_list(
         args.user_cflags,
         args.user_optflags if seastar_cmake.is_release_mode(mode) else '')
 
-    LDFLAGS = seastar_cmake.convert_strings_to_cmake_list(args.user_ldflags)
+    LDFLAGS = seastar_cmake.whitespace_separated_strings_to_cmake_list(args.user_ldflags)
+
+    SANITIZERS = seastar_cmake.strings_to_cmake_list(args.sanitizers) if len(args.sanitizers) > 0 else None
+
+    enable_sanitizers = None
+    if args.no_sanitizers:
+        enable_sanitizers = False
 
     TRANSLATED_ARGS = [
         '-DCMAKE_BUILD_TYPE={}'.format(MODE_TO_CMAKE_BUILD_TYPE[mode]),
@@ -209,6 +217,8 @@ def configure_mode(mode):
         tr(args.deferred_action_require_noexcept, 'DEFERRED_ACTION_REQUIRE_NOEXCEPT'),
         tr(args.unused_result_error, 'UNUSED_RESULT_ERROR'),
         tr(args.debug_shared_ptr, 'DEBUG_SHARED_PTR', value_when_none='default'),
+        tr(enable_sanitizers, 'SANITIZE', value_when_none='default'),
+        tr(SANITIZERS, 'SANITIZERS', value_when_none='address;undefined_behavior'),
     ]
 
     ingredients_to_cook = set(args.cook)
