@@ -140,7 +140,7 @@ endif ()
 # Unfortunately DPDK also has a bug in its .pc file generation and will not include libarchive
 # dependency under any circumstance. Accordingly, the dependency is added explicitly if libarchive
 # exists.
-pkg_check_modules(libarchive_PC libarchive)
+pkg_check_modules (libarchive_PC QUIET libarchive)
 list(APPEND dpdk_dependencies ${libarchive_PC_LIBRARIES})
 
 if (dpdk_FOUND AND NOT (TARGET dpdk))
