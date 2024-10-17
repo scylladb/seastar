@@ -88,6 +88,8 @@ and with CMake using the `Seastar` package:
 `CMakeLists.txt` for `my_app`:
 
 ```
+set (CMAKE_CXX_STANDARD 23)
+
 find_package (Seastar REQUIRED)
 
 add_executable (my_app
