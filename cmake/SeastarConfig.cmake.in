@@ -20,9 +20,6 @@
 # Copyright (C) 2018 Scylladb, Ltd.
 #
 
-# We would like to use `find_dependency`, but it is not supported properly until CMake 3.8.
-#include (FindDependencyMacro)
-
 list (APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR})
 
 if (CMAKE_CXX_STANDARD)

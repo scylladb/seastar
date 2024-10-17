@@ -20,6 +20,7 @@
 # Copyright (C) 2019 Scylladb, Ltd.
 #
 
+include(CMakeParseArguments)
 
 # This is required because cmake-boost may return to Boost_{component}_LIBRARY:
 # - /usr/lib64/libboost_foo.so
@@ -38,9 +39,26 @@ if (Boost_VERSION_STRING VERSION_LESS 1.81.0)
     INTERFACE_COMPILE_DEFINITIONS "BOOST_NO_CXX98_FUNCTION_BASE")
 endif ()
 
-macro (seastar_find_dep package)
-  find_package (${package} ${ARGN})
-endmacro ()
+if (CMAKE_FIND_PACKAGE_NAME)
+  # used inside find_package(Seastar)
+  include (CMakeFindDependencyMacro)
+
+  macro (seastar_find_dep package)
+    cmake_parse_arguments(args "REQUIRED" "" "" ${ARGN})
+    if (arg_REQUIRED)
+      find_dependency (${package} ${arg_UNPARSED_ARGUMENTS})
+    else ()
+      # some packages are not REQUIRED, so we just check for them instead of
+      # populating "REQUIRED" from the original find_package() call.
+      find_package (${package} ${ARGN})
+    endif ()
+  endmacro ()
+else()
+  macro (seastar_find_dep package)
+    # used when configuring Seastar
+    find_package (${package} ${ARGN})
+  endmacro ()
+endif ()
 
 macro (seastar_find_dependencies)
   #
