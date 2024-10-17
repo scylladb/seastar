@@ -442,7 +442,7 @@ def main():
             sys.exit()
         if args.format == 'graph':
             print_command_line_options(args)
-            print_stats(tally, tmin)
+            print_stats(tally, args.tmin)
         render.print_graph(args.direction, args.width, args.branch_threshold)
     except BrokenPipeError:
         pass
