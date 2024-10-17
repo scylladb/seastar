@@ -36,12 +36,8 @@ include(CMakeParseArguments)
 # - Boost::foo
 set (Boost_NO_BOOST_CMAKE ON)
 
-if (CMAKE_CXX_STANDARD LESS 20)
-  set (_seastar_boost_version 1.64.0)
-else ()
-  # for including the fix of https://github.com/boostorg/test/pull/252
-  set (_seastar_boost_version 1.73.0)
-endif ()
+# for including the fix of https://github.com/boostorg/test/pull/252
+set (_seastar_boost_version 1.73.0)
 
 # This is the minimum version of Boost we need the CMake-bundled `FindBoost.cmake` to know about.
 find_package (Boost ${_seastar_boost_version} MODULE)
