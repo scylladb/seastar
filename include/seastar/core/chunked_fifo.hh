@@ -23,6 +23,7 @@
 
 #ifndef SEASTAR_MODULE
 #include <algorithm>
+#include <cassert>
 #include <type_traits>
 #include <seastar/util/modules.hh>
 #endif
