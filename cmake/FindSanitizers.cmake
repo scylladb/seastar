@@ -20,6 +20,9 @@
 # Copyright (C) 2018 Scylladb, Ltd.
 #
 
+cmake_policy (PUSH)
+cmake_policy (SET CMP0057 NEW)
+
 if(NOT Sanitizers_FIND_COMPONENTS)
   set(Sanitizers_FIND_COMPONENTS
     address
@@ -78,3 +81,5 @@ if (Sanitizers_FOUND)
     endif ()
   endforeach ()
 endif ()
+
+cmake_policy (POP)
