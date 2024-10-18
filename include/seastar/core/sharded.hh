@@ -267,13 +267,7 @@ public:
     /// the message.
     /// Passes the default \ref smp_submit_to_options to the
     /// \ref smp::submit_to() called behind the scenes.
-    future<> invoke_on_all(std::function<future<> (Service&)> func) noexcept {
-      try {
-        return invoke_on_all(smp_submit_to_options{}, std::move(func));
-      } catch (...) {
-        return current_exception_as_future();
-      }
-    }
+    future<> invoke_on_all(std::function<future<> (Service&)> func) noexcept;
 
     /// Invoke a function on all instances of `Service`.
     /// The return value becomes ready when all instances have processed
@@ -302,13 +296,7 @@ public:
     template <typename Func, typename... Args>
     requires std::invocable<Func, Service&, internal::sharded_unwrap_t<Args>...>
         && std::is_same_v<futurize_t<std::invoke_result_t<Func, Service&, internal::sharded_unwrap_t<Args>...>>, future<>>
-    future<> invoke_on_all(Func func, Args... args) noexcept {
-      try {
-        return invoke_on_all(smp_submit_to_options{}, std::move(func), std::move(args)...);
-      } catch (...) {
-        return current_exception_as_future();
-      }
-    }
+    future<> invoke_on_all(Func func, Args... args) noexcept;
 
     /// Invoke a callable on all instances of  \c Service except the instance
     /// which is allocated on current shard.
@@ -339,13 +327,37 @@ public:
     template <typename Func, typename... Args>
     requires std::invocable<Func, Service&, Args...>
         && std::is_same_v<futurize_t<std::invoke_result_t<Func, Service&, Args...>>, future<>>
-    future<> invoke_on_others(Func func, Args... args) noexcept {
-      try {
-        return invoke_on_others(smp_submit_to_options{}, std::move(func), std::move(args)...);
-      } catch (...) {
-        return current_exception_as_future();
-      }
-    }
+    future<> invoke_on_others(Func func, Args... args) noexcept;
+
+    /// Invoke a callable on a specific instance of `Service`.
+    ///
+    /// \param id shard id to call
+    /// \param options the options to forward to the \ref smp::submit_to()
+    ///         called behind the scenes.
+    /// \param func a callable with signature `Value (Service&, Args...)` or
+    ///        `future<Value> (Service&, Args...)` (for some `Value` type), or a pointer
+    ///        to a member function of Service
+    /// \param args parameters to the callable; will be copied or moved. To pass by reference,
+    ///              use std::ref().
+    ///
+    /// \return result of calling `func(instance)` on the designated instance
+    template <typename Func, typename... Args, typename Ret = futurize_t<std::invoke_result_t<Func, Service&, Args...>>>
+    requires std::invocable<Func, Service&, Args&&...>
+    Ret
+    invoke_on(unsigned id, smp_submit_to_options options, Func&& func, Args&&... args);
+
+    /// Invoke a callable on a specific instance of `Service`.
+    ///
+    /// \param id shard id to call
+    /// \param func a callable with signature `Value (Service&)` or
+    ///        `future<Value> (Service&)` (for some `Value` type), or a pointer
+    ///        to a member function of Service
+    /// \param args parameters to the callable
+    /// \return result of calling `func(instance)` on the designated instance
+    template <typename Func, typename... Args, typename Ret = futurize_t<std::invoke_result_t<Func, Service&, Args&&...>>>
+    requires std::invocable<Func, Service&, Args&&...>
+    Ret
+    invoke_on(unsigned id, Func&& func, Args&&... args);
 
     /// Invoke a callable on a range of instances of `Service`.
     ///
@@ -494,43 +506,6 @@ public:
                 return make_ready_future<std::vector<return_type>>(std::move(vec));
             });
         });
-    }
-
-    /// Invoke a callable on a specific instance of `Service`.
-    ///
-    /// \param id shard id to call
-    /// \param options the options to forward to the \ref smp::submit_to()
-    ///         called behind the scenes.
-    /// \param func a callable with signature `Value (Service&, Args...)` or
-    ///        `future<Value> (Service&, Args...)` (for some `Value` type), or a pointer
-    ///        to a member function of Service
-    /// \param args parameters to the callable; will be copied or moved. To pass by reference,
-    ///              use std::ref().
-    ///
-    /// \return result of calling `func(instance)` on the designated instance
-    template <typename Func, typename... Args, typename Ret = futurize_t<std::invoke_result_t<Func, Service&, Args...>>>
-    requires std::invocable<Func, Service&, Args&&...>
-    Ret
-    invoke_on(unsigned id, smp_submit_to_options options, Func&& func, Args&&... args) {
-        return smp::submit_to(id, options, [this, func = std::forward<Func>(func), args = std::tuple(std::move(args)...)] () mutable {
-            auto inst = get_local_service();
-            return std::apply(std::forward<Func>(func), std::tuple_cat(std::forward_as_tuple(*inst), std::move(args)));
-        });
-    }
-
-    /// Invoke a callable on a specific instance of `Service`.
-    ///
-    /// \param id shard id to call
-    /// \param func a callable with signature `Value (Service&)` or
-    ///        `future<Value> (Service&)` (for some `Value` type), or a pointer
-    ///        to a member function of Service
-    /// \param args parameters to the callable
-    /// \return result of calling `func(instance)` on the designated instance
-    template <typename Func, typename... Args, typename Ret = futurize_t<std::invoke_result_t<Func, Service&, Args&&...>>>
-    requires std::invocable<Func, Service&, Args&&...>
-    Ret
-    invoke_on(unsigned id, Func&& func, Args&&... args) {
-        return invoke_on(id, smp_submit_to_options(), std::forward<Func>(func), std::forward<Args>(args)...);
     }
 
     /// Gets a reference to the local instance.
@@ -798,6 +773,17 @@ sharded<Service>::invoke_on_all(smp_submit_to_options options, std::function<fut
 }
 
 template <typename Service>
+inline
+future<>
+sharded<Service>::invoke_on_all(std::function<future<> (Service&)> func) noexcept {
+    try {
+        return invoke_on_all(smp_submit_to_options{}, std::move(func));
+    } catch (...) {
+        return current_exception_as_future();
+    }
+}
+
+template <typename Service>
 template <typename Func, typename... Args>
 requires std::invocable<Func, Service&, internal::sharded_unwrap_t<Args>...>
     && std::is_same_v<futurize_t<std::invoke_result_t<Func, Service&, internal::sharded_unwrap_t<Args>...>>, future<>>
@@ -817,6 +803,20 @@ sharded<Service>::invoke_on_all(smp_submit_to_options options, Func func, Args..
 
 template <typename Service>
 template <typename Func, typename... Args>
+requires std::invocable<Func, Service&, internal::sharded_unwrap_t<Args>...>
+    && std::is_same_v<futurize_t<std::invoke_result_t<Func, Service&, internal::sharded_unwrap_t<Args>...>>, future<>>
+inline
+future<>
+sharded<Service>::invoke_on_all(Func func, Args... args) noexcept {
+    try {
+        return invoke_on_all(smp_submit_to_options{}, std::move(func), std::move(args)...);
+    } catch (...) {
+        return current_exception_as_future();
+    }
+}
+
+template <typename Service>
+template <typename Func, typename... Args>
 requires std::invocable<Func, Service&, Args...>
     && std::is_same_v<futurize_t<std::invoke_result_t<Func, Service&, Args...>>, future<>>
 inline
@@ -829,6 +829,41 @@ sharded<Service>::invoke_on_others(smp_submit_to_options options, Func func, Arg
   } catch (...) {
     return current_exception_as_future();
   }
+}
+
+template <typename Service>
+template <typename Func, typename... Args>
+requires std::invocable<Func, Service&, Args...>
+    && std::is_same_v<futurize_t<std::invoke_result_t<Func, Service&, Args...>>, future<>>
+inline
+future<>
+sharded<Service>::invoke_on_others(Func func, Args... args) noexcept {
+    try {
+        return invoke_on_others(smp_submit_to_options{}, std::move(func), std::move(args)...);
+    } catch (...) {
+        return current_exception_as_future();
+    }
+}
+
+template <typename Service>
+template <typename Func, typename... Args, typename Ret>
+requires std::invocable<Func, Service&, Args&&...>
+inline
+Ret
+sharded<Service>::invoke_on(unsigned id, smp_submit_to_options options, Func&& func, Args&&... args) {
+    return smp::submit_to(id, options, [this, func = std::forward<Func>(func), args = std::tuple(std::move(args)...)] () mutable {
+        auto inst = get_local_service();
+        return std::apply(std::forward<Func>(func), std::tuple_cat(std::forward_as_tuple(*inst), std::move(args)));
+    });
+}
+
+template <typename Service>
+template <typename Func, typename... Args, typename Ret>
+requires std::invocable<Func, Service&, Args&&...>
+inline
+Ret
+sharded<Service>::invoke_on(unsigned id, Func&& func, Args&&... args) {
+    return invoke_on(id, smp_submit_to_options(), std::forward<Func>(func), std::forward<Args>(args)...);
 }
 
 template <typename Service>
