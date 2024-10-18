@@ -491,7 +491,12 @@ bool reactor_backend_aio::await_events(int timeout, const sigset_t* active_sigma
     bool did_work = false;
     int r;
     do {
+        const bool may_sleep = !tsp || (tsp->tv_nsec + tsp->tv_sec > 0);
+        const auto before_getevents = may_sleep ? sched_clock::now() : sched_clock::time_point{};
         r = io_pgetevents(_polling_io.io_context, 1, batch_size, batch, tsp, active_sigmask);
+        if (may_sleep) {
+            _r._total_sleep += sched_clock::now() - before_getevents;
+        }
         if (r == -1 && errno == EINTR) {
             return true;
         }
@@ -841,7 +846,9 @@ reactor_backend_epoll::wait_and_process(int timeout, const sigset_t* active_sigm
       }
     });
     std::array<epoll_event, 128> eevt;
+    const auto before_pwait = sched_clock::now();
     int nr = ::epoll_pwait(_epollfd.get(), eevt.data(), eevt.size(), timeout, active_sigmask);
+    _r._total_sleep += sched_clock::now() - before_pwait;
     if (nr == -1 && errno == EINTR) {
         return false; // gdb can cause this
     }
@@ -1468,7 +1475,9 @@ public:
         }
         struct ::io_uring_cqe* cqe = nullptr;
         sigset_t sigs = *active_sigmask; // io_uring_wait_cqes() wants non-const
+        const auto before_wait_cqes = sched_clock::now();
         auto r = ::io_uring_wait_cqes(&_uring, &cqe, 1, nullptr, &sigs);
+        _r._total_sleep += sched_clock::now() - before_wait_cqes;
         if (__builtin_expect(r < 0, false)) {
             switch (-r) {
             case EINTR:
