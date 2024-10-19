@@ -12,7 +12,7 @@ boost_cflags=-I$<JOIN:@Boost_INCLUDE_DIRS@, -I>
 boost_unit_test_libs=@Boost_UNIT_TEST_FRAMEWORK_LIBRARY@
 
 # Us.
-seastar_testing_cflags=-DBoost_TEST_DYN_LINK
+seastar_testing_cflags=
 seastar_testing_libs=${libdir}/$<TARGET_FILE_NAME:seastar_testing>
 
 Requires: seastar >= 1.0
