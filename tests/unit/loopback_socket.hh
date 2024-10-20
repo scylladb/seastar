@@ -252,6 +252,7 @@ public:
 class loopback_connection_factory {
     unsigned _shard = 0;
     unsigned _shards_count;
+    unsigned _pending_capacity = 10;
     std::vector<lw_shared_ptr<queue<connected_socket>>> _pending;
 public:
     explicit loopback_connection_factory(unsigned shards_count = smp::count)
@@ -259,17 +260,24 @@ public:
     {
         _pending.resize(shards_count);
     }
+    
+    static loopback_connection_factory with_pending_capacity(unsigned pending_capacity, unsigned shards_count = smp::count) {
+        auto lcf = loopback_connection_factory(shards_count);
+        lcf._pending_capacity = pending_capacity;
+        return lcf;
+    }
+
     server_socket get_server_socket() {
        assert(this_shard_id() < _shards_count);
        if (!_pending[this_shard_id()]) {
-           _pending[this_shard_id()] = make_lw_shared<queue<connected_socket>>(10);
+           _pending[this_shard_id()] = make_lw_shared<queue<connected_socket>>(_pending_capacity);
        }
        return server_socket(std::make_unique<loopback_server_socket_impl>(_pending[this_shard_id()]));
     }
     future<> make_new_server_connection(foreign_ptr<lw_shared_ptr<loopback_buffer>> b1, lw_shared_ptr<loopback_buffer> b2) {
         assert(this_shard_id() < _shards_count);
         if (!_pending[this_shard_id()]) {
-            _pending[this_shard_id()] = make_lw_shared<queue<connected_socket>>(10);
+            _pending[this_shard_id()] = make_lw_shared<queue<connected_socket>>(_pending_capacity);
         }
         return _pending[this_shard_id()]->push_eventually(connected_socket(std::make_unique<loopback_connected_socket_impl>(std::move(b1), b2)));
     }

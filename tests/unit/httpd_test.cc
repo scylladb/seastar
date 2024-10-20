@@ -1641,7 +1641,7 @@ SEASTAR_TEST_CASE(case_insensitive_header_reply) {
 }
 
 SEASTAR_THREAD_TEST_CASE(multiple_connections) {
-    loopback_connection_factory lcf(1);
+    loopback_connection_factory lcf = loopback_connection_factory::with_pending_capacity(smp::count + 1, 1);
     http_server server("test");
     httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
     socket_address addr{ipv4_addr()};
