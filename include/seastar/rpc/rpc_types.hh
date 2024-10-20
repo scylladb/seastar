@@ -32,7 +32,6 @@
 #include <stdexcept>
 #include <string>
 #include <any>
-#include <boost/type.hpp>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/variant_utils.hh>
 #include <seastar/core/timer.hh>
@@ -50,7 +49,7 @@ using rpc_clock_type = lowres_clock;
 
 // used to tag a type for serializers
 template<typename T>
-using type = boost::type<T>;
+using type = std::type_identity<T>;
 
 struct stats {
     using counter_type = uint64_t;
