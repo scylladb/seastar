@@ -130,7 +130,7 @@ public:
     /// voluntarily stop itself after the gate is closed, by making calls to
     /// check() in appropriate places. check() with throw an exception and
     /// bail out of the long-running code if the gate is closed.
-    void check() {
+    void check() const {
         if (_stopped) {
             throw gate_closed_exception();
         }
