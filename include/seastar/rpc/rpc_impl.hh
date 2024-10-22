@@ -29,6 +29,8 @@
 #include <seastar/net/packet-data-source.hh>
 #include <seastar/core/print.hh>
 
+#include <boost/type.hpp> // for compatibility
+
 namespace seastar {
 
 namespace rpc {
@@ -278,17 +280,39 @@ inline snd_buf marshall(Serializer& serializer, size_t head_space, const T&... a
 template <typename Serializer, typename Input, typename... T>
 std::tuple<T...> do_unmarshall(connection& c, Input& in);
 
+// The protocol to call the serializer is read(serializer, stream, rpc::type<T>).
+// However, some users (ahem) used boost::type instead of rpc::type when the two
+// types were aliased, preventing us from moving to the newer std::type_identity.
+// To preserve compatibility, calls to read() are routed through
+// read_via_type_marker(), of which there are two variants, one for
+// boost::type (marked as deprecated) and one for std::type_identity.
+
+template <typename T, typename... Args>
+requires requires (Args... args, type<T> t) { read(std::forward<Args>(args)..., t); }
+auto
+read_via_type_marker(Args&&... args) {
+    return read(std::forward<Args>(args)..., type<T>());
+}
+
+template <typename T, typename... Args>
+requires requires (Args... args, boost::type<T> t) { read(std::forward<Args>(args)..., t); }
+[[deprecated("Use rpc::type<> instead of boost::type<>")]]
+auto
+read_via_type_marker(Args&&... args) {
+    return read(std::forward<Args>(args)..., boost::type<T>());
+}
+
 template<typename Serializer, typename Input>
 struct unmarshal_one {
     template<typename T> struct helper {
         static T doit(connection& c, Input& in) {
-            return read(c.serializer<Serializer>(), in, type<T>());
+            return read_via_type_marker<T>(c.serializer<Serializer>(), in);
         }
     };
     template<typename T> struct helper<optional<T>> {
         static optional<T> doit(connection& c, Input& in) {
             if (in.size()) {
-                return optional<T>(read(c.serializer<Serializer>(), in, type<typename remove_optional<T>::type>()));
+                return optional<T>(read_via_type_marker<typename remove_optional<T>::type>(c.serializer<Serializer>(), in));
             } else {
                 return optional<T>();
             }
