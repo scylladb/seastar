@@ -330,8 +330,17 @@ private:
     const bool _reuseport;
     circular_buffer<double> _loads;
     double _load = 0;
+    // Next two fields are required to enforce the monotonicity of total_steal_time()
+    // see that method for details.
+
+    // Last measured accumulated steal time, i.e., the simple difference of accumulated
+    // awake time and consumed thread CPU time.
+    sched_clock::duration _last_true_steal{0};
+    // Accumulated steal time forced to be monotinic by rejecting any updates that would
+    // decrease it. See total_steal_time() for details.
+    sched_clock::duration _last_mono_steal{0};
     sched_clock::duration _total_idle{0};
-    sched_clock::duration _total_sleep;
+    sched_clock::duration _total_sleep{0};
     sched_clock::time_point _start_time = now();
     std::chrono::nanoseconds _max_poll_time = calculate_poll_time();
     output_stream<char>::batch_flush_list_t _flush_batching;
@@ -411,7 +420,6 @@ private:
     task_queue* pop_active_task_queue(sched_clock::time_point now);
     void insert_activating_task_queues();
     void account_runtime(task_queue& tq, sched_clock::duration runtime);
-    void account_idle(sched_clock::duration idletime);
     void allocate_scheduling_group_specific_data(scheduling_group sg, scheduling_group_key key);
     future<> rename_scheduling_group_specific_data(scheduling_group sg);
     future<> init_scheduling_group(scheduling_group sg, sstring name, sstring shortname, float shares);
@@ -588,10 +596,12 @@ public:
     [[deprecated("Use this_shard_id")]]
     shard_id cpu_id() const;
 
-    void sleep();
+    void try_sleep();
 
     steady_clock_type::duration total_idle_time();
     steady_clock_type::duration total_busy_time();
+    steady_clock_type::duration total_awake_time() const;
+    std::chrono::nanoseconds total_cpu_time() const;
     std::chrono::nanoseconds total_steal_time();
 
     const io_stats& get_io_stats() const { return _io_stats; }

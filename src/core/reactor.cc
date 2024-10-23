@@ -1028,11 +1028,6 @@ reactor::account_runtime(task_queue& tq, sched_clock::duration runtime) {
     tq._runtime += runtime;
 }
 
-void
-reactor::account_idle(sched_clock::duration runtime) {
-    // anything to do here?
-}
-
 struct reactor::task_queue::indirect_compare {
     bool operator()(const task_queue* tq1, const task_queue* tq2) const {
         return tq1->_vruntime < tq2->_vruntime;
@@ -1757,6 +1752,15 @@ reactor::posix_listen(socket_address sa, listen_options opts) {
     if (opts.reuse_address) {
         fd.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1);
     }
+
+    if (opts.so_sndbuf) {
+        fd.setsockopt(SOL_SOCKET, SO_SNDBUF, *opts.so_sndbuf);
+    }
+
+    if (opts.so_rcvbuf) {
+        fd.setsockopt(SOL_SOCKET, SO_RCVBUF, *opts.so_rcvbuf);
+    }
+
     if (_reuseport && !sa.is_af_unix())
         fd.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1);
 
@@ -2709,8 +2713,14 @@ void reactor::register_metrics() {
             sm::make_gauge("utilization", [this] { return (1-_load)  * 100; }, sm::description("CPU utilization")),
             sm::make_counter("cpu_busy_ms", [this] () -> int64_t { return total_busy_time() / 1ms; },
                     sm::description("Total cpu busy time in milliseconds")),
+            sm::make_counter("sleep_time_ms_total", [this] () -> int64_t { return _total_sleep / 1ms; },
+                    sm::description("Total reactor sleep time (wall clock)")),
+            sm::make_counter("awake_time_ms_total", [this] () -> int64_t { return total_awake_time() / 1ms; },
+                    sm::description("Total reactor awake time (wall_clock)")),
+            sm::make_counter("cpu_used_time_ms", [this] () -> int64_t { return total_cpu_time() / 1ms; },
+                    sm::description("Total reactor thread CPU time (from CLOCK_THREAD_CPUTIME)")),
             sm::make_counter("cpu_steal_time_ms", [this] () -> int64_t { return total_steal_time() / 1ms; },
-                    sm::description("Total steal time, the time in which some other process was running while Seastar was not trying to run (not sleeping)."
+                    sm::description("Total steal time, the time in which something else was running while the reactor was runnable (not sleeping)."
                                      "Because this is in userspace, some time that could be legitimally thought as steal time is not accounted as such. For example, if we are sleeping and can wake up but the kernel hasn't woken us up yet.")),
             // total_operations value:DERIVE:0:U
             sm::make_counter("aio_reads", _io_stats.aio_reads, sm::description("Total aio-reads operations")),
@@ -3458,7 +3468,6 @@ int reactor::do_run() {
         if (check_for_work()) {
             if (idle) {
                 _total_idle += idle_end - idle_start;
-                account_idle(idle_end - idle_start);
                 idle_start = idle_end;
                 idle = false;
             }
@@ -3484,15 +3493,13 @@ int reactor::do_run() {
                     // Turn off the task quota timer to avoid spurious wakeups
                     struct itimerspec zero_itimerspec = {};
                     _task_quota_timer.timerfd_settime(0, zero_itimerspec);
-                    auto start_sleep = now();
                     _cpu_stall_detector->start_sleep();
                     _cpu_profiler->stop();
-                    sleep();
+                    try_sleep();
                     _cpu_profiler->start();
                     _cpu_stall_detector->end_sleep();
                     // We may have slept for a while, so freshen idle_end
                     idle_end = now();
-                    _total_sleep += idle_end - start_sleep;
                     _task_quota_timer.timerfd_settime(0, task_quote_itimerspec);
                 }
             } else {
@@ -3511,8 +3518,9 @@ int reactor::do_run() {
     return _return;
 }
 
+
 void
-reactor::sleep() {
+reactor::try_sleep() {
     for (auto i = _pollers.begin(); i != _pollers.end(); ++i) {
         auto ok = (*i)->try_enter_interrupt_mode();
         if (!ok) {
@@ -4938,6 +4946,14 @@ steady_clock_type::duration reactor::total_busy_time() {
     return now() - _start_time - _total_idle;
 }
 
+steady_clock_type::duration reactor::total_awake_time() const {
+    return now() - _start_time - _total_sleep;
+}
+
+std::chrono::nanoseconds reactor::total_cpu_time() const {
+    return thread_cputime_clock::now().time_since_epoch();
+}
+
 std::chrono::nanoseconds reactor::total_steal_time() {
     // Steal time: this mimics the concept some Hypervisors have about Steal time.
     // That is the time in which a VM has something to run, but is not running because some other
@@ -4951,9 +4967,38 @@ std::chrono::nanoseconds reactor::total_steal_time() {
     // process is ready to run but the kernel hasn't scheduled us yet, that would be technically
     // steal time but we have no ways to account it.
     //
+    // Furthermore, not all steal is from other processes: time used by the syscall thread and any
+    // alien threads will show up as steal as well as any time spent in a system call that
+    // unexpectedly blocked (since CPU time won't tick up when that occurs).
+    //
     // But what we have here should be good enough and at least has a well defined meaning.
-    return std::chrono::duration_cast<std::chrono::nanoseconds>(now() - _start_time - _total_sleep) -
-           std::chrono::duration_cast<std::chrono::nanoseconds>(thread_cputime_clock::now().time_since_epoch());
+    //
+    // Because we calculate sleep time with timestamps around polling methods that may sleep, like
+    // io_getevents, we systematically over-count sleep time, since there is CPU usage within the
+    // period timed as sleep, before and after an actual sleep occurs (and no sleep may occur at all,
+    // e.g., if there are events immediately available). Over-counting sleep means we under-count the 
+    // wall-clock awake time, and so if there is no "true" steal, we will generally have a small
+    // *negative* steal time, because we under-count awake wall clock time while thread CPU time does
+    // not have a corresponding error.
+    //
+    // Becuase we claim "steal" is a counter, we must ensure that it never deceases, because PromQL
+    // functions which use counters will produce non-sensical results if they do. Therefore we clamp
+    // the output such that it never decreases.
+    //
+    // Finally, we don't just clamp difference of awake and CPU time since proces start at 0, but
+    // take the last value we returned from this function and then calculate the incremental steal
+    // time since that measurement, clamped to 0. This means that as soon as steal time becomes 
+    // positive, it will be reflected in the measurement, rather than needing to "consume" all the
+    // accumulated negative steal time before positive steal times start showing up.
+
+
+    auto true_steal = total_awake_time() - total_cpu_time();
+    auto mono_steal = _last_mono_steal + std::max(true_steal - _last_true_steal, 0ns);
+
+    _last_true_steal = true_steal;
+    _last_mono_steal = mono_steal;
+
+    return mono_steal;
 }
 
 static std::atomic<unsigned long> s_used_scheduling_group_ids_bitmap{3}; // 0=main, 1=atexit

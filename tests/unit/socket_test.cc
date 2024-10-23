@@ -27,12 +27,16 @@
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/later.hh>
 #include <seastar/testing/test_case.hh>
+#include <seastar/testing/thread_test_case.hh>
 #include <seastar/core/abort_source.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/when_all.hh>
-
+#include <seastar/net/api.hh>
 #include <seastar/net/posix-stack.hh>
+
+#include <optional>
+#include <tuple>
 
 using namespace seastar;
 
@@ -223,4 +227,77 @@ SEASTAR_TEST_CASE(socket_on_close_local_shutdown_test) {
 
         when_all(std::move(client), std::move(server)).discard_result().get();
     });
+}
+
+SEASTAR_THREAD_TEST_CASE(socket_bufsize) {
+
+    // Test that setting the send and recv buffer sizes on the listening
+    // socket is propagated to the socket returned by accept().
+
+    auto buf_size = [](std::optional<int> snd_size, std::optional<int> rcv_size) {
+        listen_options lo{
+            .reuse_address = true,
+            .lba = server_socket::load_balancing_algorithm::fixed,
+            .so_sndbuf = snd_size,
+            .so_rcvbuf = rcv_size
+        };
+
+        ipv4_addr addr("127.0.0.1", 1234);
+        server_socket ss = seastar::listen(addr, lo);
+        connected_socket client = connect(addr).get();
+        connected_socket server = ss.accept().get().connection;
+
+        auto sockopt = [&](int option) {
+            int val{};
+            int ret = server.get_sockopt(SOL_SOCKET, option, &val, sizeof(val));
+            BOOST_REQUIRE_EQUAL(ret, 0);
+            return val;
+        };
+
+        int send = sockopt(SO_SNDBUF);
+        int recv = sockopt(SO_RCVBUF);
+
+        ss.abort_accept();
+        client.shutdown_output();
+        server.shutdown_output();
+
+
+        return std::make_tuple(send, recv);
+    };
+
+    constexpr int small_size = 8192, big_size = 128 * 1024;
+
+    // we pass different sizes for send and recv to catch any copy/paste
+    // style bugs
+    auto [send_small, recv_small] = buf_size(small_size, small_size * 2);
+    auto [send_big, recv_big] = buf_size(big_size, big_size * 2);
+
+    // Setting socket buffer sizes isn't an exact science: the kernel does
+    // some rounding, and also (currently) doubles the requested size and
+    // also applies so limits. So as a basic check, assert simply that the
+    // explicit small buffer ends up smaller than the explicit big buffer,
+    // and that both results are at least as large as the requested amount.
+    // The latter condition could plausibly fail if the OS clamped the size
+    // at a small amount, but this is unlikely for the chosen buffer sizes.
+
+    BOOST_CHECK_LT(send_small, send_big);
+    BOOST_CHECK_LT(recv_small, recv_big);
+
+    BOOST_CHECK_GE(send_small, small_size);
+    BOOST_CHECK_GE(send_big, big_size);
+
+    BOOST_CHECK_GE(recv_small, small_size * 2);
+    BOOST_CHECK_GE(recv_big, big_size * 2);
+
+    // not much to check here with "default" sizes, but let's at least call it
+    // and check that we get a reasonable answer
+    auto [send_default, recv_default] = buf_size({}, {});
+
+    BOOST_CHECK_GE(send_default, 4096);
+    BOOST_CHECK_GE(recv_default, 4096);
+
+    // we don't really know the default socket size and it can vary by kernel
+    // config, but 20 MB should be enough for everyone.
+    BOOST_CHECK_LT(send_default, 20'000'000);
+    BOOST_CHECK_LT(recv_default, 20'000'000);
 }
