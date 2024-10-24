@@ -62,6 +62,7 @@ class metric_groups_impl;
 SEASTAR_MODULE_EXPORT_BEGIN
 
 using group_name_type = sstring; /*!< A group of logically related metrics */
+using metric_name_type = sstring; /*!< A single metric name */
 class metric_groups;
 
 class metric_definition {
