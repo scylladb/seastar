@@ -370,7 +370,13 @@ def is_model_valid(name, model):
         return ""
     properties = getitem(model[name], "properties", name)
     for var in properties:
-        type = getitem(properties[var], "type", name + ":" + var)
+        try:
+            type = getitem(properties[var], "type", name + ":" + var)
+        except Exception as e:
+            try:
+                type = getitem(properties[var], "$ref", name + ":" + var)
+            except:
+                raise e
         if type == "array":
             items = getitem(properties[var], "items", name + ":" + var)
             try:
@@ -563,7 +569,7 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
                     fprintln(hfile, create_enum_wrapper(model_name, member_name, member["enum"]))
                     fprintln(hfile, f"    {config.jsonns}::json_element<{member_name}_wrapper> {member_name};\n")
                 else:
-                    type_name = type_change(member["type"], member)
+                    type_name = type_change(member["type"] if "type" in member else member["$ref"], member)
                     fprintln(hfile, f"    {config.jsonns}::{type_name} {member_name};\n")
                 member_init += f'add(&{member_name}, "{member_name}");\n'
                 member_assignment += f'{member_name} = e.{member_name};\n'
