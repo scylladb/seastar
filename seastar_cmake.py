@@ -34,12 +34,14 @@ def build_path(mode, build_root):
 def is_release_mode(mode):
     return mode == 'release'
 
-def convert_strings_to_cmake_list(*args):
+def strings_to_cmake_list(iterable):
+    return ';'.join(iterable)
+
+def whitespace_separated_strings_to_cmake_list(*args):
     """Converts a sequence of whitespace-separated strings of tokens into a semicolon-separated
     string of tokens for CMake.
-
     """
-    return ';'.join(' '.join(args).split())
+    return strings_to_cmake_list(' '.join(args).split())
 
 def translate_arg(arg, new_name, value_when_none='no'):
     """
