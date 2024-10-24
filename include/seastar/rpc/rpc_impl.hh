@@ -351,12 +351,19 @@ inline std::tuple<T...> do_unmarshall(connection& c, Input& in) {
     // left-to-right. So we deserialize into something that can be lazily
     // constructed (and can conditionally destroy itself if we only constructed some
     // of the arguments).
+    //
+    // As a special case, if the tuple has 1 or fewer elements, there is no ordering
+    // problem, and we can deserialize directly into a std::tuple<T...>.
+  if constexpr (sizeof...(T) <= 1) {
+    return std::tuple(unmarshal_one<Serializer, Input>::template helper<T>::doit(c, in)...);
+  } else {
     std::tuple<std::optional<T>...> temporary;
     return std::apply([&] (auto&... args) {
         // Comma-expression preserves left-to-right order
         (..., (args = unmarshal_one<Serializer, Input>::template helper<typename std::remove_reference_t<decltype(args)>::value_type>::doit(c, in)));
         return std::tuple(std::move(*args)...);
     }, temporary);
+  }
 }
 
 template <typename Serializer, typename... T>
