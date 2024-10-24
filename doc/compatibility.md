@@ -38,11 +38,11 @@ Patches for new platforms (e.g, Windows) are welcome.
 Compilers
 =========
 
-Seastar supports gcc and clang. Ports to other compilers are
+Seastar supports GCC and Clang. Ports to other compilers are
 welcome.
 
 The last two major releases of a compiler are supported (e.g.
-gcc 11 and gcc 12). Patches to support older versions are welcome,
+GCC 13 and GCC 14). Patches to support older versions are welcome,
 as long as they don't require onerous compromises.
 
 Deprecation
