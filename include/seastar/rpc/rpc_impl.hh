@@ -345,6 +345,47 @@ struct unmarshal_one {
     };
 };
 
+template <typename... T>
+struct default_constructible_tuple_except_first;
+
+template <>
+struct default_constructible_tuple_except_first<> {
+    using type = std::tuple<>;
+};
+
+template <typename T0, typename... T>
+struct default_constructible_tuple_except_first<T0, T...> {
+    using type = std::tuple<
+            T0,
+            std::conditional_t<
+                    std::is_default_constructible_v<T>,
+                    T,
+                    std::optional<T>
+            >...
+        >;
+};
+
+template <typename... T>
+using default_constructible_tuple_except_first_t = typename default_constructible_tuple_except_first<T...>::type;
+
+// Where Tin != Tout, apply std:optional::value()
+template <typename... Tout, typename... Tin>
+auto
+unwrap_optional_if_needed(std::tuple<Tin...>&& tuple_in) {
+    using tuple_in_t = std::tuple<Tin...>;
+    using tuple_out_t = std::tuple<Tout...>;
+    return std::invoke([&] <size_t... Idx> (std::index_sequence<Idx...>) {
+        return tuple_out_t(
+            std::invoke([&] () {
+                if constexpr (std::same_as<std::tuple_element_t<Idx, tuple_in_t>, std::tuple_element_t<Idx, tuple_out_t>>) {
+                    return std::move(std::get<Idx>(tuple_in));
+                } else {
+                    return std::move(std::get<Idx>(tuple_in).value());
+                }
+            })...);
+    }, std::make_index_sequence<sizeof...(Tout)>());
+}
+
 template <typename Serializer, typename Input, typename... T>
 inline std::tuple<T...> do_unmarshall(connection& c, Input& in) {
     // Argument order processing is unspecified, but we need to deserialize
@@ -352,18 +393,38 @@ inline std::tuple<T...> do_unmarshall(connection& c, Input& in) {
     // constructed (and can conditionally destroy itself if we only constructed some
     // of the arguments).
     //
-    // As a special case, if the tuple has 1 or fewer elements, there is no ordering
+    // The first element of the tuple has no ordering
     // problem, and we can deserialize directly into a std::tuple<T...>.
-  if constexpr (sizeof...(T) <= 1) {
-    return std::tuple(unmarshal_one<Serializer, Input>::template helper<T>::doit(c, in)...);
-  } else {
-    std::tuple<std::optional<T>...> temporary;
-    return std::apply([&] (auto&... args) {
-        // Comma-expression preserves left-to-right order
-        (..., (args = unmarshal_one<Serializer, Input>::template helper<typename std::remove_reference_t<decltype(args)>::value_type>::doit(c, in)));
-        return std::tuple(std::move(*args)...);
-    }, temporary);
-  }
+    //
+    // For the rest of the elements, if they are default-constructible, we leave
+    // them as is, and if not, we deserialize into std::optional<T>, and later
+    // unwrap them. If we're lucky and nothing was wrapped, we can return without
+    // any data movement.
+    using ret_type = std::tuple<T...>;
+    using temporary_type = default_constructible_tuple_except_first_t<T...>;
+    return std::invoke([&] <size_t... Idx> (std::index_sequence<Idx...>) {
+        auto tmp = temporary_type(
+            std::invoke([&] () -> std::tuple_element_t<Idx, temporary_type> {
+                if constexpr (Idx == 0) {
+                    // The first T has no ordering problem, so we can deserialize it directly into the tuple
+                    return unmarshal_one<Serializer, Input>::template helper<std::tuple_element_t<Idx, ret_type>>::doit(c, in);
+                } else {
+                    // Use default constructor for the rest of the Ts
+                    return {};
+                }
+            })...
+        );
+        // Deserialize the other Ts, comma-expression preserves left-to-right order.
+        (void)(...,  ((Idx == 0
+            ? 0
+            : ((std::get<Idx>(tmp) = unmarshal_one<Serializer, Input>::template helper<std::tuple_element_t<Idx, ret_type>>::doit(c, in), 0)))));
+        if constexpr (std::same_as<ret_type, temporary_type>) {
+            // Use Named Return Vale Optimization (NVRO) if we didn't have to wrap anything
+            return tmp;
+        } else {
+            return unwrap_optional_if_needed<T...>(std::move(tmp));
+        }
+    }, std::index_sequence_for<T...>());
 }
 
 template <typename Serializer, typename... T>
