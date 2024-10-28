@@ -1,3 +1,8 @@
+// If _FORTIFY_SOURCE is defined then longjmp ends up using longjmp_chk
+// which asserts that you're jumping to the same stack. However, here we
+// are intentionally switching stacks when longjmp'ing, so undefine this
+// option to always use normal longjmp.
+#undef _FORTIFY_SOURCE
 /*
  * This file is open source software, licensed to you under the terms
  * of the Apache License, Version 2.0 (the "License").  See the NOTICE file
