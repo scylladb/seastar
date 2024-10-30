@@ -424,6 +424,9 @@ private:
 
     void configure(const reactor_options& opts);
     int do_run();
+    // Waits for all background tasks on all shards
+    static future<> drain();
+
 public:
     explicit reactor(std::shared_ptr<smp> smp, alien::instance& alien, unsigned id, reactor_backend_selector rbs, reactor_config cfg);
     reactor(const reactor&) = delete;
@@ -533,9 +536,6 @@ public:
     void run_in_background(Func&& func) {
         run_in_background(futurize_invoke(std::forward<Func>(func)));
     }
-
-    // Waits for all background tasks on all shards
-    static future<> drain();
 
     /// Set a handler that will be called when there is no task to execute on cpu.
     /// Handler should do a low priority work.
