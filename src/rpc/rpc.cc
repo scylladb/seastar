@@ -51,7 +51,7 @@ namespace rpc {
           std::vector<temporary_buffer<char>> v;
           v.reserve(align_up(size_t(size), chunk_size) / chunk_size);
           while (size_) {
-              v.push_back(temporary_buffer<char>(std::min(chunk_size, size_)));
+              v.emplace_back(std::min(chunk_size, size_));
               size_ -= v.back().size();
           }
           bufs = std::move(v);
@@ -88,7 +88,7 @@ namespace rpc {
           newbufs.reserve(orgbufs.size());
           deleter d = make_object_deleter(std::move(org));
           for (auto&& b : orgbufs) {
-              newbufs.push_back(temporary_buffer<char>(b.get_write(), b.size(), d.share()));
+              newbufs.emplace_back(b.get_write(), b.size(), d.share());
           }
           buf.bufs = std::move(newbufs);
       }
