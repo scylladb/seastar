@@ -91,7 +91,7 @@ T make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<T>> org) {
         newbufs.reserve(orgbufs.size());
         deleter d = make_object_deleter(std::move(org));
         for (auto&& b : orgbufs) {
-            newbufs.emplace_back(b.get_write(), b.size(), d.share());
+            newbufs.push_back(temporary_buffer<char>(b.get_write(), b.size(), d.share()));
         }
         buf.bufs = std::move(newbufs);
     }
