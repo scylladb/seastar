@@ -21,8 +21,8 @@
 
 #pragma once
 
+#include <seastar/core/format.hh>
 #include <seastar/core/sstring.hh>
-#include <seastar/core/print.hh>
 #include <seastar/core/scheduling.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/util/modules.hh>

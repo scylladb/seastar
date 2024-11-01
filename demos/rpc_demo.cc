@@ -19,6 +19,7 @@
  * Copyright 2015 Cloudius Systems
  */
 #include <cmath>
+#include <iostream>
 #include <ranges>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/app-template.hh>

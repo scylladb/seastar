@@ -21,8 +21,8 @@
 
 #pragma once
 
+#include <seastar/core/format.hh>
 #include <seastar/core/sstring.hh>
-#include <seastar/core/print.hh>
 #include <seastar/util/modules.hh>
 
 #ifndef SEASTAR_MODULE
