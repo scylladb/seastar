@@ -36,6 +36,7 @@
 #include <memory>
 #include <variant>
 #include <boost/container/static_vector.hpp>
+#include <fmt/ostream.h>
 #endif
 
 namespace seastar {

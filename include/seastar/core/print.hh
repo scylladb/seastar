@@ -25,7 +25,6 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/util/modules.hh>
 #ifndef SEASTAR_MODULE
-#include <fmt/ostream.h>
 #include <fmt/printf.h>
 #include <iostream>
 #include <iomanip>
