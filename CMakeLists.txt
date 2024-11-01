@@ -888,7 +888,7 @@ if (condition)
   if (NOT Sanitizers_FOUND)
     message (FATAL_ERROR "Sanitizers not found!")
   endif ()
-  set (Seastar_Sanitizers_OPTIONS ${Sanitizers_COMPILE_OPTIONS})
+  set (Seastar_Sanitizers_OPTIONS $<${condition}:${Sanitizers_COMPILE_OPTIONS}>)
   target_link_libraries (seastar
     PUBLIC
       $<${condition}:Sanitizers::address>
