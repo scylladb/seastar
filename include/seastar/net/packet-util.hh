@@ -23,7 +23,6 @@
 
 #include <seastar/net/packet.hh>
 #include <map>
-#include <iostream>
 
 namespace seastar {
 
@@ -145,8 +144,7 @@ public:
                 continue;
             } else {
                 // If we reach here, we have a bug with merge.
-                std::cerr << "packet_merger: merge error\n";
-                abort();
+                std::abort();
                 break;
             }
         }
