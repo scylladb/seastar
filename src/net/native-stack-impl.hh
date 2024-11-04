@@ -21,14 +21,13 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
-#include <iostream>
-#endif
-
 #include <seastar/net/stack.hh>
 #include <seastar/net/inet_address.hh>
+#include <seastar/util/log.hh>
 
 namespace seastar {
+
+extern logger seastar_logger;
 
 namespace net {
 
@@ -135,7 +134,7 @@ public:
 
     virtual void set_reuseaddr(bool reuseaddr) override {
         // FIXME: implement
-        std::cerr << "Reuseaddr is not supported by native stack" << std::endl;
+        seastar_logger.error("Reuseaddr is not supported by native stack");
     }
 
     virtual bool get_reuseaddr() const override {
@@ -244,7 +243,7 @@ native_connected_socket_impl<Protocol>::get_nodelay() const {
 template <typename Protocol>
 void native_connected_socket_impl<Protocol>::set_keepalive(bool keepalive) {
     // FIXME: implement
-    std::cerr << "Keepalive is not supported by native stack" << std::endl;
+    seastar_logger.error("Keepalive is not supported by native stack");
 }
 template <typename Protocol>
 bool native_connected_socket_impl<Protocol>::get_keepalive() const {
@@ -255,7 +254,7 @@ bool native_connected_socket_impl<Protocol>::get_keepalive() const {
 template <typename Protocol>
 void native_connected_socket_impl<Protocol>::set_keepalive_parameters(const keepalive_params&) {
     // FIXME: implement
-    std::cerr << "Keepalive parameters are not supported by native stack" << std::endl;
+    seastar_logger.error("Keepalive parameters are not supported by native stack");
 }
 
 template <typename Protocol>
