@@ -34,6 +34,43 @@
 
 namespace seastar {
 
+/*
+ * The custom-deleter constructor of temporary_buffer has been made private to
+ * better ensure the safety of cross-shard sharing the temporary_buffer.
+ *
+ * The forward declarations here are to allow for some manually verified, pre-existing,
+ * code to still access the newly-private constructor.
+ */
+
+namespace net {
+class packet;
+class packet_data_source;
+
+template <typename Protocol>
+class native_connected_socket_impl;
+}
+
+
+template <typename PtrType>
+requires (!std::is_pointer_v<PtrType>)
+class foreign_ptr;
+
+namespace rpc {
+template<typename T> T make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<T>> org);
+}
+
+class file_data_source_impl;
+class file;
+
+template <typename CharType>
+class temporary_buffer;
+
+template <typename CharType>
+temporary_buffer<CharType> make_temporary_buffer(std::pmr::polymorphic_allocator<CharType>* allocator, std::size_t size);
+
+template <typename char_type, typename Size, Size max_size, bool NulTerminate>
+class basic_sstring;
+
 /// \addtogroup memory-module
 /// @{
 
@@ -94,6 +131,7 @@ public:
         x._size = 0;
     }
 
+private:
     /// Creates a \c temporary_buffer with a specific deleter.
     ///
     /// \param buf beginning of the buffer held by this \c temporary_buffer
@@ -102,6 +140,25 @@ public:
     ///          will be destroyed when there are no longer any users for the buffer.
     temporary_buffer(CharType* buf, size_t size, deleter d) noexcept
         : _buffer(buf), _size(size), _deleter(std::move(d)) {}
+
+    friend class ::seastar::net::packet;
+    friend class ::seastar::file_data_source_impl;
+    friend class ::seastar::net::packet_data_source;
+    friend class ::seastar::file;
+
+    template<typename T> 
+    friend T rpc::make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<T>> org);
+
+    template <typename T>
+    friend temporary_buffer<T> make_temporary_buffer(std::pmr::polymorphic_allocator<T>* allocator, std::size_t size);
+
+    template <typename T>
+    friend class ::seastar::net::native_connected_socket_impl;
+
+    template <typename char_type, typename Size, Size max_size, bool NulTerminate>
+    friend class ::seastar::basic_sstring;
+
+public:
     /// Creates a `temporary_buffer` containing a copy of the provided data
     ///
     /// \param src  data buffer to be copied
