@@ -33,6 +33,8 @@
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/modules.hh>
 
+class hdr_hist; // Class from Redpanda
+
 namespace seastar {
 
 /*
@@ -146,6 +148,7 @@ private:
     friend class ::seastar::file_data_source_impl;
     friend class ::seastar::net::packet_data_source;
     friend class ::seastar::file;
+    friend class ::hdr_hist;
 
     template<typename T> 
     friend T rpc::make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<T>> org);
