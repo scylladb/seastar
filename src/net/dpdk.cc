@@ -26,6 +26,7 @@ module;
 
 #include <cinttypes>
 #include <atomic>
+#include <iostream>
 #include <vector>
 #include <queue>
 #include <getopt.h>

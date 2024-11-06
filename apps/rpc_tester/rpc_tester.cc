@@ -19,6 +19,7 @@
  * Copyright (C) 2022 ScyllaDB
  */
 
+#include <iostream>
 #include <vector>
 #include <chrono>
 #include <random>

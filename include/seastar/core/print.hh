@@ -21,10 +21,10 @@
 
 #pragma once
 
+#include <seastar/core/format.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/util/modules.hh>
 #ifndef SEASTAR_MODULE
-#include <fmt/ostream.h>
 #include <fmt/printf.h>
 #include <iostream>
 #include <iomanip>
@@ -118,22 +118,6 @@ log(A&&... a) {
     print(std::forward<A>(a)...);
 }
 
-/**
- * Evaluate the formatted string in a native fmt library format
- *
- * @param fmt format string with the native fmt library syntax
- * @param a positional parameters
- *
- * @return sstring object with the result of applying the given positional
- *         parameters on a given format string.
- */
-template <typename... A>
-sstring
-format(fmt::format_string<A...> fmt, A&&... a) {
-    fmt::memory_buffer out;
-    fmt::format_to(fmt::appender(out), fmt, std::forward<A>(a)...);
-    return sstring{out.data(), out.size()};
-}
 
 // temporary, use fmt::print() instead
 template <typename... A>

@@ -20,6 +20,7 @@
  */
 #pragma once
 
+#include <seastar/core/format.hh>
 #include <seastar/core/function_traits.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/sstring.hh>
@@ -27,7 +28,6 @@
 #include <seastar/util/is_smart_ptr.hh>
 #include <seastar/core/simple-stream.hh>
 #include <seastar/net/packet-data-source.hh>
-#include <seastar/core/print.hh>
 
 #include <boost/type.hpp> // for compatibility
 

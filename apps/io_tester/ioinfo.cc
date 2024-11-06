@@ -18,6 +18,7 @@
 /*
  * Copyright (C) 2021 ScyllaDB
  */
+#include <iostream>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/reactor.hh>
