@@ -74,6 +74,8 @@ public:
     using const_reference = const T&;
     using const_pointer = const T*;
     using difference_type = ssize_t;
+    using iterator_category = std::random_access_iterator_tag;
+    using iterator_concept = std::random_access_iterator_tag;
 public:
     template <typename ValueType>
     class cbiterator {
@@ -130,6 +132,9 @@ public:
         cbiterator& operator-=(difference_type n) {
             _idx -= n;
             return *this;
+        }
+        value_type& operator[](difference_type n) const {
+            return *(*this + n);
         }
         bool operator==(const cbiterator& rhs) const {
             return _idx == rhs._idx;
