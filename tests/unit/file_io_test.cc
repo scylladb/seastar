@@ -19,11 +19,14 @@
  * Copyright (C) 2014-2015 Cloudius Systems, Ltd.
  */
 
+#include <filesystem>
+
 #include <seastar/testing/random.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/testing/test_runner.hh>
 
+#include <seastar/core/reactor.hh>
 #include <seastar/core/seastar.hh>
 #include <seastar/core/semaphore.hh>
 #include <seastar/core/condition-variable.hh>
@@ -945,5 +948,18 @@ SEASTAR_TEST_CASE(test_oversized_io_works) {
         f.dma_read(0, buf.get(), buf_size).get();
 
         BOOST_REQUIRE((size_t)std::count_if(buf.get(), buf.get() + buf_size, [](auto x) { return x == 'a'; }) == buf_size);
+    });
+}
+
+SEASTAR_TEST_CASE(test_file_system_space) {
+    return tmp_dir::do_with_thread([] (tmp_dir& t) {
+        const auto& name = t.get_path().native();
+        auto st = engine().statvfs(name).get();
+        auto si = file_system_space(name).get();
+
+        BOOST_REQUIRE_EQUAL(st.f_blocks * st.f_frsize, si.capacity);
+        BOOST_REQUIRE_LT(si.free, si.capacity);
+        BOOST_REQUIRE_LT(si.available, si.capacity);
+        BOOST_REQUIRE_LE(si.available, si.free);
     });
 }

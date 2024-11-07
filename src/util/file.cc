@@ -128,6 +128,10 @@ future<uint64_t> fs_free(std::string_view name) noexcept {
     });
 }
 
+future<std::filesystem::space_info> file_system_space(std::string_view name) noexcept {
+    return engine().file_system_space(name);
+}
+
 future<stat_data> file_stat(std::string_view name, follow_symlink follow) noexcept {
     return engine().file_stat(name, follow);
 }

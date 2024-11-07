@@ -487,6 +487,7 @@ public:
         return file_accessible(pathname, access_flags::exists);
     }
     future<fs_type> file_system_at(std::string_view pathname) noexcept;
+    future<std::filesystem::space_info> file_system_space(std::string_view pathname) noexcept;
     future<struct statvfs> statvfs(std::string_view pathname) noexcept;
     future<> remove_file(std::string_view pathname) noexcept;
     future<> rename_file(std::string_view old_pathname, std::string_view new_pathname) noexcept;
