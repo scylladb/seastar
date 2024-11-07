@@ -61,12 +61,6 @@ module;
 #include <boost/container/small_vector.hpp>
 #include <boost/iterator/counting_iterator.hpp>
 #include <boost/intrusive/list.hpp>
-#include <boost/range/adaptor/transformed.hpp>
-#include <boost/range/adaptor/map.hpp>
-#include <boost/range/numeric.hpp>
-#include <boost/range/algorithm/sort.hpp>
-#include <boost/range/algorithm/remove_if.hpp>
-#include <boost/range/algorithm/find_if.hpp>
 #include <boost/algorithm/clamp.hpp>
 #include <boost/version.hpp>
 #include <dirent.h>
@@ -4143,7 +4137,7 @@ public:
     }
 
     auto device_ids() {
-        return boost::adaptors::keys(_mountpoints);
+        return _mountpoints | std::views::keys;
     }
 };
 
