@@ -29,10 +29,7 @@
 #include <seastar/core/metrics_api.hh>
 #include <seastar/http/function_handlers.hh>
 #include <boost/algorithm/string/replace.hpp>
-#include <boost/range/algorithm_ext/erase.hpp>
 #include <boost/algorithm/string.hpp>
-#include <boost/range/algorithm.hpp>
-#include <boost/range/combine.hpp>
 #include <seastar/core/thread.hh>
 #include <seastar/core/loop.hh>
 #include <ranges>
@@ -328,7 +325,7 @@ class metric_family_range;
 class metrics_families_per_shard {
     using metrics_family_per_shard_data_container = std::vector<foreign_ptr<mi::values_reference>>;
     metrics_family_per_shard_data_container _data;
-    using comp_function = std::function<bool(const sstring&, const mi::metric_family_metadata&)>;
+    using comp_function = std::function<bool(const sstring&, const sstring&)>;
     /*!
      * \brief find the last item in a range of metric family based on a comparator function
      *
@@ -462,9 +459,9 @@ class metric_family_iterator {
         const sstring *new_name = nullptr;
         const mi::metric_family_info* new_family_info = nullptr;
         _info._size = 0;
-        for (auto&& i : boost::combine(_positions, _families)) {
-            auto& pos_in_metric_per_shard = boost::get<0>(i);
-            auto& metric_family = boost::get<1>(i);
+        for (auto&& i : std::views::zip(_positions, _families)) {
+            auto& pos_in_metric_per_shard = std::get<0>(i);
+            auto& metric_family = std::get<1>(i);
             if (_info._name &&  pos_in_metric_per_shard < metric_family->metadata->size() &&
                     metric_family->metadata->at(pos_in_metric_per_shard).mf.name.compare(*_info._name) <= 0) {
                 pos_in_metric_per_shard++;
@@ -561,9 +558,9 @@ public:
 
     void foreach_metric(std::function<void(const mi::metric_value&, const mi::metric_info&)>&& f) {
         // iterating over the shard vector and the position vector
-        for (auto&& i : boost::combine(_positions, _families)) {
-            auto& pos_in_metric_per_shard = boost::get<0>(i);
-            auto& metric_family = boost::get<1>(i);
+        for (auto&& i : std::views::zip(_positions, _families)) {
+            auto& pos_in_metric_per_shard = std::get<0>(i);
+            auto& metric_family = std::get<1>(i);
             if (pos_in_metric_per_shard >= metric_family->metadata->size()) {
                 // no more metric family in this shard
                 continue;
@@ -574,9 +571,9 @@ public:
             if (metadata.mf.name == name()) {
                 const mi::value_vector& values = metric_family->values[pos_in_metric_per_shard];
                 const mi::metric_metadata_fifo& metrics_metadata = metadata.metrics;
-                for (auto&& vm : boost::combine(values, metrics_metadata)) {
-                    auto& value = boost::get<0>(vm);
-                    auto& metric_metadata = boost::get<1>(vm);
+                for (auto&& vm : std::views::zip(values, metrics_metadata)) {
+                    auto& value = std::get<0>(vm);
+                    auto& metric_metadata = std::get<1>(vm);
                     f(value, metric_metadata);
                 }
             }
@@ -617,7 +614,10 @@ metric_family_iterator metrics_families_per_shard::find_bound(const sstring& fam
 
     for (auto& shard_info : _data) {
         std::vector<mi::metric_family_metadata>& metadata = *(shard_info->metadata);
-        std::vector<mi::metric_family_metadata>::iterator it_b = boost::range::upper_bound(metadata, family_name, comp);
+        auto metadata_to_name = [](const mi::metric_family_metadata& m) -> const sstring& {
+            return m.mf.name;
+        };
+        std::vector<mi::metric_family_metadata>::iterator it_b = std::ranges::upper_bound(metadata, family_name, comp, metadata_to_name);
         positions.emplace_back(it_b - metadata.begin());
     }
     return metric_family_iterator(*this, std::move(positions));
@@ -625,15 +625,15 @@ metric_family_iterator metrics_families_per_shard::find_bound(const sstring& fam
 }
 
 metric_family_iterator metrics_families_per_shard::lower_bound(const sstring& family_name) const {
-    return find_bound(family_name, [](const sstring& a, const mi::metric_family_metadata& b) {
+    return find_bound(family_name, [](const sstring& a, const sstring& b) {
         //sstring doesn't have a <= operator
-        return a < b.mf.name || a == b.mf.name;
+        return a < b || a == b;
     });
 }
 
 metric_family_iterator metrics_families_per_shard::upper_bound(const sstring& family_name) const {
-    return find_bound(family_name, [](const sstring& a, const mi::metric_family_metadata& b) {
-        return a < b.mf.name;
+    return find_bound(family_name, [](const sstring& a, const sstring& b) {
+        return a < b;
     });
 }
 
