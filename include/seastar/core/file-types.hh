@@ -180,6 +180,22 @@ struct stat_data {
     std::chrono::system_clock::time_point time_changed;   // Time of last status change (either content or attributes)
 };
 
+/// Filesystem-wide stat information
+/// See statvfs(3)
+struct file_system_stat_data {
+    size_t block_size;          // Filesystem block size
+    size_t fragment_size;       // Fragment size
+    uint64_t size_in_bytes;     // Size of filesystem in bytes
+    uint64_t free_bytes;        // Free space in bytes
+    uint64_t available_bytes;   // Available space in bytes for unprivileged users
+    uint64_t files_total;       // Number of inodes
+    uint64_t files_free;        // Number of free inodes
+    uint64_t files_available;   // Number of free inodes for unprivileged users
+    uint64_t fsid;              // Filesystem ID
+    uint64_t mount_flags;       // Mount flags
+    size_t max_filename_length; // Maximum filename length
+};
+
 /// @}
 
 SEASTAR_MODULE_EXPORT_END
