@@ -29,7 +29,6 @@ module;
 #include <boost/range/algorithm.hpp>
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/replace.hpp>
-#include <boost/range/algorithm_ext/erase.hpp>
 
 #ifdef SEASTAR_MODULE
 module seastar;
@@ -331,7 +330,7 @@ bool metric_id::operator<(
 
 static std::string safe_name(const sstring& name) {
     auto rep = boost::replace_all_copy(boost::replace_all_copy(name, "-", "_"), " ", "_");
-    boost::remove_erase_if(rep, boost::is_any_of("+()"));
+    rep.erase(std::ranges::remove_if(rep, boost::is_any_of("+()")).begin(), rep.end());
     return rep;
 }
 
