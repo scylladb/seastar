@@ -30,15 +30,12 @@ module;
 #include <memory>
 #include <chrono>
 #include <unordered_set>
+#include <ranges>
 
 #include <netinet/in.h>
 #include <sys/stat.h>
 #include <gnutls/gnutls.h>
 #include <gnutls/x509.h>
-
-#include <boost/any.hpp>
-#include <boost/range/iterator_range.hpp>
-#include <boost/range/adaptor/map.hpp>
 
 #include <fmt/core.h>
 #include <fmt/ostream.h>
@@ -703,7 +700,7 @@ template<typename Blobs, typename Visitor>
 static void visit_blobs(Blobs& blobs, Visitor&& visitor) {
     auto visit = [&](const sstring& key, auto* vt) {
         auto tr = blobs.equal_range(key);
-        for (auto& p : boost::make_iterator_range(tr.first, tr.second)) {
+        for (auto& p : std::ranges::subrange(tr.first, tr.second)) {
             auto* v = std::any_cast<std::decay_t<decltype(*vt)>>(&p.second);
             visitor(key, *v);
         }
@@ -945,7 +942,7 @@ public:
         }
         void do_callback(std::exception_ptr ep = {}) {
             if (_cb && !_files.empty()) {
-                _cb(boost::copy_range<std::unordered_set<sstring>>(_files | boost::adaptors::map_keys), std::move(ep));
+                _cb(_files | std::views::keys | std::ranges::to<std::unordered_set<sstring>>(), std::move(ep));
             }
         }
         // called from seastar::thread
