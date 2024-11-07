@@ -40,8 +40,6 @@
 #include <utility>
 #include <unordered_set>
 #include <vector>
-#include <boost/range/irange.hpp>
-#include <boost/algorithm/string.hpp>
 
 #pragma GCC diagnostic push
 // see https://github.com/boostorg/accumulators/pull/54
@@ -54,9 +52,6 @@
 #include <boost/accumulators/statistics/extended_p_square.hpp>
 #include <boost/accumulators/statistics/extended_p_square_quantile.hpp>
 #pragma GCC diagnostic pop
-#include <boost/range/adaptor/filtered.hpp>
-#include <boost/range/adaptor/map.hpp>
-#include <boost/array.hpp>
 #include <iomanip>
 #include <random>
 #include <yaml-cpp/yaml.h>
@@ -209,7 +204,7 @@ class shard_config {
     std::unordered_set<unsigned> _shards;
 public:
     shard_config()
-        : _shards(boost::copy_range<std::unordered_set<unsigned>>(boost::irange(0u, smp::count))) {}
+        : _shards(std::views::iota(0u, smp::count) | std::ranges::to<std::unordered_set>()) {}
     shard_config(std::unordered_set<unsigned> s) : _shards(std::move(s)) {}
 
     bool is_set(unsigned cpu) const {
@@ -891,7 +886,7 @@ struct convert<shard_config> {
             auto str = node.as<std::string>();
             return (str == "all");
         } catch (YAML::TypedBadConversion<std::string>& e) {
-            shards = shard_config(boost::copy_range<std::unordered_set<unsigned>>(node.as<std::vector<unsigned>>()));
+            shards = shard_config(node.as<std::vector<unsigned>>() | std::ranges::to<std::unordered_set>());
             return true;
         }
         return false;
@@ -1044,10 +1039,10 @@ class context {
     semaphore _finished;
 public:
     context(sstring dir, directory_entry_type dtype, std::vector<job_config> req_config, unsigned duration)
-            : _cl(boost::copy_range<std::vector<std::unique_ptr<class_data>>>(req_config
-                | boost::adaptors::filtered([] (auto& cfg) { return cfg.shard_placement.is_set(this_shard_id()); })
-                | boost::adaptors::transformed([] (auto& cfg) { return cfg.gen_class_data(); })
-            ))
+            : _cl(req_config
+                | std::views::filter([] (auto& cfg) { return cfg.shard_placement.is_set(this_shard_id()); })
+                | std::views::transform([] (auto& cfg) { return cfg.gen_class_data(); })
+                | std::ranges::to<std::vector>())
             , _dir(dir)
             , _type(dtype)
             , _duration(duration)
