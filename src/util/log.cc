@@ -40,7 +40,6 @@ module;
 #include <boost/any.hpp>
 #include <boost/lexical_cast.hpp>
 #include <boost/program_options.hpp>
-#include <boost/range/adaptor/map.hpp>
 #include <cxxabi.h>
 #include <syslog.h>
 #include <unistd.h>
@@ -431,7 +430,7 @@ bool logger::is_shard_zero() noexcept {
 void
 logger_registry::set_all_loggers_level(log_level level) {
     std::lock_guard<std::mutex> g(_mutex);
-    for (auto&& l : _loggers | boost::adaptors::map_values) {
+    for (auto&& l : _loggers | std::views::values) {
         l->set_level(level);
     }
 }
@@ -451,7 +450,7 @@ logger_registry::set_logger_level(sstring name, log_level level) {
 std::vector<sstring>
 logger_registry::get_all_logger_names() {
     std::lock_guard<std::mutex> g(_mutex);
-    auto ret = _loggers | boost::adaptors::map_keys;
+    auto ret = _loggers | std::views::keys;
     return std::vector<sstring>(ret.begin(), ret.end());
 }
 
