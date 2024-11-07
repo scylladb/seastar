@@ -26,8 +26,6 @@ module;
 
 #include <boost/program_options.hpp>
 #include <boost/algorithm/string.hpp>
-#include <boost/range/adaptor/map.hpp>
-#include <boost/range/algorithm/copy.hpp>
 #include <ranges>
 #include <regex>
 #include <stdlib.h>
@@ -459,7 +457,7 @@ allocate_io_queues(hwloc_topology_t topology, std::vector<cpu> cpus, std::unorde
 
     ret.groups.resize(nr_groups);
 
-    auto available_nodes = boost::copy_range<std::vector<unsigned>>(node_coordinators | boost::adaptors::map_keys);
+    auto available_nodes = node_coordinators | std::views::keys | std::ranges::to<std::vector<unsigned>>();
 
     // If there are more processors than coordinators, we will have to assign them to existing
     // coordinators. We prefer do that within the same NUMA node, but if not possible we assign
