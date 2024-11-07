@@ -37,6 +37,7 @@
 #include <vector>
 #include <optional>
 #include <set>
+#include <memory>
 #endif
 
 /// \defgroup program-options Program Options
