@@ -5,10 +5,8 @@
 #include <seastar/core/print.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/core/metrics.hh>
-#include <boost/range/adaptor/map.hpp>
-#include <boost/range/adaptor/transformed.hpp>
 #include <boost/algorithm/string.hpp>
-#include <boost/range/numeric.hpp>
+#include <ranges>
 
 #if FMT_VERSION >= 90000
 template <> struct fmt::formatter<seastar::rpc::streaming_domain_type> : fmt::ostream_formatter {};
@@ -216,9 +214,9 @@ namespace rpc {
       auto negotiation_frame_feature_record_size = [] (const feature_map::value_type& e) {
           return 8 + e.second.size();
       };
-      auto extra_len = boost::accumulate(
-              features | boost::adaptors::transformed(negotiation_frame_feature_record_size),
-              uint32_t(0));
+      auto extra_len = std::ranges::fold_left(
+              features | std::views::transform(negotiation_frame_feature_record_size),
+              uint32_t(0), std::plus());
       temporary_buffer<char> reply(sizeof(negotiation_frame) + extra_len);
       auto p = reply.get_write();
       p = std::copy_n(rpc_magic, 8, p);
@@ -1285,7 +1283,7 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
   }
 
   future<> server::connection::abort_all_streams() {
-      return parallel_for_each(_streams | boost::adaptors::map_values, [] (xshard_connection_ptr s) {
+      return parallel_for_each(_streams | std::views::values, [] (xshard_connection_ptr s) {
           return smp::submit_to(s->get_owner_shard(), [s] {
               s->get()->abort();
           });
@@ -1362,7 +1360,7 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
           _servers.erase(*_options.streaming_domain);
       }
       return _ss_stopped.get_future().then([this] {
-          return parallel_for_each(_conns | boost::adaptors::map_values, [] (shared_ptr<connection> conn) {
+          return parallel_for_each(_conns | std::views::values, [] (shared_ptr<connection> conn) {
               return conn->stop();
           });
       }).finally([this] {
@@ -1406,7 +1404,7 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
 
 multi_algo_compressor_factory::multi_algo_compressor_factory(std::vector<const rpc::compressor::factory*> factories)
         : _factories(std::move(factories)) {
-    _features =  boost::algorithm::join(_factories | boost::adaptors::transformed(std::mem_fn(&rpc::compressor::factory::supported)), sstring(","));
+    _features =  seastar::format("{}", fmt::join(_factories | std::views::transform(std::mem_fn(&rpc::compressor::factory::supported)), ","));
 }
 
 std::unique_ptr<compressor>
