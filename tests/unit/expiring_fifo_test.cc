@@ -25,7 +25,6 @@
 #include <seastar/testing/test_case.hh>
 #include <seastar/core/expiring_fifo.hh>
 #include <seastar/util/later.hh>
-#include <boost/range/irange.hpp>
 
 using namespace seastar;
 using namespace std::chrono_literals;

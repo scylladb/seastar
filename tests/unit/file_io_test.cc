@@ -39,7 +39,6 @@
 #include <seastar/util/internal/magic.hh>
 #include <seastar/util/internal/iovec_utils.hh>
 
-#include <boost/range/adaptor/transformed.hpp>
 #include <iostream>
 #include <sys/statfs.h>
 #include <fcntl.h>

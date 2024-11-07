@@ -19,14 +19,13 @@
  * Copyright (C) 2018 ScyllaDB Ltd.
  */
 
-#include <boost/range.hpp>
-#include <boost/range/irange.hpp>
-
 #include <seastar/testing/perf_tests.hh>
 #include <seastar/core/coroutine.hh>
 #include <seastar/coroutine/parallel_for_each.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/util/later.hh>
+
+#include <ranges>
 
 struct parallel_for_each {
     std::vector<int> empty_range;
@@ -37,7 +36,7 @@ struct parallel_for_each {
 
     parallel_for_each()
         : empty_range()
-        , range(boost::copy_range<std::vector<int>>(boost::irange(1, max_range_size)))
+        , range(std::views::iota(1, max_range_size) | std::ranges::to<std::vector<int>>())
     { }
 };
 

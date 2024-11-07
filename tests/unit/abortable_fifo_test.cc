@@ -25,7 +25,8 @@
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/core/abortable_fifo.hh>
 #include <seastar/util/later.hh>
-#include <boost/range/irange.hpp>
+
+#include <ranges>
 
 using namespace seastar;
 

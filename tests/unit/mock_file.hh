@@ -21,10 +21,10 @@
 
 #pragma once
 
-#include <boost/range/numeric.hpp>
-
 #include <seastar/testing/seastar_test.hh>
 #include <seastar/core/file.hh>
+
+#include <ranges>
 
 namespace seastar {
 
@@ -74,7 +74,7 @@ public:
         return make_ready_future<size_t>(verify_read(pos, len));
     }
     virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, io_intent*) noexcept override {
-        auto length = boost::accumulate(iov | boost::adaptors::transformed([] (auto&& iov) { return iov.iov_len; }),
+        auto length = std::ranges::fold_left(iov | std::views::transform([] (auto&& iov) { return iov.iov_len; }),
                                         size_t(0), std::plus<size_t>());
         return make_ready_future<size_t>(verify_read(pos, length));
     }

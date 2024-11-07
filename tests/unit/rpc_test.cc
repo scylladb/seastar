@@ -42,8 +42,6 @@
 #include <seastar/util/noncopyable_function.hh>
 #include <seastar/util/later.hh>
 
-#include <boost/range/numeric.hpp>
-
 #include <span>
 
 using namespace seastar;
@@ -1211,7 +1209,7 @@ void test_compressor(std::function<std::unique_ptr<seastar::rpc::compressor>()> 
                 return buf.size();
             },
             [] (const std::vector<temporary_buffer<char>>& bufs) {
-                return boost::accumulate(bufs, size_t(0), [] (size_t sz, const temporary_buffer<char>& buf) {
+                return std::ranges::fold_left(bufs, size_t(0), [] (size_t sz, const temporary_buffer<char>& buf) {
                     return sz + buf.size();
                 });
             }

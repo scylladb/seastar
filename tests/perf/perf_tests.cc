@@ -24,10 +24,7 @@
 #include <cstdio>
 #include <fstream>
 #include <regex>
-
-#include <boost/range.hpp>
-#include <boost/range/adaptors.hpp>
-#include <boost/range/algorithm.hpp>
+#include <ranges>
 
 #include <fmt/ostream.h>
 
@@ -341,13 +338,13 @@ void performance_test::do_run(const config& conf)
 
     auto mid = conf.number_of_runs / 2;
 
-    boost::range::sort(results);
+    std::ranges::sort(results);
     r.median = results[mid];
 
-    auto diffs = boost::copy_range<std::vector<double>>(
-        results | boost::adaptors::transformed([&] (double x) { return fabs(x - r.median); })
-    );
-    boost::range::sort(diffs);
+    auto diffs =
+        results | std::views::transform([&] (double x) { return fabs(x - r.median); })
+        | std::ranges::to<std::vector<double>>();
+    std::ranges::sort(diffs);
     r.mad = diffs[mid];
 
     r.min = results[0];
@@ -388,15 +385,15 @@ void performance_test::register_test(std::unique_ptr<performance_test> test)
 
 void run_all(const std::vector<std::string>& tests, config& conf)
 {
-    auto can_run = [tests = boost::copy_range<std::vector<std::regex>>(tests)] (auto&& test) {
-        auto it = boost::range::find_if(tests, [&test] (const std::regex& regex) {
+    auto can_run = [tests = tests | std::ranges::to<std::vector<std::regex>>()] (auto&& test) {
+        auto it = std::ranges::find_if(tests, [&test] (const std::regex& regex) {
             return std::regex_match(test->name(), regex);
         });
         return tests.empty() || it != tests.end();
     };
 
     size_t max_name_column_length = 0;
-    for (auto&& test : all_tests() | boost::adaptors::filtered(can_run)) {
+    for (auto&& test : all_tests() | std::views::filter(can_run)) {
         max_name_column_length = std::max(max_name_column_length, test->name().size());
     }
 
@@ -404,7 +401,7 @@ void run_all(const std::vector<std::string>& tests, config& conf)
         rp->update_name_column_length(max_name_column_length);
         rp->print_configuration(conf);
     }
-    for (auto&& test : all_tests() | boost::adaptors::filtered(std::move(can_run))) {
+    for (auto&& test : all_tests() | std::views::filter(std::move(can_run))) {
         test->run(conf);
     }
 }
