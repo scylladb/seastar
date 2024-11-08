@@ -2075,6 +2075,32 @@ static auto next_waitpid_timeout(std::chrono::milliseconds this_timeout) {
 
 #endif
 
+future<int> reactor::do_waitpid(pid_t pid) {
+    return do_with(int{}, std::chrono::milliseconds(0), [pid, this](int& wstatus,
+                                                                    std::chrono::milliseconds& wait_timeout) {
+        return repeat_until_value([this,
+                                   pid,
+                                   &wstatus,
+                                   &wait_timeout] {
+            return _thread_pool->submit<syscall_result<pid_t>>([pid, &wstatus] {
+                return wrap_syscall<pid_t>(::waitpid(pid, &wstatus, WNOHANG));
+            }).then([&wstatus, &wait_timeout](syscall_result<pid_t> ret) mutable {
+                if (ret.result == 0) {
+                    wait_timeout = next_waitpid_timeout(wait_timeout);
+                    return ::seastar::sleep(wait_timeout).then([] {
+                        return make_ready_future<std::optional<int>>();
+                    });
+                } else if (ret.result > 0) {
+                    return make_ready_future<std::optional<int>>(wstatus);
+                } else {
+                    ret.throw_if_error();
+                    return make_ready_future<std::optional<int>>(-1);
+                }
+            });
+        });
+    });
+}
+
 future<int> reactor::waitpid(pid_t pid) {
     return _thread_pool->submit<syscall_result<int>>([pid] {
         return wrap_syscall<int>(syscall(__NR_pidfd_open, pid, O_NONBLOCK));
@@ -2083,39 +2109,11 @@ future<int> reactor::waitpid(pid_t pid) {
             // pidfd_open() was introduced in linux 5.3, so the pidfd.error could be ENOSYS on
             // older kernels. But it could be other error like EMFILE or ENFILE. anyway, we
             // should always waitpid().
-            return do_with(int{}, std::chrono::milliseconds(0), [pid, this](int& wstatus,
-                                                                            std::chrono::milliseconds& wait_timeout) {
-                return repeat_until_value([this,
-                                           pid,
-                                           &wstatus,
-                                           &wait_timeout] {
-                    return _thread_pool->submit<syscall_result<pid_t>>([pid, &wstatus] {
-                        return wrap_syscall<pid_t>(::waitpid(pid, &wstatus, WNOHANG));
-                    }).then([&wstatus, &wait_timeout] (syscall_result<pid_t> ret) mutable {
-                        if (ret.result == 0) {
-                            wait_timeout = next_waitpid_timeout(wait_timeout);
-                            return ::seastar::sleep(wait_timeout).then([] {
-                                return make_ready_future<std::optional<int>>();
-                            });
-                        } else if (ret.result > 0) {
-                            return make_ready_future<std::optional<int>>(wstatus);
-                        } else {
-                            ret.throw_if_error();
-                            return make_ready_future<std::optional<int>>(-1);
-                        }
-                    });
-                });
-            });
+            return do_waitpid(pid);
         } else {
-            return do_with(pollable_fd(file_desc::from_fd(pidfd.result)), int{}, [pid, this](auto& pidfd, int& wstatus) {
-                return pidfd.readable().then([pid, &wstatus, this] {
-                    return _thread_pool->submit<syscall_result<pid_t>>([pid, &wstatus] {
-                        return wrap_syscall<pid_t>(::waitpid(pid, &wstatus, WNOHANG));
-                    });
-                }).then([&wstatus] (syscall_result<pid_t> ret) {
-                    ret.throw_if_error();
-                    assert(ret.result > 0);
-                    return make_ready_future<int>(wstatus);
+            return do_with(pollable_fd(file_desc::from_fd(pidfd.result)), [pid, this](auto& pidfd) {
+                return pidfd.readable().then([pid, this] {
+                    return do_waitpid(pid);
                 });
             });
         }
