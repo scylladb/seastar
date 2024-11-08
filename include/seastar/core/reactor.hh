@@ -599,6 +599,7 @@ private:
     void add_timer(timer<manual_clock>*) noexcept;
     bool queue_timer(timer<manual_clock>*) noexcept;
     void del_timer(timer<manual_clock>*) noexcept;
+    future<int> do_waitpid(pid_t pid);
 
     future<> run_exit_tasks();
     void stop();
