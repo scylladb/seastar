@@ -2057,8 +2057,8 @@ reactor::spawn(std::string_view pathname,
 }
 
 static auto next_waitpid_timeout(std::chrono::milliseconds this_timeout) {
-    static const std::chrono::milliseconds step_timeout(20);
-    static const std::chrono::milliseconds max_timeout(1000);
+    constexpr std::chrono::milliseconds step_timeout(20);
+    constexpr std::chrono::milliseconds max_timeout(1000);
     if (this_timeout >= max_timeout) {
         return max_timeout;
     }
