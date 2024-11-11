@@ -170,6 +170,16 @@ struct reactor_options : public program_options::option_group {
     ///
     /// Default: 10000.
     program_options::value<unsigned> max_networking_io_control_blocks;
+    /// \brief Leave this many I/O control blocks (IOCBs) as reserve.
+    ///
+    /// This is to allows leaving a (small) reserve aside so other applications
+    /// also using IOCBs can run alongside the seastar application.
+    /// The reserve takes precedence over \ref max_networking_io_control_blocks.
+    ///
+    /// Default: 0
+    ///
+    /// \see max_networking_io_control_blocks
+    program_options::value<unsigned> reserve_io_control_blocks;
     /// \brief Enable seastar heap profiling.
     ///
     /// Allocations will be sampled every N bytes on average. Zero means off.
