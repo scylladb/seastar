@@ -3800,6 +3800,9 @@ reactor_options::reactor_options(program_options::option_group* parent_group)
     , max_networking_io_control_blocks(*this, "max-networking-io-control-blocks", 10000,
                 "Maximum number of I/O control blocks (IOCBs) to allocate per shard. This translates to the number of sockets supported per shard."
                 " Requires tuning /proc/sys/fs/aio-max-nr. Only valid for the linux-aio reactor backend (see --reactor-backend).")
+    , reserve_io_control_blocks(*this, "reserve-io-control-blocks", 0,
+                "Reserve this many IOCBs, so it is available to any side application that runs parallel to the seastar appliation."
+                " Takes precedence over --max-networking-io-control-blocks. Only valid for the linux-aio reactor backend (see --reactor-backend).")
 #ifdef SEASTAR_HEAPPROF
     , heapprof(*this, "heapprof", 0, "Enable seastar heap profiling. Sample every ARG bytes. 0 means off")
 #else
@@ -4167,7 +4170,7 @@ void smp::log_aiocbs(log_level level, unsigned storage, unsigned preempt, unsign
     seastar_logger.log(level, "total    {:{}}  {:{}}",     percpu_total, percpu_width, allcpus_total,        allcpus_width);
 }
 
-unsigned smp::adjust_max_networking_aio_io_control_blocks(unsigned network_iocbs)
+unsigned smp::adjust_max_networking_aio_io_control_blocks(unsigned network_iocbs, unsigned reserve_iocbs)
 {
     static unsigned constexpr storage_iocbs = reactor::max_aio;
     static unsigned constexpr preempt_iocbs = 2;
@@ -4175,6 +4178,7 @@ unsigned smp::adjust_max_networking_aio_io_control_blocks(unsigned network_iocbs
     auto aio_max_nr = read_first_line_as<unsigned>("/proc/sys/fs/aio-max-nr");
     auto aio_nr = read_first_line_as<unsigned>("/proc/sys/fs/aio-nr");
     auto available_aio = aio_max_nr - aio_nr;
+    available_aio -= std::min(available_aio, reserve_iocbs);
     auto requested_aio_network = network_iocbs * smp::count;
     auto requested_aio_other = (storage_iocbs + preempt_iocbs) * smp::count;
     auto requested_aio = requested_aio_network + requested_aio_other;
@@ -4199,6 +4203,9 @@ unsigned smp::adjust_max_networking_aio_io_control_blocks(unsigned network_iocbs
                                      "Set /proc/sys/fs/aio-max-nr to at least {} (minimum) or {} (recommended for networking performance)",
                                      aio_nr + (requested_aio_other + smp::count), aio_nr + requested_aio);
 
+            if (reserve_iocbs) {
+                err.append(format(", with an added reserve of {} (requested via io_control_blocks_reserve config)", reserve_iocbs));
+            }
             unsigned smp_count_max = available_aio / (storage_iocbs + preempt_iocbs + 1);
             if (smp_count_max > 0) {
                 err.append(format(", or decrease the logical CPU count of the application to {} (maximum)", smp_count_max));
@@ -4394,7 +4401,8 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     auto max_networking_aio_io_control_blocks = reactor_opts.max_networking_io_control_blocks.get_value();
     // Prevent errors about insufficient AIO blocks, when they are not needed by the reactor backend.
     if (reactor_opts.reactor_backend.get_selected_candidate().name() == "linux-aio") {
-        max_networking_aio_io_control_blocks = adjust_max_networking_aio_io_control_blocks(max_networking_aio_io_control_blocks);
+        max_networking_aio_io_control_blocks = adjust_max_networking_aio_io_control_blocks(max_networking_aio_io_control_blocks,
+                reactor_opts.reserve_io_control_blocks.get_value());
     }
 
     reactor_config reactor_cfg = {
