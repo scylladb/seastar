@@ -36,7 +36,7 @@ namespace internal {
 
 class io_request {
 public:
-    enum class operation : char { read, readv, write, writev, fdatasync, recv, recvmsg, send, sendmsg, accept, connect, poll_add, poll_remove, cancel };
+    enum class operation : char { read, readv, write, writev, fdatasync, recv, recvmsg, send, sendmsg, accept, connect, poll_add, poll_remove, cancel, discard };
 private:
     // the upper layers give us void pointers, but storing void pointers here is just
     // dangerous. The constructors seem to be happy to convert other pointers to void*,
@@ -108,7 +108,12 @@ private:
         int fd;
         char* addr;
     };
-
+    struct discard_op {
+        operation op;
+        int fd;
+        uint64_t offset;
+        uint64_t length;
+    };
     union {
         read_op _read;
         readv_op _readv;
@@ -124,6 +129,7 @@ private:
         poll_add_op _poll_add;
         poll_remove_op _poll_remove;
         cancel_op _cancel;
+        discard_op _discard;
     };
 
 public:
@@ -287,6 +293,17 @@ public:
         return req;
     }
 
+    static io_request make_discard(int fd, uint64_t offset, uint64_t length) {
+        io_request req;
+        req._discard = {
+            .op = operation::discard,
+            .fd = fd,
+            .offset = offset,
+            .length = length
+        };
+        return req;
+    }
+
     bool is_read() const {
         switch (opcode()) {
         case operation::read:
@@ -364,6 +381,9 @@ public:
         if constexpr (Op == operation::cancel) {
             return _cancel;
         }
+        if constexpr (Op == operation::discard) {
+            return _discard;
+        }
     }
 
     struct part;
@@ -405,6 +425,12 @@ private:
         return sub_req;
     }
     std::vector<part> split_iovec(size_t max_length);
+
+    io_request sub_req_discard(size_t relative_offset, size_t new_length) const {
+        auto& op = _discard;
+        return make_discard(op.fd, op.offset + relative_offset, new_length);
+    }
+    std::vector<part> split_discard(size_t max_length);
 };
 
 struct io_request::part {
@@ -415,18 +441,23 @@ struct io_request::part {
 
 // Helper pair of IO direction and length
 struct io_direction_and_length {
-    size_t _directed_length; // bit 0 is R/W flag
+    size_t _directed_length; // bits 0 and 1 depict R/W/D flags
+
+    static constexpr int direction_bits_count = 2;
+    static constexpr int direction_bits_mask = (1 << direction_bits_count) - 1;
 
 public:
-    size_t length() const noexcept { return _directed_length >> 1; }
-    int rw_idx() const noexcept { return _directed_length & 0x1; }
+    size_t length() const noexcept { return _directed_length >> direction_bits_count; }
+    int rwd_idx() const noexcept { return _directed_length & direction_bits_mask; }
+
+    static constexpr int discard_idx = 2;
     static constexpr int read_idx = 1;
     static constexpr int write_idx = 0;
 
     io_direction_and_length(int idx, size_t val) noexcept
-            : _directed_length((val << 1) | idx)
+            : _directed_length((val << direction_bits_count) | idx)
     {
-        assert(idx == read_idx || idx == write_idx);
+        assert(idx == read_idx || idx == write_idx || idx == discard_idx);
     }
 };
 

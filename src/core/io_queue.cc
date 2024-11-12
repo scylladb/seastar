@@ -56,6 +56,7 @@ logger io_log("io");
 
 using namespace std::chrono_literals;
 using io_direction_and_length = internal::io_direction_and_length;
+static constexpr auto io_direction_discard = io_direction_and_length::discard_idx;
 static constexpr auto io_direction_read = io_direction_and_length::read_idx;
 static constexpr auto io_direction_write = io_direction_and_length::write_idx;
 
@@ -103,7 +104,7 @@ class io_queue::priority_class_data {
             ops++;
             bytes += len;
         }
-    } _rwstat[2] = {}, _splits = {};
+    } _rwstat[3] = {}, _splits = {};
     uint32_t _nr_queued;
     uint32_t _nr_executing;
     std::chrono::duration<double> _queue_time;
@@ -161,7 +162,7 @@ public:
     }
 
     void on_dispatch(io_direction_and_length dnl, std::chrono::duration<double> lat) noexcept {
-        _rwstat[dnl.rw_idx()].add(dnl.length());
+        _rwstat[dnl.rwd_idx()].add(dnl.length());
         _queue_time = lat;
         _total_queue_time += lat;
         _nr_queued--;
@@ -209,7 +210,7 @@ public:
     metrics::metric_groups metric_groups;
 };
 
-class io_desc_read_write final : public io_completion {
+class queued_io_request_completion final : public io_completion {
     io_queue& _ioq;
     io_queue::priority_class_data& _pclass;
     io_queue::clock_type::time_point _ts;
@@ -221,7 +222,7 @@ class io_desc_read_write final : public io_completion {
     uint64_t _dispatched_polls;
 
 public:
-    io_desc_read_write(io_queue& ioq, io_queue::priority_class_data& pc, stream_id stream, io_direction_and_length dnl, fair_queue_entry::capacity_t cap, iovec_keeper iovs)
+    queued_io_request_completion(io_queue& ioq, io_queue::priority_class_data& pc, stream_id stream, io_direction_and_length dnl, fair_queue_entry::capacity_t cap, iovec_keeper iovs)
         : _ioq(ioq)
         , _pclass(pc)
         , _ts(io_queue::clock_type::now())
@@ -279,7 +280,7 @@ class queued_io_request : private internal::io_request {
     const stream_id _stream;
     fair_queue_entry _fq_entry;
     internal::cancellable_queue::link _intent;
-    std::unique_ptr<io_desc_read_write> _desc;
+    std::unique_ptr<queued_io_request_completion> _desc;
 
     bool is_cancelled() const noexcept { return !_desc; }
 
@@ -289,7 +290,7 @@ public:
         , _ioq(q)
         , _stream(_ioq.request_stream(dnl))
         , _fq_entry(cap)
-        , _desc(std::make_unique<io_desc_read_write>(_ioq, pc, _stream, dnl, cap, std::move(iovs)))
+        , _desc(std::make_unique<queued_io_request_completion>(_ioq, pc, _stream, dnl, cap, std::move(iovs)))
     {
     }
 
@@ -410,6 +411,9 @@ void io_sink::submit(io_completion* desc, io_request req) noexcept {
 
 std::vector<io_request::part> io_request::split(size_t max_length) {
     auto op = opcode();
+    if (op == operation::discard) {
+        return split_discard(max_length);
+    }
     if (op == operation::read || op == operation::write) {
         return split_buffer(max_length);
     }
@@ -419,6 +423,24 @@ std::vector<io_request::part> io_request::split(size_t max_length) {
 
     seastar_logger.error("Invalid operation for split: {}", static_cast<int>(op));
     std::abort();
+}
+
+std::vector<io_request::part> io_request::split_discard(size_t max_length) {
+    const auto& op = _discard;
+    const auto is_last_request_smaller = (op.length % max_length != 0);
+    const auto reqs_count = (op.length / max_length) + (is_last_request_smaller ? 1u : 0u);
+
+    std::vector<part> ret;
+    ret.reserve(reqs_count);
+
+    size_t off = 0;
+    do {
+        size_t len = std::min(op.length - off, max_length);
+        ret.push_back({ sub_req_discard(off, len), len, {} });
+        off += len;
+    } while (off < op.length);
+
+    return ret;
 }
 
 std::vector<io_request::part> io_request::split_buffer(size_t max_length) {
@@ -516,6 +538,8 @@ sstring io_request::opname() const {
         return "poll remove";
     case io_request::operation::cancel:
         return "cancel";
+    case io_request::operation::discard:
+        return "discard";
     }
     std::abort();
 }
@@ -546,7 +570,7 @@ void io_queue::lower_stall_threshold() noexcept {
 }
 
 void
-io_queue::complete_request(io_desc_read_write& desc, std::chrono::duration<double> delay) noexcept {
+io_queue::complete_request(queued_io_request_completion& desc, std::chrono::duration<double> delay) noexcept {
     _requests_executing--;
     _requests_completed++;
     _streams[desc.stream()].notify_request_finished(desc.capacity());
@@ -582,6 +606,8 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
         _streams.emplace_back(_group->_fgs[0], make_fair_queue_config(cfg, "write"));
         static_assert(internal::io_direction_and_length::read_idx == 1);
         _streams.emplace_back(_group->_fgs[1], make_fair_queue_config(cfg, "read"));
+        static_assert(internal::io_direction_and_length::discard_idx == 2);
+        _streams.emplace_back(_group->_fgs[2], make_fair_queue_config(cfg, "discard"));
     } else {
         _streams.emplace_back(_group->_fgs[0], make_fair_queue_config(cfg, "rw"));
     }
@@ -622,6 +648,8 @@ io_group::io_group(io_queue::config io_cfg, unsigned nr_queues)
     auto fg_cfg = make_fair_group_config(_config);
     _fgs.emplace_back(fg_cfg, nr_queues);
     if (_config.duplex) {
+        // Separate read, write and discard.
+        _fgs.emplace_back(fg_cfg, nr_queues);
         _fgs.emplace_back(fg_cfg, nr_queues);
     }
 
@@ -653,6 +681,7 @@ io_group::io_group(io_queue::config io_cfg, unsigned nr_queues)
         };
     };
 
+    update_max_size(io_direction_discard);
     update_max_size(io_direction_write);
     update_max_size(io_direction_read);
 }
@@ -811,15 +840,19 @@ io_group::priority_class_data& io_group::find_or_create_class(internal::priority
 }
 
 stream_id io_queue::request_stream(io_direction_and_length dnl) const noexcept {
-    return get_config().duplex ? dnl.rw_idx() : 0;
+    return get_config().duplex ? dnl.rwd_idx() : 0;
 }
 
 double internal::request_tokens(io_direction_and_length dnl, const io_queue::config& cfg) noexcept {
     struct {
         unsigned weight;
         unsigned size;
-    } mult[2];
+    } mult[3];
 
+    mult[io_direction_discard] = {
+        cfg.disk_req_discard_to_read_multiplier,
+        cfg.disk_blocks_discard_to_read_multiplier,
+    };
     mult[io_direction_write] = {
         cfg.disk_req_write_to_read_multiplier,
         cfg.disk_blocks_write_to_read_multiplier,
@@ -829,7 +862,7 @@ double internal::request_tokens(io_direction_and_length dnl, const io_queue::con
         io_queue::read_request_base_count,
     };
 
-    const auto& m = mult[dnl.rw_idx()];
+    const auto& m = mult[dnl.rwd_idx()];
 
     return double(m.weight) / cfg.req_count_rate + double(m.size) * (dnl.length() >> io_queue::block_size_shift) / cfg.blocks_count_rate;
 }
@@ -851,6 +884,7 @@ io_queue::request_limits io_queue::get_request_limits() const noexcept {
     request_limits l;
     l.max_read = align_down<size_t>(std::min<size_t>(get_config().disk_read_saturation_length, _group->_max_request_length[io_direction_read]), 1 << block_size_shift);
     l.max_write = align_down<size_t>(std::min<size_t>(get_config().disk_write_saturation_length, _group->_max_request_length[io_direction_write]), 1 << block_size_shift);
+    l.max_discard = align_down<size_t>(_group->_max_request_length[io_direction_discard], 1 << block_size_shift);
     return l;
 }
 
@@ -876,7 +910,7 @@ future<size_t> io_queue::queue_one_request(internal::priority_class pc, io_direc
 }
 
 future<size_t> io_queue::queue_request(internal::priority_class pc, io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
-    size_t max_length = _group->_max_request_length[dnl.rw_idx()];
+    size_t max_length = _group->_max_request_length[dnl.rwd_idx()];
 
     if (__builtin_expect(dnl.length() <= max_length, true)) {
         return queue_one_request(std::move(pc), dnl, std::move(req), intent, std::move(iovs));
@@ -898,7 +932,7 @@ future<size_t> io_queue::queue_request(internal::priority_class pc, io_direction
     // No exceptions from now on. If queue_one_request fails it will resolve
     // into exceptional future which will be picked up by when_all() below
     for (auto&& part : parts) {
-        auto f = queue_one_request(pc, io_direction_and_length(dnl.rw_idx(), part.size), std::move(part.req), intent, std::move(part.iovecs));
+        auto f = queue_one_request(pc, io_direction_and_length(dnl.rwd_idx(), part.size), std::move(part.req), intent, std::move(part.iovecs));
         p->push_back(std::move(f));
     }
 
@@ -948,6 +982,10 @@ future<size_t> io_queue::submit_io_write(internal::priority_class pc, size_t len
     return queue_request(std::move(pc), io_direction_and_length(io_direction_write, len), std::move(req), intent, std::move(iovs));
 }
 
+future<size_t> io_queue::submit_io_discard(internal::priority_class pc, size_t len, internal::io_request req, io_intent* intent) noexcept {
+    return queue_request(std::move(pc), io_direction_and_length(io_direction_discard, len), std::move(req), intent, iovec_keeper{});
+}
+
 void io_queue::poll_io_queue() {
     for (auto&& st : _streams) {
         st.dispatch_requests([] (fair_queue_entry& fqe) {
@@ -956,11 +994,30 @@ void io_queue::poll_io_queue() {
     }
 }
 
-void io_queue::submit_request(io_desc_read_write* desc, internal::io_request req) noexcept {
+void io_queue::submit_request(queued_io_request_completion* desc, internal::io_request req) noexcept {
     _queued_requests--;
     _requests_executing++;
     _requests_dispatched++;
-    _sink.submit(desc, std::move(req));
+
+    if (req.opcode() != internal::io_request::operation::discard) {
+        _sink.submit(desc, std::move(req));
+    } else {
+        submit_blocks_discarding(desc, std::move(req));
+    }
+}
+
+void io_queue::submit_blocks_discarding(queued_io_request_completion* desc, internal::io_request req) noexcept {
+    auto& discard_req = req.as<internal::io_request::operation::discard>();
+
+    // Caller synchronizes using the future returned from `desc->get_future()`.
+    // The attached continuation resolves that future when `punch_hole()` finishes.
+    (void) engine().punch_hole(discard_req.fd, discard_req.offset, discard_req.length).then_wrapped([desc, len = discard_req.length] (future<> f) {
+        if (f.failed()) {
+            desc->set_exception(f.get_exception());
+        } else {
+            desc->complete(len);
+        }
+    });
 }
 
 void io_queue::cancel_request(queued_io_request& req) noexcept {

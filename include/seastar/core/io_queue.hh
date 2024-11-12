@@ -56,7 +56,7 @@ class io_sink;
 using shard_id = unsigned;
 using stream_id = unsigned;
 
-class io_desc_read_write;
+class queued_io_request_completion;
 class queued_io_request;
 class io_group;
 
@@ -81,7 +81,7 @@ public:
 private:
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
     io_group_ptr _group;
-    boost::container::static_vector<fair_queue, 2> _streams;
+    boost::container::static_vector<fair_queue, 3> _streams;
     internal::io_sink& _sink;
 
     friend struct ::io_queue_for_tests;
@@ -90,6 +90,7 @@ private:
     priority_class_data& find_or_create_class(internal::priority_class pc);
     future<size_t> queue_request(internal::priority_class pc, internal::io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept;
     future<size_t> queue_one_request(internal::priority_class pc, internal::io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept;
+    void submit_blocks_discarding(queued_io_request_completion* desc, internal::io_request req) noexcept;
 
     // The fields below are going away, they are just here so we can implement deprecated
     // functions that used to be provided by the fair_queue and are going away (from both
@@ -135,6 +136,8 @@ public:
         unsigned long blocks_count_rate = std::numeric_limits<int>::max();
         unsigned disk_req_write_to_read_multiplier = read_request_base_count;
         unsigned disk_blocks_write_to_read_multiplier = read_request_base_count;
+        unsigned disk_req_discard_to_read_multiplier = read_request_base_count;
+        unsigned disk_blocks_discard_to_read_multiplier = read_request_base_count;
         size_t disk_read_saturation_length = std::numeric_limits<size_t>::max();
         size_t disk_write_saturation_length = std::numeric_limits<size_t>::max();
         sstring mountpoint = "undefined";
@@ -156,11 +159,12 @@ public:
             size_t len, internal::io_request req, io_intent* intent, iovec_keeper iovs = {}) noexcept;
     future<size_t> submit_io_write(internal::priority_class priority_class,
             size_t len, internal::io_request req, io_intent* intent, iovec_keeper iovs = {}) noexcept;
+    future<size_t> submit_io_discard(internal::priority_class pc, size_t len, internal::io_request req, io_intent* intent) noexcept;
 
-    void submit_request(io_desc_read_write* desc, internal::io_request req) noexcept;
+    void submit_request(queued_io_request_completion* desc, internal::io_request req) noexcept;
     void cancel_request(queued_io_request& req) noexcept;
     void complete_cancelled_request(queued_io_request& req) noexcept;
-    void complete_request(io_desc_read_write& desc, std::chrono::duration<double> delay) noexcept;
+    void complete_request(queued_io_request_completion& desc, std::chrono::duration<double> delay) noexcept;
 
     [[deprecated("I/O queue users should not track individual requests, but resources (weight, size) passing through the queue")]]
     size_t queued_requests() const {
@@ -191,6 +195,7 @@ public:
     struct request_limits {
         size_t max_read;
         size_t max_write;
+        size_t max_discard;
     };
 
     request_limits get_request_limits() const noexcept;
@@ -215,8 +220,8 @@ private:
     friend const fair_group& internal::get_fair_group(const io_queue& ioq, unsigned stream);
 
     const io_queue::config _config;
-    size_t _max_request_length[2];
-    boost::container::static_vector<fair_group, 2> _fgs;
+    size_t _max_request_length[3];
+    boost::container::static_vector<fair_group, 3> _fgs;
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
     util::spinlock _lock;
     const shard_id _allocated_on;
