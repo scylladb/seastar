@@ -149,7 +149,7 @@ const std::vector<metric_family_config>& get_metric_family_configs() {
     return impl::get_local_impl()->get_metric_family_configs();
 }
 
-static bool apply_relabeling(const relabel_config& rc, impl::metric_info& info) {
+bool impl::impl::apply_relabeling(const relabel_config& rc, metric_info& info) {
     std::stringstream s;
     bool first = true;
     for (auto&& l: rc.source_labels) {
@@ -185,14 +185,18 @@ static bool apply_relabeling(const relabel_config& rc, impl::metric_info& info) 
         }
         case relabel_config::relabel_action::drop_label: {
             if (info.id.labels().find(rc.target_label) != info.id.labels().end()) {
-                info.id.labels().erase(rc.target_label);
+                auto new_labels = info.id.labels();
+                new_labels.erase(rc.target_label);
+                info.id.update_labels(internalize_labels(std::move(new_labels)));
             }
             return true;
         };
         case relabel_config::relabel_action::replace: {
             if (!rc.target_label.empty()) {
                 std::string fmt_s = match.format(rc.replacement);
-                info.id.labels()[rc.target_label] = fmt_s;
+                auto new_labels = info.id.labels();
+                new_labels[rc.target_label] = fmt_s;
+                info.id.update_labels(internalize_labels(std::move(new_labels)));
             }
             return true;
         }
@@ -234,7 +238,7 @@ registered_metric::registered_metric(metric_id id, metric_function f, bool enabl
     _info.enabled = enabled;
     _info.should_skip_when_empty = skip;
     _info.id = id;
-    _info.original_labels = id.labels();
+    _info.original_labels = id.internalized_labels();
 }
 
 metric_value metric_value::operator+(const metric_value& c) {
@@ -317,6 +321,14 @@ metric_groups_impl::~metric_groups_impl() {
     }
 }
 
+internalized_labels_ref impl::internalize_labels(labels_type labels) {
+    auto it = _internalized_labels.find(labels);
+    if (it == _internalized_labels.end()) {
+        it = _internalized_labels.emplace(labels).first;
+    }
+    return it->labels_ref();
+}
+
 metric_groups_impl& metric_groups_impl::add_metric(group_name_type name, const metric_definition& md)  {
     // We could just do this in the constructor but some metric groups (like the
     // smp queue ones) are actually constructed on a different shard originally
@@ -326,7 +338,9 @@ metric_groups_impl& metric_groups_impl::add_metric(group_name_type name, const m
         _impl = get_local_impl(_handle);
     }
 
-    metric_id id(name, md._impl->name, md._impl->labels);
+    auto internalized_labels = get_local_impl()->internalize_labels(md._impl->labels);
+
+    metric_id id(name, md._impl->name, internalized_labels);
 
     auto reg = get_local_impl(_handle)->add_registration(
             id, md._impl->type, md._impl->f, md._impl->d, md._impl->enabled, md._impl->_skip_when_empty, md._impl->aggregate_labels);
@@ -521,6 +535,16 @@ void impl::replicate_metric(const shared_ptr<registered_metric>& metric,
                                   family_info.aggregate_labels);
 }
 
+void impl::gc_internalized_labels() {
+    for (auto it = _internalized_labels.begin(); it != _internalized_labels.end();) {
+        if (!it->has_users()) {
+            it = _internalized_labels.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
 void impl::update_metrics_if_needed() {
     if (_dirty) {
         // Forcing the metadata to an empty initialization
@@ -552,6 +576,8 @@ void impl::update_metrics_if_needed() {
         _current_metrics.resize(i);
         _metadata = mt_ref;
         _dirty = false;
+
+        gc_internalized_labels();
     }
 }
 
@@ -580,7 +606,7 @@ register_ref impl::add_registration(const metric_id& id, const metric_type& type
         if (metric.info().type != type.base_type) {
             throw std::runtime_error("registering metrics " + name + " registered with different type.");
         }
-        metric[rm->info().id.labels()] = rm;
+        metric[rm->info().id.internalized_labels()] = rm;
         for (auto&& i : rm->info().id.labels()) {
             _labels.insert(i.first);
         }
@@ -591,7 +617,7 @@ register_ref impl::add_registration(const metric_id& id, const metric_type& type
         _value_map[name].info().name = id.full_name();
         _value_map[name].info().aggregate_labels = aggregate_labels;
         impl::update_aggregate(_value_map[name].info());
-        _value_map[name][rm->info().id.labels()] = rm;
+        _value_map[name][rm->info().id.internalized_labels()] = rm;
     }
     dirty();
 
@@ -618,14 +644,13 @@ future<metric_relabeling_result> impl::set_relabel_configs(const std::vector<rel
     for (auto&& family : _value_map) {
         std::vector<shared_ptr<registered_metric>> rms;
         for (auto&& metric = family.second.begin(); metric != family.second.end();) {
-            metric->second->info().id.labels().clear();
-            metric->second->info().id.labels() = metric->second->info().original_labels;
+            metric->second->info().id.update_labels(metric->second->info().original_labels);
             for (auto rl : _relabel_configs) {
                 if (apply_relabeling(rl, metric->second->info())) {
                     dirty();
                 }
             }
-            if (metric->first != metric->second->info().id.labels()) {
+            if (metric->first.labels() != metric->second->info().id.labels()) {
                 // If a metric labels were changed, we should remove it from the map, and place it back again
                 rms.push_back(metric->second);
                 family.second.erase(metric++);
@@ -635,7 +660,7 @@ future<metric_relabeling_result> impl::set_relabel_configs(const std::vector<rel
             }
         }
         for (auto rm : rms) {
-            labels_type lb = rm->info().id.labels();
+            auto ilb = rm->info().id.internalized_labels();
             if (family.second.find(rm->info().id.labels()) != family.second.end()) {
                 /*
                  You can not have a two metrics with the same name and label, there is a problem with the configuration.
@@ -646,12 +671,14 @@ future<metric_relabeling_result> impl::set_relabel_configs(const std::vector<rel
                 */
                 seastar_logger.error("Metrics: After relabeling, registering metrics twice for metrics : {}", family.first);
                 auto id = get_unique_id();
-                lb["err"] = id;
+                auto new_labels = *ilb;
+                new_labels["err"] = id;
+                ilb = internalize_labels(new_labels);
                 conflicts.metrics_relabeled_due_to_collision++;
-                rm->info().id.labels()["err"] = id;
+                rm->info().id.update_labels(ilb);
             }
 
-            family.second[lb] = rm;
+            family.second[ilb] = rm;
         }
     }
     return make_ready_future<metric_relabeling_result>(conflicts);

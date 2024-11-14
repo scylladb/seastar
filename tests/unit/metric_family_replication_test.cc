@@ -23,7 +23,7 @@ void assert_metric_families_equivalent(int source, int destination,
     const auto& source_family = source_value_map.at(name);
     const auto& destination_family = destination_value_map.at(name);
     for (const auto& [labels, source_metric]: source_family) {
-        auto replica_iter = destination_family.find(labels);
+        auto replica_iter = destination_family.find(labels.labels());
         BOOST_REQUIRE(replica_iter != destination_family.end());
         
         const auto& replica_metric = replica_iter->second;
