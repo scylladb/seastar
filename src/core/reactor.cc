@@ -2057,8 +2057,8 @@ reactor::spawn(std::string_view pathname,
 }
 
 static auto next_waitpid_timeout(std::chrono::milliseconds this_timeout) {
-    static const std::chrono::milliseconds step_timeout(20);
-    static const std::chrono::milliseconds max_timeout(1000);
+    constexpr std::chrono::milliseconds step_timeout(20);
+    constexpr std::chrono::milliseconds max_timeout(1000);
     if (this_timeout >= max_timeout) {
         return max_timeout;
     }
@@ -2075,49 +2075,44 @@ static auto next_waitpid_timeout(std::chrono::milliseconds this_timeout) {
 
 #endif
 
-future<int> reactor::do_waitpid(pid_t pid) {
-    return do_with(int{}, std::chrono::milliseconds(0), [pid, this](int& wstatus,
-                                                                    std::chrono::milliseconds& wait_timeout) {
-        return repeat_until_value([this,
-                                   pid,
-                                   &wstatus,
-                                   &wait_timeout] {
-            return _thread_pool->submit<syscall_result<pid_t>>([pid, &wstatus] {
-                return wrap_syscall<pid_t>(::waitpid(pid, &wstatus, WNOHANG));
-            }).then([&wstatus, &wait_timeout](syscall_result<pid_t> ret) mutable {
-                if (ret.result == 0) {
-                    wait_timeout = next_waitpid_timeout(wait_timeout);
-                    return ::seastar::sleep(wait_timeout).then([] {
-                        return make_ready_future<std::optional<int>>();
-                    });
-                } else if (ret.result > 0) {
-                    return make_ready_future<std::optional<int>>(wstatus);
-                } else {
-                    ret.throw_if_error();
-                    return make_ready_future<std::optional<int>>(-1);
-                }
-            });
-        });
-    });
-}
-
 future<int> reactor::waitpid(pid_t pid) {
-    return _thread_pool->submit<syscall_result<int>>([pid] {
+    syscall_result<int> pidfd = co_await _thread_pool->submit<syscall_result<int>>([pid] {
         return wrap_syscall<int>(syscall(__NR_pidfd_open, pid, O_NONBLOCK));
-    }).then([pid, this] (syscall_result<int> pidfd) {
-        if (pidfd.result == -1) {
-            // pidfd_open() was introduced in linux 5.3, so the pidfd.error could be ENOSYS on
-            // older kernels. But it could be other error like EMFILE or ENFILE. anyway, we
-            // should always waitpid().
-            return do_waitpid(pid);
-        } else {
-            return do_with(pollable_fd(file_desc::from_fd(pidfd.result)), [pid, this](auto& pidfd) {
-                return pidfd.readable().then([pid, this] {
-                    return do_waitpid(pid);
-                });
-            });
-        }
     });
+    // pidfd_open() was introduced in linux 5.3, so the pidfd.error could be ENOSYS on
+    // older kernels. But it could be other error like EMFILE or ENFILE. anyway, we
+    // should always waitpid().
+    std::optional<pollable_fd> pfd;
+    if (pidfd.result != -1) {
+        pfd.emplace(file_desc::from_fd(pidfd.result));
+        co_await pfd->readable();
+    }
+
+    auto do_waitpid = [this] (pid_t pid) -> future<std::optional<int>> {
+        int wstatus;
+        auto ret = co_await _thread_pool->submit<syscall_result<pid_t>>([&] {
+            return wrap_syscall<pid_t>(::waitpid(pid, &wstatus, WNOHANG));
+        });
+        if (ret.result == 0) {
+            // Result not ready yet (with WNOHANG)
+            co_return std::nullopt;
+        } else if (ret.result > 0) {
+            // Success.  Return the waited pid status
+            co_return wstatus;
+        } else {
+            // Error.  Maybe throw exception, or return -1 status.
+            ret.throw_if_error();
+            co_return -1;
+        }
+    };
+
+    std::optional<int> ret_opt;
+    std::chrono::milliseconds wait_timeout(0);
+    while (!(ret_opt = co_await do_waitpid(pid))) {
+        wait_timeout = next_waitpid_timeout(wait_timeout);
+        co_await sleep(wait_timeout);
+    }
+    co_return *ret_opt;
 }
 
 void reactor::kill(pid_t pid, int sig) {
