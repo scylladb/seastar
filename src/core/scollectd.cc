@@ -97,8 +97,9 @@ registration::registration(type_instance_id&& id)
 }
 
 seastar::metrics::impl::metric_id to_metrics_id(const type_instance_id & id) {
-    return seastar::metrics::impl::metric_id(id.plugin(), id.type_instance(),
-            {{seastar::metrics::shard_label.name(), seastar::metrics::impl::shard()}});
+    seastar::metrics::impl::labels_type labels {{seastar::metrics::shard_label.name(), seastar::metrics::impl::shard()}};
+    auto internalized_labels = std::make_shared<seastar::metrics::impl::labels_type>(std::move(labels));
+    return seastar::metrics::impl::metric_id(id.plugin(), id.type_instance(), std::move(internalized_labels));
 }
 
 
@@ -575,7 +576,7 @@ options::options(program_options::option_group* parent_group)
 
 static seastar::metrics::impl::register_ref get_register(const scollectd::type_instance_id& i) {
     seastar::metrics::impl::metric_id id = to_metrics_id(i);
-    return seastar::metrics::impl::get_value_map().at(id.full_name()).at(id.labels());
+    return seastar::metrics::impl::get_value_map().at(id.full_name()).at(id.internalized_labels());
 }
 
 std::vector<collectd_value> get_collectd_value(
