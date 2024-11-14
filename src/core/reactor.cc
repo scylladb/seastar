@@ -4204,7 +4204,7 @@ unsigned smp::adjust_max_networking_aio_io_control_blocks(unsigned network_iocbs
                                      aio_nr + (requested_aio_other + smp::count), aio_nr + requested_aio);
 
             if (reserve_iocbs) {
-                err.append(format(", with an added reserve of {} (requested via io_control_blocks_reserve config)", reserve_iocbs));
+                err.append(format(", with an added reserve of {} (requested via reserve_io_control_blocks config)", reserve_iocbs));
             }
             unsigned smp_count_max = available_aio / (storage_iocbs + preempt_iocbs + 1);
             if (smp_count_max > 0) {
