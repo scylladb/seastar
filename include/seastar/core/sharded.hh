@@ -400,7 +400,6 @@ public:
     ///
     /// \see map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Reducer&& r)
     template <typename Reducer, typename Func, typename... Args>
-    inline
     auto map_reduce(Reducer&& r, Func&& func, Args&&... args) -> typename reducer_traits<Reducer>::future_type
     {
         auto rng = std::views::iota(size_t(0), _instances.size());
@@ -417,7 +416,6 @@ public:
 
     /// The const version of \ref map_reduce(Reducer&& r, Func&& func)
     template <typename Reducer, typename Func, typename... Args>
-    inline
     auto map_reduce(Reducer&& r, Func&& func, Args&&... args) const -> typename reducer_traits<Reducer>::future_type
     {
         auto rng = std::views::iota(size_t(0), _instances.size());
@@ -449,7 +447,6 @@ public:
     /// \return  Result of invoking `map` with each instance in parallel, reduced by calling
     ///          `reduce()` on each adjacent pair of results.
     template <typename Mapper, typename Initial, typename Reduce>
-    inline
     future<Initial>
     map_reduce0(Mapper map, Initial initial, Reduce reduce) {
         auto wrapped_map = [this, map] (unsigned c) {
@@ -466,7 +463,6 @@ public:
 
     /// The const version of \ref map_reduce0(Mapper map, Initial initial, Reduce reduce)
     template <typename Mapper, typename Initial, typename Reduce>
-    inline
     future<Initial>
     map_reduce0(Mapper map, Initial initial, Reduce reduce) const {
         auto wrapped_map = [this, map] (unsigned c) {
@@ -491,7 +487,7 @@ public:
     /// \tparam  Mapper unary function taking `Service&` and producing some result.
     /// \return  Result vector of invoking `map` with each instance in parallel
     template <typename Mapper, typename Future = futurize_t<std::invoke_result_t<Mapper,Service&>>, typename return_type = decltype(internal::untuple(std::declval<typename Future::tuple_type>()))>
-    inline future<std::vector<return_type>> map(Mapper mapper) {
+    future<std::vector<return_type>> map(Mapper mapper) {
         return do_with(std::vector<return_type>(), std::move(mapper),
                 [this] (std::vector<return_type>& vec, Mapper& mapper) mutable {
             vec.resize(_instances.size());
@@ -588,7 +584,6 @@ sharded<Service>::~sharded() {
 namespace internal {
 
 template <typename T>
-inline
 T&&
 unwrap_sharded_arg(T&& arg) {
     return std::forward<T>(arg);
@@ -706,20 +701,17 @@ struct sharded_call_stop {
 
 template <>
 template <typename Service>
-inline
 future<> sharded_call_stop<true>::call(Service& instance) {
     return instance.stop();
 }
 
 template <>
 template <typename Service>
-inline
 future<> sharded_call_stop<false>::call(Service&) {
     return make_ready_future<>();
 }
 
 template <typename Service>
-inline
 future<>
 stop_sharded_instance(Service& instance) {
     constexpr bool has_stop = internal::sharded_has_stop::check<Service>(0);
@@ -773,7 +765,6 @@ sharded<Service>::invoke_on_all(smp_submit_to_options options, std::function<fut
 }
 
 template <typename Service>
-inline
 future<>
 sharded<Service>::invoke_on_all(std::function<future<> (Service&)> func) noexcept {
     try {
@@ -787,7 +778,6 @@ template <typename Service>
 template <typename Func, typename... Args>
 requires std::invocable<Func, Service&, internal::sharded_unwrap_t<Args>...>
     && std::is_same_v<futurize_t<std::invoke_result_t<Func, Service&, internal::sharded_unwrap_t<Args>...>>, future<>>
-inline
 future<>
 sharded<Service>::invoke_on_all(smp_submit_to_options options, Func func, Args... args) noexcept {
   try {
@@ -805,7 +795,6 @@ template <typename Service>
 template <typename Func, typename... Args>
 requires std::invocable<Func, Service&, internal::sharded_unwrap_t<Args>...>
     && std::is_same_v<futurize_t<std::invoke_result_t<Func, Service&, internal::sharded_unwrap_t<Args>...>>, future<>>
-inline
 future<>
 sharded<Service>::invoke_on_all(Func func, Args... args) noexcept {
     try {
@@ -819,7 +808,6 @@ template <typename Service>
 template <typename Func, typename... Args>
 requires std::invocable<Func, Service&, Args...>
     && std::is_same_v<futurize_t<std::invoke_result_t<Func, Service&, Args...>>, future<>>
-inline
 future<>
 sharded<Service>::invoke_on_others(smp_submit_to_options options, Func func, Args... args) noexcept {
   try {
@@ -835,7 +823,6 @@ template <typename Service>
 template <typename Func, typename... Args>
 requires std::invocable<Func, Service&, Args...>
     && std::is_same_v<futurize_t<std::invoke_result_t<Func, Service&, Args...>>, future<>>
-inline
 future<>
 sharded<Service>::invoke_on_others(Func func, Args... args) noexcept {
     try {
@@ -848,7 +835,6 @@ sharded<Service>::invoke_on_others(Func func, Args... args) noexcept {
 template <typename Service>
 template <typename Func, typename... Args, typename Ret>
 requires std::invocable<Func, Service&, Args&&...>
-inline
 Ret
 sharded<Service>::invoke_on(unsigned id, smp_submit_to_options options, Func&& func, Args&&... args) {
     return smp::submit_to(id, options, [this, func = std::forward<Func>(func), args = std::tuple(std::move(args)...)] () mutable {
@@ -860,7 +846,6 @@ sharded<Service>::invoke_on(unsigned id, smp_submit_to_options options, Func&& f
 template <typename Service>
 template <typename Func, typename... Args, typename Ret>
 requires std::invocable<Func, Service&, Args&&...>
-inline
 Ret
 sharded<Service>::invoke_on(unsigned id, Func&& func, Args&&... args) {
     return invoke_on(id, smp_submit_to_options(), std::forward<Func>(func), std::forward<Args>(args)...);
@@ -871,7 +856,6 @@ template <typename R, typename Func, typename... Args>
 requires std::invocable<Func, Service&, Args...>
     && std::is_same_v<futurize_t<std::invoke_result_t<Func, Service&, internal::sharded_unwrap_t<Args>...>>, future<>>
     && internal::unsigned_range<R>
-inline
 future<>
 sharded<Service>::invoke_on(R range, smp_submit_to_options options, Func func, Args... args) noexcept {
     try {
@@ -898,7 +882,6 @@ template <typename R, typename Func, typename... Args>
 requires std::invocable<Func, Service&, Args...>
     && std::is_same_v<futurize_t<std::invoke_result_t<Func, Service&, internal::sharded_unwrap_t<Args>...>>, future<>>
     && internal::unsigned_range<R>
-inline
 future<> 
 sharded<Service>::invoke_on(R range, Func func, Args... args) noexcept {
     try {
@@ -927,7 +910,7 @@ shared_ptr<Service> sharded<Service>::local_shared() noexcept {
 }
 
 template <typename Service>
-inline bool sharded<Service>::local_is_initialized() const noexcept {
+bool sharded<Service>::local_is_initialized() const noexcept {
     return _instances.size() > this_shard_id() &&
            _instances[this_shard_id()].service;
 }
