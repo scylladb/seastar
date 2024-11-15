@@ -22,25 +22,18 @@
 
 include(CMakeParseArguments)
 
-#
-# CMake bundles `FindBoost.cmake`, which is coupled to the Boost version. If
-# we're on a system without a recent enough version of `FindBoost.cmake`, then
-# we need to use the one bundled with Seastar.
-#
-# The "real" FIND_PACKAGE invocation for Boost is inside SEASTAR_FIND_DEPENDENCIES.
-#
-
-# Be consistent in results from FindBoost.cmake.
 # This is required because cmake-boost may return to Boost_{component}_LIBRARY:
 # - /usr/lib64/libboost_foo.so
 # - Boost::foo
+# While pkgconf's .pc file consumers expect argument which can be passed as
+# part of the command line arguments
 set (Boost_NO_BOOST_CMAKE ON)
 
 # for including the fix of https://github.com/boostorg/test/pull/252
 set (_seastar_boost_version 1.73.0)
 
 # This is the minimum version of Boost we need the CMake-bundled `FindBoost.cmake` to know about.
-find_package (Boost ${_seastar_boost_version} MODULE)
+find_package (Boost ${_seastar_boost_version})
 if (Boost_VERSION_STRING VERSION_LESS 1.81.0)
   set_target_properties (Boost::boost PROPERTIES
     INTERFACE_COMPILE_DEFINITIONS "BOOST_NO_CXX98_FUNCTION_BASE")

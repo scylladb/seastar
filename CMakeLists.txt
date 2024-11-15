@@ -27,7 +27,7 @@ list (APPEND CMAKE_MODULE_PATH
   ${CMAKE_CURRENT_BINARY_DIR})
 
 cmake_policy (SET CMP0090 NEW)
-foreach (policy CMP0127 CMP0135)
+foreach (policy CMP0127 CMP0135 CMP0167)
   if (POLICY ${policy})
     cmake_policy (SET ${policy} NEW)
   endif ()
