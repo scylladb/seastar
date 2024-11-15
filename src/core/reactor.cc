@@ -4192,7 +4192,16 @@ unsigned smp::adjust_max_networking_aio_io_control_blocks(unsigned network_iocbs
             seastar_logger.warn("");
             log_aiocbs(log_level::warn, storage_iocbs, preempt_iocbs, network_iocbs);
             seastar_logger.warn("");
-            seastar_logger.warn("For optimal network performance, set /proc/sys/fs/aio-max-nr to at least {}.", aio_nr + requested_aio);
+            seastar_logger.warn("For optimal network performance, set /proc/sys/fs/aio-max-nr to at least {}", aio_nr + requested_aio);
+            
+            if (reserve_iocbs) {
+                seastar_logger.warn(", with an added reserve of {} (requested via reserve_io_control_blocks config)", reserve_iocbs);
+            }
+
+            unsigned smp_count_recommended = available_aio / (storage_iocbs + preempt_iocbs + network_iocbs);
+            if (smp_count_recommended > 0) {
+                seastar_logger.warn(", or decrease the logical CPU count of the application to {}", smp_count_recommended);
+            }
         } else {
             std::string err = format("Your system does not satisfy minimum AIO requirements. "
                                      "Set /proc/sys/fs/aio-max-nr to at least {} (minimum) or {} (recommended for networking performance)",
