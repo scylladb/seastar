@@ -815,6 +815,8 @@ tcp<InetTraits>::tcp(inet_type& inet)
 
 template <typename InetTraits>
 future<> tcp<InetTraits>::poll_tcb(ipaddr to, lw_shared_ptr<tcb> tcb) {
+    // Note that get_l2_dst_address() returns a ready future most of the time, so
+    // chaining a callback is mostly free.
     return  _inet.get_l2_dst_address(to).then([this, tcb = std::move(tcb)] (ethernet_address dst) {
             _poll_tcbs.emplace_back(std::move(tcb), dst);
     });
