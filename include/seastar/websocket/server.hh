@@ -135,6 +135,7 @@ class websocket_parser {
     sstring _buffer;
     std::unique_ptr<frame_header> _header;
     uint64_t _payload_length;
+    uint64_t _consumed_payload_length = 0;
     uint32_t _masking_key;
     buff_t _result;
 
@@ -143,6 +144,9 @@ class websocket_parser {
     }
     static future<consumption_result_t> stop(buff_t data) {
         return make_ready_future<consumption_result_t>(stop_consuming(std::move(data)));
+    }
+    uint64_t remaining_payload_length() const {
+        return _payload_length - _consumed_payload_length;
     }
 
     // Removes mask from payload given in p.

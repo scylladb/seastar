@@ -257,16 +257,28 @@ future<websocket_parser::consumption_result_t> websocket_parser::operator()(
         }
     }
     if (_state == parsing_state::payload) {
-        if (_payload_length > data.size()) {
-            _payload_length -= data.size();
-            remove_mask(data, data.size());
-            _result = std::move(data);
-            return websocket_parser::stop(buff_t(0));
+        if (data.size() < remaining_payload_length()) {
+            // data has insufficient data to complete the frame - consume data.size() bytes
+            if (_result.empty()) {
+                _result = temporary_buffer<char>(remaining_payload_length());
+                _consumed_payload_length = 0;
+            }
+            std::copy(data.begin(), data.end(), _result.get_write() + _consumed_payload_length);
+            _consumed_payload_length += data.size();
+            return websocket_parser::dont_stop();
         } else {
-            _result = data.clone();
+            // data has sufficient data to complete the frame - consume remaining_payload_length()
+            auto consumed_bytes = remaining_payload_length();
+            if (_result.empty()) {
+                _result = data.clone();
+                _result.trim(consumed_bytes);
+            } else {
+                std::copy(data.begin(), data.begin() + consumed_bytes,
+                          _result.get_write() + _consumed_payload_length);
+            }
             remove_mask(_result, _payload_length);
-            data.trim_front(_payload_length);
-            _payload_length = 0;
+            data.trim_front(consumed_bytes);
+            _consumed_payload_length = 0;
             _state = parsing_state::flags_and_payload_data;
             return websocket_parser::stop(std::move(data));
         }
