@@ -396,7 +396,7 @@ set (Seastar_GEN_BINARY_DIR ${Seastar_BINARY_DIR}/gen)
 #
 
 include (SeastarDependencies)
-seastar_find_dependencies ()
+seastar_find_dependencies (BUILD)
 
 # Private build dependencies not visible to consumers
 find_package (ragel 6.10 REQUIRED)
