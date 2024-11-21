@@ -238,18 +238,17 @@ future<websocket_parser::consumption_result_t> websocket_parser::operator()(
                 size_t hlen = _buffer.length();
                 _buffer.append(data.get(), required_bytes - hlen);
                 data.trim_front(required_bytes - hlen);
-
-                _payload_length = _header->length;
-                char const *input = _buffer.data();
-                if (_header->length == 126) {
-		    _payload_length = consume_be<uint16_t>(input);
-                } else if (_header->length == 127) {
-		    _payload_length = consume_be<uint64_t>(input);
-                }
-
-		_masking_key = consume_be<uint32_t>(input);
-                _buffer = {};
             }
+            _payload_length = _header->length;
+            char const *input = _buffer.data();
+            if (_header->length == 126) {
+                _payload_length = consume_be<uint16_t>(input);
+            } else if (_header->length == 127) {
+                _payload_length = consume_be<uint64_t>(input);
+            }
+
+            _masking_key = consume_be<uint32_t>(input);
+            _buffer = {};
             _state = parsing_state::payload;
         } else {
             _buffer.append(data.get(), data.size());
