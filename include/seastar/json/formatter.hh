@@ -22,7 +22,9 @@
 #pragma once
 
 #ifndef SEASTAR_MODULE
+#include <ranges>
 #include <string>
+#include <tuple>
 #include <vector>
 #include <unordered_map>
 #include <map>
@@ -36,6 +38,33 @@
 #include <seastar/util/modules.hh>
 
 namespace seastar {
+
+namespace internal {
+
+template<typename T>
+concept is_map = requires {
+    typename T::mapped_type;
+};
+
+template<typename T>
+concept is_pair_like = requires {
+    typename std::tuple_size<T>::type;
+    requires std::tuple_size_v<T> == 2;
+};
+
+template<typename T>
+concept is_string_like =
+    std::convertible_to<const T&, std::string_view> &&
+    requires (T s) {
+        { s.data() } -> std::same_as<char*>;
+        // sstring::length() and sstring::find() return size_t instead of
+        // size_type (i.e., uint32_t), so we cannot check their return type
+        // with T::size_type
+        s.find('a');
+        s.length();
+    };
+
+}
 
 namespace json {
 
@@ -57,15 +86,16 @@ class formatter {
     static sstring begin(state);
     static sstring end(state);
 
-    template<typename K, typename V>
-    static sstring to_json(state s, const std::pair<K, V>& p) {
+    template<internal::is_pair_like T>
+    static sstring to_json(state s, const T& p) {
+        auto& [key, value] = p;
         return s == state::array ?
                         "{" + to_json(state::none, p) + "}" :
-                        to_json(p.first) + ":" + to_json(p.second);
+                        to_json(key) + ":" + to_json(value);
     }
 
-    template<typename Iter>
-    static sstring to_json(state s, Iter i, Iter e) {
+    template<typename Iterator, typename Sentinel>
+    static sstring to_json(state s, Iterator i, Sentinel e) {
         std::stringstream res;
         res << begin(s);
         size_t n = 0;
@@ -85,8 +115,8 @@ class formatter {
         return to_json(t);
     }
 
-    template<typename K, typename V>
-    static future<> write(output_stream<char>& stream, state s, const std::pair<K, V>& p) {
+    template<internal::is_pair_like T>
+    static future<> write(output_stream<char>& stream, state s, T&& p) {
         if (s == state::array) {
             return stream.write("{").then([&stream, &p] {
                 return write(stream, state::none, p).then([&stream] {
@@ -94,22 +124,47 @@ class formatter {
                 });
             });
         } else {
-            return stream.write(to_json(p.first) + ":").then([&p, &stream] {
-                return write(stream, p.second);
+            auto& [key, value] = p;
+            return stream.write(to_json(key) + ":").then([&value, &stream] {
+                return write(stream, value);
             });
         }
     }
 
-    template<typename Iter>
-    static future<> write(output_stream<char>& stream, state s, Iter i, Iter e) {
+    template<internal::is_pair_like T>
+    static future<> write(output_stream<char>& stream, state s, const T& p) {
+        if (s == state::array) {
+            return stream.write("{").then([&stream, p] {
+                return write(stream, state::none, p).then([&stream] {
+                   return stream.write("}");
+                });
+            });
+        } else {
+            auto& [key, value] = p;
+            return stream.write(to_json(key) + ":").then([&stream, value] {
+                return write(stream, value);
+            });
+        }
+    }
+
+    template<typename Iterator, typename Sentinel>
+    static future<> write(output_stream<char>& stream, state s, Iterator i, Sentinel e) {
         return do_with(true, [&stream, s, i, e] (bool& first) {
             return stream.write(begin(s)).then([&first, &stream, s, i, e] {
-                return do_for_each(i, e, [&first, &stream, s] (auto& m) {
+                using ref_t = std::iter_reference_t<Iterator>;
+                return do_for_each(i, e, [&first, &stream, s] (ref_t m) {
                     auto f = (first) ? make_ready_future<>() : stream.write(",");
                     first = false;
-                    return f.then([&m, &stream, s] {
-                        return write(stream, s, m);
-                    });
+                    if constexpr (std::is_lvalue_reference_v<ref_t>) {
+                       return f.then([&m, &stream, s] {
+                           return write(stream, s, m);
+                       });
+                    } else {
+                        using value_t = std::iter_value_t<Iterator>;
+                        return f.then([m = std::forward<value_t>(m), &stream, s] {
+                            return write(stream, s, m);
+                        });
+                    }
                 }).then([&stream, s] {
                     return stream.write(end(s));
                 });
@@ -191,23 +246,18 @@ public:
     static sstring to_json(bool d);
 
     /**
-     * return a json formatted list of a given vector of params
-     * @param vec the vector to format
-     * @return the given vector in a json format
+     * converts a given range to a JSON-formatted string
+     * @param range A standard range type
+     * @return A string containing the JSON representation of the input range
      */
-    template<typename... Args>
-    static sstring to_json(const std::vector<Args...>& vec) {
-        return to_json(state::array, vec.begin(), vec.end());
-    }
-
-    template<typename... Args>
-    static sstring to_json(const std::map<Args...>& map) {
-        return to_json(state::map, map.begin(), map.end());
-    }
-
-    template<typename... Args>
-    static sstring to_json(const std::unordered_map<Args...>& map) {
-        return to_json(state::map, map.begin(), map.end());
+    template<std::ranges::input_range Range>
+    requires (!internal::is_string_like<Range>)
+    static sstring to_json(const Range& range) {
+        if constexpr (internal::is_map<Range>) {
+            return to_json(state::map, std::ranges::begin(range), std::ranges::end(range));
+        } else {
+            return to_json(state::array, std::ranges::begin(range), std::ranges::end(range));
+        }
     }
 
     /**
@@ -297,28 +347,23 @@ public:
     }
 
     /**
-     * return a json formatted list of a given vector of params
-     * @param vec the vector to format
-     * @return the given vector in a json format
+     * Converts a range to a JSON array or object and writes it to an output stream.
+     * @param s     The output stream that will receive the JSON-formatted string
+     * @param range The range to convert. If the range contains key-value pairs (like std::map),
+     *              it will be formatted as a JSON object. Otherwise, it will be formatted as
+     *              a JSON array.
+     * @returns     A future that will be resolved when the write operation completes
+     *
      */
-    template<typename... Args>
-    static future<> write(output_stream<char>& s, std::vector<Args...> vec) {
-        return do_with(std::move(vec), [&s] (const auto& vec) {
-            return write(s, state::array, vec.begin(), vec.end());
-        });
-    }
-
-    template<typename... Args>
-    static future<> write(output_stream<char>& s, std::map<Args...> map) {
-        return do_with(std::move(map), [&s] (const auto& map) {
-            return write(s, state::map, map.begin(), map.end());
-        });
-    }
-
-    template<typename... Args>
-    static future<> write(output_stream<char>& s, std::unordered_map<Args...> map) {
-        return do_with(std::move(map), [&s] (const auto& map) {
-            return write(s, state::map, map.begin(), map.end());
+    template<std::ranges::input_range Range>
+    requires (!internal::is_string_like<Range>)
+    static future<> write(output_stream<char>& s, const Range& range) {
+        return do_with(std::move(range), [&s] (const auto& range) {
+            if constexpr (internal::is_map<Range>) {
+                return write(s, state::map, std::ranges::begin(range), std::ranges::end(range));
+            } else {
+                return write(s, state::array, std::ranges::begin(range), std::ranges::end(range));
+            }
         });
     }
 

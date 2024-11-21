@@ -62,6 +62,14 @@ SEASTAR_TEST_CASE(test_collections) {
     return make_ready_future();
 }
 
+SEASTAR_TEST_CASE(test_ranges) {
+    BOOST_CHECK_EQUAL("[1,2,3,4]", formatter::to_json(std::views::iota(1, 5)));
+#ifdef __cpp_lib_ranges_enumerate
+    BOOST_CHECK_EQUAL("[{0:5},{1:6},{2:7},{3:8}]", formatter::to_json(std::views::iota(5, 9) | std::views::enumerate));
+#endif
+    return make_ready_future();
+}
+
 struct object_json : public json_base {
     json_element<sstring> subject;
     json_list<long> values;
@@ -158,4 +166,12 @@ SEASTAR_THREAD_TEST_CASE(formatter_write) {
     formatter_check_expected("[[1,2],[3,4]]", [] (auto &out) {
         json::formatter::write(out, std::vector<std::vector<int>>({{1, 2}, {3, 4}})).get();
     });
+    formatter_check_expected("[1,2,3,4]", [] (auto& out) {
+        json::formatter::write(out, std::views::iota(1, 5)).get();
+    });
+#ifdef __cpp_lib_ranges_enumerate
+    formatter_check_expected("[{0:5},{1:6},{2:7},{3:8}]", [] (auto& out) {
+        json::formatter::write(out, std::views::iota(5, 9) | std::views::enumerate).get();
+    });
+#endif
 }
