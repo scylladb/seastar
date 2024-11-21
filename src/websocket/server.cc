@@ -270,14 +270,22 @@ future<websocket_parser::consumption_result_t> websocket_parser::operator()(
             // data has sufficient data to complete the frame - consume remaining_payload_length()
             auto consumed_bytes = remaining_payload_length();
             if (_result.empty()) {
-                _result = data.clone();
-                _result.trim(consumed_bytes);
+                // Try to avoid memory copies in case when network packets contain one or more full
+                // websocket frames.
+                if (consumed_bytes == data.size()) {
+                    _result = std::move(data);
+                    data = temporary_buffer<char>(0);
+                } else {
+                    _result = data.share();
+                    _result.trim(consumed_bytes);
+                    data.trim_front(consumed_bytes);
+                }
             } else {
                 std::copy(data.begin(), data.begin() + consumed_bytes,
                           _result.get_write() + _consumed_payload_length);
+                data.trim_front(consumed_bytes);
             }
             remove_mask(_result, _payload_length);
-            data.trim_front(consumed_bytes);
             _consumed_payload_length = 0;
             _state = parsing_state::flags_and_payload_data;
             return websocket_parser::stop(std::move(data));
