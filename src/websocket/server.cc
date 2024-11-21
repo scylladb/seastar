@@ -207,23 +207,27 @@ future<websocket_parser::consumption_result_t> websocket_parser::operator()(
     }
     if (_state == parsing_state::flags_and_payload_data) {
         if (_buffer.length() + data.size() >= 2) {
-            if (_buffer.length() < 2) {
-                size_t hlen = _buffer.length();
-                _buffer.append(data.get(), 2 - hlen);
-                data.trim_front(2 - hlen);
-                _header = std::make_unique<frame_header>(_buffer.data());
-                _buffer = {};
+            // _buffer.length() is less than 2 when entering this if body due to how
+            // the rest of code is structured. The else branch will never increase
+            // _buffer.length() to >=2 and other paths to this condition will always
+            // have buffer cleared.
+            assert(_buffer.length() < 2);
 
-                // https://datatracker.ietf.org/doc/html/rfc6455#section-5.1
-                // We must close the connection if data isn't masked.
-                if ((!_header->masked) ||
-                        // RSVX must be 0
-                        (_header->rsv1 | _header->rsv2 | _header->rsv3) ||
-                        // Opcode must be known.
-                        (!_header->is_opcode_known())) {
-                    _cstate = connection_state::error;
-                    return websocket_parser::stop(std::move(data));
-                }
+            size_t hlen = _buffer.length();
+            _buffer.append(data.get(), 2 - hlen);
+            data.trim_front(2 - hlen);
+            _header = std::make_unique<frame_header>(_buffer.data());
+            _buffer = {};
+
+            // https://datatracker.ietf.org/doc/html/rfc6455#section-5.1
+            // We must close the connection if data isn't masked.
+            if ((!_header->masked) ||
+                    // RSVX must be 0
+                    (_header->rsv1 | _header->rsv2 | _header->rsv3) ||
+                    // Opcode must be known.
+                    (!_header->is_opcode_known())) {
+                _cstate = connection_state::error;
+                return websocket_parser::stop(std::move(data));
             }
             _state = parsing_state::payload_length_and_mask;
         } else {
