@@ -24,6 +24,7 @@ module;
 #endif
 
 #include <any>
+#include <coroutine>
 #include <filesystem>
 #include <stdexcept>
 #include <system_error>
@@ -1604,17 +1605,18 @@ public:
     future<> close_after_shutdown() {
         _eof = true;
         try {
-            (void)_in.close().handle_exception([](std::exception_ptr) {}); // should wake any waiters
+            co_await _in.close(); // should wake any waiters
         } catch (...) {
         }
         try {
-            (void)_out.close().handle_exception([](std::exception_ptr) {});
+            co_await _out.close();
         } catch (...) {
         }
+
         // make sure to wait for handshake attempt to leave semaphores. Must be in same order as
         // handshake aqcuire, because in worst case, we get here while a reader is attempting
         // re-handshake.
-        return with_semaphore(_in_sem, 1, [this] {
+        co_await with_semaphore(_in_sem, 1, [this] {
             return with_semaphore(_out_sem, 1, [] {});
         });
     }
