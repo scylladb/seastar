@@ -221,6 +221,11 @@ namespace tls {
          */
         void set_dn_verification_callback(dn_callback);
 
+        /**
+         * Optional override to disable certificate verification
+         */
+        void set_enable_certificate_verification(bool enable);
+
     private:
         class impl;
         friend class session;
@@ -336,6 +341,10 @@ namespace tls {
         bool wait_for_eof_on_shutdown = true;
         /// \brief server name to be used for the SNI TLS extension
         sstring server_name = {};
+
+        /// \brief whether server certificate should be verified. May be set to false
+        /// in test environments.
+        bool verify_certificate = true;
 
         /// \brief Optional session resume data. Must be retrieved via
         /// get_session_resume_data below.
