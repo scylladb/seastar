@@ -65,6 +65,9 @@ seastar_add_demo (hello-world
 seastar_add_demo (websocket_server
   SOURCES websocket_server_demo.cc)
 
+seastar_add_demo (websocket_client
+  SOURCES websocket_client_demo.cc)
+
 seastar_add_demo (echo
   SOURCES echo_demo.cc)
 
