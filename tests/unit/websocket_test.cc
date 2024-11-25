@@ -136,19 +136,36 @@ SEASTAR_TEST_CASE(test_websocket_handler_registration) {
         output.flush().get();
         input.read_exactly(186).get();
 
-        // Sending and receiving a websocket frame
-        const auto ws_frame = std::string(
-            "\202\204"  // 1000 0002 1000 0100
-            "TEST"      // Masking Key
-            "\0\0\0\0", 10); // Masked Message - TEST
-        const auto rs_frame = std::string(
-            "\202\004" // 1000 0002 0000 0100
-            "TEST", 6);    // Message - TEST
-        output.write(ws_frame).get();
-        output.flush().get();
+        unsigned ws_frame_len = 10;
+        for (unsigned split_i = 0; split_i < ws_frame_len - 1; ++split_i) {
+            // The loop tests various combinations of partial websocket frame coming in
 
-        auto response = input.read_exactly(6).get();
-        auto response_str = std::string(response.begin(), response.end());
-        BOOST_REQUIRE_EQUAL(rs_frame, response_str);
+            // Sending and receiving a websocket frame
+            const std::string ws_frame = std::string(
+                "\202\204"  // 1000 0002 1000 0100
+                "TEST"      // Masking Key
+                "\0\0\0\0", ws_frame_len); // Masked Message - TEST
+            const auto rs_frame = std::string(
+                "\202\004" // 1000 0002 0000 0100
+                "TEST", 6);    // Message - TEST
+
+            if (split_i == 0) {
+                output.write(ws_frame).get();
+                output.flush().get();
+            } else {
+                output.write(ws_frame.substr(0, split_i)).get();
+                output.flush().get();
+
+                // ensure that server attempts to read before the second part of the frame lands
+                sleep(std::chrono::milliseconds(100)).get();
+
+                output.write(ws_frame.substr(split_i)).get();
+                output.flush().get();
+            }
+
+            auto response = input.read_exactly(6).get();
+            auto response_str = std::string(response.begin(), response.end());
+            BOOST_REQUIRE_EQUAL(rs_frame, response_str);
+        }
     });
 }

@@ -207,23 +207,27 @@ future<websocket_parser::consumption_result_t> websocket_parser::operator()(
     }
     if (_state == parsing_state::flags_and_payload_data) {
         if (_buffer.length() + data.size() >= 2) {
-            if (_buffer.length() < 2) {
-                size_t hlen = _buffer.length();
-                _buffer.append(data.get(), 2 - hlen);
-                data.trim_front(2 - hlen);
-                _header = std::make_unique<frame_header>(_buffer.data());
-                _buffer = {};
+            // _buffer.length() is less than 2 when entering this if body due to how
+            // the rest of code is structured. The else branch will never increase
+            // _buffer.length() to >=2 and other paths to this condition will always
+            // have buffer cleared.
+            assert(_buffer.length() < 2);
 
-                // https://datatracker.ietf.org/doc/html/rfc6455#section-5.1
-                // We must close the connection if data isn't masked.
-                if ((!_header->masked) ||
-                        // RSVX must be 0
-                        (_header->rsv1 | _header->rsv2 | _header->rsv3) ||
-                        // Opcode must be known.
-                        (!_header->is_opcode_known())) {
-                    _cstate = connection_state::error;
-                    return websocket_parser::stop(std::move(data));
-                }
+            size_t hlen = _buffer.length();
+            _buffer.append(data.get(), 2 - hlen);
+            data.trim_front(2 - hlen);
+            _header = std::make_unique<frame_header>(_buffer.data());
+            _buffer = {};
+
+            // https://datatracker.ietf.org/doc/html/rfc6455#section-5.1
+            // We must close the connection if data isn't masked.
+            if ((!_header->masked) ||
+                    // RSVX must be 0
+                    (_header->rsv1 | _header->rsv2 | _header->rsv3) ||
+                    // Opcode must be known.
+                    (!_header->is_opcode_known())) {
+                _cstate = connection_state::error;
+                return websocket_parser::stop(std::move(data));
             }
             _state = parsing_state::payload_length_and_mask;
         } else {
@@ -238,18 +242,17 @@ future<websocket_parser::consumption_result_t> websocket_parser::operator()(
                 size_t hlen = _buffer.length();
                 _buffer.append(data.get(), required_bytes - hlen);
                 data.trim_front(required_bytes - hlen);
-
-                _payload_length = _header->length;
-                char const *input = _buffer.data();
-                if (_header->length == 126) {
-		    _payload_length = consume_be<uint16_t>(input);
-                } else if (_header->length == 127) {
-		    _payload_length = consume_be<uint64_t>(input);
-                }
-
-		_masking_key = consume_be<uint32_t>(input);
-                _buffer = {};
             }
+            _payload_length = _header->length;
+            char const *input = _buffer.data();
+            if (_header->length == 126) {
+                _payload_length = consume_be<uint16_t>(input);
+            } else if (_header->length == 127) {
+                _payload_length = consume_be<uint64_t>(input);
+            }
+
+            _masking_key = consume_be<uint32_t>(input);
+            _buffer = {};
             _state = parsing_state::payload;
         } else {
             _buffer.append(data.get(), data.size());
@@ -257,16 +260,36 @@ future<websocket_parser::consumption_result_t> websocket_parser::operator()(
         }
     }
     if (_state == parsing_state::payload) {
-        if (_payload_length > data.size()) {
-            _payload_length -= data.size();
-            remove_mask(data, data.size());
-            _result = std::move(data);
-            return websocket_parser::stop(buff_t(0));
+        if (data.size() < remaining_payload_length()) {
+            // data has insufficient data to complete the frame - consume data.size() bytes
+            if (_result.empty()) {
+                _result = temporary_buffer<char>(remaining_payload_length());
+                _consumed_payload_length = 0;
+            }
+            std::copy(data.begin(), data.end(), _result.get_write() + _consumed_payload_length);
+            _consumed_payload_length += data.size();
+            return websocket_parser::dont_stop();
         } else {
-            _result = data.clone();
+            // data has sufficient data to complete the frame - consume remaining_payload_length()
+            auto consumed_bytes = remaining_payload_length();
+            if (_result.empty()) {
+                // Try to avoid memory copies in case when network packets contain one or more full
+                // websocket frames.
+                if (consumed_bytes == data.size()) {
+                    _result = std::move(data);
+                    data = temporary_buffer<char>(0);
+                } else {
+                    _result = data.share();
+                    _result.trim(consumed_bytes);
+                    data.trim_front(consumed_bytes);
+                }
+            } else {
+                std::copy(data.begin(), data.begin() + consumed_bytes,
+                          _result.get_write() + _consumed_payload_length);
+                data.trim_front(consumed_bytes);
+            }
             remove_mask(_result, _payload_length);
-            data.trim_front(_payload_length);
-            _payload_length = 0;
+            _consumed_payload_length = 0;
             _state = parsing_state::flags_and_payload_data;
             return websocket_parser::stop(std::move(data));
         }
