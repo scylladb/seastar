@@ -202,7 +202,6 @@ class impl;
 class registered_metric final {
     metric_info _info;
     metric_function _f;
-    shared_ptr<impl> _impl;
 public:
     registered_metric(metric_id id, metric_function f, bool enabled=true, skip_when_empty skip=skip_when_empty::no);
     metric_value operator()() const {
@@ -240,8 +239,9 @@ using metrics_registration = std::vector<register_ref>;
 
 class metric_groups_impl : public metric_groups_def {
     metrics_registration _registration;
+    shared_ptr<impl> _impl; // keep impl alive while metrics are registered
 public:
-    metric_groups_impl() = default;
+    metric_groups_impl();
     ~metric_groups_impl();
     metric_groups_impl(const metric_groups_impl&) = delete;
     metric_groups_impl(metric_groups_impl&&) = default;

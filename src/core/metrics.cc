@@ -215,7 +215,7 @@ label shard_label("shard");
 namespace impl {
 
 registered_metric::registered_metric(metric_id id, metric_function f, bool enabled, skip_when_empty skip) :
-        _f(f), _impl(get_local_impl()) {
+        _f(f) {
     _info.enabled = enabled;
     _info.should_skip_when_empty = skip;
     _info.id = id;
@@ -294,6 +294,8 @@ std::unique_ptr<metric_groups_def> create_metric_groups() {
     return  std::make_unique<metric_groups_impl>();
 }
 
+metric_groups_impl::metric_groups_impl() {}
+
 metric_groups_impl::~metric_groups_impl() {
     for (const auto& i : _registration) {
         unregister_metric(i->info().id);
@@ -301,6 +303,13 @@ metric_groups_impl::~metric_groups_impl() {
 }
 
 metric_groups_impl& metric_groups_impl::add_metric(group_name_type name, const metric_definition& md)  {
+    // We could just do this in the constructor but some metric groups (like the
+    // smp queue ones) are actually constructed on a different shard originally
+    // than where the actual metrics are added.
+    // Hence, the shared_ptr owning shard check would fail so we do it only here.
+    if (_impl == nullptr) {
+        _impl = get_local_impl();
+    }
 
     metric_id id(name, md._impl->name, md._impl->labels);
 
