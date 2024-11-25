@@ -277,7 +277,7 @@ protected:
 
 std::string sha1_base64(std::string_view source);
 
-extern logger wlogger;
+extern logger websocket_logger;
 
 /// @}
 }
