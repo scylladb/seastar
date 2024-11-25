@@ -48,7 +48,7 @@ test_runner::start(int ac, char** av) {
 
     // Don't interfere with seastar signal handling
     sigset_t mask;
-    sigfillset(&mask);            
+    sigfillset(&mask);
     for (auto sig : { SIGSEGV }) {
         sigdelset(&mask, sig);
     }

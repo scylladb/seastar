@@ -83,7 +83,7 @@ future<> loop_to(int end) {
     });
 }
 ```
- 
+
 The *make_ready_future()* function returns a future that is already
 available --- corresponding to the loop termination condition, where
 no further I/O needs to take place.
@@ -194,9 +194,9 @@ void f() {
 ```
 ### Setup notes
 
-SeaStar is a high performance framework and tuned to get the best 
+SeaStar is a high performance framework and tuned to get the best
 performance by default. As such, we're tuned towards polling vs interrupt
 driven. Our assumption is that applications written for SeaStar will be
 busy handling 100,000 IOPS and beyond. Polling means that each of our
-cores will consume 100% cpu even when no work is given to it. 
+cores will consume 100% cpu even when no work is given to it.
 

@@ -30,7 +30,7 @@ better for newer kernels.
 
 Filesystem implementation quality can have significant effect on
 file I/O performance. XFS is known to be working, ext4 may work well
-too. Test your filesystem and kernel versions to be sure. 
+too. Test your filesystem and kernel versions to be sure.
 
 Patches for new platforms (e.g, Windows) are welcome.
 

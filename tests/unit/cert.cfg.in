@@ -4,20 +4,20 @@ default_keyfile = @CERT_PRIVKEY@
 default_md = sha256
 distinguished_name = req_distinguished_name
 req_extensions = v3_req
-prompt = no            
-[ req_distinguished_name ] 
+prompt = no
+[ req_distinguished_name ]
 C = @CERT_COUNTRY@
 ST = @CERT_STATE@
-L = @CERT_LOCALITY@  
+L = @CERT_LOCALITY@
 O = @CERT_ORG@
 OU = @CERT_UNIT@
 CN= @CERT_COMMON@
-emailAddress = @CERT_EMAIL@    
-[v3_ca]    
-subjectKeyIdentifier=hash  
+emailAddress = @CERT_EMAIL@
+[v3_ca]
+subjectKeyIdentifier=hash
 authorityKeyIdentifier=keyid:always,issuer:always
-basicConstraints = CA:true 
-[v3_req]   
+basicConstraints = CA:true
+[v3_req]
 # Extensions to add to a certificate request
 basicConstraints = CA:FALSE
 keyUsage = nonRepudiation, digitalSignature, keyEncipherment

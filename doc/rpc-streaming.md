@@ -121,4 +121,4 @@ protocol negotiation this connection will have `Stream parent` feature with `rc`
 
 When `rpc::sink` is sent over RPC call it is serialized as its connection ID. Server's RPC handler
 then lookups the connection and creates an `rpc::source` from it. When RPC handler returns `rpc::sink`
-the same happens in other direction.    
+the same happens in other direction.

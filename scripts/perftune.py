@@ -1615,7 +1615,7 @@ Modes description:
 
  If there isn't any mode given script will use a default mode:
     - If number of CPU cores is greater than 16, allocate a single IRQ CPU core for each 16 CPU cores in 'cpu_mask'.
-      IRQ cores are going to be allocated evenly on available NUMA nodes according to 'cpu_mask' value.  
+      IRQ cores are going to be allocated evenly on available NUMA nodes according to 'cpu_mask' value.
     - If number of physical CPU cores per Rx HW queue is greater than 4 and less than 16 - use the 'sq-split' mode.
     - Otherwise, if number of hyper-threads per Rx HW queue is greater than 4 - use the 'sq' mode.
     - Otherwise use the 'mq' mode.

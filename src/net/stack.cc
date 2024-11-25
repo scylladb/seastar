@@ -233,7 +233,7 @@ network_interface::network_interface(shared_ptr<net::network_interface_impl> imp
 
 network_interface::network_interface(network_interface&&) noexcept = default;
 network_interface& network_interface::operator=(network_interface&&) noexcept = default;
-    
+
 uint32_t network_interface::index() const {
     return _impl->index();
 }

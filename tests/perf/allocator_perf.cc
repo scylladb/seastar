@@ -29,7 +29,7 @@ struct alloc_bench {
     static constexpr size_t small_alloc_size = 8;
     static constexpr size_t large_alloc_size = 32000;
     static constexpr size_t MAX_POINTERS = 1000;
-    
+
     enum alloc_test_flags : uint8_t {
         MEASURE_ALLOC = 1,
         MEASURE_FREE  = 2
@@ -115,7 +115,7 @@ PERF_TEST_F(alloc_bench, single_alloc_and_free_small_many)
     }
 }
 
-// Allocate from more than one page. Should also not suffer a perf penalty 
+// Allocate from more than one page. Should also not suffer a perf penalty
 // As we should have at least min free of 50 objects (hard coded internally)
 PERF_TEST_F(alloc_bench, single_alloc_and_free_small_many_cross_page)
 {

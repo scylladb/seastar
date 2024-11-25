@@ -70,7 +70,7 @@ seastar::net::inet_address::inet_address(::in6_addr i, uint32_t scope) noexcept
                 : _in_family(family::INET6), _in6(i), _scope(scope) {
 }
 
-std::optional<seastar::net::inet_address> 
+std::optional<seastar::net::inet_address>
 seastar::net::inet_address::parse_numerical(const sstring& addr) {
     inet_address in;
     if (::inet_pton(AF_INET, addr.c_str(), &in._in)) {
@@ -107,7 +107,7 @@ seastar::net::inet_address::parse_numerical(const sstring& addr) {
 
 seastar::net::inet_address::inet_address(const sstring& addr)
                 : inet_address([&addr] {
-    auto res = parse_numerical(addr);                        
+    auto res = parse_numerical(addr);
     if (res) {
         return std::move(*res);
     }

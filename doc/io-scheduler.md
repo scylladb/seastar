@@ -27,7 +27,7 @@ The "normalization" operation is defined as
 
 $$ N(ticket) = \frac {ticket_0}{iops_{r_{max}}} + \frac {ticket_1}{bandwidth_{r_{max}}} $$
 
-With that the main equation turns into 
+With that the main equation turns into
 
 $$ \frac {d}{dt} \sum_{ticket} N(ticket) \le 1.0 $$
 
@@ -65,11 +65,11 @@ _c<sub>i</sub>_ -- the amount of requests completed by reactor loop at tick _i_
 
 We can observe _d<sub>i</sub>_ and _c<sub>i</sub>_ in the dispatcher, but _not_ the _p<sub>i</sub>_, because we don't have direct access to disks' queues
 
-After _n_ ticks we have 
+After _n_ ticks we have
 
-_D<sub>n</sub>_ -- total amount of requests dispatched, 
-_P<sub>n</sub>_ -- total amount of requests processed, 
-_C<sub>n</sub>_ -- total amount of requests completed, 
+_D<sub>n</sub>_ -- total amount of requests dispatched,
+_P<sub>n</sub>_ -- total amount of requests processed,
+_C<sub>n</sub>_ -- total amount of requests completed,
 
 $$ D_n = \sum_{i=0}^n d_i $$
 
@@ -114,4 +114,4 @@ $$ \lim_{n\to\infty} Rc_n = 1 $$
 
 $$ \lim_{n\to\infty} \frac {D_n} {C_n} = \lim_{n\to\infty} \( Rd_n \times Rc_n \) =  \lim_{n\to\infty} Rd_n  $$
 
-IOW -- we can say if the disk is accumulating the queue or not by observing the dispatched-to-completed (to _completed_, not _processed_) over a long enough time 
+IOW -- we can say if the disk is accumulating the queue or not by observing the dispatched-to-completed (to _completed_, not _processed_) over a long enough time

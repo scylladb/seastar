@@ -215,7 +215,7 @@ public:
     static io_request make_writev(int fd, uint64_t pos, std::vector<iovec>& iov, bool nowait_works) {
         io_request req;
         req._writev = {
-          .op = operation::writev,  
+          .op = operation::writev,
           .nowait_works = nowait_works,
           .fd = fd,
           .pos = pos,

@@ -416,7 +416,7 @@ class posix_socket_impl final : public socket_impl {
     future<> find_port_and_connect(socket_address sa, socket_address local, transport proto = transport::TCP) {
         static thread_local std::default_random_engine random_engine{std::random_device{}()};
         static thread_local std::uniform_int_distribution<uint16_t> u(49152/smp::count + 1, 65535/smp::count - 1);
-        // If no explicit local address, set to dest address family wildcard. 
+        // If no explicit local address, set to dest address family wildcard.
         if (local.is_unspecified()) {
             local = net::inet_address(sa.addr().in_family());
         }
@@ -990,19 +990,19 @@ std::vector<network_interface> posix_network_stack::network_interfaces() {
             return _mtu;
         }
         const sstring& name() const override {
-            return _name;   
+            return _name;
         }
         const sstring& display_name() const override {
             return _display_name.empty() ? name() : _display_name;
         }
         const std::vector<net::inet_address>& addresses() const override {
-            return _addresses;            
+            return _addresses;
         }
         const std::vector<uint8_t> hardware_address() const override {
             return _hardware_address;
         }
         bool is_loopback() const override {
-            return _loopback;   
+            return _loopback;
         }
         bool is_virtual() const override {
             return _virtual;
@@ -1017,7 +1017,7 @@ std::vector<network_interface> posix_network_stack::network_interfaces() {
         }
     };
 
-    // For now, keep an immutable set of interfaces created on start, shared across 
+    // For now, keep an immutable set of interfaces created on start, shared across
     // shards
     static const std::vector<posix_network_interface_impl> global_interfaces = [] {
         auto fd = ::socket(AF_NETLINK, SOCK_RAW, NETLINK_ROUTE);
@@ -1044,13 +1044,13 @@ std::vector<network_interface> posix_network_stack::network_interfaces() {
                 nlmsghdr hdr;
                 union {
                     rtgenmsg gen;
-                    ifaddrmsg addr; 
-                }; 
+                    ifaddrmsg addr;
+                };
             } req = {};
 
             req.hdr.nlmsg_len = NLMSG_LENGTH(sizeof(struct rtgenmsg));
             req.hdr.nlmsg_type = msg;
-            req.hdr.nlmsg_flags = NLM_F_REQUEST | NLM_F_ROOT; 
+            req.hdr.nlmsg_flags = NLM_F_REQUEST | NLM_F_ROOT;
             req.hdr.nlmsg_seq = 1;
             req.hdr.nlmsg_pid = pid;
 
@@ -1078,7 +1078,7 @@ std::vector<network_interface> posix_network_stack::network_interfaces() {
             /* parse reply */
 
             constexpr size_t reply_buffer_size = 8192;
-            char reply[reply_buffer_size]; 
+            char reply[reply_buffer_size];
 
             bool done = false;
 
@@ -1103,8 +1103,8 @@ std::vector<network_interface> posix_network_stack::network_interfaces() {
                     switch(msg_ptr->nlmsg_type) {
                     case NLMSG_DONE: // that is all
                         done = true;
-                        break;                    
-                    case RTM_NEWLINK: 
+                        break;
+                    case RTM_NEWLINK:
                     {
                         auto* iface = reinterpret_cast<const ifinfomsg*>(NLMSG_DATA(msg_ptr));
                         auto ilen = msg_ptr->nlmsg_len - NLMSG_LENGTH(sizeof(ifinfomsg));
@@ -1112,20 +1112,20 @@ std::vector<network_interface> posix_network_stack::network_interfaces() {
                         // todo: filter any non-network interfaces (family)
 
                         posix_network_interface_impl nwif;
-                        
+
                         nwif._index = iface->ifi_index;
                         nwif._loopback = (iface->ifi_flags & IFF_LOOPBACK) != 0;
                         nwif._up = (iface->ifi_flags & IFF_UP) != 0;
     #if defined(IFF_802_1Q_VLAN) && defined(IFF_EBRIDGE) && defined(IFF_SLAVE_INACTIVE)
                         nwif._virtual = (iface->ifi_flags & (IFF_802_1Q_VLAN|IFF_EBRIDGE|IFF_SLAVE_INACTIVE)) != 0;
-    #endif                                        
+    #endif
                         for (auto* attribute = IFLA_RTA(iface); RTA_OK(attribute, ilen); attribute = RTA_NEXT(attribute, ilen)) {
                             switch(attribute->rta_type) {
                             case IFLA_IFNAME:
                                 nwif._name = reinterpret_cast<const char *>(RTA_DATA(attribute));
                                 break;
                             case IFLA_MTU:
-                                nwif._mtu = *reinterpret_cast<const uint32_t *>(RTA_DATA(attribute));                            
+                                nwif._mtu = *reinterpret_cast<const uint32_t *>(RTA_DATA(attribute));
                                 break;
                             case IFLA_ADDRESS:
                                 nwif._hardware_address.assign(reinterpret_cast<const uint8_t *>(RTA_DATA(attribute)), reinterpret_cast<const uint8_t *>(RTA_DATA(attribute)) + RTA_PAYLOAD(attribute));
@@ -1143,12 +1143,12 @@ std::vector<network_interface> posix_network_stack::network_interfaces() {
                     {
                         auto* addr = reinterpret_cast<const ifaddrmsg*>(NLMSG_DATA(msg_ptr));
                         auto ilen = msg_ptr->nlmsg_len - NLMSG_LENGTH(sizeof(ifaddrmsg));
-                        
+
                         for (auto& nwif : res) {
                             if (nwif._index == addr->ifa_index) {
                                 for (auto* attribute = IFA_RTA(addr); RTA_OK(attribute, ilen); attribute = RTA_NEXT(attribute, ilen)) {
                                     std::optional<inet_address> ia;
-                                    
+
                                     switch(attribute->rta_type) {
                                     case IFA_LOCAL:
                                     case IFA_ADDRESS: // ipv6 addresses are reported only as "ADDRESS"
@@ -1158,7 +1158,7 @@ std::vector<network_interface> posix_network_stack::network_interfaces() {
                                         } else if (RTA_PAYLOAD(attribute) == sizeof(::in6_addr)) {
                                             ia.emplace(*reinterpret_cast<const ::in6_addr *>(RTA_DATA(attribute)), nwif.index());
                                         }
-                                        
+
                                         if (ia && std::find(nwif._addresses.begin(), nwif._addresses.end(), *ia) == nwif._addresses.end()) {
                                             nwif._addresses.emplace_back(*ia);
                                         }
@@ -1178,14 +1178,14 @@ std::vector<network_interface> posix_network_stack::network_interfaces() {
                     default:
                         break;
                     }
-                }      
+                }
             }
         }
 
         return res;
     }();
 
-    // And a similarly immutable set of shared_ptr to network_interface_impl per shard, ready 
+    // And a similarly immutable set of shared_ptr to network_interface_impl per shard, ready
     // to be handed out to callers with minimal overhead
     static const thread_local std::vector<shared_ptr<posix_network_interface_impl>> thread_local_interfaces = [] {
         std::vector<shared_ptr<posix_network_interface_impl>> res;

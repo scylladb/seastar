@@ -1820,7 +1820,7 @@ SEASTAR_THREAD_TEST_CASE(test_compressor_empty_frames) {
     cfg.server_options = so;
 
     rpc_test_env<>::do_with_thread(cfg, co, [&] (rpc_test_env<>& env, test_rpc_proto::client& c) {
-        // Perform an RPC once to initialize the connection and compressors. 
+        // Perform an RPC once to initialize the connection and compressors.
         env.register_handler(1, []() { return 42; }).get();
         auto proto_client = env.proto().make_client<int()>(1);
         BOOST_REQUIRE_EQUAL(proto_client(c).get(), 42);

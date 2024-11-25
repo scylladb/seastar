@@ -72,7 +72,7 @@ public:
         attrib = IN_ATTRIB,             // Metadata changed—for example, permissions, timestamps, extended attributes
         close_write = IN_CLOSE_WRITE,   // File opened for writing was closed.
         close_nowrite = IN_CLOSE_NOWRITE,// File or directory not opened for writing was closed.
-        create_child = IN_CREATE,       // File/directory created in watched directory 
+        create_child = IN_CREATE,       // File/directory created in watched directory
         delete_child = IN_DELETE,       // File/directory deleted from watched directory.
         delete_self = IN_DELETE_SELF,   // Watched file/directory was itself deleted.  (This event
                                         // also occurs if an object is moved to another filesystem)
@@ -85,9 +85,9 @@ public:
         open = IN_OPEN,                 // File was opened
         close = IN_CLOSE,               // close_write|close_nowrite
         move = IN_MOVE,                 // move_from|move_to
-        oneshot = IN_ONESHOT,           // listen for only a single notification, after which the 
+        oneshot = IN_ONESHOT,           // listen for only a single notification, after which the
                                         // token will be invalid
-        ignored = IN_IGNORED,           // generated when a token or the file being watched is deleted 
+        ignored = IN_IGNORED,           // generated when a token or the file being watched is deleted
         onlydir = IN_ONLYDIR,           // Watch pathname only if it is a directory; the error ENOT‐
                                         // DIR results if pathname is not a directory.  Using this
                                         // flag provides an application with a race-free way of

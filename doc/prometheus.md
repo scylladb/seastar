@@ -78,5 +78,5 @@ For example, the following scrap config, will query for all the http metrics:
       metrics_path: /metrics
       params:
         __name__: ['http*']
-``` 
+```
 

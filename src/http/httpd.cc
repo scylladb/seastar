@@ -389,7 +389,7 @@ void http_server::set_content_streaming(bool b) {
     _content_streaming = b;
 }
 
-future<> http_server::listen(socket_address addr, listen_options lo, 
+future<> http_server::listen(socket_address addr, listen_options lo,
             server_credentials_ptr listener_credentials) {
     if (listener_credentials) {
         _listeners.push_back(seastar::tls::listen(listener_credentials, addr, lo));

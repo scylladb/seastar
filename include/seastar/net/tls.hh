@@ -243,7 +243,7 @@ namespace tls {
     };
 
     /**
-     * Session resumption support. 
+     * Session resumption support.
      * We only support TLS1.3 session tickets.
     */
     enum class session_resume_mode {
@@ -270,7 +270,7 @@ namespace tls {
 
         /**
          * Sets session resume mode.
-         * If session resumption is set to TLS13 session tickets, 
+         * If session resumption is set to TLS13 session tickets,
          * calling this also functions as key rotation, i.e. creates
          * a new window of TLS session keys.
         */
@@ -337,7 +337,7 @@ namespace tls {
         /// \brief server name to be used for the SNI TLS extension
         sstring server_name = {};
 
-        /// \brief Optional session resume data. Must be retrieved via 
+        /// \brief Optional session resume data. Must be retrieved via
         /// get_session_resume_data below.
         session_data session_resume_data;
     };
@@ -446,15 +446,15 @@ namespace tls {
     future<std::optional<session_dn>> get_dn_information(connected_socket& socket);
 
     /**
-     * Subject alt name types. 
+     * Subject alt name types.
     */
     enum class subject_alt_name_type {
         dnsname = 1, // string value representing a 'DNS' entry
-        rfc822name, // string value representing an 'email' entry 
+        rfc822name, // string value representing an 'email' entry
         uri, // string value representing an 'uri' entry
         ipaddress, // inet_address value representing an 'IP' entry
-        othername, // string value 
-        dn, // string value 
+        othername, // string value
+        dn, // string value
     };
 
     // Subject alt name entry
@@ -471,7 +471,7 @@ namespace tls {
      * Returns the alt name entries of matching types, or all entries if 'types' is empty
      * The values are extracted from the client authentication certificate, if available.
      * If no certificate authentication is used in the connection, en empty list is returned.
-     * 
+     *
      * If the socket is not connected a system_error exception will be thrown.
      * If the socket is not a TLS socket an exception will be thrown.
     */
@@ -479,8 +479,8 @@ namespace tls {
 
     /**
      * Checks if the socket was connected using session resume.
-     * Will force handshake if not already done. 
-     * 
+     * Will force handshake if not already done.
+     *
      * If the socket is not connected a system_error exception will be thrown.
      * If the socket is not a TLS socket an exception will be thrown.
     */
@@ -488,13 +488,13 @@ namespace tls {
 
     /**
      * Get session resume data from a connected client socket. Will force handshake if not already done.
-     * 
+     *
      * If the socket is not connected a system_error exception will be thrown.
      * If the socket is not a TLS socket an exception will be thrown.
      * If no session resumption data is available, returns empty buffer.
-     * 
+     *
      * Note: TLS13 session tickets most of the time require data to have been transferred
-     * between client/server. To ensure getting the session data, it is advisable to 
+     * between client/server. To ensure getting the session data, it is advisable to
      * delay this call to sometime before shutting down/closing the socket.
     */
     future<session_data> get_session_resume_data(connected_socket&);
@@ -503,12 +503,12 @@ namespace tls {
     std::ostream& operator<<(std::ostream&, const subject_alt_name&);
 
     /**
-     * Alt name to string. 
+     * Alt name to string.
      * Note: because naming of alternative names is inconsistent between tools,
      * and because openssl is probably more popular when creating certs anyway,
      * this routine will be inconsistent with both gnutls and openssl (though more
      * in line with the latter) and name the constants as follows:
-     * 
+     *
      * dnsname: "DNS"
      * rfc822name: "EMAIL"
      * uri: "URI"
@@ -521,7 +521,7 @@ namespace tls {
 
     /**
      * Error handling.
-     * 
+     *
      * The error_category instance used by exceptions thrown by TLS
      */
     const std::error_category& error_category();

@@ -169,7 +169,7 @@ private:
             std::apply([] (Futures&... futures) {
                 std::exception_ptr e;
                 // Call get_exception for every failed future, to avoid exceptional future
-                // ignored warnings. 
+                // ignored warnings.
                 (void)(..., (futures.failed() ? (e = futures.get_exception(), 0) : 0));
                 if (e) {
                     std::rethrow_exception(std::move(e));

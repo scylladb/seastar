@@ -1092,7 +1092,7 @@ void cpu_pages::free(void* ptr, size_t size) {
 #endif
 }
 
-// Is the passed pointer a local pointer, i.e., allocated on the current shard from the 
+// Is the passed pointer a local pointer, i.e., allocated on the current shard from the
 // per-shard allocator.
 [[gnu::always_inline]]
 inline bool
@@ -1643,12 +1643,12 @@ void *allocate_slowpath(size_t size) {
 
         // original_malloc_func might be null for allocations before main
         // in constructors before original_malloc_func ctor is called
-        // Note on #2137: Moved to here, because there is lots of code 
+        // Note on #2137: Moved to here, because there is lots of code
         // that implicitly relies on the static init fiasco below to have occurred, and thus
         // cpu_mem_ptr being available and inited. This is not great.
         init_cpu_mem();
 
-        // #2137 - static init fiasco for fallback functions. 
+        // #2137 - static init fiasco for fallback functions.
         // If dependent libraries do malloc _before_ the above declaration inits are run,
         // we end up here with nowhere to go. Add a second check and attempt the full init
         // already. If we find the functions, all is good. Otherwise, trudge along and probably
@@ -2637,7 +2637,7 @@ configure(std::vector<resource::memory> m, bool mbind,
     return {};
 }
 
-void configure_minimal() 
+void configure_minimal()
 {}
 
 statistics stats() {

@@ -20,7 +20,7 @@
  * author: Niek J Bouman
  * reviewers: Avi Kivity, Benny Halevy
  * November 2021
- */ 
+ */
 
 #pragma once
 
@@ -65,7 +65,7 @@ public:
 ///
 /// Given a range of futures as input, wait for the first of them
 /// to resolve (either successfully or with an exception), and return
-/// all of them in a \c when_any_result (following the concurrency TS from 
+/// all of them in a \c when_any_result (following the concurrency TS from
 /// the standard library), containing a std::vector to all futures
 /// and the index (into the vector) of the future that resolved.
 ///

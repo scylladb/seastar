@@ -35,7 +35,7 @@ all     	: $(crt)
 clean		:
 		@rm -f $(crt) $(csr) $(pubkey) $(prvkey)
 
-%.key		: 
+%.key		:
 		@echo generating $@
 		openssl genpkey -out $@ -algorithm $(alg) $(alg_opt)
 
@@ -78,7 +78,7 @@ $(config) 	: $(MAKEFILE_LIST)
 
 %.csr		: %.key $(config)
 	        @echo generating $@
-	        openssl req -new -key $< -out $@ -config $(config) 
+	        openssl req -new -key $< -out $@ -config $(config)
 
 %.crt  		: %.csr $(root) $(rootkey)
 		@echo generating $@

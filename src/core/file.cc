@@ -49,7 +49,7 @@ module;
  * (see: https://git.kernel.org/pub/scm/fs/xfs/xfsprogs-dev.git/commit/?id=df9c7d8d8f3ed0785ed83e7fd0c7ddc92cbfbe15)
  * There is a confliction with c++ keyword `fallthrough`, so undefine fallthrough here.
  */
-#undef fallthrough   
+#undef fallthrough
 #define min min    /* prevent xfs.h from defining min() as a macro */
 #include <xfs/xfs.h>
 #undef min
@@ -408,7 +408,7 @@ coroutine::experimental::generator<directory_entry> posix_file_impl::experimenta
     // due to https://github.com/scylladb/seastar/issues/1913, we cannot use
     // buffered generator yet.
     // TODO:
-    // Keep 8 entries. The sizeof(directory_entry) is 24 bytes, the name itself 
+    // Keep 8 entries. The sizeof(directory_entry) is 24 bytes, the name itself
     // is allocated out of this buffer, so the buffer would grow up to ~200 bytes
     return make_list_directory_generator(_fd);
 }

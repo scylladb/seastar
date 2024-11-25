@@ -17,7 +17,7 @@
  */
 /*
  * Copyright (C) 2016 ScyllaDB.
- */ 
+ */
 /*! \file
     \brief Some non-INET-specific socket address code
 
