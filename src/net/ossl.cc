@@ -1931,12 +1931,10 @@ int bio_write_ex(BIO* b, const char * data, size_t dlen, size_t * written) {
         
         return 1;
     } catch(const std::system_error & e) {
-        errno = e.code().value();
-        ERR_raise_data(ERR_LIB_SYS, errno, e.what());
+        ERR_raise_data(ERR_LIB_SYS, e.code().value(), e.what());
         session->_output_pending = make_exception_future<>(std::current_exception());
     } catch(...) {
-        errno = EIO;
-        ERR_raise(ERR_LIB_SYS, errno);
+        ERR_raise(ERR_LIB_SYS, EIO);
         session->_output_pending = make_exception_future<>(std::current_exception());
     }
     
