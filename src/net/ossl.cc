@@ -149,14 +149,6 @@ std::system_error make_ossl_error(const std::string & msg) {
     }
 }
 
-std::system_error make_error_from_errno(const std::string & msg) {
-    if (errno == 0) {
-        return make_ossl_error(msg);
-    } else {
-        return std::system_error(errno, std::generic_category(), msg);
-    }
-}
-
 template<typename T>
 sstring asn1_str_to_str(T* asn1) {
     const auto len = ASN1_STRING_length(asn1);
@@ -907,7 +899,7 @@ public:
             return make_ready_future<stop_iteration>(stop_iteration::no);
         case SSL_ERROR_SYSCALL:
         {
-            auto err = make_error_from_errno("System error encountered during SSL write");
+            auto err = make_ossl_error("System error encountered during SSL write");
             return handle_output_error(std::move(err)).then([] {
                 return stop_iteration::yes;
             });
@@ -1066,7 +1058,7 @@ public:
                             });
                         case SSL_ERROR_SYSCALL:
                         {
-                            auto err = make_error_from_errno("System error during handshake");
+                            auto err = make_ossl_error("System error during handshake");
                             return handle_output_error(std::move(err));
                         }
                         case SSL_ERROR_SSL:
@@ -1171,7 +1163,7 @@ public:
                     // return an empty buffer (the get() function will initiate a handshake)
                     return make_ready_future<buf_type>();
                 case SSL_ERROR_SYSCALL:
-                    if (errno == 0 && ERR_peek_error() == 0) {
+                    if (ERR_peek_error() == 0) {
                         // SSL_get_error
                         // (https://www.openssl.org/docs/man3.0/man3/SSL_get_error.html)
                         // states that on OpenSSL versions prior to 3.0, an
@@ -1186,7 +1178,7 @@ public:
                         return make_ready_future<buf_type>();
                     }
                     _error = std::make_exception_ptr(
-                        make_error_from_errno("System error during SSL read"));
+                        make_ossl_error("System error during SSL read"));
                     return make_exception_future<buf_type>(_error);
                 case SSL_ERROR_SSL:
                     {
@@ -1269,7 +1261,7 @@ public:
                 });
             case SSL_ERROR_SYSCALL:
             {
-                auto err = make_error_from_errno("System error during shutdown");
+                auto err = make_ossl_error("System error during shutdown");
                 return handle_output_error(std::move(err));
             }
             case SSL_ERROR_SSL:
@@ -1931,12 +1923,10 @@ int bio_write_ex(BIO* b, const char * data, size_t dlen, size_t * written) {
         
         return 1;
     } catch(const std::system_error & e) {
-        errno = e.code().value();
-        ERR_raise_data(ERR_LIB_SYS, errno, e.what());
+        ERR_raise_data(ERR_LIB_SYS, e.code().value(), e.what());
         session->_output_pending = make_exception_future<>(std::current_exception());
     } catch(...) {
-        errno = EIO;
-        ERR_raise(ERR_LIB_SYS, errno);
+        ERR_raise(ERR_LIB_SYS, EIO);
         session->_output_pending = make_exception_future<>(std::current_exception());
     }
     
