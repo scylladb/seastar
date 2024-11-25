@@ -534,7 +534,7 @@ private:
     size_t _selected_candidate = no_selected_candidate;
     bool _defaulted = true;
 
-private:
+public:
     std::vector<std::string> get_candidate_names() const {
         std::vector<std::string> candidate_names;
         candidate_names.reserve(_candidates.size());
@@ -543,6 +543,7 @@ private:
         }
         return candidate_names;
     }
+private:
     virtual void do_describe(options_descriptor& descriptor) const override {
         descriptor.visit_selection_value(get_candidate_names(), _selected_candidate == no_selected_candidate ? nullptr : &_selected_candidate);
         for (auto& c : _candidates) {
