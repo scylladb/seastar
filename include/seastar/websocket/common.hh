@@ -87,7 +87,7 @@ struct frame_header {
     }
     // Returns length of the rest of the header.
     uint64_t get_rest_of_header_length() {
-        size_t next_read_length = sizeof(uint32_t); // Masking key
+        size_t next_read_length = get_masked() ? sizeof(uint32_t) : 0;
         if (length == 126) {
             next_read_length += sizeof(uint16_t);
         } else if (length == 127) {
@@ -124,6 +124,8 @@ class websocket_parser {
     using buff_t = temporary_buffer<char>;
     // What parser is currently doing.
     parsing_state _state;
+    // Whether parser is parsing messages coming to the client.
+    bool _is_client = false;
     // State of connection - can be valid, closed or should be closed
     // due to error.
     connection_state _cstate;
@@ -152,9 +154,11 @@ class websocket_parser {
         }
     }
 public:
-    websocket_parser() : _state(parsing_state::flags_and_payload_data),
-                         _cstate(connection_state::valid),
-                         _masking_key(0) {}
+    websocket_parser(bool is_client) :
+        _state(parsing_state::flags_and_payload_data),
+        _is_client{is_client},
+        _cstate(connection_state::valid),
+        _masking_key(0) {}
     future<consumption_result_t> operator()(temporary_buffer<char> data);
     bool is_valid() { return _cstate == connection_state::valid; }
     bool eof() { return _cstate == connection_state::closed; }
@@ -253,6 +257,7 @@ public:
         : _fd(std::move(fd))
         , _read_buf(_fd.input())
         , _write_buf(_fd.output())
+        , _websocket_parser{is_client}
         , _input_buffer{PIPE_SIZE}
         , _output_buffer{PIPE_SIZE}
         , _is_client{is_client}
