@@ -17,7 +17,7 @@
  */
 /*
  * Copyright (C) 2019 Red Hat, Inc.
- */ 
+ */
 #pragma once
 
 #ifndef SEASTAR_MODULE

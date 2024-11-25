@@ -4825,7 +4825,7 @@ std::chrono::nanoseconds reactor::total_steal_time() {
     // Because we calculate sleep time with timestamps around polling methods that may sleep, like
     // io_getevents, we systematically over-count sleep time, since there is CPU usage within the
     // period timed as sleep, before and after an actual sleep occurs (and no sleep may occur at all,
-    // e.g., if there are events immediately available). Over-counting sleep means we under-count the 
+    // e.g., if there are events immediately available). Over-counting sleep means we under-count the
     // wall-clock awake time, and so if there is no "true" steal, we will generally have a small
     // *negative* steal time, because we under-count awake wall clock time while thread CPU time does
     // not have a corresponding error.
@@ -4836,7 +4836,7 @@ std::chrono::nanoseconds reactor::total_steal_time() {
     //
     // Finally, we don't just clamp difference of awake and CPU time since proces start at 0, but
     // take the last value we returned from this function and then calculate the incremental steal
-    // time since that measurement, clamped to 0. This means that as soon as steal time becomes 
+    // time since that measurement, clamped to 0. This means that as soon as steal time becomes
     // positive, it will be reflected in the measurement, rather than needing to "consume" all the
     // accumulated negative steal time before positive steal times start showing up.
 

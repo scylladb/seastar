@@ -361,7 +361,7 @@ future<stat_data> file_stat(std::string_view name, follow_symlink fs = follow_sy
 
 /// Wrapper around getgrnam_r.
 /// If the provided group name does not exist in the group database, this call will return an empty optional.
-/// If the provided group name exists in the group database, the optional returned will contain the struct group_details information. 
+/// If the provided group name exists in the group database, the optional returned will contain the struct group_details information.
 /// When an unexpected error is thrown by the getgrnam_r libc call, this function throws std::system_error with std::error_code.
 /// \param groupname name of the group
 ///

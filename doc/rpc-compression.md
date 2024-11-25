@@ -6,10 +6,10 @@ RPC protocol only defines `COMPRESS` feature bit but does not define format of i
 If application supports multiple compression algorithms it may use the data for algorithm
 negotiation. RPC provides convenience class `multi_algo_compressor_factory` to do it
 so that each application will not have to re-implement the same logic. The class gets list
-of supported compression algorithms and send them as comma separated list in the client `COMPRESS` 
-feature payload. On receiving of the list it matches common algorithm between client and server. 
-In case there is more than one the order of algorithms in client's list is considered to be a tie 
-breaker (first algorithm wins). Once a compressor is chosen by the server, it puts the identifier of 
+of supported compression algorithms and send them as comma separated list in the client `COMPRESS`
+feature payload. On receiving of the list it matches common algorithm between client and server.
+In case there is more than one the order of algorithms in client's list is considered to be a tie
+breaker (first algorithm wins). Once a compressor is chosen by the server, it puts the identifier of
 this in the returned `COMPRESS` feature payload, informing the client of which algorithm should be used
 for the connection.
 

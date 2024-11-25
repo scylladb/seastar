@@ -90,7 +90,7 @@ Avoid output parameters; use return values instead.  In/out parameters are trick
 
 If a function accepts a lambda or an `std::function`, make it the last argument, so that it can be easily provided inline:
 
-```c++ 
+```c++
 template <typename Func>
 void function_accepting_a_lambda(int a, int b, Func func);
 

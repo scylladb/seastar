@@ -163,10 +163,10 @@ SEASTAR_THREAD_TEST_CASE(test_cross_thread_realloc) {
     // shard.
     // Needs at least 2 shards to usefully test the cross-shard aspect but
     // still passes when only 1 shard is used.
-    auto do_xshard_realloc = [](bool cross_shard, size_t initial_size, size_t realloc_size) { 
+    auto do_xshard_realloc = [](bool cross_shard, size_t initial_size, size_t realloc_size) {
         BOOST_TEST_CONTEXT("cross_shard=" << cross_shard << ", initial="
                 << initial_size << ", realloc_size=" << realloc_size) {
-                    
+
             auto other_shard = (this_shard_id() + cross_shard) % smp::count;
 
             char *p = static_cast<char *>(malloc(initial_size));
@@ -389,7 +389,7 @@ SEASTAR_TEST_CASE(test_diagnostics_allocation) {
     check_function_allocation("empty", 0, []{});
 
     check_function_allocation("operator new", 1, []{
-        // note that many pairs of malloc/free-alikes can just be optimized 
+        // note that many pairs of malloc/free-alikes can just be optimized
         // away, but not operator new(size_t), per the standard
         void * volatile p = operator new(1);
         operator delete(p);

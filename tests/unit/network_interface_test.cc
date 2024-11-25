@@ -42,7 +42,7 @@ SEASTAR_TEST_CASE(list_interfaces) {
     BOOST_REQUIRE_GT(interfaces.size(), 0);
 
     for (auto& nif : interfaces) {
-        niflog.info("Iface: {}, index = {}, mtu = {}, loopback = {}, virtual = {}, up = {}", 
+        niflog.info("Iface: {}, index = {}, mtu = {}, loopback = {}, virtual = {}, up = {}",
             nif.name(), nif.index(), nif.mtu(), nif.is_loopback(), nif.is_virtual(), nif.is_up()
         );
         if (nif.hardware_address().size() >= 6) {
@@ -50,7 +50,7 @@ SEASTAR_TEST_CASE(list_interfaces) {
         }
         for (auto& addr : nif.addresses()) {
             niflog.info("   Addr: {}", addr);
-        }        
+        }
     }
 
     return make_ready_future();
@@ -75,7 +75,7 @@ SEASTAR_TEST_CASE(match_ipv6_scope) {
         net::inet_address na(text);
 
         BOOST_REQUIRE_EQUAL(na.as_ipv6_address(), i->as_ipv6_address());
-        // also verify that the inet_address itself matches        
+        // also verify that the inet_address itself matches
         BOOST_REQUIRE_EQUAL(na, *i);
         // and that inet_address _without_ scope matches.
         BOOST_REQUIRE_EQUAL(net::inet_address(na.as_ipv6_address()), *i);

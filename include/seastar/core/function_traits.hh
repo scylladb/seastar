@@ -27,16 +27,16 @@ namespace seastar {
 
 template<typename T>
 struct function_traits;
- 
+
 template<typename Ret, typename... Args>
 struct function_traits<Ret(Args...)>
 {
     using return_type = Ret;
     using args_as_tuple = std::tuple<Args...>;
     using signature = Ret (Args...);
- 
+
     static constexpr std::size_t arity = sizeof...(Args);
- 
+
     template <std::size_t N>
     struct arg
     {

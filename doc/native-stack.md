@@ -9,7 +9,7 @@ To test the native stack without dpdk, install and start the `libvirt` daemon.  
 
 Seastar's vhost driver will need a tap device to connect to.  The scripts `scripts/tap.sh` will set up a tap device and bind it to `virbr0`:
 
-	$ sh ./scripts/tap.sh 
+	$ sh ./scripts/tap.sh
 	Set 'tap0' nonpersistent
 	bridge name	bridge id		STP enabled	interfaces
 	virbr0		8000.5254008be729	no		tap0
@@ -50,5 +50,5 @@ You can now ping the IP address shown (`192.168.122.18`) or connect to it:
 	rtt min/avg/max/mdev = 0.093/0.116/0.160/0.023 ms
 	
 	$ curl http://192.168.122.18:10000/
-	"hello" 
+	"hello"
 

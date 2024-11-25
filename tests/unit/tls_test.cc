@@ -487,7 +487,7 @@ class echoserver {
 public:
     echoserver(size_t message_size, bool use_dh_params = true)
             : _certs(
-                    use_dh_params 
+                    use_dh_params
                         ? ::make_shared<tls::server_credentials>(::make_shared<tls::dh_params>())
                         : ::make_shared<tls::server_credentials>()
                     )
@@ -828,7 +828,7 @@ SEASTAR_THREAD_TEST_CASE(test_close_timout) {
     };
 
     auto constexpr iterations = 500;
-        
+
     for (int i = 0; i < iterations; ++i) {
         auto b1 = ::make_lw_shared<loopback_buffer>(nullptr, loopback_buffer::type::SERVER_TX);
         auto b2 = ::make_lw_shared<loopback_buffer>(nullptr, loopback_buffer::type::CLIENT_TX);
@@ -848,7 +848,7 @@ SEASTAR_THREAD_TEST_CASE(test_close_timout) {
         auto f2 = is.read();
         f1.get();
         f2.get();
-        
+
         // block further writes
         ssir._close = true;
         csir._close = true;
@@ -863,7 +863,7 @@ SEASTAR_THREAD_TEST_CASE(test_reload_certificates) {
     namespace fs = std::filesystem;
 
     // copy the wrong certs. We don't trust these
-    // blocking calls, but this is a test and seastar does not have a copy 
+    // blocking calls, but this is a test and seastar does not have a copy
     // util and I am lazy...
     fs::copy_file(certfile("other.crt"), tmp.path() / "test.crt");
     fs::copy_file(certfile("other.key"), tmp.path() / "test.key");
@@ -1018,8 +1018,8 @@ SEASTAR_THREAD_TEST_CASE(test_reload_broken_certificates) {
 
 using namespace std::chrono_literals;
 
-// the same as previous test, but we set a big tolerance for 
-// reload errors, and verify that either our scheduling/fs is 
+// the same as previous test, but we set a big tolerance for
+// reload errors, and verify that either our scheduling/fs is
 // super slow, or we got through the changes without failures.
 SEASTAR_THREAD_TEST_CASE(test_reload_tolerance) {
     tmpdir tmp;
@@ -1154,7 +1154,7 @@ SEASTAR_THREAD_TEST_CASE(test_reload_by_move) {
     // it should reload here as well.
     p.get_future().get();
 
-    // could get two notifications. but not more. 
+    // could get two notifications. but not more.
     for (int i = 0;; ++i) {
         p = promise();
         try {
@@ -1491,7 +1491,7 @@ SEASTAR_THREAD_TEST_CASE(test_skip_wait_for_eof) {
 }
 
 /**
- * Test TLS13 session ticket support. 
+ * Test TLS13 session ticket support.
 */
 SEASTAR_THREAD_TEST_CASE(test_tls13_session_tickets) {
     tls::credentials_builder b;
@@ -1523,8 +1523,8 @@ SEASTAR_THREAD_TEST_CASE(test_tls13_session_tickets) {
         output_stream<char> out(c.output().detach(), 1024);
         output_stream<char> sout(s.connection.output().detach(), 1024);
 
-        // write data in both directions. Required for session data to 
-        // become available. 
+        // write data in both directions. Required for session data to
+        // become available.
         out.write("nils").get();
         auto fin = in.read();
         auto fout = out.flush();
@@ -1569,7 +1569,7 @@ SEASTAR_THREAD_TEST_CASE(test_tls13_session_tickets) {
         // This is ok. Will force a handshake.
         auto f = tls::check_session_is_resumed(c);
 
-        // But we need to force some IO to make the 
+        // But we need to force some IO to make the
         // handshake actually happen.
         auto in = s.connection.input();
         output_stream<char> out(c.output().detach(), 1024);

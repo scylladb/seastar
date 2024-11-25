@@ -8,19 +8,19 @@ The new configuration can be provided either by command line with --net-config o
 ### DPDK access
 Network device (called port in DPDK) can be accessed by either port index ( zero based index of device shown by dpdk-setup.sh ) or its PCI address (shown by lspci, lshw tools)
 
-Example config line with pci address given: 
+Example config line with pci address given:
 
 ```
 eth0: {pci_address: 0000:06:00.0, ip: 192.168.100.10, gateway: 192.168.100.1, netmask: 255.255.255.0 }
-``` 
+```
 
-Example config line with port index given: 
+Example config line with port index given:
 
 ```
 eth0: {port_index: 0, ip: 192.168.100.10, gateway: 192.168.100.1, netmask: 255.255.255.0 }
 ```
 
-Please note that device name - eth0 above, is not used by DPDK itself, it remains only for configuration consistency. 
+Please note that device name - eth0 above, is not used by DPDK itself, it remains only for configuration consistency.
 The hardware configuration has to be specied in the same way accross all network devices, so for example if pci_address is specified for one network device, port_index cannot be specified for any other.
 
 

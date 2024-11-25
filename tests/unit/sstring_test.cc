@@ -21,7 +21,7 @@
 
 #define BOOST_TEST_MODULE core
 // formatting of std::optional was introduced in fmt 10
-#define FMT_VERSION_OPTIONAL_FORMAT 100000 
+#define FMT_VERSION_OPTIONAL_FORMAT 100000
 
 #include <boost/test/unit_test.hpp>
 #include <seastar/core/sstring.hh>

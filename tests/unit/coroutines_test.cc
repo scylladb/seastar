@@ -271,7 +271,7 @@ SEASTAR_TEST_CASE(test_preemption) {
     // task queue shaffling in debug mode which may cause co-routine
     // continuation to run first.
     while(preempted < 1000 && !x) {
-        preempted += need_preempt(); 
+        preempted += need_preempt();
         co_await make_ready_future<>();
     }
     auto save_x = x;
@@ -349,11 +349,11 @@ SEASTAR_TEST_CASE(test_all_ready_exceptions) {
 SEASTAR_TEST_CASE(test_all_nonready_exceptions) {
     try {
         co_await coroutine::all(
-            [] () -> future<> { 
+            [] () -> future<> {
                 co_await sleep(1ms);
                 throw 1;
             },
-            [] () -> future<> { 
+            [] () -> future<> {
                 co_await sleep(1ms);
                 throw 2;
             }
@@ -365,14 +365,14 @@ SEASTAR_TEST_CASE(test_all_nonready_exceptions) {
 
 SEASTAR_TEST_CASE(test_all_heterogeneous_types) {
     auto [a, b] = co_await coroutine::all(
-        [] () -> future<int> { 
+        [] () -> future<int> {
             co_await sleep(1ms);
             co_return 1;
         },
-        [] () -> future<> { 
+        [] () -> future<> {
             co_await sleep(1ms);
         },
-        [] () -> future<long> { 
+        [] () -> future<long> {
             co_await sleep(1ms);
             co_return 2L;
         }

@@ -129,7 +129,7 @@ static future<file_result> read_fully(const sstring& name, const sstring& what) 
         return do_with(std::move(f), [name = std::move(name)](file& f) mutable {
             return f.stat().then([&f, name = std::move(name)](struct stat s) mutable {
                 return f.dma_read_bulk<char>(0, s.st_size).then([s, name = std::move(name)](temporary_buffer<char> buf) mutable {
-                    return file_result{ std::move(buf), file_info{ 
+                    return file_result{ std::move(buf), file_info{
                         std::move(name), std::chrono::system_clock::from_time_t(s.st_mtim.tv_sec) +
                             std::chrono::duration_cast<std::chrono::system_clock::duration>(std::chrono::nanoseconds(s.st_mtim.tv_nsec))
                     } };
@@ -223,14 +223,14 @@ class tls::dh_params::impl : gnutlsobj {
         return dh_ptr(params, &gnutls_dh_params_deinit);
     }
 public:
-    impl(dh_ptr p) 
-        : _params(std::move(p)) 
+    impl(dh_ptr p)
+        : _params(std::move(p))
     {}
     impl(level lvl)
 #if GNUTLS_VERSION_NUMBER >= 0x030506
         : _params(nullptr, &gnutls_dh_params_deinit)
         , _sec_param(to_gnutls_level(lvl))
-#else        
+#else
         : impl([&] {
             auto bits = gnutls_sec_param_to_pk_bits(GNUTLS_PK_DH, to_gnutls_level(lvl));
             auto ptr = new_dh_params();
@@ -245,14 +245,14 @@ public:
             blob_wrapper w(pkcs3);
             gtls_chk(gnutls_dh_params_import_pkcs3(ptr.get(), &w, gnutls_x509_crt_fmt_t(fmt)));
             return ptr;
-        }()) 
+        }())
     {}
     impl(const impl& v)
         : impl([&v] {
             auto ptr = new_dh_params();
             gtls_chk(gnutls_dh_params_cpy(ptr.get(), v));
             return ptr;
-        }()) 
+        }())
     {}
     ~impl() = default;
 
@@ -854,9 +854,9 @@ public:
                 auto i = _watches.find(e.id);
                 if (i != _watches.end()) {
                     auto& filename = i->second.second;
-                    // only add actual file watches to 
+                    // only add actual file watches to
                     // query set. If this was a directory
-                    // watch, the file should already be 
+                    // watch, the file should already be
                     // in there.
                     if (_all_files.count(filename)) {
                         _files[filename] = e.mask;
@@ -918,7 +918,7 @@ public:
             } catch (...) {
                 if (std::any_of(_files.begin(), _files.end(), [](auto& p) { return p.second == fsnotifier::flags::ignored; })) {
                     // if any file in the reload set was deleted - i.e. we have not seen a "closed" yet - assume
-                    // this is a spurious reload and we'd better wait for next event - hopefully a "closed" - 
+                    // this is a spurious reload and we'd better wait for next event - hopefully a "closed" -
                     // and try again
                     return;
                 }
@@ -931,7 +931,7 @@ public:
         }
         void on_success() {
             _files.clear();
-            // remove all directory watches, since we've successfully 
+            // remove all directory watches, since we've successfully
             // reloaded -> the file watches themselves should suffice now
             auto i = _watches.begin();
             auto e = _watches.end();
@@ -967,7 +967,7 @@ public:
         future<fsnotifier::watch_token> add_watch(const sstring& filename, fsnotifier::flags flags = fsnotifier::flags::close_write|fsnotifier::flags::delete_self) {
             return _fsn.create_watch(filename, flags).then([this, filename = filename](fsnotifier::watch w) {
                 auto t = w.token();
-                // we might create multiple watches for same token in case of dirs, avoid deleting previously 
+                // we might create multiple watches for same token in case of dirs, avoid deleting previously
                 // created one
                 if (_watches.count(t)) {
                     w.release();
@@ -1086,7 +1086,7 @@ public:
             }
             // Maybe set up server session ticket support
             switch (_creds->get_session_resume_mode()) {
-                case session_resume_mode::NONE: 
+                case session_resume_mode::NONE:
                 default:
                     break;
                 case session_resume_mode::TLS13_SESSION_TICKET:
@@ -1094,7 +1094,7 @@ public:
                     break;
             }
         }
- 
+
         auto prio = _creds->get_priority();
         if (prio) {
             gtls_chk(gnutls_priority_set(*this, prio));
@@ -1307,7 +1307,7 @@ public:
                 ss << stat_str;
                 if (stat_str.back() != ' ') {
                     ss << ' ';
-                } 
+                }
                 ss << "(Issuer=[" << dn->issuer << "], Subject=[" << dn->subject << "])";
                 stat_str = ss.str();
             }
@@ -1584,8 +1584,8 @@ public:
                         std::bind(&session::do_shutdown, this)).then(
                         std::bind(&session::wait_for_eof, this)).finally([me = shared_from_this()] {});
         // note moved finally clause above. It is theorethically possible
-        // that we could complete do_shutdown just before the close calls 
-        // below, get pre-empted, have "close()" finish, get freed, and 
+        // that we could complete do_shutdown just before the close calls
+        // below, get pre-empted, have "close()" finish, get freed, and
         // then call wait_for_eof on stale pointer.
     }
     void close() noexcept {
@@ -1654,13 +1654,13 @@ public:
     future<session_data> get_session_resume_data() {
         return state_checked_access([this] {
             /**
-             * Session ticket data is not available just because handshake 
+             * Session ticket data is not available just because handshake
              * was done. First off, of course other part must support it,
              * but we also (mostly?) need to actually transfer data before
              * the ticket is received.
-             * 
+             *
              * Check session flags so we can return no data in the case
-             * none is avail. Gnutls returns a 4-byte "empty marker" 
+             * none is avail. Gnutls returns a 4-byte "empty marker"
              * on none avail.
             */
             auto flags = gnutls_session_get_flags(*this);
@@ -1676,7 +1676,7 @@ public:
         return state_checked_access([this] {
             return extract_dn_information();
         });
-    }    
+    }
     future<std::vector<subject_alt_name>> get_alt_name_information(std::unordered_set<subject_alt_name_type> types) {
         return state_checked_access([this](std::unordered_set<subject_alt_name_type> types) {
             std::vector<subject_alt_name> res;

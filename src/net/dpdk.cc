@@ -128,8 +128,8 @@ namespace dpdk {
 /******************* Net device related constatns *****************************/
 static constexpr uint16_t default_ring_size      = 512;
 
-// 
-// We need 2 times the ring size of buffers because of the way PMDs 
+//
+// We need 2 times the ring size of buffers because of the way PMDs
 // refill the ring.
 //
 static constexpr uint16_t mbufs_per_queue_rx     = 2 * default_ring_size;
@@ -555,7 +555,7 @@ class dpdk_qp : public net::qp {
             // For a TSO case each MSS window should not include more than 8
             // fragments including headers.
             //
-            
+
             // Calculate the number of frags containing headers.
             //
             // Note: we support neither VLAN nor tunneling thus headers size

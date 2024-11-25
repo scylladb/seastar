@@ -78,13 +78,13 @@ struct reply {
         see_other = 303, //!< see_other
         not_modified = 304, //!< not_modified
         use_proxy = 305, //!< use_proxy
-        temporary_redirect = 307, //!< temporary_redirect 
+        temporary_redirect = 307, //!< temporary_redirect
         bad_request = 400, //!< bad_request
         unauthorized = 401, //!< unauthorized
         payment_required = 402, //!< payment_required
         forbidden = 403, //!< forbidden
         not_found = 404, //!< not_found
-        method_not_allowed = 405, //!< method_not_allowed 
+        method_not_allowed = 405, //!< method_not_allowed
         not_acceptable = 406, //!< not_acceptable
         request_timeout = 408, //!< request_timeout
         conflict = 409, //!< conflict
@@ -104,7 +104,7 @@ struct reply {
         bad_gateway = 502, //!< bad_gateway
         service_unavailable = 503,  //!< service_unavailable
         gateway_timeout = 504, //!< gateway_timeout
-        http_version_not_supported = 505, //!< http_version_not_supported 
+        http_version_not_supported = 505, //!< http_version_not_supported
         insufficient_storage = 507, //!< insufficient_storage
         bandwidth_limit_exceeded = 509, //!< bandwidth_limit_exceeded
         network_read_timeout = 598, //!< network_read_timeout

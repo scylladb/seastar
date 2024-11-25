@@ -147,7 +147,7 @@ find_package (Seastar ${VERSION} REQUIRED)
 
 add_executable (my_program
   my_program.cc)
-  
+
 target_link_libraries (my_program
   PRIVATE Seastar::seastar)
 ```

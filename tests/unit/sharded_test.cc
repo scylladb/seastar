@@ -232,7 +232,7 @@ class coordinator_synced_shard_map : public peering_sharded_service<coordinator_
 
 public:
     coordinator_synced_shard_map(unsigned coordinator_id) : unsigned_per_shard(smp::count), coordinator_id(coordinator_id) {}
-    
+
     future<> sync(unsigned value) {
         return container().invoke_on(coordinator_id, [shard_id = this_shard_id(), value] (coordinator_synced_shard_map& s) {
             s.unsigned_per_shard[shard_id] = value;
@@ -261,7 +261,7 @@ SEASTAR_THREAD_TEST_CASE(invoke_on_range_contiguous) {
     f1.get();
     f2.get();
 
-    auto f3 = s.invoke_on(coordinator_id, [mid, half1_id, half2_id] (coordinator_synced_shard_map& s) { 
+    auto f3 = s.invoke_on(coordinator_id, [mid, half1_id, half2_id] (coordinator_synced_shard_map& s) {
         for (unsigned i = 0; i < mid; ++i) {
             BOOST_REQUIRE_EQUAL(half1_id, s.get_synced(i));
         }
@@ -290,7 +290,7 @@ SEASTAR_THREAD_TEST_CASE(invoke_on_range_fragmented) {
     f1.get();
     f2.get();
 
-    auto f3 = s.invoke_on(coordinator_id, [even_id, odd_id] (coordinator_synced_shard_map& s) { 
+    auto f3 = s.invoke_on(coordinator_id, [even_id, odd_id] (coordinator_synced_shard_map& s) {
         for (unsigned i = 0; i < smp::count; i += 2) {
             BOOST_REQUIRE_EQUAL(even_id, s.get_synced(i));
         }

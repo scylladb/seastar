@@ -69,7 +69,7 @@ public:
     /** creates an uninitialized socket_address. this can be written into, or used as
      *  "unspecified" for such addresses as bind(addr) or local address in socket::connect
      *  (i.e. system picks)
-     */ 
+     */
     socket_address() noexcept;
 
     ::sockaddr& as_posix_sockaddr() noexcept { return u.sa; }

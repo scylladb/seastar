@@ -882,7 +882,7 @@ template <typename R, typename Func, typename... Args>
 requires std::invocable<Func, Service&, Args...>
     && std::is_same_v<futurize_t<std::invoke_result_t<Func, Service&, internal::sharded_unwrap_t<Args>...>>, future<>>
     && internal::unsigned_range<R>
-future<> 
+future<>
 sharded<Service>::invoke_on(R range, Func func, Args... args) noexcept {
     try {
         return invoke_on(std::forward<R>(range), smp_submit_to_options{}, std::move(func), std::move(args)...);
