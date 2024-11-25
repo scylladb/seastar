@@ -4143,7 +4143,7 @@ public:
     }
 };
 
-void smp::log_aiocbs(log_level level, unsigned storage, unsigned preempt, unsigned network) {
+void smp::log_aiocbs(log_level level, unsigned storage, unsigned preempt, unsigned network, unsigned reserve) {
     // Each cell in the table should be
     // - as wide as the grand total,
     // - as wide as its containing column's header,
@@ -4151,13 +4151,14 @@ void smp::log_aiocbs(log_level level, unsigned storage, unsigned preempt, unsign
     std::string percpu_hdr = format("per cpu");
     std::string allcpus_hdr = format("all {} cpus", smp::count);
     unsigned percpu_total = storage + preempt + network;
-    unsigned allcpus_total = percpu_total * smp::count;
+    unsigned allcpus_total = reserve + percpu_total * smp::count;
     size_t num_width = format("{}", allcpus_total).length();
     size_t percpu_width = std::max(num_width, percpu_hdr.length());
     size_t allcpus_width = std::max(num_width, allcpus_hdr.length());
 
     seastar_logger.log(level, "purpose  {:{}}  {:{}}",     percpu_hdr,   percpu_width, allcpus_hdr,          allcpus_width);
     seastar_logger.log(level, "-------  {:-<{}}  {:-<{}}", "",           percpu_width, "",                   allcpus_width);
+    seastar_logger.log(level, "reserve  {:{}}  {:{}}",     "",           percpu_width, reserve,              allcpus_width);
     seastar_logger.log(level, "storage  {:{}}  {:{}}",     storage,      percpu_width, storage * smp::count, allcpus_width);
     seastar_logger.log(level, "preempt  {:{}}  {:{}}",     preempt,      percpu_width, preempt * smp::count, allcpus_width);
     seastar_logger.log(level, "network  {:{}}  {:{}}",     network,      percpu_width, network * smp::count, allcpus_width);
@@ -4173,14 +4174,13 @@ unsigned smp::adjust_max_networking_aio_io_control_blocks(unsigned network_iocbs
     auto aio_max_nr = read_first_line_as<unsigned>("/proc/sys/fs/aio-max-nr");
     auto aio_nr = read_first_line_as<unsigned>("/proc/sys/fs/aio-nr");
     auto available_aio = aio_max_nr - aio_nr;
-    available_aio -= std::min(available_aio, reserve_iocbs);
     auto requested_aio_network = network_iocbs * smp::count;
-    auto requested_aio_other = (storage_iocbs + preempt_iocbs) * smp::count;
+    auto requested_aio_other = reserve_iocbs + (storage_iocbs + preempt_iocbs) * smp::count;
     auto requested_aio = requested_aio_network + requested_aio_other;
 
     seastar_logger.debug("Intended AIO control block usage:");
     seastar_logger.debug("");
-    log_aiocbs(log_level::debug, storage_iocbs, preempt_iocbs, network_iocbs);
+    log_aiocbs(log_level::debug, storage_iocbs, preempt_iocbs, network_iocbs, reserve_iocbs);
     seastar_logger.debug("");
     seastar_logger.debug("Available AIO control blocks = aio-max-nr - aio-nr = {} - {} = {}", aio_max_nr, aio_nr, available_aio);
 
@@ -4190,7 +4190,7 @@ unsigned smp::adjust_max_networking_aio_io_control_blocks(unsigned network_iocbs
             seastar_logger.warn("Your system does not have enough AIO capacity for optimal network performance; reducing `max-networking-io-control-blocks'.");
             seastar_logger.warn("Resultant AIO control block usage:");
             seastar_logger.warn("");
-            log_aiocbs(log_level::warn, storage_iocbs, preempt_iocbs, network_iocbs);
+            log_aiocbs(log_level::warn, storage_iocbs, preempt_iocbs, network_iocbs, reserve_iocbs);
             seastar_logger.warn("");
             seastar_logger.warn("For optimal network performance, set /proc/sys/fs/aio-max-nr to at least {}.", aio_nr + requested_aio);
         } else {
@@ -4198,14 +4198,12 @@ unsigned smp::adjust_max_networking_aio_io_control_blocks(unsigned network_iocbs
                                      "Set /proc/sys/fs/aio-max-nr to at least {} (minimum) or {} (recommended for networking performance)",
                                      aio_nr + (requested_aio_other + smp::count), aio_nr + requested_aio);
 
-            if (reserve_iocbs) {
-                err.append(format(", with an added reserve of {} (requested via reserve_io_control_blocks config)", reserve_iocbs));
-            }
-            unsigned smp_count_max = available_aio / (storage_iocbs + preempt_iocbs + 1);
+            unsigned linear_over_cpus = available_aio - std::min(reserve_iocbs, available_aio);
+            unsigned smp_count_max = linear_over_cpus / (storage_iocbs + preempt_iocbs + 1);
             if (smp_count_max > 0) {
                 err.append(format(", or decrease the logical CPU count of the application to {} (maximum)", smp_count_max));
 
-                unsigned smp_count_recommended = available_aio / (storage_iocbs + preempt_iocbs + network_iocbs);
+                unsigned smp_count_recommended = linear_over_cpus / (storage_iocbs + preempt_iocbs + network_iocbs);
                 if (smp_count_recommended > 0) {
                     err.append(format(" or {} (recommended for networking performance)", smp_count_recommended));
                 }
