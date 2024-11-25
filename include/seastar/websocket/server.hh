@@ -26,7 +26,6 @@
 
 #include <seastar/http/request_parser.hh>
 #include <seastar/core/sstring.hh>
-#include <seastar/net/api.hh>
 #include <seastar/core/gate.hh>
 #include <seastar/core/when_all.hh>
 #include <seastar/websocket/common.hh>
@@ -39,101 +38,19 @@ namespace seastar::experimental::websocket {
 /*!
  * \brief a server WebSocket connection
  */
-class server_connection : public boost::intrusive::list_base_hook<> {
-    using buff_t = temporary_buffer<char>;
+class server_connection : public connection {
 
-    /*!
-     * \brief Implementation of connection's data source.
-     */
-    class connection_source_impl final : public data_source_impl {
-        queue<buff_t>* data;
-
-    public:
-        connection_source_impl(queue<buff_t>* data) : data(data) {}
-
-        virtual future<buff_t> get() override {
-            return data->pop_eventually().then_wrapped([](future<buff_t> f){
-                try {
-                    return make_ready_future<buff_t>(std::move(f.get()));
-                } catch(...) {
-                    return current_exception_as_future<buff_t>();
-                }
-            });
-        }
-
-        virtual future<> close() override {
-            data->push(buff_t(0));
-            return make_ready_future<>();
-        }
-    };
-
-    /*!
-     * \brief Implementation of connection's data sink.
-     */
-    class connection_sink_impl final : public data_sink_impl {
-        queue<buff_t>* data;
-    public:
-        connection_sink_impl(queue<buff_t>* data) : data(data) {}
-
-        virtual future<> put(net::packet d) override {
-            net::fragment f = d.frag(0);
-            return data->push_eventually(temporary_buffer<char>{std::move(f.base), f.size});
-        }
-
-        size_t buffer_size() const noexcept override {
-            return data->max_size();
-        }
-
-        virtual future<> close() override {
-            data->push(buff_t(0));
-            return make_ready_future<>();
-        }
-    };
-
-    /*!
-     * \brief This function processess received PING frame.
-     * https://datatracker.ietf.org/doc/html/rfc6455#section-5.5.2
-     */
-    future<> handle_ping();
-    /*!
-     * \brief This function processess received PONG frame.
-     * https://datatracker.ietf.org/doc/html/rfc6455#section-5.5.3
-     */
-    future<> handle_pong();
-
-    static const size_t PIPE_SIZE = 512;
     server& _server;
-    connected_socket _fd;
-    input_stream<char> _read_buf;
-    output_stream<char> _write_buf;
     http_request_parser _http_parser;
-    bool _done = false;
 
-    websocket_parser _websocket_parser;
-    queue <temporary_buffer<char>> _input_buffer;
-    input_stream<char> _input;
-    queue <temporary_buffer<char>> _output_buffer;
-    output_stream<char> _output;
-
-    sstring _subprotocol;
-    handler_t _handler;
 public:
     /*!
      * \param server owning \ref server
      * \param fd established socket used for communication
      */
     server_connection(server& server, connected_socket&& fd)
-        : _server(server)
-        , _fd(std::move(fd))
-        , _read_buf(_fd.input())
-        , _write_buf(_fd.output())
-        , _input_buffer{PIPE_SIZE}
-        , _output_buffer{PIPE_SIZE}
-    {
-        _input = input_stream<char>{data_source{
-                std::make_unique<connection_source_impl>(&_input_buffer)}};
-        _output = output_stream<char>{data_sink{
-                std::make_unique<connection_sink_impl>(&_output_buffer)}};
+        : connection(std::move(fd))
+        , _server(server) {
         on_new_connection();
     }
     ~server_connection();
@@ -142,23 +59,11 @@ public:
      * \brief serve WebSocket protocol on a server_connection
      */
     future<> process();
-    /*!
-     * \brief close the socket
-     */
-    void shutdown_input();
-    future<> close(bool send_close = true);
 
 protected:
     future<> read_loop();
-    future<> read_one();
     future<> read_http_upgrade_request();
-    future<> response_loop();
     void on_new_connection();
-    /*!
-     * \brief Packs buff in websocket frame and sends it to the client.
-     */
-    future<> send_data(opcodes opcode, temporary_buffer<char>&& buff);
-
 };
 
 /*!
