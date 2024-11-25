@@ -313,7 +313,7 @@ metric_groups_impl::metric_groups_impl(int handle) : _handle(handle) {}
 
 metric_groups_impl::~metric_groups_impl() {
     for (const auto& i : _registration) {
-        unregister_metric(i, _handle);
+        unregister_metric(i->info().id, _handle);
     }
 }
 
@@ -321,10 +321,10 @@ metric_groups_impl& metric_groups_impl::add_metric(group_name_type name, const m
 
     metric_id id(name, md._impl->name, md._impl->labels);
 
-    get_local_impl(_handle)->add_registration(
+    auto reg = get_local_impl(_handle)->add_registration(
             id, md._impl->type, md._impl->f, md._impl->d, md._impl->enabled, md._impl->_skip_when_empty, md._impl->aggregate_labels, _handle);
 
-    _registration.push_back(id);
+    _registration.push_back(std::move(reg));
     return *this;
 }
 
@@ -560,7 +560,7 @@ std::vector<std::deque<metric_function>>& impl::functions() {
     return _current_metrics;
 }
 
-void impl::add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled, skip_when_empty skip, const std::vector<std::string>& aggregate_labels, int handle) {
+register_ref impl::add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled, skip_when_empty skip, const std::vector<std::string>& aggregate_labels, int handle) {
     auto rm = ::seastar::make_shared<registered_metric>(id, f, enabled, skip, handle);
     for (auto&& rl : _relabel_configs) {
         apply_relabeling(rl, rm->info());
@@ -591,6 +591,7 @@ void impl::add_registration(const metric_id& id, const metric_type& type, metric
     dirty();
 
     replicate_metric_if_required(rm);
+    return rm;
 }
 
 void impl::update_aggregate_labels(const metric_id& id,
