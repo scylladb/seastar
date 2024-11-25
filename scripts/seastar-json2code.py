@@ -481,14 +481,17 @@ def create_enum_wrapper(model_name, name, values):
     bool operator<=(const $wrapper& c) const {
         return static_cast<pos_type>(v) <= static_cast<pos_type>(c.v);
     }
+    std::make_signed_t<pos_type> operator-(const $wrapper& c) const {
+        return static_cast<pos_type>(v) - static_cast<pos_type>(c.v);
+    }
     static $wrapper begin() {
         return $wrapper($enum_name::$value);
     }
     static $wrapper end() {
         return $wrapper($enum_name::NUM_ITEMS);
     }
-    static boost::integer_range<$wrapper> all_items() {
-        return boost::irange(begin(), end());
+    static auto /* iota_view */ all_items() {
+        return std::ranges::iota_view<$wrapper, $wrapper>(begin(), end());
     }
     $enum_name v;""").substitute(enum_name=enum_name,
                                  wrapper=wrapper,
@@ -537,7 +540,7 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
                         '<seastar/json/json_elements.hh>',
                         '<seastar/http/json_path.hh>'])
 
-    add_include(hfile, ['<iostream>', '<boost/range/irange.hpp>'])
+    add_include(hfile, ['<iostream>', '<ranges>'])
     open_namespace(hfile, "seastar")
     open_namespace(hfile, "httpd")
     open_namespace(hfile, api_name)
