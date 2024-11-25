@@ -40,6 +40,7 @@ foreach (component ${Sanitizers_FIND_COMPONENTS})
     message (FATAL_ERROR "Unsupported sanitizer: ${component}")
   endif ()
   list(APPEND Sanitizers_COMPILE_OPTIONS "${${compile_options}}")
+  unset (compile_options)
 endforeach ()
 
 include(CheckCXXSourceCompiles)
