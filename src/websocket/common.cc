@@ -151,7 +151,11 @@ future<> connection::handle_pong() {
 }
 
 future<> connection::send_data(opcodes opcode, temporary_buffer<char>&& buff) {
-    char header[10] = {'\x80', 0};
+    // Maximum length of header is 14:
+    //  2 for static part of the header
+    //  8 for payload length field at maximum size
+    //  4 for optional mask
+    char header[14] = {'\x80', 0};
     size_t header_size = 2;
 
     header[0] += opcode;
@@ -166,6 +170,26 @@ future<> connection::send_data(opcodes opcode, temporary_buffer<char>&& buff) {
         header_size += sizeof(uint64_t);
     } else {
         header[1] = uint8_t(buff.size());
+    }
+
+    temporary_buffer<char> write_buf;
+    if (_is_client) {
+        header[1] |= 0x80;
+        // https://datatracker.ietf.org/doc/html/rfc6455#section-5.3 requires that the masking key
+        // must be unpredictable and derived from a strong source of entropy. This requirement
+        // arose due to usage of WebSocket protocol in the browsers, where both server and client
+        // payload generation code may be malicious and the only trusted piece is the browser
+        // itself. Consequently there was a need to make the bytes on the wire unpredictable for the
+        // client code, so that it cannot run attacks against intermediate proxies that do not
+        // understand WebSocket.
+        //
+        // In the case of Seastar there is no security boundary between payload generator and
+        // payload serializer in this class, accordingly in terms of security impact it is
+        // sufficient to simply use predictable masking key. Zero is chosen because it does not
+        // change the payload.
+        uint32_t masking_key = 0;
+        write_be<uint32_t>(header + header_size, masking_key);
+        header_size += sizeof(uint32_t);
     }
 
     scattered_message<char> msg;
