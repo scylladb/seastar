@@ -59,7 +59,7 @@ future<stop_iteration> server::accept_one(server_socket &listener) {
         auto conn = std::make_unique<server_connection>(*this, std::move(ar.connection));
         (void)try_with_gate(_task_gate, [conn = std::move(conn)]() mutable {
             return conn->process().finally([conn = std::move(conn)] {
-                wlogger.debug("Connection is finished");
+                websocket_logger.debug("Connection is finished");
             });
         }).handle_exception_type([](const gate_closed_exception &e) {});
         return make_ready_future<stop_iteration>(stop_iteration::no);
@@ -67,11 +67,11 @@ future<stop_iteration> server::accept_one(server_socket &listener) {
         // We expect a ECONNABORTED when server::stop is called,
         // no point in warning about that.
         if (e.code().value() != ECONNABORTED) {
-            wlogger.error("accept failed: {}", e);
+            websocket_logger.error("accept failed: {}", e);
         }
         return make_ready_future<stop_iteration>(stop_iteration::yes);
     }).handle_exception([](std::exception_ptr ex) {
-        wlogger.info("accept failed: {}", ex);
+        websocket_logger.info("accept failed: {}", ex);
         return make_ready_future<stop_iteration>(stop_iteration::yes);
     });
 }
@@ -102,7 +102,7 @@ void server_connection::on_new_connection() {
 
 future<> server_connection::process() {
     return when_all_succeed(read_loop(), response_loop()).discard_result().handle_exception([] (const std::exception_ptr& e) {
-        wlogger.debug("Processing failed: {}", e);
+        websocket_logger.debug("Processing failed: {}", e);
     });
 }
 
@@ -133,17 +133,17 @@ future<> server_connection::read_http_upgrade_request() {
         }
         this->_handler = this->_server._handlers[subprotocol];
         this->_subprotocol = subprotocol;
-        wlogger.debug("Sec-WebSocket-Protocol: {}", subprotocol);
+        websocket_logger.debug("Sec-WebSocket-Protocol: {}", subprotocol);
 
         sstring sec_key = req->get_header("Sec-Websocket-Key");
         sstring sec_version = req->get_header("Sec-Websocket-Version");
 
         sstring sha1_input = sec_key + magic_key_suffix;
 
-        wlogger.debug("Sec-Websocket-Key: {}, Sec-Websocket-Version: {}", sec_key, sec_version);
+        websocket_logger.debug("Sec-Websocket-Key: {}, Sec-Websocket-Version: {}", sec_key, sec_version);
 
         std::string sha1_output = sha1_base64(sha1_input);
-        wlogger.debug("SHA1 output: {} of size {}", sha1_output, sha1_output.size());
+        websocket_logger.debug("SHA1 output: {} of size {}", sha1_output, sha1_output.size());
 
         return _write_buf.write(http_upgrade_reply_template).then([this, sha1_output = std::move(sha1_output)] {
             return _write_buf.write(sha1_output);
