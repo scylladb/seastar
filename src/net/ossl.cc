@@ -1163,7 +1163,7 @@ public:
                     // return an empty buffer (the get() function will initiate a handshake)
                     return make_ready_future<buf_type>();
                 case SSL_ERROR_SYSCALL:
-                    if (errno == 0 && ERR_peek_error() == 0) {
+                    if (ERR_peek_error() == 0) {
                         // SSL_get_error
                         // (https://www.openssl.org/docs/man3.0/man3/SSL_get_error.html)
                         // states that on OpenSSL versions prior to 3.0, an
