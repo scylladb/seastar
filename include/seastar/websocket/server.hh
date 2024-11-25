@@ -49,7 +49,7 @@ public:
      * \param fd established socket used for communication
      */
     server_connection(server& server, connected_socket&& fd)
-        : connection(std::move(fd))
+        : connection(std::move(fd), false)
         , _server(server) {
         on_new_connection();
     }

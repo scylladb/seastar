@@ -243,16 +243,19 @@ protected:
 
     sstring _subprotocol;
     handler_t _handler;
+    bool _is_client;
 public:
     /*!
      * \param fd established socket used for communication
+     * \param is_client Whether the connection is for the client.
      */
-    connection(connected_socket&& fd)
+    connection(connected_socket&& fd, bool is_client)
         : _fd(std::move(fd))
         , _read_buf(_fd.input())
         , _write_buf(_fd.output())
         , _input_buffer{PIPE_SIZE}
         , _output_buffer{PIPE_SIZE}
+        , _is_client{is_client}
     {
         _input = input_stream<char>{data_source{
                 std::make_unique<connection_source_impl>(&_input_buffer)}};
