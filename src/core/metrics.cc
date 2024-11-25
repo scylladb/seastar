@@ -229,8 +229,8 @@ static std::string get_unique_id() {
 label shard_label("shard");
 namespace impl {
 
-registered_metric::registered_metric(metric_id id, metric_function f, bool enabled, skip_when_empty skip, int handle) :
-        _f(f), _impl(get_local_impl(handle)) {
+registered_metric::registered_metric(metric_id id, metric_function f, bool enabled, skip_when_empty skip) :
+        _f(f) {
     _info.enabled = enabled;
     _info.should_skip_when_empty = skip;
     _info.id = id;
@@ -318,11 +318,18 @@ metric_groups_impl::~metric_groups_impl() {
 }
 
 metric_groups_impl& metric_groups_impl::add_metric(group_name_type name, const metric_definition& md)  {
+    // We could just do this in the constructor but some metric groups (like the
+    // smp queue ones) are actually constructed on a different shard originally
+    // than where the actual metrics are added.
+    // Hence, the shared_ptr owning shard check would fail so we do it only here.
+    if (_impl == nullptr) {
+        _impl = get_local_impl(_handle);
+    }
 
     metric_id id(name, md._impl->name, md._impl->labels);
 
     auto reg = get_local_impl(_handle)->add_registration(
-            id, md._impl->type, md._impl->f, md._impl->d, md._impl->enabled, md._impl->_skip_when_empty, md._impl->aggregate_labels, _handle);
+            id, md._impl->type, md._impl->f, md._impl->d, md._impl->enabled, md._impl->_skip_when_empty, md._impl->aggregate_labels);
 
     _registration.push_back(std::move(reg));
     return *this;
@@ -481,7 +488,7 @@ void impl::replicate_metric_family(const seastar::sstring& name,
     const auto& metric_family = entry->second;
     auto destination = get_local_impl(destination_handle);
     for (const auto& [labels, metric_ptr]: metric_family) {
-        replicate_metric(metric_ptr, metric_family, destination, destination_handle);
+        replicate_metric(metric_ptr, metric_family, destination);
     }
 }
 
@@ -494,14 +501,13 @@ void impl::replicate_metric_if_required(const shared_ptr<registered_metric>& met
         const auto& metric_family = _value_map.at(name);
 
         auto destination = get_local_impl(destination_handle);
-        replicate_metric(metric, metric_family, destination, destination_handle);
+        replicate_metric(metric, metric_family, destination);
     }
 }
 
 void impl::replicate_metric(const shared_ptr<registered_metric>& metric,
                             const metric_family& family,
-                            const shared_ptr<impl>& destination,
-                            int destination_handle) const {
+                            const shared_ptr<impl>& destination) const {
     const auto& family_info = family.info();
     metric_type type = { .base_type = family_info.type,
                          .type_name = family_info.inherit_type };
@@ -512,8 +518,7 @@ void impl::replicate_metric(const shared_ptr<registered_metric>& metric,
                                   family_info.d,
                                   metric->is_enabled(),
                                   metric->get_skip_when_empty(),
-                                  family_info.aggregate_labels,
-                                  destination_handle);
+                                  family_info.aggregate_labels);
 }
 
 void impl::update_metrics_if_needed() {
@@ -560,8 +565,8 @@ std::vector<std::deque<metric_function>>& impl::functions() {
     return _current_metrics;
 }
 
-register_ref impl::add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled, skip_when_empty skip, const std::vector<std::string>& aggregate_labels, int handle) {
-    auto rm = ::seastar::make_shared<registered_metric>(id, f, enabled, skip, handle);
+register_ref impl::add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled, skip_when_empty skip, const std::vector<std::string>& aggregate_labels) {
+    auto rm = ::seastar::make_shared<registered_metric>(id, f, enabled, skip);
     for (auto&& rl : _relabel_configs) {
         apply_relabeling(rl, rm->info());
     }
