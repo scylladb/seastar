@@ -51,7 +51,8 @@ struct smp_options : public program_options::option_group {
     program_options::value<resource::cpuset> cpuset;
     /// Memory to use, in bytes (ex: 4G) (default: all).
     program_options::value<std::string> memory;
-    /// Memory reserved to OS (if \ref memory not specified).
+    /// Memory reserved to the OS and other processes (if \ref memory not specified),
+    /// and is not used by seastar.
     program_options::value<std::string> reserve_memory;
     /// Path to accessible hugetlbfs mount (typically /dev/hugepages/something).
     program_options::value<std::string> hugepages;
@@ -100,7 +101,8 @@ struct smp_options : public program_options::option_group {
     seastar::memory_allocator memory_allocator = memory_allocator::seastar;
 
     /// \cond internal
-    /// Additional memory reserved to OS for each shard (added to the default value or the value specified by \ref reserve_memory).
+    /// Additional memory reserved to the OS and other processes for each shard (added to the default value or the value specified by \ref reserve_memory),
+    /// and is not used by seastar.
     size_t reserve_additional_memory_per_shard = 0;
     /// \endcond
 public:
