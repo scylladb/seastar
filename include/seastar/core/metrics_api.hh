@@ -197,26 +197,11 @@ struct metric_info {
 };
 
 
-using metrics_registration = std::vector<metric_id>;
-
-class metric_groups_impl : public metric_groups_def {
-    metrics_registration _registration;
-public:
-    metric_groups_impl() = default;
-    ~metric_groups_impl();
-    metric_groups_impl(const metric_groups_impl&) = delete;
-    metric_groups_impl(metric_groups_impl&&) = default;
-    metric_groups_impl& add_metric(group_name_type name, const metric_definition& md);
-    metric_groups_impl& add_group(group_name_type name, const std::initializer_list<metric_definition>& l);
-    metric_groups_impl& add_group(group_name_type name, const std::vector<metric_definition>& l);
-};
-
 class impl;
 
 class registered_metric final {
     metric_info _info;
     metric_function _f;
-    shared_ptr<impl> _impl;
 public:
     registered_metric(metric_id id, metric_function f, bool enabled=true, skip_when_empty skip=skip_when_empty::no);
     metric_value operator()() const {
@@ -250,6 +235,20 @@ public:
 
 using register_ref = shared_ptr<registered_metric>;
 using metric_instances = std::map<labels_type, register_ref>;
+using metrics_registration = std::vector<register_ref>;
+
+class metric_groups_impl : public metric_groups_def {
+    metrics_registration _registration;
+    shared_ptr<impl> _impl; // keep impl alive while metrics are registered
+public:
+    metric_groups_impl();
+    ~metric_groups_impl();
+    metric_groups_impl(const metric_groups_impl&) = delete;
+    metric_groups_impl(metric_groups_impl&&) = default;
+    metric_groups_impl& add_metric(group_name_type name, const metric_definition& md);
+    metric_groups_impl& add_group(group_name_type name, const std::initializer_list<metric_definition>& l);
+    metric_groups_impl& add_group(group_name_type name, const std::vector<metric_definition>& l);
+};
 
 class metric_family {
     metric_instances _instances;
@@ -375,7 +374,7 @@ public:
         return _value_map;
     }
 
-    void add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled, skip_when_empty skip, const std::vector<std::string>& aggregate_labels);
+    register_ref add_registration(const metric_id& id, const metric_type& type, metric_function f, const description& d, bool enabled, skip_when_empty skip, const std::vector<std::string>& aggregate_labels);
     void remove_registration(const metric_id& id);
     future<> stop() {
         return make_ready_future<>();
