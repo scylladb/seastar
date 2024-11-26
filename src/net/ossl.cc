@@ -20,6 +20,18 @@
  * Copyright 2024 Redpanda Data
  */
 
+// The data flow in the openssl-based seastar tls implementation looks like the following. The session's put/get()
+// methods delegate to openssl functions, which perform the openssl handshake, encryption and decryption, and then they
+// write the raw data into a custom BIO object. This custom BIO object is implemented in this file, it is specific to
+// seastar and it delegates the write/read methods to the seastar::tls::session's data_sink/data_source (which are the
+// interfaces around the underlying seastar connected socket).
+//
+//        +----------------------------+      +-------------------------------------+     +-------------+    +----------------------------+   +------+
+//        |                            |      |                                     |     |             |    |                            |   |      |
+// ------->    seastar::tls::session   +------> SSL_{do_handshake|write_ex|read_ex} +-----> custom BIO  +---->    data_sink/data_source   +--->  OS  |
+//        |                            |      |                                     |     |             |    |      (seastar socket)      |   |      |
+//        +----------------------------+      +-------------------------------------+     +-------------+    +----------------------------+   +------+
+
 #ifdef SEASTAR_MODULE
 module;
 #endif
@@ -962,6 +974,7 @@ public:
                                         return stop_iteration::no;
                                     });
                                 } else if (!connected() || ssl_err == SSL_ERROR_WANT_READ) {
+                                    ERR_clear_error();
                                     return make_ready_future<stop_iteration>(stop_iteration::yes);
                                 }
                                 return handle_do_put_ssl_err(ssl_err);
