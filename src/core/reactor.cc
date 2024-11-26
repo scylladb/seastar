@@ -4185,6 +4185,10 @@ unsigned smp::adjust_max_networking_aio_io_control_blocks(unsigned network_iocbs
     seastar_logger.debug("Available AIO control blocks = aio-max-nr - aio-nr = {} - {} = {}", aio_max_nr, aio_nr, available_aio);
 
     if (available_aio < requested_aio) {
+        auto get_smp_count = [linear_over_cpus = available_aio - std::min(reserve_iocbs, available_aio)] (unsigned network) -> unsigned {
+            return linear_over_cpus / (storage_iocbs + preempt_iocbs + network);
+        };
+
         if (available_aio >= requested_aio_other + smp::count) { // at least one queue for each shard
             network_iocbs = (available_aio - requested_aio_other) / smp::count;
             seastar_logger.warn("Your system does not have enough AIO capacity for optimal network performance; reducing `max-networking-io-control-blocks'.");
@@ -4198,12 +4202,11 @@ unsigned smp::adjust_max_networking_aio_io_control_blocks(unsigned network_iocbs
                                      "Set /proc/sys/fs/aio-max-nr to at least {} (minimum) or {} (recommended for networking performance)",
                                      aio_nr + (requested_aio_other + smp::count), aio_nr + requested_aio);
 
-            unsigned linear_over_cpus = available_aio - std::min(reserve_iocbs, available_aio);
-            unsigned smp_count_max = linear_over_cpus / (storage_iocbs + preempt_iocbs + 1);
+            unsigned smp_count_max = get_smp_count(1);
             if (smp_count_max > 0) {
                 err.append(format(", or decrease the logical CPU count of the application to {} (maximum)", smp_count_max));
 
-                unsigned smp_count_recommended = linear_over_cpus / (storage_iocbs + preempt_iocbs + network_iocbs);
+                unsigned smp_count_recommended = get_smp_count(network_iocbs);
                 if (smp_count_recommended > 0) {
                     err.append(format(" or {} (recommended for networking performance)", smp_count_recommended));
                 }
