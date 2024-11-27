@@ -394,6 +394,7 @@ def main():
     args = get_command_line_parser().parse_args()
     comment = re.compile(r'^\s*#')
     pattern = re.compile(r"Reactor stalled for (?P<stall>\d+) ms on shard (?P<shard>\d+).*Backtrace:")
+    expected_input_format = "Expected one or more lines ending with: 'Reactor stalled for <n> ms on shard <i>. Backtrace: <addr> [<addr> ...]'"
     address_threshold = int(args.address_threshold, 0)
     # map from stall time in ms to the count of the stall time
     tally = {}
@@ -434,12 +435,19 @@ def main():
         if address_threshold:
             trace = list(dropwhile(lambda addr: int(addr, 0) >= address_threshold, trace))
         if t >= args.tmin:
+            if not trace:
+                print(f"""Invalid input line: '{s.strip()}'
+{expected_input_format}
+Please run `stall-analyser.py --help` for usage instruction""", file=sys.stderr)
+                sys.exit(1)
             render.process_trace(trace, t)
 
     try:
         if not render:
-            print("No input data found. Please run `stall-analyser.py --help` for usage instruction")
-            sys.exit()
+            print(f"""No input data found.
+{expected_input_format}
+Please run `stall-analyser.py --help` for usage instruction""", file=sys.stderr)
+            sys.exit(1)
         if args.format == 'graph':
             print_command_line_options(args)
             print_stats(tally, args.tmin)
