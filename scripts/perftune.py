@@ -23,6 +23,7 @@ import platform
 import shlex
 import psutil
 import mmap
+import datetime
 
 dry_run_mode = False
 def perftune_print(log_msg, *args, **kwargs):
@@ -349,6 +350,8 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
             self.irqs_cpu_mask = auto_detect_irq_mask(self.cpu_mask, self.cores_per_irq_core)
 
         self.__is_aws_i3_nonmetal_instance = None
+        self.__metadata_token_value = None
+        self.__metadata_token_time = None
 
 #### Public methods ##########################
     class CPUMaskIsZeroException(Exception):
@@ -549,13 +552,49 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
         pass
 
 #### Private methods ############################
+    @property
+    def __ec2_metadata_base_url(self):
+        return "http://169.254.169.254/latest/"
+
+    @property
+    def __metadata_token(self):
+        """
+        Refresh IMDSv2 session token if it necessary, and return current token
+        :return: current session token
+        """
+        token_ttl = 21600
+        update_token = False
+        if not self.__metadata_token_value:
+            update_token = True
+        else:
+            time_diff = datetime.datetime.now() - self.__metadata_token_time
+            time_diff_sec = int(time_diff.total_seconds())
+            if time_diff_sec >= token_ttl - 120:
+                update_token = True
+        if update_token:
+            self.__metadata_token_time = datetime.datetime.now()
+            req = urllib.request.Request(self.__ec2_metadata_base_url + "api/token", headers={"X-aws-ec2-metadata-token-ttl-seconds": token_ttl}, method="PUT")
+            with urllib.request.urlopen(req, timeout=0.1) as res:
+                self.__metadata_token_value = res.read().decode()
+        return self.__metadata_token_value
+
+    def __get_instance_metadata(self, path):
+        """
+        Get a parameter from EC2 Metadata server
+        :param path: metadata path to access for
+        :return: received metadata as a string
+        """
+        req = urllib.request.Request(self.__ec2_metadata_base_url + 'meta-data/' + path, headers={"X-aws-ec2-metadata-token": self.__metadata_token})
+        with urllib.request.urlopen(req, timeout=0.1) as res:
+            return res.read().decode()
+
     def __check_host_type(self):
         """
         Check if we are running on the AWS i3 nonmetal instance.
         If yes, set self.__is_aws_i3_nonmetal_instance to True, and to False otherwise.
         """
         try:
-            aws_instance_type = urllib.request.urlopen("http://169.254.169.254/latest/meta-data/instance-type", timeout=0.1).read().decode()
+            aws_instance_type = self.__get_instance_metadata('instance-type')
             if re.match(r'^i3\.((?!metal)\w)+$', aws_instance_type):
                 self.__is_aws_i3_nonmetal_instance = True
             else:
