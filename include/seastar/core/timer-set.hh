@@ -66,7 +66,7 @@ private:
         return _time_point.time_since_epoch().count();
     }
 
-    static timestamp_t get_timestamp(Timer& timer) noexcept
+    static timestamp_t get_timestamp(const Timer& timer) noexcept
     {
         return get_timestamp(timer.get_timeout());
     }
@@ -90,6 +90,15 @@ private:
     int get_last_non_empty_bucket() const noexcept
     {
         return bitsets::get_last_set(_non_empty_buckets);
+    }
+
+    void search_next_if_max_timestamp() noexcept
+    {
+        if (_next == max_timestamp && _non_empty_buckets.any()) {
+            for (auto& timer : _buckets[get_last_non_empty_bucket()]) {
+                _next = std::min(_next, get_timestamp(timer));
+            }
+        }
     }
 
 public:
@@ -160,6 +169,12 @@ public:
         if (list.empty()) {
             _non_empty_buckets[index] = false;
         }
+
+        if (_next == get_timestamp(timer)) {
+            _next = max_timestamp;
+        }
+
+        search_next_if_max_timestamp();
     }
 
     /**
@@ -221,11 +236,8 @@ public:
 
         _non_empty_buckets[index] = !list.empty();
 
-        if (_next == max_timestamp && _non_empty_buckets.any()) {
-            for (auto& timer : _buckets[get_last_non_empty_bucket()]) {
-                _next = std::min(_next, get_timestamp(timer));
-            }
-        }
+        search_next_if_max_timestamp();
+
         return exp;
     }
 
