@@ -146,6 +146,16 @@ public:
         return _sem.try_wait(max_ops);
     }
 
+    /// Returns true iff the lock can be acquired in read mode without waiting.
+    bool can_read_lock() const noexcept {
+        return _sem.can_acquire_immediately(1);
+    }
+
+    /// Returns true iff the lock can be acquired in write mode without waiting.
+    bool can_write_lock() const noexcept {
+        return _sem.can_acquire_immediately(max_ops);
+    }
+
     using holder = semaphore_units<semaphore_default_exception_factory, Clock>;
 
     /// hold_read_lock() waits for a read lock and returns an object which,

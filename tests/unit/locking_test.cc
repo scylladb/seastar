@@ -42,21 +42,33 @@ using namespace std::chrono_literals;
 SEASTAR_THREAD_TEST_CASE(test_rwlock) {
     rwlock l;
 
+    BOOST_REQUIRE(l.can_write_lock());
+    BOOST_REQUIRE(l.can_read_lock());
     l.for_write().lock().get();
+    BOOST_REQUIRE(!l.can_write_lock());
     BOOST_REQUIRE(!l.try_write_lock());
+    BOOST_REQUIRE(!l.can_read_lock());
     BOOST_REQUIRE(!l.try_read_lock());
     l.for_write().unlock();
 
     l.for_read().lock().get();
+    BOOST_REQUIRE(!l.can_write_lock());
     BOOST_REQUIRE(!l.try_write_lock());
+    BOOST_REQUIRE(l.can_read_lock());
     BOOST_REQUIRE(l.try_read_lock());
+    BOOST_REQUIRE(l.can_read_lock());
     l.for_read().lock().get();
     l.for_read().unlock();
     l.for_read().unlock();
     l.for_read().unlock();
 
+    BOOST_REQUIRE(l.can_write_lock());
     BOOST_REQUIRE(l.try_write_lock());
+    BOOST_REQUIRE(!l.can_write_lock());
+    BOOST_REQUIRE(!l.can_read_lock());
     l.for_write().unlock();
+    BOOST_REQUIRE(l.can_write_lock());
+    BOOST_REQUIRE(l.can_read_lock());
 }
 
 SEASTAR_TEST_CASE(test_with_lock_mutable) {
