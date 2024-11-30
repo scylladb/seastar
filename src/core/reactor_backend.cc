@@ -1349,21 +1349,25 @@ private:
             case o::recv: {
                 const auto& op = req.as<io_request::operation::recv>();
                 ::io_uring_prep_recv(sqe, op.fd, op.addr, op.size, op.flags);
+                sqe->ioprio |= IORING_RECVSEND_POLL_FIRST;
                 break;
             }
             case o::recvmsg: {
                 const auto& op = req.as<io_request::operation::recvmsg>();
                 ::io_uring_prep_recvmsg(sqe, op.fd, op.msghdr, op.flags);
+                sqe->ioprio |= IORING_RECVSEND_POLL_FIRST;
                 break;
             }
             case o::send: {
                 const auto& op = req.as<io_request::operation::send>();
                 ::io_uring_prep_send(sqe, op.fd, op.addr, op.size, op.flags);
+                sqe->ioprio |= IORING_RECVSEND_POLL_FIRST;
                 break;
             }
             case o::sendmsg: {
                 const auto& op = req.as<io_request::operation::sendmsg>();
                 ::io_uring_prep_sendmsg(sqe, op.fd, op.msghdr, op.flags);
+                sqe->ioprio |= IORING_RECVSEND_POLL_FIRST;
                 break;
             }
             case o::accept: {
