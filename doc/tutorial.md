@@ -1734,63 +1734,43 @@ In the above example we only saw writing to the socket. Real servers will also w
 Let's look at a simple example server involving both reads an writes. This is a simple echo server, as described in RFC 862: The server listens for connections from the client, and once a connection is established, any data received is simply sent back - until the client closes the connection.
 
 ```cpp
-#include <seastar/core/seastar.hh>
-#include <seastar/core/reactor.hh>
-#include <seastar/core/future-util.hh>
-#include <seastar/net/api.hh>
-
 seastar::future<> handle_connection(seastar::connected_socket s) {
-    auto out = s.output();
-    auto in = s.input();
-    return do_with(std::move(s), std::move(out), std::move(in),
-            [] (auto& s, auto& out, auto& in) {
-        return seastar::repeat([&out, &in] {
-            return in.read().then([&out] (auto buf) {
-                if (buf) {
-                    return out.write(std::move(buf)).then([&out] {
-                        return out.flush();
-                    }).then([] {
-                        return seastar::stop_iteration::no;
-                    });
-                } else {
-                    return seastar::make_ready_future<seastar::stop_iteration>(
-                            seastar::stop_iteration::yes);
-                }
-            });
-        }).then([&out] {
-            return out.close();
-        });
-    });
+    try {
+        auto out = s.output();
+        auto in = s.input();
+        while (auto buf = co_await in.read()) {
+            co_await out.write(std::move(buf));
+            co_await out.flush();
+        }
+        co_await out.close();
+    }
+    catch (const std::exception &ex) {
+        fmt::print(stderr, "Could not handle connection: {}\n", ex);
+    }
 }
 
-seastar::future<> service_loop_3() {
+seastar::future<> service_loop() {
     seastar::listen_options lo;
     lo.reuse_address = true;
-    return seastar::do_with(seastar::listen(seastar::make_ipv4_address({1234}), lo),
-            [] (auto& listener) {
-        return seastar::keep_doing([&listener] () {
-            return listener.accept().then(
-                    [] (seastar::accept_result res) {
-                // Note we ignore, not return, the future returned by
-                // handle_connection(), so we do not wait for one
-                // connection to be handled before accepting the next one.
-                (void)handle_connection(std::move(res.connection)).handle_exception(
-                        [] (std::exception_ptr ep) {
-                    fmt::print(stderr, "Could not handle connection: {}\n", ep);
-                });
-            });
-        });
-    });
+    auto listener = seastar::listen(seastar::make_ipv4_address({1234}), lo);
+    while (true) {
+        auto res = co_await listener.accept();
+        // Note we ignore, not co_await, the future returned by
+        // handle_connection(), so we do not wait for one
+        // connection to be handled before accepting the next one.
+        (void) handle_connection(std::move(res.connection));
+    }
 }
 ```
 
-The main function ```service_loop()``` loops accepting new connections, and for each connection calls ```handle_connection()``` to handle this connection. Our ```handle_connection()``` returns a future saying when handling this connection completed, but importantly, we do ***not*** wait for this future: Remember that ```keep_doing``` will only start the next iteration when the future returned by the previous iteration is resolved. Because we want to allow parallel ongoing connections, we don't want the next ```accept()``` to wait until the previously accepted connection was closed. So we call ```handle_connection()``` to start the handling of the connection, but return nothing from the continuation, which resolves that future immediately, so ```keep_doing``` will continue to the next ```accept()```.
+The main function ```service_loop()``` loops accepting new connections, and for each connection calls ```handle_connection()``` to handle this connection. Our ```handle_connection()``` returns a future saying when handling this connection completed, but importantly, we do ***not*** wait for this future because we want to allow parallel ongoing connections.
 
 This demonstrates how easy it is to run parallel _fibers_ (chains of continuations) in Seastar - When a continuation runs an asynchronous function but ignores the future it returns, the asynchronous operation continues in parallel, but never waited for.
 
-It is often a mistake to silently ignore an exception, so if the future we're ignoring might resolve with an except, it is recommended to handle this case, e.g. using a ```handle_exception()``` continuation. In our case, a failed connection is fine (e.g., the client might close its connection will we're sending it output), so we did not bother to handle the exception.
+It is often a mistake to silently ignore an exception, so if the future we're ignoring might resolve with an except, it is recommended to handle this case, e.g. using a ```handle_exception()``` continuation. In our case, a failed connection is fine (e.g., the client might close its connection while we're sending it output), so we did not bother to handle the exception.
 
-The ```handle_connection()``` function itself is straightforward --- it repeatedly calls ```read()``` read on the input stream, to receive a ```temporary_buffer``` with some data, and then moves this temporary buffer into a ```write()``` call on the output stream. The buffer will eventually be freed, automatically, when the ```write()``` is done with it. When ```read()``` eventually returns an empty buffer signifying the end of input, we stop ```repeat```'s iteration by returning a ```stop_iteration::yes```.
+The ```handle_connection()``` function itself is straightforward --- it repeatedly calls ```read()``` read on the input stream, to receive a ```temporary_buffer``` with some data, and then moves this temporary buffer into a ```write()``` call on the output stream. The buffer will eventually be freed, automatically, when the ```write()``` is done with it. When ```read()``` eventually returns an empty buffer signifying the end of input, we exit the loop.
+
 
 # Sharded services
 
