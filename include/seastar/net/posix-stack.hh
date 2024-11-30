@@ -149,6 +149,7 @@ class posix_ap_server_socket_impl : public server_socket_impl {
     using conn_map_t = std::unordered_multimap<protocol_and_socket_address, connection>;
     static thread_local port_map_t ports;
     static thread_local sockets_map_t sockets;
+    friend class posix_network_stack;
     static thread_local conn_map_t conn_q;
     int _protocol;
     socket_address _sa;
@@ -215,6 +216,7 @@ public:
     virtual bool has_per_core_namespace() override { return _reuseport; };
     bool supports_ipv6() const override;
     std::vector<network_interface> network_interfaces() override;
+    virtual future<> initialize() override;
 };
 
 class posix_ap_network_stack : public posix_network_stack {
