@@ -95,6 +95,7 @@ public:
         /// Will be printed on the top of the --help output. Lines should be
         /// hard-wrapped for 80 chars.
         sstring description = "";
+        sstring argv0;
         /// \brief Handle SIGINT/SIGTERM by calling reactor::stop()
         ///
         /// When true, Seastar will set up signal handlers for SIGINT/SIGTERM that call
@@ -172,6 +173,26 @@ public:
     // with exit code 0 when the future returned by func resolves
     // successfully.
     int run(int ac, char ** av, std::function<future<> ()>&& func) noexcept;
+
+    // A variant of run(), which leaves all option parsing entirely to the application.
+    //
+    // When this overload is used, seastar won't parse the config file, nor will
+    // it expose or any command-line option of its own. All confiuration is left
+    // entirely to the application. Configuration values should be propagated to
+    // seastar exlusively via the /p seastar_options or /p config constructor
+    // parameters. Therefore, the /p name and /p description fields of the
+    // /p config or /p seastar_options won't be used either.
+    //
+    // The following will have no effect:
+    // * changes to app_template::get_options_description()
+    // * changes to app_template::get_conf_file_options_description()
+    // * calls to app_template::add_option()
+    // * calls to app_template::add_positional_options()
+    //
+    // Furthermore, any attempt to access configuration() will result in an error.
+    int run(std::function<future<int>()>&& func) noexcept;
+    // Like run() above, but will set exit code to 0 if /p func resolves successfully.
+    int run(std::function<future<>()>&& func) noexcept;
 };
 
 }
