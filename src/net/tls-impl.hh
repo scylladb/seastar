@@ -43,6 +43,8 @@ public:
 
 namespace tls {
 
+extern logger tls_log;
+
 class session_impl {
 public:
     virtual future<> put(net::packet) = 0;

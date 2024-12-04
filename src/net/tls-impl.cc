@@ -54,6 +54,8 @@ module seastar;
 
 namespace seastar {
 
+logger tls::tls_log("seastar-tls");
+
 // Helper
 struct file_info {
     sstring filename;
