@@ -81,6 +81,10 @@ module seastar;
 #include "net/tls-impl.hh"
 #endif
 
+template <> struct fmt::formatter<seastar::tls::session> : public fmt::formatter<string_view> {
+    auto format(const seastar::tls::session& s, fmt::format_context& ctx) const -> decltype(ctx.out());
+};
+
 namespace seastar {
 
 enum class ossl_errc : int{};
@@ -892,6 +896,8 @@ public:
     session(session_type t, shared_ptr<tls::certificate_credentials> creds,
             std::unique_ptr<net::connected_socket_impl> sock, tls_options options = {})
       : _sock(std::move(sock))
+      , _local_address(fmt::to_string(_sock->local_address()))
+      , _remote_address(fmt::to_string(_sock->remote_address()))
       , _creds(creds->_impl)
       , _in(_sock->source())
       , _out(_sock->sink())
@@ -959,11 +965,17 @@ public:
         SEASTAR_ASSERT(_output_pending.available());
     }
 
+    const char * get_type_string() const {
+        return _type == session_type::CLIENT ? "Client": "Server";
+    }
+
     // This function waits for the _output_pending future to resolve
     // If an error occurs, it is saved off into _error and returned
     future<> wait_for_output() {
+        tls_log.trace("{} wait_for_output", *this);
         return std::exchange(_output_pending, make_ready_future())
           .handle_exception([this](auto ep) {
+              tls_log.debug("{} wait_for_output error: {}", *this, ep);
               _error = ep;
               return make_exception_future(ep);
           });
@@ -1034,7 +1046,9 @@ public:
     // will attempt to send the provided packet.  If a renegotiation is needed
     // any unprocessed part of the packet is returned.
     future<net::packet> do_put(net::packet p) {
+        tls_log.trace("{} do_put", *this);
         if (!connected()) {
+            tls_log.debug("{} do_put: not connected", *this);
             return make_ready_future<net::packet>(std::move(p));
         }
         SEASTAR_ASSERT(_output_pending.available());
@@ -1053,8 +1067,10 @@ public:
                             size_t bytes_written = 0;
                             auto write_rc = SSL_write_ex(
                                 _ssl.get(), frag_view.data(), frag_view.size(), &bytes_written);
+                            tls_log.trace("{} do_put: SSL_write_ex: {}", *this, write_rc);
                             if (write_rc != 1) {
                                 const auto ssl_err = SSL_get_error(_ssl.get(), write_rc);
+                                tls_log.trace("{} do_put: SSL_get_error: {}", *this, ssl_err);
                                 if (ssl_err == SSL_ERROR_WANT_WRITE) {
                                     return wait_for_output().then([] {
                                         return stop_iteration::no;
@@ -1065,6 +1081,7 @@ public:
                                 }
                                 return handle_do_put_ssl_err(ssl_err);
                             } else {
+                                tls_log.trace("{} do_put: bytes_written: {}", *this, bytes_written);
                                 frag_view.remove_prefix(bytes_written);
                                 p.trim_front(bytes_written);
                                 return wait_for_output().then([] {
@@ -1073,7 +1090,8 @@ public:
                             }
                         });
                     }
-                ).then([&p] {
+                ).then([this, &p] {
+                    tls_log.trace("{} do_put: returning packet of size: {}", *this, p.len());
                     return std::move(p);
                 });
             }
@@ -1083,6 +1101,7 @@ public:
     // Used to push unencrypted data through OpenSSL, which will
     // encrypt it and then place it into the output bio.
     future<> put(net::packet p) override {
+        tls_log.trace("{} put", *this);
         constexpr size_t openssl_max_record_size = 16 * 1024;
         if (_error) {
             return make_exception_future(_error);
@@ -1092,6 +1111,7 @@ public:
               std::system_error(EPIPE, std::system_category()));
         }
         if (!connected()) {
+            tls_log.trace("{} put: not connected, performing handshake", *this);
             return handshake().then(
               [this, p = std::move(p)]() mutable { return put(std::move(p)); });
         }
@@ -1109,8 +1129,10 @@ public:
             return do_put(std::move(p));
         }).then([this](net::packet p) {
             if (eof() || p.len() == 0) {
+                tls_log.trace("{} put: eof: {}, p.len(): {}", *this, eof(), p.len());
                 return make_ready_future();
             } else {
+                tls_log.trace("{} put: not completed packet sending, re-doing handshake", *this);
                 return handshake().then([this, p = std::move(p)]() mutable {
                     return put(std::move(p));
                 });
@@ -1122,7 +1144,9 @@ public:
     // This function will walk through the handshake with a remote peer
     // If EOF is encountered, ENOTCONN is thrown
     future<> do_handshake() {
+        tls_log.trace("{} do_handshake", *this);
         if (eof()) {
+            tls_log.trace("{} do_handshake: eof encountered", *this);
             // if we have experienced and eof, set the error and return
             // GnuTLS will probably return GNUTLS_E_PREMATURE_TERMINATION
             // from gnutls_handshake in this situation.
@@ -1132,6 +1156,7 @@ public:
               "EOF encountered during handshake"));
             return make_exception_future(_error);
         } else if (connected()) {
+            tls_log.trace("{} do_handshake: already connected", *this);
             return make_ready_future<>();
         }
         return do_until(
@@ -1139,8 +1164,10 @@ public:
             [this] {
                 try {
                     auto n = SSL_do_handshake(_ssl.get());
+                    tls_log.trace("{} do_handshake: SSL_do_handshake: {}", *this, n);
                     if (n <= 0) {
                         auto ssl_error = SSL_get_error(_ssl.get(), n);
+                        tls_log.trace("{} do_handshake: SSL_get_error: {}", *this, ssl_error);
                         switch(ssl_error) {
                         case SSL_ERROR_NONE:
                         // probably shouldn't have gotten here
@@ -1163,6 +1190,7 @@ public:
                         case SSL_ERROR_SSL:
                         {
                             auto error_codes = get_all_ossl_errors();
+                            tls_log.debug("{} do_handshake: errors: {}", *this, error_codes);
                             if (contains_ossl_error(error_codes, ERR_LIB_SSL, SSL_R_UNEXPECTED_EOF_WHILE_READING)) {
                                 // peer has closed
                                 _eof = true;
@@ -1201,17 +1229,21 @@ public:
     // This function will attempt to pull data off of the _in stream
     // if there isn't already data needing to be processed first.
     future<> wait_for_input() {
+        tls_log.trace("{} wait_for_input", *this);
         // If we already have data, then it needs to be processed
         if (!_input.empty()) {
+            tls_log.trace("{} wait_for_input: input not empty", *this);
             return make_ready_future();
         }
         return _in.get()
           .then([this](buf_type buf) {
               // Set EOF if it's empty
+              tls_log.debug("{} wait_for_input: buffer is {}empty", *this, buf.empty() ? "": "not ");
               _eof |= buf.empty();
               _input = std::move(buf);
           })
           .handle_exception([this](auto ep) {
+              tls_log.debug("{} wait_for_input: exception: {}", *this, ep);
               _error = ep;
               return make_exception_future(ep);
           });
@@ -1222,12 +1254,14 @@ public:
     // SSL session using SSL_read.  If ther eis no data, then
     // we will call perform_pull and wait for data to arrive.
     future<buf_type> do_get() {
+        tls_log.trace("{} do_get", *this);
         // Data is available to be pulled of the SSL session if there is pending
         // data on the SSL session or there is data in the in_bio() which SSL reads
         // from
         auto data_to_pull = (BIO_ctrl_pending(in_bio()) + SSL_pending(_ssl.get())) > 0;
         auto f = make_ready_future<>();
         if (!data_to_pull) {
+            tls_log.trace("{} do_get: no data to pull, waiting for input", *this);
             // If nothing is in the SSL buffers then we may have to wait for
             // data to come in
             f = wait_for_input();
@@ -1237,12 +1271,16 @@ public:
                 return make_ready_future<buf_type>();
             }
             auto avail = BIO_ctrl_pending(in_bio()) + SSL_pending(_ssl.get());
+            tls_log.trace("{} do_get: available: {}", *this, avail);
             buf_type buf(avail);
             size_t bytes_read = 0;
             auto read_result = SSL_read_ex(
               _ssl.get(), buf.get_write(), avail, &bytes_read);
+            tls_log.trace("{} do_get: SSL_read_ex: {}", *this, read_result);
+            tls_log.trace("{} do_get: SSL_read_ex bytes_ready: {}", *this, bytes_read);
             if (read_result != 1) {
                 const auto ssl_err = SSL_get_error(_ssl.get(), read_result);
+                tls_log.trace("{} do_get: SSL_get_error: {}", *this, ssl_err);
                 switch (ssl_err) {
                 case SSL_ERROR_ZERO_RETURN:
                     // Remote end has closed
@@ -1302,6 +1340,7 @@ public:
 
     // Called by user applications to pull data off of the TLS session
     future<buf_type> get() override {
+        tls_log.trace("{} get", *this);
         if (_error) {
             return make_exception_future<buf_type>(_error);
         }
@@ -1309,30 +1348,37 @@ public:
             return make_ready_future<buf_type>(buf_type());
         }
         if (!connected()) {
+            tls_log.trace("{} get: not connected, performing handshake", *this);
             return handshake().then(std::bind(&session::get, this));
         }
         return with_semaphore(_in_sem, 1, std::bind(&session::do_get, this))
           .then([this](buf_type buf) {
               if (buf.empty() && !eof()) {
+                  tls_log.trace("{} get: buffer empty and not eof, performing handshake", *this);
                   return handshake().then(std::bind(&session::get, this));
               }
+              tls_log.trace("{} get: returning buffer of size {}", *this, buf.size());
               return make_ready_future<buf_type>(std::move(buf));
           });
     }
 
     // Performs shutdown
     future<> do_shutdown() {
+        tls_log.trace("{} do_shutdown", *this);
         if (_error || !connected()) {
+            tls_log.trace("{} do_shutdown: error exists or not connected", *this);
             return make_ready_future();
         }
 
         auto res = SSL_shutdown(_ssl.get());
+        tls_log.trace("{} do_shutdown: SSL_shutdown: {}", *this, res);
         if (res == 1) {
             return wait_for_output();
         } else if (res == 0) {
             return yield().then([this] { return do_shutdown(); });
         } else {
             auto ssl_err = SSL_get_error(_ssl.get(), res);
+            tls_log.trace("{} do_shutdown: SSL_get_error: {}", *this, ssl_err);
             switch (ssl_err) {
             case SSL_ERROR_NONE:
                 // this is weird, yield and try again
@@ -1381,12 +1427,15 @@ public:
     }
 
     void verify() {
+        tls_log.trace("{} verify", *this);
         if (!_creds->_enable_certificate_verification) {
+            tls_log.debug("{} verify: certificate verification disabled, skipping", *this);
             return;
         }
         // A success return code (0) does not signify if a cert was presented or not, that
         // must be explicitly queried via SSL_get_peer_certificate
         auto res = SSL_get_verify_result(_ssl.get());
+        tls_log.trace("{} verify: SSL_get_verify_result: {}", *this, res);
         if (res != X509_V_OK) {
             auto stat_cstr(X509_verify_cert_error_string(res));
             auto dn = extract_dn_information(is_verification_error::yes);
@@ -1401,6 +1450,7 @@ public:
             }
             throw verification_error(stat_cstr);
         } else if (SSL_get0_peer_certificate(_ssl.get()) == nullptr) {
+            tls_log.trace("{} verify: No peer certificate", *this);
             // If a peer certificate was not presented,
             // SSL_get_verify_result will return X509_V_OK:
             // https://www.openssl.org/docs/man3.0/man3/SSL_get_verify_result.html
@@ -1431,6 +1481,7 @@ public:
     // This function waits for eof() to occur on the input stream
     // Unless wait_for_eof_on_shutdown is false
     future<> wait_for_eof() {
+        tls_log.trace("{} wait_for_eof", *this);
         if (!_options.wait_for_eof_on_shutdown) {
             // Seastar option to allow users to just bypass EOF waiting
             return make_ready_future();
@@ -1442,12 +1493,15 @@ public:
             return do_until(
                 [this] { return eof(); },
                 [this] { return do_get().discard_result(); });
+        }).finally([this] {
+            tls_log.trace("{} wait_for_eof: complete", *this);
         });
     }
 
     // This function is called to kick off the handshake.  It will obtain
     // locks on the _in_sem and _out_sem semaphores and start the handshake.
     future<> handshake() {
+        tls_log.trace("{} handshake", *this);
         if (_creds->need_load_system_trust()) {
             if (!SSL_CTX_set_default_verify_paths(_ctx.get())) {
                 throw make_ossl_error(
@@ -1469,6 +1523,7 @@ public:
     }
 
     future<> shutdown() {
+        tls_log.trace("{} shutdown", *this);
         // first, make sure any pending write is done.
         // bye handshake is a flush operation, but this
         // allows us to not pay extra attention to output state
@@ -1488,8 +1543,10 @@ public:
     }
 
     void close() noexcept override {
+        tls_log.trace("{} close", *this);
         // only do once.
         if (!std::exchange(_shutdown, true)) {
+            tls_log.trace("{} close: performing shutdown", *this);
             // running in background. try to bye-handshake us nicely, but after 10s we forcefully close.
             engine().run_in_background(with_timeout(
               timer<>::clock::now() + std::chrono::seconds(10), shutdown())
@@ -1622,6 +1679,14 @@ public:
             i2d_SSL_SESSION(sess, &data_ptr);
             return data;
         });
+    }
+
+    const sstring& local_address() const noexcept {
+        return _local_address;
+    }
+
+    const sstring& remote_address() const noexcept {
+        return _remote_address;
     }
 
 private:
@@ -1965,6 +2030,8 @@ private:
 
 private:
     std::unique_ptr<net::connected_socket_impl> _sock;
+    sstring _local_address;
+    sstring _remote_address;
     shared_ptr<tls::certificate_credentials::impl> _creds;
     data_source _in;
     data_sink _out;
@@ -2113,9 +2180,11 @@ int bio_create(BIO*) {
 /// and set the retry write flag.
 int bio_write_ex(BIO* b, const char * data, size_t dlen, size_t * written) {
     auto session = unwrap_bio_ptr(b);
+    tls_log.trace("{} bio_write_ex: dlen {}", *session, dlen);
     BIO_clear_retry_flags(b);
 
     if (!session->_output_pending.available()) {
+        tls_log.trace("{} bio_write_ex: nothing pending in output", *session);
         BIO_set_retry_write(b);
         return 0;
     }
@@ -2128,9 +2197,11 @@ int bio_write_ex(BIO* b, const char * data, size_t dlen, size_t * written) {
             msg.append(std::string_view(data, dlen));
             n = msg.size();
             session->_output_pending = session->_out.put(std::move(msg).release());
+            tls_log.trace("{} bio_write_ex: Appended {} bytes to output pending", *session, n);
         }
 
         if (session->_output_pending.failed()) {
+            tls_log.debug("{} bio_write_ex: output pending has error", *session);
             std::rethrow_exception(session->_output_pending.get_exception());
         }
 
@@ -2140,9 +2211,11 @@ int bio_write_ex(BIO* b, const char * data, size_t dlen, size_t * written) {
 
         return 1;
     } catch(const std::system_error & e) {
+        tls_log.debug("{} bio_write_ex: system error occurred: {}", *session, e.what());
         ERR_raise_data(ERR_LIB_SYS, e.code().value(), e.what());
         session->_output_pending = make_exception_future<>(std::current_exception());
     } catch(...) {
+        tls_log.debug("{} bio_write_ex: unknown error occurred", *session);
         ERR_raise(ERR_LIB_SYS, EIO);
         session->_output_pending = make_exception_future<>(std::current_exception());
     }
@@ -2158,13 +2231,16 @@ int bio_write_ex(BIO* b, const char * data, size_t dlen, size_t * written) {
 /// the _input buffer and return it to the caller.
 int bio_read_ex(BIO* b, char * data, size_t dlen, size_t *readbytes) {
     auto session = unwrap_bio_ptr(b);
+    tls_log.trace("{} bio_read_ex: dlen: {}", *session, dlen);
     BIO_clear_retry_flags(b);
     if (session->eof()) {
+        tls_log.trace("{} bio_read_ex: eof", *session);
         BIO_set_flags(b, BIO_FLAGS_IN_EOF);
         return 0;
     }
 
     if (session->_input.empty()) {
+        tls_log.trace("{} bio_read_ex: input empty", *session);
         BIO_set_retry_read(b);
         return 0;
     }
@@ -2176,6 +2252,7 @@ int bio_read_ex(BIO* b, char * data, size_t dlen, size_t *readbytes) {
         *readbytes = n;
     }
 
+    tls_log.trace("{} bio_read_ex: read {} bytes from input", *session, n);
     return 1;
 }
 
@@ -2237,6 +2314,13 @@ future<connected_socket> tls::wrap_server(shared_ptr<server_credentials> cred, c
 }
 
 } // namespace seastar
+
+auto fmt::formatter<seastar::tls::session>::format(
+    const seastar::tls::session& s, fmt::format_context& ctx) const -> decltype(ctx.out()) {
+
+    return fmt::format_to(ctx.out(), "{}:{}:{} -",
+        s.get_type_string(), s.local_address(), s.remote_address());
+}
 
 const int seastar::tls::ERROR_UNKNOWN_COMPRESSION_ALGORITHM = ERR_PACK(
   ERR_LIB_SSL, 0, SSL_R_UNSUPPORTED_COMPRESSION_ALGORITHM);

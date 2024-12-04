@@ -659,6 +659,10 @@ public:
         SEASTAR_ASSERT(_output_pending.available());
     }
 
+    const char * get_type_string() const {
+        return _type == type::CLIENT ? "Client": "Server";
+    }
+
     typedef temporary_buffer<char> buf_type;
 
     sstring cert_status_to_string(gnutls_certificate_type_t type, unsigned int status) {
