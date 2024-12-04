@@ -36,6 +36,8 @@ public:
 
 namespace tls {
 
+extern logger tls_log;
+
 std::vector<uint8_t> generate_session_ticket_key();
 
 class session_impl {
