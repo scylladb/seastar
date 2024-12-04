@@ -54,6 +54,8 @@ module seastar;
 
 namespace seastar {
 
+logger tls::tls_log("seastar-tls");
+
 std::unique_ptr<net::connected_socket_impl> net::get_impl::get(connected_socket s) {
     return std::move(s._csi);
 }
