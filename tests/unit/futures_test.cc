@@ -538,17 +538,30 @@ SEASTAR_TEST_CASE(test_when_all_iterator_range) {
 
 template<typename Container>
 void test_iterator_range_estimate() {
-    using iter_traits = std::iterator_traits<typename Container::iterator>;
     Container container{1,2,3};
 
     BOOST_REQUIRE_EQUAL(internal::iterator_range_estimate_vector_capacity(
-        container.begin(), container.end(), typename iter_traits::iterator_category{}), 3);
+        container.begin(), container.end()), 3);
 }
 
 BOOST_AUTO_TEST_CASE(test_iterator_range_estimate_vector_capacity) {
     test_iterator_range_estimate<std::vector<int>>();
     test_iterator_range_estimate<std::list<int>>();
     test_iterator_range_estimate<std::forward_list<int>>();
+    {
+        int n = 42;
+        auto seq = std::views::iota(0, n);
+        BOOST_REQUIRE_EQUAL(internal::iterator_range_estimate_vector_capacity(
+            seq.begin(), seq.end()), n);
+    }
+    {
+        // for ranges that generate elements on-the-fly, advancing an iterator
+        // might actually consume or transform the underlying sequence, in this
+        // case, the function under test returns 0.
+        auto seq = std::views::iota(1);
+        BOOST_REQUIRE_EQUAL(internal::iterator_range_estimate_vector_capacity(
+            seq.begin(), seq.end()), 0);
+    }
 }
 
 // helper function for when_any tests

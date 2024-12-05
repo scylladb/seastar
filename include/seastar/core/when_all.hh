@@ -297,7 +297,7 @@ do_when_all(FutureIterator begin, FutureIterator end) noexcept {
         return ret;
     };
     std::vector<typename itraits::value_type> ret =
-            make_values_vector(iterator_range_estimate_vector_capacity(begin, end, typename itraits::iterator_category()));
+            make_values_vector(iterator_range_estimate_vector_capacity(begin, end));
     // Important to invoke the *begin here, in case it's a function iterator,
     // so we launch all computation in parallel.
     std::move(begin, end, std::back_inserter(ret));
