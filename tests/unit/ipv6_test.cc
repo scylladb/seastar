@@ -103,3 +103,26 @@ SEASTAR_TEST_CASE(tcp_packet_test) {
     });
 }
 
+SEASTAR_TEST_CASE(ipv6_equal_test) {
+    const uint16_t port{8080};
+    const uint16_t port2{8088};
+
+    const std::string str_addr1{"abcd:fedc:ba98:7654:3210:0123:4567:89ab"};
+    const std::string str_addr2{"0123:4567:89ab:cdef:3210:0123:4567:89ab"};
+    const std::string str_addr3{"abcd:fedc:ba98:7654:3210:0123:4567:8900"};
+
+    socket_address sock_addr1(ipv6_addr(str_addr1, port));
+    socket_address sock_addr2(ipv6_addr(str_addr2, port));
+    socket_address sock_addr3(ipv6_addr(str_addr1, port));
+
+    socket_address sock_addr4(ipv6_addr(str_addr3, port));
+    socket_address sock_addr5(ipv6_addr(str_addr1, port2));
+
+    BOOST_CHECK_NE(sock_addr1, sock_addr2);
+    BOOST_CHECK_EQUAL(sock_addr1, sock_addr3);
+    BOOST_CHECK_NE(sock_addr1, sock_addr4);
+    BOOST_CHECK_NE(sock_addr1, sock_addr5);
+
+    return make_ready_future();
+}
+
