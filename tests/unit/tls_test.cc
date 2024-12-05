@@ -1126,8 +1126,12 @@ SEASTAR_THREAD_TEST_CASE(test_reload_certificates) {
             }
 
             try {
-                f2.get();
-                BOOST_FAIL("should not reach");
+                auto res = f2.get();
+                // If the server completes sending data to the client
+                // during the handshake before the client has fully
+                // closed its connection, then the get() call will
+                // succeed by return an empty buffer indicating EOF
+                BOOST_REQUIRE(res.size() == 0);
             } catch (...) {
                 // ok
             }
@@ -2096,8 +2100,12 @@ SEASTAR_THREAD_TEST_CASE(test_reload_certificates_with_only_shard0_notify) {
             }
 
             try {
-                f2.get();
-                BOOST_FAIL("should not reach");
+                auto res = f2.get();
+                // If the server completes sending data to the client
+                // during the handshake before the client has fully
+                // closed its connection, then the get() call will
+                // succeed by return an empty buffer indicating EOF
+                BOOST_REQUIRE(res.size() == 0);
             } catch (...) {
                 // ok
             }
