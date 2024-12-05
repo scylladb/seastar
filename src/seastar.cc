@@ -345,6 +345,7 @@ module : private;
 #include <seastar/net/virtio.hh>
 
 #include "net/native-stack-impl.hh"
+#include "net/tls-impl.hh"
 
 #include <seastar/http/url.hh>
 #include <seastar/http/internal/content_source.hh>
