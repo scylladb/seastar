@@ -157,6 +157,18 @@ namespace tls {
      */
     using dn_callback = noncopyable_function<void(session_type type, sstring subject, sstring issuer)>;
 
+    enum class client_auth {
+        NONE, REQUEST, REQUIRE
+    };
+
+    /**
+     * Session resumption support.
+     * We only support TLS1.3 session tickets.
+     */
+    enum class session_resume_mode {
+        NONE, TLS13_SESSION_TICKET
+    };
+
     /**
      * Holds certificates and keys.
      *
@@ -235,24 +247,18 @@ namespace tls {
         template<typename Base>
         friend class reloadable_credentials;
         shared_ptr<impl> _impl;
+
+        // The following methods are provided so classes that inherit from
+        // certificate_credentials can access the underly implementation
+        void enable_load_system_trust();
+        void set_client_auth(client_auth);
+        void set_session_resume_mode(session_resume_mode);
     };
 
     /** Exception thrown on certificate validation error */
     class verification_error : public std::runtime_error {
     public:
         using runtime_error::runtime_error;
-    };
-
-    enum class client_auth {
-        NONE, REQUEST, REQUIRE
-    };
-
-    /**
-     * Session resumption support.
-     * We only support TLS1.3 session tickets.
-    */
-    enum class session_resume_mode {
-        NONE, TLS13_SESSION_TICKET
     };
 
     /**
