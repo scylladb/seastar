@@ -346,7 +346,9 @@ public:
     }()) {
         // The static verify_callback above will use the stored pointer to 'this' to store the last
         // observed x509 certificate
-        assert(X509_STORE_set_ex_data(_creds.get(), credential_store_idx, this) == 1);
+        [[maybe_unused]] auto res =
+            X509_STORE_set_ex_data(_creds.get(), credential_store_idx, this);
+        assert(res == 1);
     }
 
 
