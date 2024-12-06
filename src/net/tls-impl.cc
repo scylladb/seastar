@@ -29,7 +29,9 @@ module;
 
 #include <sys/stat.h>
 
+#ifdef SEASTAR_USE_GNUTLS
 #include <gnutls/gnutls.h>
+#endif
 
 #include <any>
 #include <boost/range/iterator_range.hpp>
@@ -252,10 +254,6 @@ void tls::credentials_builder::set_session_resume_mode(session_resume_mode m) {
     }
 }
 
-void tls::credentials_builder::set_priority_string(const sstring& prio) {
-    _priority = prio;
-}
-
 template<typename Blobs, typename Visitor>
 static void visit_blobs(Blobs& blobs, Visitor&& visitor) {
     auto visit = [&](const sstring& key, auto* vt) {
@@ -298,9 +296,33 @@ void tls::credentials_builder::apply_to(certificate_credentials& creds) const {
         creds.enable_load_system_trust();
     }
 
+#ifdef SEASTAR_USE_GNUTLS
     if (!_priority.empty()) {
         creds.set_priority_string(_priority);
     }
+#endif
+
+#ifdef SEASTAR_USE_OPENSSL
+    if (!_cipher_string.empty()) {
+        creds.set_cipher_string(_cipher_string);
+    }
+
+    if (!_ciphersuites.empty()) {
+        creds.set_ciphersuites(_ciphersuites);
+    }
+
+    if (_enable_server_precedence) {
+        creds.enable_server_precedence();
+    }
+
+    if (_min_tls_version.has_value()) {
+        creds.set_minimum_tls_version(*_min_tls_version);
+    }
+
+    if (_max_tls_version.has_value()) {
+        creds.set_maximum_tls_version(*_max_tls_version);
+    }
+#endif
 
     creds.set_client_auth(_client_auth);
     creds.set_session_resume_mode(_session_resume_mode, std::span{_session_resume_key.begin(), _session_resume_key.end()});
@@ -319,7 +341,7 @@ shared_ptr<tls::certificate_credentials> tls::credentials_builder::build_certifi
 shared_ptr<tls::server_credentials> tls::credentials_builder::build_server_credentials() const {
     auto i = _blobs.find(dh_level_key);
     if (i == _blobs.end()) {
-#if GNUTLS_VERSION_NUMBER < 0x030600
+#if GNUTLS_VERSION_NUMBER < 0x030600 && SEASTAR_USE_GNUTLS
         throw std::invalid_argument("No DH level set");
 #else
         auto creds = make_shared<server_credentials>();
