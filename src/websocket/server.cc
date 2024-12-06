@@ -27,8 +27,8 @@
 #include <seastar/core/scattered_message.hh>
 #include <seastar/core/byteorder.hh>
 #include <seastar/http/request.hh>
-#include <gnutls/crypto.h>
-#include <gnutls/gnutls.h>
+
+#include "websocket/base64.hh"
 
 namespace seastar::experimental::websocket {
 
@@ -122,27 +122,6 @@ future<> connection::process() {
     return when_all_succeed(read_loop(), response_loop()).discard_result().handle_exception([] (const std::exception_ptr& e) {
         wlogger.debug("Processing failed: {}", e);
     });
-}
-
-static std::string sha1_base64(std::string_view source) {
-    unsigned char hash[20];
-    assert(sizeof(hash) == gnutls_hash_get_len(GNUTLS_DIG_SHA1));
-    if (int ret = gnutls_hash_fast(GNUTLS_DIG_SHA1, source.data(), source.size(), hash);
-        ret != GNUTLS_E_SUCCESS) {
-        throw websocket::exception(fmt::format("gnutls_hash_fast: {}", gnutls_strerror(ret)));
-    }
-    gnutls_datum_t hash_data{
-        .data = hash,
-        .size = sizeof(hash),
-    };
-    gnutls_datum_t base64_encoded;
-    if (int ret = gnutls_base64_encode2(&hash_data, &base64_encoded);
-        ret != GNUTLS_E_SUCCESS) {
-        throw websocket::exception(fmt::format("gnutls_base64_encode2: {}", gnutls_strerror(ret)));
-    }
-    auto free_base64_encoded = defer([&] () noexcept { gnutls_free(base64_encoded.data); });
-    // base64_encoded.data is "unsigned char *"
-    return std::string(reinterpret_cast<const char*>(base64_encoded.data), base64_encoded.size);
 }
 
 future<> connection::read_http_upgrade_request() {
