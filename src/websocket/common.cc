@@ -24,8 +24,15 @@
 #include <seastar/core/when_all.hh>
 #include <seastar/util/assert.hh>
 #include <seastar/util/defer.hh>
+
+#ifdef SEASTAR_USE_OPENSSL
+#include <openssl/evp.h>
+#elif defined(SEASTAR_USE_GNUTLS)
 #include <gnutls/crypto.h>
 #include <gnutls/gnutls.h>
+#else
+#error "Unknown cryptographic provider"
+#endif
 
 namespace seastar::experimental::websocket {
 
@@ -130,15 +137,42 @@ future<> connection::read_one() {
 
 std::string sha1_base64(std::string_view source) {
     unsigned char hash[20];
+#ifdef SEASTAR_USE_OPENSSL
+    unsigned int hash_size = sizeof(hash);
+    auto md_ptr = EVP_MD_fetch(nullptr, "SHA1", nullptr);
+    if (!md_ptr) {
+        throw websocket::exception("Failed to fetch SHA-1 algorithm from OpenSSL");
+    }
+
+    auto free_evp_md_ptr =
+        defer([&]() noexcept  { EVP_MD_free(md_ptr); });
+
+    SEASTAR_ASSERT(hash_size == static_cast<unsigned int>(EVP_MD_get_size(md_ptr)));
+
+    if (1 != EVP_Digest(source.data(), source.size(), hash, &hash_size, md_ptr, nullptr)) {
+        throw websocket::exception("Failed to perform SHA-1 digest in OpenSSL");
+    }
+#elif defined(SEASTAR_USE_GNUTLS)
     SEASTAR_ASSERT(sizeof(hash) == gnutls_hash_get_len(GNUTLS_DIG_SHA1));
     if (int ret = gnutls_hash_fast(GNUTLS_DIG_SHA1, source.data(), source.size(), hash);
         ret != GNUTLS_E_SUCCESS) {
         throw websocket::exception(fmt::format("gnutls_hash_fast: {}", gnutls_strerror(ret)));
     }
+#else
+#error "Unknown cryptographic provider"
+#endif
     return encode_base64(std::string_view(reinterpret_cast<const char*>(hash), sizeof(hash)));
 }
 
 std::string encode_base64(std::string_view source) {
+#ifdef SEASTAR_USE_OPENSSL
+    const auto encode_capacity = [](size_t input_size) {
+        return (((4 * input_size) / 3) + 3) & ~0x3U;
+    };
+    auto base64_encoded = uninitialized_string<std::string>(encode_capacity(source.size()));
+    EVP_EncodeBlock(reinterpret_cast<unsigned char *>(base64_encoded.data()), reinterpret_cast<const unsigned char *>(source.data()), source.size());
+    return base64_encoded;
+#elif defined(SEASTAR_USE_GNUTLS)
     gnutls_datum_t src_data{
         .data = reinterpret_cast<uint8_t*>(const_cast<char*>(source.data())),
         .size = static_cast<unsigned>(source.size())
@@ -150,6 +184,9 @@ std::string encode_base64(std::string_view source) {
     auto free_encoded_data = defer([&] () noexcept { gnutls_free(encoded_data.data); });
     // base64_encoded.data is "unsigned char *"
     return std::string(reinterpret_cast<const char*>(encoded_data.data), encoded_data.size);
+#else
+#error "Unknown cryptographic provider"
+#endif
 }
 
 }

@@ -213,6 +213,7 @@ namespace tls {
 
         // TODO add methods for certificate verification
 
+#ifdef SEASTAR_USE_GNUTLS
         /**
          * TLS handshake priority string. See gnutls docs and syntax at
          * https://gnutls.org/manual/html_node/Priority-Strings.html
@@ -220,6 +221,45 @@ namespace tls {
          * Allows specifying order and allowance for handshake alg.
          */
         void set_priority_string(const sstring&);
+#endif
+
+#ifdef SEASTAR_USE_OPENSSL
+        /**
+         * Used to set the cipher string for TLS versions 1.2 and below
+         *
+         * See https://www.openssl.org/docs/manmaster/man3/SSL_CTX_set_cipher_list.html
+         * for documentation on the format of the cipher list string
+         */
+        void set_cipher_string(const sstring&);
+
+        /**
+         * Used to set the cipher suites to use for TLSv1.3
+         *
+         * See https://www.openssl.org/docs/manmaster/man3/SSL_CTX_set_ciphersuites.html
+         * for documentation on the format of the ciphersuites string.
+         */
+        void set_ciphersuites(const sstring&);
+
+        /**
+         * Call this when you want to enable server precedence when
+         * negotitating the TLS handshake.  Client precedence is on
+         * by default.
+         */
+        void enable_server_precedence();
+        /**
+         * @brief Set the minimum tls version for this connection
+         *
+         * If unset, will default to the minimum of the underlying
+         * implementation
+         */
+        void set_minimum_tls_version(tls_version);
+        /**
+         * @brief Set the maximum tls version for this connection
+         *
+         * If unset, will default to the maximum of the underly implementation
+         */
+        void set_maximum_tls_version(tls_version);
+#endif
 
         /**
          * Register a callback for receiving Distinguished Name (DN) information
@@ -338,7 +378,6 @@ namespace tls {
 
         future<> set_system_trust();
         void set_client_auth(client_auth);
-        void set_priority_string(const sstring&);
         /**
          * Sets session resume mode to be applied to all created server credential sets
          * Note: setting this will generate a session key that will be reused across all
@@ -353,6 +392,18 @@ namespace tls {
          * in preference order.
          */
         void set_alpn_protocols(const std::vector<sstring>& protocols);
+
+#ifdef SEASTAR_USE_GNUTLS
+        void set_priority_string(const sstring&);
+#endif
+
+#ifdef SEASTAR_USE_OPENSSL
+        void set_cipher_string(const sstring&);
+        void set_ciphersuites(const sstring&);
+        void enable_server_precedence();
+        void set_minimum_tls_version(tls_version);
+        void set_maximum_tls_version(tls_version);
+#endif
 
         void apply_to(certificate_credentials&) const;
 
@@ -378,6 +429,11 @@ namespace tls {
         sstring _priority;
         std::vector<uint8_t> _session_resume_key;
         std::vector<sstring> _alpn_protocols;
+        sstring _cipher_string;
+        sstring _ciphersuites;
+        bool _enable_server_precedence = false;
+        std::optional<tls_version> _min_tls_version;
+        std::optional<tls_version> _max_tls_version;
     };
 
     using session_data = std::vector<uint8_t>;
@@ -647,6 +703,12 @@ namespace tls {
     extern const int ERROR_NO_CIPHER_SUITES;
     extern const int ERROR_DECRYPTION_FAILED;
     extern const int ERROR_MAC_VERIFY_FAILED;
+#ifdef SEASTAR_USE_OPENSSL
+    // OpenSSL specific errors
+    extern const int ERROR_WRONG_VERSION_NUMBER;
+    extern const int ERROR_HTTP_REQUEST;
+    extern const int ERROR_HTTPS_PROXY_REQUEST;
+#endif
 }
 }
 
@@ -670,5 +732,12 @@ template <> struct fmt::formatter<seastar::tls::subject_alt_name> : fmt::formatt
     template <typename FormatContext>
     auto format(const seastar::tls::subject_alt_name& name, FormatContext& ctx) const {
         return fmt::format_to(ctx.out(), "{}={}", name.type, name.value);
+    }
+};
+
+template <> struct fmt::formatter<seastar::tls::tls_version> : fmt::formatter<string_view> {
+    template<typename FormatContext>
+    auto format(seastar::tls::tls_version version, FormatContext& ctx) const {
+        return fmt::format_to(ctx.out(), "{}", format_as(version));
     }
 };

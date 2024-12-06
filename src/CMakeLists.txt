@@ -67,7 +67,8 @@ target_sources (seastar-module
     net/packet.cc
     net/inet_address.cc
     net/socket_address.cc
-    net/tls.cc
+    $<$<BOOL:${Seastar_USE_GNUTLS}>:net/tls.cc>
+    $<$<BOOL:${Seastar_USE_OPENSSL}>:net/ossl.cc>
     net/tls-impl.cc
     net/virtio.cc
     http/client.cc
@@ -97,6 +98,8 @@ target_compile_definitions (seastar-module
     $<$<BOOL:${Seastar_SSTRING}>:SEASTAR_SSTRING>
     SEASTAR_API_LEVEL=${Seastar_API_LEVEL}
     SEASTAR_SCHEDULING_GROUPS_COUNT=${Seastar_SCHEDULING_GROUPS_COUNT}
+    $<$<BOOL:${Seastar_USE_OPENSSL}>:SEASTAR_USE_OPENSSL>
+    $<$<BOOL:${Seastar_USE_GNUTLS}>:SEASTAR_USE_GNUTLS>
   PRIVATE
     SEASTAR_MODULE
     ${Seastar_PRIVATE_COMPILE_DEFINITIONS})
@@ -122,7 +125,9 @@ target_link_libraries (seastar-module
     SourceLocation::source_location
   PRIVATE
     ${CMAKE_DL_LIBS}
-    GnuTLS::gnutls
+    $<$<BOOL:${Seastar_USE_GNUTLS}>:GnuTLS::gnutls>
+    $<$<BOOL:${Seastar_USE_OPENSSL}>:OpenSSL::SSL>
+    $<$<BOOL:${Seastar_USE_OPENSSL}>:OpenSSL::Crypto>
     StdAtomic::atomic
     lksctp-tools::lksctp-tools
     rt::rt

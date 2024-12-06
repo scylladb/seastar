@@ -154,6 +154,10 @@ static auto get_gtls_string = [](auto func, auto... args) noexcept {
 
 }
 
+void tls::credentials_builder::set_priority_string(const sstring& prio) {
+    _priority = prio;
+}
+
 class tls::dh_params::impl : gnutlsobj {
     static gnutls_sec_param_t to_gnutls_level(level l) {
         switch (l) {
