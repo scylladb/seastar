@@ -503,17 +503,20 @@ struct has_iterator_category : std::false_type {};
 template <typename T>
 struct has_iterator_category<T, std::void_t<typename std::iterator_traits<T>::iterator_category >> : std::true_type {};
 
-template <typename Iterator, typename Sentinel, typename IteratorCategory>
+template <typename Iterator, typename Sentinel>
 inline
 size_t
-iterator_range_estimate_vector_capacity(Iterator begin, Sentinel end, IteratorCategory) {
-    // May be linear time below random_access_iterator_tag, but still better than reallocation
-    if constexpr (std::is_base_of_v<std::forward_iterator_tag, IteratorCategory>) {
-        return std::distance(begin, end);
+iterator_range_estimate_vector_capacity(Iterator begin, Sentinel end) {
+    if constexpr (std::forward_iterator<Iterator> &&
+                  std::forward_iterator<Sentinel>) {
+        return std::ranges::distance(begin, end);
+    } else if constexpr (std::random_access_iterator<Iterator> &&
+                         std::random_access_iterator<Sentinel>) {
+        return std::ranges::distance(begin, end);
+    } else {
+        // For InputIterators we can't estimate needed capacity
+        return 0;
     }
-
-    // For InputIterators we can't estimate needed capacity
-    return 0;
 }
 
 } // namespace internal
@@ -577,12 +580,11 @@ parallel_for_each(Iterator begin, Sentinel end, Func&& func) noexcept {
         memory::scoped_critical_alloc_section _;
         if (!f.available() || f.failed()) {
             if (!s) {
-                using itraits = std::iterator_traits<Iterator>;
                 size_t n{0U};
                 if constexpr (internal::has_iterator_category<Iterator>::value) {
                     // We need if-constexpr here because there exist iterators for which std::iterator_traits
                     // does not have 'iterator_category' as member type
-                    n = (internal::iterator_range_estimate_vector_capacity(begin, end, typename itraits::iterator_category{}) + 1);
+                    n = (internal::iterator_range_estimate_vector_capacity(begin, end) + 1);
                 }
                 s = new parallel_for_each_state(n);
             }

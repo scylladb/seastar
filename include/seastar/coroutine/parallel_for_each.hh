@@ -128,9 +128,8 @@ public:
             } else {
                 memory::scoped_critical_alloc_section _;
                 if (_futures.empty()) {
-                    using itraits = std::iterator_traits<Iterator>;
                     if constexpr (seastar::internal::has_iterator_category<Iterator>::value) {
-                        auto n = seastar::internal::iterator_range_estimate_vector_capacity(it, end, typename itraits::iterator_category{});
+                        auto n = seastar::internal::iterator_range_estimate_vector_capacity(it, end);
                         _futures.reserve(n);
                     }
                 }
