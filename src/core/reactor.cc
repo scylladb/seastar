@@ -2579,6 +2579,21 @@ void reactor::register_metrics() {
     });
 }
 
+seastar::internal::log_buf::inserter_iterator do_dump_task_queue(seastar::internal::log_buf::inserter_iterator it, const reactor::task_queue& tq) {
+    memory::scoped_critical_alloc_section _;
+    std::unordered_map<const char*, unsigned> infos;
+    for (const auto& tp : tq._q) {
+        const std::type_info& ti = typeid(*tp);
+        auto [ it, ins ] = infos.emplace(std::make_pair(ti.name(), 0u));
+        it->second++;
+    }
+    it = fmt::format_to(it, "Too long queue accumulated for {} ({} tasks)\n", tq._name, tq._q.size());
+    for (auto& ti : infos) {
+        it = fmt::format_to(it, " {}: {}\n", ti.second, ti.first);
+    }
+    return it;
+}
+
 void reactor::run_tasks(task_queue& tq) {
     // Make sure new tasks will inherit our scheduling group
     *internal::current_scheduling_group_ptr() = scheduling_group(tq._id);
@@ -2604,6 +2619,10 @@ void reactor::run_tasks(task_queue& tq) {
                 // #302.
                 reset_preemption_monitor();
                 lowres_clock::update();
+
+                static thread_local logger::rate_limit rate_limit(std::chrono::seconds(10));
+                logger::lambda_log_writer writer([&tq] (auto it) { return do_dump_task_queue(it, tq); });
+                seastar_logger.log(log_level::warn, rate_limit, writer);
             }
         }
     }
