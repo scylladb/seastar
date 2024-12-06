@@ -55,7 +55,6 @@ struct cpu_stall_detector_config {
 class cpu_stall_detector {
 protected:
     std::atomic<uint64_t> _last_tasks_processed_seen{};
-    unsigned _stall_detector_reports_per_minute;
     std::atomic<uint64_t> _stall_detector_missed_ticks = { 0 };
     unsigned _reported = 0;
     unsigned _total_reported = 0;
