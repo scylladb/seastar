@@ -34,6 +34,7 @@ module;
 #include <ranges>
 #include <regex>
 #include <thread>
+#include <setjmp.h>
 
 #include <grp.h>
 #include <spawn.h>
@@ -824,7 +825,23 @@ public:
     }
 };
 
+static thread_local jmp_buf stall_detector_env;
+static thread_local bool in_stall_detector = false;
+static thread_local bool crash_collecting_backtrace = false;
+
+inline void maybe_crash_for_test() noexcept {
+    if (crash_collecting_backtrace) [[unlikely]] {
+        *(volatile int *)nullptr = 0;
+    }
+}
+
 static void print_with_backtrace(backtrace_buffer& buf, bool oneline) noexcept {
+    if (sigsetjmp(stall_detector_env, 0)) {
+        buf.append(" ¯\\_(ツ)_/¯\n");
+        goto out;
+    }
+    in_stall_detector = true;
+
     if (local_engine) {
         buf.append(" on shard ");
         buf.append_decimal(this_shard_id());
@@ -835,12 +852,17 @@ static void print_with_backtrace(backtrace_buffer& buf, bool oneline) noexcept {
 
   if (!oneline) {
     buf.append(".\nBacktrace:\n");
+    maybe_crash_for_test();
     buf.append_backtrace();
   } else {
     buf.append(". Backtrace:");
+    maybe_crash_for_test();
     buf.append_backtrace_oneline();
     buf.append("\n");
   }
+
+out:
+    in_stall_detector = false;
     buf.flush();
 }
 
@@ -1477,6 +1499,10 @@ reactor::test::set_stall_detector_report_function(std::function<void ()> report)
     cfg.report = std::move(report);
     r._cpu_stall_detector->update_config(std::move(cfg));
     r._cpu_stall_detector->reset_suppression_state(reactor::now());
+}
+
+void reactor::test::set_stall_detector_crash_collecting_backtrace() {
+    crash_collecting_backtrace = true;
 }
 
 std::function<void ()>
@@ -3947,6 +3973,9 @@ void install_oneshot_signal_handler() {
 
     struct sigaction sa;
     sa.sa_sigaction = [](int sig, siginfo_t *info, void *p) {
+        if (sig == SIGSEGV && in_stall_detector) {
+            siglongjmp(stall_detector_env, 1);
+        }
         std::lock_guard<util::spinlock> g(lock);
         if (!handled) {
             handled = true;
