@@ -631,18 +631,6 @@ logging_settings extract_settings(const options& opts) {
 }
 
 }
-namespace boost {
-template<>
-seastar::log_level lexical_cast(const std::string& source) {
-    std::istringstream in(source);
-    seastar::log_level level;
-    if (!(in >> level)) {
-        throw boost::bad_lexical_cast();
-    }
-    return level;
-}
-
-}
 
 namespace std {
 std::ostream& operator<<(std::ostream& out, const std::exception_ptr& eptr) {
