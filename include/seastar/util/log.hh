@@ -35,7 +35,6 @@
 #include <atomic>
 #include <mutex>
 #include <type_traits>
-#include <boost/lexical_cast.hpp>
 #include <fmt/core.h>
 #include <fmt/format.h>
 #endif
@@ -71,14 +70,6 @@ struct fmt::formatter<seastar::log_level> {
     constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
     auto format(seastar::log_level level, fmt::format_context& ctx) const -> decltype(ctx.out());
 };
-
-// Boost doesn't auto-deduce the existence of the streaming operators for some reason
-
-namespace boost {
-template<>
-seastar::log_level lexical_cast(const std::string& source);
-
-}
 
 namespace seastar {
 SEASTAR_MODULE_EXPORT_BEGIN
