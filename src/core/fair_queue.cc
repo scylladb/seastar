@@ -38,6 +38,7 @@ module seastar;
 #include <seastar/core/circular_buffer.hh>
 #include <seastar/util/noncopyable_function.hh>
 #include <seastar/core/metrics.hh>
+#include <seastar/core/internal/fq_trace.hh>
 #endif
 
 namespace seastar {
@@ -156,10 +157,11 @@ bool fair_queue::class_compare::operator() (const priority_class_ptr& lhs, const
     return lhs->_accumulated > rhs->_accumulated;
 }
 
-fair_queue::fair_queue(fair_group& group, config cfg)
+fair_queue::fair_queue(fair_group& group, internal::tracer& trace, config cfg)
     : _config(std::move(cfg))
     , _group(group)
     , _group_replenish(clock_type::now())
+    , _tracer(trace)
 {
 }
 
@@ -247,6 +249,7 @@ auto fair_queue::grab_capacity(const fair_queue_entry& ent) noexcept -> grab_res
     capacity_t cap = ent._capacity;
     capacity_t want_head = _group.grab_capacity(cap);
     if (_group.capacity_deficiency(want_head)) {
+        _tracer.trace<internal::trace_event::FQ_WAIT_CAPACITY>();
         _pending.emplace(want_head, cap);
         return grab_result::pending;
     }
