@@ -445,6 +445,11 @@ future<uint64_t> fs_avail(std::string_view name) noexcept;
 future<uint64_t> fs_free(std::string_view name) noexcept;
 /// @}
 
+/// Return filesystem-wide stat where a file is located.
+///
+/// \param name name of the file to inspect
+future<file_system_stat_data> file_system_stat(std::string_view name) noexcept;
+
 namespace experimental {
 /// \defgroup interprocess-module Interprocess Communication
 ///
