@@ -3445,7 +3445,6 @@ poller::~poller() {
         if (_registration_task) {
             // not added yet, so don't do it at all.
             _registration_task->cancel();
-            delete _registration_task;
         } else if (!engine()._finished_running_tasks) {
             // If _finished_running_tasks, the call to add_task() below will just
             // leak it, since no one will call task::run_and_dispose(). Just leave
