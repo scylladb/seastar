@@ -83,18 +83,20 @@ public:
     using vector_type = boost::container::static_vector<frame, 64>;
 private:
     vector_type _frames;
-    size_t _hash;
-    char _delimeter;
+    size_t _hash = 0;
+    char _delimeter = ' ';
 private:
     size_t calculate_hash() const noexcept;
 public:
-    simple_backtrace(vector_type f, char delimeter = ' ') noexcept : _frames(std::move(f)), _hash(calculate_hash()), _delimeter(delimeter) {}
-    simple_backtrace(char delimeter = ' ') noexcept : simple_backtrace({}, delimeter) {}
+    simple_backtrace(vector_type f) noexcept : _frames(std::move(f)), _hash(calculate_hash()) {}
+    simple_backtrace() noexcept = default;
+    [[deprecated]] simple_backtrace(vector_type f, char delimeter) : _frames(std::move(f)), _hash(calculate_hash()), _delimeter(delimeter) {}
+    [[deprecated]] simple_backtrace(char delimeter) : _delimeter(delimeter) {}
 
     size_t hash() const noexcept { return _hash; }
     char delimeter() const noexcept { return _delimeter; }
 
-    friend std::ostream& operator<<(std::ostream& out, const simple_backtrace&);
+    friend fmt::formatter<simple_backtrace>;
 
     bool operator==(const simple_backtrace& o) const noexcept {
         return _hash == o._hash && _frames == o._frames;
@@ -115,7 +117,7 @@ public:
         : _task_type(&ti)
     { }
 
-    friend std::ostream& operator<<(std::ostream& out, const task_entry&);
+    friend fmt::formatter<task_entry>;
 
     bool operator==(const task_entry& o) const noexcept {
         return *_task_type == *o._task_type;
@@ -150,7 +152,7 @@ public:
     size_t hash() const noexcept { return _hash; }
     char delimeter() const noexcept { return _main.delimeter(); }
 
-    friend std::ostream& operator<<(std::ostream& out, const tasktrace&);
+    friend fmt::formatter<tasktrace>;
 
     bool operator==(const tasktrace& o) const noexcept;
 
@@ -181,10 +183,22 @@ struct hash<seastar::tasktrace> {
 
 }
 
-#if FMT_VERSION >= 90000
-template <> struct fmt::formatter<seastar::tasktrace> : fmt::ostream_formatter {};
-template <> struct fmt::formatter<seastar::simple_backtrace> : fmt::ostream_formatter {};
-#endif
+template <> struct fmt::formatter<seastar::frame> {
+    constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
+    auto format(const seastar::frame&, fmt::format_context& ctx) const -> decltype(ctx.out());
+};
+template <> struct fmt::formatter<seastar::simple_backtrace> {
+    constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
+    auto format(const seastar::simple_backtrace&, fmt::format_context& ctx) const -> decltype(ctx.out());
+};
+template <> struct fmt::formatter<seastar::tasktrace> {
+    constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
+    auto format(const seastar::tasktrace&, fmt::format_context& ctx) const -> decltype(ctx.out());
+};
+template <> struct fmt::formatter<seastar::task_entry> {
+    constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
+    auto format(const seastar::task_entry&, fmt::format_context& ctx) const -> decltype(ctx.out());
+};
 
 namespace seastar {
 
