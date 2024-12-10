@@ -95,3 +95,6 @@ seastar_add_test (http_client
 
 seastar_add_test (perf_tests
   SOURCES perf_tests_perf.cc)
+
+seastar_add_test (metrics
+  SOURCES metrics_perf.cc)

@@ -927,23 +927,36 @@ public:
         bool show_help = req->get_query_param("__help__") != "false";
         bool enable_aggregation = req->get_query_param("__aggregate__") != "false";
         std::function<bool(const mi::labels_type&)> filter = make_filter(*req);
-        rep->write_body(is_protobuf_format ? "proto" : "txt", [this, is_protobuf_format, metric_family_name, prefix, show_help, enable_aggregation, filter] (output_stream<char>&& s) {
-            return do_with(metrics_families_per_shard(), output_stream<char>(std::move(s)),
-                    [this, is_protobuf_format, prefix, &metric_family_name, show_help, enable_aggregation, filter] (metrics_families_per_shard& families, output_stream<char>& s) mutable {
-                return get_map_value(families).then([&s, &families, this, is_protobuf_format, prefix, &metric_family_name, show_help, enable_aggregation, filter]() mutable {
-                    return do_with(get_range(families, metric_family_name, prefix),
-                            [&s, this, is_protobuf_format, show_help, enable_aggregation, filter](metric_family_range& m) {
-                        return (is_protobuf_format) ?  write_protobuf_representation(s, _ctx, m, enable_aggregation, filter) :
-                                write_text_representation(s, _ctx, m, show_help, enable_aggregation, filter);
-                    });
-                }).finally([&s] () mutable {
-                    return s.close();
-                });
-            });
+        rep->write_body(is_protobuf_format ? "proto" : "txt", [this, is_protobuf_format, metric_family_name, prefix, show_help, enable_aggregation, filter](output_stream<char>&& s) {
+            return write_body(is_protobuf_format, metric_family_name, prefix, show_help, enable_aggregation, filter, std::move(s));
         });
         return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
     }
+
+private:
+    future<> write_body(bool is_protobuf_format, sstring metric_family_name, bool prefix, bool show_help, bool enable_aggregation, details::filter_t filter, output_stream<char>&& s) {
+        return do_with(metrics_families_per_shard(), output_stream<char>(std::move(s)),
+            [this, is_protobuf_format, prefix, &metric_family_name, show_help, enable_aggregation, filter] (metrics_families_per_shard& families, output_stream<char>& s) mutable {
+            return get_map_value(families).then([&s, &families, this, is_protobuf_format, prefix, metric_family_name, show_help, enable_aggregation, filter]() mutable {
+                return do_with(get_range(families, metric_family_name, prefix),
+                        [&s, this, is_protobuf_format, show_help, enable_aggregation, filter](metric_family_range& m) {
+                    return (is_protobuf_format) ?  write_protobuf_representation(s, _ctx, m, enable_aggregation, filter) :
+                            write_text_representation(s, _ctx, m, show_help, enable_aggregation, filter);
+                });
+            }).finally([&s] () mutable {
+                return s.close();
+            });
+        });
+    }
+
+    friend details::test_access;
 };
+
+future<> details::test_access::write_body(config cfg, sstring metric_family_name, bool prefix, bool show_help, bool enable_aggregation, filter_t filter, output_stream<char>&& s) {
+    metrics_handler handler(std::move(cfg));
+
+    co_return co_await handler.write_body(cfg.allow_protobuf, metric_family_name, prefix, show_help, enable_aggregation, filter, std::move(s));
+}
 
 std::function<bool(const mi::labels_type&)> metrics_handler::_true_function = [](const mi::labels_type&) {
     return true;
