@@ -60,7 +60,7 @@ namespace details {
 using filter_t = std::function<bool(const metrics::impl::labels_type&)>;
 
 class test_access {
-    future<> write_body(config cfg, sstring metric_family_name, bool prefix, bool show_help, bool enable_aggregation, filter_t filter, output_stream<char>&& s);
+    future<> write_body(config cfg, bool use_protobuf_format, sstring metric_family_name, bool prefix, bool show_help, bool enable_aggregation, filter_t filter, output_stream<char>&& s);
 
     friend struct metrics_perf_fixture;
 };

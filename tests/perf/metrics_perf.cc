@@ -133,7 +133,7 @@ struct metrics_perf_fixture {
         perf_tests::start_measuring_time();
         for ([[maybe_unused]] auto _: irange(iterations)) {
             output_stream<char> out{counting_data_sink{}};
-            co_await access{}.write_body(config, "", false, true, false, always_true, std::move(out));
+            co_await access{}.write_body(config, false, "", false, true, false, always_true, std::move(out));
         }
         perf_tests::stop_measuring_time();
 
