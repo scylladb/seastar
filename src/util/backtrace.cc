@@ -33,6 +33,7 @@ module;
 #include <variant>
 #include <vector>
 #include <boost/container/static_vector.hpp>
+#include <fmt/ostream.h>
 
 #ifdef SEASTAR_MODULE
 module seastar;
@@ -111,37 +112,23 @@ size_t simple_backtrace::calculate_hash() const noexcept {
 }
 
 std::ostream& operator<<(std::ostream& out, const frame& f) {
-    if (!f.so->name.empty()) {
-        out << f.so->name << "+";
-    }
-    out << format("0x{:x}", f.addr);
+    fmt::print(out, "{}", f);
     return out;
 }
 
 std::ostream& operator<<(std::ostream& out, const simple_backtrace& b) {
-    char delim[2] = {'\0', '\0'};
-    for (auto f : b._frames) {
-        out << delim << f;
-        delim[0] = b.delimeter();
-    }
+    fmt::print(out, "{}", b);
     return out;
 }
 
 std::ostream& operator<<(std::ostream& out, const tasktrace& b) {
-    out << b._main;
-    for (auto&& e : b._prev) {
-        out << "\n   --------";
-        std::visit(make_visitor([&] (const shared_backtrace& sb) {
-            out << '\n' << sb;
-        }, [&] (const task_entry& f) {
-            out << "\n   " << f;
-        }), e);
-    }
+    fmt::print(out, "{}", b);
     return out;
 }
 
 std::ostream& operator<<(std::ostream& out, const task_entry& e) {
-    return out << seastar::pretty_type_name(*e._task_type);
+    fmt::print(out, "{}", e);
+    return out;
 }
 
 tasktrace current_tasktrace() noexcept {
@@ -195,3 +182,43 @@ bool tasktrace::operator==(const tasktrace& o) const noexcept {
 tasktrace::~tasktrace() {}
 
 } // namespace seastar
+
+namespace fmt {
+
+auto formatter<seastar::frame>::format(const seastar::frame& f, format_context& ctx) const
+    -> decltype(ctx.out()) {
+    auto out = ctx.out();
+    if (!f.so->name.empty()) {
+        out = fmt::format_to(out, "{}+", f.so->name);
+    }
+    return fmt::format_to(out, "0x{:x}", f.addr);
+}
+
+auto formatter<seastar::simple_backtrace>::format(const seastar::simple_backtrace& b, format_context& ctx) const
+    -> decltype(ctx.out()) {
+    return fmt::format_to(ctx.out(), "{}", fmt::join(b._frames, " "));
+}
+
+auto formatter<seastar::tasktrace>::format(const seastar::tasktrace& b, format_context& ctx) const
+    -> decltype(ctx.out()) {
+    auto out = ctx.out();
+    out = fmt::format_to(out, "{}", b._main);
+    for (auto&& e : b._prev) {
+        out = fmt::format_to(out,  "\n   --------");
+        out = std::visit(seastar::make_visitor(
+            [&] (const seastar::shared_backtrace& sb) {
+                return fmt::format_to(out,  "\n{}", sb);
+            },
+            [&] (const seastar::task_entry& f) {
+                return fmt::format_to(out,  "\n   {}", f);
+            }), e);
+    }
+    return out;
+}
+
+auto formatter<seastar::task_entry>::format(const seastar::task_entry& e, format_context& ctx) const
+    -> decltype(ctx.out()) {
+    return fmt::format_to(ctx.out(), "{}", seastar::pretty_type_name(*e._task_type));
+}
+
+}
