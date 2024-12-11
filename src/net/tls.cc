@@ -796,7 +796,7 @@ public:
     public:
         using time_point = std::chrono::system_clock::time_point;
 
-        reloading_builder(credentials_builder b, reload_callback cb, reloadable_credentials_base* creds, delay_type delay)
+        reloading_builder(credentials_builder b, reload_callback_ex cb, reloadable_credentials_base* creds, delay_type delay)
             : credentials_builder(std::move(b))
             , _cb(std::move(cb))
             , _creds(creds)
@@ -955,7 +955,7 @@ public:
         }
         void do_callback(std::exception_ptr ep = {}) {
             if (_cb && !_files.empty()) {
-                _cb(boost::copy_range<std::unordered_set<sstring>>(_files | boost::adaptors::map_keys), std::move(ep));
+                _cb(*this, boost::copy_range<std::unordered_set<sstring>>(_files | boost::adaptors::map_keys), std::move(ep)).get();
             }
         }
         // called from seastar::thread
@@ -988,7 +988,7 @@ public:
             });
         }
 
-        reload_callback _cb;
+        reload_callback_ex _cb;
         reloadable_credentials_base* _creds;
         fsnotifier _fsn;
         std::unordered_map<fsnotifier::watch_token, std::pair<fsnotifier::watch, sstring>> _watches;
@@ -997,7 +997,7 @@ public:
         timer<> _timer;
         delay_type _delay;
     };
-    reloadable_credentials_base(credentials_builder builder, reload_callback cb, delay_type delay = default_tolerance)
+    reloadable_credentials_base(credentials_builder builder, reload_callback_ex cb, delay_type delay = default_tolerance)
         : _builder(seastar::make_shared<reloading_builder>(std::move(builder), std::move(cb), this, delay))
     {
         _builder->start();
@@ -1016,7 +1016,7 @@ private:
 template<typename Base>
 class tls::reloadable_credentials : public Base, public tls::reloadable_credentials_base {
 public:
-    reloadable_credentials(credentials_builder builder, reload_callback cb, Base b, delay_type delay = default_tolerance)
+    reloadable_credentials(credentials_builder builder, reload_callback_ex cb, Base b, delay_type delay = default_tolerance)
         : Base(std::move(b))
         , tls::reloadable_credentials_base(std::move(builder), std::move(cb), delay)
     {}
@@ -1025,28 +1025,50 @@ public:
 
 template<>
 void tls::reloadable_credentials<tls::certificate_credentials>::rebuild(const credentials_builder& builder) {
-    auto tmp = builder.build_certificate_credentials();
-    this->_impl = std::move(tmp->_impl);
+    builder.rebuild(*this);
 }
 
 template<>
 void tls::reloadable_credentials<tls::server_credentials>::rebuild(const credentials_builder& builder) {
-    auto tmp = builder.build_server_credentials();
-    this->_impl = std::move(tmp->_impl);
+    builder.rebuild(*this);
 }
 
-future<shared_ptr<tls::certificate_credentials>> tls::credentials_builder::build_reloadable_certificate_credentials(reload_callback cb, std::optional<std::chrono::milliseconds> tolerance) const {
+void tls::credentials_builder::rebuild(certificate_credentials& creds) const {
+    auto tmp = build_certificate_credentials();
+    creds._impl = std::move(tmp->_impl);
+}
+
+void tls::credentials_builder::rebuild(server_credentials& creds) const {
+    auto tmp = build_server_credentials();
+    creds._impl = std::move(tmp->_impl);
+}
+
+future<shared_ptr<tls::certificate_credentials>> tls::credentials_builder::build_reloadable_certificate_credentials(reload_callback_ex cb, std::optional<std::chrono::milliseconds> tolerance) const {
     auto creds = seastar::make_shared<reloadable_credentials<tls::certificate_credentials>>(*this, std::move(cb), std::move(*build_certificate_credentials()), tolerance.value_or(reloadable_credentials_base::default_tolerance));
     return creds->init().then([creds] {
         return make_ready_future<shared_ptr<tls::certificate_credentials>>(creds);
     });
 }
 
-future<shared_ptr<tls::server_credentials>> tls::credentials_builder::build_reloadable_server_credentials(reload_callback cb, std::optional<std::chrono::milliseconds> tolerance) const {
+future<shared_ptr<tls::server_credentials>> tls::credentials_builder::build_reloadable_server_credentials(reload_callback_ex cb, std::optional<std::chrono::milliseconds> tolerance) const {
     auto creds = seastar::make_shared<reloadable_credentials<tls::server_credentials>>(*this, std::move(cb), std::move(*build_server_credentials()), tolerance.value_or(reloadable_credentials_base::default_tolerance));
     return creds->init().then([creds] {
         return make_ready_future<shared_ptr<tls::server_credentials>>(creds);
     });
+}
+
+future<shared_ptr<tls::certificate_credentials>> tls::credentials_builder::build_reloadable_certificate_credentials(reload_callback cb, std::optional<std::chrono::milliseconds> tolerance) const {
+    return build_reloadable_certificate_credentials([cb = std::move(cb)](const credentials_builder&, const std::unordered_set<sstring>& files, std::exception_ptr p) {
+        cb(files, p);
+        return make_ready_future<>();
+    }, tolerance);
+}
+
+future<shared_ptr<tls::server_credentials>> tls::credentials_builder::build_reloadable_server_credentials(reload_callback cb, std::optional<std::chrono::milliseconds> tolerance) const {
+    return build_reloadable_server_credentials([cb = std::move(cb)](const credentials_builder&, const std::unordered_set<sstring>& files, std::exception_ptr p) {
+        cb(files, p);
+        return make_ready_future<>();
+    }, tolerance);
 }
 
 namespace tls {
