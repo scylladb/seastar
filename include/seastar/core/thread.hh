@@ -183,13 +183,19 @@ public:
     ///
     /// Useful where we cannot call yield() immediately because we
     /// Need to take some cleanup action first.
-    static bool should_yield();
+    static bool should_yield() {
+        return need_preempt();
+    }
 
     /// \brief Yield if this thread ought to call yield() now.
     ///
     /// Useful where a code does long running computation and does
     /// not want to hog cpu for more then its share
-    static void maybe_yield();
+    static void maybe_yield() {
+        if (should_yield()) [[unlikely]] {
+            yield();
+        }
+    }
 
     static bool running_in_thread() {
         return thread_impl::get() != nullptr;

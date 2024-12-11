@@ -354,17 +354,6 @@ void thread::yield() {
     thread_impl::get()->yield();
 }
 
-bool thread::should_yield() {
-    return thread_impl::get()->should_yield();
-}
-
-void thread::maybe_yield() {
-    auto tctx = thread_impl::get();
-    if (tctx->should_yield()) {
-        tctx->yield();
-    }
-}
-
 }
 
 /// \endcond
