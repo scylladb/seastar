@@ -3778,7 +3778,7 @@ reactor_options::reactor_options(program_options::option_group* parent_group)
     , kernel_page_cache(*this, "kernel-page-cache", false,
                 "Use the kernel page cache. This disables DMA (O_DIRECT)."
                 " Useful for short-lived functional tests with a small data set.")
-    , overprovisioned(*this, "overprovisioned", "run in an overprovisioned environment (such as docker or a laptop); equivalent to --idle-poll-time-us 0 --thread-affinity 0 --poll-aio 0")
+    , overprovisioned(*this, "overprovisioned", "run in an overprovisioned environment (such as docker or a laptop); equivalent to --idle-poll-time-us 0 --thread-affinity 0 --poll-aio 0 --lock-memory 0")
     , abort_on_seastar_bad_alloc(*this, "abort-on-seastar-bad-alloc", "abort when seastar allocator cannot allocate memory")
     , force_aio_syscalls(*this, "force-aio-syscalls", false,
                 "Force io_getevents(2) to issue a system call, instead of bypassing the kernel when possible."
@@ -3814,7 +3814,7 @@ smp_options::smp_options(program_options::option_group* parent_group)
     , memory(*this, "memory", std::nullopt, "memory to use, in bytes (ex: 4G) (default: all)")
     , reserve_memory(*this, "reserve-memory", {}, "memory reserved to OS (if --memory not specified)")
     , hugepages(*this, "hugepages", {}, "path to accessible hugetlbfs mount (typically /dev/hugepages/something)")
-    , lock_memory(*this, "lock-memory", {}, "lock all memory (prevents swapping)")
+    , lock_memory(*this, "lock-memory", {}, "lock all memory (prevents swapping). Disable for overprovisioned environments")
     , thread_affinity(*this, "thread-affinity", true, "pin threads to their cpus (disable for overprovisioning)")
 #ifdef SEASTAR_HAVE_HWLOC
     , num_io_groups(*this, "num-io-groups", {}, "Number of IO groups. Each IO group will be responsible for a fraction of the IO requests. Defaults to the number of NUMA nodes")
@@ -4332,7 +4332,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
         hugepages_path = smp_opts.hugepages.get_value();
     }
     auto mlock = false;
-    if (smp_opts.lock_memory) {
+    if (smp_opts.lock_memory && !reactor_opts.overprovisioned) {
         mlock = smp_opts.lock_memory.get_value();
     }
     if (mlock) {
@@ -4603,7 +4603,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
 
     engine().configure(reactor_opts);
 
-    if (smp_opts.lock_memory && smp_opts.lock_memory.get_value() && layout && !layout->ranges.empty()) {
+    if (mlock && layout && !layout->ranges.empty()) {
         smp::setup_prefaulter(resources, std::move(*layout));
     }
 }
