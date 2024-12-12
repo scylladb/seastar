@@ -947,3 +947,13 @@ SEASTAR_TEST_CASE(test_oversized_io_works) {
         BOOST_REQUIRE((size_t)std::count_if(buf.get(), buf.get() + buf_size, [](auto x) { return x == 'a'; }) == buf_size);
     });
 }
+
+SEASTAR_TEST_CASE(test_file_system_stat) {
+    return tmp_dir::do_with_thread([] (tmp_dir& t) {
+        const auto& name = t.get_path().native();
+        auto fs_stat = file_system_stat(name).get();
+
+        BOOST_REQUIRE_GE(fs_stat.size_in_bytes, fs_stat.free_bytes);
+        BOOST_REQUIRE_GE(fs_stat.free_bytes, fs_stat.available_bytes);
+    });
+}
