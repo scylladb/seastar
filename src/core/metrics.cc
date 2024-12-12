@@ -561,14 +561,14 @@ void impl::update_metrics_if_needed() {
             _current_metrics[i].clear();
             for (auto&& m : mf.second) {
                 if (m.second && m.second->is_enabled()) {
-                    metrics.emplace_back(m.second->info());
+                    metrics.emplace_back(m.second->info().id, m.second->info().should_skip_when_empty);
                     _current_metrics[i].emplace_back(m.second->get_function());
                 }
             }
             if (!metrics.empty()) {
                 // If nothing was added, no need to add the metric_family
                 // and no need to progress
-                mt.emplace_back(metric_family_metadata{mf.second.info(), std::move(metrics)});
+                mt.emplace_back(mf.second.info(), std::move(metrics));
                 i++;
             }
         }

@@ -67,8 +67,8 @@ static std::set<seastar::sstring> get_label_values(seastar::sstring metric_name,
     BOOST_REQUIRE(qp_group != cend(all_metadata));
     std::set<seastar::sstring> labels;
     for (const auto& metric : qp_group->metrics) {
-        const auto found = metric.id.labels().find(label_name);
-        BOOST_REQUIRE(found != metric.id.labels().cend());
+        const auto found = metric.labels().find(label_name);
+        BOOST_REQUIRE(found != metric.labels().cend());
         labels.insert(found->second);
     }
     return labels;
@@ -178,7 +178,7 @@ int count_by_label(const std::string& label) {
     int count = 0;
     for (auto&& md : (*values->metadata)) {
         for (auto&& mi : md.metrics) {
-            if (label == "" || mi.id.labels().find(label) != mi.id.labels().end()) {
+            if (label == "" || mi.labels().find(label) != mi.labels().end()) {
                 count++;
             }
         }
@@ -186,7 +186,7 @@ int count_by_label(const std::string& label) {
     return count;
 }
 
-int count_by_fun(std::function<bool(const seastar::metrics::impl::metric_info&)> f) {
+int count_by_fun(std::function<bool(const seastar::metrics::impl::metric_series_metadata&)> f) {
     seastar::foreign_ptr<seastar::metrics::impl::values_reference> values = seastar::metrics::impl::get_values();
     int count = 0;
     for (auto&& md : (*values->metadata)) {
@@ -337,8 +337,8 @@ SEASTAR_THREAD_TEST_CASE(test_relabel_enable_disable_skip_when_empty) {
     sm::metric_relabeling_result success = sm::set_relabel_configs(rl).get();
     BOOST_CHECK_EQUAL(success.metrics_relabeled_due_to_collision, 0);
     BOOST_CHECK_EQUAL(count_by_label(""), 3);
-    BOOST_CHECK_EQUAL(count_by_fun([](const seastar::metrics::impl::metric_info& mi) {
-        return mi.should_skip_when_empty == sm::skip_when_empty::yes;
+    BOOST_CHECK_EQUAL(count_by_fun([](const seastar::metrics::impl::metric_series_metadata& mi) {
+        return mi.should_skip_when_empty() == sm::skip_when_empty::yes;
     }), 0);
 
     std::vector<sm::relabel_config> rl2(3);
@@ -356,8 +356,8 @@ SEASTAR_THREAD_TEST_CASE(test_relabel_enable_disable_skip_when_empty) {
     success = sm::set_relabel_configs(rl2).get();
     BOOST_CHECK_EQUAL(success.metrics_relabeled_due_to_collision, 0);
     BOOST_CHECK_EQUAL(count_by_label(""), 3);
-    BOOST_CHECK_EQUAL(count_by_fun([](const seastar::metrics::impl::metric_info& mi) {
-        return mi.should_skip_when_empty == sm::skip_when_empty::yes;
+    BOOST_CHECK_EQUAL(count_by_fun([](const seastar::metrics::impl::metric_series_metadata& mi) {
+        return mi.should_skip_when_empty() == sm::skip_when_empty::yes;
     }), 3);
     // clear the configuration
     success = sm::set_relabel_configs({}).get();
@@ -378,8 +378,8 @@ SEASTAR_THREAD_TEST_CASE(test_relabel_enable_disable_skip_when_empty) {
 
     success = sm::set_relabel_configs(rl3).get();
     BOOST_CHECK_EQUAL(success.metrics_relabeled_due_to_collision, 0);
-    BOOST_CHECK_EQUAL(count_by_fun([](const seastar::metrics::impl::metric_info& mi) {
-        return mi.should_skip_when_empty == sm::skip_when_empty::yes;
+    BOOST_CHECK_EQUAL(count_by_fun([](const seastar::metrics::impl::metric_series_metadata& mi) {
+        return mi.should_skip_when_empty() == sm::skip_when_empty::yes;
     }), 0);
     sm::set_relabel_configs({}).get();
 }

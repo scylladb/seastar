@@ -375,7 +375,50 @@ public:
 
 using value_map = std::map<sstring, metric_family>;
 
-using metric_metadata_fifo = std::deque<metric_info>;
+/*!
+ * \brief Subset of the per series metadata that is shared via get_values to other shards.
+ *
+ * Allows omitting metadata that is already stored elsewhere or not needed by
+ * the metrics scrap handlers.
+ *
+ * Not copyable to allow for safely sharing internalized data.
+ */
+class metric_series_metadata {
+    // prom backend only needs the label from here but scollectd needs group and
+    // metric name separately. metric_family_info only stores the merged and
+    // filtered name so we have to duplicate it here.
+    metric_id _id;
+    skip_when_empty _should_skip_when_empty;
+public:
+    metric_series_metadata() = default;
+    metric_series_metadata(metric_id id, skip_when_empty should_skip_when_empty)
+        : _id(std::move(id)), _should_skip_when_empty(should_skip_when_empty) {
+    }
+
+    metric_series_metadata(const metric_series_metadata&) = delete;
+    metric_series_metadata& operator=(const metric_series_metadata&) = delete;
+
+    metric_series_metadata(metric_series_metadata&&) noexcept = default;
+    metric_series_metadata& operator=(metric_series_metadata&&) noexcept = default;
+
+    const labels_type& labels() const {
+      return _id.labels();
+    }
+
+    skip_when_empty should_skip_when_empty() const {
+        return _should_skip_when_empty;
+    }
+
+    group_name_type group_name() const {
+        return _id.group_name();
+    }
+
+    group_name_type name() const {
+        return _id.name();
+    }
+};
+
+using metric_metadata_fifo = std::deque<metric_series_metadata>;
 
 /*!
  * \brief holds a metric family metadata
@@ -392,7 +435,15 @@ using metric_metadata_fifo = std::deque<metric_info>;
 struct metric_family_metadata {
     metric_family_info mf;
     metric_metadata_fifo metrics;
+
+    metric_family_metadata() = default;
+    metric_family_metadata(metric_family_metadata &&) = default;
+    metric_family_metadata &operator=(metric_family_metadata &&) = default;
+    metric_family_metadata(metric_family_info mf, metric_metadata_fifo metrics)
+        : mf(std::move(mf)), metrics(std::move(metrics)) {}
 };
+
+static_assert(std::is_nothrow_move_assignable_v<metric_family_metadata>);
 
 using value_vector = std::deque<metric_value>;
 using metric_metadata = std::vector<metric_family_metadata>;
