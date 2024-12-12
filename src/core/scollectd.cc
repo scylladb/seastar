@@ -177,12 +177,12 @@ struct cpwriter {
         return *this;
     }
 
-    sstring get_type_instance(const seastar::metrics::impl::metric_id & id) {
-        if (id.labels().empty()) {
-            return id.name();
+    sstring get_type_instance(const metrics::metric_name_type& name, const metrics::impl::labels_type& labels) {
+        if (labels.empty()) {
+            return name;
         }
-        sstring res = id.name();
-        for (auto i : id.labels()) {
+        sstring res = name;
+        for (auto i : labels) {
             if (i.first != seastar::metrics::shard_label.name()) {
                 res += "-" + i.second;
             }
@@ -288,7 +288,8 @@ struct cpwriter {
         }
         return *this;
     }
-    cpwriter & put(const sstring & host, const seastar::metrics::impl::metric_id & id, const type_id& type) {
+    cpwriter & put(const sstring & host, const metrics::group_name_type& group_name, const metrics::metric_name_type& name,
+            const metrics::impl::labels_type& labels, const type_id& type) {
         const auto ts = std::chrono::system_clock::now().time_since_epoch();
         const auto lrts =
                 std::chrono::duration_cast<std::chrono::seconds>(ts).count();
@@ -298,14 +299,15 @@ struct cpwriter {
         // Seems hi-res timestamp does not work very well with
         // at the very least my default collectd in fedora (or I did it wrong?)
         // Use lo-res ts for now, it is probably quite sufficient.
-        put_cached(part_type::Plugin, id.group_name());
+        put_cached(part_type::Plugin, group_name);
         // Optional
+        auto instance_id = labels.at(metrics::shard_label.name());
         put_cached(part_type::PluginInst,
-                id.instance_id() == per_cpu_plugin_instance ?
-                        to_sstring(this_shard_id()) : id.instance_id());
+                instance_id == per_cpu_plugin_instance ?
+                        to_sstring(this_shard_id()) : instance_id);
         put_cached(part_type::Type, type);
         // Optional
-        put_cached(part_type::TypeInst, get_type_instance(id));
+        put_cached(part_type::TypeInst, get_type_instance(name, labels));
         return *this;
     }
     cpwriter & put(const sstring & host,
@@ -313,7 +315,8 @@ struct cpwriter {
             const type_instance_id & id, const value_list & v) {
         const auto ps = std::chrono::duration_cast<collectd_hres_duration>(
                         period).count();
-            put(host, to_metrics_id(id), id.type());
+            auto mid = to_metrics_id(id);
+            put(host, mid.group_name(), mid.name(), mid.labels(), id.type());
             put(part_type::Values, v);
             if (ps != 0) {
                 put(part_type::IntervalHr, ps);
@@ -324,10 +327,11 @@ struct cpwriter {
     cpwriter & put(const sstring & host,
             const duration & period,
             const type_id& type,
-            const seastar::metrics::impl::metric_id & id, const seastar::metrics::impl::metric_value & v) {
+            const metrics::group_name_type& group_name, const metrics::metric_name_type& name,
+            const metrics::impl::labels_type& labels, const seastar::metrics::impl::metric_value & v) {
         const auto ps = std::chrono::duration_cast<collectd_hres_duration>(
                 period).count();
-        put(host, id, type);
+        put(host, group_name, name, labels, type);
         put(part_type::Values, v);
         if (ps != 0) {
             put(part_type::IntervalHr, ps);
@@ -361,7 +365,8 @@ future<> impl::send_metric(const type_instance_id & id,
 future<> impl::send_notification(const type_instance_id & id,
         const sstring & msg) {
     cpwriter out;
-    out.put(_host, to_metrics_id(id), id.type());
+    auto mid = to_metrics_id(id);
+    out.put(_host, mid.group_name(), mid.name(), mid.labels(), id.type());
     out.put(part_type::Message, msg);
     return _chan.send(_addr, net::packet(out.data(), out.size()));
 }
@@ -456,7 +461,8 @@ void impl::run() {
                     continue;
                 }
                 auto m = out.mark();
-                out.put(_host, _period, std::get<type_id>(*ctxt), md_iterator->id, *i);
+                out.put(_host, _period, std::get<type_id>(*ctxt),
+                    md_iterator->group_name(), md_iterator->name(), md_iterator->labels(), *i);
                 if (!out) {
                     out.reset(m);
                     out_of_space = true;
