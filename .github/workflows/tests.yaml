@@ -11,7 +11,7 @@ concurrency:
 
 jobs:
   regular_test:
-    name: "Test (${{ matrix.compiler }}, C++${{ matrix.standard}}, ${{ matrix.mode }})"
+    name: "Test (${{ matrix.compiler }}, C++${{ matrix.standard}}, ${{ matrix.mode }}, ${{ matrix.crypto_provider }})"
     uses: ./.github/workflows/test.yaml
     strategy:
       fail-fast: false
@@ -19,12 +19,14 @@ jobs:
         compiler: [clang++, g++]
         standard: [20, 23]
         mode: [dev, debug, release]
+        crypto_provider: [GnuTLS, OpenSSL]
     with:
       compiler: ${{ matrix.compiler }}
       standard: ${{ matrix.standard }}
       mode: ${{ matrix.mode }}
       enables: ${{ matrix.enables }}
       options: ${{ matrix.options }}
+      crypto_provider: ${{ matrix.crypto_provider }}
   build_with_dpdk:
     name: "Test with DPDK enabled"
     uses: ./.github/workflows/test.yaml
@@ -36,8 +38,8 @@ jobs:
       mode: release
       enables: --enable-dpdk
       options: --cook dpdk
-  build_with_cxx_modules:
-    name: "Test with C++20 modules enabled"
+  build_with_cxx_modules_gnutls:
+    name: "Test with C++20 modules enabled (GnuTLS)"
     uses: ./.github/workflows/test.yaml
     strategy:
       fail-fast: false
@@ -47,3 +49,16 @@ jobs:
       mode: debug
       enables: --enable-cxx-modules
       enable-ccache: false
+      crypto_provider: GnuTLS
+  build_with_cxx_modules_openssl:
+    name: "Test with C++20 modules enabled (OpenSSL)"
+    uses: ./.github/workflows/test.yaml
+    strategy:
+      fail-fast: false
+    with:
+      compiler: clang++
+      standard: 23
+      mode: debug
+      enables: --enable-cxx-modules
+      enable-ccache: false
+      crypto_provider: OpenSSL
