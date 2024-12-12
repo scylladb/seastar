@@ -179,9 +179,9 @@ void setup_aio_context(size_t nr, linux_abi::aio_context_t* io_context) {
             auto aio_max_nr = read_first_line_as<unsigned>("/proc/sys/fs/aio-max-nr");
             throw std::runtime_error(
                 fmt::format("Could not setup Async I/O: {}. "
-                            "The required nr_event ({}) exceeds the limit of request capacity in /proc/sys/fs/aio-max-nr ({}). "
-                            "Try increasing that number or reducing the amount of logical CPUs available for your application",
-                            msg, nr, aio_max_nr));
+                            "The required nr_events {} exceeds the capacity in /proc/sys/fs/aio-max-nr {}. "
+                            "Set /proc/sys/fs/aio-max-nr to at least {}.",
+                            msg, nr, aio_max_nr, nr));
         } else {
             throw std::runtime_error(fmt::format("Could not setup Async I/O: {}", msg));
         }
