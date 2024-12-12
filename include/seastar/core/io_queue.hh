@@ -36,6 +36,7 @@
 #include <seastar/core/lowres_clock.hh>
 #include <seastar/util/spinlock.hh>
 #include <seastar/util/modules.hh>
+#include <seastar/util/trace.hh>
 
 struct io_queue_for_tests;
 
@@ -114,6 +115,8 @@ private:
     void lower_stall_threshold() noexcept;
 
     metrics::metric_groups _metric_groups;
+    internal::tracer _tracer;
+
 public:
 
     using clock_type = std::chrono::steady_clock;
@@ -195,6 +198,14 @@ public:
 
     request_limits get_request_limits() const noexcept;
     const config& get_config() const noexcept;
+
+    /// @private
+    template <internal::trace_event E, typename... Args>
+    void trace(Args&&... args) noexcept {
+        _tracer.trace<E>(std::forward<Args>(args)...);
+    }
+
+    future<> start_tracing(std::chrono::seconds timeout, size_t max_size);
 
 private:
     static fair_queue::config make_fair_queue_config(const config& cfg, sstring label);

@@ -32,6 +32,7 @@
 #include <seastar/core/loop.hh>
 #include <seastar/core/with_scheduling_group.hh>
 #include <seastar/core/metrics_api.hh>
+#include <seastar/core/io_queue.hh>
 #include <seastar/core/io_intent.hh>
 #include <seastar/util/later.hh>
 #include <chrono>
@@ -1114,6 +1115,7 @@ int main(int ac, char** av) {
         ("duration", bpo::value<unsigned>()->default_value(10), "for how long (in seconds) to run the test")
         ("conf", bpo::value<sstring>()->default_value("./conf.yaml"), "YAML file containing benchmark specification")
         ("keep-files", bpo::value<bool>()->default_value(false), "keep test files, next run may re-use them")
+        ("trace", bpo::value<bool>()->default_value(false), "start reactor tracing")
     ;
 
     distributed<context> ctx;
@@ -1136,6 +1138,7 @@ int main(int ac, char** av) {
             }
 
             keep_files = opts["keep-files"].as<bool>();
+            bool trace = opts["trace"].as<bool>();
             auto& duration = opts["duration"].as<unsigned>();
             auto& yaml = opts["conf"].as<sstring>();
             YAML::Node doc = YAML::LoadFile(yaml);
@@ -1181,6 +1184,13 @@ int main(int ac, char** av) {
             ctx.invoke_on_all([] (auto& c) {
                 return c.start();
             }).get();
+            if (trace) {
+                std::cout << "Starting tracing..." << std::endl;
+                auto st = file_stat(storage).get();
+                smp::invoke_on_all([st, duration] {
+                    return engine().get_io_queue(st.device_id).start_tracing(std::chrono::seconds(duration), 1ull << 30);
+                }).get();
+            }
             std::cout << "Starting evaluation..." << std::endl;
             ctx.invoke_on_all([] (auto& c) {
                 return c.issue_requests();
