@@ -31,7 +31,7 @@
 
 /*!
  * \file metrics_api.hh
- * \brief header file for metric API layer (like prometheus or collectd)
+ * \brief header file for metric API layer (like prometheus)
  *
  *
  *
