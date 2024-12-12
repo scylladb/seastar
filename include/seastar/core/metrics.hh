@@ -423,8 +423,6 @@ metric_function make_function(T& val, data_type dt) {
 }
 }
 
-extern const bool metric_disabled;
-
 extern label shard_label;
 
 /*
