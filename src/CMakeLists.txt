@@ -32,7 +32,6 @@ target_sources (seastar-module
     core/reactor_backend.cc
     core/resource.cc
     core/sharded.cc
-    core/scollectd.cc
     core/semaphore.cc
     core/signal.cc
     core/smp.cc
