@@ -214,8 +214,7 @@ namespace impl {
 
 namespace {
 /*
- * true if a label value needs escaping under prometheus rules, invalid characters in
- * prometheus are also invalid in scollectd
+ * true if a label value needs escaping under prometheus rules
  */
 inline bool label_needs_escaping(std::string_view value) {
     // newline, " and \ need to be escaped

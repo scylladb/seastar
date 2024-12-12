@@ -600,8 +600,6 @@ add_library (seastar
   include/seastar/core/rwlock.hh
   include/seastar/core/scattered_message.hh
   include/seastar/core/scheduling.hh
-  include/seastar/core/scollectd.hh
-  include/seastar/core/scollectd_api.hh
   include/seastar/core/seastar.hh
   include/seastar/core/smp.hh
   include/seastar/core/semaphore.hh
@@ -745,8 +743,6 @@ add_library (seastar
   src/core/reactor.cc
   src/core/resource.cc
   src/core/sharded.cc
-  src/core/scollectd.cc
-  src/core/scollectd-impl.hh
   src/core/signal.cc
   src/core/systemwide_memory_barrier.cc
   src/core/smp.cc
