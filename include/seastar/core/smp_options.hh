@@ -57,6 +57,8 @@ struct smp_options : public program_options::option_group {
     /// Path to accessible hugetlbfs mount (typically /dev/hugepages/something).
     program_options::value<std::string> hugepages;
     /// Lock all memory (prevents swapping).
+    ///
+    /// Disable for overprovisioned environments.
     program_options::value<bool> lock_memory;
     /// Pin threads to their cpus (disable for overprovisioning).
     ///
