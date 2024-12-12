@@ -1115,11 +1115,15 @@ make_file_impl(int fd, file_open_options options, int flags, struct stat st) noe
         });
     }
 
-    const internal::fs_info& fsi = i->second;
-    if (!fsi.append_challenged || options.append_is_unlikely || ((flags & O_ACCMODE) == O_RDONLY)) {
-        return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_real_impl>(fd, open_flags(flags), std::move(options), fsi, st_dev));
+    try {
+        const internal::fs_info& fsi = i->second;
+        if (!fsi.append_challenged || options.append_is_unlikely || ((flags & O_ACCMODE) == O_RDONLY)) {
+            return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_real_impl>(fd, open_flags(flags), std::move(options), fsi, st_dev));
+        }
+        return make_ready_future<shared_ptr<file_impl>>(make_shared<append_challenged_posix_file_impl>(fd, open_flags(flags), std::move(options), fsi, st_dev));
+    } catch(...) {
+        return current_exception_as_future<shared_ptr<file_impl>>();
     }
-    return make_ready_future<shared_ptr<file_impl>>(make_shared<append_challenged_posix_file_impl>(fd, open_flags(flags), std::move(options), fsi, st_dev));
 }
 
 file::file(seastar::file_handle&& handle) noexcept
