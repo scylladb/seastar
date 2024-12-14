@@ -62,7 +62,7 @@ void server::accept(server_socket &listener) {
 
 future<stop_iteration> server::accept_one(server_socket &listener) {
     return listener.accept().then([this](accept_result ar) {
-        auto conn = std::make_unique<connection>(*this, std::move(ar.connection));
+        auto conn = std::make_unique<server_connection>(*this, std::move(ar.connection));
         (void)try_with_gate(_task_gate, [conn = std::move(conn)]() mutable {
             return conn->process().finally([conn = std::move(conn)] {
                 wlogger.debug("Connection is finished");
@@ -92,21 +92,21 @@ future<> server::stop() {
     }
 
     return _task_gate.close().finally([this] {
-        return parallel_for_each(_connections, [] (connection& conn) {
+        return parallel_for_each(_connections, [] (server_connection& conn) {
             return conn.close(true).handle_exception([] (auto ignored) {});
         });
     });
 }
 
-connection::~connection() {
+server_connection::~server_connection() {
     _server._connections.erase(_server._connections.iterator_to(*this));
 }
 
-void connection::on_new_connection() {
+void server_connection::on_new_connection() {
     _server._connections.push_back(*this);
 }
 
-future<> connection::process() {
+future<> server_connection::process() {
     return when_all_succeed(read_loop(), response_loop()).discard_result().handle_exception([] (const std::exception_ptr& e) {
         wlogger.debug("Processing failed: {}", e);
     });
@@ -133,7 +133,7 @@ static std::string sha1_base64(std::string_view source) {
     return std::string(reinterpret_cast<const char*>(base64_encoded.data), base64_encoded.size);
 }
 
-future<> connection::read_http_upgrade_request() {
+future<> server_connection::read_http_upgrade_request() {
     _http_parser.init();
     co_await _read_buf.consume(_http_parser);
 
@@ -180,18 +180,18 @@ future<> connection::read_http_upgrade_request() {
     co_await _write_buf.flush();
 }
 
-future<> connection::handle_ping() {
+future<> server_connection::handle_ping() {
     // TODO
     return make_ready_future<>();
 }
 
-future<> connection::handle_pong() {
+future<> server_connection::handle_pong() {
     // TODO
     return make_ready_future<>();
 }
 
 
-future<> connection::read_one() {
+future<> server_connection::read_one() {
     return _read_buf.consume(_websocket_parser).then([this] () mutable {
         if (_websocket_parser.is_valid()) {
             // FIXME: implement error handling
@@ -225,7 +225,7 @@ future<> connection::read_one() {
     });
 }
 
-future<> connection::read_loop() {
+future<> server_connection::read_loop() {
     return read_http_upgrade_request().then([this] {
         return when_all_succeed(
             _handler(_input, _output).handle_exception([this] (std::exception_ptr e) mutable {
@@ -240,11 +240,11 @@ future<> connection::read_loop() {
     });
 }
 
-void connection::shutdown_input() {
+void server_connection::shutdown_input() {
     _fd.shutdown_input();
 }
 
-future<> connection::close(bool send_close) {
+future<> server_connection::close(bool send_close) {
     return [this, send_close]() {
         if (send_close) {
             return send_data(opcodes::CLOSE, temporary_buffer<char>(0));
@@ -259,7 +259,7 @@ future<> connection::close(bool send_close) {
     });
 }
 
-future<> connection::send_data(opcodes opcode, temporary_buffer<char>&& buff) {
+future<> server_connection::send_data(opcodes opcode, temporary_buffer<char>&& buff) {
     char header[10] = {'\x80', 0};
     size_t header_size = 2;
 
@@ -285,7 +285,7 @@ future<> connection::send_data(opcodes opcode, temporary_buffer<char>&& buff) {
     });
 }
 
-future<> connection::response_loop() {
+future<> server_connection::response_loop() {
     return do_until([this] {return _done;}, [this] {
         // FIXME: implement error handling
         return _output_buffer.pop_eventually().then([this] (

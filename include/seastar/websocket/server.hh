@@ -56,9 +56,9 @@ public:
 };
 
 /*!
- * \brief a WebSocket connection
+ * \brief a server WebSocket connection
  */
-class connection : public boost::intrusive::list_base_hook<> {
+class server_connection : public boost::intrusive::list_base_hook<> {
     using buff_t = temporary_buffer<char>;
 
     /*!
@@ -141,7 +141,7 @@ public:
      * \param server owning \ref server
      * \param fd established socket used for communication
      */
-    connection(server& server, connected_socket&& fd)
+    server_connection(server& server, connected_socket&& fd)
         : _server(server)
         , _fd(std::move(fd))
         , _read_buf(_fd.input())
@@ -155,10 +155,10 @@ public:
                 std::make_unique<connection_sink_impl>(&_output_buffer)}};
         on_new_connection();
     }
-    ~connection();
+    ~server_connection();
 
     /*!
-     * \brief serve WebSocket protocol on a connection
+     * \brief serve WebSocket protocol on a server_connection
      */
     future<> process();
     /*!
@@ -188,7 +188,7 @@ protected:
  */
 class server {
     std::vector<server_socket> _listeners;
-    boost::intrusive::list<connection> _connections;
+    boost::intrusive::list<server_connection> _connections;
     std::map<std::string, handler_t> _handlers;
     gate _task_gate;
 public:
@@ -219,7 +219,7 @@ public:
      */
     void register_handler(const std::string& name, handler_t handler);
 
-    friend class connection;
+    friend class server_connection;
 protected:
     void accept(server_socket &listener);
     future<stop_iteration> accept_one(server_socket &listener);
