@@ -165,6 +165,7 @@ protected:
 };
 
 std::string sha1_base64(std::string_view source);
+std::string encode_base64(std::string_view source);
 
 extern logger websocket_logger;
 
