@@ -29,7 +29,7 @@
 namespace seastar::experimental::websocket {
 
 sstring magic_key_suffix = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-logger wlogger("websocket");
+logger websocket_logger("websocket");
 
 future<> connection::handle_ping() {
     // TODO
@@ -109,14 +109,14 @@ future<> connection::read_one() {
             case opcodes::BINARY:
                 return _input_buffer.push_eventually(_websocket_parser.result());
             case opcodes::CLOSE:
-                wlogger.debug("Received close frame.");
+                websocket_logger.debug("Received close frame.");
                 // datatracker.ietf.org/doc/html/rfc6455#section-5.5.1
                 return close(true);
             case opcodes::PING:
-                wlogger.debug("Received ping frame.");
+                websocket_logger.debug("Received ping frame.");
                 return handle_ping();
             case opcodes::PONG:
-                wlogger.debug("Received pong frame.");
+                websocket_logger.debug("Received pong frame.");
                 return handle_pong();
             default:
                 // Invalid - do nothing.
@@ -125,7 +125,7 @@ future<> connection::read_one() {
         } else if (_websocket_parser.eof()) {
             return close(false);
         }
-        wlogger.debug("Reading from socket has failed.");
+        websocket_logger.debug("Reading from socket has failed.");
         return close(true);
     });
 }
