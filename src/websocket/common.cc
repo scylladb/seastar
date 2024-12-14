@@ -137,18 +137,21 @@ std::string sha1_base64(std::string_view source) {
         ret != GNUTLS_E_SUCCESS) {
         throw websocket::exception(fmt::format("gnutls_hash_fast: {}", gnutls_strerror(ret)));
     }
-    gnutls_datum_t hash_data{
-        .data = hash,
-        .size = sizeof(hash),
+    return encode_base64(std::string_view(reinterpret_cast<const char*>(hash), sizeof(hash)));
+}
+
+std::string encode_base64(std::string_view source) {
+    gnutls_datum_t src_data{
+        .data = reinterpret_cast<uint8_t*>(const_cast<char*>(source.data())),
+        .size = static_cast<unsigned>(source.size())
     };
-    gnutls_datum_t base64_encoded;
-    if (int ret = gnutls_base64_encode2(&hash_data, &base64_encoded);
-        ret != GNUTLS_E_SUCCESS) {
+    gnutls_datum_t encoded_data;
+    if (int ret = gnutls_base64_encode2(&src_data, &encoded_data); ret != GNUTLS_E_SUCCESS) {
         throw websocket::exception(fmt::format("gnutls_base64_encode2: {}", gnutls_strerror(ret)));
     }
-    auto free_base64_encoded = defer([&] () noexcept { gnutls_free(base64_encoded.data); });
+    auto free_encoded_data = defer([&] () noexcept { gnutls_free(encoded_data.data); });
     // base64_encoded.data is "unsigned char *"
-    return std::string(reinterpret_cast<const char*>(base64_encoded.data), base64_encoded.size);
+    return std::string(reinterpret_cast<const char*>(encoded_data.data), encoded_data.size);
 }
 
 }
