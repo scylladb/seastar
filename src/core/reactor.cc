@@ -4918,6 +4918,7 @@ reactor::allocate_scheduling_group_specific_data(scheduling_group sg, unsigned l
 
 future<>
 reactor::rename_scheduling_group_specific_data(scheduling_group sg) {
+  return with_shared(_scheduling_group_keys_mutex, [this, sg] {
     return with_scheduling_group(sg, [this, sg] {
         auto& sg_data = _scheduling_group_specific_data;
         auto& this_sg = sg_data.per_scheduling_group_data[sg._id];
@@ -4928,26 +4929,29 @@ reactor::rename_scheduling_group_specific_data(scheduling_group sg) {
             }
         }
     });
+  });
 }
 
 future<>
 reactor::init_scheduling_group(seastar::scheduling_group sg, sstring name, sstring shortname, float shares) {
+  return with_shared(_scheduling_group_keys_mutex, [this, sg, name = std::move(name), shortname = std::move(shortname), shares] {
     auto& sg_data = _scheduling_group_specific_data;
     auto& this_sg = sg_data.per_scheduling_group_data[sg._id];
     this_sg.queue_is_initialized = true;
     _task_queues.resize(std::max<size_t>(_task_queues.size(), sg._id + 1));
     _task_queues[sg._id] = std::make_unique<task_queue>(sg._id, name, shortname, shares);
-    unsigned long num_keys = s_next_scheduling_group_specific_key.load(std::memory_order_relaxed);
 
-    return with_scheduling_group(sg, [this, num_keys, sg] () {
-        for (unsigned long key_id = 0; key_id < num_keys; key_id++) {
+    return with_scheduling_group(sg, [this, sg, &sg_data] () {
+        for (unsigned long key_id = 0; key_id < sg_data.scheduling_group_key_configs.size(); key_id++) {
             allocate_scheduling_group_specific_data(sg, key_id);
         }
     });
+  });
 }
 
 future<>
 reactor::init_new_scheduling_group_key(scheduling_group_key key, scheduling_group_key_config cfg) {
+  return with_lock(_scheduling_group_keys_mutex, [this, key, cfg] {
     auto& sg_data = _scheduling_group_specific_data;
     auto key_id = internal::scheduling_group_key_id(key);
     sg_data.scheduling_group_key_configs.resize(std::max<size_t>(sg_data.scheduling_group_key_configs.size(), key_id + 1));
@@ -4969,6 +4973,7 @@ reactor::init_new_scheduling_group_key(scheduling_group_key key, scheduling_grou
         }
         return make_ready_future();
     });
+  });
 }
 
 future<>
