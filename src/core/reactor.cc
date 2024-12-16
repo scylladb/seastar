@@ -4918,62 +4918,62 @@ reactor::allocate_scheduling_group_specific_data(scheduling_group sg, unsigned l
 
 future<>
 reactor::rename_scheduling_group_specific_data(scheduling_group sg) {
-  return with_shared(_scheduling_group_keys_mutex, [this, sg] {
-    return with_scheduling_group(sg, [this, sg] {
-        auto& sg_data = _scheduling_group_specific_data;
-        auto& this_sg = sg_data.per_scheduling_group_data[sg._id];
-        for (size_t i = 0; i < sg_data.scheduling_group_key_configs.size(); ++i) {
-            auto &c = sg_data.scheduling_group_key_configs[i];
-            if (c.rename) {
-                (c.rename)(this_sg.specific_vals[i]);
+    return with_shared(_scheduling_group_keys_mutex, [this, sg] {
+        return with_scheduling_group(sg, [this, sg] {
+            auto& sg_data = _scheduling_group_specific_data;
+            auto& this_sg = sg_data.per_scheduling_group_data[sg._id];
+            for (size_t i = 0; i < sg_data.scheduling_group_key_configs.size(); ++i) {
+                auto &c = sg_data.scheduling_group_key_configs[i];
+                if (c.rename) {
+                    (c.rename)(this_sg.specific_vals[i]);
+                }
             }
-        }
+        });
     });
-  });
 }
 
 future<>
 reactor::init_scheduling_group(seastar::scheduling_group sg, sstring name, sstring shortname, float shares) {
-  return with_shared(_scheduling_group_keys_mutex, [this, sg, name = std::move(name), shortname = std::move(shortname), shares] {
-    auto& sg_data = _scheduling_group_specific_data;
-    auto& this_sg = sg_data.per_scheduling_group_data[sg._id];
-    this_sg.queue_is_initialized = true;
-    _task_queues.resize(std::max<size_t>(_task_queues.size(), sg._id + 1));
-    _task_queues[sg._id] = std::make_unique<task_queue>(sg._id, name, shortname, shares);
+    return with_shared(_scheduling_group_keys_mutex, [this, sg, name = std::move(name), shortname = std::move(shortname), shares] {
+        auto& sg_data = _scheduling_group_specific_data;
+        auto& this_sg = sg_data.per_scheduling_group_data[sg._id];
+        this_sg.queue_is_initialized = true;
+        _task_queues.resize(std::max<size_t>(_task_queues.size(), sg._id + 1));
+        _task_queues[sg._id] = std::make_unique<task_queue>(sg._id, name, shortname, shares);
 
-    return with_scheduling_group(sg, [this, sg, &sg_data] () {
-        for (unsigned long key_id = 0; key_id < sg_data.scheduling_group_key_configs.size(); key_id++) {
-            allocate_scheduling_group_specific_data(sg, key_id);
-        }
+        return with_scheduling_group(sg, [this, sg, &sg_data] () {
+            for (unsigned long key_id = 0; key_id < sg_data.scheduling_group_key_configs.size(); key_id++) {
+                allocate_scheduling_group_specific_data(sg, key_id);
+            }
+        });
     });
-  });
 }
 
 future<>
 reactor::init_new_scheduling_group_key(scheduling_group_key key, scheduling_group_key_config cfg) {
-  return with_lock(_scheduling_group_keys_mutex, [this, key, cfg] {
-    auto& sg_data = _scheduling_group_specific_data;
-    auto key_id = internal::scheduling_group_key_id(key);
-    sg_data.scheduling_group_key_configs.resize(std::max<size_t>(sg_data.scheduling_group_key_configs.size(), key_id + 1));
-    sg_data.scheduling_group_key_configs[key_id] = cfg;
-    return parallel_for_each(_task_queues, [this, cfg, key_id] (std::unique_ptr<task_queue>& tq) {
-        if (tq) {
-            scheduling_group sg = scheduling_group(tq->_id);
-            if (tq.get() == _at_destroy_tasks) {
-                // fake the group by assuming it here
-                auto curr = current_scheduling_group();
-                auto cleanup = defer([curr] () noexcept { *internal::current_scheduling_group_ptr() = curr; });
-                *internal::current_scheduling_group_ptr() = sg;
-                allocate_scheduling_group_specific_data(sg, key_id);
-            } else {
-                return with_scheduling_group(sg, [this, key_id, sg] () {
+    return with_lock(_scheduling_group_keys_mutex, [this, key, cfg] {
+        auto& sg_data = _scheduling_group_specific_data;
+        auto key_id = internal::scheduling_group_key_id(key);
+        sg_data.scheduling_group_key_configs.resize(std::max<size_t>(sg_data.scheduling_group_key_configs.size(), key_id + 1));
+        sg_data.scheduling_group_key_configs[key_id] = cfg;
+        return parallel_for_each(_task_queues, [this, cfg, key_id] (std::unique_ptr<task_queue>& tq) {
+            if (tq) {
+                scheduling_group sg = scheduling_group(tq->_id);
+                if (tq.get() == _at_destroy_tasks) {
+                    // fake the group by assuming it here
+                    auto curr = current_scheduling_group();
+                    auto cleanup = defer([curr] () noexcept { *internal::current_scheduling_group_ptr() = curr; });
+                    *internal::current_scheduling_group_ptr() = sg;
                     allocate_scheduling_group_specific_data(sg, key_id);
-                });
+                } else {
+                    return with_scheduling_group(sg, [this, key_id, sg] () {
+                        allocate_scheduling_group_specific_data(sg, key_id);
+                    });
+                }
             }
-        }
-        return make_ready_future();
+            return make_ready_future();
+        });
     });
-  });
 }
 
 future<>
