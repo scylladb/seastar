@@ -226,8 +226,6 @@ export module seastar;
 #include <seastar/core/scattered_message.hh>
 #include <seastar/core/scheduling.hh>
 #include <seastar/core/scheduling_specific.hh>
-#include <seastar/core/scollectd.hh>
-#include <seastar/core/scollectd_api.hh>
 #include <seastar/core/seastar.hh>
 #include <seastar/core/semaphore.hh>
 #include <seastar/core/sharded.hh>
@@ -318,7 +316,6 @@ module : private;
 #include "core/reactor_backend.hh"
 #include "core/syscall_result.hh"
 #include "core/thread_pool.hh"
-#include "core/scollectd-impl.hh"
 #include "core/vla.hh"
 
 #include <seastar/util/internal/iovec_utils.hh>

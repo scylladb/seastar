@@ -160,11 +160,11 @@ static void fill_native_type_histogram(const metrics::histogram& h, ::io::promet
 static void fill_metric(pm::MetricFamily& mf, const metrics::impl::metric_value& c,
         const metrics::impl::labels_type & id, const config& ctx) {
     switch (c.type()) {
-    case scollectd::data_type::GAUGE:
+    case seastar::metrics::impl::data_type::GAUGE:
         add_label(mf.add_metric(), id, ctx)->mutable_gauge()->set_value(c.d());
         mf.set_type(pm::MetricType::GAUGE);
         break;
-    case scollectd::data_type::SUMMARY: {
+    case seastar::metrics::impl::data_type::SUMMARY: {
         auto& h = c.get_histogram();
         auto mh = add_label(mf.add_metric(), id,ctx)->mutable_summary();
         mh->set_sample_count(h.sample_count);
@@ -177,7 +177,7 @@ static void fill_metric(pm::MetricFamily& mf, const metrics::impl::metric_value&
         mf.set_type(pm::MetricType::SUMMARY);
         break;
     }
-    case scollectd::data_type::HISTOGRAM:
+    case seastar::metrics::impl::data_type::HISTOGRAM:
     {
         auto& h = c.get_histogram();
         auto mh = add_label(mf.add_metric(), id,ctx)->mutable_histogram();
@@ -191,9 +191,9 @@ static void fill_metric(pm::MetricFamily& mf, const metrics::impl::metric_value&
         mf.set_type(pm::MetricType::HISTOGRAM);
         break;
     }
-    case scollectd::data_type::REAL_COUNTER:
+    case seastar::metrics::impl::data_type::REAL_COUNTER:
         [[fallthrough]];
-    case scollectd::data_type::COUNTER:
+    case seastar::metrics::impl::data_type::COUNTER:
         add_label(mf.add_metric(), id, ctx)->mutable_counter()->set_value(c.d());
         mf.set_type(pm::MetricType::COUNTER);
         break;
