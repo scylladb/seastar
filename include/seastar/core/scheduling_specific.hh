@@ -24,6 +24,7 @@
 #include <seastar/core/map_reduce.hh>
 #include <seastar/util/modules.hh>
 #include <array>
+#include <map>
 #include <typeindex>
 #include <vector>
 #include <ranges>
@@ -46,7 +47,7 @@ struct scheduling_group_specific_thread_local_data {
         std::vector<void*> specific_vals;
     };
     std::array<per_scheduling_group, max_scheduling_groups()> per_scheduling_group_data;
-    std::vector<scheduling_group_key_config> scheduling_group_key_configs;
+    std::map<unsigned long, scheduling_group_key_config> scheduling_group_key_configs;
 };
 
 #ifdef SEASTAR_BUILD_SHARED_LIBS
