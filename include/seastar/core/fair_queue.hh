@@ -258,6 +258,7 @@ public:
     void maybe_replenish_capacity(clock_type::time_point& local_ts) noexcept;
 
     capacity_t capacity_deficiency(capacity_t from) const noexcept;
+    capacity_t head() const noexcept;
 
     std::chrono::duration<double> rate_limit_duration() const noexcept {
         std::chrono::duration<double, rate_resolution> dur((double)_token_bucket.limit() / _token_bucket.rate());

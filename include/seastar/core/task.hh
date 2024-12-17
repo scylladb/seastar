@@ -23,6 +23,7 @@
 
 #include <seastar/core/scheduling.hh>
 #include <seastar/util/backtrace.hh>
+#include <seastar/util/tracer.hh>
 
 #ifndef SEASTAR_MODULE
 #include <utility>
@@ -31,46 +32,6 @@
 namespace seastar {
 
 SEASTAR_MODULE_EXPORT
-
-inline int64_t rdtsc() {
-    uint64_t rax, rdx;
-    asm volatile ( "rdtsc" : "=a" (rax), "=d" (rdx) );
-    return (int64_t)(( rdx << 32 ) + rax);
-}
-
-struct tracer {
-    struct entry {
-        uint64_t event;
-        uint64_t id;
-        uint64_t arg;
-        int64_t ts;
-    };
-
-    tracer();
-    static constexpr size_t buffer_size = (32 * 1024);
-    std::vector<entry> _buf;
-    size_t _head = 0;
-    size_t _tail = buffer_size - 1;
-    void add(uint64_t event, uint64_t id, uint64_t arg) {
-        if (_head == _tail) {
-            return;
-        }
-        _buf[_head++] = entry{.event = event, .id = id, .arg = arg, .ts = rdtsc()};
-        if (_head % (buffer_size / 2) == 0) {
-            commit();
-            if (_head == buffer_size) {
-                _head = 0;
-            }
-        }
-    }
-
-    struct impl;
-    std::unique_ptr<impl> _impl;
-    void commit();
-    void start();
-    future<> stop();
-};
-extern thread_local tracer g_tracer;
 
 extern thread_local uint64_t fresh_task_id;
 extern thread_local uint64_t current_task_id;
@@ -83,18 +44,13 @@ struct task_id {
 
 struct [[nodiscard]] switch_task {
     task_id _prev;
-    switch_task(uint64_t event, uint64_t id) {
+    switch_task(uint64_t id) {
         current_task_id = id;
-        g_tracer.add(event, _prev, current_task_id);
     }
     ~switch_task() {
         current_task_id = _prev;
     }
 };
-
-inline void task_event(uint64_t event, uint64_t arg, uint64_t id = current_task_id) {
-    g_tracer.add(event, id, arg);
-}
 
 class task {
 public:

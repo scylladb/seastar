@@ -246,7 +246,8 @@ private:
             auto wi_ready = std::move(wi._ready);
             _queue.pop_front();
             {
-                auto st = switch_task(11, wi._task_id);
+                tracepoint_run_execution_stage_task(wi._task_id);
+                auto st = switch_task(wi._task_id);
                 futurize<ReturnType>::apply(_function, unwrap(std::move(wi_in))).forward_to(std::move(wi_ready));
             }
             _stats.function_calls_executed++;

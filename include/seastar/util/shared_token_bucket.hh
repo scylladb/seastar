@@ -116,8 +116,9 @@ class shared_token_bucket {
     rovers_t _rovers;
 
     T tail() const noexcept { return _rovers.tail.load(std::memory_order_relaxed); }
+public:
     T head() const noexcept { return _rovers.head.load(std::memory_order_relaxed); }
-
+private:
     /*
      * Need to make sure that the multiplication in accumulated_in() doesn't
      * overflow. Not to introduce an extra branch there, define that the

@@ -115,6 +115,7 @@ auto fair_group::grab_capacity(capacity_t cap) noexcept -> capacity_t {
 
 void fair_group::replenish_capacity(clock_type::time_point now) noexcept {
     _token_bucket.replenish(now);
+    tracepoint_replenish(_token_bucket.head());
 }
 
 void fair_group::maybe_replenish_capacity(clock_type::time_point& local_ts) noexcept {
@@ -131,6 +132,10 @@ auto fair_group::capacity_deficiency(capacity_t from) const noexcept -> capacity
     return _token_bucket.deficiency(from);
 }
 
+auto fair_group::head() const noexcept -> capacity_t {
+    return _token_bucket.head();
+}
+
 // Priority class, to be used with a given fair_queue
 class fair_queue::priority_class_data {
     friend class fair_queue;
@@ -141,9 +146,10 @@ class fair_queue::priority_class_data {
     bool _queued = false;
     bool _plugged = true;
     uint32_t _activations = 0;
+    fair_queue::class_id _id;
 
 public:
-    explicit priority_class_data(uint32_t shares) noexcept : _shares(std::max(shares, 1u)) {}
+    explicit priority_class_data(uint32_t shares, fair_queue::class_id id) noexcept : _shares(std::max(shares, 1u)), _id(id) {}
     priority_class_data(const priority_class_data&) = delete;
     priority_class_data(priority_class_data&&) = delete;
 
@@ -226,7 +232,9 @@ void fair_queue::unplug_class(class_id cid) noexcept {
 auto fair_queue::grab_pending_capacity(const fair_queue_entry& ent) noexcept -> grab_result {
     _group.maybe_replenish_capacity(_group_replenish);
 
-    if (_group.capacity_deficiency(_pending->head)) {
+    capacity_t head = _group.head();
+    tracepoint_grab_capacity(ent._capacity, _pending->head, head);
+    if (internal::wrapping_difference(_pending->head, head)) {
         return grab_result::pending;
     }
 
@@ -246,7 +254,9 @@ auto fair_queue::grab_capacity(const fair_queue_entry& ent) noexcept -> grab_res
 
     capacity_t cap = ent._capacity;
     capacity_t want_head = _group.grab_capacity(cap);
-    if (_group.capacity_deficiency(want_head)) {
+    capacity_t head = _group.head();
+    tracepoint_grab_capacity(ent._capacity, want_head, head);
+    if (internal::wrapping_difference(want_head, head)) {
         _pending.emplace(want_head, cap);
         return grab_result::pending;
     }
@@ -262,7 +272,7 @@ void fair_queue::register_priority_class(class_id id, uint32_t shares) {
     }
 
     _handles.reserve(_nr_classes + 1);
-    _priority_classes[id] = std::make_unique<priority_class_data>(shares);
+    _priority_classes[id] = std::make_unique<priority_class_data>(shares, id);
     _nr_classes++;
 }
 
@@ -330,8 +340,10 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
     capacity_t dispatched = 0;
     boost::container::small_vector<priority_class_ptr, 2> preempt;
 
+    tracepoint_dispatch_requests();
     while (!_handles.empty() && (dispatched < _group.per_tick_grab_threshold())) {
         priority_class_data& h = *_handles.top();
+        tracepoint_dispatch_queue(h._id);
         if (h._queue.empty() || !h._plugged) {
             pop_priority_class(h);
             continue;

@@ -173,6 +173,7 @@ module seastar;
 #include <seastar/util/spinlock.hh>
 #include <seastar/util/internal/iovec_utils.hh>
 #include <seastar/util/internal/magic.hh>
+#include <seastar/util/tracer.hh>
 #include "core/reactor_backend.hh"
 #include "core/syscall_result.hh"
 #include "core/thread_pool.hh"
@@ -184,6 +185,8 @@ module seastar;
 #endif // SEASTAR_MODULE
 
 namespace seastar {
+
+thread_local tracer g_tracer;
 
 thread_local uint64_t fresh_task_id = 1;
 thread_local uint64_t current_task_id = 0;
@@ -2593,7 +2596,8 @@ void reactor::run_tasks(task_queue& tq) {
         internal::task_histogram_add_task(*tsk);
         _current_task = tsk;
         {
-            auto st = switch_task(0, tsk->_id);
+            tracepoint_run_task(tsk->_id);
+            auto st = switch_task(tsk->_id);
             tsk->run_and_dispose();
         }
         _current_task = nullptr;
@@ -3061,6 +3065,7 @@ reactor::run_some_tasks() {
         auto t_run_started = t_run_completed;
         insert_activating_task_queues();
         task_queue* tq = pop_active_task_queue(t_run_started);
+        tracepoint_run_task_queue(tq->_id);
         sched_print("running tq {} {}", (void*)tq, tq->_name);
         _last_vruntime = std::max(tq->_vruntime, _last_vruntime);
         run_tasks(*tq);
@@ -3083,6 +3088,7 @@ reactor::run_some_tasks() {
         // Settle on a regular need_preempt(), which will return true in
         // debug mode.
     } while (have_more_tasks() && !need_preempt());
+    tracepoint_run_task_queue_end();
     _cpu_stall_detector->end_task_run(t_run_completed);
     STAP_PROBE(seastar, reactor_run_tasks_end);
     *internal::current_scheduling_group_ptr() = default_scheduling_group(); // Prevent inheritance from last group run
