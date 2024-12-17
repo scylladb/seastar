@@ -642,8 +642,8 @@ private:
         const auto& mf = values.find(m_name);
         assert(mf != values.end());
         for (auto&& mi : mf->second) {
-            auto&& cname = mi.first.find("class");
-            if (cname != mi.first.end() && cname->second == name()) {
+            auto&& cname = mi.first.labels().find("class");
+            if (cname != mi.first.labels().end() && cname->second == name()) {
                 out << YAML::Key << m_name << YAML::Value << mi.second->get_function()().d();
             }
         }
