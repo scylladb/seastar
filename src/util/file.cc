@@ -24,6 +24,7 @@
 module;
 #endif
 
+#include <coroutine>
 #include <cstdint>
 #include <deque>
 #include <filesystem>
@@ -126,6 +127,23 @@ future<uint64_t> fs_free(std::string_view name) noexcept {
     return engine().statvfs(name).then([] (struct statvfs st) {
         return make_ready_future<uint64_t>(st.f_bfree * st.f_frsize);
     });
+}
+
+future<file_system_stat_data> file_system_stat(std::string_view name) noexcept {
+    struct statvfs st = co_await engine().statvfs(name);
+    co_return file_system_stat_data{
+        .block_size = st.f_bsize,
+        .fragment_size = st.f_frsize,
+        .size_in_bytes = (uint64_t)st.f_blocks * st.f_frsize,
+        .free_bytes = (uint64_t)st.f_bfree * st.f_frsize,
+        .available_bytes = (uint64_t)st.f_bavail * st.f_frsize,
+        .files_total = st.f_files,
+        .files_free = st.f_ffree,
+        .files_available = st.f_favail,
+        .fsid = st.f_fsid,
+        .mount_flags = st.f_flag,
+        .max_filename_length = st.f_namemax,
+    };
 }
 
 future<stat_data> file_stat(std::string_view name, follow_symlink follow) noexcept {
