@@ -40,6 +40,7 @@
 #include <seastar/net/inet_address.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
+#include <seastar/util/defer.hh>
 
 #include <boost/dll.hpp>
 
@@ -1594,4 +1595,127 @@ SEASTAR_THREAD_TEST_CASE(test_tls13_session_tickets) {
         c.shutdown_output();
     }
 
+}
+
+SEASTAR_THREAD_TEST_CASE(test_reload_certificates_with_only_shard0_notify) {
+    tmpdir tmp;
+
+    namespace fs = std::filesystem;
+
+    // copy the wrong certs. We don't trust these
+    // blocking calls, but this is a test and seastar does not have a copy 
+    // util and I am lazy...
+    fs::copy_file(certfile("other.crt"), tmp.path() / "test.crt");
+    fs::copy_file(certfile("other.key"), tmp.path() / "test.key");
+
+    auto cert = (tmp.path() / "test.crt").native();
+    auto key = (tmp.path() / "test.key").native();
+    promise<> p;
+
+    tls::credentials_builder b;
+    b.set_x509_key_file(cert, key, tls::x509_crt_format::PEM).get();
+    b.set_dh_level();
+
+    auto certs = b.build_server_credentials();
+
+    auto shard_1_certs = smp::submit_to(1, [&]() -> future<shared_ptr<tls::server_credentials>> {
+        co_return co_await b.build_reloadable_server_credentials([&, changed = std::unordered_set<sstring>{}](const tls::credentials_builder& builder, const std::unordered_set<sstring>& files, std::exception_ptr ep) mutable -> future<> {
+            if (ep) {
+                co_return;
+            }
+            changed.insert(files.begin(), files.end());
+            if (changed.count(cert) && changed.count(key)) {
+                // shard one certs are not reloadable. We issue a reload of them from shard 0
+                // - to save inotify instances.
+                co_await smp::submit_to(0, [&] {
+                    builder.rebuild(*certs);
+                    p.set_value();
+                });
+            }
+        });
+    }).get();
+
+    auto def = defer([&]() noexcept {
+        try {
+            smp::submit_to(1, [&] {
+                shard_1_certs = nullptr;
+            }).get();
+        } catch (...) {}
+    });
+
+    ::listen_options opts;
+    opts.reuse_address = true;
+    auto addr = ::make_ipv4_address( {0x7f000001, 4712});
+    auto server = tls::listen(certs, addr, opts);
+
+    tls::credentials_builder b2;
+    b2.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
+
+    {
+        auto sa = server.accept();
+        auto c = tls::connect(b2.build_certificate_credentials(), addr).get();
+        auto s = sa.get();
+        auto in = s.connection.input();
+
+        output_stream<char> out(c.output().detach(), 4096);
+
+        try {
+            out.write("apa").get();
+            auto f = out.flush();
+            auto f2 = in.read();
+
+            try {
+                f.get();
+                BOOST_FAIL("should not reach");
+            } catch (tls::verification_error&) {
+                // ok
+            }
+            try {
+                out.close().get();
+            } catch (...) {
+            }
+
+            try {
+                f2.get();
+                BOOST_FAIL("should not reach");
+            } catch (...) {
+                // ok
+            }
+            try {
+                in.close().get();
+            } catch (...) {
+            }
+        } catch (tls::verification_error&) {
+            // ok
+        }
+    }
+
+    // copy the right (trusted) certs over the old ones.
+    fs::copy_file(certfile("test.crt"), tmp.path() / "test0.crt");
+    fs::copy_file(certfile("test.key"), tmp.path() / "test0.key");
+
+    rename_file((tmp.path() / "test0.crt").native(), (tmp.path() / "test.crt").native()).get();
+    rename_file((tmp.path() / "test0.key").native(), (tmp.path() / "test.key").native()).get();
+
+    p.get_future().get();
+
+    // now it should work
+    {
+        auto sa = server.accept();
+        auto c = tls::connect(b2.build_certificate_credentials(), addr).get();
+        auto s = sa.get();
+        auto in = s.connection.input();
+
+        output_stream<char> out(c.output().detach(), 4096);
+
+        out.write("apa").get();
+        auto f = out.flush();
+        auto buf = in.read().get();
+        f.get();
+        out.close().get();
+        in.read().get(); // ignore - just want eof
+        in.close().get();
+
+        BOOST_CHECK_EQUAL(sstring(buf.begin(), buf.end()), "apa");
+    }
 }
