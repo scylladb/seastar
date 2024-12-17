@@ -131,6 +131,7 @@ struct reactor_options : public program_options::option_group {
     /// * \ref idle_poll_time_us = 0
     /// * \ref smp_options::thread_affinity = 0
     /// * \ref poll_aio = 0
+    /// * \ref smp_options::lock_memory = 0
     program_options::value<> overprovisioned;
     /// \brief Abort when seastar allocator cannot allocate memory.
     program_options::value<> abort_on_seastar_bad_alloc;
