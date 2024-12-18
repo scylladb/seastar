@@ -73,15 +73,15 @@ public:
     /// We try to speculate. If an I/O is completed successfully without being
     /// blocked and it didn't return the short read/write. We anticipate that
     /// the next I/O will also be non-blocking and will not return EAGAIN.
-    /// But the speculation is invalidated once it is "used" by
-    /// \c take_speculation()
-    void speculate_epoll(int events) { events_known |= events; }
+    /// Besides this, we can invalidate the speculation with 
+    /// \c check_and_revoke_speculation()
+    void speculate(int events) { events_known |= events; }
     /// Check whether we speculate specified I/O is possible on the fd,
     /// invalidate the speculation if it matches with all specified \c events.
     ///
     /// \return true if the current speculation includes all specified events
-    bool take_speculation(int events) {
-        // invalidate the speculation set by the last speculate_epoll() call,
+    bool check_and_revoke_speculation(int events) {
+        // invalidate the speculation set by the last speculate() call,
         if (events_known & events) {
             events_known &= ~events;
             return true;
@@ -93,7 +93,7 @@ public:
     unsigned shutdown_mask = 0;  // For udp, there is no shutdown indication from the kernel
     int events_requested = 0; // wanted by pollin/pollout promises
     int events_epoll = 0;     // installed in epoll
-    int events_known = 0;     // returned from epoll
+    int events_known = 0;     // returned from backend
 
     friend class reactor;
     friend class pollable_fd;
