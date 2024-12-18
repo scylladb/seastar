@@ -375,6 +375,7 @@ const value_map& get_value_map() {
 }
 
 foreign_ptr<values_reference> get_values() {
+    tracepoint_monitoring_scrape();
     shared_ptr<values_copy> res_ref = ::seastar::make_shared<values_copy>();
     auto& res = *(res_ref.get());
     auto& mv = res.values;

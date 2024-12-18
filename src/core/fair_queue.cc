@@ -340,7 +340,7 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
     capacity_t dispatched = 0;
     boost::container::small_vector<priority_class_ptr, 2> preempt;
 
-    tracepoint_dispatch_requests();
+    // tracepoint_dispatch_requests();
     while (!_handles.empty() && (dispatched < _group.per_tick_grab_threshold())) {
         priority_class_data& h = *_handles.top();
         tracepoint_dispatch_queue(h._id);

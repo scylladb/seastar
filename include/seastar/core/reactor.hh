@@ -68,6 +68,7 @@
 #include <cstring>
 #include <memory>
 #include <string_view>
+#include <map>
 #include <unordered_map>
 #include <vector>
 #include <unistd.h>
@@ -281,6 +282,8 @@ private:
     };
 
     boost::container::static_vector<std::unique_ptr<task_queue>, max_scheduling_groups()> _task_queues;
+public:
+    std::vector<std::tuple<int, std::reference_wrapper<const sstring>, float>> list_groups();
     internal::scheduling_group_specific_thread_local_data _scheduling_group_specific_data;
     int64_t _last_vruntime = 0;
     task_queue_list _active_task_queues;

@@ -15,7 +15,7 @@ struct tracer {
     size_t _cur_pos = 0;
 
     tracer() {
-        for (int i = 0; i < 80; ++i) {
+        for (int i = 0; i < 480; ++i) {
             _old.push_back(std::vector<std::byte>());
         }
         _current.resize(buffer_size);
@@ -72,6 +72,7 @@ enum class trace_events {
     IO_QUEUE,
     IO_DISPATCH,
     IO_COMPLETE,
+    MONITORING_SCRAPE,
     COUNT,
 };
 
@@ -164,13 +165,15 @@ inline void tracepoint_replenish(uint64_t new_head) {
 }
 
 inline void tracepoint_dispatch_queue(uint8_t id) {
-    auto p = reinterpret_cast<char*>(g_tracer.write(5));
-    p = seastar::write_le<uint32_t>(p, static_cast<uint32_t>(trace_events::DISPATCH_QUEUE));
-    p = seastar::write_le<uint8_t>(p, id);
+    tracepoint_unary<uint8_t>(trace_events::DISPATCH_QUEUE, id);
 }
 
 inline void tracepoint_dispatch_requests() {
     tracepoint_nullary(trace_events::DISPATCH_REQUESTS);
+}
+
+inline void tracepoint_monitoring_scrape() {
+    tracepoint_nullary(trace_events::MONITORING_SCRAPE);
 }
 
 

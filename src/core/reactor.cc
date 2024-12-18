@@ -246,6 +246,16 @@ shard_id reactor::cpu_id() const {
     return _id;
 }
 
+std::vector<std::tuple<int, std::reference_wrapper<const sstring>, float>> reactor::list_groups() {
+    std::vector<std::tuple<int, std::reference_wrapper<const sstring>, float>> result;
+    for (int i = 0; i < _task_queues.size(); ++i) {
+        if (_task_queues[i]) {
+            result.emplace_back(i, _task_queues[i]->_name, _task_queues[i]->_shares);
+        }
+    }
+    return result;
+}
+
 void reactor::update_shares_for_queues(internal::priority_class pc, uint32_t shares) {
     for (auto&& q : _io_queues) {
         q.second->update_shares_for_class(pc, shares);

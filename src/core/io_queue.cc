@@ -236,7 +236,7 @@ public:
         io_log.trace("dev {} : req {} queue  len {} capacity {}", _ioq.dev_id(), fmt::ptr(this), _dnl.length(), _fq_capacity);
         static thread_local uint64_t io_id = 0;
         _io_id = io_id++;
-        tracepoint_io_queue(_fq_capacity, dnl.rw_idx(), _io_id);
+        tracepoint_io_queue(dnl.rw_idx(), _fq_capacity, _io_id);
     }
 
     virtual void set_exception(std::exception_ptr eptr) noexcept override {
