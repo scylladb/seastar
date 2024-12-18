@@ -162,11 +162,20 @@ public:
 
     /**
      * Add an element to the list.
-     * @param element a new element that will be added to the list
+     * @param element a new element that will be added to the end of the list
      */
     void push(const T& element) {
         _set = true;
         _elements.push_back(element);
+    }
+
+    /**
+     * Move an element into the list.
+     * @param element a new element that will be added to the list using move-construction
+     */
+    void push(T&& element) {
+        _set = true;
+        _elements.push_back(std::move(element));
     }
 
     virtual std::string to_string() override
