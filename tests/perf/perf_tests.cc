@@ -24,6 +24,7 @@
 #include <cstdio>
 #include <fstream>
 #include <regex>
+#include <type_traits>
 
 #include <boost/range.hpp>
 #include <boost/range/adaptors.hpp>
@@ -203,6 +204,114 @@ static inline std::ostream& operator<<(std::ostream& os, duration d)
     return os;
 }
 
+/**
+ * A column object encapsulates the logic needed to print one
+ * type of result value, usually as a column (or a json attribute).
+ *
+ * This allows all printers to share a common view of the available
+ * columns.
+ */
+struct column {
+    static constexpr int default_width = 11;
+
+    using print_fn = std::function<void(const column&, std::FILE *file, const result& r)>;
+
+    template <typename F>
+    column(sstring header, int prec, F fn) : header{header}, prec{prec} {
+        using result_t = std::invoke_result_t<F,const result&>;
+        constexpr auto is_integral = std::is_integral_v<result_t>;
+        constexpr auto is_double = std::is_same_v<result_t, double>;
+        constexpr auto is_duration = std::is_same_v<result_t, duration>;
+        static_assert(is_integral || is_double || is_duration, "unsupported return type");
+        static constexpr std::string_view fmt_str = is_double ? "{:>{}.{}f}": "{:>{}}";
+        print_text = [=](const column& c, std::FILE *file, const result& r) {
+            fmt::print(file, fmt_str, fn(r), c.width, c.prec);
+        };
+        to_double = [fn](const result& r) {
+            if constexpr (is_duration) {
+                return fn(r).value;
+            } else {
+                return static_cast<double>(fn(r));
+            }
+        };
+    }
+
+    void print_header(std::FILE *file, const char* str = nullptr) const {
+        fmt::print(file, "{:>{}}", str ? str : header, width);
+    }
+
+    // column header
+    sstring header;
+
+    // width for the column in text output
+    int width = 11;
+
+    // precision in case of double
+    int prec = 3;
+
+    // used by stdout and md formats to print as text
+    print_fn print_text;
+
+    // used by json format to extract double result
+    std::function<double(const result&)> to_double;
+};
+
+using columns = std::vector<column>;
+
+static void print_text_header(std::FILE* out,
+    const columns& cols,
+    int name_length,
+    const char* start_delim = "",   // before the line
+    const char* middle_delim = " ", // between each column
+    const char* end_delim = "",     // end of line
+    const char* test_name_header = "test",
+    const char* header_override = nullptr) {
+
+    fmt::print(out, "{}{:<{}}", start_delim, header_override ? header_override : test_name_header, name_length);
+    for (auto& c : cols) {
+        fmt::print(out, "{}", middle_delim);
+        c.print_header(out, header_override);
+    }
+    fmt::print(out, "{}\n", end_delim);
+}
+
+static void print_result_columns(std::FILE* out,
+    const columns& cols,
+    int name_length,
+    const result& r,
+    const char* start_delim = "",
+    const char* middle_delim = " ",
+    const char* end_delim = ""
+    ) {
+
+    fmt::print(out, "{}{:<{}}", start_delim, r.test_name, name_length);
+    for (auto& c : cols) {
+        fmt::print(out, "{}", middle_delim);
+        c.print_text(c, out, r);
+    }
+    fmt::print(out, "{}\n", end_delim);
+}
+
+// columns for json ouput
+static const std::vector<column> json_columns{
+    {"median", 0, [](const result& r) { return duration { r.median }; }},
+    {"mad"   , 0, [](const result& r) { return duration { r.mad };    }},
+    {"min"   , 0, [](const result& r) { return duration { r.min };    }},
+    {"max"   , 0, [](const result& r) { return duration { r.max };    }},
+    {"allocs", 3, [](const result& r) { return r.allocs;              }},
+    {"tasks" , 3, [](const result& r) { return r.tasks;               }},
+    {"inst"  , 1, [](const result& r) { return r.inst;                }},
+    {"cycles", 1, [](const result& r) { return r.cycles;              }},
+};
+
+// columns for text output
+const std::vector<column> text_columns = [] { 
+    std::vector<column> ret{
+        {"iterations" , 0, [](const result& r) { return r.total_iterations / r.runs; }}
+    };
+    ret.insert(ret.end(), json_columns.begin(), json_columns.end());
+    return ret;
+}();
 
 struct stdout_printer final : result_printer {
   virtual void print_configuration(const config& c) override {
@@ -212,18 +321,12 @@ struct stdout_printer final : result_printer {
                "number of runs:", c.number_of_runs,
                "number of cores:", smp::count,
                "random seed:", c.random_seed);
-    fmt::print(header_format_string, "test", name_column_length(), "iterations", "median", "mad", "min", "max", "allocs", "tasks", "inst", "cycles");
+    print_text_header(stdout, text_columns, name_column_length());
   }
 
   virtual void print_result(const result& r) override {
-    fmt::print(format_string, r.test_name, name_column_length(), r.total_iterations / r.runs, duration { r.median },
-               duration { r.mad }, duration { r.min }, duration { r.max },
-               r.allocs, r.tasks, r.inst, r.cycles);
+    print_result_columns(stdout, text_columns, name_column_length(), r);
   }
-
-private:
-  static constexpr auto header_format_string ="{:<{}} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11}\n";
-  static constexpr auto format_string = "{:<{}} {:>11} {:>11} {:>11} {:>11} {:>11} {:>11.3f} {:>11.3f} {:>11.1f} {:>11.1f}\n";
 };
 
 class json_printer final : public result_printer {
@@ -245,20 +348,14 @@ public:
         auto& result = _root["results"][r.test_name];
         result["runs"] = r.runs;
         result["total_iterations"] = r.total_iterations;
-        result["median"] = r.median;
-        result["mad"] = r.mad;
-        result["min"] = r.min;
-        result["max"] = r.max;
-        result["allocs"] = r.allocs;
-        result["tasks"] = r.tasks;
-        result["inst"] = r.inst;
-        result["cycles"] = r.cycles;
+
+        for (auto& c : json_columns) {
+            result[c.header] = c.to_double(r);
+        }
     }
 };
 
 class markdown_printer final : public result_printer {
-    static constexpr std::string_view header_format_string = "| {:<{}} | {:>11} | {:>11} | {:>11} | {:>11} | {:>11} | {:>11} | {:>11} | {:>11} |\n";
-    static constexpr std::string_view body_format_string = "| {:<{}} | {:>11} | {:>11} | {:>11} | {:>11} | {:>11} | {:>11.3f} | {:>11.3f} | {:>11.1f} |\n";
     std::FILE* _output = nullptr;
 public:
     explicit markdown_printer(const std::string& filename) {
@@ -276,15 +373,15 @@ public:
             std::fclose(_output);
         }
     }
+
     void print_configuration(const config&) override {
-        fmt::print(_output, header_format_string, "test", name_column_length(), "iterations", "median", "mad", "min", "max", "allocs", "tasks", "inst");
-        fmt::print(_output, header_format_string, "-", name_column_length(), "-", "-", "-", "-", "-", "-", "-", "-");
+        // print the header row, then the divider row of all -
+        print_text_header(_output, text_columns, name_column_length(), "| ", " | ", " |", "test");
+        print_text_header(_output, text_columns, name_column_length(), "| ", " | ", " |", "test", "-");
     }
 
     void print_result(const result& r) override {
-        fmt::print(_output, body_format_string, r.test_name, name_column_length(), r.total_iterations / r.runs, duration { r.median },
-                   duration { r.mad }, duration { r.min }, duration { r.max },
-                   r.allocs, r.tasks, r.inst);
+        print_result_columns(_output, text_columns, name_column_length(), r, "| ", " | ", " |");
     }
 
 };
