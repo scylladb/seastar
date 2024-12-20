@@ -84,17 +84,16 @@ struct is_error_code_enum<seastar::ossl_errc> : true_type {};
 }
 
 template<>
-struct fmt::formatter<seastar::ossl_errc> : public fmt::formatter<std::string_view> {
-    auto format(seastar::ossl_errc error, fmt::format_context& ctx) const -> decltype(ctx.out()) {
-        constexpr size_t error_buf_size = 256;
-        // Buffer passed to ERR_error_string must be at least 256 bytes large
-        // https://www.openssl.org/docs/man3.0/man3/ERR_error_string_n.html
-        std::array<char, error_buf_size> buf{};
-        ERR_error_string_n(
-          static_cast<unsigned long>(error), buf.data(), buf.size());
-        // ERR_error_string_n does include the terminating null character
-        return fmt::format_to(ctx.out(), "{}", buf.data());
-    }
+struct fmt::formatter<seastar::ossl_errc> :
+  public fmt::formatter<std::string_view> {
+  /**
+   * Some OpenSSL errors are hard to parse.  This method can be used to provide
+   * an alternative, more readable, error message.
+   */
+  static std::optional<seastar::sstring>
+  alternate_message(seastar::ossl_errc error);
+
+  auto format(seastar::ossl_errc error, fmt::format_context& ctx) const -> decltype(ctx.out());
 };
 
 namespace seastar {
@@ -2077,3 +2076,36 @@ const int seastar::tls::ERROR_DECRYPTION_FAILED = ERR_PACK(
   ERR_LIB_SSL, 0, SSL_R_DECRYPTION_FAILED);
 const int seastar::tls::ERROR_MAC_VERIFY_FAILED = ERR_PACK(
   ERR_LIB_SSL, 0, SSL_R_DECRYPTION_FAILED_OR_BAD_RECORD_MAC);
+const int seastar::tls::ERROR_WRONG_VERSION_NUMBER = ERR_PACK(
+  ERR_LIB_SSL, 0, SSL_R_WRONG_VERSION_NUMBER);
+const int seastar::tls::ERROR_HTTP_REQUEST = ERR_PACK(
+  ERR_LIB_SSL, 0, SSL_R_HTTP_REQUEST);
+const int seastar::tls::ERROR_HTTPS_PROXY_REQUEST = ERR_PACK(
+  ERR_LIB_SSL, 0, SSL_R_HTTPS_PROXY_REQUEST);
+
+std::optional<seastar::sstring> fmt::formatter<seastar::ossl_errc>::alternate_message(seastar::ossl_errc error) {
+    switch(static_cast<int>(error)) {
+    case seastar::tls::ERROR_WRONG_VERSION_NUMBER:
+        return "Wrong SSL Version number: ensure client is configured to use TLS";
+    case seastar::tls::ERROR_HTTP_REQUEST:
+        return "Received HTTP request on HTTPS server";
+    case seastar::tls::ERROR_HTTPS_PROXY_REQUEST:
+        return "Received HTTPS proxy request";
+    }
+
+    return std::nullopt;
+}
+
+auto fmt::formatter<seastar::ossl_errc>::format(seastar::ossl_errc error, fmt::format_context& ctx) const -> decltype(ctx.out()) {
+    if (auto alternate = alternate_message(error); alternate.has_value()) {
+        return fmt::format_to(ctx.out(), "{}", alternate.value());
+    }
+    constexpr size_t error_buf_size = 256;
+    // Buffer passed to ERR_error_string must be at least 256 bytes large
+    // https://www.openssl.org/docs/man3.0/man3/ERR_error_string_n.html
+    std::array<char, error_buf_size> buf{};
+    ERR_error_string_n(
+        static_cast<unsigned long>(error), buf.data(), buf.size());
+    // ERR_error_string_n does include the terminating null character
+    return fmt::format_to(ctx.out(), "{}", buf.data());
+}

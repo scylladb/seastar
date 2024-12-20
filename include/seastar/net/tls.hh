@@ -641,6 +641,9 @@ namespace tls {
     extern const int ERROR_NO_CIPHER_SUITES;
     extern const int ERROR_DECRYPTION_FAILED;
     extern const int ERROR_MAC_VERIFY_FAILED;
+    extern const int ERROR_WRONG_VERSION_NUMBER;
+    extern const int ERROR_HTTP_REQUEST;
+    extern const int ERROR_HTTPS_PROXY_REQUEST;
 }
 }
 
