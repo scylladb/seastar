@@ -99,6 +99,10 @@ jobs:
         if: ${{ inputs.mode == 'dev' && inputs.compiler == 'clang++' }}
         run: cmake --build build/${{ inputs.mode }} --target checkheaders
 
+      - name: Check Include Style
+        if: ${{ inputs.mode == 'dev' && inputs.compiler == 'clang++' }}
+        run: cmake --build build/${{ inputs.mode }} --target check-include-style
+
       - name: Build with C++20 modules
         if: ${{ contains(inputs.enables, 'cxx-modules') }}
         run: cmake --build build/${{ inputs.mode }} --target hello_cxx_module
