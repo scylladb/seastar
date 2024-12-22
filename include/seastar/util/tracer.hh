@@ -72,6 +72,7 @@ enum class trace_events {
     IO_QUEUE,
     IO_DISPATCH,
     IO_COMPLETE,
+    IO_CANCEL,
     MONITORING_SCRAPE,
     COUNT,
 };
@@ -143,6 +144,10 @@ inline void tracepoint_io_complete(uint64_t io_id) {
     tracepoint_unary<uint64_t>(trace_events::IO_COMPLETE, io_id);
 }
 
+inline void tracepoint_io_cancel(uint64_t io_id) {
+    tracepoint_unary<uint64_t>(trace_events::IO_CANCEL, io_id);
+}
+
 inline void tracepoint_grab_capacity(uint64_t cap, uint64_t want_head, uint64_t head) {
     auto p = reinterpret_cast<char*>(g_tracer.write(12 + 24));
     p = seastar::write_le<uint32_t>(p, static_cast<uint32_t>(trace_events::GRAB_CAPACITY));
@@ -168,8 +173,8 @@ inline void tracepoint_dispatch_queue(uint8_t id) {
     tracepoint_unary<uint8_t>(trace_events::DISPATCH_QUEUE, id);
 }
 
-inline void tracepoint_dispatch_requests() {
-    tracepoint_nullary(trace_events::DISPATCH_REQUESTS);
+inline void tracepoint_dispatch_requests(uint64_t queued) {
+    tracepoint_unary<uint64_t>(trace_events::DISPATCH_REQUESTS, queued);
 }
 
 inline void tracepoint_monitoring_scrape() {

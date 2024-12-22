@@ -259,6 +259,7 @@ public:
     }
 
     void cancel() noexcept {
+        tracepoint_io_cancel(_io_id);
         _pclass.on_cancel();
         _pr.set_exception(std::make_exception_ptr(default_io_exception_factory::cancelled()));
         delete this;

@@ -118,6 +118,11 @@ void fair_group::replenish_capacity(clock_type::time_point now) noexcept {
     tracepoint_replenish(_token_bucket.head());
 }
 
+void fair_group::refund_tokens(capacity_t cap) noexcept {
+    _token_bucket.refund(cap);
+    tracepoint_replenish(_token_bucket.head());
+}
+
 void fair_group::maybe_replenish_capacity(clock_type::time_point& local_ts) noexcept {
     auto now = clock_type::now();
     auto extra = _token_bucket.accumulated_in(now - local_ts);
@@ -229,38 +234,29 @@ void fair_queue::unplug_class(class_id cid) noexcept {
     unplug_priority_class(*_priority_classes[cid]);
 }
 
-auto fair_queue::grab_pending_capacity(const fair_queue_entry& ent) noexcept -> grab_result {
-    _group.maybe_replenish_capacity(_group_replenish);
-
-    capacity_t head = _group.head();
-    tracepoint_grab_capacity(ent._capacity, _pending->head, head);
-    if (internal::wrapping_difference(_pending->head, head)) {
-        return grab_result::pending;
+auto fair_queue::reap_pending_capacity(bool& contact) noexcept -> capacity_t {
+    capacity_t result = 0;
+    contact = true;
+    if (_pending.cap) {
+        _group.maybe_replenish_capacity(_group_replenish);
+        capacity_t head = _group.head();
+        // tracepoint_grab_capacity(ent._capacity, _pending->head, head);
+        auto diff = internal::wrapping_difference(_pending.head, head);
+        contact = diff <= _pending.cap;
+        if (diff < _pending.cap) {
+            result = _pending.cap - diff;
+            _pending.cap = diff;
+        }
     }
-
-    capacity_t cap = ent._capacity;
-    if (cap > _pending->cap) {
-        return grab_result::cant_preempt;
-    }
-
-    _pending.reset();
-    return grab_result::grabbed;
+    return result;
 }
 
 auto fair_queue::grab_capacity(const fair_queue_entry& ent) noexcept -> grab_result {
-    if (_pending) {
-        return grab_pending_capacity(ent);
-    }
-
     capacity_t cap = ent._capacity;
     capacity_t want_head = _group.grab_capacity(cap);
     capacity_t head = _group.head();
     tracepoint_grab_capacity(ent._capacity, want_head, head);
-    if (internal::wrapping_difference(want_head, head)) {
-        _pending.emplace(want_head, cap);
-        return grab_result::pending;
-    }
-
+    _pending = pending{want_head, cap};
     return grab_result::grabbed;
 }
 
@@ -307,17 +303,19 @@ void fair_queue::queue(class_id id, fair_queue_entry& ent) noexcept {
         push_priority_class_from_idle(pc);
     }
     pc._queue.push_back(ent);
+    _queued_cap += ent.capacity();
 }
 
 void fair_queue::notify_request_finished(fair_queue_entry::capacity_t cap) noexcept {
 }
 
 void fair_queue::notify_request_cancelled(fair_queue_entry& ent) noexcept {
+    _queued_cap -= ent._capacity;
     ent._capacity = 0;
 }
 
 fair_queue::clock_type::time_point fair_queue::next_pending_aio() const noexcept {
-    if (_pending) {
+    if (_pending.cap) {
         /*
          * We expect the disk to release the ticket within some time,
          * but it's ... OK if it doesn't -- the pending wait still
@@ -328,7 +326,7 @@ fair_queue::clock_type::time_point fair_queue::next_pending_aio() const noexcept
          * which's sub-optimal. The expectation is that we think disk
          * works faster, than it really does.
          */
-        auto over = _group.capacity_deficiency(_pending->head);
+        auto over = _group.capacity_deficiency(_pending.head);
         auto ticks = _group.capacity_duration(over);
         return std::chrono::steady_clock::now() + std::chrono::duration_cast<std::chrono::microseconds>(ticks);
     }
@@ -337,11 +335,15 @@ fair_queue::clock_type::time_point fair_queue::next_pending_aio() const noexcept
 }
 
 void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
-    capacity_t dispatched = 0;
-    boost::container::small_vector<priority_class_ptr, 2> preempt;
+    tracepoint_dispatch_requests(_queued_cap);
+    _pending.cap = std::min(_pending.cap, _queued_cap);
+    bool contact = false;
+    capacity_t available = reap_pending_capacity(contact);
+    capacity_t recycled = 0;
+    uint64_t can_grab_this_tick = _group.per_tick_grab_threshold();
 
     // tracepoint_dispatch_requests();
-    while (!_handles.empty() && (dispatched < _group.per_tick_grab_threshold())) {
+    while (!_handles.empty()) {
         priority_class_data& h = *_handles.top();
         tracepoint_dispatch_queue(h._id);
         if (h._queue.empty() || !h._plugged) {
@@ -350,16 +352,29 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         }
 
         auto& req = h._queue.front();
-        auto gr = grab_capacity(req);
-        if (gr == grab_result::pending) {
+        if (req._capacity <= available) {
+            // pass
+        } else if (req._capacity <= available + _pending.cap) {
+            _pending.cap += available;
+            available = 0;
+            break;
+        } else if (contact) {
+            can_grab_this_tick += available + _pending.cap;
+            recycled = available + _pending.cap;
+            _pending.cap = 0;
+            available = 0;
+            capacity_t grab_amount = std::min<capacity_t>(can_grab_this_tick, _queued_cap);
+            grab_capacity(grab_amount);
+            can_grab_this_tick -= grab_amount;
+            available += reap_pending_capacity(contact);
+            if (req._capacity > available) {
+                break;
+            }
+        } else {
             break;
         }
 
-        if (gr == grab_result::cant_preempt) {
-            pop_priority_class(h);
-            preempt.emplace_back(&h);
-            continue;
-        }
+        available -= req._capacity;
 
         _last_accumulated = std::max(h._accumulated, _last_accumulated);
         pop_priority_class(h);
@@ -386,7 +401,7 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         }
         h._accumulated += req_cost;
         h._pure_accumulated += req_cap;
-        dispatched += req_cap;
+        _queued_cap -= req_cap;
 
         cb(req);
 
@@ -395,8 +410,11 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         }
     }
 
-    for (auto&& h : preempt) {
-        push_priority_class(*h);
+    if (_pending.cap == 0 && available) {
+        grab_capacity(available);
+    }
+    if (available + recycled) {
+        _group.refund_tokens(available + recycled);
     }
 }
 

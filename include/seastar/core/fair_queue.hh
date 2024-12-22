@@ -254,6 +254,7 @@ public:
     capacity_t per_tick_grab_threshold() const noexcept { return _per_tick_threshold; }
     capacity_t grab_capacity(capacity_t cap) noexcept;
     clock_type::time_point replenished_ts() const noexcept { return _token_bucket.replenished_ts(); }
+    void refund_tokens(capacity_t) noexcept;
     void replenish_capacity(clock_type::time_point now) noexcept;
     void maybe_replenish_capacity(clock_type::time_point& local_ts) noexcept;
 
@@ -344,13 +345,12 @@ private:
      * in the middle of the waiting
      */
     struct pending {
-        capacity_t head;
-        capacity_t cap;
-
-        pending(capacity_t t, capacity_t c) noexcept : head(t), cap(c) {}
+        capacity_t head = 0;
+        capacity_t cap = 0;
     };
 
-    std::optional<pending> _pending;
+    pending _pending;
+    capacity_t _queued_cap = 0;
 
     void push_priority_class(priority_class_data& pc) noexcept;
     void push_priority_class_from_idle(priority_class_data& pc) noexcept;
@@ -360,7 +360,7 @@ private:
 
     enum class grab_result { grabbed, cant_preempt, pending };
     grab_result grab_capacity(const fair_queue_entry& ent) noexcept;
-    grab_result grab_pending_capacity(const fair_queue_entry& ent) noexcept;
+    capacity_t reap_pending_capacity(bool& contact) noexcept;
 public:
     /// Constructs a fair queue with configuration parameters \c cfg.
     ///
