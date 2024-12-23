@@ -7,7 +7,6 @@ find_package (Python3 COMPONENTS Interpreter)
 function (seastar_check_include_style target library)
   get_target_property (sources ${library} SOURCES)
   set (check-target "${target}-${library}")
-  message("${sources}")
   add_custom_target("${check-target}"
     COMMAND Python3::Interpreter ${CMAKE_CURRENT_LIST_DIR}/cmake/check-seastar-include-style.py ${sources}
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
