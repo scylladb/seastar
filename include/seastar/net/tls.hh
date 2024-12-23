@@ -115,6 +115,16 @@ namespace tls {
         shared_ptr<impl> _impl;
     };
 
+    enum class tls_version {
+        tlsv1_0,
+        tlsv1_1,
+        tlsv1_2,
+        tlsv1_3
+    };
+
+    std::string_view format_as(tls_version);
+    std::ostream& operator<<(std::ostream&, const tls_version&);
+
     class abstract_credentials {
     protected:
         abstract_credentials() = default;
@@ -157,6 +167,18 @@ namespace tls {
      */
     using dn_callback = noncopyable_function<void(session_type type, sstring subject, sstring issuer)>;
 
+    enum class client_auth {
+        NONE, REQUEST, REQUIRE
+    };
+
+    /**
+     * Session resumption support.
+     * We only support TLS1.3 session tickets.
+     */
+    enum class session_resume_mode {
+        NONE, TLS13_SESSION_TICKET
+    };
+
     /**
      * Holds certificates and keys.
      *
@@ -190,6 +212,7 @@ namespace tls {
 
         // TODO add methods for certificate verification
 
+#ifdef SEASTAR_USE_GNUTLS
         /**
          * TLS handshake priority string. See gnutls docs and syntax at
          * https://gnutls.org/manual/html_node/Priority-Strings.html
@@ -197,6 +220,45 @@ namespace tls {
          * Allows specifying order and allowance for handshake alg.
          */
         void set_priority_string(const sstring&);
+#endif
+
+#ifdef SEASTAR_USE_OPENSSL
+        /**
+         * Used to set the cipher string for TLS versions 1.2 and below
+         *
+         * See https://www.openssl.org/docs/manmaster/man3/SSL_CTX_set_cipher_list.html
+         * for documentation on the format of the cipher list string
+         */
+        void set_cipher_string(const sstring&);
+
+        /**
+         * Used to set the cipher suites to use for TLSv1.3
+         *
+         * See https://www.openssl.org/docs/manmaster/man3/SSL_CTX_set_ciphersuites.html
+         * for documentation on the format of the ciphersuites string.
+         */
+        void set_ciphersuites(const sstring&);
+
+        /**
+         * Call this when you want to enable server precedence when
+         * negotitating the TLS handshake.  Client precedence is on
+         * by default.
+         */
+        void enable_server_precedence();
+        /**
+         * @brief Set the minimum tls version for this connection
+         *
+         * If unset, will default to the minimum of the underlying
+         * implementation
+         */
+        void set_minimum_tls_version(tls_version);
+        /**
+         * @brief Set the maximum tls version for this connection
+         *
+         * If unset, will default to the maximum of the underly implementation
+         */
+        void set_maximum_tls_version(tls_version);
+#endif
 
         /**
          * Register a callback for receiving Distinguished Name (DN) information
@@ -235,24 +297,18 @@ namespace tls {
         template<typename Base>
         friend class reloadable_credentials;
         shared_ptr<impl> _impl;
+
+        // The following methods are provided so classes that inherit from
+        // certificate_credentials can access the underly implementation
+        void enable_load_system_trust();
+        void set_client_auth(client_auth);
+        void set_session_resume_mode(session_resume_mode);
     };
 
     /** Exception thrown on certificate validation error */
     class verification_error : public std::runtime_error {
     public:
         using runtime_error::runtime_error;
-    };
-
-    enum class client_auth {
-        NONE, REQUEST, REQUIRE
-    };
-
-    /**
-     * Session resumption support.
-     * We only support TLS1.3 session tickets.
-    */
-    enum class session_resume_mode {
-        NONE, TLS13_SESSION_TICKET
     };
 
     /**
@@ -312,8 +368,19 @@ namespace tls {
 
         future<> set_system_trust();
         void set_client_auth(client_auth);
-        void set_priority_string(const sstring&);
         void set_session_resume_mode(session_resume_mode);
+
+#ifdef SEASTAR_USE_GNUTLS
+        void set_priority_string(const sstring&);
+#endif
+
+#ifdef SEASTAR_USE_OPENSSL
+        void set_cipher_string(const sstring&);
+        void set_ciphersuites(const sstring&);
+        void enable_server_precedence();
+        void set_minimum_tls_version(tls_version);
+        void set_maximum_tls_version(tls_version);
+#endif
 
         void apply_to(certificate_credentials&) const;
 
@@ -331,6 +398,11 @@ namespace tls {
         client_auth _client_auth = client_auth::NONE;
         session_resume_mode _session_resume_mode = session_resume_mode::NONE;
         sstring _priority;
+        sstring _cipher_string;
+        sstring _ciphersuites;
+        bool _enable_server_precedence = false;
+        std::optional<tls_version> _min_tls_version;
+        std::optional<tls_version> _max_tls_version;
     };
 
     using session_data = std::vector<uint8_t>;
@@ -580,5 +652,12 @@ template <> struct fmt::formatter<seastar::tls::subject_alt_name> : fmt::formatt
     template <typename FormatContext>
     auto format(const seastar::tls::subject_alt_name& name, FormatContext& ctx) const {
         return fmt::format_to(ctx.out(), "{}={}", name.type, name.value);
+    }
+};
+
+template <> struct fmt::formatter<seastar::tls::tls_version> : fmt::formatter<string_view> {
+    template<typename FormatContext>
+    auto format(seastar::tls::tls_version version, FormatContext& ctx) const {
+        return fmt::format_to(ctx.out(), "{}", format_as(version));
     }
 };

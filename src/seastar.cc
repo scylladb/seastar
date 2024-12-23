@@ -120,7 +120,11 @@ module;
 #include <fmt/ostream.h>
 #include <fmt/ranges.h>
 #include <fmt/printf.h>
+#ifdef SEASTAR_USE_OPENSSL
+#include <openssl/evp.h>
+#else
 #include <gnutls/crypto.h>
+#endif
 #ifdef SEASTAR_HAVE_HWLOC
 #include <hwloc.h>
 #endif
@@ -335,6 +339,7 @@ module : private;
 #include <seastar/net/virtio.hh>
 
 #include "net/native-stack-impl.hh"
+#include "net/tls-impl.hh"
 
 #include <seastar/http/url.hh>
 #include <seastar/http/internal/content_source.hh>

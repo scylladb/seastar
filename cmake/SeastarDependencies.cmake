@@ -91,6 +91,7 @@ macro (seastar_find_dependencies)
     GnuTLS
     LibUring
     LinuxMembarrier
+    OpenSSL
     # Protobuf is searched manually.
     Sanitizers
     SourceLocation
@@ -124,8 +125,12 @@ macro (seastar_find_dependencies)
     VERSION 8.1.1)
   seastar_set_dep_args (lz4 REQUIRED
     VERSION 1.7.3)
+  seastar_set_dep_args (OpenSSL
+    VERSION 3.0.0
+    OPTION ${Seastar_USE_OPENSSL})
   seastar_set_dep_args (GnuTLS REQUIRED
-    VERSION 3.3.26)
+    VERSION 3.3.26
+    OPTION ${Seastar_USE_GNUTLS})
   seastar_set_dep_args (LibUring
     VERSION 2.0
     OPTION ${Seastar_IO_URING})
