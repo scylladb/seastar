@@ -286,24 +286,19 @@ using maybe_wrap_ref = std::conditional_t<std::is_reference_v<T>, std::reference
 ///
 /// This is similar to a std::optional<T>, but it doesn't know if it is holding a value or not, so the user is
 /// responsible for calling constructors and destructors.
-///
-/// The advantage over just using a union directly is that this uses inheritance when possible and so benefits from the
-/// empty base optimization.
-template <typename T, bool is_trivial_class>
-struct uninitialized_wrapper_base;
 
 template <typename T>
-struct uninitialized_wrapper_base<T, false> {
+struct uninitialized_wrapper {
     using tuple_type = future_tuple_type_t<T>;
-    union any {
+    [[no_unique_address]] union any {
         any() noexcept {}
         ~any() {}
         // T can be a reference, so wrap it.
-        maybe_wrap_ref<T> value;
+        [[no_unique_address]] maybe_wrap_ref<T> value;
     } _v;
 
 public:
-    uninitialized_wrapper_base() noexcept = default;
+    uninitialized_wrapper() noexcept = default;
     template<typename... U>
     std::enable_if_t<!std::is_same_v<std::tuple<std::remove_cv_t<U>...>, std::tuple<tuple_type>>, void>
     uninitialized_set(U&&... vs) {
@@ -323,42 +318,26 @@ public:
     }
 };
 
-template <typename T> struct uninitialized_wrapper_base<T, true> : private T {
-    using tuple_type = future_tuple_type_t<T>;
-    uninitialized_wrapper_base() noexcept = default;
-    template<typename... U>
-    std::enable_if_t<!std::is_same_v<std::tuple<std::remove_cv_t<U>...>, std::tuple<tuple_type>>, void>
-    uninitialized_set(U&&... vs) {
-        new (this) T(std::forward<U>(vs)...);
+template <>
+struct uninitialized_wrapper<internal::monostate> {
+    [[no_unique_address]] internal::monostate _v;
+public:
+    uninitialized_wrapper() noexcept = default;
+    void uninitialized_set() {
     }
-    void uninitialized_set(tuple_type&& v) {
-        if constexpr (std::tuple_size_v<tuple_type> != 0) {
-            uninitialized_set(std::move(std::get<0>(v)));
-        }
+    void uninitialized_set(internal::monostate) {
     }
-    void uninitialized_set(const tuple_type& v) {
-        if constexpr (std::tuple_size_v<tuple_type> != 0) {
-            uninitialized_set(std::get<0>(v));
-        }
+    void uninitialized_set(std::tuple<>&& v) {
     }
-    T& uninitialized_get() {
-        return *this;
+    void uninitialized_set(const std::tuple<>& v) {
     }
-    const T& uninitialized_get() const {
-        return *this;
+    internal::monostate& uninitialized_get() {
+        return _v;
+    }
+    const internal::monostate& uninitialized_get() const {
+        return _v;
     }
 };
-
-template <typename T>
-constexpr bool can_inherit =
-        (std::is_trivially_destructible_v<T> && std::is_trivially_constructible_v<T> &&
-                std::is_class_v<T> && !std::is_final_v<T>);
-
-// The objective is to avoid extra space for empty types like std::tuple<>. We could use std::is_empty_v, but it is
-// better to check that both the constructor and destructor can be skipped.
-template <typename T>
-struct uninitialized_wrapper
-    : public uninitialized_wrapper_base<T, can_inherit<T>> {};
 
 template <typename T>
 struct is_trivially_move_constructible_and_destructible {
