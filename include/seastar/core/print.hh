@@ -26,6 +26,7 @@
 #include <seastar/util/modules.hh>
 #ifndef SEASTAR_MODULE
 #include <fmt/printf.h>
+#include <fmt/ostream.h>
 #include <iostream>
 #include <iomanip>
 #include <chrono>
