@@ -175,6 +175,26 @@ SEASTAR_THREAD_TEST_CASE(test_rwlock_hold_abort) {
     }
 }
 
+SEASTAR_THREAD_TEST_CASE(test_rwlock_hold) {
+    rwlock l;
+
+    auto rl = l.hold_read_lock().get();
+
+    auto opt_rl = l.try_hold_read_lock();
+    BOOST_REQUIRE(opt_rl.has_value());
+    BOOST_REQUIRE(!l.try_hold_write_lock());
+
+    rl.return_all();
+    BOOST_REQUIRE(!l.try_hold_write_lock());
+
+    opt_rl->return_all();
+    auto opt_wl = l.try_hold_write_lock();
+    BOOST_REQUIRE(opt_wl.has_value());
+
+    BOOST_REQUIRE(!l.try_hold_read_lock());
+    BOOST_REQUIRE(!l.try_hold_write_lock());
+}
+
 SEASTAR_THREAD_TEST_CASE(test_failed_with_lock) {
     struct test_lock {
         future<> lock() noexcept {

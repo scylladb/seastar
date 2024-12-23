@@ -167,6 +167,12 @@ public:
         return get_units(_sem, 1, as);
     }
 
+    /// try_hold_read_lock() synchronously tries to get a read lock and, if successful, returns an
+    /// optional object which, when destroyed, releases the lock.
+    std::optional<holder> try_hold_read_lock() noexcept {
+        return try_get_units(_sem, 1);
+    }
+
     /// hold_write_lock() waits for a write lock and returns an object which,
     /// when destroyed, releases the lock. This makes it easy to ensure that
     /// the lock is eventually undone, at any circumstance (even including
@@ -184,6 +190,12 @@ public:
 
     future<holder> hold_write_lock(abort_source& as) {
         return get_units(_sem, max_ops, as);
+    }
+
+    /// try_hold_write_lock() synchronously tries to get a write lock and, if successful, returns an
+    /// optional object which, when destroyed, releases the lock.
+    std::optional<holder> try_hold_write_lock() noexcept {
+        return try_get_units(_sem, max_ops);
     }
 
     /// Checks if any read or write locks are currently held.
