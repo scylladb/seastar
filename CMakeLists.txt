@@ -375,7 +375,13 @@ set (Seastar_SANITIZE
   "DEFAULT"
   CACHE
   STRING
-  "Enable ASAN and UBSAN. Can be ON, OFF or DEFAULT (which enables it for Debug and Sanitize)")
+  "Enable sanitizers. Can be ON, OFF or DEFAULT (which enables it for Debug and Sanitize)")
+
+set (Seastar_SANITIZERS
+  "address;undefined_behavior"
+  CACHE
+  STRING
+  "Sanitizers enabled when building Seastar")
 
 set (Seastar_DEBUG_SHARED_PTR
   "DEFAULT"
@@ -391,11 +397,27 @@ set (Seastar_SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR})
 set (Seastar_BINARY_DIR ${CMAKE_CURRENT_BINARY_DIR})
 set (Seastar_GEN_BINARY_DIR ${Seastar_BINARY_DIR}/gen)
 
+include (TriStateOption)
+tri_state_option (${Seastar_SANITIZE}
+  DEFAULT_BUILD_TYPES "Debug" "Sanitize"
+  CONDITION sanitizers_enabled)
+
+if (NOT sanitizers_enabled)
+  set (Seastar_SANITIZERS "")
+endif ()
+
 #
 # Dependencies.
 #
 
-include (SeastarDependencies)
+set (Seastar_SANITIZERS_DEPENDENCY_STRING ${Seastar_SANITIZERS})
+
+configure_file (
+  ${CMAKE_CURRENT_LIST_DIR}/cmake/SeastarDependencies.cmake.in
+  ${CMAKE_CURRENT_BINARY_DIR}/SeastarDependencies-build.cmake
+  @ONLY)
+
+include (SeastarDependencies-build)
 seastar_find_dependencies ()
 
 # Private build dependencies not visible to consumers
@@ -880,19 +902,16 @@ if (Seastar_DPDK)
       DPDK::dpdk)
 endif ()
 
-include (TriStateOption)
-tri_state_option (${Seastar_SANITIZE}
-  DEFAULT_BUILD_TYPES "Debug" "Sanitize"
-  CONDITION condition)
-if (condition)
+if (sanitizers_enabled)
   if (NOT Sanitizers_FOUND)
     message (FATAL_ERROR "Sanitizers not found!")
   endif ()
-  set (Seastar_Sanitizers_OPTIONS ${Sanitizers_COMPILE_OPTIONS})
-  target_link_libraries (seastar
-    PUBLIC
-      $<${condition}:Sanitizers::address>
-      $<${condition}:Sanitizers::undefined_behavior>)
+  set (Seastar_Sanitizers_OPTIONS $<${sanitizers_enabled}:${Sanitizers_COMPILE_OPTIONS}>)
+  foreach (component ${Seastar_SANITIZERS})
+    target_link_libraries (seastar
+      PUBLIC
+        $<${sanitizers_enabled}:Sanitizers::${component}>)
+  endforeach ()
 endif ()
 
 # We only need valgrind to find uninitialized memory uses, so disable
@@ -1352,6 +1371,23 @@ if (Seastar_INSTALL)
     OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/seastar-testing-install.pc
     INPUT ${CMAKE_CURRENT_BINARY_DIR}/pkgconfig/seastar-testing-install.pc.in)
 
+  if (_is_Multi_Config)
+    set (Seastar_CMAKE "_$<CONFIG>.cmake")
+  else ()
+    set (Seastar_CMAKE ".cmake")
+  endif ()
+
+  set (Seastar_SANITIZERS_DEPENDENCY_STRING "$<${sanitizers_enabled}:${Seastar_SANITIZERS}>")
+
+  configure_file (
+    ${CMAKE_CURRENT_LIST_DIR}/cmake/SeastarDependencies.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/SeastarDependencies.cmake.in
+    @ONLY)
+
+  file (GENERATE
+    OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/SeastarDependencies${Seastar_CMAKE}
+    INPUT ${CMAKE_CURRENT_BINARY_DIR}/SeastarDependencies.cmake.in)
+
   include (CMakePackageConfigHelpers)
   set (install_cmakedir ${CMAKE_INSTALL_LIBDIR}/cmake/Seastar)
 
@@ -1399,6 +1435,11 @@ if (Seastar_INSTALL)
     DESTINATION ${install_cmakedir})
 
   install (
+    FILES ${CMAKE_CURRENT_BINARY_DIR}/SeastarDependencies${Seastar_CMAKE}
+    DESTINATION ${install_cmakedir}
+    RENAME SeastarDependencies.cmake)
+
+  install (
     FILES
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindGnuTLS.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindLinuxMembarrier.cmake
@@ -1415,7 +1456,6 @@ if (Seastar_INSTALL)
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findrt.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Finducontext.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findyaml-cpp.cmake
-      ${CMAKE_CURRENT_SOURCE_DIR}/cmake/SeastarDependencies.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindLibUring.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindSystemTap-SDT.cmake
     DESTINATION ${install_cmakedir})
