@@ -25,6 +25,7 @@
 #include <boost/intrusive/list.hpp>
 #endif
 #include <seastar/net/api.hh>
+#include <seastar/http/connection_factory.hh>
 #include <seastar/http/reply.hh>
 #include <seastar/core/condition-variable.hh>
 #include <seastar/core/iostream.hh>
@@ -134,26 +135,6 @@ private:
     future<reply_ptr> recv_reply();
 
     void shutdown() noexcept;
-};
-
-/**
- * \brief Factory that provides transport for \ref client
- *
- * This customization point allows callers provide its own transport for client. The
- * client code calls factory when it needs more connections to the server and maintains
- * the pool of re-usable sockets internally
- */
-
-class connection_factory {
-public:
-    /**
-     * \brief Make a \ref connected_socket
-     *
-     * The implementations of this method should return ready-to-use socket that will
-     * be used by \ref client as transport for its http connections
-     */
-    virtual future<connected_socket> make(abort_source*) = 0;
-    virtual ~connection_factory() {}
 };
 
 /**

@@ -313,10 +313,10 @@ struct request {
      */
     static request make(httpd::operation_type type, sstring host, sstring path);
 
-private:
-    void add_query_param(std::string_view param);
     sstring request_line() const;
     future<> write_request_headers(output_stream<char>& out) const;
+private:
+    void add_query_param(std::string_view param);
     friend class experimental::connection;
 };
 
