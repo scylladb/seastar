@@ -88,14 +88,16 @@ future<> lister_test() {
 
 future<> lister_generator_test(file f) {
     auto lister = f.experimental_list_directory();
-    while (auto de = co_await lister()) {
-        auto sd = co_await file_stat(de->name, follow_symlink::no);
-        if (de->type) {
-            assert(*de->type == sd.type);
+
+    for (auto it = co_await lister.begin(); it != lister.end(); co_await ++it) {
+        const auto& de = *it;
+        auto sd = co_await file_stat(de.name, follow_symlink::no);
+        if (de.type) {
+            assert(de.type == sd.type);
         } else {
             assert(sd.type == directory_entry_type::unknown);
         }
-        fmt::print("{} (type={})\n", de->name, de_type_desc(sd.type));
+        fmt::print("{} (type={})\n", de.name, de_type_desc(sd.type));
     }
     co_await f.close();
 }
