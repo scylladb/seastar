@@ -23,6 +23,7 @@
 
 #include <seastar/core/scheduling.hh>
 #include <seastar/util/backtrace.hh>
+#include <seastar/util/tracer.hh>
 
 #ifndef SEASTAR_MODULE
 #include <utility>
@@ -31,7 +32,29 @@
 namespace seastar {
 
 SEASTAR_MODULE_EXPORT
+
+extern thread_local uint64_t fresh_task_id;
+extern thread_local uint64_t current_task_id;
+
+struct task_id {
+    uint64_t _value;
+    task_id(uint64_t id = current_task_id) : _value(id) {}
+    operator uint64_t() { return _value; };
+};
+
+struct [[nodiscard]] switch_task {
+    task_id _prev;
+    switch_task(uint64_t id) {
+        current_task_id = id;
+    }
+    ~switch_task() {
+        current_task_id = _prev;
+    }
+};
+
 class task {
+public:
+    task_id _id;
 protected:
     scheduling_group _sg;
 private:

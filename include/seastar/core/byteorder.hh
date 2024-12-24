@@ -71,10 +71,11 @@ read_le(const char* p) noexcept {
 
 template <typename T>
 inline
-void
+char*
 write_le(char* p, T datum) noexcept {
     datum = cpu_to_le(datum);
     std::copy_n(reinterpret_cast<const char*>(&datum), sizeof(T), p);
+    return p + sizeof(T);
 }
 
 template <typename T>
