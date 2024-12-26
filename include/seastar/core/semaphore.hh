@@ -327,6 +327,9 @@ public:
         if (_ex) {
             return make_exception_future(_ex);
         }
+        if (Clock::now() >= timeout) [[unlikely]] {
+            return make_exception_future(get_timeout_exception());
+        }
         try {
             entry& e = _wait_list.emplace_back(promise<>(), nr);
             auto f = e.pr.get_future();
@@ -362,6 +365,9 @@ public:
         }
         if (_ex) {
             return make_exception_future(_ex);
+        }
+        if (as.abort_requested()) [[unlikely]] {
+            return make_exception_future(get_aborted_exception());
         }
         try {
             entry& e = _wait_list.emplace_back(promise<>(), nr);
