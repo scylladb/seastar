@@ -24,6 +24,7 @@
 #include <seastar/core/abort_source.hh>
 #include <seastar/core/timer.hh>
 #include <seastar/core/lowres_clock.hh>
+#include <seastar/core/timed_out_error.hh>
 #include <seastar/util/modules.hh>
 
 namespace seastar {
@@ -45,7 +46,7 @@ public:
     /// When the timer reaches timeout point it triggers an
     /// abort autimatically
     abort_on_expiry(time_point timeout) : _tr([this] {
-        _as.request_abort();
+        _as.request_abort_ex(timed_out_error{});
     }) {
         _tr.arm(timeout);
     }
