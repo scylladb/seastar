@@ -186,9 +186,11 @@ private:
     }
     struct expiry_handler {
         basic_semaphore& sem;
-        void operator()(entry& e) noexcept {
+        void operator()(entry& e, const std::optional<std::exception_ptr>& ex) noexcept {
             if (e.timer) {
                 e.pr.set_exception(sem.get_timeout_exception());
+            } else if (ex) {
+                e.pr.set_exception(*ex);
             } else if (sem._ex) {
                 e.pr.set_exception(sem._ex);
             } else {

@@ -32,6 +32,7 @@
 #include <seastar/core/sleep.hh>
 #include <seastar/core/shared_mutex.hh>
 #include <ranges>
+#include <stdexcept>
 
 #include "expected_exception.hh"
 
@@ -425,6 +426,19 @@ SEASTAR_THREAD_TEST_CASE(test_semaphore_abort_after_wait) {
     as.request_abort();
     sem.signal();
     BOOST_CHECK_THROW(fut1.get(), semaphore_aborted);
+    BOOST_REQUIRE_EQUAL(x, 0);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_semaphore_abort_with_exception_after_wait) {
+    auto sem = semaphore(0);
+    abort_source as;
+    int x = 0;
+    auto fut1 = sem.wait(as).then([&x] {
+        x++;
+    });
+    as.request_abort_ex(expected_exception());
+    sem.signal();
+    BOOST_CHECK_THROW(fut1.get(), expected_exception);
     BOOST_REQUIRE_EQUAL(x, 0);
 }
 
