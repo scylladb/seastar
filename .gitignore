@@ -2,7 +2,7 @@
 .cproject
 .project
 .settings
-build
+build*
 build.ninja
 cscope.*
 __pycache__/
