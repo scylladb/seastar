@@ -25,12 +25,10 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/util/modules.hh>
 #ifndef SEASTAR_MODULE
-#include <fmt/printf.h>
 #include <fmt/ostream.h>
 #include <iostream>
 #include <iomanip>
 #include <chrono>
-#include <sstream>
 #endif
 
 SEASTAR_MODULE_EXPORT
@@ -41,40 +39,6 @@ operator<<(std::ostream&& os, const void* ptr) {
 }
 
 namespace seastar {
-
-template <typename... A>
-[[deprecated("use std::format_to() or fmt::print()")]]
-std::ostream&
-fprint(std::ostream& os, const char* fmt, A&&... a) {
-    ::fmt::fprintf(os, fmt, std::forward<A>(a)...);
-    return os;
-}
-
-template <typename... A>
-[[deprecated("use std::format_to() or fmt::print()")]]
-void
-print(const char* fmt, A&&... a) {
-    ::fmt::printf(fmt, std::forward<A>(a)...);
-}
-
-template <typename... A>
-[[deprecated("use std::format() or fmt::format()")]]
-std::string
-sprint(const char* fmt, A&&... a) {
-    std::ostringstream os;
-    ::fmt::fprintf(os, fmt, std::forward<A>(a)...);
-    return os.str();
-}
-
-template <typename... A>
-[[deprecated("use std::format() or fmt::format()")]]
-std::string
-sprint(const sstring& fmt, A&&... a) {
-    std::ostringstream os;
-    ::fmt::fprintf(os, fmt.c_str(), std::forward<A>(a)...);
-    return os.str();
-}
-
 template <typename Iterator>
 [[deprecated("use fmt::join()")]]
 std::string
