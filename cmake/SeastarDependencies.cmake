@@ -68,6 +68,8 @@ endmacro ()
 # with the corresponding configuration for each 3rd-party dependency.
 #
 macro (seastar_find_dependencies)
+  cmake_parse_arguments (args "BUILD" "" "" ${ARGN})
+
   #
   # List of Seastar dependencies that is meant to be used
   # both in Seastar configuration and by clients which
@@ -77,7 +79,6 @@ macro (seastar_find_dependencies)
     # Public dependencies.
     Boost
     c-ares
-    dpdk # No version information published.
     fmt
     lz4
     # Private and private/public dependencies.
@@ -95,6 +96,12 @@ macro (seastar_find_dependencies)
     rt
     ucontext
     yaml-cpp)
+
+  # Only expose dpdk dependency during build. Since dpdk is included to within seastar library,
+  # there is no need to force it to be discoverable via find_package().
+  if (args_BUILD)
+    list (APPEND _seastar_all_dependencies dpdk)
+  endif()
 
   # Arguments to `find_package` for each 3rd-party dependency.
   # Note that the version specification is a "minimal" version requirement.
