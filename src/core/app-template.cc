@@ -37,7 +37,6 @@ module seastar;
 #include <seastar/core/app-template.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/alien.hh>
-#include <seastar/core/scollectd.hh>
 #include <seastar/core/metrics_api.hh>
 #include <seastar/core/print.hh>
 #include <seastar/util/log.hh>
@@ -70,7 +69,6 @@ app_template::seastar_options::seastar_options()
     , reactor_opts(this)
     , metrics_opts(this)
     , smp_opts(this)
-    , scollectd_opts(this)
     , log_opts(this)
 {
 }
@@ -258,11 +256,7 @@ app_template::run_deprecated(int ac, char ** av, std::function<void ()>&& func) 
     // No need to wait for this future.
     // func is waited on via engine().run()
     (void)engine().when_started().then([this] {
-        return seastar::metrics::configure(_opts.metrics_opts).then([this] {
-            // set scollectd use the metrics configuration, so the later
-            // need to be set first
-            scollectd::configure( _opts.scollectd_opts);
-        });
+        return seastar::metrics::configure(_opts.metrics_opts);
     }).then(
         std::move(func)
     ).then_wrapped([] (auto&& f) {
