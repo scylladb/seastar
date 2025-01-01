@@ -92,3 +92,6 @@ seastar_add_test (container
 seastar_add_test (http_client
   SOURCES http_client_perf.cc linux_perf_event.cc
   NO_SEASTAR_PERF_TESTING_LIBRARY)
+
+seastar_add_test (perf_tests
+  SOURCES perf_tests_perf.cc)
