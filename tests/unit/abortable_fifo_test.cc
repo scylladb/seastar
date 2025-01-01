@@ -20,14 +20,21 @@
  * Copyright (C) 2022 ScyllaDB
  */
 
+#include <chrono>
+#include <exception>
+
 #include <seastar/core/thread.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/core/abortable_fifo.hh>
+#include <seastar/core/abort_on_expiry.hh>
+#include <seastar/core/manual_clock.hh>
+#include <seastar/core/timed_out_error.hh>
 #include <seastar/util/later.hh>
 #include <boost/range/irange.hpp>
 
 using namespace seastar;
+using namespace std::chrono_literals;
 
 SEASTAR_TEST_CASE(test_no_abortable_operations) {
     internal::abortable_fifo<int> fifo;
@@ -191,4 +198,37 @@ SEASTAR_THREAD_TEST_CASE(test_abortable_operations) {
     BOOST_REQUIRE_EQUAL(fifo.front(), 5);
     fifo.pop_front();
     BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_abort_exception) {
+    struct entry {
+        int value;
+        std::exception_ptr ex;
+    };
+    std::vector<entry> expired;
+    struct my_expiry {
+        std::vector<entry>& e;
+        void operator()(int& v, const std::optional<std::exception_ptr>& ex) noexcept { e.push_back(entry{v, ex.value_or(nullptr)}); }
+    };
+
+    internal::abortable_fifo<int, my_expiry> fifo(my_expiry{expired});
+    auto aoe = abort_on_expiry<manual_clock>(manual_clock::now() + 1s);
+
+    fifo.push_back(1, aoe.abort_source());
+
+    BOOST_REQUIRE(!fifo.empty());
+    BOOST_REQUIRE_EQUAL(fifo.size(), 1u);
+    BOOST_REQUIRE(bool(fifo));
+    BOOST_REQUIRE_EQUAL(fifo.front(), 1);
+
+    manual_clock::advance(1s);
+    yield().get();
+
+    BOOST_REQUIRE(fifo.empty());
+    BOOST_REQUIRE_EQUAL(fifo.size(), 0u);
+    BOOST_REQUIRE(!bool(fifo));
+    BOOST_REQUIRE_EQUAL(expired.size(), 1u);
+    BOOST_REQUIRE_EQUAL(expired[0].value, 1);
+    BOOST_REQUIRE(expired[0].ex);
+    BOOST_REQUIRE_THROW(std::rethrow_exception(expired[0].ex), timed_out_error);
 }

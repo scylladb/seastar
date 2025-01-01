@@ -36,8 +36,12 @@ namespace seastar {
 
 namespace internal {
 
+// Test if aborter has call operator accepting optional exception_ptr
 template <typename Aborter, typename T>
-concept aborter = std::is_nothrow_invocable_r_v<void, Aborter, T&>;
+concept aborter_ex = std::is_nothrow_invocable_r_v<void, Aborter, T&, const std::optional<std::exception_ptr>&>;
+
+template <typename Aborter, typename T>
+concept aborter = std::is_nothrow_invocable_r_v<void, Aborter, T&> || aborter_ex<Aborter, T>;
 
 // This class satisfies 'aborter' concept and is used by default
 template<typename... T>
@@ -65,8 +69,12 @@ private:
         entry(const T& payload_) : payload(payload_) {}
         entry(T payload_, abortable_fifo& ef, abort_source& as)
                 : payload(std::move(payload_))
-                , sub(as.subscribe([this, &ef] () noexcept {
-                    ef._on_abort(*payload);
+                , sub(as.subscribe([this, &ef] (const std::optional<std::exception_ptr>& ex_opt) noexcept {
+                    if constexpr (aborter_ex<OnAbort, T>) {
+                        ef._on_abort(*payload, ex_opt);
+                    } else {
+                        ef._on_abort(*payload);
+                    }
                     payload = std::nullopt;
                     --ef._size;
                     ef.drop_expired_front();
@@ -187,7 +195,11 @@ public:
     /// The element will expire when abort source is triggered.
     void push_back(T&& payload, abort_source& as) {
         if (as.abort_requested()) {
-            _on_abort(payload);
+            if constexpr (aborter_ex<OnAbort, T>) {
+                _on_abort(payload, std::nullopt);
+            } else {
+                _on_abort(payload);
+            }
             return;
         }
         if (_size == 0) {
@@ -225,14 +237,18 @@ public:
             e = &_list.back();
         }
         assert(!e->sub);
-        auto aborter = [this, e] () noexcept {
-            _on_abort(*e->payload);
+        auto aborter = [this, e] (const std::optional<std::exception_ptr>& ex_opt) noexcept {
+            if constexpr (aborter_ex<OnAbort, T>) {
+                _on_abort(*e->payload, ex_opt);
+            } else {
+                _on_abort(*e->payload);
+            }
             e->payload = std::nullopt;
             --_size;
             drop_expired_front();
         };
         if (as.abort_requested()) {
-            aborter();
+            aborter(as.abort_requested_exception_ptr());
             return;
         }
         e->sub = as.subscribe(std::move(aborter));
