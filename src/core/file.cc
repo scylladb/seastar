@@ -1186,10 +1186,6 @@ future<> file::set_lifetime_hint_impl(int op, uint64_t hint) noexcept {
     });
 }
 
-future<> file::set_file_lifetime_hint(uint64_t hint) noexcept {
-    return set_lifetime_hint_impl(F_SET_FILE_RW_HINT, hint);
-}
-
 future<> file::set_inode_lifetime_hint(uint64_t hint) noexcept {
     return set_lifetime_hint_impl(F_SET_RW_HINT, hint);
 }
@@ -1208,10 +1204,6 @@ future<uint64_t> file::get_lifetime_hint_impl(int op) noexcept {
             return current_exception_as_future<uint64_t>();
         }
     });
-}
-
-future<uint64_t> file::get_file_lifetime_hint() noexcept {
-    return get_lifetime_hint_impl(F_GET_FILE_RW_HINT);
 }
 
 future<uint64_t> file::get_inode_lifetime_hint() noexcept {
