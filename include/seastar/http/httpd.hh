@@ -31,8 +31,6 @@
 #include <seastar/http/request.hh>
 #include <seastar/core/seastar.hh>
 #include <seastar/core/sstring.hh>
-#include <seastar/core/app-template.hh>
-#include <seastar/core/circular_buffer.hh>
 #include <seastar/core/distributed.hh>
 #include <seastar/core/queue.hh>
 #include <seastar/core/gate.hh>
