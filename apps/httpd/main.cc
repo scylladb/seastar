@@ -26,6 +26,7 @@
 #include <seastar/http/file_handler.hh>
 #include <seastar/core/seastar.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/core/app-template.hh>
 #include "demo.json.hh"
 #include <seastar/http/api_docs.hh>
 #include <seastar/core/thread.hh>

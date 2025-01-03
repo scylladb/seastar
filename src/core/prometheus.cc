@@ -28,6 +28,7 @@
 #include <sstream>
 
 #include <seastar/core/metrics_api.hh>
+#include <seastar/core/scollectd.hh>
 #include <seastar/http/function_handlers.hh>
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/range/algorithm_ext/erase.hpp>
