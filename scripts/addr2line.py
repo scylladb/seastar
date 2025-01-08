@@ -54,7 +54,9 @@ class Addr2Line:
     dummy_pattern = re.compile(
         r"(.*0x0000000000000000: \?\? \?\?:0\n)"  # addr2line pattern
         r"|"
-        r"(.*0x0: \?\? at .*\n)"  # llvm-addr2line pattern
+        r"(\?\? at \?\?:0\n)"  # llvm-addr2line pattern for LLVM 18 and newer
+        r"|"
+        r"(,\n)"  # llvm-addr2line pattern for LLVM 17 and older
     )
 
     def __init__(
@@ -97,7 +99,7 @@ class Addr2Line:
         # will just exit.  We need to be robust against that.  We
         # can't just wait on self._addr2line since there is no
         # guarantee on what timeout is sufficient.
-        self._input.write('\n')
+        self._input.write(',\n')
         self._input.flush()
         res = self._output.readline()
         self._missing = res == ''
@@ -129,9 +131,9 @@ class Addr2Line:
     def __call__(self, address: str):
         if self._missing:
             return " ".join([self._binary, address, '\n'])
-        # We print a dummy 0x0 address after the address we are interested in
+        # We trigger a dummy "invalid" address printout after the address we are interested in
         # which we can look for in _read_address
-        inputline = address + '\n0x0\n'
+        inputline = address + '\n,\n'
         self._parent.debug('Add2Line sending input to stdin:', inputline)
         self._input.write(inputline)
         self._input.flush()
