@@ -94,7 +94,6 @@ public:
 
     generator_type get_return_object() noexcept;
     void set_generator(generator_type* g) noexcept {
-        assert(!_generator);
         _generator = g;
     }
 
@@ -190,7 +189,6 @@ public:
 
     auto get_return_object() noexcept -> generator_type;
     void set_generator(generator_type* g) noexcept {
-        assert(!_generator);
         _generator = g;
     }
 
@@ -335,13 +333,27 @@ public:
     generator(const generator&) = delete;
     generator(generator&& other) noexcept
         : _coro{std::exchange(other._coro, {})}
-        , _buffer_capacity{other._buffer_capacity} {}
+        , _promise(std::exchange(other._promise, nullptr))
+        , _values(std::move(other._values))
+        , _buffer_capacity{other._buffer_capacity}
+        , _exception(std::exchange(other._exception, nullptr)) {
+        if (_promise) {
+            _promise->set_generator(this);
+        }
+    }
     generator& operator=(generator&& other) noexcept {
         if (std::addressof(other) != this) {
             auto old_coro = std::exchange(_coro, std::exchange(other._coro, {}));
             if (old_coro) {
                 old_coro.destroy();
             }
+            _promise = std::exchange(other._promise, nullptr);
+            if (_promise) {
+                _promise->set_generator(this);
+            }
+            _values = std::move(other._values);
+            const_cast<size_t&>(_buffer_capacity) = other._buffer_capacity;
+            _exception = std::exchange(other._exception, nullptr);
         }
         return *this;
     }
@@ -353,6 +365,16 @@ public:
 
     void swap(generator& other) noexcept {
         std::swap(_coro, other._coro);
+        std::swap(_promise, other._promise);
+        if (_promise) {
+            _promise->set_generator(this);
+        }
+        if (other._promise) {
+            other._promise->set_generator(&other);
+        }
+        std::swap(_values, other._values);
+        std::swap(const_cast<size_t&>(_buffer_capacity), const_cast<size_t&>(other._buffer_capacity));
+        std::swap(_exception, other._exception);
     }
 
     internal::next_awaiter<T, generator> operator()() noexcept {
@@ -425,13 +447,26 @@ public:
     }
     generator(const generator&) = delete;
     generator(generator&& other) noexcept
-        : _coro{std::exchange(other._coro, {})} {}
+        : _coro{std::exchange(other._coro, {})}
+        , _promise(std::exchange(other._promise, nullptr))
+        , _maybe_value(std::exchange(other._maybe_value, std::nullopt))
+        , _exception(std::exchange(other._exception, nullptr)) {
+        if (_promise) {
+            _promise->set_generator(this);
+        }
+    }
     generator& operator=(generator&& other) noexcept {
         if (std::addressof(other) != this) {
             auto old_coro = std::exchange(_coro, std::exchange(other._coro, {}));
             if (old_coro) {
                 old_coro.destroy();
             }
+            _promise = std::exchange(other._promise, nullptr);
+            if (_promise) {
+                _promise->set_generator(this);
+            }
+            _maybe_value = std::exchange(other._maybe_value, std::nullopt);
+            _exception = std::exchange(other._exception, nullptr);
         }
         return *this;
     }
@@ -443,6 +478,15 @@ public:
 
     void swap(generator& other) noexcept {
         std::swap(_coro, other._coro);
+        std::swap(_promise, other._promise);
+        if (_promise) {
+            _promise->set_generator(this);
+        }
+        if (other._promise) {
+            other._promise->set_generator(&other);
+        }
+        std::swap(_maybe_value, other._maybe_value);
+        std::swap(_exception, other._exception);
     }
 
     internal::next_awaiter<T, generator> operator()() noexcept {
