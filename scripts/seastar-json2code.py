@@ -677,9 +677,8 @@ def parse_file(param, combined):
         if (combined):
             fprintln(combined, '#include "', base_file_name, ".cc", '"')
         create_h_file(data, hfile_name, api_name, init_method, base_api)
-    except:
-        type, value, tb = sys.exc_info()
-        print("Error while parsing JSON file '" + param + "' error ", value.message)
+    except Exception as e:
+        print("Error while parsing JSON file '" + param + "' error " + str(e))
         sys.exit(-1)
 
 if "indir" in config and config.indir != '':
