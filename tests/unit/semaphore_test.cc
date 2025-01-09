@@ -33,6 +33,8 @@
 #include <seastar/core/shared_mutex.hh>
 #include <ranges>
 
+#include "expected_exception.hh"
+
 using namespace seastar;
 using namespace std::chrono_literals;
 
@@ -168,9 +170,9 @@ SEASTAR_THREAD_TEST_CASE(test_non_default_broken_semaphore) {
     auto sem = basic_semaphore<test_semaphore_exception_factory>(0);
     auto fut = sem.wait();
     BOOST_REQUIRE(!fut.available());
-    sem.broken(std::runtime_error("test"));
-    BOOST_REQUIRE_THROW(fut.get(), std::runtime_error);
-    BOOST_REQUIRE_THROW(sem.wait().get(), std::runtime_error);
+    sem.broken(expected_exception());
+    BOOST_REQUIRE_THROW(fut.get(), expected_exception);
+    BOOST_REQUIRE_THROW(sem.wait().get(), expected_exception);
 }
 
 SEASTAR_TEST_CASE(test_shared_mutex_exclusive) {

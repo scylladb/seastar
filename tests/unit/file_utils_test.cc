@@ -35,13 +35,10 @@
 #include <seastar/util/tmp_file.hh>
 #include <seastar/util/file.hh>
 
+#include "expected_exception.hh"
+
 using namespace seastar;
 namespace fs = std::filesystem;
-
-class expected_exception : std::runtime_error {
-public:
-    expected_exception() : runtime_error("expected") {}
-};
 
 SEASTAR_TEST_CASE(test_make_tmp_file) {
     return make_tmp_file().then([] (tmp_file tf) {

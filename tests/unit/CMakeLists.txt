@@ -318,7 +318,9 @@ seastar_add_test (file_io
   SOURCES file_io_test.cc)
 
 seastar_add_test (file_utils
-  SOURCES file_utils_test.cc)
+  SOURCES
+    file_utils_test.cc
+    expected_exception.hh)
 
 seastar_add_test (foreign_ptr
   SOURCES foreign_ptr_test.cc)
@@ -332,7 +334,9 @@ seastar_add_test (fstream
     mock_file.hh)
 
 seastar_add_test (futures
-  SOURCES futures_test.cc)
+  SOURCES
+    futures_test.cc
+    expected_exception.hh)
 
 seastar_add_test (sharded
   SOURCES sharded_test.cc)
@@ -397,7 +401,9 @@ seastar_add_test (rpc
     rpc_test.cc)
 
 seastar_add_test (semaphore
-  SOURCES semaphore_test.cc)
+  SOURCES
+    semaphore_test.cc
+    expected_exception.hh)
 
 seastar_add_test (shared_ptr
   KIND BOOST
@@ -732,7 +738,9 @@ seastar_add_test (exception_logging
   SOURCES exception_logging_test.cc)
 
 seastar_add_test (closeable
-  SOURCES closeable_test.cc)
+  SOURCES
+    closeable_test.cc
+    expected_exception.hh)
 
 seastar_add_test (pipe
   SOURCES pipe_test.cc)
