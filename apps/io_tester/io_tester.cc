@@ -73,6 +73,8 @@ static thread_local std::default_random_engine random_generator(random_seed);
 class context;
 enum class request_type { seqread, seqwrite, randread, randwrite, append, cpu, unlink };
 
+enum class unlink_type { ordinary, discard_blocks };
+
 namespace std {
 
 template <>
@@ -230,6 +232,7 @@ struct shard_info {
     std::chrono::duration<float> think_after = 0ms;
     std::chrono::duration<float> execution_time = 1ms;
     seastar::scheduling_group scheduling_group = seastar::default_scheduling_group();
+    ::unlink_type unlink_type = unlink_type::ordinary;
 };
 
 struct options {
@@ -705,10 +708,19 @@ private:
     sstring _dir_path{};
     uint64_t _file_id_to_remove{0u};
 
+    uint64_t _discard_block_size{32u << 20u};
+    std::optional<file> _currently_discarded_file;
+    uint64_t _discarded_file_size{0u};
+    uint64_t _next_block_to_discard{0u};
+
 public:
     unlink_class_data(job_config cfg) : class_data(std::move(cfg)) {
         if (!_config.files_count.has_value()) {
             throw std::runtime_error("request_type::unlink requires specifying 'files_count'");
+        }
+
+        if (blocks_discard_mode() && parallelism() > 1) {
+            throw std::runtime_error("unlink_class_data: unlink_type::discard_blocks is supported only for a single fiber");
         }
     }
 
@@ -726,12 +738,11 @@ public:
             return make_ready_future<size_t>(0u);
         }
 
-        const auto fname = get_filename(_file_id_to_remove);
-        ++_file_id_to_remove;
-
-        return remove_file(fname).then([]{
-            return make_ready_future<size_t>(0u);
-        });
+        if (!blocks_discard_mode()) {
+            return issue_ordinary_unlink();
+        } else {
+            return issue_blocks_discarding_unlink();
+        }
     }
 
     void emit_results(YAML::Emitter& out) override {
@@ -748,6 +759,76 @@ public:
     }
 
 private:
+    bool blocks_discard_mode() const {
+        return _config.shard_info.unlink_type == unlink_type::discard_blocks;
+    }
+
+    future<size_t> issue_ordinary_unlink() {
+        const auto fname = get_filename(_file_id_to_remove);
+        ++_file_id_to_remove;
+
+        return remove_file(fname).then([]{
+            return make_ready_future<size_t>(0u);
+        });
+    }
+
+    future<size_t> issue_blocks_discarding_unlink() {
+        return ensure_file_to_discard_open().then([this]() {
+            return discard_next_block();
+        }).then([this]() {
+            return close_file_if_all_blocks_discarded();
+        }).then([]() {
+            return make_ready_future<size_t>(0u);
+        });
+    }
+
+    future<> ensure_file_to_discard_open() {
+        if (_currently_discarded_file) {
+            return make_ready_future<>();
+        }
+
+        const auto fname = get_filename(_file_id_to_remove);
+        ++_file_id_to_remove;
+
+        file_open_options options{};
+        options.append_is_unlikely = true;
+
+        return open_file_dma(fname, open_flags::rw, options).then([this, fname] (auto f) mutable {
+            _currently_discarded_file = f;
+
+            // The file lives as long as _currently_discarded_file object holds its handle.
+            return remove_file(fname).then([this]() mutable {
+                return _currently_discarded_file->size().then([this](uint64_t fsize) mutable {
+                    _discarded_file_size = fsize;
+                    return make_ready_future<>();
+                });
+            });
+        });
+    }
+
+    future<> discard_next_block() {
+        uint64_t offset = _next_block_to_discard * _discard_block_size;
+        uint64_t discard_end = std::min(offset + _discard_block_size, _discarded_file_size);
+        uint64_t length = discard_end - offset;
+
+        _next_block_to_discard++;
+
+        return _currently_discarded_file->discard(offset, length);
+    }
+
+    future<> close_file_if_all_blocks_discarded() {
+        uint64_t next_offset = _next_block_to_discard * _discard_block_size;
+        if (next_offset < _discarded_file_size) {
+            return make_ready_future<>();
+        }
+
+        auto f = *_currently_discarded_file;
+        _currently_discarded_file = std::nullopt;
+        _next_block_to_discard = 0u;
+
+        return f.close();
+    }
+
     future<> stop_hook() override {
         if (all_files_removed() || keep_files) {
             return make_ready_future<>();
@@ -770,6 +851,10 @@ private:
     }
 
     bool all_files_removed() const {
+        if (blocks_discard_mode() && _currently_discarded_file) {
+            return false;
+        }
+
         return files_count() <= _file_id_to_remove;
     }
 
@@ -920,6 +1005,24 @@ struct convert<request_type> {
 };
 
 template<>
+struct convert<unlink_type> {
+    static bool decode(const Node& node, unlink_type& ut) {
+        static const std::unordered_map<std::string, unlink_type> mappings = {
+            { "ordinary", unlink_type::ordinary },
+            { "discard_blocks", unlink_type::discard_blocks },
+        };
+
+        auto unlink_type_str = node.as<std::string>();
+        if (!mappings.count(unlink_type_str)) {
+            return false;
+        }
+
+        ut = mappings.at(unlink_type_str);
+        return true;
+    }
+};
+
+template<>
 struct convert<shard_info> {
     static bool decode(const Node& node, shard_info& sl) {
         if (node["parallelism"]) {
@@ -954,6 +1057,9 @@ struct convert<shard_info> {
         }
         if (node["execution_time"]) {
             sl.execution_time = node["execution_time"].as<duration_time>().time;
+        }
+        if (node["unlink_type"]) {
+            sl.unlink_type = node["unlink_type"].as<unlink_type>();
         }
         return true;
     }
