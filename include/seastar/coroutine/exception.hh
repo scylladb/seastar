@@ -152,10 +152,9 @@ exception return_exception(T&& t) noexcept {
     return exception(std::make_exception_ptr(std::forward<T>(t)));
 }
 
-} // coroutine
-
-inline auto operator co_await(coroutine::exception ex) noexcept {
+inline auto operator co_await(exception ex) noexcept {
     return internal::exception_awaiter(std::move(ex.eptr));
 }
 
+} // coroutine
 } // seastar

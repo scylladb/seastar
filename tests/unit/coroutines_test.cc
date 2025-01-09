@@ -39,7 +39,25 @@
 #include <seastar/testing/test_case.hh>
 #include <seastar/util/later.hh>
 
-using namespace seastar;
+using seastar::broken_promise;
+using seastar::circular_buffer;
+using seastar::create_scheduling_group;
+using seastar::current_scheduling_group;
+using seastar::default_scheduling_group;
+using seastar::future;
+using seastar::make_exception_future;
+using seastar::make_ready_future;
+using seastar::need_preempt;
+using seastar::promise;
+using seastar::scheduling_group;
+using seastar::semaphore;
+using seastar::semaphore_timed_out;
+using seastar::sleep;
+using seastar::yield;
+
+namespace coroutine = seastar::coroutine;
+namespace testing = seastar::testing;
+
 using namespace std::chrono_literals;
 
 namespace {
