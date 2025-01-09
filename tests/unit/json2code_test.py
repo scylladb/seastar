@@ -52,25 +52,19 @@ class TestJson2Code(unittest.TestCase):
         var1 = 'bon'
         var2 = 'jour'
         query_enum = 'VAL2'
-        params = urllib.parse.urlencode({'query_enum': query_enum})
-        url = f'http://localhost:{self.port}/hello/world/{var1}/{var2}?{params}'
-        with urllib.request.urlopen(url) as f:
-            response = json.loads(f.read().decode('utf-8'))
-            self.assertEqual(response['var1'], f'/{var1}')
-            self.assertEqual(response['var2'], f'/{var2}')
-            self.assertEqual(response['enum_var'], query_enum)
+        response = self._do_query(var1, var2, query_enum)
+        self.assertEqual(response['var1'], f'/{var1}')
+        self.assertEqual(response['var2'], f'/{var2}')
+        self.assertEqual(response['enum_var'], query_enum)
 
     def test_bad_enum(self):
         var1 = 'bon'
         var2 = 'jour'
         query_enum = 'unknown value'
-        params = urllib.parse.urlencode({'query_enum': query_enum})
-        url = f'http://localhost:{self.port}/hello/world/{var1}/{var2}?{params}'
-        with urllib.request.urlopen(url) as f:
-            response = json.loads(f.read().decode('utf-8'))
-            self.assertEqual(response['var1'], f'/{var1}')
-            self.assertEqual(response['var2'], f'/{var2}')
-            self.assertEqual(response['enum_var'], 'Unknown')
+        response = self._do_query(var1, var2, query_enum)
+        self.assertEqual(response['var1'], f'/{var1}')
+        self.assertEqual(response['var2'], f'/{var2}')
+        self.assertEqual(response['enum_var'], 'Unknown')
 
     def test_missing_path_param(self):
         query_enum = 'VAL2'
@@ -84,6 +78,12 @@ class TestJson2Code(unittest.TestCase):
             response = json.loads(ex.read().decode('utf-8'))
             self.assertEqual(response['message'], 'Not found')
             self.assertEqual(response['code'], 404)
+
+    def _do_query(self, var1: str, var2: str, query_enum: str):
+        params = urllib.parse.urlencode({'query_enum': query_enum})
+        url = f'http://localhost:{self.port}/hello/world/{var1}/{var2}?{params}'
+        with urllib.request.urlopen(url) as f:
+            return json.loads(f.read().decode('utf-8'))
 
 
 if __name__ == '__main__':
