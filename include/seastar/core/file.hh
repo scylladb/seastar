@@ -158,7 +158,7 @@ public:
     virtual subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next) = 0;
     // due to https://github.com/scylladb/seastar/issues/1913, we cannot use
     // buffered generator yet.
-    virtual coroutine::experimental::generator<directory_entry> experimental_list_directory();
+    virtual coroutine::experimental::generator<const directory_entry&> experimental_list_directory();
 };
 
 future<shared_ptr<file_impl>> make_file_impl(int fd, file_open_options options, int oflags, struct stat st) noexcept;
@@ -509,7 +509,7 @@ public:
     /// Returns a directory listing, given that this file object is a directory.
     // due to https://github.com/scylladb/seastar/issues/1913, we cannot use
     // buffered generator yet.
-    coroutine::experimental::generator<directory_entry> experimental_list_directory();
+    coroutine::experimental::generator<const directory_entry&> experimental_list_directory();
 
     /**
      * Read a data bulk containing the provided addresses range that starts at

@@ -380,7 +380,7 @@ static std::optional<directory_entry_type> dirent_type(const linux_dirent64& de)
     return type;
 }
 
-static coroutine::experimental::generator<directory_entry> make_list_directory_generator(int fd) {
+static coroutine::experimental::generator<const directory_entry&> make_list_directory_generator(int fd) {
     temporary_buffer<char> buf(8192);
 
     while (true) {
@@ -404,7 +404,7 @@ static coroutine::experimental::generator<directory_entry> make_list_directory_g
     }
 }
 
-coroutine::experimental::generator<directory_entry> posix_file_impl::experimental_list_directory() {
+coroutine::experimental::generator<const directory_entry&> posix_file_impl::experimental_list_directory() {
     // due to https://github.com/scylladb/seastar/issues/1913, we cannot use
     // buffered generator yet.
     // TODO:
@@ -1150,7 +1150,7 @@ file::list_directory(std::function<future<>(directory_entry de)> next) {
     return _file_impl->list_directory(std::move(next));
 }
 
-coroutine::experimental::generator<directory_entry> file::experimental_list_directory() {
+coroutine::experimental::generator<const directory_entry&> file::experimental_list_directory() {
     return _file_impl->experimental_list_directory();
 }
 
@@ -1329,7 +1329,7 @@ file_impl::dup() {
     throw std::runtime_error("this file type cannot be duplicated");
 }
 
-static coroutine::experimental::generator<directory_entry> make_list_directory_fallback_generator(file_impl& me) {
+static coroutine::experimental::generator<const directory_entry&> make_list_directory_fallback_generator(file_impl& me) {
     queue<std::optional<directory_entry>> ents(16);
     auto lister = me.list_directory([&ents] (directory_entry de) {
         return ents.push_eventually(std::move(de));
@@ -1349,7 +1349,7 @@ static coroutine::experimental::generator<directory_entry> make_list_directory_f
     co_await std::move(done);
 }
 
-coroutine::experimental::generator<directory_entry> file_impl::experimental_list_directory() {
+coroutine::experimental::generator<const directory_entry&> file_impl::experimental_list_directory() {
     return make_list_directory_fallback_generator(*this);
 }
 

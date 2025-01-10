@@ -23,525 +23,792 @@
 
 #include <cassert>
 #include <coroutine>
-#include <optional>
+#include <exception>
+#include <iterator>
+#include <memory>
+#include <type_traits>
 #include <utility>
 #include <seastar/core/future.hh>
 
+// seastar::coroutine::generator is inspired by the C++23 proposal
+// P2502R2 (https://wg21.link/P2502R2), which introduced std::generator for
+// synchronous coroutine-based range generation.
+//
+// Similar to P2502R2's generator, seastar::coroutine::experimental::generator
+// * prioritizes storing references to yielded objects instead of copying them
+// * generates a range with iterators that yield values
+//
+// However, there are key differences in seastar::coroutine::experimental::generator:
+//
+// * Alocator support:
+//   Seastar's generator does not support the Allocator template parameter.
+//   Unlike Seastar uses its built-in allocator eliminating the need for
+//   additional flexibility.
+// * Asynchronous Operations:
+//   - generator::begin() is a coroutine, unlike P2502R2's synchronous approach
+//   - generator::iterator::operator++() is a coroutine
+//   - generator::iterator::operator++(int) is a coroutine
+//   Note: Due to its asynchronous nature, this generator cannot be used in
+//   range-based for loops.
+// * Ranges Integration:
+//   seastar's generator is not a std::ranges::view_interface. So it lacks
+//   integration with the C++20 Ranges library due to its asynchronous operations.
+// * Nesting:
+//   Nesting generators is not supported. You cannot yield another generator
+//   from within a generator. This prevents implementation asynchronous,
+//   recursive algorithms like depth-first search on trees.
+// * Range Yielding:
+//   supports directly yielding a range. We could instead implement nesting
+//   using a dedicated awaiter and sophisticated frame tracking for nested
+//   generators, but this would significantly increase implementation complexity.
 namespace seastar::coroutine::experimental {
 
-template<typename T, template <typename> class Container = std::optional>
-class generator;
-
-/// `seastar::coroutine::experimental` is used as the type of the first
-/// parameter of a buffered generator coroutine.
-///
-/// the value of a `buffer_size_t` specifies the size of the buffer holding the
-/// values produced by the generator coroutine. Unlike its unbuffered variant,
-/// the bufferred generator does not wait for its caller to consume every single
-/// produced values. Instead, it puts the produced values into an internal
-/// buffer, before the buffer is full or the generator is suspended. This helps
-/// to alleviate the problem of pingpong between the generator coroutine and
-/// its caller.
-enum class buffer_size_t : size_t;
-
 namespace internal {
 
-using std::coroutine_handle;
-using std::suspend_never;
-using std::suspend_always;
-using std::suspend_never;
-using std::noop_coroutine;
+namespace unbuffered {
 
-template<typename T>
-using next_value_t = std::optional<T>;
+template <typename Yielded> class next_awaiter;
 
-template <template <typename> class Container, typename T>
-concept Fifo = requires(Container<T>&& c, T&& value) {
-    // better off returning a reference though, so we can move away from it
-    { c.front() } -> std::same_as<T&>;
-    c.pop_front();
-    c.push_back(value);
-    bool(c.empty());
-    { c.size() } -> std::convertible_to<size_t>;
-};
+template <typename Yielded>
+class generator_promise_base : public seastar::task {
+protected:
+    // a glvalue yield expression is passed to co_yield as its operand. and
+    // the object denoted by this expression is guaranteed to live until the
+    // coroutine resumes. we take advantage of this fact by storing only a
+    // pointer to the denoted object in the promise as long as the result of
+    // dereferencing this pointer is convertible to the Ref type.
+    std::add_pointer_t<Yielded> _value = nullptr;
 
-template<typename T>
-concept NothrowMoveConstructible = std::is_nothrow_move_constructible_v<T>;
-
-template<NothrowMoveConstructible T>
-class generator_unbuffered_promise final : public seastar::task {
-    using generator_type = seastar::coroutine::experimental::generator<T, std::optional>;
-    std::optional<seastar::promise<>> _wait_for_next_value;
-    generator_type* _generator = nullptr;
-
-public:
-    generator_unbuffered_promise() = default;
-    generator_unbuffered_promise(generator_unbuffered_promise&&) = delete;
-    generator_unbuffered_promise(const generator_unbuffered_promise&) = delete;
-
-    void return_void() noexcept;
-    void unhandled_exception() noexcept;
-
-    template<std::convertible_to<T> U>
-    suspend_always yield_value(U&& value) noexcept {
-        assert(_generator);
-        _generator->put_next_value(std::forward<U>(value));
-        assert(_wait_for_next_value);
-        _wait_for_next_value->set_value();
-        _wait_for_next_value = {};
-        return {};
-    }
-
-    generator_type get_return_object() noexcept;
-    void set_generator(generator_type* g) noexcept {
-        assert(!_generator);
-        _generator = g;
-    }
-
-    suspend_always initial_suspend() const noexcept { return {}; }
-    suspend_never final_suspend() const noexcept {
-        assert(_generator);
-        _generator->on_finished();
-        return {};
-    }
-
-    seastar::future<> wait_for_next_value() noexcept {
-        assert(!_wait_for_next_value);
-        return _wait_for_next_value.emplace().get_future();
-    }
-
-    void run_and_dispose() noexcept final {
-        using handle_type = coroutine_handle<generator_unbuffered_promise>;
-        handle_type::from_promise(*this).resume();
-    }
-
-    seastar::task* waiting_task() noexcept final {
-        if (_wait_for_next_value) {
-            return _wait_for_next_value->waiting_task();
-        } else {
-            return nullptr;
-        }
-    }
-};
-
-template <NothrowMoveConstructible T, template <typename> class Container>
-requires Fifo<Container, T>
-class generator_buffered_promise;
-
-template<typename T, template <typename> class Container>
-struct yield_awaiter final {
-    using promise_type = generator_buffered_promise<T, Container>;
-    seastar::future<> _future;
-
-public:
-    yield_awaiter(seastar::future<>&& f) noexcept
-        : _future{std::move(f)} {}
-
-    bool await_ready() noexcept {
-        return _future.available();
-    }
-
-    coroutine_handle<> await_suspend(coroutine_handle<promise_type> coro) noexcept;
-    void await_resume() noexcept { }
-};
-
-
-template<NothrowMoveConstructible T, template <typename> class Container>
-requires Fifo<Container, T>
-class generator_buffered_promise final : public seastar::task {
-    using generator_type = seastar::coroutine::experimental::generator<T, Container>;
-
-    std::optional<seastar::promise<>> _wait_for_next_value;
-    std::optional<seastar::promise<>> _wait_for_free_space;
-    generator_type* _generator = nullptr;
-    const size_t _buffer_capacity;
-
-public:
-    template<typename... Args>
-    generator_buffered_promise(buffer_size_t buffer_capacity, Args&&... args)
-        : _buffer_capacity{static_cast<size_t>(buffer_capacity)} {}
-    generator_buffered_promise(generator_buffered_promise&&) = delete;
-    generator_buffered_promise(const generator_buffered_promise&) = delete;
-    ~generator_buffered_promise() = default;
-    void return_void() noexcept {
-        if (_wait_for_next_value) {
-            _wait_for_next_value->set_value();
-            _wait_for_next_value = {};
-        }
-    }
-    void unhandled_exception() noexcept;
-
-    template<std::convertible_to<T> U>
-    yield_awaiter<T, Container> yield_value(U&& value) noexcept {
-        bool ready = _generator->put_next_value(std::forward<U>(value));
-
-        if (_wait_for_next_value) {
-            _wait_for_next_value->set_value();
-            _wait_for_next_value = {};
-            return {make_ready_future()};
-        }
-        if (ready) {
-            return {make_ready_future()};
-        } else {
-            assert(!_wait_for_free_space);
-            return {_wait_for_free_space.emplace().get_future()};
-        }
-    }
-
-    auto get_return_object() noexcept -> generator_type;
-    void set_generator(generator_type* g) noexcept {
-        assert(!_generator);
-        _generator = g;
-    }
-
-    suspend_always initial_suspend() const noexcept { return {}; }
-    suspend_never final_suspend() const noexcept {
-        assert(_generator);
-        _generator->on_finished();
-        return {};
-    }
-
-    bool is_awaiting() const noexcept {
-        return _wait_for_next_value.has_value();
-    }
-
-    coroutine_handle<> coroutine() const noexcept {
-        return coroutine_handle<>::from_address(_wait_for_next_value->waiting_task());
-    }
-
-    seastar::future<> wait_for_next_value() noexcept {
-        assert(!_wait_for_next_value);
-        return _wait_for_next_value.emplace().get_future();
-    }
-
-    void on_reclaim_free_space() noexcept {
-        assert(_wait_for_free_space);
-        _wait_for_free_space->set_value();
-        _wait_for_free_space = {};
-    }
-
-private:
-    void run_and_dispose() noexcept final {
-        using handle_type = coroutine_handle<generator_buffered_promise>;
-        handle_type::from_promise(*this).resume();
-    }
-
-    seastar::task* waiting_task() noexcept final {
-        if (_wait_for_next_value) {
-            return _wait_for_next_value->waiting_task();
-        } else if (_wait_for_free_space) {
-            return _wait_for_free_space->waiting_task();
-        } else {
-            return nullptr;
-        }
-    }
-};
-
-template<typename T, typename Generator>
-struct next_awaiter final {
-    using next_value_type = next_value_t<T>;
-    Generator* const _generator;
-    seastar::task* const _task;
-    seastar::future<> _next_value_future;
-
-public:
-    next_awaiter(Generator* generator,
-                 seastar::task* task,
-                 seastar::future<>&& f) noexcept
-        : _generator{generator}
-        , _task(task)
-        , _next_value_future(std::move(f)) {}
-
-    next_awaiter(const next_awaiter&) = delete;
-    next_awaiter(next_awaiter&&) = delete;
-
-    constexpr bool await_ready() const noexcept {
-        return _next_value_future.available() && !seastar::need_preempt();
-    }
-
-    template<typename Promise>
-    void await_suspend(coroutine_handle<Promise> coro) noexcept {
-        auto& current_task = coro.promise();
-        if (_next_value_future.available()) {
-            seastar::schedule(&current_task);
-        } else {
-            _next_value_future.set_coroutine(current_task);
-            seastar::schedule(_task);
-        }
-    }
-
-    next_value_type await_resume() {
-        assert(_next_value_future.available());
-        assert(_generator);
-        return _generator->take_next_value();
-    }
-};
-
-} // namespace internal
-
-/// `seastar::coroutine::experimental::generator<T>` can be used to model a
-/// generator which yields a sequence of values asynchronously.
-///
-/// Typically, it is used as the return type of a coroutine which is only
-/// allowed to either `co_yield` the next element in the sequence, or
-/// `co_return` nothing to indicate the end of this sequence. Please note,
-/// despite that `tl::generator` defined in `tests/unit/tl-generator.hh` also
-/// represents a generator, it can only produce the elements in a synchronous
-/// coroutine which does not suspend itself because of any asynchronous
-/// operation.
-///
-/// Example
-///
-/// ```
-/// auto generate_request = [&input_stream](coroutine::experimental::buffer_size_t)
-///     -> seastar::coroutine::generator<Request> {
-///     while (!input_stream.eof()) {
-///         co_yield co_await input_stream.read_exactly(42);
-///     }
-/// }
-///
-/// const coroutine::experimental::buffer_size_t backlog = 42;
-/// while (true) {
-///     auto request = co_await generate_request(backlog);
-///     if (!request) {
-///         break;
-///     }
-///     co_await process(*std::move(request));
-/// }
-/// ````
-template <typename T, template <typename> class Container>
-class generator {
-public:
-    using promise_type = internal::generator_buffered_promise<T, Container>;
-
-private:
-    using handle_type = internal::coroutine_handle<promise_type>;
-    handle_type _coro;
-    promise_type* _promise;
-    Container<T> _values;
-    const size_t _buffer_capacity;
+protected:
     std::exception_ptr _exception;
+    std::coroutine_handle<> _consumer;
+    task* _waiting_task = nullptr;
+
+    /// awaiter returned by the generator when it produces a new element
+    ///
+    /// There are different combinations of expression types passed to
+    /// \c co_yield and \c Ref. In most cases, zero copies are made. Copies
+    /// are only necessary when \c co_yield requires type conversion.
+    ///
+    /// The following table summarizes the number of copies made for different
+    /// scenarios:
+    ///
+    /// | Ref       | co_yield const T& | co_yield T& | co_yield T&& | co_yield U&& |
+    /// | --------- | ----------------- | ----------- | ------------ | ------------ |
+    /// | T         | 0                 | 0           | 0            | 1            |
+    /// | const T&  | 0                 | 0           | 0            | 1            |
+    /// | T&        | ill-formed        | 0           | ill-formed   | ill-formed   |
+    /// | T&&       | ill-formed        | ill-formed  | 0            | 1            |
+    /// | const T&& | ill-formed        | ill-formed  | 0            | 1            |
+    ///
+    /// When no copies are required, \c yield_awaiter is used. Otherwise,
+    /// \c copy_awaiter is used. The latter converts \c U to \c T, and keeps the converted
+    /// value in it.
+    class yield_awaiter final {
+        generator_promise_base* _promise;
+        std::coroutine_handle<> _consumer;
+    public:
+        yield_awaiter(generator_promise_base* promise,
+                      std::coroutine_handle<> consumer) noexcept
+            : _promise{promise}
+            , _consumer{consumer}
+        {}
+        bool await_ready() const noexcept {
+            return false;
+        }
+        template <typename Promise>
+        std::coroutine_handle<> await_suspend(std::coroutine_handle<Promise> producer) noexcept {
+            _promise->_waiting_task = &producer.promise();
+            if (seastar::need_preempt()) {
+                auto consumer = std::coroutine_handle<seastar::task>::from_address(
+                    _consumer.address());
+                seastar::schedule(&consumer.promise());
+                return std::noop_coroutine();
+            }
+            return _consumer;
+        }
+        void await_resume() noexcept {}
+    };
+
+    class copy_awaiter {
+        using value_type = std::remove_cvref_t<Yielded>;
+        generator_promise_base* _promise;
+        std::coroutine_handle<> _consumer;
+        value_type _value;
+    public:
+        copy_awaiter(generator_promise_base* promise,
+                     std::coroutine_handle<> consumer,
+                     const value_type& value)
+            : _promise{promise}
+            , _consumer{consumer}
+            , _value{value}
+        {}
+        constexpr bool await_ready() const noexcept {
+            return false;
+        }
+        template <typename Promise>
+        std::coroutine_handle<> await_suspend(std::coroutine_handle<Promise> producer) noexcept {
+            auto& current = producer.promise();
+            current._value = std::addressof(_value);
+            _promise->_waiting_task = &current;
+            if (seastar::need_preempt()) {
+                auto consumer = std::coroutine_handle<seastar::task>::from_address(
+                    _consumer.address());
+                seastar::schedule(&consumer.promise());
+                return std::noop_coroutine();
+            }
+            return _consumer;
+        }
+        constexpr void await_resume() const noexcept {}
+    };
 
 public:
-    generator(size_t buffer_capacity,
-              handle_type coro,
-              promise_type* promise) noexcept
-        : _coro{coro}
-        , _promise{promise}
-        , _buffer_capacity{buffer_capacity} {
-        assert(_promise);
-        _promise->set_generator(this);
+    generator_promise_base() noexcept = default;
+    generator_promise_base(const generator_promise_base &) = delete;
+    generator_promise_base& operator=(const generator_promise_base &) = delete;
+    generator_promise_base(generator_promise_base &&) noexcept = default;
+    generator_promise_base& operator=(generator_promise_base &&) noexcept = default;
+
+    // lazily-started coroutine, do not execute the coroutine until
+    // the coroutine is awaited.
+    std::suspend_always initial_suspend() const noexcept {
+        return {};
     }
-    generator(const generator&) = delete;
+
+    yield_awaiter final_suspend() noexcept {
+        _value = nullptr;
+        return yield_awaiter{this, this->_consumer};
+    }
+
+    void unhandled_exception() noexcept {
+        _exception = std::current_exception();
+    }
+
+    yield_awaiter yield_value(Yielded value) noexcept {
+        this->_value = std::addressof(value);
+        return yield_awaiter{this, this->_consumer};
+    }
+
+    copy_awaiter yield_value(const std::remove_reference_t<Yielded>& value)
+    requires (std::is_rvalue_reference_v<Yielded> &&
+              std::constructible_from<
+                  std::remove_cvref_t<Yielded>,
+                  const std::remove_reference_t<Yielded>&>) {
+        return copy_awaiter{this, this->_consumer, value};
+    }
+
+    void return_void() noexcept {}
+
+    // @return if the generator has reached the end of the sequence
+    bool finished() const noexcept {
+        return _value == nullptr;
+    }
+
+    void rethrow_if_unhandled_exception() {
+        if (_exception) {
+            std::rethrow_exception(std::move(_exception));
+        }
+    }
+
+    void run_and_dispose() noexcept final {
+        using handle_type = std::coroutine_handle<generator_promise_base>;
+        handle_type::from_promise(*this).resume();
+    }
+
+    seastar::task* waiting_task() noexcept final {
+        return _waiting_task;
+    }
+
+private:
+    friend class next_awaiter<Yielded>;
+};
+
+/// awaiter returned when the consumer gets the \c begin iterator or
+/// when it advances the iterator.
+template <typename Yielded>
+class next_awaiter {
+protected:
+    generator_promise_base<Yielded>* _promise = nullptr;
+    std::coroutine_handle<> _producer = nullptr;
+
+    explicit next_awaiter(std::nullptr_t) noexcept {}
+    next_awaiter(generator_promise_base<Yielded>& promise,
+                 std::coroutine_handle<> producer) noexcept
+        : _promise{std::addressof(promise)}
+        , _producer{producer} {}
+
+public:
+    bool await_ready() const noexcept {
+        return false;
+    }
+
+    template <typename Promise>
+    std::coroutine_handle<> await_suspend(std::coroutine_handle<Promise> consumer) noexcept {
+        _promise->_consumer = consumer;
+        return _producer;
+    }
+};
+
+/// unbuffered generator represents a view modeling std::ranges::input_range,
+/// and has move-only iterators.
+///
+/// generator has 2 template parameters:
+///
+/// - Ref
+/// - Value
+///
+/// From Ref and Value, we derive types:
+/// - value_type: a cv-unqualified object type that specifies the value type of
+///   the generator's range and iterators
+/// - reference_Type: the reference type of the generator's range and iterators
+/// - yielded_type: the type of the parameter to the primary overload of \c
+///   yield_value in the generator's associated promise type
+///
+/// Under the most circumstances, only the first parameter is specified: like
+/// \c generator<meow>. The resulting generator:
+/// - has a value type of \c remove_cvref_t<meow>
+/// - has a reference type of \c meow, if it is a reference type, or \c meow&&
+///   otherwise
+/// - the operand of \c co_yield in the body of the generator should be
+///   convertible to \c meow, if it is a reference type, otherwise the operand
+///   type should be <tt>const meow&</tt>
+///
+/// Consider following code snippet:
+/// \code
+/// generator<const std::string&> send_query(std::string query) {
+///   auto result_set = db.execute(query);
+///   for (auto row : result_set) {
+///       co_yield std::format("{}", row);
+///   }
+/// }
+/// \endcode
+///
+/// In this case, \c Ref is a reference type of \c <tt>const std::string&</tt>,
+/// and \c Value is the default value of \c void. So the \c value_type is
+/// \c std::string. As the generator always returns a \c std::string, its
+/// iterator has the luxury of returning a reference to it.
+///
+/// But if some rare users want to use a proxy reference type, or to generate a
+/// range whose iterators yield prvalue for whatever reason, they should use
+/// the two-argument \c generator, like <tt>generator<meow, woof></tt>.
+/// The resulting generator:
+/// - has a value type of \c woof
+/// - has a reference type of \c meow
+///
+/// For instance, consider following code snippet:
+/// \code
+/// generator<std::string_view, std::string> generate_strings() {
+///   co_yield "[";
+///   std::string s;
+///   for (auto sv : {"1"sv, "2"sv}) {
+///     s = sv;
+///     s.push_back(',');
+///     co_yield s;
+///   }
+///   co_yield "]";
+/// }
+/// \endcode
+///
+/// In this case, \c Ref is \c std::string_view, and \Value is \c std::string.
+/// So we can ensure that the caller cannot invalidate the yielded values by
+/// mutating the defererenced value of iterator. As the \c std::string_view
+/// instance is immutable. But in the meanwhile, the generator can return
+/// a \c std::string by \c co_yield a \c std::string_view or a \c std::string.
+/// And the caller can still access the element of the range via the same type:
+/// \c std::string_view.
+///
+/// This generator implementation does not address the "Pingpong problem":
+/// where the producer generates elements one at a time, forcing frequent
+/// context switches between producer and consumer. This can lead to suboptimal
+/// performance, especially when bulk generation and consumption would be more
+/// efficient.
+///
+/// If the producer is able to produce elements in batch, please consider using
+/// the buffered generator by specifying the \c Yielded template parameter.
+template<typename Ref, typename Value>
+class [[nodiscard]] generator {
+    using value_type = std::conditional_t<std::is_void_v<Value>,
+                                          std::remove_cvref_t<Ref>,
+                                          Value>;
+    using reference_type = std::conditional_t<std::is_void_v<Value>,
+                                              Ref&&,
+                                              Ref>;
+    using yielded_type = std::conditional_t<std::is_reference_v<reference_type>,
+                                            reference_type,
+                                            const reference_type&>;
+
+public:
+    class promise_type;
+
+private:
+    using handle_type = std::coroutine_handle<promise_type>;
+    handle_type _coro = {};
+
+public:
+    class iterator;
+
+    generator() noexcept = default;
+    explicit generator(promise_type& promise) noexcept
+        : _coro(std::coroutine_handle<promise_type>::from_promise(promise))
+    {}
     generator(generator&& other) noexcept
         : _coro{std::exchange(other._coro, {})}
-        , _buffer_capacity{other._buffer_capacity} {}
-    generator& operator=(generator&& other) noexcept {
-        if (std::addressof(other) != this) {
-            auto old_coro = std::exchange(_coro, std::exchange(other._coro, {}));
-            if (old_coro) {
-                old_coro.destroy();
-            }
-        }
-        return *this;
-    }
+    {}
+    generator(const generator&) = delete;
+    generator& operator=(const generator&) = delete;
+
     ~generator() {
         if (_coro) {
             _coro.destroy();
         }
     }
 
-    void swap(generator& other) noexcept {
-        std::swap(_coro, other._coro);
+    friend void swap(generator& lhs, generator& rhs) noexcept {
+        std::swap(lhs._coro, rhs._coro);
     }
 
-    internal::next_awaiter<T, generator> operator()() noexcept {
-        if (!_values.empty()) {
-            return {this, nullptr, make_ready_future<>()};
-        } else if (_exception) [[unlikely]] {
-            return {this, nullptr, make_ready_future<>()};
-        } else if (_promise) {
-            return {this, _promise, _promise->wait_for_next_value()};
-        } else {
-            return {this, nullptr, make_ready_future<>()};
+    generator& operator=(generator&& other) noexcept {
+        if (this == &other) {
+            return *this;
         }
+        if (_coro) {
+            _coro.destroy();
+        }
+        _coro = std::exchange(other._coro, nullptr);
+        return *this;
     }
 
-    template<typename U>
-    bool put_next_value(U&& value) {
-        _values.push_back(std::forward<U>(value));
-        return _values.size() < _buffer_capacity;
-    }
+    [[nodiscard]] auto begin() noexcept {
+        using base_awaiter = next_awaiter<yielded_type>;
+        class begin_awaiter final : public base_awaiter {
+            using base_awaiter::_promise;
 
-    internal::next_value_t<T> take_next_value() {
-        if (!_values.empty()) [[likely]] {
-            auto value = std::move(_values.front());
-            bool maybe_reclaim = _values.size() == _buffer_capacity;
-            _values.pop_front();
-            if (maybe_reclaim) {
-                if (_promise) [[likely]] {
-                    _promise->on_reclaim_free_space();
-                }
+        public:
+            explicit begin_awaiter(std::nullptr_t) noexcept
+                : base_awaiter{nullptr}
+            {}
+            explicit begin_awaiter(handle_type producer_coro) noexcept
+                : base_awaiter{producer_coro.promise(), producer_coro}
+            {}
+            bool await_ready() const noexcept {
+                return _promise == nullptr || base_awaiter::await_ready();
             }
-            return internal::next_value_t<T>(std::move(value));
-        } else if (_exception) [[unlikely]] {
-            std::rethrow_exception(std::exchange(_exception, nullptr));
+
+            iterator await_resume() {
+                if (_promise == nullptr) {
+                    return iterator{nullptr};
+                }
+                if (_promise->finished()) {
+                    _promise->rethrow_if_unhandled_exception();
+                    return iterator{nullptr};
+                }
+                return iterator{
+                    handle_type::from_promise(*static_cast<promise_type *>(_promise))
+                };
+            }
+        };
+
+        if (_coro) {
+            return begin_awaiter{_coro};
         } else {
-            return std::nullopt;
+            return begin_awaiter{nullptr};
         }
     }
 
-    void on_finished() {
-        _promise = nullptr;
-        _coro = nullptr;
-    }
-
-    void unhandled_exception() noexcept {
-        // called by promise's unhandled_exception()
-        assert(!_exception);
-        _exception = std::current_exception();
+    [[nodiscard]] std::default_sentinel_t end() const noexcept {
+        return {};
     }
 };
 
-template <typename T>
-class generator<T, std::optional> {
+template <typename Ref, typename Value>
+class generator<Ref, Value>::promise_type final : public generator_promise_base<yielded_type> {
 public:
-    using promise_type = internal::generator_unbuffered_promise<T>;
+    generator get_return_object() noexcept {
+        return generator{*this};
+    }
+
+    yielded_type value() const noexcept {
+        return static_cast<yielded_type>(*this->_value);
+    }
+};
+
+template <typename Ref, typename Value>
+class generator<Ref, Value>::iterator final {
+private:
+    using handle_type = generator::handle_type;
+    handle_type _coro = nullptr;
+
+public:
+    using iterator_category = std::input_iterator_tag;
+    using difference_type = std::ptrdiff_t;
+    using value_type = generator::value_type;
+    using reference = generator::reference_type;
+    using pointer = std::add_pointer_t<value_type>;
+
+    explicit iterator(handle_type coroutine) noexcept
+        : _coro{coroutine}
+    {}
+
+    explicit operator bool() const noexcept {
+        return _coro && !_coro.done();
+    }
+
+    [[nodiscard]] auto operator++() noexcept {
+        using base_awaiter = next_awaiter<yielded_type>;
+        class increment_awaiter final : public base_awaiter {
+            iterator& _iterator;
+            using base_awaiter::_promise;
+
+        public:
+            explicit increment_awaiter(iterator& iterator) noexcept
+                : base_awaiter{iterator._coro.promise(), iterator._coro}
+                , _iterator{iterator}
+            {}
+            iterator& await_resume() {
+                if (_promise->finished()) {
+                    // update iterator to end()
+                    _iterator = iterator{nullptr};
+                    _promise->rethrow_if_unhandled_exception();
+                }
+                return _iterator;
+            }
+        };
+
+        assert(bool(*this) && "cannot increment end iterator");
+        return increment_awaiter{*this};
+    }
+
+    reference operator*() const noexcept {
+        return _coro.promise().value();
+    }
+
+    bool operator==(std::default_sentinel_t) const noexcept {
+        return !bool(*this);
+    }
+};
+
+} // namespace unbuffered
+
+namespace buffered {
+
+template <typename Yielded> class next_awaiter;
+
+template <typename Yielded>
+class generator_promise_base : public seastar::task {
+protected:
+    // slice represents a sub sequence of the genenerated values
+    std::add_pointer_t<Yielded> _slice = nullptr;
+
+protected:
+    std::exception_ptr _exception;
+    std::coroutine_handle<> _consumer;
+    task* _waiting_task = nullptr;
+
+    class yield_awaiter final {
+        generator_promise_base* _promise;
+        std::coroutine_handle<> _consumer;
+    public:
+        yield_awaiter(generator_promise_base* promise,
+                      std::coroutine_handle<> consumer) noexcept
+            : _promise{promise}
+            , _consumer{consumer}
+        {}
+        bool await_ready() const noexcept {
+            return false;
+        }
+        template <typename Promise>
+        std::coroutine_handle<> await_suspend(std::coroutine_handle<Promise> producer) noexcept {
+            _promise->_waiting_task = &producer.promise();
+            if (seastar::need_preempt()) {
+                auto consumer = std::coroutine_handle<seastar::task>::from_address(
+                    _consumer.address());
+                seastar::schedule(&consumer.promise());
+                return std::noop_coroutine();
+            }
+            return _consumer;
+        }
+        void await_resume() noexcept {}
+    };
+
+public:
+    generator_promise_base() noexcept = default;
+    generator_promise_base(const generator_promise_base &) = delete;
+    generator_promise_base& operator=(const generator_promise_base &) = delete;
+    generator_promise_base(generator_promise_base &&) noexcept = default;
+    generator_promise_base& operator=(generator_promise_base &&) noexcept = default;
+
+    // lazily-started coroutine, do not execute the coroutine until
+    // the coroutine is awaited.
+    std::suspend_always initial_suspend() const noexcept {
+        return {};
+    }
+
+    yield_awaiter final_suspend() noexcept {
+        _slice = nullptr;
+        return yield_awaiter{this, this->_consumer};
+    }
+
+    void unhandled_exception() noexcept {
+        _exception = std::current_exception();
+    }
+
+    yield_awaiter yield_value(Yielded slice) noexcept {
+        // an empty slice is forbidden, otherwise the increment_awaiter would resume
+        // from suspension, but end up finding nothing to return to the consumer.
+        assert(!std::ranges::empty(slice));
+        this->_slice = std::addressof(slice);
+        return yield_awaiter{this, this->_consumer};
+    }
+
+    void return_void() noexcept {}
+
+    // @return if the generator has reached the end of the sequence
+    bool finished() const noexcept {
+        return _slice == nullptr;
+    }
+
+    // @return the current slice produced by the producer
+    Yielded& slice() noexcept {
+        assert(_slice);
+        return *_slice;
+    }
+
+
+    void rethrow_if_unhandled_exception() {
+        if (_exception) {
+            std::rethrow_exception(std::move(_exception));
+        }
+    }
+
+    void run_and_dispose() noexcept final {
+        using handle_type = std::coroutine_handle<generator_promise_base>;
+        handle_type::from_promise(*this).resume();
+    }
+
+    seastar::task* waiting_task() noexcept final {
+        return _waiting_task;
+    }
 
 private:
-    using handle_type = internal::coroutine_handle<promise_type>;
-    handle_type _coro;
-    promise_type* _promise;
-    std::optional<T> _maybe_value;
-    std::exception_ptr _exception;
+    friend class next_awaiter<Yielded>;
+};
+
+template <typename Yielded>
+class next_awaiter {
+protected:
+    generator_promise_base<Yielded>* _promise = nullptr;
+    std::coroutine_handle<> _producer = nullptr;
 
 public:
-    generator(handle_type coro,
-              promise_type* promise) noexcept
-        : _coro{coro}
-        , _promise{promise} {
-        assert(_promise);
-        _promise->set_generator(this);
+    explicit next_awaiter(std::nullptr_t) noexcept {}
+    next_awaiter(generator_promise_base<Yielded>& promise,
+                 std::coroutine_handle<> producer) noexcept
+        : _promise{std::addressof(promise)}
+        , _producer{producer} {}
+
+    template <typename Promise>
+    std::coroutine_handle<> await_suspend(std::coroutine_handle<Promise> consumer) noexcept {
+        _promise->_consumer = consumer;
+        return _producer;
     }
-    generator(const generator&) = delete;
+};
+
+template<typename Ref, typename Value, typename Yielded>
+class [[nodiscard]] generator {
+    using value_type = std::conditional_t<std::is_void_v<Value>,
+                                          std::remove_cvref_t<Ref>,
+                                          Value>;
+    using reference_type = std::conditional_t<std::is_void_v<Value>,
+                                              Ref&&,
+                                              Ref>;
+    using yielded_type = Yielded;
+
+public:
+    class promise_type;
+
+private:
+    using handle_type = std::coroutine_handle<promise_type>;
+    handle_type _coro = {};
+
+public:
+    class iterator;
+
+    generator() noexcept = default;
+    explicit generator(promise_type& promise) noexcept
+        : _coro(std::coroutine_handle<promise_type>::from_promise(promise))
+    {}
     generator(generator&& other) noexcept
-        : _coro{std::exchange(other._coro, {})} {}
-    generator& operator=(generator&& other) noexcept {
-        if (std::addressof(other) != this) {
-            auto old_coro = std::exchange(_coro, std::exchange(other._coro, {}));
-            if (old_coro) {
-                old_coro.destroy();
-            }
-        }
-        return *this;
-    }
+        : _coro{std::exchange(other._coro, {})}
+    {}
+    generator(const generator&) = delete;
+    generator& operator=(const generator&) = delete;
+
     ~generator() {
         if (_coro) {
             _coro.destroy();
         }
     }
 
-    void swap(generator& other) noexcept {
-        std::swap(_coro, other._coro);
+    friend void swap(generator& lhs, generator& rhs) noexcept {
+        std::swap(lhs._coro, rhs._coro);
     }
 
-    internal::next_awaiter<T, generator> operator()() noexcept {
-        if (_promise) [[likely]] {
-            return {this, _promise, _promise->wait_for_next_value()};
+    generator& operator=(generator&& other) noexcept {
+        if (this == &other) {
+            return *this;
+        }
+        if (_coro) {
+            _coro.destroy();
+        }
+        _coro = std::exchange(other._coro, nullptr);
+        return *this;
+    }
+
+    [[nodiscard]] auto begin() noexcept {
+        using base_awaiter = next_awaiter<yielded_type>;
+        class begin_awaiter final : public base_awaiter {
+            using base_awaiter::_promise;
+
+        public:
+            using base_awaiter::base_awaiter;
+            bool await_ready() const noexcept {
+                return _promise == nullptr;
+            }
+
+            iterator await_resume() {
+                if (_promise == nullptr) {
+                    return iterator{nullptr};
+                }
+                if (_promise->finished()) {
+                    _promise->rethrow_if_unhandled_exception();
+                    return iterator{nullptr};
+                }
+                return iterator{
+                    handle_type::from_promise(*static_cast<promise_type *>(_promise))
+                };
+            }
+        };
+
+        if (_coro && !_coro.done()) {
+            return begin_awaiter{_coro.promise(), _coro};
         } else {
-            return {this, nullptr, make_ready_future<>()};
+            return begin_awaiter{nullptr};
         }
     }
 
-    template<typename U>
-    void put_next_value(U&& value) noexcept {
-        _maybe_value.emplace(std::forward<U>(value));
-    }
-
-    internal::next_value_t<T> take_next_value() {
-        if (_maybe_value.has_value()) [[likely]] {
-            return std::exchange(_maybe_value, std::nullopt);
-        } else if (_exception) [[unlikely]] {
-            std::rethrow_exception(std::exchange(_exception, nullptr));
-        } else {
-            return std::nullopt;
-        }
-    }
-
-    void on_finished() {
-        _promise = nullptr;
-        _coro = nullptr;
-    }
-
-    void unhandled_exception() noexcept {
-        assert(!_exception);
-        _exception = std::current_exception();
+    [[nodiscard]] std::default_sentinel_t end() const noexcept {
+        return {};
     }
 };
 
-namespace internal {
-
-template<NothrowMoveConstructible T>
-void generator_unbuffered_promise<T>::return_void() noexcept {
-    assert(_wait_for_next_value);
-    _wait_for_next_value->set_value();
-    _wait_for_next_value = {};
-}
-
-template<NothrowMoveConstructible T>
-void generator_unbuffered_promise<T>::unhandled_exception() noexcept {
-    // instead of storing the current exception into promise, in order to be
-    // more consistent, we let generator preserve all the output of produced
-    // value, including the values and the exception if any. so we just signal
-    // _wait_for_next_value, and delegate generator's unhandled_exception() to
-    // store the exception.
-    _generator->unhandled_exception();
-    if (_wait_for_next_value.has_value()) {
-        _wait_for_next_value->set_value();
-        _wait_for_next_value = {};
+/// buffered generator has 3 template parameters:
+///
+/// - Ref
+/// - Value
+/// - Yielded
+///
+/// Unlike its unbuffered variant, the \c Yielded type can be customized. \c Yielded should be a
+/// range of elements, which are convertible to the \c Value type.
+///
+/// @note Please note, empty ranges are not allowed to be yielded.
+template <typename Ref, typename Value, typename Yielded>
+class generator<Ref, Value, Yielded>::promise_type final : public generator_promise_base<yielded_type> {
+public:
+    generator get_return_object() noexcept {
+        return generator{*this};
     }
-}
+};
 
-template<NothrowMoveConstructible T>
-auto generator_unbuffered_promise<T>::get_return_object() noexcept -> generator_type {
-    using handle_type = coroutine_handle<generator_unbuffered_promise<T>>;
-    return generator_type{handle_type::from_promise(*this), this};
-}
+template <typename Ref, typename Value, typename Yielded>
+class generator<Ref, Value, Yielded>::iterator final {
+private:
+    using handle_type = generator::handle_type;
+    // nullptr on end
+    handle_type _coro = nullptr;
 
-template<NothrowMoveConstructible T, template <typename> class Container>
-requires Fifo<Container, T>
-void generator_buffered_promise<T, Container>::unhandled_exception() noexcept {
-    _generator->unhandled_exception();
-    if (_wait_for_next_value.has_value()) {
-        _wait_for_next_value->set_value();
-        _wait_for_next_value = {};
+    using yielded_iterator = std::ranges::iterator_t<yielded_type>;
+    static_assert(std::input_iterator<yielded_iterator>);
+    yielded_iterator _iterator;
+
+    void reset() {
+        _iterator = std::begin(_coro.promise().slice());
     }
-}
 
-template<NothrowMoveConstructible T, template <typename> class Container>
-requires Fifo<Container, T>
-auto generator_buffered_promise<T, Container>::get_return_object() noexcept -> generator_type {
-    using handle_type = coroutine_handle<generator_buffered_promise<T, Container>>;
-    return generator_type{_buffer_capacity, handle_type::from_promise(*this), this};
-}
+public:
+    using iterator_category = std::input_iterator_tag;
+    using difference_type = std::ptrdiff_t;
+    using value_type = generator::value_type;
+    using reference = generator::reference_type;
+    using pointer = std::add_pointer_t<value_type>;
 
-template<typename T, template <typename> class Container>
-coroutine_handle<> yield_awaiter<T, Container>::await_suspend(
-    coroutine_handle<generator_buffered_promise<T, Container>> coro) noexcept {
-    if (_future.available()) {
-        auto& current_task = coro.promise();
-        seastar::schedule(&current_task);
-        return coro;
-    } else {
-        // we cannot do something like `task.set_coroutine(consumer_task)`.
-        // because, instead of waiting for a subcoroutine, we are pending on
-        // the caller of current coroutine to consume the produced values to
-        // free up at least a free slot in the buffer, if we set the `_task`
-        // of the of the awaiting task, we would have an infinite loop of
-        // "promise->_task".
-        return noop_coroutine();
+    explicit iterator(handle_type coroutine) noexcept
+        : _coro{coroutine} {
+        if (_coro) {
+            reset();
+        }
     }
-}
 
+    explicit operator bool() const noexcept {
+        return _coro && !_coro.done();
+    }
+
+    [[nodiscard]] auto operator++() noexcept {
+        using base_awaiter = next_awaiter<yielded_type>;
+        class increment_awaiter final : public base_awaiter {
+            const bool _in_this_slice;
+            iterator& _iterator;
+            using base_awaiter::_promise;
+
+        public:
+            explicit increment_awaiter(bool is_ready, iterator& iterator) noexcept
+                : base_awaiter{iterator._coro.promise(), iterator._coro}
+                , _in_this_slice{is_ready}
+                , _iterator{iterator}
+            {}
+
+            bool await_ready() const noexcept {
+                return _in_this_slice;
+            }
+
+            iterator& await_resume() {
+                if (_promise->finished()) {
+                    // update iterator to end()
+                    _iterator = iterator{nullptr};
+                    _promise->rethrow_if_unhandled_exception();
+                    return _iterator;
+                }
+                if (!_in_this_slice) {
+                    _iterator.reset();
+                }
+                return _iterator;
+            }
+        };
+
+        assert(bool(*this) && "cannot increment end iterator");
+        bool is_ready = ++_iterator != std::ranges::end(_coro.promise().slice());
+        return increment_awaiter{is_ready, *this};
+    }
+
+    reference operator*() const noexcept {
+        return static_cast<reference>(*_iterator);
+    }
+
+    bool operator==(std::default_sentinel_t) const noexcept {
+        return !bool(*this);
+    }
+};
+
+} // namespace buffered
+
+template<typename T, typename U>
+concept element_of =
+  !std::convertible_to<T, U> &&
+  std::convertible_to<std::ranges::range_value_t<U>, T>;
 } // namespace internal
+
+template<typename Ref, typename Value = void, typename Yielded = void>
+using generator = std::conditional_t<internal::element_of<Value, Yielded>,
+    internal::buffered::generator<Ref, Value, Yielded>,
+    internal::unbuffered::generator<Ref, Value>>;
+
 } // namespace seastar::coroutine::experimental
