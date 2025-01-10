@@ -19,13 +19,16 @@
  * Copyright (C) 2017 ScyllaDB
  */
 
+#include <exception>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 
 #include <seastar/core/gate.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/do_with.hh>
+#include <seastar/core/abort_on_expiry.hh>
 #include <seastar/util/defer.hh>
+#include <seastar/util/later.hh>
 
 using namespace seastar;
 using namespace std::chrono_literals;
@@ -296,4 +299,24 @@ SEASTAR_THREAD_TEST_CASE(test_subscription_callback_lifetime) {
     sub.reset();
     BOOST_REQUIRE_EQUAL(callback_destroyed, true);
     BOOST_REQUIRE_EQUAL(callback_called, 1);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_abort_on_expiry) {
+    auto abort = abort_on_expiry<manual_clock>(manual_clock::now() + 1s);
+    std::exception_ptr ex;
+    int called = 0;
+    auto sub = abort.abort_source().subscribe([&] (const std::optional<std::exception_ptr>& ex_opt) noexcept {
+        called++;
+        if (ex_opt) {
+            ex = *ex_opt;
+        }
+    });
+    BOOST_REQUIRE(!abort.abort_source().abort_requested());
+    BOOST_REQUIRE(!called);
+    manual_clock::advance(1s);
+    yield().get();
+    BOOST_REQUIRE(abort.abort_source().abort_requested());
+    BOOST_REQUIRE_EQUAL(called, 1);
+    BOOST_REQUIRE(ex != nullptr);
+    BOOST_REQUIRE_THROW(std::rethrow_exception(ex), timed_out_error);
 }

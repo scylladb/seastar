@@ -32,6 +32,9 @@
 #include <seastar/core/sleep.hh>
 #include <seastar/core/shared_mutex.hh>
 #include <ranges>
+#include <stdexcept>
+
+#include "expected_exception.hh"
 
 using namespace seastar;
 using namespace std::chrono_literals;
@@ -168,9 +171,9 @@ SEASTAR_THREAD_TEST_CASE(test_non_default_broken_semaphore) {
     auto sem = basic_semaphore<test_semaphore_exception_factory>(0);
     auto fut = sem.wait();
     BOOST_REQUIRE(!fut.available());
-    sem.broken(std::runtime_error("test"));
-    BOOST_REQUIRE_THROW(fut.get(), std::runtime_error);
-    BOOST_REQUIRE_THROW(sem.wait().get(), std::runtime_error);
+    sem.broken(expected_exception());
+    BOOST_REQUIRE_THROW(fut.get(), expected_exception);
+    BOOST_REQUIRE_THROW(sem.wait().get(), expected_exception);
 }
 
 SEASTAR_TEST_CASE(test_shared_mutex_exclusive) {
@@ -423,6 +426,19 @@ SEASTAR_THREAD_TEST_CASE(test_semaphore_abort_after_wait) {
     as.request_abort();
     sem.signal();
     BOOST_CHECK_THROW(fut1.get(), semaphore_aborted);
+    BOOST_REQUIRE_EQUAL(x, 0);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_semaphore_abort_with_exception_after_wait) {
+    auto sem = semaphore(0);
+    abort_source as;
+    int x = 0;
+    auto fut1 = sem.wait(as).then([&x] {
+        x++;
+    });
+    as.request_abort_ex(expected_exception());
+    sem.signal();
+    BOOST_CHECK_THROW(fut1.get(), expected_exception);
     BOOST_REQUIRE_EQUAL(x, 0);
 }
 

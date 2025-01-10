@@ -21,7 +21,6 @@
 
 #include <boost/test/tools/old/interface.hpp>
 #include <cstddef>
-#include <exception>
 #include <forward_list>
 #include <iterator>
 #include <ranges>
@@ -57,6 +56,8 @@
 #include <seastar/core/internal/api-level.hh>
 #include <unistd.h>
 
+#include "expected_exception.hh"
+
 using namespace seastar;
 using namespace std::chrono_literals;
 
@@ -70,11 +71,6 @@ static_assert(std::is_nothrow_copy_constructible_v<shared_future<>>);
 static_assert(std::is_nothrow_move_constructible_v<shared_future<>>);
 
 static_assert(std::is_nothrow_move_constructible_v<shared_promise<>>);
-
-class expected_exception : public std::runtime_error {
-public:
-    expected_exception() : runtime_error("expected") {}
-};
 
 #if defined(__clang__) || (defined(__GNUC__) && __GNUC__ >= 13)
 #pragma GCC diagnostic push
