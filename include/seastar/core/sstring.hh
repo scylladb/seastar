@@ -845,7 +845,7 @@ namespace std {
 
 SEASTAR_MODULE_EXPORT
 template <typename T>
-[[deprecated("Use {fmt} instead")]]
+// [[deprecated("Use {fmt} instead")]]
 inline
 std::ostream& operator<<(std::ostream& os, const std::vector<T>& v) {
     bool first = true;
@@ -864,7 +864,7 @@ std::ostream& operator<<(std::ostream& os, const std::vector<T>& v) {
 
 SEASTAR_MODULE_EXPORT
 template <typename Key, typename T, typename Hash, typename KeyEqual, typename Allocator>
-[[deprecated("Use {fmt} instead")]]
+// [[deprecated("Use {fmt} instead")]]
 std::ostream& operator<<(std::ostream& os, const std::unordered_map<Key, T, Hash, KeyEqual, Allocator>& v) {
     bool first = true;
     os << "{";
