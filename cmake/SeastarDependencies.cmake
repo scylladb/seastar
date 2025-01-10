@@ -39,106 +39,75 @@ if (Boost_VERSION_STRING VERSION_LESS 1.81.0)
     INTERFACE_COMPILE_DEFINITIONS "BOOST_NO_CXX98_FUNCTION_BASE")
 endif ()
 
-# - set _seastar_dep_args_<package> for additional args for find_package().
-#   add REQUIRED if the corresponding option is explicitly enabled, so
-#   find_package() can stop the cmake generation.
-# - set _seastar_dep_skip_<package> if the option is explicitly disabled
-macro (seastar_set_dep_args package)
-  cmake_parse_arguments(args "REQUIRED" "VERSION;OPTION" "COMPONENTS" ${ARGN})
-  if (DEFINED args_VERSION)
-    list (APPEND _seastar_dep_args_${package} ${args_VERSION})
-  endif ()
-  if (args_REQUIRED)
-    list (APPEND _seastar_dep_args_${package} REQUIRED)
-  elseif (DEFINED args_OPTION)
-    if (args_OPTION)
-      list (APPEND _seastar_dep_args_${package} REQUIRED)
-    else ()
-      set (_seastar_dep_skip_${package} TRUE)
-    endif ()
-  endif ()
-  if (args_COMPONENTS)
-    list (APPEND _seastar_dep_args_${package} COMPONENTS
-      ${args_COMPONENTS})
-  endif ()
-endmacro ()
+if (CMAKE_FIND_PACKAGE_NAME)
+  # used inside find_package(Seastar)
+  include (CMakeFindDependencyMacro)
 
-#
-# Iterate through the dependency list defined below and execute `find_package`
-# with the corresponding configuration for each 3rd-party dependency.
-#
+  macro (seastar_find_dep package)
+    cmake_parse_arguments(args "REQUIRED" "" "" ${ARGN})
+    if (arg_REQUIRED)
+      find_dependency (${package} ${arg_UNPARSED_ARGUMENTS})
+    else ()
+      # some packages are not REQUIRED, so we just check for them instead of
+      # populating "REQUIRED" from the original find_package() call.
+      find_package (${package} ${ARGN})
+    endif ()
+  endmacro ()
+else()
+  macro (seastar_find_dep package)
+    # used when configuring Seastar
+    find_package (${package} ${ARGN})
+  endmacro ()
+endif ()
+
 macro (seastar_find_dependencies)
   #
   # List of Seastar dependencies that is meant to be used
   # both in Seastar configuration and by clients which
   # consume Seastar via SeastarConfig.cmake.
   #
-  set (_seastar_all_dependencies
-    # Public dependencies.
-    Boost
-    c-ares
-    dpdk # No version information published.
-    fmt
-    lz4
-    # Private and private/public dependencies.
-    GnuTLS
-    LibUring
-    LinuxMembarrier
-    # Protobuf is searched manually.
-    Sanitizers
-    SourceLocation
-    StdAtomic
-    SystemTap-SDT
-    hwloc
-    lksctp-tools # No version information published.
-    numactl # No version information published.
-    rt
-    ucontext
-    yaml-cpp)
-
-  # Arguments to `find_package` for each 3rd-party dependency.
-  # Note that the version specification is a "minimal" version requirement.
-
   # `unit_test_framework` is not required in the case we are building Seastar
   # without the testing library, however the component is always specified as required
   # to keep the CMake code minimalistic and easy-to-use.
-  seastar_set_dep_args (Boost REQUIRED
-    VERSION ${_seastar_boost_version}
+  seastar_find_dep (Boost ${_seastar_boost_version} REQUIRED
     COMPONENTS
       filesystem
       program_options
       thread
       unit_test_framework)
-  seastar_set_dep_args (c-ares REQUIRED
-    VERSION 1.13)
-  seastar_set_dep_args (dpdk
-    OPTION ${Seastar_DPDK})
-  seastar_set_dep_args (fmt REQUIRED
-    VERSION 8.1.1)
-  seastar_set_dep_args (lz4 REQUIRED
-    VERSION 1.7.3)
-  seastar_set_dep_args (GnuTLS REQUIRED
-    VERSION 3.3.26)
-  seastar_set_dep_args (LibUring
-    VERSION 2.0
-    OPTION ${Seastar_IO_URING})
-  seastar_set_dep_args (StdAtomic REQUIRED)
-  seastar_set_dep_args (hwloc
-    VERSION 1.11.2
-    OPTION ${Seastar_HWLOC})
-  seastar_set_dep_args (lksctp-tools REQUIRED)
-  seastar_set_dep_args (rt REQUIRED)
-  seastar_set_dep_args (numactl
-    OPTION ${Seastar_NUMA})
-  seastar_set_dep_args (ucontext REQUIRED)
-  seastar_set_dep_args (yaml-cpp REQUIRED
-    VERSION 0.5.1)
+  seastar_find_dep (c-ares 1.13 REQUIRED)
+  if (c-ares_VERSION VERSION_GREATER_EQUAL 1.33.0 AND c-ares_VERSION VERSION_LESS 1.34.1)
+    # https://github.com/scylladb/seastar/issues/2472
+    message (FATAL_ERROR
+      "c-ares ${c-ares_VERSION} is not supported. "
+      "Seastar requires c-ares version <1.33 or >=1.34.1 ")
+  endif ()
 
-  foreach (third_party ${_seastar_all_dependencies})
-    if (NOT _seastar_dep_skip_${third_party})
-      find_package ("${third_party}" ${_seastar_dep_args_${third_party}})
-    endif ()
-  endforeach ()
+  if (Seastar_DPDK)
+    seastar_find_dep (dpdk)
+  endif()
+  seastar_find_dep (fmt 8.1.1 REQUIRED)
+  seastar_find_dep (lz4 1.7.3 REQUIRED)
+  seastar_find_dep (GnuTLS 3.3.26 REQUIRED)
+  if (Seastar_IO_URING)
+    seastar_find_dep (LibUring 2.0 REQUIRED)
+  endif()
+  seastar_find_dep (LinuxMembarrier)
+  seastar_find_dep (Sanitizers)
+  seastar_find_dep (SourceLocation)
+  seastar_find_dep (StdAtomic REQUIRED)
+  seastar_find_dep (SystemTap-SDT)
+  if (Seastar_HWLOC)
+    seastar_find_dep (hwloc 1.11.2 REQUIRED)
+  endif()
+  seastar_find_dep (lksctp-tools REQUIRED)
+  seastar_find_dep (rt REQUIRED)
+  if (Seastar_NUMA)
+    seastar_find_dep (numactl REQUIRED)
+  endif ()
+  seastar_find_dep (ucontext REQUIRED)
+  seastar_find_dep (yaml-cpp REQUIRED
+    VERSION 0.5.1)
 
   # workaround for https://gitlab.kitware.com/cmake/cmake/-/issues/25079
   # since protobuf v22.0, it started using abseil, see
@@ -151,15 +120,9 @@ macro (seastar_find_dependencies)
   find_package (Protobuf QUIET CONFIG)
   if (Protobuf_FOUND AND Protobuf_VERSION VERSION_GREATER_EQUAL 2.5.0)
     # do it again, so the message is printed when the package is found
-    find_package(Protobuf CONFIG REQUIRED)
+    seastar_find_dep (Protobuf CONFIG REQUIRED)
   else ()
-    find_package(Protobuf 2.5.0 REQUIRED)
+    seastar_find_dep (Protobuf 2.5.0 REQUIRED)
   endif ()
 
-  if (c-ares_VERSION VERSION_GREATER_EQUAL 1.33.0 AND c-ares_VERSION VERSION_LESS 1.34.1)
-    # https://github.com/scylladb/seastar/issues/2472
-    message (FATAL_ERROR
-      "c-ares ${c-ares_VERSION} is not supported. "
-      "Seastar requires c-ares version <1.33 or >=1.34.1 ")
-  endif ()
 endmacro ()
