@@ -213,12 +213,12 @@ random_exception_thrower(int a) {
 SEASTAR_THREAD_TEST_CASE(exception_handler_case) {
   // Ensure that exception unwinding doesn't cause any issues
   // while profiling.
-  temporary_profiler_settings cp{true, 10us};
+  temporary_profiler_settings cp{true, 1us};
 
   std::random_device rd;
   std::mt19937 gen(rd());
   std::uniform_int_distribution<> d(1, 100);
-  for (int a = 0; a < 100; a++) {
+  for (int a = 0; a < 10000; a++) {
     random_exception_catcher(100, d(gen));
   }
 
@@ -243,7 +243,7 @@ SEASTAR_THREAD_TEST_CASE(manually_disable) {
 SEASTAR_THREAD_TEST_CASE(config_thrashing) {
   // Ensure that fast config changes leave the profiler in a valid
   // state.
-  temporary_profiler_settings cp{true, 10us};
+  temporary_profiler_settings cp{true, 1us};
 
   std::random_device rd;
   std::mt19937 gen(rd());
@@ -252,6 +252,7 @@ SEASTAR_THREAD_TEST_CASE(config_thrashing) {
   for (int a = 0; a < 100; a++) {
     int r = d(gen);
     temporary_profiler_settings cp_0{r % 2 == 0, std::chrono::microseconds(r)};
+    spin_some_cooperatively(1us);
   }
 
   std::vector<cpu_profiler_trace> results;
