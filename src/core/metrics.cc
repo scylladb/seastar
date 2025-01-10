@@ -582,8 +582,6 @@ void impl::set_metric_family_configs(const std::vector<metric_family_config>& fa
 }
 }
 
-const bool metric_disabled = false;
-
 relabel_config::relabel_action relabel_config_action(const std::string& action) {
     if (action == "skip_when_empty") {
         return relabel_config::relabel_action::skip_when_empty;
