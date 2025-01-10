@@ -55,6 +55,73 @@ future<> immediate(int v, int& vs)
     return make_ready_future<>();
 }
 
+struct chain {
+    static constexpr int scale = 32;
+    int value = 0;
+
+    [[gnu::noinline]]
+    future<> do_then(future<> w, int depth = scale) {
+        if (depth > 0) {
+            return do_then(std::move(w), depth - 1).then([this] {
+                value += 1;
+                perf_tests::do_not_optimize(value);
+                return make_ready_future<>();
+            });
+        } else {
+            return w;
+        }
+    }
+
+    [[gnu::noinline]]
+    future<> do_await(future<> w, int depth = scale) {
+        if (depth > 0) {
+            co_await do_await(std::move(w), depth - 1);
+            value += 1;
+            perf_tests::do_not_optimize(value);
+        } else {
+            co_await std::move(w);
+        }
+    }
+};
+
+PERF_TEST_F(chain, then_value)
+{
+    promise<> p;
+    auto f = do_then(p.get_future());
+    p.set_value();
+    return f.then([] { return scale; });
+}
+
+PERF_TEST_F(chain, await_value)
+{
+    promise<> p;
+    auto f = do_await(p.get_future());
+    p.set_value();
+    return f.then([] { return scale; });
+}
+
+PERF_TEST_F(chain, then_exception)
+{
+    promise<> p;
+    auto f = do_then(p.get_future());
+    p.set_exception(std::runtime_error(""));
+    return f.then_wrapped([] (auto x) {
+        x.ignore_ready_future();
+        return scale;
+    });
+}
+
+PERF_TEST_F(chain, await_exception)
+{
+    promise<> p;
+    auto f = do_await(p.get_future());
+    p.set_exception(std::runtime_error(""));
+    return f.then_wrapped([] (auto x) {
+        x.ignore_ready_future();
+        return scale;
+    });
+}
+
 PERF_TEST_F(parallel_for_each, immediate_1)
 {
     auto&& begin = range.begin();
