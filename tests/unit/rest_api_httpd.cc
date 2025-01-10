@@ -44,7 +44,9 @@ void set_routes(routes& r) {
     api_json::hello_world.set(r, [] (const_req req) {
         api_json::my_object obj;
         obj.var1 = req.param.at("var1");
-        obj.var2 = req.param.at("var2");
+        api_json::var2_referred var2_wrapped;
+        var2_wrapped.var21 = req.param.at("var2");
+        obj.var2 = var2_wrapped;
         api_json::ns_hello_world::query_enum v = api_json::ns_hello_world::str2query_enum(req.query_parameters.at("query_enum"));
         // This demonstrate enum conversion
         obj.enum_var = v;
