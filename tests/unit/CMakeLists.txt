@@ -541,6 +541,7 @@ function(seastar_add_certgen name)
   set(CERT_PRIVKEY ${CERT_NAME}.key)
   set(CERT_REQ ${CERT_NAME}.csr)
   set(CERT_CERT ${CERT_NAME}.crt)
+  set(CERT_CERT_DER ${CERT_NAME}.crt.der)
 
   set(CERT_CAPRIVKEY ca${CERT_NAME}.key)
   set(CERT_CAROOT ca${CERT_NAME}.pem)
@@ -581,8 +582,14 @@ function(seastar_add_certgen name)
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
   )
 
-  add_custom_target(${name}
+  add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${CERT_CERT_DER}"
+    COMMAND ${OPENSSL} x509 -in ${CERT_CERT} -out ${CERT_CERT_DER} -outform der
     DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/${CERT_CERT}"
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+  )
+
+  add_custom_target(${name}
+    DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/${CERT_CERT_DER}"
   )
 endfunction()
 
