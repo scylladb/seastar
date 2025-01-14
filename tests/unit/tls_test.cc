@@ -1435,6 +1435,66 @@ SEASTAR_THREAD_TEST_CASE(test_alt_names) {
 
 }
 
+SEASTAR_THREAD_TEST_CASE(test_peer_certificate_chain_handling) {
+    tls::credentials_builder b;
+
+    b.set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).get();
+    b.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
+    b.set_client_auth(tls::client_auth::REQUIRE);
+
+    auto creds = b.build_certificate_credentials();
+    auto serv = b.build_server_credentials();
+
+    ::listen_options opts;
+    opts.reuse_address = true;
+    opts.set_fixed_cpu(this_shard_id());
+
+    auto addr = ::make_ipv4_address( {0x7f000001, 4712});
+    auto server = tls::listen(serv, addr, opts);
+
+    {
+        auto sa = server.accept();
+        auto c = tls::connect(creds, addr).get();
+        auto s = sa.get();
+
+        auto in = s.connection.input();
+        output_stream<char> out(c.output().detach(), 1024);
+        out.write("nils").get();
+
+        auto fscrts = tls::get_peer_certificate_chain(s.connection);
+        auto fccrts = tls::get_peer_certificate_chain(c);
+
+        auto fout = out.flush();
+        auto fin = in.read();
+
+        fout.get();
+
+        auto scrts = fscrts.get();
+        auto ccrts = fccrts.get();
+        fin.get();
+
+        in.close().get();
+        out.close().get();
+
+        s.connection.shutdown_input();
+        s.connection.shutdown_output();
+
+        c.shutdown_input();
+        c.shutdown_output();
+
+        auto read_file = [](std::filesystem::path const& path) {
+            auto contents = tls::certificate_data(std::filesystem::file_size(path));
+            std::ifstream{path, std::ios_base::binary}.read(reinterpret_cast<char *>(contents.data()), contents.size());
+            return contents;
+        };
+
+        auto ders = {read_file(certfile("test.crt.der"))};
+
+        BOOST_REQUIRE(std::ranges::equal(scrts, ders));
+        BOOST_REQUIRE(std::ranges::equal(ccrts, ders));
+    }
+}
+
 SEASTAR_THREAD_TEST_CASE(test_skip_wait_for_eof) {
     tls::credentials_builder b;
 

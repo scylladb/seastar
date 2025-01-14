@@ -494,6 +494,19 @@ namespace tls {
     */
     future<std::vector<subject_alt_name>> get_alt_name_information(connected_socket& socket, std::unordered_set<subject_alt_name_type> types = {});
 
+    using certificate_data = std::vector<uint8_t>;
+
+    /**
+     * Get the raw certificate (chain) that the connected peer is using.
+     * This function forces the TLS handshake. If the handshake didn't happen before the
+     * call to 'get_peer_certificate_chain' it will be completed when the returned future
+     * will become ready.
+     * The function returns the certificate chain on success. If the peer didn't send the
+     * certificate during the handshake, the function returns an empty certificate chain.
+     * If the socket is not connected the system_error exception will be thrown.
+     */
+    future<std::vector<certificate_data>> get_peer_certificate_chain(connected_socket& socket);
+
     /**
      * Checks if the socket was connected using session resume.
      * Will force handshake if not already done.

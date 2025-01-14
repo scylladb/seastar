@@ -1790,6 +1790,22 @@ public:
         }, std::move(types));
     }
 
+    future<std::vector<certificate_data>> get_peer_certificate_chain() {
+        return state_checked_access([this] {
+            unsigned int list_size = 0;
+            const gnutls_datum_t* client_cert_list = gnutls_certificate_get_peers(*this, &list_size);
+            auto res = std::vector<certificate_data>{};
+            res.reserve(list_size);
+            if (client_cert_list) {
+                for (auto const& client_cert : std::span{client_cert_list, list_size}) {
+                    res.emplace_back(client_cert.size);
+                    std::copy_n(client_cert.data, client_cert.size, res.back().data());
+                }
+            }
+            return res;
+        });
+    }
+
     struct session_ref;
 private:
 
@@ -1921,6 +1937,9 @@ public:
     }
     future<std::vector<subject_alt_name>> get_alt_name_information(std::unordered_set<subject_alt_name_type> types) {
         return _session->get_alt_name_information(std::move(types));
+    }
+    future<std::vector<certificate_data>> get_peer_certificate_chain() {
+        return _session->get_peer_certificate_chain();
     }
     future<> wait_input_shutdown() override {
         return _session->socket().wait_input_shutdown();
@@ -2111,6 +2130,10 @@ future<std::optional<session_dn>> tls::get_dn_information(connected_socket& sock
 
 future<std::vector<tls::subject_alt_name>> tls::get_alt_name_information(connected_socket& socket, std::unordered_set<subject_alt_name_type> types) {
     return get_tls_socket(socket)->get_alt_name_information(std::move(types));
+}
+
+future<std::vector<tls::certificate_data>> tls::get_peer_certificate_chain(connected_socket& socket) {
+    return get_tls_socket(socket)->get_peer_certificate_chain();
 }
 
 future<bool> tls::check_session_is_resumed(connected_socket& socket) {
