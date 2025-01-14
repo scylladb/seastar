@@ -375,6 +375,23 @@ SEASTAR_THREAD_TEST_CASE(sg_create_and_key_create_in_parallel) {
     }
 }
 
+SEASTAR_THREAD_TEST_CASE(sg_key_constructor_exception_when_creating_new_key) {
+    scheduling_group_key_config key_conf = make_scheduling_group_key_config<int>();
+    scheduling_group_key_create(key_conf).get();
+
+    struct thrower {
+        thrower() {
+            throw std::runtime_error("constructor failed");
+        }
+        ~thrower() {
+            // Shouldn't get here because the constructor shouldn't succeed
+            BOOST_ASSERT(false);
+        }
+    };
+    scheduling_group_key_config thrower_conf = make_scheduling_group_key_config<thrower>();
+    BOOST_REQUIRE_THROW(scheduling_group_key_create(thrower_conf).get(), std::runtime_error);
+}
+
 SEASTAR_THREAD_TEST_CASE(sg_create_with_destroy_tasks) {
     struct nada{};
 

@@ -37,6 +37,49 @@ namespace seastar {
 namespace internal {
 
 struct scheduling_group_specific_thread_local_data {
+    using val_ptr = std::unique_ptr<void, void (*)(void*) noexcept>;
+    using cfg_ptr = lw_shared_ptr<scheduling_group_key_config>;
+
+    struct specific_val {
+        val_ptr valp;
+        cfg_ptr cfg;
+
+        specific_val() : valp(nullptr, &free), cfg(nullptr) {}
+
+        specific_val(val_ptr&& valp_, const cfg_ptr& cfg_) : valp(std::move(valp_)), cfg(cfg_) {
+            if (valp && cfg->constructor) {
+                cfg->constructor(valp.get());
+            }
+        }
+
+        ~specific_val() {
+            if (valp && cfg->destructor) {
+                cfg->destructor(valp.get());
+            }
+        }
+
+        specific_val(const specific_val& other) = delete;
+        specific_val& operator=(const specific_val& other) = delete;
+
+        specific_val(specific_val&& other) : valp(std::move(other.valp)), cfg(std::move(other.cfg)) {}
+
+        specific_val& operator=(specific_val&& other) {
+            if (this != &other) {
+                valp = std::move(other.valp);
+                cfg = std::move(other.cfg);
+            }
+            return *this;
+        }
+
+        void* get() { return valp.get(); }
+
+        void rename() {
+            if (valp && cfg->rename) {
+                cfg->rename(valp.get());
+            }
+        }
+    };
+
     struct per_scheduling_group {
         bool queue_is_initialized = false;
         /**
@@ -44,10 +87,16 @@ struct scheduling_group_specific_thread_local_data {
          * data. The pointer is not use as is but is cast to a reference
          * to the appropriate type that is actually pointed to.
          */
-        std::vector<void*> specific_vals;
+        std::vector<specific_val> specific_vals;
+
+        void rename() {
+            for (auto& v : specific_vals) {
+                v.rename();
+            }
+        }
     };
     std::array<per_scheduling_group, max_scheduling_groups()> per_scheduling_group_data;
-    std::map<unsigned long, scheduling_group_key_config> scheduling_group_key_configs;
+    std::map<unsigned long, cfg_ptr> scheduling_group_key_configs;
 };
 
 #ifdef SEASTAR_BUILD_SHARED_LIBS
@@ -78,12 +127,12 @@ template<typename T>
 T* scheduling_group_get_specific_ptr(scheduling_group sg, scheduling_group_key key) noexcept {
     auto& data = internal::get_scheduling_group_specific_thread_local_data();
 #ifdef SEASTAR_DEBUG
-    assert(std::type_index(typeid(T)) == data.scheduling_group_key_configs[key.id()].type_index);
+    assert(std::type_index(typeid(T)) == data.scheduling_group_key_configs[key.id()]->type_index);
 #endif
     auto sg_id = internal::scheduling_group_index(sg);
     if (__builtin_expect(sg_id < data.per_scheduling_group_data.size() &&
             data.per_scheduling_group_data[sg_id].queue_is_initialized, true)) {
-        return reinterpret_cast<T*>(data.per_scheduling_group_data[sg_id].specific_vals[key.id()]);
+        return reinterpret_cast<T*>(data.per_scheduling_group_data[sg_id].specific_vals[key.id()].get());
     }
     return nullptr;
 }
@@ -123,9 +172,9 @@ T& scheduling_group_get_specific(scheduling_group_key key) noexcept {
     // return a reference to an element whose queue_is_initialized is
     // false.
     auto& data = internal::get_scheduling_group_specific_thread_local_data();
-    assert(std::type_index(typeid(T)) == data.scheduling_group_key_configs[key.id()].type_index);
+    assert(std::type_index(typeid(T)) == data.scheduling_group_key_configs[key.id()]->type_index);
     auto sg_id = internal::scheduling_group_index(current_scheduling_group());
-    return *reinterpret_cast<T*>(data.per_scheduling_group_data[sg_id].specific_vals[key.id()]);
+    return *reinterpret_cast<T*>(data.per_scheduling_group_data[sg_id].specific_vals[key.id()].get());
 }
 
 /**
@@ -155,7 +204,7 @@ map_reduce_scheduling_group_specific(Mapper mapper, Reducer reducer,
     auto wrapped_mapper = [key, mapper] (per_scheduling_group& psg) {
         auto id = internal::scheduling_group_key_id(key);
         return make_ready_future<typename function_traits<Mapper>::return_type>
-            (mapper(*reinterpret_cast<SpecificValType*>(psg.specific_vals[id])));
+            (mapper(*reinterpret_cast<SpecificValType*>(psg.specific_vals[id].get())));
     };
 
     return map_reduce(
@@ -188,7 +237,7 @@ reduce_scheduling_group_specific(Reducer reducer, Initial initial_val, schedulin
 
     auto mapper = [key] (per_scheduling_group& psg) {
         auto id = internal::scheduling_group_key_id(key);
-        return make_ready_future<SpecificValType>(*reinterpret_cast<SpecificValType*>(psg.specific_vals[id]));
+        return make_ready_future<SpecificValType>(*reinterpret_cast<SpecificValType*>(psg.specific_vals[id].get()));
     };
 
     return map_reduce(
