@@ -258,23 +258,6 @@ struct column {
 
 using columns = std::vector<column>;
 
-static void print_text_header(std::FILE* out,
-    const columns& cols,
-    int name_length,
-    const char* start_delim = "",   // before the line
-    const char* middle_delim = " ", // between each column
-    const char* end_delim = "",     // end of line
-    const char* test_name_header = "test",
-    const char* header_override = nullptr) {
-
-    fmt::print(out, "{}{:<{}}", start_delim, header_override ? header_override : test_name_header, name_length);
-    for (auto& c : cols) {
-        fmt::print(out, "{}", middle_delim);
-        c.print_header(out, header_override);
-    }
-    fmt::print(out, "{}\n", end_delim);
-}
-
 static void print_result_columns(std::FILE* out,
     const columns& cols,
     int name_length,
@@ -321,7 +304,15 @@ struct stdout_printer final : result_printer {
                "number of runs:", c.number_of_runs,
                "number of cores:", smp::count,
                "random seed:", c.random_seed);
-    print_text_header(stdout, text_columns, name_column_length());
+
+    fmt::print("{:<{}}", "test", name_column_length());
+    for (auto& c : text_columns) {
+        // a middle delimiter between each column
+        fmt::print(" ");
+        c.print_header(stdout);
+    }
+    // end of line
+    fmt::print("\n");
   }
 
   virtual void print_result(const result& r) override {
