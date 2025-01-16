@@ -164,9 +164,6 @@ future<> connection::read_http_upgrade_request() {
     }
 
     sstring subprotocol = req->get_header("Sec-WebSocket-Protocol");
-    if (subprotocol.empty()) {
-        throw websocket::exception("Subprotocol header missing.");
-    }
 
     if (!_server.is_handler_registered(subprotocol)) {
         throw websocket::exception("Subprotocol not supported.");
@@ -187,8 +184,10 @@ future<> connection::read_http_upgrade_request() {
 
     co_await _write_buf.write(http_upgrade_reply_template);
     co_await _write_buf.write(sha1_output);
-    co_await _write_buf.write("\r\nSec-WebSocket-Protocol: ", 26);
-    co_await _write_buf.write(_subprotocol);
+    if (!_subprotocol.empty()) {
+        co_await _write_buf.write("\r\nSec-WebSocket-Protocol: ", 26);
+        co_await _write_buf.write(_subprotocol);
+    }
     co_await _write_buf.write("\r\n\r\n", 4);
     co_await _write_buf.flush();
 }

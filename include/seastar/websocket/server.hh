@@ -324,6 +324,12 @@ public:
 
     bool is_handler_registered(std::string const& name);
 
+    /*!
+     * \brief Register a handler for specific subprotocol
+     * \param name The name of the subprotocol. If it is empty string, then the handler is used
+     * when the protocol is not specified
+     * \param handler Handler for incoming WebSocket messages.
+     */
     void register_handler(const std::string& name, handler_t handler);
 
     friend class connection;
