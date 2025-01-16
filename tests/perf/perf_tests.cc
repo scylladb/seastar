@@ -357,6 +357,21 @@ public:
 
 class markdown_printer final : public result_printer {
     std::FILE* _output = nullptr;
+
+    void print_header_row(const char* head_text, const char* body_text) {
+        // start delimeter, and the top-left cell
+        fmt::print(_output, "| {:<{}}", head_text, name_column_length());
+        // the header cells
+        for (auto& c : text_columns) {
+            // middle delimeter
+            fmt::print(_output, " | ");
+            // right align the text in result cells
+            c.print_header(_output, body_text);
+        }
+        // end delimeter
+        fmt::print(_output, " |\n");
+    }
+
 public:
     explicit markdown_printer(const std::string& filename) {
         if (filename == "-") {
@@ -375,9 +390,10 @@ public:
     }
 
     void print_configuration(const config&) override {
-        // print the header row, then the divider row of all -
-        print_text_header(_output, text_columns, name_column_length(), "| ", " | ", " |", "test");
-        print_text_header(_output, text_columns, name_column_length(), "| ", " | ", " |", "test", "-");
+        // print the header row
+        print_header_row("test", nullptr);
+        // then the divider row of all -
+        print_header_row("-", "-:");
     }
 
     void print_result(const result& r) override {
