@@ -414,7 +414,7 @@ bool server::is_handler_registered(std::string const& name) {
     return _handlers.find(name) != _handlers.end();
 }
 
-void server::register_handler(std::string&& name, handler_t handler) {
+void server::register_handler(const std::string& name, handler_t handler) {
     _handlers[name] = handler;
 }
 

@@ -324,7 +324,7 @@ public:
 
     bool is_handler_registered(std::string const& name);
 
-    void register_handler(std::string&& name, handler_t handler);
+    void register_handler(const std::string& name, handler_t handler);
 
     friend class connection;
 protected:
