@@ -4895,19 +4895,17 @@ deallocate_scheduling_group_id(unsigned id) noexcept {
     s_used_scheduling_group_ids_bitmap.fetch_and(~(1ul << id), std::memory_order_relaxed);
 }
 
-void
-reactor::allocate_scheduling_group_specific_data(scheduling_group sg, unsigned long key_id) {
-    auto& sg_data = _scheduling_group_specific_data;
-    auto& this_sg = sg_data.per_scheduling_group_data[sg._id];
-    const auto& cfg = sg_data.scheduling_group_key_configs[key_id];
-    this_sg.specific_vals.resize(std::max<size_t>(this_sg.specific_vals.size(), key_id+1));
-    this_sg.specific_vals[key_id] = aligned_alloc(cfg.alignment, cfg.allocation_size);
-    if (!this_sg.specific_vals[key_id]) {
+static
+void*
+allocate_scheduling_group_specific_data(scheduling_group sg, unsigned long key_id, const scheduling_group_key_config& cfg) {
+    void* val = aligned_alloc(cfg.alignment, cfg.allocation_size);
+    if (!val) {
         std::abort();
     }
     if (cfg.constructor) {
-        cfg.constructor(this_sg.specific_vals[key_id]);
+        cfg.constructor(val);
     }
+    return val;
 }
 
 future<>
@@ -4936,7 +4934,10 @@ reactor::init_scheduling_group(seastar::scheduling_group sg, sstring name, sstri
 
         return with_scheduling_group(sg, [this, sg, &sg_data] () {
             for (const auto& [key_id, cfg] : sg_data.scheduling_group_key_configs) {
-                allocate_scheduling_group_specific_data(sg, key_id);
+                auto& sg_data = _scheduling_group_specific_data;
+                auto& this_sg = sg_data.per_scheduling_group_data[sg._id];
+                this_sg.specific_vals.resize(std::max<size_t>(this_sg.specific_vals.size(), key_id+1));
+                this_sg.specific_vals[key_id] = allocate_scheduling_group_specific_data(sg, key_id, cfg);
             }
         });
     });
@@ -4956,10 +4957,16 @@ reactor::init_new_scheduling_group_key(scheduling_group_key key, scheduling_grou
                     auto curr = current_scheduling_group();
                     auto cleanup = defer([curr] () noexcept { *internal::current_scheduling_group_ptr() = curr; });
                     *internal::current_scheduling_group_ptr() = sg;
-                    allocate_scheduling_group_specific_data(sg, key_id);
+                    auto& sg_data = _scheduling_group_specific_data;
+                    auto& this_sg = sg_data.per_scheduling_group_data[sg._id];
+                    this_sg.specific_vals.resize(std::max<size_t>(this_sg.specific_vals.size(), key_id+1));
+                    this_sg.specific_vals[key_id] = allocate_scheduling_group_specific_data(sg, key_id, sg_data.scheduling_group_key_configs[key_id]);
                 } else {
                     return with_scheduling_group(sg, [this, key_id, sg] () {
-                        allocate_scheduling_group_specific_data(sg, key_id);
+                        auto& sg_data = _scheduling_group_specific_data;
+                        auto& this_sg = sg_data.per_scheduling_group_data[sg._id];
+                        this_sg.specific_vals.resize(std::max<size_t>(this_sg.specific_vals.size(), key_id+1));
+                        this_sg.specific_vals[key_id] = allocate_scheduling_group_specific_data(sg, key_id, sg_data.scheduling_group_key_configs[key_id]);
                     });
                 }
             }
