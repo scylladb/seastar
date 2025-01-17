@@ -164,9 +164,6 @@ future<> connection::read_http_upgrade_request() {
     }
 
     sstring subprotocol = req->get_header("Sec-WebSocket-Protocol");
-    if (subprotocol.empty()) {
-        throw websocket::exception("Subprotocol header missing.");
-    }
 
     if (!_server.is_handler_registered(subprotocol)) {
         throw websocket::exception("Subprotocol not supported.");
@@ -187,8 +184,10 @@ future<> connection::read_http_upgrade_request() {
 
     co_await _write_buf.write(http_upgrade_reply_template);
     co_await _write_buf.write(sha1_output);
-    co_await _write_buf.write("\r\nSec-WebSocket-Protocol: ", 26);
-    co_await _write_buf.write(_subprotocol);
+    if (!_subprotocol.empty()) {
+        co_await _write_buf.write("\r\nSec-WebSocket-Protocol: ", 26);
+        co_await _write_buf.write(_subprotocol);
+    }
     co_await _write_buf.write("\r\n\r\n", 4);
     co_await _write_buf.flush();
 }
@@ -414,7 +413,7 @@ bool server::is_handler_registered(std::string const& name) {
     return _handlers.find(name) != _handlers.end();
 }
 
-void server::register_handler(std::string&& name, handler_t handler) {
+void server::register_handler(const std::string& name, handler_t handler) {
     _handlers[name] = handler;
 }
 

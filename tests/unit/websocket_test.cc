@@ -11,17 +11,30 @@
 
 using namespace seastar;
 using namespace seastar::experimental;
+using namespace std::literals::string_view_literals;
 
-SEASTAR_TEST_CASE(test_websocket_handshake) {
-    return seastar::async([] {
-        const std::string request =
-                "GET / HTTP/1.1\r\n"
-                "Upgrade: websocket\r\n"
-                "Connection: Upgrade\r\n"
-                "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
-                "Sec-WebSocket-Version: 13\r\n"
-                "Sec-WebSocket-Protocol: echo\r\n"
-                "\r\n";
+std::string build_request(std::string_view key_base64, std::string_view subprotocol) {
+    std::string subprotocol_line;
+    if (!subprotocol.empty()) {
+        subprotocol_line = fmt::format("Sec-WebSocket-Protocol: {}\r\n", subprotocol);
+    }
+
+    return fmt::format(
+        "GET / HTTP/1.1\r\n"
+        "Upgrade: websocket\r\n"
+        "Connection: Upgrade\r\n"
+        "Sec-WebSocket-Key: {}\r\n"
+        "Sec-WebSocket-Version: 13\r\n"
+        "{}"
+        "\r\n",
+        key_base64,
+        subprotocol_line);
+}
+
+future<> test_websocket_handshake_common(std::string subprotocol) {
+    return seastar::async([=] {
+        const std::string request = build_request("dGhlIHNhbXBsZSBub25jZQ==", subprotocol);
+
         loopback_connection_factory factory;
         loopback_socket_impl lsi(factory);
 
@@ -32,7 +45,7 @@ SEASTAR_TEST_CASE(test_websocket_handshake) {
         auto output = sock.output();
 
         websocket::server dummy;
-        dummy.register_handler("echo", [] (input_stream<char>& in,
+        dummy.register_handler(subprotocol, [] (input_stream<char>& in,
                         output_stream<char>& out) {
                 return repeat([&in, &out]() {
                     return in.read().then([&out](temporary_buffer<char> f) {
@@ -81,10 +94,16 @@ SEASTAR_TEST_CASE(test_websocket_handshake) {
     });
 }
 
+SEASTAR_TEST_CASE(test_websocket_handshake) {
+    return test_websocket_handshake_common("echo");
+}
 
+SEASTAR_TEST_CASE(test_websocket_handshake_no_subprotocol) {
+    return test_websocket_handshake_common("");
+}
 
-SEASTAR_TEST_CASE(test_websocket_handler_registration) {
-    return seastar::async([] {
+future<> test_websocket_handler_registration_common(std::string subprotocol) {
+    return seastar::async([=] {
         loopback_connection_factory factory;
         loopback_socket_impl lsi(factory);
 
@@ -96,7 +115,7 @@ SEASTAR_TEST_CASE(test_websocket_handler_registration) {
 
         // Setup server
         websocket::server ws;
-        ws.register_handler("echo", [] (input_stream<char>& in,
+        ws.register_handler(subprotocol, [] (input_stream<char>& in,
                         output_stream<char>& out) {
             return repeat([&in, &out]() {
                 return in.read().then([&out](temporary_buffer<char> f) {
@@ -124,17 +143,15 @@ SEASTAR_TEST_CASE(test_websocket_handler_registration) {
          });
 
         // handshake
-        const std::string request =
-                "GET / HTTP/1.1\r\n"
-                "Upgrade: websocket\r\n"
-                "Connection: Upgrade\r\n"
-                "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
-                "Sec-WebSocket-Version: 13\r\n"
-                "Sec-WebSocket-Protocol: echo\r\n"
-                "\r\n";
+        const std::string request = build_request("dGhlIHNhbXBsZSBub25jZQ==", subprotocol);
         output.write(request).get();
         output.flush().get();
-        input.read_exactly(186).get();
+
+        unsigned reply_size = 156;
+        if (!subprotocol.empty()) {
+            reply_size += ("\r\nSec-WebSocket-Protocol: "sv).size() + subprotocol.size();
+        }
+        input.read_exactly(reply_size).get();
 
         unsigned ws_frame_len = 10;
 
@@ -154,6 +171,14 @@ SEASTAR_TEST_CASE(test_websocket_handler_registration) {
         auto response_str = std::string(response.begin(), response.end());
         BOOST_REQUIRE_EQUAL(rs_frame, response_str);
     });
+}
+
+SEASTAR_TEST_CASE(test_websocket_handler_registration) {
+    return test_websocket_handler_registration_common("echo");
+}
+
+SEASTAR_TEST_CASE(test_websocket_handler_registration_no_subprotocol) {
+    return test_websocket_handler_registration_common("");
 }
 
 // Simple wrapper to help create a testable input_stream.
