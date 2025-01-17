@@ -120,7 +120,7 @@ macro (seastar_find_dependencies)
   seastar_set_dep_args (GnuTLS REQUIRED
     VERSION 3.3.26)
   seastar_set_dep_args (LibUring
-    VERSION 2.0
+    VERSION 2.2
     OPTION ${Seastar_IO_URING})
   seastar_set_dep_args (StdAtomic REQUIRED)
   seastar_set_dep_args (hwloc
