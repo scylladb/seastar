@@ -297,12 +297,14 @@ void fair_queue::queue(class_id id, fair_queue_entry& ent) noexcept {
         push_priority_class_from_idle(pc);
     }
     pc._queue.push_back(ent);
+    _queued_capacity += ent.capacity();
 }
 
 void fair_queue::notify_request_finished(fair_queue_entry::capacity_t cap) noexcept {
 }
 
 void fair_queue::notify_request_cancelled(fair_queue_entry& ent) noexcept {
+    _queued_capacity -= ent._capacity;
     ent._capacity = 0;
 }
 
@@ -375,6 +377,7 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         h._accumulated += req_cost;
         h._pure_accumulated += req_cap;
         dispatched += req_cap;
+        _queued_capacity -= req_cap;
 
         cb(req);
 

@@ -350,6 +350,8 @@ private:
     };
 
     std::optional<pending> _pending;
+    // Total capacity of all requests waiting in the queue.
+    capacity_t _queued_capacity = 0;
 
     void push_priority_class(priority_class_data& pc) noexcept;
     void push_priority_class_from_idle(priority_class_data& pc) noexcept;
