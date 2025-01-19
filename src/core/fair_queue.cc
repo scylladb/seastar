@@ -117,6 +117,10 @@ void fair_group::replenish_capacity(clock_type::time_point now) noexcept {
     _token_bucket.replenish(now);
 }
 
+void fair_group::refund_tokens(capacity_t cap) noexcept {
+    _token_bucket.refund(cap);
+}
+
 void fair_group::maybe_replenish_capacity(clock_type::time_point& local_ts) noexcept {
     auto now = clock_type::now();
     auto extra = _token_bucket.accumulated_in(now - local_ts);
@@ -223,35 +227,22 @@ void fair_queue::unplug_class(class_id cid) noexcept {
     unplug_priority_class(*_priority_classes[cid]);
 }
 
-auto fair_queue::grab_pending_capacity(const fair_queue_entry& ent) noexcept -> grab_result {
-    _group.maybe_replenish_capacity(_group_replenish);
-
-    if (_group.capacity_deficiency(_pending->head)) {
-        return grab_result::pending;
+auto fair_queue::reap_pending_capacity() noexcept -> reap_result {
+    auto result = reap_result{.ready_tokens = 0, .our_turn_has_come = true};
+    if (_pending.cap) {
+        capacity_t deficiency = _group.capacity_deficiency(_pending.head);
+        result.our_turn_has_come = deficiency <= _pending.cap;
+        if (result.our_turn_has_come) {
+            result.ready_tokens = _pending.cap - deficiency;
+            _pending.cap = deficiency;
+        }
     }
-
-    capacity_t cap = ent._capacity;
-    if (cap > _pending->cap) {
-        return grab_result::cant_preempt;
-    }
-
-    _pending.reset();
-    return grab_result::grabbed;
+    return result;
 }
 
-auto fair_queue::grab_capacity(const fair_queue_entry& ent) noexcept -> grab_result {
-    if (_pending) {
-        return grab_pending_capacity(ent);
-    }
-
-    capacity_t cap = ent._capacity;
+auto fair_queue::grab_capacity(capacity_t cap) noexcept -> void {
     capacity_t want_head = _group.grab_capacity(cap);
-    if (_group.capacity_deficiency(want_head)) {
-        _pending.emplace(want_head, cap);
-        return grab_result::pending;
-    }
-
-    return grab_result::grabbed;
+    _pending = pending{want_head, cap};
 }
 
 void fair_queue::register_priority_class(class_id id, uint32_t shares) {
@@ -309,7 +300,7 @@ void fair_queue::notify_request_cancelled(fair_queue_entry& ent) noexcept {
 }
 
 fair_queue::clock_type::time_point fair_queue::next_pending_aio() const noexcept {
-    if (_pending) {
+    if (_pending.cap) {
         /*
          * We expect the disk to release the ticket within some time,
          * but it's ... OK if it doesn't -- the pending wait still
@@ -320,7 +311,7 @@ fair_queue::clock_type::time_point fair_queue::next_pending_aio() const noexcept
          * which's sub-optimal. The expectation is that we think disk
          * works faster, than it really does.
          */
-        auto over = _group.capacity_deficiency(_pending->head);
+        auto over = _group.capacity_deficiency(_pending.head);
         auto ticks = _group.capacity_duration(over);
         return std::chrono::steady_clock::now() + std::chrono::duration_cast<std::chrono::microseconds>(ticks);
     }
@@ -328,11 +319,31 @@ fair_queue::clock_type::time_point fair_queue::next_pending_aio() const noexcept
     return std::chrono::steady_clock::time_point::max();
 }
 
+// This function is called by the shard on every poll.
+// It picks up tokens granted by the group, spends available tokens on IO dispatches,
+// and makes a reservation for more tokens, if needed.
+//
+// Reservations are done in batches of size `_group.per_tick_grab_threshold()`.
+// During contention, in an average moment in time each contending shard can be expected to
+// be holding a reservation of such size after the current head of the token bucket.
+//
+// A shard which is currently calling `dispatch_requests()` can expect a latency
+// of at most `nr_contenders * (_group.per_tick_grab_threshold() + max_request_cap)` before its next reservation is fulfilled.
+// If a shard calls `dispatch_requests()` at least once per X total tokens, it should receive bandwidth
+// of at least `_group.per_tick_grab_threshold() / (X + nr_contenders * (_group.per_tick_grab_threshold() + max_request_cap))`.
+//
+// A shard which is polling continuously should be able to grab its fair share of the disk for itself.
+//
+// Given a task quota of 500us and IO latency goal of 750 us,
+// a CPU-starved shard should still be able to grab at least ~30% of its fair share in the worst case.
+// This is far from ideal, but it's something.
 void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
-    capacity_t dispatched = 0;
-    boost::container::small_vector<priority_class_ptr, 2> preempt;
+    _group.maybe_replenish_capacity(_group_replenish);
 
-    while (!_handles.empty() && (dispatched < _group.per_tick_grab_threshold())) {
+    const uint64_t max_unamortized_reservation = _group.per_tick_grab_threshold();
+    auto available = reap_pending_capacity();
+
+    while (!_handles.empty()) {
         priority_class_data& h = *_handles.top();
         if (h._queue.empty() || !h._plugged) {
             pop_priority_class(h);
@@ -340,16 +351,50 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         }
 
         auto& req = h._queue.front();
-        auto gr = grab_capacity(req);
-        if (gr == grab_result::pending) {
+        if (req._capacity <= available.ready_tokens) {
+            // We can dispatch the request immediately.
+            // We do that after the if-else.
+        } else if (req._capacity <= available.ready_tokens + _pending.cap || _pending.cap >= max_unamortized_reservation) {
+            // We can't dispatch the request yet, but we already have a pending reservation
+            // which will provide us with enough tokens for it eventually,
+            // or our reservation is already max-size and we can't reserve more tokens until we reap some.
+            // So we should just wait.
+            // We return any immediately-available tokens back to `_pending`
+            // and we bail. The next `dispatch_request` will again take those tokens
+            // (possibly joined by some newly-granted tokens) and retry.
+            _pending.cap += available.ready_tokens;
+            available.ready_tokens = 0;
+            break;
+        } else if (available.our_turn_has_come) {
+            // The current reservation isn't enough to fulfill the next request,
+            // and we can cancel it (because `our_turn_has_come == true`) and make a bigger one
+            // (because `_pending.cap < can_grab_this_tick`).
+            // So we cancel it and do a bigger one.
+
+            // We do token recycling here: we return the tokens which we have available, and the tokens we have reserved
+            // immediately after the group head, and we return them to the bucket, immediately grabbing the same amount from the tail.
+            // This is neutral to fairness. The bandwidth we consume is still influenced only by the
+            // `max_unarmortized_reservation` portions.
+            auto recycled = available.ready_tokens + _pending.cap;
+            capacity_t grab_amount = std::min<capacity_t>(recycled + max_unamortized_reservation, _queued_capacity);
+            // There's technically nothing wrong with grabbing more than `_group.maximum_capacity()`,
+            // but the token bucket has an assert for that, and its a reasonable expectation, so let's respect that limit.
+            // It shouldn't matter in practice.
+            grab_amount = std::min<capacity_t>(grab_amount, _group.maximum_capacity());
+            _group.refund_tokens(recycled);
+            grab_capacity(grab_amount);
+            available = reap_pending_capacity();
+            continue;
+        } else {
+            // We can already see that our current reservation is going to be insufficient
+            // for the highest-priority request as of now. But since group head didn't touch
+            // it yet, there's no good way to cancel it, so we have no choice but to wait
+            // until the touch time.
+            assert(available.ready_tokens == 0);
             break;
         }
 
-        if (gr == grab_result::cant_preempt) {
-            pop_priority_class(h);
-            preempt.emplace_back(&h);
-            continue;
-        }
+        available.ready_tokens -= req._capacity;
 
         _last_accumulated = std::max(h._accumulated, _last_accumulated);
         pop_priority_class(h);
@@ -376,7 +421,6 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         }
         h._accumulated += req_cost;
         h._pure_accumulated += req_cap;
-        dispatched += req_cap;
         _queued_capacity -= req_cap;
 
         cb(req);
@@ -386,9 +430,15 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         }
     }
 
-    for (auto&& h : preempt) {
-        push_priority_class(*h);
-    }
+    assert(_handles.empty() || available.ready_tokens == 0);
+
+    // Note: if IO cancellation happens, it's possible that we are still holding some tokens in `ready` here.
+    //
+    // We could refund them to the bucket, but permanently refunding tokens (as opposed to only
+    // "rotating" the bucket like the earlier refund() calls in this function do) is theoretically
+    // unpleasant (it can bloat the bucket beyond its size limit, and its hard to write a correct
+    // countermeasure for that), so we just discard the tokens. There's no harm in it, IO cancellation
+    // can't have resource-saving guarantees anyway.
 }
 
 std::vector<seastar::metrics::impl::metric_definition_impl> fair_queue::metrics(class_id c) {
