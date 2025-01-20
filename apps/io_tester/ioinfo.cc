@@ -78,7 +78,6 @@ int main(int ac, char** av) {
                             out << YAML::EndMap;
 
                             const auto& fg = internal::get_fair_group(ioq, internal::io_direction_and_length::write_idx);
-                            out << YAML::Key << "per_tick_grab_threshold" << YAML::Value << fg.per_tick_grab_threshold();
 
                             const auto& tb = fg.token_bucket();
                             out << YAML::Key << "token_bucket" << YAML::BeginMap;

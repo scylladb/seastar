@@ -26,6 +26,7 @@
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/circular_buffer.hh>
 #include <seastar/core/metrics_registration.hh>
+#include <seastar/core/lowres_clock.hh>
 #include <seastar/util/shared_token_bucket.hh>
 
 #include <chrono>
@@ -108,6 +109,7 @@ public:
     // a 'normalized' form -- converted from floating-point to fixed-point number
     // and scaled accrding to fair-group's token-bucket duration
     using capacity_t = uint64_t;
+    using signed_capacity_t = std::make_signed_t<capacity_t>;
     friend class fair_queue;
 
 private:
@@ -138,6 +140,7 @@ public:
 class fair_group {
 public:
     using capacity_t = fair_queue_entry::capacity_t;
+    using signed_capacity_t = fair_queue_entry::signed_capacity_t;
     using clock_type = std::chrono::steady_clock;
 
     /*
@@ -189,7 +192,7 @@ public:
      * time period for which the speeds from F (in above formula) are taken.
      */
 
-    static constexpr float fixed_point_factor = float(1 << 24);
+    static constexpr float fixed_point_factor = float(1 << 21);
     using rate_resolution = std::milli;
     using token_bucket_t = internal::shared_token_bucket<capacity_t, rate_resolution, internal::capped_release::no>;
 
@@ -215,9 +218,20 @@ private:
      */
 
     token_bucket_t _token_bucket;
-    const capacity_t _per_tick_threshold;
+
+    // Capacities accumulated by queues in this group. Each queue tries not
+    // to run too far ahead of the others, if it does -- it skips dispatch
+    // loop until next tick in the hope that other shards would grab the
+    // unused disk capacity and will move their counters forward.
+    std::vector<capacity_t> _balance;
 
 public:
+
+    // Maximum value the _balance entry can get
+    // It's also set when a queue goes idle and doesn't need to participate
+    // in accumulated races. This value is still suitable for comparisons
+    // of "active" queues
+    static constexpr capacity_t max_balance = std::numeric_limits<signed_capacity_t>::max();
 
     // Convert internal capacity value back into the real token
     static double capacity_tokens(capacity_t cap) noexcept {
@@ -251,7 +265,6 @@ public:
     fair_group(fair_group&&) = delete;
 
     capacity_t maximum_capacity() const noexcept { return _token_bucket.limit(); }
-    capacity_t per_tick_grab_threshold() const noexcept { return _per_tick_threshold; }
     capacity_t grab_capacity(capacity_t cap) noexcept;
     clock_type::time_point replenished_ts() const noexcept { return _token_bucket.replenished_ts(); }
     void replenish_capacity(clock_type::time_point now) noexcept;
@@ -265,6 +278,10 @@ public:
     }
 
     const token_bucket_t& token_bucket() const noexcept { return _token_bucket; }
+
+    capacity_t current_balance() const noexcept;
+    void update_balance(capacity_t) noexcept;
+    void reset_balance() noexcept;
 };
 
 /// \brief Fair queuing class
@@ -300,7 +317,7 @@ public:
     using class_id = unsigned int;
     class priority_class_data;
     using capacity_t = fair_group::capacity_t;
-    using signed_capacity_t = std::make_signed_t<capacity_t>;
+    using signed_capacity_t = fair_queue_entry::signed_capacity_t;
 
 private:
     using clock_type = std::chrono::steady_clock;
@@ -330,6 +347,23 @@ private:
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
     size_t _nr_classes = 0;
     capacity_t _last_accumulated = 0;
+    capacity_t _total_accumulated = 0;
+
+    // Amortize balance checking by assuming that once balance achieved,
+    // it would remain such for the "quiscent" duration. Increase this
+    // duration every time the assumption keeps true, but not more than
+    // tau. When the balance is lost, reset back to frequent checks.
+    static constexpr auto minimal_quiscent_duration = std::chrono::microseconds(100);
+    std::chrono::microseconds _balance_quiscent_duration = minimal_quiscent_duration;
+    timer<lowres_clock> _balance_timer;
+    // Maximum capacity that a queue can stay behind other shards
+    //
+    // This is similar to priority classes fall-back deviation and it's
+    // calculated as the number of capacity points a group with 1 share
+    // accumulates over tau
+    //
+    // Check max_deviation math in push_priority_class_from_idle())
+    const capacity_t _max_imbalance;
 
     /*
      * When the shared capacity os over the local queue delays
@@ -360,6 +394,8 @@ private:
     enum class grab_result { grabbed, cant_preempt, pending };
     grab_result grab_capacity(const fair_queue_entry& ent) noexcept;
     grab_result grab_pending_capacity(const fair_queue_entry& ent) noexcept;
+
+    bool balanced() noexcept;
 public:
     /// Constructs a fair queue with configuration parameters \c cfg.
     ///

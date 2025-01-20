@@ -42,6 +42,8 @@ module seastar;
 
 namespace seastar {
 
+logger fq_log("fair_queue");
+
 static_assert(sizeof(fair_queue_ticket) == sizeof(uint64_t), "unexpected fair_queue_ticket size");
 static_assert(sizeof(fair_queue_entry) <= 3 * sizeof(void*), "unexpected fair_queue_entry::_hook size");
 static_assert(sizeof(fair_queue_entry::container_list_t) == 2 * sizeof(void*), "unexpected priority_class::_queue size");
@@ -101,7 +103,7 @@ fair_group::fair_group(config cfg, unsigned nr_queues)
                         std::max<capacity_t>(fixed_point_factor * token_bucket_t::rate_cast(cfg.rate_limit_duration).count(), tokens_capacity(cfg.limit_min_tokens)),
                         tokens_capacity(cfg.min_tokens)
                        )
-        , _per_tick_threshold(_token_bucket.limit() / nr_queues)
+        , _balance(smp::count, max_balance)
 {
     if (tokens_capacity(cfg.min_tokens) > _token_bucket.threshold()) {
         throw std::runtime_error("Fair-group replenisher limit is lower than threshold");
@@ -129,6 +131,21 @@ void fair_group::maybe_replenish_capacity(clock_type::time_point& local_ts) noex
 
 auto fair_group::capacity_deficiency(capacity_t from) const noexcept -> capacity_t {
     return _token_bucket.deficiency(from);
+}
+
+auto fair_group::current_balance() const noexcept -> capacity_t {
+    return *std::min_element(_balance.begin(), _balance.end());
+}
+
+void fair_group::update_balance(capacity_t acc) noexcept {
+    _balance[this_shard_id()] = acc;
+}
+
+void fair_group::reset_balance() noexcept {
+    // Request cost can be up to half a million. Given 100K iops disk and a
+    // class with 1 share, the 64-bit accumulating counter would overflows
+    // once in few years.
+    on_internal_error_noexcept(fq_log, "cannot reset group balance");
 }
 
 // Priority class, to be used with a given fair_queue
@@ -160,7 +177,15 @@ fair_queue::fair_queue(fair_group& group, config cfg)
     : _config(std::move(cfg))
     , _group(group)
     , _group_replenish(clock_type::now())
+    , _balance_timer([this] {
+        auto new_qd = _balance_quiscent_duration * 2;
+        _balance_quiscent_duration = std::min(new_qd, _config.tau);
+    })
+    , _max_imbalance(fair_group::fixed_point_factor * fair_group::token_bucket_t::rate_cast(_config.tau).count())
 {
+    if (fair_group::max_balance > std::numeric_limits<capacity_t>::max() - _max_imbalance) {
+        throw std::runtime_error("Too large tau parameter");
+    }
 }
 
 fair_queue::~fair_queue() {
@@ -189,6 +214,12 @@ void fair_queue::push_priority_class_from_idle(priority_class_data& pc) noexcept
         // over signed maximum (see overflow check below)
         pc._accumulated = std::max<signed_capacity_t>(_last_accumulated - max_deviation, pc._accumulated);
         _handles.assert_enough_capacity();
+        if (_handles.empty()) {
+            capacity_t balance = _group.current_balance();
+            if (balance != fair_group::max_balance) {
+                _total_accumulated = std::max<signed_capacity_t>(balance - _max_imbalance, _total_accumulated);
+            }
+        }
         _handles.push(&pc);
         pc._queued = true;
         pc._activations++;
@@ -326,11 +357,29 @@ fair_queue::clock_type::time_point fair_queue::next_pending_aio() const noexcept
     return std::chrono::steady_clock::time_point::max();
 }
 
+bool fair_queue::balanced() noexcept {
+    if (_balance_timer.armed()) {
+        return true;
+    }
+
+    capacity_t balance = _group.current_balance();
+    if (_total_accumulated > balance + _max_imbalance) {
+        _balance_quiscent_duration = minimal_quiscent_duration;
+        return false;
+    }
+
+    _balance_timer.arm(_balance_quiscent_duration);
+    return true;
+}
+
 void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
-    capacity_t dispatched = 0;
     boost::container::small_vector<priority_class_ptr, 2> preempt;
 
-    while (!_handles.empty() && (dispatched < _group.per_tick_grab_threshold())) {
+    if (!balanced()) {
+        return;
+    }
+
+    while (!_handles.empty()) {
         priority_class_data& h = *_handles.top();
         if (h._queue.empty() || !h._plugged) {
             pop_priority_class(h);
@@ -358,7 +407,7 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         // has chances to be translated into zero cost which, in turn, will make the
         // class show no progress and monopolize the queue.
         auto req_cap = req._capacity;
-        auto req_cost  = std::max(req_cap / h._shares, (capacity_t)1);
+        auto req_cost  = std::max((req_cap + h._shares - 1) / h._shares, (capacity_t)1);
         // signed overflow check to make push_priority_class_from_idle math work
         if (h._accumulated >= std::numeric_limits<signed_capacity_t>::max() - req_cost) {
             for (auto& pc : _priority_classes) {
@@ -372,9 +421,9 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
             }
             _last_accumulated = 0;
         }
+        _total_accumulated += req_cost;
         h._accumulated += req_cost;
         h._pure_accumulated += req_cap;
-        dispatched += req_cap;
 
         cb(req);
 
@@ -386,6 +435,13 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
     for (auto&& h : preempt) {
         push_priority_class(*h);
     }
+
+    if (_total_accumulated >= fair_group::max_balance) [[unlikely]] {
+        _group.reset_balance();
+        _total_accumulated = 0;
+        _balance_quiscent_duration = minimal_quiscent_duration;
+    }
+    _group.update_balance(_handles.empty() ? fair_group::max_balance : _total_accumulated);
 }
 
 std::vector<seastar::metrics::impl::metric_definition_impl> fair_queue::metrics(class_id c) {
