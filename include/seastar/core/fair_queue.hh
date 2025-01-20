@@ -39,6 +39,10 @@ namespace bi = boost::intrusive;
 
 namespace seastar {
 
+namespace internal {
+class tracer;
+}
+
 /// \brief describes a request that passes through the \ref fair_queue.
 ///
 /// A ticket is specified by a \c weight and a \c size. For example, one can specify a request of \c weight
@@ -350,6 +354,7 @@ private:
     };
 
     std::optional<pending> _pending;
+    internal::tracer& _tracer;
 
     void push_priority_class(priority_class_data& pc) noexcept;
     void push_priority_class_from_idle(priority_class_data& pc) noexcept;
@@ -364,7 +369,7 @@ public:
     /// Constructs a fair queue with configuration parameters \c cfg.
     ///
     /// \param cfg an instance of the class \ref config
-    explicit fair_queue(fair_group& shared, config cfg);
+    explicit fair_queue(fair_group& shared, internal::tracer&, config cfg);
     fair_queue(fair_queue&&) = delete;
     ~fair_queue();
 

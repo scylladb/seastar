@@ -48,6 +48,7 @@ module seastar;
 #include <seastar/core/internal/io_sink.hh>
 #include <seastar/core/io_priority_class.hh>
 #include <seastar/util/log.hh>
+#include <seastar/core/internal/io_trace.hh>
 #endif
 
 namespace seastar {
@@ -231,6 +232,7 @@ public:
         , _iovs(std::move(iovs))
     {
         io_log.trace("dev {} : req {} queue  len {} capacity {}", _ioq.dev_id(), fmt::ptr(this), _dnl.length(), _fq_capacity);
+        _ioq.trace<internal::trace_event::IO_QUEUE>(*this, _pclass.fq_class(), _dnl.rw_idx(), _dnl.length() >> io_queue::block_size_shift);
     }
 
     virtual void set_exception(std::exception_ptr eptr) noexcept override {
@@ -243,6 +245,7 @@ public:
 
     virtual void complete(size_t res) noexcept override {
         io_log.trace("dev {} : req {} complete", _ioq.dev_id(), fmt::ptr(this));
+        _ioq.trace<internal::trace_event::IO_COMPLETE>(*this);
         auto now = io_queue::clock_type::now();
         auto delay = std::chrono::duration_cast<std::chrono::duration<double>>(now - _ts);
         _pclass.on_complete(delay);
@@ -259,6 +262,7 @@ public:
 
     void dispatch() noexcept {
         io_log.trace("dev {} : req {} submit", _ioq.dev_id(), fmt::ptr(this));
+        _ioq.trace<internal::trace_event::IO_DISPATCH>(*this);
         auto now = io_queue::clock_type::now();
         _pclass.on_dispatch(_dnl, std::chrono::duration_cast<std::chrono::duration<double>>(now - _ts));
         _ts = now;
@@ -579,11 +583,11 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     auto& cfg = get_config();
     if (cfg.duplex) {
         static_assert(internal::io_direction_and_length::write_idx == 0);
-        _streams.emplace_back(_group->_fgs[0], make_fair_queue_config(cfg, "write"));
+        _streams.emplace_back(_group->_fgs[0], _tracer, make_fair_queue_config(cfg, "write"));
         static_assert(internal::io_direction_and_length::read_idx == 1);
-        _streams.emplace_back(_group->_fgs[1], make_fair_queue_config(cfg, "read"));
+        _streams.emplace_back(_group->_fgs[1], _tracer, make_fair_queue_config(cfg, "read"));
     } else {
-        _streams.emplace_back(_group->_fgs[0], make_fair_queue_config(cfg, "rw"));
+        _streams.emplace_back(_group->_fgs[0], _tracer, make_fair_queue_config(cfg, "rw"));
     }
     _averaging_decay_timer.arm_periodic(std::chrono::duration_cast<std::chrono::milliseconds>(_group->io_latency_goal() * cfg.averaging_decay_ticks));
 
@@ -1028,6 +1032,21 @@ void io_queue::unthrottle_priority_class(const priority_class_data& pc) noexcept
     for (auto&& s : _streams) {
         s.plug_class(pc.fq_class());
     }
+}
+
+future<> io_queue::start_tracing(std::chrono::seconds timeout, size_t max_size) {
+    auto f = co_await open_file_dma(format("trace.{}.bin", this_shard_id()), open_flags::wo | open_flags::create | open_flags::exclusive);
+    seastar_logger.info("Started IO-tracing for {}s (max size {})", timeout.count(), max_size);
+    _tracer.enable(timeout, max_size, std::move(f), [] (char* buf) {
+        std::string o;
+        for (int i = 0; i < (int)internal::scheduling_group_count(); i++) {
+            auto sg = internal::scheduling_group_from_index(i);
+            o += format("{}:{},", i, sg.short_name());
+        }
+        auto len = o.size() - 1; // trim trailing comma
+        std::strncpy(buf, o.c_str(), len);
+        return len;
+    });
 }
 
 } // seastar namespace
