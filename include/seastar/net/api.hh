@@ -444,6 +444,19 @@ public:
     bool supports_ipv6() const;
 };
 
+struct statistics {
+    uint64_t bytes_sent = 0;
+    uint64_t bytes_received = 0;
+};
+
+namespace metrics {
+class metric_groups;
+class label_instance;
+}
+
+void register_net_metrics_for_scheduling_group(
+    metrics::metric_groups& m, unsigned sg_id, const metrics::label_instance& name);
+
 class network_stack {
 public:
     virtual ~network_stack() {}
@@ -467,6 +480,11 @@ public:
     virtual bool supports_ipv6() const {
         return false;
     }
+
+    // Return network stats (bytes sent/received etc.) for this stack and scheduling group
+    virtual statistics stats(unsigned scheduling_group_id) = 0;
+    // Clears the stats for this stack and scheduling group
+    virtual void clear_stats(unsigned scheduling_group_id) = 0;
 
     /**
      * Returns available network interfaces. This represents a
