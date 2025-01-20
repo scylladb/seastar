@@ -115,7 +115,7 @@ private:
     bi::slist_member_hook<> _hook;
 
 public:
-    fair_queue_entry(capacity_t c) noexcept
+    explicit fair_queue_entry(capacity_t c) noexcept
         : _capacity(c) {}
     using container_list_t = bi::slist<fair_queue_entry,
             bi::constant_time_size<false>,
