@@ -960,6 +960,9 @@ reactor::task_queue::register_stats() {
         }, sm::description("Total amount in milliseconds we were in violation of the task quota"),
            {group_label}),
     });
+
+    register_net_metrics_for_scheduling_group(new_metrics, _id, group_label);
+
     _metrics = std::exchange(new_metrics, {});
 }
 
@@ -2549,7 +2552,6 @@ void reactor::register_metrics() {
             sm::make_counter("abandoned_failed_futures", _abandoned_failed_futures, sm::description("Total number of abandoned failed futures, futures destroyed while still containing an exception")),
     });
 
-    namespace sm = seastar::metrics;
     _metric_groups.add_group("reactor", {
         sm::make_counter("fstream_reads", _io_stats.fstream_reads,
                 sm::description(

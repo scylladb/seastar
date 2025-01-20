@@ -31,6 +31,8 @@ module;
 #ifdef SEASTAR_MODULE
 module seastar;
 #else
+#include <seastar/core/metrics_api.hh>
+#include <seastar/core/reactor.hh>
 #include <seastar/net/stack.hh>
 #include <seastar/net/inet_address.hh>
 #endif
@@ -284,6 +286,23 @@ network_stack::connect(socket_address sa, socket_address local, transport proto)
 
 std::vector<network_interface> network_stack::network_interfaces() {
     return {};
+}
+
+void register_net_metrics_for_scheduling_group(
+    metrics::metric_groups &metrics, unsigned sg_id, const metrics::label_instance& name) {
+    namespace sm = seastar::metrics;
+    metrics.add_group("network", {
+        sm::make_counter("bytes_sent", [sg_id] { return engine().net().stats(sg_id).bytes_sent; },
+                sm::description("Counts the number of bytes written to network sockets."), {name}),
+        sm::make_counter("bytes_received", [sg_id] { return engine().net().stats(sg_id).bytes_received; },
+                sm::description("Counts the number of bytes received from network sockets."), {name}),
+    });
+
+    // need to clear stats in case we recreated a SG with the same id
+    // but avoid during reactor startup
+    if (engine_is_ready()) {
+        engine().net().clear_stats(sg_id);
+    }
 }
 
 }

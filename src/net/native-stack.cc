@@ -195,6 +195,18 @@ public:
     friend class native_network_interface;
 
     std::vector<network_interface> network_interfaces() override;
+
+    virtual statistics stats(unsigned scheduling_group_id) override {
+        return statistics{
+            internal::native_stack_net_stats::bytes_sent[scheduling_group_id],
+            internal::native_stack_net_stats::bytes_received[scheduling_group_id],
+        };
+    }
+
+    virtual void clear_stats(unsigned scheduling_group_id) override {
+        internal::native_stack_net_stats::bytes_sent[scheduling_group_id] = 0;
+        internal::native_stack_net_stats::bytes_received[scheduling_group_id] = 0;
+    }
 };
 
 thread_local promise<std::unique_ptr<network_stack>> native_network_stack::ready_promise;
@@ -428,6 +440,6 @@ std::vector<network_interface> native_network_stack::network_interfaces() {
     return res;
 }
 
-}
+} // namespace net
 
 }
