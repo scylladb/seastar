@@ -29,6 +29,8 @@ module;
 #include <fmt/format.h>
 module seastar;
 #else
+#include <boost/type.hpp>
+
 #include "core/program_options.hh"
 
 #include <seastar/util/log-cli.hh>
