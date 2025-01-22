@@ -639,10 +639,11 @@ io_group::io_group(io_queue::config io_cfg, unsigned nr_queues)
      */
     auto update_max_size = [this] (unsigned idx) {
         auto g_idx = _config.duplex ? idx : 0;
-        auto max_cap = _fgs[g_idx].maximum_capacity();
+        const auto& fg = _fgs[g_idx];
+        auto max_cap = fg.maximum_capacity();
         for (unsigned shift = 0; ; shift++) {
             auto tokens = internal::request_tokens(io_direction_and_length(idx, 1 << (shift + io_queue::block_size_shift)), _config);
-            auto cap = _fgs[g_idx].tokens_capacity(tokens);
+            auto cap = fg.tokens_capacity(tokens);
             if (cap > max_cap) {
                 if (shift == 0) {
                     throw std::runtime_error("IO-group limits are too low");
