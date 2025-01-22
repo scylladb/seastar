@@ -305,9 +305,6 @@ SEASTAR_THREAD_TEST_CASE(sg_rename_callback) {
     };
 
     scheduling_group_key_config key_conf = make_scheduling_group_key_config<value>();
-    key_conf.rename = [] (void* ptr) {
-        reinterpret_cast<value*>(ptr)->rename();
-    };
 
     std::vector<scheduling_group_key> keys;
     for (size_t i = 0; i < 3; ++i) {
