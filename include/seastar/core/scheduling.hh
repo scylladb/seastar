@@ -238,6 +238,9 @@ SEASTAR_MODULE_EXPORT_BEGIN
  * This configuration is used by the infrastructure to allocate memory for the values
  * and initialize or deinitialize them when they are created or destroyed.
  *
+ * If the type T has a member function T::rename()
+ * then it will be called after the scheduling group is renamed.
+ *
  * @tparam T - the type for the newly created value.
  * @tparam ...ConstructorArgs - the types for the constructor parameters (should be deduced)
  * @param args - The parameters for the constructor.
@@ -255,6 +258,11 @@ make_scheduling_group_key_config(ConstructorArgs... args) {
     sgkc.destructor = [] (void* p) {
         static_cast<T*>(p)->~T();
     };
+    if constexpr (requires(T key) { key.rename(); }) {
+        sgkc.rename = [] (void* p) {
+            static_cast<T*>(p)->rename();
+        };
+    }
     return sgkc;
 }
 
