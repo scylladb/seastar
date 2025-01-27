@@ -254,6 +254,7 @@ public:
     capacity_t per_tick_grab_threshold() const noexcept { return _per_tick_threshold; }
     capacity_t grab_capacity(capacity_t cap) noexcept;
     clock_type::time_point replenished_ts() const noexcept { return _token_bucket.replenished_ts(); }
+    void refund_tokens(capacity_t) noexcept;
     void replenish_capacity(clock_type::time_point now) noexcept;
     void maybe_replenish_capacity(clock_type::time_point& local_ts) noexcept;
 
@@ -331,25 +332,27 @@ private:
     size_t _nr_classes = 0;
     capacity_t _last_accumulated = 0;
 
-    /*
-     * When the shared capacity os over the local queue delays
-     * further dispatching untill better times
-     *
-     * \head  -- the value group head rover is expected to cross
-     * \cap   -- the capacity that's accounted on the group
-     *
-     * The last field is needed to "rearm" the wait in case
-     * queue decides that it wants to dispatch another capacity
-     * in the middle of the waiting
-     */
+    // _pending represents a reservation of tokens from the bucket.
+    //
+    // In the "dispatch timeline" defined by the growing bucket head of the group,
+    // tokens in the range [_pending.head - cap, _pending.head) belong
+    // to this queue.
+    //
+    // For example, if:
+    //    _group._token_bucket.head == 300
+    //    _pending.head == 700
+    //    _pending.cap == 500
+    // then the reservation is [200, 700), 100 tokens are ready to be dispatched by this queue,
+    // and another 400 tokens are going to be appear soon. (And after that, this queue
+    // will be able to make its next reservation).
     struct pending {
-        capacity_t head;
-        capacity_t cap;
-
-        pending(capacity_t t, capacity_t c) noexcept : head(t), cap(c) {}
+        capacity_t head = 0;
+        capacity_t cap = 0;
     };
+    pending _pending;
 
-    std::optional<pending> _pending;
+    // Total capacity of all requests waiting in the queue.
+    capacity_t _queued_capacity = 0;
 
     void push_priority_class(priority_class_data& pc) noexcept;
     void push_priority_class_from_idle(priority_class_data& pc) noexcept;
@@ -357,9 +360,20 @@ private:
     void plug_priority_class(priority_class_data& pc) noexcept;
     void unplug_priority_class(priority_class_data& pc) noexcept;
 
-    enum class grab_result { grabbed, cant_preempt, pending };
-    grab_result grab_capacity(const fair_queue_entry& ent) noexcept;
-    grab_result grab_pending_capacity(const fair_queue_entry& ent) noexcept;
+    // Replaces _pending with a new reservation starting at the current
+    // group bucket tail.
+    void grab_capacity(capacity_t cap) noexcept;
+    // Shaves off the fulfilled frontal part from `_pending` (if any),
+    // and returns the fulfilled tokens in `ready_tokens`.
+    // Sets `our_turn_has_come` to the truth value of "`_pending` is empty or
+    // there are no unfulfilled reservations (from other shards) earlier than `_pending`".
+    //
+    // Assumes that `_group.maybe_replenish_capacity()` was called recently.
+    struct reap_result {
+        capacity_t ready_tokens;
+        bool our_turn_has_come;
+    };
+    reap_result reap_pending_capacity() noexcept;
 public:
     /// Constructs a fair queue with configuration parameters \c cfg.
     ///
