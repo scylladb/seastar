@@ -322,6 +322,14 @@ private:
     std::atomic<bool> _dying{false};
     gate _background_gate;
 
+    inline auto& get_sg_data(const scheduling_group& sg) {
+        return _scheduling_group_specific_data.per_scheduling_group_data[sg._id];
+    }
+
+    inline auto& get_sg_data(unsigned sg_id) {
+        return _scheduling_group_specific_data.per_scheduling_group_data[sg_id];
+    }
+
 private:
     static std::chrono::nanoseconds calculate_poll_time();
     static void block_notifier(int);
@@ -393,7 +401,6 @@ private:
     task_queue* pop_active_task_queue(sched_clock::time_point now);
     void insert_activating_task_queues();
     void account_runtime(task_queue& tq, sched_clock::duration runtime);
-    void allocate_scheduling_group_specific_data(scheduling_group sg, unsigned long key_id);
     future<> rename_scheduling_group_specific_data(scheduling_group sg);
     future<> init_scheduling_group(scheduling_group sg, sstring name, sstring shortname, float shares);
     future<> init_new_scheduling_group_key(scheduling_group_key key, scheduling_group_key_config cfg);
