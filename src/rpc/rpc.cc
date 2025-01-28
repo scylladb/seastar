@@ -1022,8 +1022,10 @@ namespace rpc {
                   }
               }
           }
+          if (is_stream() && (ep || _error)) {
+              _stream_queue.abort(std::make_exception_ptr(stream_closed()));
+          }
           _error = true;
-          _stream_queue.abort(std::make_exception_ptr(stream_closed()));
           return stop_send_loop(ep).then_wrapped([this] (future<> f) {
               f.ignore_ready_future();
               _outstanding.clear();
@@ -1244,8 +1246,10 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
                       format("server{} connection dropped", is_stream() ? " stream" : "").c_str(), ep);
           }
           _fd.shutdown_input();
+          if (is_stream() && (ep || _error)) {
+              _stream_queue.abort(std::make_exception_ptr(stream_closed()));
+          }
           _error = true;
-          _stream_queue.abort(std::make_exception_ptr(stream_closed()));
           return stop_send_loop(ep).then_wrapped([this] (future<> f) {
               f.ignore_ready_future();
               get_server()._conns.erase(get_connection_id());
