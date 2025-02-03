@@ -57,6 +57,18 @@ template <typename T, typename Ret, typename... Args>
 struct function_traits<Ret(T::*)(Args...) const> : public function_traits<Ret(Args...)>
 {};
 
+template<typename Ret, typename... Args>
+struct function_traits<Ret(*)(Args...) noexcept> : public function_traits<Ret(Args...)>
+{};
+
+template <typename T, typename Ret, typename... Args>
+struct function_traits<Ret(T::*)(Args...) noexcept> : public function_traits<Ret(Args...)>
+{};
+
+template <typename T, typename Ret, typename... Args>
+struct function_traits<Ret(T::*)(Args...) const noexcept> : public function_traits<Ret(Args...)>
+{};
+
 template <typename T>
 struct function_traits : public function_traits<decltype(&T::operator())>
 {};
