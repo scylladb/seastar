@@ -70,7 +70,7 @@ inline auto visit(Variant&& variant, Args&&... args)
     static_assert(sizeof...(Args) > 0, "At least one lambda must be provided for visitation");
     return std::visit(
         make_visitor(std::forward<Args>(args)...),
-        variant);
+        std::forward<Variant>(variant));
 }
 
 namespace internal {
