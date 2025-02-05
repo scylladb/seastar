@@ -29,6 +29,7 @@ module;
 #include <system_error>
 #include <memory>
 #include <chrono>
+#include <span>
 #include <unordered_set>
 
 #include <netinet/in.h>
