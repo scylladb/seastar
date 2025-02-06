@@ -20,19 +20,16 @@ Here's an example of how to register a simple echo protocol:
 ```cpp
 using namespace seastar;
 static experimental::websocket::server ws;
-ws.register_handler("echo", [] (input_stream<char>& in, output_stream<char>& out) -> future<> {
+ws.register_handler("echo", [] (data_source& in, data_sink& out) -> future<> {
     while (true) {
-        auto buf = co_await in.read();
-        if (buf.empty()) {
-            co_return;
-        }
+        auto buf = co_await in.get();
         co_await out.write(std::move(buf));
         co_await out.flush();
     }
 });
 ```
 
-Note: the developers should assume that the input stream provides decoded and unmasked data - so the stream should be treated as if it was backed by a TCP socket. Similarly, responses should be sent to the output stream as is, and the WebSocket server implementation will handle its proper serialization, masking and so on.
+Note: the developers should assume that the data source provides decoded and unmasked data. Similarly, responses should be sent to the output stream as is, and the WebSocket server implementation will handle its proper serialization, masking and so on.
 
 ## Error handling
 

@@ -44,15 +44,14 @@ int main(int argc, char** argv) {
 
         return async([port] {
             websocket::server ws;
-            ws.register_handler("echo", [] (input_stream<char>& in,
-                        output_stream<char>& out) {
+            ws.register_handler("echo", [](data_source& in, data_sink& out) {
                 return repeat([&in, &out]() {
-                    return in.read().then([&out](temporary_buffer<char> f) {
+                    return in.get().then([&out](temporary_buffer<char> f) {
                         std::cerr << "f.size(): " << f.size() << "\n";
                         if (f.empty()) {
                             return make_ready_future<stop_iteration>(stop_iteration::yes);
                         } else {
-                            return out.write(std::move(f)).then([&out]() {
+                            return out.put(std::move(f)).then([&out]() {
                                 return out.flush().then([] {
                                     return make_ready_future<stop_iteration>(stop_iteration::no);
                                 });
