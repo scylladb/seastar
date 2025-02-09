@@ -382,14 +382,14 @@ private:
         std::atomic<uint64_t> _pending_signals;
         std::unordered_map<int, signal_handler> _signal_handlers;
     };
-
     signals _signals;
     std::unique_ptr<thread_pool> _thread_pool;
+
     friend class thread_pool;
     friend class thread_context;
     friend class internal::cpu_stall_detector;
-
     friend void handle_signal(int signo, noncopyable_function<void ()>&& handler, bool once);
+    friend void barrier_memory_prefault();
 
     uint64_t pending_task_count() const;
     void run_tasks(task_queue& tq);

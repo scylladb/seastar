@@ -36,11 +36,16 @@ namespace seastar::internal {
 class memory_prefaulter {
     std::atomic<bool> _stop_request = false;
     std::vector<posix_thread> _worker_threads;
+
+    std::mutex join_mtx;
+    bool joined = false;
+    
     // Keep this in object scope to avoid allocating in worker thread
     std::unordered_map<unsigned, std::vector<memory::internal::memory_range>> _layout_by_node_id;
 public:
     explicit memory_prefaulter(const resource::resources& res, memory::internal::numa_layout layout);
     ~memory_prefaulter();
+    void join_all();
 private:
     void work(std::vector<memory::internal::memory_range>& ranges, size_t page_size, std::optional<size_t> huge_page_size_opt);
 };
