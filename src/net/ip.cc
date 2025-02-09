@@ -46,7 +46,7 @@ ipv4_address::ipv4_address(const std::string& addr) {
         throw std::runtime_error(
             fmt::format("Wrong format for IPv4 address {}. Please ensure it's in dotted-decimal format", addr));
     }
-    ip = static_cast<uint32_t>(std::move(ipv4).to_ulong());
+    ip = static_cast<uint32_t>(std::move(ipv4).to_uint());
 }
 
 ipv4::ipv4(interface* netif)
