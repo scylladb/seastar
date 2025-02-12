@@ -132,6 +132,8 @@ void increase_thrown_exceptions_counter() noexcept;
 template <typename Func>
 void at_destroy(Func&& func);
 
+void at_exit(noncopyable_function<future<> ()> func);
+
 }
 
 class io_queue;
@@ -167,6 +169,7 @@ private:
     class execution_stage_pollfn;
     template <typename Func>
     friend void internal::at_destroy(Func&&);
+    friend void internal::at_exit(noncopyable_function<future<> ()> func);
     friend class manual_clock;
     friend class file_data_source_impl; // for fstream statistics
     friend class internal::reactor_stall_sampler;
@@ -528,6 +531,17 @@ public:
         return _stop_requested.wait(timeout, [this] { return _stopping; });
     }
 
+    /// Deprecated. Use following sequence instead:
+    ///
+    /// ```
+    ///    return seastar::app_template::run([] {
+    ///         return seastar::async([] {
+    ///              // Since the function runs in a thread, it can wait for futures using
+    ///              // future::get().
+    ///              auto deferred_task = defer(/* the function you want to run at exit */);
+    ///         });
+    ///    });
+    /// ```
     void at_exit(noncopyable_function<future<> ()> func);
 
     /// Deprecated. Use following sequence instead:
