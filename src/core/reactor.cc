@@ -2426,9 +2426,17 @@ void reactor::del_timer(timer<manual_clock>* tmr) noexcept {
     _manual_timers.remove(*tmr, _expired_manual_timers);
 }
 
-void reactor::at_exit(noncopyable_function<future<> ()> func) {
+void reactor::do_at_exit(noncopyable_function<future<> ()> func) {
     SEASTAR_ASSERT(!_stopping);
     _exit_funcs.push_back(std::move(func));
+}
+
+void reactor::at_exit(noncopyable_function<future<> ()> func) {
+    do_at_exit(std::move(func));
+}
+
+void internal::at_exit(noncopyable_function<future<> ()> func) {
+    engine().do_at_exit(std::move(func));
 }
 
 future<> reactor::run_exit_tasks() {
@@ -2954,7 +2962,7 @@ void reactor::start_aio_eventfd_loop() {
         });
     });
     // must use make_lw_shared, because at_exit expects a copyable function
-    at_exit([loop_done = make_lw_shared(std::move(loop_done))] {
+    do_at_exit([loop_done = make_lw_shared(std::move(loop_done))] {
         return std::move(*loop_done);
     });
 }

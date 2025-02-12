@@ -166,7 +166,7 @@ int
 app_template::run(int ac, char ** av, std::function<future<int> ()>&& func) noexcept {
     return run_deprecated(ac, av, [func = std::move(func)] () mutable {
         auto func_done = make_lw_shared<promise<>>();
-        engine().at_exit([func_done] { return func_done->get_future(); });
+        internal::at_exit([func_done] { return func_done->get_future(); });
         // No need to wait for this future.
         // func's returned exit_code is communicated via engine().exit()
         (void)futurize_invoke(func).finally([func_done] {

@@ -1175,7 +1175,7 @@ int main(int ac, char** av) {
             }
 
             ctx.start(storage, *st_type, reqs, duration).get();
-            engine().at_exit([&ctx] {
+            internal::at_exit([&ctx] {
                 return ctx.stop();
             });
             std::cout << "Creating initial files..." << std::endl;
