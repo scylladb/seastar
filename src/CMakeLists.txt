@@ -130,10 +130,6 @@ target_link_libraries (seastar-module
     yaml-cpp::yaml-cpp
     "$<BUILD_INTERFACE:Valgrind::valgrind>"
     Threads::Threads)
-if (Seastar_NUMA)
-  target_link_libraries (seastar-module
-    PRIVATE numactl::numactl)
-endif ()
 if (Seastar_HWLOC)
   target_link_libraries (seastar-module
     PRIVATE hwloc::hwloc)
