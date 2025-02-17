@@ -82,17 +82,14 @@ public:
     function_handler(const request_function & _handle, const sstring& type)
             : _f_handle(
                     [_handle](std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) {
-                        rep->_content += _handle(*req.get());
-                        return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
+                        return append_result(std::move(rep), _handle(*req.get()));
                     }), _type(type) {
     }
 
     function_handler(const json_request_function& _handle)
             : _f_handle(
                     [_handle](std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) {
-                        json::json_return_type res = _handle(*req.get());
-                        rep->_content += res._res;
-                        return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
+                        return append_result(std::move(rep), _handle(*req.get()));
                     }), _type("json") {
     }
 
@@ -100,13 +97,7 @@ public:
             : _f_handle(
                     [_handle](std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) {
                         return _handle(std::move(req)).then([rep = std::move(rep)](json::json_return_type&& res) mutable {
-                                if (res._body_writer) {
-                                    rep->write_body("json", std::move(res._body_writer));
-                                } else {
-                                    rep->_content += res._res;
-
-                                }
-                                return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
+                            return append_result(std::move(rep), std::move(res));
                         });
                     }), _type("json") {
     }
@@ -120,6 +111,19 @@ public:
                     rep->done(_type);
                     return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
                 });
+    }
+
+private:
+    // send the json payload of result to reply, return the reply pointer
+    static future<std::unique_ptr<http::reply>> append_result(
+        std::unique_ptr<http::reply>&& reply,
+        json::json_return_type&& result) {
+        if (result._body_writer) {
+            reply->write_body("json", std::move(result._body_writer));
+        } else {
+            reply->_content += result._res;
+        }
+        return make_ready_future<std::unique_ptr<http::reply>>(std::move(reply));
     }
 
 protected:
