@@ -4610,6 +4610,10 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     }
 }
 
+void barrier_memory_prefault() {
+    engine()._smp->join_memory_prefault();
+}
+
 bool smp::poll_queues() {
     size_t got = 0;
     for (unsigned i = 0; i < count; i++) {
