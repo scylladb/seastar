@@ -24,8 +24,6 @@
 #ifndef SEASTAR_MODULE
 #include <string>
 #include <vector>
-#include <time.h>
-#include <sstream>
 #endif
 
 #include <seastar/core/do_with.hh>
