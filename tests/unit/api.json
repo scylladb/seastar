@@ -47,6 +47,18 @@
                 "VAL2",
                 "VAL3"
               ]
+            },
+            {
+              "name": "stream_enum",
+              "description": "Whether to return the response as a stream_object",
+              "required": true,
+              "allowMultiple": false,
+              "type": "string",
+              "paramType": "query",
+              "enum": [
+                "no",
+                "yes"
+              ]
             }
           ]
         }
