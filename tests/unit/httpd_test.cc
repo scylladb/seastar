@@ -26,6 +26,7 @@
 #include <seastar/core/shared_future.hh>
 #include <seastar/http/client.hh>
 #include <seastar/http/url.hh>
+#include <seastar/util/assert.hh>
 #include <seastar/util/later.hh>
 #include <seastar/util/short_streams.hh>
 #include <seastar/util/closeable.hh>
@@ -1037,7 +1038,7 @@ SEASTAR_TEST_CASE(test_client_abort_new_conn) {
     class delayed_factory : public http::experimental::connection_factory {
     public:
         virtual future<connected_socket> make(abort_source* as) override {
-            assert(as != nullptr);
+            SEASTAR_ASSERT(as != nullptr);
             return sleep_abortable(std::chrono::seconds(1), *as).then([] {
                 return make_exception_future<connected_socket>(std::runtime_error("Shouldn't happen"));
             });

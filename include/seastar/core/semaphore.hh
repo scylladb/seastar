@@ -28,9 +28,9 @@
 #include <seastar/core/abortable_fifo.hh>
 #include <seastar/core/timed_out_error.hh>
 #include <seastar/core/abort_on_expiry.hh>
+#include <seastar/util/assert.hh>
 #include <seastar/util/modules.hh>
 #ifndef SEASTAR_MODULE
-#include <cassert>
 #include <exception>
 #include <optional>
 #include <stdexcept>
@@ -208,11 +208,11 @@ private:
 
         used_flag() = default;
         used_flag(used_flag&& o) noexcept {
-            assert(!_used && "semaphore cannot be moved after it has been used");
+            SEASTAR_ASSERT(!_used && "semaphore cannot be moved after it has been used");
         }
         used_flag& operator=(used_flag&& o) noexcept {
             if (this != &o) {
-                assert(!_used && !o._used && "semaphore cannot be moved after it has been used");
+                SEASTAR_ASSERT(!_used && !o._used && "semaphore cannot be moved after it has been used");
             }
             return *this;
         }
@@ -271,7 +271,7 @@ public:
         , _used(std::move(other._used))
     {
         // semaphore cannot be moved with non-empty waiting list
-        assert(other._wait_list.empty());
+        SEASTAR_ASSERT(other._wait_list.empty());
     }
 
     /// Move-assigns a semaphore object from a moved-from semaphore object,
@@ -283,8 +283,8 @@ public:
     /// \param other the moved-from semaphore object.
     basic_semaphore& operator=(basic_semaphore&& other) noexcept(std::is_nothrow_move_assignable_v<exception_factory>) {
         // semaphore cannot be moved with non-empty waiting list
-        assert(_wait_list.empty());
-        assert(other._wait_list.empty());
+        SEASTAR_ASSERT(_wait_list.empty());
+        SEASTAR_ASSERT(other._wait_list.empty());
         if (this != &other) {
             exception_factory::operator=(other);
             _count = other._count;
@@ -593,7 +593,7 @@ public:
     ///
     /// \return the updated semaphore_units object
     void adopt(semaphore_units&& other) noexcept {
-        assert(other._sem == _sem);
+        SEASTAR_ASSERT(other._sem == _sem);
         _n += other.release();
     }
 

@@ -572,7 +572,7 @@ static future<> run_echo_test(sstring message,
     auto server = ::make_shared<seastar::sharded<echoserver>>();
     auto addr = ::make_ipv4_address( {0x7f000001, port});
 
-    assert(do_read || loops == 1);
+    SEASTAR_ASSERT(do_read || loops == 1);
 
     future<> f = make_ready_future();
 
@@ -1075,7 +1075,7 @@ SEASTAR_THREAD_TEST_CASE(test_reload_tolerance) {
 
     auto end = std::chrono::system_clock::now();
 
-    BOOST_ASSERT(nfails == 0 || (end - start) > 4s);
+    SEASTAR_ASSERT(nfails == 0 || (end - start) > 4s);
 }
 
 SEASTAR_THREAD_TEST_CASE(test_reload_by_move) {
@@ -1160,7 +1160,7 @@ SEASTAR_THREAD_TEST_CASE(test_reload_by_move) {
         p = promise();
         try {
             with_timeout(std::chrono::steady_clock::now() + 3s, p.get_future()).get();
-            BOOST_ASSERT(i == 0);
+            SEASTAR_ASSERT(i == 0);
         } catch (timed_out_error&) {
             // ok
             break;

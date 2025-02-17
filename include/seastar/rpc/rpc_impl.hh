@@ -25,6 +25,7 @@
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/when_all.hh>
+#include <seastar/util/assert.hh>
 #include <seastar/util/is_smart_ptr.hh>
 #include <seastar/core/simple-stream.hh>
 #include <seastar/net/packet-data-source.hh>
@@ -910,7 +911,7 @@ template<typename Serializer, typename... Out>
 sink_impl<Serializer, Out...>::~sink_impl() {
     // A failure to close might leave some continuations running after
     // this is destroyed, leading to use-after-free bugs.
-    assert(this->_con->get()->sink_closed());
+    SEASTAR_ASSERT(this->_con->get()->sink_closed());
 }
 
 template<typename Serializer, typename... In>

@@ -32,6 +32,7 @@
 #include <seastar/core/do_with.hh>
 #include <seastar/net/stack.hh>
 #include <seastar/core/sharded.hh>
+#include <seastar/util/assert.hh>
 
 namespace seastar {
 
@@ -106,7 +107,7 @@ public:
     }
 
     future<> wait_input_shutdown() {
-        assert(!_shutdown.has_value());
+        SEASTAR_ASSERT(!_shutdown.has_value());
         _shutdown.emplace();
         return _shutdown->get_future();
     }
@@ -268,14 +269,14 @@ public:
     }
 
     server_socket get_server_socket() {
-       assert(this_shard_id() < _shards_count);
+       SEASTAR_ASSERT(this_shard_id() < _shards_count);
        if (!_pending[this_shard_id()]) {
            _pending[this_shard_id()] = make_lw_shared<queue<connected_socket>>(_pending_capacity);
        }
        return server_socket(std::make_unique<loopback_server_socket_impl>(_pending[this_shard_id()]));
     }
     future<> make_new_server_connection(foreign_ptr<lw_shared_ptr<loopback_buffer>> b1, lw_shared_ptr<loopback_buffer> b2) {
-        assert(this_shard_id() < _shards_count);
+        SEASTAR_ASSERT(this_shard_id() < _shards_count);
         if (!_pending[this_shard_id()]) {
             _pending[this_shard_id()] = make_lw_shared<queue<connected_socket>>(_pending_capacity);
         }
@@ -288,7 +289,7 @@ public:
         return _shard++ % _shards_count;
     }
     void destroy_shard(unsigned shard) {
-        assert(shard < _shards_count);
+        SEASTAR_ASSERT(shard < _shards_count);
         _pending[shard] = nullptr;
     }
     future<> destroy_all_shards() {

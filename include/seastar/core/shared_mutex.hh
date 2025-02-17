@@ -25,8 +25,8 @@
 #include <seastar/core/coroutine.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/chunked_fifo.hh>
+#include <seastar/util/assert.hh>
 #include <seastar/util/modules.hh>
-#include <cassert>
 #include <mutex>
 #include <utility>
 #include <shared_mutex>
@@ -98,7 +98,7 @@ public:
     }
     /// Unlocks a \c shared_mutex after a previous call to \ref lock_shared().
     void unlock_shared() noexcept {
-        assert(_readers > 0);
+        SEASTAR_ASSERT(_readers > 0);
         --_readers;
         wake();
     }
@@ -129,7 +129,7 @@ public:
     }
     /// Unlocks a \c shared_mutex after a previous call to \ref lock().
     void unlock() noexcept {
-        assert(_writer);
+        SEASTAR_ASSERT(_writer);
         _writer = false;
         wake();
     }

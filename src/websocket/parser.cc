@@ -18,6 +18,7 @@
 
 #include <seastar/websocket/parser.hh>
 #include <seastar/core/byteorder.hh>
+#include <seastar/util/assert.hh>
 
 namespace seastar::experimental::websocket {
 
@@ -46,7 +47,7 @@ future<websocket_parser::consumption_result_t> websocket_parser::operator()(
             // the rest of code is structured. The else branch will never increase
             // _buffer.length() to >=2 and other paths to this condition will always
             // have buffer cleared.
-            assert(_buffer.length() < 2);
+            SEASTAR_ASSERT(_buffer.length() < 2);
 
             size_t hlen = _buffer.length();
             _buffer.append(data.get(), 2 - hlen);

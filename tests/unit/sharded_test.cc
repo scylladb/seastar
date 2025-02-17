@@ -24,6 +24,7 @@
 #include <seastar/core/shard_id.hh>
 #include <seastar/core/sharded.hh>
 #include <seastar/core/smp.hh>
+#include <seastar/util/assert.hh>
 
 #include <ranges>
 
@@ -42,7 +43,7 @@ public:
 
     ~invoke_on_during_stop() {
         if (this_shard_id() == 0) {
-            assert(flag);
+            SEASTAR_ASSERT(flag);
         }
     }
 };
@@ -126,7 +127,7 @@ SEASTAR_THREAD_TEST_CASE(invoke_map_returns_non_future_value) {
         return m.x;
     }).then([] (std::vector<int> results) {
         for (auto& x : results) {
-            assert(x == 1);
+            SEASTAR_ASSERT(x == 1);
         }
     }).get();
     s.stop().get();
@@ -139,7 +140,7 @@ SEASTAR_THREAD_TEST_CASE(invoke_map_returns_future_value) {
         return make_ready_future<int>(m.x);
     }).then([] (std::vector<int> results) {
         for (auto& x : results) {
-            assert(x == 1);
+            SEASTAR_ASSERT(x == 1);
         }
     }).get();
     s.stop().get();
@@ -154,7 +155,7 @@ SEASTAR_THREAD_TEST_CASE(invoke_map_returns_future_value_from_thread) {
         });
     }).then([] (std::vector<int> results) {
         for (auto& x : results) {
-            assert(x == 1);
+            SEASTAR_ASSERT(x == 1);
         }
     }).get();
     s.stop().get();
@@ -240,7 +241,7 @@ public:
     }
 
     unsigned get_synced(int shard_id) {
-        assert(this_shard_id() == coordinator_id);
+        SEASTAR_ASSERT(this_shard_id() == coordinator_id);
         return unsigned_per_shard[shard_id];
     }
 };

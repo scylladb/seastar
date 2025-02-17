@@ -25,6 +25,7 @@
 #include <algorithm>
 #include <cassert>
 #include <type_traits>
+#include <seastar/util/assert.hh>
 #include <seastar/util/modules.hh>
 #endif
 
@@ -342,7 +343,7 @@ void chunked_fifo<T, items_per_chunk>::clear() noexcept {
 template <typename T, size_t items_per_chunk>
 void chunked_fifo<T, items_per_chunk>::pop_front_n(size_t n) noexcept {
     while (n) {
-        assert(_front_chunk && "pop_front_n n too large");
+        SEASTAR_ASSERT(_front_chunk && "pop_front_n n too large");
 
         auto target = _front_chunk;
         unsigned delete_count = std::min(target->size(), n);

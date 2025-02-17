@@ -382,7 +382,7 @@ SEASTAR_THREAD_TEST_CASE(sg_key_constructor_exception_when_creating_new_key) {
         }
         ~thrower() {
             // Shouldn't get here because the constructor shouldn't succeed
-            BOOST_ASSERT(false);
+            SEASTAR_ASSERT(false);
         }
     };
     scheduling_group_key_config thrower_conf = make_scheduling_group_key_config<thrower>();

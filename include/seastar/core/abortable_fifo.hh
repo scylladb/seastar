@@ -24,6 +24,7 @@
 #include <seastar/core/abort_source.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/chunked_fifo.hh>
+#include <seastar/util/assert.hh>
 #include <seastar/util/modules.hh>
 
 #ifndef SEASTAR_MODULE
@@ -111,7 +112,7 @@ public:
     abortable_fifo(abortable_fifo&& o) noexcept
             : abortable_fifo(std::move(o._on_abort)) {
         // entry objects hold a reference to this so non-empty containers cannot be moved.
-        assert(o._size == 0);
+        SEASTAR_ASSERT(o._size == 0);
     }
 
     abortable_fifo& operator=(abortable_fifo&& o) noexcept {
@@ -236,7 +237,7 @@ public:
         if (!_list.empty()) {
             e = &_list.back();
         }
-        assert(!e->sub);
+        SEASTAR_ASSERT(!e->sub);
         auto aborter = [this, e] (const std::optional<std::exception_ptr>& ex_opt) noexcept {
             if constexpr (aborter_ex<OnAbort, T>) {
                 _on_abort(*e->payload, ex_opt);

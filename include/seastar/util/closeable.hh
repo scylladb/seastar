@@ -24,6 +24,7 @@
 #include <concepts>
 #include <functional>
 #include <seastar/core/future.hh>
+#include <seastar/util/assert.hh>
 #include <seastar/util/defer.hh>
 
 /// \file
@@ -79,7 +80,7 @@ public:
     }
     /// Close \c obj once now.
     void close_now() noexcept {
-        assert(!_closed);
+        SEASTAR_ASSERT(!_closed);
         do_close();
     }
 
@@ -148,7 +149,7 @@ public:
     }
     /// Stop \c obj once now.
     void stop_now() noexcept {
-        assert(!_stopped);
+        SEASTAR_ASSERT(!_stopped);
         do_stop();
     }
 

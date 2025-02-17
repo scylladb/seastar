@@ -22,6 +22,7 @@
 #include <seastar/websocket/common.hh>
 #include <seastar/core/byteorder.hh>
 #include <seastar/core/when_all.hh>
+#include <seastar/util/assert.hh>
 #include <seastar/util/defer.hh>
 #include <gnutls/crypto.h>
 #include <gnutls/gnutls.h>
@@ -132,7 +133,7 @@ future<> connection::read_one() {
 
 std::string sha1_base64(std::string_view source) {
     unsigned char hash[20];
-    assert(sizeof(hash) == gnutls_hash_get_len(GNUTLS_DIG_SHA1));
+    SEASTAR_ASSERT(sizeof(hash) == gnutls_hash_get_len(GNUTLS_DIG_SHA1));
     if (int ret = gnutls_hash_fast(GNUTLS_DIG_SHA1, source.data(), source.size(), hash);
         ret != GNUTLS_E_SUCCESS) {
         throw websocket::exception(fmt::format("gnutls_hash_fast: {}", gnutls_strerror(ret)));

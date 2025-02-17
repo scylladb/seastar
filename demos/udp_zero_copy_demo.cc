@@ -27,6 +27,7 @@
 #include <seastar/core/units.hh>
 #include <seastar/core/timer.hh>
 #include <seastar/net/api.hh>
+#include <seastar/util/assert.hh>
 #include <random>
 #include <iomanip>
 #include <iostream>
@@ -101,7 +102,7 @@ public:
 
         _chunk_distribution = std::uniform_int_distribution<size_t>(0, _mem_size - _chunk_size * 3);
 
-        assert(3 * _chunk_size <= _packet_size);
+        SEASTAR_ASSERT(3 * _chunk_size <= _packet_size);
 
         // Run sender in background.
         (void)keep_doing([this] {
@@ -117,7 +118,7 @@ public:
                     chunk += _chunk_size;
                     (void)_out->write(chunk, _chunk_size);
                     (void)_out->flush();
-                    assert(_packets.size() == 1);
+                    SEASTAR_ASSERT(_packets.size() == 1);
                     return send(dgram.get_src(), std::move(_packets[0]));
                 } else {
                     auto chunk = next_chunk();

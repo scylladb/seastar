@@ -5,6 +5,7 @@
 #include <seastar/core/print.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/core/metrics.hh>
+#include <seastar/util/assert.hh>
 #include <boost/range/adaptor/map.hpp>
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/algorithm/string.hpp>
@@ -239,7 +240,7 @@ namespace rpc {
   }
 
   void connection::withdraw(outgoing_entry::container_t::iterator it, std::exception_ptr ex) {
-      assert(it != _outgoing_queue.end());
+      SEASTAR_ASSERT(it != _outgoing_queue.end());
 
       auto pit = std::prev(it);
       // Previous entry's (pit's) done future will schedule current entry (it)
@@ -573,7 +574,7 @@ namespace rpc {
               }
           });
           if (eof && !bufs.empty()) {
-              assert(_stream_queue.empty());
+              SEASTAR_ASSERT(_stream_queue.empty());
               _stream_queue.push(rcv_buf(-1U)); // push eof marker back for next read to notice it
           }
       });
@@ -816,7 +817,7 @@ namespace rpc {
   void client::abort_all_streams() {
       while (!_streams.empty()) {
           auto&& s = _streams.begin();
-          assert(s->second->get_owner_shard() == this_shard_id()); // abort can be called only locally
+          SEASTAR_ASSERT(s->second->get_owner_shard() == this_shard_id()); // abort can be called only locally
           s->second->get()->abort();
           _streams.erase(s);
       }
@@ -1342,14 +1343,14 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
                       connection_id::make_invalid_id(_next_client_id++);
               auto conn = _proto.make_server_connection(*this, std::move(fd), std::move(addr), id);
               auto r = _conns.emplace(id, conn);
-              assert(r.second);
+              SEASTAR_ASSERT(r.second);
               // Process asynchronously in background.
               (void)conn->process();
           });
       }).then_wrapped([this] (future<>&& f){
           try {
               f.get();
-              assert(false);
+              SEASTAR_ASSERT(false);
           } catch (...) {
               _ss_stopped.set_value();
           }

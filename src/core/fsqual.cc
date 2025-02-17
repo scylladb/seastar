@@ -20,6 +20,7 @@
  */
 
 #include <seastar/core/posix.hh>
+#include <seastar/util/assert.hh>
 #include <seastar/util/defer.hh>
 #include <seastar/core/linux-aio.hh>
 #include <sys/time.h>
@@ -80,7 +81,7 @@ bool filesystem_has_good_aio_support(sstring directory, bool verbose) {
         with_ctxsw_counting(ctxsw, [&] {
             auto r = io_submit(ioctx, 1, cmds);
             throw_system_error_on(r == -1, "io_submit");
-            assert(r == 1);
+            SEASTAR_ASSERT(r == 1);
         });
         struct io_event ioev;
         int n = -1;
@@ -88,9 +89,9 @@ bool filesystem_has_good_aio_support(sstring directory, bool verbose) {
             n = io_getevents(ioctx, 1, 1, &ioev, nullptr);
             throw_system_error_on((n == -1) && (errno != EINTR) , "io_getevents");
         } while (n == -1);
-        assert(n == 1);
+        SEASTAR_ASSERT(n == 1);
         throw_kernel_error(long(ioev.res));
-        assert(long(ioev.res) == bufsize);
+        SEASTAR_ASSERT(long(ioev.res) == bufsize);
     }
     auto rate = float(ctxsw) / nr;
     bool ok = rate < 0.1;

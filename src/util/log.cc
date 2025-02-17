@@ -123,6 +123,11 @@ namespace seastar {
 
 namespace internal {
 
+[[noreturn]] void assert_fail(const char* msg, const char* file, int line, const char* func) {
+    printf("%s:%u: %s: Assertion `%s` failed.\n", file, line, func, msg);
+    __builtin_trap();
+}
+
 void log_buf::free_buffer() noexcept {
     if (_own_buf) {
         delete[] _begin;

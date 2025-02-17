@@ -25,6 +25,7 @@
 #include <boost/intrusive/list.hpp>
 
 #include <seastar/core/future.hh>
+#include <seastar/util/assert.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/modules.hh>
 #include <cassert>
@@ -80,7 +81,7 @@ public:
     }
     gate& operator=(gate&& x) noexcept {
         if (this != &x) {
-            assert(!_count && "gate reassigned with outstanding requests");
+            SEASTAR_ASSERT(!_count && "gate reassigned with outstanding requests");
             x.assert_not_held_when_moved();
             _count = std::exchange(x._count, 0);
             _stopped = std::exchange(x._stopped, std::nullopt);
@@ -88,7 +89,7 @@ public:
         return *this;
     }
     ~gate() {
-        assert(!_count && "gate destroyed with outstanding requests");
+        SEASTAR_ASSERT(!_count && "gate destroyed with outstanding requests");
         assert_not_held_when_destroyed();
     }
     /// Tries to register an in-progress request.
@@ -141,7 +142,7 @@ public:
     /// all current requests call \ref leave(), the returned future will be
     /// made ready.
     future<> close() noexcept {
-        assert(!_stopped && "seastar::gate::close() cannot be called more than once");
+        SEASTAR_ASSERT(!_stopped && "seastar::gate::close() cannot be called more than once");
         _stopped = std::make_optional(promise<>());
         if (!_count) {
             _stopped->set_value();
@@ -300,10 +301,10 @@ private:
 #ifdef SEASTAR_GATE_HOLDER_DEBUG
 SEASTAR_MODULE_EXPORT
 inline void gate::assert_not_held_when_moved() const noexcept {
-    assert(_holders.empty() && "gate moved with outstanding holders");
+    SEASTAR_ASSERT(_holders.empty() && "gate moved with outstanding holders");
 }
 inline void gate::assert_not_held_when_destroyed() const noexcept {
-    assert(_holders.empty() && "gate destroyed with outstanding holders");
+    SEASTAR_ASSERT(_holders.empty() && "gate destroyed with outstanding holders");
 }
 #endif  // SEASTAR_GATE_HOLDER_DEBUG
 

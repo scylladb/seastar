@@ -29,6 +29,7 @@
 #include <seastar/core/timer.hh>
 #include <seastar/core/lowres_clock.hh>
 #include <seastar/core/timed_out_error.hh>
+#include <seastar/util/assert.hh>
 #include <seastar/util/modules.hh>
 #endif
 
@@ -108,7 +109,7 @@ public:
     expiring_fifo(expiring_fifo&& o) noexcept
             : expiring_fifo(std::move(o._on_expiry)) {
         // entry objects hold a reference to this so non-empty containers cannot be moved.
-        assert(o._size == 0);
+        SEASTAR_ASSERT(o._size == 0);
     }
 
     expiring_fifo& operator=(expiring_fifo&& o) noexcept {

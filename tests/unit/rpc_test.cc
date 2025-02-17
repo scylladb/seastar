@@ -36,6 +36,7 @@
 #include <seastar/core/distributed.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/core/metrics_api.hh>
+#include <seastar/util/assert.hh>
 #include <seastar/util/defer.hh>
 #include <seastar/util/log.hh>
 #include <seastar/util/closeable.hh>
@@ -213,7 +214,7 @@ class rpc_test_env {
 
         future<> unregister_handler(MsgType t) {
             auto it = std::find(_handlers.begin(), _handlers.end(), t);
-            assert(it != _handlers.end());
+            SEASTAR_ASSERT(it != _handlers.end());
             _handlers.erase(it);
             return proto().unregister_handler(t);
         }

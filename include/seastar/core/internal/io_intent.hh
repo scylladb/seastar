@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include <seastar/util/assert.hh>
 #include <seastar/util/modules.hh>
 #ifndef SEASTAR_MODULE
 #include <utility>
@@ -59,7 +60,7 @@ public:
 
     public:
         link() noexcept : _ref(nullptr) {}
-        ~link() { assert(_ref == nullptr); }
+        ~link() { SEASTAR_ASSERT(_ref == nullptr); }
 
         void enqueue(cancellable_queue& cq) noexcept {
             cq.push_back(*this);

@@ -24,6 +24,7 @@
 #ifndef SEASTAR_MODULE
 #include <seastar/core/sstring.hh>
 #include <seastar/core/temporary_buffer.hh>
+#include <seastar/util/assert.hh>
 #include <seastar/util/eclipse.hh>
 #include <algorithm>
 #include <memory>
@@ -116,7 +117,7 @@ protected:
         if (_fsm_top == _fsm_stack_size) {
             auto old = _fsm_stack_size;
             _fsm_stack_size = std::max(_fsm_stack_size * 2, 16);
-            assert(_fsm_stack_size > old);
+            SEASTAR_ASSERT(_fsm_stack_size > old);
             std::unique_ptr<int[]> new_stack{new int[_fsm_stack_size]};
             std::copy(_fsm_stack.get(), _fsm_stack.get() + _fsm_top, new_stack.get());
             std::swap(_fsm_stack, new_stack);

@@ -23,7 +23,6 @@
 module;
 #endif
 
-#include <cassert>
 #include <string_view>
 #include <utility>
 
@@ -34,6 +33,7 @@ module seastar;
 #include <seastar/http/url.hh>
 #include <seastar/http/common.hh>
 #endif
+#include <seastar/util/assert.hh>
 
 namespace seastar {
 namespace http {
@@ -52,7 +52,7 @@ sstring request::format_url() const {
 }
 
 sstring request::request_line() const {
-    assert(!_version.empty());
+    SEASTAR_ASSERT(!_version.empty());
     return _method + " " + format_url() + " HTTP/" + _version + "\r\n";
 }
 

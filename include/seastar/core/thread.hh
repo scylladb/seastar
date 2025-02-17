@@ -30,6 +30,7 @@
 #include <seastar/core/scheduling.hh>
 #include <memory>
 #include <type_traits>
+#include <seastar/util/assert.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/modules.hh>
 #include <ucontext.h>
@@ -168,7 +169,7 @@ public:
     /// \brief Destroys a \c thread object.
     ///
     /// The thread must not represent a running thread of execution (see join()).
-    ~thread() { assert(!_context || _context->_joined); }
+    ~thread() { SEASTAR_ASSERT(!_context || _context->_joined); }
     /// \brief Waits for thread execution to terminate.
     ///
     /// Waits for thread execution to terminate, and marks the thread object as not

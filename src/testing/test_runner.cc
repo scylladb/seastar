@@ -26,6 +26,7 @@
 #include <seastar/core/posix.hh>
 #include <seastar/testing/random.hh>
 #include <seastar/testing/test_runner.hh>
+#include <seastar/util/assert.hh>
 
 namespace seastar {
 
@@ -133,7 +134,7 @@ test_runner::run_sync(std::function<future<>()> task) {
 
     exchanger<std::exception_ptr> e;
     _task.give([task = std::move(task), &e] {
-        assert(engine_is_ready());
+        SEASTAR_ASSERT(engine_is_ready());
         try {
             return task().then_wrapped([&e](auto&& f) {
                 try {

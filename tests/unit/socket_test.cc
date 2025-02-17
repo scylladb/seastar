@@ -24,6 +24,7 @@
 #include <seastar/core/app-template.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/memory.hh>
+#include <seastar/util/assert.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/later.hh>
 #include <seastar/testing/test_case.hh>
@@ -101,7 +102,7 @@ SEASTAR_TEST_CASE(socket_skip_test) {
                 // expected
                 return;
             }
-            assert(!"Skipping data from socket is likely stuck");
+            SEASTAR_ASSERT(!"Skipping data from socket is likely stuck");
         });
 
         accept_result accepted = ss.accept().get();
