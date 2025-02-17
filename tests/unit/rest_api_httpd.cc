@@ -49,7 +49,12 @@ void set_routes(routes& r) {
         query_enum v = str2query_enum(req.query_parameters.at("query_enum"));
         // This demonstrate enum conversion
         obj.enum_var = v;
-        stream_enum is_streaming =str2stream_enum(req.query_parameters.at("stream_enum"));
+
+        std::vector<int> vec123{1, 2, 3};
+        obj.array_var = vec123;
+        obj.chunked_array_var = vec123;
+
+        stream_enum is_streaming = str2stream_enum(req.query_parameters.at("stream_enum"));
 
         assert(is_streaming == stream_enum::no || is_streaming == stream_enum::yes);
 
