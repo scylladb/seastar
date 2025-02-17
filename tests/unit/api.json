@@ -82,6 +82,18 @@
             "VAL2",
             "VAL3"
           ]
+        },
+        "array_var": {
+          "type": "array",
+          "items": {
+            "type": "int"
+          }
+        },
+        "chunked_array_var": {
+          "type": "chunked_array",
+          "items": {
+            "type": "int"
+          }
         }
       }
     }

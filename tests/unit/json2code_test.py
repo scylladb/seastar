@@ -79,6 +79,13 @@ class TestJson2Code(unittest.TestCase):
             self.assertEqual(response['message'], 'Not found')
             self.assertEqual(response['code'], 404)
 
+    def test_arrays(self):
+        response = self._do_query('x', 'x', 'VAL2')
+        expected = [1, 2, 3]
+
+        self.assertEqual(response['array_var'], expected)
+        self.assertEqual(response['chunked_array_var'], expected)
+
     def _do_query(self, var1: str, var2: str, query_enum: str):
         def query(streaming: bool = False):
             params = urllib.parse.urlencode({

@@ -50,7 +50,12 @@ void set_routes(routes& r) {
         query_enum v = str2query_enum(req.query_parameters.at("query_enum"));
         // This demonstrate enum conversion
         obj.enum_var = v;
-        stream_enum is_streaming =str2stream_enum(req.query_parameters.at("stream_enum"));
+
+        std::vector<int> vec123{1, 2, 3};
+        obj.array_var = vec123;
+        obj.chunked_array_var = vec123;
+
+        auto use_streaming = req.query_parameters.at("use_streaming");
 
         if (use_streaming != "false" && use_streaming != "true") {
             throw bad_param_exception("param use_streaming must be true or false");
