@@ -110,7 +110,7 @@ cooking_ingredient (nettle
     BUILD_COMMAND <DISABLE>
     INSTALL_COMMAND ${make_command} install)
 
-# Also a direct dependency of Seastar.
+# A dependency of DPDK.
 cooking_ingredient (numactl
   EXTERNAL_PROJECT_ARGS
     URL https://github.com/numactl/numactl/releases/download/v2.0.12/numactl-2.0.12.tar.gz

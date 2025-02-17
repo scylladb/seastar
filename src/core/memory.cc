@@ -101,10 +101,9 @@ module;
 #include <utility>
 #include <boost/intrusive/list.hpp>
 #include <sys/mman.h>
+#include <sys/syscall.h>
+#include <linux/mempolicy.h>
 
-#ifdef SEASTAR_HAVE_NUMA
-#include <numaif.h>
-#endif
 #endif // !defined(SEASTAR_DEFAULT_ALLOCATOR)
 
 #ifdef SEASTAR_MODULE
@@ -1832,6 +1831,23 @@ void configure_minimal() {
     init_cpu_mem();
 }
 
+static long mbind(void *addr,
+                  unsigned long len,
+                  int mode,
+                  const unsigned long *nodemask,
+                  unsigned long maxnode,
+                  unsigned flags) {
+    return syscall(
+        SYS_mbind,
+        addr,
+        len,
+        mode,
+        nodemask,
+        maxnode,
+        flags
+    );
+}
+
 internal::numa_layout
 configure(std::vector<resource::memory> m, bool mbind,
         bool transparent_hugepages,
@@ -1865,13 +1881,13 @@ configure(std::vector<resource::memory> m, bool mbind,
         get_cpu_mem().replace_memory_backing(sys_alloc);
     }
     get_cpu_mem().resize(total, sys_alloc);
-#ifdef SEASTAR_HAVE_NUMA
     size_t pos = 0;
     for (auto&& x : m) {
         unsigned long nodemask = 1UL << x.nodeid;
         if (mbind) {
             auto start = get_cpu_mem().mem() + pos;
-            auto r = ::mbind(start, x.bytes,
+            auto r = seastar::memory::mbind(
+                            start, x.bytes,
                             MPOL_PREFERRED,
                             &nodemask, std::numeric_limits<unsigned long>::digits,
                             MPOL_MF_MOVE);
@@ -1890,7 +1906,6 @@ configure(std::vector<resource::memory> m, bool mbind,
         }
         pos += x.bytes;
     }
-#endif
     return ret_layout;
 }
 
