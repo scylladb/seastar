@@ -451,7 +451,7 @@ public:
     }
 
     static x509_ptr parse_x509_cert(const blob& b, x509_crt_format fmt) {
-        bio_ptr cert_bio(BIO_new_mem_buf(b.begin(), b.size()));
+        bio_ptr cert_bio(BIO_new_mem_buf(b.data(), b.size()));
         x509_ptr cert;
         switch(fmt) {
         case tls::x509_crt_format::PEM:
@@ -468,7 +468,7 @@ public:
     }
 
     void set_x509_trust(const blob& b, x509_crt_format fmt) {
-        bio_ptr cert_bio(BIO_new_mem_buf(b.begin(), b.size()));
+        bio_ptr cert_bio(BIO_new_mem_buf(b.data(), b.size()));
         x509_ptr cert;
         switch(fmt) {
         case tls::x509_crt_format::PEM:
@@ -490,7 +490,7 @@ public:
     }
 
     void set_x509_crl(const blob& b, x509_crt_format fmt) {
-        bio_ptr cert_bio(BIO_new_mem_buf(b.begin(), b.size()));
+        bio_ptr cert_bio(BIO_new_mem_buf(b.data(), b.size()));
         x509_crl_ptr crl;
         switch(fmt) {
         case x509_crt_format::PEM:
@@ -515,7 +515,7 @@ public:
 
     void set_x509_key(const blob& cert, const blob& key, x509_crt_format fmt) {
         x509_ptr x509_cert{nullptr};
-        bio_ptr key_bio(BIO_new_mem_buf(key.begin(), key.size()));
+        bio_ptr key_bio(BIO_new_mem_buf(key.data(), key.size()));
         evp_pkey_ptr pkey;
         switch(fmt) {
         case x509_crt_format::PEM:
@@ -524,7 +524,7 @@ public:
             // for this situation.  So we will parse through the blob using `iterate_pem_certs`.
             // The first cert encountered will be assigned to x509_cert and all subsequent certs
             // will be added to the X509_STORE's trusted certificates
-            iterate_pem_certs(bio_ptr{BIO_new_mem_buf(cert.begin(), cert.size())}, [this, &x509_cert](X509_INFO* info) {
+            iterate_pem_certs(bio_ptr{BIO_new_mem_buf(cert.data(), cert.size())}, [this, &x509_cert](X509_INFO* info) {
                 if (!info->x509) {
                     throw make_ossl_error("Failed to parse X.509 certificate in loading key/cert chain");
                 }
@@ -558,7 +558,7 @@ public:
 
     void set_simple_pkcs12(const blob& b, x509_crt_format, const sstring& password) {
         // Load the PKCS12 file
-        bio_ptr bio(BIO_new_mem_buf(b.begin(), b.size()));
+        bio_ptr bio(BIO_new_mem_buf(b.data(), b.size()));
         if (auto p12 = pkcs12(d2i_PKCS12_bio(bio.get(), nullptr))) {
             // Extract the certificate and private key from PKCS12, using provided password
             EVP_PKEY *pkey = nullptr;
