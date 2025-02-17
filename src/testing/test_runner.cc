@@ -63,8 +63,8 @@ test_runner::start(int ac, char** av) {
     return true;
 }
 
-int test_runner::start_thread(int ac, char** av) {
-    auto init_outcome = std::make_shared<exchanger<int>>();
+bool test_runner::start_thread(int ac, char** av) {
+    auto init_outcome = std::make_shared<exchanger<bool>>();
 
     namespace bpo = boost::program_options;
     _thread = std::make_unique<posix_thread>([this, ac, av, init_outcome]() mutable {
@@ -75,7 +75,7 @@ int test_runner::start_thread(int ac, char** av) {
         // We guarantee that only one thread is running.
         // We only read this after that one thread is joined, so this is safe.
         _exit_code = app.run(ac, av, [this, &app, init_outcome = init_outcome.get()] {
-            init_outcome->give(0);
+            init_outcome->give(true);
             auto init = [&app] {
                 auto conf_seed = app.configuration()["random-seed"];
                 auto seed = conf_seed.empty() ? std::random_device()():  conf_seed.as<unsigned>();
@@ -108,7 +108,7 @@ int test_runner::start_thread(int ac, char** av) {
                 return 0;
             });
         });
-        init_outcome->give(_exit_code);
+        init_outcome->give(false);
     });
 
     return init_outcome->take();
@@ -119,14 +119,14 @@ test_runner::run_sync(std::function<future<>()> task) {
     if (_st_args) {
         start_thread_args sa = *_st_args;
         _st_args.reset();
-        if (int start_status = start_thread(sa.ac, sa.av); start_status != 0) {
+        if (!start_thread(sa.ac, sa.av)) {
             // something bad happened when starting the reactor or app, and
             // the _thread has exited before taking any task. but we need to
             // move on. let's report this bad news with exit code
-            _exit_code = start_status;
+            _done = true;
         }
     }
-    if (_exit_code != 0) {
+    if (_done) {
         // we failed to start the worker reactor, so we cannot send the task to
         // it.
         return;
