@@ -22,6 +22,7 @@
 #include <memory>
 #include <fmt/core.h>
 
+#include <seastar/http/exception.hh>
 #include <seastar/http/httpd.hh>
 #include <seastar/http/handlers.hh>
 #include <seastar/http/function_handlers.hh>
@@ -39,16 +40,27 @@ namespace bpo = boost::program_options;
 
 using namespace seastar;
 using namespace httpd;
+using namespace api_json::ns_hello_world;
 
 void set_routes(routes& r) {
-    api_json::hello_world.set(r, [] (const_req req) {
+    api_json::hello_world.set(r, [] (const_req req) -> json::json_return_type {
         api_json::my_object obj;
         obj.var1 = req.param.at("var1");
         obj.var2 = req.param.at("var2");
-        api_json::ns_hello_world::query_enum v = api_json::ns_hello_world::str2query_enum(req.query_parameters.at("query_enum"));
+        query_enum v = str2query_enum(req.query_parameters.at("query_enum"));
         // This demonstrate enum conversion
         obj.enum_var = v;
-        return obj;
+        stream_enum is_streaming =str2stream_enum(req.query_parameters.at("stream_enum"));
+
+        if (use_streaming != "false" && use_streaming != "true") {
+            throw bad_param_exception("param use_streaming must be true or false");
+        }
+
+        if (use_streaming == "false") {
+            return obj;
+        } else {
+            return stream_object(std::move(obj));
+        }
     });
 }
 

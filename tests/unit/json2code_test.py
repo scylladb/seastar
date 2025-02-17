@@ -80,10 +80,20 @@ class TestJson2Code(unittest.TestCase):
             self.assertEqual(response['code'], 404)
 
     def _do_query(self, var1: str, var2: str, query_enum: str):
-        params = urllib.parse.urlencode({'query_enum': query_enum})
-        url = f'http://localhost:{self.port}/hello/world/{var1}/{var2}?{params}'
-        with urllib.request.urlopen(url) as f:
-            return json.loads(f.read().decode('utf-8'))
+        def query(streaming: bool = False):
+            params = urllib.parse.urlencode({
+                'query_enum': query_enum,
+                'use_streaming': str(streaming).lower()
+            })
+            url = f'http://localhost:{self.port}/hello/world/{var1}/{var2}?{params}'
+            with urllib.request.urlopen(url) as f:
+                return json.load(f)
+
+        # always query both the streaming and not-streaming variations and
+        # ensure their output is the same
+        stream_no, stream_yes = query(False), query(True)
+        self.assertEqual(stream_no, stream_yes)
+        return stream_no
 
 
 if __name__ == '__main__':
