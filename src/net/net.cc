@@ -40,6 +40,7 @@ module seastar;
 #include <seastar/core/print.hh>
 #include <seastar/net/inet_address.hh>
 #endif
+#include <seastar/util/assert.hh>
 
 namespace seastar {
 
@@ -201,7 +202,7 @@ qp::~qp() {
 }
 
 void qp::configure_proxies(const std::map<unsigned, float>& cpu_weights) {
-    assert(!cpu_weights.empty());
+    SEASTAR_ASSERT(!cpu_weights.empty());
     if ((cpu_weights.size() == 1 && cpu_weights.begin()->first == this_shard_id())) {
         // special case queue sending to self only, to avoid requiring a hash value
         return;
@@ -244,7 +245,7 @@ device::receive(std::function<future<> (packet)> next_packet) {
 }
 
 void device::set_local_queue(std::unique_ptr<qp> dev) {
-    assert(!_queues[this_shard_id()]);
+    SEASTAR_ASSERT(!_queues[this_shard_id()]);
     _queues[this_shard_id()] = dev.get();
     engine().at_destroy([dev = std::move(dev)] {});
 }
@@ -295,7 +296,7 @@ interface::register_l3(eth_protocol_num proto_num,
         std::function<future<> (packet p, ethernet_address from)> next,
         std::function<bool (forward_hash&, packet& p, size_t)> forward) {
     auto i = _proto_map.emplace(std::piecewise_construct, std::make_tuple(uint16_t(proto_num)), std::forward_as_tuple(std::move(forward)));
-    assert(i.second);
+    SEASTAR_ASSERT(i.second);
     l3_rx_stream& l3_rx = i.first->second;
     return l3_rx.packet_stream.listen(std::move(next)).done();
 }

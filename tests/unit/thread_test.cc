@@ -29,6 +29,7 @@
 #include <seastar/core/do_with.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/core/sleep.hh>
+#include <seastar/util/assert.hh>
 #include <sys/mman.h>
 #include <signal.h>
 
@@ -200,7 +201,7 @@ static void* pagealign(void* ptr, size_t page_size) {
 static thread_local struct sigaction default_old_sigsegv_handler;
 
 static void bypass_stack_guard(int sig, siginfo_t* si, void* ctx) {
-    assert(sig == SIGSEGV);
+    SEASTAR_ASSERT(sig == SIGSEGV);
     int flags = get_mprotect_flags(ctx);
     stack_guard_bypassed = (flags & PROT_WRITE);
     if (!stack_guard_bypassed) {
@@ -208,7 +209,7 @@ static void bypass_stack_guard(int sig, siginfo_t* si, void* ctx) {
     }
     size_t page_size = getpagesize();
     auto mp_result = mprotect(pagealign(si->si_addr, page_size), page_size, PROT_READ | PROT_WRITE);
-    assert(mp_result == 0);
+    SEASTAR_ASSERT(mp_result == 0);
 }
 
 // This test will fail with a regular stack size, because we only probe

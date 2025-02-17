@@ -23,7 +23,7 @@
 
 #include <seastar/core/sstring.hh>
 #include <seastar/core/on_internal_error.hh>
-#include <cassert>
+#include <seastar/util/assert.hh>
 #include <cstdint>
 #include <vector>
 #include <sys/types.h>
@@ -426,7 +426,7 @@ public:
     io_direction_and_length(int idx, size_t val) noexcept
             : _directed_length((val << 1) | idx)
     {
-        assert(idx == read_idx || idx == write_idx);
+        SEASTAR_ASSERT(idx == read_idx || idx == write_idx);
     }
 };
 

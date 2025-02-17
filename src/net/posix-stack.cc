@@ -23,7 +23,6 @@
 module;
 #endif
 
-#include <cassert>
 #include <chrono>
 #include <cstring>
 #include <functional>
@@ -39,6 +38,7 @@ module;
 #include <netinet/tcp.h>
 #include <netinet/sctp.h>
 #include <sys/socket.h>
+#include <seastar/util/assert.hh>
 
 #ifdef SEASTAR_MODULE
 module seastar;
@@ -184,7 +184,7 @@ public:
 class posix_unix_stream_connected_socket_operations : public posix_connected_socket_operations {
 public:
     virtual void set_nodelay(file_desc& fd, bool nodelay) const override {
-        assert(nodelay); // make sure nobody actually tries to use this non-existing functionality
+        SEASTAR_ASSERT(nodelay); // make sure nobody actually tries to use this non-existing functionality
     }
     virtual bool get_nodelay(file_desc& fd) const override {
         return true;
@@ -570,7 +570,7 @@ future<accept_result> posix_ap_server_socket_impl::accept() {
     } else {
         try {
             auto i = sockets.emplace(std::piecewise_construct, std::make_tuple(t_sa), std::make_tuple());
-            assert(i.second);
+            SEASTAR_ASSERT(i.second);
             return i.first->second.get_future();
         } catch (...) {
             return make_exception_future<accept_result>(std::current_exception());
@@ -867,7 +867,7 @@ public:
     }
     virtual bool is_closed() const override { return _closed; }
     socket_address local_address() const override {
-        assert(_address.u.sas.ss_family != AF_INET6 || (_address.addr_length > 20));
+        SEASTAR_ASSERT(_address.u.sas.ss_family != AF_INET6 || (_address.addr_length > 20));
         return _address;
     }
 };
@@ -877,14 +877,14 @@ future<> posix_datagram_channel::send(const socket_address& dst, const char *mes
     auto a = dst;
     resolve_outgoing_address(a);
     return _fd.sendto(a, message, len)
-            .then([len] (size_t size) { assert(size == len); });
+            .then([len] (size_t size) { SEASTAR_ASSERT(size == len); });
 }
 
 future<> posix_datagram_channel::send(const socket_address& dst, packet p) {
     auto len = p.len();
     _send.prepare(dst, std::move(p));
     return _fd.sendmsg(&_send._hdr)
-            .then([len] (size_t size) { assert(size == len); });
+            .then([len] (size_t size) { SEASTAR_ASSERT(size == len); });
 }
 
 udp_channel

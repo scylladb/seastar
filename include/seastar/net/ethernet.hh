@@ -26,9 +26,9 @@
 #endif
 
 #include <array>
-#include <assert.h>
 #include <algorithm>
 #include <seastar/net/byteorder.hh>
+#include <seastar/util/assert.hh>
 
 namespace seastar {
 
@@ -43,7 +43,7 @@ struct ethernet_address {
     }
 
     ethernet_address(std::initializer_list<uint8_t> eaddr) noexcept {
-        assert(eaddr.size() == mac.size());
+        SEASTAR_ASSERT(eaddr.size() == mac.size());
         std::copy(eaddr.begin(), eaddr.end(), mac.begin());
     }
 

@@ -21,7 +21,6 @@
 
 #ifdef SEASTAR_MODULE
 module;
-#include <cassert>
 #include <exception>
 #include <tuple>
 #include <type_traits>
@@ -34,6 +33,7 @@ module seastar;
 #include <seastar/core/report_exception.hh>
 #include <seastar/util/backtrace.hh>
 #endif
+#include <seastar/util/assert.hh>
 
 namespace seastar {
 
@@ -91,12 +91,12 @@ promise_base::promise_base(promise_base&& x) noexcept {
 
 void promise_base::clear() noexcept {
     if (__builtin_expect(bool(_task), false)) {
-        assert(_state && !_state->available());
+        SEASTAR_ASSERT(_state && !_state->available());
         set_to_broken_promise(*_state);
         ::seastar::schedule(std::exchange(_task, nullptr));
     }
     if (_future) {
-        assert(_state);
+        SEASTAR_ASSERT(_state);
         if (!_state->available()) {
             set_to_broken_promise(*_state);
         }
@@ -167,7 +167,7 @@ void future_state_base::ignore() noexcept {
     case state::invalid:
     case state::future:
     case state::result_unavailable:
-        assert(0 && "invalid state for ignore");
+        SEASTAR_ASSERT(0 && "invalid state for ignore");
     case state::result:
         _u.st = state::result_unavailable;
         break;
@@ -244,7 +244,7 @@ void reactor::test::with_allow_abandoned_failed_futures(unsigned count, noncopya
     seastar_logger.set_level(log_level::error);
     func();
     auto after = engine()._abandoned_failed_futures;
-    assert(after - before == count);
+    SEASTAR_ASSERT(after - before == count);
     engine()._abandoned_failed_futures = before;
     seastar_logger.set_level(old_level);
 }
@@ -268,7 +268,7 @@ public:
 
 void internal::future_base::do_wait() noexcept {
     auto thread = thread_impl::get();
-    assert(thread);
+    SEASTAR_ASSERT(thread);
     thread_wake_task wake_task{thread};
     wake_task.make_backtrace();
     _promise->set_task(&wake_task);
@@ -276,7 +276,7 @@ void internal::future_base::do_wait() noexcept {
 }
 
 void internal::future_base::set_coroutine(task& coroutine) noexcept {
-    assert(_promise);
+    SEASTAR_ASSERT(_promise);
     _promise->set_task(&coroutine);
 }
 

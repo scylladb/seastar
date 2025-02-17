@@ -26,6 +26,7 @@ module;
 
 #include <cstdint>
 #include <deque>
+#include <optional>
 #include <filesystem>
 #include <iostream>
 #include <list>

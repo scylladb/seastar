@@ -23,7 +23,6 @@ module;
 #endif
 
 #include <atomic>
-#include <cassert>
 #include <chrono>
 #include <filesystem>
 #include <thread>
@@ -36,6 +35,7 @@ module;
 #include <sys/resource.h>
 #include <boost/container/small_vector.hpp>
 #include <fmt/core.h>
+#include <seastar/util/assert.hh>
 
 #ifdef SEASTAR_HAVE_URING
 #include <liburing.h>
@@ -302,7 +302,7 @@ bool aio_storage_context::reap_completions(bool allow_retry)
     if (n == -1 && errno == EINTR) {
         n = 0;
     }
-    assert(n >= 0);
+    SEASTAR_ASSERT(n >= 0);
     for (size_t i = 0; i < size_t(n); ++i) {
         auto iocb = get_iocb(_ev_buffer[i]);
         if (_ev_buffer[i].res == -EAGAIN && allow_retry) {
@@ -339,7 +339,7 @@ aio_general_context::~aio_general_context() {
 }
 
 void aio_general_context::queue(linux_abi::iocb* iocb) {
-    assert(last < end);
+    SEASTAR_ASSERT(last < end);
     *last++ = iocb;
 }
 
@@ -360,7 +360,7 @@ size_t aio_general_context::flush() {
             // allow retrying for 1 second
             retry_until = clock::now() + 1s;
         } else {
-            assert(clock::now() < retry_until);
+            SEASTAR_ASSERT(clock::now() < retry_until);
         }
     }
     auto nr = last - iocbs.get();
@@ -461,7 +461,7 @@ void preempt_io_context::reset_preemption_monitor() {
 bool preempt_io_context::service_preempting_io() {
     linux_abi::io_event a[2];
     auto r = io_getevents(_context.io_context, 0, 2, a, 0);
-    assert(r != -1);
+    SEASTAR_ASSERT(r != -1);
     bool did_work = r > 0;
     for (unsigned i = 0; i != unsigned(r); ++i) {
         auto desc = get_user_data<kernel_completion>(a[i]);
@@ -500,7 +500,7 @@ bool reactor_backend_aio::await_events(int timeout, const sigset_t* active_sigma
         if (r == -1 && errno == EINTR) {
             return true;
         }
-        assert(r != -1);
+        SEASTAR_ASSERT(r != -1);
         for (unsigned i = 0; i != unsigned(r); ++i) {
             did_work = true;
             auto& event = batch[i];
@@ -534,7 +534,7 @@ reactor_backend_aio::reactor_backend_aio(reactor& r)
 
     sigset_t mask = make_sigset_mask(hrtimer_signal());
     auto e = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
-    assert(e == 0);
+    SEASTAR_ASSERT(e == 0);
 }
 
 bool reactor_backend_aio::reap_kernel_completions() {
@@ -772,7 +772,7 @@ reactor_backend_epoll::task_quota_timer_thread_fn() {
         pfds[1].fd = _steady_clock_timer_timer_thread.get();
         pfds[1].events = POLL_IN;
         int r = poll(pfds, 2, -1);
-        assert(r != -1);
+        SEASTAR_ASSERT(r != -1);
 
         uint64_t events;
         if (pfds[0].revents & POLL_IN) {
@@ -852,7 +852,7 @@ reactor_backend_epoll::wait_and_process(int timeout, const sigset_t* active_sigm
     if (nr == -1 && errno == EINTR) {
         return false; // gdb can cause this
     }
-    assert(nr != -1);
+    SEASTAR_ASSERT(nr != -1);
     for (int i = 0; i < nr; ++i) {
         auto& evt = eevt[i];
         auto pfd = reinterpret_cast<pollable_fd_state*>(evt.data.ptr);
@@ -1004,7 +1004,7 @@ future<> reactor_backend_epoll::get_epoll_future(pollable_fd_state& pfd, int eve
         eevt.events = pfd.events_epoll;
         eevt.data.ptr = &pfd;
         int r = ::epoll_ctl(_epollfd.get(), ctl, pfd.fd.get(), &eevt);
-        assert(r == 0);
+        SEASTAR_ASSERT(r == 0);
         _need_epoll_events = true;
     }
 
@@ -1244,7 +1244,7 @@ class reactor_backend_uring final : public reactor_backend {
             // Note: for hrtimer_completion we can have spurious wakeups,
             // since we wait for this using both _preempt_io_context and the
             // ring. So don't assert that we read anything.
-            assert(!ret || *ret == 8);
+            SEASTAR_ASSERT(!ret || *ret == 8);
             _armed = false;
         }
         void maybe_rearm(reactor_backend_uring& be) {

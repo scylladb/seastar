@@ -24,9 +24,8 @@
  * This file was copied from Scylla (https://github.com/scylladb/scylla)
  */
 
-#include <cassert>
-
 #include <seastar/testing/linux_perf_event.hh>
+#include <seastar/util/assert.hh>
 
 #include <linux/perf_event.h>
 #include <linux/hw_breakpoint.h>
@@ -64,7 +63,7 @@ linux_perf_event::read() {
     }
     uint64_t ret;
     auto res = ::read(_fd, &ret, sizeof(ret));
-    assert(res == sizeof(ret) && "read(2) failed on perf_event fd");
+    SEASTAR_ASSERT(res == sizeof(ret) && "read(2) failed on perf_event fd");
     return ret;
 }
 

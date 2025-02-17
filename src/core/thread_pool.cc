@@ -25,7 +25,6 @@ module;
 #endif
 
 #include <atomic>
-#include <cassert>
 #include <cstdint>
 #include <array>
 #include <pthread.h>
@@ -37,6 +36,7 @@ module seastar;
 #include <seastar/core/reactor.hh>
 #include "core/thread_pool.hh"
 #endif
+#include <seastar/util/assert.hh>
 
 namespace seastar {
 
@@ -53,7 +53,7 @@ void thread_pool::work(sstring name) {
     while (true) {
         uint64_t count;
         auto r = ::read(inter_thread_wq._start_eventfd.get_read_fd(), &count, sizeof(count));
-        assert(r == sizeof(count));
+        SEASTAR_ASSERT(r == sizeof(count));
         if (_stopped.load(std::memory_order_relaxed)) {
             break;
         }
@@ -71,7 +71,7 @@ void thread_pool::work(sstring name) {
             if (_main_thread_idle.load(std::memory_order_relaxed)) {
                 uint64_t one = 1;
                 auto res = ::write(_reactor._notify_eventfd.get(), &one, 8);
-                assert(res == 8 && "write(2) failed on _reactor._notify_eventfd");
+                SEASTAR_ASSERT(res == 8 && "write(2) failed on _reactor._notify_eventfd");
             }
         }
     }

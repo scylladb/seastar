@@ -21,11 +21,11 @@
 
 #pragma once
 
-#include <cassert>
 #include <coroutine>
 #include <optional>
 #include <utility>
 #include <seastar/core/future.hh>
+#include <seastar/util/assert.hh>
 
 namespace seastar::coroutine::experimental {
 
@@ -84,9 +84,9 @@ public:
 
     template<std::convertible_to<T> U>
     suspend_always yield_value(U&& value) noexcept {
-        assert(_generator);
+        SEASTAR_ASSERT(_generator);
         _generator->put_next_value(std::forward<U>(value));
-        assert(_wait_for_next_value);
+        SEASTAR_ASSERT(_wait_for_next_value);
         _wait_for_next_value->set_value();
         _wait_for_next_value = {};
         return {};
@@ -94,19 +94,19 @@ public:
 
     generator_type get_return_object() noexcept;
     void set_generator(generator_type* g) noexcept {
-        assert(!_generator);
+        SEASTAR_ASSERT(!_generator);
         _generator = g;
     }
 
     suspend_always initial_suspend() const noexcept { return {}; }
     suspend_never final_suspend() const noexcept {
-        assert(_generator);
+        SEASTAR_ASSERT(_generator);
         _generator->on_finished();
         return {};
     }
 
     seastar::future<> wait_for_next_value() noexcept {
-        assert(!_wait_for_next_value);
+        SEASTAR_ASSERT(!_wait_for_next_value);
         return _wait_for_next_value.emplace().get_future();
     }
 
@@ -183,20 +183,20 @@ public:
         if (ready) {
             return {make_ready_future()};
         } else {
-            assert(!_wait_for_free_space);
+            SEASTAR_ASSERT(!_wait_for_free_space);
             return {_wait_for_free_space.emplace().get_future()};
         }
     }
 
     auto get_return_object() noexcept -> generator_type;
     void set_generator(generator_type* g) noexcept {
-        assert(!_generator);
+        SEASTAR_ASSERT(!_generator);
         _generator = g;
     }
 
     suspend_always initial_suspend() const noexcept { return {}; }
     suspend_never final_suspend() const noexcept {
-        assert(_generator);
+        SEASTAR_ASSERT(_generator);
         _generator->on_finished();
         return {};
     }
@@ -210,12 +210,12 @@ public:
     }
 
     seastar::future<> wait_for_next_value() noexcept {
-        assert(!_wait_for_next_value);
+        SEASTAR_ASSERT(!_wait_for_next_value);
         return _wait_for_next_value.emplace().get_future();
     }
 
     void on_reclaim_free_space() noexcept {
-        assert(_wait_for_free_space);
+        SEASTAR_ASSERT(_wait_for_free_space);
         _wait_for_free_space->set_value();
         _wait_for_free_space = {};
     }
@@ -271,8 +271,8 @@ public:
     }
 
     next_value_type await_resume() {
-        assert(_next_value_future.available());
-        assert(_generator);
+        SEASTAR_ASSERT(_next_value_future.available());
+        SEASTAR_ASSERT(_generator);
         return _generator->take_next_value();
     }
 };
@@ -329,7 +329,7 @@ public:
         : _coro{coro}
         , _promise{promise}
         , _buffer_capacity{buffer_capacity} {
-        assert(_promise);
+        SEASTAR_ASSERT(_promise);
         _promise->set_generator(this);
     }
     generator(const generator&) = delete;
@@ -398,7 +398,7 @@ public:
 
     void unhandled_exception() noexcept {
         // called by promise's unhandled_exception()
-        assert(!_exception);
+        SEASTAR_ASSERT(!_exception);
         _exception = std::current_exception();
     }
 };
@@ -420,7 +420,7 @@ public:
               promise_type* promise) noexcept
         : _coro{coro}
         , _promise{promise} {
-        assert(_promise);
+        SEASTAR_ASSERT(_promise);
         _promise->set_generator(this);
     }
     generator(const generator&) = delete;
@@ -474,7 +474,7 @@ public:
     }
 
     void unhandled_exception() noexcept {
-        assert(!_exception);
+        SEASTAR_ASSERT(!_exception);
         _exception = std::current_exception();
     }
 };
@@ -483,7 +483,7 @@ namespace internal {
 
 template<NothrowMoveConstructible T>
 void generator_unbuffered_promise<T>::return_void() noexcept {
-    assert(_wait_for_next_value);
+    SEASTAR_ASSERT(_wait_for_next_value);
     _wait_for_next_value->set_value();
     _wait_for_next_value = {};
 }

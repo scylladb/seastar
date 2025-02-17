@@ -15,6 +15,7 @@
 
 #include <seastar/core/bitset-iter.hh>
 #include <seastar/core/scheduling.hh>
+#include <seastar/util/assert.hh>
 #ifndef SEASTAR_MODULE
 #include <boost/intrusive/list.hpp>
 #include <exception>
@@ -78,7 +79,7 @@ private:
         }
 
         auto index = bitsets::count_leading_zeros(timestamp ^ _last);
-        assert(index < n_buckets - 1);
+        SEASTAR_ASSERT(index < n_buckets - 1);
         return index;
     }
 

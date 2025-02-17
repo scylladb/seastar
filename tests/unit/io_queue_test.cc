@@ -33,6 +33,7 @@
 #include <seastar/core/io_intent.hh>
 #include <seastar/core/internal/io_request.hh>
 #include <seastar/core/internal/io_sink.hh>
+#include <seastar/util/assert.hh>
 #include <seastar/util/internal/iovec_utils.hh>
 
 using namespace seastar;
@@ -412,7 +413,7 @@ SEASTAR_TEST_CASE(test_request_iovec_split) {
     };
 
     auto check_buffer = [&large_buffer] (size_t len, char value) {
-        assert(len < sizeof(large_buffer));
+        SEASTAR_ASSERT(len < sizeof(large_buffer));
         bool fill_match = true;
         bool train_match = true;
         for (unsigned i = 0; i < sizeof(large_buffer); i++) {
@@ -463,12 +464,12 @@ SEASTAR_TEST_CASE(test_request_iovec_split) {
             ::iovec iov;
             iov.iov_base = reinterpret_cast<void*>(large_buffer + total);
             iov.iov_len = dice(reng);
-            assert(iov.iov_len != 0);
+            SEASTAR_ASSERT(iov.iov_len != 0);
             total += iov.iov_len;
             vecs.push_back(std::move(iov));
         }
 
-        assert(total > 0);
+        SEASTAR_ASSERT(total > 0);
         clear_buffer();
         bump_buffer(vecs);
         check_buffer(total, 1);

@@ -22,7 +22,6 @@
 
 #ifdef SEASTAR_MODULE
 module;
-#include <cassert>
 #include <csignal>
 #include <cstdint>
 #include <filesystem>
@@ -38,6 +37,7 @@ module seastar;
 #include <seastar/core/reactor.hh>
 #include <seastar/util/process.hh>
 #endif
+#include <seastar/util/assert.hh>
 
 namespace seastar::experimental {
 
@@ -119,7 +119,7 @@ future<process::wait_status> process::wait() {
         if (WIFEXITED(wstatus)) {
             return wait_exited{WEXITSTATUS(wstatus)};
         } else {
-            assert(WIFSIGNALED(wstatus));
+            SEASTAR_ASSERT(WIFSIGNALED(wstatus));
             return wait_signaled{WTERMSIG(wstatus)};
         }
     });
@@ -135,7 +135,7 @@ void process::kill() {
 
 future<process> process::spawn(const std::filesystem::path& pathname,
                                spawn_parameters params) {
-    assert(!params.argv.empty());
+    SEASTAR_ASSERT(!params.argv.empty());
     return engine().spawn(pathname.native(), std::move(params.argv), std::move(params.env)).then_unpack(
             [] (pid_t pid, file_desc stdin_pipe, file_desc stdout_pipe, file_desc stderr_pipe) {
         return make_ready_future<process>(create_tag{}, pid, std::move(stdin_pipe), std::move(stdout_pipe), std::move(stderr_pipe));

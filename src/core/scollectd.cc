@@ -24,7 +24,6 @@ module;
 #endif
 
 #include <sys/socket.h>
-#include <cassert>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -48,6 +47,7 @@ module seastar;
 
 #include "core/scollectd-impl.hh"
 #endif
+#include <seastar/util/assert.hh>
 
 namespace seastar {
 
@@ -233,7 +233,7 @@ struct cpwriter {
                 write(v.ui()); // unsigned int 64, big endian
                 break;
             default:
-                assert(0);
+                SEASTAR_ASSERT(0);
         }
     }
     cpwriter & write(const sstring & s) {

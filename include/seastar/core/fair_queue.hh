@@ -26,6 +26,7 @@
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/circular_buffer.hh>
 #include <seastar/core/metrics_registration.hh>
+#include <seastar/util/assert.hh>
 #include <seastar/util/shared_token_bucket.hh>
 
 #include <chrono>
@@ -318,7 +319,7 @@ private:
         }
 
         void assert_enough_capacity() const noexcept {
-            assert(c.size() < c.capacity());
+            SEASTAR_ASSERT(c.size() < c.capacity());
         }
     };
 

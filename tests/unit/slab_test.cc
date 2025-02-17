@@ -22,8 +22,8 @@
  */
 
 #include <iostream>
-#include <assert.h>
 #include <seastar/core/slab.hh>
+#include <seastar/util/assert.hh>
 
 using namespace seastar;
 
@@ -61,12 +61,12 @@ static void test_allocation_1(const double growth_factor, const unsigned slab_li
 
     std::vector<item *> items;
 
-    assert(slab_limit_size % size == 0);
+    SEASTAR_ASSERT(slab_limit_size % size == 0);
     for (auto i = 0u; i < (slab_limit_size / size); i++) {
         auto item = slab.create(size);
         items.push_back(item);
     }
-    assert(slab.create(size) == nullptr);
+    SEASTAR_ASSERT(slab.create(size) == nullptr);
 
     free_vector<item>(slab, items);
     std::cout << __FUNCTION__ << " done!\n";
@@ -91,7 +91,7 @@ static void test_allocation_2(const double growth_factor, const unsigned slab_li
     auto class_size = slab.class_size(size);
     auto per_slab_page = max_object_size / class_size;
     auto available_slab_pages = slab_limit_size / max_object_size;
-    assert(allocations == (per_slab_page * available_slab_pages));
+    SEASTAR_ASSERT(allocations == (per_slab_page * available_slab_pages));
 
     free_vector<item>(slab, items);
     std::cout << __FUNCTION__ << " done!\n";
@@ -108,10 +108,10 @@ static void test_allocation_with_lru(const double growth_factor, const unsigned 
     auto max = slab_limit_size / max_object_size;
     for (auto i = 0u; i < max * 1000; i++) {
         auto item = slab.create(size);
-        assert(item != nullptr);
+        SEASTAR_ASSERT(item != nullptr);
         _cache.push_front(*item);
     }
-    assert(evictions == max * 999);
+    SEASTAR_ASSERT(evictions == max * 999);
 
     _cache.clear();
 

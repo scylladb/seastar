@@ -25,7 +25,6 @@ module;
 
 #include <sys/mman.h>
 #include <unistd.h>
-#include <cassert>
 #include <atomic>
 
 #if SEASTAR_HAS_MEMBARRIER
@@ -42,6 +41,7 @@ module seastar;
 #include <seastar/util/log.hh>
 #include <seastar/util/defer.hh>
 #endif
+#include <seastar/util/assert.hh>
 
 namespace seastar {
 
@@ -90,7 +90,7 @@ systemwide_memory_barrier() {
                PROT_READ | PROT_WRITE,
                MAP_PRIVATE | MAP_ANONYMOUS,
                -1, 0) ;
-       assert(mem != MAP_FAILED);
+       SEASTAR_ASSERT(mem != MAP_FAILED);
 
        // If the user specified --lock-memory, then madvise() below will fail
        // with EINVAL, so we unlock here:
@@ -98,7 +98,7 @@ systemwide_memory_barrier() {
        // munlock may fail on old kernels if we don't have permission. That's not
        // a problem, since if we don't have permission to unlock, we didn't have
        // permissions to lock.
-       assert(r == 0 || errno == EPERM);
+       SEASTAR_ASSERT(r == 0 || errno == EPERM);
 
        return reinterpret_cast<char*>(mem);
     }();
@@ -108,7 +108,7 @@ systemwide_memory_barrier() {
     // a side effect of executing a memory barrier on those threads
     // FIXME: does this work on ARM?
     int r2 = madvise(mem, getpagesize(), MADV_DONTNEED);
-    assert(r2 == 0);
+    SEASTAR_ASSERT(r2 == 0);
 }
 
 struct alignas(cache_line_size) aligned_flag {

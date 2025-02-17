@@ -37,6 +37,7 @@
 #include <boost/range/combine.hpp>
 #include <seastar/core/thread.hh>
 #include <seastar/core/loop.hh>
+#include <seastar/util/assert.hh>
 #include <ranges>
 #include <regex>
 #include <string_view>
@@ -883,7 +884,7 @@ class metrics_handler : public httpd::handler_base  {
             // This assert is obviously true. It is in here just to
             // silence a bogus gcc warning:
             // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=89337
-            assert(name.length() >= 3);
+            SEASTAR_ASSERT(name.length() >= 3);
             name.resize(name.length() - 3);
             return true;
         }

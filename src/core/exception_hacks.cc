@@ -58,7 +58,6 @@ module;
 
 #include <link.h>
 #include <dlfcn.h>
-#include <assert.h>
 #include <vector>
 #include <cstddef>
 
@@ -69,6 +68,7 @@ module seastar;
 #include <seastar/core/reactor.hh>
 #include <seastar/util/backtrace.hh>
 #endif
+#include <seastar/util/assert.hh>
 
 namespace seastar {
 using dl_iterate_fn = int (*) (int (*callback) (struct dl_phdr_info *info, size_t size, void *data), void *data);
@@ -77,7 +77,7 @@ using dl_iterate_fn = int (*) (int (*callback) (struct dl_phdr_info *info, size_
 static dl_iterate_fn dl_iterate_phdr_org() {
     static dl_iterate_fn org = [] {
         auto org = (dl_iterate_fn)dlsym (RTLD_NEXT, "dl_iterate_phdr");
-        assert(org);
+        SEASTAR_ASSERT(org);
         return org;
     }();
     return org;

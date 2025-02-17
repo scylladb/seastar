@@ -16,35 +16,21 @@
  * under the License.
  */
 /*
- * Copyright (C) 2018 ScyllaDB
+ * Copyright (C) 2025 Redpanda Data.
  */
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
-#include <chrono>
-#include <time.h>
-#endif
-#include <seastar/util/assert.hh>
-
-namespace seastar {
-
-class thread_cputime_clock {
-public:
-    using rep = int64_t;
-    using period = std::chrono::nanoseconds::period;
-    using duration = std::chrono::duration<rep, period>;
-    using time_point = std::chrono::time_point<thread_cputime_clock, duration>;
-public:
-    static time_point now() {
-        using namespace std::chrono_literals;
-
-        struct timespec tp;
-        [[gnu::unused]] auto ret = clock_gettime(CLOCK_THREAD_CPUTIME_ID, &tp);
-        SEASTAR_ASSERT(ret == 0);
-        return time_point(tp.tv_nsec * 1ns + tp.tv_sec * 1s);
-    }
-};
-
+namespace seastar::internal {
+[[noreturn]] void assert_fail(const char *msg, const char *file, int line,
+                              const char *func);
 }
 
+/// Like assert(), but independent of NDEBUG. Active in all build modes.
+#define SEASTAR_ASSERT(x)                                             \
+    do {                                                              \
+        if (!(x)) [[unlikely]] {                                      \
+            seastar::internal::assert_fail(#x, __FILE__, __LINE__,    \
+                                           __PRETTY_FUNCTION__);      \
+        }                                                             \
+    } while (0)

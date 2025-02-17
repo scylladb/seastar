@@ -29,6 +29,7 @@
 #include <seastar/core/fair_queue.hh>
 #include <seastar/core/do_with.hh>
 #include <seastar/util/later.hh>
+#include <seastar/util/assert.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/print.hh>
 #include <boost/range/irange.hpp>
@@ -169,7 +170,7 @@ public:
     //
     // The ratios argument is the ratios towards the first class
     void verify(sstring name, std::vector<unsigned> ratios, unsigned expected_error = 1) {
-        assert(ratios.size() == _results.size());
+        SEASTAR_ASSERT(ratios.size() == _results.size());
         auto str = name + ":";
         for (auto i = 0ul; i < _results.size(); ++i) {
             str += format(" r[{:d}] = {:d}", i, _results[i]);

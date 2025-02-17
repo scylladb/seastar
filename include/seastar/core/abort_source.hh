@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include <seastar/util/assert.hh>
 #include <seastar/util/modules.hh>
 #include <seastar/util/noncopyable_function.hh>
 #include <seastar/util/optimized_optional.hh>
@@ -132,7 +133,7 @@ private:
             return;
         }
         _ex = ex.value_or(get_default_exception());
-        assert(_ex);
+        SEASTAR_ASSERT(_ex);
         auto subs = std::move(_subscriptions);
         while (!subs.empty()) {
             subscription& s = subs.front();
