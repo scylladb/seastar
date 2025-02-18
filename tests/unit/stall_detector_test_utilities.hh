@@ -24,6 +24,9 @@
 #include <cstddef>
 #include <seastar/core/internal/stall_detector.hh>
 #include <seastar/core/reactor.hh>
+#include "seastar/core/scheduling.hh"
+#include "seastar/core/thread.hh"
+#include "seastar/coroutine/maybe_yield.hh"
 #include <seastar/core/thread_cputime_clock.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/util/later.hh>
@@ -85,6 +88,15 @@ void spin_some_cooperatively(std::chrono::duration<double> how_much, void_fn bod
         if (need_preempt()) {
             thread::yield();
         }
+    }
+}
+
+future<> spin_some_cooperatively_coro(std::chrono::duration<double> how_much, void_fn body = []{}) {
+    auto end = std::chrono::steady_clock::now() + how_much;
+    while (std::chrono::steady_clock::now() < end) {
+        // fmt::print("GC: {}\n", current_scheduling_group().name());
+        spin(200us, body);
+        co_await coroutine::maybe_yield();
     }
 }
 
