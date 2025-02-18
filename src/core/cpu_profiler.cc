@@ -38,7 +38,7 @@ signal_mutex::guard::~guard() {
         return;
     }
     // Ensure the subsequent store isn't hoisted by the the
-    // compiler into the critical section it's intended to 
+    // compiler into the critical section it's intended to
     // protect.
     std::atomic_signal_fence(std::memory_order_release);
     _mutex->_mutex.store(false, std::memory_order_relaxed);
@@ -52,7 +52,7 @@ std::optional<signal_mutex::guard> signal_mutex::try_lock() {
         // by the compiler.
         std::atomic_signal_fence(std::memory_order_acq_rel);
         return {guard(this)};
-    } 
+    }
 
     return std::nullopt;
 }
@@ -100,7 +100,7 @@ void cpu_profiler::update_config(cpu_profiler_config cfg) {
     auto is_stopped = _is_stopped;
     stop();
     _cfg = cfg;
-    // Don't start the profiler if it's been explicitly 
+    // Don't start the profiler if it's been explicitly
     // stopped elsewhere.
     if (!is_stopped) {
         start();
@@ -133,7 +133,7 @@ void cpu_profiler::on_signal() {
 
     // During exception handling in libgcc there is a critical section
     // where the stack is being modified so execution can be returned to
-    // a handler for the exception. This modification isn't capture by 
+    // a handler for the exception. This modification isn't capture by
     // the eh_frames for the program though. So when libgcc's backtrace
     // enters the partially modified stack it will follow invalid addresses
     // and cause a segfault. To avoid this we check if any exception
@@ -178,7 +178,7 @@ void cpu_profiler::on_signal() {
     auto next = get_next_timeout();
     arm_timer(next);
 }
- 
+
 size_t cpu_profiler::results(std::vector<cpu_profiler_trace>& results_buffer) {
     // Since is this not called in the interrupt it should always succeed
     // in acquiring the lock.
@@ -209,7 +209,7 @@ bool cpu_profiler_linux_perf_event::is_spurious_signal() {
     return _perf_event.is_spurious_signal();
 }
 
-std::optional<linux_perf_event::kernel_backtrace> 
+std::optional<linux_perf_event::kernel_backtrace>
 cpu_profiler_linux_perf_event::try_get_kernel_backtrace() {
     return _perf_event.try_get_kernel_backtrace();
 }
