@@ -19,12 +19,13 @@
  * Copyright (C) 2023 ScyllaDB
  */
 
-#include <chrono>
-#include <optional>
-#include <random>
+ #include <chrono>
+ #include <optional>
+ #include <random>
 
-#include <seastar/core/internal/cpu_profiler.hh>
-#include <seastar/util/log.hh>
+ #include <seastar/core/internal/cpu_profiler.hh>
+ #include <seastar/core/scheduling.hh>
+ #include <seastar/util/log.hh>
 
 namespace seastar {
 seastar::logger cpu_profiler_logger("cpu_profiler");
@@ -160,6 +161,7 @@ void cpu_profiler::on_signal() {
         }
         _traces.emplace_back();
         _traces.back().user_backtrace = current_backtrace_tasklocal();
+        _traces.back().sg = current_scheduling_group();
 
         auto kernel_bt = try_get_kernel_backtrace();
         if (kernel_bt) {
