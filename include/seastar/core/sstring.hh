@@ -565,7 +565,7 @@ public:
         }
     }
     int compare(std::basic_string_view<char_type, traits_type> x) const noexcept {
-        auto n = traits_type::compare(begin(), x.begin(), std::min(size(), x.size()));
+        auto n = traits_type::compare(begin(), x.data(), std::min(size(), x.size()));
         if (n != 0) {
             return n;
         }
@@ -584,7 +584,7 @@ public:
         }
 
         sz = std::min(size() - pos, sz);
-        auto n = traits_type::compare(begin() + pos, x.begin(), std::min(sz, x.size()));
+        auto n = traits_type::compare(begin() + pos, x.data(), std::min(sz, x.size()));
         if (n != 0) {
             return n;
         }
