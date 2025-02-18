@@ -45,13 +45,13 @@
 
 #ifndef SEASTAR_MODULE
 #include <cstdint>
-#include <string_view>
+#include <span>
 #include <vector>
 #endif
 
 namespace seastar {
 
-using rss_key_type = std::basic_string_view<uint8_t>;
+using rss_key_type = std::span<const uint8_t>;
 
 // Mellanox Linux's driver key
 static constexpr uint8_t default_rsskey_40bytes_v[] = {
