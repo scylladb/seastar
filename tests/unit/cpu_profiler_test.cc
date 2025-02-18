@@ -19,21 +19,29 @@
  * Copyright (C) 2023 ScyllaDB Ltd.
  */
 
-#include <boost/test/tools/old/interface.hpp>
-#include <cstddef>
-#include <seastar/core/internal/cpu_profiler.hh>
-#include <seastar/core/internal/stall_detector.hh>
-#include <seastar/core/reactor.hh>
-#include <seastar/core/thread_cputime_clock.hh>
-#include <seastar/core/loop.hh>
-#include <seastar/util/later.hh>
-#include <seastar/testing/test_case.hh>
-#include <seastar/testing/thread_test_case.hh>
 #include <atomic>
 #include <chrono>
-#include <sys/mman.h>
+#include <cstddef>
+
+#include <seastar/core/internal/cpu_profiler.hh>
+#include <seastar/core/internal/stall_detector.hh>
+#include <seastar/core/loop.hh>
+#include <seastar/core/reactor.hh>
+#include <seastar/core/scheduling.hh>
+#include <seastar/core/thread_cputime_clock.hh>
+#include <seastar/core/with_scheduling_group.hh>
+#include <seastar/testing/test_case.hh>
+#include <seastar/testing/thread_test_case.hh>
+#include <seastar/util/defer.hh>
+#include <seastar/util/later.hh>
 
 #include "stall_detector_test_utilities.hh"
+
+#include <sys/mman.h>
+
+#include <boost/test/tools/old/interface.hpp>
+
+namespace {
 
 struct temporary_profiler_settings {
     std::chrono::nanoseconds prev_ns;
@@ -64,8 +72,36 @@ bool close_to_expected(size_t actual_size, size_t expected_size, double allowed_
     auto lower_bound = (1 - allowed_dev) * expected_size;
     auto upper_bound = (1 + allowed_dev) * expected_size;
 
+    BOOST_TEST_INFO("actual_size: " << actual_size << ", lower_bound " << lower_bound << ", upper_bound " << upper_bound);
+
     return actual_size <= upper_bound && actual_size >= lower_bound;
 }
+
+/*
+ * Get the current profile results and dropped count. If sg_in_main is true, also validates that
+ * the sg associated with the profile is always main, as we expect unless some SG have been
+ * created explicitly.
+ */
+std::pair<std::vector<cpu_profiler_trace>, size_t> get_profile_and_dropped(bool sg_is_main = true) {
+    std::vector<cpu_profiler_trace> results;
+    auto dropped = engine().profiler_results(results);
+
+    for (auto& result: results) {
+        BOOST_CHECK(result.sg == default_scheduling_group());
+    }
+
+    return {results, dropped};
+}
+
+
+// get profile and validate results
+std::vector<cpu_profiler_trace> get_profile() {
+    return get_profile_and_dropped().first;
+}
+
+}
+
+
 
 SEASTAR_THREAD_TEST_CASE(config_case) {
     // Ensure that repeatedly configuring the profiler results
@@ -79,14 +115,12 @@ SEASTAR_THREAD_TEST_CASE(config_case) {
 
         spin_some_cooperatively(120*10ms);
 
-        std::vector<cpu_profiler_trace> results;
-        engine().profiler_results(results);
+        auto results = get_profile();
         BOOST_REQUIRE(close_to_expected(results.size(), 12));
     }
 
     spin_some_cooperatively(128*10ms);
-    std::vector<cpu_profiler_trace> results;
-    engine().profiler_results(results);
+    auto results = get_profile();
     BOOST_REQUIRE_EQUAL(results.size(), 0);
 }
 
@@ -95,8 +129,7 @@ SEASTAR_THREAD_TEST_CASE(simple_case) {
 
     spin_some_cooperatively(120*10ms);
 
-    std::vector<cpu_profiler_trace> results;
-    auto dropped_samples = engine().profiler_results(results);
+    auto [results, dropped_samples] = get_profile_and_dropped();
     BOOST_REQUIRE(close_to_expected(results.size(), 12));
     BOOST_REQUIRE_EQUAL(dropped_samples, 0);
 }
@@ -108,8 +141,7 @@ SEASTAR_THREAD_TEST_CASE(overwrite_case) {
 
     spin_some_cooperatively(256*10ms);
 
-    std::vector<cpu_profiler_trace> results;
-    auto dropped_samples = engine().profiler_results(results);
+    auto [results, dropped_samples] = get_profile_and_dropped();
     // 128 is the maximum number of samples the profiler can
     // retain.
     BOOST_REQUIRE_EQUAL(results.size(), 128);
@@ -130,8 +162,7 @@ SEASTAR_THREAD_TEST_CASE(mixed_case) {
     }
 
     BOOST_REQUIRE_EQUAL(reports, 5);
-    std::vector<cpu_profiler_trace> results;
-    engine().profiler_results(results);
+    auto results = get_profile();
     BOOST_REQUIRE(close_to_expected(results.size(), 12));
 }
 
@@ -141,8 +172,7 @@ SEASTAR_THREAD_TEST_CASE(spin_in_kernel) {
 
     spin_some_cooperatively(100ms, [] { mmap_populate(128 * 1024); });
 
-    std::vector<cpu_profiler_trace> results;
-    engine().profiler_results(results);
+    auto results = get_profile();
     int count = 0;
     for(auto& result : results) {
         if(result.kernel_backtrace.size() > 0){
@@ -225,8 +255,7 @@ SEASTAR_THREAD_TEST_CASE(exception_handler_case) {
     random_exception_catcher(100, d(gen));
   }
 
-  std::vector<cpu_profiler_trace> results;
-  auto dropped_samples = engine().profiler_results(results);
+  auto [results, dropped_samples] = get_profile_and_dropped();
   BOOST_REQUIRE_EQUAL(results.size(), 128);
   BOOST_REQUIRE(dropped_samples > 0);
 }
@@ -238,8 +267,7 @@ SEASTAR_THREAD_TEST_CASE(manually_disable) {
 
   spin_some_cooperatively(100ms);
 
-  std::vector<cpu_profiler_trace> results;
-  auto dropped_samples = engine().profiler_results(results);
+  auto [_, dropped_samples] = get_profile_and_dropped();
   BOOST_REQUIRE(dropped_samples > 0);
 }
 
@@ -261,7 +289,59 @@ SEASTAR_THREAD_TEST_CASE(config_thrashing) {
     spin_some_cooperatively(1us);
   }
 
-  std::vector<cpu_profiler_trace> results;
-  engine().profiler_results(results);
+  auto results = get_profile();
   BOOST_REQUIRE(results.size() > 0);
+}
+
+SEASTAR_THREAD_TEST_CASE(scheduling_group_test) {
+
+    [[maybe_unused]] auto sg_a = create_scheduling_group("sg_a", 200).get();
+    [[maybe_unused]] auto sg_b = create_scheduling_group("sg_b", 200).get();
+
+    auto destoy_groups = defer([&]() noexcept {
+        destroy_scheduling_group(sg_b).get();
+        destroy_scheduling_group(sg_a).get();
+    });
+
+    temporary_profiler_settings cp{true, 100ms};
+
+    auto fut_a = with_scheduling_group(sg_a, [] {
+        return spin_some_cooperatively_coro(2100ms);
+    });
+
+    with_scheduling_group(sg_b, [] {
+        return spin_some_cooperatively_coro(2100ms);
+    }).get();
+
+    std::move(fut_a).get();
+
+    std::vector<cpu_profiler_trace> results;
+    auto dropped_samples = engine().profiler_results(results);
+
+    size_t count_a = 0, count_b = 0, count_main = 0;
+    for (auto& r : results) {
+        if (r.sg == sg_a) {
+            ++count_a;
+        } else if (r.sg == sg_b) {
+            ++count_b;
+        } else if (r.sg == default_scheduling_group()) {
+            // this happens when the profiler triggers during non-task
+            // work, such as in the reactor pollers
+            ++count_main;
+        } else {
+            BOOST_TEST_FAIL("unexpected SG: " << r.sg.name());
+        }
+    }
+
+    // We expect a and b to be a 1:1 ratio, though we accept large
+    // variance since this is random sampling of two "randomly" scheduled
+    // groups so we don't really have the same guarantees we do in the
+    // single group case where we expect sort of +/- 1 due to the way we
+    // calculate the sampling intervals.
+    // Nominally the split is 10/10/0 for a/b/main, but we accept the
+    // below to keep flakiness to a minimum.
+    BOOST_CHECK_GT(count_a, 5);
+    BOOST_CHECK_GT(count_b, 5);
+    BOOST_CHECK_LT(count_main, 3);
+    BOOST_CHECK_EQUAL(dropped_samples, 0);
 }
