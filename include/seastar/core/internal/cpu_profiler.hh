@@ -21,16 +21,17 @@
 
 #pragma once
 
+#include <seastar/util/backtrace.hh>
 #include <seastar/core/circular_buffer_fixed_capacity.hh>
 #include <seastar/core/internal/timers.hh>
-#include <seastar/util/backtrace.hh>
+#include <seastar/core/scheduling.hh>
 
 #include <boost/container/static_vector.hpp>
+
 #include <chrono>
 #include <csignal>
 #include <cstdint>
 #include <ctime>
-#include <mutex>
 #include <atomic>
 #include <optional>
 
@@ -42,6 +43,9 @@ struct cpu_profiler_trace {
     using kernel_trace_vec = boost::container::static_vector<uintptr_t, 64>;
     simple_backtrace user_backtrace;
     kernel_trace_vec kernel_backtrace;
+    // The scheduling group active at the time the same was taken. Note that
+    // non-task reactor work (such as polling)
+    scheduling_group sg;
 };
 
 constexpr size_t max_number_of_traces = 128;
