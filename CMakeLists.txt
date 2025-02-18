@@ -282,10 +282,6 @@ option (Seastar_INSTALL
   "Install targets."
   ${Seastar_MASTER_PROJECT})
 
-option (Seastar_NUMA
-  "Enable NUMA support."
-  ON)
-
 option (Seastar_TESTING
   "Enable testing targets."
   ${Seastar_MASTER_PROJECT})
@@ -1046,13 +1042,6 @@ if (Seastar_LD_FLAGS)
     PRIVATE ${Seastar_LD_FLAGS})
 endif ()
 
-if (Seastar_NUMA)
-  list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_HAVE_NUMA)
-
-  target_link_libraries (seastar
-    PRIVATE numactl::numactl)
-endif ()
-
 if (SystemTap-SDT_FOUND)
   list (APPEND Seastar_PRIVATE_COMPILE_DEFINITIONS SEASTAR_HAVE_SYSTEMTAP_SDT)
 
@@ -1407,7 +1396,6 @@ if (Seastar_INSTALL)
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findhwloc.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findlksctp-tools.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findlz4.cmake
-      ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findnumactl.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findragel.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findrt.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Finducontext.cmake

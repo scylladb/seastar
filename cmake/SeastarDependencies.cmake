@@ -91,7 +91,6 @@ macro (seastar_find_dependencies)
     SystemTap-SDT
     hwloc
     lksctp-tools # No version information published.
-    numactl # No version information published.
     rt
     ucontext
     yaml-cpp)
@@ -128,8 +127,6 @@ macro (seastar_find_dependencies)
     OPTION ${Seastar_HWLOC})
   seastar_set_dep_args (lksctp-tools REQUIRED)
   seastar_set_dep_args (rt REQUIRED)
-  seastar_set_dep_args (numactl
-    OPTION ${Seastar_NUMA})
   seastar_set_dep_args (ucontext REQUIRED)
   seastar_set_dep_args (yaml-cpp REQUIRED
     VERSION 0.5.1)

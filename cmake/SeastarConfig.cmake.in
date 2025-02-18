@@ -59,7 +59,6 @@ include (SeastarDependencies)
 set (Seastar_DPDK @Seastar_DPDK@)
 set (Seastar_IO_URING @Seastar_IO_URING@)
 set (Seastar_HWLOC @Seastar_HWLOC@)
-set (Seastar_NUMA @Seastar_NUMA@)
 seastar_find_dependencies ()
 
 if (NOT TARGET Seastar::seastar)
