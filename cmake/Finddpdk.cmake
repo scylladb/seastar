@@ -129,12 +129,16 @@ find_package_handle_standard_args (dpdk
   REQUIRED_VARS
     ${dpdk_REQUIRED})
 
-# Depending on whether libbsd-dev exists at build time, DPDK may be built with a dependency on
-# libbsd. Note that other libraries in dpdk_PC_LIBRARIES are handled using separate logic
-# (see rte_libs above), thus the additional dependencies must be handled on a case by case basis.
-if ("bsd" IN_LIST dpdk_PC_LIBRARIES)
-  list (APPEND dpdk_dependencies "bsd")
-endif ()
+# DPDK's build system adds certain dependencies conditionally based on what's available
+# at build time. While most libraries from dpdk_PC_LIBRARIES are handled through the
+# rte_libs logic elsewhere, external dependencies ('bsd' and 'numa' in this case) are
+# explicitly handled below. This foreach loop checks if these specific libraries are
+# present in dpdk_PC_LIBRARIES and adds them to the dpdk_dependencies list if found.
+foreach (lib "bsd" "numa")
+  if (lib IN_LIST dpdk_PC_STATIC_LIBRARIES)
+    list (APPEND dpdk_dependencies ${lib})
+  endif()
+endforeach ()
 
 # As of DPDK 23.07, if libarchive-dev is present, it will make DPDK depend on the library.
 # Unfortunately DPDK also has a bug in its .pc file generation and will not include libarchive
