@@ -80,13 +80,13 @@ SEASTAR_THREAD_TEST_CASE(config_case) {
         spin_some_cooperatively(120*10ms);
 
         std::vector<cpu_profiler_trace> results;
-        engine().profiler_results(results); 
+        engine().profiler_results(results);
         BOOST_REQUIRE(close_to_expected(results.size(), 12));
     }
-    
+
     spin_some_cooperatively(128*10ms);
     std::vector<cpu_profiler_trace> results;
-    engine().profiler_results(results); 
+    engine().profiler_results(results);
     BOOST_REQUIRE_EQUAL(results.size(), 0);
 }
 
@@ -96,20 +96,20 @@ SEASTAR_THREAD_TEST_CASE(simple_case) {
     spin_some_cooperatively(120*10ms);
 
     std::vector<cpu_profiler_trace> results;
-    auto dropped_samples = engine().profiler_results(results); 
+    auto dropped_samples = engine().profiler_results(results);
     BOOST_REQUIRE(close_to_expected(results.size(), 12));
     BOOST_REQUIRE_EQUAL(dropped_samples, 0);
 }
 
 SEASTAR_THREAD_TEST_CASE(overwrite_case) {
-    // Ensure that older samples are being overridden in 
+    // Ensure that older samples are being overridden in
     // the cases where we can't collect results fast enough.
     temporary_profiler_settings cp{true, 10ms};
 
     spin_some_cooperatively(256*10ms);
 
     std::vector<cpu_profiler_trace> results;
-    auto dropped_samples = engine().profiler_results(results); 
+    auto dropped_samples = engine().profiler_results(results);
     // 128 is the maximum number of samples the profiler can
     // retain.
     BOOST_REQUIRE_EQUAL(results.size(), 128);
@@ -131,7 +131,7 @@ SEASTAR_THREAD_TEST_CASE(mixed_case) {
 
     BOOST_REQUIRE_EQUAL(reports, 5);
     std::vector<cpu_profiler_trace> results;
-    engine().profiler_results(results); 
+    engine().profiler_results(results);
     BOOST_REQUIRE(close_to_expected(results.size(), 12));
 }
 
@@ -142,7 +142,7 @@ SEASTAR_THREAD_TEST_CASE(spin_in_kernel) {
     spin_some_cooperatively(100ms, [] { mmap_populate(128 * 1024); });
 
     std::vector<cpu_profiler_trace> results;
-    engine().profiler_results(results); 
+    engine().profiler_results(results);
     int count = 0;
     for(auto& result : results) {
         if(result.kernel_backtrace.size() > 0){
@@ -158,7 +158,7 @@ SEASTAR_THREAD_TEST_CASE(spin_in_kernel) {
     BOOST_REQUIRE(results.size() > 0);
 }
 
-SEASTAR_THREAD_TEST_CASE(signal_mutex_basic) { 
+SEASTAR_THREAD_TEST_CASE(signal_mutex_basic) {
     // A very basic test that ensures the signal_mutex
     // can't be re-locked after it's already been acquired.
     internal::signal_mutex mutex;

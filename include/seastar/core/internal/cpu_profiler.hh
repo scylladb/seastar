@@ -72,7 +72,7 @@ private:
 };
 
 // Temporarily enable/disable the CPU profiler from taking stacktraces on this thread,
-// but don't disable the profiler completely. This can be used disable the profiler 
+// but don't disable the profiler completely. This can be used disable the profiler
 // for cases when taking a backtrace isn't valid (IE JIT generated code).
 void profiler_drop_stacktraces(bool) noexcept;
 
@@ -108,7 +108,7 @@ struct cpu_profiler_stats {
     }
 
     unsigned sum_dropped() const {
-        return dropped_samples_from_manual_disablement 
+        return dropped_samples_from_manual_disablement
             + dropped_samples_from_buffer_full
             + dropped_samples_from_exceptions
             + dropped_samples_from_mutex_contention;
@@ -155,7 +155,7 @@ public:
     virtual void arm_timer(std::chrono::nanoseconds) = 0;
     virtual void disarm_timer() = 0;
     virtual bool is_spurious_signal() { return false; }
-    virtual std::optional<linux_perf_event::kernel_backtrace> 
+    virtual std::optional<linux_perf_event::kernel_backtrace>
     try_get_kernel_backtrace() { return std::nullopt; }
 };
 
@@ -163,7 +163,7 @@ class cpu_profiler_posix_timer : public cpu_profiler {
     posix_timer _timer;
 public:
     cpu_profiler_posix_timer(cpu_profiler_config cfg)
-            : cpu_profiler(cfg) 
+            : cpu_profiler(cfg)
             // CLOCK_MONOTONIC is used here in place of CLOCK_THREAD_CPUTIME_ID.
             // This is since for intervals of ~5ms or less CLOCK_THREAD_CPUTIME_ID
             // fires 200-600% after it's configured time. Therefore it is not granular
@@ -172,7 +172,7 @@ public:
             // this issue.
             , _timer({signal_number()}, CLOCK_MONOTONIC) {}
 
-    virtual ~cpu_profiler_posix_timer() override = default; 
+    virtual ~cpu_profiler_posix_timer() override = default;
     virtual void arm_timer(std::chrono::nanoseconds) override;
     virtual void disarm_timer() override;
 };
@@ -189,7 +189,7 @@ public:
     virtual void arm_timer(std::chrono::nanoseconds) override;
     virtual void disarm_timer() override;
     virtual bool is_spurious_signal() override;
-    virtual std::optional<linux_perf_event::kernel_backtrace> 
+    virtual std::optional<linux_perf_event::kernel_backtrace>
     try_get_kernel_backtrace() override;
 };
 
