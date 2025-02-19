@@ -2423,3 +2423,65 @@ TODO: Talk about how to dynamically change the number of shares, and why.
 
 ## Multi-tenancy
 TODO
+
+# General application structuring tips
+
+## Initialization and cleanup
+
+In C++, RAII is typically used to coordinate initialization and cleanup. In asyncronous programming, RAII
+is not available, but for the control plane it is useful to bring up a seastar::thread to make use of it.
+
+In conjunction with seastar::app_template, initialization and cleanup look like so:
+
+```cpp
+#include <seastar/core/app-template.hh>
+#include <seastar/core/reactor.hh>
+#include <iostream>
+
+int main(int argc, char** argv) {
+    seastar::app_template app;
+    return app.run(argc, argv, [] {
+        return seastar::async() {
+            std::cout << "Hello world\n";
+            my_class my_object;
+            // ... more code
+
+            // my_object will be destroyed here
+            return 0;
+    });
+}
+```
+
+If one needs to invoke an asynchronous function during shutdown, one can make
+use of the seastar::defer() function to schedule an arbitrary cleanup function:
+
+```cpp
+#include <seastar/core/app-template.hh>
+#include <seastar/core/reactor.hh>
+#include <iostream>
+
+int main(int argc, char** argv) {
+    seastar::app_template app;
+    return app.run(argc, argv, [] {
+        return seastar::async() {
+            std::cout << "Hello world\n";
+            my_class my_object;
+            // ... more code
+
+            auto cleanup = defer([] () noexcept {
+                // .get() joins the asynchronous function back
+                // into the thread.
+                call_async_cleanup_function().get();
+            });
+
+            // `cleanup` will invoke its function here, if we reached
+            // its construction point
+
+            // my_object will be destroyed here
+            return 0;
+    });
+}
+```
+
+See also seastar::deferred_close and seastar::deferred_stop for more ways to
+control cleanup.
