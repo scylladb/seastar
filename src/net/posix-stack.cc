@@ -81,6 +81,9 @@ copy_reinterpret_cast(const void* ptr) {
     return tmp;
 }
 
+thread_local std::array<uint64_t, seastar::max_scheduling_groups()> bytes_sent = {};
+thread_local std::array<uint64_t, seastar::max_scheduling_groups()> bytes_received = {};
+
 }
 
 namespace seastar {
@@ -637,6 +640,8 @@ posix_data_source_impl::get() {
             _config.buffer_size /= 2;
             _config.buffer_size = std::max(_config.buffer_size, _config.min_buffer_size);
         }
+        auto sg_id = internal::scheduling_group_index(current_scheduling_group());
+        bytes_received[sg_id] += b.size();
         return b;
     });
 }
@@ -671,12 +676,16 @@ std::vector<iovec> to_iovec(std::vector<temporary_buffer<char>>& buf_vec) {
 
 future<>
 posix_data_sink_impl::put(temporary_buffer<char> buf) {
+    auto sg_id = internal::scheduling_group_index(current_scheduling_group());
+    bytes_sent[sg_id] += buf.size();
     return _fd.write_all(buf.get(), buf.size()).then([d = buf.release()] {});
 }
 
 future<>
 posix_data_sink_impl::put(packet p) {
     _p = std::move(p);
+    auto sg_id = internal::scheduling_group_index(current_scheduling_group());
+    bytes_sent[sg_id] += _p.len();
     return _fd.write_all(_p).then([this] { _p.reset(); });
 }
 
@@ -876,6 +885,8 @@ future<> posix_datagram_channel::send(const socket_address& dst, const char *mes
     auto len = strlen(message);
     auto a = dst;
     resolve_outgoing_address(a);
+    auto sg_id = internal::scheduling_group_index(current_scheduling_group());
+    bytes_sent[sg_id] += len;
     return _fd.sendto(a, message, len)
             .then([len] (size_t size) { assert(size == len); });
 }
@@ -883,6 +894,8 @@ future<> posix_datagram_channel::send(const socket_address& dst, const char *mes
 future<> posix_datagram_channel::send(const socket_address& dst, packet p) {
     auto len = p.len();
     _send.prepare(dst, std::move(p));
+    auto sg_id = internal::scheduling_group_index(current_scheduling_group());
+    bytes_sent[sg_id] += len;
     return _fd.sendmsg(&_send._hdr)
             .then([len] (size_t size) { assert(size == len); });
 }
@@ -954,6 +967,8 @@ posix_datagram_channel::receive() {
                 break;
             }
         }
+        auto sg_id = internal::scheduling_group_index(current_scheduling_group());
+        bytes_received[sg_id] += size;
         return make_ready_future<datagram>(datagram(std::make_unique<posix_datagram>(
             _recv._src_addr, dst ? *dst : _address, packet(fragment{_recv._buffer, size}, make_deleter([buf = _recv._buffer] { delete[] buf; })))));
     }).handle_exception([p = _recv._buffer](auto ep) {
@@ -1197,6 +1212,18 @@ std::vector<network_interface> posix_network_stack::network_interfaces() {
     }();
 
     return std::vector<network_interface>(thread_local_interfaces.begin(), thread_local_interfaces.end());
+}
+
+statistics posix_network_stack::stats(unsigned scheduling_group_id) {
+    return statistics{
+        bytes_sent[scheduling_group_id],
+        bytes_received[scheduling_group_id],
+    };
+}
+
+void posix_network_stack::clear_stats(unsigned scheduling_group_id) {
+    bytes_sent[scheduling_group_id] = 0;
+    bytes_received[scheduling_group_id] = 0;
 }
 
 }

@@ -30,6 +30,17 @@
 
 namespace seastar {
 
+namespace internal {
+
+namespace native_stack_net_stats {
+
+inline thread_local std::array<uint64_t, max_scheduling_groups()> bytes_sent = {};
+inline thread_local std::array<uint64_t, max_scheduling_groups()> bytes_received = {};
+
+};
+
+}
+
 namespace net {
 
 using namespace seastar;
@@ -173,6 +184,8 @@ public:
         }
         return _conn->wait_for_data().then([this] {
             _buf = _conn->read();
+            auto sg_id = internal::scheduling_group_index(current_scheduling_group());
+            internal::native_stack_net_stats::bytes_received[sg_id] += _buf.len();
             _cur_frag = 0;
             _eof = !_buf.len();
             return get();
@@ -194,6 +207,8 @@ public:
         : _conn(std::move(conn)) {}
     using data_sink_impl::put;
     virtual future<> put(packet p) override {
+        auto sg_id = internal::scheduling_group_index(current_scheduling_group());
+        internal::native_stack_net_stats::bytes_sent[sg_id] += p.len();
         return _conn->send(std::move(p));
     }
     virtual future<> close() override {
