@@ -291,6 +291,55 @@ BOOST_AUTO_TEST_CASE(chunked_fifo_construct_fail2) {
     BOOST_REQUIRE_EQUAL(fifo.empty(), true);
 }
 
+BOOST_AUTO_TEST_CASE(chunked_fifo_equals_op) {
+    chunked_fifo<int> empty, vec123;
+    vec123.push_back(1);
+    vec123.push_back(2);
+    vec123.push_back(3);
+    auto empty2 = vec123.copy();
+    empty2.clear();
+
+    BOOST_CHECK(empty == empty);
+    BOOST_CHECK(empty == empty2);
+    BOOST_CHECK(empty != vec123);
+    BOOST_CHECK(vec123 == vec123);
+}
+
+BOOST_AUTO_TEST_CASE(chunked_fifo_copy) {
+    chunked_fifo<int> empty, vec123;
+    vec123.push_back(1);
+    vec123.push_back(2);
+    vec123.push_back(3);
+
+    auto empty_copy = empty.copy();
+    BOOST_CHECK(empty_copy.empty());
+
+    auto vec123_copy = vec123.copy();
+    BOOST_CHECK_EQUAL(vec123.size(), 3);
+    BOOST_CHECK(vec123_copy == vec123);
+}
+
+BOOST_AUTO_TEST_CASE(chunked_fifo_assignment) {
+    chunked_fifo<int> empty, vec123, vec;
+    vec123.push_back(1);
+    vec123.push_back(2);
+    vec123.push_back(3);
+
+    BOOST_CHECK(vec.empty());
+    vec = empty;
+    BOOST_CHECK(vec.empty());
+    vec = vec123;
+    BOOST_CHECK_EQUAL(vec.size(), 3);
+    BOOST_CHECK(vec == vec123);
+    vec = {};
+    BOOST_CHECK(vec.empty());
+
+    // move assignment
+    vec = std::move(vec123);
+    BOOST_CHECK_EQUAL(vec.size(), 3);
+    BOOST_CHECK(vec123.empty());
+}
+
 // Enable the following to run some benchmarks on different queue options
 #if 0
 // Unfortunately, C++ lacks the trivial feature of converting a type's name,

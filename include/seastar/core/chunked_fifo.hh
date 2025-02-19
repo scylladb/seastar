@@ -24,6 +24,7 @@
 #ifndef SEASTAR_MODULE
 #include <algorithm>
 #include <cassert>
+#include <iterator>
 #include <type_traits>
 #include <seastar/util/assert.hh>
 #include <seastar/util/modules.hh>
@@ -179,8 +180,9 @@ public:
     chunked_fifo(chunked_fifo&& x) noexcept;
     chunked_fifo(const chunked_fifo& X) = delete;
     ~chunked_fifo();
-    chunked_fifo& operator=(const chunked_fifo&) = delete;
+    chunked_fifo& operator=(const chunked_fifo&);
     chunked_fifo& operator=(chunked_fifo&&) noexcept;
+    inline bool operator==(const chunked_fifo& rhs) const;
     inline void push_back(const T& data);
     inline void push_back(T&& data);
     T& back() noexcept;
@@ -191,6 +193,9 @@ public:
     inline void pop_front() noexcept;
     inline bool empty() const noexcept;
     inline size_t size() const noexcept;
+    // Return a new chunked_fifo which is a copy of this one, which
+    // is useful as this class does not allow copy creation or assignment.
+    chunked_fifo copy() const;
     // Pop the first n elements from the fifo. Equivalent to calling pop_front()
     // n times, though likely to be faster for n greater than 1. The fifo must
     // contain at least n elements or the behavior is undefined.
@@ -300,6 +305,18 @@ chunked_fifo<T, items_per_chunk>::chunked_fifo(chunked_fifo&& x) noexcept
 template <typename T, size_t items_per_chunk>
 inline
 chunked_fifo<T, items_per_chunk>&
+chunked_fifo<T, items_per_chunk>::operator=(const chunked_fifo& rhs) {
+    if (&rhs != this) {
+        clear();
+        std::copy_n(rhs.begin(), rhs.size(), std::back_inserter(*this));
+        shrink_to_fit();
+    }
+    return *this;
+}
+
+template <typename T, size_t items_per_chunk>
+inline
+chunked_fifo<T, items_per_chunk>&
 chunked_fifo<T, items_per_chunk>::operator=(chunked_fifo&& x) noexcept {
     if (&x != this) {
         this->~chunked_fifo();
@@ -333,6 +350,14 @@ chunked_fifo<T, items_per_chunk>::size() const noexcept{
                 +_back_chunk->end - _back_chunk->begin
                 + (_nchunks - 2) * items_per_chunk;
     }
+}
+
+template <typename T, size_t items_per_chunk>
+chunked_fifo<T, items_per_chunk> chunked_fifo<T, items_per_chunk>::copy() const {
+    chunked_fifo ret;
+    ret.reserve(size());
+    std::copy_n(begin(), size(), std::back_inserter(ret));
+    return ret;
 }
 
 template <typename T, size_t items_per_chunk>
@@ -454,6 +479,11 @@ chunked_fifo<T, items_per_chunk>::emplace_back(Args&&... args) {
         throw;
     }
     ++_back_chunk->end;
+}
+
+template <typename T, size_t items_per_chunk>
+inline bool chunked_fifo<T, items_per_chunk>::operator==(const chunked_fifo& rhs) const {
+    return size() == rhs.size() && std::equal(begin(), end(), rhs.begin());
 }
 
 template <typename T, size_t items_per_chunk>
