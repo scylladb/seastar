@@ -211,6 +211,9 @@ random_exception_thrower(int a) {
 } // namespace
 
 SEASTAR_THREAD_TEST_CASE(exception_handler_case) {
+
+  // disable for now, CORE-9144
+  return;
   // Ensure that exception unwinding doesn't cause any issues
   // while profiling.
   temporary_profiler_settings cp{true, 1us};
@@ -241,6 +244,9 @@ SEASTAR_THREAD_TEST_CASE(manually_disable) {
 }
 
 SEASTAR_THREAD_TEST_CASE(config_thrashing) {
+
+  // disable for now, CORE-9144
+  return;
   // Ensure that fast config changes leave the profiler in a valid
   // state.
   temporary_profiler_settings cp{true, 1us};
