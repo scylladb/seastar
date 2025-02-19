@@ -247,7 +247,7 @@ device::receive(std::function<future<> (packet)> next_packet) {
 void device::set_local_queue(std::unique_ptr<qp> dev) {
     SEASTAR_ASSERT(!_queues[this_shard_id()]);
     _queues[this_shard_id()] = dev.get();
-    engine().at_destroy([dev = std::move(dev)] {});
+    internal::at_destroy([dev = std::move(dev)] {});
 }
 
 

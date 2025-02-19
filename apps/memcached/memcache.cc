@@ -1454,10 +1454,10 @@ int main(int ac, char** av) {
         ;
 
     return app.run_deprecated(ac, av, [&] {
-        engine().at_exit([&] { return tcp_server.stop(); });
-        engine().at_exit([&] { return udp_server.stop(); });
-        engine().at_exit([&] { return cache_peers.stop(); });
-        engine().at_exit([&] { return system_stats.stop(); });
+        internal::at_exit([&] { return tcp_server.stop(); });
+        internal::at_exit([&] { return udp_server.stop(); });
+        internal::at_exit([&] { return cache_peers.stop(); });
+        internal::at_exit([&] { return system_stats.stop(); });
 
         auto&& config = app.configuration();
         uint16_t port = config["port"].as<uint16_t>();
