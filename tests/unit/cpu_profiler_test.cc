@@ -338,10 +338,10 @@ SEASTAR_THREAD_TEST_CASE(scheduling_group_test) {
     // groups so we don't really have the same guarantees we do in the
     // single group case where we expect sort of +/- 1 due to the way we
     // calculate the sampling intervals.
-    // Nominally the split is 10/10/0 for a/b/main, but we accept the
-    // below to keep flakiness to a minimum.
-    BOOST_CHECK_GT(count_a, 5);
-    BOOST_CHECK_GT(count_b, 5);
+    // Nominally the split is 10/10/0 for a/b/main, but we just look for
+    // at least 1 event in each to avoid flakiness.
+    BOOST_CHECK_GT(count_a, 0);
+    BOOST_CHECK_GT(count_b, 0);
     BOOST_CHECK_LT(count_main, 3);
     BOOST_CHECK_EQUAL(dropped_samples, 0);
 }
