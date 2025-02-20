@@ -1050,7 +1050,7 @@ SEASTAR_TEST_CASE(test_client_abort_new_conn) {
         abort_source as;
         auto f = cln.make_request(http::request::make("GET", "test", "/test"), [] (const auto& rep, auto&& in) {
             return make_exception_future<>(std::runtime_error("Shouldn't happen"));
-        }, as, http::reply::status_type::ok);
+        }, http::reply::status_type::ok, &as);
 
         as.request_abort();
         BOOST_REQUIRE_THROW(f.get(), abort_requested_exception);
@@ -1086,7 +1086,7 @@ SEASTAR_TEST_CASE(test_client_abort_cached_conn) {
             abort_source as;
             auto f2 = cln.make_request(http::request::make("GET", "test", "/test"), [] (const auto& rep, auto&& in) {
                 return make_exception_future<>(std::runtime_error("Shouldn't happen"));
-            }, as, http::reply::status_type::ok);
+            }, http::reply::status_type::ok, &as);
 
             as.request_abort();
             BOOST_REQUIRE_THROW(f2.get(), abort_requested_exception);
@@ -1132,7 +1132,7 @@ SEASTAR_TEST_CASE(test_client_abort_send_request) {
             });
             auto f = cln.make_request(std::move(req), [] (const auto& rep, auto&& in) {
                 return make_exception_future<>(std::runtime_error("Shouldn't happen"));
-            }, as, http::reply::status_type::ok);
+            }, http::reply::status_type::ok, &as);
             client_paused.get_future().get();
             as.request_abort();
             client_resume.set_value();
@@ -1166,7 +1166,7 @@ SEASTAR_TEST_CASE(test_client_abort_recv_response) {
             abort_source as;
             auto f = cln.make_request(http::request::make("GET", "test", "/test"), [] (const auto& rep, auto&& in) {
                 return make_exception_future<>(std::runtime_error("Shouldn't happen"));
-            }, as, http::reply::status_type::ok);
+            }, http::reply::status_type::ok, &as);
             server_paused.get_future().get();
             as.request_abort();
             BOOST_REQUIRE_THROW(f.get(), abort_requested_exception);
