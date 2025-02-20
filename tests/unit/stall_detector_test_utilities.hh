@@ -91,6 +91,7 @@ void spin_some_cooperatively(std::chrono::duration<double> how_much, void_fn bod
     }
 }
 
+[[maybe_unused]]
 future<> spin_some_cooperatively_coro(std::chrono::duration<double> how_much, void_fn body = []{}) {
     auto end = std::chrono::steady_clock::now() + how_much;
     while (std::chrono::steady_clock::now() < end) {
