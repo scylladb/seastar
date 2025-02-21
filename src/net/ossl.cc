@@ -1105,25 +1105,21 @@ public:
                         }
                         case SSL_ERROR_SSL:
                         {
-                            auto ec = ERR_GET_REASON(ERR_peek_error());
-                            switch (ec) {
-                            case SSL_R_UNEXPECTED_EOF_WHILE_READING:
-                                // well in this situation, the remote end closed
-                                ERR_clear_error();
+                            auto error_codes = get_all_ossl_errors();
+                            if (contains_ossl_error(error_codes, ERR_LIB_SSL, SSL_R_UNEXPECTED_EOF_WHILE_READING)) {
+                                // peer has closed
                                 _eof = true;
                                 return make_ready_future<>();
-                            case SSL_R_PEER_DID_NOT_RETURN_A_CERTIFICATE:
-                            case SSL_R_CERTIFICATE_VERIFY_FAILED:
-                            case SSL_R_NO_CERTIFICATES_RETURNED:
-                                ERR_clear_error();
-                                verify();
-                                // may throw, otherwise fall through
-                                [[fallthrough]];
-                            default:
-                                auto err = make_ossl_error("Failed to establish SSL handshake");
-                                return handle_output_error(std::move(err));
                             }
-                            break;
+
+                            if (contains_ossl_error(error_codes, ERR_LIB_SSL, SSL_R_PEER_DID_NOT_RETURN_A_CERTIFICATE) ||
+                                contains_ossl_error(error_codes, ERR_LIB_SSL, SSL_R_CERTIFICATE_VERIFY_FAILED) ||
+                                contains_ossl_error(error_codes, ERR_LIB_SSL, SSL_R_NO_CERTIFICATES_RETURNED)) {
+                                verify();
+                                // Verify may throw, but if not fall through and make a generic error
+                            }
+                            auto err = make_ossl_error("Failed to establish SSL handshake", std::move(error_codes));
+                            return handle_output_error(std::move(err));
                         }
                         default:
                             auto err = std::runtime_error(
