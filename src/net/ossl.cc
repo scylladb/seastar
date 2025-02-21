@@ -133,31 +133,46 @@ std::error_code make_error_code(ossl_errc e) {
     return std::error_code(static_cast<int>(e), tls::error_category());
 }
 
-std::system_error make_ossl_error(const std::string & msg) {
+std::vector<ossl_errc> get_all_ossl_errors() {
     std::vector<ossl_errc> error_codes;
     for (auto code = ERR_get_error(); code != 0; code = ERR_get_error()) {
         error_codes.push_back(static_cast<ossl_errc>(code));
     }
+
+    return error_codes;
+}
+
+std::system_error make_ossl_error(const std::string & msg, std::vector<ossl_errc> error_codes) {
     if (error_codes.empty()) {
         return std::system_error{
             static_cast<int>(ERR_PACK(ERR_LIB_USER, 0, ERR_R_OPERATION_FAIL)),
             tls::error_category(),
             msg};
-    } else {
-        auto err_code = static_cast<unsigned long>(error_codes.front());
-        if (ERR_LIB_SYS == ERR_GET_LIB(err_code)) {
-            // If the error code belongs to ERR_LIB_SYS, then the error is a system error
-            // Extract the errno using ERR_GET_REASON and throw a std::generic_category
-            return std::system_error(
-                ERR_GET_REASON(err_code),
-                std::generic_category(),
-                fmt::format("{}: {}", msg, error_codes));
-        }
+    }
+    auto err_code = static_cast<unsigned long>(error_codes.front());
+    if (ERR_LIB_SYS == ERR_GET_LIB(err_code)) {
+        // If the error code belongs to ERR_LIB_SYS, then the error is a system error
+        // Extract the errno using ERR_GET_REASON and throw a std::generic_category
         return std::system_error(
-            static_cast<int>(err_code),
-            tls::error_category(),
+            ERR_GET_REASON(err_code),
+            std::generic_category(),
             fmt::format("{}: {}", msg, error_codes));
     }
+    return std::system_error(
+        static_cast<int>(err_code),
+        tls::error_category(),
+        fmt::format("{}: {}", msg, error_codes));
+}
+
+std::system_error make_ossl_error(const std::string & msg) {
+    return make_ossl_error(msg, get_all_ossl_errors());
+}
+
+bool contains_ossl_error(const std::vector<ossl_errc> & error_codes, int lib, int reason) {
+    return std::any_of(error_codes.cbegin(), error_codes.cend(), [lib, reason](const ossl_errc & code) {
+        return ERR_GET_LIB(static_cast<unsigned long>(code)) == lib &&
+               ERR_GET_REASON(static_cast<unsigned long>(code)) == reason;
+    });
 }
 
 template<typename T>
