@@ -563,6 +563,23 @@ namespace tls {
     */
     future<std::optional<sstring>> get_selected_alpn_protocol(connected_socket&);
 
+    /**
+     * Returns the cipher suite used in the connection. This string depends on the internal implementation:
+     * it's e.g. "TLS_AES_256_GCM_SHA384" for gnutls and may be different for OpenSSL.
+     *
+     * If the socket is not connected a system_error exception will be thrown.
+     * If the socket is not a TLS socket an exception will be thrown.
+    */
+    future<sstring> get_cipher_suite(connected_socket& socket);
+
+    /**
+     * Returns the protocol version used in the connection, e.g. "TLS1.3"
+     *
+     * If the socket is not connected a system_error exception will be thrown.
+     * If the socket is not a TLS socket an exception will be thrown.
+    */
+    future<sstring> get_protocol_version(connected_socket& socket);
+
     std::ostream& operator<<(std::ostream&, const subject_alt_name::value_type&);
     std::ostream& operator<<(std::ostream&, const subject_alt_name&);
 
