@@ -65,6 +65,7 @@ module seastar;
 #include <seastar/core/with_timeout.hh>
 #include <seastar/net/stack.hh>
 #include <seastar/net/tls.hh>
+#include <seastar/util/bool_class.hh>
 #include <seastar/util/defer.hh>
 #include <seastar/util/later.hh>
 #include <seastar/util/log.hh>
@@ -646,7 +647,14 @@ public:
 
     // Returns the certificate of last attempted verification attempt, if there was no attempt,
     // this will not be updated and will remain stale
-    const x509_ptr& get_last_cert() const { return _last_cert; }
+    x509_ptr get_last_cert() const {
+        if (_last_cert != nullptr) {
+            auto cert = _last_cert.get();
+            X509_up_ref(cert);
+            return x509_ptr{cert};
+        }
+        return nullptr;
+    }
 
     operator X509_STORE*() const { return _creds.get(); }
 
@@ -1328,7 +1336,7 @@ public:
         auto res = SSL_get_verify_result(_ssl.get());
         if (res != X509_V_OK) {
             auto stat_str(X509_verify_cert_error_string(res));
-            auto dn = extract_dn_information();
+            auto dn = extract_dn_information(is_verification_error::yes);
             if (dn) {
                 std::string_view stat_str_view{stat_str};
                 if (stat_str_view.ends_with(" ")) {
@@ -1493,7 +1501,7 @@ public:
             });
         }
 
-        const auto& peer_cert = get_peer_certificate();
+        const auto peer_cert = get_peer_certificate();
         if (!peer_cert) {
             return make_ready_future<result_t>();
         }
@@ -1635,12 +1643,24 @@ private:
         return san;
     }
 
-    const x509_ptr& get_peer_certificate() const {
-        return _creds->get_last_cert();
+    x509_ptr get_peer_certificate() const {
+        return x509_ptr{SSL_get1_peer_certificate(_ssl.get())};
     }
 
-    std::optional<session_dn> extract_dn_information() const {
-        const auto& peer_cert = get_peer_certificate();
+    using is_verification_error = bool_class<struct is_verification_error_tag>;
+
+    std::optional<session_dn> extract_dn_information(is_verification_error verification_error = is_verification_error::no) const {
+        const auto peer_cert = [this, verification_error]{
+            if (verification_error) {
+                // If we are attempting to get a DN from a cert that failed verification, then
+                // SSL_get1_peer_certificate will not return any certificate.  Instead we will
+                // rely on the verification callback to track certs and it should be looking at
+                // the cert that failed verification
+                return _creds->get_last_cert();
+            } else {
+                return get_peer_certificate();
+            }
+        }();
         if (!peer_cert) {
             return std::nullopt;
         }
