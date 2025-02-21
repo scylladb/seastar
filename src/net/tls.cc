@@ -1870,6 +1870,19 @@ public:
     }
 
     struct session_ref;
+
+    bool is_operational() const {
+        return gnutls_record_get_direction(*this) >= 0; // handshake succeeded
+    }
+
+    sstring get_cipher_suite() const {
+        return gnutls_ciphersuite_get(*this);
+    }
+
+    sstring get_protocol_version() const {
+        return gnutls_protocol_get_name(gnutls_protocol_get_version(*this));
+    }
+
 private:
 
     using x509_ctr_ptr = std::unique_ptr<gnutls_x509_crt_int, void (*)(gnutls_x509_crt_t)>;
@@ -2015,6 +2028,15 @@ public:
     }
     future<std::optional<sstring>> get_selected_alpn_protocol() {
         return _session->get_selected_alpn_protocol();
+    }
+    bool is_operational() {
+        return _session->is_operational();
+    }
+    sstring get_cipher_suite() {
+        return _session->get_cipher_suite();
+    }
+    sstring get_protocol_version() {
+        return _session->get_protocol_version();
     }
 };
 
@@ -2212,6 +2234,19 @@ future<tls::session_data> tls::get_session_resume_data(connected_socket& socket)
 
 future<std::optional<sstring>> tls::get_selected_alpn_protocol(connected_socket& socket) {
     return get_tls_socket(socket)->get_selected_alpn_protocol();
+}
+
+bool tls::is_operational(connected_socket& socket) {
+    return get_tls_socket(socket)->is_operational();
+}
+
+sstring tls::get_cipher_suite(connected_socket& socket) {
+    return get_tls_socket(socket)->get_cipher_suite();
+}
+
+sstring tls::get_protocol_version(connected_socket& socket) {
+    return get_tls_socket(socket)->get_protocol_version();
+
 }
 
 std::string_view tls::format_as(subject_alt_name_type type) {
