@@ -273,7 +273,7 @@ def generate_code_from_enum(nickname, type_name, enums):
     name_list = ',\n'.join(f'"{enum}"' for enum in enums)
     parse_func = Template('''\
     $type_name str2$type_name(const sstring& str) {
-        static const sstring arr[] = {
+        static const std::string_view arr[] = {
             $name_list
         };
         int i;
