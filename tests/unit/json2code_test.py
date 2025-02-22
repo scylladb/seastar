@@ -79,11 +79,11 @@ class TestJson2Code(unittest.TestCase):
         with self.assertRaises(urllib.error.HTTPError) as e:
             with urllib.request.urlopen(url):
                 pass
-            ex = e.exception
-            self.assertEqual(ex.code, 404)
-            response = json.loads(ex.read().decode('utf-8'))
-            self.assertEqual(response['message'], 'Not found')
-            self.assertEqual(response['code'], 404)
+        ex = e.exception
+        self.assertEqual(ex.code, 404)
+        response = json.loads(ex.read().decode('utf-8'))
+        self.assertEqual(response['message'], 'Not found')
+        self.assertEqual(response['code'], 404)
 
 
 if __name__ == '__main__':
