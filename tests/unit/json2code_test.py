@@ -27,6 +27,7 @@ import sys
 import unittest
 import urllib.request
 import urllib.parse
+from http import HTTPStatus
 
 
 class TestJson2Code(unittest.TestCase):
@@ -80,10 +81,10 @@ class TestJson2Code(unittest.TestCase):
             with urllib.request.urlopen(url):
                 pass
         ex = e.exception
-        self.assertEqual(ex.code, 404)
+        self.assertEqual(ex.code, HTTPStatus.NOT_FOUND)
         response = json.loads(ex.read().decode('utf-8'))
         self.assertEqual(response['message'], 'Not found')
-        self.assertEqual(response['code'], 404)
+        self.assertEqual(response['code'], HTTPStatus.NOT_FOUND)
 
 
 if __name__ == '__main__':
