@@ -19,13 +19,13 @@
  * Copyright (C) 2023 ScyllaDB
  */
 
- #include <chrono>
- #include <optional>
- #include <random>
+#include <chrono>
+#include <optional>
+#include <random>
 
- #include <seastar/core/internal/cpu_profiler.hh>
- #include <seastar/core/scheduling.hh>
- #include <seastar/util/log.hh>
+#include <seastar/core/internal/cpu_profiler.hh>
+#include <seastar/core/scheduling.hh>
+#include <seastar/util/log.hh>
 
 namespace seastar {
 seastar::logger cpu_profiler_logger("cpu_profiler");

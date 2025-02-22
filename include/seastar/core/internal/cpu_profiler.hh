@@ -44,7 +44,8 @@ struct cpu_profiler_trace {
     simple_backtrace user_backtrace;
     kernel_trace_vec kernel_backtrace;
     // The scheduling group active at the time the same was taken. Note that
-    // non-task reactor work (such as polling)
+    // non-task reactor work (such as polling) ends up the in the default
+    // scheduling group (with name "main").
     scheduling_group sg;
 };
 
