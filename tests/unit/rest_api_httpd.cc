@@ -67,7 +67,7 @@ int main(int ac, char** av) {
             server->start().get();
 
             auto stop_server = defer([&] () noexcept {
-                std::cout << "Stoppping HTTP server" << std::endl; // This can throw, but won't.
+                std::cout << "Stopping HTTP server" << std::endl; // This can throw, but won't.
                 server->stop().get();
             });
 
