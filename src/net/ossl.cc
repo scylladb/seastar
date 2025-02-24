@@ -946,16 +946,15 @@ public:
             });
         }
         case SSL_ERROR_SSL: {
-            auto ec = ERR_GET_REASON(ERR_peek_error());
-            if (ec == SSL_R_UNEXPECTED_EOF_WHILE_READING) {
+            auto error_codes = get_all_ossl_errors();
+            if (contains_ossl_error(error_codes, ERR_LIB_SSL, SSL_R_UNEXPECTED_EOF_WHILE_READING)) {
                 // Probably shouldn't have during a write, but
                 // let's handle this gracefully
-                ERR_clear_error();
                 _eof = true;
                 return make_ready_future<stop_iteration>(stop_iteration::yes);
             }
             auto err = make_ossl_error(
-                "Error occurred during SSL write");
+                "Error occurred during SSL write", std::move(error_codes));
             return handle_output_error(std::move(err)).then([] {
                 return stop_iteration::yes;
             });
@@ -1220,16 +1219,15 @@ public:
                     return make_exception_future<buf_type>(_error);
                 case SSL_ERROR_SSL:
                     {
-                        auto ec = ERR_GET_REASON(ERR_peek_error());
-                        if (ec == SSL_R_UNEXPECTED_EOF_WHILE_READING) {
+                        auto error_codes = get_all_ossl_errors();
+                        if (contains_ossl_error(error_codes, ERR_LIB_SSL, SSL_R_UNEXPECTED_EOF_WHILE_READING)) {
                             // in this situation, the remote end hung up
-                            ERR_clear_error();
                             _eof = true;
                             return make_ready_future<buf_type>();
                         }
                         _error = std::make_exception_ptr(
                           make_ossl_error(
-                            "Failure during processing SSL read"));
+                            "Failure during processing SSL read", std::move(error_codes)));
                         return make_exception_future<buf_type>(_error);
                     }
                 default:
@@ -1304,13 +1302,14 @@ public:
             }
             case SSL_ERROR_SSL:
             {
-                if (ERR_GET_REASON(ERR_peek_error()) == SSL_R_APPLICATION_DATA_AFTER_CLOSE_NOTIFY) {
+                auto error_codes = get_all_ossl_errors();
+                if (contains_ossl_error(error_codes, ERR_LIB_SSL, SSL_R_APPLICATION_DATA_AFTER_CLOSE_NOTIFY)) {
                     // This may have resulted in a race condition where we receive a packet immediately after
                     // sending out the close notify alert.  In this situation, retry shutdown silently
-                    ERR_clear_error();
                     return yield().then([this] { return do_shutdown(); });
                 }
-                auto err = make_ossl_error("Error occurred during SSL shutdown");
+                auto err = make_ossl_error(
+                    "Error occurred during SSL shutdown", std::move(error_codes));
                 return handle_output_error(std::move(err));
             }
             default:
