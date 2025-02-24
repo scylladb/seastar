@@ -85,7 +85,8 @@ To compile this program (it's present in the `demos/hello-world.cc` file) you ca
 
 ```
 $ docker build -t seastar-dev  -f ./docker/dev/Dockerfile .
-$ scripts/build.sh dev
+$ docker run -it --rm -v $(pwd):/seastar seastar-dev /seastar/configure --mode=dev --cook=c-ares
+$ docker run -it --rm -v $(pwd):/seastar seastar-dev ninja -C /seastar/build/dev
 $ docker run -it --rm -v $(pwd):/seastar seastar-dev /seastar/build/dev/demos/hello-world_demo -c1
 ```
 
