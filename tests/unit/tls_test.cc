@@ -1046,8 +1046,14 @@ SEASTAR_THREAD_TEST_CASE(test_reload_certificates) {
             }
 
             try {
-                f2.get();
-                BOOST_FAIL("should not reach");
+                auto res = f2.get();
+                // Effectively this is a race condition between the client
+                // and server handshakes.  If the server completes its side of the
+                // handshake and then sees that the client has closed the connection
+                // the server will treat this as an EoF and return an empty buffer.
+                // If the client completes its side of the handshake first and returns
+                // the alert and the server sees is, then the `get()` will fail.
+                BOOST_REQUIRE(res.size() == 0);
             } catch (...) {
                 // ok
             }

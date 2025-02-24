@@ -65,6 +65,7 @@ module seastar;
 #include <seastar/core/with_timeout.hh>
 #include <seastar/net/stack.hh>
 #include <seastar/net/tls.hh>
+#include <seastar/util/bool_class.hh>
 #include <seastar/util/defer.hh>
 #include <seastar/util/later.hh>
 #include <seastar/util/log.hh>
@@ -133,31 +134,46 @@ std::error_code make_error_code(ossl_errc e) {
     return std::error_code(static_cast<int>(e), tls::error_category());
 }
 
-std::system_error make_ossl_error(const std::string & msg) {
+std::vector<ossl_errc> get_all_ossl_errors() {
     std::vector<ossl_errc> error_codes;
     for (auto code = ERR_get_error(); code != 0; code = ERR_get_error()) {
         error_codes.push_back(static_cast<ossl_errc>(code));
     }
+
+    return error_codes;
+}
+
+std::system_error make_ossl_error(const std::string & msg, std::vector<ossl_errc> error_codes) {
     if (error_codes.empty()) {
         return std::system_error{
             static_cast<int>(ERR_PACK(ERR_LIB_USER, 0, ERR_R_OPERATION_FAIL)),
             tls::error_category(),
             msg};
-    } else {
-        auto err_code = static_cast<unsigned long>(error_codes.front());
-        if (ERR_LIB_SYS == ERR_GET_LIB(err_code)) {
-            // If the error code belongs to ERR_LIB_SYS, then the error is a system error
-            // Extract the errno using ERR_GET_REASON and throw a std::generic_category
-            return std::system_error(
-                ERR_GET_REASON(err_code),
-                std::generic_category(),
-                fmt::format("{}: {}", msg, error_codes));
-        }
+    }
+    auto err_code = static_cast<unsigned long>(error_codes.front());
+    if (ERR_LIB_SYS == ERR_GET_LIB(err_code)) {
+        // If the error code belongs to ERR_LIB_SYS, then the error is a system error
+        // Extract the errno using ERR_GET_REASON and throw a std::generic_category
         return std::system_error(
-            static_cast<int>(err_code),
-            tls::error_category(),
+            ERR_GET_REASON(err_code),
+            std::generic_category(),
             fmt::format("{}: {}", msg, error_codes));
     }
+    return std::system_error(
+        static_cast<int>(err_code),
+        tls::error_category(),
+        fmt::format("{}: {}", msg, error_codes));
+}
+
+std::system_error make_ossl_error(const std::string & msg) {
+    return make_ossl_error(msg, get_all_ossl_errors());
+}
+
+bool contains_ossl_error(const std::vector<ossl_errc> & error_codes, int lib, int reason) {
+    return std::any_of(error_codes.cbegin(), error_codes.cend(), [lib, reason](const ossl_errc & code) {
+        return ERR_GET_LIB(static_cast<unsigned long>(code)) == lib &&
+               ERR_GET_REASON(static_cast<unsigned long>(code)) == reason;
+    });
 }
 
 template<typename T>
@@ -631,7 +647,14 @@ public:
 
     // Returns the certificate of last attempted verification attempt, if there was no attempt,
     // this will not be updated and will remain stale
-    const x509_ptr& get_last_cert() const { return _last_cert; }
+    x509_ptr get_last_cert() const {
+        if (_last_cert != nullptr) {
+            auto cert = _last_cert.get();
+            X509_up_ref(cert);
+            return x509_ptr{cert};
+        }
+        return nullptr;
+    }
 
     operator X509_STORE*() const { return _creds.get(); }
 
@@ -931,16 +954,15 @@ public:
             });
         }
         case SSL_ERROR_SSL: {
-            auto ec = ERR_GET_REASON(ERR_peek_error());
-            if (ec == SSL_R_UNEXPECTED_EOF_WHILE_READING) {
+            auto error_codes = get_all_ossl_errors();
+            if (contains_ossl_error(error_codes, ERR_LIB_SSL, SSL_R_UNEXPECTED_EOF_WHILE_READING)) {
                 // Probably shouldn't have during a write, but
                 // let's handle this gracefully
-                ERR_clear_error();
                 _eof = true;
                 return make_ready_future<stop_iteration>(stop_iteration::yes);
             }
             auto err = make_ossl_error(
-                "Error occurred during SSL write");
+                "Error occurred during SSL write", std::move(error_codes));
             return handle_output_error(std::move(err)).then([] {
                 return stop_iteration::yes;
             });
@@ -1090,25 +1112,21 @@ public:
                         }
                         case SSL_ERROR_SSL:
                         {
-                            auto ec = ERR_GET_REASON(ERR_peek_error());
-                            switch (ec) {
-                            case SSL_R_UNEXPECTED_EOF_WHILE_READING:
-                                // well in this situation, the remote end closed
-                                ERR_clear_error();
+                            auto error_codes = get_all_ossl_errors();
+                            if (contains_ossl_error(error_codes, ERR_LIB_SSL, SSL_R_UNEXPECTED_EOF_WHILE_READING)) {
+                                // peer has closed
                                 _eof = true;
                                 return make_ready_future<>();
-                            case SSL_R_PEER_DID_NOT_RETURN_A_CERTIFICATE:
-                            case SSL_R_CERTIFICATE_VERIFY_FAILED:
-                            case SSL_R_NO_CERTIFICATES_RETURNED:
-                                ERR_clear_error();
-                                verify();
-                                // may throw, otherwise fall through
-                                [[fallthrough]];
-                            default:
-                                auto err = make_ossl_error("Failed to establish SSL handshake");
-                                return handle_output_error(std::move(err));
                             }
-                            break;
+
+                            if (contains_ossl_error(error_codes, ERR_LIB_SSL, SSL_R_PEER_DID_NOT_RETURN_A_CERTIFICATE) ||
+                                contains_ossl_error(error_codes, ERR_LIB_SSL, SSL_R_CERTIFICATE_VERIFY_FAILED) ||
+                                contains_ossl_error(error_codes, ERR_LIB_SSL, SSL_R_NO_CERTIFICATES_RETURNED)) {
+                                verify();
+                                // Verify may throw, but if not fall through and make a generic error
+                            }
+                            auto err = make_ossl_error("Failed to establish SSL handshake", std::move(error_codes));
+                            return handle_output_error(std::move(err));
                         }
                         default:
                             auto err = std::runtime_error(
@@ -1209,16 +1227,15 @@ public:
                     return make_exception_future<buf_type>(_error);
                 case SSL_ERROR_SSL:
                     {
-                        auto ec = ERR_GET_REASON(ERR_peek_error());
-                        if (ec == SSL_R_UNEXPECTED_EOF_WHILE_READING) {
+                        auto error_codes = get_all_ossl_errors();
+                        if (contains_ossl_error(error_codes, ERR_LIB_SSL, SSL_R_UNEXPECTED_EOF_WHILE_READING)) {
                             // in this situation, the remote end hung up
-                            ERR_clear_error();
                             _eof = true;
                             return make_ready_future<buf_type>();
                         }
                         _error = std::make_exception_ptr(
                           make_ossl_error(
-                            "Failure during processing SSL read"));
+                            "Failure during processing SSL read", std::move(error_codes)));
                         return make_exception_future<buf_type>(_error);
                     }
                 default:
@@ -1293,13 +1310,14 @@ public:
             }
             case SSL_ERROR_SSL:
             {
-                if (ERR_GET_REASON(ERR_peek_error()) == SSL_R_APPLICATION_DATA_AFTER_CLOSE_NOTIFY) {
+                auto error_codes = get_all_ossl_errors();
+                if (contains_ossl_error(error_codes, ERR_LIB_SSL, SSL_R_APPLICATION_DATA_AFTER_CLOSE_NOTIFY)) {
                     // This may have resulted in a race condition where we receive a packet immediately after
                     // sending out the close notify alert.  In this situation, retry shutdown silently
-                    ERR_clear_error();
                     return yield().then([this] { return do_shutdown(); });
                 }
-                auto err = make_ossl_error("Error occurred during SSL shutdown");
+                auto err = make_ossl_error(
+                    "Error occurred during SSL shutdown", std::move(error_codes));
                 return handle_output_error(std::move(err));
             }
             default:
@@ -1318,7 +1336,7 @@ public:
         auto res = SSL_get_verify_result(_ssl.get());
         if (res != X509_V_OK) {
             auto stat_str(X509_verify_cert_error_string(res));
-            auto dn = extract_dn_information();
+            auto dn = extract_dn_information(is_verification_error::yes);
             if (dn) {
                 std::string_view stat_str_view{stat_str};
                 if (stat_str_view.ends_with(" ")) {
@@ -1483,7 +1501,7 @@ public:
             });
         }
 
-        const auto& peer_cert = get_peer_certificate();
+        const auto peer_cert = get_peer_certificate();
         if (!peer_cert) {
             return make_ready_future<result_t>();
         }
@@ -1625,12 +1643,24 @@ private:
         return san;
     }
 
-    const x509_ptr& get_peer_certificate() const {
-        return _creds->get_last_cert();
+    x509_ptr get_peer_certificate() const {
+        return x509_ptr{SSL_get1_peer_certificate(_ssl.get())};
     }
 
-    std::optional<session_dn> extract_dn_information() const {
-        const auto& peer_cert = get_peer_certificate();
+    using is_verification_error = bool_class<struct is_verification_error_tag>;
+
+    std::optional<session_dn> extract_dn_information(is_verification_error verification_error = is_verification_error::no) const {
+        const auto peer_cert = [this, verification_error]{
+            if (verification_error) {
+                // If we are attempting to get a DN from a cert that failed verification, then
+                // SSL_get1_peer_certificate will not return any certificate.  Instead we will
+                // rely on the verification callback to track certs and it should be looking at
+                // the cert that failed verification
+                return _creds->get_last_cert();
+            } else {
+                return get_peer_certificate();
+            }
+        }();
         if (!peer_cert) {
             return std::nullopt;
         }
