@@ -30,6 +30,7 @@
 #include <seastar/util/later.hh>
 #include <seastar/util/short_streams.hh>
 #include <seastar/util/closeable.hh>
+#include <seastar/net/tls.hh>
 
 using namespace seastar;
 using namespace httpd;
@@ -1949,4 +1950,38 @@ BOOST_AUTO_TEST_CASE(test_http_status_classification) {
     BOOST_REQUIRE_EQUAL(client_error, 100);
     BOOST_REQUIRE_EQUAL(server_error, 100);
     BOOST_REQUIRE_EQUAL(unclassified, 300);
+}
+
+// #2661. Check that trying a http connection with a wire error
+// can be handled.
+SEASTAR_THREAD_TEST_CASE(test_http_with_broken_wire) {
+    tls::credentials_builder b;
+    auto creds = b.build_certificate_credentials();
+
+    ::listen_options opts;
+    opts.reuse_address = true;
+    opts.set_fixed_cpu(this_shard_id());
+
+    auto server = seastar::listen(::make_ipv4_address( {0x7f000001, 0}), opts);
+    auto addr = server.local_address();
+
+    http::experimental::client c(addr, creds);
+    http::request req;
+
+    req.write_body("html", std::string(5134, 'a'));
+
+    auto sa = server.accept();
+    auto f = c.make_request(std::move(req), [](const http::reply&, input_stream<char>&& body) -> future<> {
+        // don't care
+        co_return;
+    });
+
+    auto s = sa.get();
+
+    s.connection.input().close().get();
+    s.connection.output().close().get();
+
+    BOOST_CHECK_THROW(f.get(), std::system_error);
+
+    c.close().get();
 }
