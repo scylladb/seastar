@@ -340,6 +340,9 @@ public:
     ///
     /// \return a future representing the number of bytes actually read.  A short
     ///         read may happen due to end-of-file or an I/O error.
+    ///
+    /// Note that for this overload, \ref disk_read_max_length corresponds to the sum of
+    /// the iovec sizes.
     future<size_t> dma_read(uint64_t pos, std::vector<iovec> iov, io_intent* intent = nullptr) noexcept {
         return dma_read_impl(pos, std::move(iov), internal::maybe_priority_class_ref(), intent);
     }
@@ -368,6 +371,9 @@ public:
     ///
     /// \return a future representing the number of bytes actually written.  A short
     ///         write may happen due to an I/O error.
+    ///
+    /// Note that for this overload, \ref disk_write_max_length corresponds to the sum of
+    /// the iovec sizes.
     future<size_t> dma_write(uint64_t pos, std::vector<iovec> iov, io_intent* intent = nullptr) noexcept {
         return dma_write_impl(pos, std::move(iov), internal::maybe_priority_class_ref(), intent);
     }
