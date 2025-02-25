@@ -195,7 +195,10 @@ void connection::shutdown() noexcept {
 }
 
 future<> connection::close() {
-    return when_all(_read_buf.close(), _write_buf.close()).discard_result().then([this] {
+    // #2661. At least output stream close can fail with exception, because
+    // the stream will do a flush. If connection never managed to send data, we
+    // will throw again here. Need to suppress these exceptions.
+    return when_all(_read_buf.close().handle_exception([](auto&&){}), _write_buf.close().handle_exception([](auto&&){})).discard_result().then([this] {
         auto la = _fd.local_address();
         return std::move(_closed).then([la = std::move(la)] {
             http_log.trace("destroyed connection {}", la);
