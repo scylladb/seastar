@@ -6,9 +6,9 @@ RUN --mount=type=bind,source=./install-dependencies.sh,target=/install-dependenc
     apt-get update && apt-get install -y \
     curl \
     gnupg \
-    && echo "deb http://apt.llvm.org/mantic/ llvm-toolchain-oracular-18 main" \
+    && echo "deb http://apt.llvm.org/oracular/ llvm-toolchain-oracular-18 main" \
     >> /etc/apt/sources.list.d/llvm.list \
-    && echo "deb http://apt.llvm.org/mantic/ llvm-toolchain-oracular-19 main" \
+    && echo "deb http://apt.llvm.org/oracular/ llvm-toolchain-oracular-19 main" \
     >> /etc/apt/sources.list.d/llvm.list \
     && curl -sSL https://apt.llvm.org/llvm-snapshot.gpg.key -o /etc/apt/trusted.gpg.d/apt.llvm.org.asc \
     && apt-get update && apt-get install -y \
