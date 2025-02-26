@@ -177,6 +177,11 @@ SEASTAR_THREAD_TEST_CASE(spin_in_kernel) {
     test_spin_with_body("kernel", [] { mmap_populate(128 * 1024); });
 }
 
+SEASTAR_THREAD_TEST_CASE(crash_collecting_backtrace) {
+    reactor::test::set_stall_detector_crash_collecting_backtrace();
+    engine().update_blocked_reactor_notify_ms(100ms);
+    spin(500ms);
+}
 
 #else
 

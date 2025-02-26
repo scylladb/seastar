@@ -663,6 +663,7 @@ public:
         /// resets the supression state.
         static void set_stall_detector_report_function(std::function<void ()> report);
         static std::function<void ()> get_stall_detector_report_function();
+        static void set_stall_detector_crash_collecting_backtrace();
     };
 };
 
