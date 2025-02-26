@@ -392,7 +392,7 @@ set (Seastar_GEN_BINARY_DIR ${Seastar_BINARY_DIR}/gen)
 #
 
 include (SeastarDependencies)
-seastar_find_dependencies ()
+seastar_find_dependencies (BUILD)
 
 # Private build dependencies not visible to consumers
 find_package (ragel 6.10 REQUIRED)
@@ -873,9 +873,16 @@ else ()
 endif ()
 
 if (Seastar_DPDK)
+  # Although Seastar uses DPDK internally, DPDK symbols should not be exposed to
+  # Seastar users. However, DPDK's dependencies (like numa, pthread) must still
+  # be included in Seastar's INTERFACE_LINK_LIBRARIES to ensure proper linking
+  # of applications using Seastar.
   target_link_libraries (seastar
     PRIVATE
-      DPDK::dpdk)
+      "$<BUILD_INTERFACE:DPDK::dpdk>")
+  get_target_property(DPDK_INTERFACE_LINK_LIBRARIES DPDK::dpdk INTERFACE_LINK_LIBRARIES)
+  target_link_libraries (seastar
+    PRIVATE "${DPDK_INTERFACE_LINK_LIBRARIES}")
 endif ()
 
 include (TriStateOption)
