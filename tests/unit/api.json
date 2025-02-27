@@ -54,6 +54,15 @@
     }
   ],
   "models": {
+    "var2_referred": {
+      "type": "object",
+      "properties": {
+        "var21": {
+          "type": "string",
+          "description": "The inner part of the second parameter"
+        }
+      }
+    },
     "my_object": {
       "id": "my_object",
       "description": "Demonstrate an object",
@@ -63,8 +72,8 @@
           "description": "The first parameter in the path"
         },
         "var2": {
-          "type": "string",
-          "description": "The second parameter in the path"
+          "$ref": "var2_referred",
+          "description": "The second parameter in the path wrapped in an object"
         },
         "enum_var": {
           "type": "string",
