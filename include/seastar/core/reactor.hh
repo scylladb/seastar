@@ -129,6 +129,11 @@ size_t scheduling_group_count();
 
 void increase_thrown_exceptions_counter() noexcept;
 
+template <typename Func>
+void at_destroy(Func&& func);
+
+void at_exit(noncopyable_function<future<> ()> func);
+
 }
 
 class io_queue;
@@ -162,6 +167,9 @@ private:
     class io_queue_submission_pollfn;
     class syscall_pollfn;
     class execution_stage_pollfn;
+    template <typename Func>
+    friend void internal::at_destroy(Func&&);
+    friend void internal::at_exit(noncopyable_function<future<> ()> func);
     friend class manual_clock;
     friend class file_data_source_impl; // for fstream statistics
     friend class internal::reactor_stall_sampler;
@@ -523,13 +531,41 @@ public:
         return _stop_requested.wait(timeout, [this] { return _stopping; });
     }
 
+    /// Deprecated. Use following sequence instead:
+    ///
+    /// ```
+    ///    return seastar::app_template::run([] {
+    ///         return seastar::async([] {
+    ///              // Since the function runs in a thread, it can wait for futures using
+    ///              // future::get().
+    ///              auto deferred_task = defer(/* the function you want to run at exit */);
+    ///         });
+    ///    });
+    /// ```
+    [[deprecated("Use seastar::app_template::run(), seastar::async(), and seastar::defer() for orderly shutdown")]]
     void at_exit(noncopyable_function<future<> ()> func);
 
+    /// Deprecated. Use following sequence instead:
+    ///
+    /// ```
+    ///    return seastar::app_template::run([] {
+    ///         return seastar::async([] {
+    ///              auto deferred_task = defer(/* the function you want to run at exit */);
+    ///         });
+    ///    });
+    /// ```
     template <typename Func>
+    [[deprecated("Use seastar::app_template::run(), seastar::async(), and seastar::defer() for orderly shutdown")]]
     void at_destroy(Func&& func) {
+        do_at_destroy(std::forward<Func>(func));
+    }
+private:
+    void do_at_exit(noncopyable_function<future<> ()> func);
+template <typename Func>
+    void do_at_destroy(Func&& func) {
         _at_destroy_tasks->_q.push_back(make_task(default_scheduling_group(), std::forward<Func>(func)));
     }
-
+public:
     task* current_task() const { return _current_task; }
     // If a task wants to resume a different task instead of returning control to the reactor,
     // it should set _current_task to the resumed task.
@@ -687,5 +723,14 @@ inline int hrtimer_signal() {
 
 
 extern logger seastar_logger;
+
+namespace internal {
+
+template <typename Func>
+void at_destroy(Func&& func) {
+    engine().do_at_destroy(std::forward<Func>(func));
+}
+
+} // namespace internal
 
 }
