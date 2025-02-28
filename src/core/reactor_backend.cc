@@ -123,7 +123,7 @@ aio_storage_context::aio_storage_context(reactor& r)
     static_assert(max_aio >= reactor::max_queues * reactor::max_queues,
                   "Mismatch between maximum allowed io and what the IO queues can produce");
     internal::setup_aio_context(max_aio, &_io_context);
-    _r.at_exit([this] { return stop(); });
+    _r.do_at_exit([this] { return stop(); });
 }
 
 aio_storage_context::~aio_storage_context() {
