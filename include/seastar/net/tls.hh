@@ -555,6 +555,11 @@ namespace tls {
     server_socket listen(shared_ptr<server_credentials>, server_socket);
     /// @}
 
+    enum class dn_format {
+        legacy, // legacy format
+        rfc2253
+    };
+
     /**
      * Get distinguished name from the leaf certificate in the certificate chain that
      * the connected peer is using.
@@ -565,7 +570,7 @@ namespace tls {
      * during the handshake the function returns nullopt. If the socket is not connected the
      * system_error exception will be thrown.
      */
-    future<std::optional<session_dn>> get_dn_information(connected_socket& socket);
+    future<std::optional<session_dn>> get_dn_information(connected_socket& socket, dn_format format = dn_format::legacy);
 
     /**
      * Subject alt name types.

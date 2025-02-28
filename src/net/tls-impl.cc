@@ -729,8 +729,8 @@ static tls::tls_connected_socket_impl* get_tls_socket(connected_socket& socket) 
     return tls_impl;
 }
 
-future<std::optional<session_dn>> tls::get_dn_information(connected_socket& socket) {
-    return get_tls_socket(socket)->get_distinguished_name();
+future<std::optional<session_dn>> tls::get_dn_information(connected_socket& socket, dn_format format) {
+    return get_tls_socket(socket)->get_distinguished_name(format);
 }
 
 future<std::vector<tls::subject_alt_name>> tls::get_alt_name_information(connected_socket& socket, std::unordered_set<subject_alt_name_type> types) {

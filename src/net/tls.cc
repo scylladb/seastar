@@ -1213,7 +1213,8 @@ public:
             return session_data(tmp.data, tmp.data + tmp.size);
         });
     }
-    future<std::optional<session_dn>> get_distinguished_name() override {
+    future<std::optional<session_dn>> get_distinguished_name(dn_format) override {
+        // Ignoring parameter as GnuTLS does not provide a mechanism to change the format
         return state_checked_access([this] {
             return extract_dn_information();
         });

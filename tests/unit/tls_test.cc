@@ -1562,6 +1562,13 @@ SEASTAR_THREAD_TEST_CASE(test_dn_name_handling) {
         BOOST_REQUIRE_EQUAL(dn->subject, fmt::format("C=GB,ST=London,L=London,O=Redpanda Data,OU=Core,CN={}", id));
         BOOST_REQUIRE_EQUAL(dn->issuer, "C=GB,ST=London,L=London,O=Redpanda Data,OU=Core,CN=redpanda.com");
 
+#ifdef SEASTAR_USE_OPENSSL
+        dn = tls::get_dn_information(s.connection, tls::dn_format::rfc2253).get();
+        BOOST_REQUIRE(dn.has_value());
+        BOOST_REQUIRE_EQUAL(dn->subject, fmt::format("CN={},OU=Core,O=Redpanda Data,L=London,ST=London,C=GB", id));
+        BOOST_REQUIRE_EQUAL(dn->issuer, "CN=redpanda.com,OU=Core,O=Redpanda Data,L=London,ST=London,C=GB");
+#endif
+
         auto client_id = fin.get();
 
         in.close().get();
