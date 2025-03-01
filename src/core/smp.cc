@@ -179,6 +179,13 @@ smp::setup_prefaulter(const seastar::resource::resources& res, seastar::memory::
 #endif
 }
 
+void
+smp::join_memory_prefault() {
+    if (_prefaulter) {
+        _prefaulter->join_all();
+    }
+}
+
 static
 std::optional<size_t>
 get_huge_page_size() {
@@ -224,11 +231,20 @@ internal::memory_prefaulter::memory_prefaulter(const resource::resources& res, m
     }
 }
 
+void
+internal::memory_prefaulter::join_all() {
+    const std::lock_guard<std::mutex> lock(join_mtx);
+    if (!joined) {
+        for (auto& t : _worker_threads) {
+            t.join();
+        }
+        joined = true;
+    }
+}
+
 internal::memory_prefaulter::~memory_prefaulter() {
     _stop_request.store(true, std::memory_order_relaxed);
-    for (auto& t : _worker_threads) {
-        t.join();
-    }
+    join_all();
 }
 
 void

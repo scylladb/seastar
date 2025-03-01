@@ -335,6 +335,7 @@ public:
     void cleanup_cpu();
     void arrive_at_event_loop_end();
     void join_all();
+    void join_memory_prefault();
     static bool main_thread() { return std::this_thread::get_id() == _tmain; }
 
     /// Runs a function on a remote core.
@@ -483,6 +484,13 @@ private:
 public:
     static unsigned count;
 };
+
+/// Barriers memory prefault background work. 
+/// This function returns after all memory prefault work is finished. 
+/// It is safe to call from multiple threads.
+/// 
+/// Note: This is a blocking operation, so it should be used with caution.
+void barrier_memory_prefault();
 
 SEASTAR_MODULE_EXPORT_END
 
