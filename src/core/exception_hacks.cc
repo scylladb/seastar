@@ -75,11 +75,32 @@ using dl_iterate_fn = int (*) (int (*callback) (struct dl_phdr_info *info, size_
 
 [[gnu::no_sanitize_address]]
 static dl_iterate_fn dl_iterate_phdr_org() {
-    static dl_iterate_fn org = [] {
-        auto org = (dl_iterate_fn)dlsym (RTLD_NEXT, "dl_iterate_phdr");
-        SEASTAR_ASSERT(org);
-        return org;
-    }();
+    // #2670 - Do the check and resolve manually, to avoid
+    // init order fiasco iff we're called before dl_init of this
+    // module.
+    // During initialization, ASan verifies it's the first DSO in the library list
+    // by calling dl_iterate_phdr(3). This is necessary for ASan to properly
+    // intercept memory operations.
+    //
+    // However, Seastar also provides the dl_iterate_phdr symbol, and its
+    // implementation depends on a static local variable `dl_iterate_fn`. This
+    // creates a circular dependency:
+    //
+    // 1. ASan loads first (as required)
+    // 2. ASan calls dl_iterate_phdr
+    // 3. The linker resolves this to Seastar's implementation
+    // 4. But Seastar's shared library hasn't been fully initialized via dl_init()
+    // 5. The function local static variable `dl_iterate_fn` that Seastar's implementation requires
+    //    isn't initialized to _be_ initialized - i.e. the lambda it required to run for init
+    //    is not in fact runnable.
+    // 6. This results in a segmentation fault
+    //
+    // So, we need to manually handle this initialization sequence to ensure both ASan
+    // and Seastar can properly initialize without conflicts.
+    static dl_iterate_fn org = nullptr;
+    if (org == nullptr) {
+        org = (dl_iterate_fn)dlsym (RTLD_NEXT, "dl_iterate_phdr");
+    }
     return org;
 }
 
