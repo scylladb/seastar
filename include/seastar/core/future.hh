@@ -906,9 +906,7 @@ private:
 
 /// \brief promise - allows a future value to be made available at a later time.
 ///
-/// \tparam T A list of types to be carried as the result of the associated future.
-///           A list with two or more types is deprecated; use
-///           \c promise<std::tuple<T...>> instead.
+/// \tparam T A type to be carried as the result of the associated future. Use void (default) for no result.
 SEASTAR_MODULE_EXPORT
 template <typename T>
 class promise : private internal::promise_base_with_type<T> {
@@ -1031,10 +1029,6 @@ concept Future = is_future<T>::value;
 template <typename Func, typename... T>
 concept CanInvoke = std::invocable<Func, T...>;
 
-// Deprecated alias
-template <typename Func, typename... T>
-concept CanApply = CanInvoke<Func, T...>;
-
 template <typename Func, typename... T>
 concept CanApplyTuple
     = sizeof...(T) == 1
@@ -1042,22 +1036,8 @@ concept CanApplyTuple
         { std::apply(func, std::get<0>(std::move(wrapped_val))) };
     };
 
-// Deprecated, use std::is_invocable_r_v
-template <typename Func, typename Return, typename... T>
-concept InvokeReturns = requires (Func f, T... args) {
-    { f(std::forward<T>(args)...) } -> std::same_as<Return>;
-};
-
-// Deprecated alias
-template <typename Func, typename Return, typename... T>
-concept ApplyReturns = InvokeReturns<Func, Return, T...>;
-
 template <typename Func, typename... T>
 concept InvokeReturnsAnyFuture = Future<std::invoke_result_t<Func, T...>>;
-
-// Deprecated alias
-template <typename Func, typename... T>
-concept ApplyReturnsAnyFuture = InvokeReturnsAnyFuture<Func, T...>;
 
 /// \endcond
 
@@ -1208,13 +1188,10 @@ task* continuation_base_with_promise<Promise, T>::waiting_task() noexcept {
 /// \ref semaphore), control their concurrency, their resource consumption
 /// and handle any errors raised from them.
 ///
-/// \tparam T A list of types to be carried as the result of the future,
-///           similar to \c std::tuple<T...>. An empty list (\c future<>)
-///           means that there is no result, and an available future only
+/// \tparam T A type to be carried as the result of the future, or void
+///           for no result. An available future<void> only
 ///           contains a success/failure indication (and in the case of a
 ///           failure, an exception).
-///           A list with two or more types is deprecated; use
-///           \c future<std::tuple<T...>> instead.
 SEASTAR_MODULE_EXPORT
 template <typename T>
 class [[nodiscard]] future : private internal::future_base {
@@ -1329,31 +1306,7 @@ public:
         return get_available_state_ref().get_exception();
     }
 
-    /// Gets the value returned by the computation.
-    ///
-    /// Similar to \ref get(), but instead of returning a
-    /// \c T&&, returns \c T.
-    ///
-    /// \note The \c get0() method is deprecated. It's a remnant from older
-    /// versions of Seastar that supported variadic futures, capable of
-    /// returning multiple values through a tuple. Back then, \c get0() served
-    /// the purpose of retrieving the first (and usually the only) value.
-    /// Today, the \ref get() method accomplishes the same task. However,
-    /// there's a subtle difference in return types: \c get0() returned
-    /// \c T, while \ref get() returns \c T&& (an rvalue reference to
-    /// \c T). This distinction typically won't cause issues when switching
-    /// from \c get0() to \ref get(). However, in specific metaprogramming
-    /// scenarios, especially when the code expects type \c T, you'll need
-    /// to use \c std::remove_reference_t<decltype(fut.get())> to extract
-    /// the underlying type \c T.
-    /// For new code that utilizes \c future<tuple<...>>, employ
-    /// \c std::get<0>(fut.get()) to access the first element of the tuple,
-    /// rather than the deprecated \ref get0().
     using get0_return_type = typename future_state::get0_return_type;
-    [[deprecated("Use get() instead")]]
-    get0_return_type get0() {
-        return (get0_return_type)get();
-    }
 
     /// Wait for the future to be available (in a seastar::thread)
     ///
@@ -1856,13 +1809,6 @@ struct futurize : public internal::futurize_base<T> {
         return invoke(std::forward<Func>(func));
     }
 
-    /// Deprecated alias of invoke
-    template<typename Func, typename... FuncArgs>
-    [[deprecated("Use invoke for varargs")]]
-    static inline type apply(Func&& func, FuncArgs&&... args) noexcept {
-        return invoke(std::forward<Func>(func), std::forward<FuncArgs>(args)...);
-    }
-
     static type current_exception_as_future() noexcept {
         return type(future_state_base::current_exception_future_marker());
     }
@@ -2041,12 +1987,6 @@ template<typename Func, typename... Args>
 auto futurize_invoke(Func&& func, Args&&... args) noexcept {
     using futurator = futurize<std::invoke_result_t<Func, Args&&...>>;
     return futurator::invoke(std::forward<Func>(func), std::forward<Args>(args)...);
-}
-
-template<typename Func, typename... Args>
-[[deprecated("Use futurize_invoke for varargs")]]
-auto futurize_apply(Func&& func, Args&&... args) noexcept {
-    return futurize_invoke(std::forward<Func>(func), std::forward<Args>(args)...);
 }
 
 template<typename Func, typename... Args>
