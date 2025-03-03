@@ -36,6 +36,7 @@
 #ifndef SEASTAR_MODULE
 #include <sys/statvfs.h>
 #include <sys/ioctl.h>
+#include <sys/types.h>
 #include <linux/fs.h>
 #include <sys/uio.h>
 #include <unistd.h>
@@ -65,7 +66,7 @@ struct directory_entry {
 struct group_details {
     sstring group_name;
     sstring group_passwd;
-    __gid_t group_id;
+    gid_t group_id;
     std::vector<sstring> group_members;
 };
 
