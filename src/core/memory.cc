@@ -2365,11 +2365,13 @@ int __libc_posix_memalign(void** ptr, size_t align, size_t size) noexcept;
 extern "C"
 [[gnu::visibility("default")]]
 [[gnu::malloc]]
-#if defined(__GLIBC__) && __GLIBC_PREREQ(2, 30)
+#if defined(__GLIBC__)
+#if __GLIBC_PREREQ(2, 30)
 [[gnu::alloc_size(2)]]
 #endif
-#if defined(__GLIBC__) && __GLIBC_PREREQ(2, 35)
+#if __GLIBC_PREREQ(2, 35)
 [[gnu::alloc_align(1)]]
+#endif
 #endif
 void* memalign(size_t align, size_t size) noexcept {
     if (try_trigger_error_injector()) {
@@ -2392,11 +2394,13 @@ extern "C"
 [[gnu::alias("memalign")]]
 [[gnu::visibility("default")]]
 [[gnu::malloc]]
-#if defined(__GLIBC__) && __GLIBC_PREREQ(2, 30)
+#if defined(__GLIBC__)
+#if __GLIBC_PREREQ(2, 30)
 [[gnu::alloc_size(2)]]
 #endif
-#if defined(__GLIBC__) && __GLIBC_PREREQ(2, 35)
+#if __GLIBC_PREREQ(2, 35)
 [[gnu::alloc_align(1)]]
+#endif
 #endif
 void* __libc_memalign(size_t align, size_t size) noexcept;
 

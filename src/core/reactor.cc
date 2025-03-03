@@ -4900,7 +4900,7 @@ allocate_scheduling_group_specific_data(scheduling_group sg, unsigned long key_i
     using val_ptr = internal::scheduling_group_specific_thread_local_data::val_ptr;
     using specific_val = internal::scheduling_group_specific_thread_local_data::specific_val;
 
-    val_ptr valp(aligned_alloc(cfg->alignment, cfg->allocation_size), &free);
+    val_ptr valp(aligned_alloc(cfg->alignment, cfg->allocation_size), &specific_val::free);
     if (!valp) {
         throw std::runtime_error("memory allocation failed");
     }
