@@ -275,7 +275,7 @@ reactor::do_accept(pollable_fd_state& listenfd) {
         // a task-quota delay. Usually this will fail, but accept is a rare-enough operation
         // that it is worth the false positive in order to withstand a connection storm
         // without having to accept at a rate of 1 per task quota.
-        listenfd.speculate_epoll(EPOLLIN);
+        listenfd.speculate(EPOLLIN);
         pollable_fd pfd(std::move(*maybe_fd), pollable_fd::speculation(EPOLLOUT));
         return make_ready_future<std::tuple<pollable_fd, socket_address>>(std::make_tuple(std::move(pfd), std::move(sa)));
     });
@@ -300,7 +300,7 @@ reactor::do_read(pollable_fd_state& fd, void* buffer, size_t len) {
             return do_read(fd, buffer, len);
         }
         if (size_t(*r) == len) {
-            fd.speculate_epoll(EPOLLIN);
+            fd.speculate(EPOLLIN);
         }
         return make_ready_future<size_t>(*r);
     });
@@ -318,7 +318,7 @@ reactor::do_read_some(pollable_fd_state& fd, internal::buffer_allocator* ba) {
             return do_read_some(fd, ba);
         }
         if (size_t(*r) == buffer.size()) {
-            fd.speculate_epoll(EPOLLIN);
+            fd.speculate(EPOLLIN);
         }
         buffer.trim(*r);
         return make_ready_future<temporary_buffer<char>>(std::move(buffer));
@@ -336,7 +336,7 @@ reactor::do_recvmsg(pollable_fd_state& fd, const std::vector<iovec>& iov) {
             return do_recvmsg(fd, iov);
         }
         if (size_t(*r) == internal::iovec_len(iov)) {
-            fd.speculate_epoll(EPOLLIN);
+            fd.speculate(EPOLLIN);
         }
         return make_ready_future<size_t>(*r);
     });
@@ -350,7 +350,7 @@ reactor::do_send(pollable_fd_state& fd, const void* buffer, size_t len) {
             return do_send(fd, buffer, len);
         }
         if (size_t(*r) == len) {
-            fd.speculate_epoll(EPOLLOUT);
+            fd.speculate(EPOLLOUT);
         }
         return make_ready_future<size_t>(*r);
     });
@@ -376,7 +376,7 @@ reactor::do_sendmsg(pollable_fd_state& fd, net::packet& p) {
             return do_sendmsg(fd, p);
         }
         if (size_t(*r) == p.len()) {
-            fd.speculate_epoll(EPOLLOUT);
+            fd.speculate(EPOLLOUT);
         }
         return make_ready_future<size_t>(*r);
     });
@@ -404,7 +404,7 @@ reactor::do_recv_some(pollable_fd_state& fd, internal::buffer_allocator* ba) {
             return do_recv_some(fd, ba);
         }
         if (size_t(*r) == buffer.size()) {
-            fd.speculate_epoll(EPOLLIN);
+            fd.speculate(EPOLLIN);
         }
         buffer.trim(*r);
         return make_ready_future<temporary_buffer<char>>(std::move(buffer));
@@ -498,7 +498,7 @@ future<size_t> pollable_fd_state::recvmsg(struct msghdr *msg) {
         // hurt request-response workload in which the queue is empty when we
         // initially enter recvmsg(). If that turns out to be a problem, we can
         // improve speculation by using recvmmsg().
-        speculate_epoll(EPOLLIN);
+        speculate(EPOLLIN);
         return make_ready_future<size_t>(*r);
     });
 }
@@ -514,7 +514,7 @@ future<size_t> pollable_fd_state::sendmsg(struct msghdr* msg) {
         // or not, but most of the time there should be so the cost of mis-
         // speculation is amortized.
         if (size_t(*r) == internal::iovec_len(msg->msg_iov, msg->msg_iovlen)) {
-            speculate_epoll(EPOLLOUT);
+            speculate(EPOLLOUT);
         }
         return make_ready_future<size_t>(*r);
     });
@@ -529,7 +529,7 @@ future<size_t> pollable_fd_state::sendto(socket_address addr, const void* buf, s
         }
         // See the comment about speculation in sendmsg().
         if (size_t(*r) == len) {
-            speculate_epoll(EPOLLOUT);
+            speculate(EPOLLOUT);
         }
         return make_ready_future<size_t>(*r);
     });
