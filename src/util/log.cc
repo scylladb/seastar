@@ -410,11 +410,6 @@ logger::set_ostream_enabled(bool enabled) noexcept {
 }
 
 void
-logger::set_stdout_enabled(bool enabled) noexcept {
-    _ostream.store(enabled, std::memory_order_relaxed);
-}
-
-void
 logger::set_syslog_enabled(bool enabled) noexcept {
     _syslog.store(enabled, std::memory_order_relaxed);
 }

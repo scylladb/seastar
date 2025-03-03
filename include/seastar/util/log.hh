@@ -450,10 +450,6 @@ public:
     /// Also output to ostream. default is true
     static void set_ostream_enabled(bool enabled) noexcept;
 
-    /// Also output to stdout. default is true
-    [[deprecated("Use set_ostream_enabled instead")]]
-    static void set_stdout_enabled(bool enabled) noexcept;
-
     /// Also output to syslog. default is false
     ///
     /// NOTE: syslog() can block, which will stall the reactor thread.
@@ -539,10 +535,6 @@ enum class logger_timestamp_style {
 /// \brief Output stream to use for logging.
 enum class logger_ostream_type {
     none,
-#ifdef SEASTAR_LOGGER_TYPE_STDOUT
-    stdout __attribute__ ((deprecated ("use cout instead"))) = 1,
-    stderr __attribute__ ((deprecated ("use cerr instead"))) = 2,
-#endif
     cout = 1,
     cerr = 2,
 };
