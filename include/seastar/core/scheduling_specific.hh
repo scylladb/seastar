@@ -25,6 +25,7 @@
 #include <seastar/util/assert.hh>
 #include <seastar/util/modules.hh>
 #include <array>
+#include <cstdlib>
 #include <map>
 #include <typeindex>
 #include <vector>
@@ -44,6 +45,10 @@ struct scheduling_group_specific_thread_local_data {
     struct specific_val {
         val_ptr valp;
         cfg_ptr cfg;
+
+        static void free(void* ptr) noexcept {
+            std::free(ptr);
+        }
 
         specific_val() : valp(nullptr, &free), cfg(nullptr) {}
 
