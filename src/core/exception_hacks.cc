@@ -75,11 +75,14 @@ using dl_iterate_fn = int (*) (int (*callback) (struct dl_phdr_info *info, size_
 
 [[gnu::no_sanitize_address]]
 static dl_iterate_fn dl_iterate_phdr_org() {
-    static dl_iterate_fn org = [] {
-        auto org = (dl_iterate_fn)dlsym (RTLD_NEXT, "dl_iterate_phdr");
-        SEASTAR_ASSERT(org);
+    // #2670 - do the check and resolve manually, to avoid
+    // init order fiasco iff we're called before dl_init of this
+    // module.
+    static dl_iterate_fn org = nullptr;
+    if (org == nullptr) {
+        org = (dl_iterate_fn)dlsym (RTLD_NEXT, "dl_iterate_phdr");
         return org;
-    }();
+    }
     return org;
 }
 
