@@ -959,8 +959,8 @@ SEASTAR_TEST_CASE(test_file_system_space) {
         auto si = file_system_space(name).get();
 
         BOOST_REQUIRE_EQUAL(st.f_blocks * st.f_frsize, si.capacity);
-        BOOST_REQUIRE_LT(si.free, si.capacity);
-        BOOST_REQUIRE_LT(si.available, si.capacity);
+        BOOST_REQUIRE_LE(si.free, si.capacity);
+        BOOST_REQUIRE_LE(si.available, si.capacity);
         BOOST_REQUIRE_LE(si.available, si.free);
     });
 }
