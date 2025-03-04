@@ -20,9 +20,12 @@
  */
 
 #include <iostream>
-#include <seastar/core/reactor.hh>
-#include <seastar/core/distributed.hh>
 #include <seastar/core/app-template.hh>
+#include <seastar/core/reactor.hh>
+#include <seastar/core/sharded.hh>
+#include <seastar/core/thread.hh>
+#include <seastar/util/closeable.hh>
+#include "../apps/lib/stop_signal.hh"
 
 using namespace seastar;
 using namespace net;
@@ -30,7 +33,8 @@ using namespace std::chrono_literals;
 
 class udp_server {
 private:
-    udp_channel _chan;
+    std::optional<udp_channel> _chan;
+    std::optional<future<>> _task;
     timer<> _stats_timer;
     uint64_t _n_sent {};
 public:
@@ -45,17 +49,24 @@ public:
         _stats_timer.arm_periodic(1s);
 
         // Run server in background.
-        (void)keep_doing([this] {
-            return _chan.receive().then([this] (datagram dgram) {
-                return _chan.send(dgram.get_src(), std::move(dgram.get_data())).then([this] {
+        _task = keep_doing([this] {
+            return _chan->receive().then([this] (datagram dgram) {
+                return _chan->send(dgram.get_src(), std::move(dgram.get_data())).then([this] {
                     _n_sent++;
                 });
             });
         });
     }
-    // FIXME: we should properly tear down the service here.
     future<> stop() {
-        return make_ready_future<>();
+        if (_chan) {
+            _chan->shutdown_input();
+            _chan->shutdown_output();
+        }
+        if (_task) {
+            co_await _task->handle_exception([](std::exception_ptr e) {
+                std::cerr << "exception in udp_server: " << e << "\n";
+            });
+        }
     }
 };
 
@@ -65,18 +76,22 @@ int main(int ac, char ** av) {
     app_template app;
     app.add_options()
         ("port", bpo::value<uint16_t>()->default_value(10000), "UDP server port") ;
-    return app.run_deprecated(ac, av, [&] {
-        auto&& config = app.configuration();
-        uint16_t port = config["port"].as<uint16_t>();
-        auto server = new distributed<udp_server>;
-        // Run server in background.
-        (void)server->start().then([server = std::move(server), port] () mutable {
-            engine().at_exit([server] {
-                return server->stop();
-            });
-            return server->invoke_on_all(&udp_server::start, port);
-        }).then([port] {
+   return app.run(ac, av, [&] {
+        return async([&app] {
+            seastar_apps_lib::stop_signal stop_signal;
+            auto&& config = app.configuration();
+            uint16_t port = config["port"].as<uint16_t>();
+            sharded<udp_server> server;
+            if (engine().net().has_per_core_namespace()) {
+                server.start().get();
+            } else {
+                server.start_single().get();
+            }
+            auto stop_server = deferred_stop(server);
+            server.invoke_on_all(&udp_server::start, port).get();
             std::cout << "Seastar UDP server listening on port " << port << " ...\n";
+
+            stop_signal.wait().get();
         });
     });
 }
