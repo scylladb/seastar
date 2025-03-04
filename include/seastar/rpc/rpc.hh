@@ -191,16 +191,12 @@ template <typename Function>
 struct signature;
 
 class logger {
-    std::function<void(const sstring&)> _logger;
     ::seastar::logger* _seastar_logger = nullptr;
 
-    // _seastar_logger will always be used first if it's available
     void log(const sstring& str) const {
         if (_seastar_logger) {
             // default level for log messages is `info`
             _seastar_logger->info("{}", str);
-        } else if (_logger) {
-            _logger(str);
         }
     }
 
@@ -213,25 +209,10 @@ class logger {
 #endif
         if (_seastar_logger) {
             _seastar_logger->log(level, fmt, std::forward<Args>(args)...);
-        // If the log level is at least `info`, fall back to legacy logging without explicit level.
-        // Ignore less severe levels in order not to spam user's log with messages during transition,
-        // i.e. when the user still only defines a level-less logger.
-        } else if (_logger && level <= log_level::info) {
-            fmt::memory_buffer out;
-#ifdef SEASTAR_LOGGER_COMPILE_TIME_FMT
-            fmt::format_to(fmt::appender(out), fmt, std::forward<Args>(args)...);
-#else
-            fmt::format_to(fmt::appender(out), fmt::runtime(fmt), std::forward<Args>(args)...);
-#endif
-            _logger(sstring{out.data(), out.size()});
         }
     }
 
 public:
-    void set(std::function<void(const sstring&)> l) {
-        _logger = std::move(l);
-    }
-
     void set(::seastar::logger* logger) {
         _seastar_logger = logger;
     }
@@ -924,14 +905,6 @@ public:
     ///     handlers finished.
     future<> unregister_handler(MsgType t);
 
-    /// Set a logger function to be used to log messages.
-    ///
-    /// \deprecated use the logger overload set_logger(::seastar::logger*)
-    /// instead.
-    [[deprecated("Use set_logger(::seastar::logger*) instead")]]
-    void set_logger(std::function<void(const sstring&)> logger) {
-        _logger.set(std::move(logger));
-    }
 
     /// Set a logger to be used to log messages.
     void set_logger(::seastar::logger* logger) {
