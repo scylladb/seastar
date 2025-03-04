@@ -1467,7 +1467,7 @@ public:
         return *_sock;
     }
 
-    future<std::optional<session_dn>> get_distinguished_name() override {
+    future<std::optional<session_dn>> get_distinguished_name(dn_format format) override {
         using result_t = std::optional<session_dn>;
         if (_error) {
             return make_exception_future<result_t>(_error);
@@ -1478,9 +1478,9 @@ public:
         }
         if (!connected()) {
             return handshake().then(
-              [this]() mutable { return get_distinguished_name(); });
+              [this, format]() mutable { return get_distinguished_name(format); });
         }
-        result_t dn = extract_dn_information();
+        result_t dn = extract_dn_information(is_verification_error::no, format);
         return make_ready_future<result_t>(std::move(dn));
     }
 
@@ -1649,7 +1649,7 @@ private:
 
     using is_verification_error = bool_class<struct is_verification_error_tag>;
 
-    std::optional<session_dn> extract_dn_information(is_verification_error verification_error = is_verification_error::no) const {
+    std::optional<session_dn> extract_dn_information(is_verification_error verification_error = is_verification_error::no, dn_format format = dn_format::legacy) const {
         const auto peer_cert = [this, verification_error]{
             if (verification_error) {
                 // If we are attempting to get a DN from a cert that failed verification, then
@@ -1664,8 +1664,8 @@ private:
         if (!peer_cert) {
             return std::nullopt;
         }
-        auto subject = get_dn_string(X509_get_subject_name(peer_cert.get()));
-        auto issuer = get_dn_string(X509_get_issuer_name(peer_cert.get()));
+        auto subject = get_dn_string(X509_get_subject_name(peer_cert.get()), format);
+        auto issuer = get_dn_string(X509_get_issuer_name(peer_cert.get()), format);
         if (!subject || !issuer) {
             throw make_ossl_error(
               "error while extracting certificate DN strings");
@@ -1793,10 +1793,18 @@ private:
         return ssl_ctx;
     }
 
-    static std::optional<sstring> get_dn_string(X509_NAME* name) {
+    static std::optional<sstring> get_dn_string(X509_NAME* name, dn_format format = dn_format::legacy) {
         auto out = bio_ptr(BIO_new(BIO_s_mem()));
-        if (-1 == X509_NAME_print_ex(out.get(), name, 0, ASN1_STRFLGS_RFC2253 | XN_FLAG_SEP_COMMA_PLUS |
-                                     XN_FLAG_FN_SN | XN_FLAG_DUMP_UNKNOWN_FIELDS)) {
+        unsigned long flags = [](dn_format format) {
+            switch(format) {
+            case dn_format::rfc2253:
+                return XN_FLAG_RFC2253;
+            case dn_format::legacy:
+                return ASN1_STRFLGS_RFC2253 | XN_FLAG_SEP_COMMA_PLUS | XN_FLAG_FN_SN | XN_FLAG_DUMP_UNKNOWN_FIELDS;
+            }
+            __builtin_unreachable();
+        }(format);
+        if (-1 == X509_NAME_print_ex(out.get(), name, 0, flags)) {
             return std::nullopt;
         }
         char* bio_ptr = nullptr;

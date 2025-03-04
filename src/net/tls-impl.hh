@@ -62,7 +62,7 @@ public:
     virtual future<> flush() noexcept = 0;
     virtual future<temporary_buffer<char>> get() = 0;
     virtual void close() = 0;
-    virtual future<std::optional<session_dn>> get_distinguished_name() = 0;
+    virtual future<std::optional<session_dn>> get_distinguished_name(dn_format) = 0;
     virtual seastar::net::connected_socket_impl & socket() const = 0;
     virtual future<std::vector<subject_alt_name>> get_alt_name_information(std::unordered_set<subject_alt_name_type>) = 0;
     virtual future<bool> is_resumed() = 0;
@@ -140,8 +140,8 @@ public:
     socket_address remote_address() const noexcept override {
         return _session->socket().remote_address();
     }
-    future<std::optional<session_dn>> get_distinguished_name() {
-        return _session->get_distinguished_name();
+    future<std::optional<session_dn>> get_distinguished_name(dn_format format) {
+        return _session->get_distinguished_name(format);
     }
     future<std::vector<subject_alt_name>> get_alt_name_information(std::unordered_set<subject_alt_name_type> types) {
         return _session->get_alt_name_information(std::move(types));
