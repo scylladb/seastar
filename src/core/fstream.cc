@@ -342,17 +342,17 @@ private:
     }
 };
 
-class file_data_source : public data_source {
-public:
-    file_data_source(file f, uint64_t offset, uint64_t len, file_input_stream_options options)
-        : data_source(std::make_unique<file_data_source_impl>(
-                std::move(f), offset, len, options)) {}
-};
+data_source make_file_data_source(file f, uint64_t offset, uint64_t len, file_input_stream_options opt) {
+    return data_source(std::make_unique<file_data_source_impl>(std::move(f), offset, len, std::move(opt)));
+}
 
+data_source make_file_data_source(file f, file_input_stream_options opt) {
+    return make_file_data_source(std::move(f), 0, std::numeric_limits<uint64_t>::max(), std::move(opt));
+}
 
 input_stream<char> make_file_input_stream(
         file f, uint64_t offset, uint64_t len, file_input_stream_options options) {
-    return input_stream<char>(file_data_source(std::move(f), offset, len, std::move(options)));
+    return input_stream<char>(make_file_data_source(std::move(f), offset, len, std::move(options)));
 }
 
 input_stream<char> make_file_input_stream(

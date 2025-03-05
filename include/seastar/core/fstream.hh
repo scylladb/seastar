@@ -93,6 +93,12 @@ input_stream<char> make_file_input_stream(
 input_stream<char> make_file_input_stream(
         file file, file_input_stream_options = {});
 
+/// Create a data_source for reading the given offset:len range from the file
+data_source make_file_data_source(file, uint64_t offset, uint64_t len, file_input_stream_options);
+
+/// Create a data_source for reading the whole file from start to end
+data_source make_file_data_source(file, file_input_stream_options);
+
 struct file_output_stream_options {
     // For small files, setting preallocation_size can make it impossible for XFS to find
     // an aligned extent. On the other hand, without it, XFS will divide the file into
