@@ -22,6 +22,7 @@
 #include <seastar/testing/thread_test_case.hh>
 
 #include <seastar/core/sharded.hh>
+#include <seastar/util/assert.hh>
 
 using namespace seastar;
 
@@ -38,7 +39,7 @@ public:
 
     ~invoke_on_during_stop() {
         if (this_shard_id() == 0) {
-            assert(flag);
+            SEASTAR_ASSERT(flag);
         }
     }
 };
@@ -122,7 +123,7 @@ SEASTAR_THREAD_TEST_CASE(invoke_map_returns_non_future_value) {
         return m.x;
     }).then([] (std::vector<int> results) {
         for (auto& x : results) {
-            assert(x == 1);
+            SEASTAR_ASSERT(x == 1);
         }
     }).get();
     s.stop().get();
@@ -135,7 +136,7 @@ SEASTAR_THREAD_TEST_CASE(invoke_map_returns_future_value) {
         return make_ready_future<int>(m.x);
     }).then([] (std::vector<int> results) {
         for (auto& x : results) {
-            assert(x == 1);
+            SEASTAR_ASSERT(x == 1);
         }
     }).get();
     s.stop().get();
@@ -150,7 +151,7 @@ SEASTAR_THREAD_TEST_CASE(invoke_map_returns_future_value_from_thread) {
         });
     }).then([] (std::vector<int> results) {
         for (auto& x : results) {
-            assert(x == 1);
+            SEASTAR_ASSERT(x == 1);
         }
     }).get();
     s.stop().get();

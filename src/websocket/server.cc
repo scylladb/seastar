@@ -27,6 +27,7 @@
 #include <seastar/core/scattered_message.hh>
 #include <seastar/core/byteorder.hh>
 #include <seastar/http/request.hh>
+#include <seastar/util/assert.hh>
 #ifdef SEASTAR_WITH_TLS_OSSL
 #include <openssl/evp.h>
 #else
@@ -144,7 +145,7 @@ static std::string sha1_base64(std::string_view source) {
     auto free_evp_md_ptr = 
         defer([&]() noexcept  { EVP_MD_free(md_ptr); });
 
-    assert(hash_size == static_cast<unsigned int>(EVP_MD_get_size(md_ptr)));
+    SEASTAR_ASSERT(hash_size == static_cast<unsigned int>(EVP_MD_get_size(md_ptr)));
 
     if (1 != EVP_Digest(source.data(), source.size(), hash, &hash_size, md_ptr, nullptr)) {
         throw websocket::exception("Failed to perform SHA-1 digest in OpenSSL");
@@ -154,7 +155,7 @@ static std::string sha1_base64(std::string_view source) {
     EVP_EncodeBlock(reinterpret_cast<unsigned char *>(base64_encoded.data()), hash, hash_size);
     return base64_encoded;
 #else
-    assert(sizeof(hash) == gnutls_hash_get_len(GNUTLS_DIG_SHA1));
+    SEASTAR_ASSERT(sizeof(hash) == gnutls_hash_get_len(GNUTLS_DIG_SHA1));
     if (int ret = gnutls_hash_fast(GNUTLS_DIG_SHA1, source.data(), source.size(), hash);
         ret != GNUTLS_E_SUCCESS) {
         throw websocket::exception(fmt::format("gnutls_hash_fast: {}", gnutls_strerror(ret)));

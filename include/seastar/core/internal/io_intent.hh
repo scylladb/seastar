@@ -22,6 +22,7 @@
 #pragma once
 
 #include <seastar/util/modules.hh>
+#include <seastar/util/assert.hh>
 #ifndef SEASTAR_MODULE
 #include <utility>
 #include <boost/intrusive/list.hpp>
@@ -59,7 +60,7 @@ public:
 
     public:
         link() noexcept : _ref(nullptr) {}
-        ~link() { assert(_ref == nullptr); }
+        ~link() { SEASTAR_ASSERT(_ref == nullptr); }
 
         void enqueue(cancellable_queue& cq) noexcept {
             cq.push_back(*this);

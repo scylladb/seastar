@@ -22,6 +22,7 @@
 #pragma once
 
 #include <seastar/util/modules.hh>
+#include <seastar/util/assert.hh>
 
 #ifndef SEASTAR_MODULE
 #include <atomic>
@@ -90,7 +91,7 @@ class spinlock {
 public:
     spinlock() = default;
     spinlock(const spinlock&) = delete;
-    ~spinlock() { assert(!_busy.load(std::memory_order_relaxed)); }
+    ~spinlock() { SEASTAR_ASSERT(!_busy.load(std::memory_order_relaxed)); }
     bool try_lock() noexcept {
         return !_busy.exchange(true, std::memory_order_acquire);
     }

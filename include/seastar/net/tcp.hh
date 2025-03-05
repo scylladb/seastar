@@ -47,6 +47,7 @@
 #include <seastar/net/const.hh>
 #include <seastar/net/packet-util.hh>
 #include <seastar/util/defer.hh>
+#include <seastar/util/assert.hh>
 #include <seastar/util/std-compat.hh>
 
 namespace seastar {
@@ -1735,7 +1736,7 @@ void tcp<InetTraits>::tcb::output_one(bool data_retransmit) {
     // if advertised TCP receive window is 0 we may only transmit zero window probing segment.
     // Payload size of this segment is 1. Queueing anything bigger when _snd.window == 0 is bug
     // and violation of RFC
-    assert((_snd.window > 0) || ((_snd.window == 0) && (len <= 1)));
+    SEASTAR_ASSERT((_snd.window > 0) || ((_snd.window == 0) && (len <= 1)));
     queue_packet(std::move(p));
 }
 
@@ -2101,18 +2102,18 @@ tcp_seq tcp<InetTraits>::tcb::get_isn() {
     // has shown that the SHA-256 performance is equivalent or better than MD5
     // as SHA256 is hardware accelerated on most modern CPU architectures
     auto md_ptr = EVP_MD_fetch(nullptr, "SHA256", nullptr);
-    assert(md_ptr);
+    SEASTAR_ASSERT(md_ptr);
     auto free_md_ptr = defer([&]() noexcept { EVP_MD_free(md_ptr); });
-    assert(hash_size == static_cast<unsigned int>(EVP_MD_get_size(md_ptr)));
+    SEASTAR_ASSERT(hash_size == static_cast<unsigned int>(EVP_MD_get_size(md_ptr)));
     auto md_ctx = EVP_MD_CTX_new();
-    assert(md_ctx);
+    SEASTAR_ASSERT(md_ctx);
     auto free_md_ctx = defer([&]() noexcept { EVP_MD_CTX_free(md_ctx); });
-    assert(1 == EVP_DigestInit(md_ctx, md_ptr));
-    assert(1 == EVP_DigestUpdate(
+    SEASTAR_ASSERT(1 == EVP_DigestInit(md_ctx, md_ptr));
+    SEASTAR_ASSERT(1 == EVP_DigestUpdate(
         md_ctx, hash, 3 * sizeof(hash[0])));
-    assert(1 == EVP_DigestUpdate(
+    SEASTAR_ASSERT(1 == EVP_DigestUpdate(
         md_ctx, _isn_secret.key, sizeof(_isn_secret.key)));
-    assert(1 == EVP_DigestFinal_ex(
+    SEASTAR_ASSERT(1 == EVP_DigestFinal_ex(
         md_ctx, reinterpret_cast<unsigned char *>(hash), &hash_size));
 #else
     uint32_t hash[4];
@@ -2125,7 +2126,7 @@ tcp_seq tcp<InetTraits>::tcb::get_isn() {
     gnutls_hash(md5_hash_handle, hash, 3 * sizeof(hash[0]));
     gnutls_hash(md5_hash_handle, _isn_secret.key, sizeof(_isn_secret.key));
     // reuse "hash" for the output of digest
-    assert(sizeof(hash) == gnutls_hash_get_len(GNUTLS_DIG_MD5));
+    SEASTAR_ASSERT(sizeof(hash) == gnutls_hash_get_len(GNUTLS_DIG_MD5));
     gnutls_hash_deinit(md5_hash_handle, hash);
 #endif
     auto seq = hash[0];
@@ -2145,7 +2146,7 @@ std::optional<typename InetTraits::l4packet> tcp<InetTraits>::tcb::get_packet() 
         return std::optional<typename InetTraits::l4packet>();
     }
 
-    assert(!_packetq.empty());
+    SEASTAR_ASSERT(!_packetq.empty());
 
     auto p = std::move(_packetq.front());
     _packetq.pop_front();

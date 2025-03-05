@@ -42,6 +42,7 @@ module;
 #include <fmt/core.h>
 #include <fmt/ostream.h>
 #include <seastar/util/defer.hh>
+#include <seastar/util/assert.hh>
 
 #ifdef SEASTAR_MODULE
 module seastar;
@@ -151,7 +152,7 @@ static auto get_gtls_string = [](auto func, auto... args) noexcept {
     if (ret != GNUTLS_E_SHORT_MEMORY_BUFFER) {
         return std::make_pair(ret, sstring{});
     }
-    assert(size != 0);
+    SEASTAR_ASSERT(size != 0);
     sstring res(sstring::initialized_later{}, size - 1);
     ret = func(args..., res.data(), &size);
     return std::make_pair(ret, res);
@@ -674,7 +675,7 @@ public:
     }
 
     ~session() {
-        assert(_output_pending.available());
+        SEASTAR_ASSERT(_output_pending.available());
     }
 
     typedef temporary_buffer<char> buf_type;
@@ -867,7 +868,7 @@ public:
             // then extract subject and issuer from the (leaf) peer certificate and invoke the callback
 
             auto dn = extract_dn_information();
-            assert(dn.has_value()); // otherwise we couldn't have gotten here
+            SEASTAR_ASSERT(dn.has_value()); // otherwise we couldn't have gotten here
 
             // a switch here might look overelaborate, however,
             // the compiler will warn us if someone alters the definition of type
@@ -956,7 +957,7 @@ public:
     typedef net::fragment* frag_iter;
 
     future<> do_put(frag_iter i, frag_iter e) {
-        assert(_output_pending.available());
+        SEASTAR_ASSERT(_output_pending.available());
         return do_for_each(i, e, [this](net::fragment& f) {
             auto ptr = f.base;
             auto size = f.size;
@@ -1089,7 +1090,7 @@ public:
             case GNUTLS_E_AGAIN:
                 // We only send "bye" alert, letting a "normal" (either pending, or subsequent)
                 // read deal with reading the expected EOF alert.
-                assert(gnutls_record_get_direction(*this) == 1);
+                SEASTAR_ASSERT(gnutls_record_get_direction(*this) == 1);
                 return wait_for_output().then([this] {
                     return do_shutdown();
                 });

@@ -35,6 +35,7 @@
 #include <ucontext.h>
 #include <boost/intrusive/list.hpp>
 #endif
+#include <seastar/util/assert.hh>
 
 /// \defgroup thread-module Seastar threads
 ///
@@ -168,7 +169,7 @@ public:
     /// \brief Destroys a \c thread object.
     ///
     /// The thread must not represent a running thread of execution (see join()).
-    ~thread() { assert(!_context || _context->_joined); }
+    ~thread() { SEASTAR_ASSERT(!_context || _context->_joined); }
     /// \brief Waits for thread execution to terminate.
     ///
     /// Waits for thread execution to terminate, and marks the thread object as not

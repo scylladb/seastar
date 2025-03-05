@@ -37,6 +37,7 @@ module;
 #include <exception>
 #include <utility>
 #include <boost/intrusive/list.hpp>
+#include <seastar/util/assert.hh>
 
 #ifdef SEASTAR_MODULE
 module seastar;
@@ -196,7 +197,7 @@ thread_context::thread_context(thread_attributes attr, noncopyable_function<void
 thread_context::~thread_context() {
 #ifdef SEASTAR_THREAD_STACK_GUARDS
     auto mp_result = mprotect(_stack.get(), getpagesize(), PROT_READ | PROT_WRITE);
-    assert(mp_result == 0);
+    SEASTAR_ASSERT(mp_result == 0);
 #endif
     _all_threads.erase(_all_threads.iterator_to(*this));
 }

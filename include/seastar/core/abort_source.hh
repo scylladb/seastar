@@ -25,6 +25,7 @@
 #include <seastar/util/noncopyable_function.hh>
 #include <seastar/util/optimized_optional.hh>
 #include <seastar/util/std-compat.hh>
+#include <seastar/util/assert.hh>
 
 #ifndef SEASTAR_MODULE
 #include <boost/intrusive/list.hpp>
@@ -132,7 +133,7 @@ private:
             return;
         }
         _ex = ex.value_or(get_default_exception());
-        assert(_ex);
+        SEASTAR_ASSERT(_ex);
         auto subs = std::move(_subscriptions);
         while (!subs.empty()) {
             subscription& s = subs.front();

@@ -28,6 +28,7 @@ module;
 #include <utility>
 #include <boost/container/small_vector.hpp>
 #include <boost/intrusive/parent_from_member.hpp>
+#include <seastar/util/assert.hh>
 
 #ifdef SEASTAR_MODULE
 module seastar;
@@ -109,7 +110,7 @@ fair_group::fair_group(config cfg, unsigned nr_queues)
 }
 
 auto fair_group::grab_capacity(capacity_t cap) noexcept -> capacity_t {
-    assert(cap <= _token_bucket.limit());
+    SEASTAR_ASSERT(cap <= _token_bucket.limit());
     return _token_bucket.grab(cap);
 }
 
@@ -165,12 +166,12 @@ fair_queue::fair_queue(fair_group& group, config cfg)
 
 fair_queue::~fair_queue() {
     for (const auto& fq : _priority_classes) {
-        assert(!fq);
+        SEASTAR_ASSERT(!fq);
     }
 }
 
 void fair_queue::push_priority_class(priority_class_data& pc) noexcept {
-    assert(pc._plugged && !pc._queued);
+    SEASTAR_ASSERT(pc._plugged && !pc._queued);
     _handles.assert_enough_capacity();
     _handles.push(&pc);
     pc._queued = true;
@@ -197,13 +198,13 @@ void fair_queue::push_priority_class_from_idle(priority_class_data& pc) noexcept
 
 // ATTN: This can only be called on pc that is from _handles.top()
 void fair_queue::pop_priority_class(priority_class_data& pc) noexcept {
-    assert(pc._queued);
+    SEASTAR_ASSERT(pc._queued);
     pc._queued = false;
     _handles.pop();
 }
 
 void fair_queue::plug_priority_class(priority_class_data& pc) noexcept {
-    assert(!pc._plugged);
+    SEASTAR_ASSERT(!pc._plugged);
     pc._plugged = true;
     if (!pc._queue.empty()) {
         push_priority_class_from_idle(pc);
@@ -215,7 +216,7 @@ void fair_queue::plug_class(class_id cid) noexcept {
 }
 
 void fair_queue::unplug_priority_class(priority_class_data& pc) noexcept {
-    assert(pc._plugged);
+    SEASTAR_ASSERT(pc._plugged);
     pc._plugged = false;
 }
 
@@ -258,7 +259,7 @@ void fair_queue::register_priority_class(class_id id, uint32_t shares) {
     if (id >= _priority_classes.size()) {
         _priority_classes.resize(id + 1);
     } else {
-        assert(!_priority_classes[id]);
+        SEASTAR_ASSERT(!_priority_classes[id]);
     }
 
     _handles.reserve(_nr_classes + 1);
@@ -268,15 +269,15 @@ void fair_queue::register_priority_class(class_id id, uint32_t shares) {
 
 void fair_queue::unregister_priority_class(class_id id) {
     auto& pclass = _priority_classes[id];
-    assert(pclass);
+    SEASTAR_ASSERT(pclass);
     pclass.reset();
     _nr_classes--;
 }
 
 void fair_queue::update_shares_for_class(class_id id, uint32_t shares) {
-    assert(id < _priority_classes.size());
+    SEASTAR_ASSERT(id < _priority_classes.size());
     auto& pc = _priority_classes[id];
-    assert(pc);
+    SEASTAR_ASSERT(pc);
     pc->update_shares(shares);
 }
 

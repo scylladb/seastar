@@ -32,6 +32,7 @@
 #include <seastar/core/sleep.hh>
 #include <seastar/core/print.hh>
 #include <boost/range/irange.hpp>
+#include <seastar/util/assert.hh>
 #include <chrono>
 
 using namespace seastar;
@@ -162,7 +163,7 @@ public:
     //
     // The ratios argument is the ratios towards the first class
     void verify(sstring name, std::vector<unsigned> ratios, unsigned expected_error = 1) {
-        assert(ratios.size() == _results.size());
+        SEASTAR_ASSERT(ratios.size() == _results.size());
         auto str = name + ":";
         for (auto i = 0ul; i < _results.size(); ++i) {
             str += format(" r[{:d}] = {:d}", i, _results[i]);

@@ -39,6 +39,7 @@
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/core/scattered_message.hh>
 #include <seastar/util/std-compat.hh>
+#include <seastar/util/assert.hh>
 #include <seastar/util/modules.hh>
 #ifndef SEASTAR_MODULE
 #include <boost/intrusive/slist.hpp>
@@ -128,7 +129,7 @@ public:
     // specific buffer size. In this case the stream accepts this value as its
     // buffer size and doesn't put larger buffers (see trim_to_size).
     virtual size_t buffer_size() const noexcept {
-        assert(false && "Data sink must have the buffer_size() method overload");
+        SEASTAR_ASSERT(false && "Data sink must have the buffer_size() method overload");
         return 0;
     }
 
@@ -141,7 +142,7 @@ public:
     }
 
     virtual void on_batch_flush_error() noexcept {
-        assert(false && "Data sink must implement on_batch_flush_error() method");
+        SEASTAR_ASSERT(false && "Data sink must implement on_batch_flush_error() method");
     }
 };
 
@@ -415,9 +416,9 @@ public:
     output_stream& operator=(output_stream&&) noexcept = default;
     ~output_stream() {
         if (_batch_flushes) {
-            assert(!_in_batch && "Was this stream properly closed?");
+            SEASTAR_ASSERT(!_in_batch && "Was this stream properly closed?");
         } else {
-            assert(!_end && !_zc_bufs && "Was this stream properly closed?");
+            SEASTAR_ASSERT(!_end && !_zc_bufs && "Was this stream properly closed?");
         }
     }
     future<> write(const char_type* buf, size_t n) noexcept;

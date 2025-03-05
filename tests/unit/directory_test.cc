@@ -28,6 +28,7 @@
 #include <seastar/core/print.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/file.hh>
+#include <seastar/util/assert.hh>
 
 using namespace seastar;
 
@@ -51,7 +52,7 @@ const char* de_type_desc(directory_entry_type t)
     case directory_entry_type::socket:
         return "socket";
     }
-    assert(0 && "should not get here");
+    SEASTAR_ASSERT(0 && "should not get here");
     return nullptr;
 }
 
@@ -69,9 +70,9 @@ future<> lister_test() {
         future<> report(directory_entry de) {
             return file_stat(de.name, follow_symlink::no).then([de = std::move(de)] (stat_data sd) {
                 if (de.type) {
-                    assert(*de.type == sd.type);
+                    SEASTAR_ASSERT(*de.type == sd.type);
                 } else {
-                    assert(sd.type == directory_entry_type::unknown);
+                    SEASTAR_ASSERT(sd.type == directory_entry_type::unknown);
                 }
                 fmt::print("{} (type={})\n", de.name, de_type_desc(sd.type));
                 return make_ready_future<>();
@@ -91,9 +92,9 @@ future<> lister_generator_test(file f) {
     while (auto de = co_await lister()) {
         auto sd = co_await file_stat(de->name, follow_symlink::no);
         if (de->type) {
-            assert(*de->type == sd.type);
+            SEASTAR_ASSERT(*de->type == sd.type);
         } else {
-            assert(sd.type == directory_entry_type::unknown);
+            SEASTAR_ASSERT(sd.type == directory_entry_type::unknown);
         }
         fmt::print("{} (type={})\n", de->name, de_type_desc(sd.type));
     }

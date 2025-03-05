@@ -36,6 +36,7 @@ module;
 #include <filesystem>
 #include <unordered_map>
 #include <fmt/core.h>
+#include <seastar/util/assert.hh>
 #if SEASTAR_HAVE_HWLOC
 #include <hwloc/glibc-sched.h>
 #endif
@@ -316,7 +317,7 @@ static size_t alloc_from_node(cpu& this_cpu, hwloc_obj_t node, std::unordered_ma
     if (taken) {
         used_mem[node] += taken;
         auto node_id = hwloc_bitmap_first(node->nodeset);
-        assert(node_id != -1);
+        SEASTAR_ASSERT(node_id != -1);
         this_cpu.mem.push_back({taken, unsigned(node_id)});
     }
     return taken;
@@ -416,7 +417,7 @@ allocate_io_queues(hwloc_topology_t topology, std::vector<cpu> cpus, std::unorde
 
     if (num_io_groups == 0) {
         num_io_groups = numa_nodes.size();
-        assert(num_io_groups != 0);
+        SEASTAR_ASSERT(num_io_groups != 0);
         seastar_logger.debug("Auto-configure {} IO groups", num_io_groups);
     } else if (num_io_groups > cpus.size()) {
         // User may be playing with --smp option, but num_io_groups was independently
@@ -433,7 +434,7 @@ allocate_io_queues(hwloc_topology_t topology, std::vector<cpu> cpus, std::unorde
             }
             idx++;
         }
-        assert(0);
+        SEASTAR_ASSERT(0);
     };
 
     auto cpu_sets = distribute_objects(topology, num_io_groups);
@@ -572,7 +573,7 @@ resources allocate(configuration& c) {
         throw std::runtime_error("number of processing units must be positive");
     }
     auto machine_depth = hwloc_get_type_depth(topology, HWLOC_OBJ_MACHINE);
-    assert(hwloc_get_nbobjs_by_depth(topology, machine_depth) == 1);
+    SEASTAR_ASSERT(hwloc_get_nbobjs_by_depth(topology, machine_depth) == 1);
     auto machine = hwloc_get_obj_by_depth(topology, machine_depth, 0);
 #if HWLOC_API_VERSION >= 0x00020000
     auto available_memory = machine->total_memory;
@@ -595,7 +596,7 @@ resources allocate(configuration& c) {
 
     for (auto&& cs : cpu_sets()) {
         auto cpu_id = hwloc_bitmap_first(cs);
-        assert(cpu_id != -1);
+        SEASTAR_ASSERT(cpu_id != -1);
         auto pu = hwloc_get_pu_obj_by_os_index(topology, cpu_id);
         auto node = get_numa_node_for_pu(topology, pu);
         if (node == nullptr) {
@@ -657,7 +658,7 @@ resources allocate(configuration& c) {
     // Divide local memory to cpus
     for (auto&& cs : cpu_sets()) {
         auto cpu_id = hwloc_bitmap_first(cs);
-        assert(cpu_id != -1);
+        SEASTAR_ASSERT(cpu_id != -1);
         auto node = cpu_to_node.at(cpu_id);
         cpu this_cpu;
         this_cpu.cpu_id = cpu_id;
@@ -680,7 +681,7 @@ resources allocate(configuration& c) {
             if (obj == node)
                 break;
         }
-        assert(!remain);
+        SEASTAR_ASSERT(!remain);
         ret.cpus.push_back(std::move(this_cpu));
     }
 

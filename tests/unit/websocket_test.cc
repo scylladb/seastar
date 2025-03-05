@@ -6,6 +6,7 @@
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <seastar/http/response_parser.hh>
+#include <seastar/util/assert.hh>
 #include <seastar/util/defer.hh>
 #include "loopback_socket.hh"
 
@@ -67,7 +68,7 @@ SEASTAR_TEST_CASE(test_websocket_handshake) {
         parser.init();
         input.consume(parser).get();
         std::unique_ptr<http::reply> resp = parser.get_parsed_response();
-        BOOST_ASSERT(resp);
+        SEASTAR_ASSERT(resp);
         sstring websocket_accept = resp->_headers["Sec-WebSocket-Accept"];
         // Trim possible whitespace prefix
         auto it = std::find_if(websocket_accept.begin(), websocket_accept.end(), ::isalnum);

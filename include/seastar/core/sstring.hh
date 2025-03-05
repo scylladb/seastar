@@ -45,6 +45,7 @@
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/modules.hh>
 #include <seastar/core/temporary_buffer.hh>
+#include <seastar/util/assert.hh>
 
 namespace seastar {
 
@@ -258,7 +259,7 @@ public:
     }
 
     size_t find(const char_type* c_str, size_t pos, size_t len2) const noexcept {
-        assert(c_str != nullptr || len2 == 0);
+        SEASTAR_ASSERT(c_str != nullptr || len2 == 0);
         if (pos > size()) {
             return npos;
         }
@@ -361,7 +362,7 @@ public:
             *this = basic_sstring(initialized_later(), n);
         }
         size_t r = std::move(op)(data(), n);
-        assert(r <= n);
+        SEASTAR_ASSERT(r <= n);
         resize(r);
     }
 
@@ -470,7 +471,7 @@ public:
      */
     reference
     front() noexcept {
-        assert(!empty());
+        SEASTAR_ASSERT(!empty());
         return *str();
     }
 
@@ -481,7 +482,7 @@ public:
      */
     const_reference
     front() const noexcept {
-        assert(!empty());
+        SEASTAR_ASSERT(!empty());
         return *str();
     }
 

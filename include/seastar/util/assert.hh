@@ -26,7 +26,7 @@ namespace seastar::internal {
                               const char *func);
 }
 
-/// Like assert(), but independent of NDEBUG. Active in all build modes.
+/// Like SEASTAR_ASSERT(), but independent of NDEBUG. Active in all build modes.
 #define SEASTAR_ASSERT(x)                                             \
     do {                                                              \
         if (!(x)) [[unlikely]] {                                      \

@@ -26,6 +26,7 @@
 #include <seastar/core/scheduling.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/util/modules.hh>
+#include <seastar/util/assert.hh>
 
 #ifndef SEASTAR_MODULE
 #if __has_include(<execinfo.h>)
@@ -216,7 +217,7 @@ public:
      * @return original exception message followed by a backtrace
      */
     virtual const char* what() const noexcept override {
-        assert(_backtrace);
+        SEASTAR_ASSERT(_backtrace);
         return _backtrace->c_str();
     }
 };

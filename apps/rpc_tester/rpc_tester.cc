@@ -387,7 +387,7 @@ class job_rpc : public job {
 
     future<> call_write(unsigned dummy, const payload_t& pl) {
         return _rpc.make_client<uint64_t(payload_t)>(rpc_verb::WRITE)(*_client, pl).then([exp = pl.size()] (auto res) {
-            assert(res == exp);
+            SEASTAR_ASSERT(res == exp);
             return make_ready_future<>();
         });
     }

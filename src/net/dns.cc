@@ -28,6 +28,7 @@
 #include <ostream>
 #include <seastar/util/std-compat.hh>
 #include <seastar/net/inet_address.hh>
+#include <seastar/util/assert.hh>
 
 #include <seastar/net/ip.hh>
 #include <seastar/net/api.hh>
@@ -699,11 +700,11 @@ dns_resolver::impl::make_hostent(const ::hostent& host) {
     while (*p != nullptr) {
         switch (host.h_addrtype) {
         case AF_INET:
-            assert(size_t(host.h_length) >= sizeof(in_addr));
+            SEASTAR_ASSERT(size_t(host.h_length) >= sizeof(in_addr));
             e.addr_list.emplace_back(*reinterpret_cast<const in_addr*>(*p));
             break;
         case AF_INET6:
-            assert(size_t(host.h_length) >= sizeof(in6_addr));
+            SEASTAR_ASSERT(size_t(host.h_length) >= sizeof(in6_addr));
             e.addr_list.emplace_back(*reinterpret_cast<const in6_addr*>(*p));
             break;
         default:
@@ -821,7 +822,7 @@ dns_resolver::impl::do_connect(ares_socket_t fd, const sockaddr * addr, socklen_
 
         dns_log.trace("Connect {}({})->{}", fd, int(e.typ), sa);
 
-        assert(e.avail == 0);
+        SEASTAR_ASSERT(e.avail == 0);
 
         e.avail = POLLOUT|POLLIN; // until we know otherwise
 

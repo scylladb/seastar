@@ -24,6 +24,7 @@
 #ifndef SEASTAR_MODULE
 #include <cstddef>
 #endif
+#include <seastar/util/assert.hh>
 #include <seastar/core/semaphore.hh>
 #include <seastar/util/modules.hh>
 
@@ -112,7 +113,7 @@ public:
     /// is called, one of the fibers waiting on \ref write_lock will be allowed
     /// to proceed.
     void read_unlock() {
-        assert(_sem.current() < max_ops);
+        SEASTAR_ASSERT(_sem.current() < max_ops);
         _sem.signal();
     }
 
@@ -132,7 +133,7 @@ public:
     /// is called, one of the other fibers waiting on \ref write_lock or the fibers
     /// waiting on \ref read_lock will be allowed to proceed.
     void write_unlock() {
-        assert(_sem.current() == 0);
+        SEASTAR_ASSERT(_sem.current() == 0);
         _sem.signal(max_ops);
     }
 
