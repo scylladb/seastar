@@ -364,22 +364,22 @@ $enum_wrapper
 def get_base_name(param):
     return os.path.basename(param)
 
+def get_referenced_type(schema, name):
+    # to be backward compatible, support "type" as well
+    type = schema.get("$ref") or schema.get("type")
+    if type is None:
+       raise Exception(f"neither '$ref' nor 'type' found in {name}")
+    return type
 
 def is_model_valid(name, model):
     if name in valid_vars:
         return ""
     properties = getitem(model[name], "properties", name)
     for var in properties:
-        type = getitem(properties[var], "type", name + ":" + var)
+        type = get_referenced_type(properties[var], name + ":" + var)
         if type == "array":
             items = getitem(properties[var], "items", name + ":" + var)
-            try:
-                type = getitem(items, "type", name + ":" + var + ":items")
-            except Exception as e:
-                try:
-                    type = getitem(items, "$ref", name + ":" + var + ":items")
-                except:
-                    raise e
+            type = get_referenced_type(items, name + ":" + var + ":items")
         if type not in valid_vars:
             if type not in model:
                 raise Exception("Unknown type '" + type + "' in Model '" + name + "'")
@@ -566,7 +566,7 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
                     fprintln(hfile, create_enum_wrapper(model_name, member_name, member["enum"]))
                     fprintln(hfile, f"    {config.jsonns}::json_element<{member_name}_wrapper> {member_name};\n")
                 else:
-                    type_name = type_change(member["type"], member)
+                    type_name = type_change(member["type"] if "type" in member else member["$ref"], member)
                     fprintln(hfile, f"    {config.jsonns}::{type_name} {member_name};\n")
                 member_init += f'add(&{member_name}, "{member_name}");\n'
                 member_assignment += f'{member_name} = e.{member_name};\n'
