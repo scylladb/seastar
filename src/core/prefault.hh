@@ -30,6 +30,12 @@
 #include <seastar/core/task.hh>
 #include <seastar/core/memory.hh>
 
+namespace seastar::alien {
+
+class instance;
+
+};
+
 namespace seastar::internal {
 
 // Responsible for pre-faulting in memory so soft page fault latency doesn't impact applications
@@ -38,11 +44,13 @@ class memory_prefaulter {
     std::vector<posix_thread> _worker_threads;
     // Keep this in object scope to avoid allocating in worker thread
     std::unordered_map<unsigned, std::vector<memory::internal::memory_range>> _layout_by_node_id;
+    std::atomic<unsigned> _active_threads = 0;
 public:
-    explicit memory_prefaulter(const resource::resources& res, memory::internal::numa_layout layout);
+    explicit memory_prefaulter(alien::instance& alien, const resource::resources& res, memory::internal::numa_layout layout);
     ~memory_prefaulter();
 private:
     void work(std::vector<memory::internal::memory_range>& ranges, size_t page_size, std::optional<size_t> huge_page_size_opt);
+    void join_threads() noexcept;
 };
 
 

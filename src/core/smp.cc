@@ -34,6 +34,7 @@ module;
 module seastar;
 #else
 #include <seastar/core/smp.hh>
+#include <seastar/core/alien.hh>
 #include <seastar/core/resource.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/core/semaphore.hh>
@@ -175,7 +176,7 @@ void
 smp::setup_prefaulter(const seastar::resource::resources& res, seastar::memory::internal::numa_layout layout) {
     // Stack guards mprotect() random pages, so the prefaulter will hard-fault.
 #ifndef SEASTAR_THREAD_STACK_GUARDS
-    _prefaulter = std::make_unique<internal::memory_prefaulter>(res, std::move(layout));
+    _prefaulter = std::make_unique<internal::memory_prefaulter>(_alien, res, std::move(layout));
 #endif
 }
 
@@ -199,7 +200,7 @@ get_huge_page_size() {
     return std::nullopt;
 }
 
-internal::memory_prefaulter::memory_prefaulter(const resource::resources& res, memory::internal::numa_layout layout) {
+internal::memory_prefaulter::memory_prefaulter(alien::instance& alien, const resource::resources& res, memory::internal::numa_layout layout) {
     for (auto& range : layout.ranges) {
         _layout_by_node_id[range.numa_node_id].push_back(std::move(range));
     }
@@ -218,17 +219,27 @@ internal::memory_prefaulter::memory_prefaulter(const resource::resources& res, m
             }
             a.set(cpuset);
         }
-        _worker_threads.emplace_back(a, [this, &ranges, page_size, huge_page_size_opt] {
+        _worker_threads.emplace_back(a, [this, &alien, &ranges, page_size, huge_page_size_opt] {
+            ++_active_threads;
             work(ranges, page_size, huge_page_size_opt);
+            if (!--_active_threads) {
+                run_on(alien, 0, [this] () noexcept { join_threads(); });
+            }
         });
     }
 }
 
-internal::memory_prefaulter::~memory_prefaulter() {
+void
+internal::memory_prefaulter::join_threads() noexcept {
     _stop_request.store(true, std::memory_order_relaxed);
     for (auto& t : _worker_threads) {
         t.join();
     }
+    _worker_threads.clear();
+}
+
+internal::memory_prefaulter::~memory_prefaulter() {
+    join_threads();
 }
 
 void
