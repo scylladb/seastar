@@ -53,25 +53,19 @@ class TestJson2Code(unittest.TestCase):
         var1 = 'bon'
         var2 = 'jour'
         query_enum = 'VAL2'
-        params = urllib.parse.urlencode({'query_enum': query_enum})
-        url = f'http://localhost:{self.port}/hello/world/{var1}/{var2}?{params}'
-        with urllib.request.urlopen(url) as f:
-            response = json.loads(f.read().decode('utf-8'))
-            self.assertEqual(response['var1'], f'/{var1}')
-            self.assertEqual(response['var2'], f'/{var2}')
-            self.assertEqual(response['enum_var'], query_enum)
+        response = self._do_query(var1, var2, query_enum)
+        self.assertEqual(response['var1'], f'/{var1}')
+        self.assertEqual(response['var2'], f'/{var2}')
+        self.assertEqual(response['enum_var'], query_enum)
 
     def test_bad_enum(self):
         var1 = 'bon'
         var2 = 'jour'
         query_enum = 'unknown value'
-        params = urllib.parse.urlencode({'query_enum': query_enum})
-        url = f'http://localhost:{self.port}/hello/world/{var1}/{var2}?{params}'
-        with urllib.request.urlopen(url) as f:
-            response = json.loads(f.read().decode('utf-8'))
-            self.assertEqual(response['var1'], f'/{var1}')
-            self.assertEqual(response['var2'], f'/{var2}')
-            self.assertEqual(response['enum_var'], 'Unknown')
+        response = self._do_query(var1, var2, query_enum)
+        self.assertEqual(response['var1'], f'/{var1}')
+        self.assertEqual(response['var2'], f'/{var2}')
+        self.assertEqual(response['enum_var'], 'Unknown')
 
     def test_missing_path_param(self):
         query_enum = 'VAL2'
@@ -85,6 +79,29 @@ class TestJson2Code(unittest.TestCase):
         response = json.loads(ex.read().decode('utf-8'))
         self.assertEqual(response['message'], 'Not found')
         self.assertEqual(response['code'], HTTPStatus.NOT_FOUND)
+
+    def test_arrays(self):
+        response = self._do_query('x', 'x', 'VAL2')
+        expected = [1, 2, 3]
+
+        self.assertEqual(response['array_var'], expected)
+        self.assertEqual(response['chunked_array_var'], expected)
+
+    def _do_query(self, var1: str, var2: str, query_enum: str):
+        def query(streaming: bool = False):
+            params = urllib.parse.urlencode({
+                'query_enum': query_enum,
+                'use_streaming': str(streaming).lower()
+            })
+            url = f'http://localhost:{self.port}/hello/world/{var1}/{var2}?{params}'
+            with urllib.request.urlopen(url) as f:
+                return json.load(f)
+
+        # always query both the streaming and not-streaming variations and
+        # ensure their output is the same
+        stream_no, stream_yes = query(False), query(True)
+        self.assertEqual(stream_no, stream_yes)
+        return stream_no
 
 
 if __name__ == '__main__':

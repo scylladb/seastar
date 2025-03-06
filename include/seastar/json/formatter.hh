@@ -43,7 +43,7 @@ namespace internal {
 
 template<typename T>
 concept is_map = requires {
-    typename T::mapped_type;
+    typename std::remove_reference_t<T>::mapped_type;
 };
 
 template<typename T>
@@ -357,8 +357,8 @@ public:
      */
     template<std::ranges::input_range Range>
     requires (!internal::is_string_like<Range>)
-    static future<> write(output_stream<char>& s, const Range& range) {
-        return do_with(std::move(range), [&s] (const auto& range) {
+    static future<> write(output_stream<char>& s, Range&& range) {
+        return do_with(std::forward<Range>(range), [&s] (const auto& range) {
             if constexpr (internal::is_map<Range>) {
                 return write(s, state::map, std::ranges::begin(range), std::ranges::end(range));
             } else {

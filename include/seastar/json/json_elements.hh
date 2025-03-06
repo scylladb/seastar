@@ -24,15 +24,14 @@
 #ifndef SEASTAR_MODULE
 #include <string>
 #include <vector>
-#include <time.h>
-#include <sstream>
 #endif
 
+#include <seastar/core/chunked_fifo.hh>
 #include <seastar/core/do_with.hh>
-#include <seastar/core/loop.hh>
-#include <seastar/json/formatter.hh>
-#include <seastar/core/sstring.hh>
 #include <seastar/core/iostream.hh>
+#include <seastar/core/loop.hh>
+#include <seastar/core/sstring.hh>
+#include <seastar/json/formatter.hh>
 #include <seastar/util/modules.hh>
 
 namespace seastar {
@@ -151,13 +150,15 @@ private:
 };
 
 /**
- * json_list is based on std vector implementation.
+ * json_list_template is an array type based on a
+ * container type passed as a template parameter, as we want to
+ * have flavors based on both vector and chunked_fifo.
  *
  * When values are added with push it is set the "set" flag to true
  * hence will be included in the parsed object
  */
-template<class T>
-class json_list : public json_base_element {
+template <class T, class Container>
+class json_list_template : public json_base_element {
 public:
 
     /**
@@ -188,7 +189,7 @@ public:
      * iteration and that it's elements can be assigned to the list elements
      */
     template<class C>
-    json_list& operator=(const C& list) {
+    json_list_template& operator=(const C& list) {
         _elements.clear();
         for  (auto i : list) {
             push(i);
@@ -198,8 +199,15 @@ public:
     virtual future<> write(output_stream<char>& s) const override {
         return formatter::write(s, _elements);
     }
-    std::vector<T> _elements;
+
+    Container _elements;
 };
+
+template <typename T>
+using json_list = json_list_template<T, std::vector<T>>;
+
+template <typename T>
+using json_chunked_list = json_list_template<T, seastar::chunked_fifo<T>>;
 
 class jsonable {
 public:
@@ -368,8 +376,8 @@ std::function<future<>(output_stream<char>&&)> stream_range_as_array(Container v
 template<class T>
 std::function<future<>(output_stream<char>&&)> stream_object(T val) {
     return [val = std::move(val)](output_stream<char>&& s) mutable {
-        return do_with(output_stream<char>(std::move(s)), T(std::move(val)), [](output_stream<char>& s, const T& val){
-            return formatter::write(s, val).finally([&s] {
+        return do_with(output_stream<char>(std::move(s)), T(std::move(val)), [](output_stream<char>& s, T& val){
+            return formatter::write(s, std::move(val)).finally([&s] {
                 return s.close();
             });
         });

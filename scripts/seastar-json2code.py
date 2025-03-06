@@ -97,9 +97,14 @@ def valid_type(param):
     trace_err("Type [", param, "] not defined")
     return param
 
+# Map from json list types to the C++ implementing type
+LIST_TO_IMPL = {"array": "json_list", "chunked_array": "json_chunked_list"}
 
-def type_change(param, member):
-    if param == "array":
+def is_array_type(type: str):
+    return type in LIST_TO_IMPL
+
+def type_change(param: str, member):
+    if is_array_type(param):
         if "items" not in member:
             trace_err("array without item declaration in ", param)
             return ""
@@ -111,7 +116,8 @@ def type_change(param, member):
         else:
             trace_err("array items with no type or ref declaration ", param)
             return ""
-        return "json_list< " + valid_type(t) + " >"
+        return LIST_TO_IMPL[param] + "< " + valid_type(t) + " >"
+
     return "json_element< " + valid_type(param) + " >"
 
 
@@ -371,7 +377,7 @@ def is_model_valid(name, model):
     properties = getitem(model[name], "properties", name)
     for var in properties:
         type = getitem(properties[var], "type", name + ":" + var)
-        if type == "array":
+        if is_array_type(type):
             items = getitem(properties[var], "items", name + ":" + var)
             try:
                 type = getitem(items, "type", name + ":" + var + ":items")
@@ -677,9 +683,8 @@ def parse_file(param, combined):
         if (combined):
             fprintln(combined, '#include "', base_file_name, ".cc", '"')
         create_h_file(data, hfile_name, api_name, init_method, base_api)
-    except:
-        type, value, tb = sys.exc_info()
-        print("Error while parsing JSON file '" + param + "' error ", value.message)
+    except Exception as e:
+        print("Error while parsing JSON file '" + param + "' error " + str(e))
         sys.exit(-1)
 
 if "indir" in config and config.indir != '':
