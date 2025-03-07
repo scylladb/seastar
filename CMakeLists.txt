@@ -321,17 +321,6 @@ option (BUILD_SHARED_LIBS
 #   By default ASan disables core dumps because they used to be
 #   huge. This is no longer the case since the shadow memory is
 #   excluded, so it is safe to enable them.
-#   Also, by default, to make sure it works as expected, ASan
-#   verifies if the ASan dynamic runtime is the first DSO in the
-#   initial library list by calling dl_iterate_phdr(3). But
-#   Seastar provides this symbol, and its implementation references
-#   some static variables. So if Seastar is built as a shared
-#   library, this causes a chicken and egg problem. In other words,
-#   ASan is loaded first, and it tries to reference a symbol which
-#   is in turn provided by another shared library which does not
-#   necessarily ready its static variables yet. And this leads
-#   to a segfault. So, we have to disable this check when
-#   "BUILD_SHARED_LIBS" is enabled.
 # * UBSAN_OPTIONS=halt_on_error=1:abort_on_error=1
 #   Fail the test if any undefined behavior is found and use abort
 #   instead of exit. Using abort is what causes core dumps to be
@@ -346,10 +335,6 @@ if ((NOT (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")) OR
     (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 10.2))
   string (APPEND Seastar_ASAN_OPTIONS ":detect_stack_use_after_return=1")
 endif ()
-if (BUILD_SHARED_LIBS)
-  string (APPEND Seastar_ASAN_OPTIONS ":verify_asan_link_order=0")
-endif ()
-
 
 set (Seastar_TEST_ENVIRONMENT
   "ASAN_OPTIONS=${Seastar_ASAN_OPTIONS};UBSAN_OPTIONS=halt_on_error=1:abort_on_error=1;BOOST_TEST_CATCH_SYSTEM_ERRORS=no"
