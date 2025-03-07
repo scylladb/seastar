@@ -35,6 +35,8 @@ if __name__ == "__main__":
     parser.add_argument('--smp', '-c', action="store",default='2',type=int,help="Number of threads for multi-core tests")
     parser.add_argument('--verbose', '-v', action = 'store_true', default = False,
                         help = 'Verbose reporting')
+    parser.add_argument('--offline', action="store_true", default = False,
+                        help="Disable tests accessing internet")
     args = parser.parse_args()
 
     MODES = [args.mode] if args.mode else seastar_cmake.SUPPORTED_MODES
@@ -49,6 +51,7 @@ if __name__ == "__main__":
             tr(args.timeout, 'TEST_TIMEOUT'),
             tr(args.fast, 'EXECUTE_ONLY_FAST_TESTS'),
             tr(args.smp, 'UNIT_TEST_SMP'),
+            tr(not args.offline, 'ENABLE_TESTS_ACCESSING_INTERNET'),
             tr(args.jenkins, 'JENKINS', value_when_none=''),
         ]
 
