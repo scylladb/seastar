@@ -22,7 +22,10 @@
 #include <seastar/core/reactor.hh>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/sleep.hh>
+#include <seastar/core/thread.hh>
 #include <seastar/net/dns.hh>
+#include <seastar/util/closeable.hh>
+#include "../apps/lib/stop_signal.hh"
 #include "tls_echo_server.hh"
 
 using namespace seastar;
@@ -38,30 +41,34 @@ int main(int ac, char** av) {
                     ("key,k", bpo::value<std::string>()->required(), "Certificate key")
                     ("verbose,v", bpo::value<bool>()->default_value(false)->implicit_value(true), "Verbose")
                     ;
-    return app.run_deprecated(ac, av, [&] {
-        auto&& config = app.configuration();
-        uint16_t port = config["port"].as<uint16_t>();
-        auto crt = config["cert"].as<std::string>();
-        auto key = config["key"].as<std::string>();
-        auto addr = config["address"].as<std::string>();
-        auto verbose = config["verbose"].as<bool>();
+    return app.run(ac, av, [&app] {
+        return async([&app] {
+            seastar_apps_lib::stop_signal stop_signal;
+            auto&& config = app.configuration();
+            uint16_t port = config["port"].as<uint16_t>();
+            auto crt = config["cert"].as<std::string>();
+            auto key = config["key"].as<std::string>();
+            auto addr = config["address"].as<std::string>();
+            auto verbose = config["verbose"].as<bool>();
 
-        std::cout << "Starting..." << std::endl;
-        return net::dns::resolve_name(addr).then([=](net::inet_address a) {
+            std::cout << "Starting..." << std::endl;
+            net::inet_address a = net::dns::resolve_name(addr).get();
+
             ipv4_addr ia(a, port);
 
-            auto server = ::make_shared<seastar::sharded<echoserver>>();
-            return server->start(verbose).then([=]() {
-                return server->invoke_on_all(&echoserver::listen, socket_address(ia), sstring(crt), sstring(key), tls::client_auth::NONE);
-            }).handle_exception([=](auto e) {
-                std::cerr << "Error: " << e << std::endl;
-                engine().exit(1);
-            }).then([=] {
-                std::cout << "TLS echo server running at " << addr << ":" << port << std::endl;
-                engine().at_exit([server] {
-                    return server->stop().finally([server] {});
-                });
-            });
+            seastar::sharded<echoserver> server;
+            server.start(verbose).get();
+            auto stop_server = deferred_stop(server);
+
+            try {
+                server.invoke_on_all(&echoserver::listen, socket_address(ia), sstring(crt), sstring(key), tls::client_auth::NONE).get();
+            } catch (...) {
+                std::cerr << "Error: " << std::current_exception() << std::endl;
+                return 1;
+            }
+            std::cout << "TLS echo server running at " << addr << ":" << port << std::endl;
+            stop_signal.wait().get();
+            return 0;
         });
     });
 }
