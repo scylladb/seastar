@@ -37,6 +37,7 @@ if __name__ == "__main__":
                         help = 'Verbose reporting')
     parser.add_argument('--offline', action="store_true", default = False,
                         help="Disable tests accessing internet")
+    parser.add_argument('ctest_forward', nargs='*', help="These parameters will be passed directly to ctest")
     args = parser.parse_args()
 
     MODES = [args.mode] if args.mode else seastar_cmake.SUPPORTED_MODES
@@ -66,7 +67,7 @@ if __name__ == "__main__":
         if args.name:
             TRANSLATED_CTEST_ARGS += ['-R', args.name]
 
-        CTEST_ARGS = ['ctest', BUILD_PATH] + TRANSLATED_CTEST_ARGS
+        CTEST_ARGS = ['ctest', BUILD_PATH] + TRANSLATED_CTEST_ARGS + args.ctest_forward
         print(CTEST_ARGS)
         subprocess.check_call(CTEST_ARGS, shell=False, cwd=BUILD_PATH)
 
