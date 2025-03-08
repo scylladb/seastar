@@ -65,6 +65,9 @@ static std::string certfile(const std::string& file) {
     return (cert_location / file).string();
 }
 
+using enable_if_with_networking = boost::unit_test::enable_if<SEASTAR_TESTING_WITH_NETWORKING>;
+using enable_if_without_networking = boost::unit_test::enable_if<!SEASTAR_TESTING_WITH_NETWORKING>;
+
 using namespace seastar;
 
 static future<> connect_to_ssl_addr(::shared_ptr<tls::certificate_credentials> certs, socket_address addr, const sstring& name = {}) {
@@ -107,8 +110,6 @@ static future<> connect_to_ssl_addr(::shared_ptr<tls::certificate_credentials> c
     }).discard_result();
 }
 
-#if SEASTAR_TESTING_WITH_NETWORKING
-
 static const auto google_name = "www.google.com";
 
 // broken out from below. to allow pre-lookup
@@ -130,27 +131,31 @@ static future<> connect_to_ssl_google(::shared_ptr<tls::certificate_credentials>
     });
 }
 
-SEASTAR_TEST_CASE(test_simple_x509_client_with_google) {
+SEASTAR_TEST_CASE(test_simple_x509_client_with_google,
+                  *enable_if_with_networking()) {
     auto certs = ::make_shared<tls::certificate_credentials>();
     return certs->set_x509_trust_file(certfile("tls-ca-bundle.pem"), tls::x509_crt_format::PEM).then([certs]() {
         return connect_to_ssl_google(certs);
     });
 }
 
-SEASTAR_TEST_CASE(test_x509_client_with_system_trust) {
+SEASTAR_TEST_CASE(test_x509_client_with_system_trust,
+                  *enable_if_with_networking()) {
     auto certs = ::make_shared<tls::certificate_credentials>();
     return certs->set_system_trust().then([certs]() {
         return connect_to_ssl_google(certs);
     });
 }
 
-SEASTAR_TEST_CASE(test_x509_client_with_builder_system_trust) {
+SEASTAR_TEST_CASE(test_x509_client_with_builder_system_trust,
+                  *enable_if_with_networking()) {
     tls::credentials_builder b;
     (void)b.set_system_trust();
     return connect_to_ssl_google(b.build_certificate_credentials());
 }
 
-SEASTAR_TEST_CASE(test_x509_client_with_builder_system_trust_multiple) {
+SEASTAR_TEST_CASE(test_x509_client_with_builder_system_trust_multiple,
+                  *enable_if_with_networking()) {
     // avoid getting parallel connects stuck on dns lookup (if running single case).
     // pre-lookup www.google.com
     return google_address().then([](socket_address) {
@@ -162,7 +167,8 @@ SEASTAR_TEST_CASE(test_x509_client_with_builder_system_trust_multiple) {
     });
 }
 
-SEASTAR_TEST_CASE(test_x509_client_with_system_trust_and_priority_strings) {
+SEASTAR_TEST_CASE(test_x509_client_with_system_trust_and_priority_strings,
+                  *enable_if_with_networking()) {
     static std::vector<sstring> prios( {
         "NORMAL:+ARCFOUR-128", // means normal ciphers plus ARCFOUR-128.
         "SECURE128:-VERS-SSL3.0:+COMP-DEFLATE", // means that only secure ciphers are enabled, SSL3.0 is disabled, and libz compression enabled.
@@ -182,7 +188,8 @@ SEASTAR_TEST_CASE(test_x509_client_with_system_trust_and_priority_strings) {
     });
 }
 
-SEASTAR_TEST_CASE(test_x509_client_with_system_trust_and_priority_strings_fail) {
+SEASTAR_TEST_CASE(test_x509_client_with_system_trust_and_priority_strings_fail,
+                  *enable_if_with_networking()) {
     static std::vector<sstring> prios( { "NONE",
         "NONE:+CURVE-SECP256R1"
     });
@@ -202,7 +209,6 @@ SEASTAR_TEST_CASE(test_x509_client_with_system_trust_and_priority_strings_fail) 
         return make_ready_future<>();
     });
 }
-#endif // SEASTAR_TESTING_WITH_NETWORKING
 
 class https_server {
     const sstring _cert;
@@ -270,16 +276,13 @@ public:
     }
 };
 
-#if !SEASTAR_TESTING_WITH_NETWORKING
-
-SEASTAR_THREAD_TEST_CASE(test_simple_x509_client_with_local_server) {
+SEASTAR_THREAD_TEST_CASE(test_simple_x509_client_with_local_server,
+                         *enable_if_without_networking()) {
     auto certs = ::make_shared<tls::certificate_credentials>();
     https_server server;
     certs->set_x509_trust_file(server.cert(), tls::x509_crt_format::PEM).get();
     connect_to_ssl_addr(certs, server.addr(), server.name()).get();
 }
-
-#endif // !SEASTAR_TESTING_WITH_NETWORKING
 
 SEASTAR_THREAD_TEST_CASE(test_x509_client_with_builder) {
     tls::credentials_builder b;
