@@ -862,6 +862,32 @@ SEASTAR_TEST_CASE(test_map_reduce1_lifetime) {
     });
 }
 
+SEASTAR_TEST_CASE(map_reduce_with_throwing_mapper) {
+    try {
+        auto vec = std::vector<int>{1, 2, 3, 4, 5, 6, 7};
+        co_await map_reduce(
+            vec,
+            // Mapper: identity function, but throws
+            [] (int x) -> future<int> {
+                if (x == 5) {
+                    throw std::runtime_error("test");
+                }
+                co_return x;
+            },
+            // Initial value (and accumulator): move-only type
+            std::make_unique<int>(0),
+            // Reducer: test that it does not act on a moved-from value
+            [] (std::unique_ptr<int> acc, int x) -> std::unique_ptr<int> {
+                BOOST_REQUIRE(bool(acc));
+                *acc += x;
+                return acc;
+            }
+        );
+    } catch (...) {
+        // Exception is expected and uninteresting
+    }
+}
+
 // This test doesn't actually test anything - it just waits for the future
 // returned by sleep to complete. However, a bug we had in sleep() caused
 // this test to fail the sanitizer in the debug build, so this is a useful
