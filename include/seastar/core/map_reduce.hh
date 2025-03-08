@@ -185,23 +185,30 @@ map_reduce(Iterator begin, Iterator end, Mapper&& mapper, Initial initial, Reduc
         Mapper mapper;
         Initial result;
         Reduce reduce;
+        std::exception_ptr ex;
     };
-    auto s = make_lw_shared(state{std::forward<Mapper>(mapper), std::move(initial), std::move(reduce)});
+    auto s = make_lw_shared(state{std::forward<Mapper>(mapper), std::move(initial), std::move(reduce), std::exception_ptr()});
     future<> ret = make_ready_future<>();
     while (begin != end) {
         ret = futurize_invoke(s->mapper, *begin++).then_wrapped([s = s.get(), ret = std::move(ret)] (auto f) mutable {
-            try {
-                s->result = s->reduce(std::move(s->result), f.get());
-                return std::move(ret);
-            } catch (...) {
-                return std::move(ret).then_wrapped([ex = std::current_exception()] (auto f) {
-                    f.ignore_ready_future();
-                    return make_exception_future<>(ex);
-                });
+            if (s->ex) {
+                f.ignore_ready_future();  // We only report the first exception
+            } else if (f.failed()) {
+                s->ex = f.get_exception();
+            } else {
+                try {
+                    s->result = s->reduce(std::move(s->result), f.get());
+                } catch (...) {
+                    s->ex = std::current_exception();
+                }
             }
+            return std::move(ret);
         });
     }
     return ret.then([s] {
+        if (s->ex) {
+            return make_exception_future<Initial>(std::move(s->ex));
+        }
         return make_ready_future<Initial>(std::move(s->result));
     });
 }
