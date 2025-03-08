@@ -130,7 +130,7 @@ static future<> connect_to_ssl_google(::shared_ptr<tls::certificate_credentials>
     });
 }
 
-SEASTAR_TEST_CASE(test_simple_x509_client) {
+SEASTAR_TEST_CASE(test_simple_x509_client_with_google) {
     auto certs = ::make_shared<tls::certificate_credentials>();
     return certs->set_x509_trust_file(certfile("tls-ca-bundle.pem"), tls::x509_crt_format::PEM).then([certs]() {
         return connect_to_ssl_google(certs);
@@ -272,7 +272,7 @@ public:
 
 #if !SEASTAR_TESTING_WITH_NETWORKING
 
-SEASTAR_THREAD_TEST_CASE(test_simple_x509_client) {
+SEASTAR_THREAD_TEST_CASE(test_simple_x509_client_with_local_server) {
     auto certs = ::make_shared<tls::certificate_credentials>();
     https_server server;
     certs->set_x509_trust_file(server.cert(), tls::x509_crt_format::PEM).get();
