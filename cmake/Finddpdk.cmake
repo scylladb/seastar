@@ -184,9 +184,9 @@ if (dpdk_FOUND AND NOT (TARGET dpdk))
         INTERFACE_LINK_LIBRARIES "${dpdk_dependencies}"
         IMPORTED_OBJECTS ${dpdk_object_path}
         ${compile_options})
-    # we include dpdk in seastar already, so no need to expose it with
-    # dpdk_LIBRARIES
-    set (dpdk_LIBRARIES "")
+    # we include dpdk in seastar already, but we need to pull in the
+    # dependency libraries linked by dpdk
+    list(TRANSFORM dpdk_dependencies PREPEND "-l" OUTPUT_VARIABLE dpdk_LIBRARIES)
     add_library (DPDK::dpdk ALIAS dpdk)
   else ()
     set (dpdk_LIBRARIES ${dpdk_PC_LDFLAGS})
