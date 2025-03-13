@@ -338,7 +338,7 @@ metric_groups_impl& metric_groups_impl::add_metric(group_name_type name, const m
         _impl = get_local_impl(_handle);
     }
 
-    auto internalized_labels = get_local_impl()->internalize_labels(md._impl->labels);
+    auto internalized_labels = get_local_impl(_handle)->internalize_labels(md._impl->labels);
 
     metric_id id(name, md._impl->name, internalized_labels);
 
