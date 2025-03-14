@@ -212,7 +212,7 @@ void ipv4_udp::send(uint16_t src_port, ipv4_addr dst, packet &&p)
 }
 
 uint16_t ipv4_udp::next_port(uint16_t port) {
-    return (port + 1) == 0 ? min_anonymous_port : port + 1;
+    return (port == std::numeric_limits<decltype(port)>::max()) ? min_anonymous_port : port + 1;
 }
 
 udp_channel
