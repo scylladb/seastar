@@ -25,6 +25,7 @@
 #include <boost/intrusive/list.hpp>
 
 #include <seastar/core/future.hh>
+#include <seastar/core/sstring.hh>
 #include <seastar/util/assert.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/modules.hh>
