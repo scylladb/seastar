@@ -803,3 +803,7 @@ add_test (
 set_tests_properties (Seastar.unit.prometheus
   PROPERTIES
     TIMEOUT ${Seastar_TEST_TIMEOUT})
+
+seastar_add_test (gate
+  SOURCES
+    gate_test.cc)
