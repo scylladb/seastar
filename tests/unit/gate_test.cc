@@ -98,3 +98,60 @@ SEASTAR_TEST_CASE(gate_closed_test) {
     co_await check_gate_closed_exception([&] () -> future<> { co_await with_gate(g, [] { return make_ready_future(); }); });
     co_await check_gate_closed_exception([&] () -> future<> { co_await try_with_gate(g, [] { return make_ready_future(); }); });
 }
+
+template <typename Func>
+static future<> check_named_gate_closed_exception(Func func, sstring name) {
+    try {
+        co_await futurize_invoke(func);
+        BOOST_FAIL("func was expected to throw gate_closed_exception");
+    } catch (const gate_closed_exception& e) {
+        BOOST_REQUIRE_EQUAL(e.what(), fmt::format("{} gate closed", name));
+    } catch (...) {
+        BOOST_FAIL(format("unexpected exception: {}", std::current_exception()));
+    }
+}
+
+SEASTAR_TEST_CASE(named_gate_closed_test) {
+    auto test_named_gate = [] (named_gate& g, const sstring name) -> future<> {
+        if (!g.is_closed()) {
+            BOOST_REQUIRE_NO_THROW(g.check());
+            BOOST_REQUIRE_NO_THROW(g.enter());
+            auto gh0 = g.try_hold();
+            BOOST_REQUIRE(gh0.has_value());
+            auto gh1 = g.hold();
+            BOOST_REQUIRE(!g.is_closed());
+            auto f = g.close();
+            BOOST_REQUIRE(!f.available());
+            g.leave();
+            gh0->release();
+            gh1.release();
+            BOOST_REQUIRE_NO_THROW(co_await std::move(f));
+            BOOST_REQUIRE(g.is_closed());
+        }
+
+        BOOST_REQUIRE(!g.try_hold().has_value());
+
+        co_await check_named_gate_closed_exception([&] { g.check(); }, name);
+        co_await check_named_gate_closed_exception([&] { g.enter(); }, name);
+        co_await check_named_gate_closed_exception([&] { g.hold(); }, name);
+        co_await check_named_gate_closed_exception([&] () -> future<> { co_await with_gate(g, [] { return make_ready_future(); }); }, name);
+        co_await check_named_gate_closed_exception([&] () -> future<> { co_await try_with_gate(g, [] { return make_ready_future(); }); }, name);
+    };
+
+    sstring name = "foo";
+    BOOST_TEST_MESSAGE("test_named_gate(g0)");
+    named_gate g0(name);
+    co_await test_named_gate(g0, name);
+    BOOST_TEST_MESSAGE("test_named_gate(g1)");
+    auto g1 = named_gate(named_gate_exception_factory(name));
+    co_await test_named_gate(g1, name);
+    BOOST_TEST_MESSAGE("test_named_gate(g2)");
+    auto g2 = std::move(g1);
+    co_await test_named_gate(g2, name);
+    BOOST_TEST_MESSAGE("test_named_gate(g3)");
+    named_gate g3;
+    co_await test_named_gate(g3, "named");
+    BOOST_TEST_MESSAGE("test_named_gate(g3) after move");
+    g3 = std::move(g2);
+    co_await test_named_gate(g3, name);
+}
