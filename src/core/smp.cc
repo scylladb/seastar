@@ -231,7 +231,6 @@ internal::memory_prefaulter::memory_prefaulter(alien::instance& alien, const res
 
 void
 internal::memory_prefaulter::join_threads() noexcept {
-    _stop_request.store(true, std::memory_order_relaxed);
     for (auto& t : _worker_threads) {
         t.join();
     }
@@ -239,6 +238,7 @@ internal::memory_prefaulter::join_threads() noexcept {
 }
 
 internal::memory_prefaulter::~memory_prefaulter() {
+    _stop_request.store(true, std::memory_order_relaxed);
     join_threads();
 }
 
