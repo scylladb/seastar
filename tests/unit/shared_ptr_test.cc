@@ -27,6 +27,7 @@
 #include <unordered_map>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/shared_ptr.hh>
+#include <seastar/util/assert.hh>
 
 using namespace seastar;
 
@@ -55,9 +56,9 @@ BOOST_AUTO_TEST_CASE(explot_dynamic_cast_use_after_free_problem) {
     shared_ptr<A> p = ::make_shared<A>();
     {
         auto p2 = dynamic_pointer_cast<B>(p);
-        BOOST_ASSERT(!p2);
+        SEASTAR_ASSERT(!p2);
     }
-    BOOST_ASSERT(!A::destroyed);
+    SEASTAR_ASSERT(!A::destroyed);
 }
 
 class C : public enable_shared_from_this<C> {

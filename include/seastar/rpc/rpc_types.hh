@@ -33,6 +33,7 @@
 #include <string>
 #include <boost/any.hpp>
 #include <boost/type.hpp>
+#include <seastar/util/assert.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/variant_utils.hh>
 #include <seastar/core/timer.hh>
@@ -107,7 +108,7 @@ struct client_info {
     template <typename T>
     T& retrieve_auxiliary(const sstring& key) {
         auto it = user_data.find(key);
-        assert(it != user_data.end());
+        SEASTAR_ASSERT(it != user_data.end());
         return boost::any_cast<T&>(it->second);
     }
     template <typename T>

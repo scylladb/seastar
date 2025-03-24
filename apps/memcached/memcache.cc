@@ -43,6 +43,7 @@
 #include <seastar/core/print.hh>
 #include <seastar/net/api.hh>
 #include <seastar/net/packet-data-source.hh>
+#include <seastar/util/assert.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/log.hh>
 #include "ascii.hh"
@@ -162,8 +163,8 @@ public:
         , _key_size(key.key().size())
         , _ascii_prefix_size(ascii_prefix.size())
     {
-        assert(_key_size <= std::numeric_limits<uint8_t>::max());
-        assert(_ascii_prefix_size <= std::numeric_limits<uint8_t>::max());
+        SEASTAR_ASSERT(_key_size <= std::numeric_limits<uint8_t>::max());
+        SEASTAR_ASSERT(_ascii_prefix_size <= std::numeric_limits<uint8_t>::max());
         // storing key
         memcpy(_data, key.key().c_str(), _key_size);
         // storing ascii_prefix
@@ -255,7 +256,7 @@ public:
     }
 
     friend inline void intrusive_ptr_add_ref(item* it) {
-        assert(it->_ref_count >= 0);
+        SEASTAR_ASSERT(it->_ref_count >= 0);
         ++it->_ref_count;
         if (it->_ref_count == 2) {
             slab->lock_item(it);
@@ -269,7 +270,7 @@ public:
         } else if (it->_ref_count == 0) {
             slab->free(it);
         }
-        assert(it->_ref_count >= 0);
+        SEASTAR_ASSERT(it->_ref_count >= 0);
     }
 
     friend struct item_key_cmp;
@@ -469,7 +470,7 @@ private:
         intrusive_ptr_add_ref(new_item);
 
         auto insert_result = _cache.insert(*new_item);
-        assert(insert_result.second);
+        SEASTAR_ASSERT(insert_result.second);
         if (insertion.expiry.ever_expires() && _alive.insert(*new_item)) {
             _timer.rearm(new_item->get_timeout());
         }

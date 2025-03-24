@@ -26,6 +26,7 @@
 #include <seastar/core/app-template.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/util/closeable.hh>
+#include <seastar/util/assert.hh>
 #include <cassert>
 
 // This is some service that we wish to run on all shards.
@@ -71,7 +72,7 @@ int main(int ac, char** av) {
             auto stop_s2 = seastar::deferred_stop(s2);
 
             s2.invoke_on_all([] (service_two& s2) {
-                assert(s2.get_resource_allocation() == 3);
+                SEASTAR_ASSERT(s2.get_resource_allocation() == 3);
             }).get();
         });
     });

@@ -27,6 +27,7 @@
 #include <seastar/core/sleep.hh>
 #include <seastar/util/later.hh>
 #include <seastar/util/shared_token_bucket.hh>
+#include <seastar/util/assert.hh>
 
 // The test allows measuring if the shared_token_bucket<> allows the tokens
 // consumers to get tokens at the rate the bucket is configured with.
@@ -155,7 +156,7 @@ struct worker : public seastar::peering_sharded_service<worker<TokenBucket>> {
     }
 
     future<work_result> work(std::function<future<>(std::chrono::duration<double> d)> do_sleep) {
-        assert(tokens == 0);
+        SEASTAR_ASSERT(tokens == 0);
         auto start = clock_type::now();
         // Run for 1 second. The perf suite would restart this method several times
         return do_until([end = start + std::chrono::seconds(1)] { return clock_type::now() >= end; },
@@ -267,7 +268,7 @@ struct hog {
     {}
 
     void work() {
-        assert(!stopped.has_value());
+        SEASTAR_ASSERT(!stopped.has_value());
         keep_going = true;
         stopped = do_until([this] { return !keep_going; },
             [this] {
@@ -283,7 +284,7 @@ struct hog {
     }
 
     future<> terminate() {
-        assert(stopped.has_value());
+        SEASTAR_ASSERT(stopped.has_value());
         keep_going = false;
         auto f = std::move(*stopped);
         stopped.reset();

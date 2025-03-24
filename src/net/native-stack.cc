@@ -36,6 +36,7 @@ module;
 #include <sys/stat.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <seastar/util/assert.hh>
 
 #ifdef SEASTAR_MODULE
 module seastar;
@@ -178,7 +179,7 @@ public:
     virtual future<> initialize() override;
     static future<std::unique_ptr<network_stack>> create(const program_options::option_group& opts) {
         auto ns_opts = dynamic_cast<const native_stack_options*>(&opts);
-        assert(ns_opts);
+        SEASTAR_ASSERT(ns_opts);
         if (this_shard_id() == 0) {
             create_native_net_device(*ns_opts);
         }
@@ -243,7 +244,7 @@ native_network_stack::native_network_stack(const native_stack_options& opts, std
 
 server_socket
 native_network_stack::listen(socket_address sa, listen_options opts) {
-    assert(sa.family() == AF_INET || sa.is_unspecified());
+    SEASTAR_ASSERT(sa.family() == AF_INET || sa.is_unspecified());
     return tcpv4_listen(_inet.get_tcp(), ntohs(sa.as_posix_sockaddr_in().sin_port), opts);
 }
 

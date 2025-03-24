@@ -36,6 +36,7 @@
 #include <seastar/util/bool_class.hh>
 #include <seastar/util/modules.hh>
 #include <seastar/core/semaphore.hh>
+#include <seastar/util/assert.hh>
 
 namespace seastar {
 
@@ -687,7 +688,7 @@ max_concurrent_for_each(Iterator begin, Sentinel end, size_t max_concurrent, Fun
         { }
     };
 
-    assert(max_concurrent > 0);
+    SEASTAR_ASSERT(max_concurrent > 0);
 
     try {
         return do_with(state(std::move(begin), std::move(end), max_concurrent, std::forward<Func>(func)), [] (state& s) {

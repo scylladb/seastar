@@ -30,6 +30,7 @@
 #include <seastar/core/do_with.hh>
 #include <seastar/util/log.hh>
 #include <seastar/util/modules.hh>
+#include <seastar/util/assert.hh>
 
 #ifndef SEASTAR_MODULE
 #include <boost/iterator/counting_iterator.hpp>
@@ -562,7 +563,7 @@ SEASTAR_MODULE_EXPORT_END
 
 template <typename Service>
 sharded<Service>::~sharded() {
-	assert(_instances.empty());
+	SEASTAR_ASSERT(_instances.empty());
 }
 
 namespace internal {
@@ -636,7 +637,7 @@ template <typename... Args>
 future<>
 sharded<Service>::start_single(Args&&... args) noexcept {
   try {
-    assert(_instances.empty());
+    SEASTAR_ASSERT(_instances.empty());
     _instances.resize(1);
     return smp::submit_to(0, [this, args = std::make_tuple(std::forward<Args>(args)...)] () mutable {
         _instances[0].service = std::apply([this] (Args... args) {
@@ -790,19 +791,19 @@ sharded<Service>::invoke_on_others(smp_submit_to_options options, Func func, Arg
 
 template <typename Service>
 const Service& sharded<Service>::local() const noexcept {
-    assert(local_is_initialized());
+    SEASTAR_ASSERT(local_is_initialized());
     return *_instances[this_shard_id()].service;
 }
 
 template <typename Service>
 Service& sharded<Service>::local() noexcept {
-    assert(local_is_initialized());
+    SEASTAR_ASSERT(local_is_initialized());
     return *_instances[this_shard_id()].service;
 }
 
 template <typename Service>
 shared_ptr<Service> sharded<Service>::local_shared() noexcept {
-    assert(local_is_initialized());
+    SEASTAR_ASSERT(local_is_initialized());
     return _instances[this_shard_id()].service;
 }
 

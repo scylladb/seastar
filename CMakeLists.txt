@@ -814,7 +814,6 @@ target_include_directories (seastar
     ${CMAKE_CURRENT_SOURCE_DIR}/src)
 
 set (Seastar_PRIVATE_CXX_FLAGS
-  -UNDEBUG
   -Wall
   -Werror
   -Wimplicit-fallthrough
@@ -918,11 +917,6 @@ endif ()
 set( MEMORYCHECK_COMMAND_OPTIONS "--error-exitcode=1 --leak-check=no --trace-children=yes" )
 include (CTest)
 
-#
-# We want asserts enabled on all modes, but cmake defaults to passing
-# -DNDEBUG in some modes. We add -UNDEBUG to our private options to
-# reenable it. To force asserts off pass -DNDEBUG in
-# Seastar_CXX_FLAGS.
 #
 # To disable -Werror, pass -Wno-error to Seastar_CXX_FLAGS.
 #

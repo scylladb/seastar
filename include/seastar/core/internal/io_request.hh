@@ -28,6 +28,7 @@
 #include <vector>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <seastar/util/assert.hh>
 
 namespace seastar {
 extern logger io_log;
@@ -426,7 +427,7 @@ public:
     io_direction_and_length(int idx, size_t val) noexcept
             : _directed_length((val << 1) | idx)
     {
-        assert(idx == read_idx || idx == write_idx);
+        SEASTAR_ASSERT(idx == read_idx || idx == write_idx);
     }
 };
 

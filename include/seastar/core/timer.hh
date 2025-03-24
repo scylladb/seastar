@@ -26,6 +26,7 @@
 #include <seastar/core/timer-set.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/modules.hh>
+#include <seastar/util/assert.hh>
 #ifndef SEASTAR_MODULE
 #include <boost/intrusive/list.hpp>
 #include <chrono>
@@ -97,7 +98,7 @@ private:
     bool _expired = false;
     void readd_periodic() noexcept;
     void arm_state(time_point until, std::optional<duration> period) noexcept {
-        assert(!_armed);
+        SEASTAR_ASSERT(!_armed);
         _period = period;
         _armed = true;
         _expired = false;

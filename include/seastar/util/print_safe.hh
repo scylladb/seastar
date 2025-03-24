@@ -31,6 +31,7 @@
 #endif
 
 #include <seastar/util/modules.hh>
+#include <seastar/util/assert.hh>
 
 namespace seastar {
 
@@ -77,7 +78,7 @@ char* convert_hex_safe(char *buf, size_t bufsz, Integral n) noexcept {
     memset(buf, Padding, bufsz);
     auto* p = buf + bufsz;
     do {
-        assert(p > buf);
+        SEASTAR_ASSERT(p > buf);
         *--p = digits[n & 0xf];
         n >>= 4;
     } while (n);
@@ -112,7 +113,7 @@ size_t convert_decimal_safe(char *buf, size_t bufsz, Integral n) noexcept {
     char tmp[sizeof(n) * 3];
     unsigned i = bufsz;
     do {
-        assert(i > 0);
+        SEASTAR_ASSERT(i > 0);
         tmp[--i] = '0' + n % 10;
         n /= 10;
     } while (n);

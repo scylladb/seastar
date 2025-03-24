@@ -34,6 +34,7 @@ module;
 #include <boost/intrusive/parent_from_member.hpp>
 #include <boost/container/small_vector.hpp>
 #include <sys/uio.h>
+#include <seastar/util/assert.hh>
 
 #ifdef SEASTAR_MODULE
 module seastar;
@@ -489,7 +490,7 @@ std::vector<io_request::part> io_request::split_iovec(size_t max_length) {
     }
 
     if (vecs.size() > 0) {
-        assert(remaining < max_length);
+        SEASTAR_ASSERT(remaining < max_length);
         auto req = sub_req_iovec(pos, vecs);
         parts.push_back({ std::move(req), max_length - remaining, std::move(vecs) });
     }
@@ -678,7 +679,7 @@ io_queue::~io_queue() {
     //
     // And that will happen only when there are no more fibers to run. If we ever change
     // that, then this has to change.
-    assert(_queued_requests == 0);
+    SEASTAR_ASSERT(_queued_requests == 0);
     for (auto&& pc_data : _priority_classes) {
         if (pc_data) {
             for (auto&& s : _streams) {
@@ -720,7 +721,7 @@ io_priority_class io_priority_class::register_one(sstring name, uint32_t shares)
             // make sure it was registered with the same number shares
             // Note: those may change dynamically later on in the
             // fair queue
-            assert(_infos[i].shares == shares);
+            SEASTAR_ASSERT(_infos[i].shares == shares);
         }
         return io_priority_class(i);
     }

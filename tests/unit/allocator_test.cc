@@ -23,6 +23,7 @@
 #include <seastar/core/timer.hh>
 #include <seastar/testing/random.hh>
 #include <seastar/testing/test_runner.hh>
+#include <seastar/util/assert.hh>
 #include <cmath>
 #include <iostream>
 #include <iomanip>
@@ -47,7 +48,7 @@ struct allocation {
     allocation(allocation&& x) noexcept = default;
     void verify() {
         if (data) {
-            assert(std::find_if(data.get(), data.get() + n, [this] (char c) {
+            SEASTAR_ASSERT(std::find_if(data.get(), data.get() + n, [this] (char c) {
                 return c != poison;
             }) == data.get() + n);
         }
@@ -98,7 +99,7 @@ struct test17_concrete : test17 {
     static_assert(sizeof(value_type) == N, "language does not guarantee size >= align");
     virtual handle alloc() const override {
         auto ptr = new value_type();
-        assert((reinterpret_cast<uintptr_t>(ptr) & (N - 1)) == 0);
+        SEASTAR_ASSERT((reinterpret_cast<uintptr_t>(ptr) & (N - 1)) == 0);
         return handle{this, ptr};
     }
     virtual void free(void* ptr) const override {

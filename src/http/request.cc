@@ -24,6 +24,7 @@ module;
 #endif
 
 #include <cassert>
+#include <seastar/util/assert.hh>
 #include <string_view>
 #include <utility>
 
@@ -52,7 +53,7 @@ sstring request::format_url() const {
 }
 
 sstring request::request_line() const {
-    assert(!_version.empty());
+    SEASTAR_ASSERT(!_version.empty());
     return _method + " " + format_url() + " HTTP/" + _version + "\r\n";
 }
 

@@ -35,6 +35,7 @@ module;
 #include <map>
 #include <iostream>
 #include <unordered_map>
+#include <seastar/util/assert.hh>
 
 #ifdef SEASTAR_MODULE
 module seastar;
@@ -233,7 +234,7 @@ struct cpwriter {
                 write(v.ui()); // unsigned int 64, big endian
                 break;
             default:
-                assert(0);
+                SEASTAR_ASSERT(0);
         }
     }
     cpwriter & write(const sstring & s) {

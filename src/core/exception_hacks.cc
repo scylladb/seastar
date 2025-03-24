@@ -61,6 +61,7 @@ module;
 #include <assert.h>
 #include <vector>
 #include <cstddef>
+#include <seastar/util/assert.hh>
 
 #ifdef SEASTAR_MODULE
 module seastar;
@@ -77,7 +78,7 @@ using dl_iterate_fn = int (*) (int (*callback) (struct dl_phdr_info *info, size_
 static dl_iterate_fn dl_iterate_phdr_org() {
     static dl_iterate_fn org = [] {
         auto org = (dl_iterate_fn)dlsym (RTLD_NEXT, "dl_iterate_phdr");
-        assert(org);
+        SEASTAR_ASSERT(org);
         return org;
     }();
     return org;

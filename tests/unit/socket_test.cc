@@ -34,6 +34,7 @@
 #include <seastar/core/when_all.hh>
 #include <seastar/net/api.hh>
 #include <seastar/net/posix-stack.hh>
+#include <seastar/util/assert.hh>
 
 #include <optional>
 #include <tuple>
@@ -101,7 +102,7 @@ SEASTAR_TEST_CASE(socket_skip_test) {
                 // expected
                 return;
             }
-            assert(!"Skipping data from socket is likely stuck");
+            SEASTAR_ASSERT(!"Skipping data from socket is likely stuck");
         });
 
         accept_result accepted = ss.accept().get();

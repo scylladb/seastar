@@ -21,6 +21,7 @@
 
 #include <seastar/rpc/lz4_fragmented_compressor.hh>
 #include <seastar/core/byteorder.hh>
+#include <seastar/util/assert.hh>
 
 #include <lz4.h>
 // LZ4_DECODER_RING_BUFFER_SIZE macro is introduced since v1.8.2
@@ -140,7 +141,7 @@ snd_buf lz4_fragmented_compressor::compress(size_t head_space, snd_buf data) {
         auto src_ptr = src->get() + src_current_offset;
         if (src->size() - src_current_offset < size) {
             auto left = size;
-            assert(lin_buf_size > size);
+            SEASTAR_ASSERT(lin_buf_size > size);
             if (lin_buf_size - lin_off < size) {
                 lin_off = 0;
             }

@@ -73,6 +73,7 @@ module;
 #include <sys/ioctl.h>
 #include <linux/perf_event.h>
 #include <xfs/linux.h>
+#include <seastar/util/assert.hh>
 /*
  * With package xfsprogs-devel >= 5.14.1, `fallthrough` has defined to
  * fix compilation warning in header <xfs/linux.h>,
@@ -238,7 +239,7 @@ seastar::logger seastar_logger("seastar");
 seastar::logger sched_logger("scheduler");
 
 shard_id reactor::cpu_id() const {
-    assert(_id == this_shard_id());
+    SEASTAR_ASSERT(_id == this_shard_id());
     return _id;
 }
 
@@ -435,7 +436,7 @@ reactor::do_recv_some(pollable_fd_state& fd, internal::buffer_allocator* ba) {
 
 future<>
 reactor::send_all(pollable_fd_state& fd, const void* buffer, size_t len) {
-    assert(len);
+    SEASTAR_ASSERT(len);
     return send_all_part(fd, buffer, len, 0);
 }
 
@@ -795,7 +796,7 @@ public:
     }
 
     void reserve(size_t len) noexcept {
-        assert(len < _max_size);
+        SEASTAR_ASSERT(len < _max_size);
         if (_pos + len >= _max_size) {
             flush();
         }
@@ -907,8 +908,8 @@ auto install_signal_handler_stack() {
 #endif
 
 static sstring shorten_name(const sstring& name, size_t length) {
-    assert(!name.empty());
-    assert(length > 0);
+    SEASTAR_ASSERT(!name.empty());
+    SEASTAR_ASSERT(length > 0);
 
     namespace ba = boost::algorithm;
     using split_iter_t = ba::split_iterator<sstring::const_iterator>;
@@ -930,7 +931,7 @@ static sstring shorten_name(const sstring& name, size_t length) {
              output != last && split_it != split_last;
              ++split_it) {
             auto& part = *split_it;
-            assert(part.size() > 0);
+            SEASTAR_ASSERT(part.size() > 0);
             // convert "hello_world" to "hw"
             *output++ = part[0];
         }
@@ -989,7 +990,7 @@ reactor::task_queue::register_stats() {
 
 void
 reactor::task_queue::rename(sstring new_name, sstring new_shortname) {
-    assert(!new_name.empty());
+    SEASTAR_ASSERT(!new_name.empty());
     if (_name != new_name) {
         _name = new_name;
         if (new_shortname.empty()) {
@@ -1067,7 +1068,7 @@ reactor::reactor(std::shared_ptr<smp> smp, alien::instance& alien, unsigned id, 
     sigaddset(&mask, internal::cpu_stall_detector::signal_number());
     sigaddset(&mask, internal::cpu_profiler::signal_number());
     auto r = ::pthread_sigmask(SIG_UNBLOCK, &mask, NULL);
-    assert(r == 0);
+    SEASTAR_ASSERT(r == 0);
     memory::set_reclaim_hook([this] (std::function<void ()> reclaim_fn) {
         add_high_priority_task(make_task(default_scheduling_group(), [fn = std::move(reclaim_fn)] {
             fn();
@@ -1081,7 +1082,7 @@ reactor::~reactor() {
     sigaddset(&mask, internal::cpu_stall_detector::signal_number());
     sigaddset(&mask, internal::cpu_profiler::signal_number());
     auto r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
-    assert(r == 0);
+    SEASTAR_ASSERT(r == 0);
 
     _backend->stop_tick();
     auto eraser = [](auto& list) {
@@ -2525,7 +2526,7 @@ void reactor::del_timer(timer<manual_clock>* tmr) noexcept {
 }
 
 void reactor::at_exit(noncopyable_function<future<> ()> func) {
-    assert(!_stopping);
+    SEASTAR_ASSERT(!_stopping);
     _exit_funcs.push_back(std::move(func));
 }
 
@@ -2538,7 +2539,7 @@ future<> reactor::run_exit_tasks() {
 }
 
 void reactor::stop() {
-    assert(_id == 0);
+    SEASTAR_ASSERT(_id == 0);
     _smp->cleanup_cpu();
     if (!std::exchange(_stopping, true)) {
         // Run exit tasks locally and then stop all other engines
@@ -3306,7 +3307,7 @@ int reactor::do_run() {
 
     // Ensure that the same signal isn't being used more than once.
     auto set_signal = [](sigset_t* mask, int s) {
-        assert(!sigismember(mask, s));
+        SEASTAR_ASSERT(!sigismember(mask, s));
         sigaddset(mask, s);
     };
 
@@ -3320,9 +3321,9 @@ int reactor::do_run() {
     sa_block_notifier.sa_flags = SA_RESTART;
     sa_block_notifier.sa_mask = block_mask;
     auto r = sigaction(internal::cpu_stall_detector::signal_number(), &sa_block_notifier, nullptr);
-    assert(r == 0);
+    SEASTAR_ASSERT(r == 0);
     r = sigaction(internal::cpu_profiler::signal_number(), &sa_block_notifier, nullptr);
-    assert(r == 0);
+    SEASTAR_ASSERT(r == 0);
 
     bool idle = false;
 
@@ -3777,14 +3778,14 @@ readable_eventfd writeable_eventfd::read_side() {
 }
 
 file_desc writeable_eventfd::try_create_eventfd(size_t initial) {
-    assert(size_t(int(initial)) == initial);
+    SEASTAR_ASSERT(size_t(int(initial)) == initial);
     return file_desc::eventfd(initial, EFD_CLOEXEC);
 }
 
 void writeable_eventfd::signal(size_t count) {
     uint64_t c = count;
     auto r = _fd.write(&c, sizeof(c));
-    assert(r == sizeof(c));
+    SEASTAR_ASSERT(r == sizeof(c));
 }
 
 writeable_eventfd readable_eventfd::write_side() {
@@ -3792,7 +3793,7 @@ writeable_eventfd readable_eventfd::write_side() {
 }
 
 file_desc readable_eventfd::try_create_eventfd(size_t initial) {
-    assert(size_t(int(initial)) == initial);
+    SEASTAR_ASSERT(size_t(int(initial)) == initial);
     return file_desc::eventfd(initial, EFD_CLOEXEC | EFD_NONBLOCK);
 }
 
@@ -3800,7 +3801,7 @@ future<size_t> readable_eventfd::wait() {
     return engine().readable(*_fd._s).then([this] {
         uint64_t count;
         int r = ::read(_fd.get_fd(), &count, sizeof(count));
-        assert(r == sizeof(count));
+        SEASTAR_ASSERT(r == sizeof(count));
         return make_ready_future<size_t>(count);
     });
 }
@@ -4015,13 +4016,13 @@ void smp::arrive_at_event_loop_end() {
 }
 
 void smp::allocate_reactor(unsigned id, reactor_backend_selector rbs, reactor_config cfg) {
-    assert(!reactor_holder);
+    SEASTAR_ASSERT(!reactor_holder);
 
     // we cannot just write "local_engin = new reactor" since reactor's constructor
     // uses local_engine
     void *buf;
     int r = posix_memalign(&buf, cache_line_size, sizeof(reactor));
-    assert(r == 0);
+    SEASTAR_ASSERT(r == 0);
     *internal::this_shard_id_ptr() = id;
     local_engine = new (buf) reactor(this->shared_from_this(), _alien, id, std::move(rbs), cfg);
     reactor_holder.reset(local_engine);
@@ -4600,7 +4601,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     auto assign_io_queues = [&ioq_topology] (shard_id shard) {
         for (auto& [dev, io_info] : ioq_topology) {
             auto queue = std::move(io_info.queues[shard]);
-            assert(queue);
+            SEASTAR_ASSERT(queue);
             engine()._io_queues.emplace(dev, std::move(queue));
 
             auto num_io_groups = io_info.groups.size();
@@ -5169,7 +5170,7 @@ create_scheduling_group(sstring name, sstring shortname, float shares) noexcept 
         return make_exception_future<scheduling_group>(std::runtime_error(fmt::format("Scheduling group limit exceeded while creating {}", name)));
     }
     auto id = static_cast<unsigned>(aid);
-    assert(id < max_scheduling_groups());
+    SEASTAR_ASSERT(id < max_scheduling_groups());
     auto sg = scheduling_group(id);
     return smp::invoke_on_all([sg, name, shortname, shares] {
         return engine().init_scheduling_group(sg, name, shortname, shares);

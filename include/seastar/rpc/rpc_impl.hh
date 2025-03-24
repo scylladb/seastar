@@ -30,6 +30,7 @@
 #include <boost/range/adaptor/transformed.hpp>
 #include <seastar/net/packet-data-source.hh>
 #include <seastar/core/print.hh>
+#include <seastar/util/assert.hh>
 
 namespace seastar {
 
@@ -820,7 +821,7 @@ template<typename Serializer, typename... Out>
 sink_impl<Serializer, Out...>::~sink_impl() {
     // A failure to close might leave some continuations running after
     // this is destroyed, leading to use-after-free bugs.
-    assert(this->_con->get()->sink_closed());
+    SEASTAR_ASSERT(this->_con->get()->sink_closed());
 }
 
 template<typename Serializer, typename... In>

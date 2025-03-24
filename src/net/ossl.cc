@@ -51,6 +51,7 @@ module;
 #include <openssl/x509.h>
 #include <openssl/x509_vfy.h>
 #include <openssl/x509v3.h>
+#include <seastar/util/assert.hh>
 
 #include <span>
 #include <system_error>
@@ -343,7 +344,7 @@ public:
         // Grab the 'this' pointer from the stores generic data cache, it should always exist
         auto store = X509_STORE_CTX_get0_store(store_ctx);
         auto credential_impl = static_cast<impl*>(X509_STORE_get_ex_data(store, credential_store_idx));
-        assert(credential_impl != nullptr);
+        SEASTAR_ASSERT(credential_impl != nullptr);
         // Store a pointer to the current connection certificate within the impl instance
         auto cert = X509_STORE_CTX_get_current_cert(store_ctx);
         X509_up_ref(cert);
@@ -363,7 +364,7 @@ public:
         // observed x509 certificate
         [[maybe_unused]] auto res =
             X509_STORE_set_ex_data(_creds.get(), credential_store_idx, this);
-        assert(res == 1);
+        SEASTAR_ASSERT(res == 1);
     }
 
 
@@ -906,7 +907,7 @@ public:
             : session(t, std::move(creds), net::get_impl::get(std::move(sock)), options) {}
 
     ~session() {
-        assert(_output_pending.available());
+        SEASTAR_ASSERT(_output_pending.available());
     }
 
     // This function waits for the _output_pending future to resolve
@@ -987,7 +988,7 @@ public:
         if (!connected()) {
             return make_ready_future<net::packet>(std::move(p));
         }
-        assert(_output_pending.available());
+        SEASTAR_ASSERT(_output_pending.available());
         return do_with(std::move(p),
             [this](net::packet& p) {
                 // This do_until runs until either a renegotiation occurs or the packet is empty
@@ -1363,7 +1364,7 @@ public:
 
         if (_creds->_dn_callback) {
             auto dn = extract_dn_information();
-            assert(dn.has_value());
+            SEASTAR_ASSERT(dn.has_value());
             _creds->_dn_callback(
               _type, std::move(dn->subject), std::move(dn->issuer));
         }

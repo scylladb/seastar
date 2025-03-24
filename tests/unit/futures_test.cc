@@ -28,6 +28,7 @@
 #include <type_traits>
 #include <vector>
 #include <seastar/testing/test_case.hh>
+#include <seastar/util/assert.hh>
 
 #include <seastar/core/reactor.hh>
 #include <seastar/core/shared_ptr.hh>
@@ -555,8 +556,8 @@ template<typename Container>
 future<> when_all_but_one_succeed(Container& futures, size_t leave_out)
 {
     auto sz = futures.size();
-    assert(sz >= 1);
-    assert(leave_out < sz);
+    SEASTAR_ASSERT(sz >= 1);
+    SEASTAR_ASSERT(leave_out < sz);
     std::vector<future<size_t>> all_but_one_tmp;
     all_but_one_tmp.reserve(sz - 1);
     for (size_t i = 0 ; i < sz; i++){

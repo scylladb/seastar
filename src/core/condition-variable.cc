@@ -27,6 +27,7 @@ module seastar;
 #else
 #include <seastar/core/condition-variable.hh>
 #endif
+#include <seastar/util/assert.hh>
 
 namespace seastar {
 
@@ -43,7 +44,7 @@ condition_variable::~condition_variable() {
 }
 
 void condition_variable::add_waiter(waiter& w) noexcept {
-    assert(!_signalled); // should not have snuck between
+    SEASTAR_ASSERT(!_signalled); // should not have snuck between
     if (_ex) {
         w.set_exception(_ex);
         return;
