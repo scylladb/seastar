@@ -35,6 +35,9 @@ if __name__ == "__main__":
     parser.add_argument('--smp', '-c', action="store",default='2',type=int,help="Number of threads for multi-core tests")
     parser.add_argument('--verbose', '-v', action = 'store_true', default = False,
                         help = 'Verbose reporting')
+    parser.add_argument('--offline', action="store_true", default = False,
+                        help="Disable tests accessing internet")
+    parser.add_argument('ctest_forward', nargs='*', help="These parameters will be passed directly to ctest")
     args = parser.parse_args()
 
     MODES = [args.mode] if args.mode else seastar_cmake.SUPPORTED_MODES
@@ -49,6 +52,7 @@ if __name__ == "__main__":
             tr(args.timeout, 'TEST_TIMEOUT'),
             tr(args.fast, 'EXECUTE_ONLY_FAST_TESTS'),
             tr(args.smp, 'UNIT_TEST_SMP'),
+            tr(not args.offline, 'ENABLE_TESTS_ACCESSING_INTERNET'),
             tr(args.jenkins, 'JENKINS', value_when_none=''),
         ]
 
@@ -63,7 +67,7 @@ if __name__ == "__main__":
         if args.name:
             TRANSLATED_CTEST_ARGS += ['-R', args.name]
 
-        CTEST_ARGS = ['ctest', BUILD_PATH] + TRANSLATED_CTEST_ARGS
+        CTEST_ARGS = ['ctest', BUILD_PATH] + TRANSLATED_CTEST_ARGS + args.ctest_forward
         print(CTEST_ARGS)
         subprocess.check_call(CTEST_ARGS, shell=False, cwd=BUILD_PATH)
 
