@@ -23,6 +23,7 @@
  */
 #include <iostream>
 #include <chrono>
+#include <optional>
 #include <random>
 #include <memory>
 #include <ranges>
@@ -100,6 +101,7 @@ struct evaluation_directory {
     sstring _name;
     // We know that if we issue more than this, they will be blocked on linux anyway.
     unsigned _max_iodepth = 0;
+    unsigned _force_io_depth;
     uint64_t _available_space;
     uint64_t _min_data_transfer_size = 512;
     unsigned _disks_per_array = 0;
@@ -143,11 +145,15 @@ struct evaluation_directory {
             iotune_logger.error("Error while parsing sysfs. Will continue with guessed values: {}", se.what());
             _max_iodepth = 128;
         }
+        if (_force_io_depth != 0) {
+            _max_iodepth = _force_io_depth;
+        }
         _disks_per_array = std::max(_disks_per_array, 1u);
     }
 public:
-    evaluation_directory(sstring name)
+    evaluation_directory(sstring name, unsigned force_io_depth)
         : _name(name)
+        , _force_io_depth(force_io_depth)
         , _available_space(fs::space(fs::path(_name)).available)
     {}
 
@@ -725,6 +731,7 @@ int main(int ac, char** av) {
         ("accuracy", bpo::value<unsigned>()->default_value(3), "acceptable deviation of measurements (percents)")
         ("saturation", bpo::value<sstring>()->default_value(""), "measure saturation lengths (read | write | both) (this is very slow!)")
         ("random-io-buffer-size", bpo::value<unsigned>()->default_value(0), "force buffer size for random write and random read")
+        ("force-io-depth", bpo::value<unsigned>()->default_value(0), "force io depth to a certain size (overriding auto detection logic)")
     ;
 
     return app.run(ac, av, [&] {
@@ -736,6 +743,7 @@ int main(int ac, char** av) {
             auto accuracy = configuration["accuracy"].as<unsigned>();
             auto saturation = configuration["saturation"].as<sstring>();
             auto random_io_buffer_size = configuration["random-io-buffer-size"].as<unsigned>();
+            auto force_io_depth = configuration["force-io-depth"].as<unsigned>();
 
             bool read_saturation, write_saturation;
             if (saturation == "") {
@@ -798,7 +806,7 @@ int main(int ac, char** av) {
                 }
 
                 // Directory is the same object for all tests.
-                ::evaluation_directory test_directory(eval_dir);
+                ::evaluation_directory test_directory(eval_dir, force_io_depth);
                 test_directory.discover_directory().get();
                 iotune_logger.info("Disk parameters: max_iodepth={} disks_per_array={} minimum_io_size={}",
                         test_directory.max_iodepth(), test_directory.disks_per_array(), test_directory.minimum_io_size());
