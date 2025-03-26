@@ -848,7 +848,6 @@ static void print_with_backtrace(backtrace_buffer& buf, bool oneline) noexcept {
     buf.append_backtrace_oneline();
     buf.append("\n");
   }
-    buf.flush();
 }
 
 static void print_with_backtrace(const char* cause, bool oneline = false) noexcept {
@@ -1223,7 +1222,6 @@ void cpu_stall_detector::report_suppressions(sched_clock::time_point now) {
             buf.append(" on shard ");
             buf.append_decimal(_shard_id);
             buf.append("\n");
-            buf.flush();
         }
         reset_suppression_state(now);
     }
@@ -1360,7 +1358,6 @@ cpu_stall_detector_linux_perf_event::maybe_report_kernel_trace(backtrace_buffer&
             }
             buf.append("\n");
         }
-        buf.flush();
     };
 }
 
