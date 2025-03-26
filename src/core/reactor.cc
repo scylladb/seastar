@@ -1346,12 +1346,14 @@ cpu_stall_detector_linux_perf_event::maybe_report_kernel_trace() {
 
         auto nr = reader.read_u64();
         backtrace_buffer buf;
-        buf.append("kernel callstack:");
-        for (uint64_t i = 0; i < nr; ++i) {
-            buf.append(" 0x");
-            buf.append_hex(uintptr_t(reader.read_u64()));
+        if (nr > 0) {
+            buf.append("kernel callstack:");
+            for (uint64_t i = 0; i < nr; ++i) {
+                buf.append(" 0x");
+                buf.append_hex(uintptr_t(reader.read_u64()));
+            }
+            buf.append("\n");
         }
-        buf.append("\n");
         buf.flush();
     };
 }
