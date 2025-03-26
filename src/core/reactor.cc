@@ -767,9 +767,16 @@ class backtrace_buffer {
     unsigned _pos = 0;
     char _buf[_max_size];
 public:
+    backtrace_buffer() = default;
+    ~backtrace_buffer() {
+        flush();
+    }
+
     void flush() noexcept {
-        print_safe(_buf, _pos);
-        _pos = 0;
+        if (_pos > 0) {
+            print_safe(_buf, _pos);
+            _pos = 0;
+        }
     }
 
     void reserve(size_t len) noexcept {
