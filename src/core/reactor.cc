@@ -1330,7 +1330,7 @@ cpu_stall_detector_linux_perf_event::is_spurious_signal() {
 }
 
 void
-cpu_stall_detector_linux_perf_event::maybe_report_kernel_trace() {
+cpu_stall_detector_linux_perf_event::maybe_report_kernel_trace(backtrace_buffer& buf) {
     data_area_reader reader(*this);
     auto current_record = [&] () -> ::perf_event_header {
         return reader.read_struct<perf_event_header>();
@@ -1345,7 +1345,6 @@ cpu_stall_detector_linux_perf_event::maybe_report_kernel_trace() {
         }
 
         auto nr = reader.read_u64();
-        backtrace_buffer buf;
         if (nr > 0) {
             buf.append("kernel callstack:");
             for (uint64_t i = 0; i < nr; ++i) {
@@ -1442,7 +1441,7 @@ void cpu_stall_detector::generate_trace() {
     buf.append_decimal(uint64_t(delta / 1ms));
     buf.append(" ms");
     print_with_backtrace(buf, _config.oneline);
-    maybe_report_kernel_trace();
+    maybe_report_kernel_trace(buf);
 }
 
 } // internal namespace

@@ -40,6 +40,7 @@ namespace seastar {
 
 class reactor;
 class thread_cputime_clock;
+class backtrace_buffer;
 
 namespace internal {
 
@@ -73,7 +74,7 @@ protected:
     virtual bool is_spurious_signal() {
         return false;
     }
-    virtual void maybe_report_kernel_trace() {}
+    virtual void maybe_report_kernel_trace(backtrace_buffer& buf) {}
 private:
     void maybe_report();
     virtual void arm_timer() = 0;
@@ -167,7 +168,7 @@ private:
         }
     };
 
-    virtual void maybe_report_kernel_trace() override;
+    virtual void maybe_report_kernel_trace(backtrace_buffer& buf) override;
 public:
     static std::unique_ptr<cpu_stall_detector_linux_perf_event> try_make(cpu_stall_detector_config cfg = {});
     explicit cpu_stall_detector_linux_perf_event(file_desc fd, cpu_stall_detector_config cfg = {});
