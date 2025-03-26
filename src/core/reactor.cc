@@ -772,6 +772,12 @@ public:
         flush();
     }
 
+    // copying / moving 2^13 bytes not useful, compiler will help us here
+    backtrace_buffer(const backtrace_buffer &) = delete;
+    backtrace_buffer(backtrace_buffer &&) = delete;
+    backtrace_buffer &operator = (const backtrace_buffer &) = delete;
+    backtrace_buffer &operator = (backtrace_buffer &&) = delete;
+
     void flush() noexcept {
         if (_pos > 0) {
             print_safe(_buf, _pos);
