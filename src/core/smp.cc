@@ -235,6 +235,7 @@ internal::memory_prefaulter::join_threads() noexcept {
         t.join();
     }
     _worker_threads.clear();
+    _layout_by_node_id.clear();
 }
 
 internal::memory_prefaulter::~memory_prefaulter() {
