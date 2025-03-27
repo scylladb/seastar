@@ -156,7 +156,7 @@ file (WRITE "${boost_user_config}"
 
 cooking_ingredient (Boost
   EXTERNAL_PROJECT_ARGS
-    URL https://boostorg.jfrog.io/artifactory/main/release/1.81.0/source/boost_1_81_0.tar.bz2
+    URL https://archives.boost.io/release/1.81.0/source/boost_1_81_0.tar.bz2
     URL_HASH SHA256=71feeed900fbccca04a3b4f2f84a7c217186f28a940ed8b7ed4725986baf99fa
     PATCH_COMMAND
       ./bootstrap.sh
