@@ -230,7 +230,7 @@ static void shutdown_socket_fd(pollable_fd& fd, int how) noexcept {
         // EBADF (invalid file descriptor) -- irretrievable
         fd.shutdown(how);
     } catch (...) {
-        on_internal_error(seastar_logger, format("socket shutdown({}, {}) failed: {}", fd.get_file_desc().fdinfo(), how, std::current_exception()));
+        on_internal_error(seastar_logger, seastar::format("socket shutdown({}, {}) failed: {}", fd.get_file_desc().fdinfo(), how, std::current_exception()));
     }
 }
 
