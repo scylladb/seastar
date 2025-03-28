@@ -703,7 +703,6 @@ public:
 };
 
 extern __thread reactor* local_engine;
-extern __thread size_t task_quota;
 
 SEASTAR_MODULE_EXPORT
 inline reactor& engine() {
