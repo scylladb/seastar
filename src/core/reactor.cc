@@ -767,9 +767,22 @@ class backtrace_buffer {
     unsigned _pos = 0;
     char _buf[_max_size];
 public:
+    backtrace_buffer() = default;
+    ~backtrace_buffer() {
+        flush();
+    }
+
+    // copying / moving 2^13 bytes not useful, compiler will help us here
+    backtrace_buffer(const backtrace_buffer &) = delete;
+    backtrace_buffer(backtrace_buffer &&) = delete;
+    backtrace_buffer &operator = (const backtrace_buffer &) = delete;
+    backtrace_buffer &operator = (backtrace_buffer &&) = delete;
+
     void flush() noexcept {
-        print_safe(_buf, _pos);
-        _pos = 0;
+        if (_pos > 0) {
+            print_safe(_buf, _pos);
+            _pos = 0;
+        }
     }
 
     void reserve(size_t len) noexcept {
@@ -841,7 +854,6 @@ static void print_with_backtrace(backtrace_buffer& buf, bool oneline) noexcept {
     buf.append_backtrace_oneline();
     buf.append("\n");
   }
-    buf.flush();
 }
 
 static void print_with_backtrace(const char* cause, bool oneline = false) noexcept {
@@ -1216,7 +1228,6 @@ void cpu_stall_detector::report_suppressions(sched_clock::time_point now) {
             buf.append(" on shard ");
             buf.append_decimal(_shard_id);
             buf.append("\n");
-            buf.flush();
         }
         reset_suppression_state(now);
     }
@@ -1330,7 +1341,7 @@ cpu_stall_detector_linux_perf_event::is_spurious_signal() {
 }
 
 void
-cpu_stall_detector_linux_perf_event::maybe_report_kernel_trace() {
+cpu_stall_detector_linux_perf_event::maybe_report_kernel_trace(backtrace_buffer& buf) {
     data_area_reader reader(*this);
     auto current_record = [&] () -> ::perf_event_header {
         return reader.read_struct<perf_event_header>();
@@ -1345,14 +1356,14 @@ cpu_stall_detector_linux_perf_event::maybe_report_kernel_trace() {
         }
 
         auto nr = reader.read_u64();
-        backtrace_buffer buf;
-        buf.append("kernel callstack:");
-        for (uint64_t i = 0; i < nr; ++i) {
-            buf.append(" 0x");
-            buf.append_hex(uintptr_t(reader.read_u64()));
+        if (nr > 0) {
+            buf.append("kernel callstack:");
+            for (uint64_t i = 0; i < nr; ++i) {
+                buf.append(" 0x");
+                buf.append_hex(uintptr_t(reader.read_u64()));
+            }
+            buf.append("\n");
         }
-        buf.append("\n");
-        buf.flush();
     };
 }
 
@@ -1440,7 +1451,7 @@ void cpu_stall_detector::generate_trace() {
     buf.append_decimal(uint64_t(delta / 1ms));
     buf.append(" ms");
     print_with_backtrace(buf, _config.oneline);
-    maybe_report_kernel_trace();
+    maybe_report_kernel_trace(buf);
 }
 
 } // internal namespace
