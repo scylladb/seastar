@@ -5148,11 +5148,15 @@ destroy_scheduling_group(scheduling_group sg) noexcept {
 
 future<>
 rename_scheduling_group(scheduling_group sg, sstring new_name) noexcept {
-    return rename_scheduling_group(sg, new_name, {});
+    return scheduling_group::rename(sg, std::move(new_name));
 }
 
 future<>
 rename_scheduling_group(scheduling_group sg, sstring new_name, sstring new_shortname) noexcept {
+    return scheduling_group::rename(sg, std::move(new_name), std::move(new_shortname));
+}
+
+future<> scheduling_group::rename(scheduling_group sg, sstring new_name, sstring new_shortname) noexcept {
     if (sg == default_scheduling_group()) {
         return make_exception_future<>(make_backtraced_exception_ptr<std::runtime_error>("Attempt to rename the default scheduling group"));
     }
