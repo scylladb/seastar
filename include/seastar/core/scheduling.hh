@@ -359,8 +359,8 @@ public:
     ///                  \c short_name will be truncated to 4 characters.
     /// \return a scheduling group that can be used on any shard
     static future<scheduling_group> create(sstring name, float shares, sstring short_name = {}) noexcept;
+    static future<> destroy(scheduling_group) noexcept;
 
-    friend future<> destroy_scheduling_group(scheduling_group sg) noexcept;
     friend future<> rename_scheduling_group(scheduling_group sg, sstring new_name, sstring new_shortname) noexcept;
     friend class reactor;
     friend unsigned internal::scheduling_group_index(scheduling_group sg) noexcept;
