@@ -5092,8 +5092,7 @@ future<> scheduling_group::update_io_bandwidth(uint64_t bandwidth) const {
     return engine().update_bandwidth_for_queues(internal::priority_class(*this), bandwidth);
 }
 
-future<scheduling_group>
-create_scheduling_group(sstring name, sstring shortname, float shares) noexcept {
+future<scheduling_group> scheduling_group::create(sstring name, float shares, sstring shortname) noexcept {
     auto aid = allocate_scheduling_group_id();
     if (aid < 0) {
         return make_exception_future<scheduling_group>(std::runtime_error(fmt::format("Scheduling group limit exceeded while creating {}", name)));
@@ -5109,8 +5108,13 @@ create_scheduling_group(sstring name, sstring shortname, float shares) noexcept 
 }
 
 future<scheduling_group>
+create_scheduling_group(sstring name, sstring shortname, float shares) noexcept {
+    return scheduling_group::create(std::move(name), shares, std::move(shortname));
+}
+
+future<scheduling_group>
 create_scheduling_group(sstring name, float shares) noexcept {
-    return create_scheduling_group(name, {}, shares);
+    return scheduling_group::create(name, shares);
 }
 
 future<scheduling_group_key>

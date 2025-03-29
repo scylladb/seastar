@@ -343,7 +343,8 @@ public:
     /// \return a future that is ready when the bandwidth update is applied
     future<> update_io_bandwidth(uint64_t bandwidth) const;
 
-    friend future<scheduling_group> create_scheduling_group(sstring name, sstring shortname, float shares) noexcept;
+    static future<scheduling_group> create(sstring name, float shares, sstring short_name = {}) noexcept;
+
     friend future<> destroy_scheduling_group(scheduling_group sg) noexcept;
     friend future<> rename_scheduling_group(scheduling_group sg, sstring new_name, sstring new_shortname) noexcept;
     friend class reactor;
