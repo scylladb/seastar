@@ -4288,6 +4288,20 @@ unsigned smp::adjust_max_networking_aio_io_control_blocks(unsigned network_iocbs
     return network_iocbs;
 }
 
+future<> join_memory_prefault() {
+    auto& r = engine();
+    if (!r._smp->memory_prefault_initialized()) {
+        seastar_logger.warn("Memory prefaulter is not initialized but joined");
+        return make_ready_future<>();
+    }
+    return r._memory_prefault_promise.get_future();
+}
+
+future<> 
+smp::broadcast_memory_prefault_completion() {
+    return smp::invoke_on_all([] { engine()._memory_prefault_promise.set_value(); });
+}
+
 void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_opts)
 {
     bool use_transparent_hugepages = !reactor_opts.overprovisioned;

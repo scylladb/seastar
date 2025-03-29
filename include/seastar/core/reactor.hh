@@ -399,6 +399,9 @@ private:
 
     friend void handle_signal(int signo, noncopyable_function<void ()>&& handler, bool once);
 
+    promise<> _memory_prefault_promise;
+    friend future<> join_memory_prefault();
+    
     uint64_t pending_task_count() const;
     void run_tasks(task_queue& tq);
     bool have_more_tasks() const;
@@ -721,6 +724,12 @@ inline int hrtimer_signal() {
     return SIGRTMIN;
 }
 
+/// Waits until memory prefault background work is finished.
+///
+/// \return a future that becomes ready when the memory prefault background
+///         work is finished. If memory preafult is not initialized,
+///         the returned future is already ready.
+future<> join_memory_prefault();
 
 extern logger seastar_logger;
 
