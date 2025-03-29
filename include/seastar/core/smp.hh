@@ -325,8 +325,10 @@ class smp : public std::enable_shared_from_this<smp> {
     static thread_local std::thread::id _tmain;
     bool _using_dpdk = false;
 
+    friend class internal::memory_prefaulter;
 private:
     void setup_prefaulter(const seastar::resource::resources& res, seastar::memory::internal::numa_layout layout);
+    future<> submit_memory_prefault_completion();
 public:
     explicit smp(alien::instance& alien);
     ~smp();

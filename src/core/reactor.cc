@@ -4288,6 +4288,16 @@ unsigned smp::adjust_max_networking_aio_io_control_blocks(unsigned network_iocbs
     return network_iocbs;
 }
 
+future<> join_memory_prefault() {
+    SEASTAR_ASSERT(this_shard_id() == 0 && "seastar::join_memory_prefault() can only be called on shard 0");
+    return engine()._memory_prefault_promise.get_future();
+}
+
+future<> 
+smp::submit_memory_prefault_completion() {
+    return smp::submit_to(0, [] { engine()._memory_prefault_promise.set_value(); });
+}
+
 void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_opts)
 {
     bool use_transparent_hugepages = !reactor_opts.overprovisioned;
@@ -4674,6 +4684,9 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
 
     if (smp_opts.lock_memory && smp_opts.lock_memory.get_value() && layout && !layout->ranges.empty()) {
         smp::setup_prefaulter(resources, std::move(*layout));
+    } else {
+        // If memory prefault is not initialized, submit completion immediately 
+        run_in_background(submit_memory_prefault_completion());
     }
 }
 

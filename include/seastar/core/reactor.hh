@@ -399,6 +399,9 @@ private:
 
     friend void handle_signal(int signo, noncopyable_function<void ()>&& handler, bool once);
 
+    promise<> _memory_prefault_promise;
+    friend future<> join_memory_prefault();
+    
     uint64_t pending_task_count() const;
     void run_tasks(task_queue& tq);
     bool have_more_tasks() const;
@@ -721,6 +724,15 @@ inline int hrtimer_signal() {
     return SIGRTMIN;
 }
 
+/// Waits until memory prefault background work is finished.
+///
+/// Can only be called on shard 0 for initialization logic.
+/// On other shards, the call will fail on assertion.
+///
+/// \return a future that becomes ready when the memory prefault background
+///         work is finished, or after it's detected that memory preafult 
+///         is not initialized.
+future<> join_memory_prefault();
 
 extern logger seastar_logger;
 
