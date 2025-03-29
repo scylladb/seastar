@@ -2380,8 +2380,8 @@ Now let's create two scheduling groups, and run `loop(1)` in the first schedulin
 ```cpp
 seastar::future<> f() {
     return seastar::when_all_succeed(
-            seastar::create_scheduling_group("loop1", 100),
-            seastar::create_scheduling_group("loop2", 100)).then_unpack(
+            seastar::scheduling_group::create("loop1", 100),
+            seastar::scheduling_group::create("loop2", 100)).then_unpack(
         [] (seastar::scheduling_group sg1, seastar::scheduling_group sg2) {
         return seastar::do_with(false, [sg1, sg2] (bool& stop) {
             seastar::sleep(std::chrono::seconds(10)).then([&stop] {
@@ -2397,7 +2397,7 @@ seastar::future<> f() {
 ```
 Here we created two scheduling groups, `sg1` and `sg2`. Each scheduling group has an arbitrary name (which is used for diagnostic purposes only), and a number of *shares*, a number traditionally between 1 and 1000: If one scheduling group has twice the number of shares than a second scheduling group, it will get twice the amount of CPU time. In this example, we used the same number of shares (100) for both groups, so they should get equal CPU time.
 
-Unlike most objects in Seastar which are separate per shard, Seastar wants the identities and numbering of the scheduling groups to be the same on all shards, because it is important when invoking tasks on remote shards. For this reason, the function to create a scheduling group, `seastar::create_scheduling_group()`, is an asynchronous function returning a `future<scheduling_group>`.
+Unlike most objects in Seastar which are separate per shard, Seastar wants the identities and numbering of the scheduling groups to be the same on all shards, because it is important when invoking tasks on remote shards. For this reason, the function to create a scheduling group, `seastar::scheduling_group::create()`, is an asynchronous function returning a `future<scheduling_group>`.
 
 Running the above example, with both scheduling group set up with the same number of shares (100), indeed results in both scheduling groups getting the same amount of CPU time:
 ```

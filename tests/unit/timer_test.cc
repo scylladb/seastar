@@ -94,8 +94,8 @@ struct timer_test {
 
     future<> test_timer_with_scheduling_groups() {
         return async([] {
-            auto sg1 = create_scheduling_group("sg1", 100).get();
-            auto sg2 = create_scheduling_group("sg2", 100).get();
+            auto sg1 = scheduling_group::create("sg1", 100).get();
+            auto sg2 = scheduling_group::create("sg2", 100).get();
             thread_attributes t1attr;
             t1attr.sched_group = sg1;
             auto expirations = 0;
@@ -118,8 +118,8 @@ struct timer_test {
                 }
                 OK();
             }).get();
-            destroy_scheduling_group(sg1).get();
-            destroy_scheduling_group(sg2).get();
+            scheduling_group::destroy(sg1).get();
+            scheduling_group::destroy(sg2).get();
         });
     }
 };

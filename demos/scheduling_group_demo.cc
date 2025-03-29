@@ -140,12 +140,12 @@ int main(int ac, char** av) {
     app_template app;
     return app.run(ac, av, [] {
         return seastar::async([] {
-            auto sg100 = seastar::create_scheduling_group("sg100", 100).get();
-            auto ksg100 = seastar::defer([&] () noexcept { seastar::destroy_scheduling_group(sg100).get(); });
-            auto sg20 = seastar::create_scheduling_group("sg20", 20).get();
-            auto ksg20 = seastar::defer([&] () noexcept { seastar::destroy_scheduling_group(sg20).get(); });
-            auto sg50 = seastar::create_scheduling_group("sg50", 50).get();
-            auto ksg50 = seastar::defer([&] () noexcept { seastar::destroy_scheduling_group(sg50).get(); });
+            auto sg100 = seastar::scheduling_group::create("sg100", 100).get();
+            auto ksg100 = seastar::defer([&] () noexcept { seastar::scheduling_group::destroy(sg100).get(); });
+            auto sg20 = seastar::scheduling_group::create("sg20", 20).get();
+            auto ksg20 = seastar::defer([&] () noexcept { seastar::scheduling_group::destroy(sg20).get(); });
+            auto sg50 = seastar::scheduling_group::create("sg50", 50).get();
+            auto ksg50 = seastar::defer([&] () noexcept { seastar::scheduling_group::destroy(sg50).get(); });
 
             bool done = false;
             auto end = timer<>([&done] {

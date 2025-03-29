@@ -5092,8 +5092,7 @@ future<> scheduling_group::update_io_bandwidth(uint64_t bandwidth) const {
     return engine().update_bandwidth_for_queues(internal::priority_class(*this), bandwidth);
 }
 
-future<scheduling_group>
-create_scheduling_group(sstring name, sstring shortname, float shares) noexcept {
+future<scheduling_group> scheduling_group::create(sstring name, float shares, sstring shortname) noexcept {
     auto aid = allocate_scheduling_group_id();
     if (aid < 0) {
         return make_exception_future<scheduling_group>(std::runtime_error(fmt::format("Scheduling group limit exceeded while creating {}", name)));
@@ -5109,8 +5108,13 @@ create_scheduling_group(sstring name, sstring shortname, float shares) noexcept 
 }
 
 future<scheduling_group>
+create_scheduling_group(sstring name, sstring shortname, float shares) noexcept {
+    return scheduling_group::create(std::move(name), shares, std::move(shortname));
+}
+
+future<scheduling_group>
 create_scheduling_group(sstring name, float shares) noexcept {
-    return create_scheduling_group(name, {}, shares);
+    return scheduling_group::create(name, shares);
 }
 
 future<scheduling_group_key>
@@ -5123,8 +5127,7 @@ scheduling_group_key_create(scheduling_group_key_config cfg) noexcept {
     });
 }
 
-future<>
-destroy_scheduling_group(scheduling_group sg) noexcept {
+future<> scheduling_group::destroy(scheduling_group sg) noexcept {
     if (sg == default_scheduling_group()) {
         return make_exception_future<>(make_backtraced_exception_ptr<std::runtime_error>("Attempt to destroy the default scheduling group"));
     }
@@ -5139,12 +5142,21 @@ destroy_scheduling_group(scheduling_group sg) noexcept {
 }
 
 future<>
+destroy_scheduling_group(scheduling_group sg) noexcept {
+    return scheduling_group::destroy(sg);
+}
+
+future<>
 rename_scheduling_group(scheduling_group sg, sstring new_name) noexcept {
-    return rename_scheduling_group(sg, new_name, {});
+    return scheduling_group::rename(sg, std::move(new_name));
 }
 
 future<>
 rename_scheduling_group(scheduling_group sg, sstring new_name, sstring new_shortname) noexcept {
+    return scheduling_group::rename(sg, std::move(new_name), std::move(new_shortname));
+}
+
+future<> scheduling_group::rename(scheduling_group sg, sstring new_name, sstring new_shortname) noexcept {
     if (sg == default_scheduling_group()) {
         return make_exception_future<>(make_backtraced_exception_ptr<std::runtime_error>("Attempt to rename the default scheduling group"));
     }
