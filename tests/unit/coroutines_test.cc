@@ -178,7 +178,7 @@ SEASTAR_TEST_CASE(test_scheduling_group) {
     } catch (...) {
         ex = std::current_exception();
     }
-    co_await destroy_scheduling_group(other_sg);
+    co_await scheduling_group::destroy(other_sg);
     if (ex) {
         std::rethrow_exception(std::move(ex));
     }
@@ -219,8 +219,8 @@ SEASTAR_TEST_CASE(test_switch_to) {
         ex = std::current_exception();
     }
 
-    co_await destroy_scheduling_group(other_sg1);
-    co_await destroy_scheduling_group(other_sg0);
+    co_await scheduling_group::destroy(other_sg1);
+    co_await scheduling_group::destroy(other_sg0);
     if (ex) {
         std::rethrow_exception(std::move(ex));
     }
@@ -271,7 +271,7 @@ SEASTAR_TEST_CASE(test_switch_to_sg_restoration_and_inheriting) {
         ex = std::current_exception();
     }
 
-    co_await destroy_scheduling_group(new_sg);
+    co_await scheduling_group::destroy(new_sg);
     if (ex) {
         std::rethrow_exception(std::move(ex));
     }

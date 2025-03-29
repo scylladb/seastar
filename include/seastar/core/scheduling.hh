@@ -102,6 +102,7 @@ future<scheduling_group> create_scheduling_group(sstring name, sstring shortname
 ///
 /// \param sg The scheduling group to be destroyed
 /// \return a future that is ready when the scheduling group has been torn down
+[[deprecated("Use scheduling_group::destroy()")]]
 future<> destroy_scheduling_group(scheduling_group sg) noexcept;
 
 /// Rename scheduling group.
@@ -359,6 +360,16 @@ public:
     ///                  \c short_name will be truncated to 4 characters.
     /// \return a scheduling group that can be used on any shard
     static future<scheduling_group> create(sstring name, float shares, sstring short_name = {}) noexcept;
+
+    /// Destroys a scheduling group.
+    ///
+    /// Destroys a \ref scheduling_group previously created with create_scheduling_group().
+    /// The destroyed group must not be currently in use and must not be used later.
+    ///
+    /// The operation is global and affects all shards.
+    ///
+    /// \param sg The scheduling group to be destroyed
+    /// \return a future that is ready when the scheduling group has been torn down
     static future<> destroy(scheduling_group) noexcept;
 
     friend future<> rename_scheduling_group(scheduling_group sg, sstring new_name, sstring new_shortname) noexcept;

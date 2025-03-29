@@ -55,7 +55,7 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_after_sg_create) {
 
     const auto destroy_scheduling_groups = defer([&sgs] () noexcept {
        for (scheduling_group sg : sgs) {
-           destroy_scheduling_group(sg).get();
+           scheduling_group::destroy(sg).get();
        }
     });
     scheduling_group_key_config key1_conf = make_scheduling_group_key_config<int>();
@@ -109,7 +109,7 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_before_sg_create) {
     std::vector<scheduling_group> sgs;
     const auto destroy_scheduling_groups = defer([&sgs] () noexcept {
        for (scheduling_group sg : sgs) {
-           destroy_scheduling_group(sg).get();
+           scheduling_group::destroy(sg).get();
        }
     });
     scheduling_group_key_config key1_conf = make_scheduling_group_key_config<int>();
@@ -167,7 +167,7 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_before_and_after_sg_create) {
     std::vector<scheduling_group> sgs;
     const auto destroy_scheduling_groups = defer([&sgs] () noexcept {
        for (scheduling_group sg : sgs) {
-           destroy_scheduling_group(sg).get();
+           scheduling_group::destroy(sg).get();
        }
     });
 
@@ -223,7 +223,7 @@ SEASTAR_THREAD_TEST_CASE(sg_specific_values_define_before_and_after_sg_create) {
  */
 SEASTAR_THREAD_TEST_CASE(sg_scheduling_group_inheritance_in_seastar_async_test) {
     scheduling_group sg = scheduling_group::create("sg0", 100).get();
-    auto cleanup = defer([&] () noexcept { destroy_scheduling_group(sg).get(); });
+    auto cleanup = defer([&] () noexcept { scheduling_group::destroy(sg).get(); });
     thread_attributes attr = {};
     attr.sched_group = sg;
     seastar::async(attr, [attr] {
@@ -244,7 +244,7 @@ SEASTAR_THREAD_TEST_CASE(sg_scheduling_group_inheritance_in_seastar_async_test) 
 
 SEASTAR_THREAD_TEST_CASE(yield_preserves_sg) {
     scheduling_group sg = scheduling_group::create("sg", 100).get();
-    auto cleanup = defer([&] () noexcept { destroy_scheduling_group(sg).get(); });
+    auto cleanup = defer([&] () noexcept { scheduling_group::destroy(sg).get(); });
     with_scheduling_group(sg, [&] {
         return yield().then([&] {
             BOOST_REQUIRE_EQUAL(
@@ -261,7 +261,7 @@ SEASTAR_THREAD_TEST_CASE(sg_count) {
         scheduling_group_destroyer(scheduling_group sg) : _sg(sg) {}
         scheduling_group_destroyer(const scheduling_group_destroyer&) = default;
         ~scheduling_group_destroyer() {
-            destroy_scheduling_group(_sg).get();
+            scheduling_group::destroy(_sg).get();
         }
     };
 
@@ -314,7 +314,7 @@ SEASTAR_THREAD_TEST_CASE(sg_rename_callback) {
     std::vector<scheduling_group> sgs;
     const auto destroy_sgs = defer([&sgs] () noexcept {
         for (auto sg : sgs) {
-           destroy_scheduling_group(sg).get();
+           scheduling_group::destroy(sg).get();
         }
     });
     for (size_t s = 0; s < 3; ++s) {
@@ -368,7 +368,7 @@ SEASTAR_THREAD_TEST_CASE(sg_create_and_key_create_in_parallel) {
     }).get();
 
     for (scheduling_group sg : sgs) {
-        destroy_scheduling_group(sg).get();
+        scheduling_group::destroy(sg).get();
     }
 }
 

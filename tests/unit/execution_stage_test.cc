@@ -294,9 +294,9 @@ SEASTAR_TEST_CASE(test_unique_stage_names_are_enforced) {
 
 SEASTAR_THREAD_TEST_CASE(test_inheriting_concrete_execution_stage) {
     auto sg1 = seastar::scheduling_group::create("sg1", 300).get();
-    auto ksg1 = seastar::defer([&] () noexcept { seastar::destroy_scheduling_group(sg1).get(); });
+    auto ksg1 = seastar::defer([&] () noexcept { seastar::scheduling_group::destroy(sg1).get(); });
     auto sg2 = seastar::scheduling_group::create("sg2", 100).get();
-    auto ksg2 = seastar::defer([&] () noexcept { seastar::destroy_scheduling_group(sg2).get(); });
+    auto ksg2 = seastar::defer([&] () noexcept { seastar::scheduling_group::destroy(sg2).get(); });
     auto check_sg = [] (seastar::scheduling_group sg) {
         BOOST_REQUIRE(seastar::current_scheduling_group() == sg);
     };

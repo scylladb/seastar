@@ -118,8 +118,8 @@ struct timer_test {
                 }
                 OK();
             }).get();
-            destroy_scheduling_group(sg1).get();
-            destroy_scheduling_group(sg2).get();
+            scheduling_group::destroy(sg1).get();
+            scheduling_group::destroy(sg2).get();
         });
     }
 };
