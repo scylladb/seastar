@@ -41,7 +41,6 @@
 
 using seastar::broken_promise;
 using seastar::circular_buffer;
-using seastar::create_scheduling_group;
 using seastar::current_scheduling_group;
 using seastar::default_scheduling_group;
 using seastar::future;
@@ -140,7 +139,7 @@ SEASTAR_TEST_CASE(test_abandond_coroutine) {
 }
 
 SEASTAR_TEST_CASE(test_scheduling_group) {
-    auto other_sg = co_await create_scheduling_group("the other group", 10.f);
+    auto other_sg = co_await scheduling_group::create("the other group", 10.f);
     std::exception_ptr ex;
 
     try {
@@ -192,9 +191,9 @@ future<scheduling_group> switch_to_with_context(scheduling_group& sg) {
 }
 
 SEASTAR_TEST_CASE(test_switch_to) {
-    auto other_sg0 = co_await create_scheduling_group("other group 0", 10.f);
-    auto other_sg1 = co_await create_scheduling_group("other group 1", 10.f);
-    auto other_sg2 = co_await create_scheduling_group("other group 2", 10.f);
+    auto other_sg0 = co_await scheduling_group::create("other group 0", 10.f);
+    auto other_sg1 = co_await scheduling_group::create("other group 1", 10.f);
+    auto other_sg2 = co_await scheduling_group::create("other group 2", 10.f);
     std::exception_ptr ex;
 
     try {
@@ -250,7 +249,7 @@ future<> switch_to_sg_and_perform_inheriting_checks(scheduling_group base_sg, sc
 }
 
 SEASTAR_TEST_CASE(test_switch_to_sg_restoration_and_inheriting) {
-    auto new_sg = co_await create_scheduling_group("other group 0", 10.f);
+    auto new_sg = co_await scheduling_group::create("other group 0", 10.f);
     std::exception_ptr ex;
 
     try {

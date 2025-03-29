@@ -770,7 +770,7 @@ SEASTAR_TEST_CASE(test_rpc_server_send_glitch) {
 
 SEASTAR_TEST_CASE(test_rpc_scheduling) {
     return rpc_test_env<>::do_with_thread(rpc_test_config(), [] (rpc_test_env<>& env, test_rpc_proto::client& c1) {
-        auto sg = create_scheduling_group("rpc", 100).get();
+        auto sg = scheduling_group::create("rpc", 100).get();
         env.register_handler(1, sg, [] () {
             return make_ready_future<unsigned>(internal::scheduling_group_index(current_scheduling_group()));
         }).get();
@@ -781,9 +781,9 @@ SEASTAR_TEST_CASE(test_rpc_scheduling) {
 }
 
 SEASTAR_THREAD_TEST_CASE(test_rpc_scheduling_connection_based) {
-    auto sg1 = create_scheduling_group("sg1", 100).get();
+    auto sg1 = scheduling_group::create("sg1", 100).get();
     auto sg1_kill = defer([&] () noexcept { destroy_scheduling_group(sg1).get(); });
-    auto sg2 = create_scheduling_group("sg2", 100).get();
+    auto sg2 = scheduling_group::create("sg2", 100).get();
     auto sg2_kill = defer([&] () noexcept { destroy_scheduling_group(sg2).get(); });
     rpc::resource_limits limits;
     limits.isolate_connection = [sg1, sg2] (sstring cookie) {
@@ -821,9 +821,9 @@ SEASTAR_THREAD_TEST_CASE(test_rpc_scheduling_connection_based) {
 }
 
 SEASTAR_THREAD_TEST_CASE(test_rpc_scheduling_connection_based_compatibility) {
-    auto sg1 = create_scheduling_group("sg1", 100).get();
+    auto sg1 = scheduling_group::create("sg1", 100).get();
     auto sg1_kill = defer([&] () noexcept { destroy_scheduling_group(sg1).get(); });
-    auto sg2 = create_scheduling_group("sg2", 100).get();
+    auto sg2 = scheduling_group::create("sg2", 100).get();
     auto sg2_kill = defer([&] () noexcept { destroy_scheduling_group(sg2).get(); });
     rpc::resource_limits limits;
     limits.isolate_connection = [sg1, sg2] (sstring cookie) {
@@ -885,7 +885,7 @@ SEASTAR_THREAD_TEST_CASE(test_rpc_scheduling_connection_based_async) {
         future<seastar::scheduling_group> get_scheduling_group = make_ready_future<>().then([&sg1, &sg2, cookie] {
             if (cookie == "sg1") {
                 if (sg1 == default_scheduling_group()) {
-                    return create_scheduling_group("sg1", 100).then([&sg1] (seastar::scheduling_group sg) {
+                    return scheduling_group::create("sg1", 100).then([&sg1] (seastar::scheduling_group sg) {
                         sg1 = sg;
                         return sg;
                     });
@@ -894,7 +894,7 @@ SEASTAR_THREAD_TEST_CASE(test_rpc_scheduling_connection_based_async) {
                 }
             } else if (cookie == "sg2") {
                 if (sg2 == default_scheduling_group()) {
-                    return create_scheduling_group("sg2", 100).then([&sg2] (seastar::scheduling_group sg) {
+                    return scheduling_group::create("sg2", 100).then([&sg2] (seastar::scheduling_group sg) {
                         sg2 = sg;
                         return sg;
                     });
@@ -937,7 +937,7 @@ SEASTAR_THREAD_TEST_CASE(test_rpc_scheduling_connection_based_async) {
 SEASTAR_THREAD_TEST_CASE(test_rpc_scheduling_connection_based_compatibility_async) {
     scheduling_group sg1 = default_scheduling_group();
     scheduling_group sg2 = default_scheduling_group();
-    scheduling_group sg3 = create_scheduling_group("sg3", 100).get();
+    scheduling_group sg3 = scheduling_group::create("sg3", 100).get();
     auto sg1_kill = defer([&] () noexcept {
         if (sg1 != default_scheduling_group())  {
             destroy_scheduling_group(sg1).get();
@@ -954,7 +954,7 @@ SEASTAR_THREAD_TEST_CASE(test_rpc_scheduling_connection_based_compatibility_asyn
         future<seastar::scheduling_group> get_scheduling_group = make_ready_future<>().then([&sg1, &sg2, cookie] {
             if (cookie == "sg1") {
                 if (sg1 == default_scheduling_group()) {
-                    return create_scheduling_group("sg1", 100).then([&sg1] (seastar::scheduling_group sg) {
+                    return scheduling_group::create("sg1", 100).then([&sg1] (seastar::scheduling_group sg) {
                         sg1 = sg;
                         return sg;
                     });
@@ -963,7 +963,7 @@ SEASTAR_THREAD_TEST_CASE(test_rpc_scheduling_connection_based_compatibility_asyn
                 }
             } else if (cookie == "sg2") {
                 if (sg2 == default_scheduling_group()) {
-                    return create_scheduling_group("sg2", 100).then([&sg2] (seastar::scheduling_group sg) {
+                    return scheduling_group::create("sg2", 100).then([&sg2] (seastar::scheduling_group sg) {
                         sg2 = sg;
                         return sg;
                     });

@@ -1152,7 +1152,7 @@ int main(int ac, char** av) {
                     return make_ready_future<>();
                 }
 
-                return seastar::create_scheduling_group(r.name, r.shard_info.shares).then([&r, &sched_classes] (seastar::scheduling_group sg) {
+                return seastar::scheduling_group::create(r.name, r.shard_info.shares).then([&r, &sched_classes] (seastar::scheduling_group sg) {
                     sched_classes.insert(std::make_pair(r.name, sched_class {
                         .sg = sg,
                     }));

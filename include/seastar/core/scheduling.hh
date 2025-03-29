@@ -74,6 +74,7 @@ SEASTAR_MODULE_EXPORT_BEGIN
 /// \param shares number of shares of the CPU time allotted to the group;
 ///              Use numbers in the 1-1000 range (but can go above).
 /// \return a scheduling group that can be used on any shard
+[[deprecated("Use scheduling_group::create()")]]
 future<scheduling_group> create_scheduling_group(sstring name, float shares) noexcept;
 
 /// Creates a scheduling group with a specified number of shares.
@@ -89,6 +90,7 @@ future<scheduling_group> create_scheduling_group(sstring name, float shares) noe
 /// \param shares number of shares of the CPU time allotted to the group;
 ///              Use numbers in the 1-1000 range (but can go above).
 /// \return a scheduling group that can be used on any shard
+[[deprecated("Use scheduling_group::create()")]]
 future<scheduling_group> create_scheduling_group(sstring name, sstring shortname, float shares) noexcept;
 
 /// Destroys a scheduling group.
@@ -343,6 +345,19 @@ public:
     /// \return a future that is ready when the bandwidth update is applied
     future<> update_io_bandwidth(uint64_t bandwidth) const;
 
+    /// Creates a scheduling group with a specified number of shares.
+    ///
+    /// The operation is global and affects all shards. The returned scheduling
+    /// group can then be used in any shard.
+    ///
+    /// \param name A name that identifiers the group; will be used as a label
+    ///             in the group's metrics
+    /// \param shares number of shares of the CPU time allotted to the group;
+    ///              Use numbers in the 1-1000 range (but can go above).
+    /// \param short_name A name that identifies the group; will be printed in the
+    ///                  logging message aside of the shard id. please note, the
+    ///                  \c short_name will be truncated to 4 characters.
+    /// \return a scheduling group that can be used on any shard
     static future<scheduling_group> create(sstring name, float shares, sstring short_name = {}) noexcept;
 
     friend future<> destroy_scheduling_group(scheduling_group sg) noexcept;
