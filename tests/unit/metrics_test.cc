@@ -93,7 +93,7 @@ SEASTAR_THREAD_TEST_CASE(test_renaming_scheuling_groups) {
         const char* name = i%2 ? name1 : name2;
         const char* prev_name = i%2 ? name2 : name1;
         sleep(std::chrono::microseconds(100000/(i+1))).get();
-        rename_scheduling_group(sg, name).get();
+        scheduling_group::rename(sg, name).get();
         std::set<sstring> label_vals = get_label_values(sstring("scheduler_shares"), sstring("group"));
         // validate that the name that we *renamed to* is in the stats
         BOOST_REQUIRE(label_vals.find(sstring(name)) != label_vals.end());
@@ -109,7 +109,7 @@ SEASTAR_THREAD_TEST_CASE(test_renaming_scheuling_groups) {
             // is a chance of collision.
             return do_for_each(rng, [sg, &dist] (auto i) {
                 bool odd = dist(seastar::testing::local_random_engine)%2;
-                return rename_scheduling_group(sg, odd ? name1 : name2);
+                return scheduling_group::rename(sg, odd ? name1 : name2);
             });
         });
     }).get();

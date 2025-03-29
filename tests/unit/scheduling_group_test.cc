@@ -331,7 +331,7 @@ SEASTAR_THREAD_TEST_CASE(sg_rename_callback) {
     }).get();
 
     for (size_t s = 0; s < std::size(sgs); ++s) {
-        rename_scheduling_group(sgs[s], fmt::format("sg-new-{}", s)).get();
+        scheduling_group::rename(sgs[s], fmt::format("sg-new-{}", s)).get();
     }
 
     smp::invoke_on_all([&sgs, &keys] () {

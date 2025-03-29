@@ -115,6 +115,7 @@ future<> destroy_scheduling_group(scheduling_group sg) noexcept;
 /// \param sg The scheduling group to be renamed
 /// \param new_name The new name for the scheduling group.
 /// \return a future that is ready when the scheduling group has been renamed
+[[deprecated("Use scheduling_group::rename()")]]
 future<> rename_scheduling_group(scheduling_group sg, sstring new_name) noexcept;
 /// Rename scheduling group.
 ///
@@ -127,6 +128,7 @@ future<> rename_scheduling_group(scheduling_group sg, sstring new_name) noexcept
 /// \param new_name The new name for the scheduling group.
 /// \param new_shortname The new shortname for the scheduling group.
 /// \return a future that is ready when the scheduling group has been renamed
+[[deprecated("Use scheduling_group::rename()")]]
 future<> rename_scheduling_group(scheduling_group sg, sstring new_name, sstring new_shortname) noexcept;
 
 
@@ -373,6 +375,17 @@ public:
     /// \return a future that is ready when the scheduling group has been torn down
     static future<> destroy(scheduling_group) noexcept;
 
+    /// Rename scheduling group.
+    ///
+    /// Renames a \ref scheduling_group previously created with create_scheduling_group().
+    ///
+    /// The operation is global and affects all shards.
+    /// The operation affects the exported statistics labels.
+    ///
+    /// \param sg The scheduling group to be renamed
+    /// \param new_name The new name for the scheduling group.
+    /// \param new_shortname The new shortname for the scheduling group.
+    /// \return a future that is ready when the scheduling group has been renamed
     static future<> rename(scheduling_group, sstring new_name, sstring new_shortname = {}) noexcept;
 
     friend class reactor;
