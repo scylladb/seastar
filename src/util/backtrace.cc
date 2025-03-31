@@ -30,6 +30,7 @@ module;
 #include <cerrno>
 #include <cstring>
 #include <iostream>
+#include <source_location>
 #include <variant>
 #include <vector>
 #include <boost/container/static_vector.hpp>
@@ -152,10 +153,10 @@ tasktrace current_tasktrace() noexcept {
             hash *= 31;
             if (bt) {
                 hash ^= bt->hash();
-                prev.push_back(bt);
+                prev.push_back({ bt, tsk->get_resume_point() });
             } else {
                 const std::type_info& ti = typeid(*tsk);
-                prev.push_back(task_entry(ti));
+                prev.push_back({ task_entry(ti), tsk->get_resume_point() });
                 hash ^= ti.hash_code();
             }
             tsk = tsk->waiting_task();
@@ -204,8 +205,12 @@ auto formatter<seastar::tasktrace>::format(const seastar::tasktrace& b, format_c
     -> decltype(ctx.out()) {
     auto out = ctx.out();
     out = fmt::format_to(out, "{}", b._main);
-    for (auto&& e : b._prev) {
+    for(const auto & [ e, resume_loc ] : b._prev) {
         out = fmt::format_to(out,  "\n   --------");
+
+        if (resume_loc.file_name()[0] != 0) {
+            out = fmt::format_to(out, "\n   {}:{}:{}", resume_loc.file_name(), resume_loc.line(), resume_loc.column());
+        }
         out = std::visit(seastar::make_visitor(
             [&] (const seastar::shared_backtrace& sb) {
                 return fmt::format_to(out,  "\n{}", sb);
