@@ -25,12 +25,16 @@
 #include <seastar/util/backtrace.hh>
 
 #include <utility>
+#include <source_location>
 
 namespace seastar {
 
 class task {
+    std::source_location _resume_point = {};
+
 protected:
     scheduling_group _sg;
+
 private:
 #ifdef SEASTAR_TASK_BACKTRACE
     shared_backtrace _bt;
@@ -50,6 +54,8 @@ public:
     virtual void run_and_dispose() noexcept = 0;
     /// Returns the next task which is waiting for this task to complete execution, or nullptr.
     virtual task* waiting_task() noexcept = 0;
+    void update_resume_point(std::source_location sl) { _resume_point = sl; }
+    auto get_resume_point() const { return _resume_point; }
     scheduling_group group() const { return _sg; }
 #ifdef SEASTAR_TASK_BACKTRACE
     void make_backtrace() noexcept;
