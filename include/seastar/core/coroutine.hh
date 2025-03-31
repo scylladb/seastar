@@ -30,6 +30,7 @@
 
 #ifndef SEASTAR_MODULE
 #include <coroutine>
+#include <source_location>
 #endif
 
 namespace seastar {
@@ -144,7 +145,8 @@ public:
     }
 
     template<typename U>
-    void await_suspend(std::coroutine_handle<U> hndl) noexcept {
+    void await_suspend(std::coroutine_handle<U> hndl, std::source_location sl = std::source_location::current()) noexcept {
+        hndl.promise().update_resume_point(sl);
         if (!CheckPreempt || !_future.available()) {
             _future.set_coroutine(hndl.promise());
         } else {
@@ -169,7 +171,8 @@ public:
     }
 
     template<typename U>
-    void await_suspend(std::coroutine_handle<U> hndl) noexcept {
+    void await_suspend(std::coroutine_handle<U> hndl, std::source_location sl = std::source_location::current()) noexcept {
+        hndl.promise().update_resume_point(sl);
         if (!CheckPreempt || !_future.available()) {
             _future.set_coroutine(hndl.promise());
         } else {
