@@ -161,7 +161,9 @@ private:
                 return (... && futures.available());
             }, state._futures);
         }
-        void await_suspend(coroutine_handle_t h) {
+        template <typename U>
+        void await_suspend(std::coroutine_handle<U> h, std::source_location sl = std::source_location::current()) {
+            h.promise().update_resume_point(sl);
             when_ready = h;
             process<0>();
         }
