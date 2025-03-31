@@ -35,7 +35,8 @@ struct maybe_yield_awaiter final {
     }
 
     template <typename T>
-    void await_suspend(std::coroutine_handle<T> h) {
+    void await_suspend(std::coroutine_handle<T> h, std::source_location sl = std::source_location::current()) noexcept {
+        h.promise().update_resume_point(sl);
         schedule(&h.promise());
     }
 
