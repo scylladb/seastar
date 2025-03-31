@@ -30,6 +30,7 @@ module;
 #include <cerrno>
 #include <cstring>
 #include <iostream>
+#include <source_location>
 #include <variant>
 #include <vector>
 #include <boost/container/static_vector.hpp>
@@ -135,6 +136,7 @@ tasktrace current_tasktrace() noexcept {
     auto main = current_backtrace_tasklocal();
 
     tasktrace::vector_type prev;
+    tasktrace::vector_resume_points_type prev_resume_points;
     size_t hash = 0;
     if (local_engine && g_current_context) {
         task* tsk = nullptr;
@@ -148,6 +150,7 @@ tasktrace current_tasktrace() noexcept {
 
         while (tsk && prev.size() < prev.max_size()) {
             shared_backtrace bt = tsk->get_backtrace();
+            prev_resume_points.push_back(tsk->get_resume_point());
             hash *= 31;
             if (bt) {
                 hash ^= bt->hash();
@@ -161,7 +164,7 @@ tasktrace current_tasktrace() noexcept {
         }
     }
 
-    return tasktrace(std::move(main), std::move(prev), hash, current_scheduling_group());
+    return tasktrace(std::move(main), std::move(prev), std::move(prev_resume_points), hash, current_scheduling_group());
 }
 
 saved_backtrace current_backtrace() noexcept {
@@ -171,6 +174,14 @@ saved_backtrace current_backtrace() noexcept {
 tasktrace::tasktrace(simple_backtrace main, tasktrace::vector_type prev, size_t prev_hash, scheduling_group sg) noexcept
     : _main(std::move(main))
     , _prev(std::move(prev))
+    , _sg(sg)
+    , _hash(_main.hash() * 31 ^ prev_hash)
+{ }
+
+tasktrace::tasktrace(simple_backtrace main, tasktrace::vector_type prev, vector_resume_points_type prev_resume_points, size_t prev_hash, scheduling_group sg) noexcept
+    : _main(std::move(main))
+    , _prev(std::move(prev))
+    , _prev_resume_points(std::move(prev_resume_points))
     , _sg(sg)
     , _hash(_main.hash() * 31 ^ prev_hash)
 { }
@@ -203,8 +214,15 @@ auto formatter<seastar::tasktrace>::format(const seastar::tasktrace& b, format_c
     -> decltype(ctx.out()) {
     auto out = ctx.out();
     out = fmt::format_to(out, "{}", b._main);
-    for (auto&& e : b._prev) {
+    for(auto i = 0u; i < b._prev.size(); ++i) {
+        const auto &e = b._prev[i];
+        auto resume_loc = i < b._prev_resume_points.size() ? b._prev_resume_points[i] : std::source_location{};
+
         out = fmt::format_to(out,  "\n   --------");
+
+        if (resume_loc.file_name()[0] != 0) {
+            out = fmt::format_to(out, "\n   {}:{}:{}", resume_loc.file_name(), resume_loc.line(), resume_loc.column());
+        }
         out = std::visit(seastar::make_visitor(
             [&] (const seastar::shared_backtrace& sb) {
                 return fmt::format_to(out,  "\n{}", sb);
