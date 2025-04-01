@@ -193,6 +193,8 @@ posix_file_impl::posix_file_impl(int fd, open_flags f, std::atomic<unsigned>* re
 future<>
 posix_file_impl::flush() noexcept {
     if ((_open_flags & open_flags::dsync) != open_flags{}) {
+        // If the file is opened with open_flags::dsync, all writes are already
+        // fdatasync-ed to the disk, so we don't need to fdatasync again.
         return make_ready_future<>();
     }
     return engine().fdatasync(_fd);
