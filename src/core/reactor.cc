@@ -749,8 +749,11 @@ class backtrace_buffer {
     static constexpr unsigned _max_size = 8 << 10;
     unsigned _pos = 0;
     char _buf[_max_size];
+    bool _immediate;
 public:
-    backtrace_buffer() = default;
+    backtrace_buffer(bool immediate = false)
+        : _immediate{immediate} {}
+
     ~backtrace_buffer() {
         flush();
     }
@@ -762,13 +765,16 @@ public:
     backtrace_buffer &operator = (backtrace_buffer &&) = delete;
 
     void flush() noexcept {
-        if (_pos > 0) {
+        if (!_immediate && _pos > 0) {
             print_safe(_buf, _pos);
             _pos = 0;
         }
     }
 
     void reserve(size_t len) noexcept {
+        if (_immediate) {
+            return;
+        }
         SEASTAR_ASSERT(len < _max_size);
         if (_pos + len >= _max_size) {
             flush();
@@ -776,9 +782,13 @@ public:
     }
 
     void append(const char* str, size_t len) noexcept {
-        reserve(len);
-        memcpy(_buf + _pos, str, len);
-        _pos += len;
+        if (_immediate) {
+            print_safe(str, len);
+        } else {
+            reserve(len);
+            memcpy(_buf + _pos, str, len);
+            _pos += len;
+        }
     }
 
     void append(const char* str) noexcept { append(str, strlen(str)); }
@@ -808,7 +818,7 @@ public:
             append("0x");
             append_hex(f.addr);
             append("\n");
-        });
+        }, _immediate);
     }
 
     void append_backtrace_oneline() noexcept {
@@ -816,7 +826,7 @@ public:
             reserve(3 + sizeof(f.addr) * 2);
             append(" 0x");
             append_hex(f.addr);
-        });
+        }, _immediate);
     }
 };
 
@@ -839,8 +849,17 @@ static void print_with_backtrace(backtrace_buffer& buf, bool oneline) noexcept {
   }
 }
 
-static void print_with_backtrace(const char* cause, bool oneline = false) noexcept {
-    backtrace_buffer buf;
+// Print the current backtrace to stdout with the given cause.
+// If oneline is true, backtrace is printed entirely on one line,
+// otherwise it is printed with 1 line per frame.
+// If immediate is true, the backtrace is printed frame by frame
+// with a call to write(2), otherwise it is printed in a single
+// call to write(2). The former strategy is more robust in cases
+// where the backtrace itself may crash at some point down the stack
+// while the latter is more efficient and avoids splitting output
+// in the face of concurrent logging by other shards.
+static void print_with_backtrace(const char* cause, bool oneline = false, bool immediate = false) noexcept {
+    backtrace_buffer buf(immediate);
     buf.append(cause);
     print_with_backtrace(buf, oneline);
 }
@@ -4027,7 +4046,9 @@ static void sigsegv_action(siginfo_t *info, ucontext_t* uc) noexcept {
     print_zero_padded_hex_safe(f.so->end - f.so->begin);
     print_safe("]\n");
 
-    print_with_backtrace("Segmentation fault");
+    // print the backtrace in immediate mode, so if we crash
+    // during the backtrace we get as much output as possible
+    print_with_backtrace("Segmentation fault", false, true);
     reraise_signal(SIGSEGV);
 }
 
