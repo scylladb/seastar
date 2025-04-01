@@ -339,6 +339,13 @@ future<tls::x509_cert> tls::x509_cert::from_file(
 
 // wrapper for gnutls_datum, with raii free
 struct gnutls_datum : public gnutls_datum_t {
+    gnutls_datum(size_t s) {
+        data = reinterpret_cast<unsigned char*>(gnutls_malloc(s));
+        if (data == nullptr) {
+           throw std::bad_alloc();
+        }
+        size = s;
+    }
     gnutls_datum() {
         data = nullptr;
         size = 0;
@@ -436,12 +443,17 @@ public:
     client_auth get_client_auth() const {
         return _client_auth;
     }
-    void set_session_resume_mode(session_resume_mode m) {
+    void set_session_resume_mode(session_resume_mode m, std::span<const uint8_t> key = {}) {
         _session_resume_mode = m;
         // (re-)generate session key
         if (m != session_resume_mode::NONE) {
             _session_resume_key = {};
-            gnutls_session_ticket_key_generate(&_session_resume_key);
+            if (key.empty()) {
+                gtls_chk(gnutls_session_ticket_key_generate(&_session_resume_key));
+            } else {
+                _session_resume_key = gnutls_datum(key.size());
+                std::copy(key.begin(), key.end(), _session_resume_key.data);
+            }
         }
     }
     session_resume_mode get_session_resume_mode() const {
@@ -710,6 +722,11 @@ void tls::credentials_builder::set_priority_string(const sstring& prio) {
 
 void tls::credentials_builder::set_session_resume_mode(session_resume_mode m) {
     _session_resume_mode = m;
+    if (m != session_resume_mode::NONE) {
+        gnutls_datum key;
+        gtls_chk(gnutls_session_ticket_key_generate(&key));
+        _session_resume_key.assign(key.data, key.data + key.size);
+    }
 }
 
 template<typename Blobs, typename Visitor>
@@ -760,7 +777,7 @@ void tls::credentials_builder::apply_to(certificate_credentials& creds) const {
 
     creds._impl->set_client_auth(_client_auth);
     // Note: this causes server session key rotation on cert reload
-    creds._impl->set_session_resume_mode(_session_resume_mode);
+    creds._impl->set_session_resume_mode(_session_resume_mode, std::span{_session_resume_key.begin(), _session_resume_key.end()});
 }
 
 shared_ptr<tls::certificate_credentials> tls::credentials_builder::build_certificate_credentials() const {
@@ -925,6 +942,10 @@ public:
                 return;
             }
             try {
+                // force rebuilding session resume mode key if
+                // enabled. should not reuse sessions across certificate
+                // change (should not work anyway)
+                set_session_resume_mode(_session_resume_mode);
                 if (_creds) {
                     _creds->rebuild(*this);
                 }
