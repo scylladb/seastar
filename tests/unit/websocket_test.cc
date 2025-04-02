@@ -45,15 +45,14 @@ future<> test_websocket_handshake_common(std::string subprotocol) {
         auto output = sock.output();
 
         websocket::server dummy;
-        dummy.register_handler(subprotocol, [] (input_stream<char>& in,
-                        output_stream<char>& out) {
+        dummy.register_handler(subprotocol, [] (data_source& in, data_sink& out) {
                 return repeat([&in, &out]() {
-                    return in.read().then([&out](temporary_buffer<char> f) {
+                    return in.get().then([&out](temporary_buffer<char> f) {
                         std::cerr << "f.size(): " << f.size() << "\n";
                         if (f.empty()) {
                             return make_ready_future<stop_iteration>(stop_iteration::yes);
                         } else {
-                            return out.write(std::move(f)).then([&out]() {
+                            return out.put(std::move(f)).then([&out]() {
                                 return out.flush().then([] {
                                     return make_ready_future<stop_iteration>(stop_iteration::no);
                                 });
@@ -115,15 +114,14 @@ future<> test_websocket_handler_registration_common(std::string subprotocol) {
 
         // Setup server
         websocket::server ws;
-        ws.register_handler(subprotocol, [] (input_stream<char>& in,
-                        output_stream<char>& out) {
+        ws.register_handler(subprotocol, [] (data_source& in, data_sink& out) {
             return repeat([&in, &out]() {
-                return in.read().then([&out](temporary_buffer<char> f) {
+                return in.get().then([&out](temporary_buffer<char> f) {
                     std::cerr << "f.size(): " << f.size() << "\n";
                     if (f.empty()) {
                         return make_ready_future<stop_iteration>(stop_iteration::yes);
                     } else {
-                        return out.write(std::move(f)).then([&out]() {
+                        return out.put(std::move(f)).then([&out]() {
                             return out.flush().then([] {
                                 return make_ready_future<stop_iteration>(stop_iteration::no);
                             });
