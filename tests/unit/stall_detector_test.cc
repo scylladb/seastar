@@ -177,6 +177,58 @@ SEASTAR_THREAD_TEST_CASE(spin_in_kernel) {
     test_spin_with_body("kernel", [] { mmap_populate(128 * 1024); });
 }
 
+// This test reproduces the issue described in https://github.com/scylladb/seastar/issues/2697
+// The issue is reproduced most quickly using the following arguments:
+// --blocked-reactor-notify-ms=1
+// but it will happen with default arguments as well.
+SEASTAR_THREAD_TEST_CASE(stall_detector_crash) {
+    // increase total_iters to increase chance of failure
+    // the value below is tuned to take about 1 second in
+    // release builds
+    constexpr auto total_iters = 100000;
+    constexpr int max_depth = 20;
+
+    auto now = [] { return std::chrono::high_resolution_clock::now(); };
+
+    auto recursive_thrower = [](auto self, int x) -> void {
+        if (x <= 0) {
+            throw std::runtime_error("foo");
+        } else {
+            try {
+                self(self, x - 1);
+            } catch (...) {
+                if (x & 0xF) {
+                    throw;
+                }
+            }
+        }
+    };
+
+    auto next_yield = now();
+    for (int a = 1; a < total_iters; a++) {
+        if (now() > next_yield) {
+            // we need to periodically yield or else the stall reports will become
+            // less and less frequent as exponentially grow the report interval while
+            // the same task is running
+            thread::yield();
+            next_yield = now() + 40ms;
+            // the next line resets the suppression state which allows many more reports
+            // per second, increasing the chance of a failure
+            reactor::test::set_stall_detector_report_function({});
+        }
+
+        try {
+            recursive_thrower(recursive_thrower, a % max_depth);
+        } catch (...) {
+        }
+
+        if (a % 100000 == 0) {
+            fmt::print("Making progress: {:6.3f}%\n", 100. * a / total_iters);
+        }
+  }
+}
+
+
 
 #else
 

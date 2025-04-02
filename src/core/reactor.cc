@@ -1456,7 +1456,11 @@ void cpu_stall_detector::generate_trace() {
     buf.append("Reactor stalled for ");
     buf.append_decimal(uint64_t(delta / 1ms));
     buf.append(" ms");
-    print_with_backtrace(buf, _config.oneline);
+    if (std::uncaught_exceptions() > 0) {
+        buf.append(", backtrace omitted (uncaught exception in progress)\n");
+    } else {
+        print_with_backtrace(buf, _config.oneline);
+    }
     maybe_report_kernel_trace(buf);
 }
 
