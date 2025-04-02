@@ -1554,10 +1554,7 @@ SEASTAR_THREAD_TEST_CASE(test_skip_wait_for_eof) {
     }
 }
 
-/**
- * Test TLS13 session ticket support.
-*/
-SEASTAR_THREAD_TEST_CASE(test_tls13_session_tickets) {
+static void do_test_tls13_session_tickets(bool reset_server) {
     tls::credentials_builder b;
 
     b.set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).get();
@@ -1619,6 +1616,12 @@ SEASTAR_THREAD_TEST_CASE(test_tls13_session_tickets) {
         c.shutdown_output();
     }
 
+    if (reset_server) {
+        server = {};
+        // rebuild creds
+        serv = b.build_server_credentials();
+        server = tls::listen(serv, addr, opts);
+    }
 
     {
         auto sa = server.accept();
@@ -1647,6 +1650,141 @@ SEASTAR_THREAD_TEST_CASE(test_tls13_session_tickets) {
         fin.get();
 
         BOOST_REQUIRE(f.get()); // Should work
+
+        in.close().get();
+        out.close().get();
+
+        s.connection.shutdown_input();
+        s.connection.shutdown_output();
+
+        c.shutdown_input();
+        c.shutdown_output();
+    }
+
+}
+
+/**
+ * Test TLS13 session ticket support.
+*/
+SEASTAR_THREAD_TEST_CASE(test_tls13_session_tickets) {
+    do_test_tls13_session_tickets(false);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_tls13_session_tickets_retain_session_key) {
+    do_test_tls13_session_tickets(true);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_tls13_session_tickets_invalidated_by_reload) {
+    tls::credentials_builder b;
+    tmpdir tmp;
+
+    namespace fs = std::filesystem;
+
+    // copy the wrong certs. We don't trust these
+    // blocking calls, but this is a test and seastar does not have a copy 
+    // util and I am lazy...
+    fs::copy_file(certfile("test.crt"), tmp.path() / "test.crt");
+    fs::copy_file(certfile("test.key"), tmp.path() / "test.key");
+
+    auto cert = (tmp.path() / "test.crt").native();
+    auto key = (tmp.path() / "test.key").native();
+    promise<> p;
+
+    b.set_x509_key_file(cert, key, tls::x509_crt_format::PEM).get();
+    b.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
+    b.set_session_resume_mode(tls::session_resume_mode::TLS13_SESSION_TICKET);
+    b.set_priority_string("SECURE128:+SECURE192:-VERS-TLS-ALL:+VERS-TLS1.3");
+
+    auto creds = b.build_certificate_credentials();
+    auto serv = b.build_reloadable_server_credentials([&p](const std::unordered_set<sstring>&, std::exception_ptr) {
+        p.set_value();
+    }).get();
+
+    auto reloaded = p.get_future();
+
+    ::listen_options opts;
+    opts.reuse_address = true;
+    opts.set_fixed_cpu(this_shard_id());
+
+    auto addr = ::make_ipv4_address( {0x7f000001, 4712});
+    auto server = tls::listen(serv, addr, opts);
+
+    tls::session_data sess_data;
+
+    {
+        auto sa = server.accept();
+        auto c = tls::connect(creds, addr).get();
+        auto s = sa.get();
+
+        auto in = s.connection.input();
+        auto cin = c.input();
+        output_stream<char> out(c.output().detach(), 1024);
+        output_stream<char> sout(s.connection.output().detach(), 1024);
+
+        // write data in both directions. Required for session data to
+        // become available.
+        out.write("nils").get();
+        auto fin = in.read();
+        auto fout = out.flush();
+
+        fout.get();
+        fin.get();
+
+        sout.write("banan").get();
+        fin = cin.read();
+        fout = sout.flush();
+
+        fout.get();
+        fin.get();
+
+        BOOST_REQUIRE(!tls::check_session_is_resumed(c).get()); // no resume data
+
+        // get ticket data
+        sess_data = tls::get_session_resume_data(c).get();
+        BOOST_REQUIRE(!sess_data.empty());
+
+        in.close().get();
+        out.close().get();
+
+        s.connection.shutdown_input();
+        s.connection.shutdown_output();
+
+        c.shutdown_input();
+        c.shutdown_output();
+    }
+
+    BOOST_REQUIRE(!reloaded.available());
+
+    fs::copy_file(certfile("test.crt"), tmp.path() / "test.crt", fs::copy_options::overwrite_existing);
+    reloaded.get();
+
+    {
+        auto sa = server.accept();
+
+        // tell client to try resuming.
+        tls::tls_options tls_opts;
+        tls_opts.session_resume_data = sess_data;
+
+        auto c = tls::connect(creds, addr, tls_opts).get();
+        auto s = sa.get();
+
+        // This is ok. Will force a handshake.
+        auto f = tls::check_session_is_resumed(c);
+
+        // But we need to force some IO to make the
+        // handshake actually happen.
+        auto in = s.connection.input();
+        output_stream<char> out(c.output().detach(), 1024);
+
+        auto fin = in.read();
+
+        out.write("nils").get();
+        auto fout = out.flush();
+
+        fout.get();
+        fin.get();
+
+        BOOST_REQUIRE(!f.get()); // Should NOT work. Keys should have been replaced
 
         in.close().get();
         out.close().get();
