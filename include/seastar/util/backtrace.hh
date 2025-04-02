@@ -61,16 +61,36 @@ bool operator==(const frame& a, const frame& b) noexcept;
 frame decorate(uintptr_t addr) noexcept;
 
 // Invokes func for each frame passing it as argument.
+// incremental=false is the default mode and simply calls ::backtrace once
+// and then calls func for each frame. If the ::backtrace call crashes,
+// func will not be called.
+// incremental=true will call ::backtrace in a loop, increasing the number of
+// frames to capture by one each time. This is useful for cases where
+// ::backtrace itself may crash, e.g., in a crash handler, in this case the
+// func will be called for each frame which didn't crash. See #2710. This
+// is much slower, however.
 SEASTAR_MODULE_EXPORT
 template<typename Func>
-void backtrace(Func&& func) noexcept(noexcept(func(frame()))) {
+void backtrace(Func&& func, bool incremental = false) noexcept(noexcept(func(frame()))) {
 #ifdef HAVE_EXECINFO
     constexpr size_t max_backtrace = 100;
     void* buffer[max_backtrace];
-    int n = ::backtrace(buffer, max_backtrace);
-    for (int i = 0; i < n; ++i) {
-        auto ip = reinterpret_cast<uintptr_t>(buffer[i]);
-        func(decorate(ip - 1));
+
+    if (incremental) {
+        for (size_t last_frame = 1; last_frame <= max_backtrace; ++last_frame) {
+            int n = ::backtrace(buffer, last_frame);
+            if (n < static_cast<int>(last_frame)) {
+                return;
+            }
+            auto ip = reinterpret_cast<uintptr_t>(buffer[last_frame-1]);
+            func(decorate(ip - 1));
+        }
+    } else {
+        int n = ::backtrace(buffer, max_backtrace);
+        for (int i = 0; i < n; ++i) {
+            auto ip = reinterpret_cast<uintptr_t>(buffer[i]);
+            func(decorate(ip - 1));
+        }
     }
 #else
 // Not implemented yet
