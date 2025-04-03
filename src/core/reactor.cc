@@ -3759,6 +3759,30 @@ static bool kernel_supports_aio_fsync() {
     return internal::kernel_uname().whitelisted({"4.18"});
 }
 
+static std::tuple<std::filesystem::path, uint64_t> wakeup_granularity() {
+    auto try_read = [] (auto path) -> uint64_t {
+        try {
+            return read_first_line_as<uint64_t>(path);
+        } catch (...) {
+            return 0;
+        }
+    };
+
+    auto legacy_path = "/proc/sys/kernel/sched_wakeup_granularity_ns";
+    if (auto val = try_read(legacy_path); val) {
+        return {legacy_path, val};
+    }
+
+    // This will in practice almost always fail because debug fs requires root
+    // perms to read so we are out of luck
+    auto debug_fs_path = "/sys/kernel/debug/sched/wakeup_granularity_ns";
+    if (auto val = try_read(legacy_path); val) {
+        return {debug_fs_path, val};
+    }
+
+    return {"", 0};
+}
+
 static program_options::selection_value<network_stack_factory> create_network_stacks_option(reactor_options& zis) {
     using value_type = program_options::selection_value<network_stack_factory>;
     value_type::candidates candidates;
@@ -4491,6 +4515,22 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
         .bypass_fsync = reactor_opts.unsafe_bypass_fsync.get_value(),
         .no_poll_aio = !reactor_opts.poll_aio.get_value() || (reactor_opts.poll_aio.defaulted() && reactor_opts.overprovisioned),
     };
+
+    // Disable hot polling if sched wakeup granularity is too high
+    // dio thread will be starved otherwise
+    // see https://github.com/scylladb/seastar/issues/2696
+    if (!reactor_cfg.no_poll_aio || reactor_cfg.max_poll_time != 0us) {
+        auto [wakeup_file, granularity] = wakeup_granularity();
+        // 15M is chosen as it's what tuned sets. Though you probably already
+        // see an adverse effect earlier.
+        if (granularity >= 15000000) {
+            reactor_cfg.no_poll_aio = true;
+            reactor_cfg.max_poll_time = 0us;
+            seastar_logger.warn(
+                "Setting --poll-aio=0 and --idle-poll-time-us=0 due to too high sched_wakeup_granularity of {} in {}",
+                granularity, wakeup_file.string());
+        }
+    }
 
     aio_nowait_supported = reactor_opts.linux_aio_nowait.get_value();
     std::mutex mtx;
