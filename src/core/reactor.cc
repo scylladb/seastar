@@ -1084,10 +1084,10 @@ reactor::~reactor() {
     eraser(_expired_lowres_timers);
     eraser(_expired_manual_timers);
     for (auto id : allocated_sched_group_ids()) {
-            // The following line will preserve the convention that constructor and destructor functions
-            // for the per sg values are called in the context of the containing scheduling group.
-            *internal::current_scheduling_group_ptr() = scheduling_group(id);
-            get_sg_data(id).specific_vals.clear();
+        // The following line will preserve the convention that constructor and destructor functions
+        // for the per sg values are called in the context of the containing scheduling group.
+        *internal::current_scheduling_group_ptr() = scheduling_group(id);
+        get_sg_data(id).specific_vals.clear();
     }
 }
 
@@ -5002,23 +5002,23 @@ reactor::init_new_scheduling_group_key(scheduling_group_key key, scheduling_grou
         auto cfgp = make_lw_shared<scheduling_group_key_config>(std::move(cfg));
         _scheduling_group_specific_data.scheduling_group_key_configs[key_id] = cfgp;
         return parallel_for_each(allocated_sched_group_ids(), [this, cfgp, key_id] (auto id) {
-                scheduling_group sg = scheduling_group(id);
-                if (id == 1) { // _at_destroy_tasks
-                    // fake the group by assuming it here
-                    auto curr = current_scheduling_group();
-                    auto cleanup = defer([curr] () noexcept { *internal::current_scheduling_group_ptr() = curr; });
-                    *internal::current_scheduling_group_ptr() = sg;
+            scheduling_group sg = scheduling_group(id);
+            if (id == 1) { // _at_destroy_tasks
+                // fake the group by assuming it here
+                auto curr = current_scheduling_group();
+                auto cleanup = defer([curr] () noexcept { *internal::current_scheduling_group_ptr() = curr; });
+                *internal::current_scheduling_group_ptr() = sg;
+                auto& this_sg = get_sg_data(sg);
+                this_sg.specific_vals.resize(std::max<size_t>(this_sg.specific_vals.size(), key_id+1));
+                this_sg.specific_vals[key_id] = allocate_scheduling_group_specific_data(sg, key_id, cfgp);
+                return make_ready_future();
+            } else {
+                return with_scheduling_group(sg, [this, key_id, sg, cfgp = std::move(cfgp)] () {
                     auto& this_sg = get_sg_data(sg);
                     this_sg.specific_vals.resize(std::max<size_t>(this_sg.specific_vals.size(), key_id+1));
                     this_sg.specific_vals[key_id] = allocate_scheduling_group_specific_data(sg, key_id, cfgp);
-                    return make_ready_future();
-                } else {
-                    return with_scheduling_group(sg, [this, key_id, sg, cfgp = std::move(cfgp)] () {
-                        auto& this_sg = get_sg_data(sg);
-                        this_sg.specific_vals.resize(std::max<size_t>(this_sg.specific_vals.size(), key_id+1));
-                        this_sg.specific_vals[key_id] = allocate_scheduling_group_specific_data(sg, key_id, cfgp);
-                    });
-                }
+                });
+            }
         });
     });
 }
