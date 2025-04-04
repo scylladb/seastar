@@ -216,7 +216,7 @@ public:
     alien::instance& alien() { return _alien; }
 
 private:
-    std::shared_ptr<smp> _smp;
+    std::shared_ptr<seastar::smp> _smp;
     alien::instance& _alien;
     reactor_config _cfg;
     file_desc _notify_eventfd;
@@ -445,7 +445,7 @@ private:
     static future<> drain();
 
 public:
-    explicit reactor(std::shared_ptr<smp> smp, alien::instance& alien, unsigned id, reactor_backend_selector rbs, reactor_config cfg);
+    explicit reactor(std::shared_ptr<seastar::smp> smp, alien::instance& alien, unsigned id, reactor_backend_selector rbs, reactor_config cfg);
     reactor(const reactor&) = delete;
     ~reactor();
     void operator=(const reactor&) = delete;
@@ -602,6 +602,9 @@ public:
 
     [[deprecated("Use this_shard_id")]]
     shard_id cpu_id() const;
+
+    /// \returns Returns the `smp` instance which owns this reactor.
+    const seastar::smp& smp() const noexcept;
 
     void try_sleep();
 

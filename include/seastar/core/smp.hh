@@ -324,6 +324,7 @@ class smp : public std::enable_shared_from_this<smp> {
     static thread_local smp_message_queue**_qs;
     static thread_local std::thread::id _tmain;
     bool _using_dpdk = false;
+    std::vector<unsigned> _shard_to_numa_node_mapping;
 
 private:
     void setup_prefaulter(const seastar::resource::resources& res, seastar::memory::internal::numa_layout layout);
@@ -336,6 +337,9 @@ public:
     void arrive_at_event_loop_end();
     void join_all();
     static bool main_thread() { return std::this_thread::get_id() == _tmain; }
+
+    /// \returns A integer span of size smp::count, with nth integer being the ID of nth shard's NUMA node.
+    std::span<const unsigned> shard_to_numa_node_mapping() const noexcept;
 
     /// Runs a function on a remote core.
     ///

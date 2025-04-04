@@ -1029,7 +1029,7 @@ struct reactor::task_queue::indirect_compare {
     }
 };
 
-reactor::reactor(std::shared_ptr<smp> smp, alien::instance& alien, unsigned id, reactor_backend_selector rbs, reactor_config cfg)
+reactor::reactor(std::shared_ptr<seastar::smp> smp, alien::instance& alien, unsigned id, reactor_backend_selector rbs, reactor_config cfg)
     : _smp(std::move(smp))
     , _alien(alien)
     , _cfg(std::move(cfg))
@@ -3944,6 +3944,7 @@ void smp::allocate_reactor(unsigned id, reactor_backend_selector rbs, reactor_co
 void smp::cleanup() noexcept {
     smp::_threads = std::vector<posix_thread>();
     _thread_loops.clear();
+    _shard_to_numa_node_mapping = decltype(_shard_to_numa_node_mapping)();
     reactor_holder.reset();
     local_engine = nullptr;
 }
@@ -4447,6 +4448,11 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
         // init memory at least minimally, otherwise a bunch of stuff breaks.
         // Previously, we got away wth this by accident due to #2137.
         memory::configure_minimal();
+    }
+
+    _shard_to_numa_node_mapping.resize(smp::count);
+    for (unsigned i = 0; i < smp::count; i++) {
+        _shard_to_numa_node_mapping.push_back(allocations[i].mem.size() > 0 ? allocations[i].mem[0].nodeid : 0);
     }
 
     if (reactor_opts.abort_on_seastar_bad_alloc) {
@@ -5028,6 +5034,14 @@ reactor::destroy_scheduling_group(scheduling_group sg) noexcept {
         _task_queues[sg._id].reset();
     });
 
+}
+
+std::span<const unsigned> smp::shard_to_numa_node_mapping() const noexcept {
+    return _shard_to_numa_node_mapping;
+}
+
+const smp& reactor::smp() const noexcept {
+    return *_smp;
 }
 
 #ifdef SEASTAR_BUILD_SHARED_LIBS
