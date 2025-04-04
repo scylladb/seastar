@@ -233,7 +233,6 @@ struct convert<seastar::mountpoint_params> {
 namespace seastar {
 
 seastar::logger seastar_logger("seastar");
-seastar::logger sched_logger("scheduler");
 
 shard_id reactor::cpu_id() const {
     SEASTAR_ASSERT(_id == this_shard_id());
@@ -598,22 +597,6 @@ std::atomic<manual_clock::rep> manual_clock::_now;
 // Base version where this works; some filesystems were only fixed later, so
 // this value is mixed in with filesystem-provided values later.
 bool aio_nowait_supported = internal::kernel_uname().whitelisted({"4.13"});
-
-static bool sched_debug() {
-    return false;
-}
-
-template <typename... Args>
-void
-#if SEASTAR_LOGGER_COMPILE_TIME_FMT
-sched_print(fmt::format_string<Args...> fmt, Args&&... args) {
-#else
-sched_print(const char* fmt, Args&&... args) {
-#endif
-    if (sched_debug()) {
-        sched_logger.trace(fmt, std::forward<Args>(args)...);
-    }
-}
 
 static std::atomic<bool> abort_on_ebadf = { false };
 
@@ -3083,7 +3066,6 @@ reactor::run_some_tasks() {
     if (!have_more_tasks()) {
         return;
     }
-    sched_print("run_some_tasks: start");
     reset_preemption_monitor();
     lowres_clock::update();
 
@@ -3094,14 +3076,11 @@ reactor::run_some_tasks() {
         auto t_run_started = t_run_completed;
         insert_activating_task_queues();
         task_queue* tq = pop_active_task_queue(t_run_started);
-        sched_print("running tq {} {}", (void*)tq, tq->_name);
         _last_vruntime = std::max(tq->_vruntime, _last_vruntime);
         run_tasks(*tq);
         t_run_completed = now();
         auto delta = t_run_completed - t_run_started;
         account_runtime(*tq, delta);
-        sched_print("run complete ({} {}); time consumed {} usec; final vruntime {} empty {}",
-                (void*)tq, tq->_name, delta / 1us, tq->_vruntime, tq->_q.empty());
         tq->_ts = t_run_completed;
         if (!tq->_q.empty()) {
             insert_active_task_queue(tq);
@@ -3119,7 +3098,6 @@ reactor::run_some_tasks() {
     _cpu_stall_detector->end_task_run(t_run_completed);
     STAP_PROBE(seastar, reactor_run_tasks_end);
     *internal::current_scheduling_group_ptr() = default_scheduling_group(); // Prevent inheritance from last group run
-    sched_print("run_some_tasks: end");
 }
 
 void
@@ -3127,16 +3105,12 @@ reactor::activate(task_queue& tq) {
     if (tq._active) {
         return;
     }
-    sched_print("activating {} {}", (void*)&tq, tq._name);
     // If activate() was called, the task queue is likely network-bound or I/O bound, not CPU-bound. As
     // such its vruntime will be low, and it will have a large advantage over other task queues. Limit
     // the advantage so it doesn't dominate scheduling for a long time, in case it _does_ become CPU
     // bound later.
     //
     // FIXME: different scheduling groups have different sensitivity to jitter, take advantage
-    if (_last_vruntime > tq._vruntime) {
-        sched_print("tq {} {} losing vruntime {} due to sleep", (void*)&tq, tq._name, _last_vruntime - tq._vruntime);
-    }
     tq._vruntime = std::max(_last_vruntime, tq._vruntime);
     auto now = reactor::now();
     tq._waittime += now - tq._ts;
