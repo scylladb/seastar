@@ -1064,6 +1064,8 @@ reactor::reactor(std::shared_ptr<smp> smp, alien::instance& alien, unsigned id, 
     });
 }
 
+static bitsets::set_range<bitsets::ulong_bits> allocated_sched_group_ids() noexcept;
+
 reactor::~reactor() {
     sigset_t mask;
     sigemptyset(&mask);
@@ -1081,13 +1083,11 @@ reactor::~reactor() {
     eraser(_expired_timers);
     eraser(_expired_lowres_timers);
     eraser(_expired_manual_timers);
-    for (auto&& tq : _task_queues) {
-        if (tq) {
+    for (auto id : allocated_sched_group_ids()) {
             // The following line will preserve the convention that constructor and destructor functions
             // for the per sg values are called in the context of the containing scheduling group.
-            *internal::current_scheduling_group_ptr() = scheduling_group(tq->_id);
-            get_sg_data(tq->_id).specific_vals.clear();
-        }
+            *internal::current_scheduling_group_ptr() = scheduling_group(id);
+            get_sg_data(id).specific_vals.clear();
     }
 }
 
@@ -4922,6 +4922,10 @@ std::chrono::nanoseconds reactor::total_steal_time() {
 static std::atomic<unsigned long> s_used_scheduling_group_ids_bitmap{3}; // 0=main, 1=atexit
 static std::atomic<unsigned long> s_next_scheduling_group_specific_key{0};
 
+static bitsets::set_range<bitsets::ulong_bits> allocated_sched_group_ids() noexcept {
+    return bitsets::set_range<bitsets::ulong_bits>(s_used_scheduling_group_ids_bitmap.load(std::memory_order_relaxed));
+}
+
 static
 int
 allocate_scheduling_group_id() noexcept {
@@ -4997,10 +5001,9 @@ reactor::init_new_scheduling_group_key(scheduling_group_key key, scheduling_grou
         auto key_id = internal::scheduling_group_key_id(key);
         auto cfgp = make_lw_shared<scheduling_group_key_config>(std::move(cfg));
         _scheduling_group_specific_data.scheduling_group_key_configs[key_id] = cfgp;
-        return parallel_for_each(_task_queues, [this, cfgp, key_id] (std::unique_ptr<task_queue>& tq) {
-            if (tq) {
-                scheduling_group sg = scheduling_group(tq->_id);
-                if (tq.get() == _at_destroy_tasks) {
+        return parallel_for_each(allocated_sched_group_ids(), [this, cfgp, key_id] (auto id) {
+                scheduling_group sg = scheduling_group(id);
+                if (id == 1) { // _at_destroy_tasks
                     // fake the group by assuming it here
                     auto curr = current_scheduling_group();
                     auto cleanup = defer([curr] () noexcept { *internal::current_scheduling_group_ptr() = curr; });
@@ -5008,6 +5011,7 @@ reactor::init_new_scheduling_group_key(scheduling_group_key key, scheduling_grou
                     auto& this_sg = get_sg_data(sg);
                     this_sg.specific_vals.resize(std::max<size_t>(this_sg.specific_vals.size(), key_id+1));
                     this_sg.specific_vals[key_id] = allocate_scheduling_group_specific_data(sg, key_id, cfgp);
+                    return make_ready_future();
                 } else {
                     return with_scheduling_group(sg, [this, key_id, sg, cfgp = std::move(cfgp)] () {
                         auto& this_sg = get_sg_data(sg);
@@ -5015,8 +5019,6 @@ reactor::init_new_scheduling_group_key(scheduling_group_key key, scheduling_grou
                         this_sg.specific_vals[key_id] = allocate_scheduling_group_specific_data(sg, key_id, cfgp);
                     });
                 }
-            }
-            return make_ready_future();
         });
     });
 }
