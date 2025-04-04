@@ -133,6 +133,16 @@ void promise_base::make_ready() noexcept {
         } else {
             ::seastar::schedule(std::exchange(_task, nullptr));
         }
+        // _state can point inside the task, future or promise. Since
+        // a task was created, we know that it was not pointing to the
+        // promise anymore. If a future still exists, _state points
+        // there and we don't need to do anything. If _future is null,
+        // we know that _state was pointing inside the task and we
+        // should clear it to avoid having a pointer to a destroyed
+        // object once task::run_and_dispose runs.
+        if (_future == nullptr) {
+            _state = nullptr;
+        }
     }
 }
 
