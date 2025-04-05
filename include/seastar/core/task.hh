@@ -26,6 +26,7 @@
 
 #ifndef SEASTAR_MODULE
 #include <utility>
+#include <source_location>
 #endif
 
 namespace seastar {
@@ -35,6 +36,8 @@ class task {
 protected:
     scheduling_group _sg;
 private:
+    std::source_location resume_point = {};
+
 #ifdef SEASTAR_TASK_BACKTRACE
     shared_backtrace _bt;
 #endif
@@ -53,6 +56,8 @@ public:
     virtual void run_and_dispose() noexcept = 0;
     /// Returns the next task which is waiting for this task to complete execution, or nullptr.
     virtual task* waiting_task() noexcept = 0;
+    void update_resume_point(std::source_location sl) { resume_point = sl; }
+    auto get_resume_point() const { return resume_point; }
     scheduling_group group() const { return _sg; }
     shared_backtrace get_backtrace() const;
 #ifdef SEASTAR_TASK_BACKTRACE
