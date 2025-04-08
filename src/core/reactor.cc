@@ -4042,14 +4042,14 @@ static void sigsegv_action(siginfo_t *info, ucontext_t* uc) noexcept {
     // with addr2line and other tools which expect an
     // address without any added offset (from ASLR or
     // because it's a relocated shared object).
-    print_safe("Segmentation fault: resolved ip: ");
+    print_safe("Segmentation fault: resolved ip: 0x");
     auto f = decorate(ip);
     print_zero_padded_hex_safe(f.addr);
     print_safe(" in ");
     print_safe(f.so->name.c_str());
-    print_safe("[");
+    print_safe("[0x");
     print_zero_padded_hex_safe(f.so->begin);
-    print_safe("+");
+    print_safe("+0x");
     print_zero_padded_hex_safe(f.so->end - f.so->begin);
     print_safe("]\n");
 
