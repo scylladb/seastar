@@ -41,16 +41,21 @@ using namespace std::chrono_literals;
 
 SEASTAR_TEST_CASE(test_semaphore_consume) {
     semaphore sem(0);
+    BOOST_REQUIRE(!sem.can_acquire_immediately(1));
     sem.consume(1);
     BOOST_REQUIRE_EQUAL(sem.current(), 0u);
     BOOST_REQUIRE_EQUAL(sem.waiters(), 0u);
 
     BOOST_REQUIRE_EQUAL(sem.try_wait(0), false);
+    BOOST_REQUIRE(!sem.can_acquire_immediately(1));
     auto fut = sem.wait(1);
     BOOST_REQUIRE_EQUAL(fut.available(), false);
     BOOST_REQUIRE_EQUAL(sem.waiters(), 1u);
     sem.signal(2);
     BOOST_REQUIRE_EQUAL(sem.waiters(), 0u);
+    BOOST_REQUIRE(!sem.can_acquire_immediately(1));
+    sem.signal(1);
+    BOOST_REQUIRE(sem.can_acquire_immediately(1));
     return make_ready_future<>();
 }
 
