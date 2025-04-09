@@ -432,7 +432,7 @@ struct http_consumer {
     std::string _body;
     uint32_t _remain = 0;
     std::string _current;
-    char last = '\0';
+    std::optional<char> last;
     uint32_t _size = 0;
     bool _concat = true;
 
@@ -448,7 +448,7 @@ struct http_consumer {
 
     bool read(const temporary_buffer<char>& b) {
         for (auto c : b) {
-            if (last =='\r' && c == '\n') {
+            if (last && *last =='\r' && c == '\n') {
                 if (_current == "") {
                     if (status == status_type::READING_HEADERS || (status == status_type::CHUNK_BODY && _remain == 0)) {
                         if (status == status_type::READING_HEADERS && _headers.find("Content-Length") != _headers.end()) {
@@ -476,12 +476,12 @@ struct http_consumer {
                     }
                     _current = "";
                 }
-                last = '\0';
+                last = std::nullopt;
             } else {
-                if (last != '\0') {
+                if (last) {
                     if (status == status_type::CHUNK_BODY || status == status_type::READING_BODY_BY_SIZE) {
                         if (_concat) {
-                            _body = _body + last;
+                            _body = _body + *last;
                         }
                         _size++;
                         _remain--;
@@ -494,7 +494,7 @@ struct http_consumer {
                             break;
                         }
                     } else {
-                        _current = _current + last;
+                        _current = _current + *last;
                     }
 
                 }
