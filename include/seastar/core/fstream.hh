@@ -95,6 +95,7 @@ input_stream<char> make_file_input_stream(
 
 /// Create a data_source for reading the given offset:len range from the file
 data_source make_file_data_source(file, uint64_t offset, uint64_t len, file_input_stream_options);
+data_source make_closeable_file_data_source(file, uint64_t offset, uint64_t len, file_input_stream_options);
 
 /// Create a data_source for reading the whole file from start to end
 data_source make_file_data_source(file, file_input_stream_options);

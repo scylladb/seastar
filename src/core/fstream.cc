@@ -38,6 +38,7 @@ module seastar;
 #include <seastar/core/fstream.hh>
 #include <seastar/core/align.hh>
 #include <seastar/core/circular_buffer.hh>
+#include <seastar/core/coroutine.hh>
 #include <seastar/core/semaphore.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/when_all.hh>
@@ -78,6 +79,9 @@ inline internal::maybe_priority_class_ref get_io_priority(const Options& opts) {
 }
 
 class file_data_source_impl : public data_source_impl {
+protected:
+    file _file;
+private:
     struct issued_read {
         uint64_t _pos;
         uint64_t _size;
@@ -88,7 +92,6 @@ class file_data_source_impl : public data_source_impl {
     };
 
     reactor& _reactor = engine();
-    file _file;
     file_input_stream_options _options;
     uint64_t _pos;
     uint64_t _remain;
@@ -365,6 +368,20 @@ input_stream<char> make_file_input_stream(
     return make_file_input_stream(std::move(f), 0, std::move(options));
 }
 
+class closeable_file_data_source_impl : public file_data_source_impl {
+public:
+    closeable_file_data_source_impl(file f, uint64_t offset, uint64_t len, file_input_stream_options options):file_data_source_impl(std::move(f),  offset,  len,  std::move(options)) {
+
+    }
+    future<> close() override {
+        co_await file_data_source_impl::close();
+        co_return co_await _file.close();
+    }
+};
+
+data_source make_closeable_file_data_source(file f, uint64_t offset, uint64_t len, file_input_stream_options opt) {
+    return data_source(std::make_unique<closeable_file_data_source_impl>(std::move(f), offset, len, std::move(opt)));
+}
 
 class file_data_sink_impl : public data_sink_impl {
     file _file;
