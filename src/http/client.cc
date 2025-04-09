@@ -142,7 +142,7 @@ future<connection::reply_ptr> connection::recv_reply() {
             }
             if (parser.failed()) {
                 http_log.trace("Parsing response failed");
-                throw std::runtime_error("Invalid http server response");
+                throw httpd::response_parsing_exception(format("Invalid http server response. Reason: {}", parser.error_message()));
             }
 
             auto resp = parser.get_parsed_response();
@@ -319,39 +319,48 @@ future<> client::make_request(request&& req, reply_handler&& handle, std::option
     });
 }
 
+static bool is_retryable_exception(std::exception_ptr ex) {
+    while (ex) {
+        try {
+            std::rethrow_exception(ex);
+        } catch (const std::system_error& sys_err) {
+            auto code = sys_err.code().value();
+            if (code == EPIPE || code == ECONNABORTED || code == GNUTLS_E_PREMATURE_TERMINATION) {
+                return true;
+            }
+            try {
+                std::rethrow_if_nested(sys_err);
+            } catch (...) {
+                ex = std::current_exception();
+                continue;
+            }
+            return false;
+        } catch (const httpd::response_parsing_exception&) {
+            return true;
+        } catch (const std::exception& e) {
+            try {
+                std::rethrow_if_nested(e);
+            } catch (...) {
+                ex = std::current_exception();
+                continue;
+            }
+            return false;
+        } catch (...) {
+            return false;
+        }
+    }
+    return false;
+}
+
 future<> client::make_request(request& req, reply_handler& handle, std::optional<reply::status_type> expected, abort_source* as) {
     return with_connection([this, &req, &handle, as, expected] (connection& con) {
         return do_make_request(con, req, handle, as, expected);
-    }, as).handle_exception_type([this, &req, &handle, as, expected] (const std::system_error& ex) {
+    }, as).handle_exception([this, &req, &handle, as, expected] (std::exception_ptr ex) {
         if (as && as->abort_requested()) {
             return make_exception_future<>(as->abort_requested_exception_ptr());
         }
 
-        if (!_retry) {
-            return make_exception_future<>(ex);
-        }
-
-        bool should_retry = false;
-        const std::exception* current_exception = &ex;
-        while (current_exception) {
-            if (auto sys_error = dynamic_cast<const std::system_error*>(current_exception)) {
-                auto code = sys_error->code().value();
-                if (code == EPIPE || code == ECONNABORTED || code == GNUTLS_E_PREMATURE_TERMINATION) {
-                    should_retry = true;
-                    break;
-                }
-            }
-            try {
-                std::rethrow_if_nested(*current_exception);
-            } catch (const std::exception& nested) {
-                current_exception = &nested;
-                continue;
-            } catch (...) {
-                break;
-            }
-            current_exception = nullptr;
-        }
-        if (!should_retry) {
+        if (!_retry || !is_retryable_exception(ex)) {
             return make_exception_future<>(ex);
         }
 
