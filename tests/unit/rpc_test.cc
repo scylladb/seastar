@@ -42,6 +42,7 @@
 #include <seastar/util/closeable.hh>
 #include <seastar/util/noncopyable_function.hh>
 #include <seastar/util/later.hh>
+#include <seastar/core/coroutine.hh>
 
 #include <boost/range/numeric.hpp>
 
@@ -1826,4 +1827,42 @@ SEASTAR_THREAD_TEST_CASE(test_compressor_empty_frames) {
             BOOST_REQUIRE_EQUAL(client_tracker._compressor->receive_metadata().get(), 2*i+1);
         }
     }).get();
+}
+
+SEASTAR_TEST_CASE(test_timeout_cancel) {
+    rpc::client_options co;
+    co.send_timeout_data = true;
+    return rpc_test_env<>::do_with_thread(rpc_test_config(), co, [&] (rpc_test_env<>& env, test_rpc_proto::client& cl) {
+        abort_source abort_handler;
+        uint32_t id = 1;
+        env.register_handler(id, [&] (int x) -> future<int> {
+            co_await sleep_abortable(std::chrono::seconds(10), abort_handler);
+            co_return x;
+        }).get();
+        auto echo = env.proto().make_client<int (int)>(1);
+        {
+            auto f = echo(cl, std::chrono::milliseconds(10), 42);
+            BOOST_REQUIRE_THROW(f.get(), rpc::timeout_error);
+        }
+        {
+            auto f = echo(cl, seastar::lowres_clock::now() + std::chrono::milliseconds(10), 42);
+            BOOST_REQUIRE_THROW(f.get(), rpc::timeout_error);
+        }
+        {
+            rpc::cancellable cancel_rpc;
+            auto f = echo(cl, std::chrono::milliseconds(10), cancel_rpc, 42);
+            BOOST_REQUIRE(!f.available());
+            cancel_rpc.cancel();
+            BOOST_REQUIRE_THROW(f.get(), rpc::canceled_error);
+        }
+        {
+            rpc::cancellable cancel_rpc;
+            auto f = echo(cl, seastar::lowres_clock::now() + std::chrono::milliseconds(10), cancel_rpc, 42);
+            BOOST_REQUIRE(!f.available());
+            cancel_rpc.cancel();
+            BOOST_REQUIRE_THROW(f.get(), rpc::canceled_error);
+        }
+        abort_handler.request_abort();
+        env.unregister_handler(id).get();
+    });
 }
