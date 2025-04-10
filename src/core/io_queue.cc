@@ -865,7 +865,7 @@ future<size_t> io_queue::queue_one_request(internal::priority_class pc, io_direc
         auto queued_req = std::make_unique<queued_io_request>(std::move(req), *this, cap, pclass, std::move(dnl), std::move(iovs));
         auto fut = queued_req->get_future();
         if (intent != nullptr) {
-            auto& cq = intent->find_or_create_cancellable_queue(dev_id(), pc.id());
+            auto& cq = intent->find_or_create_cancellable_queue(_id, pc.id());
             queued_req->set_intent(cq);
         }
 
