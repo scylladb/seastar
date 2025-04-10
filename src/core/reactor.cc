@@ -4531,6 +4531,13 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
 
     auto alloc_io_queues = [&ioq_topology, &disk_config] (shard_id shard) {
         for (auto& [dev, io_info] : ioq_topology) {
+            auto num_io_groups = io_info.groups.size();
+            if (engine()._num_io_groups == 0) {
+                engine()._num_io_groups = num_io_groups;
+            } else if (engine()._num_io_groups != num_io_groups) {
+                throw std::logic_error(format("Number of IO-groups mismatch, {} != {}", engine()._num_io_groups, num_io_groups));
+            }
+
             auto group_idx = io_info.shard_to_group[shard];
             std::shared_ptr<io_group> group;
 
@@ -4555,13 +4562,6 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
             auto queue = std::move(io_info.queues[shard]);
             SEASTAR_ASSERT(queue);
             engine()._io_queues.emplace(dev, std::move(queue));
-
-            auto num_io_groups = io_info.groups.size();
-            if (engine()._num_io_groups == 0) {
-                engine()._num_io_groups = num_io_groups;
-            } else if (engine()._num_io_groups != num_io_groups) {
-                throw std::logic_error(format("Number of IO-groups mismatch, {} != {}", engine()._num_io_groups, num_io_groups));
-            }
         }
     };
 
