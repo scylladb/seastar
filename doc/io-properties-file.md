@@ -39,3 +39,23 @@ disks:
     write_bandwidth: 510M
     write_saturation_length: 64k
 ```
+
+Optionally, instead of the "mountpoint" there can be the "mountpoints" (plural)
+entry in the list element being a list itself and listing more than one path. As
+a result all the listed mountpoints will share the corresponding internal IO queue.
+
+Example:
+
+```
+disks:
+  - mountpoints:
+      - /var/lib/some_seastar_app/sub_one
+      - /var/lib/some_seastar_app/sub_two
+    read_iops: 95000
+    ...
+```
+
+An example when this configuration is applicable can be an LLVM set of volumes
+from one disk each being mounted at its own path. In that case, different mount
+points would have different (virtual) block devices, yet, they will share the
+same physical disk and thus need to run over one shared IO queue.

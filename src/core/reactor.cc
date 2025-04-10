@@ -33,6 +33,7 @@ module;
 #include <ranges>
 #include <regex>
 #include <thread>
+#include <unordered_set>
 
 #include <grp.h>
 #include <spawn.h>
@@ -190,7 +191,8 @@ static_assert(posix::shutdown_mask(SHUT_WR) == posix::snd_shutdown);
 static_assert(posix::shutdown_mask(SHUT_RDWR) == (posix::snd_shutdown | posix::rcv_shutdown));
 
 struct disk_params {
-    std::string mountpoint = "none";
+    std::vector<std::string> mountpoints;
+    std::vector<dev_t> devices;
     uint64_t read_bytes_rate = std::numeric_limits<uint64_t>::max();
     uint64_t write_bytes_rate = std::numeric_limits<uint64_t>::max();
     uint64_t read_req_rate = std::numeric_limits<uint64_t>::max();
@@ -208,7 +210,11 @@ template<>
 struct convert<seastar::disk_params> {
     static bool decode(const Node& node, seastar::disk_params& mp) {
         using namespace seastar;
-        mp.mountpoint = node["mountpoint"].as<std::string>().c_str();
+        if (node["mountpoints"]) {
+            mp.mountpoints = node["mountpoints"].as<std::vector<std::string>>();
+        } else {
+            mp.mountpoints.push_back(node["mountpoint"].as<std::string>());
+        }
         mp.read_bytes_rate = parse_memory_size(node["read_bandwidth"].as<std::string>());
         mp.read_req_rate = parse_memory_size(node["read_iops"].as<std::string>());
         mp.write_bytes_rate = parse_memory_size(node["write_bandwidth"].as<std::string>());
@@ -4145,18 +4151,24 @@ public:
                     throw std::runtime_error(fmt::format("While parsing I/O options: section {} currently unsupported.", sec_name));
                 }
                 auto disks = section.second.as<std::vector<disk_params>>();
+                unsigned queue_id_gen = 1;
+                std::unordered_set<dev_t> devices;
                 for (auto& d : disks) {
+                  for (auto mp : d.mountpoints) {
                     struct ::stat buf;
-                    auto ret = stat(d.mountpoint.c_str(), &buf);
+                    auto ret = stat(mp.c_str(), &buf);
                     if (ret < 0) {
-                        throw std::runtime_error(fmt::format("Couldn't stat {}", d.mountpoint));
+                        throw std::runtime_error(fmt::format("Couldn't stat {}", mp));
                     }
 
                     auto st_dev = S_ISBLK(buf.st_mode) ? buf.st_rdev : buf.st_dev;
-                    unsigned q = st_dev; // temporary 1:1 mapping
-                    if (_disks.count(q)) {
-                        throw std::runtime_error(fmt::format("Mountpoint {} already configured", d.mountpoint));
+                    d.devices.push_back(st_dev);
+                    auto [ it, inserted ] = devices.insert(st_dev);
+                    if (!inserted) {
+                        throw std::runtime_error(fmt::format("Mountpoint {}, device {} already configured", mp, st_dev));
                     }
+                  }
+
                     if (_disks.size() >= _max_queues) {
                         throw std::runtime_error(fmt::format("Configured number of queues {} is larger than the maximum {}",
                                                  _disks.size(), _max_queues));
@@ -4172,7 +4184,8 @@ public:
                         throw std::runtime_error(fmt::format("R/W bytes and req rates must not be zero"));
                     }
 
-                    seastar_logger.debug("queue-id: {} mountpoint: {}", q, d.mountpoint);
+                    unsigned q = queue_id_gen++;
+                    seastar_logger.debug("queue-id: {} mountpoints: {} devices: {}", q, d.mountpoints, d.devices);
                     _disks.emplace(q, d);
                 }
             }
@@ -4180,6 +4193,7 @@ public:
 
         // Placeholder for unconfigured disks.
         disk_params d = {};
+        d.devices.push_back(0);
         _disks.emplace(0, d);
     }
 
@@ -4204,7 +4218,7 @@ public:
         if (p.write_saturation_length != std::numeric_limits<uint64_t>::max()) {
             cfg.disk_write_saturation_length = p.write_saturation_length;
         }
-        cfg.mountpoint = p.mountpoint;
+        cfg.mountpoint = fmt::to_string(fmt::join(p.mountpoints, ":"));
         cfg.duplex = p.duplex;
         cfg.rate_limit_duration = latency_goal();
         cfg.flow_ratio_backpressure_threshold = _flow_ratio_backpressure_threshold;
@@ -4220,6 +4234,10 @@ public:
 
     auto queue_ids() {
         return boost::adaptors::keys(_disks);
+    }
+
+    const std::vector<dev_t>& queue_devices(unsigned q) const {
+        return _disks.at(q).devices;
     }
 };
 
@@ -4558,12 +4576,13 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
         }
     };
 
-    auto assign_io_queues = [&ioq_topology] (shard_id shard) {
+    auto assign_io_queues = [&ioq_topology, &disk_config] (shard_id shard) {
         for (auto& [q, io_info] : ioq_topology) {
             auto queue = std::move(io_info.queues[shard]);
             SEASTAR_ASSERT(queue);
-            dev_t dev = q; // temporary 1:1 mapping
-            engine()._io_queues.emplace(dev, std::move(queue));
+            for (const dev_t& dev : disk_config.queue_devices(q)) {
+                engine()._io_queues.emplace(dev, queue);
+            }
         }
     };
 
