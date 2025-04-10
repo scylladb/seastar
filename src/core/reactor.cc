@@ -4552,7 +4552,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
                 group = iog;
             }
 
-            io_info.queues[shard] = std::make_unique<io_queue>(std::move(group), engine()._io_sink);
+            io_info.queues[shard] = seastar::make_shared<io_queue>(std::move(group), engine()._io_sink);
             seastar_logger.debug("attached {} queue to {} IO group, dev {}", shard, group_idx, dev);
         }
     };

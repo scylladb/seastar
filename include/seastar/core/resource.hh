@@ -23,6 +23,7 @@
 
 #include <seastar/util/spinlock.hh>
 #include <seastar/util/modules.hh>
+#include <seastar/core/shared_ptr.hh>
 #ifndef SEASTAR_MODULE
 #include <cassert>
 #include <cstdlib>
@@ -108,7 +109,7 @@ struct memory {
 };
 
 struct io_queue_topology {
-    std::vector<std::unique_ptr<io_queue>> queues;
+    std::vector<seastar::shared_ptr<io_queue>> queues;
     std::vector<unsigned> shard_to_group;
     std::vector<unsigned> shards_in_group;
     std::vector<std::shared_ptr<io_group>> groups;
