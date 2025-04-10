@@ -627,7 +627,7 @@ io_group::io_group(io_queue::config io_cfg, unsigned nr_queues)
 
     auto goal = io_latency_goal();
     auto lvl = goal > 1.1 * _config.rate_limit_duration ? log_level::warn : log_level::debug;
-    seastar_logger.log(lvl, "IO queue uses {:.2f}ms latency goal for device {}", goal.count() * 1000, _config.devid);
+    seastar_logger.log(lvl, "IO queue uses {:.2f}ms latency goal for {}", goal.count() * 1000, _config.mountpoint);
 
     /*
      * The maximum request size shouldn't result in the capacity that would
