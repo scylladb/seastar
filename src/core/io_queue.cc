@@ -568,6 +568,7 @@ fair_queue::config io_queue::make_fair_queue_config(const config& iocfg, sstring
 io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     : _priority_classes()
     , _group(std::move(group))
+    , _id(_group->_config.devid)
     , _sink(sink)
     , _averaging_decay_timer([this] {
         update_flow_ratio();
