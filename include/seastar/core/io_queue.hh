@@ -131,7 +131,7 @@ public:
     static constexpr unsigned block_size_shift = 9;
 
     struct config {
-        dev_t devid;
+        unsigned id;
         unsigned long req_count_rate = std::numeric_limits<int>::max();
         unsigned long blocks_count_rate = std::numeric_limits<int>::max();
         unsigned disk_req_write_to_read_multiplier = read_request_base_count;

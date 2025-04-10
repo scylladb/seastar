@@ -97,7 +97,7 @@ struct configuration {
     size_t cpus;
     cpuset cpu_set;
     bool assign_orphan_cpus = false;
-    std::vector<dev_t> devices;
+    std::vector<unsigned> io_queues;
     unsigned num_io_groups;
     hwloc::internal::topology_holder topology;
 };
@@ -129,7 +129,7 @@ struct cpu {
 
 struct resources {
     std::vector<cpu> cpus;
-    std::unordered_map<dev_t, io_queue_topology> ioq_topology;
+    std::unordered_map<unsigned, io_queue_topology> ioq_topology;
     std::unordered_map<unsigned /* numa node id */, cpuset> numa_node_id_to_cpuset;
 };
 

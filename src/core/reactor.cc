@@ -4080,7 +4080,7 @@ class disk_config_params {
 private:
     const unsigned _max_queues;
     unsigned _num_io_groups = 0;
-    std::unordered_map<dev_t, disk_params> _disks;
+    std::unordered_map<unsigned, disk_params> _disks;
     std::chrono::duration<double> _latency_goal;
     std::chrono::milliseconds _stall_threshold;
     double _flow_ratio_backpressure_threshold;
@@ -4153,7 +4153,8 @@ public:
                     }
 
                     auto st_dev = S_ISBLK(buf.st_mode) ? buf.st_rdev : buf.st_dev;
-                    if (_disks.count(st_dev)) {
+                    unsigned q = st_dev; // temporary 1:1 mapping
+                    if (_disks.count(q)) {
                         throw std::runtime_error(fmt::format("Mountpoint {} already configured", d.mountpoint));
                     }
                     if (_disks.size() >= _max_queues) {
@@ -4171,8 +4172,8 @@ public:
                         throw std::runtime_error(fmt::format("R/W bytes and req rates must not be zero"));
                     }
 
-                    seastar_logger.debug("dev_id: {} mountpoint: {}", st_dev, d.mountpoint);
-                    _disks.emplace(st_dev, d);
+                    seastar_logger.debug("queue-id: {} mountpoint: {}", q, d.mountpoint);
+                    _disks.emplace(q, d);
                 }
             }
         }
@@ -4182,12 +4183,12 @@ public:
         _disks.emplace(0, d);
     }
 
-    struct io_queue::config generate_config(dev_t devid, unsigned nr_groups) const {
-        seastar_logger.debug("generate_config dev_id: {}", devid);
-        const disk_params& p = _disks.at(devid);
+    struct io_queue::config generate_config(unsigned q, unsigned nr_groups) const {
+        const disk_params& p = _disks.at(q);
+        seastar_logger.debug("generate_config queue-id: {}", q);
         struct io_queue::config cfg;
 
-        cfg.devid = devid;
+        cfg.id = q;
 
         if (p.read_bytes_rate != std::numeric_limits<uint64_t>::max()) {
             cfg.blocks_count_rate = (io_queue::read_request_base_count * (unsigned long)per_io_group(p.read_bytes_rate, nr_groups)) >> io_queue::block_size_shift;
@@ -4217,7 +4218,7 @@ public:
         return cfg;
     }
 
-    auto device_ids() {
+    auto queue_ids() {
         return boost::adaptors::keys(_disks);
     }
 };
@@ -4422,8 +4423,8 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
 
     disk_config_params disk_config(reactor::max_queues);
     disk_config.parse_config(smp_opts, reactor_opts);
-    for (auto& id : disk_config.device_ids()) {
-        rc.devices.push_back(id);
+    for (auto& id : disk_config.queue_ids()) {
+        rc.io_queues.push_back(id);
     }
     rc.num_io_groups = disk_config.num_io_groups();
 
@@ -4530,7 +4531,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     //     also pre-resize()-d in advance)
 
     auto alloc_io_queues = [&ioq_topology, &disk_config] (shard_id shard) {
-        for (auto& [dev, io_info] : ioq_topology) {
+        for (auto& [q, io_info] : ioq_topology) {
             auto num_io_groups = io_info.groups.size();
             if (engine()._num_io_groups == 0) {
                 engine()._num_io_groups = num_io_groups;
@@ -4545,22 +4546,23 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
                 std::lock_guard _(io_info.lock);
                 auto& iog = io_info.groups[group_idx];
                 if (!iog) {
-                    struct io_queue::config qcfg = disk_config.generate_config(dev, io_info.groups.size());
+                    struct io_queue::config qcfg = disk_config.generate_config(q, io_info.groups.size());
                     iog = std::make_shared<io_group>(std::move(qcfg), io_info.shards_in_group[group_idx]);
-                    seastar_logger.debug("allocate {} IO group with {} queues, dev {}", group_idx, io_info.shards_in_group[group_idx], dev);
+                    seastar_logger.debug("allocate {} IO group with {} queues, queue-id {}", group_idx, io_info.shards_in_group[group_idx], q);
                 }
                 group = iog;
             }
 
             io_info.queues[shard] = seastar::make_shared<io_queue>(std::move(group), engine()._io_sink);
-            seastar_logger.debug("attached {} queue to {} IO group, dev {}", shard, group_idx, dev);
+            seastar_logger.debug("attached {} queue to {} IO group, queue-id {}", shard, group_idx, q);
         }
     };
 
     auto assign_io_queues = [&ioq_topology] (shard_id shard) {
-        for (auto& [dev, io_info] : ioq_topology) {
+        for (auto& [q, io_info] : ioq_topology) {
             auto queue = std::move(io_info.queues[shard]);
             SEASTAR_ASSERT(queue);
+            dev_t dev = q; // temporary 1:1 mapping
             engine()._io_queues.emplace(dev, std::move(queue));
         }
     };

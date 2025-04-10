@@ -568,7 +568,7 @@ fair_queue::config io_queue::make_fair_queue_config(const config& iocfg, sstring
 io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     : _priority_classes()
     , _group(std::move(group))
-    , _id(_group->_config.devid)
+    , _id(_group->_config.id)
     , _sink(sink)
     , _averaging_decay_timer([this] {
         update_flow_ratio();
@@ -601,7 +601,7 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
 
 fair_group::config io_group::make_fair_group_config(const io_queue::config& qcfg) noexcept {
     fair_group::config cfg;
-    cfg.label = fmt::format("io-queue-{}", qcfg.devid);
+    cfg.label = fmt::format("io-queue-{}", qcfg.id);
     double min_weight = std::min(io_queue::read_request_base_count, qcfg.disk_req_write_to_read_multiplier);
     double min_size = std::min(io_queue::read_request_base_count, qcfg.disk_blocks_write_to_read_multiplier);
     cfg.min_tokens = min_weight / qcfg.req_count_rate + min_size / qcfg.blocks_count_rate;
