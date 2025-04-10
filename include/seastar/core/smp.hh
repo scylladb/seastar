@@ -326,8 +326,10 @@ class smp : public std::enable_shared_from_this<smp> {
     bool _using_dpdk = false;
     std::vector<unsigned> _shard_to_numa_node_mapping;
 
+    friend class internal::memory_prefaulter;
 private:
     void setup_prefaulter(const seastar::resource::resources& res, seastar::memory::internal::numa_layout layout);
+    future<> submit_memory_prefault_completion();
 public:
     explicit smp(alien::instance& alien);
     ~smp();
