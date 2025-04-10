@@ -4154,20 +4154,20 @@ public:
                 unsigned queue_id_gen = 1;
                 std::unordered_set<dev_t> devices;
                 for (auto& d : disks) {
-                  for (auto mp : d.mountpoints) {
-                    struct ::stat buf;
-                    auto ret = stat(mp.c_str(), &buf);
-                    if (ret < 0) {
-                        throw std::runtime_error(fmt::format("Couldn't stat {}", mp));
-                    }
+                    for (auto mp : d.mountpoints) {
+                        struct ::stat buf;
+                        auto ret = stat(mp.c_str(), &buf);
+                        if (ret < 0) {
+                            throw std::runtime_error(fmt::format("Couldn't stat {}", mp));
+                        }
 
-                    auto st_dev = S_ISBLK(buf.st_mode) ? buf.st_rdev : buf.st_dev;
-                    d.devices.push_back(st_dev);
-                    auto [ it, inserted ] = devices.insert(st_dev);
-                    if (!inserted) {
-                        throw std::runtime_error(fmt::format("Mountpoint {}, device {} already configured", mp, st_dev));
+                        auto st_dev = S_ISBLK(buf.st_mode) ? buf.st_rdev : buf.st_dev;
+                        d.devices.push_back(st_dev);
+                        auto [ it, inserted ] = devices.insert(st_dev);
+                        if (!inserted) {
+                            throw std::runtime_error(fmt::format("Mountpoint {}, device {} already configured", mp, st_dev));
+                        }
                     }
-                  }
 
                     if (_disks.size() >= _max_queues) {
                         throw std::runtime_error(fmt::format("Configured number of queues {} is larger than the maximum {}",
