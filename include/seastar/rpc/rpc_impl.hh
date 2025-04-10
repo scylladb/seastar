@@ -583,8 +583,14 @@ auto send_helper(MsgType xt, signature<Ret (InArgs...)> xsig) {
         auto operator()(rpc::client& dst, rpc_clock_type::time_point timeout, const InArgs&... args) {
             return send(dst, timeout, nullptr, args...);
         }
+        auto operator()(rpc::client& dst, rpc_clock_type::time_point timeout, cancellable& cancel, const InArgs&... args) {
+            return send(dst, timeout, &cancel, args...);
+        }
         auto operator()(rpc::client& dst, rpc_clock_type::duration timeout, const InArgs&... args) {
             return send(dst, relative_timeout_to_absolute(timeout), nullptr, args...);
+        }
+        auto operator()(rpc::client& dst, rpc_clock_type::duration timeout, cancellable& cancel, const InArgs&... args) {
+            return send(dst, relative_timeout_to_absolute(timeout), &cancel, args...);
         }
         auto operator()(rpc::client& dst, cancellable& cancel, const InArgs&... args) {
             return send(dst, {}, &cancel, args...);
