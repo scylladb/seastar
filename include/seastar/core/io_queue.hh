@@ -181,7 +181,7 @@ public:
     fair_queue_entry::capacity_t request_capacity(internal::io_direction_and_length dnl) const noexcept;
 
     sstring mountpoint() const;
-    dev_t dev_id() const noexcept;
+    unsigned id() const noexcept { return _id; }
 
     void update_shares_for_class(internal::priority_class pc, size_t new_shares);
     future<> update_bandwidth_for_class(internal::priority_class pc, uint64_t new_bandwidth);
@@ -232,10 +232,6 @@ inline const io_queue::config& io_queue::get_config() const noexcept {
 
 inline sstring io_queue::mountpoint() const {
     return get_config().mountpoint;
-}
-
-inline dev_t io_queue::dev_id() const noexcept {
-    return get_config().devid;
 }
 
 namespace internal {
