@@ -33,6 +33,7 @@ module;
 #include <ranges>
 #include <regex>
 #include <thread>
+#include <unordered_set>
 
 #include <grp.h>
 #include <spawn.h>
@@ -189,8 +190,9 @@ static_assert(posix::shutdown_mask(SHUT_RD) == posix::rcv_shutdown);
 static_assert(posix::shutdown_mask(SHUT_WR) == posix::snd_shutdown);
 static_assert(posix::shutdown_mask(SHUT_RDWR) == (posix::snd_shutdown | posix::rcv_shutdown));
 
-struct mountpoint_params {
-    std::string mountpoint = "none";
+struct disk_params {
+    std::vector<std::string> mountpoints;
+    std::vector<dev_t> devices;
     uint64_t read_bytes_rate = std::numeric_limits<uint64_t>::max();
     uint64_t write_bytes_rate = std::numeric_limits<uint64_t>::max();
     uint64_t read_req_rate = std::numeric_limits<uint64_t>::max();
@@ -205,10 +207,14 @@ struct mountpoint_params {
 
 namespace YAML {
 template<>
-struct convert<seastar::mountpoint_params> {
-    static bool decode(const Node& node, seastar::mountpoint_params& mp) {
+struct convert<seastar::disk_params> {
+    static bool decode(const Node& node, seastar::disk_params& mp) {
         using namespace seastar;
-        mp.mountpoint = node["mountpoint"].as<std::string>().c_str();
+        if (node["mountpoints"]) {
+            mp.mountpoints = node["mountpoints"].as<std::vector<std::string>>();
+        } else {
+            mp.mountpoints.push_back(node["mountpoint"].as<std::string>());
+        }
         mp.read_bytes_rate = parse_memory_size(node["read_bandwidth"].as<std::string>());
         mp.read_req_rate = parse_memory_size(node["read_iops"].as<std::string>());
         mp.write_bytes_rate = parse_memory_size(node["write_bandwidth"].as<std::string>());
@@ -4105,7 +4111,7 @@ class disk_config_params {
 private:
     const unsigned _max_queues;
     unsigned _num_io_groups = 0;
-    std::unordered_map<dev_t, mountpoint_params> _mountpoints;
+    std::unordered_map<unsigned, disk_params> _disks;
     std::chrono::duration<double> _latency_goal;
     std::chrono::milliseconds _stall_threshold;
     double _flow_ratio_backpressure_threshold;
@@ -4169,21 +4175,28 @@ public:
                 if (sec_name != "disks") {
                     throw std::runtime_error(fmt::format("While parsing I/O options: section {} currently unsupported.", sec_name));
                 }
-                auto disks = section.second.as<std::vector<mountpoint_params>>();
+                auto disks = section.second.as<std::vector<disk_params>>();
+                unsigned queue_id_gen = 1;
+                std::unordered_set<dev_t> devices;
                 for (auto& d : disks) {
-                    struct ::stat buf;
-                    auto ret = stat(d.mountpoint.c_str(), &buf);
-                    if (ret < 0) {
-                        throw std::runtime_error(fmt::format("Couldn't stat {}", d.mountpoint));
+                    for (auto mp : d.mountpoints) {
+                        struct ::stat buf;
+                        auto ret = stat(mp.c_str(), &buf);
+                        if (ret < 0) {
+                            throw std::runtime_error(fmt::format("Couldn't stat {}", mp));
+                        }
+
+                        auto st_dev = S_ISBLK(buf.st_mode) ? buf.st_rdev : buf.st_dev;
+                        d.devices.push_back(st_dev);
+                        auto [ it, inserted ] = devices.insert(st_dev);
+                        if (!inserted) {
+                            throw std::runtime_error(fmt::format("Mountpoint {}, device {} already configured", mp, st_dev));
+                        }
                     }
 
-                    auto st_dev = S_ISBLK(buf.st_mode) ? buf.st_rdev : buf.st_dev;
-                    if (_mountpoints.count(st_dev)) {
-                        throw std::runtime_error(fmt::format("Mountpoint {} already configured", d.mountpoint));
-                    }
-                    if (_mountpoints.size() >= _max_queues) {
+                    if (_disks.size() >= _max_queues) {
                         throw std::runtime_error(fmt::format("Configured number of queues {} is larger than the maximum {}",
-                                                 _mountpoints.size(), _max_queues));
+                                                 _disks.size(), _max_queues));
                     }
 
                     d.read_bytes_rate *= d.rate_factor;
@@ -4196,23 +4209,25 @@ public:
                         throw std::runtime_error(fmt::format("R/W bytes and req rates must not be zero"));
                     }
 
-                    seastar_logger.debug("dev_id: {} mountpoint: {}", st_dev, d.mountpoint);
-                    _mountpoints.emplace(st_dev, d);
+                    unsigned q = queue_id_gen++;
+                    seastar_logger.debug("queue-id: {} mountpoints: {} devices: {}", q, d.mountpoints, d.devices);
+                    _disks.emplace(q, d);
                 }
             }
         }
 
         // Placeholder for unconfigured disks.
-        mountpoint_params d = {};
-        _mountpoints.emplace(0, d);
+        disk_params d = {};
+        d.devices.push_back(0);
+        _disks.emplace(0, d);
     }
 
-    struct io_queue::config generate_config(dev_t devid, unsigned nr_groups) const {
-        seastar_logger.debug("generate_config dev_id: {}", devid);
-        const mountpoint_params& p = _mountpoints.at(devid);
+    struct io_queue::config generate_config(unsigned q, unsigned nr_groups) const {
+        const disk_params& p = _disks.at(q);
+        seastar_logger.debug("generate_config queue-id: {}", q);
         struct io_queue::config cfg;
 
-        cfg.devid = devid;
+        cfg.id = q;
 
         if (p.read_bytes_rate != std::numeric_limits<uint64_t>::max()) {
             cfg.blocks_count_rate = (io_queue::read_request_base_count * (unsigned long)per_io_group(p.read_bytes_rate, nr_groups)) >> io_queue::block_size_shift;
@@ -4228,7 +4243,7 @@ public:
         if (p.write_saturation_length != std::numeric_limits<uint64_t>::max()) {
             cfg.disk_write_saturation_length = p.write_saturation_length;
         }
-        cfg.mountpoint = p.mountpoint;
+        cfg.mountpoint = fmt::to_string(fmt::join(p.mountpoints, ":"));
         cfg.duplex = p.duplex;
         cfg.rate_limit_duration = latency_goal();
         cfg.flow_ratio_backpressure_threshold = _flow_ratio_backpressure_threshold;
@@ -4242,8 +4257,12 @@ public:
         return cfg;
     }
 
-    auto device_ids() {
-        return boost::adaptors::keys(_mountpoints);
+    auto queue_ids() {
+        return boost::adaptors::keys(_disks);
+    }
+
+    const std::vector<dev_t>& queue_devices(unsigned q) const {
+        return _disks.at(q).devices;
     }
 };
 
@@ -4447,8 +4466,8 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
 
     disk_config_params disk_config(reactor::max_queues);
     disk_config.parse_config(smp_opts, reactor_opts);
-    for (auto& id : disk_config.device_ids()) {
-        rc.devices.push_back(id);
+    for (auto& id : disk_config.queue_ids()) {
+        rc.io_queues.push_back(id);
     }
     rc.num_io_groups = disk_config.num_io_groups();
 
@@ -4576,7 +4595,14 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     //     also pre-resize()-d in advance)
 
     auto alloc_io_queues = [&ioq_topology, &disk_config] (shard_id shard) {
-        for (auto& [dev, io_info] : ioq_topology) {
+        for (auto& [q, io_info] : ioq_topology) {
+            auto num_io_groups = io_info.groups.size();
+            if (engine()._num_io_groups == 0) {
+                engine()._num_io_groups = num_io_groups;
+            } else if (engine()._num_io_groups != num_io_groups) {
+                throw std::logic_error(format("Number of IO-groups mismatch, {} != {}", engine()._num_io_groups, num_io_groups));
+            }
+
             auto group_idx = io_info.shard_to_group[shard];
             std::shared_ptr<io_group> group;
 
@@ -4584,29 +4610,24 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
                 std::lock_guard _(io_info.lock);
                 auto& iog = io_info.groups[group_idx];
                 if (!iog) {
-                    struct io_queue::config qcfg = disk_config.generate_config(dev, io_info.groups.size());
+                    struct io_queue::config qcfg = disk_config.generate_config(q, io_info.groups.size());
                     iog = std::make_shared<io_group>(std::move(qcfg), io_info.shards_in_group[group_idx]);
-                    seastar_logger.debug("allocate {} IO group with {} queues, dev {}", group_idx, io_info.shards_in_group[group_idx], dev);
+                    seastar_logger.debug("allocate {} IO group with {} queues, queue-id {}", group_idx, io_info.shards_in_group[group_idx], q);
                 }
                 group = iog;
             }
 
-            io_info.queues[shard] = std::make_unique<io_queue>(std::move(group), engine()._io_sink);
-            seastar_logger.debug("attached {} queue to {} IO group, dev {}", shard, group_idx, dev);
+            io_info.queues[shard] = seastar::make_shared<io_queue>(std::move(group), engine()._io_sink);
+            seastar_logger.debug("attached {} queue to {} IO group, queue-id {}", shard, group_idx, q);
         }
     };
 
-    auto assign_io_queues = [&ioq_topology] (shard_id shard) {
-        for (auto& [dev, io_info] : ioq_topology) {
+    auto assign_io_queues = [&ioq_topology, &disk_config] (shard_id shard) {
+        for (auto& [q, io_info] : ioq_topology) {
             auto queue = std::move(io_info.queues[shard]);
             SEASTAR_ASSERT(queue);
-            engine()._io_queues.emplace(dev, std::move(queue));
-
-            auto num_io_groups = io_info.groups.size();
-            if (engine()._num_io_groups == 0) {
-                engine()._num_io_groups = num_io_groups;
-            } else if (engine()._num_io_groups != num_io_groups) {
-                throw std::logic_error(format("Number of IO-groups mismatch, {} != {}", engine()._num_io_groups, num_io_groups));
+            for (const dev_t& dev : disk_config.queue_devices(q)) {
+                engine()._io_queues.emplace(dev, queue);
             }
         }
     };
