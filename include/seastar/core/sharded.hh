@@ -516,7 +516,6 @@ public:
 
     /// Checks whether the local instance has been initialized.
     bool local_is_initialized() const noexcept;
-
 private:
     template <typename... Args>
     shared_ptr<Service> create_local_service(Args&&... args) {
@@ -525,20 +524,18 @@ private:
         return s;
     }
 
+    /// Performs the same check as `local_is_initialized`, but throws an exception
+    /// if the local instance is not initialized.
+    void check_local() const;
+
     shared_ptr<Service> get_local_service() {
-        auto inst = _instances[this_shard_id()].service;
-        if (!inst) {
-            throw no_sharded_instance_exception(pretty_type_name(typeid(Service)));
-        }
-        return inst;
+        check_local();
+        return _instances[this_shard_id()].service;
     }
 
     shared_ptr<const Service> get_local_service() const {
-        auto inst = _instances[this_shard_id()].service;
-        if (!inst) {
-            throw no_sharded_instance_exception(pretty_type_name(typeid(Service)));
-        }
-        return inst;
+        check_local();
+        return _instances[this_shard_id()].service;
     }
 };
 
@@ -914,6 +911,13 @@ template <typename Service>
 bool sharded<Service>::local_is_initialized() const noexcept {
     return _instances.size() > this_shard_id() &&
            _instances[this_shard_id()].service;
+}
+
+template <typename Service>
+void sharded<Service>::check_local() const {
+    if (!local_is_initialized()) {
+        throw no_sharded_instance_exception(pretty_type_name(typeid(Service)));
+    }
 }
 
 SEASTAR_MODULE_EXPORT_BEGIN
