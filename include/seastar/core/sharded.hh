@@ -526,6 +526,7 @@ private:
     }
 
     shared_ptr<Service> get_local_service() {
+	SEASTAR_ASSERT(local_is_initialized());
         auto inst = _instances[this_shard_id()].service;
         if (!inst) {
             throw no_sharded_instance_exception(pretty_type_name(typeid(Service)));
@@ -534,6 +535,7 @@ private:
     }
 
     shared_ptr<const Service> get_local_service() const {
+	SEASTAR_ASSERT(local_is_initialized());
         auto inst = _instances[this_shard_id()].service;
         if (!inst) {
             throw no_sharded_instance_exception(pretty_type_name(typeid(Service)));
