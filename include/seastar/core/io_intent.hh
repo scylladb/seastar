@@ -43,12 +43,12 @@ namespace seastar {
 SEASTAR_MODULE_EXPORT
 class io_intent {
     struct intents_for_queue {
-        dev_t dev;
-        io_priority_class_id qid;
+        unsigned qid;
+        io_priority_class_id cid;
         internal::cancellable_queue cq;
 
-        intents_for_queue(dev_t dev_, io_priority_class_id qid_) noexcept
-            : dev(dev_), qid(qid_), cq() {}
+        intents_for_queue(unsigned qid_, io_priority_class_id cid_) noexcept
+            : qid(qid_), cid(cid_), cq() {}
 
         intents_for_queue(intents_for_queue&&) noexcept = default;
         intents_for_queue& operator=(intents_for_queue&&) noexcept = default;
@@ -96,14 +96,14 @@ public:
     }
 
     /// @private
-    internal::cancellable_queue& find_or_create_cancellable_queue(dev_t dev, io_priority_class_id qid) {
+    internal::cancellable_queue& find_or_create_cancellable_queue(unsigned qid, io_priority_class_id cid) {
         for (auto&& i : _intents) {
-            if (i.dev == dev && i.qid == qid) {
+            if (i.qid == qid && i.cid == cid) {
                 return i.cq;
             }
         }
 
-        _intents.emplace_back(dev, qid);
+        _intents.emplace_back(qid, cid);
         return _intents.back().cq;
     }
 };

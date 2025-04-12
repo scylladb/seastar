@@ -23,6 +23,7 @@
 
 #include <seastar/util/spinlock.hh>
 #include <seastar/util/modules.hh>
+#include <seastar/core/shared_ptr.hh>
 #ifndef SEASTAR_MODULE
 #include <cassert>
 #include <cstdlib>
@@ -96,7 +97,7 @@ struct configuration {
     size_t cpus;
     cpuset cpu_set;
     bool assign_orphan_cpus = false;
-    std::vector<dev_t> devices;
+    std::vector<unsigned> io_queues;
     unsigned num_io_groups;
     hwloc::internal::topology_holder topology;
 };
@@ -108,7 +109,7 @@ struct memory {
 };
 
 struct io_queue_topology {
-    std::vector<std::unique_ptr<io_queue>> queues;
+    std::vector<seastar::shared_ptr<io_queue>> queues;
     std::vector<unsigned> shard_to_group;
     std::vector<unsigned> shards_in_group;
     std::vector<std::shared_ptr<io_group>> groups;
@@ -128,7 +129,7 @@ struct cpu {
 
 struct resources {
     std::vector<cpu> cpus;
-    std::unordered_map<dev_t, io_queue_topology> ioq_topology;
+    std::unordered_map<unsigned, io_queue_topology> ioq_topology;
     std::unordered_map<unsigned /* numa node id */, cpuset> numa_node_id_to_cpuset;
 };
 

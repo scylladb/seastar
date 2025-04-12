@@ -230,11 +230,11 @@ public:
         , _fq_capacity(cap)
         , _iovs(std::move(iovs))
     {
-        io_log.trace("dev {} : req {} queue  len {} capacity {}", _ioq.dev_id(), fmt::ptr(this), _dnl.length(), _fq_capacity);
+        io_log.trace("dev {} : req {} queue  len {} capacity {}", _ioq.id(), fmt::ptr(this), _dnl.length(), _fq_capacity);
     }
 
     virtual void set_exception(std::exception_ptr eptr) noexcept override {
-        io_log.trace("dev {} : req {} error", _ioq.dev_id(), fmt::ptr(this));
+        io_log.trace("dev {} : req {} error", _ioq.id(), fmt::ptr(this));
         _pclass.on_error();
         _ioq.complete_request(*this, std::chrono::duration<double>(0.0));
         _pr.set_exception(eptr);
@@ -242,7 +242,7 @@ public:
     }
 
     virtual void complete(size_t res) noexcept override {
-        io_log.trace("dev {} : req {} complete", _ioq.dev_id(), fmt::ptr(this));
+        io_log.trace("dev {} : req {} complete", _ioq.id(), fmt::ptr(this));
         auto now = io_queue::clock_type::now();
         auto delay = std::chrono::duration_cast<std::chrono::duration<double>>(now - _ts);
         _pclass.on_complete(delay);
@@ -258,7 +258,7 @@ public:
     }
 
     void dispatch() noexcept {
-        io_log.trace("dev {} : req {} submit", _ioq.dev_id(), fmt::ptr(this));
+        io_log.trace("dev {} : req {} submit", _ioq.id(), fmt::ptr(this));
         auto now = io_queue::clock_type::now();
         _pclass.on_dispatch(_dnl, std::chrono::duration_cast<std::chrono::duration<double>>(now - _ts));
         _ts = now;
@@ -568,6 +568,7 @@ fair_queue::config io_queue::make_fair_queue_config(const config& iocfg, sstring
 io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     : _priority_classes()
     , _group(std::move(group))
+    , _id(_group->_config.id)
     , _sink(sink)
     , _averaging_decay_timer([this] {
         update_flow_ratio();
@@ -600,7 +601,7 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
 
 fair_group::config io_group::make_fair_group_config(const io_queue::config& qcfg) noexcept {
     fair_group::config cfg;
-    cfg.label = fmt::format("io-queue-{}", qcfg.devid);
+    cfg.label = fmt::format("io-queue-{}", qcfg.id);
     double min_weight = std::min(io_queue::read_request_base_count, qcfg.disk_req_write_to_read_multiplier);
     double min_size = std::min(io_queue::read_request_base_count, qcfg.disk_blocks_write_to_read_multiplier);
     cfg.min_tokens = min_weight / qcfg.req_count_rate + min_size / qcfg.blocks_count_rate;
@@ -627,7 +628,7 @@ io_group::io_group(io_queue::config io_cfg, unsigned nr_queues)
 
     auto goal = io_latency_goal();
     auto lvl = goal > 1.1 * _config.rate_limit_duration ? log_level::warn : log_level::debug;
-    seastar_logger.log(lvl, "IO queue uses {:.2f}ms latency goal for device {}", goal.count() * 1000, _config.devid);
+    seastar_logger.log(lvl, "IO queue uses {:.2f}ms latency goal for {}", goal.count() * 1000, _config.mountpoint);
 
     /*
      * The maximum request size shouldn't result in the capacity that would
@@ -864,7 +865,7 @@ future<size_t> io_queue::queue_one_request(internal::priority_class pc, io_direc
         auto queued_req = std::make_unique<queued_io_request>(std::move(req), *this, cap, pclass, std::move(dnl), std::move(iovs));
         auto fut = queued_req->get_future();
         if (intent != nullptr) {
-            auto& cq = intent->find_or_create_cancellable_queue(dev_id(), pc.id());
+            auto& cq = intent->find_or_create_cancellable_queue(_id, pc.id());
             queued_req->set_intent(cq);
         }
 

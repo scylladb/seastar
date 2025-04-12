@@ -116,7 +116,8 @@ file_handle::to_file() && {
 
 posix_file_impl::posix_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id, bool nowait_works)
         : _nowait_works(nowait_works)
-        , _io_queue(engine().get_io_queue(device_id))
+        , _device_id(device_id)
+        , _io_queue(engine().get_io_queue(_device_id))
         , _open_flags(f)
         , _fd(fd)
 {
@@ -165,7 +166,7 @@ posix_file_impl::dup() {
     if (!_refcount) {
         _refcount = new std::atomic<unsigned>(1u);
     }
-    auto ret = std::make_unique<posix_file_handle_impl>(_fd, _open_flags, _refcount, _io_queue.dev_id(),
+    auto ret = std::make_unique<posix_file_handle_impl>(_fd, _open_flags, _refcount, _device_id,
             _memory_dma_alignment, _disk_read_dma_alignment, _disk_write_dma_alignment, _disk_overwrite_dma_alignment,
             _nowait_works);
     _refcount->fetch_add(1, std::memory_order_relaxed);
@@ -180,7 +181,8 @@ posix_file_impl::posix_file_impl(int fd, open_flags f, std::atomic<unsigned>* re
         bool nowait_works)
         : _refcount(refcount)
         , _nowait_works(nowait_works)
-        , _io_queue(engine().get_io_queue(device_id))
+        , _device_id(device_id)
+        , _io_queue(engine().get_io_queue(_device_id))
         , _open_flags(f)
         , _fd(fd) {
     _memory_dma_alignment = memory_dma_alignment;

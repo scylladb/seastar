@@ -58,9 +58,11 @@ int main(int ac, char** av) {
                             auto& ioq = engine().get_io_queue(st.st_dev);
                             auto& cfg = ioq.get_config();
 
+                            out << YAML::Key << "device" << YAML::Value << st.st_dev;
                             out << YAML::Key << "io_latency_goal_ms" << YAML::Value <<
                                     std::chrono::duration_cast<std::chrono::duration<double, std::milli>>(cfg.rate_limit_duration).count();
                             out << YAML::Key << "io_queue" << YAML::BeginMap;
+                            out << YAML::Key << "id" << YAML::Value << ioq.id();
                             out << YAML::Key << "req_count_rate" << YAML::Value << cfg.req_count_rate;
                             out << YAML::Key << "blocks_count_rate" << YAML::Value << cfg.blocks_count_rate;
                             out << YAML::Key << "disk_req_write_to_read_multiplier" << YAML::Value << cfg.disk_req_write_to_read_multiplier;

@@ -230,7 +230,7 @@ private:
     static constexpr unsigned max_aio = max_aio_per_queue * max_queues;
 
     // Each mountpouint is controlled by its own io_queue, but ...
-    std::unordered_map<dev_t, std::unique_ptr<io_queue>> _io_queues;
+    std::unordered_map<dev_t, seastar::shared_ptr<io_queue>> _io_queues;
     // ... when dispatched all requests get into this single sink
     internal::io_sink _io_sink;
     unsigned _num_io_groups = 0;
