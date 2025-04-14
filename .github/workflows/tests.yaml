@@ -50,6 +50,9 @@ jobs:
       enables: --enable-cxx-modules
       enable-ccache: false
       crypto_provider: GnuTLS
+    # disable modules build as we aren't using module and it is quite
+    # broken at the moment
+    if: false
   build_with_cxx_modules_openssl:
     name: "Test with C++20 modules enabled (OpenSSL)"
     uses: ./.github/workflows/test.yaml
@@ -62,3 +65,6 @@ jobs:
       enables: --enable-cxx-modules
       enable-ccache: false
       crypto_provider: OpenSSL
+    # disable modules build as we aren't using module and it is quite
+    # broken at the moment
+    if: false
