@@ -10,12 +10,15 @@
 
 #ifdef SEASTAR_MODULE
 module;
+#endif
+
+#include <string_view>
+
+#ifdef SEASTAR_MODULE
 module seastar;
 #else
 #include <seastar/http/mime_types.hh>
 #endif
-
-#include <string_view>
 
 namespace seastar {
 
