@@ -352,6 +352,14 @@ static hwloc_obj_t get_numa_node_for_pu(hwloc_topology_t topology, hwloc_obj_t p
     return nullptr;
 }
 
+static std::pair<unsigned, hwloc_obj_t> get_cpu_id_and_numa_node_for_set(hwloc_topology_t topology, hwloc_cpuset_t cs) {
+    auto cpu_id = hwloc_bitmap_first(cs);
+    SEASTAR_ASSERT(cpu_id != -1);
+    auto pu = hwloc_get_pu_obj_by_os_index(topology, cpu_id);
+    auto node = get_numa_node_for_pu(topology, pu);
+    return std::make_pair(cpu_id, node);
+}
+
 static hwloc_obj_t hwloc_get_ancestor(hwloc_obj_type_t type, hwloc_topology_t topology, unsigned cpu_id) {
     auto cur = hwloc_get_pu_obj_by_os_index(topology, cpu_id);
 
@@ -611,28 +619,41 @@ resources allocate(configuration& c) {
     std::vector<std::pair<cpu, size_t>> remains;
 
     auto cpu_sets = distribute_objects(topology, procs);
-    auto num_nodes = hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_NUMANODE);
 
     for (auto&& cs : cpu_sets()) {
-        auto cpu_id = hwloc_bitmap_first(cs);
-        SEASTAR_ASSERT(cpu_id != -1);
-        auto pu = hwloc_get_pu_obj_by_os_index(topology, cpu_id);
-        auto node = get_numa_node_for_pu(topology, pu);
-        if (node == nullptr) {
+        auto [cpu_id, node] = get_cpu_id_and_numa_node_for_set(topology, cs);
+        if (node == nullptr || !get_memory_from_hwloc_obj(node)) {
             orphan_pus.push_back(cpu_id);
         } else {
-            if (!get_memory_from_hwloc_obj(node)) {
-                // If hwloc fails to detect the hardware topology, it falls back to treating
-                // the system as a single-node configuration. While this code supports
-                // multi-node setups, the fallback behavior is safe and will function
-                // correctly in this case.
-                SEASTAR_ASSERT(num_nodes == 1);
-                auto local_memory = get_machine_memory_from_sysconf();
-                set_memory_to_hwloc_obj(node, local_memory);
-                seastar_logger.warn("hwloc failed to detect NUMA node memory size, using memory size fetched from sysfs");
-            }
             cpu_to_node[cpu_id] = node;
             seastar_logger.debug("Assign CPU{} to NUMA{}", cpu_id, node->os_index);
+        }
+    }
+
+    if (cpu_to_node.size() == 0) {
+        auto num_nodes = hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_NUMANODE);
+        if (num_nodes == 1) {
+            // If hwloc fails to describe NUMA layout, but there's one node, assume
+            // as if this node memory size equals one from sysconf
+            auto local_memory = get_machine_memory_from_sysconf();
+            seastar_logger.warn("hwloc failed to detect NUMA node memory size, using memory size fetched from sysfs ({} bytes)", local_memory);
+            orphan_pus.clear();
+
+            for (auto&& cs : cpu_sets()) {
+                auto [cpu_id, node] = get_cpu_id_and_numa_node_for_set(topology, cs);
+                if (node == nullptr) {
+                    orphan_pus.push_back(cpu_id);
+                } else {
+                    set_memory_to_hwloc_obj(node, local_memory);
+                    cpu_to_node[cpu_id] = node;
+                    seastar_logger.debug("Assign CPU{} to NUMA{}", cpu_id, node->os_index);
+                }
+            }
+        }
+
+        if (cpu_to_node.size() == 0) {
+            seastar_logger.error("hwloc failed to describe NUMA nodes layout, aborting");
+            throw std::runtime_error("failed to describe NUMA layout");
         }
     }
 
