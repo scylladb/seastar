@@ -352,6 +352,14 @@ static hwloc_obj_t get_numa_node_for_pu(hwloc_topology_t topology, hwloc_obj_t p
     return nullptr;
 }
 
+static std::pair<unsigned, hwloc_obj_t> get_cpu_id_and_numa_node_for_set(hwloc_topology_t topology, hwloc_cpuset_t cs) {
+    auto cpu_id = hwloc_bitmap_first(cs);
+    SEASTAR_ASSERT(cpu_id != -1);
+    auto pu = hwloc_get_pu_obj_by_os_index(topology, cpu_id);
+    auto node = get_numa_node_for_pu(topology, pu);
+    return std::make_pair(cpu_id, node);
+}
+
 static hwloc_obj_t hwloc_get_ancestor(hwloc_obj_type_t type, hwloc_topology_t topology, unsigned cpu_id) {
     auto cur = hwloc_get_pu_obj_by_os_index(topology, cpu_id);
 
@@ -614,10 +622,7 @@ resources allocate(configuration& c) {
     auto num_nodes = hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_NUMANODE);
 
     for (auto&& cs : cpu_sets()) {
-        auto cpu_id = hwloc_bitmap_first(cs);
-        SEASTAR_ASSERT(cpu_id != -1);
-        auto pu = hwloc_get_pu_obj_by_os_index(topology, cpu_id);
-        auto node = get_numa_node_for_pu(topology, pu);
+        auto [cpu_id, node] = get_cpu_id_and_numa_node_for_set(topology, cs);
         if (node == nullptr) {
             orphan_pus.push_back(cpu_id);
         } else {
