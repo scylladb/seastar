@@ -55,7 +55,7 @@ disks:
     ...
 ```
 
-An example when this configuration is applicable can be an LLVM set of volumes
+An example when this configuration is applicable can be an LVM set of volumes
 from one disk each being mounted at its own path. In that case, different mount
 points would have different (virtual) block devices, yet, they will share the
 same physical disk and thus need to run over one shared IO queue.
