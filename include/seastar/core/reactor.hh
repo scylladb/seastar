@@ -216,7 +216,7 @@ public:
     alien::instance& alien() { return _alien; }
 
 private:
-    std::shared_ptr<smp> _smp;
+    std::shared_ptr<seastar::smp> _smp;
     alien::instance& _alien;
     reactor_config _cfg;
     file_desc _notify_eventfd;
@@ -230,7 +230,7 @@ private:
     static constexpr unsigned max_aio = max_aio_per_queue * max_queues;
 
     // Each mountpouint is controlled by its own io_queue, but ...
-    std::unordered_map<dev_t, std::unique_ptr<io_queue>> _io_queues;
+    std::unordered_map<dev_t, seastar::shared_ptr<io_queue>> _io_queues;
     // ... when dispatched all requests get into this single sink
     internal::io_sink _io_sink;
     unsigned _num_io_groups = 0;
@@ -445,7 +445,7 @@ private:
     static future<> drain();
 
 public:
-    explicit reactor(std::shared_ptr<smp> smp, alien::instance& alien, unsigned id, reactor_backend_selector rbs, reactor_config cfg);
+    explicit reactor(std::shared_ptr<seastar::smp> smp, alien::instance& alien, unsigned id, reactor_backend_selector rbs, reactor_config cfg);
     reactor(const reactor&) = delete;
     ~reactor();
     void operator=(const reactor&) = delete;
@@ -603,6 +603,9 @@ public:
     [[deprecated("Use this_shard_id")]]
     shard_id cpu_id() const;
 
+    /// \returns Returns the `smp` instance which owns this reactor.
+    const seastar::smp& smp() const noexcept;
+
     void try_sleep();
 
     steady_clock_type::duration total_idle_time();
@@ -660,7 +663,7 @@ private:
     friend class scheduling_group;
     friend void internal::add_to_flush_poller(output_stream<char>& os) noexcept;
     friend void seastar::internal::increase_thrown_exceptions_counter() noexcept;
-    friend void report_failed_future(const std::exception_ptr& eptr) noexcept;
+    friend void internal::report_failed_future(const std::exception_ptr& eptr) noexcept;
     metrics::metric_groups _metric_groups;
     friend future<scheduling_group> create_scheduling_group(sstring name, sstring shortname, float shares) noexcept;
     friend future<> seastar::destroy_scheduling_group(scheduling_group) noexcept;
@@ -703,7 +706,6 @@ public:
 };
 
 extern __thread reactor* local_engine;
-extern __thread size_t task_quota;
 
 SEASTAR_MODULE_EXPORT
 inline reactor& engine() {

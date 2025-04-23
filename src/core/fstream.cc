@@ -377,7 +377,9 @@ public:
     file_data_sink_impl(file f, file_output_stream_options options)
             : _file(std::move(f)), _options(options) {
         _options.buffer_size = select_buffer_size<unsigned>(_options.buffer_size, _file.disk_write_max_length());
-        _write_behind_sem.ensure_space_for_waiters(1); // So that wait() doesn't throw
+	if (_options.write_behind) {
+            _write_behind_sem.ensure_space_for_waiters(1); // So that wait() doesn't throw
+	}
     }
     future<> put(net::packet data) override { abort(); }
     virtual temporary_buffer<char> allocate_buffer(size_t size) override {

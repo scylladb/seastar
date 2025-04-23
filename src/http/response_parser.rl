@@ -132,14 +132,19 @@ public:
     sstring _field_name;
     sstring _value;
     state _state;
+    sstring _error_message;
+
 public:
     void init() {
         init_base();
         _rsp.reset(new http::reply());
         _state = state::eof;
+        _error_message = {};
         %% write init;
     }
     char* parse(char* p, char* pe, char* eof) {
+        // Save the start pointer to compute offsets for error context.
+        char* start_ptr = p;
         sstring_builder::guard g(_builder, p, pe);
         auto str = [this, &g, &p] { g.mark_end(p); return get_str(); };
         bool done = false;
@@ -157,16 +162,23 @@ public:
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif
-        if (!done) {
-            if (p == eof) {
-                _state = state::eof;
-            } else if (p != pe) {
-                _state = state::error;
-            } else {
-                p = nullptr;
-            }
-        } else {
+        if (done) {
             _state = state::done;
+        } else if (p == eof) {
+            _state = state::eof;
+            _error_message = "Incomplete HTTP response header: reached end-of-file before parsing completed.";
+        } else if (p != pe) {
+            _state = state::error;
+            // Get the error offset and extract a snippet from the current pointer.
+            size_t offset = static_cast<size_t>(p - start_ptr);
+            size_t available = static_cast<size_t>(pe - p);
+            size_t context_len = std::min(available, 32ul);
+            sstring encountered(p, context_len);
+            _error_message = sstring("Parsing error at offset ") + std::to_string(offset) + ": encountered \"" + encountered +
+                                         "\". Expected valid HTTP response header format (e.g., a complete start line with HTTP version, three-digit status code, header "
+                                         "fields, and a terminating CRLF).";
+        } else {
+            p = nullptr;
         }
         return p;
     }
@@ -178,6 +190,9 @@ public:
     }
     bool failed() const {
         return _state == state::error;
+    }
+    const sstring& error_message() const {
+        return _error_message;
     }
 };
 SEASTAR_MODULE_EXPORT_END

@@ -298,7 +298,7 @@ type_id type_id_for(known_type);
 
 using description = seastar::metrics::description;
 
-static constexpr unsigned max_collectd_field_text_len = 63;
+constexpr inline unsigned max_collectd_field_text_len = 63;
 
 class type_instance_id {
     static thread_local unsigned _next_truncated_idx;

@@ -35,6 +35,7 @@ module;
 #include <vector>
 #include <boost/container/static_vector.hpp>
 #include <fmt/ostream.h>
+#include <fmt/ranges.h>
 
 #ifdef SEASTAR_MODULE
 module seastar;

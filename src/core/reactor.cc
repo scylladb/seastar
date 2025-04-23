@@ -33,6 +33,7 @@ module;
 #include <ranges>
 #include <regex>
 #include <thread>
+#include <unordered_set>
 
 #include <grp.h>
 #include <spawn.h>
@@ -189,8 +190,9 @@ static_assert(posix::shutdown_mask(SHUT_RD) == posix::rcv_shutdown);
 static_assert(posix::shutdown_mask(SHUT_WR) == posix::snd_shutdown);
 static_assert(posix::shutdown_mask(SHUT_RDWR) == (posix::snd_shutdown | posix::rcv_shutdown));
 
-struct mountpoint_params {
-    std::string mountpoint = "none";
+struct disk_params {
+    std::vector<std::string> mountpoints;
+    std::vector<dev_t> devices;
     uint64_t read_bytes_rate = std::numeric_limits<uint64_t>::max();
     uint64_t write_bytes_rate = std::numeric_limits<uint64_t>::max();
     uint64_t read_req_rate = std::numeric_limits<uint64_t>::max();
@@ -205,10 +207,14 @@ struct mountpoint_params {
 
 namespace YAML {
 template<>
-struct convert<seastar::mountpoint_params> {
-    static bool decode(const Node& node, seastar::mountpoint_params& mp) {
+struct convert<seastar::disk_params> {
+    static bool decode(const Node& node, seastar::disk_params& mp) {
         using namespace seastar;
-        mp.mountpoint = node["mountpoint"].as<std::string>().c_str();
+        if (node["mountpoints"]) {
+            mp.mountpoints = node["mountpoints"].as<std::vector<std::string>>();
+        } else {
+            mp.mountpoints.push_back(node["mountpoint"].as<std::string>());
+        }
         mp.read_bytes_rate = parse_memory_size(node["read_bandwidth"].as<std::string>());
         mp.read_req_rate = parse_memory_size(node["read_iops"].as<std::string>());
         mp.write_bytes_rate = parse_memory_size(node["write_bandwidth"].as<std::string>());
@@ -233,7 +239,6 @@ struct convert<seastar::mountpoint_params> {
 namespace seastar {
 
 seastar::logger seastar_logger("seastar");
-seastar::logger sched_logger("scheduler");
 
 shard_id reactor::cpu_id() const {
     SEASTAR_ASSERT(_id == this_shard_id());
@@ -599,22 +604,6 @@ std::atomic<manual_clock::rep> manual_clock::_now;
 // this value is mixed in with filesystem-provided values later.
 bool aio_nowait_supported = internal::kernel_uname().whitelisted({"4.13"});
 
-static bool sched_debug() {
-    return false;
-}
-
-template <typename... Args>
-void
-#if SEASTAR_LOGGER_COMPILE_TIME_FMT
-sched_print(fmt::format_string<Args...> fmt, Args&&... args) {
-#else
-sched_print(const char* fmt, Args&&... args) {
-#endif
-    if (sched_debug()) {
-        sched_logger.trace(fmt, std::forward<Args>(args)...);
-    }
-}
-
 static std::atomic<bool> abort_on_ebadf = { false };
 
 void set_abort_on_ebadf(bool do_abort) {
@@ -766,8 +755,11 @@ class backtrace_buffer {
     static constexpr unsigned _max_size = 8 << 10;
     unsigned _pos = 0;
     char _buf[_max_size];
+    bool _immediate;
 public:
-    backtrace_buffer() = default;
+    backtrace_buffer(bool immediate = false)
+        : _immediate{immediate} {}
+
     ~backtrace_buffer() {
         flush();
     }
@@ -779,13 +771,16 @@ public:
     backtrace_buffer &operator = (backtrace_buffer &&) = delete;
 
     void flush() noexcept {
-        if (_pos > 0) {
+        if (!_immediate && _pos > 0) {
             print_safe(_buf, _pos);
             _pos = 0;
         }
     }
 
     void reserve(size_t len) noexcept {
+        if (_immediate) {
+            return;
+        }
         SEASTAR_ASSERT(len < _max_size);
         if (_pos + len >= _max_size) {
             flush();
@@ -793,9 +788,13 @@ public:
     }
 
     void append(const char* str, size_t len) noexcept {
-        reserve(len);
-        memcpy(_buf + _pos, str, len);
-        _pos += len;
+        if (_immediate) {
+            print_safe(str, len);
+        } else {
+            reserve(len);
+            memcpy(_buf + _pos, str, len);
+            _pos += len;
+        }
     }
 
     void append(const char* str) noexcept { append(str, strlen(str)); }
@@ -825,7 +824,7 @@ public:
             append("0x");
             append_hex(f.addr);
             append("\n");
-        });
+        }, _immediate);
     }
 
     void append_backtrace_oneline() noexcept {
@@ -833,7 +832,7 @@ public:
             reserve(3 + sizeof(f.addr) * 2);
             append(" 0x");
             append_hex(f.addr);
-        });
+        }, _immediate);
     }
 };
 
@@ -856,8 +855,17 @@ static void print_with_backtrace(backtrace_buffer& buf, bool oneline) noexcept {
   }
 }
 
-static void print_with_backtrace(const char* cause, bool oneline = false) noexcept {
-    backtrace_buffer buf;
+// Print the current backtrace to stdout with the given cause.
+// If oneline is true, backtrace is printed entirely on one line,
+// otherwise it is printed with 1 line per frame.
+// If immediate is true, the backtrace is printed frame by frame
+// with a call to write(2), otherwise it is printed in a single
+// call to write(2). The former strategy is more robust in cases
+// where the backtrace itself may crash at some point down the stack
+// while the latter is more efficient and avoids splitting output
+// in the face of concurrent logging by other shards.
+static void print_with_backtrace(const char* cause, bool oneline = false, bool immediate = false) noexcept {
+    backtrace_buffer buf(immediate);
     buf.append(cause);
     print_with_backtrace(buf, oneline);
 }
@@ -1027,7 +1035,7 @@ struct reactor::task_queue::indirect_compare {
     }
 };
 
-reactor::reactor(std::shared_ptr<smp> smp, alien::instance& alien, unsigned id, reactor_backend_selector rbs, reactor_config cfg)
+reactor::reactor(std::shared_ptr<seastar::smp> smp, alien::instance& alien, unsigned id, reactor_backend_selector rbs, reactor_config cfg)
     : _smp(std::move(smp))
     , _alien(alien)
     , _cfg(std::move(cfg))
@@ -3083,7 +3091,6 @@ reactor::run_some_tasks() {
     if (!have_more_tasks()) {
         return;
     }
-    sched_print("run_some_tasks: start");
     reset_preemption_monitor();
     lowres_clock::update();
 
@@ -3094,14 +3101,11 @@ reactor::run_some_tasks() {
         auto t_run_started = t_run_completed;
         insert_activating_task_queues();
         task_queue* tq = pop_active_task_queue(t_run_started);
-        sched_print("running tq {} {}", (void*)tq, tq->_name);
         _last_vruntime = std::max(tq->_vruntime, _last_vruntime);
         run_tasks(*tq);
         t_run_completed = now();
         auto delta = t_run_completed - t_run_started;
         account_runtime(*tq, delta);
-        sched_print("run complete ({} {}); time consumed {} usec; final vruntime {} empty {}",
-                (void*)tq, tq->_name, delta / 1us, tq->_vruntime, tq->_q.empty());
         tq->_ts = t_run_completed;
         if (!tq->_q.empty()) {
             insert_active_task_queue(tq);
@@ -3119,7 +3123,6 @@ reactor::run_some_tasks() {
     _cpu_stall_detector->end_task_run(t_run_completed);
     STAP_PROBE(seastar, reactor_run_tasks_end);
     *internal::current_scheduling_group_ptr() = default_scheduling_group(); // Prevent inheritance from last group run
-    sched_print("run_some_tasks: end");
 }
 
 void
@@ -3127,16 +3130,12 @@ reactor::activate(task_queue& tq) {
     if (tq._active) {
         return;
     }
-    sched_print("activating {} {}", (void*)&tq, tq._name);
     // If activate() was called, the task queue is likely network-bound or I/O bound, not CPU-bound. As
     // such its vruntime will be low, and it will have a large advantage over other task queues. Limit
     // the advantage so it doesn't dominate scheduling for a long time, in case it _does_ become CPU
     // bound later.
     //
     // FIXME: different scheduling groups have different sensitivity to jitter, take advantage
-    if (_last_vruntime > tq._vruntime) {
-        sched_print("tq {} {} losing vruntime {} due to sleep", (void*)&tq, tq._name, _last_vruntime - tq._vruntime);
-    }
     tq._vruntime = std::max(_last_vruntime, tq._vruntime);
     auto now = reactor::now();
     tq._waittime += now - tq._ts;
@@ -3759,6 +3758,30 @@ static bool kernel_supports_aio_fsync() {
     return internal::kernel_uname().whitelisted({"4.18"});
 }
 
+static std::tuple<std::filesystem::path, uint64_t> wakeup_granularity() {
+    auto try_read = [] (auto path) -> uint64_t {
+        try {
+            return read_first_line_as<uint64_t>(path);
+        } catch (...) {
+            return 0;
+        }
+    };
+
+    auto legacy_path = "/proc/sys/kernel/sched_wakeup_granularity_ns";
+    if (auto val = try_read(legacy_path); val) {
+        return {legacy_path, val};
+    }
+
+    // This will in practice almost always fail because debug fs requires root
+    // perms to read so we are out of luck
+    auto debug_fs_path = "/sys/kernel/debug/sched/wakeup_granularity_ns";
+    if (auto val = try_read(legacy_path); val) {
+        return {debug_fs_path, val};
+    }
+
+    return {"", 0};
+}
+
 static program_options::selection_value<network_stack_factory> create_network_stacks_option(reactor_options& zis) {
     using value_type = program_options::selection_value<network_stack_factory>;
     value_type::candidates candidates;
@@ -3951,6 +3974,7 @@ void smp::allocate_reactor(unsigned id, reactor_backend_selector rbs, reactor_co
 void smp::cleanup() noexcept {
     smp::_threads = std::vector<posix_thread>();
     _thread_loops.clear();
+    _shard_to_numa_node_mapping = decltype(_shard_to_numa_node_mapping)();
     reactor_holder.reset();
     local_engine = nullptr;
 }
@@ -4042,18 +4066,20 @@ static void sigsegv_action(siginfo_t *info, ucontext_t* uc) noexcept {
     // with addr2line and other tools which expect an
     // address without any added offset (from ASLR or
     // because it's a relocated shared object).
-    print_safe("Segmentation fault: resolved ip: ");
+    print_safe("Segmentation fault: resolved ip: 0x");
     auto f = decorate(ip);
     print_zero_padded_hex_safe(f.addr);
     print_safe(" in ");
     print_safe(f.so->name.c_str());
-    print_safe("[");
+    print_safe("[0x");
     print_zero_padded_hex_safe(f.so->begin);
-    print_safe("+");
+    print_safe("+0x");
     print_zero_padded_hex_safe(f.so->end - f.so->begin);
     print_safe("]\n");
 
-    print_with_backtrace("Segmentation fault");
+    // print the backtrace in immediate mode, so if we crash
+    // during the backtrace we get as much output as possible
+    print_with_backtrace("Segmentation fault", false, true);
     reraise_signal(SIGSEGV);
 }
 
@@ -4085,7 +4111,7 @@ class disk_config_params {
 private:
     const unsigned _max_queues;
     unsigned _num_io_groups = 0;
-    std::unordered_map<dev_t, mountpoint_params> _mountpoints;
+    std::unordered_map<unsigned, disk_params> _disks;
     std::chrono::duration<double> _latency_goal;
     std::chrono::milliseconds _stall_threshold;
     double _flow_ratio_backpressure_threshold;
@@ -4149,21 +4175,28 @@ public:
                 if (sec_name != "disks") {
                     throw std::runtime_error(fmt::format("While parsing I/O options: section {} currently unsupported.", sec_name));
                 }
-                auto disks = section.second.as<std::vector<mountpoint_params>>();
+                auto disks = section.second.as<std::vector<disk_params>>();
+                unsigned queue_id_gen = 1;
+                std::unordered_set<dev_t> devices;
                 for (auto& d : disks) {
-                    struct ::stat buf;
-                    auto ret = stat(d.mountpoint.c_str(), &buf);
-                    if (ret < 0) {
-                        throw std::runtime_error(fmt::format("Couldn't stat {}", d.mountpoint));
+                    for (auto mp : d.mountpoints) {
+                        struct ::stat buf;
+                        auto ret = stat(mp.c_str(), &buf);
+                        if (ret < 0) {
+                            throw std::runtime_error(fmt::format("Couldn't stat {}", mp));
+                        }
+
+                        auto st_dev = S_ISBLK(buf.st_mode) ? buf.st_rdev : buf.st_dev;
+                        d.devices.push_back(st_dev);
+                        auto [ it, inserted ] = devices.insert(st_dev);
+                        if (!inserted) {
+                            throw std::runtime_error(fmt::format("Mountpoint {}, device {} already configured", mp, st_dev));
+                        }
                     }
 
-                    auto st_dev = S_ISBLK(buf.st_mode) ? buf.st_rdev : buf.st_dev;
-                    if (_mountpoints.count(st_dev)) {
-                        throw std::runtime_error(fmt::format("Mountpoint {} already configured", d.mountpoint));
-                    }
-                    if (_mountpoints.size() >= _max_queues) {
+                    if (_disks.size() >= _max_queues) {
                         throw std::runtime_error(fmt::format("Configured number of queues {} is larger than the maximum {}",
-                                                 _mountpoints.size(), _max_queues));
+                                                 _disks.size(), _max_queues));
                     }
 
                     d.read_bytes_rate *= d.rate_factor;
@@ -4176,23 +4209,25 @@ public:
                         throw std::runtime_error(fmt::format("R/W bytes and req rates must not be zero"));
                     }
 
-                    seastar_logger.debug("dev_id: {} mountpoint: {}", st_dev, d.mountpoint);
-                    _mountpoints.emplace(st_dev, d);
+                    unsigned q = queue_id_gen++;
+                    seastar_logger.debug("queue-id: {} mountpoints: {} devices: {}", q, d.mountpoints, d.devices);
+                    _disks.emplace(q, d);
                 }
             }
         }
 
         // Placeholder for unconfigured disks.
-        mountpoint_params d = {};
-        _mountpoints.emplace(0, d);
+        disk_params d = {};
+        d.devices.push_back(0);
+        _disks.emplace(0, d);
     }
 
-    struct io_queue::config generate_config(dev_t devid, unsigned nr_groups) const {
-        seastar_logger.debug("generate_config dev_id: {}", devid);
-        const mountpoint_params& p = _mountpoints.at(devid);
+    struct io_queue::config generate_config(unsigned q, unsigned nr_groups) const {
+        const disk_params& p = _disks.at(q);
+        seastar_logger.debug("generate_config queue-id: {}", q);
         struct io_queue::config cfg;
 
-        cfg.devid = devid;
+        cfg.id = q;
 
         if (p.read_bytes_rate != std::numeric_limits<uint64_t>::max()) {
             cfg.blocks_count_rate = (io_queue::read_request_base_count * (unsigned long)per_io_group(p.read_bytes_rate, nr_groups)) >> io_queue::block_size_shift;
@@ -4208,7 +4243,7 @@ public:
         if (p.write_saturation_length != std::numeric_limits<uint64_t>::max()) {
             cfg.disk_write_saturation_length = p.write_saturation_length;
         }
-        cfg.mountpoint = p.mountpoint;
+        cfg.mountpoint = fmt::to_string(fmt::join(p.mountpoints, ":"));
         cfg.duplex = p.duplex;
         cfg.rate_limit_duration = latency_goal();
         cfg.flow_ratio_backpressure_threshold = _flow_ratio_backpressure_threshold;
@@ -4222,8 +4257,12 @@ public:
         return cfg;
     }
 
-    auto device_ids() {
-        return boost::adaptors::keys(_mountpoints);
+    auto queue_ids() {
+        return boost::adaptors::keys(_disks);
+    }
+
+    const std::vector<dev_t>& queue_devices(unsigned q) const {
+        return _disks.at(q).devices;
     }
 };
 
@@ -4427,8 +4466,8 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
 
     disk_config_params disk_config(reactor::max_queues);
     disk_config.parse_config(smp_opts, reactor_opts);
-    for (auto& id : disk_config.device_ids()) {
-        rc.devices.push_back(id);
+    for (auto& id : disk_config.queue_ids()) {
+        rc.io_queues.push_back(id);
     }
     rc.num_io_groups = disk_config.num_io_groups();
 
@@ -4452,6 +4491,11 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
         // init memory at least minimally, otherwise a bunch of stuff breaks.
         // Previously, we got away wth this by accident due to #2137.
         memory::configure_minimal();
+    }
+
+    _shard_to_numa_node_mapping.resize(smp::count);
+    for (unsigned i = 0; i < smp::count; i++) {
+        _shard_to_numa_node_mapping.push_back(allocations[i].mem.size() > 0 ? allocations[i].mem[0].nodeid : 0);
     }
 
     if (reactor_opts.abort_on_seastar_bad_alloc) {
@@ -4491,6 +4535,22 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
         .bypass_fsync = reactor_opts.unsafe_bypass_fsync.get_value(),
         .no_poll_aio = !reactor_opts.poll_aio.get_value() || (reactor_opts.poll_aio.defaulted() && reactor_opts.overprovisioned),
     };
+
+    // Disable hot polling if sched wakeup granularity is too high
+    // dio thread will be starved otherwise
+    // see https://github.com/scylladb/seastar/issues/2696
+    if (!reactor_cfg.no_poll_aio || reactor_cfg.max_poll_time != 0us) {
+        auto [wakeup_file, granularity] = wakeup_granularity();
+        // 15M is chosen as it's what tuned sets. Though you probably already
+        // see an adverse effect earlier.
+        if (granularity >= 15000000) {
+            reactor_cfg.no_poll_aio = true;
+            reactor_cfg.max_poll_time = 0us;
+            seastar_logger.warn(
+                "Setting --poll-aio=0 and --idle-poll-time-us=0 due to too high sched_wakeup_granularity of {} in {}",
+                granularity, wakeup_file.string());
+        }
+    }
 
     aio_nowait_supported = reactor_opts.linux_aio_nowait.get_value();
     std::mutex mtx;
@@ -4535,7 +4595,14 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     //     also pre-resize()-d in advance)
 
     auto alloc_io_queues = [&ioq_topology, &disk_config] (shard_id shard) {
-        for (auto& [dev, io_info] : ioq_topology) {
+        for (auto& [q, io_info] : ioq_topology) {
+            auto num_io_groups = io_info.groups.size();
+            if (engine()._num_io_groups == 0) {
+                engine()._num_io_groups = num_io_groups;
+            } else if (engine()._num_io_groups != num_io_groups) {
+                throw std::logic_error(format("Number of IO-groups mismatch, {} != {}", engine()._num_io_groups, num_io_groups));
+            }
+
             auto group_idx = io_info.shard_to_group[shard];
             std::shared_ptr<io_group> group;
 
@@ -4543,29 +4610,24 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
                 std::lock_guard _(io_info.lock);
                 auto& iog = io_info.groups[group_idx];
                 if (!iog) {
-                    struct io_queue::config qcfg = disk_config.generate_config(dev, io_info.groups.size());
+                    struct io_queue::config qcfg = disk_config.generate_config(q, io_info.groups.size());
                     iog = std::make_shared<io_group>(std::move(qcfg), io_info.shards_in_group[group_idx]);
-                    seastar_logger.debug("allocate {} IO group with {} queues, dev {}", group_idx, io_info.shards_in_group[group_idx], dev);
+                    seastar_logger.debug("allocate {} IO group with {} queues, queue-id {}", group_idx, io_info.shards_in_group[group_idx], q);
                 }
                 group = iog;
             }
 
-            io_info.queues[shard] = std::make_unique<io_queue>(std::move(group), engine()._io_sink);
-            seastar_logger.debug("attached {} queue to {} IO group, dev {}", shard, group_idx, dev);
+            io_info.queues[shard] = seastar::make_shared<io_queue>(std::move(group), engine()._io_sink);
+            seastar_logger.debug("attached {} queue to {} IO group, queue-id {}", shard, group_idx, q);
         }
     };
 
-    auto assign_io_queues = [&ioq_topology] (shard_id shard) {
-        for (auto& [dev, io_info] : ioq_topology) {
+    auto assign_io_queues = [&ioq_topology, &disk_config] (shard_id shard) {
+        for (auto& [q, io_info] : ioq_topology) {
             auto queue = std::move(io_info.queues[shard]);
             SEASTAR_ASSERT(queue);
-            engine()._io_queues.emplace(dev, std::move(queue));
-
-            auto num_io_groups = io_info.groups.size();
-            if (engine()._num_io_groups == 0) {
-                engine()._num_io_groups = num_io_groups;
-            } else if (engine()._num_io_groups != num_io_groups) {
-                throw std::logic_error(format("Number of IO-groups mismatch, {} != {}", engine()._num_io_groups, num_io_groups));
+            for (const dev_t& dev : disk_config.queue_devices(q)) {
+                engine()._io_queues.emplace(dev, queue);
             }
         }
     };
@@ -5033,6 +5095,14 @@ reactor::destroy_scheduling_group(scheduling_group sg) noexcept {
         _task_queues[sg._id].reset();
     });
 
+}
+
+std::span<const unsigned> smp::shard_to_numa_node_mapping() const noexcept {
+    return _shard_to_numa_node_mapping;
+}
+
+const smp& reactor::smp() const noexcept {
+    return *_smp;
 }
 
 #ifdef SEASTAR_BUILD_SHARED_LIBS

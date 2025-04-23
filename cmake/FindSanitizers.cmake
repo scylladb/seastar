@@ -50,7 +50,6 @@ include(CMakePushCheckState)
 # the combination of the compiler options.
 cmake_push_check_state()
 string (REPLACE ";" " " CMAKE_REQUIRED_FLAGS "${Sanitizers_COMPILE_OPTIONS}")
-set(CMAKE_REQUIRED_FLAGS ${Sanitizers_COMPILE_OPTIONS})
 check_cxx_source_compiles("int main() {}"
   Sanitizers_SUPPORTED)
 if (Sanitizers_SUPPORTED)

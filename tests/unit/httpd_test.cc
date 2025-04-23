@@ -432,7 +432,7 @@ struct http_consumer {
     std::string _body;
     uint32_t _remain = 0;
     std::string _current;
-    char last = '\0';
+    std::optional<char> last;
     uint32_t _size = 0;
     bool _concat = true;
 
@@ -448,7 +448,7 @@ struct http_consumer {
 
     bool read(const temporary_buffer<char>& b) {
         for (auto c : b) {
-            if (last =='\r' && c == '\n') {
+            if (last && *last =='\r' && c == '\n') {
                 if (_current == "") {
                     if (status == status_type::READING_HEADERS || (status == status_type::CHUNK_BODY && _remain == 0)) {
                         if (status == status_type::READING_HEADERS && _headers.find("Content-Length") != _headers.end()) {
@@ -476,12 +476,12 @@ struct http_consumer {
                     }
                     _current = "";
                 }
-                last = '\0';
+                last = std::nullopt;
             } else {
-                if (last != '\0') {
+                if (last) {
                     if (status == status_type::CHUNK_BODY || status == status_type::READING_BODY_BY_SIZE) {
                         if (_concat) {
-                            _body = _body + last;
+                            _body = _body + *last;
                         }
                         _size++;
                         _remain--;
@@ -494,7 +494,7 @@ struct http_consumer {
                             break;
                         }
                     } else {
-                        _current = _current + last;
+                        _current = _current + *last;
                     }
 
                 }
@@ -1024,8 +1024,8 @@ SEASTAR_TEST_CASE(test_client_response_parse_error) {
             auto req = http::request::make("GET", "test", "/test");
             BOOST_REQUIRE_EXCEPTION(cln.make_request(std::move(req), [] (const http::reply& rep, input_stream<char>&& in) {
                 return make_exception_future<>(std::runtime_error("Shouldn't happen"));
-            }, http::reply::status_type::ok).get(), std::runtime_error, [] (auto& ex) {
-                return sstring(ex.what()).contains("Invalid http server response");
+            }, http::reply::status_type::ok).get(), httpd::response_parsing_exception, [] (auto& ex) {
+                return sstring(ex.what()).contains("Invalid http server response. Reason: Parsing error at offset 3: encountered \"TT\".");
             });
 
             cln.close().get();
@@ -1188,7 +1188,7 @@ SEASTAR_TEST_CASE(test_client_retry_request) {
                 input_stream<char> in = sk.input();
                 read_simple_http_request(in);
                 output_stream<char> out = sk.output();
-                out.write("HTT").get(); // write incomplete response
+                out.write("HTTTT").get(); // write incomplete response
                 out.flush().get();
                 out.close().get();
             });
@@ -1687,6 +1687,18 @@ SEASTAR_TEST_CASE(case_insensitive_header) {
     BOOST_REQUIRE_EQUAL(req->get_header("content-length"), "17");
     BOOST_REQUIRE_EQUAL(req->get_header("Content-Length"), "17");
     BOOST_REQUIRE_EQUAL(req->get_header("cOnTeNT-lEnGTh"), "17");
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(broken_reply) {
+    http_response_parser parser;
+    parser.init();
+    char r101[] = "Lorem ipsum dolor sit amet, consectetur adipiscing elit.";
+
+    parser.parse(r101, r101 + sizeof(r101), r101 + sizeof(r101));
+    BOOST_REQUIRE_EQUAL(parser.failed(), true);
+    BOOST_REQUIRE_EQUAL(parser.error_message().starts_with("Parsing error at offset 0: encountered \"Lorem ipsum dolor sit amet, cons\""), true);
+
     return make_ready_future<>();
 }
 

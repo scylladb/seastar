@@ -208,10 +208,6 @@ SEASTAR_MODULE_EXPORT_END
 /// \cond internal
 void engine_exit(std::exception_ptr eptr = {});
 
-void report_failed_future(const std::exception_ptr& ex) noexcept;
-
-void report_failed_future(const future_state_base& state) noexcept;
-
 /// \endcond
 
 /// \brief Exception type for broken promises
@@ -535,11 +531,16 @@ public:
     friend struct futurize;
 };
 
+namespace internal {
+void report_failed_future(const std::exception_ptr& ex) noexcept;
+void report_failed_future(const future_state_base& state) noexcept;
 void report_failed_future(future_state_base::any&& state) noexcept;
+} // internal namespace
+
 
 inline void future_state_base::any::check_failure() noexcept {
     if (failed()) {
-        report_failed_future(std::move(*this));
+        internal::report_failed_future(std::move(*this));
     }
 }
 
@@ -805,7 +806,7 @@ protected:
             // copy of ex and warn in the promise destructor.
             // Since there isn't any way for the user to clear
             // the exception, we issue the warning from here.
-            report_failed_future(val);
+            internal::report_failed_future(val);
         }
     }
 

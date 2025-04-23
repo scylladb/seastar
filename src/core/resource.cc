@@ -715,8 +715,8 @@ resources allocate(configuration& c) {
     }
 
     unsigned last_node_idx = 0;
-    for (auto devid : c.devices) {
-        ret.ioq_topology.emplace(devid, allocate_io_queues(topology, ret.cpus, cpu_to_node, c.num_io_groups, last_node_idx));
+    for (auto q : c.io_queues) {
+        ret.ioq_topology.emplace(q, allocate_io_queues(topology, ret.cpus, cpu_to_node, c.num_io_groups, last_node_idx));
     }
 
     ret.numa_node_id_to_cpuset = numa_node_id_to_cpuset(topology);

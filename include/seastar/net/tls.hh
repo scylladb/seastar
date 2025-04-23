@@ -315,6 +315,13 @@ namespace tls {
         future<> set_system_trust();
         void set_client_auth(client_auth);
         void set_priority_string(const sstring&);
+        /**
+         * Sets session resume mode to be applied to all created server credential sets
+         * Note: setting this will generate a session key that will be reused across all
+         * built server credentials, i.e. they will share resume key.
+         * If you wish to reuse a builder to create disparate server crendentials,
+         * simply call this method again to regenerate the key.
+         */
         void set_session_resume_mode(session_resume_mode);
 
         void apply_to(certificate_credentials&) const;
@@ -339,6 +346,7 @@ namespace tls {
         client_auth _client_auth = client_auth::NONE;
         session_resume_mode _session_resume_mode = session_resume_mode::NONE;
         sstring _priority;
+        std::vector<uint8_t> _session_resume_key;
     };
 
     using session_data = std::vector<uint8_t>;

@@ -12,8 +12,9 @@ template <typename... T> struct B {
     B(T...) {}
 };
 
-template <typename... T> struct C : public B<T> {
+template <typename... T> struct C : public B<T...> {
     using B<T...>::B;
+    C(B<T...>) {}
 };
 
 B(int) -> B<char>;
