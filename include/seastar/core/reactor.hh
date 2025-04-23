@@ -62,7 +62,6 @@
 #include "internal/pollable_fd.hh"
 
 #ifndef SEASTAR_MODULE
-#include <boost/container/static_vector.hpp>
 #include <atomic>
 #include <cassert>
 #include <chrono>
@@ -289,7 +288,7 @@ private:
         void register_stats();
     };
 
-    boost::container::static_vector<std::unique_ptr<task_queue>, max_scheduling_groups()> _task_queues;
+    std::array<std::unique_ptr<task_queue>, max_scheduling_groups()> _task_queues;
     internal::scheduling_group_specific_thread_local_data _scheduling_group_specific_data;
     shared_mutex _scheduling_group_keys_mutex;
     int64_t _last_vruntime = 0;
