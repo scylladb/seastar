@@ -1053,9 +1053,9 @@ reactor::reactor(std::shared_ptr<seastar::smp> smp, alien::instance& alien, unsi
      */
     _backend = rbs.create(*this);
     *internal::get_scheduling_group_specific_thread_local_data_ptr() = &_scheduling_group_specific_data;
-    _task_queues.push_back(std::make_unique<task_queue>(0, "main", "main", 1000));
-    _task_queues.push_back(std::make_unique<task_queue>(1, "atexit", "exit", 1000));
-    _at_destroy_tasks = _task_queues.back().get();
+    _task_queues[0] = std::make_unique<task_queue>(0, "main", "main", 1000);
+    _task_queues[1] = std::make_unique<task_queue>(1, "atexit", "exit", 1000);
+    _at_destroy_tasks = _task_queues[1].get();
     set_need_preempt_var(&_preemption_monitor);
     seastar::thread_impl::init();
     _backend->start_tick();
@@ -5040,7 +5040,6 @@ future<>
 reactor::init_scheduling_group(seastar::scheduling_group sg, sstring name, sstring shortname, float shares) {
     return with_shared(_scheduling_group_keys_mutex, [this, sg, name = std::move(name), shortname = std::move(shortname), shares] {
         get_sg_data(sg).queue_is_initialized = true;
-        _task_queues.resize(std::max<size_t>(_task_queues.size(), sg._id + 1));
         _task_queues[sg._id] = std::make_unique<task_queue>(sg._id, name, shortname, shares);
 
         return with_scheduling_group(sg, [this, sg] () {
@@ -5138,8 +5137,8 @@ scheduling_group::name() const noexcept {
 
 const sstring&
 scheduling_group::short_name() const noexcept {
-    if (!engine()._task_queues.empty()) {
-        auto& task_queue = engine()._task_queues[_id];
+    auto& task_queue = engine()._task_queues[_id];
+    if (task_queue) {
         return task_queue->_shortname;
     }
     // we might want to print logging messages before task_queues are ready.
