@@ -309,7 +309,6 @@ private:
     std::unique_ptr<network_stack> _network_stack;
     lowres_clock::time_point _lowres_next_timeout = lowres_clock::time_point::max();
     std::optional<pollable_fd> _aio_eventfd;
-    const bool _reuseport;
     circular_buffer<double> _loads;
     double _load = 0;
     // Next two fields are required to enforce the monotonicity of total_steal_time()
@@ -480,7 +479,9 @@ public:
 
     pollable_fd posix_listen(socket_address sa, listen_options opts = {});
 
-    bool posix_reuseport_available() const { return _reuseport; }
+    // FIXME: reuseport currently leads to heavy load imbalance.
+    // Until we fix that, just disable it unconditionally.
+    bool posix_reuseport_available() const { return false; }
 
     pollable_fd make_pollable_fd(socket_address sa, int proto);
 
