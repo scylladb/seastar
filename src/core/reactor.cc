@@ -1042,7 +1042,6 @@ reactor::reactor(std::shared_ptr<seastar::smp> smp, alien::instance& alien, unsi
     , _notify_eventfd(file_desc::eventfd(0, EFD_CLOEXEC))
     , _task_quota_timer(file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC))
     , _id(id)
-    , _cpu_started(0)
     , _cpu_stall_detector(internal::make_cpu_stall_detector())
     , _reuseport(posix_reuseport_detect())
     , _thread_pool(std::make_unique<thread_pool>(*this, seastar::format("syscall-{}", id))) {
@@ -3203,20 +3202,22 @@ int reactor::do_run() {
        _signals.handle_signal_once(SIGTERM, [this] { stop(); });
     }
 
-    // Start initialization in the background.
-    // Communicate when done using _start_promise.
-    (void)_cpu_started.wait(smp::count).then([this] {
-        (void)_network_stack->initialize().then([this] {
-            _start_promise.set_value();
+    if (_id == 0) {
+        // Start initialization in the background.
+        // Wait for network stack to appear on all cpus.
+        // Communicate when done using _start_promise
+        (void)smp::invoke_on_all([] {
+            return engine()._network_stack_ready->then([] (std::unique_ptr<network_stack> stack) {
+                engine()._network_stack = std::move(stack);
+            });
+        }).then([] {
+            return smp::invoke_on_all([] {
+                return engine()._network_stack->initialize().then([] {
+                    engine()._start_promise.set_value();
+                });
+            });
         });
-    });
-    // Wait for network stack in the background and then signal all cpus.
-    (void)_network_stack_ready->then([this] (std::unique_ptr<network_stack> stack) {
-        _network_stack = std::move(stack);
-        return smp::invoke_on_all([] {
-            engine()._cpu_started.signal();
-        });
-    });
+    }
 
     poller syscall_poller(std::make_unique<syscall_pollfn>(*this));
 
