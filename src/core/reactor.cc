@@ -1043,7 +1043,6 @@ reactor::reactor(std::shared_ptr<seastar::smp> smp, alien::instance& alien, unsi
     , _task_quota_timer(file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC))
     , _id(id)
     , _cpu_stall_detector(internal::make_cpu_stall_detector())
-    , _reuseport(posix_reuseport_detect())
     , _thread_pool(std::make_unique<thread_pool>(*this, seastar::format("syscall-{}", id))) {
     /*
      * The _backend assignment is here, not on the initialization list as
@@ -1559,9 +1558,6 @@ reactor::posix_listen(socket_address sa, listen_options opts) {
         fd.setsockopt(SOL_SOCKET, SO_RCVBUF, *opts.so_rcvbuf);
     }
 
-    if (_reuseport && !sa.is_af_unix())
-        fd.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1);
-
     try {
         fd.bind(sa.u.sa, sa.length());
 
@@ -1582,19 +1578,6 @@ reactor::posix_listen(socket_address sa, listen_options opts) {
     }
 
     return pollable_fd(std::move(fd));
-}
-
-bool
-reactor::posix_reuseport_detect() {
-    return false; // FIXME: reuseport currently leads to heavy load imbalance. Until we fix that, just
-                  // disable it unconditionally.
-    try {
-        file_desc fd = file_desc::socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
-        fd.setsockopt(SOL_SOCKET, SO_REUSEPORT, 1);
-        return true;
-    } catch(std::system_error& e) {
-        return false;
-    }
 }
 
 void pollable_fd_state::maybe_no_more_recv() {
