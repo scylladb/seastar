@@ -236,7 +236,7 @@ private:
     unsigned _num_io_groups = 0;
 
     std::vector<noncopyable_function<future<> ()>> _exit_funcs;
-    unsigned _id = 0;
+    const unsigned _id = 0;
     bool _stopping = false;
     bool _stopped = false;
     bool _finished_running_tasks = false;
@@ -267,7 +267,7 @@ private:
         float _shares;
         int64_t _reciprocal_shares_times_2_power_32;
         bool _active = false;
-        uint8_t _id;
+        const uint8_t _id;
         sched_clock::time_point _ts; // to help calculating wait/starve-times
         sched_clock::duration _runtime = {};
         sched_clock::duration _waittime = {};
