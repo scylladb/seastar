@@ -55,7 +55,7 @@ public:
     };
 private:
     bool _aborted = false;
-    queue<temporary_buffer<char>> _q{1};
+    queue<temporary_buffer<char>> _q{128};
     loopback_error_injector* _error_injector;
     type _type;
     std::optional<promise<>> _shutdown;

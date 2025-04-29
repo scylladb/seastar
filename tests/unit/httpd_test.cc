@@ -1997,3 +1997,67 @@ SEASTAR_THREAD_TEST_CASE(test_http_with_broken_wire) {
 
     c.close().get();
 }
+
+SEASTAR_TEST_CASE(test_client_close_connection) {
+    return async([] {
+        loopback_connection_factory lcf(1);
+        auto cln = http::experimental::client(std::make_unique<loopback_http_factory>(lcf), 1, http::experimental::client::retry_requests::no);
+        auto make_test_request = [&cln]() {
+            size_t content_length = 0;
+            for (auto cycle : {1, 2}) {
+                auto req = http::request::make("GET", "test", "/test");
+                auto make_request = cln.make_request(
+                    std::move(req),
+                    [&content_length](const http::reply& resp, input_stream<char>&& in) {
+                        content_length = resp.content_length;
+                        return async([&content_length, in = std::move(in)]() mutable {
+                            // just read some bytes and abandon
+                            auto buff = in.read().get();
+                            BOOST_REQUIRE(buff.size() < content_length);
+                            in.close().get();
+                        });
+                    },
+                    http::reply::status_type::ok);
+
+                if (cycle == 1) {
+                    BOOST_REQUIRE_NO_THROW(make_request.get());
+                } else {
+                    BOOST_REQUIRE_THROW(make_request.get(), httpd::response_parsing_exception);
+                }
+            }
+        };
+
+        size_t response_size = 0;
+        auto make_response = [&response_size](accept_result ar) {
+            return async([response_size, sk = std::move(ar.connection)]() mutable {
+                input_stream<char> in = sk.input();
+                read_simple_http_request(in);
+                output_stream<char> out = sk.output();
+                try {
+                    sstring r200(format("HTTP/1.1 200 OK\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n", response_size));
+
+                    out.write(r200).get();
+                    out.flush().get();
+                    out.write(sstring(response_size / 2, 'a')).get();
+                    out.flush().get();
+
+                    out.write(sstring(response_size / 2, 'a')).get();
+                    out.flush().get();
+                    out.close().get();
+                } catch (...) {
+                    out.close().get();
+                }
+            });
+        };
+
+        for (auto size : {128 * 1024ul, 260 * 1024ul}) {
+            response_size = size;
+            auto ss = lcf.get_server_socket();
+            auto server = ss.accept().then(make_response);
+            auto client = async([&make_test_request] { make_test_request(); });
+
+            when_all(std::move(server), std::move(client)).discard_result().get();
+        }
+        cln.close().get();
+    });
+}
