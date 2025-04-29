@@ -186,7 +186,7 @@ input_stream<char> connection::in(reply& rep) {
         return input_stream<char>(data_source(std::make_unique<httpd::internal::chunked_source_impl>(_read_buf, rep.chunk_extensions, rep.trailing_headers)));
     }
 
-    return input_stream<char>(data_source(std::make_unique<httpd::internal::content_length_source_impl>(_read_buf, rep.content_length)));
+    return input_stream<char>(data_source(std::make_unique<httpd::internal::content_length_source_impl>(_read_buf, rep.content_length, &rep.consumed_content)));
 }
 
 void connection::shutdown() noexcept {
@@ -216,9 +216,10 @@ client::client(socket_address addr, shared_ptr<tls::certificate_credentials> cre
 {
 }
 
-client::client(std::unique_ptr<connection_factory> f, unsigned max_connections, retry_requests retry)
+client::client(std::unique_ptr<connection_factory> f, unsigned max_connections, retry_requests retry, size_t max_bytes_to_drain)
         : _new_connections(std::move(f))
         , _max_connections(max_connections)
+        , _max_bytes_to_drain(max_bytes_to_drain)
         , _retry(retry)
 {
 }
@@ -375,7 +376,7 @@ future<> client::make_request(request& req, reply_handler& handle, std::optional
 
 future<> client::do_make_request(connection& con, request& req, reply_handler& handle, abort_source* as, std::optional<reply::status_type> expected) {
     auto sub = as ? as->subscribe([&con] () noexcept { con.shutdown(); }) : std::nullopt;
-    return con.do_make_request(req).then([&con, &handle, expected] (connection::reply_ptr reply) mutable {
+    return con.do_make_request(req).then([this, &con, &handle, expected] (connection::reply_ptr reply) mutable {
         auto& rep = *reply;
         if (expected.has_value() && rep._status != expected.value()) {
             if (!http_log.is_enabled(log_level::debug)) {
@@ -390,7 +391,20 @@ future<> client::do_make_request(connection& con, request& req, reply_handler& h
             });
         }
 
-        return handle(rep, con.in(rep)).finally([reply = std::move(reply)] {});
+        return handle(rep, con.in(rep)).then([this, reply = std::move(reply), &con] {
+            if (reply->content_length > reply->consumed_content) {
+                auto bytes_left = reply->content_length - reply->consumed_content;
+                if (bytes_left <= _max_bytes_to_drain) {
+                    http_log.trace("content was not fully consumed, {} bytes were left behind, skipping and returning the connection to the pool", bytes_left);
+                    return con._read_buf.skip(bytes_left);
+                }
+                http_log.trace("content was not fully consumed, content length is {} but consumed only {}, will close the connection",
+                               reply->content_length,
+                               reply->consumed_content);
+                con._persistent = false;
+            }
+            return make_ready_future<>();
+        });
     }).handle_exception([&con] (auto ex) mutable {
         con._persistent = false;
         return make_exception_future<>(std::move(ex));
