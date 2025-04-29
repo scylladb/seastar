@@ -41,9 +41,14 @@ namespace internal {
 class content_length_source_impl : public data_source_impl {
     input_stream<char>& _inp;
     size_t _remaining_bytes = 0;
+    size_t* _consumed_bytes;
 public:
+    content_length_source_impl(input_stream<char>& inp, size_t length, size_t* consumed_bytes)
+        : _inp(inp), _remaining_bytes(length), _consumed_bytes(consumed_bytes) {
+    }
+
     content_length_source_impl(input_stream<char>& inp, size_t length)
-        : _inp(inp), _remaining_bytes(length) {
+        : content_length_source_impl(inp, length, nullptr) {
     }
 
     virtual future<temporary_buffer<char>> get() override {
@@ -52,6 +57,9 @@ public:
         }
         return _inp.read_up_to(_remaining_bytes).then([this] (temporary_buffer<char> tmp_buf) {
             _remaining_bytes -= tmp_buf.size();
+            if (_consumed_bytes) {
+                *_consumed_bytes += tmp_buf.size();
+            }
             return tmp_buf;
         });
     }
@@ -59,6 +67,9 @@ public:
     virtual future<temporary_buffer<char>> skip(uint64_t n) override {
         uint64_t skip_bytes = std::min(n, _remaining_bytes);
         _remaining_bytes -= skip_bytes;
+        if (_consumed_bytes) {
+            *_consumed_bytes += skip_bytes;
+        }
         return _inp.skip(skip_bytes).then([] {
             return temporary_buffer<char>();
         });
