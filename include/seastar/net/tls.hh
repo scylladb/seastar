@@ -537,6 +537,30 @@ namespace tls {
     */
     future<session_data> get_session_resume_data(connected_socket&);
 
+    /**
+     * Returns true if the hanshake has been completed.
+     *
+     * If the socket is not connected a system_error exception will be thrown.
+     * If the socket is not a TLS socket an exception will be thrown.
+    */
+    bool is_operational(connected_socket& socket);
+
+    /**
+     * Returns the cipher suite used in the connection.
+     *
+     * If the socket is not connected a system_error exception will be thrown.
+     * If the socket is not a TLS socket an exception will be thrown.
+    */
+    sstring get_cipher_suite(connected_socket& socket);
+
+    /**
+     * Returns the protocol version used in the connection.
+     *
+     * If the socket is not connected a system_error exception will be thrown.
+     * If the socket is not a TLS socket an exception will be thrown.
+    */
+    sstring get_protocol_version(connected_socket& socket);
+
     std::ostream& operator<<(std::ostream&, const subject_alt_name::value_type&);
     std::ostream& operator<<(std::ostream&, const subject_alt_name&);
 
