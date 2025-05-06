@@ -589,6 +589,8 @@ resources allocate(configuration& c) {
         throw std::runtime_error("number of processing units must be positive");
     }
 
+    size_t available_memory = 0;
+
     // Get the list of NUMA nodes available
     std::vector<hwloc_obj_t> nodes;
 
@@ -596,17 +598,22 @@ resources allocate(configuration& c) {
     auto num_nodes = hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_NUMANODE);
     auto nodes_depth = hwloc_get_type_or_above_depth(topology, HWLOC_OBJ_NUMANODE);
     while ((tmp = hwloc_get_next_obj_by_depth(topology, nodes_depth, tmp)) != NULL) {
+        available_memory += get_memory_from_hwloc_obj(tmp);
         nodes.push_back(tmp);
     }
+
+    if (!available_memory) {
 
     auto machine_depth = hwloc_get_type_depth(topology, HWLOC_OBJ_MACHINE);
     SEASTAR_ASSERT(hwloc_get_nbobjs_by_depth(topology, machine_depth) == 1);
     auto machine = hwloc_get_obj_by_depth(topology, machine_depth, 0);
-    auto available_memory = get_memory_from_hwloc_obj(machine);
+    available_memory = get_memory_from_hwloc_obj(machine);
     if (!available_memory) {
         available_memory = get_machine_memory_from_sysconf();
         set_memory_to_hwloc_obj(machine, available_memory);
         seastar_logger.warn("hwloc failed to detect machine-wide memory size, using memory size fetched from sysconf");
+    }
+
     }
 
     size_t mem = calculate_memory(c, std::min(available_memory,
