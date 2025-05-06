@@ -588,6 +588,17 @@ resources allocate(configuration& c) {
     if (procs == 0) {
         throw std::runtime_error("number of processing units must be positive");
     }
+
+    // Get the list of NUMA nodes available
+    std::vector<hwloc_obj_t> nodes;
+
+    hwloc_obj_t tmp = NULL;
+    auto num_nodes = hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_NUMANODE);
+    auto nodes_depth = hwloc_get_type_or_above_depth(topology, HWLOC_OBJ_NUMANODE);
+    while ((tmp = hwloc_get_next_obj_by_depth(topology, nodes_depth, tmp)) != NULL) {
+        nodes.push_back(tmp);
+    }
+
     auto machine_depth = hwloc_get_type_depth(topology, HWLOC_OBJ_MACHINE);
     SEASTAR_ASSERT(hwloc_get_nbobjs_by_depth(topology, machine_depth) == 1);
     auto machine = hwloc_get_obj_by_depth(topology, machine_depth, 0);
@@ -611,7 +622,6 @@ resources allocate(configuration& c) {
     std::vector<std::pair<cpu, size_t>> remains;
 
     auto cpu_sets = distribute_objects(topology, procs);
-    auto num_nodes = hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_NUMANODE);
 
     for (auto&& cs : cpu_sets()) {
         auto cpu_id = hwloc_bitmap_first(cs);
@@ -644,15 +654,6 @@ resources allocate(configuration& c) {
         }
 
         seastar_logger.warn("Assigning some CPUs to remote NUMA nodes");
-
-        // Get the list of NUMA nodes available
-        std::vector<hwloc_obj_t> nodes;
-
-        hwloc_obj_t tmp = NULL;
-        auto depth = hwloc_get_type_or_above_depth(topology, HWLOC_OBJ_NUMANODE);
-        while ((tmp = hwloc_get_next_obj_by_depth(topology, depth, tmp)) != NULL) {
-            nodes.push_back(tmp);
-        }
 
         // Group orphan CPUs by ... some sane enough feature
         std::unordered_map<hwloc_obj_t, std::vector<unsigned>> grouped;
@@ -697,7 +698,6 @@ resources allocate(configuration& c) {
     }
 
     // Divide the rest of the memory
-    auto depth = hwloc_get_type_or_above_depth(topology, HWLOC_OBJ_NUMANODE);
     for (auto&& [this_cpu, remain] : remains) {
         auto node = cpu_to_node.at(this_cpu.cpu_id);
         auto obj = node;
@@ -705,7 +705,7 @@ resources allocate(configuration& c) {
         while (remain) {
             remain -= alloc_from_node(this_cpu, obj, topo_used_mem, remain);
             do {
-                obj = hwloc_get_next_obj_by_depth(topology, depth, obj);
+                obj = hwloc_get_next_obj_by_depth(topology, nodes_depth, obj);
             } while (!obj);
             if (obj == node)
                 break;
