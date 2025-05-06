@@ -335,6 +335,7 @@ static size_t alloc_from_node(cpu& this_cpu, hwloc_obj_t node, std::unordered_ma
         auto node_id = hwloc_bitmap_first(node->nodeset);
         SEASTAR_ASSERT(node_id != -1);
         this_cpu.mem.push_back({taken, unsigned(node_id)});
+        seastar_logger.debug("CPU{} allocated {} bytes from NODE{}", this_cpu.cpu_id, taken, node_id);
     }
     return taken;
 }
