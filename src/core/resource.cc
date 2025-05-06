@@ -603,17 +603,15 @@ resources allocate(configuration& c) {
     }
 
     if (!available_memory) {
-
-    auto machine_depth = hwloc_get_type_depth(topology, HWLOC_OBJ_MACHINE);
-    SEASTAR_ASSERT(hwloc_get_nbobjs_by_depth(topology, machine_depth) == 1);
-    auto machine = hwloc_get_obj_by_depth(topology, machine_depth, 0);
-    available_memory = get_memory_from_hwloc_obj(machine);
-    if (!available_memory) {
-        available_memory = get_machine_memory_from_sysconf();
-        set_memory_to_hwloc_obj(machine, available_memory);
-        seastar_logger.warn("hwloc failed to detect machine-wide memory size, using memory size fetched from sysconf");
-    }
-
+        auto machine_depth = hwloc_get_type_depth(topology, HWLOC_OBJ_MACHINE);
+        SEASTAR_ASSERT(hwloc_get_nbobjs_by_depth(topology, machine_depth) == 1);
+        auto machine = hwloc_get_obj_by_depth(topology, machine_depth, 0);
+        available_memory = get_memory_from_hwloc_obj(machine);
+        if (!available_memory) {
+            available_memory = get_machine_memory_from_sysconf();
+            set_memory_to_hwloc_obj(machine, available_memory);
+            seastar_logger.warn("hwloc failed to detect machine-wide memory size, using memory size fetched from sysconf");
+        }
     }
 
     size_t mem = calculate_memory(c, std::min(available_memory,
