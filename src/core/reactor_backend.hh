@@ -63,7 +63,7 @@ class aio_storage_context {
     static constexpr unsigned max_aio = 1024;
 
     class iocb_pool {
-        alignas(cache_line_size) std::array<internal::linux_abi::iocb, max_aio> _iocb_pool;
+        alignas(cache_line_size) std::array<internal::linux_abi::iocb, max_aio> _all_iocbs;
         std::stack<internal::linux_abi::iocb*, boost::container::static_vector<internal::linux_abi::iocb*, max_aio>> _free_iocbs;
     public:
         iocb_pool();

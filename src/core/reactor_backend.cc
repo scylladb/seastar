@@ -113,7 +113,7 @@ void prepare_iocb(const io_request& req, io_completion* desc, iocb& iocb) {
 
 aio_storage_context::iocb_pool::iocb_pool() {
     for (unsigned i = 0; i != max_aio; ++i) {
-        _free_iocbs.push(&_iocb_pool[i]);
+        _free_iocbs.push(&_all_iocbs[i]);
     }
 }
 
