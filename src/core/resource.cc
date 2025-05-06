@@ -596,6 +596,7 @@ resources allocate(configuration& c) {
 
     hwloc_obj_t tmp = NULL;
     auto num_nodes = hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_NUMANODE);
+    SEASTAR_ASSERT(num_nodes > 0);
     auto nodes_depth = hwloc_get_type_or_above_depth(topology, HWLOC_OBJ_NUMANODE);
     while ((tmp = hwloc_get_next_obj_by_depth(topology, nodes_depth, tmp)) != NULL) {
         available_memory += get_memory_from_hwloc_obj(tmp);
@@ -611,6 +612,13 @@ resources allocate(configuration& c) {
             available_memory = get_machine_memory_from_sysconf();
             set_memory_to_hwloc_obj(machine, available_memory);
             seastar_logger.warn("hwloc failed to detect machine-wide memory size, using memory size fetched from sysconf");
+        }
+
+        auto one_node_mem = available_memory / num_nodes;
+        auto one_node_mem_remainder = available_memory % num_nodes;
+        for (auto& node : nodes) {
+            set_memory_to_hwloc_obj(node, one_node_mem + one_node_mem_remainder);
+            one_node_mem_remainder = 0;
         }
     }
 
@@ -636,16 +644,6 @@ resources allocate(configuration& c) {
         if (node == nullptr) {
             orphan_pus.push_back(cpu_id);
         } else {
-            if (!get_memory_from_hwloc_obj(node)) {
-                // If hwloc fails to detect the hardware topology, it falls back to treating
-                // the system as a single-node configuration. While this code supports
-                // multi-node setups, the fallback behavior is safe and will function
-                // correctly in this case.
-                SEASTAR_ASSERT(num_nodes == 1);
-                auto local_memory = get_machine_memory_from_sysconf();
-                set_memory_to_hwloc_obj(node, local_memory);
-                seastar_logger.warn("hwloc failed to detect NUMA node memory size, using memory size fetched from sysfs");
-            }
             cpu_to_node[cpu_id] = node;
             seastar_logger.debug("Assign CPU{} to NUMA{}", cpu_id, node->os_index);
         }
