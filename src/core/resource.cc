@@ -335,6 +335,7 @@ static size_t alloc_from_node(cpu& this_cpu, hwloc_obj_t node, std::unordered_ma
         auto node_id = hwloc_bitmap_first(node->nodeset);
         SEASTAR_ASSERT(node_id != -1);
         this_cpu.mem.push_back({taken, unsigned(node_id)});
+        seastar_logger.debug("CPU{} allocated {} bytes from NODE{}", this_cpu.cpu_id, taken, node_id);
     }
     return taken;
 }
@@ -588,14 +589,38 @@ resources allocate(configuration& c) {
     if (procs == 0) {
         throw std::runtime_error("number of processing units must be positive");
     }
-    auto machine_depth = hwloc_get_type_depth(topology, HWLOC_OBJ_MACHINE);
-    SEASTAR_ASSERT(hwloc_get_nbobjs_by_depth(topology, machine_depth) == 1);
-    auto machine = hwloc_get_obj_by_depth(topology, machine_depth, 0);
-    auto available_memory = get_memory_from_hwloc_obj(machine);
+
+    size_t available_memory = 0;
+
+    // Get the list of NUMA nodes available
+    std::vector<hwloc_obj_t> nodes;
+
+    hwloc_obj_t tmp = NULL;
+    auto num_nodes = hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_NUMANODE);
+    SEASTAR_ASSERT(num_nodes > 0);
+    auto nodes_depth = hwloc_get_type_or_above_depth(topology, HWLOC_OBJ_NUMANODE);
+    while ((tmp = hwloc_get_next_obj_by_depth(topology, nodes_depth, tmp)) != NULL) {
+        available_memory += get_memory_from_hwloc_obj(tmp);
+        nodes.push_back(tmp);
+    }
+
     if (!available_memory) {
-        available_memory = get_machine_memory_from_sysconf();
-        set_memory_to_hwloc_obj(machine, available_memory);
-        seastar_logger.warn("hwloc failed to detect machine-wide memory size, using memory size fetched from sysconf");
+        auto machine_depth = hwloc_get_type_depth(topology, HWLOC_OBJ_MACHINE);
+        SEASTAR_ASSERT(hwloc_get_nbobjs_by_depth(topology, machine_depth) == 1);
+        auto machine = hwloc_get_obj_by_depth(topology, machine_depth, 0);
+        available_memory = get_memory_from_hwloc_obj(machine);
+        if (!available_memory) {
+            available_memory = get_machine_memory_from_sysconf();
+            set_memory_to_hwloc_obj(machine, available_memory);
+            seastar_logger.warn("hwloc failed to detect machine-wide memory size, using memory size fetched from sysconf");
+        }
+
+        auto one_node_mem = available_memory / num_nodes;
+        auto one_node_mem_remainder = available_memory % num_nodes;
+        for (auto& node : nodes) {
+            set_memory_to_hwloc_obj(node, one_node_mem + one_node_mem_remainder);
+            one_node_mem_remainder = 0;
+        }
     }
 
     size_t mem = calculate_memory(c, std::min(available_memory,
@@ -611,7 +636,6 @@ resources allocate(configuration& c) {
     std::vector<std::pair<cpu, size_t>> remains;
 
     auto cpu_sets = distribute_objects(topology, procs);
-    auto num_nodes = hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_NUMANODE);
 
     for (auto&& cs : cpu_sets()) {
         auto cpu_id = hwloc_bitmap_first(cs);
@@ -621,16 +645,6 @@ resources allocate(configuration& c) {
         if (node == nullptr) {
             orphan_pus.push_back(cpu_id);
         } else {
-            if (!get_memory_from_hwloc_obj(node)) {
-                // If hwloc fails to detect the hardware topology, it falls back to treating
-                // the system as a single-node configuration. While this code supports
-                // multi-node setups, the fallback behavior is safe and will function
-                // correctly in this case.
-                SEASTAR_ASSERT(num_nodes == 1);
-                auto local_memory = get_machine_memory_from_sysconf();
-                set_memory_to_hwloc_obj(node, local_memory);
-                seastar_logger.warn("hwloc failed to detect NUMA node memory size, using memory size fetched from sysfs");
-            }
             cpu_to_node[cpu_id] = node;
             seastar_logger.debug("Assign CPU{} to NUMA{}", cpu_id, node->os_index);
         }
@@ -644,15 +658,6 @@ resources allocate(configuration& c) {
         }
 
         seastar_logger.warn("Assigning some CPUs to remote NUMA nodes");
-
-        // Get the list of NUMA nodes available
-        std::vector<hwloc_obj_t> nodes;
-
-        hwloc_obj_t tmp = NULL;
-        auto depth = hwloc_get_type_or_above_depth(topology, HWLOC_OBJ_NUMANODE);
-        while ((tmp = hwloc_get_next_obj_by_depth(topology, depth, tmp)) != NULL) {
-            nodes.push_back(tmp);
-        }
 
         // Group orphan CPUs by ... some sane enough feature
         std::unordered_map<hwloc_obj_t, std::vector<unsigned>> grouped;
@@ -697,7 +702,6 @@ resources allocate(configuration& c) {
     }
 
     // Divide the rest of the memory
-    auto depth = hwloc_get_type_or_above_depth(topology, HWLOC_OBJ_NUMANODE);
     for (auto&& [this_cpu, remain] : remains) {
         auto node = cpu_to_node.at(this_cpu.cpu_id);
         auto obj = node;
@@ -705,7 +709,7 @@ resources allocate(configuration& c) {
         while (remain) {
             remain -= alloc_from_node(this_cpu, obj, topo_used_mem, remain);
             do {
-                obj = hwloc_get_next_obj_by_depth(topology, depth, obj);
+                obj = hwloc_get_next_obj_by_depth(topology, nodes_depth, obj);
             } while (!obj);
             if (obj == node)
                 break;
