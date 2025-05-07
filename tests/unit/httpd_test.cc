@@ -1997,3 +1997,75 @@ SEASTAR_THREAD_TEST_CASE(test_http_with_broken_wire) {
 
     c.close().get();
 }
+
+SEASTAR_TEST_CASE(test_client_close_connection) {
+    return async([] {
+        condition_variable cv;
+        loopback_connection_factory lcf(1);
+        static constexpr size_t _128KiB = 128 * 1024;
+        auto cln = http::experimental::client(std::make_unique<loopback_http_factory>(lcf), 1, http::experimental::client::retry_requests::yes);
+        auto make_test_request = [&cv, &cln]() {
+            size_t content_length = 0;
+            auto req = http::request::make("GET", "test", "/test");
+            cln.make_request(
+                   std::move(req),
+                   [&cv, &content_length](const http::reply& resp, input_stream<char>&& in) {
+                       content_length = resp.content_length;
+                       return seastar::async([&cv, &content_length, in = std::move(in)]() mutable {
+                           auto buff = in.read().get();
+                           BOOST_REQUIRE(buff.size() < content_length);
+                           if (content_length <= _128KiB) {
+                               cv.signal();
+                           }
+                           in.close().get();
+                       });
+                   },
+                   http::reply::status_type::ok)
+                .then([&content_length, &cv] {
+                    if (content_length > _128KiB) {
+                        cv.signal();
+                    }
+                })
+                .get();
+        };
+
+        size_t response_size = 0;
+        size_t throw_count = 0;
+        size_t nothrow_count = 0;
+        auto make_response = [&cv, &response_size, &throw_count, &nothrow_count](accept_result ar) {
+            return async([&cv, response_size, &throw_count, &nothrow_count, sk = std::move(ar.connection)]() mutable {
+                input_stream<char> in = sk.input();
+                read_simple_http_request(in);
+                output_stream<char> out = sk.output();
+                sstring r200(format("HTTP/1.1 200 OK\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n", response_size));
+                out.write(r200).get();
+                out.flush().get();
+                out.write(sstring(response_size / 2, 'a')).get();
+                out.flush().get();
+                cv.wait().get();
+                if (response_size / 2 > _128KiB) {
+                    ++throw_count;
+                    BOOST_REQUIRE_EXCEPTION(
+                        out.write(sstring(response_size / 2, 'b')).get(), std::system_error, [](auto& ex) { return ex.code().value() == EPIPE; });
+                } else {
+                    ++nothrow_count;
+                    BOOST_REQUIRE_NO_THROW(out.write(sstring(response_size / 2, 'b')).get());
+                }
+                out.flush().get();
+                out.close().get();
+            });
+        };
+
+        for (auto size : {_128KiB, 260 * 1024ul}) {
+            response_size = size;
+            auto server = lcf.get_server_socket().accept().then(make_response);
+
+            auto client = async([&make_test_request] { make_test_request(); });
+
+            when_all(std::move(server), std::move(client)).discard_result().get();
+        }
+        cln.close().get();
+        BOOST_REQUIRE(nothrow_count == 1);
+        BOOST_REQUIRE(throw_count == 1);
+    });
+}
