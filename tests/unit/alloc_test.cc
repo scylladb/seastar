@@ -19,6 +19,8 @@
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
+#include <boost/test/tools/old/interface.hpp>
+#include <seastar/core/future.hh>
 #include <seastar/core/memory.hh>
 #include <seastar/core/shard_id.hh>
 #include <seastar/core/smp.hh>
@@ -29,11 +31,12 @@
 #include <seastar/util/log.hh>
 #include <seastar/util/memory_diagnostics.hh>
 
+#include <boost/test/unit_test.hpp>
+
 #include <memory>
 #include <new>
 #include <vector>
 #include <future>
-#include <iostream>
 
 #include <malloc.h>
 
@@ -302,6 +305,114 @@ SEASTAR_TEST_CASE(test_enable_abort_on_oom) {
     seastar::memory::set_abort_on_allocation_failure(original);
 
     return make_ready_future<>();
+}
+
+// Run the fallback alloc test with the given alignment,
+// 1 means use the default (not explicitly aligned) allocation
+// functions.
+static auto do_test_fallback_alloc(size_t align, size_t alloc_size) {
+    using namespace seastar::memory;
+    auto orig_stats = stats();
+
+    // alignment must be a power of two, and at least 1
+    BOOST_REQUIRE(align > 0 && ((align & (align - 1)) == 0));
+
+    std::vector<std::unique_ptr<char []>> ptrs;
+
+    // so we don't get a vector reallocation screwing up our logic
+    auto too_many_allocs = orig_stats.free_memory() * 2 / alloc_size;
+    ptrs.reserve(too_many_allocs);
+
+    auto alloc_one = [&] {
+        char *p = align != 1 ? new (std::align_val_t(align)) char[alloc_size] : new char[alloc_size];
+        BOOST_REQUIRE(p != nullptr);
+        // check alignment
+        BOOST_REQUIRE((reinterpret_cast<uintptr_t>(p) % align) == 0);
+        ptrs.emplace_back(p);
+    };
+
+    auto alloc_one_expect_fail = [&] {
+        BOOST_REQUIRE_THROW(alloc_one(), std::bad_alloc);
+    };
+
+    // get the point where new alloc_size allocs are failing
+    for (size_t iters = 0; ; ++iters) {
+        try {
+            alloc_one();
+        } catch (const std::bad_alloc&) {
+            break;
+        }
+        BOOST_REQUIRE(iters < too_many_allocs);
+    }
+
+    BOOST_REQUIRE_EQUAL(stats().failed_allocations(),
+            orig_stats.failed_allocations() + 1);
+
+    // check that we will still fail
+    alloc_one_expect_fail();
+
+    BOOST_REQUIRE_EQUAL(stats().failed_allocations(),
+            orig_stats.failed_allocations() + 2);
+
+    BOOST_REQUIRE_EQUAL(stats().fallback_allocations(),
+            orig_stats.fallback_allocations());
+
+    // shouldn't be any foreign allocs yet
+    BOOST_REQUIRE_EQUAL(stats().foreign_mallocs(),
+        orig_stats.foreign_mallocs());
+
+    // open a no-fail scope
+    {
+        seastar::memory::scoped_system_alloc_fallback scope0;
+
+        // this should fallback and increment fallback count
+        alloc_one();
+        BOOST_REQUIRE_EQUAL(stats().failed_allocations(),
+                orig_stats.failed_allocations() + 2);
+        BOOST_REQUIRE_EQUAL(stats().fallback_allocations(),
+                orig_stats.fallback_allocations() + 1);
+
+        // nested scope
+        {
+            seastar::memory::scoped_system_alloc_fallback scope1;
+            alloc_one();
+            BOOST_REQUIRE_EQUAL(stats().fallback_allocations(),
+                    orig_stats.fallback_allocations() + 2);
+        }
+
+        // one more outside the inner nested region
+        alloc_one();
+
+        // each of these should be a foreign alloc
+        BOOST_REQUIRE_EQUAL(stats().foreign_mallocs(),
+            orig_stats.foreign_mallocs() + 3);
+    }
+
+    // now we should fail again
+    set_abort_on_allocation_failure(false);
+    alloc_one_expect_fail();
+
+    // check that we haven't done any foreign frees yet
+    BOOST_REQUIRE_EQUAL(stats().foreign_cross_frees(),
+            orig_stats.foreign_cross_frees());
+
+    // now clear all pointers and we should have three foreign frees
+    // from the three fallbacks above
+    ptrs.clear();
+    BOOST_REQUIRE_EQUAL(stats().foreign_cross_frees(),
+            orig_stats.foreign_cross_frees() + 3);
+
+    return make_ready_future();
+}
+
+SEASTAR_TEST_CASE(test_fallback_alloc_unaligned) {
+    // size must be larger than the small allocation threshold
+    return do_test_fallback_alloc(1, 32 * 1024);
+}
+
+SEASTAR_TEST_CASE(test_fallback_alloc_aligned) {
+    // must be larger than the small allocation threshold
+    return do_test_fallback_alloc(1024, 32 * 1024);
 }
 
 void * volatile sink;

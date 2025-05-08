@@ -187,6 +187,17 @@ public:
     }
 };
 
+// Within the scope of this object, the allocator will not abort (when it
+// would normally do so, i.e., when abort_on_allocation_failure is true),
+// but rather fall back to the system allocator.
+struct scoped_system_alloc_fallback {
+    scoped_system_alloc_fallback() noexcept;
+    ~scoped_system_alloc_fallback() noexcept;
+
+    scoped_system_alloc_fallback(const scoped_system_alloc_fallback&) = delete;
+    scoped_system_alloc_fallback& operator=(const scoped_system_alloc_fallback&) = delete;
+};
+
 // Disables heap profiling as long as this object is alive.
 // Can be nested, in which case the profiling is re-enabled when all
 // the objects go out of scope.
@@ -303,6 +314,7 @@ class statistics {
     uint64_t _reclaims;
     uint64_t _large_allocs;
     uint64_t _failed_allocs;
+    uint64_t _fallback_allocs;
 
     uint64_t _foreign_mallocs;
     uint64_t _foreign_frees;
@@ -310,11 +322,11 @@ class statistics {
 private:
     statistics(uint64_t mallocs, uint64_t frees, uint64_t cross_cpu_frees,
             uint64_t total_memory, uint64_t free_memory, uint64_t reclaims,
-            uint64_t large_allocs, uint64_t failed_allocs,
+            uint64_t large_allocs, uint64_t failed_allocs, uint64_t fallback_allocs,
             uint64_t foreign_mallocs, uint64_t foreign_frees, uint64_t foreign_cross_frees)
         : _mallocs(mallocs), _frees(frees), _cross_cpu_frees(cross_cpu_frees)
         , _total_memory(total_memory), _free_memory(free_memory), _reclaims(reclaims)
-        , _large_allocs(large_allocs), _failed_allocs(failed_allocs)
+        , _large_allocs(large_allocs), _failed_allocs(failed_allocs), _fallback_allocs(fallback_allocs)
         , _foreign_mallocs(foreign_mallocs), _foreign_frees(foreign_frees)
         , _foreign_cross_frees(foreign_cross_frees) {}
 public:
@@ -338,13 +350,18 @@ public:
     /// Number of allocations which violated the large allocation threshold
     uint64_t large_allocations() const { return _large_allocs; }
     /// Number of allocations which failed, i.e., where the required memory could not be obtained
-    /// even after reclaim was attempted
+    /// even after reclaim was attempted and which did not fallback (see fallback_allocations())
     uint64_t failed_allocations() const { return _failed_allocs; }
-    /// Number of foreign allocations
+    /// Number of allocations which fell back to the system allocator, i.e., because they were
+    /// in a fallback allocation scope. These are not counted in failed_allocations.
+    uint64_t fallback_allocations() const { return _fallback_allocs; }
+    /// Number of foreign allocations, which are all allocations which use the system allocator.
+    /// These include allocations on alien threads, allocations (even on reactor threads) before
+    /// the allocator is initialized and allocations in a fallback allocation scope.
     uint64_t foreign_mallocs() const { return _foreign_mallocs; }
-    /// Number of foreign frees
+    /// Number of foreign frees (frees of non-seastar-heap pointers) on alien threads
     uint64_t foreign_frees() const { return _foreign_frees; }
-    /// Number of foreign frees on reactor threads
+    /// Number of foreign frees (frees of non-seastar-heap pointers) on reactor threads
     uint64_t foreign_cross_frees() const { return _foreign_cross_frees; }
     friend statistics stats();
 };

@@ -163,6 +163,17 @@ thread_local constinit int abort_on_alloc_failure_suppressed = 0;
 
 }
 
+static thread_local int fallback_to_system_nest_count = 0;
+
+scoped_system_alloc_fallback::scoped_system_alloc_fallback() noexcept {
+    ++fallback_to_system_nest_count;
+}
+
+scoped_system_alloc_fallback::~scoped_system_alloc_fallback() noexcept {
+    --fallback_to_system_nest_count;
+    SEASTAR_ASSERT(fallback_to_system_nest_count >= 0);
+}
+
 void enable_abort_on_allocation_failure() {
     set_abort_on_allocation_failure(true);
 }
@@ -248,7 +259,7 @@ std::atomic<bool> use_transparent_hugepages = true;
 namespace alloc_stats {
 
 enum class types { allocs, frees, cross_cpu_frees, reclaims, large_allocs, failed_allocs,
-    foreign_mallocs, foreign_frees, foreign_cross_frees, enum_size };
+    foreign_mallocs, foreign_frees, foreign_cross_frees, fallback_allocs, enum_size };
 
 using stats_array = std::array<uint64_t, static_cast<std::size_t>(types::enum_size)>;
 using stats_atomic_array = std::array<std::atomic_uint64_t, static_cast<std::size_t>(types::enum_size)>;
@@ -539,6 +550,10 @@ static_assert(object_size_with_alloc_site(max_small_allocation - sizeof(allocati
 static_assert(object_size_with_alloc_site(max_small_allocation - sizeof(allocation_site_ptr) - 1) == max_small_allocation - 1, "");
 static_assert(object_size_with_alloc_site(max_small_allocation - sizeof(allocation_site_ptr) - 2) == max_small_allocation - 2, "");
 #endif
+
+// if not, do_test_fallback_alloc needs to be updated to use a size
+// larger than the small alloc threshold
+static_assert(max_small_allocation < 32 * 1024); 
 
 struct cross_cpu_free_item {
     cross_cpu_free_item* next;
@@ -1144,7 +1159,7 @@ static void free_slowpath(void* obj, S size) {
 void
 cpu_pages::do_foreign_free(void* ptr) {
     // handles:
-    // 1) non-seastar pointers
+    // 1) non-seastar pointers (including system fallback allocs)
     // 2) cross-shard frees
     // 3) null pointer
 
@@ -1629,6 +1644,20 @@ static inline void* finish_allocation(void* ptr, size_t size) {
     return ptr;
 }
 
+static void * maybe_system_fallback(void *ptr, size_t align, size_t size) {
+    auto func_present = align ? (bool)original_aligned_alloc_func : (bool)original_malloc_func;
+    if (!ptr && fallback_to_system_nest_count && func_present) {
+        // we are in a fallback scope, call the system malloc
+        // fallback allocs count as foreign allocs because they also count as foreign frees
+        alloc_stats::increment(alloc_stats::types::foreign_mallocs);
+        alloc_stats::increment(alloc_stats::types::fallback_allocs);
+        return align ? original_aligned_alloc_func(align, size) : original_malloc_func(size);
+    } else {
+        return ptr;
+    }
+}
+
+
 void *allocate_slowpath(size_t size) {
     if (!is_reactor_thread) {
         if (original_malloc_func) {
@@ -1681,7 +1710,9 @@ void *allocate_slowpath(size_t size) {
         }
     } else {
         ptr = allocate_large(size, should_sample);
+        ptr = maybe_system_fallback(ptr, 0, size);
     }
+
     return finish_allocation(ptr, size);
 }
 
@@ -1735,6 +1766,7 @@ void* allocate_aligned(size_t align, size_t size) {
         }
     } else {
         ptr = allocate_large_aligned(align, size, should_sample);
+        ptr = maybe_system_fallback(ptr, align, size);
     }
     if (!ptr) {
         on_allocation_failure(size);
@@ -1908,7 +1940,7 @@ configure(std::vector<resource::memory> m, bool mbind,
 statistics stats() {
     return statistics{alloc_stats::get(alloc_stats::types::allocs), alloc_stats::get(alloc_stats::types::frees), alloc_stats::get(alloc_stats::types::cross_cpu_frees),
         cpu_mem.nr_pages * page_size, cpu_mem.nr_free_pages * page_size, alloc_stats::get(alloc_stats::types::reclaims), alloc_stats::get(alloc_stats::types::large_allocs),
-        alloc_stats::get(alloc_stats::types::failed_allocs), alloc_stats::get(alloc_stats::types::foreign_mallocs), alloc_stats::get(alloc_stats::types::foreign_frees),
+        alloc_stats::get(alloc_stats::types::failed_allocs), alloc_stats::get(alloc_stats::types::fallback_allocs), alloc_stats::get(alloc_stats::types::foreign_mallocs), alloc_stats::get(alloc_stats::types::foreign_frees),
         alloc_stats::get(alloc_stats::types::foreign_cross_frees)};
 }
 
@@ -2656,7 +2688,7 @@ void configure_minimal()
 {}
 
 statistics stats() {
-    return statistics{0, 0, 0, 1 << 30, 1 << 30, 0, 0, 0, 0, 0, 0};
+    return statistics{0, 0, 0, 1 << 30, 1 << 30, 0, 0, 0, 0, 0, 0, 0};
 }
 
 size_t free_memory() {
