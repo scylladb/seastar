@@ -113,7 +113,11 @@ void request::write_body(const sstring& content_type, noncopyable_function<futur
 void request::write_body(const sstring& content_type, size_t len, noncopyable_function<future<>(output_stream<char>&&)>&& body_writer) {
     set_content_type(content_type);
     content_length = len;
-    this->body_writer = std::move(body_writer);
+    if (len > 0) {
+        // At the time of this writing, connection::write_body()
+        // assumes that `body_writer` is unset if `content_length` is 0.
+        this->body_writer = std::move(body_writer);
+    }
 }
 
 void request::set_expects_continue() {
