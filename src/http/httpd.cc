@@ -182,7 +182,7 @@ static input_stream<char> make_content_stream(http::request* req, input_stream<c
     if (seastar::internal::case_insensitive_cmp()(req->get_header("Transfer-Encoding"), "chunked")) {
         return input_stream<char>(data_source(std::make_unique<internal::chunked_source_impl>(buf, req->chunk_extensions, req->trailing_headers)));
     } else {
-        return input_stream<char>(data_source(std::make_unique<internal::content_length_source_impl>(buf, req->content_length)));
+        return input_stream<char>(data_source(std::make_unique<internal::content_length_source_impl>(buf, req->content_length.value_or(0))));
     }
 }
 
@@ -238,10 +238,12 @@ future<> connection::read_one() {
 
         size_t content_length_limit = _server.get_content_length_limit();
         sstring length_header = req->get_header("Content-Length");
+        // FIXME: We are treating a lack of "Content-Length" equivalently to "Content-Length: 0".
+        // This might be undesirable.
         req->content_length = strtol(length_header.c_str(), nullptr, 10);
 
-        if (req->content_length > content_length_limit) {
-            auto msg = format("Content length limit ({}) exceeded: {}", content_length_limit, req->content_length);
+        if (req->content_length.value() > content_length_limit) {
+            auto msg = format("Content length limit ({}) exceeded: {}", content_length_limit, req->content_length.value());
             generate_error_reply_and_close(std::move(req), http::reply::status_type::payload_too_large, std::move(msg));
             return make_ready_future<>();
         }

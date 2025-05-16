@@ -76,12 +76,12 @@ connection::connection(connected_socket&& fd, internal::client_ref cr)
 
 future<> connection::write_body(const request& req) {
     if (req.body_writer) {
-        if (req.content_length != 0) {
-            return req.body_writer(internal::make_http_content_length_output_stream(_write_buf, req.content_length, req._bytes_written)).then([&req] {
-                if (req.content_length == req._bytes_written) {
+        if (req.content_length.has_value()) {
+            return req.body_writer(internal::make_http_content_length_output_stream(_write_buf, req.content_length.value(), req._bytes_written)).then([&req] {
+                if (req.content_length.value() == req._bytes_written) {
                     return make_ready_future<>();
                 } else {
-                    return make_exception_future<>(std::runtime_error(format("partial request body write, need {} sent {}", req.content_length, req._bytes_written)));
+                    return make_exception_future<>(std::runtime_error(format("partial request body write, need {} sent {}", req.content_length.value(), req._bytes_written)));
                 }
             });
         }
@@ -115,11 +115,11 @@ void connection::setup_request(request& req) {
     if (req._version.empty()) {
         req._version = "1.1";
     }
-    if (req.content_length != 0) {
+    if (req.content_length.has_value()) {
         if (!req.body_writer && req.content.empty()) {
             throw std::runtime_error("Request body writer not set and content is empty");
         }
-        req._headers["Content-Length"] = to_sstring(req.content_length);
+        req._headers["Content-Length"] = to_sstring(req.content_length.value());
     }
 }
 

@@ -61,7 +61,7 @@ struct request {
     sstring _url;
     sstring _version;
     ctclass content_type_class;
-    size_t content_length = 0;
+    std::optional<size_t> content_length = std::nullopt;
     mutable size_t _bytes_written = 0;
     std::unordered_map<sstring, sstring, seastar::internal::case_insensitive_hash, seastar::internal::case_insensitive_cmp> _headers;
     std::unordered_map<sstring, sstring> query_parameters;
