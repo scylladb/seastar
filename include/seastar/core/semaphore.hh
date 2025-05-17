@@ -454,6 +454,21 @@ public:
             return false;
         }
     }
+
+    /// Returns true iff the specified number of units can be reduced from the counter without waiting.
+    ///
+    /// If sufficient units are available in the counter, and if no
+    /// other fiber is waiting, then the function returns true.  Otherwise,
+    /// nothing happens.  This is useful for "opportunistic" waits where
+    /// useful work can happen if the counter happens to be ready, but
+    /// when it is not worthwhile to wait.
+    ///
+    /// \param nr number of units to reduce the counter by (default 1).
+    /// \return `true` if the counter had sufficient units and no other fiber is waiting.
+    bool can_acquire_immediately(size_t nr = 1) const noexcept {
+        return may_proceed(nr);
+    }
+
     /// Returns the number of units available in the counter.
     ///
     /// Does not take into account any waiters.
