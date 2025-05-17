@@ -759,24 +759,32 @@ SEASTAR_TEST_CASE(test_as_future_preemption) {
     BOOST_REQUIRE_THROW(f0.get(), std::runtime_error);
 }
 
+using do_suspend = bool_class<struct do_suspend_tag>;
+
 template<template<typename> class Container>
 coroutine::experimental::generator<int, Container>
-fibonacci_sequence(coroutine::experimental::buffer_size_t size, unsigned count) {
+fibonacci_sequence(coroutine::experimental::buffer_size_t size,
+                   unsigned count,
+                   do_suspend suspend) {
     auto a = 0, b = 1;
     for (unsigned i = 0; i < count; ++i) {
         if (std::numeric_limits<decltype(a)>::max() - a < b) {
             throw std::out_of_range(
                 fmt::format("fibonacci[{}] is greater than the largest value of int", i));
         }
+        if (suspend) {
+            co_await coroutine::maybe_yield();
+        }
         co_yield std::exchange(a, std::exchange(b, a + b));
     }
 }
 
 template<template<typename> class Container>
-seastar::future<> test_async_generator_drained() {
-    auto expected_fibs = {0, 1, 1, 2, 3, 5, 8, 13, 21, 34, 55};
+seastar::future<> test_async_generator_drained(do_suspend suspend) {
+    auto expected_fibs = {0, 1, 1, 2};
     auto fib = fibonacci_sequence<Container>(coroutine::experimental::buffer_size_t{2},
-                                             std::size(expected_fibs));
+                                             std::size(expected_fibs),
+                                             suspend);
     for (auto expected_fib : expected_fibs) {
         auto actual_fib = co_await fib();
         BOOST_REQUIRE(actual_fib.has_value());
@@ -789,29 +797,52 @@ seastar::future<> test_async_generator_drained() {
 template<typename T>
 using buffered_container = circular_buffer<T>;
 
-SEASTAR_TEST_CASE(test_async_generator_drained_buffered) {
-    return test_async_generator_drained<buffered_container>();
+// NOTE: suspension in generator is buggy, see scylladb/seastar#1913.
+//       so the tests which reproduce this issue are disabled.
+SEASTAR_TEST_CASE(test_async_generator_drained_buffered_with_suspend,
+                  *boost::unit_test::disabled()) {
+    return test_async_generator_drained<buffered_container>(do_suspend::yes);
 }
 
-SEASTAR_TEST_CASE(test_async_generator_drained_unbuffered) {
-    return test_async_generator_drained<std::optional>();
+SEASTAR_TEST_CASE(test_async_generator_drained_buffered_without_suspend) {
+    return test_async_generator_drained<buffered_container>(do_suspend::no);
+}
+
+SEASTAR_TEST_CASE(test_async_generator_drained_unbuffered_with_suspend,
+                  *boost::unit_test::disabled()) {
+    return test_async_generator_drained<std::optional>(do_suspend::yes);
+}
+
+SEASTAR_TEST_CASE(test_async_generator_drained_unbuffered_without_suspend) {
+    return test_async_generator_drained<std::optional>(do_suspend::no);
 }
 
 template<template<typename> class Container>
-seastar::future<> test_async_generator_not_drained() {
+seastar::future<> test_async_generator_not_drained(do_suspend suspend) {
     auto fib = fibonacci_sequence<Container>(coroutine::experimental::buffer_size_t{2},
-                                             42);
+                                             42,
+                                             suspend);
     auto actual_fib = co_await fib();
     BOOST_REQUIRE(actual_fib.has_value());
     BOOST_REQUIRE_EQUAL(actual_fib.value(), 0);
 }
 
-SEASTAR_TEST_CASE(test_async_generator_not_drained_buffered) {
-    return test_async_generator_not_drained<buffered_container>();
+SEASTAR_TEST_CASE(test_async_generator_not_drained_buffered_with_suspend,
+                  *boost::unit_test::disabled()) {
+    return test_async_generator_not_drained<buffered_container>(do_suspend::yes);
 }
 
-SEASTAR_TEST_CASE(test_async_generator_not_drained_unbuffered) {
-    return test_async_generator_not_drained<std::optional>();
+SEASTAR_TEST_CASE(test_async_generator_not_drained_buffered_without_suspend) {
+    return test_async_generator_not_drained<buffered_container>(do_suspend::no);
+}
+
+SEASTAR_TEST_CASE(test_async_generator_not_drained_unbuffered_with_suspend,
+                  *boost::unit_test::disabled()) {
+    return test_async_generator_not_drained<std::optional>(do_suspend::yes);
+}
+
+SEASTAR_TEST_CASE(test_async_generator_not_drained_unbuffered_without_suspend) {
+    return test_async_generator_not_drained<std::optional>(do_suspend::no);
 }
 
 struct counter_t {
