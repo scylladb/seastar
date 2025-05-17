@@ -398,7 +398,7 @@ struct listen_options {
     bool reuse_address = false;
     server_socket::load_balancing_algorithm lba = server_socket::load_balancing_algorithm::default_;
     transport proto = transport::TCP;
-    int listen_backlog = 100;
+    int listen_backlog = 150;
     unsigned fixed_cpu = 0u;
     std::optional<file_permissions> unix_domain_socket_permissions;
 
