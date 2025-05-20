@@ -23,6 +23,7 @@
 
 #include <seastar/util/backtrace.hh>
 #include <seastar/core/circular_buffer_fixed_capacity.hh>
+#include <seastar/core/internal/signal_mutex.hh>
 #include <seastar/core/internal/timers.hh>
 #include <seastar/core/scheduling.hh>
 
@@ -52,29 +53,6 @@ struct cpu_profiler_trace {
 constexpr size_t max_number_of_traces = 128;
 
 namespace internal {
-
-/// A lightweight mutex designed to work with interrupts
-/// utilizing only compiler barriers.
-class signal_mutex {
-public:
-    class guard {
-    private:
-        signal_mutex* _mutex;
-        guard(signal_mutex* m) : _mutex(m) {}
-        friend class signal_mutex;
-    public:
-        guard(guard&& o) : _mutex(o._mutex) { o._mutex = nullptr; }
-        ~guard();
-    };
-
-    // Returns a `guard` if the lock was acquired.
-    // Otherwise returns a nullopt.
-    std::optional<guard> try_lock();
-
-private:
-    friend class guard;
-    std::atomic_bool _mutex;
-};
 
 // Temporarily enable/disable the CPU profiler from taking stacktraces on this thread,
 // but don't disable the profiler completely. This can be used disable the profiler

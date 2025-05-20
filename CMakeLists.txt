@@ -710,6 +710,7 @@ add_library (seastar
   src/core/io_queue.cc
   src/core/semaphore.cc
   src/core/condition-variable.cc
+  src/core/signal_mutex.cc
   src/http/api_docs.cc
   src/http/common.cc
   src/http/file_handler.cc
