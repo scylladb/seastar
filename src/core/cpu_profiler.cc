@@ -139,6 +139,14 @@ void cpu_profiler::on_signal() {
         _traces.back().user_backtrace = current_backtrace_tasklocal();
         _traces.back().sg = current_scheduling_group();
 
+        if (_traces.back().user_backtrace.is_empty()) {
+            // An empty backtrace implies that there was some issue collecting
+            // the backtrace. Currently the most likely reason is that another
+            // backtrace was being collected when the profiler interrupted the
+            // process.
+            _stats.dropped_samples_from_mutex_contention++;
+        }
+
         auto kernel_bt = try_get_kernel_backtrace();
         if (kernel_bt) {
             auto& kernel_vec = _traces.back().kernel_backtrace;
