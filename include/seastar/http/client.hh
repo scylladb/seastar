@@ -157,10 +157,12 @@ private:
     friend class http::internal::client_ref;
     using connections_list_t = bi::list<connection, bi::member_hook<connection, typename connection::hook_t, &connection::_hook>, bi::constant_time_size<false>>;
     static constexpr unsigned default_max_connections = 100;
+    static constexpr size_t default_max_bytes_to_drain = 128 * 1024;
 
     std::unique_ptr<connection_factory> _new_connections;
     unsigned _nr_connections = 0;
     unsigned _max_connections;
+    size_t _max_bytes_to_drain;
     unsigned long _total_new_connections = 0;
     const retry_requests _retry;
     condition_variable _wait_con;
@@ -245,7 +247,7 @@ public:
      * another one and retry the very same request one more time over this new connection. If the
      * second attempt fails, this error is reported back to user.
      */
-    explicit client(std::unique_ptr<connection_factory> f, unsigned max_connections = default_max_connections, retry_requests retry = retry_requests::no);
+    explicit client(std::unique_ptr<connection_factory> f, unsigned max_connections = default_max_connections, retry_requests retry = retry_requests::no, size_t max_bytes_to_drain = default_max_bytes_to_drain);
 
     /**
      * \brief Send the request and handle the response
