@@ -326,7 +326,7 @@ static bool is_retryable_exception(std::exception_ptr ex) {
             std::rethrow_exception(ex);
         } catch (const std::system_error& sys_err) {
             auto code = sys_err.code().value();
-            if (code == EPIPE || code == ECONNABORTED || code == GNUTLS_E_PREMATURE_TERMINATION) {
+            if (code == EPIPE || code == ECONNABORTED || code == ECONNRESET || code == GNUTLS_E_PREMATURE_TERMINATION) {
                 return true;
             }
             try {
