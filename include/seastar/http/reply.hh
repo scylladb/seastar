@@ -154,6 +154,7 @@ struct reply {
      */
     sstring _content;
     size_t content_length = 0; // valid when received via client connection
+    size_t consumed_content = 0;
 
     sstring _response_line;
     std::unordered_map<sstring, sstring> trailing_headers;

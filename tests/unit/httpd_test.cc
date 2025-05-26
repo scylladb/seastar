@@ -13,6 +13,7 @@
 #include <seastar/core/do_with.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/core/when_all.hh>
+#include <seastar/core/units.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include "loopback_socket.hh"
@@ -2001,10 +2002,10 @@ SEASTAR_THREAD_TEST_CASE(test_http_with_broken_wire) {
 SEASTAR_TEST_CASE(test_client_close_connection) {
     return async([] {
         loopback_connection_factory lcf(1);
-        auto cln = http::experimental::client(std::make_unique<loopback_http_factory>(lcf), 1, http::experimental::client::retry_requests::no);
-        auto make_test_request = [&cln]() {
+        auto make_test_request = [&lcf]() {
+            auto cln = http::experimental::client(std::make_unique<loopback_http_factory>(lcf), 1, http::experimental::client::retry_requests::no);
             size_t content_length = 0;
-            for (auto cycle : {1, 2}) {
+            for (auto _ [[maybe_unused]] : {1, 2}) {
                 auto req = http::request::make("GET", "test", "/test");
                 auto make_request = cln.make_request(
                     std::move(req),
@@ -2018,13 +2019,9 @@ SEASTAR_TEST_CASE(test_client_close_connection) {
                         });
                     },
                     http::reply::status_type::ok);
-
-                if (cycle == 1) {
-                    BOOST_REQUIRE_NO_THROW(make_request.get());
-                } else {
-                    BOOST_REQUIRE_THROW(make_request.get(), httpd::response_parsing_exception);
-                }
+                BOOST_REQUIRE_NO_THROW(make_request.get());
             }
+            cln.close().get();
         };
 
         size_t response_size = 0;
@@ -2033,31 +2030,42 @@ SEASTAR_TEST_CASE(test_client_close_connection) {
                 input_stream<char> in = sk.input();
                 read_simple_http_request(in);
                 output_stream<char> out = sk.output();
-                try {
-                    sstring r200(format("HTTP/1.1 200 OK\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n", response_size));
+                size_t responses = 0;
+                // In the case the leftover data on the socket is smaller than 128KiB we are going to drain it and leave the connection alive, so here we
+                // have to loop two times to fulfill two request from the client. On the other hand if the leftover data is larger than 128KiB we are going
+                // to close the connection, so we have to loop only once to fulfill one request from the client and make another `accept`
+                while (true) {
+                    if (responses == 2) {
+                        break;
+                    }
+                    ++responses;
+                    try {
+                        out.write(format("HTTP/1.1 200 OK\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n", response_size)).get();
+                        out.flush().get();
+                        out.write(sstring(response_size / 2, 'a')).get();
+                        out.flush().get();
 
-                    out.write(r200).get();
-                    out.flush().get();
-                    out.write(sstring(response_size / 2, 'a')).get();
-                    out.flush().get();
-
-                    out.write(sstring(response_size / 2, 'a')).get();
-                    out.flush().get();
-                    out.close().get();
-                } catch (...) {
-                    out.close().get();
+                        out.write(sstring(response_size / 2, 'a')).get();
+                        out.flush().get();
+                    } catch (...) {
+                        break;
+                    }
                 }
+                out.close().get();
             });
         };
 
-        for (auto size : {128 * 1024ul, 260 * 1024ul}) {
+        for (auto size : {128_KiB, 260_KiB}) {
             response_size = size;
             auto ss = lcf.get_server_socket();
             auto server = ss.accept().then(make_response);
+            if (size > 128_KiB) {
+                // In this case the client is going to reset the connection so we have to `accept` again
+                server = server.then([&ss, &make_response] { return ss.accept().then(make_response); });
+            }
             auto client = async([&make_test_request] { make_test_request(); });
 
             when_all(std::move(server), std::move(client)).discard_result().get();
         }
-        cln.close().get();
     });
 }
