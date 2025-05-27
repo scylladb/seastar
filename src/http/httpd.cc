@@ -107,9 +107,8 @@ future<> connection::start_response() {
                 _replies.abort(std::make_exception_ptr(std::logic_error("Unknown exception during body creation")));
                 _replies.push(std::unique_ptr<http::reply>());
                 f.ignore_ready_future();
-                return make_ready_future<>();
             }
-            return _write_buf.write("0\r\n\r\n", 5);
+            return make_ready_future<>();
         }).then_wrapped([this ] (auto f) {
             if (f.failed()) {
                 // We could not write the closing sequence

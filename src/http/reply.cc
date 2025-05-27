@@ -131,7 +131,9 @@ future<> reply::write_reply_to_connection(httpd::connection& con) {
     }).then([&con] () mutable {
         return con.out().write("\r\n", 2);
     }).then([this, &con] () mutable {
-        return _body_writer(http::internal::make_http_chunked_output_stream(con.out()));
+        return _body_writer(http::internal::make_http_chunked_output_stream(con.out())).then([&con] {
+            return con.out().write("0\r\n\r\n", 5);
+        });
     });
 
 }
