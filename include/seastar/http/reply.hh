@@ -155,6 +155,7 @@ struct reply {
     sstring _content;
     size_t content_length = 0; // valid when received via client connection
     size_t consumed_content = 0;
+    bool _skip_body = false;
 
     sstring _response_line;
     std::unordered_map<sstring, sstring> trailing_headers;
@@ -269,6 +270,12 @@ struct reply {
      * with any additional information that is needed to send the message.
      */
     void write_body(const sstring& content_type, sstring content);
+
+    // RFC7231 Sec. 4.3.2
+    // For HEAD replies collect everything from the handler, but don't write the body itself
+    void skip_body() noexcept {
+        _skip_body = true;
+    }
 
 private:
     future<> write_reply_to_connection(httpd::connection& con);

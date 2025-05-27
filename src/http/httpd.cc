@@ -143,6 +143,9 @@ future<> connection::start_response() {
     }).then([this] {
         return _write_buf.write("\r\n", 2);
     }).then([this] {
+        if (_resp->_skip_body) {
+            return make_ready_future<>();
+        }
         return write_body();
     }).then([this] {
         return _write_buf.flush();
@@ -359,6 +362,9 @@ future<bool> connection::generate_reply(std::unique_ptr<http::request> req) {
 
     sstring url = req->parse_query_param();
     sstring version = req->_version;
+    if (req->_method == "HEAD") {
+        resp->skip_body();
+    }
     return _server._routes.handle(url, std::move(req), std::move(resp)).
     // Caller guarantees enough room
     then([this, keep_alive , version = std::move(version)](std::unique_ptr<http::reply> rep) {
