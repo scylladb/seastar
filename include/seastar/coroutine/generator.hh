@@ -141,7 +141,7 @@ public:
         return _future.available();
     }
 
-    coroutine_handle<> await_suspend(coroutine_handle<promise_type> coro) noexcept;
+    coroutine_handle<> await_suspend(coroutine_handle<promise_type> coro, std::source_location sl = std::source_location::current()) noexcept;
     void await_resume() noexcept { }
 };
 
@@ -260,7 +260,8 @@ public:
     }
 
     template<typename Promise>
-    void await_suspend(coroutine_handle<Promise> coro) noexcept {
+    void await_suspend(coroutine_handle<Promise> coro, std::source_location sl = std::source_location::current()) noexcept {
+        coro.promise().update_resume_point(sl);
         auto& current_task = coro.promise();
         if (_next_value_future.available()) {
             seastar::schedule(&current_task);
@@ -527,7 +528,8 @@ auto generator_buffered_promise<T, Container>::get_return_object() noexcept -> g
 
 template<typename T, template <typename> class Container>
 coroutine_handle<> yield_awaiter<T, Container>::await_suspend(
-    coroutine_handle<generator_buffered_promise<T, Container>> coro) noexcept {
+    coroutine_handle<generator_buffered_promise<T, Container>> coro, std::source_location sl) noexcept {
+    coro.promise().update_resume_point(sl);
     if (_future.available()) {
         auto& current_task = coro.promise();
         seastar::schedule(&current_task);
