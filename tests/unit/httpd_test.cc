@@ -1459,6 +1459,64 @@ future<> check_http_reply (std::vector<sstring>&& req_parts, std::vector<std::st
     });
 };
 
+future<> head_handler_no_body(bool chunked) {
+    return seastar::async([chunked] {
+        loopback_connection_factory lcf(1);
+        http_server server("test");
+        loopback_socket_impl lsi(lcf);
+        httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
+
+        future<> client = seastar::async([&lsi, chunked] {
+            connected_socket c_socket = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get();
+            input_stream<char> input(c_socket.input());
+            output_stream<char> output(c_socket.output());
+
+            output.write(sstring("HEAD /test HTTP/1.1\r\nHost: test\r\nContent-Length: 1\r\n\r\nA")).get();
+            output.flush().get();
+            auto resp = input.read().get();
+            auto resp_s = std::string(resp.get(), resp.size());
+            fmt::print("resp:[{}]", resp_s);
+            BOOST_REQUIRE_NE(resp_s.find("200 OK"), std::string::npos);
+
+            // RFC7231 section 4.3.2
+            // The HEAD method is identical to GET except that the server MUST NOT
+            // send a message body in the response (i.e., the response terminates at
+            // the end of the header section).
+            //
+            // The server SHOULD send the same header fields in response to a HEAD
+            // request as it would have sent if the request had been a GET, except
+            // that the payload header fields MAY be omitted
+
+            // Seastar HTTPD doesn't omit header fields ..
+            if (chunked) {
+                BOOST_REQUIRE_NE(resp_s.find("Transfer-Encoding: chunked\r\n"), std::string::npos);
+            } else {
+                BOOST_REQUIRE_NE(resp_s.find("Content-Length: 1\r\n"), std::string::npos);
+            }
+
+            // ... but does omit the body itself
+            BOOST_REQUIRE_EQUAL(resp_s.find("\r\n\r\n"), resp_s.size() - 4);
+
+            input.close().get();
+            output.close().get();
+        });
+
+        server._routes.put(HEAD, "/test", new echo_string_handler(chunked));
+        server.do_accepts(0).get();
+
+        client.get();
+        server.stop().get();
+    });
+}
+
+SEASTAR_TEST_CASE(head_handler_no_body_content_length) {
+    return head_handler_no_body(false);
+}
+
+SEASTAR_TEST_CASE(head_handler_no_body_chunked) {
+    return head_handler_no_body(true);
+}
+
 static future<> test_basic_content(bool streamed, bool chunked_reply) {
     return seastar::async([streamed, chunked_reply] {
         loopback_connection_factory lcf(1);

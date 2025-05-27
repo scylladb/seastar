@@ -107,9 +107,8 @@ future<> connection::start_response() {
                 _replies.abort(std::make_exception_ptr(std::logic_error("Unknown exception during body creation")));
                 _replies.push(std::unique_ptr<http::reply>());
                 f.ignore_ready_future();
-                return make_ready_future<>();
             }
-            return _write_buf.write("0\r\n\r\n", 5);
+            return make_ready_future<>();
         }).then_wrapped([this ] (auto f) {
             if (f.failed()) {
                 // We could not write the closing sequence
@@ -144,6 +143,9 @@ future<> connection::start_response() {
     }).then([this] {
         return _write_buf.write("\r\n", 2);
     }).then([this] {
+        if (_resp->_skip_body) {
+            return make_ready_future<>();
+        }
         return write_body();
     }).then([this] {
         return _write_buf.flush();
@@ -360,6 +362,9 @@ future<bool> connection::generate_reply(std::unique_ptr<http::request> req) {
 
     sstring url = req->parse_query_param();
     sstring version = req->_version;
+    if (req->_method == "HEAD") {
+        resp->skip_body();
+    }
     return _server._routes.handle(url, std::move(req), std::move(resp)).
     // Caller guarantees enough room
     then([this, keep_alive , version = std::move(version)](std::unique_ptr<http::reply> rep) {
