@@ -2000,17 +2000,17 @@ SEASTAR_THREAD_TEST_CASE(test_http_with_broken_wire) {
 }
 
 future<> test_client_close_connection(bool chunked) {
-    return async([] {
+    return async([chunked] {
         loopback_connection_factory lcf(1);
-        auto make_test_request = [&lcf]() {
+        auto make_test_request = [&lcf, chunked]() {
             auto cln = http::experimental::client(std::make_unique<loopback_http_factory>(lcf), 1, http::experimental::client::retry_requests::no);
             size_t content_length = 0;
             for (auto _ [[maybe_unused]] : {1, 2}) {
                 auto req = http::request::make("GET", "test", "/test");
                 auto make_request = cln.make_request(
                     std::move(req),
-                    [&content_length](const http::reply& resp, input_stream<char>&& in) {
-                        content_length = resp.content_length;
+                    [&content_length, chunked](const http::reply& resp, input_stream<char>&& in) {
+                        content_length = chunked ? 128_KiB : resp.content_length;
                         return async([&content_length, in = std::move(in)]() mutable {
                             // just read some bytes and abandon
                             auto buff = in.read().get();
@@ -2019,14 +2019,20 @@ future<> test_client_close_connection(bool chunked) {
                         });
                     },
                     http::reply::status_type::ok);
+              if (!chunked || (_ == 1)) {
                 BOOST_REQUIRE_NO_THROW(make_request.get());
+              } else {
+                // FIXME chunked encoded bodies are not yet checked by client to be
+                // under-read, so 2nd request will receive the tail of the 1st response
+                BOOST_REQUIRE_THROW(make_request.get(), httpd::response_parsing_exception);
+              }
             }
             cln.close().get();
         };
 
         size_t response_size = 0;
-        auto make_response = [&response_size](accept_result ar) {
-            return async([response_size, sk = std::move(ar.connection)]() mutable {
+        auto make_response = [&response_size, chunked](accept_result ar) {
+            return async([response_size, sk = std::move(ar.connection), chunked]() mutable {
                 input_stream<char> in = sk.input();
                 read_simple_http_request(in);
                 output_stream<char> out = sk.output();
@@ -2040,13 +2046,23 @@ future<> test_client_close_connection(bool chunked) {
                     }
                     ++responses;
                     try {
+                      if (!chunked) {
                         out.write(format("HTTP/1.1 200 OK\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n", response_size)).get();
                         out.flush().get();
+                      } else {
+                        out.write(format("HTTP/1.1 200 OK\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n{:x}\r\n", response_size)).get();
+                        out.flush().get();
+                      }
                         out.write(sstring(response_size / 2, 'a')).get();
                         out.flush().get();
 
                         out.write(sstring(response_size / 2, 'a')).get();
                         out.flush().get();
+
+                      if (chunked) {
+                        out.write(format("\r\n0\r\n\r\n")).get();
+                        out.flush().get();
+                      }
                     } catch (...) {
                         break;
                     }
@@ -2059,7 +2075,7 @@ future<> test_client_close_connection(bool chunked) {
             response_size = size;
             auto ss = lcf.get_server_socket();
             auto server = ss.accept().then(make_response);
-            if (size > 128_KiB) {
+            if (size > 128_KiB && !chunked) {
                 // In this case the client is going to reset the connection so we have to `accept` again
                 server = server.then([&ss, &make_response] { return ss.accept().then(make_response); });
             }
@@ -2072,4 +2088,8 @@ future<> test_client_close_connection(bool chunked) {
 
 SEASTAR_TEST_CASE(test_client_close_connection_content_length) {
     return test_client_close_connection(false);
+}
+
+SEASTAR_TEST_CASE(test_client_close_connection_chunked) {
+    return test_client_close_connection(true);
 }
