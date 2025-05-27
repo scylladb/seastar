@@ -942,6 +942,41 @@ SEASTAR_TEST_CASE(test_client_response_eof) {
     });
 }
 
+SEASTAR_TEST_CASE(test_client_head_empty_body) {
+    return seastar::async([] {
+        loopback_connection_factory lcf(1);
+        auto ss = lcf.get_server_socket();
+        future<> server = ss.accept().then([] (accept_result ar) {
+            return seastar::async([sk = std::move(ar.connection)] () mutable {
+                input_stream<char> in = sk.input();
+                read_simple_http_request(in);
+                output_stream<char> out = sk.output();
+                out.write(format("HTTP/1.1 200 OK\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n", 128)).get();
+                out.flush().get();
+                out.close().get();
+            });
+        });
+
+        future<> client = seastar::async([&lcf] {
+            auto cln = http::experimental::client(std::make_unique<loopback_http_factory>(lcf));
+            auto req = http::request::make("HEAD", "test", "/test");
+            cln.make_request(std::move(req), [] (const http::reply& rep, input_stream<char>&& in) {
+                return seastar::async([&rep, in = std::move(in)] () mutable {
+                    BOOST_REQUIRE_EQUAL(rep._status, http::reply::status_type::ok);
+                    BOOST_REQUIRE_EQUAL(rep.content_length, 128);
+                    auto buf = in.read().get();
+                    BOOST_REQUIRE(buf.empty());
+                    in.close().get();
+                });
+            }).get();
+
+            cln.close().get();
+        });
+
+        when_all(std::move(client), std::move(server)).discard_result().get();
+    });
+}
+
 SEASTAR_TEST_CASE(test_client_retry_nested) {
     return seastar::async([] {
         loopback_connection_factory lcf(1);

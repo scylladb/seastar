@@ -374,9 +374,26 @@ future<> client::make_request(request& req, reply_handler& handle, std::optional
     });
 }
 
+class skip_body_source : public data_source_impl {
+public:
+    skip_body_source(reply& rep) {
+        // nothing to consume here
+        rep.consumed_content = rep.content_length;
+        http_log.trace("Skipping HEAD reply body");
+    }
+
+    virtual future<temporary_buffer<char>> skip(uint64_t n) override {
+        return make_ready_future<temporary_buffer<char>>();
+    }
+
+    virtual future<temporary_buffer<char>> get() override {
+        return make_ready_future<temporary_buffer<char>>();
+    }
+};
+
 future<> client::do_make_request(connection& con, request& req, reply_handler& handle, abort_source* as, std::optional<reply::status_type> expected) {
     auto sub = as ? as->subscribe([&con] () noexcept { con.shutdown(); }) : std::nullopt;
-    return con.do_make_request(req).then([this, &con, &handle, expected] (connection::reply_ptr reply) mutable {
+    return con.do_make_request(req).then([this, &con, &req, &handle, expected] (connection::reply_ptr reply) mutable {
         auto& rep = *reply;
         if (expected.has_value() && rep._status != expected.value()) {
             if (!http_log.is_enabled(log_level::debug)) {
@@ -391,7 +408,8 @@ future<> client::do_make_request(connection& con, request& req, reply_handler& h
             });
         }
 
-        return handle(rep, con.in(rep)).then([this, reply = std::move(reply), &con] {
+        auto in = req._method != "HEAD" ? con.in(rep) : input_stream<char>(data_source(std::make_unique<skip_body_source>(rep)));
+        return handle(rep, std::move(in)).then([this, reply = std::move(reply), &con] {
             if (reply->content_length > reply->consumed_content) {
                 auto bytes_left = reply->content_length - reply->consumed_content;
                 if (bytes_left <= _max_bytes_to_drain) {
