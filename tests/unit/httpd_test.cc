@@ -2295,7 +2295,13 @@ future<> test_client_close_connection(bool chunked) {
                         break;
                     }
                 }
-                out.close().get();
+                out.close().handle_exception_type([](std::system_error& ex){
+                    if (ex.code().value() == EPIPE) {
+                        return make_ready_future<>();
+                    } else {
+                        return make_exception_future<>(ex);
+                    }
+                }).get();
             });
         };
 
