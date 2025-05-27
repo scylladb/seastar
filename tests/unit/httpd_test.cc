@@ -2051,7 +2051,7 @@ future<> test_client_close_connection(bool chunked) {
                         break;
                     }
                 }
-                out.close().get();
+                out.close().handle_exception([](auto ex){}).get();
             });
         };
 
