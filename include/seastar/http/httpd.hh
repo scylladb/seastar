@@ -74,7 +74,6 @@ class connection : public boost::intrusive::list_base_hook<> {
     static constexpr size_t limit = 4096;
     using tmp_buf = temporary_buffer<char>;
     http_request_parser _parser;
-    std::unique_ptr<http::request> _req;
     std::unique_ptr<http::reply> _resp;
     // null element marks eof
     queue<std::unique_ptr<http::reply>> _replies { 10 };
