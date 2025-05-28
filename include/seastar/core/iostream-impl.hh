@@ -141,10 +141,6 @@ future<> output_stream<CharType>::write(net::packet p) noexcept {
 template<typename CharType>
 future<> output_stream<CharType>::write(temporary_buffer<CharType> p) noexcept {
   try {
-    if (p.empty()) {
-        return make_ready_future<>();
-    }
-    SEASTAR_ASSERT(!_end && "Mixing buffered writes and zero-copy writes not supported yet");
     return write(net::packet(std::move(p)));
   } catch (...) {
     return current_exception_as_future();
