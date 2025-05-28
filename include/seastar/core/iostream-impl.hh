@@ -116,7 +116,12 @@ future<> output_stream<CharType>::write(net::packet p) noexcept {
     static_assert(std::is_same_v<CharType, char>, "packet works on char");
   try {
     if (p.len() != 0) {
-        SEASTAR_ASSERT(!_end && "Mixing buffered writes and zero-copy writes not supported yet");
+        if (_end) {
+            _buf.trim(_end);
+            _end = 0;
+            SEASTAR_ASSERT(!_zc_bufs);
+            _zc_bufs = net::packet(std::move(_buf));
+        }
 
         if (_zc_bufs) {
             _zc_bufs.append(std::move(p));
