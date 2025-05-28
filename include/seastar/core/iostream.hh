@@ -58,6 +58,10 @@ namespace seastar {
 SEASTAR_MODULE_EXPORT_BEGIN
 
 namespace net { class packet; }
+namespace testing {
+class input_stream_test;
+class output_stream_test;
+}
 
 class data_source_impl {
 public:
@@ -371,6 +375,7 @@ public:
     data_source detach() &&;
 private:
     future<temporary_buffer<CharType>> read_exactly_part(size_t n) noexcept;
+    friend class testing::input_stream_test;
 };
 
 struct output_stream_options {
@@ -495,6 +500,7 @@ public:
             bi::member_hook<output_stream, bi::slist_member_hook<>, &output_stream::_in_poller>>;
 private:
     friend class reactor;
+    friend class testing::output_stream_test;
 };
 
 /*!
