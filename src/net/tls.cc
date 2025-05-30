@@ -1172,6 +1172,17 @@ public:
             gtls_chk(gnutls_session_set_data(*this, _options.session_resume_data.data(), _options.session_resume_data.size()));
         }
         _options.session_resume_data.clear(); // no need to keep around
+
+        // ALPN Setup - Client side
+        if (_type == type::CLIENT && !_options.alpn_protocols.empty()) {
+            std::vector<gnutls_datum_t> alpn_datums;
+            alpn_datums.reserve(_options.alpn_protocols.size());
+            for (const auto& p_str : _options.alpn_protocols) {
+                alpn_datums.push_back({const_cast<unsigned char*>(reinterpret_cast<const unsigned char*>(p_str.data())),
+                                       static_cast<unsigned int>(p_str.size())});
+            }
+            gtls_chk(gnutls_alpn_set_protocols(*this, alpn_datums.data(), alpn_datums.size(), 0));
+        }
     }
     session(type t, shared_ptr<certificate_credentials> creds,
             connected_socket sock,
@@ -1830,6 +1841,17 @@ public:
         });
     }
 
+    future<std::optional<sstring>> get_selected_alpn_protocol() {
+        return state_checked_access([this]() -> std::optional<sstring> {
+            gnutls_datum_t selected_proto_datum = { nullptr, 0 };
+            int rv = gnutls_alpn_get_selected_protocol(*this, &selected_proto_datum);
+            if (rv != 0) {
+                return std::nullopt;
+            }
+            return {{reinterpret_cast<const char*>(selected_proto_datum.data), selected_proto_datum.size}};
+        });
+    }
+
     struct session_ref;
 private:
 
@@ -1973,6 +1995,9 @@ public:
     }
     future<session_data> get_session_resume_data() {
         return _session->get_session_resume_data();
+    }
+    future<std::optional<sstring>> get_selected_alpn_protocol() {
+        return _session->get_selected_alpn_protocol();
     }
 };
 
@@ -2166,6 +2191,10 @@ future<bool> tls::check_session_is_resumed(connected_socket& socket) {
 
 future<tls::session_data> tls::get_session_resume_data(connected_socket& socket) {
     return get_tls_socket(socket)->get_session_resume_data();
+}
+
+future<std::optional<sstring>> tls::get_selected_alpn_protocol(connected_socket& socket) {
+    return get_tls_socket(socket)->get_selected_alpn_protocol();
 }
 
 std::string_view tls::format_as(subject_alt_name_type type) {

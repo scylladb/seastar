@@ -365,6 +365,10 @@ namespace tls {
         /// \brief Optional session resume data. Must be retrieved via
         /// get_session_resume_data below.
         session_data session_resume_data;
+
+        /// \brief Optional list of ALPN protocols to offer to the server,
+        /// in order of preference.
+        std::vector<sstring> alpn_protocols;
     };
 
     /**
@@ -536,6 +540,15 @@ namespace tls {
      * delay this call to sometime before shutting down/closing the socket.
     */
     future<session_data> get_session_resume_data(connected_socket&);
+
+    /**
+     * Gets the Application-Layer Protocol Name (ALPN) selected during the TLS handshake.
+     * Will force handshake if not already done.
+     *
+     * If the socket is not connected a system_error exception will be thrown.
+     * If the socket is not a TLS socket an exception will be thrown.
+    */
+    future<std::optional<sstring>> get_selected_alpn_protocol(connected_socket&);
 
     std::ostream& operator<<(std::ostream&, const subject_alt_name::value_type&);
     std::ostream& operator<<(std::ostream&, const subject_alt_name&);

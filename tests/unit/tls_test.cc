@@ -210,6 +210,27 @@ SEASTAR_TEST_CASE(test_x509_client_with_system_trust_and_priority_strings_fail,
     });
 }
 
+SEASTAR_TEST_CASE(test_alpn_client_negotiate_h2_with_google,
+                  *enable_if_with_networking()) {
+    auto addr = co_await google_address();
+    auto certs = ::make_shared<tls::certificate_credentials>();
+    co_await certs->set_system_trust();
+
+    tls::tls_options client_tls_options;
+    client_tls_options.server_name = google_name; // For SNI
+    client_tls_options.alpn_protocols = {"h2", "http/1.1"}; // Offer h2 first
+
+    auto c = co_await tls::connect(certs, addr, client_tls_options);
+    auto selected_alpn = co_await tls::get_selected_alpn_protocol(c);
+    BOOST_CHECK(selected_alpn.has_value());
+    BOOST_CHECK(*selected_alpn == "h2" || *selected_alpn == "http/1.1");
+    BOOST_TEST_MESSAGE(fmt::format("Google selected ALPN: {}", *selected_alpn).c_str());
+    if (*selected_alpn != "h2") {
+        BOOST_TEST_MESSAGE("Warning: Google did not select 'h2'. Selected: " + *selected_alpn);
+    }
+    co_return;
+}
+
 class https_server {
     const sstring _cert;
     const std::string _addr = "127.0.0.1";
