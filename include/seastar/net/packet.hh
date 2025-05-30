@@ -310,7 +310,7 @@ public:
         });
         return ret;
     }
-    explicit operator bool() noexcept {
+    explicit operator bool() const noexcept {
         return bool(_impl);
     }
     static packet make_null_packet() noexcept {

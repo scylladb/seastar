@@ -157,3 +157,46 @@ SEASTAR_THREAD_TEST_CASE(test_simple_write) {
     BOOST_REQUIRE_EQUAL(buf.size(), 1);
     BOOST_REQUIRE_EQUAL(sstring(buf.front().get(), buf.front().size()), value);
 }
+
+namespace seastar::testing {
+
+class output_stream_test {
+public:
+    static bool has_buffer(const ::output_stream<char>& out) {
+        return out._end;
+    }
+    static bool has_zc(const ::output_stream<char>& out) {
+        return (bool)out._zc_bufs;
+    }
+};
+
+}
+
+SEASTAR_THREAD_TEST_CASE(test_mixed_mode_write) {
+    auto vec = std::vector<net::packet>{};
+    auto out = output_stream<char>(data_sink(std::make_unique<vector_data_sink>(vec)), 8);
+
+    // First -- put some data in "buffered" mode and check that
+    // stream gains a buffer but not a zc packet
+    out.write("te", 2).get();
+    BOOST_REQUIRE(testing::output_stream_test::has_buffer(out) && !testing::output_stream_test::has_zc(out));
+    // Second -- append some zero-copy buffer and check that the
+    // buffer disappears in favor of a bunch of zc packets (implementation detail, but still)
+    out.write(temporary_buffer<char>("st", 2)).get();
+    BOOST_REQUIRE(!testing::output_stream_test::has_buffer(out) && testing::output_stream_test::has_zc(out));
+
+    // Finally -- all data must go away after flush
+    out.flush().get();
+    BOOST_REQUIRE(!testing::output_stream_test::has_buffer(out) && !testing::output_stream_test::has_zc(out));
+
+    out.close().get();
+
+    auto packets = net::packet{};
+    for (auto& p : vec) {
+        packets.append(std::move(p));
+    }
+    packets.linearize();
+    auto buf = packets.release();
+    BOOST_REQUIRE_EQUAL(buf.size(), 1);
+    BOOST_REQUIRE_EQUAL(sstring(buf.front().get(), buf.front().size()), "test");
+}
