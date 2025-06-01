@@ -24,6 +24,7 @@
 #ifndef SEASTAR_MODULE
 #include <algorithm>
 #include <cstddef>
+#include <cstring>
 #include <string_view>
 #include <malloc.h>
 #endif
@@ -225,7 +226,7 @@ public:
             throw std::bad_alloc();
         }
         auto buf = static_cast<CharType*>(ptr);
-        memcpy(buf, view.data(), view.size());
+        std::memcpy(buf, view.data(), view.size());
         return temporary_buffer(buf, view.size(), make_free_deleter(buf));
     }
 
