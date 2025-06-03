@@ -650,6 +650,10 @@ private:
     bool queue_timer(timer<manual_clock>*) noexcept;
     void del_timer(timer<manual_clock>*) noexcept;
 
+    bool pollers_enter_interrupt_mode();
+    void pollers_exit_interrupt_mode();
+    void wait_and_process_events();
+
     future<> run_exit_tasks();
     void stop();
     friend class pollable_fd;
