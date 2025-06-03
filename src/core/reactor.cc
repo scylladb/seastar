@@ -2139,7 +2139,9 @@ future<std::optional<struct group_details>> reactor::getgrnam(std::string_view n
             return wrap_syscall(ret, std::optional<struct group_details>(gd));
         });
 
-    if (sr.result != 0) {
+    // Non-existent groups may return 0, or they may return ENOENT, depending on the
+    // configuration of the system, see seastar#2793. Treat both as "not found".
+    if (sr.result != 0 && sr.result != ENOENT) {
         throw std::system_error(sr.ec());
     }
 
