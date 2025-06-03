@@ -169,7 +169,16 @@ public:
         _bytes_written = 0;
     }
     virtual future<> put(net::packet data) override {
-        return data_sink_impl::fallback_put(std::move(data));
+        auto size = data.len();
+        if (size == 0) {
+            return make_ready_future<>();
+        }
+        if (_bytes_written + size > _limit) {
+            return make_exception_future<>(std::runtime_error(format("body content length overflow: want {} limit {}", _bytes_written + size, _limit)));
+        }
+        return _out.write(std::move(data)).then([this, size] {
+            _bytes_written += size;
+        });
     }
     using data_sink_impl::put;
     virtual future<> put(temporary_buffer<char> buf) override {
