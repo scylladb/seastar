@@ -3298,15 +3298,20 @@ int reactor::do_run() {
             if (go_to_sleep) {
                 internal::cpu_relax();
                 if (idle_end - idle_start > _cfg.max_poll_time) {
-                    // Turn off the task quota timer to avoid spurious wakeups
-                    struct itimerspec zero_itimerspec = {};
-                    _task_quota_timer.timerfd_settime(0, zero_itimerspec);
-                    _cpu_stall_detector->start_sleep();
-                    try_sleep();
-                    _cpu_stall_detector->end_sleep();
-                    // We may have slept for a while, so freshen idle_end
-                    idle_end = now();
-                    _task_quota_timer.timerfd_settime(0, task_quote_itimerspec);
+                    if (pollers_enter_interrupt_mode()) {
+                        // Turn off the task quota timer to avoid spurious wakeups
+                        struct itimerspec zero_itimerspec = {};
+                        _task_quota_timer.timerfd_settime(0, zero_itimerspec);
+                        _cpu_stall_detector->start_sleep();
+
+                        wait_and_process_events();
+                        pollers_exit_interrupt_mode();
+
+                        _cpu_stall_detector->end_sleep();
+                        // We may have slept for a while, so freshen idle_end
+                        idle_end = now();
+                        _task_quota_timer.timerfd_settime(0, task_quote_itimerspec);
+                    }
                 }
             } else {
                 // We previously ran pure_check_for_work(), might not actually have performed
@@ -3323,24 +3328,40 @@ int reactor::do_run() {
     return _return;
 }
 
-
-void
-reactor::try_sleep() {
+bool
+reactor::pollers_enter_interrupt_mode() {
     for (auto i = _pollers.begin(); i != _pollers.end(); ++i) {
         auto ok = (*i)->try_enter_interrupt_mode();
         if (!ok) {
             while (i != _pollers.begin()) {
                 (*--i)->exit_interrupt_mode();
             }
-            return;
+            return false;
         }
     }
 
-    _backend->wait_and_process_events(&_active_sigmask);
+    return true;
+}
 
+void
+reactor::pollers_exit_interrupt_mode() {
     for (auto i = _pollers.rbegin(); i != _pollers.rend(); ++i) {
         (*i)->exit_interrupt_mode();
     }
+}
+
+void
+reactor::wait_and_process_events() {
+    _backend->wait_and_process_events(&_active_sigmask);
+}
+
+void
+reactor::try_sleep() {
+    if (!pollers_enter_interrupt_mode()) {
+        return;
+    }
+    wait_and_process_events();
+    pollers_exit_interrupt_mode();
 }
 
 bool
