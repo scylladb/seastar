@@ -186,25 +186,15 @@ input_stream<CharType>::read_exactly(size_t n) noexcept {
     if (_buf.size() == n) {
         // easy case: steal buffer, return to caller
         return make_ready_future<tmp_buf>(std::move(_buf));
-    } else if (_buf.size() > n) {
+    }
+    if (_buf.size() > n) {
         // buffer large enough, share it with caller
         auto front = _buf.share(0, n);
         _buf.trim_front(n);
         return make_ready_future<tmp_buf>(std::move(front));
-    } else if (_buf.size() == 0) {
-        // buffer is empty: grab one and retry
-        return _fd.get().then([this, n] (auto buf) mutable {
-            if (buf.size() == 0) {
-                _eof = true;
-                return make_ready_future<tmp_buf>(std::move(buf));
-            }
-            _buf = std::move(buf);
-            return this->read_exactly(n);
-        });
-    } else {
-        // buffer too small: start copy/read loop
-        return read_exactly_part(n);
     }
+    // buffer too small: start copy/read loop
+    return read_exactly_part(n);
 }
 
 template <typename CharType>
