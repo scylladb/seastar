@@ -3247,10 +3247,10 @@ int reactor::do_run() {
 
     bool idle = false;
 
-    std::function<bool()> check_for_work = [this] () {
+    auto check_for_work = [this] () {
         return poll_once() || have_more_tasks();
     };
-    std::function<bool()> pure_check_for_work = [this] () {
+    const noncopyable_function<bool()> pure_check_for_work = [this] () {
         return pure_poll_once() || have_more_tasks();
     };
     while (true) {
