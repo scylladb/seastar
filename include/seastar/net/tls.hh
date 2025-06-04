@@ -280,6 +280,12 @@ namespace tls {
          * a new window of TLS session keys.
         */
         void set_session_resume_mode(session_resume_mode);
+
+        /**
+         * Sets Application-Layer Protocol Name (ALPN) supported by the server,
+         * in preference order.
+         */
+        void set_alpn_protocols(const std::vector<sstring>& protocols);
     };
 
     class reloadable_credentials_base;
@@ -324,6 +330,12 @@ namespace tls {
          */
         void set_session_resume_mode(session_resume_mode);
 
+        /**
+         * Sets Application-Layer Protocol Name (ALPN) supported by the server,
+         * in preference order.
+         */
+        void set_alpn_protocols(const std::vector<sstring>& protocols);
+
         void apply_to(certificate_credentials&) const;
 
         shared_ptr<certificate_credentials> build_certificate_credentials() const;
@@ -347,6 +359,7 @@ namespace tls {
         session_resume_mode _session_resume_mode = session_resume_mode::NONE;
         sstring _priority;
         std::vector<uint8_t> _session_resume_key;
+        std::vector<sstring> _alpn_protocols;
     };
 
     using session_data = std::vector<uint8_t>;

@@ -32,6 +32,7 @@
 #include <seastar/core/gate.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/core/iostream.hh>
+#include <seastar/core/when_all.hh>
 #include <seastar/core/with_timeout.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/process.hh>
@@ -228,6 +229,38 @@ SEASTAR_TEST_CASE(test_alpn_client_negotiate_h2_with_google,
     if (*selected_alpn != "h2") {
         BOOST_TEST_MESSAGE("Warning: Google did not select 'h2'. Selected: " + *selected_alpn);
     }
+    co_return;
+}
+
+SEASTAR_TEST_CASE(test_alpn_client_server) {
+    auto certs = ::make_shared<tls::server_credentials>(::make_shared<tls::dh_params>());
+    co_await certs->set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM);
+    certs->set_alpn_protocols({"h2", "http/1.1"});
+
+    ::listen_options opts;
+    opts.reuse_address = true;
+    auto addr = ::make_ipv4_address({0x7f000001, 4712});
+    auto server = tls::listen(certs, addr, opts);
+
+    co_await when_all(
+        [server = std::move(server)]() mutable -> future<> {
+            auto s = co_await server.accept();
+            auto alpn = co_await tls::get_selected_alpn_protocol(s.connection);
+            BOOST_CHECK(alpn.has_value());
+            BOOST_CHECK_EQUAL(*alpn, "h2");
+            co_return;
+        },
+        [addr]() mutable -> future<> {
+            tls::credentials_builder b;
+            co_await b.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM);
+            tls::tls_options client_opts{.alpn_protocols = {"hx", "h2"}};
+            auto c = co_await tls::connect(b.build_certificate_credentials(), addr, client_opts);
+            auto alpn = co_await tls::get_selected_alpn_protocol(c);
+            BOOST_CHECK(alpn.has_value());
+            BOOST_CHECK_EQUAL(*alpn, "h2");
+            co_return;
+        }
+    );
     co_return;
 }
 

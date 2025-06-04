@@ -484,6 +484,10 @@ public:
         _enable_certificate_verification = enable;
     }
 
+    void set_alpn_protocols(const std::vector<sstring>& protocols) {
+        _alpn_protocols = protocols;
+    }
+
 private:
     friend class credentials_builder;
     friend class session;
@@ -510,6 +514,7 @@ private:
     dn_callback _dn_callback;
     bool _enable_certificate_verification = true;
     gnutls_datum _session_resume_key;
+    std::vector<sstring> _alpn_protocols;
 };
 
 tls::certificate_credentials::certificate_credentials()
@@ -617,6 +622,9 @@ void tls::server_credentials::set_session_resume_mode(session_resume_mode m) {
     _impl->set_session_resume_mode(m);
 }
 
+void tls::server_credentials::set_alpn_protocols(const std::vector<sstring>& protocols) {
+    _impl->set_alpn_protocols(protocols);
+}
 
 static const sstring dh_level_key = "dh_level";
 static const sstring x509_trust_key = "x509_trust";
@@ -729,6 +737,10 @@ void tls::credentials_builder::set_session_resume_mode(session_resume_mode m) {
     }
 }
 
+void tls::credentials_builder::set_alpn_protocols(const std::vector<sstring>& protocols) {
+    _alpn_protocols = protocols;
+}
+
 template<typename Blobs, typename Visitor>
 static void visit_blobs(Blobs& blobs, Visitor&& visitor) {
     auto visit = [&](const sstring& key, auto* vt) {
@@ -778,6 +790,10 @@ void tls::credentials_builder::apply_to(certificate_credentials& creds) const {
     creds._impl->set_client_auth(_client_auth);
     // Note: this causes server session key rotation on cert reload
     creds._impl->set_session_resume_mode(_session_resume_mode, std::span{_session_resume_key.begin(), _session_resume_key.end()});
+
+    if (!_alpn_protocols.empty()) {
+        creds._impl->set_alpn_protocols(_alpn_protocols);
+    }
 }
 
 shared_ptr<tls::certificate_credentials> tls::credentials_builder::build_certificate_credentials() const {
@@ -1173,11 +1189,12 @@ public:
         }
         _options.session_resume_data.clear(); // no need to keep around
 
-        // ALPN Setup - Client side
-        if (_type == type::CLIENT && !_options.alpn_protocols.empty()) {
+        // ALPN setup
+        auto& alpn_protocols = _type == type::CLIENT ? _options.alpn_protocols : _creds->_alpn_protocols;
+        if (!alpn_protocols.empty()) {
             std::vector<gnutls_datum_t> alpn_datums;
-            alpn_datums.reserve(_options.alpn_protocols.size());
-            for (const auto& p_str : _options.alpn_protocols) {
+            alpn_datums.reserve(alpn_protocols.size());
+            for (const auto& p_str : alpn_protocols) {
                 alpn_datums.push_back({const_cast<unsigned char*>(reinterpret_cast<const unsigned char*>(p_str.data())),
                                        static_cast<unsigned int>(p_str.size())});
             }
