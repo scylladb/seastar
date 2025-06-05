@@ -319,7 +319,7 @@ private:
     handle_type _coro;
     promise_type* _promise;
     Container<T> _values;
-    const size_t _buffer_capacity;
+    size_t _buffer_capacity;
     std::exception_ptr _exception;
 
 public:
