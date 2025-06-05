@@ -2,22 +2,24 @@
  * Copyright 2015 Cloudius Systems
  */
 
+#include <seastar/http/function_handlers.hh>
 #include <seastar/http/httpd.hh>
 #include <seastar/http/handlers.hh>
 #include <seastar/http/matcher.hh>
 #include <seastar/http/matchrules.hh>
-#include <seastar/json/formatter.hh>
+#include <seastar/http/reply.hh>
 #include <seastar/http/routes.hh>
 #include <seastar/http/exception.hh>
 #include <seastar/http/transformers.hh>
+#include <seastar/json/formatter.hh>
 #include <seastar/core/do_with.hh>
+#include <seastar/core/future.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/core/when_all.hh>
 #include <seastar/core/units.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include "loopback_socket.hh"
-#include "seastar/http/reply.hh"
 #include <boost/algorithm/string.hpp>
 #include <seastar/core/thread.hh>
 #include <seastar/util/noncopyable_function.hh>
@@ -286,6 +288,20 @@ SEASTAR_TEST_CASE(test_routes) {
         std::get<2>(fs).get();
         std::get<3>(fs).get();
     });
+}
+
+SEASTAR_THREAD_TEST_CASE(test_text_route) {
+    routes route;
+    route.add(operation_type::GET, url("/hello"), new function_handler([](const_req req) {
+        return "hello, you";
+    }, "txt"));
+
+    auto reply = route.handle("/hello", std::make_unique<http::request>(),
+            std::make_unique<http::reply>()).get();
+    
+    BOOST_CHECK_EQUAL((int )reply->_status, (int )http::reply::status_type::ok);
+    BOOST_CHECK_EQUAL(reply->_headers["Content-Type"], "text/plain");
+    BOOST_CHECK_EQUAL(reply->_content, "hello, you");
 }
 
 SEASTAR_TEST_CASE(test_json_path) {
