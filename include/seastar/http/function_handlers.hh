@@ -82,7 +82,8 @@ public:
     function_handler(const request_function & _handle, const sstring& type)
             : _f_handle(
                     [_handle](std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) {
-                        return append_result(std::move(rep), _handle(*req.get()));
+                        rep->_content += _handle(*req.get());
+                        return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
                     }), _type(type) {
     }
 
