@@ -21,6 +21,7 @@
 
 #pragma once
 
+#include <concepts>
 #include <seastar/http/handlers.hh>
 #include <functional>
 #include <seastar/json/json_elements.hh>
@@ -90,7 +91,7 @@ public:
     function_handler(const json_request_function& _handle)
             : _f_handle(
                     [_handle](std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) {
-                        return append_result(std::move(rep), _handle(*req.get()));
+                        return write_json_reply(std::move(rep), _handle(*req.get()));
                     }), _type("json") {
     }
 
@@ -98,7 +99,7 @@ public:
             : _f_handle(
                     [_handle](std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) {
                         return _handle(std::move(req)).then([rep = std::move(rep)](json::json_return_type&& res) mutable {
-                            return append_result(std::move(rep), std::move(res));
+                            return write_json_reply(std::move(rep), std::move(res));
                         });
                     }), _type("json") {
     }
@@ -116,9 +117,9 @@ public:
 
 private:
     // send the json payload of result to reply, return the reply pointer
-    static future<std::unique_ptr<http::reply>> append_result(
+    static future<std::unique_ptr<http::reply>> write_json_reply(
         std::unique_ptr<http::reply>&& reply,
-        json::json_return_type&& result) {
+        std::same_as<json::json_return_type> auto&& result) {
         if (result._body_writer) {
             reply->write_body("json", std::move(result._body_writer));
         } else {
