@@ -280,6 +280,12 @@ namespace tls {
          * a new window of TLS session keys.
         */
         void set_session_resume_mode(session_resume_mode);
+
+        /**
+         * Sets Application-Layer Protocol Name (ALPN) supported by the server,
+         * in preference order.
+         */
+        void set_alpn_protocols(const std::vector<sstring>& protocols);
     };
 
     class reloadable_credentials_base;
@@ -324,6 +330,12 @@ namespace tls {
          */
         void set_session_resume_mode(session_resume_mode);
 
+        /**
+         * Sets Application-Layer Protocol Name (ALPN) supported by the server,
+         * in preference order.
+         */
+        void set_alpn_protocols(const std::vector<sstring>& protocols);
+
         void apply_to(certificate_credentials&) const;
 
         shared_ptr<certificate_credentials> build_certificate_credentials() const;
@@ -347,6 +359,7 @@ namespace tls {
         session_resume_mode _session_resume_mode = session_resume_mode::NONE;
         sstring _priority;
         std::vector<uint8_t> _session_resume_key;
+        std::vector<sstring> _alpn_protocols;
     };
 
     using session_data = std::vector<uint8_t>;
@@ -365,6 +378,10 @@ namespace tls {
         /// \brief Optional session resume data. Must be retrieved via
         /// get_session_resume_data below.
         session_data session_resume_data;
+
+        /// \brief Optional list of ALPN protocols to offer to the server,
+        /// in order of preference.
+        std::vector<sstring> alpn_protocols;
     };
 
     /**
@@ -536,6 +553,15 @@ namespace tls {
      * delay this call to sometime before shutting down/closing the socket.
     */
     future<session_data> get_session_resume_data(connected_socket&);
+
+    /**
+     * Gets the Application-Layer Protocol Name (ALPN) selected during the TLS handshake.
+     * Will force handshake if not already done.
+     *
+     * If the socket is not connected a system_error exception will be thrown.
+     * If the socket is not a TLS socket an exception will be thrown.
+    */
+    future<std::optional<sstring>> get_selected_alpn_protocol(connected_socket&);
 
     std::ostream& operator<<(std::ostream&, const subject_alt_name::value_type&);
     std::ostream& operator<<(std::ostream&, const subject_alt_name&);
