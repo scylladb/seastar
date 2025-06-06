@@ -563,6 +563,7 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
             fprintln(hfile, "struct ", model_name, " : public json::json_base {")
             member_init = ''
             member_assignment = ''
+            member_move_assignment = ''
             member_copy = ''
             for member_name in model["properties"]:
                 member = model["properties"][member_name]
@@ -576,6 +577,7 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
                     fprintln(hfile, f"    {config.jsonns}::{type_name} {member_name};\n")
                 member_init += f'add(&{member_name}, "{member_name}");\n'
                 member_assignment += f'{member_name} = e.{member_name};\n'
+                member_move_assignment += f'{member_name} = std::move(e.{member_name});\n'
                 member_copy += f'e.{member_name} = {member_name} ;\n'
 
             functions = Template('''
@@ -589,6 +591,10 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
         register_params();
         $member_assignment
     }
+    $model_name($model_name&& e) {
+        register_params();
+        $member_move_assignment
+    }
     template<class T>
     $model_name& operator=(const T& e) {
         $member_assignment
@@ -598,6 +604,10 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
         $member_assignment
         return *this;
     }
+    $model_name& operator=($model_name&& e) {
+        $member_move_assignment
+        return *this;
+    }
     template<class T>
     $model_name& update(T& e) {
         $member_copy
@@ -605,6 +615,7 @@ def create_h_file(data, hfile_name, api_name, init_method, base_api):
     }''').substitute(model_name=model_name,
                      member_init=indent(member_init),
                      member_assignment=indent(member_assignment),
+                     member_move_assignment=indent(member_move_assignment),
                      member_copy=indent(member_copy))
             fprintln(hfile, functions.lstrip('\n'))
             fprintln(hfile, "};\n\n")
