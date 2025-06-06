@@ -104,6 +104,7 @@ struct evaluation_directory {
     unsigned _force_io_depth;
     uint64_t _available_space;
     uint64_t _min_data_transfer_size = 512;
+    uint64_t _max_iop_size = 256 * 4096;
     unsigned _disks_per_array = 0;
 
     void scan_device(unsigned dev_maj, unsigned dev_min) {
@@ -137,6 +138,10 @@ struct evaluation_directory {
                 auto queue_dir = sys_file / "queue";
                 auto disk_min_io_size = read_first_line_as<uint64_t>(queue_dir / "minimum_io_size");
 
+                auto max_sectors_kb = read_first_line_as<uint64_t>(queue_dir / "max_sectors_kb") * 1024;
+                auto max_hw_sectors_kb = read_first_line_as<uint64_t>(queue_dir / "max_hw_sectors_kb") * 1024;
+
+                _max_iop_size = std::min(_max_iop_size, std::min(max_hw_sectors_kb, max_sectors_kb));
                 _min_data_transfer_size = std::max(_min_data_transfer_size, disk_min_io_size);
                 _max_iodepth += read_first_line_as<uint64_t>(queue_dir / "nr_requests");
                 _disks_per_array++;
@@ -498,14 +503,22 @@ public:
         });
     }
 
+    size_t calculate_read_buffer_size(pattern access_pattern, size_t buffer_size) {
+        return calculate_buffer_size(access_pattern, buffer_size, _file.disk_read_dma_alignment());
+    }
+
+    size_t calculate_write_buffer_size(pattern access_pattern, size_t buffer_size) {
+        return calculate_buffer_size(access_pattern, buffer_size, _file.disk_write_dma_alignment());
+    }
+
     future<io_rates> read_workload(size_t buffer_size, pattern access_pattern, unsigned max_os_concurrency, std::chrono::duration<double> duration, std::vector<unsigned>& rates) {
-        buffer_size = calculate_buffer_size(access_pattern, buffer_size, _file.disk_read_dma_alignment());
+        buffer_size = calculate_read_buffer_size(access_pattern, buffer_size);
         auto worker = std::make_unique<io_worker>(buffer_size, duration, std::make_unique<read_request_issuer>(_file), get_position_generator(buffer_size, access_pattern), rates);
         return do_workload(std::move(worker), max_os_concurrency);
     }
 
     future<io_rates> write_workload(size_t buffer_size, pattern access_pattern, unsigned max_os_concurrency, std::chrono::duration<double> duration, std::vector<unsigned>& rates) {
-        buffer_size = calculate_buffer_size(access_pattern, buffer_size, _file.disk_write_dma_alignment());
+        buffer_size = calculate_write_buffer_size(access_pattern, buffer_size);
         auto worker = std::make_unique<io_worker>(buffer_size, duration, std::make_unique<write_request_issuer>(_file), get_position_generator(buffer_size, access_pattern), rates);
         bool update_file_size = worker->is_sequential();
         return do_workload(std::move(worker), max_os_concurrency, update_file_size).then([this] (io_rates r) {
@@ -635,6 +648,17 @@ public:
         : _test_directory(dir)
         , _random_io_buffer_size(random_io_buffer_size)
     {}
+
+    uint64_t min_rand_buffer_size(size_t buffer_size) {
+        auto read_buffer_size = _iotune_test_file.invoke_on(0, [buffer_size](test_file& tf) {
+            return tf.calculate_read_buffer_size(test_file::pattern::random, buffer_size);
+        }).get();
+        auto write_buffer_size = _iotune_test_file.invoke_on(0, [buffer_size](test_file& tf) {
+            return tf.calculate_write_buffer_size(test_file::pattern::random, buffer_size);
+        }).get();
+
+        return std::min(read_buffer_size, write_buffer_size);
+    }
 };
 
 struct disk_descriptor {
@@ -645,6 +669,8 @@ struct disk_descriptor {
     uint64_t write_bw;
     std::optional<uint64_t> read_sat_len;
     std::optional<uint64_t> write_sat_len;
+    uint64_t min_iop_size;
+    uint64_t max_iop_size;
 };
 
 void string_to_file(sstring conf_file, sstring buf) {
@@ -683,6 +709,8 @@ void write_property_file(sstring conf_file, std::vector<disk_descriptor> disk_de
         if (desc.write_sat_len) {
             out << YAML::Key << "write_saturation_length" << YAML::Value << *desc.write_sat_len;
         }
+        out << YAML::Key << "min_iop_size" << YAML::Value << desc.min_iop_size;
+        out << YAML::Key << "max_iop_size" << YAML::Value << desc.max_iop_size;
         out << YAML::EndMap;
     }
     out << YAML::EndSeq;
@@ -896,6 +924,8 @@ int main(int ac, char** av) {
                 desc.write_iops = write_iops.iops;
                 desc.write_bw = write_bw.bytes_per_sec;
                 desc.write_sat_len = write_sat;
+                desc.max_iop_size = test_directory._max_iop_size;
+                desc.min_iop_size = iotune_tests.min_rand_buffer_size(test_directory.minimum_io_size());
                 disk_descriptors.push_back(std::move(desc));
             }
 
