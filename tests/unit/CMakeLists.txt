@@ -416,10 +416,8 @@ seastar_add_test (simple_stream
   KIND BOOST
   SOURCES simple_stream_test.cc)
 
-# TODO: Disabled for now. See GH-520.
-# seastar_add_test (slab
-#   SOURCES slab_test.cc
-#   NO_SEASTAR_TESTING_LIBRARY)
+seastar_add_test (slab
+  SOURCES slab_test.cc)
 
 seastar_add_app_test (smp
   SOURCES smp_test.cc)

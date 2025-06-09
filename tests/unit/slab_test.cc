@@ -118,10 +118,41 @@ static void test_allocation_with_lru(const double growth_factor, const unsigned 
     std::cout << __FUNCTION__ << " done!\n";
 }
 
+static void test_limit_is_violated_by_new_class(const double growth_factor, const unsigned slab_limit_size) {
+    slab_allocator<item> slab(growth_factor, slab_limit_size, max_object_size);
+
+    // Exhaust the slab page limit using the largest possible object size.
+    // This will consume all `_available_slab_pages`.
+    const size_t large_size = max_object_size;
+    SEASTAR_ASSERT(slab_limit_size % large_size == 0);
+    auto pages_in_limit = slab_limit_size / large_size;
+
+    std::vector<item *> items;
+    for (auto i = 0u; i < pages_in_limit; i++) {
+        auto item = slab.create(large_size);
+        SEASTAR_ASSERT(item != nullptr); // These should succeed
+        items.push_back(item);
+    }
+
+    // Verify that the limit is enforced for the same slab class.
+    // This assertion should pass, as it does in test_allocation_1.
+    SEASTAR_ASSERT(slab.create(large_size) == nullptr);
+
+    // According to the memory limit, this should fail.
+    const size_t medium_size = 1024;
+    item* leaky_item = slab.create(medium_size);
+
+    // Assert that the allocation FAILED, proving the limit is now correctly enforced.
+    SEASTAR_ASSERT(leaky_item == nullptr);
+
+    free_vector<item>(slab, items);
+    std::cout << __FUNCTION__ << " done!\n";
+}
+
 int main(int ac, char** av) {
     test_allocation_1(1.25, 5*1024*1024);
     test_allocation_2(1.07, 5*1024*1024); // 1.07 is the growth factor used by facebook.
     test_allocation_with_lru(1.25, 5*1024*1024);
-
+    test_limit_is_violated_by_new_class(1.25, 5*1024*1024);
     return 0;
 }
