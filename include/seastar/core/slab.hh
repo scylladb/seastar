@@ -216,15 +216,19 @@ public:
         // allocate descriptor to slab page.
         slab_page_desc *desc = nullptr;
         SEASTAR_ASSERT(_size % alignment == 0);
+        auto objects = max_object_size / _size;
         try {
-            auto objects = max_object_size / _size;
             desc = new slab_page_desc(slab_page, objects, _size, _slab_class_id, slab_page_index);
         } catch (const std::bad_alloc& e) {
             ::free(slab_page);
             throw std::bad_alloc{};
         }
 
-        _free_slab_pages.push_front(*desc);
+        // Only add the page to the free list if it can hold more than one object.
+        // If it holds only one, it's already full since we are about to return it.
+        if (objects > 1) {
+            _free_slab_pages.push_front(*desc);
+        }
         insert_slab_page_desc(*desc);
 
         // first object from the allocated slab page is returned.
@@ -417,8 +421,7 @@ private:
     }
 
     inline bool can_allocate_page(slab_class<Item>& sc) {
-        return (_reclaimer && !_reclaimed) ||
-            (_available_slab_pages > 0 || sc.has_no_slab_pages());
+        return (_reclaimer && !_reclaimed) || (_available_slab_pages > 0);
     }
 public:
     slab_allocator(double growth_factor, uint64_t limit, uint64_t max_object_size)
