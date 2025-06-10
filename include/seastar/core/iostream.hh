@@ -387,9 +387,28 @@ struct output_stream_options {
 ///
 /// The data sink will not receive empty chunks.
 ///
+/// There are two sets of write() overloads that put data into the stream.
+/// Methods from the first set accumulate the given data into the inner buffer
+/// by copying it there. Methods from the second set take the ownership of the
+/// provided object and append it to the stream without copying the data.
+///
+/// The copying write-s are good for constructing the stream out of small pieces
+/// but are not constrained with that usage. Data of any size can be passed, and
+/// it will be correctly split and copied if needed. Below these write()s are
+/// documented to "write ... into the buffer".
+///
+/// The no-copy write-s are good for large blobs as they avoid memcpy-ing the
+/// bytes around and just pass the memory handler around. Below these write()s
+/// are documented to "append ... as zero-copy buffer".
+///
 /// \note All methods must be called sequentially.  That is, no method
 /// may be invoked before the previous method's returned future is
 /// resolved.
+///
+/// \note Bufferred and zero-copy write()-s cannot be interleaved.
+/// If the stream was written to with zero-copy buffers, it must be flushed
+/// before writing bufferred data into it. And vice-verse -- any bufferred
+/// data must be flushed too before zero-copy writing into the stream.
 template <typename CharType>
 class output_stream final {
     static_assert(sizeof(CharType) == 1, "must buffer stream of bytes");
@@ -434,16 +453,23 @@ public:
             SEASTAR_ASSERT(!_end && !_zc_bufs && "Was this stream properly closed?");
         }
     }
+    /// Writes n bytes from the memory pointed by buf into the buffer
     future<> write(const char_type* buf, size_t n) noexcept;
+    /// Writes zero-terminated string into the buffer
     future<> write(const char_type* buf) noexcept;
-
+    /// Writes the given string into the buffer
     template <typename StringChar, typename SizeType, SizeType MaxSize, bool NulTerminate>
     future<> write(const basic_sstring<StringChar, SizeType, MaxSize, NulTerminate>& s) noexcept;
+    /// Writes the given string into the buffer
     future<> write(const std::basic_string<char_type>& s) noexcept;
 
+    /// Appends the packet as zero-copy buffer
     future<> write(net::packet p) noexcept;
+    /// Appends the scattered message as zero-copy buffer
     future<> write(scattered_message<char_type> msg) noexcept;
+    /// Appends the temporary buffer as zero-copy buffer
     future<> write(temporary_buffer<char_type>) noexcept;
+
     future<> flush() noexcept;
 
     /// Flushes the stream before closing it (and the underlying data sink) to
