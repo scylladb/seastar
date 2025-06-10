@@ -298,7 +298,7 @@ SEASTAR_THREAD_TEST_CASE(test_text_route) {
 
     auto reply = route.handle("/hello", std::make_unique<http::request>(),
             std::make_unique<http::reply>()).get();
-    
+
     BOOST_CHECK_EQUAL((int )reply->_status, (int )http::reply::status_type::ok);
     BOOST_CHECK_EQUAL(reply->_headers["Content-Type"], "text/plain");
     BOOST_CHECK_EQUAL(reply->_content, "hello, you");
@@ -1379,6 +1379,61 @@ SEASTAR_TEST_CASE(test_unparsable_request) {
         server.stop().get();
     });
 }
+
+struct throwing_handler : public httpd::handler_base {
+    bool is_json;
+
+    throwing_handler(bool is_json) : is_json{is_json} {}
+
+    future<std::unique_ptr<http::reply>> handle(const sstring&,
+            std::unique_ptr<http::request>, std::unique_ptr<http::reply>) override {
+        if (is_json) {
+            throw base_exception("json error", http::reply::status_type::forbidden);
+        } else {
+            throw base_exception("text error", http::reply::status_type::forbidden, "txt");
+        }
+    }
+};
+
+void throwing_handler_test(bool is_json, sstring body_contents, sstring content_type) {
+    // Test handlers that throw either default base_exceptions, or the variation with a content type
+    loopback_connection_factory lcf(1);
+    http_server server("test");
+    loopback_socket_impl lsi(lcf);
+    httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
+    future<> client = seastar::async([&] {
+        connected_socket c_socket = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get();
+        input_stream<char> input(c_socket.input());
+        output_stream<char> output(c_socket.output());
+        output.write(sstring("GET /test HTTP/1.1\r\nHost: test\r\n\r\n")).get();
+        output.flush().get();
+        auto resp = input.read().get();
+        auto resp_str = sstring(resp.get(), resp.size());
+
+        BOOST_CHECK_MESSAGE(resp_str.contains("403 Forbidden"), resp_str);
+        BOOST_CHECK_MESSAGE(resp_str.contains(fmt::format("Content-Type: {}", content_type)), resp_str);
+        BOOST_CHECK_MESSAGE(resp_str.contains("\r\n" + body_contents), resp_str);
+
+        input.close().get();
+        output.close().get();
+    });
+
+    auto handler = new throwing_handler{is_json};
+    server._routes.put(GET, "/test", handler);
+    auto stop_server = defer([&]() noexcept -> void { server.stop().get(); });
+    server.do_accepts(0).get();
+
+    client.get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_exceptional_json) {
+    throwing_handler_test(true, R"({"message": "json error", "code": 403})", "application/json");
+}
+
+SEASTAR_THREAD_TEST_CASE(test_exceptional_text) {
+    throwing_handler_test(false, "text error", "text/plain");
+}
+
 
 struct echo_handler : public handler_base {
     bool chunked_reply;
