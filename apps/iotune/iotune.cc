@@ -319,11 +319,19 @@ public:
     }
 };
 
+std::chrono::duration<double>
+warmup_period(std::chrono::duration<double> duration) {
+    auto min_warmup = 3s;
+    auto five_percent = duration / 5;
+    return min_warmup.count() > five_percent.count() ? min_warmup : five_percent;
+}
+
 class io_worker {
     class requests_rate_meter {
         std::vector<unsigned>& _rates;
         const unsigned& _requests;
         unsigned _prev_requests = 0;
+        std::chrono::duration<double> _duration;
         timer<> _tick;
 
         static constexpr auto period = 1s;
@@ -332,6 +340,7 @@ class io_worker {
         requests_rate_meter(std::chrono::duration<double> duration, std::vector<unsigned>& rates, const unsigned& requests)
             : _rates(rates)
             , _requests(requests)
+            , _duration(duration)
             , _tick([this] {
                 _rates.push_back(_requests - _prev_requests);
                 _prev_requests = _requests;
@@ -349,6 +358,10 @@ class io_worker {
             } else {
                 _rates.push_back(_requests);
             }
+
+            // drop samples that got measured during the warm up period
+            size_t samples_to_drop = warmup_period(_duration) / period;
+            _rates.erase(_rates.begin(), _rates.begin() + std::min(samples_to_drop, _rates.size()));
         }
     };
 
@@ -376,7 +389,7 @@ public:
 
     io_worker(size_t buffer_size, std::chrono::duration<double> duration, std::unique_ptr<request_issuer> reqs, std::unique_ptr<position_generator> pos, std::vector<unsigned>& rates)
         : _buffer_size(buffer_size)
-        , _start_measuring(iotune_clock::now() + std::chrono::duration<double>(10ms))
+        , _start_measuring(iotune_clock::now() + std::chrono::duration<double>(warmup_period(duration)))
         , _end_measuring(_start_measuring + duration)
         , _end_load(_end_measuring + 10ms)
         , _last_time_seen(_start_measuring)
