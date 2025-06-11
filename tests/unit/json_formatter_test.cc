@@ -32,7 +32,7 @@
 using namespace seastar;
 using namespace json;
 
-SEASTAR_TEST_CASE(test_simple_values) {
+SEASTAR_TEST_CASE(test_values) {
     BOOST_CHECK_EQUAL("3", formatter::to_json(3));
     BOOST_CHECK_EQUAL("3", formatter::to_json(3.0));
     BOOST_CHECK_EQUAL("3.5", formatter::to_json(3.5));
@@ -86,6 +86,13 @@ struct object_json : public json_base {
       subject = e.subject;
       values = e.values;
     }
+
+    object_json(object_json&& e) noexcept {
+        register_params();
+        subject = std::move(e.subject);
+        values = std::move(e.values);
+    }
+
 };
 
 SEASTAR_TEST_CASE(test_jsonable) {
@@ -132,6 +139,27 @@ SEASTAR_THREAD_TEST_CASE(test_stream_range_as_array) {
         });
 
         mapper(std::move(out)).get();
+    }, false);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_generate_array) {
+    sstring expected = R"([{"subject":"1","values":[1]}, {"subject":"2","values":[2]}, {"subject":"3","values":[3]}])";
+    auto generate_json_values = [] () -> coroutine::experimental::generator<object_json> {
+        for (int i : {1,2,3}) {
+            object_json obj;
+            obj.subject = std::to_string(i);
+            obj.values.push(i);
+            co_yield obj;
+        }
+    };
+
+    auto gen = generate_json_values();
+    // Copy the streamer function on purpose to ensure it doesn't cause
+    // use-after-stack-return.
+    std::function<future<>(output_stream<char>&&)> streamer = generate_array(gen);
+
+    formatter_check_expected(expected, [streamer] (auto& out) {
+        streamer(std::move(out)).get();
     }, false);
 }
 
