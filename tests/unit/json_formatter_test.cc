@@ -135,6 +135,26 @@ SEASTAR_THREAD_TEST_CASE(test_stream_range_as_array) {
     }, false);
 }
 
+SEASTAR_THREAD_TEST_CASE(test_generate_array) {
+    sstring expected = R"([{"subject":"1","values":[1]}, {"subject":"2","values":[2]}, {"subject":"3","values":[3]}])";
+    auto generate_values = [] () -> coroutine::experimental::generator<int> {
+        for (int i : {1,2,3}) {
+            co_yield i;
+        }
+    };
+    auto gen = generate_values();
+    formatter_check_expected(expected, [&] (auto& out) {
+        auto mapper = generate_array(gen, [] (auto i) {
+            object_json obj;
+            obj.subject = std::to_string(i);
+            obj.values.push(i);
+            return obj;
+        });
+
+        mapper(std::move(out)).get();
+    }, false);
+}
+
 SEASTAR_THREAD_TEST_CASE(formatter_write) {
 
     formatter_check_expected("3", [] (auto &out) {
