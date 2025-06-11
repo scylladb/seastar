@@ -850,7 +850,7 @@ int main(int ac, char** av) {
                 }
                 write_bw.bytes_per_sec /= smp::count;
                 rates = iotune_tests.get_serial_rates().get();
-                fmt::print("{} MB/s{}\n", uint64_t(write_bw.bytes_per_sec / (1024 * 1024)), accuracy_msg());
+                fmt::print("{} MiB/s{}\n", uint64_t(write_bw.bytes_per_sec / (1024 * 1024)), accuracy_msg());
 
                 std::optional<uint64_t> write_sat;
 
@@ -865,7 +865,7 @@ int main(int ac, char** av) {
                 std::cout.flush();
                 auto read_bw = iotune_tests.read_sequential_data(0, sequential_buffer_size, duration * 0.1).get();
                 rates = iotune_tests.get_serial_rates().get();
-                fmt::print("{} MB/s{}\n", uint64_t(read_bw.bytes_per_sec / (1024 * 1024)), accuracy_msg());
+                fmt::print("{} MiB/s{}\n", uint64_t(read_bw.bytes_per_sec / (1024 * 1024)), accuracy_msg());
 
                 std::optional<uint64_t> read_sat;
 
