@@ -33,6 +33,9 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/json/formatter.hh>
 #include <seastar/util/modules.hh>
+#include <seastar/core/coroutine.hh>
+#include <seastar/coroutine/generator.hh>
+#include <seastar/coroutine/as_future.hh>
 
 namespace seastar {
 
@@ -366,6 +369,47 @@ std::function<future<>(output_stream<char>&&)> stream_range_as_array(Container v
         });
     };
 }
+
+/*!
+ * \brief consume values from a coroutine generator \c gen and encode the items using the \c fun mapping function
+ * onto the \c out output_stream as a json array.
+ */
+template<typename T, typename Func>
+requires requires (T val, Func aa, output_stream<char> s) { { formatter::write(s, aa(val)) } -> std::same_as<future<>>; }
+future<> generate_array_element(output_stream<char>& out, coroutine::experimental::generator<T>& gen, Func fun) {
+    bool first = true;
+    co_await out.write("[");
+    while (auto val = co_await gen()) {
+        if (first) {
+            first = false;
+        } else {
+            co_await out.write(", ");
+        }
+        co_await formatter::write(out, fun(*val));
+    }
+    co_await out.write("]");
+ }
+
+/*!
+ * \brief consume values from a coroutine generator \c gen and return a serialize function for it as a json array.
+ *
+ * To use it, pass a reference to coroutine::generator and a mapping function \x fun.
+ * For example, if gen is a coroutine::generator<std::pair<K, V>> and you want to serialize the keys:
+ *
+ * return make_ready_future<json::json_return_type>(generate_array(gen, [](const auto&i) {return i.first}));
+ *
+ * Note that \c gen is passed by reference since we need to return a copyable function but generators cannot be copied.
+ */
+template<typename T, typename Func>
+requires requires (T val, Func aa, output_stream<char> s) { { formatter::write(s, aa(val)) } -> std::same_as<future<>>; }
+std::function<future<>(output_stream<char>&&)> generate_array(coroutine::experimental::generator<T>& gen, Func&& fun) {
+    return [&gen, fun = std::forward<Func>(fun)] (output_stream<char>&& s) mutable -> future<> {
+        auto out = std::move(s);
+        auto f = co_await coroutine::as_future(generate_array_element(out, gen, std::move(fun)));
+        co_await out.close();
+        f.get();
+    };
+ }
 
 /*!
  * \brief capture an object and return a serialize function for it.
