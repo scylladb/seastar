@@ -217,11 +217,19 @@ client::client(socket_address addr, shared_ptr<tls::certificate_credentials> cre
 }
 
 client::client(std::unique_ptr<connection_factory> f, unsigned max_connections, retry_requests retry, size_t max_bytes_to_drain)
+        : client(std::move(f), max_connections, max_bytes_to_drain, std::make_unique<default_connection_reset_strategy>(retry))
+{
+}
+
+client::client(std::unique_ptr<connection_factory> f, unsigned max_connections, size_t max_bytes_to_drain, std::unique_ptr<retry_strategy<std::exception_ptr>>&& retry_strategy)
         : _new_connections(std::move(f))
         , _max_connections(max_connections)
         , _max_bytes_to_drain(max_bytes_to_drain)
-        , _retry(retry)
+        , _connection_reset_strategy(std::move(retry_strategy))
 {
+    if (!_connection_reset_strategy) {
+        _connection_reset_strategy = std::make_unique<default_connection_reset_strategy>(retry_requests::no);
+    }
 }
 
 future<client::connection_ptr> client::get_connection(abort_source* as) {
@@ -320,39 +328,6 @@ future<> client::make_request(request&& req, reply_handler&& handle, std::option
     });
 }
 
-static bool is_retryable_exception(std::exception_ptr ex) {
-    while (ex) {
-        try {
-            std::rethrow_exception(ex);
-        } catch (const std::system_error& sys_err) {
-            auto code = sys_err.code().value();
-            if (code == EPIPE || code == ECONNABORTED || code == ECONNRESET || code == GNUTLS_E_PREMATURE_TERMINATION) {
-                return true;
-            }
-            try {
-                std::rethrow_if_nested(sys_err);
-            } catch (...) {
-                ex = std::current_exception();
-                continue;
-            }
-            return false;
-        } catch (const httpd::response_parsing_exception&) {
-            return true;
-        } catch (const std::exception& e) {
-            try {
-                std::rethrow_if_nested(e);
-            } catch (...) {
-                ex = std::current_exception();
-                continue;
-            }
-            return false;
-        } catch (...) {
-            return false;
-        }
-    }
-    return false;
-}
-
 future<> client::make_request(request& req, reply_handler& handle, std::optional<reply::status_type> expected, abort_source* as) {
     return with_connection([this, &req, &handle, as, expected] (connection& con) {
         return do_make_request(con, req, handle, as, expected);
@@ -361,16 +336,17 @@ future<> client::make_request(request& req, reply_handler& handle, std::optional
             return make_exception_future<>(as->abort_requested_exception_ptr());
         }
 
-        if (!_retry || !is_retryable_exception(ex)) {
+        return _connection_reset_strategy->should_retry(ex, 0).then([this, ex, &req, &handle, as, expected](bool retry) {
+            if (retry) {
+                // The 'con' connection may not yet be freed, so the total connection
+                // count still account for it and with_new_connection() may temporarily
+                // break the limit. That's OK, the 'con' will be closed really soon
+                return with_new_connection([this, &req, &handle, as, expected](connection& con) {
+                    return do_make_request(con, req, handle, as, expected);
+                }, as);
+            }
             return make_exception_future<>(ex);
-        }
-
-        // The 'con' connection may not yet be freed, so the total connection
-        // count still account for it and with_new_connection() may temporarily
-        // break the limit. That's OK, the 'con' will be closed really soon
-        return with_new_connection([this, &req, &handle, as, expected] (connection& con) {
-            return do_make_request(con, req, handle, as, expected);
-        }, as);
+        });
     });
 }
 
