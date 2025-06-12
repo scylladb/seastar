@@ -10,7 +10,9 @@
 #include <seastar/core/future.hh>
 #include <seastar/util/bool_class.hh>
 
-namespace seastar::http::experimental {
+namespace seastar {
+SEASTAR_MODULE_EXPORT_BEGIN
+namespace http::experimental {
 
 using retry_requests = bool_class<struct retry_requests_tag>;
 
@@ -41,4 +43,6 @@ public:
     [[nodiscard]] unsigned get_max_retries() const override { return retry_requests::yes == _client_should_retry ? 1 : 0; }
 };
 
-} // namespace seastar::http::experimental
+} // namespace http::experimental
+SEASTAR_MODULE_EXPORT_END
+} // namespace seastar
