@@ -117,6 +117,7 @@ public:
     generator_promise_base& operator=(const generator_promise_base &) = delete;
     generator_promise_base(generator_promise_base &&) noexcept = default;
     generator_promise_base& operator=(generator_promise_base &&) noexcept = default;
+    virtual ~generator_promise_base() = default;
 
     // lazily-started coroutine, do not execute the coroutine until
     // the coroutine is awaited.
@@ -513,6 +514,7 @@ public:
     generator_promise_base& operator=(const generator_promise_base &) = delete;
     generator_promise_base(generator_promise_base &&) noexcept = default;
     generator_promise_base& operator=(generator_promise_base &&) noexcept = default;
+    virtual ~generator_promise_base() = default;
 
     // lazily-started coroutine, do not execute the coroutine until
     // the coroutine is awaited.
