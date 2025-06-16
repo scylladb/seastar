@@ -638,15 +638,18 @@ private:
         });
     }
 
-    void emit_one_metrics(YAML::Emitter& out, sstring m_name) {
+    void emit_one_metrics(YAML::Emitter& out, sstring m_name, bool check_class_metrics = true) {
         const auto& values = seastar::metrics::impl::get_value_map();
         const auto& mf = values.find(m_name);
         SEASTAR_ASSERT(mf != values.end());
         for (auto&& mi : mf->second) {
-            auto&& cname = mi.first.labels().find("class");
-            if (cname != mi.first.labels().end() && cname->second == name()) {
-                out << YAML::Key << m_name << YAML::Value << mi.second->get_function()().d();
+            if (check_class_metrics) {
+                auto&& cname = mi.first.labels().find("class");
+                if (cname == mi.first.labels().end() || cname->second != name()) {
+                    continue;
+                }
             }
+            out << YAML::Key << m_name << YAML::Value << mi.second->get_function()().d();
         }
     }
 
@@ -658,6 +661,7 @@ private:
         emit_one_metrics(out, "io_queue_consumption");
         emit_one_metrics(out, "io_queue_adjusted_consumption");
         emit_one_metrics(out, "io_queue_activations");
+        emit_one_metrics(out, "reactor_aio_outsizes", false);
     }
 
 public:
