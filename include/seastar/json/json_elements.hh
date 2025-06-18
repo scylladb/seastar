@@ -374,9 +374,9 @@ std::function<future<>(output_stream<char>&&)> stream_range_as_array(Container v
  * \brief consume values from a coroutine generator \c gen and encode the items using the \c fun mapping function
  * onto the \c out output_stream as a json array.
  */
-template<typename T, typename Func>
+template<typename T, template<typename> class Container, typename Func>
 requires requires (T val, Func aa, output_stream<char> s) { { formatter::write(s, aa(val)) } -> std::same_as<future<>>; }
-future<> generate_array_element(output_stream<char>& out, coroutine::experimental::generator<T>& gen, Func fun) {
+future<> generate_array_element(output_stream<char>& out, coroutine::experimental::generator<T, Container>& gen, Func fun) {
     bool first = true;
     co_await out.write("[");
     while (auto val = co_await gen()) {
@@ -402,9 +402,9 @@ future<> generate_array_element(output_stream<char>& out, coroutine::experimenta
  * Note that \c gen is passed by reference since we need to return a copyable function but generators cannot be copied.
  * So the caller is responsible for ensuring that the generator remains valid for the lifetime of the returned function.
  */
-template<typename T, typename Func>
+template<typename T, template<typename> class Container, typename Func>
 requires requires (T val, Func aa, output_stream<char> s) { { formatter::write(s, aa(val)) } -> std::same_as<future<>>; }
-std::function<future<>(output_stream<char>&&)> generate_array(coroutine::experimental::generator<T>& gen, Func&& fun) {
+std::function<future<>(output_stream<char>&&)> generate_array(coroutine::experimental::generator<T, Container>& gen, Func&& fun) {
     return [&gen, fun = std::forward<Func>(fun)] (output_stream<char>&& s) mutable -> future<> {
         auto out = std::move(s);
         auto f = co_await coroutine::as_future(generate_array_element(out, gen, std::move(fun)));
