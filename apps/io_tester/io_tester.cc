@@ -263,6 +263,7 @@ struct job_config {
 };
 
 std::array<double, 4> quantiles = { 0.5, 0.95, 0.99, 0.999};
+std::array<double, 2> quantiles_short = { 0.5, 0.9 };
 static bool keep_files = false;
 
 future<> maybe_remove_file(sstring fname) {
@@ -556,6 +557,8 @@ public:
 class io_class_data : public class_data {
 protected:
     bool _is_dev_null = false;
+    timer<> _queue_length_timer;
+    accumulator_type _disk_queue_lengths;
 
     future<size_t> on_io_completed(future<size_t> f) {
         if (!_is_dev_null) {
@@ -568,9 +571,25 @@ protected:
     }
 
 public:
-    io_class_data(job_config cfg) : class_data(std::move(cfg)) {}
+    io_class_data(job_config cfg)
+            : class_data(std::move(cfg))
+            , _queue_length_timer([this] { update_queue_length(); })
+            , _disk_queue_lengths(extended_p_square_probabilities = quantiles_short)
+    {}
 
     future<> do_start(sstring path, directory_entry_type type) override {
+        return do_start_path(std::move(path), type).then([this] {
+            _queue_length_timer.arm(std::chrono::steady_clock::now() + 500ms, 200ms);
+        });
+    }
+
+private:
+    void update_queue_length() {
+        unsigned qlen = get_one_metrics("io_queue_disk_queue_length").value();
+        _disk_queue_lengths(qlen);
+    }
+
+    future<> do_start_path(sstring path, directory_entry_type type) {
         if (type == directory_entry_type::directory) {
             return do_start_on_directory(path);
         }
@@ -586,7 +605,6 @@ public:
         throw std::runtime_error(format("Unsupported storage. {} should be directory or block device", path));
     }
 
-private:
     future<> do_start_on_directory(sstring dir) {
         auto fname = format("{}/test-{}-{:d}", dir, name(), this_shard_id());
         auto flags = open_flags::rw | open_flags::create;
@@ -638,7 +656,7 @@ private:
         });
     }
 
-    void emit_one_metrics(YAML::Emitter& out, sstring m_name, bool check_class_metrics = true) {
+    std::optional<double> get_one_metrics(sstring m_name, bool check_class_metrics = true) {
         const auto& values = seastar::metrics::impl::get_value_map();
         const auto& mf = values.find(m_name);
         SEASTAR_ASSERT(mf != values.end());
@@ -649,7 +667,14 @@ private:
                     continue;
                 }
             }
-            out << YAML::Key << m_name << YAML::Value << mi.second->get_function()().d();
+            return mi.second->get_function()().d();
+        }
+        return {};
+    }
+
+    void emit_one_metrics(YAML::Emitter& out, sstring m_name, bool check_class_metrics = true) {
+        if (auto v = get_one_metrics(m_name, check_class_metrics); v.has_value()) {
+            out << YAML::Key << m_name << YAML::Value << *v;
         }
     }
 
@@ -681,6 +706,13 @@ public:
         out << YAML::Key << "stats" << YAML::BeginMap;
         out << YAML::Key << "total_requests" << YAML::Value << requests();
         emit_metrics(out);
+        out << YAML::Key << "disk_queue_length";
+        out << YAML::BeginMap;
+        for (auto& q: quantiles_short) {
+            out << YAML::Key << fmt::format("p{}", q) << YAML::Value << (unsigned)quantile(_disk_queue_lengths, quantile_probability = q);
+        }
+        out << YAML::Key << "max" << YAML::Value << (unsigned)max(_disk_queue_lengths);
+        out << YAML::EndMap;
         out << YAML::EndMap;
     }
 };
