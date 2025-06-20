@@ -56,6 +56,13 @@ routes::~routes() {
 
 }
 
+namespace internal {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+using json_exception = seastar::httpd::json_exception;
+#pragma GCC diagnostic pop
+} // internal namespace
+
 std::unique_ptr<http::reply> routes::exception_reply(std::exception_ptr eptr) {
     auto rep = std::make_unique<http::reply>();
     try {
@@ -76,10 +83,10 @@ std::unique_ptr<http::reply> routes::exception_reply(std::exception_ptr eptr) {
        rep.reset(new http::reply());
        rep->add_header("Location", _e.url).set_status(_e.status());
     } catch (const base_exception& e) {
-        rep->set_status(e.status(), json_exception(e).to_json());
+        rep->set_status(e.status(), internal::json_exception(e).to_json());
     } catch (...) {
         rep->set_status(http::reply::status_type::internal_server_error,
-                json_exception(std::current_exception()).to_json());
+                internal::json_exception(std::current_exception()).to_json());
     }
 
     rep->done("json");
@@ -99,7 +106,7 @@ future<std::unique_ptr<http::reply> > routes::handle(const sstring& path, std::u
         }
     } else {
         rep.reset(new http::reply());
-        json_exception ex(not_found_exception("Not found"));
+        internal::json_exception ex(not_found_exception("Not found"));
         rep->set_status(http::reply::status_type::not_found, ex.to_json()).done(
                 "json");
     }

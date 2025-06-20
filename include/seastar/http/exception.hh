@@ -127,7 +127,7 @@ public:
     explicit response_parsing_exception(const std::string& msg) : server_error_exception(msg) {}
 };
 
-class json_exception : public json::json_base {
+class [[deprecated("Use base_exception or any of its inheritants instead")]] json_exception : public json::json_base {
 public:
     json::json_element<std::string> _msg;
     json::json_element<int> _code;
