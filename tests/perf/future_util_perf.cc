@@ -27,6 +27,7 @@
 #include <seastar/coroutine/as_future.hh>
 #include <seastar/coroutine/parallel_for_each.hh>
 #include <seastar/core/loop.hh>
+#include <seastar/core/scheduling.hh>
 #include <seastar/util/later.hh>
 
 struct parallel_for_each {
@@ -453,3 +454,65 @@ PERF_TEST_CN(parallel_for_each, cor_pfe_suspend_100)
     perf_tests::do_not_optimize(value);
     co_return range.size();
 }
+
+struct sched {
+    bool once = false;
+    seastar::scheduling_group g1;
+    seastar::scheduling_group g2;
+
+    class dummy final : public seastar::task {
+        seastar::task* peer = nullptr;
+    public:
+        dummy(scheduling_group sg, seastar::task* p) noexcept : task(sg), peer(p) {}
+
+        virtual void run_and_dispose() noexcept override {
+            seastar::schedule(peer);
+        }
+
+        task* waiting_task() noexcept override { return nullptr; }
+    };
+
+    class switcher final : public seastar::task {
+        std::unique_ptr<dummy> bounce;
+        unsigned iterations = 0;
+
+    public:
+        promise<> done;
+
+        switcher(scheduling_group sg1, scheduling_group sg2, unsigned it) noexcept
+            : task(sg1)
+            , bounce(std::make_unique<dummy>(sg2, this))
+            , iterations(it)
+        {}
+
+        virtual void run_and_dispose() noexcept override {
+            if (--iterations > 0) {
+                seastar::schedule(bounce.get());
+                return;
+            }
+
+            done.set_value();
+            delete this;
+        }
+
+        task* waiting_task() noexcept override { return nullptr; }
+    };
+};
+
+PERF_TEST_CN(sched, context_switch)
+{
+    if (!once) {
+        g1 = co_await create_scheduling_group("g1", 100);
+        g2 = co_await create_scheduling_group("g2", 100);
+        once = true;
+    }
+
+    auto* t = new sched::switcher(g1, g2, 1000);
+    auto f = t->done.get_future();
+    perf_tests::start_measuring_time();
+    schedule(t);
+    co_await std::move(f);
+    perf_tests::stop_measuring_time();
+    co_return 1000;
+}
+
