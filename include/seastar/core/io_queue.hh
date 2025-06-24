@@ -122,10 +122,11 @@ private:
             capacity_t ready_tokens;
             bool our_turn_has_come;
         };
+        enum class grab_result { ok, stop, again };
 
         clock_type::time_point next_pending_aio() const noexcept;
         reap_result reap_pending_capacity() noexcept;
-        fair_queue::grab_result grab_capacity(capacity_t cap, reap_result& available);
+        grab_result grab_capacity(capacity_t cap, reap_result& available);
     };
     boost::container::static_vector<stream, 2> _streams;
     internal::io_sink& _sink;

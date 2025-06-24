@@ -342,7 +342,6 @@ private:
     void unplug_priority_class(priority_class_data& pc) noexcept;
 
 public:
-    enum class grab_result { ok, stop, again };
     /// Constructs a fair queue with configuration parameters \c cfg.
     ///
     /// \param cfg an instance of the class \ref config

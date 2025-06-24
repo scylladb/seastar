@@ -983,10 +983,10 @@ void io_queue::poll_io_queue() {
             }
 
             auto result = st.grab_capacity(ent->capacity(), available);
-            if (result == fair_queue::grab_result::stop) {
+            if (result == stream::grab_result::stop) {
                 break;
             }
-            if (result == fair_queue::grab_result::again) {
+            if (result == stream::grab_result::again) {
                 continue;
             }
 
@@ -1112,8 +1112,7 @@ io_queue::clock_type::time_point io_queue::stream::next_pending_aio() const noex
     return std::chrono::steady_clock::time_point::max();
 }
 
-auto io_queue::stream::grab_capacity(capacity_t cap, reap_result& available) -> fair_queue::grab_result {
-    using grab_result = fair_queue::grab_result;
+auto io_queue::stream::grab_capacity(capacity_t cap, reap_result& available) -> grab_result {
     const uint64_t max_unamortized_reservation = out.per_tick_grab_threshold();
 
     if (cap <= available.ready_tokens) {
