@@ -127,6 +127,8 @@ private:
         clock_type::time_point next_pending_aio() const noexcept;
         reap_result reap_pending_capacity() noexcept;
         grab_result grab_capacity(capacity_t cap, reap_result& available);
+
+        std::vector<seastar::metrics::impl::metric_definition_impl> metrics(const priority_class_data&);
     };
     boost::container::static_vector<stream, 2> _streams;
     internal::io_sink& _sink;

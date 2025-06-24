@@ -225,6 +225,18 @@ void fair_queue::unplug_class(class_id cid) noexcept {
     unplug_priority_class(*_priority_classes[cid]);
 }
 
+fair_queue::capacity_t fair_queue::accumulated(class_id cid) const noexcept {
+    return _priority_classes[cid]->_accumulated;
+}
+
+fair_queue::capacity_t fair_queue::pure_accumulated(class_id cid) const noexcept {
+    return _priority_classes[cid]->_pure_accumulated;
+}
+
+unsigned fair_queue::activations(class_id cid) const noexcept {
+    return _priority_classes[cid]->_activations;
+}
+
 void fair_queue::register_priority_class(class_id id, uint32_t shares) {
     if (id >= _priority_classes.size()) {
         _priority_classes.resize(id + 1);
@@ -328,22 +340,6 @@ void fair_queue::pop_front() {
     if (!h._queue.empty()) {
         push_priority_class(h);
     }
-}
-
-std::vector<seastar::metrics::impl::metric_definition_impl> fair_queue::metrics(class_id c) {
-    namespace sm = seastar::metrics;
-    priority_class_data& pc = *_priority_classes[c];
-    return std::vector<sm::impl::metric_definition_impl>({
-            sm::make_counter("consumption",
-                    [&pc] { return io_throttler::capacity_tokens(pc._pure_accumulated); },
-                    sm::description("Accumulated disk capacity units consumed by this class; an increment per-second rate indicates full utilization")),
-            sm::make_counter("adjusted_consumption",
-                    [&pc] { return io_throttler::capacity_tokens(pc._accumulated); },
-                    sm::description("Consumed disk capacity units adjusted for class shares and idling preemption")),
-            sm::make_counter("activations",
-                    [&pc] { return pc._activations; },
-                    sm::description("The number of times the class was woken up from idle")),
-    });
 }
 
 }

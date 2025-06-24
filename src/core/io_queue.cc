@@ -754,7 +754,7 @@ void io_queue::register_stats(sstring name, priority_class_data& pc) {
     }
 
     for (auto&& s : _streams) {
-        for (auto&& m : s.fq.metrics(pc.fq_class())) {
+        for (auto&& m : s.metrics(pc)) {
             m(owner_l)(mnt_l)(class_l)(group_l)(sm::label("stream")(s.fq.label()));
             metrics.emplace_back(std::move(m));
         }
@@ -1162,6 +1162,22 @@ auto io_queue::stream::grab_capacity(capacity_t cap, reap_result& available) -> 
         SEASTAR_ASSERT(available.ready_tokens == 0);
         return grab_result::stop;
     }
+}
+
+std::vector<seastar::metrics::impl::metric_definition_impl> io_queue::stream::metrics(const priority_class_data& pc) {
+    namespace sm = seastar::metrics;
+    auto c = pc.fq_class();
+    return std::vector<sm::impl::metric_definition_impl>({
+            sm::make_counter("consumption",
+                    [this, c] { return io_throttler::capacity_tokens(fq.pure_accumulated(c)); },
+                    sm::description("Accumulated disk capacity units consumed by this class; an increment per-second rate indicates full utilization")),
+            sm::make_counter("adjusted_consumption",
+                    [this, c] { return io_throttler::capacity_tokens(fq.accumulated(c)); },
+                    sm::description("Consumed disk capacity units adjusted for class shares and idling preemption")),
+            sm::make_counter("activations",
+                    [this, c] { return fq.activations(c); },
+                    sm::description("The number of times the class was woken up from idle")),
+    });
 }
 
 } // seastar namespace

@@ -385,8 +385,11 @@ public:
     fair_queue_entry* top();
     void pop_front();
 
-    std::vector<seastar::metrics::impl::metric_definition_impl> metrics(class_id c);
     capacity_t queued_capacity() const noexcept { return _queued_capacity; }
+
+    capacity_t accumulated(class_id cid) const noexcept;
+    capacity_t pure_accumulated(class_id cid) const noexcept;
+    unsigned activations(class_id cid) const noexcept;
 };
 /// @}
 
