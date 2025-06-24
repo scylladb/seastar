@@ -426,6 +426,9 @@ public:
     /// Try to execute new requests if there is capacity left in the queue.
     void dispatch_requests(std::function<void(fair_queue_entry&)> cb);
 
+    fair_queue_entry* top();
+    void pop_front();
+
     clock_type::time_point next_pending_aio() const noexcept;
 
     std::vector<seastar::metrics::impl::metric_definition_impl> metrics(class_id c);

@@ -365,6 +365,57 @@ auto fair_queue::grab_capacity(capacity_t cap, reap_result& available) -> grab_r
     }
 }
 
+fair_queue_entry* fair_queue::top() {
+    while (!_handles.empty()) {
+        priority_class_data& h = *_handles.top();
+        if (h._queue.empty() || !h._plugged) {
+            pop_priority_class(h);
+            continue;
+        }
+
+        return &h._queue.front();
+    }
+
+    return nullptr;
+}
+
+void fair_queue::pop_front() {
+    auto& h = *_handles.top();
+
+    _last_accumulated = std::max(h._accumulated, _last_accumulated);
+    pop_priority_class(h);
+
+    auto& req = h._queue.front();
+    h._queue.pop_front();
+
+    // Usually the cost of request is tens to hundreeds of thousands. However, for
+    // unrestricted queue it can be as low as 2k. With large enough shares this
+    // has chances to be translated into zero cost which, in turn, will make the
+    // class show no progress and monopolize the queue.
+    auto req_cap = req._capacity;
+    auto req_cost  = std::max(req_cap / h._shares, (capacity_t)1);
+    // signed overflow check to make push_priority_class_from_idle math work
+    if (h._accumulated >= std::numeric_limits<signed_capacity_t>::max() - req_cost) {
+        for (auto& pc : _priority_classes) {
+            if (pc) {
+                if (pc->_queued) {
+                    pc->_accumulated -= h._accumulated;
+                } else { // this includes h
+                    pc->_accumulated = 0;
+                }
+            }
+        }
+        _last_accumulated = 0;
+    }
+    h._accumulated += req_cost;
+    h._pure_accumulated += req_cap;
+    _queued_capacity -= req_cap;
+
+    if (!h._queue.empty()) {
+        push_priority_class(h);
+    }
+}
+
 // This function is called by the shard on every poll.
 // It picks up tokens granted by the group, spends available tokens on IO dispatches,
 // and makes a reservation for more tokens, if needed.
@@ -386,15 +437,13 @@ auto fair_queue::grab_capacity(capacity_t cap, reap_result& available) -> grab_r
 void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
     auto available = reap_pending_capacity();
 
-    while (!_handles.empty()) {
-        priority_class_data& h = *_handles.top();
-        if (h._queue.empty() || !h._plugged) {
-            pop_priority_class(h);
-            continue;
+    while (true) {
+        auto* req_p = top();
+        if (req_p == nullptr) {
+            break;
         }
 
-        auto& req = h._queue.front();
-
+        auto& req = *req_p;
         auto result = grab_capacity(req._capacity, available);
         if (result == grab_result::stop) {
             break;
@@ -403,37 +452,7 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
             continue;
         }
 
-        _last_accumulated = std::max(h._accumulated, _last_accumulated);
-        pop_priority_class(h);
-        h._queue.pop_front();
-
-        // Usually the cost of request is tens to hundreeds of thousands. However, for
-        // unrestricted queue it can be as low as 2k. With large enough shares this
-        // has chances to be translated into zero cost which, in turn, will make the
-        // class show no progress and monopolize the queue.
-        auto req_cap = req._capacity;
-        auto req_cost  = std::max(req_cap / h._shares, (capacity_t)1);
-        // signed overflow check to make push_priority_class_from_idle math work
-        if (h._accumulated >= std::numeric_limits<signed_capacity_t>::max() - req_cost) {
-            for (auto& pc : _priority_classes) {
-                if (pc) {
-                    if (pc->_queued) {
-                        pc->_accumulated -= h._accumulated;
-                    } else { // this includes h
-                        pc->_accumulated = 0;
-                    }
-                }
-            }
-            _last_accumulated = 0;
-        }
-        h._accumulated += req_cost;
-        h._pure_accumulated += req_cap;
-        _queued_capacity -= req_cap;
-
-        if (!h._queue.empty()) {
-            push_priority_class(h);
-        }
-
+        pop_front();
         cb(req);
     }
 
