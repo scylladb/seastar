@@ -320,6 +320,55 @@ fair_queue::clock_type::time_point fair_queue::next_pending_aio() const noexcept
     return std::chrono::steady_clock::time_point::max();
 }
 
+auto fair_queue::grab_capacity(capacity_t cap, reap_result& available) -> grab_result {
+    const uint64_t max_unamortized_reservation = _group.per_tick_grab_threshold();
+
+    if (cap <= available.ready_tokens) {
+        // We can dispatch the request immediately.
+        // We do that after the if-else.
+        available.ready_tokens -= cap;
+        return grab_result::ok;
+    } else if (cap <= available.ready_tokens + _pending.cap || _pending.cap >= max_unamortized_reservation) {
+        // We can't dispatch the request yet, but we already have a pending reservation
+        // which will provide us with enough tokens for it eventually,
+        // or our reservation is already max-size and we can't reserve more tokens until we reap some.
+        // So we should just wait.
+        // We return any immediately-available tokens back to `_pending`
+        // and we bail. The next `dispatch_request` will again take those tokens
+        // (possibly joined by some newly-granted tokens) and retry.
+        _pending.cap += available.ready_tokens;
+        available.ready_tokens = 0;
+        return grab_result::stop;
+    } else if (available.our_turn_has_come) {
+        // The current reservation isn't enough to fulfill the next request,
+        // and we can cancel it (because `our_turn_has_come == true`) and make a bigger one
+        // (because `_pending.cap < can_grab_this_tick`).
+        // So we cancel it and do a bigger one.
+
+        // We do token recycling here: we return the tokens which we have available, and the tokens we have reserved
+        // immediately after the group head, and we return them to the bucket, immediately grabbing the same amount from the tail.
+        // This is neutral to fairness. The bandwidth we consume is still influenced only by the
+        // `max_unarmortized_reservation` portions.
+        auto recycled = available.ready_tokens + _pending.cap;
+        capacity_t grab_amount = std::min<capacity_t>(recycled + max_unamortized_reservation, _queued_capacity);
+        // There's technically nothing wrong with grabbing more than `_group.maximum_capacity()`,
+        // but the token bucket has an assert for that, and its a reasonable expectation, so let's respect that limit.
+        // It shouldn't matter in practice.
+        grab_amount = std::min<capacity_t>(grab_amount, _group.maximum_capacity());
+        _group.refund_tokens(recycled);
+        grab_capacity(grab_amount);
+        available = reap_pending_capacity();
+        return grab_result::again;
+    } else {
+        // We can already see that our current reservation is going to be insufficient
+        // for the highest-priority request as of now. But since group head didn't touch
+        // it yet, there's no good way to cancel it, so we have no choice but to wait
+        // until the touch time.
+        SEASTAR_ASSERT(available.ready_tokens == 0);
+        return grab_result::stop;
+    }
+}
+
 // This function is called by the shard on every poll.
 // It picks up tokens granted by the group, spends available tokens on IO dispatches,
 // and makes a reservation for more tokens, if needed.
@@ -341,7 +390,6 @@ fair_queue::clock_type::time_point fair_queue::next_pending_aio() const noexcept
 void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
     _group.maybe_replenish_capacity(_group_replenish);
 
-    const uint64_t max_unamortized_reservation = _group.per_tick_grab_threshold();
     auto available = reap_pending_capacity();
 
     while (!_handles.empty()) {
@@ -352,48 +400,13 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         }
 
         auto& req = h._queue.front();
-        if (req._capacity <= available.ready_tokens) {
-            // We can dispatch the request immediately.
-            // We do that after the if-else.
-            available.ready_tokens -= req._capacity;
-        } else if (req._capacity <= available.ready_tokens + _pending.cap || _pending.cap >= max_unamortized_reservation) {
-            // We can't dispatch the request yet, but we already have a pending reservation
-            // which will provide us with enough tokens for it eventually,
-            // or our reservation is already max-size and we can't reserve more tokens until we reap some.
-            // So we should just wait.
-            // We return any immediately-available tokens back to `_pending`
-            // and we bail. The next `dispatch_request` will again take those tokens
-            // (possibly joined by some newly-granted tokens) and retry.
-            _pending.cap += available.ready_tokens;
-            available.ready_tokens = 0;
-            break;
-        } else if (available.our_turn_has_come) {
-            // The current reservation isn't enough to fulfill the next request,
-            // and we can cancel it (because `our_turn_has_come == true`) and make a bigger one
-            // (because `_pending.cap < can_grab_this_tick`).
-            // So we cancel it and do a bigger one.
 
-            // We do token recycling here: we return the tokens which we have available, and the tokens we have reserved
-            // immediately after the group head, and we return them to the bucket, immediately grabbing the same amount from the tail.
-            // This is neutral to fairness. The bandwidth we consume is still influenced only by the
-            // `max_unarmortized_reservation` portions.
-            auto recycled = available.ready_tokens + _pending.cap;
-            capacity_t grab_amount = std::min<capacity_t>(recycled + max_unamortized_reservation, _queued_capacity);
-            // There's technically nothing wrong with grabbing more than `_group.maximum_capacity()`,
-            // but the token bucket has an assert for that, and its a reasonable expectation, so let's respect that limit.
-            // It shouldn't matter in practice.
-            grab_amount = std::min<capacity_t>(grab_amount, _group.maximum_capacity());
-            _group.refund_tokens(recycled);
-            grab_capacity(grab_amount);
-            available = reap_pending_capacity();
-            continue;
-        } else {
-            // We can already see that our current reservation is going to be insufficient
-            // for the highest-priority request as of now. But since group head didn't touch
-            // it yet, there's no good way to cancel it, so we have no choice but to wait
-            // until the touch time.
-            SEASTAR_ASSERT(available.ready_tokens == 0);
+        auto result = grab_capacity(req._capacity, available);
+        if (result == grab_result::stop) {
             break;
+        }
+        if (result == grab_result::again) {
+            continue;
         }
 
         _last_accumulated = std::max(h._accumulated, _last_accumulated);

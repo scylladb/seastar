@@ -374,7 +374,9 @@ private:
         capacity_t ready_tokens;
         bool our_turn_has_come;
     };
+    enum class grab_result { ok, stop, again };
     reap_result reap_pending_capacity() noexcept;
+    grab_result grab_capacity(capacity_t cap, reap_result& available);
 public:
     /// Constructs a fair queue with configuration parameters \c cfg.
     ///
