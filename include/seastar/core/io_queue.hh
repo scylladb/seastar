@@ -155,6 +155,7 @@ public:
         double flow_ratio_ema_factor = 0.95;
         double flow_ratio_backpressure_threshold = 1.1;
         std::chrono::milliseconds stall_threshold = std::chrono::milliseconds(100);
+        std::chrono::microseconds tau = std::chrono::milliseconds(5);
     };
 
     io_queue(io_group_ptr group, internal::io_sink& sink);

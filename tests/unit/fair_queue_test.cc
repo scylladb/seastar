@@ -72,7 +72,7 @@ class test_env {
 
     static fair_queue::config fq_config() {
         fair_queue::config cfg;
-        cfg.tau = std::chrono::microseconds(50);
+        cfg.forgiving_factor = io_throttler::fixed_point_factor * io_throttler::token_bucket_t::rate_cast(std::chrono::microseconds(50)).count();
         return cfg;
     }
 

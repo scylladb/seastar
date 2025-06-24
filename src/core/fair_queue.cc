@@ -186,12 +186,11 @@ void fair_queue::push_priority_class_from_idle(priority_class_data& pc) noexcept
         // duration. For this estimate how many capacity units can be
         // accumulated with the current class shares per rate resulution
         // and scale it up to tau.
-        capacity_t max_deviation = io_throttler::fixed_point_factor / pc._shares * io_throttler::token_bucket_t::rate_cast(_config.tau).count();
         // On start this deviation can go to negative values, so not to
         // introduce extra if's for that short corner case, use signed
         // arithmetics and make sure the _accumulated value doesn't grow
         // over signed maximum (see overflow check below)
-        pc._accumulated = std::max<signed_capacity_t>(_last_accumulated - max_deviation, pc._accumulated);
+        pc._accumulated = std::max<signed_capacity_t>(_last_accumulated - _config.forgiving_factor / pc._shares, pc._accumulated);
         _handles.assert_enough_capacity();
         _handles.push(&pc);
         pc._queued = true;

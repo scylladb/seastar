@@ -562,6 +562,7 @@ io_queue::complete_request(io_desc_read_write& desc, std::chrono::duration<doubl
 fair_queue::config io_queue::make_fair_queue_config(const config& iocfg, sstring label) {
     fair_queue::config cfg;
     cfg.label = label;
+    cfg.forgiving_factor = io_throttler::fixed_point_factor * io_throttler::token_bucket_t::rate_cast(iocfg.tau).count();
     return cfg;
 }
 

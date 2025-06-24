@@ -296,7 +296,7 @@ public:
     /// \related fair_queue
     struct config {
         sstring label = "";
-        std::chrono::microseconds tau = std::chrono::milliseconds(5);
+        uint64_t forgiving_factor = 0;
     };
 
     using class_id = unsigned int;
