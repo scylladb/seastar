@@ -332,25 +332,6 @@ private:
     size_t _nr_classes = 0;
     capacity_t _last_accumulated = 0;
 
-    // _pending represents a reservation of tokens from the bucket.
-    //
-    // In the "dispatch timeline" defined by the growing bucket head of the group,
-    // tokens in the range [_pending.head - cap, _pending.head) belong
-    // to this queue.
-    //
-    // For example, if:
-    //    _group._token_bucket.head == 300
-    //    _pending.head == 700
-    //    _pending.cap == 500
-    // then the reservation is [200, 700), 100 tokens are ready to be dispatched by this queue,
-    // and another 400 tokens are going to be appear soon. (And after that, this queue
-    // will be able to make its next reservation).
-    struct pending {
-        capacity_t head = 0;
-        capacity_t cap = 0;
-    };
-    pending _pending;
-
     // Total capacity of all requests waiting in the queue.
     capacity_t _queued_capacity = 0;
 
@@ -360,20 +341,8 @@ private:
     void plug_priority_class(priority_class_data& pc) noexcept;
     void unplug_priority_class(priority_class_data& pc) noexcept;
 
-    // Shaves off the fulfilled frontal part from `_pending` (if any),
-    // and returns the fulfilled tokens in `ready_tokens`.
-    // Sets `our_turn_has_come` to the truth value of "`_pending` is empty or
-    // there are no unfulfilled reservations (from other shards) earlier than `_pending`".
-    //
-    // Assumes that `_group.maybe_replenish_capacity()` was called recently.
-    struct reap_result {
-        capacity_t ready_tokens;
-        bool our_turn_has_come;
-    };
 public:
     enum class grab_result { ok, stop, again };
-    reap_result reap_pending_capacity() noexcept;
-    grab_result grab_capacity(capacity_t cap, reap_result& available);
     /// Constructs a fair queue with configuration parameters \c cfg.
     ///
     /// \param cfg an instance of the class \ref config
@@ -426,9 +395,8 @@ public:
     fair_queue_entry* top();
     void pop_front();
 
-    clock_type::time_point next_pending_aio() const noexcept;
-
     std::vector<seastar::metrics::impl::metric_definition_impl> metrics(class_id c);
+    capacity_t queued_capacity() const noexcept { return _queued_capacity; }
 };
 /// @}
 

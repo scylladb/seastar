@@ -973,7 +973,7 @@ future<size_t> io_queue::submit_io_write(internal::priority_class pc, size_t len
 void io_queue::poll_io_queue() {
     for (auto&& st : _streams) {
         st.out.maybe_replenish_capacity(st.replenish);
-        auto available = st.fq.reap_pending_capacity();
+        auto available = st.reap_pending_capacity();
 
         while (true) {
             auto* ent = st.fq.top();
@@ -982,7 +982,7 @@ void io_queue::poll_io_queue() {
                 break;
             }
 
-            auto result = st.fq.grab_capacity(ent->capacity(), available);
+            auto result = st.grab_capacity(ent->capacity(), available);
             if (result == fair_queue::grab_result::stop) {
                 break;
             }
@@ -1025,7 +1025,7 @@ io_queue::clock_type::time_point io_queue::next_pending_aio() const noexcept {
     clock_type::time_point next = clock_type::time_point::max();
 
     for (const auto& s : _streams) {
-        clock_type::time_point n = s.fq.next_pending_aio();
+        clock_type::time_point n = s.next_pending_aio();
         if (n < next) {
             next = std::move(n);
         }

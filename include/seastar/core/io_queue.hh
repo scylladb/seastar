@@ -84,14 +84,48 @@ private:
     io_group_ptr _group;
     const unsigned _id;
     struct stream {
+        using capacity_t = fair_queue_entry::capacity_t;
         fair_queue fq;
         clock_type::time_point replenish;
         io_throttler& out;
+        // _pending represents a reservation of tokens from the bucket.
+        //
+        // In the "dispatch timeline" defined by the growing bucket head of the group,
+        // tokens in the range [_pending.head - cap, _pending.head) belong
+        // to this queue.
+        //
+        // For example, if:
+        //    _group._token_bucket.head == 300
+        //    _pending.head == 700
+        //    _pending.cap == 500
+        // then the reservation is [200, 700), 100 tokens are ready to be dispatched by this queue,
+        // and another 400 tokens are going to be appear soon. (And after that, this queue
+        // will be able to make its next reservation).
+        struct pending {
+            capacity_t head = 0;
+            capacity_t cap = 0;
+        };
+        pending _pending;
         stream(io_throttler& t, fair_queue::config cfg)
             : fq(t, std::move(cfg))
             , replenish(clock_type::now())
             , out(t)
         {}
+
+        // Shaves off the fulfilled frontal part from `_pending` (if any),
+        // and returns the fulfilled tokens in `ready_tokens`.
+        // Sets `our_turn_has_come` to the truth value of "`_pending` is empty or
+        // there are no unfulfilled reservations (from other shards) earlier than `_pending`".
+        //
+        // Assumes that `_group.maybe_replenish_capacity()` was called recently.
+        struct reap_result {
+            capacity_t ready_tokens;
+            bool our_turn_has_come;
+        };
+
+        clock_type::time_point next_pending_aio() const noexcept;
+        reap_result reap_pending_capacity() noexcept;
+        fair_queue::grab_result grab_capacity(capacity_t cap, reap_result& available);
     };
     boost::container::static_vector<stream, 2> _streams;
     internal::io_sink& _sink;

@@ -41,6 +41,8 @@ module seastar;
 #endif
 #include <seastar/util/assert.hh>
 
+#include <seastar/core/io_queue.hh> // temporary
+
 namespace seastar {
 
 static_assert(sizeof(fair_queue_ticket) == sizeof(uint64_t), "unexpected fair_queue_ticket size");
@@ -226,7 +228,8 @@ void fair_queue::unplug_class(class_id cid) noexcept {
     unplug_priority_class(*_priority_classes[cid]);
 }
 
-auto fair_queue::reap_pending_capacity() noexcept -> reap_result {
+auto io_queue::stream::reap_pending_capacity() noexcept -> reap_result {
+    auto& _group = out;
     auto result = reap_result{.ready_tokens = 0, .our_turn_has_come = true};
     if (_pending.cap) {
         capacity_t deficiency = _group.capacity_deficiency(_pending.head);
@@ -293,7 +296,8 @@ void fair_queue::notify_request_cancelled(fair_queue_entry& ent) noexcept {
     ent._capacity = 0;
 }
 
-fair_queue::clock_type::time_point fair_queue::next_pending_aio() const noexcept {
+io_queue::clock_type::time_point io_queue::stream::next_pending_aio() const noexcept {
+    auto& _group = out;
     if (_pending.cap) {
         /*
          * We expect the disk to release the ticket within some time,
@@ -313,7 +317,10 @@ fair_queue::clock_type::time_point fair_queue::next_pending_aio() const noexcept
     return std::chrono::steady_clock::time_point::max();
 }
 
-auto fair_queue::grab_capacity(capacity_t cap, reap_result& available) -> grab_result {
+auto io_queue::stream::grab_capacity(capacity_t cap, reap_result& available) -> fair_queue::grab_result {
+    using grab_result = fair_queue::grab_result;
+    auto& _group = out;
+    auto _queued_capacity = fq.queued_capacity();
     const uint64_t max_unamortized_reservation = _group.per_tick_grab_threshold();
 
     if (cap <= available.ready_tokens) {
