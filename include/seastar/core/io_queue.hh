@@ -36,12 +36,15 @@
 #include <seastar/core/lowres_clock.hh>
 #include <seastar/util/spinlock.hh>
 #include <seastar/util/modules.hh>
+#include <seastar/util/shared_token_bucket.hh>
 
 struct io_queue_for_tests;
 
 namespace seastar {
 
 class io_queue;
+class io_throttler;
+
 namespace internal {
 const io_throttler& get_throttler(const io_queue& ioq, unsigned stream);
 }
@@ -247,6 +250,149 @@ public:
 private:
     static fair_queue::config make_fair_queue_config(const config& cfg, sstring label);
     void register_stats(sstring name, priority_class_data& pc);
+};
+
+/// \brief Outgoing throttler
+///
+/// This is a fair group. It's attached by one or mode fair queues. On machines having the
+/// big* amount of shards, queues use the group to borrow/lend the needed capacity for
+/// requests dispatching.
+///
+/// * Big means that when all shards sumbit requests alltogether the disk is unable to
+/// dispatch them efficiently. The inability can be of two kinds -- either disk cannot
+/// cope with the number of arriving requests, or the total size of the data withing
+/// the given time frame exceeds the disk throughput.
+class io_throttler {
+public:
+    using capacity_t = fair_queue_entry::capacity_t;
+    using clock_type = std::chrono::steady_clock;
+
+    /*
+     * tldr; The math
+     *
+     *    Bw, Br -- write/read bandwidth (bytes per second)
+     *    Ow, Or -- write/read iops (ops per second)
+     *
+     *    xx_max -- their maximum values (configured)
+     *
+     * Throttling formula:
+     *
+     *    Bw/Bw_max + Br/Br_max + Ow/Ow_max + Or/Or_max <= K
+     *
+     * where K is the scalar value <= 1.0 (also configured)
+     *
+     * Bandwidth is bytes time derivatite, iops is ops time derivative, i.e.
+     * Bx = d(bx)/dt, Ox = d(ox)/dt. Then the formula turns into
+     *
+     *   d(bw/Bw_max + br/Br_max + ow/Ow_max + or/Or_max)/dt <= K
+     *
+     * Fair queue tickets are {w, s} weight-size pairs that are
+     *
+     *   s = read_base_count * br, for reads
+     *       Br_max/Bw_max * read_base_count * bw, for writes
+     *
+     *   w = read_base_count, for reads
+     *       Or_max/Ow_max * read_base_count, for writes
+     *
+     * Thus the formula turns into
+     *
+     *   d(sum(w/W + s/S))/dr <= K
+     *
+     * where {w, s} is the ticket value if a request and sum summarizes the
+     * ticket values from all the requests seen so far, {W, S} is the ticket
+     * value that corresonds to a virtual summary of Or_max requests of
+     * Br_max size total.
+     */
+
+    /*
+     * The normalization results in a float of the 2^-30 seconds order of
+     * magnitude. Not to invent float point atomic arithmetics, the result
+     * is converted to an integer by multiplying by a factor that's large
+     * enough to turn these values into a non-zero integer.
+     *
+     * Also, the rates in bytes/sec when adjusted by io-queue according to
+     * multipliers become too large to be stored in 32-bit ticket value.
+     * Thus the rate resolution is applied. The t.bucket is configured with a
+     * time period for which the speeds from F (in above formula) are taken.
+     */
+
+    static constexpr float fixed_point_factor = float(1 << 24);
+    using rate_resolution = std::milli;
+    using token_bucket_t = internal::shared_token_bucket<capacity_t, rate_resolution, internal::capped_release::no>;
+
+private:
+
+    /*
+     * The dF/dt <= K limitation is managed by the modified token bucket
+     * algo where tokens are ticket.normalize(cost_capacity), the refill
+     * rate is K.
+     *
+     * The token bucket algo must have the limit on the number of tokens
+     * accumulated. Here it's configured so that it accumulates for the
+     * latency_goal duration.
+     *
+     * The replenish threshold is the minimal number of tokens to put back.
+     * It's reserved for future use to reduce the load on the replenish
+     * timestamp.
+     *
+     * The timestamp, in turn, is the time when the bucket was replenished
+     * last. Every time a shard tries to get tokens from bucket it first
+     * tries to convert the time that had passed since this timestamp
+     * into more tokens in the bucket.
+     */
+
+    token_bucket_t _token_bucket;
+    const capacity_t _per_tick_threshold;
+
+public:
+
+    // Convert internal capacity value back into the real token
+    static double capacity_tokens(capacity_t cap) noexcept {
+        return (double)cap / fixed_point_factor / token_bucket_t::rate_cast(std::chrono::seconds(1)).count();
+    }
+
+    // Convert floating-point tokens into the token bucket capacity
+    static capacity_t tokens_capacity(double tokens) noexcept {
+        return tokens * token_bucket_t::rate_cast(std::chrono::seconds(1)).count() * fixed_point_factor;
+    }
+
+    auto capacity_duration(capacity_t cap) const noexcept {
+        return _token_bucket.duration_for(cap);
+    }
+
+    struct config {
+        sstring label = "";
+        /*
+         * There are two "min" values that can be configured. The former one
+         * is the minimal weight:size pair that the upper layer is going to
+         * submit. However, it can submit _larger_ values, and the fair queue
+         * must accept those as large as the latter pair (but it can accept
+         * even larger values, of course)
+         */
+        double min_tokens = 0.0;
+        double limit_min_tokens = 0.0;
+        std::chrono::duration<double> rate_limit_duration = std::chrono::milliseconds(1);
+    };
+
+    explicit io_throttler(config cfg, unsigned nr_queues);
+    io_throttler(io_throttler&&) = delete;
+
+    capacity_t maximum_capacity() const noexcept { return _token_bucket.limit(); }
+    capacity_t per_tick_grab_threshold() const noexcept { return _per_tick_threshold; }
+    capacity_t grab_capacity(capacity_t cap) noexcept;
+    clock_type::time_point replenished_ts() const noexcept { return _token_bucket.replenished_ts(); }
+    void refund_tokens(capacity_t) noexcept;
+    void replenish_capacity(clock_type::time_point now) noexcept;
+    void maybe_replenish_capacity(clock_type::time_point& local_ts) noexcept;
+
+    capacity_t capacity_deficiency(capacity_t from) const noexcept;
+
+    std::chrono::duration<double> rate_limit_duration() const noexcept {
+        std::chrono::duration<double, rate_resolution> dur((double)_token_bucket.limit() / _token_bucket.rate());
+        return std::chrono::duration_cast<std::chrono::duration<double>>(dur);
+    }
+
+    const token_bucket_t& token_bucket() const noexcept { return _token_bucket; }
 };
 
 class io_group {

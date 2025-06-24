@@ -65,6 +65,45 @@ struct default_io_exception_factory {
     }
 };
 
+io_throttler::io_throttler(config cfg, unsigned nr_queues)
+        : _token_bucket(fixed_point_factor,
+                        std::max<capacity_t>(fixed_point_factor * token_bucket_t::rate_cast(cfg.rate_limit_duration).count(), tokens_capacity(cfg.limit_min_tokens)),
+                        tokens_capacity(cfg.min_tokens)
+                       )
+        , _per_tick_threshold(_token_bucket.limit() / nr_queues)
+{
+    if (tokens_capacity(cfg.min_tokens) > _token_bucket.threshold()) {
+        throw std::runtime_error("Fair-group replenisher limit is lower than threshold");
+    }
+}
+
+auto io_throttler::grab_capacity(capacity_t cap) noexcept -> capacity_t {
+    SEASTAR_ASSERT(cap <= _token_bucket.limit());
+    return _token_bucket.grab(cap);
+}
+
+void io_throttler::replenish_capacity(clock_type::time_point now) noexcept {
+    _token_bucket.replenish(now);
+}
+
+void io_throttler::refund_tokens(capacity_t cap) noexcept {
+    _token_bucket.refund(cap);
+}
+
+void io_throttler::maybe_replenish_capacity(clock_type::time_point& local_ts) noexcept {
+    auto now = clock_type::now();
+    auto extra = _token_bucket.accumulated_in(now - local_ts);
+
+    if (extra >= _token_bucket.threshold()) {
+        local_ts = now;
+        replenish_capacity(now);
+    }
+}
+
+auto io_throttler::capacity_deficiency(capacity_t from) const noexcept -> capacity_t {
+    return _token_bucket.deficiency(from);
+}
+
 struct io_group::priority_class_data {
     using token_bucket_t = internal::shared_token_bucket<uint64_t, std::ratio<1>, internal::capped_release::no>;
 

@@ -141,7 +141,7 @@ public:
 
     void do_op(fair_queue::class_id id, unsigned weight) {
         unsigned index = id;
-        auto cap = io_throttler::capacity_t(test_weight_scale * weight);
+        auto cap = fair_queue_entry::capacity_t(test_weight_scale * weight);
         auto req = std::make_unique<request>(cap, index, [this, index] (request& req) mutable noexcept {
             try {
                 _inflight.push_back(std::move(req));
