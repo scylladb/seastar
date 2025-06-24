@@ -430,11 +430,11 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         h._pure_accumulated += req_cap;
         _queued_capacity -= req_cap;
 
-        cb(req);
-
-        if (h._plugged && !h._queue.empty()) {
+        if (!h._queue.empty()) {
             push_priority_class(h);
         }
+
+        cb(req);
     }
 
     SEASTAR_ASSERT(_handles.empty() || available.ready_tokens == 0);
