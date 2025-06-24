@@ -841,12 +841,12 @@ fair_queue_entry::capacity_t io_queue::request_capacity(io_direction_and_length 
     const auto& cfg = get_config();
     auto tokens = internal::request_tokens(dnl, cfg);
     if (_flow_ratio <= cfg.flow_ratio_backpressure_threshold) {
-        return _streams[request_stream(dnl)].fq.tokens_capacity(tokens);
+        return _streams[request_stream(dnl)].out.tokens_capacity(tokens);
     }
 
     auto stream = request_stream(dnl);
-    auto cap = _streams[stream].fq.tokens_capacity(tokens * _flow_ratio);
-    auto max_cap = _streams[stream].fq.maximum_capacity();
+    auto cap = _streams[stream].out.tokens_capacity(tokens * _flow_ratio);
+    auto max_cap = _streams[stream].out.maximum_capacity();
     return std::min(cap, max_cap);
 }
 

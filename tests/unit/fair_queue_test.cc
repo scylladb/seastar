@@ -56,6 +56,8 @@ struct request {
     }
 };
 
+constexpr unsigned test_weight_scale = 1000;
+
 class test_env {
     io_throttler _fg;
     fair_queue _fq;
@@ -72,7 +74,7 @@ class test_env {
 
     static fair_queue::config fq_config() {
         fair_queue::config cfg;
-        cfg.forgiving_factor = io_throttler::fixed_point_factor * io_throttler::token_bucket_t::rate_cast(std::chrono::microseconds(50)).count();
+        cfg.forgiving_factor = 50 * test_weight_scale;
         return cfg;
     }
 
@@ -155,7 +157,7 @@ public:
 
     void do_op(fair_queue::class_id id, unsigned weight) {
         unsigned index = id;
-        auto cap = _fq.tokens_capacity(double(weight) / 1'000'000);
+        auto cap = io_throttler::capacity_t(test_weight_scale * weight);
         auto req = std::make_unique<request>(cap, index, [this, index] (request& req) mutable noexcept {
             try {
                 _inflight.push_back(std::move(req));
