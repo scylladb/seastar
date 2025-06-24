@@ -520,7 +520,7 @@ sstring io_request::opname() const {
     std::abort();
 }
 
-const io_throttler& get_fair_group(const io_queue& ioq, unsigned stream) {
+const io_throttler& get_throttler(const io_queue& ioq, unsigned stream) {
     return ioq._group->_fgs[stream];
 }
 
