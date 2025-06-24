@@ -89,6 +89,9 @@ arg_parser.add_argument('--cook', action='append', dest='cook', default=[],
 arg_parser.add_argument('--verbose', dest='verbose', action='store_true', help='Make configure output more verbose.')
 arg_parser.add_argument('--scheduling-groups-count', action='store', dest='scheduling_groups_count', default='16',
                         help='Number of available scheduling groups in the reactor')
+arg_parser.add_argument('--crypto-provider', dest='crypto_provider', choices=seastar_cmake.SUPPORTED_CRYPTO_PROVIDERS,
+                        default='GnuTLS', help='The cryptographic provider ot use')
+arg_parser.add_argument('--openssl-root-dir', dest='openssl_root_dir', help="Root directory for OpenSSL library")
 
 add_tristate(
     arg_parser,
@@ -191,6 +194,7 @@ def configure_mode(mode):
         '-DBUILD_SHARED_LIBS={}'.format('yes' if mode in ('debug', 'dev') else 'no'),
         '-DSeastar_API_LEVEL={}'.format(args.api_level),
         '-DSeastar_SCHEDULING_GROUPS_COUNT={}'.format(args.scheduling_groups_count),
+        '-DSeastar_USE_OPENSSL={}'.format('yes' if args.crypto_provider == 'OpenSSL' else 'no'),
         tr(args.exclude_tests, 'EXCLUDE_TESTS_FROM_ALL'),
         tr(args.exclude_apps, 'EXCLUDE_APPS_FROM_ALL'),
         tr(args.exclude_demos, 'EXCLUDE_DEMOS_FROM_ALL'),
@@ -210,6 +214,9 @@ def configure_mode(mode):
         tr(args.unused_result_error, 'UNUSED_RESULT_ERROR'),
         tr(args.debug_shared_ptr, 'DEBUG_SHARED_PTR', value_when_none='default'),
     ]
+
+    if args.openssl_root_dir is not None:
+        TRANSLATED_ARGS.appen(f'-DOPENSSL_ROOT_DIR={args.openssl_root_dir}')
 
     ingredients_to_cook = set(args.cook)
 

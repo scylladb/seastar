@@ -30,7 +30,11 @@
 #include <random>
 #include <stdexcept>
 #include <system_error>
+#ifdef SEASTAR_USE_OPENSSL
+#include <openssl/evp.h>
+#else
 #include <gnutls/crypto.h>
+#endif
 #endif
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/queue.hh>
@@ -43,6 +47,7 @@
 #include <seastar/net/const.hh>
 #include <seastar/net/packet-util.hh>
 #include <seastar/util/assert.hh>
+#include <seastar/util/defer.hh>
 #include <seastar/util/std-compat.hh>
 
 namespace seastar {
@@ -2085,6 +2090,36 @@ tcp_seq tcp<InetTraits>::tcb::get_isn() {
     //   ISN = M + F(localip, localport, remoteip, remoteport, secretkey)
     //   M is the 4 microsecond timer
     using namespace std::chrono;
+#ifdef SEASTAR_USE_OPENSSL
+    uint32_t hash[8];
+    hash[0] = _local_ip.ip;
+    hash[1] = _foreign_ip.ip;
+    hash[2] = (_local_port << 16) + _foreign_port;
+    unsigned int hash_size = sizeof(hash);
+
+    // Why SHA-256 for OpenSSL vs MD5?
+    // MD5 may be disabled if OpenSSL is in FIPS mode, also some bench testing
+    // has shown that the SHA-256 performance is equivalent or better than MD5
+    // as SHA256 is hardware accelerated on most modern CPU architectures
+    auto md_ptr = EVP_MD_fetch(nullptr, "SHA256", nullptr);
+    SEASTAR_ASSERT(md_ptr);
+    auto free_md_ptr = defer([&]() noexcept { EVP_MD_free(md_ptr); });
+    SEASTAR_ASSERT(hash_size == static_cast<unsigned int>(EVP_MD_get_size(md_ptr)));
+    auto md_ctx = EVP_MD_CTX_new();
+    SEASTAR_ASSERT(md_ctx);
+    auto free_md_ctx = defer([&]() noexcept { EVP_MD_CTX_free(md_ctx); });
+    auto res = EVP_DigestInit(md_ctx, md_ptr);
+    SEASTAR_ASSERT(1 == res);
+    res = EVP_DigestUpdate(
+        md_ctx, hash, 3 * sizeof(hash[0]));
+    SEASTAR_ASSERT(1 == res);
+    res = EVP_DigestUpdate(
+        md_ctx, _isn_secret.key, sizeof(_isn_secret.key));
+    SEASTAR_ASSERT(1 == res);
+    res = EVP_DigestFinal_ex(
+        md_ctx, reinterpret_cast<unsigned char *>(hash), &hash_size);
+    SEASTAR_ASSERT(1 == res);
+#else
     uint32_t hash[4];
     hash[0] = _local_ip.ip;
     hash[1] = _foreign_ip.ip;
@@ -2097,6 +2132,7 @@ tcp_seq tcp<InetTraits>::tcb::get_isn() {
     // reuse "hash" for the output of digest
     SEASTAR_ASSERT(sizeof(hash) == gnutls_hash_get_len(GNUTLS_DIG_MD5));
     gnutls_hash_deinit(md5_hash_handle, hash);
+#endif
     auto seq = hash[0];
     auto m = duration_cast<microseconds>(clock_type::now().time_since_epoch());
     seq += m.count() / 4;
