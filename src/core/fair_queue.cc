@@ -355,6 +355,7 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
         if (req._capacity <= available.ready_tokens) {
             // We can dispatch the request immediately.
             // We do that after the if-else.
+            available.ready_tokens -= req._capacity;
         } else if (req._capacity <= available.ready_tokens + _pending.cap || _pending.cap >= max_unamortized_reservation) {
             // We can't dispatch the request yet, but we already have a pending reservation
             // which will provide us with enough tokens for it eventually,
@@ -394,8 +395,6 @@ void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
             SEASTAR_ASSERT(available.ready_tokens == 0);
             break;
         }
-
-        available.ready_tokens -= req._capacity;
 
         _last_accumulated = std::max(h._accumulated, _last_accumulated);
         pop_priority_class(h);
