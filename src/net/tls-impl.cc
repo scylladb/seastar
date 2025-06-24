@@ -317,6 +317,10 @@ void tls::credentials_builder::apply_to(certificate_credentials& creds) const {
         creds.enable_server_precedence();
     }
 
+    if (_enable_tls_renegotiation) {
+        creds.enable_tls_renegotiation();
+    }
+
     if (_min_tls_version.has_value()) {
         creds.set_minimum_tls_version(*_min_tls_version);
     }

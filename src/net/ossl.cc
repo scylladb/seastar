@@ -654,6 +654,10 @@ public:
         _enable_server_precedence = true;
     }
 
+    void enable_tls_renegotiation() {
+        _enable_tls_renegotiation = true;
+    }
+
     void set_minimum_tls_version(tls_version version) {
         _min_tls_version.emplace(version);
     }
@@ -672,6 +676,10 @@ public:
 
     bool is_server_precedence_enabled() {
         return _enable_server_precedence;
+    }
+
+    bool is_tls_renegotiation_enabled() {
+        return _enable_tls_renegotiation;
     }
 
     const std::optional<tls_version>& minimum_tls_version() const noexcept {
@@ -730,6 +738,7 @@ private:
     session_resume_mode _session_resume_mode = session_resume_mode::NONE;
     bool _load_system_trust = false;
     bool _enable_server_precedence = false;
+    bool _enable_tls_renegotiation = false;
     bool _crl_check_flag_set = false;
     bool _enable_certificate_verification = true;
     std::vector<sstring> _alpn_protocols;
@@ -782,6 +791,10 @@ void tls::certificate_credentials::set_ciphersuites(const sstring& ciphersuites)
 
 void tls::certificate_credentials::enable_server_precedence() {
     _impl->enable_server_precedence();
+}
+
+void tls::certificate_credentials::enable_tls_renegotiation() {
+    _impl->enable_tls_renegotiation();
 }
 
 void tls::certificate_credentials::set_minimum_tls_version(tls_version version) {
@@ -1858,9 +1871,13 @@ private:
                 break;
             }
 
-            auto options = SSL_OP_ALL | SSL_OP_ALLOW_CLIENT_RENEGOTIATION;
+            auto options = SSL_OP_ALL;
             if (_creds->is_server_precedence_enabled()) {
                 options |= SSL_OP_CIPHER_SERVER_PREFERENCE;
+            }
+
+            if (_creds->is_tls_renegotiation_enabled()) {
+                options |= SSL_OP_ALLOW_CLIENT_RENEGOTIATION;
             }
 
             SSL_CTX_set_options(ssl_ctx.get(), options);
