@@ -241,11 +241,6 @@ auto fair_queue::reap_pending_capacity() noexcept -> reap_result {
     return result;
 }
 
-auto fair_queue::grab_capacity(capacity_t cap) noexcept -> void {
-    capacity_t want_head = _group.grab_capacity(cap);
-    _pending = pending{want_head, cap};
-}
-
 void fair_queue::register_priority_class(class_id id, uint32_t shares) {
     if (id >= _priority_classes.size()) {
         _priority_classes.resize(id + 1);
@@ -356,7 +351,10 @@ auto fair_queue::grab_capacity(capacity_t cap, reap_result& available) -> grab_r
         // It shouldn't matter in practice.
         grab_amount = std::min<capacity_t>(grab_amount, _group.maximum_capacity());
         _group.refund_tokens(recycled);
-        grab_capacity(grab_amount);
+        // Replace _pending with a new reservation starting at the current
+        // group bucket tail.
+        capacity_t want_head = _group.grab_capacity(grab_amount);
+        _pending = pending{want_head, grab_amount};
         available = reap_pending_capacity();
         return grab_result::again;
     } else {

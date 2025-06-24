@@ -361,9 +361,6 @@ private:
     void plug_priority_class(priority_class_data& pc) noexcept;
     void unplug_priority_class(priority_class_data& pc) noexcept;
 
-    // Replaces _pending with a new reservation starting at the current
-    // group bucket tail.
-    void grab_capacity(capacity_t cap) noexcept;
     // Shaves off the fulfilled frontal part from `_pending` (if any),
     // and returns the fulfilled tokens in `ready_tokens`.
     // Sets `our_turn_has_come` to the truth value of "`_pending` is empty or
