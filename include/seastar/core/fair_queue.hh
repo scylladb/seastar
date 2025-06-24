@@ -324,7 +324,6 @@ private:
     };
 
     config _config;
-    io_throttler& _group;
     fair_queue_ticket _resources_executing;
     fair_queue_ticket _resources_queued;
     priority_queue _handles;
@@ -345,7 +344,7 @@ public:
     /// Constructs a fair queue with configuration parameters \c cfg.
     ///
     /// \param cfg an instance of the class \ref config
-    explicit fair_queue(io_throttler& shared, config cfg);
+    explicit fair_queue(config cfg);
     fair_queue(fair_queue&&) = delete;
     ~fair_queue();
 

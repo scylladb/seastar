@@ -46,8 +46,8 @@ struct local_fq_and_class {
 
     local_fq_and_class(seastar::io_throttler& sfg)
         : fg(fg_config(), 1)
-        , fq(fg, seastar::fair_queue::config())
-        , sfq(sfg, seastar::fair_queue::config())
+        , fq(seastar::fair_queue::config())
+        , sfq(seastar::fair_queue::config())
     {
         fq.register_priority_class(cid, 1);
         sfq.register_priority_class(cid, 1);

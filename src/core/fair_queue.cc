@@ -161,9 +161,8 @@ bool fair_queue::class_compare::operator() (const priority_class_ptr& lhs, const
     return lhs->_accumulated > rhs->_accumulated;
 }
 
-fair_queue::fair_queue(io_throttler& group, config cfg)
+fair_queue::fair_queue(config cfg)
     : _config(std::move(cfg))
-    , _group(group)
 {
 }
 

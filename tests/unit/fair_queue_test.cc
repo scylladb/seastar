@@ -84,7 +84,7 @@ class test_env {
 public:
     test_env(unsigned capacity)
         : _fg(fg_config(capacity), 1)
-        , _fq(_fg, fq_config())
+        , _fq(fq_config())
     {
         // Move _fg._replenished_ts() to far future.
         // This will prevent any `maybe_replenish_capacity` calls (indirectly done by `fair_queue::dispatch_requests()`)

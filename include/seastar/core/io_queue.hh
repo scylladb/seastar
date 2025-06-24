@@ -107,7 +107,7 @@ private:
         };
         pending _pending;
         stream(io_throttler& t, fair_queue::config cfg)
-            : fq(t, std::move(cfg))
+            : fq(std::move(cfg))
             , replenish(clock_type::now())
             , out(t)
         {}
