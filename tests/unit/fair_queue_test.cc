@@ -57,15 +57,15 @@ struct request {
 };
 
 class test_env {
-    fair_group _fg;
+    io_throttler _fg;
     fair_queue _fq;
     std::vector<int> _results;
     std::vector<std::vector<std::exception_ptr>> _exceptions;
     fair_queue::class_id _nr_classes = 0;
     std::vector<request> _inflight;
 
-    static fair_group::config fg_config(unsigned cap) {
-        fair_group::config cfg;
+    static io_throttler::config fg_config(unsigned cap) {
+        io_throttler::config cfg;
         cfg.rate_limit_duration = std::chrono::microseconds(cap);
         return cfg;
     }
@@ -89,7 +89,7 @@ public:
         // from replenishing tokens on its own, and ensure that the only source of replenishment will be tick().
         //
         // Otherwise the rate of replenishment might be greater than expected by the test, breaking the results.
-        _fg.replenish_capacity(fair_group::clock_type::now() + std::chrono::days(1));
+        _fg.replenish_capacity(io_throttler::clock_type::now() + std::chrono::days(1));
     }
 
     // As long as there is a request sitting in the queue, tick() will process

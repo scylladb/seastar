@@ -43,7 +43,7 @@ namespace seastar {
 
 class io_queue;
 namespace internal {
-const fair_group& get_fair_group(const io_queue& ioq, unsigned stream);
+const io_throttler& get_fair_group(const io_queue& ioq, unsigned stream);
 }
 
 SEASTAR_MODULE_EXPORT
@@ -86,7 +86,7 @@ private:
     internal::io_sink& _sink;
 
     friend struct ::io_queue_for_tests;
-    friend const fair_group& internal::get_fair_group(const io_queue& ioq, unsigned stream);
+    friend const io_throttler& internal::get_fair_group(const io_queue& ioq, unsigned stream);
 
     priority_class_data& find_or_create_class(internal::priority_class pc);
     future<size_t> queue_request(internal::priority_class pc, internal::io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept;
@@ -213,16 +213,16 @@ public:
 private:
     friend class io_queue;
     friend struct ::io_queue_for_tests;
-    friend const fair_group& internal::get_fair_group(const io_queue& ioq, unsigned stream);
+    friend const io_throttler& internal::get_fair_group(const io_queue& ioq, unsigned stream);
 
     const io_queue::config _config;
     size_t _max_request_length[2];
-    boost::container::static_vector<fair_group, 2> _fgs;
+    boost::container::static_vector<io_throttler, 2> _fgs;
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
     util::spinlock _lock;
     const shard_id _allocated_on;
 
-    static fair_group::config make_fair_group_config(const io_queue::config& qcfg) noexcept;
+    static io_throttler::config make_fair_group_config(const io_queue::config& qcfg) noexcept;
     priority_class_data& find_or_create_class(internal::priority_class pc);
 };
 

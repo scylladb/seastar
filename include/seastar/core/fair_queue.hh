@@ -136,7 +136,7 @@ public:
 /// dispatch them efficiently. The inability can be of two kinds -- either disk cannot
 /// cope with the number of arriving requests, or the total size of the data withing
 /// the given time frame exceeds the disk throughput.
-class fair_group {
+class io_throttler {
 public:
     using capacity_t = fair_queue_entry::capacity_t;
     using clock_type = std::chrono::steady_clock;
@@ -248,8 +248,8 @@ public:
         std::chrono::duration<double> rate_limit_duration = std::chrono::milliseconds(1);
     };
 
-    explicit fair_group(config cfg, unsigned nr_queues);
-    fair_group(fair_group&&) = delete;
+    explicit io_throttler(config cfg, unsigned nr_queues);
+    io_throttler(io_throttler&&) = delete;
 
     capacity_t maximum_capacity() const noexcept { return _token_bucket.limit(); }
     capacity_t per_tick_grab_threshold() const noexcept { return _per_tick_threshold; }
@@ -301,7 +301,7 @@ public:
 
     using class_id = unsigned int;
     class priority_class_data;
-    using capacity_t = fair_group::capacity_t;
+    using capacity_t = io_throttler::capacity_t;
     using signed_capacity_t = std::make_signed_t<capacity_t>;
 
 private:
@@ -324,7 +324,7 @@ private:
     };
 
     config _config;
-    fair_group& _group;
+    io_throttler& _group;
     clock_type::time_point _group_replenish;
     fair_queue_ticket _resources_executing;
     fair_queue_ticket _resources_queued;
@@ -379,7 +379,7 @@ public:
     /// Constructs a fair queue with configuration parameters \c cfg.
     ///
     /// \param cfg an instance of the class \ref config
-    explicit fair_queue(fair_group& shared, config cfg);
+    explicit fair_queue(io_throttler& shared, config cfg);
     fair_queue(fair_queue&&) = delete;
     ~fair_queue();
 

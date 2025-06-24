@@ -520,7 +520,7 @@ sstring io_request::opname() const {
     std::abort();
 }
 
-const fair_group& get_fair_group(const io_queue& ioq, unsigned stream) {
+const io_throttler& get_fair_group(const io_queue& ioq, unsigned stream) {
     return ioq._group->_fgs[stream];
 }
 
@@ -599,8 +599,8 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     });
 }
 
-fair_group::config io_group::make_fair_group_config(const io_queue::config& qcfg) noexcept {
-    fair_group::config cfg;
+io_throttler::config io_group::make_fair_group_config(const io_queue::config& qcfg) noexcept {
+    io_throttler::config cfg;
     cfg.label = fmt::format("io-queue-{}", qcfg.id);
     double min_weight = std::min(io_queue::read_request_base_count, qcfg.disk_req_write_to_read_multiplier);
     double min_size = std::min(io_queue::read_request_base_count, qcfg.disk_blocks_write_to_read_multiplier);

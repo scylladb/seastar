@@ -97,7 +97,7 @@ fair_queue_ticket wrapping_difference(const fair_queue_ticket& a, const fair_que
             std::max<int32_t>(a._size - b._size, 0));
 }
 
-fair_group::fair_group(config cfg, unsigned nr_queues)
+io_throttler::io_throttler(config cfg, unsigned nr_queues)
         : _token_bucket(fixed_point_factor,
                         std::max<capacity_t>(fixed_point_factor * token_bucket_t::rate_cast(cfg.rate_limit_duration).count(), tokens_capacity(cfg.limit_min_tokens)),
                         tokens_capacity(cfg.min_tokens)
@@ -109,20 +109,20 @@ fair_group::fair_group(config cfg, unsigned nr_queues)
     }
 }
 
-auto fair_group::grab_capacity(capacity_t cap) noexcept -> capacity_t {
+auto io_throttler::grab_capacity(capacity_t cap) noexcept -> capacity_t {
     SEASTAR_ASSERT(cap <= _token_bucket.limit());
     return _token_bucket.grab(cap);
 }
 
-void fair_group::replenish_capacity(clock_type::time_point now) noexcept {
+void io_throttler::replenish_capacity(clock_type::time_point now) noexcept {
     _token_bucket.replenish(now);
 }
 
-void fair_group::refund_tokens(capacity_t cap) noexcept {
+void io_throttler::refund_tokens(capacity_t cap) noexcept {
     _token_bucket.refund(cap);
 }
 
-void fair_group::maybe_replenish_capacity(clock_type::time_point& local_ts) noexcept {
+void io_throttler::maybe_replenish_capacity(clock_type::time_point& local_ts) noexcept {
     auto now = clock_type::now();
     auto extra = _token_bucket.accumulated_in(now - local_ts);
 
@@ -132,7 +132,7 @@ void fair_group::maybe_replenish_capacity(clock_type::time_point& local_ts) noex
     }
 }
 
-auto fair_group::capacity_deficiency(capacity_t from) const noexcept -> capacity_t {
+auto io_throttler::capacity_deficiency(capacity_t from) const noexcept -> capacity_t {
     return _token_bucket.deficiency(from);
 }
 
@@ -161,7 +161,7 @@ bool fair_queue::class_compare::operator() (const priority_class_ptr& lhs, const
     return lhs->_accumulated > rhs->_accumulated;
 }
 
-fair_queue::fair_queue(fair_group& group, config cfg)
+fair_queue::fair_queue(io_throttler& group, config cfg)
     : _config(std::move(cfg))
     , _group(group)
     , _group_replenish(clock_type::now())
@@ -187,7 +187,7 @@ void fair_queue::push_priority_class_from_idle(priority_class_data& pc) noexcept
         // duration. For this estimate how many capacity units can be
         // accumulated with the current class shares per rate resulution
         // and scale it up to tau.
-        capacity_t max_deviation = fair_group::fixed_point_factor / pc._shares * fair_group::token_bucket_t::rate_cast(_config.tau).count();
+        capacity_t max_deviation = io_throttler::fixed_point_factor / pc._shares * io_throttler::token_bucket_t::rate_cast(_config.tau).count();
         // On start this deviation can go to negative values, so not to
         // introduce extra if's for that short corner case, use signed
         // arithmetics and make sure the _accumulated value doesn't grow
@@ -447,10 +447,10 @@ std::vector<seastar::metrics::impl::metric_definition_impl> fair_queue::metrics(
     priority_class_data& pc = *_priority_classes[c];
     return std::vector<sm::impl::metric_definition_impl>({
             sm::make_counter("consumption",
-                    [&pc] { return fair_group::capacity_tokens(pc._pure_accumulated); },
+                    [&pc] { return io_throttler::capacity_tokens(pc._pure_accumulated); },
                     sm::description("Accumulated disk capacity units consumed by this class; an increment per-second rate indicates full utilization")),
             sm::make_counter("adjusted_consumption",
-                    [&pc] { return fair_group::capacity_tokens(pc._accumulated); },
+                    [&pc] { return io_throttler::capacity_tokens(pc._accumulated); },
                     sm::description("Consumed disk capacity units adjusted for class shares and idling preemption")),
             sm::make_counter("activations",
                     [&pc] { return pc._activations; },
