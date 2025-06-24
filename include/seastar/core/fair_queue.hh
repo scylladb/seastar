@@ -325,7 +325,6 @@ private:
 
     config _config;
     io_throttler& _group;
-    clock_type::time_point _group_replenish;
     fair_queue_ticket _resources_executing;
     fair_queue_ticket _resources_queued;
     priority_queue _handles;

@@ -952,6 +952,7 @@ future<size_t> io_queue::submit_io_write(internal::priority_class pc, size_t len
 
 void io_queue::poll_io_queue() {
     for (auto&& st : _streams) {
+        st.out.maybe_replenish_capacity(st.replenish);
         st.fq.dispatch_requests([] (fair_queue_entry& fqe) {
             queued_io_request::from_fq_entry(fqe).dispatch();
         });

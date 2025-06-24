@@ -77,6 +77,7 @@ public:
 class io_queue {
 public:
     class priority_class_data;
+    using clock_type = std::chrono::steady_clock;
 
 private:
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
@@ -84,8 +85,12 @@ private:
     const unsigned _id;
     struct stream {
         fair_queue fq;
+        clock_type::time_point replenish;
+        io_throttler& out;
         stream(io_throttler& t, fair_queue::config cfg)
             : fq(t, std::move(cfg))
+            , replenish(clock_type::now())
+            , out(t)
         {}
     };
     boost::container::static_vector<stream, 2> _streams;
@@ -122,8 +127,6 @@ private:
 
     metrics::metric_groups _metric_groups;
 public:
-
-    using clock_type = std::chrono::steady_clock;
 
     // We want to represent the fact that write requests are (maybe) more expensive
     // than read requests. To avoid dealing with floating point math we will scale one

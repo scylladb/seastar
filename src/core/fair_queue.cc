@@ -164,7 +164,6 @@ bool fair_queue::class_compare::operator() (const priority_class_ptr& lhs, const
 fair_queue::fair_queue(io_throttler& group, config cfg)
     : _config(std::move(cfg))
     , _group(group)
-    , _group_replenish(clock_type::now())
 {
 }
 
@@ -386,8 +385,6 @@ auto fair_queue::grab_capacity(capacity_t cap, reap_result& available) -> grab_r
 // a CPU-starved shard should still be able to grab at least ~30% of its fair share in the worst case.
 // This is far from ideal, but it's something.
 void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
-    _group.maybe_replenish_capacity(_group_replenish);
-
     auto available = reap_pending_capacity();
 
     while (!_handles.empty()) {
