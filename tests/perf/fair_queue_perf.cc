@@ -121,11 +121,16 @@ future<> perf_fair_queue::test(bool loc) {
         local.executed = 0;
 
         return do_until([&local] { return local.executed == requests_to_dispatch; }, [&local, loc] {
-            local.queue(loc).dispatch_requests([] (fair_queue_entry& ent) {
-                local_fq_entry* le = boost::intrusive::get_parent_from_member(&ent, &local_fq_entry::ent);
-                le->submit();
-                delete le;
-            });
+            auto& q = local.queue(loc);
+            auto* req = q.top();
+            if (req == nullptr) {
+                return make_ready_future<>();
+            }
+
+            q.pop_front();
+            local_fq_entry* le = boost::intrusive::get_parent_from_member(req, &local_fq_entry::ent);
+            le->submit();
+            delete le;
             return make_ready_future<>();
         });
     });

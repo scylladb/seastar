@@ -100,11 +100,19 @@ public:
     // method (see above) in which all requests currently sent to the queue are drained
     // before the queue is destroyed.
     unsigned tick(unsigned n = 1) {
+        unsigned dispatched = 0;
         unsigned processed = 0;
         _fg.replenish_capacity(_fg.replenished_ts() + std::chrono::microseconds(1));
-        _fq.dispatch_requests([] (fair_queue_entry& ent) {
-            boost::intrusive::get_parent_from_member(&ent, &request::fqent)->submit();
-        });
+        while (dispatched < n) {
+            auto* req = _fq.top();
+            if (req == nullptr) {
+                break;
+            }
+
+            dispatched++;
+            _fq.pop_front();
+            boost::intrusive::get_parent_from_member(req, &request::fqent)->submit();
+        }
 
         for (unsigned i = 0; i < n; ++i) {
             std::vector<request> curr;
@@ -117,9 +125,16 @@ public:
             }
 
             _fg.replenish_capacity(_fg.replenished_ts() + std::chrono::microseconds(1));
-            _fq.dispatch_requests([] (fair_queue_entry& ent) {
-                boost::intrusive::get_parent_from_member(&ent, &request::fqent)->submit();
-            });
+            while (dispatched < n) {
+                auto* req = _fq.top();
+                if (req == nullptr) {
+                    break;
+                }
+
+                dispatched++;
+                _fq.pop_front();
+                boost::intrusive::get_parent_from_member(req, &request::fqent)->submit();
+            }
         }
         return processed;
     }

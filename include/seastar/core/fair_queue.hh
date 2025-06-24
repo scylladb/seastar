@@ -370,10 +370,10 @@ private:
         capacity_t ready_tokens;
         bool our_turn_has_come;
     };
+public:
     enum class grab_result { ok, stop, again };
     reap_result reap_pending_capacity() noexcept;
     grab_result grab_capacity(capacity_t cap, reap_result& available);
-public:
     /// Constructs a fair queue with configuration parameters \c cfg.
     ///
     /// \param cfg an instance of the class \ref config
@@ -422,9 +422,6 @@ public:
     /// \param desc an instance of \c fair_queue_ticket structure describing the request that just finished.
     void notify_request_finished(fair_queue_entry::capacity_t cap) noexcept;
     void notify_request_cancelled(fair_queue_entry& ent) noexcept;
-
-    /// Try to execute new requests if there is capacity left in the queue.
-    void dispatch_requests(std::function<void(fair_queue_entry&)> cb);
 
     fair_queue_entry* top();
     void pop_front();

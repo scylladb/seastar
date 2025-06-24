@@ -951,12 +951,57 @@ future<size_t> io_queue::submit_io_write(internal::priority_class pc, size_t len
     return queue_request(std::move(pc), io_direction_and_length(io_direction_write, len), std::move(req), intent, std::move(iovs));
 }
 
+// This function is called by the shard on every poll.
+// It picks up tokens granted by the group, spends available tokens on IO dispatches,
+// and makes a reservation for more tokens, if needed.
+//
+// Reservations are done in batches of size `_group.per_tick_grab_threshold()`.
+// During contention, in an average moment in time each contending shard can be expected to
+// be holding a reservation of such size after the current head of the token bucket.
+//
+// A shard which is currently calling `dispatch_requests()` can expect a latency
+// of at most `nr_contenders * (_group.per_tick_grab_threshold() + max_request_cap)` before its next reservation is fulfilled.
+// If a shard calls `dispatch_requests()` at least once per X total tokens, it should receive bandwidth
+// of at least `_group.per_tick_grab_threshold() / (X + nr_contenders * (_group.per_tick_grab_threshold() + max_request_cap))`.
+//
+// A shard which is polling continuously should be able to grab its fair share of the disk for itself.
+//
+// Given a task quota of 500us and IO latency goal of 750 us,
+// a CPU-starved shard should still be able to grab at least ~30% of its fair share in the worst case.
+// This is far from ideal, but it's something.
+
 void io_queue::poll_io_queue() {
     for (auto&& st : _streams) {
         st.out.maybe_replenish_capacity(st.replenish);
-        st.fq.dispatch_requests([] (fair_queue_entry& fqe) {
-            queued_io_request::from_fq_entry(fqe).dispatch();
-        });
+        auto available = st.fq.reap_pending_capacity();
+
+        while (true) {
+            auto* ent = st.fq.top();
+            if (ent == nullptr) {
+                available.ready_tokens = 0;
+                break;
+            }
+
+            auto result = st.fq.grab_capacity(ent->capacity(), available);
+            if (result == fair_queue::grab_result::stop) {
+                break;
+            }
+            if (result == fair_queue::grab_result::again) {
+                continue;
+            }
+
+            st.fq.pop_front();
+            queued_io_request::from_fq_entry(*ent).dispatch();
+        }
+
+        SEASTAR_ASSERT(available.ready_tokens == 0);
+        // Note: if IO cancellation happens, it's possible that we are still holding some tokens in `ready` here.
+        //
+        // We could refund them to the bucket, but permanently refunding tokens (as opposed to only
+        // "rotating" the bucket like the earlier refund() calls in this function do) is theoretically
+        // unpleasant (it can bloat the bucket beyond its size limit, and its hard to write a correct
+        // countermeasure for that), so we just discard the tokens. There's no harm in it, IO cancellation
+        // can't have resource-saving guarantees anyway.
     }
 }
 

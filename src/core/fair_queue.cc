@@ -416,57 +416,6 @@ void fair_queue::pop_front() {
     }
 }
 
-// This function is called by the shard on every poll.
-// It picks up tokens granted by the group, spends available tokens on IO dispatches,
-// and makes a reservation for more tokens, if needed.
-//
-// Reservations are done in batches of size `_group.per_tick_grab_threshold()`.
-// During contention, in an average moment in time each contending shard can be expected to
-// be holding a reservation of such size after the current head of the token bucket.
-//
-// A shard which is currently calling `dispatch_requests()` can expect a latency
-// of at most `nr_contenders * (_group.per_tick_grab_threshold() + max_request_cap)` before its next reservation is fulfilled.
-// If a shard calls `dispatch_requests()` at least once per X total tokens, it should receive bandwidth
-// of at least `_group.per_tick_grab_threshold() / (X + nr_contenders * (_group.per_tick_grab_threshold() + max_request_cap))`.
-//
-// A shard which is polling continuously should be able to grab its fair share of the disk for itself.
-//
-// Given a task quota of 500us and IO latency goal of 750 us,
-// a CPU-starved shard should still be able to grab at least ~30% of its fair share in the worst case.
-// This is far from ideal, but it's something.
-void fair_queue::dispatch_requests(std::function<void(fair_queue_entry&)> cb) {
-    auto available = reap_pending_capacity();
-
-    while (true) {
-        auto* req_p = top();
-        if (req_p == nullptr) {
-            break;
-        }
-
-        auto& req = *req_p;
-        auto result = grab_capacity(req._capacity, available);
-        if (result == grab_result::stop) {
-            break;
-        }
-        if (result == grab_result::again) {
-            continue;
-        }
-
-        pop_front();
-        cb(req);
-    }
-
-    SEASTAR_ASSERT(_handles.empty() || available.ready_tokens == 0);
-
-    // Note: if IO cancellation happens, it's possible that we are still holding some tokens in `ready` here.
-    //
-    // We could refund them to the bucket, but permanently refunding tokens (as opposed to only
-    // "rotating" the bucket like the earlier refund() calls in this function do) is theoretically
-    // unpleasant (it can bloat the bucket beyond its size limit, and its hard to write a correct
-    // countermeasure for that), so we just discard the tokens. There's no harm in it, IO cancellation
-    // can't have resource-saving guarantees anyway.
-}
-
 std::vector<seastar::metrics::impl::metric_definition_impl> fair_queue::metrics(class_id c) {
     namespace sm = seastar::metrics;
     priority_class_data& pc = *_priority_classes[c];
