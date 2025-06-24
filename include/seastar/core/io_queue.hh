@@ -222,7 +222,7 @@ private:
     util::spinlock _lock;
     const shard_id _allocated_on;
 
-    static io_throttler::config make_fair_group_config(const io_queue::config& qcfg) noexcept;
+    static io_throttler::config configure_throttler(const io_queue::config& qcfg) noexcept;
     priority_class_data& find_or_create_class(internal::priority_class pc);
 };
 

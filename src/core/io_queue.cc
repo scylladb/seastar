@@ -599,7 +599,7 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     });
 }
 
-io_throttler::config io_group::make_fair_group_config(const io_queue::config& qcfg) noexcept {
+io_throttler::config io_group::configure_throttler(const io_queue::config& qcfg) noexcept {
     io_throttler::config cfg;
     cfg.label = fmt::format("io-queue-{}", qcfg.id);
     double min_weight = std::min(io_queue::read_request_base_count, qcfg.disk_req_write_to_read_multiplier);
@@ -620,10 +620,10 @@ io_group::io_group(io_queue::config io_cfg, unsigned nr_queues)
     : _config(std::move(io_cfg))
     , _allocated_on(this_shard_id())
 {
-    auto fg_cfg = make_fair_group_config(_config);
-    _fgs.emplace_back(fg_cfg, nr_queues);
+    auto throttler_config = configure_throttler(_config);
+    _fgs.emplace_back(throttler_config, nr_queues);
     if (_config.duplex) {
-        _fgs.emplace_back(fg_cfg, nr_queues);
+        _fgs.emplace_back(throttler_config, nr_queues);
     }
 
     auto goal = io_latency_goal();
