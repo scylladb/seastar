@@ -32,21 +32,14 @@
 static constexpr fair_queue::class_id cid = 0;
 
 struct local_fq_and_class {
-    seastar::io_throttler fg;
     seastar::fair_queue fq;
     seastar::fair_queue sfq;
     unsigned executed = 0;
 
-    static io_throttler::config fg_config() {
-        io_throttler::config cfg;
-        return cfg;
-    }
-
     seastar::fair_queue& queue(bool local) noexcept { return local ? fq : sfq; }
 
-    local_fq_and_class(seastar::io_throttler& sfg)
-        : fg(fg_config(), 1)
-        , fq(seastar::fair_queue::config())
+    local_fq_and_class()
+        : fq(seastar::fair_queue::config())
         , sfq(seastar::fair_queue::config())
     {
         fq.register_priority_class(cid, 1);
@@ -75,17 +68,9 @@ struct perf_fair_queue {
 
     seastar::sharded<local_fq_and_class> local_fq;
 
-    seastar::io_throttler shared_fg;
-
-    static io_throttler::config fg_config() {
-        io_throttler::config cfg;
-        return cfg;
-    }
-
     perf_fair_queue()
-        : shared_fg(fg_config(), smp::count)
     {
-        local_fq.start(std::ref(shared_fg)).get();
+        local_fq.start().get();
     }
 
     ~perf_fair_queue() {

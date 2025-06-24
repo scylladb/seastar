@@ -59,18 +59,11 @@ struct request {
 constexpr unsigned test_weight_scale = 1000;
 
 class test_env {
-    io_throttler _fg;
     fair_queue _fq;
     std::vector<int> _results;
     std::vector<std::vector<std::exception_ptr>> _exceptions;
     fair_queue::class_id _nr_classes = 0;
     std::vector<request> _inflight;
-
-    static io_throttler::config fg_config(unsigned cap) {
-        io_throttler::config cfg;
-        cfg.rate_limit_duration = std::chrono::microseconds(cap);
-        return cfg;
-    }
 
     static fair_queue::config fq_config() {
         fair_queue::config cfg;
@@ -83,15 +76,8 @@ class test_env {
     }
 public:
     test_env(unsigned capacity)
-        : _fg(fg_config(capacity), 1)
-        , _fq(fq_config())
+        : _fq(fq_config())
     {
-        // Move _fg._replenished_ts() to far future.
-        // This will prevent any `maybe_replenish_capacity` calls (indirectly done by `fair_queue::dispatch_requests()`)
-        // from replenishing tokens on its own, and ensure that the only source of replenishment will be tick().
-        //
-        // Otherwise the rate of replenishment might be greater than expected by the test, breaking the results.
-        _fg.replenish_capacity(io_throttler::clock_type::now() + std::chrono::days(1));
     }
 
     // As long as there is a request sitting in the queue, tick() will process
@@ -104,7 +90,6 @@ public:
     unsigned tick(unsigned n = 1) {
         unsigned dispatched = 0;
         unsigned processed = 0;
-        _fg.replenish_capacity(_fg.replenished_ts() + std::chrono::microseconds(1));
         while (dispatched < n) {
             auto* req = _fq.top();
             if (req == nullptr) {
@@ -126,7 +111,6 @@ public:
                 _fq.notify_request_finished(req.fqent.capacity());
             }
 
-            _fg.replenish_capacity(_fg.replenished_ts() + std::chrono::microseconds(1));
             while (dispatched < n) {
                 auto* req = _fq.top();
                 if (req == nullptr) {
