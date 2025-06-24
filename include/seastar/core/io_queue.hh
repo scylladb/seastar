@@ -82,7 +82,13 @@ private:
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
     io_group_ptr _group;
     const unsigned _id;
-    boost::container::static_vector<fair_queue, 2> _streams;
+    struct stream {
+        fair_queue fq;
+        stream(io_throttler& t, fair_queue::config cfg)
+            : fq(t, std::move(cfg))
+        {}
+    };
+    boost::container::static_vector<stream, 2> _streams;
     internal::io_sink& _sink;
 
     friend struct ::io_queue_for_tests;
