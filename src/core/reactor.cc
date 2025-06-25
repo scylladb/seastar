@@ -2647,7 +2647,10 @@ seastar::internal::log_buf::inserter_iterator do_dump_task_queue(seastar::intern
     return it;
 }
 
-void reactor::run_tasks(task_queue& tq) {
+void reactor::task_queue::run_tasks() {
+    reactor& r = engine();
+    task_queue& tq = *this;
+
     // Make sure new tasks will inherit our scheduling group
     *internal::current_scheduling_group_ptr() = scheduling_group(tq._id);
     auto& tasks = tq._q;
@@ -2656,21 +2659,21 @@ void reactor::run_tasks(task_queue& tq) {
         tasks.pop_front();
         STAP_PROBE(seastar, reactor_run_tasks_single_start);
         internal::task_histogram_add_task(*tsk);
-        _current_task = tsk;
+        r._current_task = tsk;
         tsk->run_and_dispose();
-        _current_task = nullptr;
+        r._current_task = nullptr;
         STAP_PROBE(seastar, reactor_run_tasks_single_end);
         ++tq._tasks_processed;
-        ++_global_tasks_processed;
+        ++r._global_tasks_processed;
         // check at end of loop, to allow at least one task to run
         if (internal::scheduler_need_preempt()) {
-            if (tasks.size() <= _cfg.max_task_backlog) {
+            if (tasks.size() <= r._cfg.max_task_backlog) {
                 break;
             } else {
                 // While need_preempt() is set, task execution is inefficient due to
                 // need_preempt() checks breaking out of loops and .then() calls. See
                 // #302.
-                reset_preemption_monitor();
+                r.reset_preemption_monitor();
                 lowres_clock::update();
 
                 static thread_local logger::rate_limit rate_limit(std::chrono::seconds(10));
@@ -3127,7 +3130,7 @@ reactor::run_some_tasks() {
         insert_activating_task_queues();
         task_queue* tq = pop_active_task_queue(t_run_started);
         _last_vruntime = std::max(tq->_vruntime, _last_vruntime);
-        run_tasks(*tq);
+        tq->run_tasks();
         t_run_completed = now();
         auto delta = t_run_completed - t_run_started;
         account_runtime(*tq, delta);
@@ -3298,7 +3301,7 @@ int reactor::do_run() {
                 run_some_tasks();
             }
             while (!_at_destroy_tasks->_q.empty()) {
-                run_tasks(*_at_destroy_tasks);
+                _at_destroy_tasks->run_tasks();
             }
             _finished_running_tasks = true;
             _smp->arrive_at_event_loop_end();
