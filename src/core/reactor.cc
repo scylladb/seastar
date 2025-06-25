@@ -3036,7 +3036,7 @@ reactor::have_more_tasks() const {
 }
 
 inline bool reactor::task_queue_group::active() const noexcept {
-    return _active_task_queues.size() + _activating_task_queues.size();
+    return _active.size() + _activating_task_queues.size();
 }
 
 void reactor::task_queue_group::activate(task_queue* tq) {
@@ -3052,7 +3052,7 @@ void reactor::task_queue_group::activate(task_queue* tq) {
 
 void reactor::task_queue_group::insert_active_task_queue(task_queue* tq) {
     tq->_active = true;
-    auto& atq = _active_task_queues;
+    auto& atq = _active;
     auto less = task_queue::indirect_compare();
     if (atq.empty() || less(atq.back(), tq)) {
         // Common case: idle->working
@@ -3071,8 +3071,8 @@ void reactor::task_queue_group::insert_active_task_queue(task_queue* tq) {
 }
 
 reactor::task_queue* reactor::task_queue_group::pop_active_task_queue(sched_clock::time_point now) {
-    task_queue* tq = _active_task_queues.front();
-    _active_task_queues.pop_front();
+    task_queue* tq = _active.front();
+    _active.pop_front();
     tq->_starvetime += now - tq->_ts;
     return tq;
 }
