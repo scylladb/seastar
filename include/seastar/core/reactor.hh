@@ -297,6 +297,8 @@ private:
         int64_t _last_vruntime = 0;
         task_queue_list _active_task_queues;
         task_queue_list _activating_task_queues;
+
+        bool active() const noexcept;
     };
 
     std::array<std::unique_ptr<task_queue>, max_scheduling_groups()> _task_queues;
