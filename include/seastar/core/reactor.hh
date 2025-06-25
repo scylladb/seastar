@@ -302,6 +302,7 @@ private:
         task_queue_list _activating_task_queues;
 
         bool active() const noexcept;
+        void activate(task_queue*);
     };
 
     task_queue_group _cpu_sched;
