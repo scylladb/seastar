@@ -2649,25 +2649,23 @@ seastar::internal::log_buf::inserter_iterator do_dump_task_queue(seastar::intern
 
 void reactor::task_queue::run_tasks() {
     reactor& r = engine();
-    task_queue& tq = *this;
 
     // Make sure new tasks will inherit our scheduling group
-    *internal::current_scheduling_group_ptr() = scheduling_group(tq._id);
-    auto& tasks = tq._q;
-    while (!tasks.empty()) {
-        auto tsk = tasks.front();
-        tasks.pop_front();
+    *internal::current_scheduling_group_ptr() = scheduling_group(_id);
+    while (!_q.empty()) {
+        auto tsk = _q.front();
+        _q.pop_front();
         STAP_PROBE(seastar, reactor_run_tasks_single_start);
         internal::task_histogram_add_task(*tsk);
         r._current_task = tsk;
         tsk->run_and_dispose();
         r._current_task = nullptr;
         STAP_PROBE(seastar, reactor_run_tasks_single_end);
-        ++tq._tasks_processed;
+        ++_tasks_processed;
         ++r._global_tasks_processed;
         // check at end of loop, to allow at least one task to run
         if (internal::scheduler_need_preempt()) {
-            if (tasks.size() <= r._cfg.max_task_backlog) {
+            if (_q.size() <= r._cfg.max_task_backlog) {
                 break;
             } else {
                 // While need_preempt() is set, task execution is inefficient due to
@@ -2677,7 +2675,7 @@ void reactor::task_queue::run_tasks() {
                 lowres_clock::update();
 
                 static thread_local logger::rate_limit rate_limit(std::chrono::seconds(10));
-                logger::lambda_log_writer writer([&tq] (auto it) { return do_dump_task_queue(it, tq); });
+                logger::lambda_log_writer writer([this] (auto it) { return do_dump_task_queue(it, *this); });
                 seastar_logger.log(log_level::warn, rate_limit, writer);
             }
         }
