@@ -299,7 +299,7 @@ private:
 
         int64_t _last_vruntime = 0;
         task_queue_list _active;
-        task_queue_list _activating_task_queues;
+        task_queue_list _activating;;
 
         void run_some_tasks();
 
