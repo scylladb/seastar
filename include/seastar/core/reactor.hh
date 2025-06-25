@@ -299,6 +299,7 @@ private:
         task_queue_list _activating_task_queues;
 
         bool active() const noexcept;
+        void activate(task_queue*);
     };
 
     std::array<std::unique_ptr<task_queue>, max_scheduling_groups()> _task_queues;
