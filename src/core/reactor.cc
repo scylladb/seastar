@@ -939,6 +939,10 @@ static sstring shorten_name(const sstring& name, size_t length) {
     return shortname;
 }
 
+reactor::task_queue_group::task_queue_group()
+{
+}
+
 reactor::task_queue::task_queue(unsigned id, sstring name, sstring shortname, float shares)
         : _shares(std::max(shares, 1.0f))
         , _reciprocal_shares_times_2_power_32((uint64_t(1) << 32) / _shares)
@@ -3028,12 +3032,12 @@ void reactor::stop_aio_eventfd_loop() {
 inline
 bool
 reactor::have_more_tasks() const {
-    return _active_task_queues.size() + _activating_task_queues.size();
+    return _cpu_sched._active_task_queues.size() + _cpu_sched._activating_task_queues.size();
 }
 
 void reactor::insert_active_task_queue(task_queue* tq) {
     tq->_active = true;
-    auto& atq = _active_task_queues;
+    auto& atq = _cpu_sched._active_task_queues;
     auto less = task_queue::indirect_compare();
     if (atq.empty() || less(atq.back(), tq)) {
         // Common case: idle->working
@@ -3052,8 +3056,8 @@ void reactor::insert_active_task_queue(task_queue* tq) {
 }
 
 reactor::task_queue* reactor::pop_active_task_queue(sched_clock::time_point now) {
-    task_queue* tq = _active_task_queues.front();
-    _active_task_queues.pop_front();
+    task_queue* tq = _cpu_sched._active_task_queues.front();
+    _cpu_sched._active_task_queues.pop_front();
     tq->_starvetime += now - tq->_ts;
     return tq;
 }
@@ -3061,10 +3065,10 @@ reactor::task_queue* reactor::pop_active_task_queue(sched_clock::time_point now)
 void
 reactor::insert_activating_task_queues() {
     // Quadratic, but since we expect the common cases in insert_active_task_queue() to dominate, faster
-    for (auto&& tq : _activating_task_queues) {
+    for (auto&& tq : _cpu_sched._activating_task_queues) {
         insert_active_task_queue(tq);
     }
-    _activating_task_queues.clear();
+    _cpu_sched._activating_task_queues.clear();
 }
 
 void reactor::add_task(task* t) noexcept {
@@ -3129,7 +3133,7 @@ reactor::run_some_tasks() {
         auto t_run_started = t_run_completed;
         insert_activating_task_queues();
         task_queue* tq = pop_active_task_queue(t_run_started);
-        _last_vruntime = std::max(tq->_vruntime, _last_vruntime);
+        _cpu_sched._last_vruntime = std::max(tq->_vruntime, _cpu_sched._last_vruntime);
         bool active = tq->run_tasks();
         t_run_completed = now();
         auto delta = t_run_completed - t_run_started;
@@ -3165,11 +3169,11 @@ void reactor::task_queue::wakeup() {
     // bound later.
     //
     // FIXME: different scheduling groups have different sensitivity to jitter, take advantage
-    _vruntime = std::max(r._last_vruntime, _vruntime);
+    _vruntime = std::max(r._cpu_sched._last_vruntime, _vruntime);
     auto now = reactor::now();
     _waittime += now - _ts;
     _ts = now;
-    r._activating_task_queues.push_back(this);
+    r._cpu_sched._activating_task_queues.push_back(this);
 }
 
 void reactor::service_highres_timer() noexcept {
