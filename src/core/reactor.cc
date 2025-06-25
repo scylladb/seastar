@@ -1024,10 +1024,10 @@ reactor::task_queue::set_shares(float shares) noexcept {
 }
 
 void
-reactor::account_runtime(task_queue& tq, sched_clock::duration runtime) {
-    if (runtime > (2 * _cfg.task_quota)) {
-        _stalls_histogram.add(runtime);
-        tq._time_spent_on_task_quota_violations += runtime - _cfg.task_quota;
+reactor::task_queue_group::account_runtime(reactor& r, task_queue& tq, sched_clock::duration runtime) {
+    if (runtime > (2 * r._cfg.task_quota)) {
+        r._stalls_histogram.add(runtime);
+        tq._time_spent_on_task_quota_violations += runtime - r._cfg.task_quota;
     }
     tq._vruntime += tq.to_vruntime(runtime);
     tq._runtime += runtime;
@@ -3154,7 +3154,7 @@ reactor::task_queue_group::run_some_tasks() {
         bool active = tq->run_tasks();
         t_run_completed = now();
         auto delta = t_run_completed - t_run_started;
-        r.account_runtime(*tq, delta);
+        account_runtime(r, *tq, delta);
         tq->_ts = t_run_completed;
         if (active) {
             insert_active_task_queue(tq);
