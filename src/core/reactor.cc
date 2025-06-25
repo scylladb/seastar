@@ -3039,6 +3039,10 @@ inline bool reactor::task_queue_group::active() const noexcept {
     return _active_task_queues.size() + _activating_task_queues.size();
 }
 
+void reactor::task_queue_group::activate(task_queue* tq) {
+    _activating_task_queues.push_back(tq);
+}
+
 void reactor::insert_active_task_queue(task_queue* tq) {
     tq->_active = true;
     auto& atq = _cpu_sched._active_task_queues;
@@ -3177,7 +3181,7 @@ void reactor::task_queue::wakeup() {
     auto now = reactor::now();
     _waittime += now - _ts;
     _ts = now;
-    r._cpu_sched._activating_task_queues.push_back(this);
+    r._cpu_sched.activate(this);
 }
 
 void reactor::service_highres_timer() noexcept {
