@@ -3032,7 +3032,11 @@ void reactor::stop_aio_eventfd_loop() {
 inline
 bool
 reactor::have_more_tasks() const {
-    return _cpu_sched._active_task_queues.size() + _cpu_sched._activating_task_queues.size();
+    return _cpu_sched.active();
+}
+
+inline bool reactor::task_queue_group::active() const noexcept {
+    return _active_task_queues.size() + _activating_task_queues.size();
 }
 
 void reactor::insert_active_task_queue(task_queue* tq) {
