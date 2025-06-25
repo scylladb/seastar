@@ -3074,7 +3074,7 @@ void reactor::add_task(task* t) noexcept {
     q->_q.push_back(std::move(t));
     shuffle(q->_q.back(), q->_q);
     if (was_empty) {
-        activate(*q);
+        q->activate();
     }
 }
 
@@ -3086,7 +3086,7 @@ void reactor::add_urgent_task(task* t) noexcept {
     q->_q.push_front(std::move(t));
     shuffle(q->_q.front(), q->_q);
     if (was_empty) {
-        activate(*q);
+        q->activate();
     }
 }
 
@@ -3153,8 +3153,10 @@ reactor::run_some_tasks() {
     *internal::current_scheduling_group_ptr() = default_scheduling_group(); // Prevent inheritance from last group run
 }
 
-void
-reactor::activate(task_queue& tq) {
+void reactor::task_queue::activate() {
+    reactor& r = engine();
+    task_queue& tq = *this;
+
     if (tq._active) {
         return;
     }
@@ -3164,11 +3166,11 @@ reactor::activate(task_queue& tq) {
     // bound later.
     //
     // FIXME: different scheduling groups have different sensitivity to jitter, take advantage
-    tq._vruntime = std::max(_last_vruntime, tq._vruntime);
+    tq._vruntime = std::max(r._last_vruntime, tq._vruntime);
     auto now = reactor::now();
     tq._waittime += now - tq._ts;
     tq._ts = now;
-    _activating_task_queues.push_back(&tq);
+    r._activating_task_queues.push_back(&tq);
 }
 
 void reactor::service_highres_timer() noexcept {
