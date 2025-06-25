@@ -3040,6 +3040,13 @@ inline bool reactor::task_queue_group::active() const noexcept {
 }
 
 void reactor::task_queue_group::activate(task_queue* tq) {
+    // If wakeup() was called, the task queue is likely network-bound or I/O bound, not CPU-bound. As
+    // such its vruntime will be low, and it will have a large advantage over other task queues. Limit
+    // the advantage so it doesn't dominate scheduling for a long time, in case it _does_ become CPU
+    // bound later.
+    //
+    // FIXME: different scheduling groups have different sensitivity to jitter, take advantage
+    tq->_vruntime = std::max(_last_vruntime, tq->_vruntime);
     _activating_task_queues.push_back(tq);
 }
 
@@ -3173,13 +3180,6 @@ void reactor::task_queue::wakeup() {
     if (_active) {
         return;
     }
-    // If wakeup() was called, the task queue is likely network-bound or I/O bound, not CPU-bound. As
-    // such its vruntime will be low, and it will have a large advantage over other task queues. Limit
-    // the advantage so it doesn't dominate scheduling for a long time, in case it _does_ become CPU
-    // bound later.
-    //
-    // FIXME: different scheduling groups have different sensitivity to jitter, take advantage
-    _vruntime = std::max(r._cpu_sched._last_vruntime, _vruntime);
     auto now = reactor::now();
     _waittime += now - _ts;
     _ts = now;
