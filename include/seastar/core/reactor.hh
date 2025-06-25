@@ -287,6 +287,7 @@ private:
         struct indirect_compare;
         sched_clock::duration _time_spent_on_task_quota_violations = {};
         seastar::metrics::metric_groups _metrics;
+        void run_tasks();
         void rename(sstring new_name, sstring new_shortname);
     private:
         void register_stats();
@@ -399,7 +400,6 @@ private:
     friend void handle_signal(int signo, noncopyable_function<void ()>&& handler, bool once);
 
     uint64_t pending_task_count() const;
-    void run_tasks(task_queue& tq);
     bool have_more_tasks() const;
     bool posix_reuseport_detect();
     void run_some_tasks();
