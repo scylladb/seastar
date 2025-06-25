@@ -288,6 +288,7 @@ private:
         sched_clock::duration _time_spent_on_task_quota_violations = {};
         seastar::metrics::metric_groups _metrics;
         bool run_tasks();
+        void activate();
         void rename(sstring new_name, sstring new_shortname);
     private:
         void register_stats();
@@ -403,7 +404,6 @@ private:
     bool have_more_tasks() const;
     bool posix_reuseport_detect();
     void run_some_tasks();
-    void activate(task_queue& tq);
     void insert_active_task_queue(task_queue* tq);
     task_queue* pop_active_task_queue(sched_clock::time_point now);
     void insert_activating_task_queues();
