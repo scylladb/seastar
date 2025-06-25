@@ -301,6 +301,8 @@ private:
         task_queue_list _active_task_queues;
         task_queue_list _activating_task_queues;
 
+        void run_some_tasks();
+
         bool active() const noexcept;
         void activate(task_queue*);
 
@@ -416,7 +418,6 @@ private:
     uint64_t pending_task_count() const;
     bool have_more_tasks() const;
     bool posix_reuseport_detect();
-    void run_some_tasks();
     void account_runtime(task_queue& tq, sched_clock::duration runtime);
     future<> rename_scheduling_group_specific_data(scheduling_group sg);
     future<> init_scheduling_group(scheduling_group sg, sstring name, sstring shortname, float shares);
