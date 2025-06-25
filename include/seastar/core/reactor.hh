@@ -305,7 +305,7 @@ private:
 
         bool active() const noexcept;
         void activate(task_queue*);
-
+    private:
         void insert_active_task_queue(task_queue* tq);
         task_queue* pop_active_task_queue(sched_clock::time_point now);
         void insert_activating_task_queues();

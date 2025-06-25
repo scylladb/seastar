@@ -3129,7 +3129,6 @@ future<> reactor::drain() {
 void
 reactor::task_queue_group::run_some_tasks() {
     reactor& r = engine();
-    auto& _cpu_sched = *this;
 
     if (!active()) {
         return;
@@ -3142,16 +3141,16 @@ reactor::task_queue_group::run_some_tasks() {
     r._cpu_stall_detector->start_task_run(t_run_completed);
     do {
         auto t_run_started = t_run_completed;
-        _cpu_sched.insert_activating_task_queues();
-        task_queue* tq = _cpu_sched.pop_active_task_queue(t_run_started);
-        _cpu_sched._last_vruntime = std::max(tq->_vruntime, _cpu_sched._last_vruntime);
+        insert_activating_task_queues();
+        task_queue* tq = pop_active_task_queue(t_run_started);
+        _last_vruntime = std::max(tq->_vruntime, _last_vruntime);
         bool active = tq->run_tasks();
         t_run_completed = now();
         auto delta = t_run_completed - t_run_started;
         r.account_runtime(*tq, delta);
         tq->_ts = t_run_completed;
         if (active) {
-            _cpu_sched.insert_active_task_queue(tq);
+            insert_active_task_queue(tq);
         } else {
             tq->_active = false;
         }
