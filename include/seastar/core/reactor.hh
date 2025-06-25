@@ -294,12 +294,18 @@ private:
         void register_stats();
     };
 
+    struct task_queue_group {
+        task_queue_group();
+
+        int64_t _last_vruntime = 0;
+        task_queue_list _active_task_queues;
+        task_queue_list _activating_task_queues;
+    };
+
+    task_queue_group _cpu_sched;
     std::array<std::unique_ptr<task_queue>, max_scheduling_groups()> _task_queues;
     internal::scheduling_group_specific_thread_local_data _scheduling_group_specific_data;
     shared_mutex _scheduling_group_keys_mutex;
-    int64_t _last_vruntime = 0;
-    task_queue_list _active_task_queues;
-    task_queue_list _activating_task_queues;
     task_queue* _at_destroy_tasks;
     task* _current_task = nullptr;
     /// Handler that will be called when there is no task to execute on cpu.
