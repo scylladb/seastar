@@ -303,6 +303,8 @@ private:
 
         bool active() const noexcept;
         void activate(task_queue*);
+
+        void insert_active_task_queue(task_queue* tq);
     };
 
     task_queue_group _cpu_sched;
@@ -413,7 +415,6 @@ private:
     bool have_more_tasks() const;
     bool posix_reuseport_detect();
     void run_some_tasks();
-    void insert_active_task_queue(task_queue* tq);
     task_queue* pop_active_task_queue(sched_clock::time_point now);
     void insert_activating_task_queues();
     void account_runtime(task_queue& tq, sched_clock::duration runtime);
