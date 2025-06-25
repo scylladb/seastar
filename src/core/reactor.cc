@@ -3127,16 +3127,19 @@ future<> reactor::drain() {
 }
 
 void
-reactor::run_some_tasks() {
-    if (!have_more_tasks()) {
+reactor::task_queue_group::run_some_tasks() {
+    reactor& r = engine();
+    auto& _cpu_sched = *this;
+
+    if (!active()) {
         return;
     }
-    reset_preemption_monitor();
+    r.reset_preemption_monitor();
     lowres_clock::update();
 
     sched_clock::time_point t_run_completed = now();
     STAP_PROBE(seastar, reactor_run_tasks_start);
-    _cpu_stall_detector->start_task_run(t_run_completed);
+    r._cpu_stall_detector->start_task_run(t_run_completed);
     do {
         auto t_run_started = t_run_completed;
         _cpu_sched.insert_activating_task_queues();
@@ -3145,7 +3148,7 @@ reactor::run_some_tasks() {
         bool active = tq->run_tasks();
         t_run_completed = now();
         auto delta = t_run_completed - t_run_started;
-        account_runtime(*tq, delta);
+        r.account_runtime(*tq, delta);
         tq->_ts = t_run_completed;
         if (active) {
             _cpu_sched.insert_active_task_queue(tq);
@@ -3159,8 +3162,8 @@ reactor::run_some_tasks() {
         //
         // Settle on a regular need_preempt(), which will return true in
         // debug mode.
-    } while (have_more_tasks() && !need_preempt());
-    _cpu_stall_detector->end_task_run(t_run_completed);
+    } while (active() && !need_preempt());
+    r._cpu_stall_detector->end_task_run(t_run_completed);
     STAP_PROBE(seastar, reactor_run_tasks_end);
     *internal::current_scheduling_group_ptr() = default_scheduling_group(); // Prevent inheritance from last group run
 }
@@ -3306,12 +3309,12 @@ int reactor::do_run() {
         return pure_poll_once() || have_more_tasks();
     };
     while (true) {
-        run_some_tasks();
+        _cpu_sched.run_some_tasks();
         if (_stopped) {
             load_timer.cancel();
             // Final tasks may include sending the last response to cpu 0, so run them
             while (have_more_tasks()) {
-                run_some_tasks();
+                _cpu_sched.run_some_tasks();
             }
             while (_at_destroy_tasks->run_tasks()) {
                 // keep running while it's active
