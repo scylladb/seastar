@@ -3155,9 +3155,8 @@ reactor::run_some_tasks() {
 
 void reactor::task_queue::wakeup() {
     reactor& r = engine();
-    task_queue& tq = *this;
 
-    if (tq._active) {
+    if (_active) {
         return;
     }
     // If wakeup() was called, the task queue is likely network-bound or I/O bound, not CPU-bound. As
@@ -3166,11 +3165,11 @@ void reactor::task_queue::wakeup() {
     // bound later.
     //
     // FIXME: different scheduling groups have different sensitivity to jitter, take advantage
-    tq._vruntime = std::max(r._last_vruntime, tq._vruntime);
+    _vruntime = std::max(r._last_vruntime, _vruntime);
     auto now = reactor::now();
-    tq._waittime += now - tq._ts;
-    tq._ts = now;
-    r._activating_task_queues.push_back(&tq);
+    _waittime += now - _ts;
+    _ts = now;
+    r._activating_task_queues.push_back(this);
 }
 
 void reactor::service_highres_timer() noexcept {
