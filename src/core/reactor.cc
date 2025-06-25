@@ -3052,19 +3052,18 @@ void reactor::task_queue_group::activate(task_queue* tq) {
 
 void reactor::task_queue_group::insert_active_task_queue(task_queue* tq) {
     tq->_active = true;
-    auto& atq = _active;
     auto less = task_queue::indirect_compare();
-    if (atq.empty() || less(atq.back(), tq)) {
+    if (_active.empty() || less(_active.back(), tq)) {
         // Common case: idle->working
         // Common case: CPU intensive task queue going to the back
-        atq.push_back(tq);
+        _active.push_back(tq);
     } else {
         // Common case: newly activated queue preempting everything else
-        atq.push_front(tq);
+        _active.push_front(tq);
         // Less common case: newly activated queue behind something already active
         size_t i = 0;
-        while (i + 1 != atq.size() && !less(atq[i], atq[i+1])) {
-            std::swap(atq[i], atq[i+1]);
+        while (i + 1 != _active.size() && !less(_active[i], _active[i+1])) {
+            std::swap(_active[i], _active[i+1]);
             ++i;
         }
     }
