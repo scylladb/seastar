@@ -298,7 +298,7 @@ private:
         task_queue_group();
 
         int64_t _last_vruntime = 0;
-        task_queue_list _active_task_queues;
+        task_queue_list _active;
         task_queue_list _activating_task_queues;
 
         void run_some_tasks();
