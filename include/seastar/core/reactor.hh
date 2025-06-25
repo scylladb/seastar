@@ -300,6 +300,8 @@ private:
         int64_t _last_vruntime = 0;
         task_queue_list _active_task_queues;
         task_queue_list _activating_task_queues;
+
+        bool active() const noexcept;
     };
 
     task_queue_group _cpu_sched;
