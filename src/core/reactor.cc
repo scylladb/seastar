@@ -3043,9 +3043,9 @@ void reactor::task_queue_group::activate(task_queue* tq) {
     _activating_task_queues.push_back(tq);
 }
 
-void reactor::insert_active_task_queue(task_queue* tq) {
+void reactor::task_queue_group::insert_active_task_queue(task_queue* tq) {
     tq->_active = true;
-    auto& atq = _cpu_sched._active_task_queues;
+    auto& atq = _active_task_queues;
     auto less = task_queue::indirect_compare();
     if (atq.empty() || less(atq.back(), tq)) {
         // Common case: idle->working
@@ -3074,7 +3074,7 @@ void
 reactor::insert_activating_task_queues() {
     // Quadratic, but since we expect the common cases in insert_active_task_queue() to dominate, faster
     for (auto&& tq : _cpu_sched._activating_task_queues) {
-        insert_active_task_queue(tq);
+        _cpu_sched.insert_active_task_queue(tq);
     }
     _cpu_sched._activating_task_queues.clear();
 }
@@ -3148,7 +3148,7 @@ reactor::run_some_tasks() {
         account_runtime(*tq, delta);
         tq->_ts = t_run_completed;
         if (active) {
-            insert_active_task_queue(tq);
+            _cpu_sched.insert_active_task_queue(tq);
         } else {
             tq->_active = false;
         }
