@@ -3036,7 +3036,7 @@ reactor::have_more_tasks() const {
 }
 
 inline bool reactor::task_queue_group::active() const noexcept {
-    return _active.size() + _activating_task_queues.size();
+    return _active.size() + _activating.size();
 }
 
 void reactor::task_queue_group::activate(task_queue* tq) {
@@ -3047,7 +3047,7 @@ void reactor::task_queue_group::activate(task_queue* tq) {
     //
     // FIXME: different scheduling groups have different sensitivity to jitter, take advantage
     tq->_vruntime = std::max(_last_vruntime, tq->_vruntime);
-    _activating_task_queues.push_back(tq);
+    _activating.push_back(tq);
 }
 
 void reactor::task_queue_group::insert_active_task_queue(task_queue* tq) {
@@ -3079,10 +3079,10 @@ reactor::task_queue* reactor::task_queue_group::pop_active_task_queue(sched_cloc
 void
 reactor::task_queue_group::insert_activating_task_queues() {
     // Quadratic, but since we expect the common cases in insert_active_task_queue() to dominate, faster
-    for (auto&& tq : _activating_task_queues) {
+    for (auto&& tq : _activating) {
         insert_active_task_queue(tq);
     }
-    _activating_task_queues.clear();
+    _activating.clear();
 }
 
 void reactor::add_task(task* t) noexcept {
