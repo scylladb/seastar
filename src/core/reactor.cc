@@ -3071,12 +3071,12 @@ reactor::task_queue* reactor::task_queue_group::pop_active_task_queue(sched_cloc
 }
 
 void
-reactor::insert_activating_task_queues() {
+reactor::task_queue_group::insert_activating_task_queues() {
     // Quadratic, but since we expect the common cases in insert_active_task_queue() to dominate, faster
-    for (auto&& tq : _cpu_sched._activating_task_queues) {
-        _cpu_sched.insert_active_task_queue(tq);
+    for (auto&& tq : _activating_task_queues) {
+        insert_active_task_queue(tq);
     }
-    _cpu_sched._activating_task_queues.clear();
+    _activating_task_queues.clear();
 }
 
 void reactor::add_task(task* t) noexcept {
@@ -3139,7 +3139,7 @@ reactor::run_some_tasks() {
     _cpu_stall_detector->start_task_run(t_run_completed);
     do {
         auto t_run_started = t_run_completed;
-        insert_activating_task_queues();
+        _cpu_sched.insert_activating_task_queues();
         task_queue* tq = _cpu_sched.pop_active_task_queue(t_run_started);
         _cpu_sched._last_vruntime = std::max(tq->_vruntime, _cpu_sched._last_vruntime);
         bool active = tq->run_tasks();
