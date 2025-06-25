@@ -3063,9 +3063,9 @@ void reactor::task_queue_group::insert_active_task_queue(task_queue* tq) {
     }
 }
 
-reactor::task_queue* reactor::pop_active_task_queue(sched_clock::time_point now) {
-    task_queue* tq = _cpu_sched._active_task_queues.front();
-    _cpu_sched._active_task_queues.pop_front();
+reactor::task_queue* reactor::task_queue_group::pop_active_task_queue(sched_clock::time_point now) {
+    task_queue* tq = _active_task_queues.front();
+    _active_task_queues.pop_front();
     tq->_starvetime += now - tq->_ts;
     return tq;
 }
@@ -3140,7 +3140,7 @@ reactor::run_some_tasks() {
     do {
         auto t_run_started = t_run_completed;
         insert_activating_task_queues();
-        task_queue* tq = pop_active_task_queue(t_run_started);
+        task_queue* tq = _cpu_sched.pop_active_task_queue(t_run_started);
         _cpu_sched._last_vruntime = std::max(tq->_vruntime, _cpu_sched._last_vruntime);
         bool active = tq->run_tasks();
         t_run_completed = now();
