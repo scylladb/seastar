@@ -438,7 +438,7 @@ private:
     bool have_more_tasks() const;
     bool posix_reuseport_detect();
     future<> rename_scheduling_group_specific_data(scheduling_group sg);
-    future<> init_scheduling_group(scheduling_group sg, sstring name, sstring shortname, float shares);
+    future<> init_scheduling_group(scheduling_group sg, sstring name, sstring shortname, float shares, scheduling_supergroup p);
     future<> init_new_scheduling_group_key(scheduling_group_key key, scheduling_group_key_config cfg);
     future<> destroy_scheduling_group(scheduling_group sg) noexcept;
     uint64_t tasks_processed() const;
@@ -695,7 +695,7 @@ private:
     friend void seastar::internal::increase_internal_errors_counter() noexcept;
     friend void internal::report_failed_future(const std::exception_ptr& eptr) noexcept;
     metrics::metric_groups _metric_groups;
-    friend future<scheduling_group> create_scheduling_group(sstring name, sstring shortname, float shares) noexcept;
+    friend future<scheduling_group> create_scheduling_group(sstring name, sstring shortname, float shares, scheduling_supergroup) noexcept;
     friend future<scheduling_supergroup> create_scheduling_supergroup(float shares) noexcept;
     friend future<> destroy_scheduling_supergroup(scheduling_supergroup sg) noexcept;
     friend future<> seastar::destroy_scheduling_group(scheduling_group) noexcept;

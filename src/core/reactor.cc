@@ -5139,10 +5139,19 @@ reactor::rename_scheduling_group_specific_data(scheduling_group sg) {
 }
 
 future<>
-reactor::init_scheduling_group(seastar::scheduling_group sg, sstring name, sstring shortname, float shares) {
-    return with_shared(_scheduling_group_keys_mutex, [this, sg, name = std::move(name), shortname = std::move(shortname), shares] {
+reactor::init_scheduling_group(seastar::scheduling_group sg, sstring name, sstring shortname, float shares, scheduling_supergroup parent) {
+    return with_shared(_scheduling_group_keys_mutex, [this, sg, name = std::move(name), shortname = std::move(shortname), shares, parent] {
         get_sg_data(sg).queue_is_initialized = true;
         auto* group = &_cpu_sched;
+        if (!parent.is_root()) {
+            if (_supergroups[parent.index()] == nullptr) {
+                return make_exception_future<>(std::runtime_error("Requested supergroup doesn't exist"));
+            }
+            group = _supergroups[parent.index()].get();
+        }
+        if (group->_nr_children == max_scheduling_groups()) {
+            return make_exception_future<>(std::runtime_error(fmt::format("Supergroup children limit exceeded while creating {}", name)));
+        }
         _task_queues[sg._id] = std::make_unique<task_queue>(group, sg._id, name, shortname, shares);
 
         return with_scheduling_group(sg, [this, sg] () {
@@ -5334,7 +5343,7 @@ future<> destroy_scheduling_supergroup(scheduling_supergroup sg) noexcept {
 }
 
 future<scheduling_group>
-create_scheduling_group(sstring name, sstring shortname, float shares) noexcept {
+create_scheduling_group(sstring name, sstring shortname, float shares, scheduling_supergroup parent) noexcept {
     auto aid = allocate_scheduling_group_id();
     if (aid < 0) {
         return make_exception_future<scheduling_group>(std::runtime_error(fmt::format("Scheduling group limit exceeded while creating {}", name)));
@@ -5342,11 +5351,16 @@ create_scheduling_group(sstring name, sstring shortname, float shares) noexcept 
     auto id = static_cast<unsigned>(aid);
     SEASTAR_ASSERT(id < max_scheduling_groups());
     auto sg = scheduling_group(id);
-    return smp::invoke_on_all([sg, name, shortname, shares] {
-        return engine().init_scheduling_group(sg, name, shortname, shares);
+    return smp::invoke_on_all([sg, name, shortname, shares, parent] {
+        return engine().init_scheduling_group(sg, name, shortname, shares, parent);
     }).then([sg] {
         return make_ready_future<scheduling_group>(sg);
     });
+}
+
+future<scheduling_group>
+create_scheduling_group(sstring name, sstring shortname, float shares) noexcept {
+    return create_scheduling_group(name, shortname, shares, scheduling_supergroup());
 }
 
 future<scheduling_group>

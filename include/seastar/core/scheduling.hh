@@ -113,6 +113,22 @@ future<scheduling_group> create_scheduling_group(sstring name, float shares) noe
 /// \return a scheduling group that can be used on any shard
 future<scheduling_group> create_scheduling_group(sstring name, sstring shortname, float shares) noexcept;
 
+/// Creates a scheduling group with a specified number of shares.
+///
+/// The operation is global and affects all shards. The returned scheduling
+/// group can then be used in any shard.
+///
+/// \param name A name that identifies the group; will be used as a label
+///             in the group's metrics
+/// \param shortname A name that identifies the group; will be printed in the
+///                  logging message aside of the shard id. please note, the
+///                  \c shortname will be truncated to 4 characters.
+/// \param shares number of shares of the CPU time allotted to the group;
+///              Use numbers in the 1-1000 range (but can go above).
+/// \param parent the supergroup to create the group in
+/// \return a scheduling group that can be used on any shard
+future<scheduling_group> create_scheduling_group(sstring name, sstring shortname, float shares, scheduling_supergroup parent) noexcept;
+
 /// Destroys a scheduling group.
 ///
 /// Destroys a \ref scheduling_group previously created with create_scheduling_group().
@@ -380,7 +396,7 @@ public:
     /// \return a future that is ready when the bandwidth update is applied
     future<> update_io_bandwidth(uint64_t bandwidth) const;
 
-    friend future<scheduling_group> create_scheduling_group(sstring name, sstring shortname, float shares) noexcept;
+    friend future<scheduling_group> create_scheduling_group(sstring name, sstring shortname, float shares, scheduling_supergroup) noexcept;
     friend future<> destroy_scheduling_group(scheduling_group sg) noexcept;
     friend future<> rename_scheduling_group(scheduling_group sg, sstring new_name, sstring new_shortname) noexcept;
     friend class reactor;
