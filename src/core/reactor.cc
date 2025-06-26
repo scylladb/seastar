@@ -3152,18 +3152,29 @@ future<> reactor::drain() {
 
 void
 reactor::task_queue_group::run_some_tasks() {
-    reactor& r = engine();
-
     if (!active()) {
         return;
     }
+
+    reactor& r = engine();
     r.reset_preemption_monitor();
     lowres_clock::update();
 
-    sched_clock::time_point t_run_completed = now();
     STAP_PROBE(seastar, reactor_run_tasks_start);
-    r._cpu_stall_detector->start_task_run(t_run_completed);
-    do {
+    r._cpu_stall_detector->start_task_run(now());
+
+    run_tasks();
+
+    r._cpu_stall_detector->end_task_run(now());
+    STAP_PROBE(seastar, reactor_run_tasks_end);
+    *internal::current_scheduling_group_ptr() = default_scheduling_group(); // Prevent inheritance from last group run
+}
+
+bool reactor::task_queue_group::run_tasks() {
+    reactor& r = engine();
+
+    sched_clock::time_point t_run_completed = now();
+    while (active()) {
         auto t_run_started = t_run_completed;
         insert_activating_entities();
         task_queue* tq = reinterpret_cast<task_queue*>(pop_active_entity(t_run_started));
@@ -3185,10 +3196,12 @@ reactor::task_queue_group::run_some_tasks() {
         //
         // Settle on a regular need_preempt(), which will return true in
         // debug mode.
-    } while (active() && !need_preempt());
-    r._cpu_stall_detector->end_task_run(t_run_completed);
-    STAP_PROBE(seastar, reactor_run_tasks_end);
-    *internal::current_scheduling_group_ptr() = default_scheduling_group(); // Prevent inheritance from last group run
+        if (need_preempt()) {
+            break;
+        }
+    }
+
+    return active();
 }
 
 void reactor::sched_entity::wakeup() {
