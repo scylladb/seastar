@@ -330,6 +330,7 @@ private:
     };
 
     task_queue_group _cpu_sched;
+    std::vector<std::unique_ptr<task_queue_group>> _supergroups;
     std::array<std::unique_ptr<task_queue>, max_scheduling_groups()> _task_queues;
     internal::scheduling_group_specific_thread_local_data _scheduling_group_specific_data;
     shared_mutex _scheduling_group_keys_mutex;
@@ -695,6 +696,7 @@ private:
     friend void internal::report_failed_future(const std::exception_ptr& eptr) noexcept;
     metrics::metric_groups _metric_groups;
     friend future<scheduling_group> create_scheduling_group(sstring name, sstring shortname, float shares) noexcept;
+    friend future<scheduling_supergroup> create_scheduling_supergroup(float shares) noexcept;
     friend future<> seastar::destroy_scheduling_group(scheduling_group) noexcept;
     friend future<> seastar::rename_scheduling_group(scheduling_group sg, sstring new_name, sstring new_shortname) noexcept;
     friend future<scheduling_group_key> scheduling_group_key_create(scheduling_group_key_config cfg) noexcept;
