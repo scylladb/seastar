@@ -152,8 +152,8 @@ public:
 SEASTAR_MODULE_EXPORT
 class reactor {
 private:
-    struct task_queue;
-    using task_queue_list = circular_buffer_fixed_capacity<task_queue*, 1 << log2ceil(max_scheduling_groups())>;
+    struct sched_entity;
+    using scheduler_list = circular_buffer_fixed_capacity<sched_entity*, 1 << log2ceil(max_scheduling_groups())>;
     using pollfn = seastar::pollfn;
 
     class signal_pollfn;
@@ -264,7 +264,14 @@ private:
     uint64_t _fsyncs = 0;
     uint64_t _cxx_exceptions = 0;
     uint64_t _abandoned_failed_futures = 0;
-    struct task_queue {
+
+    struct sched_entity {
+    protected:
+        explicit sched_entity();
+    public:
+    };
+
+    struct task_queue final : public sched_entity {
         explicit task_queue(unsigned id, sstring name, sstring shortname, float shares);
         int64_t _vruntime = 0;
         float _shares;
@@ -298,8 +305,8 @@ private:
         task_queue_group();
 
         int64_t _last_vruntime = 0;
-        task_queue_list _active;
-        task_queue_list _activating;;
+        scheduler_list _active;
+        scheduler_list _activating;;
 
         void run_some_tasks();
 
