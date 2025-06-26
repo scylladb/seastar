@@ -272,11 +272,11 @@ private:
         int64_t _vruntime = 0;
         float _shares;
         int64_t _reciprocal_shares_times_2_power_32;
+        bool _active = false;
     };
 
     struct task_queue final : public sched_entity {
         explicit task_queue(unsigned id, sstring name, sstring shortname, float shares);
-        bool _active = false;
         const uint8_t _id;
         sched_clock::time_point _ts; // to help calculating wait/starve-times
         sched_clock::duration _runtime = {};
