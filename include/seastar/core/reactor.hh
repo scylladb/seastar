@@ -282,6 +282,7 @@ private:
 
         void set_shares(float shares) noexcept;
 
+        void wakeup();
         int64_t to_vruntime(sched_clock::duration runtime) const;
     };
 
@@ -298,7 +299,6 @@ private:
         struct indirect_compare;
         seastar::metrics::metric_groups _metrics;
         bool run_tasks();
-        void wakeup();
         void rename(sstring new_name, sstring new_shortname);
     private:
         void register_stats();
@@ -314,7 +314,7 @@ private:
         void run_some_tasks();
 
         bool active() const noexcept;
-        void activate(task_queue*);
+        void activate(sched_entity*);
     private:
         void insert_active_entity(sched_entity*);
         sched_entity* pop_active_entity(sched_clock::time_point now);

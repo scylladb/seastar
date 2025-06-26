@@ -3044,7 +3044,7 @@ inline bool reactor::task_queue_group::active() const noexcept {
     return _active.size() + _activating.size();
 }
 
-void reactor::task_queue_group::activate(task_queue* tq) {
+void reactor::task_queue_group::activate(sched_entity* tq) {
     // If wakeup() was called, the task queue is likely network-bound or I/O bound, not CPU-bound. As
     // such its vruntime will be low, and it will have a large advantage over other task queues. Limit
     // the advantage so it doesn't dominate scheduling for a long time, in case it _does_ become CPU
@@ -3178,7 +3178,7 @@ reactor::task_queue_group::run_some_tasks() {
     *internal::current_scheduling_group_ptr() = default_scheduling_group(); // Prevent inheritance from last group run
 }
 
-void reactor::task_queue::wakeup() {
+void reactor::sched_entity::wakeup() {
     reactor& r = engine();
 
     if (_active) {
