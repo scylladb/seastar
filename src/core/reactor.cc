@@ -943,14 +943,14 @@ reactor::task_queue_group::task_queue_group()
 {
 }
 
-reactor::sched_entity::sched_entity()
+reactor::sched_entity::sched_entity(float shares)
+        : _shares(std::max(shares, 1.0f))
+        , _reciprocal_shares_times_2_power_32((uint64_t(1) << 32) / _shares)
 {
 }
 
 reactor::task_queue::task_queue(unsigned id, sstring name, sstring shortname, float shares)
-        : sched_entity()
-        , _shares(std::max(shares, 1.0f))
-        , _reciprocal_shares_times_2_power_32((uint64_t(1) << 32) / _shares)
+        : sched_entity(shares)
         , _id(id)
         , _ts(now())
 {
