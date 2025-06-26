@@ -1040,7 +1040,7 @@ reactor::task_queue_group::account_runtime(reactor& r, task_queue& tq, sched_clo
 }
 
 struct reactor::task_queue::indirect_compare {
-    bool operator()(const task_queue* tq1, const task_queue* tq2) const {
+    bool operator()(const sched_entity* tq1, const sched_entity* tq2) const {
         return tq1->_vruntime < tq2->_vruntime;
     }
 };
@@ -3059,7 +3059,7 @@ void reactor::task_queue_group::activate(task_queue* tq) {
 void reactor::task_queue_group::insert_active_task_queue(task_queue* tq) {
     tq->_active = true;
     auto less = task_queue::indirect_compare();
-    if (_active.empty() || less(reinterpret_cast<const task_queue*>(_active.back()), tq)) {
+    if (_active.empty() || less(_active.back(), tq)) {
         // Common case: idle->working
         // Common case: CPU intensive task queue going to the back
         _active.push_back(tq);
@@ -3068,7 +3068,7 @@ void reactor::task_queue_group::insert_active_task_queue(task_queue* tq) {
         _active.push_front(tq);
         // Less common case: newly activated queue behind something already active
         size_t i = 0;
-        while (i + 1 != _active.size() && !less(reinterpret_cast<const task_queue*>(_active[i]), reinterpret_cast<const task_queue*>(_active[i+1]))) {
+        while (i + 1 != _active.size() && !less(_active[i], _active[i+1])) {
             std::swap(_active[i], _active[i+1]);
             ++i;
         }
