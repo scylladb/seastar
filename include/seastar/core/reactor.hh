@@ -273,6 +273,8 @@ private:
         sched_clock::duration _waittime = {};
         sched_clock::duration _starvetime = {};
         sched_clock::duration _time_spent_on_task_quota_violations = {};
+
+        int64_t to_vruntime(sched_clock::duration runtime) const;
     };
 
     struct task_queue final : public sched_entity {
@@ -285,7 +287,6 @@ private:
         // chars are used.
         static constexpr size_t shortname_size = 4;
         sstring _shortname;
-        int64_t to_vruntime(sched_clock::duration runtime) const;
         void set_shares(float shares) noexcept;
         struct indirect_compare;
         seastar::metrics::metric_groups _metrics;
@@ -311,7 +312,7 @@ private:
         void insert_active_entity(sched_entity*);
         sched_entity* pop_active_entity(sched_clock::time_point now);
         void insert_activating_entities();
-        void account_runtime(reactor&, task_queue& tq, sched_clock::duration runtime);
+        void account_runtime(reactor&, sched_entity&, sched_clock::duration runtime);
     };
 
     std::array<std::unique_ptr<task_queue>, max_scheduling_groups()> _task_queues;
