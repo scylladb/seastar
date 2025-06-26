@@ -1001,13 +1001,29 @@ public:
         switch(ssl_err) {
         case SSL_ERROR_ZERO_RETURN:
             // Indicates a hang up somewhere
-            // Mark _eof and stop iteratio
+            // Mark _eof, ensure any output pending items complete,
+            // and stop iteration
             _eof = true;
-            return make_ready_future<stop_iteration>(stop_iteration::yes);
+            return wait_for_output().then([] {
+                return stop_iteration::yes;
+            });
+        case SSL_ERROR_WANT_READ:
+            // Wait for any outstanding writes to complete and then
+            // wait for input data to be available
+            return wait_for_output().then([this] {
+                return wait_for_input().then([] {
+                    return stop_iteration::no;
+                });
+            });
         case SSL_ERROR_NONE:
             // Should not have been reached in this situation
             // Continue iteration
-            return make_ready_future<stop_iteration>(stop_iteration::no);
+            // Fallthrough as NONE and WANT_WRITE are handled the same
+            [[fallthrough]];
+        case SSL_ERROR_WANT_WRITE:
+            return wait_for_output().then([] {
+                return stop_iteration::no;
+            });
         case SSL_ERROR_SYSCALL:
         {
             auto err = make_ossl_error("System error encountered during SSL write");
@@ -1018,7 +1034,7 @@ public:
         case SSL_ERROR_SSL: {
             auto error_codes = get_all_ossl_errors();
             if (contains_ossl_error(error_codes, ERR_LIB_SSL, SSL_R_UNEXPECTED_EOF_WHILE_READING)) {
-                // Probably shouldn't have during a write, but
+                // Probably shouldn't happen during a write, but
                 // let's handle this gracefully
                 _eof = true;
                 return make_ready_future<stop_iteration>(stop_iteration::yes);
@@ -1045,18 +1061,14 @@ public:
     // This function takes and holds the sempahore units for _out_sem and
     // will attempt to send the provided packet.  If a renegotiation is needed
     // any unprocessed part of the packet is returned.
-    future<net::packet> do_put(net::packet p) {
+    future<> do_put(net::packet p) {
         tls_log.trace("{} do_put", *this);
-        if (!connected()) {
-            tls_log.debug("{} do_put: not connected", *this);
-            return make_ready_future<net::packet>(std::move(p));
-        }
         SEASTAR_ASSERT(_output_pending.available());
         return do_with(std::move(p),
             [this](net::packet& p) {
                 // This do_until runs until either a renegotiation occurs or the packet is empty
                 return do_until(
-                    [this, &p] { return eof() || !connected() || p.len() == 0;},
+                    [this, &p] { return eof() || p.len() == 0;},
                     [this, &p]() mutable {
                         std::string_view frag_view =
                             {p.fragments().begin()->base, p.fragments().begin()->size};
@@ -1071,14 +1083,6 @@ public:
                             if (write_rc != 1) {
                                 const auto ssl_err = SSL_get_error(_ssl.get(), write_rc);
                                 tls_log.trace("{} do_put: SSL_get_error: {}", *this, ssl_err);
-                                if (ssl_err == SSL_ERROR_WANT_WRITE) {
-                                    return wait_for_output().then([] {
-                                        return stop_iteration::no;
-                                    });
-                                } else if (!connected() || ssl_err == SSL_ERROR_WANT_READ) {
-                                    ERR_clear_error();
-                                    return make_ready_future<stop_iteration>(stop_iteration::yes);
-                                }
                                 return handle_do_put_ssl_err(ssl_err);
                             } else {
                                 tls_log.trace("{} do_put: bytes_written: {}", *this, bytes_written);
@@ -1090,10 +1094,7 @@ public:
                             }
                         });
                     }
-                ).then([this, &p] {
-                    tls_log.trace("{} do_put: returning packet of size: {}", *this, p.len());
-                    return std::move(p);
-                });
+                );
             }
         );
     }
@@ -1127,16 +1128,6 @@ public:
         }
         return with_semaphore(_out_sem, 1, [this, p = std::move(p)]() mutable {
             return do_put(std::move(p));
-        }).then([this](net::packet p) {
-            if (eof() || p.len() == 0) {
-                tls_log.trace("{} put: eof: {}, p.len(): {}", *this, eof(), p.len());
-                return make_ready_future();
-            } else {
-                tls_log.trace("{} put: not completed packet sending, re-doing handshake", *this);
-                return handshake().then([this, p = std::move(p)]() mutable {
-                    return put(std::move(p));
-                });
-            }
         });
     }
 
@@ -1290,11 +1281,16 @@ public:
                     // well we shouldn't be here at all
                     return make_ready_future<buf_type>();
                 case SSL_ERROR_WANT_WRITE:
+                    // OpenSSL needs to send data over the wire before it can read
                     return wait_for_output().then([this] { return do_get(); });
                 case SSL_ERROR_WANT_READ:
-                    // This may be caused by a renegotiation request, in this situation
-                    // return an empty buffer (the get() function will initiate a handshake)
-                    return make_ready_future<buf_type>();
+                    // OpenSSL needs to read data off of the write to process
+                    // SSL_read.  Send any data waiting to go out and then wait for input
+                    return wait_for_output().then([this] {
+                        return wait_for_input().then([this] {
+                            return do_get();
+                        });
+                    });
                 case SSL_ERROR_SYSCALL:
                     if (ERR_peek_error() == 0) {
                         // SSL_get_error
@@ -1349,17 +1345,11 @@ public:
         }
         if (!connected()) {
             tls_log.trace("{} get: not connected, performing handshake", *this);
-            return handshake().then(std::bind(&session::get, this));
+            return handshake().then([this] { return get(); });
         }
-        return with_semaphore(_in_sem, 1, std::bind(&session::do_get, this))
-          .then([this](buf_type buf) {
-              if (buf.empty() && !eof()) {
-                  tls_log.trace("{} get: buffer empty and not eof, performing handshake", *this);
-                  return handshake().then(std::bind(&session::get, this));
-              }
-              tls_log.trace("{} get: returning buffer of size {}", *this, buf.size());
-              return make_ready_future<buf_type>(std::move(buf));
-          });
+        return with_semaphore(_in_sem, 1, [this] {
+            return do_get();
+        });
     }
 
     // Performs shutdown
@@ -1533,9 +1523,11 @@ public:
         // before us will get it instead of us, and mark _eof = true
         // in which case we will be no-op. This is performed all
         // within do_shutdown
-        return with_semaphore(_out_sem, 1,
-                              std::bind(&session::do_shutdown, this)).then(
-                              std::bind(&session::wait_for_eof, this)).finally([me = shared_from_this()] {});
+        return with_semaphore(_out_sem, 1, [this] {
+                                return do_shutdown();
+                              }).then([this] {
+                                return wait_for_eof();
+                              }).finally([me = shared_from_this()]{});
         // note moved finally clause above. It is theorethically possible
         // that we could complete do_shutdown just before the close calls
         // below, get pre-empted, have "close()" finish, get freed, and
