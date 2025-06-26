@@ -273,15 +273,16 @@ private:
         float _shares;
         int64_t _reciprocal_shares_times_2_power_32;
         bool _active = false;
+        sched_clock::time_point _ts; // to help calculating wait/starve-times
+        sched_clock::duration _runtime = {};
+        sched_clock::duration _waittime = {};
+        sched_clock::duration _starvetime = {};
+        sched_clock::duration _time_spent_on_task_quota_violations = {};
     };
 
     struct task_queue final : public sched_entity {
         explicit task_queue(unsigned id, sstring name, sstring shortname, float shares);
         const uint8_t _id;
-        sched_clock::time_point _ts; // to help calculating wait/starve-times
-        sched_clock::duration _runtime = {};
-        sched_clock::duration _waittime = {};
-        sched_clock::duration _starvetime = {};
         uint64_t _tasks_processed = 0;
         circular_buffer<task*> _q;
         sstring _name;
@@ -292,7 +293,6 @@ private:
         int64_t to_vruntime(sched_clock::duration runtime) const;
         void set_shares(float shares) noexcept;
         struct indirect_compare;
-        sched_clock::duration _time_spent_on_task_quota_violations = {};
         seastar::metrics::metric_groups _metrics;
         bool run_tasks();
         void wakeup();
