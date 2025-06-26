@@ -317,6 +317,7 @@ private:
         scheduler_list _activating;;
         unsigned _nr_children = 0;
 
+        bool run_tasks();
         void run_some_tasks();
 
         bool active() const noexcept;
