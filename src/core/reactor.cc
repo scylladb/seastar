@@ -967,8 +967,8 @@ reactor::sched_entity::~sched_entity() {
     }
 }
 
-reactor::task_queue::task_queue(unsigned id, sstring name, sstring shortname, float shares)
-        : sched_entity(&engine()._cpu_sched, shares)
+reactor::task_queue::task_queue(task_queue_group* parent, unsigned id, sstring name, sstring shortname, float shares)
+        : sched_entity(parent, shares)
         , _id(id)
 {
     rename(name, shortname);
@@ -1078,8 +1078,8 @@ reactor::reactor(std::shared_ptr<seastar::smp> smp, alien::instance& alien, unsi
      */
     _backend = rbs.create(*this);
     *internal::get_scheduling_group_specific_thread_local_data_ptr() = &_scheduling_group_specific_data;
-    _task_queues[0] = std::make_unique<task_queue>(0, "main", "main", 1000);
-    _task_queues[1] = std::make_unique<task_queue>(1, "atexit", "exit", 1000);
+    _task_queues[0] = std::make_unique<task_queue>(&_cpu_sched, 0, "main", "main", 1000);
+    _task_queues[1] = std::make_unique<task_queue>(&_cpu_sched, 1, "atexit", "exit", 1000);
     _at_destroy_tasks = _task_queues[1].get();
     set_need_preempt_var(&_preemption_monitor);
     seastar::thread_impl::init();
@@ -5142,7 +5142,8 @@ future<>
 reactor::init_scheduling_group(seastar::scheduling_group sg, sstring name, sstring shortname, float shares) {
     return with_shared(_scheduling_group_keys_mutex, [this, sg, name = std::move(name), shortname = std::move(shortname), shares] {
         get_sg_data(sg).queue_is_initialized = true;
-        _task_queues[sg._id] = std::make_unique<task_queue>(sg._id, name, shortname, shares);
+        auto* group = &_cpu_sched;
+        _task_queues[sg._id] = std::make_unique<task_queue>(group, sg._id, name, shortname, shares);
 
         return with_scheduling_group(sg, [this, sg] () {
             auto& sg_data = _scheduling_group_specific_data;
