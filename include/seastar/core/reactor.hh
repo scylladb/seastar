@@ -269,11 +269,11 @@ private:
     protected:
         explicit sched_entity();
     public:
+        int64_t _vruntime = 0;
     };
 
     struct task_queue final : public sched_entity {
         explicit task_queue(unsigned id, sstring name, sstring shortname, float shares);
-        int64_t _vruntime = 0;
         float _shares;
         int64_t _reciprocal_shares_times_2_power_32;
         bool _active = false;
