@@ -314,7 +314,7 @@ private:
         void activate(task_queue*);
     private:
         void insert_active_entity(sched_entity*);
-        task_queue* pop_active_task_queue(sched_clock::time_point now);
+        sched_entity* pop_active_entity(sched_clock::time_point now);
         void insert_activating_task_queues();
         void account_runtime(reactor&, task_queue& tq, sched_clock::duration runtime);
     };

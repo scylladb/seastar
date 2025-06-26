@@ -3075,8 +3075,8 @@ void reactor::task_queue_group::insert_active_entity(sched_entity* tq) {
     }
 }
 
-reactor::task_queue* reactor::task_queue_group::pop_active_task_queue(sched_clock::time_point now) {
-    task_queue* tq = reinterpret_cast<task_queue*>(_active.front());
+reactor::sched_entity* reactor::task_queue_group::pop_active_entity(sched_clock::time_point now) {
+    sched_entity* tq = _active.front();
     _active.pop_front();
     tq->_starvetime += now - tq->_ts;
     return tq;
@@ -3154,7 +3154,7 @@ reactor::task_queue_group::run_some_tasks() {
     do {
         auto t_run_started = t_run_completed;
         insert_activating_task_queues();
-        task_queue* tq = pop_active_task_queue(t_run_started);
+        task_queue* tq = reinterpret_cast<task_queue*>(pop_active_entity(t_run_started));
         _last_vruntime = std::max(tq->_vruntime, _last_vruntime);
         bool active = tq->run_tasks();
         t_run_completed = now();
