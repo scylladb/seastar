@@ -2647,7 +2647,7 @@ seastar::internal::log_buf::inserter_iterator do_dump_task_queue(seastar::intern
     return it;
 }
 
-void reactor::task_queue::run_tasks() {
+bool reactor::task_queue::run_tasks() {
     reactor& r = engine();
 
     // Make sure new tasks will inherit our scheduling group
@@ -2680,6 +2680,8 @@ void reactor::task_queue::run_tasks() {
             }
         }
     }
+
+    return !_q.empty();
 }
 
 namespace {
@@ -3128,12 +3130,12 @@ reactor::run_some_tasks() {
         insert_activating_task_queues();
         task_queue* tq = pop_active_task_queue(t_run_started);
         _last_vruntime = std::max(tq->_vruntime, _last_vruntime);
-        tq->run_tasks();
+        bool active = tq->run_tasks();
         t_run_completed = now();
         auto delta = t_run_completed - t_run_started;
         account_runtime(*tq, delta);
         tq->_ts = t_run_completed;
-        if (!tq->_q.empty()) {
+        if (active) {
             insert_active_task_queue(tq);
         } else {
             tq->_active = false;
@@ -3298,8 +3300,8 @@ int reactor::do_run() {
             while (have_more_tasks()) {
                 run_some_tasks();
             }
-            while (!_at_destroy_tasks->_q.empty()) {
-                _at_destroy_tasks->run_tasks();
+            while (_at_destroy_tasks->run_tasks()) {
+                // keep running while it's active
             }
             _finished_running_tasks = true;
             _smp->arrive_at_event_loop_end();

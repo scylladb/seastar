@@ -287,7 +287,7 @@ private:
         struct indirect_compare;
         sched_clock::duration _time_spent_on_task_quota_violations = {};
         seastar::metrics::metric_groups _metrics;
-        void run_tasks();
+        bool run_tasks();
         void rename(sstring new_name, sstring new_shortname);
     private:
         void register_stats();
