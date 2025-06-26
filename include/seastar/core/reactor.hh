@@ -308,6 +308,7 @@ private:
         scheduler_list _active;
         scheduler_list _activating;;
 
+        bool run_tasks();
         void run_some_tasks();
 
         bool active() const noexcept;
