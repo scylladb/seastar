@@ -943,11 +943,17 @@ reactor::task_queue_group::task_queue_group()
 {
 }
 
+reactor::sched_entity::sched_entity()
+{
+}
+
 reactor::task_queue::task_queue(unsigned id, sstring name, sstring shortname, float shares)
-        : _shares(std::max(shares, 1.0f))
+        : sched_entity()
+        , _shares(std::max(shares, 1.0f))
         , _reciprocal_shares_times_2_power_32((uint64_t(1) << 32) / _shares)
         , _id(id)
-        , _ts(now()) {
+        , _ts(now())
+{
     rename(name, shortname);
 }
 
@@ -3053,7 +3059,7 @@ void reactor::task_queue_group::activate(task_queue* tq) {
 void reactor::task_queue_group::insert_active_task_queue(task_queue* tq) {
     tq->_active = true;
     auto less = task_queue::indirect_compare();
-    if (_active.empty() || less(_active.back(), tq)) {
+    if (_active.empty() || less(reinterpret_cast<const task_queue*>(_active.back()), tq)) {
         // Common case: idle->working
         // Common case: CPU intensive task queue going to the back
         _active.push_back(tq);
@@ -3062,7 +3068,7 @@ void reactor::task_queue_group::insert_active_task_queue(task_queue* tq) {
         _active.push_front(tq);
         // Less common case: newly activated queue behind something already active
         size_t i = 0;
-        while (i + 1 != _active.size() && !less(_active[i], _active[i+1])) {
+        while (i + 1 != _active.size() && !less(reinterpret_cast<const task_queue*>(_active[i]), reinterpret_cast<const task_queue*>(_active[i+1]))) {
             std::swap(_active[i], _active[i+1]);
             ++i;
         }
@@ -3070,7 +3076,7 @@ void reactor::task_queue_group::insert_active_task_queue(task_queue* tq) {
 }
 
 reactor::task_queue* reactor::task_queue_group::pop_active_task_queue(sched_clock::time_point now) {
-    task_queue* tq = _active.front();
+    task_queue* tq = reinterpret_cast<task_queue*>(_active.front());
     _active.pop_front();
     tq->_starvetime += now - tq->_ts;
     return tq;
@@ -3080,7 +3086,7 @@ void
 reactor::task_queue_group::insert_activating_task_queues() {
     // Quadratic, but since we expect the common cases in insert_active_task_queue() to dominate, faster
     for (auto&& tq : _activating) {
-        insert_active_task_queue(tq);
+        insert_active_task_queue(reinterpret_cast<task_queue*>(tq));
     }
     _activating.clear();
 }
