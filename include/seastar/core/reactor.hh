@@ -292,7 +292,7 @@ private:
     };
 
     struct task_queue final : public sched_entity {
-        explicit task_queue(unsigned id, sstring name, sstring shortname, float shares);
+        explicit task_queue(task_queue_group* p, unsigned id, sstring name, sstring shortname, float shares);
         const uint8_t _id;
         uint64_t _tasks_processed = 0;
         circular_buffer<task*> _q;
