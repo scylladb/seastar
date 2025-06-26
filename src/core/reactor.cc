@@ -5229,6 +5229,44 @@ future<> scheduling_group::update_io_bandwidth(uint64_t bandwidth) const {
     return engine().update_bandwidth_for_queues(internal::priority_class(*this), bandwidth);
 }
 
+future<scheduling_supergroup> create_scheduling_supergroup(float shares) noexcept {
+    auto index = co_await smp::submit_to(0, [shares] () -> unsigned {
+        auto& r = engine();
+        auto ssg = std::make_unique<reactor::task_queue_group>(&r._cpu_sched, shares);
+        for (unsigned index = 0; index < r._supergroups.size(); index++) {
+            if (r._supergroups[index] == nullptr) {
+                r._supergroups[index] = std::move(ssg);
+                return index;
+            }
+        }
+
+        r._supergroups.push_back(std::move(ssg));
+        return r._supergroups.size() - 1;
+    });
+
+    std::exception_ptr ex;
+    try {
+        co_await smp::invoke_on_all([index, shares] {
+            if (this_shard_id() != 0) {
+                auto& r = engine();
+                r._supergroups[index] = std::make_unique<reactor::task_queue_group>(&r._cpu_sched, shares);
+            }
+        });
+    } catch (...) {
+        ex = std::current_exception();
+    }
+
+    if (ex != nullptr) {
+        co_await smp::invoke_on_all([index] () noexcept {
+            engine()._supergroups[index].reset();
+        });
+
+        std::rethrow_exception(std::move(ex));
+    }
+
+    co_return scheduling_supergroup(index);
+}
+
 future<scheduling_group>
 create_scheduling_group(sstring name, sstring shortname, float shares) noexcept {
     auto aid = allocate_scheduling_group_id();
