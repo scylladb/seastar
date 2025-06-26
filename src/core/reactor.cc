@@ -943,15 +943,16 @@ reactor::task_queue_group::task_queue_group()
 {
 }
 
-reactor::sched_entity::sched_entity(float shares)
+reactor::sched_entity::sched_entity(task_queue_group* p, float shares)
         : _shares(std::max(shares, 1.0f))
         , _reciprocal_shares_times_2_power_32((uint64_t(1) << 32) / _shares)
+        , _parent(p)
         , _ts(now())
 {
 }
 
 reactor::task_queue::task_queue(unsigned id, sstring name, sstring shortname, float shares)
-        : sched_entity(shares)
+        : sched_entity(&engine()._cpu_sched, shares)
         , _id(id)
 {
     rename(name, shortname);
@@ -3179,15 +3180,13 @@ reactor::task_queue_group::run_some_tasks() {
 }
 
 void reactor::sched_entity::wakeup() {
-    reactor& r = engine();
-
     if (_active) {
         return;
     }
     auto now = reactor::now();
     _waittime += now - _ts;
     _ts = now;
-    r._cpu_sched.activate(this);
+    _parent->activate(this);
 }
 
 void reactor::service_highres_timer() noexcept {
