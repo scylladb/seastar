@@ -3056,7 +3056,7 @@ void reactor::task_queue_group::activate(task_queue* tq) {
     _activating.push_back(tq);
 }
 
-void reactor::task_queue_group::insert_active_task_queue(task_queue* tq) {
+void reactor::task_queue_group::insert_active_entity(sched_entity* tq) {
     tq->_active = true;
     auto less = task_queue::indirect_compare();
     if (_active.empty() || less(_active.back(), tq)) {
@@ -3084,9 +3084,9 @@ reactor::task_queue* reactor::task_queue_group::pop_active_task_queue(sched_cloc
 
 void
 reactor::task_queue_group::insert_activating_task_queues() {
-    // Quadratic, but since we expect the common cases in insert_active_task_queue() to dominate, faster
+    // Quadratic, but since we expect the common cases in insert_active_entity() to dominate, faster
     for (auto&& tq : _activating) {
-        insert_active_task_queue(reinterpret_cast<task_queue*>(tq));
+        insert_active_entity(tq);
     }
     _activating.clear();
 }
@@ -3162,7 +3162,7 @@ reactor::task_queue_group::run_some_tasks() {
         account_runtime(r, *tq, delta);
         tq->_ts = t_run_completed;
         if (active) {
-            insert_active_task_queue(tq);
+            insert_active_entity(tq);
         } else {
             tq->_active = false;
         }
