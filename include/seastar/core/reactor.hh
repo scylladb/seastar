@@ -266,14 +266,18 @@ private:
     uint64_t _internal_errors = 0;
     uint64_t _abandoned_failed_futures = 0;
 
+    struct task_queue_group;
+
     struct sched_entity {
     protected:
-        explicit sched_entity(float shares);
+        explicit sched_entity(task_queue_group* p, float shares);
     public:
         int64_t _vruntime = 0;
         float _shares;
         int64_t _reciprocal_shares_times_2_power_32;
         bool _active = false;
+        task_queue_group* _parent = nullptr;
+
         sched_clock::time_point _ts; // to help calculating wait/starve-times
         sched_clock::duration _runtime = {};
         sched_clock::duration _waittime = {};
