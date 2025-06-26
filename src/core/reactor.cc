@@ -939,7 +939,8 @@ static sstring shorten_name(const sstring& name, size_t length) {
     return shortname;
 }
 
-reactor::task_queue_group::task_queue_group()
+reactor::task_queue_group::task_queue_group(task_queue_group* p, float shares)
+        : sched_entity(p, shares)
 {
 }
 
@@ -1065,6 +1066,7 @@ reactor::reactor(std::shared_ptr<seastar::smp> smp, alien::instance& alien, unsi
     , _task_quota_timer(file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC))
     , _id(id)
     , _cpu_stall_detector(internal::make_cpu_stall_detector())
+    , _cpu_sched(nullptr, 0)
     , _thread_pool(std::make_unique<thread_pool>(seastar::format("syscall-{}", id), _notify_eventfd)) {
     /*
      * The _backend assignment is here, not on the initialization list as

@@ -308,8 +308,8 @@ private:
         void register_stats();
     };
 
-    struct task_queue_group {
-        task_queue_group();
+    struct task_queue_group final : public sched_entity {
+        explicit task_queue_group(task_queue_group* p, float shares);
 
         int64_t _last_vruntime = 0;
         scheduler_list _active;
