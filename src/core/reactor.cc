@@ -1017,7 +1017,7 @@ __attribute__((no_sanitize("undefined"))) // multiplication below may overflow; 
 #endif
 inline
 int64_t
-reactor::task_queue::to_vruntime(sched_clock::duration runtime) const {
+reactor::sched_entity::to_vruntime(sched_clock::duration runtime) const {
     auto scaled = (runtime.count() * _reciprocal_shares_times_2_power_32) >> 32;
     // Prevent overflow from returning ridiculous values
     return std::max<int64_t>(scaled, 0);
@@ -1030,7 +1030,7 @@ reactor::task_queue::set_shares(float shares) noexcept {
 }
 
 void
-reactor::task_queue_group::account_runtime(reactor& r, task_queue& tq, sched_clock::duration runtime) {
+reactor::task_queue_group::account_runtime(reactor& r, sched_entity& tq, sched_clock::duration runtime) {
     if (runtime > (2 * r._cfg.task_quota)) {
         r._stalls_histogram.add(runtime);
         tq._time_spent_on_task_quota_violations += runtime - r._cfg.task_quota;
