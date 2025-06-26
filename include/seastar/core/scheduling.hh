@@ -45,6 +45,7 @@ class reactor;
 
 class scheduling_group;
 class scheduling_group_key;
+class scheduling_supergroup;
 
 using sched_clock = std::chrono::steady_clock;
 SEASTAR_MODULE_EXPORT_END
@@ -63,6 +64,16 @@ T* scheduling_group_get_specific_ptr(scheduling_group sg, scheduling_group_key k
 }
 
 SEASTAR_MODULE_EXPORT_BEGIN
+
+/// Creates a scheduling supergroup with a specified number of shares.
+///
+/// The operation is global and affects all shards. The returned scheduling
+/// supergroup can then be used in any shard.
+///
+/// \param shares number of shares of the CPU time allotted to the group;
+///              Use numbers in the 1-1000 range (but can go above).
+/// \return a scheduling supergroup that can be used on any shard
+future<scheduling_supergroup> create_scheduling_supergroup(float shares) noexcept;
 
 /// Creates a scheduling group with a specified number of shares.
 ///
@@ -285,6 +296,21 @@ future<scheduling_group_key> scheduling_group_key_create(scheduling_group_key_co
 template<typename T>
 T& scheduling_group_get_specific(scheduling_group sg, scheduling_group_key key);
 
+class scheduling_supergroup {
+    unsigned _id;
+private:
+    explicit scheduling_supergroup(unsigned index) noexcept : _id(index + 1) {}
+public:
+    bool is_root() const noexcept { return _id == 0; }
+    unsigned index() const noexcept { return _id - 1; } // assumes that it's not root
+    /// Creates a `scheduling_supergroup` object denoting the root supergroup
+    scheduling_supergroup() noexcept : _id(0) {}
+    bool operator==(scheduling_supergroup x) const noexcept { return _id == x._id; }
+    bool operator!=(scheduling_supergroup x) const noexcept { return _id != x._id; }
+
+    friend future<scheduling_supergroup> create_scheduling_supergroup(float shares) noexcept;
+    friend class reactor;
+};
 
 /// \brief Identifies function calls that are accounted as a group
 ///
