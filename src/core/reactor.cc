@@ -3083,7 +3083,7 @@ reactor::sched_entity* reactor::task_queue_group::pop_active_entity(sched_clock:
 }
 
 void
-reactor::task_queue_group::insert_activating_task_queues() {
+reactor::task_queue_group::insert_activating_entities() {
     // Quadratic, but since we expect the common cases in insert_active_entity() to dominate, faster
     for (auto&& tq : _activating) {
         insert_active_entity(tq);
@@ -3153,7 +3153,7 @@ reactor::task_queue_group::run_some_tasks() {
     r._cpu_stall_detector->start_task_run(t_run_completed);
     do {
         auto t_run_started = t_run_completed;
-        insert_activating_task_queues();
+        insert_activating_entities();
         task_queue* tq = reinterpret_cast<task_queue*>(pop_active_entity(t_run_started));
         _last_vruntime = std::max(tq->_vruntime, _last_vruntime);
         bool active = tq->run_tasks();
