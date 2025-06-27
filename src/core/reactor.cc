@@ -942,6 +942,9 @@ static sstring shorten_name(const sstring& name, size_t length) {
 reactor::task_queue_group::task_queue_group(task_queue_group* p, float shares)
         : sched_entity(p, shares)
 {
+    if (p == nullptr) {
+        sched_entity::_active = true;
+    }
 }
 
 reactor::sched_entity::sched_entity(task_queue_group* p, float shares)
@@ -3067,7 +3070,11 @@ void reactor::task_queue_group::activate(sched_entity* tq) {
     //
     // FIXME: different scheduling groups have different sensitivity to jitter, take advantage
     tq->_vruntime = std::max(_last_vruntime, tq->_vruntime);
+    bool was_active = active();
     _activating.push_back(tq);
+    if (!was_active) {
+        sched_entity::wakeup();
+    }
 }
 
 void reactor::task_queue_group::insert_active_entity(sched_entity* tq) {
