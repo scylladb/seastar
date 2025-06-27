@@ -4271,7 +4271,14 @@ public:
     }
 
     struct io_queue::config generate_config(unsigned q, unsigned nr_groups) const {
-        const disk_params& p = _disks.at(q);
+        auto it = _disks.find(q);
+        if (it == _disks.end()) {
+            throw std::runtime_error(fmt::format("No disk configuration for queue-id {}", q));
+        }
+        return generate_config(it->second, q, nr_groups);
+    }
+
+    struct io_queue::config generate_config(const disk_params& p, unsigned q, unsigned nr_groups) const {
         seastar_logger.debug("generate_config queue-id: {}", q);
         struct io_queue::config cfg;
 
