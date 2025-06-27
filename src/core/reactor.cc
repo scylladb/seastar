@@ -3074,7 +3074,7 @@ void reactor::add_task(task* t) noexcept {
     q->_q.push_back(std::move(t));
     shuffle(q->_q.back(), q->_q);
     if (was_empty) {
-        q->activate();
+        q->wakeup();
     }
 }
 
@@ -3086,7 +3086,7 @@ void reactor::add_urgent_task(task* t) noexcept {
     q->_q.push_front(std::move(t));
     shuffle(q->_q.front(), q->_q);
     if (was_empty) {
-        q->activate();
+        q->wakeup();
     }
 }
 
@@ -3153,14 +3153,14 @@ reactor::run_some_tasks() {
     *internal::current_scheduling_group_ptr() = default_scheduling_group(); // Prevent inheritance from last group run
 }
 
-void reactor::task_queue::activate() {
+void reactor::task_queue::wakeup() {
     reactor& r = engine();
     task_queue& tq = *this;
 
     if (tq._active) {
         return;
     }
-    // If activate() was called, the task queue is likely network-bound or I/O bound, not CPU-bound. As
+    // If wakeup() was called, the task queue is likely network-bound or I/O bound, not CPU-bound. As
     // such its vruntime will be low, and it will have a large advantage over other task queues. Limit
     // the advantage so it doesn't dominate scheduling for a long time, in case it _does_ become CPU
     // bound later.
