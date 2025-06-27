@@ -3179,7 +3179,7 @@ bool reactor::task_queue_group::run_tasks() {
     while (active()) {
         auto t_run_started = t_run_completed;
         insert_activating_entities();
-        task_queue* tq = reinterpret_cast<task_queue*>(pop_active_entity(t_run_started));
+        sched_entity* tq = pop_active_entity(t_run_started);
         _last_vruntime = std::max(tq->_vruntime, _last_vruntime);
         bool active = tq->run_tasks();
         t_run_completed = now();
