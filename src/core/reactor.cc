@@ -939,11 +939,26 @@ static sstring shorten_name(const sstring& name, size_t length) {
     return shortname;
 }
 
-reactor::task_queue::task_queue(unsigned id, sstring name, sstring shortname, float shares)
+reactor::task_queue_group::task_queue_group(task_queue_group* p, float shares)
+        : sched_entity(p, shares)
+{
+    if (p == nullptr) {
+        sched_entity::_active = true;
+    }
+}
+
+reactor::sched_entity::sched_entity(task_queue_group* p, float shares)
         : _shares(std::max(shares, 1.0f))
         , _reciprocal_shares_times_2_power_32((uint64_t(1) << 32) / _shares)
+        , _parent(p)
+        , _ts(now())
+{
+}
+
+reactor::task_queue::task_queue(task_queue_group* parent, unsigned id, sstring name, sstring shortname, float shares)
+        : sched_entity(parent, shares)
         , _id(id)
-        , _ts(now()) {
+{
     rename(name, shortname);
 }
 
@@ -1007,7 +1022,7 @@ __attribute__((no_sanitize("undefined"))) // multiplication below may overflow; 
 #endif
 inline
 int64_t
-reactor::task_queue::to_vruntime(sched_clock::duration runtime) const {
+reactor::sched_entity::to_vruntime(sched_clock::duration runtime) const {
     auto scaled = (runtime.count() * _reciprocal_shares_times_2_power_32) >> 32;
     // Prevent overflow from returning ridiculous values
     return std::max<int64_t>(scaled, 0);
@@ -1020,17 +1035,17 @@ reactor::task_queue::set_shares(float shares) noexcept {
 }
 
 void
-reactor::account_runtime(task_queue& tq, sched_clock::duration runtime) {
-    if (runtime > (2 * _cfg.task_quota)) {
-        _stalls_histogram.add(runtime);
-        tq._time_spent_on_task_quota_violations += runtime - _cfg.task_quota;
+reactor::task_queue_group::account_runtime(reactor& r, sched_entity& tq, sched_clock::duration runtime) {
+    if (runtime > (2 * r._cfg.task_quota)) {
+        r._stalls_histogram.add(runtime);
+        tq._time_spent_on_task_quota_violations += runtime - r._cfg.task_quota;
     }
     tq._vruntime += tq.to_vruntime(runtime);
     tq._runtime += runtime;
 }
 
 struct reactor::task_queue::indirect_compare {
-    bool operator()(const task_queue* tq1, const task_queue* tq2) const {
+    bool operator()(const sched_entity* tq1, const sched_entity* tq2) const {
         return tq1->_vruntime < tq2->_vruntime;
     }
 };
@@ -1043,6 +1058,7 @@ reactor::reactor(std::shared_ptr<seastar::smp> smp, alien::instance& alien, unsi
     , _task_quota_timer(file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC))
     , _id(id)
     , _cpu_stall_detector(internal::make_cpu_stall_detector())
+    , _cpu_sched(nullptr, 0)
     , _thread_pool(std::make_unique<thread_pool>(*this, seastar::format("syscall-{}", id))) {
     /*
      * The _backend assignment is here, not on the initialization list as
@@ -1051,8 +1067,8 @@ reactor::reactor(std::shared_ptr<seastar::smp> smp, alien::instance& alien, unsi
      */
     _backend = rbs.create(*this);
     *internal::get_scheduling_group_specific_thread_local_data_ptr() = &_scheduling_group_specific_data;
-    _task_queues[0] = std::make_unique<task_queue>(0, "main", "main", 1000);
-    _task_queues[1] = std::make_unique<task_queue>(1, "atexit", "exit", 1000);
+    _task_queues[0] = std::make_unique<task_queue>(&_cpu_sched, 0, "main", "main", 1000);
+    _task_queues[1] = std::make_unique<task_queue>(&_cpu_sched, 1, "atexit", "exit", 1000);
     _at_destroy_tasks = _task_queues[1].get();
     set_need_preempt_var(&_preemption_monitor);
     seastar::thread_impl::init();
@@ -2643,38 +2659,41 @@ seastar::internal::log_buf::inserter_iterator do_dump_task_queue(seastar::intern
     return it;
 }
 
-void reactor::run_tasks(task_queue& tq) {
+bool reactor::task_queue::run_tasks() {
+    reactor& r = engine();
+
     // Make sure new tasks will inherit our scheduling group
-    *internal::current_scheduling_group_ptr() = scheduling_group(tq._id);
-    auto& tasks = tq._q;
-    while (!tasks.empty()) {
-        auto tsk = tasks.front();
-        tasks.pop_front();
+    *internal::current_scheduling_group_ptr() = scheduling_group(_id);
+    while (!_q.empty()) {
+        auto tsk = _q.front();
+        _q.pop_front();
         STAP_PROBE(seastar, reactor_run_tasks_single_start);
         internal::task_histogram_add_task(*tsk);
-        _current_task = tsk;
+        r._current_task = tsk;
         tsk->run_and_dispose();
-        _current_task = nullptr;
+        r._current_task = nullptr;
         STAP_PROBE(seastar, reactor_run_tasks_single_end);
-        ++tq._tasks_processed;
-        ++_global_tasks_processed;
+        ++_tasks_processed;
+        ++r._global_tasks_processed;
         // check at end of loop, to allow at least one task to run
         if (internal::scheduler_need_preempt()) {
-            if (tasks.size() <= _cfg.max_task_backlog) {
+            if (_q.size() <= r._cfg.max_task_backlog) {
                 break;
             } else {
                 // While need_preempt() is set, task execution is inefficient due to
                 // need_preempt() checks breaking out of loops and .then() calls. See
                 // #302.
-                reset_preemption_monitor();
+                r.reset_preemption_monitor();
                 lowres_clock::update();
 
                 static thread_local logger::rate_limit rate_limit(std::chrono::seconds(10));
-                logger::lambda_log_writer writer([&tq] (auto it) { return do_dump_task_queue(it, tq); });
+                logger::lambda_log_writer writer([this] (auto it) { return do_dump_task_queue(it, *this); });
                 seastar_logger.log(log_level::warn, rate_limit, writer);
             }
         }
     }
+
+    return !_q.empty();
 }
 
 namespace {
@@ -3021,43 +3040,61 @@ void reactor::stop_aio_eventfd_loop() {
 inline
 bool
 reactor::have_more_tasks() const {
-    return _active_task_queues.size() + _activating_task_queues.size();
+    return _cpu_sched.active();
 }
 
-void reactor::insert_active_task_queue(task_queue* tq) {
+inline bool reactor::task_queue_group::active() const noexcept {
+    return _active.size() + _activating.size();
+}
+
+void reactor::task_queue_group::activate(sched_entity* tq) {
+    // If wakeup() was called, the task queue is likely network-bound or I/O bound, not CPU-bound. As
+    // such its vruntime will be low, and it will have a large advantage over other task queues. Limit
+    // the advantage so it doesn't dominate scheduling for a long time, in case it _does_ become CPU
+    // bound later.
+    //
+    // FIXME: different scheduling groups have different sensitivity to jitter, take advantage
+    tq->_vruntime = std::max(_last_vruntime, tq->_vruntime);
+    bool was_active = active();
+    _activating.push_back(tq);
+    if (!was_active) {
+        this->sched_entity::wakeup();
+    }
+}
+
+void reactor::task_queue_group::insert_active_entity(sched_entity* tq) {
     tq->_active = true;
-    auto& atq = _active_task_queues;
     auto less = task_queue::indirect_compare();
-    if (atq.empty() || less(atq.back(), tq)) {
+    if (_active.empty() || less(_active.back(), tq)) {
         // Common case: idle->working
         // Common case: CPU intensive task queue going to the back
-        atq.push_back(tq);
+        _active.push_back(tq);
     } else {
         // Common case: newly activated queue preempting everything else
-        atq.push_front(tq);
+        _active.push_front(tq);
         // Less common case: newly activated queue behind something already active
         size_t i = 0;
-        while (i + 1 != atq.size() && !less(atq[i], atq[i+1])) {
-            std::swap(atq[i], atq[i+1]);
+        while (i + 1 != _active.size() && !less(_active[i], _active[i+1])) {
+            std::swap(_active[i], _active[i+1]);
             ++i;
         }
     }
 }
 
-reactor::task_queue* reactor::pop_active_task_queue(sched_clock::time_point now) {
-    task_queue* tq = _active_task_queues.front();
-    _active_task_queues.pop_front();
+reactor::sched_entity* reactor::task_queue_group::pop_active_entity(sched_clock::time_point now) {
+    sched_entity* tq = _active.front();
+    _active.pop_front();
     tq->_starvetime += now - tq->_ts;
     return tq;
 }
 
 void
-reactor::insert_activating_task_queues() {
-    // Quadratic, but since we expect the common cases in insert_active_task_queue() to dominate, faster
-    for (auto&& tq : _activating_task_queues) {
-        insert_active_task_queue(tq);
+reactor::task_queue_group::insert_activating_entities() {
+    // Quadratic, but since we expect the common cases in insert_active_entity() to dominate, faster
+    for (auto&& tq : _activating) {
+        insert_active_entity(tq);
     }
-    _activating_task_queues.clear();
+    _activating.clear();
 }
 
 void reactor::add_task(task* t) noexcept {
@@ -3067,7 +3104,7 @@ void reactor::add_task(task* t) noexcept {
     q->_q.push_back(std::move(t));
     shuffle(q->_q.back(), q->_q);
     if (was_empty) {
-        activate(*q);
+        q->wakeup();
     }
 }
 
@@ -3079,7 +3116,7 @@ void reactor::add_urgent_task(task* t) noexcept {
     q->_q.push_front(std::move(t));
     shuffle(q->_q.front(), q->_q);
     if (was_empty) {
-        activate(*q);
+        q->wakeup();
     }
 }
 
@@ -3108,28 +3145,41 @@ future<> reactor::drain() {
 }
 
 void
-reactor::run_some_tasks() {
-    if (!have_more_tasks()) {
+reactor::task_queue_group::run_some_tasks() {
+    if (!active()) {
         return;
     }
-    reset_preemption_monitor();
+
+    reactor& r = engine();
+    r.reset_preemption_monitor();
     lowres_clock::update();
 
-    sched_clock::time_point t_run_completed = now();
     STAP_PROBE(seastar, reactor_run_tasks_start);
-    _cpu_stall_detector->start_task_run(t_run_completed);
-    do {
+    r._cpu_stall_detector->start_task_run(now());
+
+    run_tasks();
+
+    r._cpu_stall_detector->end_task_run(now());
+    STAP_PROBE(seastar, reactor_run_tasks_end);
+    *internal::current_scheduling_group_ptr() = default_scheduling_group(); // Prevent inheritance from last group run
+}
+
+bool reactor::task_queue_group::run_tasks() {
+    reactor& r = engine();
+
+    sched_clock::time_point t_run_completed = now();
+    while (active()) {
         auto t_run_started = t_run_completed;
-        insert_activating_task_queues();
-        task_queue* tq = pop_active_task_queue(t_run_started);
+        insert_activating_entities();
+        sched_entity* tq = pop_active_entity(t_run_started);
         _last_vruntime = std::max(tq->_vruntime, _last_vruntime);
-        run_tasks(*tq);
+        bool active = tq->run_tasks();
         t_run_completed = now();
         auto delta = t_run_completed - t_run_started;
-        account_runtime(*tq, delta);
+        account_runtime(r, *tq, delta);
         tq->_ts = t_run_completed;
-        if (!tq->_q.empty()) {
-            insert_active_task_queue(tq);
+        if (active) {
+            insert_active_entity(tq);
         } else {
             tq->_active = false;
         }
@@ -3140,28 +3190,22 @@ reactor::run_some_tasks() {
         //
         // Settle on a regular need_preempt(), which will return true in
         // debug mode.
-    } while (have_more_tasks() && !need_preempt());
-    _cpu_stall_detector->end_task_run(t_run_completed);
-    STAP_PROBE(seastar, reactor_run_tasks_end);
-    *internal::current_scheduling_group_ptr() = default_scheduling_group(); // Prevent inheritance from last group run
+        if (need_preempt()) {
+            break;
+        }
+    }
+
+    return active();
 }
 
-void
-reactor::activate(task_queue& tq) {
-    if (tq._active) {
+void reactor::sched_entity::wakeup() {
+    if (_active) {
         return;
     }
-    // If activate() was called, the task queue is likely network-bound or I/O bound, not CPU-bound. As
-    // such its vruntime will be low, and it will have a large advantage over other task queues. Limit
-    // the advantage so it doesn't dominate scheduling for a long time, in case it _does_ become CPU
-    // bound later.
-    //
-    // FIXME: different scheduling groups have different sensitivity to jitter, take advantage
-    tq._vruntime = std::max(_last_vruntime, tq._vruntime);
     auto now = reactor::now();
-    tq._waittime += now - tq._ts;
-    tq._ts = now;
-    _activating_task_queues.push_back(&tq);
+    _waittime += now - _ts;
+    _ts = now;
+    _parent->activate(this);
 }
 
 void reactor::service_highres_timer() noexcept {
@@ -3286,15 +3330,15 @@ int reactor::do_run() {
         return pure_poll_once() || have_more_tasks();
     };
     while (true) {
-        run_some_tasks();
+        _cpu_sched.run_some_tasks();
         if (_stopped) {
             load_timer.cancel();
             // Final tasks may include sending the last response to cpu 0, so run them
             while (have_more_tasks()) {
-                run_some_tasks();
+                _cpu_sched.run_some_tasks();
             }
-            while (!_at_destroy_tasks->_q.empty()) {
-                run_tasks(*_at_destroy_tasks);
+            while (_at_destroy_tasks->run_tasks()) {
+                // keep running while it's active
             }
             _finished_running_tasks = true;
             _smp->arrive_at_event_loop_end();
@@ -5059,10 +5103,17 @@ reactor::rename_scheduling_group_specific_data(scheduling_group sg) {
 }
 
 future<>
-reactor::init_scheduling_group(seastar::scheduling_group sg, sstring name, sstring shortname, float shares) {
-    return with_shared(_scheduling_group_keys_mutex, [this, sg, name = std::move(name), shortname = std::move(shortname), shares] {
+reactor::init_scheduling_group(seastar::scheduling_group sg, sstring name, sstring shortname, float shares, scheduling_supergroup parent) {
+    return with_shared(_scheduling_group_keys_mutex, [this, sg, name = std::move(name), shortname = std::move(shortname), shares, parent] {
         get_sg_data(sg).queue_is_initialized = true;
-        _task_queues[sg._id] = std::make_unique<task_queue>(sg._id, name, shortname, shares);
+        auto* group = &_cpu_sched;
+        if (!parent.is_root()) {
+            if (_supergroups[parent.index()] == nullptr) {
+                return make_exception_future<>(std::runtime_error("Requested supergroup doesn't exist"));
+            }
+            group = _supergroups[parent.index()].get();
+        }
+        _task_queues[sg._id] = std::make_unique<task_queue>(group, sg._id, name, shortname, shares);
 
         return with_scheduling_group(sg, [this, sg] () {
             auto& sg_data = _scheduling_group_specific_data;
@@ -5184,8 +5235,46 @@ future<> scheduling_group::update_io_bandwidth(uint64_t bandwidth) const {
     return engine().update_bandwidth_for_queues(internal::priority_class(*this), bandwidth);
 }
 
+future<scheduling_supergroup> create_scheduling_supergroup(float shares) noexcept {
+    auto index = co_await smp::submit_to(0, [shares] () -> unsigned {
+        auto& r = engine();
+        auto ssg = std::make_unique<reactor::task_queue_group>(&r._cpu_sched, shares);
+        for (unsigned index = 0; index < r._supergroups.size(); index++) {
+            if (r._supergroups[index] == nullptr) {
+                r._supergroups[index] = std::move(ssg);
+                return index;
+            }
+        }
+
+        r._supergroups.push_back(std::move(ssg));
+        return r._supergroups.size() - 1;
+    });
+
+    std::exception_ptr ex;
+    try {
+        co_await smp::invoke_on_all([index, shares] {
+            if (this_shard_id() != 0) {
+                auto& r = engine();
+                r._supergroups[index] = std::make_unique<reactor::task_queue_group>(&r._cpu_sched, shares);
+            }
+        });
+    } catch (...) {
+        ex = std::current_exception();
+    }
+
+    if (ex != nullptr) {
+        co_await smp::invoke_on_all([index] () noexcept {
+            engine()._supergroups[index].reset();
+        });
+
+        std::rethrow_exception(std::move(ex));
+    }
+
+    co_return scheduling_supergroup(index);
+}
+
 future<scheduling_group>
-create_scheduling_group(sstring name, sstring shortname, float shares) noexcept {
+create_scheduling_group(sstring name, sstring shortname, float shares, scheduling_supergroup parent) noexcept {
     auto aid = allocate_scheduling_group_id();
     if (aid < 0) {
         return make_exception_future<scheduling_group>(std::runtime_error(fmt::format("Scheduling group limit exceeded while creating {}", name)));
@@ -5193,11 +5282,16 @@ create_scheduling_group(sstring name, sstring shortname, float shares) noexcept 
     auto id = static_cast<unsigned>(aid);
     SEASTAR_ASSERT(id < max_scheduling_groups());
     auto sg = scheduling_group(id);
-    return smp::invoke_on_all([sg, name, shortname, shares] {
-        return engine().init_scheduling_group(sg, name, shortname, shares);
+    return smp::invoke_on_all([sg, name, shortname, shares, parent] {
+        return engine().init_scheduling_group(sg, name, shortname, shares, parent);
     }).then([sg] {
         return make_ready_future<scheduling_group>(sg);
     });
+}
+
+future<scheduling_group>
+create_scheduling_group(sstring name, sstring shortname, float shares) noexcept {
+    return create_scheduling_group(name, shortname, shares, scheduling_supergroup());
 }
 
 future<scheduling_group>
