@@ -76,8 +76,8 @@ struct io_queue_for_tests {
     io_queue queue;
     timer<> kicker;
 
-    io_queue_for_tests()
-        : group(std::make_shared<io_group>(io_queue::config{0}, 1))
+    io_queue_for_tests(const io_queue::config& cfg = io_queue::config{0})
+        : group(std::make_shared<io_group>(cfg, 1))
         , sink()
         , queue(group, sink)
         , kicker([this] { kick(); })
@@ -509,4 +509,37 @@ SEASTAR_TEST_CASE(test_request_iovec_split) {
     seastar_logger.info("{} iters ({} no-splits, {} no-tails)", iter, no_splits, no_tails);
 
     return make_ready_future<>();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_tb_params) {
+    disk_config_params disk_config(1);
+
+    disk_params d;
+    d.read_bytes_rate = 16 << 30;  // 16GB/s
+    d.write_bytes_rate = 16 << 30; // 16GB/s
+    d.read_req_rate = 150000; // 150k req/s
+    d.write_req_rate = 150000; // 150k req/s
+
+    auto io_config = disk_config.generate_config(d, 0, 1);
+
+    io_queue_for_tests tio(io_config);
+
+    auto cost_read_512 = tio.queue.request_capacity(internal::io_direction_and_length(internal::io_direction_and_length::read_idx, 512));
+    auto cost_write_512 = tio.queue.request_capacity(internal::io_direction_and_length(internal::io_direction_and_length::write_idx, 512));
+
+    auto cost_read_128k = tio.queue.request_capacity(internal::io_direction_and_length(internal::io_direction_and_length::read_idx, 131072));
+    auto cost_write_128k = tio.queue.request_capacity(internal::io_direction_and_length(internal::io_direction_and_length::write_idx, 131072));
+
+    const auto& fg = internal::get_fair_group(tio.queue, internal::io_direction_and_length::write_idx);
+    const auto& tb = fg.token_bucket();
+    auto rate = tb.rate();
+    float iops_read = rate / cost_read_512 * 1000;
+    float iops_write = rate / cost_write_512 * 1000;
+    float bandwidth_read = rate / cost_read_128k * 131072 * 1000;
+    float bandwidth_write = rate / cost_write_128k * 131072 * 1000;
+
+    SEASTAR_ASSERT((d.read_req_rate - iops_read) / d.read_req_rate < 0.05);
+    SEASTAR_ASSERT((d.write_req_rate - iops_write) / d.write_req_rate < 0.05);
+    SEASTAR_ASSERT((d.read_bytes_rate - bandwidth_read) / d.read_bytes_rate < 0.05);
+    SEASTAR_ASSERT((d.write_bytes_rate - bandwidth_write) / d.write_bytes_rate < 0.05);
 }
