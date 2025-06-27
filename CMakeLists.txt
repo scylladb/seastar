@@ -507,6 +507,7 @@ add_library (seastar
   include/seastar/core/circular_buffer_fixed_capacity.hh
   include/seastar/core/condition-variable.hh
   include/seastar/core/deleter.hh
+  include/seastar/core/disk_params.hh
   include/seastar/core/distributed.hh
   include/seastar/core/do_with.hh
   include/seastar/core/dpdk_rte.hh
@@ -677,6 +678,7 @@ add_library (seastar
   src/core/reactor_backend.cc
   src/core/thread_pool.cc
   src/core/app-template.cc
+  src/core/disk_params.cc
   src/core/dpdk_rte.cc
   src/core/exception_hacks.cc
   src/core/execution_stage.cc
