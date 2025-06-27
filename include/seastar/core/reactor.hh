@@ -288,7 +288,7 @@ private:
         sched_clock::duration _time_spent_on_task_quota_violations = {};
         seastar::metrics::metric_groups _metrics;
         bool run_tasks();
-        void activate();
+        void wakeup();
         void rename(sstring new_name, sstring new_shortname);
     private:
         void register_stats();
