@@ -530,13 +530,26 @@ SEASTAR_THREAD_TEST_CASE(test_tb_params) {
     auto cost_read_128k = tio.queue.request_capacity(internal::io_direction_and_length(internal::io_direction_and_length::read_idx, 131072));
     auto cost_write_128k = tio.queue.request_capacity(internal::io_direction_and_length(internal::io_direction_and_length::write_idx, 131072));
 
+    std::cerr << d.read_req_rate << " read req/s, " << d.write_req_rate << " write req/s, "
+              << d.read_bytes_rate << " read bytes/s, " << d.write_bytes_rate << " write bytes/s"
+              << std::endl;
+
+    std::cerr << "Read 512 cost: " << cost_read_512 << ", IOPS: " << cost_write_512 << std::endl;
+
     const auto& fg = internal::get_fair_group(tio.queue, internal::io_direction_and_length::write_idx);
     const auto& tb = fg.token_bucket();
     auto rate = tb.rate();
+    std::cerr << "TB rate: " <<  rate << std::endl;
+
     float iops_read = rate / cost_read_512 * 1000;
     float iops_write = rate / cost_write_512 * 1000;
     float bandwidth_read = rate / cost_read_128k * 131072 * 1000;
     float bandwidth_write = rate / cost_write_128k * 131072 * 1000;
+
+    std::cerr << ", IOPS read: " << iops_read << ", IOPS write: " << iops_write
+              << ", Bandwidth read: " << bandwidth_read << ", Bandwidth write: " << bandwidth_write
+              << std::endl;
+    
 
     SEASTAR_ASSERT((d.read_req_rate - iops_read) / d.read_req_rate < 0.05);
     SEASTAR_ASSERT((d.write_req_rate - iops_write) / d.write_req_rate < 0.05);
