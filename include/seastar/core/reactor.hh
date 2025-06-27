@@ -286,6 +286,7 @@ private:
 
         void set_shares(float shares) noexcept;
 
+        virtual bool run_tasks() = 0;
         void wakeup();
         int64_t to_vruntime(sched_clock::duration runtime) const;
     };
@@ -302,7 +303,7 @@ private:
         sstring _shortname;
         struct indirect_compare;
         seastar::metrics::metric_groups _metrics;
-        bool run_tasks();
+        virtual bool run_tasks() override;
         void rename(sstring new_name, sstring new_shortname);
     private:
         void register_stats();
@@ -316,7 +317,7 @@ private:
         scheduler_list _activating;;
         unsigned _nr_children = 0;
 
-        bool run_tasks();
+        virtual bool run_tasks() override;
         void run_some_tasks();
 
         bool active() const noexcept;
