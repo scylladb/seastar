@@ -25,7 +25,7 @@
 
 namespace seastar {
 
-class reactor;
+class file_desc;
 
 namespace internal {
 // Reasons for why a function had to be submitted to the thread_pool 
@@ -53,14 +53,14 @@ public:
 } // namespace internal
 
 class thread_pool {
-    reactor& _reactor;
+    file_desc& _notify_eventfd;
     internal::submit_metrics metrics;
     syscall_work_queue inter_thread_wq;
     posix_thread _worker_thread;
     std::atomic<bool> _stopped = { false };
     std::atomic<bool> _main_thread_idle = { false };
 public:
-    explicit thread_pool(reactor& r, sstring thread_name);
+    explicit thread_pool(sstring thread_name, file_desc& notify);
     ~thread_pool();
     template <typename T, typename Func>
     future<T> submit(internal::thread_pool_submit_reason reason, Func func) noexcept {

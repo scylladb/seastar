@@ -33,14 +33,13 @@ module;
 #ifdef SEASTAR_MODULE
 module seastar;
 #else
-#include <seastar/core/reactor.hh>
 #include "core/thread_pool.hh"
 #endif
 #include <seastar/util/assert.hh>
 
 namespace seastar {
 
-thread_pool::thread_pool(reactor& r, sstring name) : _reactor(r), _worker_thread([this, name] { work(name); }) {
+thread_pool::thread_pool(sstring name, file_desc& notify) : _notify_eventfd(notify), _worker_thread([this, name] { work(name); }) {
 }
 
 void thread_pool::work(sstring name) {
@@ -70,7 +69,7 @@ void thread_pool::work(sstring name) {
             std::atomic_thread_fence(std::memory_order_seq_cst);
             if (_main_thread_idle.load(std::memory_order_relaxed)) {
                 uint64_t one = 1;
-                auto res = ::write(_reactor._notify_eventfd.get(), &one, 8);
+                auto res = ::write(_notify_eventfd.get(), &one, 8);
                 SEASTAR_ASSERT(res == 8 && "write(2) failed on _reactor._notify_eventfd");
             }
         }
