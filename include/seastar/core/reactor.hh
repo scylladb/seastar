@@ -391,7 +391,6 @@ private:
 
     signals _signals;
     std::unique_ptr<thread_pool> _thread_pool;
-    friend class thread_pool;
     friend class thread_context;
     friend class internal::cpu_stall_detector;
 

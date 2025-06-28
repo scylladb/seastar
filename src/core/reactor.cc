@@ -1043,7 +1043,7 @@ reactor::reactor(std::shared_ptr<seastar::smp> smp, alien::instance& alien, unsi
     , _task_quota_timer(file_desc::timerfd_create(CLOCK_MONOTONIC, TFD_CLOEXEC))
     , _id(id)
     , _cpu_stall_detector(internal::make_cpu_stall_detector())
-    , _thread_pool(std::make_unique<thread_pool>(*this, seastar::format("syscall-{}", id))) {
+    , _thread_pool(std::make_unique<thread_pool>(seastar::format("syscall-{}", id), _notify_eventfd)) {
     /*
      * The _backend assignment is here, not on the initialization list as
      * the chosen backend constructor may want to handle signals and thus
