@@ -464,13 +464,12 @@ public:
         }
     }
 
-    /// @private
+private:
     future<> update_bandwidth_for_queues(internal::priority_class pc, uint64_t bandwidth);
-    /// @private
     void rename_queues(internal::priority_class pc, sstring new_name);
-    /// @private
     void update_shares_for_queues(internal::priority_class pc, uint32_t shares);
 
+public:
     server_socket listen(socket_address sa, listen_options opts = {});
 
     future<connected_socket> connect(socket_address sa);
