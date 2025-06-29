@@ -138,6 +138,10 @@ public:
         unsigned disk_blocks_write_to_read_multiplier = read_request_base_count;
         size_t disk_read_saturation_length = std::numeric_limits<size_t>::max();
         size_t disk_write_saturation_length = std::numeric_limits<size_t>::max();
+        double write_iop_factor = 1;
+        double read_iop_factor = 1;
+        double write_throughput_factor = 1;
+        double read_throughput_factor = 1;
         sstring mountpoint = "undefined";
         bool duplex = false;
         std::chrono::duration<double> rate_limit_duration = std::chrono::milliseconds(1);
