@@ -56,23 +56,18 @@ struct request {
     }
 };
 
+constexpr unsigned test_weight_scale = 1000;
+
 class test_env {
-    fair_group _fg;
     fair_queue _fq;
     std::vector<int> _results;
     std::vector<std::vector<std::exception_ptr>> _exceptions;
     fair_queue::class_id _nr_classes = 0;
     std::vector<request> _inflight;
 
-    static fair_group::config fg_config(unsigned cap) {
-        fair_group::config cfg;
-        cfg.rate_limit_duration = std::chrono::microseconds(cap);
-        return cfg;
-    }
-
     static fair_queue::config fq_config() {
         fair_queue::config cfg;
-        cfg.tau = std::chrono::microseconds(50);
+        cfg.forgiving_factor = 50 * test_weight_scale;
         return cfg;
     }
 
@@ -81,15 +76,8 @@ class test_env {
     }
 public:
     test_env(unsigned capacity)
-        : _fg(fg_config(capacity), 1)
-        , _fq(_fg, fq_config())
+        : _fq(fq_config())
     {
-        // Move _fg._replenished_ts() to far future.
-        // This will prevent any `maybe_replenish_capacity` calls (indirectly done by `fair_queue::dispatch_requests()`)
-        // from replenishing tokens on its own, and ensure that the only source of replenishment will be tick().
-        //
-        // Otherwise the rate of replenishment might be greater than expected by the test, breaking the results.
-        _fg.replenish_capacity(fair_group::clock_type::now() + std::chrono::days(1));
     }
 
     // As long as there is a request sitting in the queue, tick() will process
@@ -100,11 +88,18 @@ public:
     // method (see above) in which all requests currently sent to the queue are drained
     // before the queue is destroyed.
     unsigned tick(unsigned n = 1) {
+        unsigned dispatched = 0;
         unsigned processed = 0;
-        _fg.replenish_capacity(_fg.replenished_ts() + std::chrono::microseconds(1));
-        _fq.dispatch_requests([] (fair_queue_entry& ent) {
-            boost::intrusive::get_parent_from_member(&ent, &request::fqent)->submit();
-        });
+        while (dispatched < n) {
+            auto* req = _fq.top();
+            if (req == nullptr) {
+                break;
+            }
+
+            dispatched++;
+            _fq.pop_front();
+            boost::intrusive::get_parent_from_member(req, &request::fqent)->submit();
+        }
 
         for (unsigned i = 0; i < n; ++i) {
             std::vector<request> curr;
@@ -116,10 +111,16 @@ public:
                 _fq.notify_request_finished(req.fqent.capacity());
             }
 
-            _fg.replenish_capacity(_fg.replenished_ts() + std::chrono::microseconds(1));
-            _fq.dispatch_requests([] (fair_queue_entry& ent) {
-                boost::intrusive::get_parent_from_member(&ent, &request::fqent)->submit();
-            });
+            while (dispatched < n) {
+                auto* req = _fq.top();
+                if (req == nullptr) {
+                    break;
+                }
+
+                dispatched++;
+                _fq.pop_front();
+                boost::intrusive::get_parent_from_member(req, &request::fqent)->submit();
+            }
         }
         return processed;
     }
@@ -140,7 +141,7 @@ public:
 
     void do_op(fair_queue::class_id id, unsigned weight) {
         unsigned index = id;
-        auto cap = _fq.tokens_capacity(double(weight) / 1'000'000);
+        auto cap = fair_queue_entry::capacity_t(test_weight_scale * weight);
         auto req = std::make_unique<request>(cap, index, [this, index] (request& req) mutable noexcept {
             try {
                 _inflight.push_back(std::move(req));

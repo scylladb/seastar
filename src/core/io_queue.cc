@@ -65,6 +65,45 @@ struct default_io_exception_factory {
     }
 };
 
+io_throttler::io_throttler(config cfg, unsigned nr_queues)
+        : _token_bucket(fixed_point_factor,
+                        std::max<capacity_t>(fixed_point_factor * token_bucket_t::rate_cast(cfg.rate_limit_duration).count(), tokens_capacity(cfg.limit_min_tokens)),
+                        tokens_capacity(cfg.min_tokens)
+                       )
+        , _per_tick_threshold(_token_bucket.limit() / nr_queues)
+{
+    if (tokens_capacity(cfg.min_tokens) > _token_bucket.threshold()) {
+        throw std::runtime_error("Fair-group replenisher limit is lower than threshold");
+    }
+}
+
+auto io_throttler::grab_capacity(capacity_t cap) noexcept -> capacity_t {
+    SEASTAR_ASSERT(cap <= _token_bucket.limit());
+    return _token_bucket.grab(cap);
+}
+
+void io_throttler::replenish_capacity(clock_type::time_point now) noexcept {
+    _token_bucket.replenish(now);
+}
+
+void io_throttler::refund_tokens(capacity_t cap) noexcept {
+    _token_bucket.refund(cap);
+}
+
+void io_throttler::maybe_replenish_capacity(clock_type::time_point& local_ts) noexcept {
+    auto now = clock_type::now();
+    auto extra = _token_bucket.accumulated_in(now - local_ts);
+
+    if (extra >= _token_bucket.threshold()) {
+        local_ts = now;
+        replenish_capacity(now);
+    }
+}
+
+auto io_throttler::capacity_deficiency(capacity_t from) const noexcept -> capacity_t {
+    return _token_bucket.deficiency(from);
+}
+
 struct io_group::priority_class_data {
     using token_bucket_t = internal::shared_token_bucket<uint64_t, std::ratio<1>, internal::capped_release::no>;
 
@@ -520,7 +559,7 @@ sstring io_request::opname() const {
     std::abort();
 }
 
-const fair_group& get_fair_group(const io_queue& ioq, unsigned stream) {
+const io_throttler& get_throttler(const io_queue& ioq, unsigned stream) {
     return ioq._group->_fgs[stream];
 }
 
@@ -549,7 +588,7 @@ void
 io_queue::complete_request(io_desc_read_write& desc, std::chrono::duration<double> delay) noexcept {
     _requests_executing--;
     _requests_completed++;
-    _streams[desc.stream()].notify_request_finished(desc.capacity());
+    _streams[desc.stream()].fq.notify_request_finished(desc.capacity());
 
     if (delay > _stall_threshold) {
         _stall_threshold *= 2;
@@ -562,6 +601,7 @@ io_queue::complete_request(io_desc_read_write& desc, std::chrono::duration<doubl
 fair_queue::config io_queue::make_fair_queue_config(const config& iocfg, sstring label) {
     fair_queue::config cfg;
     cfg.label = label;
+    cfg.forgiving_factor = io_throttler::fixed_point_factor * io_throttler::token_bucket_t::rate_cast(iocfg.tau).count();
     return cfg;
 }
 
@@ -599,8 +639,8 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
     });
 }
 
-fair_group::config io_group::make_fair_group_config(const io_queue::config& qcfg) noexcept {
-    fair_group::config cfg;
+io_throttler::config io_group::configure_throttler(const io_queue::config& qcfg) noexcept {
+    io_throttler::config cfg;
     cfg.label = fmt::format("io-queue-{}", qcfg.id);
     double min_weight = std::min(io_queue::read_request_base_count, qcfg.disk_req_write_to_read_multiplier);
     double min_size = std::min(io_queue::read_request_base_count, qcfg.disk_blocks_write_to_read_multiplier);
@@ -620,10 +660,10 @@ io_group::io_group(io_queue::config io_cfg, unsigned nr_queues)
     : _config(std::move(io_cfg))
     , _allocated_on(this_shard_id())
 {
-    auto fg_cfg = make_fair_group_config(_config);
-    _fgs.emplace_back(fg_cfg, nr_queues);
+    auto throttler_config = configure_throttler(_config);
+    _fgs.emplace_back(throttler_config, nr_queues);
     if (_config.duplex) {
-        _fgs.emplace_back(fg_cfg, nr_queues);
+        _fgs.emplace_back(throttler_config, nr_queues);
     }
 
     auto goal = io_latency_goal();
@@ -673,7 +713,7 @@ io_queue::~io_queue() {
     for (auto&& pc_data : _priority_classes) {
         if (pc_data) {
             for (auto&& s : _streams) {
-                s.unregister_priority_class(pc_data->fq_class());
+                s.fq.unregister_priority_class(pc_data->fq_class());
             }
         }
     }
@@ -753,8 +793,8 @@ void io_queue::register_stats(sstring name, priority_class_data& pc) {
     }
 
     for (auto&& s : _streams) {
-        for (auto&& m : s.metrics(pc.fq_class())) {
-            m(owner_l)(mnt_l)(class_l)(group_l)(sm::label("stream")(s.label()));
+        for (auto&& m : s.metrics(pc)) {
+            m(owner_l)(mnt_l)(class_l)(group_l)(sm::label("stream")(s.fq.label()));
             metrics.emplace_back(std::move(m));
         }
     }
@@ -786,7 +826,7 @@ io_queue::priority_class_data& io_queue::find_or_create_class(internal::priority
         // This conveys all the information we need and allows one to easily group all classes from
         // the same I/O queue (by filtering by shard)
         for (auto&& s : _streams) {
-            s.register_priority_class(id, shares);
+            s.fq.register_priority_class(id, shares);
         }
         auto& pg = _group->find_or_create_class(pc);
         auto pc_data = std::make_unique<priority_class_data>(pc, shares, *this, pg);
@@ -840,12 +880,12 @@ fair_queue_entry::capacity_t io_queue::request_capacity(io_direction_and_length 
     const auto& cfg = get_config();
     auto tokens = internal::request_tokens(dnl, cfg);
     if (_flow_ratio <= cfg.flow_ratio_backpressure_threshold) {
-        return _streams[request_stream(dnl)].tokens_capacity(tokens);
+        return _streams[request_stream(dnl)].out.tokens_capacity(tokens);
     }
 
     auto stream = request_stream(dnl);
-    auto cap = _streams[stream].tokens_capacity(tokens * _flow_ratio);
-    auto max_cap = _streams[stream].maximum_capacity();
+    auto cap = _streams[stream].out.tokens_capacity(tokens * _flow_ratio);
+    auto max_cap = _streams[stream].out.maximum_capacity();
     return std::min(cap, max_cap);
 }
 
@@ -869,7 +909,7 @@ future<size_t> io_queue::queue_one_request(internal::priority_class pc, io_direc
             queued_req->set_intent(cq);
         }
 
-        _streams[queued_req->stream()].queue(pclass.fq_class(), queued_req->queue_entry());
+        _streams[queued_req->stream()].fq.queue(pclass.fq_class(), queued_req->queue_entry());
         queued_req.release();
         pclass.on_queue();
         _queued_requests++;
@@ -950,11 +990,57 @@ future<size_t> io_queue::submit_io_write(internal::priority_class pc, size_t len
     return queue_request(std::move(pc), io_direction_and_length(io_direction_write, len), std::move(req), intent, std::move(iovs));
 }
 
+// This function is called by the shard on every poll.
+// It picks up tokens granted by the group, spends available tokens on IO dispatches,
+// and makes a reservation for more tokens, if needed.
+//
+// Reservations are done in batches of size `_group.per_tick_grab_threshold()`.
+// During contention, in an average moment in time each contending shard can be expected to
+// be holding a reservation of such size after the current head of the token bucket.
+//
+// A shard which is currently calling `dispatch_requests()` can expect a latency
+// of at most `nr_contenders * (_group.per_tick_grab_threshold() + max_request_cap)` before its next reservation is fulfilled.
+// If a shard calls `dispatch_requests()` at least once per X total tokens, it should receive bandwidth
+// of at least `_group.per_tick_grab_threshold() / (X + nr_contenders * (_group.per_tick_grab_threshold() + max_request_cap))`.
+//
+// A shard which is polling continuously should be able to grab its fair share of the disk for itself.
+//
+// Given a task quota of 500us and IO latency goal of 750 us,
+// a CPU-starved shard should still be able to grab at least ~30% of its fair share in the worst case.
+// This is far from ideal, but it's something.
+
 void io_queue::poll_io_queue() {
     for (auto&& st : _streams) {
-        st.dispatch_requests([] (fair_queue_entry& fqe) {
-            queued_io_request::from_fq_entry(fqe).dispatch();
-        });
+        st.out.maybe_replenish_capacity(st.replenish);
+        auto available = st.reap_pending_capacity();
+
+        while (true) {
+            auto* ent = st.fq.top();
+            if (ent == nullptr) {
+                available.ready_tokens = 0;
+                break;
+            }
+
+            auto result = st.grab_capacity(ent->capacity(), available);
+            if (result == stream::grab_result::stop) {
+                break;
+            }
+            if (result == stream::grab_result::again) {
+                continue;
+            }
+
+            st.fq.pop_front();
+            queued_io_request::from_fq_entry(*ent).dispatch();
+        }
+
+        SEASTAR_ASSERT(available.ready_tokens == 0);
+        // Note: if IO cancellation happens, it's possible that we are still holding some tokens in `ready` here.
+        //
+        // We could refund them to the bucket, but permanently refunding tokens (as opposed to only
+        // "rotating" the bucket like the earlier refund() calls in this function do) is theoretically
+        // unpleasant (it can bloat the bucket beyond its size limit, and its hard to write a correct
+        // countermeasure for that), so we just discard the tokens. There's no harm in it, IO cancellation
+        // can't have resource-saving guarantees anyway.
     }
 }
 
@@ -967,11 +1053,11 @@ void io_queue::submit_request(io_desc_read_write* desc, internal::io_request req
 
 void io_queue::cancel_request(queued_io_request& req) noexcept {
     _queued_requests--;
-    _streams[req.stream()].notify_request_cancelled(req.queue_entry());
+    _streams[req.stream()].fq.notify_request_cancelled(req.queue_entry());
 }
 
 void io_queue::complete_cancelled_request(queued_io_request& req) noexcept {
-    _streams[req.stream()].notify_request_finished(req.queue_entry().capacity());
+    _streams[req.stream()].fq.notify_request_finished(req.queue_entry().capacity());
 }
 
 io_queue::clock_type::time_point io_queue::next_pending_aio() const noexcept {
@@ -992,7 +1078,7 @@ io_queue::update_shares_for_class(internal::priority_class pc, size_t new_shares
     auto& pclass = find_or_create_class(pc);
     pclass.update_shares(new_shares);
     for (auto&& s : _streams) {
-        s.update_shares_for_class(pclass.fq_class(), new_shares);
+        s.fq.update_shares_for_class(pclass.fq_class(), new_shares);
     }
 }
 
@@ -1022,14 +1108,115 @@ io_queue::rename_priority_class(internal::priority_class pc, sstring new_name) {
 
 void io_queue::throttle_priority_class(const priority_class_data& pc) noexcept {
     for (auto&& s : _streams) {
-        s.unplug_class(pc.fq_class());
+        s.fq.unplug_class(pc.fq_class());
     }
 }
 
 void io_queue::unthrottle_priority_class(const priority_class_data& pc) noexcept {
     for (auto&& s : _streams) {
-        s.plug_class(pc.fq_class());
+        s.fq.plug_class(pc.fq_class());
     }
+}
+
+auto io_queue::stream::reap_pending_capacity() noexcept -> reap_result {
+    auto result = reap_result{.ready_tokens = 0, .our_turn_has_come = true};
+    if (_pending.cap) {
+        capacity_t deficiency = out.capacity_deficiency(_pending.head);
+        result.our_turn_has_come = deficiency <= _pending.cap;
+        if (result.our_turn_has_come) {
+            result.ready_tokens = _pending.cap - deficiency;
+            _pending.cap = deficiency;
+        }
+    }
+    return result;
+}
+
+io_queue::clock_type::time_point io_queue::stream::next_pending_aio() const noexcept {
+    if (_pending.cap) {
+        /*
+         * We expect the disk to release the ticket within some time,
+         * but it's ... OK if it doesn't -- the pending wait still
+         * needs the head rover value to be ahead of the needed value.
+         *
+         * It may happen that the capacity gets released before we think
+         * it will, in this case we will wait for the full value again,
+         * which's sub-optimal. The expectation is that we think disk
+         * works faster, than it really does.
+         */
+        auto over = out.capacity_deficiency(_pending.head);
+        auto ticks = out.capacity_duration(over);
+        return std::chrono::steady_clock::now() + std::chrono::duration_cast<std::chrono::microseconds>(ticks);
+    }
+
+    return std::chrono::steady_clock::time_point::max();
+}
+
+auto io_queue::stream::grab_capacity(capacity_t cap, reap_result& available) -> grab_result {
+    const uint64_t max_unamortized_reservation = out.per_tick_grab_threshold();
+
+    if (cap <= available.ready_tokens) {
+        // We can dispatch the request immediately.
+        // We do that after the if-else.
+        available.ready_tokens -= cap;
+        return grab_result::ok;
+    } else if (cap <= available.ready_tokens + _pending.cap || _pending.cap >= max_unamortized_reservation) {
+        // We can't dispatch the request yet, but we already have a pending reservation
+        // which will provide us with enough tokens for it eventually,
+        // or our reservation is already max-size and we can't reserve more tokens until we reap some.
+        // So we should just wait.
+        // We return any immediately-available tokens back to `_pending`
+        // and we bail. The next `dispatch_request` will again take those tokens
+        // (possibly joined by some newly-granted tokens) and retry.
+        _pending.cap += available.ready_tokens;
+        available.ready_tokens = 0;
+        return grab_result::stop;
+    } else if (available.our_turn_has_come) {
+        // The current reservation isn't enough to fulfill the next request,
+        // and we can cancel it (because `our_turn_has_come == true`) and make a bigger one
+        // (because `_pending.cap < can_grab_this_tick`).
+        // So we cancel it and do a bigger one.
+
+        // We do token recycling here: we return the tokens which we have available, and the tokens we have reserved
+        // immediately after the group head, and we return them to the bucket, immediately grabbing the same amount from the tail.
+        // This is neutral to fairness. The bandwidth we consume is still influenced only by the
+        // `max_unarmortized_reservation` portions.
+        auto recycled = available.ready_tokens + _pending.cap;
+        capacity_t grab_amount = std::min<capacity_t>(recycled + max_unamortized_reservation, fq.queued_capacity());
+        // There's technically nothing wrong with grabbing more than `out.maximum_capacity()`,
+        // but the token bucket has an assert for that, and its a reasonable expectation, so let's respect that limit.
+        // It shouldn't matter in practice.
+        grab_amount = std::min<capacity_t>(grab_amount, out.maximum_capacity());
+        out.refund_tokens(recycled);
+        // Replace _pending with a new reservation starting at the current
+        // group bucket tail.
+        capacity_t want_head = out.grab_capacity(grab_amount);
+        _pending = pending{want_head, grab_amount};
+        available = reap_pending_capacity();
+        return grab_result::again;
+    } else {
+        // We can already see that our current reservation is going to be insufficient
+        // for the highest-priority request as of now. But since group head didn't touch
+        // it yet, there's no good way to cancel it, so we have no choice but to wait
+        // until the touch time.
+        SEASTAR_ASSERT(available.ready_tokens == 0);
+        return grab_result::stop;
+    }
+}
+
+std::vector<seastar::metrics::impl::metric_definition_impl> io_queue::stream::metrics(const priority_class_data& pc) {
+    namespace sm = seastar::metrics;
+    auto c = pc.fq_class();
+    return std::vector<sm::impl::metric_definition_impl>({
+            sm::make_counter("consumption",
+                    [this, c] { return io_throttler::capacity_tokens(fq.pure_accumulated(c)); },
+                    sm::description("Accumulated disk capacity units consumed by this class; an increment per-second rate indicates full utilization")),
+            sm::make_counter("adjusted_consumption",
+                    [this, c] { return io_throttler::capacity_tokens(fq.accumulated(c)); },
+                    sm::description("Consumed disk capacity units adjusted for class shares and idling preemption")),
+            sm::make_counter("activations",
+                    [this, c] { return fq.activations(c); },
+                    sm::description("The number of times the class was woken up from idle")),
+    });
 }
 
 } // seastar namespace

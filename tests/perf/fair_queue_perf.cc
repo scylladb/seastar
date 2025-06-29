@@ -32,22 +32,15 @@
 static constexpr fair_queue::class_id cid = 0;
 
 struct local_fq_and_class {
-    seastar::fair_group fg;
     seastar::fair_queue fq;
     seastar::fair_queue sfq;
     unsigned executed = 0;
 
-    static fair_group::config fg_config() {
-        fair_group::config cfg;
-        return cfg;
-    }
-
     seastar::fair_queue& queue(bool local) noexcept { return local ? fq : sfq; }
 
-    local_fq_and_class(seastar::fair_group& sfg)
-        : fg(fg_config(), 1)
-        , fq(fg, seastar::fair_queue::config())
-        , sfq(sfg, seastar::fair_queue::config())
+    local_fq_and_class()
+        : fq(seastar::fair_queue::config())
+        , sfq(seastar::fair_queue::config())
     {
         fq.register_priority_class(cid, 1);
         sfq.register_priority_class(cid, 1);
@@ -75,17 +68,9 @@ struct perf_fair_queue {
 
     seastar::sharded<local_fq_and_class> local_fq;
 
-    seastar::fair_group shared_fg;
-
-    static fair_group::config fg_config() {
-        fair_group::config cfg;
-        return cfg;
-    }
-
     perf_fair_queue()
-        : shared_fg(fg_config(), smp::count)
     {
-        local_fq.start(std::ref(shared_fg)).get();
+        local_fq.start().get();
     }
 
     ~perf_fair_queue() {
@@ -99,7 +84,7 @@ future<> perf_fair_queue::test(bool loc) {
 
     auto invokers = local_fq.invoke_on_all([loc] (local_fq_and_class& local) {
         return parallel_for_each(std::views::iota(0u, requests_to_dispatch), [&local, loc] (unsigned dummy) {
-            auto cap = local.queue(loc).tokens_capacity(double(1) / std::numeric_limits<int>::max() + double(1) / std::numeric_limits<int>::max());
+            auto cap = fair_queue_entry::capacity_t(1);
             auto req = std::make_unique<local_fq_entry>(cap, [&local, loc, cap] {
                 local.executed++;
                 local.queue(loc).notify_request_finished(cap);
@@ -121,11 +106,16 @@ future<> perf_fair_queue::test(bool loc) {
         local.executed = 0;
 
         return do_until([&local] { return local.executed == requests_to_dispatch; }, [&local, loc] {
-            local.queue(loc).dispatch_requests([] (fair_queue_entry& ent) {
-                local_fq_entry* le = boost::intrusive::get_parent_from_member(&ent, &local_fq_entry::ent);
-                le->submit();
-                delete le;
-            });
+            auto& q = local.queue(loc);
+            auto* req = q.top();
+            if (req == nullptr) {
+                return make_ready_future<>();
+            }
+
+            q.pop_front();
+            local_fq_entry* le = boost::intrusive::get_parent_from_member(req, &local_fq_entry::ent);
+            le->submit();
+            delete le;
             return make_ready_future<>();
         });
     });
