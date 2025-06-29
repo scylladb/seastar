@@ -25,6 +25,7 @@
 #include <seastar/testing/test_case.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/vector-data-sink.hh>
+#include <seastar/core/circular_buffer.hh>
 #include <seastar/json/formatter.hh>
 #include <seastar/json/json_elements.hh>
 #include <seastar/testing/thread_test_case.hh>
@@ -125,6 +126,51 @@ SEASTAR_THREAD_TEST_CASE(test_stream_range_as_array) {
     sstring expected = R"([{"subject":"1","values":[1]}, {"subject":"2","values":[2]}, {"subject":"3","values":[3]}])";
     formatter_check_expected(expected, [] (auto& out) {
         auto mapper = stream_range_as_array(std::vector<int>{1,2,3}, [] (auto i) {
+            object_json obj;
+            obj.subject = std::to_string(i);
+            obj.values.push(i);
+            return obj;
+        });
+
+        mapper(std::move(out)).get();
+    }, false);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_generate_array) {
+    sstring expected = R"([{"subject":"1","values":[1]}, {"subject":"2","values":[2]}, {"subject":"3","values":[3]}])";
+    auto generate_values = [] () -> coroutine::experimental::generator<int> {
+        for (int i : {1,2,3}) {
+            co_yield i;
+        }
+    };
+    auto gen = generate_values();
+    formatter_check_expected(expected, [&] (auto& out) {
+        auto mapper = generate_array(gen, [] (auto i) {
+            object_json obj;
+            obj.subject = std::to_string(i);
+            obj.values.push(i);
+            return obj;
+        });
+
+        mapper(std::move(out)).get();
+    }, false);
+}
+
+namespace {
+template<template<typename> class Container = circular_buffer>
+coroutine::experimental::generator<int, Container> generate_values_buffered(coroutine::experimental::buffer_size_t size, int count) {
+    for (int i = 1; i <= count; ++i) {
+        co_yield i;
+    }
+}
+}
+
+SEASTAR_THREAD_TEST_CASE(test_generate_array_buffered) {
+    sstring expected = R"([{"subject":"1","values":[1]}, {"subject":"2","values":[2]}, {"subject":"3","values":[3]}])";
+    // Test buffer size larger than the number of elements
+    auto gen = generate_values_buffered<circular_buffer>(coroutine::experimental::buffer_size_t(16), 3);
+    formatter_check_expected(expected, [&] (auto& out) {
+        auto mapper = generate_array(gen, [] (auto i) {
             object_json obj;
             obj.subject = std::to_string(i);
             obj.values.push(i);
