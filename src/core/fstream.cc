@@ -77,6 +77,10 @@ inline internal::maybe_priority_class_ref get_io_priority(const Options& opts) {
     return internal::maybe_priority_class_ref{};
 }
 
+inline auto reactor::io_stats::local() noexcept -> io_stats& {
+    return engine()._io_stats;
+}
+
 class file_data_source_impl : public data_source_impl {
     struct issued_read {
         uint64_t _pos;
@@ -87,7 +91,7 @@ class file_data_source_impl : public data_source_impl {
             : _pos(pos), _size(size), _ready(std::move(f)) { }
     };
 
-    reactor& _reactor = engine();
+    reactor::io_stats& _stats = reactor::io_stats::local();
     file _file;
     file_input_stream_options _options;
     uint64_t _pos;
@@ -230,11 +234,11 @@ public:
         auto ret = std::move(_read_buffers.front());
         _read_buffers.pop_front();
         update_history_consumed(ret._size);
-        _reactor._io_stats.fstream_reads += 1;
-        _reactor._io_stats.fstream_read_bytes += ret._size;
+        _stats.fstream_reads += 1;
+        _stats.fstream_read_bytes += ret._size;
         if (!ret._ready.available()) {
-            _reactor._io_stats.fstream_reads_blocked += 1;
-            _reactor._io_stats.fstream_read_bytes_blocked += ret._size;
+            _stats.fstream_reads_blocked += 1;
+            _stats.fstream_read_bytes_blocked += ret._size;
         }
         return std::move(ret._ready);
     }
@@ -260,8 +264,8 @@ public:
                 ignore_read_future(std::move(front._ready));
                 n -= front._size;
                 dropped += front._size;
-                _reactor._io_stats.fstream_read_aheads_discarded += 1;
-                _reactor._io_stats.fstream_read_ahead_discarded_bytes += front._size;
+                _stats.fstream_read_aheads_discarded += 1;
+                _stats.fstream_read_ahead_discarded_bytes += front._size;
                 _read_buffers.pop_front();
             }
         }
@@ -277,8 +281,8 @@ public:
         return _done->get_future().then([this] {
             uint64_t dropped = 0;
             for (auto&& c : _read_buffers) {
-                _reactor._io_stats.fstream_read_aheads_discarded += 1;
-                _reactor._io_stats.fstream_read_ahead_discarded_bytes += c._size;
+                _stats.fstream_read_aheads_discarded += 1;
+                _stats.fstream_read_ahead_discarded_bytes += c._size;
                 dropped += c._size;
                 ignore_read_future(std::move(c._ready));
             }

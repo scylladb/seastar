@@ -171,7 +171,6 @@ private:
     friend void internal::at_destroy(Func&&);
     friend void internal::at_exit(noncopyable_function<future<> ()> func);
     friend class manual_clock;
-    friend class file_data_source_impl; // for fstream statistics
     friend class internal::reactor_stall_sampler;
     friend class preempt_io_context;
     friend struct hrtimer_aio_completion;
@@ -201,6 +200,10 @@ public:
         uint64_t fstream_read_bytes_blocked = 0;
         uint64_t fstream_read_aheads_discarded = 0;
         uint64_t fstream_read_ahead_discarded_bytes = 0;
+
+    private:
+        friend class file_data_source_impl;
+        static io_stats& local() noexcept;
     };
     /// Scheduling statistics.
     struct sched_stats {
