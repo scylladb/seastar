@@ -77,6 +77,10 @@ inline internal::maybe_priority_class_ref get_io_priority(const Options& opts) {
     return internal::maybe_priority_class_ref{};
 }
 
+inline auto reactor::io_stats::local() noexcept -> io_stats& {
+    return engine()._io_stats;
+}
+
 class file_data_source_impl : public data_source_impl {
     struct issued_read {
         uint64_t _pos;
@@ -87,7 +91,7 @@ class file_data_source_impl : public data_source_impl {
             : _pos(pos), _size(size), _ready(std::move(f)) { }
     };
 
-    reactor::io_stats& _stats = engine()._io_stats;
+    reactor::io_stats& _stats = reactor::io_stats::local();
     file _file;
     file_input_stream_options _options;
     uint64_t _pos;
