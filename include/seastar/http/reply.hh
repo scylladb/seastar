@@ -79,6 +79,7 @@ struct reply {
         not_modified = 304, //!< not_modified
         use_proxy = 305, //!< use_proxy
         temporary_redirect = 307, //!< temporary_redirect
+        permanent_redirect = 308, //!< permanent_redirect
         bad_request = 400, //!< bad_request
         unauthorized = 401, //!< unauthorized
         payment_required = 402, //!< payment_required
