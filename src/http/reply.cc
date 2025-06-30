@@ -67,6 +67,7 @@ static const std::unordered_map<reply::status_type, std::string_view> status_str
     {reply::status_type::not_modified, "304 Not Modified"},
     {reply::status_type::use_proxy, "305 Use Proxy"},
     {reply::status_type::temporary_redirect, "307 Temporary Redirect"},
+    {reply::status_type::permanent_redirect, "308 Permanent Redirect"},
     {reply::status_type::bad_request, "400 Bad Request"},
     {reply::status_type::unauthorized, "401 Unauthorized"},
     {reply::status_type::payment_required, "402 Payment Required"},
@@ -98,20 +99,27 @@ static const std::unordered_map<reply::status_type, std::string_view> status_str
     {reply::status_type::network_read_timeout, "598 Network Read Timeout"},
     {reply::status_type::network_connect_timeout, "599 Network Connect Timeout"}};
 
-static const std::string_view& to_string_view(reply::status_type status) {
-  if (auto found = status_strings.find(status); found != status_strings.end()) [[likely]]
-    return found->second;
-  return status_strings.at(reply::status_type::internal_server_error);
+template<typename Func>
+static auto with_string_view(reply::status_type status, Func&& func) -> std::invoke_result_t<Func, std::string_view> {
+  if (auto found = status_strings.find(status); found != status_strings.end()) [[likely]] {
+     return func(found->second);
+  }
+  auto dummy_buf = std::to_string(int(status));
+  return func(dummy_buf);
 }
 
 } // namespace status_strings
 
 std::ostream& operator<<(std::ostream& os, reply::status_type st) {
-    return os << status_strings::to_string_view(st);
+    return status_strings::with_string_view(st, [&](std::string_view txt) -> std::ostream& {
+        return os << txt;
+    });
 }
 
 sstring reply::response_line() const {
-    return seastar::format("HTTP/{} {}\r\n", _version, status_strings::to_string_view(_status));
+    return status_strings::with_string_view(_status, [this](std::string_view txt) {
+        return seastar::format("HTTP/{} {}\r\n", _version, txt);
+    });
 }
 
 void reply::write_body(const sstring& content_type, noncopyable_function<future<>(output_stream<char>&&)>&& body_writer) {
