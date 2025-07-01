@@ -279,6 +279,8 @@ private:
         sched_clock::duration _starvetime = {};
         sched_clock::duration _time_spent_on_task_quota_violations = {};
 
+        void set_shares(float shares) noexcept;
+
         int64_t to_vruntime(sched_clock::duration runtime) const;
     };
 
@@ -292,7 +294,6 @@ private:
         // chars are used.
         static constexpr size_t shortname_size = 4;
         sstring _shortname;
-        void set_shares(float shares) noexcept;
         struct indirect_compare;
         seastar::metrics::metric_groups _metrics;
         bool run_tasks();
