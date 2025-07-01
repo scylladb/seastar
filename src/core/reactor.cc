@@ -5274,6 +5274,12 @@ future<> scheduling_group::update_io_bandwidth(uint64_t bandwidth) const {
     return engine().update_bandwidth_for_queues(internal::priority_class(*this), bandwidth);
 }
 
+void scheduling_supergroup::set_shares(float shares) noexcept {
+    if (!is_root()) {
+        engine()._supergroups[index()]->set_shares(shares);
+    }
+}
+
 future<scheduling_supergroup> create_scheduling_supergroup(float shares) noexcept {
     auto index = co_await smp::submit_to(0, [shares] () -> unsigned {
         auto& r = engine();

@@ -337,6 +337,20 @@ public:
 
     friend future<scheduling_supergroup> create_scheduling_supergroup(float shares) noexcept;
     friend class reactor;
+
+    /// Adjusts the number of shares allotted to the supergroup.
+    ///
+    /// Dynamically adjust the number of shares allotted to the group, increasing or
+    /// decreasing the amount of CPU bandwidth it gets. The adjustment is local to
+    /// the shard.
+    ///
+    /// This can be used to reduce a background job's interference with a foreground
+    /// load: the shares can be started at a low value, increased when the background
+    /// job's backlog increases, and reduced again when the backlog decreases.
+    ///
+    /// \param shares number of shares allotted to the group. Use numbers
+    ///               in the 1-1000 range.
+    void set_shares(float shares) noexcept;
 };
 
 /// \brief Identifies function calls that are accounted as a group
