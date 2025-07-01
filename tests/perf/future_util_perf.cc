@@ -457,6 +457,8 @@ PERF_TEST_CN(parallel_for_each, cor_pfe_suspend_100)
 
 struct sched {
     bool once = false;
+    seastar::scheduling_supergroup s1;
+    seastar::scheduling_supergroup s2;
     seastar::scheduling_group g1;
     seastar::scheduling_group g2;
 
@@ -516,3 +518,40 @@ PERF_TEST_CN(sched, context_switch)
     co_return 1000;
 }
 
+
+PERF_TEST_CN(sched, context_switch_x2)
+{
+    if (!once) {
+        s1 = co_await create_scheduling_supergroup(100);
+        s2 = co_await create_scheduling_supergroup(100);
+        g1 = co_await create_scheduling_group("g1", "g1", 100, s1);
+        g2 = co_await create_scheduling_group("g2", "g2", 100, s2);
+        once = true;
+    }
+
+    auto* t = new sched::switcher(g1, g2, 1000);
+    auto f = t->done.get_future();
+    perf_tests::start_measuring_time();
+    schedule(t);
+    co_await std::move(f);
+    perf_tests::stop_measuring_time();
+    co_return 1000;
+}
+
+PERF_TEST_CN(sched, context_switch_x1_5)
+{
+    if (!once) {
+        s1 = co_await create_scheduling_supergroup(100);
+        g1 = co_await create_scheduling_group("g1", 100);
+        g2 = co_await create_scheduling_group("g2", "g2", 100, s1);
+        once = true;
+    }
+
+    auto* t = new sched::switcher(g1, g2, 1000);
+    auto f = t->done.get_future();
+    perf_tests::start_measuring_time();
+    schedule(t);
+    co_await std::move(f);
+    perf_tests::stop_measuring_time();
+    co_return 1000;
+}
