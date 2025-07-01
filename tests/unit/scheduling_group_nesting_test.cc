@@ -89,3 +89,145 @@ SEASTAR_TEST_CASE(test_basic_ops) {
     BOOST_CHECK(ssg == l.sgroups[1]);
     co_await l.destroy();
 }
+
+#ifndef SEASTAR_SHUFFLE_TASK_QUEUE
+static future<> run_busyloops(std::vector<seastar::scheduling_group> groups, std::vector<float> expected) {
+    std::vector<uint64_t> counts;
+    std::vector<future<>> f;
+    auto run_and_count = [&groups] (uint64_t& c) -> future<> {
+        unsigned total_run_ms = 100 * groups.size();
+        auto now = std::chrono::steady_clock::now();
+        auto start_count = now + std::chrono::milliseconds(20);
+        auto stop_count = now + std::chrono::milliseconds(total_run_ms - 20);
+        auto stop = now + std::chrono::milliseconds(total_run_ms);
+        do {
+            auto stop = std::chrono::steady_clock::now() + std::chrono::microseconds(10);
+            while (std::chrono::steady_clock::now() < stop) ;
+
+            auto now = std::chrono::steady_clock::now();
+            if (now >= start_count && now < stop_count) {
+                c++;
+            }
+            co_await yield();
+        } while (std::chrono::steady_clock::now() < stop);
+    };
+    counts.reserve(groups.size());
+    f.reserve(groups.size());
+    for (auto& g : groups) {
+        counts.push_back(0);
+        f.push_back(with_scheduling_group(g, [&c = counts.back(), &run_and_count] { return run_and_count(c); }));
+    }
+    co_await when_all(f.begin(), f.end());
+
+    uint64_t average_adjusted_count = 0;
+    for (unsigned i = 0; i < groups.size(); i++) {
+        average_adjusted_count += counts[i] / expected[i];
+    }
+    average_adjusted_count /= groups.size();
+
+    fmt::print("--------8<--------\n");
+    for (unsigned i = 0; i < groups.size(); i++) {
+        auto dev = float(std::abs(counts[i] / expected[i] - average_adjusted_count)) / average_adjusted_count;
+        fmt::print("{}: count={} expected={:.2f} adjusted={} deviation={:.2f}\n", i, counts[i], expected[i], int(float(counts[i]) / expected[i]), dev);
+        BOOST_CHECK(dev < 0.07);
+    }
+}
+
+static future<> do_test_fairness(layout& l) {
+    std::default_random_engine random_engine(testing::local_random_engine());
+    std::uniform_int_distribution<unsigned> ng_dist(2, 5);
+    std::uniform_int_distribution<unsigned> shares_dist(1, 5);
+
+    for (int test = 0; test < 8; test++) {
+        fmt::print("=== TEST-{} ===\n", test);
+        unsigned ngroups = ng_dist(random_engine);
+
+        std::vector<unsigned> indices;
+        indices.reserve(l.groups.size());
+        for (unsigned i = 0; i < l.groups.size(); i++) {
+            indices.push_back(i);
+        }
+        std::shuffle(indices.begin(), indices.end(), random_engine);
+        indices.resize(ngroups);
+
+        fmt::print("Running in {} groups: {}\n", ngroups, indices);
+
+        std::vector<unsigned> run_shares;
+        run_shares.reserve(ngroups);
+        unsigned sg1_shares = 0, sg1_total_shares = 0;
+        unsigned sg2_shares = 0, sg2_total_shares = 0;
+
+        std::vector<seastar::scheduling_group> run_groups;
+        run_groups.reserve(ngroups);
+
+        unsigned root_total_shares = 0;
+        for (unsigned i = 0; i < ngroups; i++) {
+            unsigned idx = indices[i];
+            auto sg = l.groups[idx];
+            auto shares = shares_dist(random_engine);
+            sg.set_shares(shares * 100);
+            run_groups.push_back(sg);
+            run_shares.push_back(shares);
+
+            if (idx < 3) {
+                root_total_shares += shares;
+            } else if (idx < 6) {
+                if (sg1_shares == 0) {
+                    auto ssg = l.sgroups[0];
+                    auto shares = shares_dist(random_engine);
+                    ssg.set_shares(shares * 100);
+                    sg1_shares = shares;
+                    root_total_shares += shares;
+                }
+                sg1_total_shares += shares;
+            } else {
+                if (sg2_shares == 0) {
+                    auto ssg = l.sgroups[1];
+                    auto shares = shares_dist(random_engine);
+                    ssg.set_shares(shares * 100);
+                    sg2_shares = shares;
+                    root_total_shares += shares;
+                }
+                sg2_total_shares += shares;
+            }
+        }
+
+        fmt::print("Shares: {}\n", run_shares);
+        if (sg1_shares != 0) {
+            fmt::print("  supergroup 1 shares = {}\n", sg1_shares);
+        }
+        if (sg2_shares != 0) {
+            fmt::print("  supergroup 2 shares = {}\n", sg2_shares);
+        }
+
+        std::vector<float> expectations;
+        expectations.resize(ngroups);
+        for (unsigned i = 0; i < ngroups; i++) {
+            unsigned idx = indices[i];
+            if (idx < 3) {
+                expectations[i] = float(run_shares[i]) / root_total_shares;
+            } else if (idx < 6) {
+                float sg_expectation = float(sg1_shares) / root_total_shares;
+                expectations[i] = float(run_shares[i]) / sg1_total_shares * sg_expectation;
+            } else {
+                float sg_expectation = float(sg2_shares) / root_total_shares;
+                expectations[i] = float(run_shares[i]) / sg2_total_shares * sg_expectation;
+            }
+        }
+
+        co_await run_busyloops(run_groups, expectations);
+    }
+}
+#else
+static future<> do_test_fairness(layout& l) {
+    fmt::print("Skipping CPU fairness test in debug mode\n");
+    return make_ready_future<>();
+}
+#endif
+
+SEASTAR_TEST_CASE(test_fairness) {
+    auto l = co_await layout::create();
+    co_await do_test_fairness(l);
+    co_await l.destroy();
+}
+
