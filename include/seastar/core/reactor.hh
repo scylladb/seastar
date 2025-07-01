@@ -690,6 +690,7 @@ private:
     friend class smp;
     friend class internal::poller;
     friend class scheduling_group;
+    friend class scheduling_supergroup;
     friend void internal::add_to_flush_poller(output_stream<char>& os) noexcept;
     friend void seastar::internal::increase_thrown_exceptions_counter() noexcept;
     friend void seastar::internal::increase_internal_errors_counter() noexcept;
