@@ -1023,8 +1023,7 @@ reactor::sched_entity::to_vruntime(sched_clock::duration runtime) const {
     return std::max<int64_t>(scaled, 0);
 }
 
-void
-reactor::task_queue::set_shares(float shares) noexcept {
+void reactor::sched_entity::set_shares(float shares) noexcept {
     _shares = std::max(shares, 1.0f);
     _reciprocal_shares_times_2_power_32 = (uint64_t(1) << 32) / _shares;
 }
