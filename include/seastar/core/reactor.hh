@@ -271,6 +271,7 @@ private:
     struct sched_entity {
     protected:
         explicit sched_entity(task_queue_group* p, float shares);
+        ~sched_entity();
     public:
         int64_t _vruntime = 0;
         float _shares;
@@ -314,6 +315,7 @@ private:
         int64_t _last_vruntime = 0;
         scheduler_list _active;
         scheduler_list _activating;;
+        unsigned _nr_children = 0;
 
         void run_some_tasks();
 

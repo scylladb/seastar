@@ -949,6 +949,18 @@ reactor::sched_entity::sched_entity(task_queue_group* p, float shares)
         , _parent(p)
         , _ts(now())
 {
+    if (_parent != nullptr) {
+        if (_parent->_nr_children >= max_scheduling_groups()) {
+            on_fatal_internal_error(seastar_logger, "Attempted to create too many supergroups");
+        }
+        _parent->_nr_children++;
+    }
+}
+
+reactor::sched_entity::~sched_entity() {
+    if (_parent != nullptr) {
+        _parent->_nr_children--;
+    }
 }
 
 reactor::task_queue::task_queue(unsigned id, sstring name, sstring shortname, float shares)
