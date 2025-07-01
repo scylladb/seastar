@@ -231,3 +231,57 @@ SEASTAR_TEST_CASE(test_fairness) {
     co_await l.destroy();
 }
 
+SEASTAR_TEST_CASE(test_wakeups) {
+    auto l = co_await layout::create();
+
+    std::default_random_engine random_engine(testing::local_random_engine());
+    std::uniform_int_distribution<unsigned> ng_dist(0, l.groups.size() - 1);
+    std::uniform_int_distribution<unsigned> w_dist(2, 8);
+
+    for (unsigned test = 0; test < 32; test++) {
+        struct semaphore_and_number {
+            semaphore sem;
+            unsigned nr;
+            semaphore_and_number(unsigned n) : sem(0), nr(n) {}
+        };
+
+        std::vector<semaphore_and_number> waiters;
+        waiters.reserve(w_dist(random_engine));
+
+        unsigned total_waiters = 0;
+        semaphore ready(0);
+        semaphore done(0);
+
+        for (unsigned i = 0; i < waiters.capacity(); i++) {
+            unsigned nw = w_dist(random_engine);
+            fmt::print("Run with {} waiters\n", nw);
+            total_waiters += nw;
+            auto& ws = waiters.emplace_back(nw);
+
+            for (unsigned w = 0; w < nw; w++) {
+                auto g = ng_dist(random_engine);
+                (void)with_scheduling_group(l.groups[g], [&s = ws.sem, &ready, &done, i, w, g] () mutable {
+                    ready.signal();
+                    return s.wait().then([&done, i, w, g] {
+                        fmt::print("{}:{} wakeup in {}\n", i, w, g);
+                        done.signal();
+                    });
+                });
+            }
+        }
+
+        co_await ready.wait(total_waiters);
+
+        for (unsigned i = 0; i < waiters.size(); i++) {
+            auto g = ng_dist(random_engine);
+            (void)with_scheduling_group(l.groups[g], [&s = waiters[i], &done] () mutable {
+                s.sem.signal(s.nr);
+                done.signal();
+            });
+        }
+
+        co_await done.wait(total_waiters + waiters.size());
+    }
+
+    co_await l.destroy();
+}
