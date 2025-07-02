@@ -33,6 +33,7 @@
 #include <seastar/core/internal/io_desc.hh>
 #include <seastar/core/internal/io_request.hh>
 #include <seastar/core/internal/io_sink.hh>
+#include <seastar/core/io_queue.hh>
 #include <seastar/core/iostream.hh>
 #include <seastar/core/lowres_clock.hh>
 #include <seastar/core/make_task.hh>
@@ -60,6 +61,7 @@
 #include <seastar/util/noncopyable_function.hh>
 #include <seastar/util/std-compat.hh>
 #include "internal/pollable_fd.hh"
+#include <boost/range/adaptor/map.hpp>
 
 #ifndef SEASTAR_MODULE
 #include <atomic>
@@ -115,6 +117,7 @@ class reactor_backend_selector;
 
 class reactor_backend;
 struct pollfn;
+struct smp_options;
 
 namespace internal {
 
@@ -136,7 +139,6 @@ void at_exit(noncopyable_function<future<> ()> func);
 
 }
 
-class io_queue;
 SEASTAR_MODULE_EXPORT
 class io_intent;
 
@@ -146,6 +148,67 @@ public:
 
     virtual void complete(size_t res) noexcept = 0;
     virtual void set_exception(std::exception_ptr eptr) noexcept = 0;
+};
+
+struct disk_params {
+    std::vector<std::string> mountpoints;
+    std::vector<dev_t> devices;
+    uint64_t read_bytes_rate = std::numeric_limits<uint64_t>::max();
+    uint64_t write_bytes_rate = std::numeric_limits<uint64_t>::max();
+    uint64_t read_req_rate = std::numeric_limits<uint64_t>::max();
+    uint64_t write_req_rate = std::numeric_limits<uint64_t>::max();
+    uint64_t read_saturation_length = std::numeric_limits<uint64_t>::max();
+    uint64_t write_saturation_length = std::numeric_limits<uint64_t>::max();
+    bool duplex = false;
+    float rate_factor = 1.0;
+};
+
+class disk_config_params {
+private:
+    const unsigned _max_queues;
+    unsigned _num_io_groups = 0;
+    std::unordered_map<unsigned, disk_params> _disks;
+    std::chrono::duration<double> _latency_goal;
+    std::chrono::milliseconds _stall_threshold;
+    double _flow_ratio_backpressure_threshold;
+
+public:
+    explicit disk_config_params(unsigned max_queues) noexcept
+            : _max_queues(max_queues)
+    {}
+
+    uint64_t per_io_group(uint64_t qty, unsigned nr_groups) const noexcept {
+        return std::max(qty / nr_groups, 1ul);
+    }
+
+    unsigned num_io_groups() const noexcept { return _num_io_groups; }
+
+    std::chrono::duration<double> latency_goal() const {
+        return _latency_goal;
+    }
+
+    std::chrono::milliseconds stall_threshold() const {
+        return _stall_threshold;
+    }
+
+    double latency_goal_opt(const reactor_options& opts) const {
+        return opts.io_latency_goal_ms ?
+                opts.io_latency_goal_ms.get_value() :
+                opts.task_quota_ms.get_value() * 1.5;
+    }
+
+    void parse_config(const smp_options& smp_opts, const reactor_options& reactor_opts);
+
+    struct io_queue::config generate_config(unsigned q, unsigned nr_groups) const;
+    struct io_queue::config generate_config(const disk_params& p, unsigned q, unsigned nr_groups) const;
+
+    auto queue_ids() {
+        return boost::adaptors::keys(_disks);
+    }
+
+    const std::vector<dev_t>& queue_devices(unsigned q) const {
+        return _disks.at(q).devices;
+    }
 };
 
 SEASTAR_MODULE_EXPORT
