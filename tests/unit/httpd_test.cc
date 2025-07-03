@@ -1022,7 +1022,7 @@ SEASTAR_TEST_CASE(test_client_retry_nested) {
         });
 
         future<> client_ex = seastar::async([&lcf] {
-            auto cln = http::experimental::client(std::make_unique<loopback_http_factory>(lcf), 2, http::experimental::client::retry_requests::yes);
+            auto cln = http::experimental::client(std::make_unique<loopback_http_factory>(lcf), 2, http::experimental::retry_requests::yes);
             auto req = http::request::make("GET", "test", "/test");
             size_t count = 0;
             BOOST_REQUIRE_EXCEPTION(cln.make_request(
@@ -1259,7 +1259,7 @@ SEASTAR_TEST_CASE(test_client_retry_request) {
         });
 
         future<> client = seastar::async([&lcf] {
-            auto cln = http::experimental::client(std::make_unique<loopback_http_factory>(lcf), 2, http::experimental::client::retry_requests::yes);
+            auto cln = http::experimental::client(std::make_unique<loopback_http_factory>(lcf), 2, http::experimental::retry_requests::yes);
             auto req = http::request::make("GET", "test", "/test");
             bool got_response = false;
             cln.make_request(std::move(req), [&] (const http::reply& rep, input_stream<char>&& in) {
@@ -2112,7 +2112,7 @@ SEASTAR_TEST_CASE(test_client_close_connection) {
     return async([] {
         loopback_connection_factory lcf(1);
         auto make_test_request = [&lcf]() {
-            auto cln = http::experimental::client(std::make_unique<loopback_http_factory>(lcf), 1, http::experimental::client::retry_requests::no);
+            auto cln = http::experimental::client(std::make_unique<loopback_http_factory>(lcf), 1, http::experimental::retry_requests::no);
             size_t content_length = 0;
             for (auto _ [[maybe_unused]] : {1, 2}) {
                 auto req = http::request::make("GET", "test", "/test");
