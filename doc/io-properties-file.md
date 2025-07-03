@@ -24,6 +24,12 @@ Additionally the following optional properties can be added:
 
 * `read_saturation_length`: read buffer length to saturate the device throughput
 * `write_saturation_length`: write buffer length to saturate the device throughput
+* `min_iop_size`: The minimum IOP size the application will issue.
+    Should match (or be smaller) than IOP size used in the IOPS test.
+    Used in the io-queue cost model.
+* `max_iop_size`: The maximum IOP size the application will issue.
+    Should match (or be larger) than the IOP size used in the throughput test.
+    Used in the io-queue cost model.
 
 Those quantities can be specified in raw form, or followed with a
 suffix (k, M, G, or T).

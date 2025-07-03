@@ -201,6 +201,8 @@ struct disk_params {
     uint64_t write_saturation_length = std::numeric_limits<uint64_t>::max();
     bool duplex = false;
     float rate_factor = 1.0;
+    std::optional<uint64_t> min_iop_size;
+    std::optional<uint64_t> max_iop_size;
 };
 
 }
@@ -230,6 +232,12 @@ struct convert<seastar::disk_params> {
         }
         if (node["rate_factor"]) {
             mp.rate_factor = node["rate_factor"].as<float>();
+        }
+        if (node["min_iop_size"]) {
+            mp.min_iop_size = parse_memory_size(node["min_iop_size"].as<std::string>());
+        }
+        if (node["max_iop_size"]) {
+            mp.max_iop_size = parse_memory_size(node["max_iop_size"].as<std::string>());
         }
         return true;
     }
@@ -4266,6 +4274,86 @@ public:
         _disks.emplace(0, d);
     }
 
+    std::pair<double, double>
+    calculate_full_cost_formula_factors(bool is_write, const disk_params &params) const {
+        // The cost model that is applied to an IO request is defined as such
+        // (see internal::request_tokens):
+
+        // cost = X * 1 + Y * S
+
+        // Here X is the cost of an IOP, Y is the cost of throughput and S is
+        // the size of the request. We define:
+
+        // X = 1 / IOPS
+        // Y = 1 / TP
+
+        // where IOPS and TP are the measured values from io-properties.
+
+        // This is fairly simplified and assumes that the cost of a request is
+        // the IOPS and throughput added together. However, this massively
+        // penalizes modern SSDs that don't behave as such and are fairly common
+        // these days. As a consequence these SSDs are throttled by the io-queue
+        // and can't perform to their true potential.
+
+        // With a little bit of extra information we can improve this model by
+        // solving a system of two equations (based on the two measurements we
+        // have from io-properties). We can then model the cost of an IO request
+        // as:
+
+        // X * IOPS + Y * IOPS * IOPS_IOP_SIZE = 1
+        // X * TP / TP_IOP_SIZE + Y * TP = 1
+
+        // Here we have a few extra constants that all come from the
+        // io-properties. IOPS and TP are defined as above. IOPS_IOP_SIZE and
+        // TP_IOP_SIZE are the IOP sizes in the IOPS and TP measurements
+        // respectively.
+        //
+        // Note the sizes of these are important. The model will weight requests
+        // cheaper than they are if we issue IOPS that are smaller than
+        // IOPS_IOP_SIZE or larger than TP_IOP_SIZE and more costly if they are
+        // in between. The former is to be avoided as it might potentially lead
+        // to all requests passing through the queue without scheduling. The
+        // latter isn't much of an issue and unavoidable. It shows the limit of
+        // the cost model and we effectively approach the simplified model so
+        // the full model performs at worst as bad as the simplified model.
+
+        // Below we solve the above system and calculate the respective weights to be
+        // applied in the io-queue.
+
+        double IOPS = is_write ? params.write_req_rate : params.read_req_rate;
+        double IOPS_IOP_SIZE = *params.min_iop_size;
+        double TP = is_write ? params.write_bytes_rate : params.read_bytes_rate;
+        double TP_IOP_SIZE = *params.max_iop_size;
+        double IOPS_TP = TP / TP_IOP_SIZE;
+
+        // fully solved IOP and throughput cost
+        double iop_cost = (1 / IOPS - IOPS_IOP_SIZE / TP )  / (1 - IOPS_TP * IOPS_IOP_SIZE / TP);
+        double throughput_cost = (1 - iop_cost * IOPS_TP) / TP;
+
+        // Later we simply apply the factor to the simplified cost model
+        // (as we have to support both) so we multiply by IOPS and TP
+        // respectively here.
+        // This then effectively results in the below:
+        //
+        // IOP_COST = (1 / IOPS) * IOPS * iop_cost
+        // TP_COST = (1 / TP) * TP * throughput_cost * SIZE
+        //
+        // This also leaves us with factors in [0,1] range which are
+        // conceptually easy to understand.
+        double iop_factor = iop_cost * IOPS;
+        double throughput_factor = throughput_cost * TP;
+
+        // Because the measurements in io-properties aren't 100% exact and bound
+        // to deviations (disk burstiness etc.) we have to bound the values to
+        // avoid non-sensical values like negative weights.
+        iop_factor = std::min(iop_factor, 0.999);
+        iop_factor = std::max(iop_factor, 0.001);
+        throughput_factor = std::min(throughput_factor, 0.999);
+        throughput_factor = std::max(throughput_factor, 0.001);
+
+        return {iop_factor, throughput_factor};
+    }
+
     struct io_queue::config generate_config(unsigned q, unsigned nr_groups) const {
         const disk_params& p = _disks.at(q);
         seastar_logger.debug("generate_config queue-id: {}", q);
@@ -4281,6 +4369,19 @@ public:
             cfg.req_count_rate = io_queue::read_request_base_count * (unsigned long)per_io_group(p.read_req_rate, nr_groups);
             cfg.disk_req_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_req_rate) / p.write_req_rate;
         }
+
+        // Use the full cost model if io-properties are in use and min and max IOP size are available
+        if (p.read_req_rate != std::numeric_limits<uint64_t>::max() &&
+            p.read_bytes_rate != std::numeric_limits<uint64_t>::max() &&
+            p.min_iop_size && p.max_iop_size) {
+
+            std::tie(cfg.write_iop_factor, cfg.write_throughput_factor) = calculate_full_cost_formula_factors(true, p);
+            std::tie(cfg.read_iop_factor, cfg.read_throughput_factor) = calculate_full_cost_formula_factors(false, p);
+
+            seastar_logger.debug("iop weight write: {} tp weight write: {} iop weight read: {}, tp weight read: {}",
+                                cfg.write_iop_factor, cfg.write_throughput_factor, cfg.read_iop_factor, cfg.read_throughput_factor);
+        }
+
         if (p.read_saturation_length != std::numeric_limits<uint64_t>::max()) {
             cfg.disk_read_saturation_length = p.read_saturation_length;
         }
