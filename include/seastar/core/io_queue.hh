@@ -213,17 +213,6 @@ public:
     void complete_cancelled_request(queued_io_request& req) noexcept;
     void complete_request(io_desc_read_write& desc, std::chrono::duration<double> delay) noexcept;
 
-    [[deprecated("I/O queue users should not track individual requests, but resources (weight, size) passing through the queue")]]
-    size_t queued_requests() const {
-        return _queued_requests;
-    }
-
-    // How many requests are sent to disk but not yet returned.
-    [[deprecated("I/O queue users should not track individual requests, but resources (weight, size) passing through the queue")]]
-    size_t requests_currently_executing() const {
-        return _requests_executing;
-    }
-
     // Dispatch requests that are pending in the I/O queue
     void poll_io_queue();
 
