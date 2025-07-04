@@ -117,6 +117,7 @@ public:
     future<size_t> recvmsg(struct msghdr *msg);
     future<size_t> sendto(socket_address addr, const void* buf, size_t len);
     future<> poll_rdhup();
+    void shutdown(int how);
 
 protected:
     explicit pollable_fd_state(file_desc fd, speculation speculate = speculation())
