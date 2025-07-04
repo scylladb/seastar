@@ -133,6 +133,7 @@ template <typename Func>
 void at_destroy(Func&& func);
 
 void at_exit(noncopyable_function<future<> ()> func);
+void set_current_task(task* t);
 
 }
 
@@ -394,7 +395,6 @@ private:
 
     signals _signals;
     std::unique_ptr<thread_pool> _thread_pool;
-    friend class thread_context;
     friend class internal::cpu_stall_detector;
 
     friend void handle_signal(int signo, noncopyable_function<void ()>&& handler, bool once);
@@ -568,11 +568,6 @@ template <typename Func>
     }
 public:
     task* current_task() const { return _current_task; }
-    // If a task wants to resume a different task instead of returning control to the reactor,
-    // it should set _current_task to the resumed task.
-    // In particular, this is mandatory if the task is going to die before control is returned
-    // to the reactor -- otherwise _current_task will be left dangling.
-    void set_current_task(task* t) { _current_task = t; }
 
     void add_task(task* t) noexcept;
     void add_urgent_task(task* t) noexcept;
@@ -676,6 +671,7 @@ private:
     friend future<> seastar::rename_scheduling_group(scheduling_group sg, sstring new_name, sstring new_shortname) noexcept;
     friend future<scheduling_group_key> scheduling_group_key_create(scheduling_group_key_config cfg) noexcept;
     friend seastar::internal::log_buf::inserter_iterator do_dump_task_queue(seastar::internal::log_buf::inserter_iterator it, const task_queue& tq);
+    friend void internal::set_current_task(task* t);
 
     future<struct statfs> fstatfs(int fd) noexcept;
     friend future<shared_ptr<file_impl>> make_file_impl(int fd, file_open_options options, int flags, struct stat st) noexcept;
@@ -737,6 +733,13 @@ namespace internal {
 template <typename Func>
 void at_destroy(Func&& func) {
     engine().do_at_destroy(std::forward<Func>(func));
+}
+// If a task wants to resume a different task instead of returning control to the reactor,
+// it should set _current_task to the resumed task.
+// In particular, this is mandatory if the task is going to die before control is returned
+// to the reactor -- otherwise _current_task will be left dangling.
+inline void set_current_task(task* t) {
+    local_engine->_current_task = t;
 }
 
 } // namespace internal
