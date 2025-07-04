@@ -256,7 +256,7 @@ thread_context::setup(size_t stack_size) {
 
 void
 thread_context::switch_in() {
-    local_engine->_current_task = nullptr; // thread_wake_task is on the stack and will be invalid when we resume
+    internal::set_current_task(nullptr); // thread_wake_task is on the stack and will be invalid when we resume
     _context.switch_in();
 }
 
