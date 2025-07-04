@@ -1600,6 +1600,10 @@ void pollable_fd_state::forget() {
     engine()._backend->forget(*this);
 }
 
+void pollable_fd_state::shutdown(int how) {
+    fd.shutdown(how);
+}
+
 void intrusive_ptr_release(pollable_fd_state* fd) {
     if (!--fd->_refs) {
         fd->forget();
@@ -1617,7 +1621,7 @@ void pollable_fd::shutdown(int how, shutdown_kernel_only kernel_only) {
         // EAGAIN to ECONNABORT in that case.
         _s->shutdown_mask |= posix::shutdown_mask(how);
     }
-    engine()._backend->shutdown(*_s, how);
+    _s->shutdown(how);
 }
 
 pollable_fd
