@@ -180,8 +180,6 @@ private:
     };
 
     config _config;
-    fair_queue_ticket _resources_executing;
-    fair_queue_ticket _resources_queued;
     priority_queue _handles;
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
     size_t _nr_classes = 0;
@@ -219,10 +217,12 @@ public:
     void update_shares_for_class(class_id c, uint32_t new_shares);
 
     /// \return how much resources (weight, size) are currently queued for all classes.
-    fair_queue_ticket resources_currently_waiting() const;
+    [[deprecated("Ticket resources are not accounted for any longer")]]
+    fair_queue_ticket resources_currently_waiting() const { return fair_queue_ticket(); }
 
     /// \return the amount of resources (weight, size) currently executing
-    fair_queue_ticket resources_currently_executing() const;
+    [[deprecated("Ticket resources are not accounted for any longer")]]
+    fair_queue_ticket resources_currently_executing() const { return fair_queue_ticket(); }
 
     /// Queue the entry \c ent through this class' \ref fair_queue
     ///
