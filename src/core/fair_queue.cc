@@ -224,14 +224,6 @@ void fair_queue::update_shares_for_class(class_id id, uint32_t shares) {
     pc->update_shares(shares);
 }
 
-fair_queue_ticket fair_queue::resources_currently_waiting() const {
-    return _resources_queued;
-}
-
-fair_queue_ticket fair_queue::resources_currently_executing() const {
-    return _resources_executing;
-}
-
 void fair_queue::queue(class_id id, fair_queue_entry& ent) noexcept {
     priority_class_data& pc = *_priority_classes[id];
     // We need to return a future in this function on which the caller can wait.
