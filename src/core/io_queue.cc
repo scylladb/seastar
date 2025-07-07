@@ -847,11 +847,11 @@ io_queue::priority_class_data& io_queue::find_or_create_class(internal::priority
         //
         // This conveys all the information we need and allows one to easily group all classes from
         // the same I/O queue (by filtering by shard)
-        for (auto&& s : _streams) {
-            s.fq.register_priority_class(id, shares);
-        }
         auto& pg = _group->find_or_create_class(pc);
         auto pc_data = std::make_unique<priority_class_data>(pc, shares, *this, pg);
+        for (auto&& s : _streams) {
+            s.fq.register_priority_class(pc_data->fq_class(), shares);
+        }
         register_stats(name, *pc_data);
 
         _priority_classes[id] = std::move(pc_data);
