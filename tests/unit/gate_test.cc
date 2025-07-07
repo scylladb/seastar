@@ -163,3 +163,11 @@ SEASTAR_TEST_CASE(named_gate_closed_test) {
     move_assigned = named_gate(bar);
     co_await test_named_gate(move_assigned, bar);
 }
+
+SEASTAR_TEST_CASE(unique_named_gate_test) {
+    auto g = std::make_unique<named_gate>("test gate");
+    auto gh = g->hold();
+    gh.release();
+    g.reset();
+    return make_ready_future();
+}
