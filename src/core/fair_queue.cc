@@ -112,7 +112,13 @@ public:
     void update_shares(uint32_t shares) noexcept {
         _shares = (std::max(shares, 1u));
     }
+
+    fair_queue_entry* top() override;
 };
+
+fair_queue_entry* fair_queue::priority_class_data::top() {
+    return (_plugged && !_queue.empty()) ? &_queue.front() : nullptr;
+}
 
 bool fair_queue::class_compare::operator() (const priority_entry_ptr& lhs, const priority_entry_ptr& rhs) const noexcept {
     return lhs->_accumulated > rhs->_accumulated;
@@ -242,14 +248,21 @@ void fair_queue::notify_request_cancelled(fair_queue_entry& ent) noexcept {
 }
 
 fair_queue_entry* fair_queue::top() {
-    while (!_root._children.empty()) {
-        priority_class_data& h = *reinterpret_cast<priority_class_data*>(_root._children.top());
-        if (h._queue.empty() || !h._plugged) {
-            pop_priority_class(h);
+    return _root.top();
+}
+
+fair_queue_entry* fair_queue::priority_class_group_data::top() {
+    while (!_children.empty()) {
+        priority_entry& h = *_children.top();
+        auto* ent = h.top();
+        if (ent == nullptr) {
+            SEASTAR_ASSERT(h._queued);
+            h._queued = false;
+            _children.pop();
             continue;
         }
 
-        return &h._queue.front();
+        return ent;
     }
 
     return nullptr;
