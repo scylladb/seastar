@@ -98,7 +98,7 @@ fair_queue_ticket wrapping_difference(const fair_queue_ticket& a, const fair_que
 }
 
 // Priority class, to be used with a given fair_queue
-class fair_queue::priority_class_data {
+class fair_queue::priority_class_data final : public priority_entry {
     friend class fair_queue;
     uint32_t _shares = 0;
     capacity_t _accumulated = 0;
@@ -119,7 +119,7 @@ public:
 };
 
 bool fair_queue::class_compare::operator() (const priority_entry_ptr& lhs, const priority_entry_ptr& rhs) const noexcept {
-    return lhs->_accumulated > rhs->_accumulated;
+    return reinterpret_cast<priority_class_data*>(lhs)->_accumulated > reinterpret_cast<priority_class_data*>(rhs)->_accumulated;
 }
 
 fair_queue::fair_queue(config cfg)
@@ -246,7 +246,7 @@ void fair_queue::notify_request_cancelled(fair_queue_entry& ent) noexcept {
 
 fair_queue_entry* fair_queue::top() {
     while (!_handles.empty()) {
-        priority_class_data& h = *_handles.top();
+        priority_class_data& h = *reinterpret_cast<priority_class_data*>(_handles.top());
         if (h._queue.empty() || !h._plugged) {
             pop_priority_class(h);
             continue;
@@ -259,7 +259,7 @@ fair_queue_entry* fair_queue::top() {
 }
 
 void fair_queue::pop_front() {
-    auto& h = *_handles.top();
+    auto& h = *reinterpret_cast<priority_class_data*>(_handles.top());
 
     _last_accumulated = std::max(h._accumulated, _last_accumulated);
     pop_priority_class(h);
