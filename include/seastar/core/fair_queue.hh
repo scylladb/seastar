@@ -156,13 +156,16 @@ public:
     };
 
     using class_id = unsigned int;
-    class priority_class_data;
     using capacity_t = fair_queue_entry::capacity_t;
     using signed_capacity_t = std::make_signed_t<capacity_t>;
 
 private:
+    class priority_entry {
+        friend class fair_queue;
+    };
+
     using clock_type = std::chrono::steady_clock;
-    using priority_entry_ptr = priority_class_data*;
+    using priority_entry_ptr = priority_entry*;
     struct class_compare {
         bool operator() (const priority_entry_ptr& lhs, const priority_entry_ptr & rhs) const noexcept;
     };
@@ -178,6 +181,8 @@ private:
             SEASTAR_ASSERT(c.size() < c.capacity());
         }
     };
+
+    class priority_class_data;
 
     config _config;
     priority_queue _handles;
