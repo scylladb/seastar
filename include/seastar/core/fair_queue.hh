@@ -201,6 +201,10 @@ private:
         }
         priority_class_group_data(const priority_class_group_data&) = delete;
         priority_class_group_data(priority_class_group_data&&) = delete;
+
+        void reserve(size_t len) {
+            _children.reserve(len);
+        }
     };
 
     class priority_class_data;
