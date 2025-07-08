@@ -202,6 +202,7 @@ private:
         friend class fair_queue;
         priority_queue _children;
         capacity_t _last_accumulated = 0;
+        size_t _nr_children = 0;
     public:
         priority_class_group_data(uint32_t shares, priority_class_group_data* p) noexcept
                 : priority_entry(shares, p)
@@ -216,8 +217,8 @@ private:
         fair_queue_entry* top() override;
         std::pair<bool, capacity_t> pop_front() override;
 
-        void reserve(size_t len) {
-            _children.reserve(len);
+        void reserve() {
+            _children.reserve(_nr_children + 1);
         }
 
         void push_from_idle(priority_entry&, const config&) noexcept;
@@ -228,7 +229,6 @@ private:
     config _config;
     priority_class_group_data _root;
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
-    size_t _nr_classes = 0;
 
     // Total capacity of all requests waiting in the queue.
     capacity_t _queued_capacity = 0;
