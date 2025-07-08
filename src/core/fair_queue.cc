@@ -150,7 +150,7 @@ void fair_queue::push_priority_class_from_idle(priority_class_data& pc) noexcept
         // introduce extra if's for that short corner case, use signed
         // arithmetics and make sure the _accumulated value doesn't grow
         // over signed maximum (see overflow check below)
-        pc._accumulated = std::max<signed_capacity_t>(_last_accumulated - _config.forgiving_factor / pc._shares, pc._accumulated);
+        pc._accumulated = std::max<signed_capacity_t>(_root._last_accumulated - _config.forgiving_factor / pc._shares, pc._accumulated);
         _root._children.assert_enough_capacity();
         _root._children.push(&pc);
         pc._queued = true;
@@ -261,7 +261,7 @@ fair_queue_entry* fair_queue::top() {
 void fair_queue::pop_front() {
     auto& h = *reinterpret_cast<priority_class_data*>(_root._children.top());
 
-    _last_accumulated = std::max(h._accumulated, _last_accumulated);
+    _root._last_accumulated = std::max(h._accumulated, _root._last_accumulated);
     pop_priority_class(h);
 
     auto& req = h._queue.front();
