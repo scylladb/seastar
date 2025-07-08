@@ -100,7 +100,6 @@ fair_queue_ticket wrapping_difference(const fair_queue_ticket& a, const fair_que
 // Priority class, to be used with a given fair_queue
 class fair_queue::priority_class_data final : public priority_entry {
     friend class fair_queue;
-    uint32_t _shares = 0;
     capacity_t _accumulated = 0;
     capacity_t _pure_accumulated = 0;
     fair_queue_entry::container_list_t _queue;
@@ -109,7 +108,7 @@ class fair_queue::priority_class_data final : public priority_entry {
     uint32_t _activations = 0;
 
 public:
-    explicit priority_class_data(uint32_t shares) noexcept : _shares(std::max(shares, 1u)) {}
+    explicit priority_class_data(uint32_t shares) noexcept : priority_entry(shares) {}
     priority_class_data(const priority_class_data&) = delete;
     priority_class_data(priority_class_data&&) = delete;
 
@@ -124,6 +123,7 @@ bool fair_queue::class_compare::operator() (const priority_entry_ptr& lhs, const
 
 fair_queue::fair_queue(config cfg)
     : _config(std::move(cfg))
+    , _root(0)
 {
 }
 
