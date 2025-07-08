@@ -177,6 +177,7 @@ private:
     public:
         virtual fair_queue_entry* top() = 0;
         virtual std::pair<bool, capacity_t> pop_front() = 0;
+        void wakeup(const config&) noexcept;
     };
 
     using clock_type = std::chrono::steady_clock;
@@ -218,6 +219,8 @@ private:
         void reserve(size_t len) {
             _children.reserve(len);
         }
+
+        void push_from_idle(priority_entry&, const config&) noexcept;
     };
 
     class priority_class_data;
@@ -230,7 +233,6 @@ private:
     // Total capacity of all requests waiting in the queue.
     capacity_t _queued_capacity = 0;
 
-    void push_priority_class_from_idle(priority_class_data& pc) noexcept;
     void plug_priority_class(priority_class_data& pc) noexcept;
     void unplug_priority_class(priority_class_data& pc) noexcept;
 
