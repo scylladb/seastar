@@ -135,8 +135,8 @@ fair_queue::~fair_queue() {
 
 void fair_queue::push_priority_class(priority_class_data& pc) noexcept {
     SEASTAR_ASSERT(pc._plugged && !pc._queued);
-    _handles.assert_enough_capacity();
-    _handles.push(&pc);
+    _root._children.assert_enough_capacity();
+    _root._children.push(&pc);
     pc._queued = true;
 }
 
@@ -151,18 +151,18 @@ void fair_queue::push_priority_class_from_idle(priority_class_data& pc) noexcept
         // arithmetics and make sure the _accumulated value doesn't grow
         // over signed maximum (see overflow check below)
         pc._accumulated = std::max<signed_capacity_t>(_last_accumulated - _config.forgiving_factor / pc._shares, pc._accumulated);
-        _handles.assert_enough_capacity();
-        _handles.push(&pc);
+        _root._children.assert_enough_capacity();
+        _root._children.push(&pc);
         pc._queued = true;
         pc._activations++;
     }
 }
 
-// ATTN: This can only be called on pc that is from _handles.top()
+// ATTN: This can only be called on pc that is from _root._children.top()
 void fair_queue::pop_priority_class(priority_class_data& pc) noexcept {
     SEASTAR_ASSERT(pc._queued);
     pc._queued = false;
-    _handles.pop();
+    _root._children.pop();
 }
 
 void fair_queue::plug_priority_class(priority_class_data& pc) noexcept {
@@ -205,7 +205,7 @@ void fair_queue::register_priority_class(class_id id, uint32_t shares) {
         SEASTAR_ASSERT(!_priority_classes[id]);
     }
 
-    _handles.reserve(_nr_classes + 1);
+    _root._children.reserve(_nr_classes + 1);
     _priority_classes[id] = std::make_unique<priority_class_data>(shares);
     _nr_classes++;
 }
@@ -245,8 +245,8 @@ void fair_queue::notify_request_cancelled(fair_queue_entry& ent) noexcept {
 }
 
 fair_queue_entry* fair_queue::top() {
-    while (!_handles.empty()) {
-        priority_class_data& h = *reinterpret_cast<priority_class_data*>(_handles.top());
+    while (!_root._children.empty()) {
+        priority_class_data& h = *reinterpret_cast<priority_class_data*>(_root._children.top());
         if (h._queue.empty() || !h._plugged) {
             pop_priority_class(h);
             continue;
@@ -259,7 +259,7 @@ fair_queue_entry* fair_queue::top() {
 }
 
 void fair_queue::pop_front() {
-    auto& h = *reinterpret_cast<priority_class_data*>(_handles.top());
+    auto& h = *reinterpret_cast<priority_class_data*>(_root._children.top());
 
     _last_accumulated = std::max(h._accumulated, _last_accumulated);
     pop_priority_class(h);

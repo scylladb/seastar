@@ -182,10 +182,15 @@ private:
         }
     };
 
+    class priority_class_group_data final : public priority_entry {
+        friend class fair_queue;
+        priority_queue _children;
+    };
+
     class priority_class_data;
 
     config _config;
-    priority_queue _handles;
+    priority_class_group_data _root;
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
     size_t _nr_classes = 0;
     capacity_t _last_accumulated = 0;
