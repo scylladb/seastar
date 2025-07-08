@@ -589,6 +589,18 @@ void task_histogram_add_task(const task& t) {
 }
 #endif
 
+scheduling_supergroup scheduling_supergroup_for(scheduling_group sg) noexcept {
+    auto& q = engine()._task_queues[internal::scheduling_group_index(sg)];
+    auto& supergroups = engine()._supergroups;
+    for (unsigned i = 0; i < supergroups.size(); i++) {
+        if (supergroups[i].get() == q->_parent) {
+            return scheduling_supergroup(i);
+        }
+    }
+
+    return scheduling_supergroup();
+}
+
 }
 
 using namespace std::chrono_literals;

@@ -61,6 +61,8 @@ unsigned long scheduling_group_key_id(scheduling_group_key) noexcept;
 template<typename T>
 T* scheduling_group_get_specific_ptr(scheduling_group sg, scheduling_group_key key) noexcept;
 
+scheduling_supergroup scheduling_supergroup_for(scheduling_group sg) noexcept;
+
 }
 
 SEASTAR_MODULE_EXPORT_BEGIN
@@ -336,6 +338,7 @@ public:
     bool operator!=(scheduling_supergroup x) const noexcept { return _id != x._id; }
 
     friend future<scheduling_supergroup> create_scheduling_supergroup(float shares) noexcept;
+    friend scheduling_supergroup internal::scheduling_supergroup_for(scheduling_group sg) noexcept;
     friend class reactor;
 
     /// Adjusts the number of shares allotted to the supergroup.
