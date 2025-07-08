@@ -144,13 +144,6 @@ fair_queue::~fair_queue() {
     }
 }
 
-void fair_queue::push_priority_class(priority_class_data& pc) noexcept {
-    SEASTAR_ASSERT(pc._plugged && !pc._queued);
-    _root._children.assert_enough_capacity();
-    _root._children.push(&pc);
-    pc._queued = true;
-}
-
 void fair_queue::push_priority_class_from_idle(priority_class_data& pc) noexcept {
     if (!pc._queued) {
         // Don't let the newcomer monopolize the disk for more than tau
@@ -167,13 +160,6 @@ void fair_queue::push_priority_class_from_idle(priority_class_data& pc) noexcept
         pc._queued = true;
         pc._activations++;
     }
-}
-
-// ATTN: This can only be called on pc that is from _root._children.top()
-void fair_queue::pop_priority_class(priority_class_data& pc) noexcept {
-    SEASTAR_ASSERT(pc._queued);
-    pc._queued = false;
-    _root._children.pop();
 }
 
 void fair_queue::plug_priority_class(priority_class_data& pc) noexcept {
