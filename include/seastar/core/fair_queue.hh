@@ -176,6 +176,7 @@ private:
         {}
     public:
         virtual fair_queue_entry* top() = 0;
+        virtual std::pair<bool, capacity_t> pop_front() = 0;
     };
 
     using clock_type = std::chrono::steady_clock;
@@ -212,6 +213,7 @@ private:
         priority_class_group_data(priority_class_group_data&&) = delete;
 
         fair_queue_entry* top() override;
+        std::pair<bool, capacity_t> pop_front() override;
 
         void reserve(size_t len) {
             _children.reserve(len);
