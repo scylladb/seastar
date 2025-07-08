@@ -109,7 +109,7 @@ public:
         }
         return *this;
     }
-    ~gate() {
+    virtual ~gate() {
         SEASTAR_ASSERT(!_count && "gate destroyed with outstanding requests");
         assert_not_held_when_destroyed();
     }
