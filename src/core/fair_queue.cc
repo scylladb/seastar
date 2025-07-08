@@ -207,16 +207,18 @@ void fair_queue::register_priority_class(class_id id, uint32_t shares) {
         SEASTAR_ASSERT(!_priority_classes[id]);
     }
 
-    _root.reserve(_nr_classes + 1);
-    _priority_classes[id] = std::make_unique<priority_class_data>(shares, &_root);
-    _nr_classes++;
+    priority_class_group_data* pg = &_root;
+
+    pg->reserve();
+    _priority_classes[id] = std::make_unique<priority_class_data>(shares, pg);
+    pg->_nr_children++;
 }
 
 void fair_queue::unregister_priority_class(class_id id) {
     auto& pclass = _priority_classes[id];
     SEASTAR_ASSERT(pclass);
+    pclass->_parent->_nr_children--;
     pclass.reset();
-    _nr_classes--;
 }
 
 void fair_queue::update_shares_for_class(class_id id, uint32_t shares) {
