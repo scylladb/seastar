@@ -164,6 +164,9 @@ private:
         friend class fair_queue;
     protected:
         uint32_t _shares = 0;
+        capacity_t _accumulated = 0;
+        bool _queued = false;
+        uint32_t _activations = 0;
         priority_entry(uint32_t shares) noexcept
                 : _shares(std::max(shares, 1u))
         {}
