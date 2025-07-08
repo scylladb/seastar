@@ -160,6 +160,8 @@ public:
     using signed_capacity_t = std::make_signed_t<capacity_t>;
 
 private:
+    class priority_class_group_data;
+
     class priority_entry {
         friend class fair_queue;
     protected:
@@ -167,8 +169,10 @@ private:
         capacity_t _accumulated = 0;
         bool _queued = false;
         uint32_t _activations = 0;
-        priority_entry(uint32_t shares) noexcept
+        priority_class_group_data* _parent = nullptr;
+        priority_entry(uint32_t shares, priority_class_group_data* p) noexcept
                 : _shares(std::max(shares, 1u))
+                , _parent(p)
         {}
     };
 
@@ -195,9 +199,12 @@ private:
         priority_queue _children;
         capacity_t _last_accumulated = 0;
     public:
-        priority_class_group_data(uint32_t shares) noexcept
-                : priority_entry(shares)
+        priority_class_group_data(uint32_t shares, priority_class_group_data* p) noexcept
+                : priority_entry(shares, p)
         {
+            if (_parent == nullptr) {
+                _queued = true;
+            }
         }
         priority_class_group_data(const priority_class_group_data&) = delete;
         priority_class_group_data(priority_class_group_data&&) = delete;
