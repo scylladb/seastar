@@ -230,9 +230,7 @@ private:
     // Total capacity of all requests waiting in the queue.
     capacity_t _queued_capacity = 0;
 
-    void push_priority_class(priority_class_data& pc) noexcept;
     void push_priority_class_from_idle(priority_class_data& pc) noexcept;
-    void pop_priority_class(priority_class_data& pc) noexcept;
     void plug_priority_class(priority_class_data& pc) noexcept;
     void unplug_priority_class(priority_class_data& pc) noexcept;
 
