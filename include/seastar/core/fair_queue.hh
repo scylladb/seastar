@@ -162,13 +162,13 @@ public:
 
 private:
     using clock_type = std::chrono::steady_clock;
-    using priority_class_ptr = priority_class_data*;
+    using priority_entry_ptr = priority_class_data*;
     struct class_compare {
-        bool operator() (const priority_class_ptr& lhs, const priority_class_ptr & rhs) const noexcept;
+        bool operator() (const priority_entry_ptr& lhs, const priority_entry_ptr & rhs) const noexcept;
     };
 
-    class priority_queue : public std::priority_queue<priority_class_ptr, std::vector<priority_class_ptr>, class_compare> {
-        using super = std::priority_queue<priority_class_ptr, std::vector<priority_class_ptr>, class_compare>;
+    class priority_queue : public std::priority_queue<priority_entry_ptr, std::vector<priority_entry_ptr>, class_compare> {
+        using super = std::priority_queue<priority_entry_ptr, std::vector<priority_entry_ptr>, class_compare>;
     public:
         void reserve(size_t len) {
             c.reserve(len);

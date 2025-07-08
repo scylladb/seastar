@@ -118,7 +118,7 @@ public:
     }
 };
 
-bool fair_queue::class_compare::operator() (const priority_class_ptr& lhs, const priority_class_ptr & rhs) const noexcept {
+bool fair_queue::class_compare::operator() (const priority_entry_ptr& lhs, const priority_entry_ptr& rhs) const noexcept {
     return lhs->_accumulated > rhs->_accumulated;
 }
 
