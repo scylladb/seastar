@@ -162,6 +162,11 @@ public:
 private:
     class priority_entry {
         friend class fair_queue;
+    protected:
+        uint32_t _shares = 0;
+        priority_entry(uint32_t shares) noexcept
+                : _shares(std::max(shares, 1u))
+        {}
     };
 
     using clock_type = std::chrono::steady_clock;
@@ -186,6 +191,13 @@ private:
         friend class fair_queue;
         priority_queue _children;
         capacity_t _last_accumulated = 0;
+    public:
+        priority_class_group_data(uint32_t shares) noexcept
+                : priority_entry(shares)
+        {
+        }
+        priority_class_group_data(const priority_class_group_data&) = delete;
+        priority_class_group_data(priority_class_group_data&&) = delete;
     };
 
     class priority_class_data;
