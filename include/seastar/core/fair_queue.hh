@@ -174,6 +174,8 @@ private:
                 : _shares(std::max(shares, 1u))
                 , _parent(p)
         {}
+    public:
+        virtual fair_queue_entry* top() = 0;
     };
 
     using clock_type = std::chrono::steady_clock;
@@ -208,6 +210,8 @@ private:
         }
         priority_class_group_data(const priority_class_group_data&) = delete;
         priority_class_group_data(priority_class_group_data&&) = delete;
+
+        fair_queue_entry* top() override;
 
         void reserve(size_t len) {
             _children.reserve(len);
