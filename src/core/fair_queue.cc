@@ -105,7 +105,7 @@ class fair_queue::priority_class_data final : public priority_entry {
     bool _plugged = true;
 
 public:
-    explicit priority_class_data(uint32_t shares) noexcept : priority_entry(shares) {}
+    explicit priority_class_data(uint32_t shares, priority_class_group_data* p) noexcept : priority_entry(shares, p) {}
     priority_class_data(const priority_class_data&) = delete;
     priority_class_data(priority_class_data&&) = delete;
 
@@ -120,7 +120,7 @@ bool fair_queue::class_compare::operator() (const priority_entry_ptr& lhs, const
 
 fair_queue::fair_queue(config cfg)
     : _config(std::move(cfg))
-    , _root(0)
+    , _root(0, nullptr)
 {
 }
 
@@ -203,7 +203,7 @@ void fair_queue::register_priority_class(class_id id, uint32_t shares) {
     }
 
     _root.reserve(_nr_classes + 1);
-    _priority_classes[id] = std::make_unique<priority_class_data>(shares);
+    _priority_classes[id] = std::make_unique<priority_class_data>(shares, &_root);
     _nr_classes++;
 }
 
