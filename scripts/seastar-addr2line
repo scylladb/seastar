@@ -450,9 +450,9 @@ There are three operational modes:
         '--addr2line',
         type=str,
         metavar='CMD_PATH',
-        default='addr2line',
+        default='llvm-addr2line',
         help='The path or name of the addr2line command, which should behave as and '
-        'accept the same options as binutils addr2line or llvm-addr2line.',
+        'accept the same options as binutils addr2line or llvm-addr2line (the default).',
     )
 
     cmdline_parser.add_argument(
