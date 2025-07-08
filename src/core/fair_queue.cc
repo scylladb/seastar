@@ -144,8 +144,13 @@ fair_queue::~fair_queue() {
     }
 }
 
-void fair_queue::push_priority_class_from_idle(priority_class_data& pc) noexcept {
-    if (!pc._queued) {
+void fair_queue::priority_entry::wakeup(const fair_queue::config& cfg) noexcept {
+    if (!_queued) {
+        _parent->push_from_idle(*this, cfg);
+    }
+}
+
+void fair_queue::priority_class_group_data::push_from_idle(priority_entry& pc, const fair_queue::config& cfg) noexcept {
         // Don't let the newcomer monopolize the disk for more than tau
         // duration. For this estimate how many capacity units can be
         // accumulated with the current class shares per rate resulution
@@ -154,19 +159,19 @@ void fair_queue::push_priority_class_from_idle(priority_class_data& pc) noexcept
         // introduce extra if's for that short corner case, use signed
         // arithmetics and make sure the _accumulated value doesn't grow
         // over signed maximum (see overflow check below)
-        pc._accumulated = std::max<signed_capacity_t>(_root._last_accumulated - _config.forgiving_factor / pc._shares, pc._accumulated);
-        _root._children.assert_enough_capacity();
-        _root._children.push(&pc);
+        pc._accumulated = std::max<signed_capacity_t>(_last_accumulated - cfg.forgiving_factor / pc._shares, pc._accumulated);
+        _children.assert_enough_capacity();
+        _children.push(&pc);
         pc._queued = true;
         pc._activations++;
-    }
+        wakeup(cfg);
 }
 
 void fair_queue::plug_priority_class(priority_class_data& pc) noexcept {
     SEASTAR_ASSERT(!pc._plugged);
     pc._plugged = true;
     if (!pc._queue.empty()) {
-        push_priority_class_from_idle(pc);
+        pc.wakeup(_config);
     }
 }
 
@@ -227,7 +232,7 @@ void fair_queue::queue(class_id id, fair_queue_entry& ent) noexcept {
     // Since we don't know which queue we will use to execute the next request - if ours or
     // someone else's, we need a separate promise at this point.
     if (pc._plugged) {
-        push_priority_class_from_idle(pc);
+        pc.wakeup(_config);
     }
     pc._queue.push_back(ent);
     _queued_capacity += ent.capacity();
