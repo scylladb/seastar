@@ -273,22 +273,12 @@ void fair_queue::pop_front() {
     // class show no progress and monopolize the queue.
     auto req_cap = req._capacity;
     auto req_cost  = std::max(req_cap / h._shares, (capacity_t)1);
-    // signed overflow check to make push_priority_class_from_idle math work
-    if (h._accumulated >= std::numeric_limits<signed_capacity_t>::max() - req_cost) {
-        for (auto& pc : _priority_classes) {
-            if (pc) {
-                if (pc->_queued) {
-                    pc->_accumulated -= h._accumulated;
-                } else { // this includes h
-                    pc->_accumulated = 0;
-                }
-            }
-        }
-        _last_accumulated = 0;
-    }
     h._accumulated += req_cost;
     h._pure_accumulated += req_cap;
     _queued_capacity -= req_cap;
+
+    // signed overflow check to make push_priority_class_from_idle math work
+    SEASTAR_ASSERT(h._accumulated < std::numeric_limits<signed_capacity_t>::max() - req_cost);
 
     if (!h._queue.empty()) {
         push_priority_class(h);
