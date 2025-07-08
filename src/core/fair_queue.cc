@@ -114,10 +114,18 @@ public:
     }
 
     fair_queue_entry* top() override;
+    std::pair<bool, capacity_t> pop_front() override;
 };
 
 fair_queue_entry* fair_queue::priority_class_data::top() {
     return (_plugged && !_queue.empty()) ? &_queue.front() : nullptr;
+}
+
+std::pair<bool, fair_queue_entry::capacity_t> fair_queue::priority_class_data::pop_front() {
+    auto req_cap = _queue.front()._capacity;
+    _pure_accumulated += req_cap;
+    _queue.pop_front();
+    return std::make_pair(_queue.empty(), req_cap);
 }
 
 bool fair_queue::class_compare::operator() (const priority_entry_ptr& lhs, const priority_entry_ptr& rhs) const noexcept {
@@ -269,30 +277,35 @@ fair_queue_entry* fair_queue::priority_class_group_data::top() {
 }
 
 void fair_queue::pop_front() {
-    auto& h = *reinterpret_cast<priority_class_data*>(_root._children.top());
+    auto [empty, req_cap] = _root.pop_front();
+    _queued_capacity += req_cap;
+}
 
-    _root._last_accumulated = std::max(h._accumulated, _root._last_accumulated);
-    pop_priority_class(h);
+std::pair<bool, fair_queue_entry::capacity_t> fair_queue::priority_class_group_data::pop_front() {
+    auto& h = *_children.top();
+    _children.pop();
 
-    auto& req = h._queue.front();
-    h._queue.pop_front();
+    auto [empty, req_cap] = h.pop_front();
+
+    _last_accumulated = std::max(h._accumulated, _last_accumulated);
 
     // Usually the cost of request is tens to hundreeds of thousands. However, for
     // unrestricted queue it can be as low as 2k. With large enough shares this
     // has chances to be translated into zero cost which, in turn, will make the
     // class show no progress and monopolize the queue.
-    auto req_cap = req._capacity;
     auto req_cost  = std::max(req_cap / h._shares, (capacity_t)1);
     h._accumulated += req_cost;
-    h._pure_accumulated += req_cap;
-    _queued_capacity -= req_cap;
 
     // signed overflow check to make push_priority_class_from_idle math work
     SEASTAR_ASSERT(h._accumulated < std::numeric_limits<signed_capacity_t>::max() - req_cost);
 
-    if (!h._queue.empty()) {
-        push_priority_class(h);
+    if (empty) {
+        h._queued = false;
+    } else {
+        _children.push(&h);
     }
+
+    return std::make_pair(_children.empty(), req_cap);
 }
 
 }
