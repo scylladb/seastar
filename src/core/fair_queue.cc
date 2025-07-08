@@ -202,7 +202,7 @@ void fair_queue::register_priority_class(class_id id, uint32_t shares) {
         SEASTAR_ASSERT(!_priority_classes[id]);
     }
 
-    _root._children.reserve(_nr_classes + 1);
+    _root.reserve(_nr_classes + 1);
     _priority_classes[id] = std::make_unique<priority_class_data>(shares);
     _nr_classes++;
 }
