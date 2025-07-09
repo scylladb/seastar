@@ -418,6 +418,7 @@ private:
     void start_handling_signal();
     void reset_preemption_monitor();
     void service_highres_timer() noexcept;
+    void enable_timer(steady_clock_type::time_point when) noexcept;
 
     future<std::tuple<pollable_fd, socket_address>>
     do_accept(pollable_fd_state& listen_fd);
@@ -679,7 +680,6 @@ public:
     future<> writeable(pollable_fd_state& fd);
     future<> readable_or_writeable(pollable_fd_state& fd);
     future<> poll_rdhup(pollable_fd_state& fd);
-    void enable_timer(steady_clock_type::time_point when) noexcept;
     /// Sets the "Strict DMA" flag.
     ///
     /// When true (default), file I/O operations must use DMA.  This is
