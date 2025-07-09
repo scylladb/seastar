@@ -151,20 +151,20 @@ void fair_queue::priority_entry::wakeup(const fair_queue::config& cfg) noexcept 
 }
 
 void fair_queue::priority_class_group_data::push_from_idle(priority_entry& pc, const fair_queue::config& cfg) noexcept {
-        // Don't let the newcomer monopolize the disk for more than tau
-        // duration. For this estimate how many capacity units can be
-        // accumulated with the current class shares per rate resulution
-        // and scale it up to tau.
-        // On start this deviation can go to negative values, so not to
-        // introduce extra if's for that short corner case, use signed
-        // arithmetics and make sure the _accumulated value doesn't grow
-        // over signed maximum (see overflow check below)
-        pc._accumulated = std::max<signed_capacity_t>(_last_accumulated - cfg.forgiving_factor / pc._shares, pc._accumulated);
-        _children.assert_enough_capacity();
-        _children.push(&pc);
-        pc._queued = true;
-        pc._activations++;
-        wakeup(cfg);
+    // Don't let the newcomer monopolize the disk for more than tau
+    // duration. For this estimate how many capacity units can be
+    // accumulated with the current class shares per rate resulution
+    // and scale it up to tau.
+    // On start this deviation can go to negative values, so not to
+    // introduce extra if's for that short corner case, use signed
+    // arithmetics and make sure the _accumulated value doesn't grow
+    // over signed maximum (see overflow check below)
+    pc._accumulated = std::max<signed_capacity_t>(_last_accumulated - cfg.forgiving_factor / pc._shares, pc._accumulated);
+    _children.assert_enough_capacity();
+    _children.push(&pc);
+    pc._queued = true;
+    pc._activations++;
+    wakeup(cfg);
 }
 
 void fair_queue::plug_priority_class(priority_class_data& pc) noexcept {
