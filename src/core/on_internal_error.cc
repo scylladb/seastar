@@ -33,7 +33,6 @@ module;
 module seastar;
 #else
 #include <seastar/core/on_internal_error.hh>
-#include <seastar/core/reactor.hh>
 #include <seastar/util/backtrace.hh>
 #include <seastar/util/log.hh>
 #endif
@@ -46,8 +45,11 @@ bool seastar::set_abort_on_internal_error(bool do_abort) noexcept {
     return abort_on_internal_error.exchange(do_abort);
 }
 
-void internal::increase_internal_errors_counter() noexcept{
-    seastar::engine()._internal_errors++;
+namespace seastar::internal {
+thread_local uint64_t internal_errors = 0;
+void increase_internal_errors_counter() noexcept {
+    internal_errors++;
+}
 }
 
 template <typename Message>

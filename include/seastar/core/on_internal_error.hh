@@ -72,5 +72,9 @@ void on_internal_error_noexcept(logger& logger, std::string_view reason) noexcep
 /// This overload can be used to replace SEASTAR_ASSERT().
 [[noreturn]] void on_fatal_internal_error(logger& logger, std::string_view reason) noexcept;
 
+namespace internal {
+extern thread_local uint64_t internal_errors;
+}
+
 SEASTAR_MODULE_EXPORT_END
 }
