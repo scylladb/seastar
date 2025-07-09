@@ -200,18 +200,30 @@ unsigned fair_queue::activations(class_id cid) const noexcept {
     return _priority_classes[cid]->_activations;
 }
 
-void fair_queue::register_priority_class(class_id id, uint32_t shares) {
+void fair_queue::register_priority_class(class_id id, uint32_t shares, std::optional<unsigned> group) {
     if (id >= _priority_classes.size()) {
         _priority_classes.resize(id + 1);
     } else {
         SEASTAR_ASSERT(!_priority_classes[id]);
     }
 
-    priority_class_group_data* pg = &_root;
+    priority_class_group_data* pg = !group.has_value() ? &_root : _priority_groups[*group].get();
 
     pg->reserve();
     _priority_classes[id] = std::make_unique<priority_class_data>(shares, pg);
     pg->_nr_children++;
+}
+
+void fair_queue::ensure_priority_group(unsigned index, uint32_t shares) {
+    if (index >= _priority_groups.size()) {
+        _priority_groups.resize(index + 1);
+    }
+
+    if (!_priority_groups[index]) {
+        _root.reserve();
+        _priority_groups[index] = std::make_unique<priority_class_group_data>(shares, &_root);
+        _root._nr_children++;
+    }
 }
 
 void fair_queue::unregister_priority_class(class_id id) {

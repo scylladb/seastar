@@ -234,6 +234,7 @@ private:
 
     config _config;
     priority_class_group_data _root;
+    std::vector<std::unique_ptr<priority_class_group_data>> _priority_groups;
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
     friend testing::fair_queue_test;
 
@@ -256,7 +257,10 @@ public:
     /// Registers a priority class against this fair queue.
     ///
     /// \param shares how many shares to create this class with
-    void register_priority_class(class_id c, uint32_t shares);
+    void register_priority_class(class_id c, uint32_t shares, std::optional<unsigned> group_idx = {});
+
+    /// Makes sure class groups exists
+    void ensure_priority_group(unsigned index, uint32_t shares);
 
     /// Unregister a priority class.
     ///
