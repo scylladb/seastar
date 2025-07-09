@@ -1110,6 +1110,13 @@ io_queue::update_shares_for_class(internal::priority_class pc, size_t new_shares
     }
 }
 
+
+void io_queue::update_shares_for_class_group(unsigned index, size_t new_shares) {
+    for (auto&& s : _streams) {
+        s.fq.ensure_priority_group(index, new_shares);
+    }
+}
+
 future<> io_queue::update_bandwidth_for_class(internal::priority_class pc, uint64_t new_bandwidth) {
     return futurize_invoke([this, pc, new_bandwidth] {
         if (_group->_allocated_on == this_shard_id()) {
