@@ -183,6 +183,10 @@ private:
         virtual fair_queue_entry* top() = 0;
         virtual std::pair<bool, capacity_t> pop_front() = 0;
         void wakeup(const config&) noexcept;
+
+        void update_shares(uint32_t shares) noexcept {
+            _shares = (std::max(shares, 1u));
+        }
     };
 
     using clock_type = std::chrono::steady_clock;
