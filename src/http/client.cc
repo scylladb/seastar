@@ -329,39 +329,6 @@ future<> client::make_request(request&& req, reply_handler&& handle, std::option
     });
 }
 
-[[maybe_unused]] static bool is_retryable_exception(std::exception_ptr ex) {
-    while (ex) {
-        try {
-            std::rethrow_exception(ex);
-        } catch (const std::system_error& sys_err) {
-            auto code = sys_err.code().value();
-            if (code == EPIPE || code == ECONNABORTED || code == ECONNRESET || code == GNUTLS_E_PREMATURE_TERMINATION) {
-                return true;
-            }
-            try {
-                std::rethrow_if_nested(sys_err);
-            } catch (...) {
-                ex = std::current_exception();
-                continue;
-            }
-            return false;
-        } catch (const httpd::response_parsing_exception&) {
-            return true;
-        } catch (const std::exception& e) {
-            try {
-                std::rethrow_if_nested(e);
-            } catch (...) {
-                ex = std::current_exception();
-                continue;
-            }
-            return false;
-        } catch (...) {
-            return false;
-        }
-    }
-    return false;
-}
-
 future<> client::make_request(request& req, reply_handler& handle, std::optional<reply::status_type> expected, abort_source* as) {
     return with_connection([this, &req, &handle, as, expected] (connection& con) {
         return do_make_request(con, req, handle, as, expected);
