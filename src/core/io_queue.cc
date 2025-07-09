@@ -741,11 +741,6 @@ io_queue::~io_queue() {
     }
 }
 
-std::tuple<unsigned, sstring> get_class_info(io_priority_class_id pc) {
-    auto sg = internal::scheduling_group_from_index(pc);
-    return std::make_tuple(sg.get_shares(), sg.name());
-}
-
 std::vector<seastar::metrics::impl::metric_definition_impl> io_queue::priority_class_data::metrics() {
     namespace sm = seastar::metrics;
     return std::vector<sm::impl::metric_definition_impl>({
@@ -831,7 +826,7 @@ io_queue::priority_class_data& io_queue::find_or_create_class(internal::priority
         _priority_classes.resize(id + 1);
     }
     if (!_priority_classes[id]) {
-        auto [ shares, name ] = get_class_info(pc.id());
+        auto sg = internal::scheduling_group_from_index(id);
 
         // A note on naming:
         //
@@ -848,11 +843,13 @@ io_queue::priority_class_data& io_queue::find_or_create_class(internal::priority
         // This conveys all the information we need and allows one to easily group all classes from
         // the same I/O queue (by filtering by shard)
         auto& pg = _group->find_or_create_class(pc);
+
+        auto shares = sg.get_shares();
         auto pc_data = std::make_unique<priority_class_data>(pc, shares, *this, pg);
         for (auto&& s : _streams) {
             s.fq.register_priority_class(pc_data->fq_class(), shares);
         }
-        register_stats(name, *pc_data);
+        register_stats(sg.name(), *pc_data);
 
         _priority_classes[id] = std::move(pc_data);
     }
