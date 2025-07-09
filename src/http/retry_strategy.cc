@@ -12,6 +12,7 @@ module;
 
 #include <chrono>
 #include <coroutine>
+#include <gnutls/gnutls.h>
 
 #ifdef SEASTAR_MODULE
 module seastar;
@@ -26,6 +27,35 @@ namespace seastar::http::experimental {
 logger rs_logger("default_retry_strategy");
 
 static bool is_retryable_exception(std::exception_ptr ex) {
+    while (ex) {
+        try {
+            std::rethrow_exception(ex);
+        } catch (const std::system_error& sys_err) {
+            auto code = sys_err.code().value();
+            if (code == EPIPE || code == ECONNABORTED || code == GNUTLS_E_PREMATURE_TERMINATION) {
+                return true;
+            }
+            try {
+                std::rethrow_if_nested(sys_err);
+            } catch (...) {
+                ex = std::current_exception();
+                continue;
+            }
+            return false;
+        } catch (const httpd::response_parsing_exception&) {
+            return true;
+        } catch (const std::exception& e) {
+            try {
+                std::rethrow_if_nested(e);
+            } catch (...) {
+                ex = std::current_exception();
+                continue;
+            }
+            return false;
+        } catch (...) {
+            return false;
+        }
+    }
     return false;
 }
 
