@@ -38,6 +38,7 @@
 #include <optional>
 #include <thread>
 #include <ranges>
+#include <span>
 #endif
 
 /// \file
