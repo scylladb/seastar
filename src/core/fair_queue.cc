@@ -109,10 +109,6 @@ public:
     priority_class_data(const priority_class_data&) = delete;
     priority_class_data(priority_class_data&&) = delete;
 
-    void update_shares(uint32_t shares) noexcept {
-        _shares = (std::max(shares, 1u));
-    }
-
     fair_queue_entry* top() override;
     std::pair<bool, capacity_t> pop_front() override;
 };
@@ -223,6 +219,8 @@ void fair_queue::ensure_priority_group(unsigned index, uint32_t shares) {
         _root.reserve();
         _priority_groups[index] = std::make_unique<priority_class_group_data>(shares, &_root);
         _root._nr_children++;
+    } else {
+        _priority_groups[index]->update_shares(shares);
     }
 }
 
