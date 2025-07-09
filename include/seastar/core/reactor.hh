@@ -263,7 +263,6 @@ private:
     io_stats _io_stats;
     uint64_t _fsyncs = 0;
     uint64_t _cxx_exceptions = 0;
-    uint64_t _internal_errors = 0;
     uint64_t _abandoned_failed_futures = 0;
     struct task_queue {
         explicit task_queue(unsigned id, sstring name, sstring shortname, float shares);

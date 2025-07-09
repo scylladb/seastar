@@ -2600,7 +2600,7 @@ void reactor::register_metrics() {
             sm::make_counter("logging_failures", [] { return logging_failures; }, sm::description("Total number of logging failures")),
             // total_operations value:DERIVE:0:U
             sm::make_counter("cpp_exceptions", _cxx_exceptions, sm::description("Total number of C++ exceptions")),
-            sm::make_counter("internal_errors", _internal_errors, sm::description("Total number of internal errors (subset of cpp_exceptions) that usually indicate malfunction in the code")),
+            sm::make_counter("internal_errors", internal::internal_errors, sm::description("Total number of internal errors (subset of cpp_exceptions) that usually indicate malfunction in the code")),
             sm::make_counter("abandoned_failed_futures", _abandoned_failed_futures, sm::description("Total number of abandoned failed futures, futures destroyed while still containing an exception")),
     });
 
