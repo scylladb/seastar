@@ -827,6 +827,7 @@ io_queue::priority_class_data& io_queue::find_or_create_class(internal::priority
     }
     if (!_priority_classes[id]) {
         auto sg = internal::scheduling_group_from_index(id);
+        auto ssg = internal::scheduling_supergroup_for(sg);
 
         // A note on naming:
         //
@@ -844,10 +845,18 @@ io_queue::priority_class_data& io_queue::find_or_create_class(internal::priority
         // the same I/O queue (by filtering by shard)
         auto& pg = _group->find_or_create_class(pc);
 
+        std::optional<unsigned> group_index;
+        if (!ssg.is_root()) {
+            group_index = ssg.index();
+            for (auto&& s : _streams) {
+                s.fq.ensure_priority_group(*group_index, ssg.get_shares());
+            }
+        }
+
         auto shares = sg.get_shares();
         auto pc_data = std::make_unique<priority_class_data>(pc, shares, *this, pg);
         for (auto&& s : _streams) {
-            s.fq.register_priority_class(pc_data->fq_class(), shares);
+            s.fq.register_priority_class(pc_data->fq_class(), shares, group_index);
         }
         register_stats(sg.name(), *pc_data);
 
