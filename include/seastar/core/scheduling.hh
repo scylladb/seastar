@@ -351,6 +351,12 @@ public:
     /// \param shares number of shares allotted to the group. Use numbers
     ///               in the 1-1000 range.
     void set_shares(float shares) noexcept;
+
+    /// Returns the number of shares the supergroup has
+    ///
+    /// Similarly to the \ref set_shares, the returned value is only relevant to
+    /// the calling shard
+    float get_shares() const noexcept;
 };
 
 /// \brief Identifies function calls that are accounted as a group

@@ -5264,6 +5264,11 @@ float scheduling_group::get_shares() const noexcept {
     return engine()._task_queues[_id]->_shares;
 }
 
+float scheduling_supergroup::get_shares() const noexcept {
+    SEASTAR_ASSERT(!is_root());
+    return engine()._supergroups[index()]->_shares;
+}
+
 void
 scheduling_group::set_shares(float shares) noexcept {
     engine()._task_queues[_id]->set_shares(shares);
