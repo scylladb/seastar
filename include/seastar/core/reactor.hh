@@ -413,7 +413,6 @@ private:
     future<> init_new_scheduling_group_key(scheduling_group_key key, scheduling_group_key_config cfg);
     future<> destroy_scheduling_group(scheduling_group sg) noexcept;
     uint64_t tasks_processed() const;
-    uint64_t min_vruntime() const;
     void request_preemption();
     void start_handling_signal();
     void reset_preemption_monitor();
