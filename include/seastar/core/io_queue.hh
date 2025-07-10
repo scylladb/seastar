@@ -223,6 +223,7 @@ public:
     unsigned id() const noexcept { return _id; }
 
     void update_shares_for_class(internal::priority_class pc, size_t new_shares);
+    void update_shares_for_class_group(unsigned index, size_t new_shares);
     future<> update_bandwidth_for_class(internal::priority_class pc, uint64_t new_bandwidth);
     void rename_priority_class(internal::priority_class pc, sstring new_name);
     void throttle_priority_class(const priority_class_data& pc) noexcept;
