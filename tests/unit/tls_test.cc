@@ -229,6 +229,9 @@ SEASTAR_TEST_CASE(test_alpn_client_negotiate_h2_with_google,
     if (*selected_alpn != "h2") {
         BOOST_TEST_MESSAGE("Warning: Google did not select 'h2'. Selected: " + *selected_alpn);
     }
+    BOOST_CHECK(tls::is_operational(c));
+    BOOST_CHECK_EQUAL(tls::get_cipher_suite(c), "TLS_AES_256_GCM_SHA384");
+    BOOST_CHECK_EQUAL(tls::get_protocol_version(c), "TLS1.3");
     co_return;
 }
 
@@ -1357,7 +1360,7 @@ SEASTAR_THREAD_TEST_CASE(test_dn_name_handling) {
     // - mtls_client2.crt - second client certificate
     //
     // The test runs server that uses mtls_server.crt.
-    // The server accepts two incomming connections, first one uses mtls_client1.crt
+    // The server accepts two incoming connections, first one uses mtls_client1.crt
     // and the second one uses mtls_client2.crt. Every client sends a short string
     // that server receives and tries to find it in the DN string.
 

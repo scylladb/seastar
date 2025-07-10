@@ -35,6 +35,7 @@
 #include <seastar/core/when_all.hh>
 #include <seastar/net/api.hh>
 #include <seastar/net/posix-stack.hh>
+#include <seastar/net/tls.hh>
 
 #include <optional>
 #include <tuple>
@@ -94,6 +95,9 @@ SEASTAR_TEST_CASE(socket_skip_test) {
         abort_source as;
         auto client = async([&as] {
             connected_socket socket = connect(ipv4_addr("127.0.0.1", 1234)).get();
+            BOOST_CHECK_THROW(tls::is_operational(socket), std::invalid_argument);
+            BOOST_CHECK_THROW(tls::get_cipher_suite(socket), std::invalid_argument);
+            BOOST_CHECK_THROW(tls::get_protocol_version(socket), std::invalid_argument);
             socket.output().write("abc").get();
             socket.shutdown_output();
             try {
