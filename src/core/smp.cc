@@ -35,6 +35,7 @@ module seastar;
 #else
 #include <seastar/core/smp.hh>
 #include <seastar/core/alien.hh>
+#include <seastar/core/internal/run_in_background.hh>
 #include <seastar/core/resource.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/core/semaphore.hh>
@@ -176,7 +177,7 @@ void
 smp::setup_prefaulter(const seastar::resource::resources& res, seastar::memory::internal::numa_layout layout) {
     // Stack guards mprotect() random pages, so the prefaulter will hard-fault.
 #ifndef SEASTAR_THREAD_STACK_GUARDS
-    _prefaulter = std::make_unique<internal::memory_prefaulter>(_alien, res, std::move(layout));
+    _prefaulter = std::make_unique<internal::memory_prefaulter>(*this, res, std::move(layout));
 #endif
 }
 
@@ -200,7 +201,7 @@ get_huge_page_size() {
     return std::nullopt;
 }
 
-internal::memory_prefaulter::memory_prefaulter(alien::instance& alien, const resource::resources& res, memory::internal::numa_layout layout) {
+internal::memory_prefaulter::memory_prefaulter(smp& smp_context, const resource::resources& res, memory::internal::numa_layout layout) {
     for (auto& range : layout.ranges) {
         _layout_by_node_id[range.numa_node_id].push_back(std::move(range));
     }
@@ -219,11 +220,11 @@ internal::memory_prefaulter::memory_prefaulter(alien::instance& alien, const res
             }
             a.set(cpuset);
         }
-        _worker_threads.emplace_back(a, [this, &alien, &ranges, page_size, huge_page_size_opt] {
+        _worker_threads.emplace_back(a, [this, &smp_context, &ranges, page_size, huge_page_size_opt] {
             ++_active_threads;
             work(ranges, page_size, huge_page_size_opt);
             if (!--_active_threads) {
-                run_on(alien, 0, [this] () noexcept { join_threads(); });
+                alien_on_complete(smp_context);
             }
         });
     }
@@ -236,6 +237,14 @@ internal::memory_prefaulter::join_threads() noexcept {
     }
     _worker_threads.clear();
     _layout_by_node_id.clear();
+}
+
+void 
+internal::memory_prefaulter::alien_on_complete(smp& smp_context) {
+    run_on(smp_context._alien, 0, [this, &smp_context] () noexcept {
+        join_threads();
+        run_in_background(smp_context.submit_memory_prefault_completion());
+    });
 }
 
 internal::memory_prefaulter::~memory_prefaulter() {
