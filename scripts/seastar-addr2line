@@ -496,7 +496,7 @@ There are three operational modes:
         lines = args.addresses
     else:
         if sys.stdin.isatty():
-            lines = read_backtrace(sys.stdin)
+            lines = list(read_backtrace(sys.stdin))
         else:
             lines = sys.stdin
 
@@ -509,7 +509,7 @@ There are three operational modes:
         cmd_path=args.addr2line,
         debug=args.debug,
     ) as resolve:
-        for line in list(lines):
+        for line in lines:
             resolve(line.strip() + '\n')
 
 
