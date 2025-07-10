@@ -268,7 +268,7 @@ class BacktraceResolver:
                 addresses.append({'path': m.group(1) or default_path, 'addr': m.group(2)})
             return addresses
 
-        def __call__(self, line: str):
+        def __call__(self, line: str) -> dict[str, Any] | None:
 
             def get_prefix(s: Optional[str]):
                 if s is not None:
