@@ -642,11 +642,11 @@ io_queue::io_queue(io_group_ptr group, internal::io_sink& sink)
 io_throttler::config io_group::configure_throttler(const io_queue::config& qcfg) noexcept {
     io_throttler::config cfg;
     cfg.label = fmt::format("io-queue-{}", qcfg.id);
-    double min_weight = std::min(io_queue::read_request_base_count, qcfg.disk_req_write_to_read_multiplier);
-    double min_size = std::min(io_queue::read_request_base_count, qcfg.disk_blocks_write_to_read_multiplier);
+    double min_weight = std::min(static_cast<double>(io_queue::read_request_base_count), qcfg.disk_req_write_to_read_multiplier);
+    double min_size = std::min(static_cast<double>(io_queue::read_request_base_count), qcfg.disk_blocks_write_to_read_multiplier);
     cfg.min_tokens = min_weight / qcfg.req_count_rate + min_size / qcfg.blocks_count_rate;
-    double limit_min_weight = std::max(io_queue::read_request_base_count, qcfg.disk_req_write_to_read_multiplier);
-    double limit_min_size = std::max(io_queue::read_request_base_count, qcfg.disk_blocks_write_to_read_multiplier) * qcfg.block_count_limit_min;
+    double limit_min_weight = std::max(static_cast<double>(io_queue::read_request_base_count), qcfg.disk_req_write_to_read_multiplier);
+    double limit_min_size = std::max(static_cast<double>(io_queue::read_request_base_count), qcfg.disk_blocks_write_to_read_multiplier) * qcfg.block_count_limit_min;
     cfg.limit_min_tokens = limit_min_weight / qcfg.req_count_rate + limit_min_size / qcfg.blocks_count_rate;
     cfg.rate_limit_duration = qcfg.rate_limit_duration;
     return cfg;
@@ -685,7 +685,9 @@ io_group::io_group(io_queue::config io_cfg, unsigned nr_queues)
         for (unsigned shift = 0; ; shift++) {
             auto tokens = internal::request_tokens(io_direction_and_length(idx, 1 << (shift + io_queue::block_size_shift)), _config);
             auto cap = fg.tokens_capacity(tokens);
+
             if (cap > max_cap) {
+
                 if (shift == 0) {
                     throw std::runtime_error("IO-group limits are too low");
                 }
@@ -858,8 +860,8 @@ stream_id io_queue::request_stream(io_direction_and_length dnl) const noexcept {
 
 double internal::request_tokens(io_direction_and_length dnl, const io_queue::config& cfg) noexcept {
     struct {
-        unsigned weight;
-        unsigned size;
+        double weight;
+        double size;
     } mult[2];
 
     mult[io_direction_write] = {

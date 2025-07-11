@@ -4279,11 +4279,11 @@ public:
 
         if (p.read_bytes_rate != std::numeric_limits<uint64_t>::max()) {
             cfg.blocks_count_rate = (io_queue::read_request_base_count * (unsigned long)per_io_group(p.read_bytes_rate, nr_groups)) >> io_queue::block_size_shift;
-            cfg.disk_blocks_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_bytes_rate) / p.write_bytes_rate;
+            cfg.disk_blocks_write_to_read_multiplier = (static_cast<double>(io_queue::read_request_base_count) * p.read_bytes_rate) / p.write_bytes_rate;
         }
         if (p.read_req_rate != std::numeric_limits<uint64_t>::max()) {
             cfg.req_count_rate = io_queue::read_request_base_count * (unsigned long)per_io_group(p.read_req_rate, nr_groups);
-            cfg.disk_req_write_to_read_multiplier = (io_queue::read_request_base_count * p.read_req_rate) / p.write_req_rate;
+            cfg.disk_req_write_to_read_multiplier = (static_cast<double>(io_queue::read_request_base_count) * p.read_req_rate) / p.write_req_rate;
         }
         if (p.read_saturation_length != std::numeric_limits<uint64_t>::max()) {
             cfg.disk_read_saturation_length = p.read_saturation_length;
