@@ -397,8 +397,18 @@ private:
     friend struct ::io_queue_for_tests;
     friend const io_throttler& internal::get_throttler(const io_queue& ioq, unsigned stream);
 
+    /*
+     * This value is used as a cut-off point for calculating the maximum request length.
+     * We look for max(2^i) such that capacity(2^i) < maximum capacity. If 2^i gets bigger
+     * than this value, we stop looking and the maximum request length is set to this value.
+     */
+    static constexpr unsigned request_length_limit = 16 << 20; // 16 MiB
+
     const io_queue::config _config;
-    size_t _max_request_length[2];
+    size_t _max_request_length[2] = {
+        request_length_limit, // write
+        request_length_limit  // read
+    };
     boost::container::static_vector<io_throttler, 2> _fgs;
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
     util::spinlock _lock;
