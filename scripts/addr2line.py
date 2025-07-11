@@ -241,6 +241,9 @@ class BacktraceResolver:
             token = fr"(?:{path}\+)?{addr}"
             full_addr_match = fr"(?:(?P<path>{path})\s*\+\s*)?(?P<addr>{addr})"
             ignore_addr_match = fr"(?:(?P<path>{path})\s*\+\s*)?(?:{addr})"
+
+            # all of these regex except for separator_re must only match lines containing 0x in them
+            # as we use that as a quick first filter
             self.oneline_re = re.compile(
                 fr"^((?:.*(?:(?:at|backtrace):?|:))?(?:\s+))?({token}(?:\s+{token})*)(?:\).*|\s*)$",
                 flags=re.IGNORECASE,
@@ -269,6 +272,12 @@ class BacktraceResolver:
             return addresses
 
         def __call__(self, line: str) -> dict[str, Any] | None:
+
+            # quick up front check to eliminate a line from contention, which is at least
+            # 30x faster than just diving into the regex matching (for one test file)
+            if not ("0x" in line or "0X" in line or self.separator_re.match(line)):
+                # no addresses in this line, so it is not a backtrace line
+                return None
 
             def get_prefix(s: Optional[str]):
                 if s is not None:
