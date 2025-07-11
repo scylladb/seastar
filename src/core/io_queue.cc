@@ -683,13 +683,35 @@ io_group::io_group(io_queue::config io_cfg, unsigned nr_queues)
         const auto& fg = _fgs[g_idx];
         auto max_cap = fg.maximum_capacity();
         for (unsigned shift = 0; ; shift++) {
-            auto tokens = internal::request_tokens(io_direction_and_length(idx, 1 << (shift + io_queue::block_size_shift)), _config);
+            unsigned long req_length = 1ul << (shift + io_queue::block_size_shift);
+
+            auto tokens = internal::request_tokens(io_direction_and_length(idx, req_length), _config);
             auto cap = fg.tokens_capacity(tokens);
             if (cap > max_cap) {
                 if (shift == 0) {
                     throw std::runtime_error("IO-group limits are too low");
                 }
-                _max_request_length[idx] = 1 << ((shift - 1) + io_queue::block_size_shift);
+
+                // The current shift will give us the biggest power of 2 request length for which
+                // capacity is still less than max_cap, but request_length_limit might be a better
+                // fit if tokens_capacity for that is closer to max_cap.
+                auto fitting_req_length = 1ul << (shift - 1 + io_queue::block_size_shift);
+                auto fitting_cap = fg.tokens_capacity(internal::request_tokens(io_direction_and_length(idx, fitting_req_length), _config));
+                auto cap_limit = fg.tokens_capacity(internal::request_tokens(io_direction_and_length(idx, io_group::request_length_limit), _config));
+                if (fitting_cap < cap_limit && cap_limit < max_cap) {
+                    _max_request_length[idx] = io_group::request_length_limit;
+                } else {
+                    _max_request_length[idx] = fitting_req_length;
+                }
+                break;
+            }
+
+            // Break this loop if the calculated request length gets larger than the
+            // request length limit. This avoids an infinite loop if the
+            // configured io_properties are huge and capacity ends up being always 0.
+            // _max_request_length will hold default values of io_group::request_length_limit
+            if (req_length > io_group::request_length_limit) {
+                seastar_logger.info("IO queue was unable to find a suitable maximum request length, the search was cut-off early at: {}MB", io_group::request_length_limit >> 20);
                 break;
             }
         };
