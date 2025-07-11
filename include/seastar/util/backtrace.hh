@@ -62,17 +62,15 @@ bool operator==(const frame& a, const frame& b) noexcept;
 frame decorate(uintptr_t addr) noexcept;
 
 
-namespace {
-inline int guarded_backtrace(void **array, int size) noexcept {
-    static thread_local internal::signal_mutex mux{};
-    // ::backtrace isn't re-entrant so avoid calling it concurrently from the same thread.
-    if (auto guard_opt = mux.try_lock(); guard_opt.has_value()) {
-        return ::backtrace(array, size);
-    }
+// Wrapper for ::backtrace which takes a signal-safe thread-local mutex before
+// calling ::backtrace, to avoid concurrent backtrace calls on the same thread,
+// which is known to crash. If the lock cannot be obtained, no backtrace is taken
+// and this method returns 0.
+#ifdef HAVE_EXECINFO
+int guarded_backtrace(void **array, int size) noexcept;
+#endif
 
-    return 0;
-}
-}
+
 
 // Invokes func for each frame passing it as argument.
 // incremental=false is the default mode and simply calls ::backtrace once
