@@ -25,6 +25,7 @@ import sys
 import subprocess
 from enum import Enum
 from functools import cache
+import time
 from typing import Any, Optional, TypeVar, Union, cast
 
 # special binary path/module indicating that the address is from the kernel
@@ -353,8 +354,11 @@ class BacktraceResolver:
         concise: bool = False,
         cmd_path: str = 'addr2line',
         debug: bool = False,
+        timing: bool = False,
     ):
         self._debug = debug
+        self._timing = timing
+        self._total_resolve_time = 0.0
         self._executable = executable
         self._kallsyms = kallsyms
         self._current_backtrace: list[tuple[str, str]] = []
@@ -380,6 +384,19 @@ class BacktraceResolver:
         if self._debug:
             print('DEBUG >>', *args, file=sys.stderr)
 
+    def timing_now(self):
+        return time.perf_counter() if self._timing else 0.0
+
+    def timing_print_from_start(self, start: float, *args: Any):
+        self.timing_print(self.timing_now() - start, *args)
+
+    def timing_print(self, duration: float, *args: Any):
+        if self._timing:
+            print(f"TIMING >> {duration:.4f} seconds : ", *args, file=sys.stderr)
+
+    def print_resolve_time(self):
+        self.timing_print(self._total_resolve_time, 'resolve time (addr2line subprocess time)')
+
     def _get_resolver_for_module(self, module: str):
         if not module in self._known_modules:
             if module == KERNEL_MODULE:
@@ -404,7 +421,10 @@ class BacktraceResolver:
             module = self._executable
         if verbose is None:
             verbose = self._verbose
-        resolved_address = self._get_resolver_for_module(module)(address)
+        resolver = self._get_resolver_for_module(module)
+        resolve_start = self.timing_now()
+        resolved_address = resolver(address)
+        self._total_resolve_time += self.timing_now() - resolve_start
         if verbose:
             resolved_address = '{{{}}} {}: {}'.format(module, address, resolved_address)
         return resolved_address

@@ -469,6 +469,10 @@ There are three operational modes:
     )
 
     cmdline_parser.add_argument(
+        '--timing', action='store_true', help='Emit timing information to stderr.'
+    )
+
+    cmdline_parser.add_argument(
         '-t', '--test', action='store_true', default=False, help='Self-test'
     )
 
@@ -508,9 +512,13 @@ There are three operational modes:
         verbose=args.verbose,
         cmd_path=args.addr2line,
         debug=args.debug,
+        timing=args.timing,
     ) as resolve:
+        resolve_start = resolve.timing_now()
         for line in lines:
             resolve(line.strip() + '\n')
+        resolve.timing_print_from_start(resolve_start, 'full resolve loop')
+        resolve.print_resolve_time()
 
 
 if __name__ == '__main__':
