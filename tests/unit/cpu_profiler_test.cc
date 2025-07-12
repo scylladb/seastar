@@ -32,6 +32,7 @@
 #include <seastar/core/with_scheduling_group.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
+#include <seastar/util/backtrace.hh>
 #include <seastar/util/defer.hh>
 #include <seastar/util/later.hh>
 
@@ -40,6 +41,15 @@
 #include <sys/mman.h>
 
 #include <boost/test/tools/old/interface.hpp>
+
+#ifdef SEASTAR_BACKTRACE_UNIMPLEMENTED
+
+// If backtrace is not implemented, we cannot test the profiler.
+// empty test case to satisfy the requirement that there is at least one test case
+SEASTAR_THREAD_TEST_CASE(simple_case) {
+}
+
+#else
 
 namespace {
 
@@ -377,3 +387,5 @@ SEASTAR_THREAD_TEST_CASE(scheduling_group_test) {
     BOOST_CHECK_LT(count_main, 10);
     BOOST_CHECK_LT(dropped_samples, 10);
 }
+
+#endif
