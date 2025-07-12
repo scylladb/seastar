@@ -54,6 +54,7 @@ jobs:
       run: |
         cmake -B build -G Ninja            \
          -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+         -DSeastar_USE_OPENSSL=yes         \
          -DSeastar_DOCS=OFF
 
     - name: Build Seastar
