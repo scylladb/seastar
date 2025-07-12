@@ -118,7 +118,7 @@ inline void test_spin_with_body(const char* what, void_fn body) {
     }
 }
 
-void mmap_populate(size_t len) {
+inline void mmap_populate(size_t len) {
     void *p = mmap(nullptr, len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE, 0, 0);
     BOOST_REQUIRE(p != MAP_FAILED);
     BOOST_REQUIRE(munmap(p, len) == 0);
