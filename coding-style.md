@@ -92,7 +92,7 @@ If a function accepts a lambda or an `std::function`, make it the last argument,
 
 ```c++
 template <typename Func>
-void function_accepting_a_lambda(int a, int b, Func func);
+int function_accepting_a_lambda(int a, int b, Func func);
 
 int f() {
     return function_accepting_a_lambda(2, 3, [] (int x, int y) {
