@@ -49,6 +49,9 @@ def get_command_line_parser():
                         help='Drop branches responsible for less than this threshold relative to the previous level, not global. (default 3%%)')
     parser.add_argument('--format', choices=['graph', 'trace'], default='graph',
                         help='The output format, default is %(default)s. `trace` is suitable as input for flamegraph.pl')
+    parser.add_argument('-a', '--addr2line', default='llvm-addr2line',
+                        help='The path or name of the addr2line command, which should behave as and '
+                            'accept the same options as binutils addr2line or llvm-addr2line (the default).')
     parser.add_argument('file', nargs='?',
                         type=argparse.FileType('r'),
                         default=sys.stdin,
@@ -401,7 +404,8 @@ def main():
     resolver = None
     if args.executable:
         resolver = addr2line.BacktraceResolver(executable=args.executable,
-                                               concise=not args.full_function_names)
+                                               concise=not args.full_function_names,
+                                               cmd_path=args.addr2line)
     if args.format == 'graph':
         render = Graph(resolver)
     else:

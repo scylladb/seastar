@@ -64,7 +64,7 @@ class Addr2Line:
         parent: 'BacktraceResolver',
         binary: str,
         concise: bool = False,
-        cmd_path: str = "addr2line",
+        cmd_path: str = "llvm-addr2line",
     ):
         self._parent = parent
         self._binary = binary
