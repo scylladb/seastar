@@ -93,7 +93,11 @@ macro (seastar_find_dependencies)
     seastar_find_dep (LibUring 2.0 REQUIRED)
   endif()
   seastar_find_dep (LinuxMembarrier)
-  seastar_find_dep (Sanitizers)
+  if (Seastar_SANITIZERS_COMPONENTS)
+    seastar_find_dep (Sanitizers
+      COMPONENTS
+        ${Seastar_SANITIZERS_COMPONENTS})
+  endif ()
   seastar_find_dep (SourceLocation)
   seastar_find_dep (StdAtomic REQUIRED)
   seastar_find_dep (SystemTap-SDT)
