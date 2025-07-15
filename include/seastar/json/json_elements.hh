@@ -33,6 +33,7 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/json/formatter.hh>
 #include <seastar/util/modules.hh>
+#include <seastar/http/types.hh>
 
 namespace seastar {
 
@@ -315,7 +316,11 @@ struct json_void : public jsonable{
  */
 struct json_return_type {
     sstring _res;
+#if SEASTAR_API_LEVEL >= 8
+    using body_writer_type = http::body_writer_type;
+#else
     using body_writer_type = std::function<future<>(output_stream<char>&&)>;
+#endif
     body_writer_type _body_writer;
     json_return_type(body_writer_type&& body_writer) : _body_writer(std::move(body_writer)) {
     }
@@ -334,8 +339,10 @@ struct json_return_type {
         return *this;
     }
 
+#if SEASTAR_API_LEVEL < 8
     json_return_type(const json_return_type&) = default;
     json_return_type& operator=(const json_return_type&) = default;
+#endif
 };
 
 /*!
