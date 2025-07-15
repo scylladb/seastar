@@ -1245,15 +1245,12 @@ public:
         });
     }
 
-    future<> do_handshake() {
-        if (_connected) {
-            return make_ready_future<>();
-        }
+    future<> do_handshake_invoke(int (*func)(gnutls_session_t)) {
         if (_type == type::CLIENT && !_options.server_name.empty()) {
             gnutls_server_name_set(*this, GNUTLS_NAME_DNS, _options.server_name.data(), _options.server_name.size());
         }
         try {
-            auto res = gnutls_handshake(*this);
+            auto res = func(*this);
             if (res < 0) {
                 switch (res) {
                 case GNUTLS_E_AGAIN:
@@ -1261,14 +1258,14 @@ public:
                     // If none is pending, it should be a no-op
                 {
                     int dir = gnutls_record_get_direction(*this);
-                    return wait_for_output().then([this, dir] {
+                    return wait_for_output().then([this, dir, func] {
                         // we actually E_AGAIN:ed in a write. Don't
                         // wait for input.
                         if (dir == 1) {
-                            return do_handshake();
+                            return do_handshake_invoke(func);
                         }
-                        return wait_for_input().then([this] {
-                            return do_handshake();
+                        return wait_for_input().then([this, func] {
+                            return do_handshake_invoke(func);
                         });
                     });
                 }
@@ -1305,6 +1302,23 @@ public:
             return make_exception_future<>(std::current_exception());
         }
     }
+    future<> do_handshake() {
+        if (_connected) {
+            return make_ready_future<>();
+        }
+        return do_handshake_invoke(&gnutls_handshake);
+    }
+    future<> force_rehandshake() {
+        if (!_connected) {
+            return handshake();
+        }
+        // Note: only applicable to server. 
+        if (_type == type::CLIENT) {
+            throw std::system_error(GNUTLS_E_INVALID_REQUEST, error_category(), "re-handshake only applicable for server socket");
+        }
+        return do_handshake_invoke(gnutls_rehandshake);
+    }
+
     future<> handshake() {
         // maybe load system certificates before handshake, in case we
         // have not done so yet...
@@ -2035,6 +2049,9 @@ public:
     future<sstring> get_protocol_version() const {
         return _session->get_protocol_version();
     }
+    future<> force_rehandshake() {
+        return _session->force_rehandshake();
+    }
 };
 
 
@@ -2240,6 +2257,14 @@ future<sstring> tls::get_cipher_suite(connected_socket& socket) {
 future<sstring> tls::get_protocol_version(connected_socket& socket) {
     return get_tls_socket(socket)->get_protocol_version();
 }
+future<> tls::force_rehandshake(connected_socket& socket) {
+    auto s = get_tls_socket(socket);
+    if (!s) {
+        return make_ready_future<>();
+    }
+    return s->force_rehandshake();
+}
+
 
 std::string_view tls::format_as(subject_alt_name_type type) {
     switch (type) {
