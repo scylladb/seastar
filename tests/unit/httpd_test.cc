@@ -818,13 +818,15 @@ SEASTAR_TEST_CASE(dont_abort) {
 
 
 class json_test_handler : public handler_base {
-    std::function<future<>(output_stream<char> &&)> _write_func;
+    http::body_writer_type _write_func;
 public:
-    json_test_handler(std::function<future<>(output_stream<char> &&)>&& write_func) : _write_func(write_func) {
+    json_test_handler(http::body_writer_type&& write_func) : _write_func(std::move(write_func)) {
     }
     future<std::unique_ptr<http::reply>> handle(const sstring& path,
             std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) override {
-        rep->write_body("json", _write_func);
+        rep->write_body("json", [this] (output_stream<char>&& out) {
+            return _write_func(std::move(out));
+        });
         return make_ready_future<std::unique_ptr<http::reply>>(std::move(rep));
     }
 };
@@ -1878,6 +1880,9 @@ SEASTAR_TEST_CASE(http_parse_response_small_json) {
 }
 
 SEASTAR_TEST_CASE(test_shared_future) {
+// This test is only valid until API level 8
+// where json_return_type became non-copyable.
+#if SEASTAR_API_LEVEL < 8
     shared_promise<json::json_return_type> p;
     auto fut = p.get_shared_future();
 
@@ -1886,6 +1891,10 @@ SEASTAR_TEST_CASE(test_shared_future) {
     });
 
     return std::move(fut).discard_result();
+#else
+    fmt::print("test_shared_future is invalid since API Level 8\n");
+    return make_ready_future<>();
+#endif
 }
 
 SEASTAR_TEST_CASE(test_url_encode_decode) {
