@@ -1516,15 +1516,26 @@ public:
 
     future<> do_put(frag_iter i, frag_iter e) {
         SEASTAR_ASSERT(_output_pending.available());
-        return do_for_each(i, e, [this](net::fragment& f) {
+        // #2859
+        // Normally, gnutls_record_send will break up data into gnutls_record_get_max_size() 
+        // sized chunks for us (only processing the first 16k or so of provided buffer).
+        // However, if the session is in a re-handshake state, gnutls will
+        // make an intermediate alloc to prepend the requested session key
+        // to the sent data. This can cause large alloc warnings.
+        // To avoid this, we explicitly break the message into 
+        // block sized parts (same as normal case in gnutls)
+        auto max_record_len = gnutls_record_get_max_size(*this);
+
+        return do_for_each(i, e, [this, max_record_len](net::fragment& f) {
             auto ptr = f.base;
             auto size = f.size;
             size_t off = 0; // here to appease eclipse cdt
-            return repeat([this, ptr, size, off]() mutable {
+            return repeat([this, ptr, size, off, max_record_len]() mutable {
                 if (off == size) {
                     return make_ready_future<stop_iteration>(stop_iteration::yes);
                 }
-                auto res = gnutls_record_send(*this, ptr + off, size - off);
+                auto n = std::min(max_record_len, size - off);
+                auto res = gnutls_record_send(*this, ptr + off, n);
                 if (res > 0) { // don't really need to check, but...
                     off += res;
                 }
