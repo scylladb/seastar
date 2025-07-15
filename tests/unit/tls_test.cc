@@ -27,6 +27,7 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/loop.hh>
+#include <seastar/core/memory.hh>
 #include <seastar/core/sharded.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/gate.hh>
@@ -1988,4 +1989,111 @@ SEASTAR_TEST_CASE(test_cipher_suite_and_protocol_version_for_non_tls_connection,
     auto c = co_await seastar::connect(co_await google_address());
     BOOST_CHECK_THROW(co_await tls::get_cipher_suite(c), std::invalid_argument);
     BOOST_CHECK_THROW(co_await tls::get_protocol_version(c), std::invalid_argument);
+}
+
+/**
+ * Tests that re-handshaking during a connection lifetime
+ * does not cause large buffer allocations inside gnutls.
+ * #2859
+ */
+SEASTAR_THREAD_TEST_CASE(test_send_recv_alloc_limits) {
+    tls::credentials_builder b;
+
+    b.set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).get();
+    b.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
+    b.set_client_auth(tls::client_auth::REQUIRE);
+    b.set_session_resume_mode(tls::session_resume_mode::TLS13_SESSION_TICKET);
+    b.set_priority_string("SECURE128:+SECURE192:-VERS-TLS-ALL:-VERS-TLS1.2:+VERS-TLS1.3");
+
+    auto creds = b.build_certificate_credentials();
+    auto serv = b.build_server_credentials();
+
+    ::listen_options opts;
+    opts.reuse_address = true;
+    opts.set_fixed_cpu(this_shard_id());
+
+    // cannot use 128k because auto-resize of recv buffers
+    // in posix stack will hit 128 by default, and we cannot
+    // control this on underlying socket side for tls.
+    static constexpr size_t size_limit = 256 * 1024;
+    // make data payload somewhat smaller than maximum
+    static constexpr size_t buf_size = size_limit - 512;
+
+    temporary_buffer<char> to_send(buf_size);
+    std::fill(to_send.get_write(), to_send.get_write() + to_send.size(), 'a');
+
+    auto stats_before = memory::stats();
+    memory::scoped_large_allocation_warning_threshold sct(size_limit);
+
+    auto addr = ::make_ipv4_address( {0x7f000001, 4712});
+    auto server = tls::listen(serv, addr, opts);
+
+    {
+        auto sa = server.accept();
+        auto c = tls::connect(creds, addr).get();
+        auto s = sa.get();
+
+        auto cin = c.input();
+        auto cout = output_stream<char>(c.output().detach(), 1024);
+        auto sin = s.connection.input();
+        auto sout = output_stream<char>(s.connection.output().detach(), 1024);
+
+        constexpr size_t num_loops = (1 << 10);
+
+        auto write = [&](auto& out) {
+            return out.write(to_send.share()).then([&] {
+                return out.flush();
+            });
+        };
+        auto read = [&](auto& in) {
+            // ensure we don't try to read into a large buffer.
+            return in.read_exactly(buf_size / 4).then([&](auto&&) {
+                    return in.read_exactly(buf_size / 4);
+                }).then([&](auto&&) {
+                    return in.read_exactly(buf_size / 4);
+                }).then([&](auto&&) {
+                    return in.read_exactly(buf_size / 4);
+                })
+                ;
+        };
+        for (size_t i = 0; i < num_loops; ++i) {
+            auto fout = write(sout);
+            auto fin = read(cin);
+
+            auto h = (i > 0 && (i & 0xff) == 0) 
+                ? BOOST_TEST_MESSAGE("Forcing re-handshake"), tls::force_rehandshake(s.connection)
+                : make_ready_future<>()
+                ;
+
+            fin.get();
+            fout.get();
+
+            fout = write(cout);
+            fin = read(sin);
+
+            fin.get();
+            fout.get();
+
+            h.get();
+
+            if ((i & 0xff) == 0) {
+                BOOST_TEST_MESSAGE(fmt::format("Did {} loops", i));
+            }
+        }
+
+        sout.close().get();
+        sin.close().get();
+        cout.close().get();
+        cin.close().get();
+
+        s.connection.shutdown_input();
+        s.connection.shutdown_output();
+
+        c.shutdown_input();
+        c.shutdown_output();
+
+        auto stats_after = memory::stats();
+
+        BOOST_CHECK_EQUAL(stats_after.large_allocations(), stats_before.large_allocations());
+    }
 }
