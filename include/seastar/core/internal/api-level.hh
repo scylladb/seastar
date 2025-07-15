@@ -23,18 +23,18 @@
 
 // For IDEs that don't see SEASTAR_API_LEVEL, generate a nice default
 #ifndef SEASTAR_API_LEVEL
-#define SEASTAR_API_LEVEL 7
+#define SEASTAR_API_LEVEL 8
 #endif
 
-#if SEASTAR_API_LEVEL == 7
-#define SEASTAR_INCLUDE_API_V7 inline
+#if SEASTAR_API_LEVEL == 8
+#define SEASTAR_INCLUDE_API_V8 inline
 #else
-#define SEASTAR_INCLUDE_API_V7
+#define SEASTAR_INCLUDE_API_V8
 #endif
 
 // Declare them here so we don't have to use the macros everywhere
 namespace seastar {
-    SEASTAR_INCLUDE_API_V7 namespace api_v7 {
+    SEASTAR_INCLUDE_API_V8 namespace api_v8 {
         inline namespace and_newer {
         }
     }

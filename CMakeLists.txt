@@ -70,10 +70,10 @@ option (Seastar_DEPRECATED_OSTREAM_FORMATTERS
   ON)
 
 set (Seastar_API_LEVEL
-  "7"
+  "8"
   CACHE
   STRING
-  "Seastar compatibility API level (7=unified CPU/IO scheduling groups")
+  "Seastar compatibility API level (7=unified CPU/IO scheduling groups, 8=noncopyable function in json_return_type")
 
 set_property (CACHE Seastar_API_LEVEL
   PROPERTY
