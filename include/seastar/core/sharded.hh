@@ -1038,6 +1038,18 @@ public:
         _cpu = other._cpu;
         return *this;
     }
+    /// Return a reference to the wrapped pointer.
+    ///
+    /// Warning: This method must be called on the
+    /// owner shard to avoid accidents.
+    const PtrType& unwrap_on_owner_shard() const noexcept {
+        check_shard();
+        return _value;
+    }
+    PtrType& unwrap_on_owner_shard() noexcept {
+        check_shard();
+        return _value;
+    }
     /// Releases the owned pointer
     ///
     /// Warning: the caller is now responsible for destroying the
