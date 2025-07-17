@@ -31,6 +31,7 @@ module;
 #include <boost/algorithm/string.hpp>
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/range/algorithm_ext/erase.hpp>
+#include <fmt/ranges.h>
 
 #ifdef SEASTAR_MODULE
 module seastar;
@@ -485,7 +486,7 @@ register_ref impl::add_registration(const metric_id& id, const metric_type& type
     if (_value_map.find(name) != _value_map.end()) {
         auto& metric = _value_map[name];
         if (metric.find(rm->info().id.labels()) != metric.end()) {
-            throw double_registration("registering metrics twice for metrics: " + name);
+            throw double_registration(fmt::format("registering metrics twice for metrics: {} with labels {}", name, rm->info().id.labels()));
         }
         if (metric.info().type != type.base_type) {
             throw std::runtime_error("registering metrics " + name + " registered with different type.");
