@@ -550,7 +550,7 @@ public:
         });
     }
 
-    static future<> run_test(std::function<future<>(output_stream<char> &&)>&& write_func, std::function<bool(size_t, http_consumer&)> reader) {
+    static future<> run_test(json::json_return_type::body_writer_type&& write_func, std::function<bool(size_t, http_consumer&)> reader) {
         return do_with(loopback_connection_factory(1), foreign_ptr<shared_ptr<http_server>>(make_shared<http_server>("test")),
                 [reader, &write_func] (loopback_connection_factory& lcf, auto& server) {
             return do_with(loopback_socket_impl(lcf), [&server, &lcf, reader, &write_func](loopback_socket_impl& lsi) {
@@ -586,10 +586,10 @@ public:
                     class test_handler : public handler_base {
                         size_t count = 0;
                         http_server& _server;
-                        std::function<future<>(output_stream<char> &&)> _write_func;
+                        json::json_return_type::body_writer_type _write_func;
                         promise<> _all_message_sent;
                     public:
-                        test_handler(http_server& server, std::function<future<>(output_stream<char> &&)>&& write_func) : _server(server), _write_func(write_func) {
+                        test_handler(http_server& server, json::json_return_type::body_writer_type&& write_func) : _server(server), _write_func(std::move(write_func)) {
                         }
                         future<std::unique_ptr<http::reply>> handle(const sstring& path,
                                 std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) override {
