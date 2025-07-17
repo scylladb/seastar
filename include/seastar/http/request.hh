@@ -35,6 +35,7 @@
 #include <strings.h>
 #include <seastar/http/common.hh>
 #include <seastar/http/mime_types.hh>
+#include <seastar/http/types.hh>
 #include <seastar/net/socket_defs.hh>
 #include <seastar/core/iostream.hh>
 #include <seastar/util/string_utils.hh>
@@ -76,7 +77,7 @@ struct request {
     std::unordered_map<sstring, sstring> trailing_headers;
     std::unordered_map<sstring, sstring> chunk_extensions;
     sstring protocol_name = "http";
-    noncopyable_function<future<>(output_stream<char>&&)> body_writer; // for client
+    http::body_writer_type body_writer; // for client
 
     /**
      * Get the address of the client that generated the request
@@ -230,7 +231,7 @@ struct request {
      * collection of memory buffers. Message would use chunked transfer encoding.
      *
      */
-    void write_body(const sstring& content_type, noncopyable_function<future<>(output_stream<char>&&)>&& body_writer);
+    void write_body(const sstring& content_type, http::body_writer_type&& body_writer);
 
     /*!
      * \brief use and output stream to write the message body
@@ -268,7 +269,7 @@ struct request {
      * the stream, sending the request would resolve with exceptional future.
      *
      */
-    void write_body(const sstring& content_type, size_t len, noncopyable_function<future<>(output_stream<char>&&)>&& body_writer);
+    void write_body(const sstring& content_type, size_t len, http::body_writer_type&& body_writer);
 
     /*!
      * \brief use and output stream to write the message body
