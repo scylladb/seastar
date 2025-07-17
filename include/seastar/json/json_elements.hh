@@ -315,8 +315,9 @@ struct json_void : public jsonable{
  */
 struct json_return_type {
     sstring _res;
-    std::function<future<>(output_stream<char>&&)> _body_writer;
-    json_return_type(std::function<future<>(output_stream<char>&&)>&& body_writer) : _body_writer(std::move(body_writer)) {
+    using body_writer_type = std::function<future<>(output_stream<char>&&)>;
+    body_writer_type _body_writer;
+    json_return_type(body_writer_type&& body_writer) : _body_writer(std::move(body_writer)) {
     }
     template<class T>
     json_return_type(const T& res) {
@@ -347,7 +348,7 @@ struct json_return_type {
  */
 template<typename Container, typename Func>
 requires requires (Container c, Func aa, output_stream<char> s) { { formatter::write(s, aa(*c.begin())) } -> std::same_as<future<>>; }
-std::function<future<>(output_stream<char>&&)> stream_range_as_array(Container val, Func fun) {
+json_return_type::body_writer_type stream_range_as_array(Container val, Func fun) {
     return [val = std::move(val), fun = std::move(fun)](output_stream<char>&& s) mutable {
         return do_with(output_stream<char>(std::move(s)), Container(std::move(val)), Func(std::move(fun)), true, [](output_stream<char>& s, const Container& val, const Func& f, bool& first){
             return s.write("[").then([&val, &s, &first, &f] () {
@@ -374,7 +375,7 @@ std::function<future<>(output_stream<char>&&)> stream_range_as_array(Container v
  * return make_ready_future<json::json_return_type>(stream_object(res));
  */
 template<class T>
-std::function<future<>(output_stream<char>&&)> stream_object(T val) {
+json_return_type::body_writer_type stream_object(T val) {
     return [val = std::move(val)](output_stream<char>&& s) mutable {
         return do_with(output_stream<char>(std::move(s)), T(std::move(val)), [](output_stream<char>& s, T& val){
             return formatter::write(s, std::move(val)).finally([&s] {
