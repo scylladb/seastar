@@ -818,9 +818,9 @@ SEASTAR_TEST_CASE(dont_abort) {
 
 
 class json_test_handler : public handler_base {
-    std::function<future<>(output_stream<char> &&)> _write_func;
+    http::shared_body_writer_type _write_func;
 public:
-    json_test_handler(std::function<future<>(output_stream<char> &&)>&& write_func) : _write_func(write_func) {
+    json_test_handler(json::json_return_type::body_writer_type&& write_func) : _write_func(http::make_shared_body_writer_type(std::move(write_func))) {
     }
     future<std::unique_ptr<http::reply>> handle(const sstring& path,
             std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) override {
