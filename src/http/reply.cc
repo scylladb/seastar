@@ -122,7 +122,7 @@ sstring reply::response_line() const {
     });
 }
 
-void reply::write_body(const sstring& content_type, noncopyable_function<future<>(output_stream<char>&&)>&& body_writer) {
+void reply::write_body(const sstring& content_type, body_writer_type&& body_writer) {
     set_content_type(content_type);
     _body_writer  = std::move(body_writer);
 }
