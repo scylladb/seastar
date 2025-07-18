@@ -616,6 +616,7 @@ public:
     /// See \ref sched_stats for a description of individual statistics.
     /// \return An object containing a snapshot of the statistics at this point in time.
     sched_stats get_sched_stats() const;
+    uint64_t cxx_exceptions() const { return _cxx_exceptions; }
     uint64_t abandoned_failed_futures() const { return _abandoned_failed_futures; }
 private:
     /**
