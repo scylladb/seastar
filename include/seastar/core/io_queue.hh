@@ -181,8 +181,8 @@ public:
 
     struct config {
         unsigned id;
-        unsigned long req_count_rate = std::numeric_limits<unsigned long>::max();
-        unsigned long blocks_count_rate = std::numeric_limits<unsigned long>::max();
+        unsigned long req_count_rate = std::numeric_limits<int>::max();
+        unsigned long blocks_count_rate = std::numeric_limits<int>::max();
         unsigned disk_req_write_to_read_multiplier = read_request_base_count;
         unsigned disk_blocks_write_to_read_multiplier = read_request_base_count;
         size_t disk_read_saturation_length = std::numeric_limits<size_t>::max();
