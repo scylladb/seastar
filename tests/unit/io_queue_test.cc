@@ -563,3 +563,30 @@ SEASTAR_THREAD_TEST_CASE(test_tb_params) {
         BOOST_CHECK((d.write_bytes_rate - bandwidth_write) / d.write_bytes_rate < error_margin);
     }
 }
+
+SEASTAR_THREAD_TEST_CASE(test_big_write_properties) {
+    // This test checks that given some big values in io properties,
+    // the token bucket costs don't end up 0.
+    internal::disk_config_params disk_config(1);
+    internal::disk_params d;
+
+    // the read iops/bandwidth need to be small enough so when divided by write values
+    // disk_blocks_write_to_read_multiplier and disk_req_write_to_read_multiplier end up < 1
+    d.read_bytes_rate = 10000;
+    d.read_req_rate = 1 << 30;  // 1GB/s
+    d.write_bytes_rate = 256ul << 30;  // 256GB/s
+    d.write_req_rate = 25600000;
+
+    auto io_config = disk_config.generate_config(d, 0, 1);
+    io_config.mountpoint = "0";
+
+    io_queue_for_tests tio(io_config);
+
+    for (uint64_t reqsize = 512; reqsize < 128 << 10; reqsize <<= 1) {
+        auto cost_read = tio.queue.request_capacity(internal::io_direction_and_length(internal::io_direction_and_length::read_idx, reqsize));
+        auto cost_write = tio.queue.request_capacity(internal::io_direction_and_length(internal::io_direction_and_length::write_idx, reqsize));
+
+        BOOST_CHECK(cost_read > 0);
+        BOOST_CHECK(cost_write > 0);
+    }
+}

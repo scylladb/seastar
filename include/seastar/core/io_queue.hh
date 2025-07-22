@@ -176,15 +176,15 @@ public:
     // (read_request_base_count * 130) / 100.
     // It is also technically possible for reads to be the expensive ones, in which case
     // writes will have an integer value lower than read_request_base_count.
-    static constexpr unsigned read_request_base_count = 128;
+    static constexpr double read_request_base_count = 128.0;
     static constexpr unsigned block_size_shift = 9;
 
     struct config {
         unsigned id;
         unsigned long req_count_rate = std::numeric_limits<int>::max();
         unsigned long blocks_count_rate = std::numeric_limits<int>::max();
-        unsigned disk_req_write_to_read_multiplier = read_request_base_count;
-        unsigned disk_blocks_write_to_read_multiplier = read_request_base_count;
+        double disk_req_write_to_read_multiplier = read_request_base_count;
+        double disk_blocks_write_to_read_multiplier = read_request_base_count;
         size_t disk_read_saturation_length = std::numeric_limits<size_t>::max();
         size_t disk_write_saturation_length = std::numeric_limits<size_t>::max();
         sstring mountpoint = "undefined";
