@@ -1676,7 +1676,7 @@ void io_completion::complete_with(ssize_t res) {
         return;
     }
 
-    ++engine()._io_stats.aio_errors;
+    reactor::io_stats::local().aio_errors++;
     try {
         throw_kernel_error(res);
     } catch (...) {
