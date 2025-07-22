@@ -871,9 +871,26 @@ double internal::request_tokens(io_direction_and_length dnl, const io_queue::con
         io_queue::read_request_base_count,
     };
 
-    const auto& m = mult[dnl.rw_idx()];
+    struct factors {
+        double iop;
+        double throughput;
+    } factors[2];
 
-    return double(m.weight) / cfg.req_count_rate + double(m.size) * (dnl.length() >> io_queue::block_size_shift) / cfg.blocks_count_rate;
+    factors[io_direction_write] = {
+        cfg.write_iop_factor,
+        cfg.write_throughput_factor,
+    };
+
+    factors[io_direction_read] = {
+        cfg.read_iop_factor,
+        cfg.read_throughput_factor,
+    };
+
+    const auto& m = mult[dnl.rw_idx()];
+    const auto& f = factors[dnl.rw_idx()];
+
+    return double(m.weight) / cfg.req_count_rate * f.iop
+        + double(m.size) * (dnl.length() >> io_queue::block_size_shift) / cfg.blocks_count_rate * f.throughput;
 }
 
 fair_queue_entry::capacity_t io_queue::request_capacity(io_direction_and_length dnl) const noexcept {
