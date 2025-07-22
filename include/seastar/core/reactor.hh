@@ -204,6 +204,7 @@ public:
 
     private:
         friend class file_data_source_impl;
+        friend void io_completion::complete_with(ssize_t);
         static io_stats& local() noexcept;
     };
     /// Scheduling statistics.
@@ -213,7 +214,6 @@ public:
         /// entire task quota.
         uint64_t tasks_processed = 0;
     };
-    friend void io_completion::complete_with(ssize_t);
 
     /// Obtains an alien::instance object that can be used to send messages
     /// to Seastar shards from non-Seastar threads.
@@ -724,6 +724,9 @@ inline int hrtimer_signal() {
     return SIGRTMIN;
 }
 
+inline auto reactor::io_stats::local() noexcept -> io_stats& {
+    return engine()._io_stats;
+}
 
 extern logger seastar_logger;
 
