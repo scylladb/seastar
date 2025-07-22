@@ -571,8 +571,25 @@ public:
     void add_task(task* t) noexcept;
     void add_urgent_task(task* t) noexcept;
 
+    /// Pass a future to "run" in the background.
+    ///
+    /// The reactor will wait for the future to complete before stopping. This can be
+    /// use to ensure that a future completes before reactor shutdown.
+    /// If the future returns exceptionally, a warning is logged but the error is otherwise
+    /// ignored.
     void run_in_background(future<> f);
 
+    /// Run func in the background.
+    ///
+    /// Executes a possibly-async func. If the function is synchronous, it runs immediately.
+    ///
+    /// If the function is async, it is executed and runs in the background (as if cast to void).
+    /// The reactor will wait for the returned to complete before stopping. This
+    /// can be used to ensure that a future completes before reactor shutdown.
+    ///
+    /// In both the sync and async cases if the function throws or the returned
+    /// future is exceptional, a warning is logged but the error is otherwise
+    /// ignored.
     template <typename Func>
     void run_in_background(Func&& func) {
         run_in_background(futurize_invoke(std::forward<Func>(func)));
