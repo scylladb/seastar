@@ -160,6 +160,10 @@ future<> reply::write_reply(output_stream<char>& out) {
 future<> reply::write_reply_headers(output_stream<char>& out) {
     return do_for_each(_headers, [&out](auto& h) {
         return out.write(h.first + ": " + h.second + "\r\n");
+    }).then([this, &out] {
+        return do_for_each(_cookies, [&out] (auto& c) {
+            return out.write("Set-Cookie: " + c.first + "=" + c.second + "\r\n");
+        });
     });
 }
 

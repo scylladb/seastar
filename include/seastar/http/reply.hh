@@ -149,6 +149,8 @@ struct reply {
      */
     std::unordered_map<sstring, sstring, seastar::internal::case_insensitive_hash, seastar::internal::case_insensitive_cmp> _headers;
 
+    std::unordered_map<sstring, sstring> _cookies;
+
     sstring _version;
     /**
      * The content to be sent in the reply.
@@ -213,6 +215,14 @@ struct reply {
      */
     reply& set_content_type(const sstring& content_type = "html") {
         set_mime_type(http::mime_types::extension_to_type(content_type));
+        return *this;
+    }
+
+    /**
+     * Set the cookie with the given name and value.
+     */
+    reply& set_cookie(const sstring& name, const sstring& value) {
+        _cookies[name] = value;
         return *this;
     }
 
