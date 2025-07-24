@@ -903,7 +903,9 @@ double internal::request_tokens(io_direction_and_length dnl, const io_queue::con
 
     const auto& m = mult[dnl.rw_idx()];
 
-    return double(m.weight) / cfg.req_count_rate + double(m.size) * (dnl.length() >> io_queue::block_size_shift) / cfg.blocks_count_rate;
+    double iops_cost = double(m.weight) / cfg.req_count_rate;
+    double tp_cost = double(m.size) * (dnl.length() >> io_queue::block_size_shift) / cfg.blocks_count_rate;
+    return iops_cost + tp_cost;
 }
 
 fair_queue_entry::capacity_t io_queue::request_capacity(io_direction_and_length dnl) const noexcept {
