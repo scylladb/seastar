@@ -2181,3 +2181,47 @@ SEASTAR_TEST_CASE(test_client_close_connection) {
         }
     });
 }
+
+SEASTAR_THREAD_TEST_CASE(test_content_length_data_sink) {
+    auto do_check = [] (size_t len, sstring value, bool zero_copy) {
+        size_t written = 32;
+        size_t expected = 0;
+        std::stringstream ss;
+        sstring expected_ss;
+        output_stream<char> data = output_stream<char>(memory_data_sink(ss));
+        output_stream<char> out = http::internal::make_http_content_length_output_stream(data, len, written);
+        BOOST_CHECK_EQUAL(written, 0);
+
+        unsigned values = 0;
+        while (true) {
+            expected += value.size();
+            if (zero_copy) {
+                out.write(temporary_buffer<char>(value.c_str(), value.size())).get();
+            } else {
+                out.write(value).get();
+            }
+            auto f = out.flush();
+            if (expected > len) {
+                BOOST_CHECK_EXCEPTION(f.get(), std::runtime_error, [] (const auto& e) { return sstring(e.what()).starts_with("body content length overflow"); });
+                BOOST_CHECK_EQUAL(written, expected - value.size());
+                break;
+            }
+
+            f.get();
+            BOOST_CHECK_EQUAL(written, expected);
+            data.flush().get();
+            expected_ss += value;
+            values++;
+        }
+
+        BOOST_CHECK_EQUAL(values, len / value.size());
+        BOOST_CHECK_EQUAL(ss.str(), expected_ss);
+    };
+
+    do_check(2, "1", false);
+    do_check(2, "12", false);
+    do_check(2, "123", false);
+    do_check(2, "1", true);
+    do_check(2, "12", true);
+    do_check(2, "123", true);
+}
