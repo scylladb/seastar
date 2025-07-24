@@ -112,6 +112,7 @@ module;
 #include <boost/next_prior.hpp>
 #include <boost/program_options.hpp>
 #include <boost/range/adaptor/filtered.hpp>
+#include <boost/range/adaptor/map.hpp>
 #include <boost/range/adaptor/transformed.hpp>
 #include <boost/range/irange.hpp>
 #include <boost/thread/barrier.hpp>
@@ -177,6 +178,7 @@ export module seastar;
 #include <seastar/core/condition-variable.hh>
 #include <seastar/core/coroutine.hh>
 #include <seastar/core/deleter.hh>
+#include <seastar/core/disk_params.hh>
 #include <seastar/core/distributed.hh>
 #include <seastar/core/do_with.hh>
 #include <seastar/core/enum.hh>

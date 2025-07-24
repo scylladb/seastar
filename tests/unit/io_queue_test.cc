@@ -20,6 +20,8 @@
  * Copyright (C) 2021 ScyllaDB
  */
 
+#include <chrono>
+#include <ratio>
 #include <seastar/core/thread.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/testing/random.hh>
@@ -31,6 +33,7 @@
 #include <seastar/core/file.hh>
 #include <seastar/core/io_queue.hh>
 #include <seastar/core/io_intent.hh>
+#include <seastar/core/disk_params.hh>
 #include <seastar/core/internal/io_request.hh>
 #include <seastar/core/internal/io_sink.hh>
 #include <seastar/util/assert.hh>
@@ -76,8 +79,8 @@ struct io_queue_for_tests {
     io_queue queue;
     timer<> kicker;
 
-    io_queue_for_tests()
-        : group(std::make_shared<io_group>(io_queue::config{0}, 1))
+    io_queue_for_tests(const io_queue::config& cfg = io_queue::config{0})
+        : group(std::make_shared<io_group>(cfg, 1))
         , sink()
         , queue(group, sink)
         , kicker([this] { kick(); })
@@ -509,4 +512,54 @@ SEASTAR_TEST_CASE(test_request_iovec_split) {
     seastar_logger.info("{} iters ({} no-splits, {} no-tails)", iter, no_splits, no_tails);
 
     return make_ready_future<>();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_tb_params) {
+    internal::disk_config_params disk_config(1);
+    internal::disk_params d;
+    size_t iops_req_size = 512;
+    size_t bw_req_size = 128 << 10; // 128k
+
+    // Test multipl datapoints starting at 1GB/s for read/write bandwidth
+    // and 15k req/s for read/write IOPS
+    for (uint64_t i = 1; i < 65; ++i) {
+        d.read_bytes_rate = i << 30;  // iGB/s
+        d.write_bytes_rate = i << 30;
+        d.read_req_rate = i * 15000;
+        d.write_req_rate = i * 15000;
+
+        auto io_config = disk_config.generate_config(d, 0, 1);
+        io_config.mountpoint = std::to_string(i);
+
+        io_queue_for_tests tio(io_config);
+
+        auto cost_read_512 = tio.queue.request_capacity(internal::io_direction_and_length(internal::io_direction_and_length::read_idx, iops_req_size));
+        auto cost_write_512 = tio.queue.request_capacity(internal::io_direction_and_length(internal::io_direction_and_length::write_idx, iops_req_size));
+
+        auto cost_read_128k = tio.queue.request_capacity(internal::io_direction_and_length(internal::io_direction_and_length::read_idx, bw_req_size));
+        auto cost_write_128k = tio.queue.request_capacity(internal::io_direction_and_length(internal::io_direction_and_length::write_idx, bw_req_size));
+        seastar_logger.info("{} read req/s, {} write req/s, {} read bytes/s, {} write bytes/s",
+                            d.read_req_rate, d.write_req_rate, d.read_bytes_rate, d.write_bytes_rate);
+
+        seastar_logger.info("Read 512 cost: {}, Write 512 cost: {}", cost_read_512, cost_write_512);
+        seastar_logger.info("Read 128k cost: {}, Write 128k cost: {}", cost_read_128k, cost_write_128k);
+
+        const auto& fg = internal::get_throttler(tio.queue, internal::io_direction_and_length::write_idx);
+        const auto& tb = fg.token_bucket();
+        double rate = tb.rate();
+
+        auto fg_rate = std::chrono::duration<double, io_throttler::rate_resolution>(std::chrono::seconds(1)).count();
+        double iops_read = rate / cost_read_512 * fg_rate;
+        double iops_write = rate / cost_write_512 * fg_rate;
+        double bandwidth_read = rate / cost_read_128k * 131072 * fg_rate;
+        double bandwidth_write = rate / cost_write_128k * 131072 * fg_rate;
+        seastar_logger.info("IOPS read: {}, IOPS write: {}, Bandwidth read: {}, Bandwidth write: {}",
+                            iops_read, iops_write, bandwidth_read, bandwidth_write);
+
+        float error_margin = 0.05f; // 5% error margin
+        BOOST_CHECK((d.read_req_rate - iops_read) / d.read_req_rate < error_margin);
+        BOOST_CHECK((d.write_req_rate - iops_write) / d.write_req_rate < error_margin);
+        BOOST_CHECK((d.read_bytes_rate - bandwidth_read) / d.read_bytes_rate < error_margin);
+        BOOST_CHECK((d.write_bytes_rate - bandwidth_write) / d.write_bytes_rate < error_margin);
+    }
 }

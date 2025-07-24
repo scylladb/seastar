@@ -13,6 +13,7 @@ target_sources (seastar-module
     core/alien.cc
     core/app-template.cc
     core/condition-variable.cc
+    core/disk_params.cc
     core/exception_hacks.cc
     core/execution_stage.cc
     core/fair_queue.cc
