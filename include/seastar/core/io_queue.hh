@@ -203,6 +203,7 @@ public:
         size_t write_bytes_rate = std::numeric_limits<size_t>::max();
         size_t read_req_rate = std::numeric_limits<size_t>::max();
         size_t write_req_rate = std::numeric_limits<size_t>::max();
+        bool max_cost_function = true;
     };
 
     io_queue(io_group_ptr group, internal::io_sink& sink);
