@@ -71,6 +71,9 @@ struct convert<seastar::internal::disk_params> {
         if (node["rate_factor"]) {
             mp.rate_factor = node["rate_factor"].as<float>();
         }
+        if (node["max_cost_function"]) {
+            mp.max_cost_function = node["max_cost_function"].as<bool>();
+        }
         return true;
     }
 };
@@ -201,6 +204,8 @@ struct io_queue::config disk_config_params::generate_config(const disk_params& p
     // be better to sacrifice some IO latency, but allow for larger concurrency
     cfg.block_count_limit_min = (64 << 10) >> io_queue::block_size_shift;
     cfg.stall_threshold = stall_threshold();
+
+    cfg.max_cost_function = p.max_cost_function;
 
     return cfg;
 }

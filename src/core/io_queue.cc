@@ -905,7 +905,11 @@ double internal::request_tokens(io_direction_and_length dnl, const io_queue::con
 
     double iops_cost = double(m.weight) / cfg.req_count_rate;
     double tp_cost = double(m.size) * (dnl.length() >> io_queue::block_size_shift) / cfg.blocks_count_rate;
-    return iops_cost + tp_cost;
+    if (cfg.max_cost_function) {
+        return std::max(iops_cost, tp_cost);
+    } else {
+        return iops_cost + tp_cost;
+    }
 }
 
 fair_queue_entry::capacity_t io_queue::request_capacity(io_direction_and_length dnl) const noexcept {
