@@ -5309,6 +5309,30 @@ future<scheduling_supergroup> create_scheduling_supergroup(float shares) noexcep
     co_return scheduling_supergroup(index);
 }
 
+future<> destroy_scheduling_supergroup(scheduling_supergroup sg) noexcept {
+    if (sg.is_root()) {
+        throw std::runtime_error("Root supergroup cannot be destroyed");
+    }
+
+    unsigned index = sg.index();
+    co_await smp::submit_to(0, [index] {
+        auto& r = engine();
+        if (r._supergroups[index]->_nr_children != 0) {
+            throw std::runtime_error("Supergroup is still populated, destroy all subgroups first");
+        }
+
+        r._supergroups[index].reset();
+    });
+
+    co_await smp::invoke_on_all([index] () noexcept {
+        if (this_shard_id() != 0) {
+            auto& r = engine();
+            SEASTAR_ASSERT(r._supergroups[index]->_nr_children == 0);
+            r._supergroups[index].reset();
+        }
+    });
+}
+
 future<scheduling_group>
 create_scheduling_group(sstring name, sstring shortname, float shares) noexcept {
     auto aid = allocate_scheduling_group_id();

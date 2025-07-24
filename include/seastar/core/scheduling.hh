@@ -75,6 +75,17 @@ SEASTAR_MODULE_EXPORT_BEGIN
 /// \return a scheduling supergroup that can be used on any shard
 future<scheduling_supergroup> create_scheduling_supergroup(float shares) noexcept;
 
+/// Destroys a scheduling supergroup.
+///
+/// Destroys a \ref scheduling_supergroup previously created with create_scheduling_supergroup().
+/// The destroyed group must not be populated with sub-groups use and must not be used later.
+///
+/// The operation is global and affects all shards.
+///
+/// \param sg The scheduling supergroup to be destroyed
+/// \return a future that is ready when the scheduling supergroup has been torn down
+future<> destroy_scheduling_supergroup(scheduling_supergroup sg) noexcept;
+
 /// Creates a scheduling group with a specified number of shares.
 ///
 /// The operation is global and affects all shards. The returned scheduling

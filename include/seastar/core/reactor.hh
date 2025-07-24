@@ -697,6 +697,7 @@ private:
     metrics::metric_groups _metric_groups;
     friend future<scheduling_group> create_scheduling_group(sstring name, sstring shortname, float shares) noexcept;
     friend future<scheduling_supergroup> create_scheduling_supergroup(float shares) noexcept;
+    friend future<> destroy_scheduling_supergroup(scheduling_supergroup sg) noexcept;
     friend future<> seastar::destroy_scheduling_group(scheduling_group) noexcept;
     friend future<> seastar::rename_scheduling_group(scheduling_group sg, sstring new_name, sstring new_shortname) noexcept;
     friend future<scheduling_group_key> scheduling_group_key_create(scheduling_group_key_config cfg) noexcept;
