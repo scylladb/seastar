@@ -224,6 +224,14 @@ SEASTAR_TEST_CASE(test_decode_url) {
     req.parse_query_param();
     BOOST_REQUIRE_EQUAL(req.get_query_param("a"), "#$#");
     BOOST_REQUIRE_EQUAL(req.get_query_param("b"), "\"&\"");
+    req._url = "/a?b=%22%26%22&a=%21&b=%23%24%23&a=%23%24%23";
+    req.parse_query_param();
+    const auto& b = req.get_query_param_array("b");
+    auto expected_b = std::vector<sstring>{"\"&\"", "#$#"};
+    BOOST_REQUIRE_EQUAL_COLLECTIONS(b.begin(), b.end(), expected_b.begin(), expected_b.end());
+    const auto& a = req.get_query_param_array("a");
+    auto expected_a = std::vector<sstring>{"!", "#$#"};
+    BOOST_REQUIRE_EQUAL_COLLECTIONS(a.begin(), a.end(), expected_a.begin(), expected_a.end());
     return make_ready_future<>();
 }
 
@@ -1931,6 +1939,58 @@ SEASTAR_TEST_CASE(test_url_param_encode_decode) {
         BOOST_REQUIRE(it != to_recv.query_parameters.end());
         BOOST_REQUIRE_EQUAL(it->second, p.second);
     }
+
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_url_param_encode_decode_multiple) {
+    http::request to_send;
+    to_send._url = "/foo/bar";
+
+    to_send.set_query_param("a", {"a+a*a", "a/a\%a", "a a", "lasta"})
+        .set_query_param("b", {"b/b\%b", "lastb"});
+
+    http::request to_recv;
+    to_recv._url = to_send.format_url();
+    sstring url = to_recv.parse_query_param();
+    BOOST_REQUIRE_EQUAL(url, to_send._url);
+    const auto& to_send_a = to_send.get_query_param_array("a");
+    const auto& to_recv_a = to_recv.get_query_param_array("a");
+    BOOST_REQUIRE_EQUAL_COLLECTIONS(to_send_a.begin(), to_send_a.end(), to_recv_a.begin(), to_recv_a.end());
+    const auto& to_send_b = to_send.get_query_param_array("b");
+    const auto& to_recv_b = to_recv.get_query_param_array("b");
+    BOOST_REQUIRE_EQUAL_COLLECTIONS(to_send_b.begin(), to_send_b.end(), to_recv_b.begin(), to_recv_b.end());
+
+    BOOST_REQUIRE_EQUAL(to_recv.get_query_param("a"), to_send.get_query_param("a"));
+    BOOST_REQUIRE_EQUAL(to_recv.get_query_param("b"), to_send.get_query_param("b"));
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_url_params_get_set) {
+    http::request req;
+    req._url = "/foo/bar";
+    http::request::query_param_type params = {
+        {"a", {"a+a*a", "a/a%a", "a a", "lasta"}},
+        {"b", {"b/b%b", "lastb"}}
+    };
+
+    req.set_query_params(params);
+
+    const auto& req_params = req.get_query_params();
+    for(const auto&[key, values] : params) {
+        auto it = req_params.find(key);
+        BOOST_REQUIRE(it != req_params.end());
+        BOOST_REQUIRE_EQUAL_COLLECTIONS(it->second.begin(), it->second.end(), values.begin(), values.end());
+    }
+
+    BOOST_REQUIRE_EQUAL(req.get_query_param("a"), "lasta");
+    BOOST_REQUIRE_EQUAL(req.get_query_param("b"), "lastb");
+
+    req.set_query_param("a", "new_a");
+    BOOST_REQUIRE_EQUAL(req.get_query_param("a"), "new_a");
+
+    req.set_query_param("c", "c/c\%c");
+    BOOST_REQUIRE_EQUAL(req.get_query_param("c"), "c/c%c");
 
     return make_ready_future<>();
 }
