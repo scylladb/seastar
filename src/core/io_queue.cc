@@ -880,8 +880,8 @@ stream_id io_queue::request_stream(io_direction_and_length dnl) const noexcept {
 
 double internal::request_tokens(io_direction_and_length dnl, const io_queue::config& cfg) noexcept {
     struct {
-        unsigned weight;
-        unsigned size;
+        double weight;
+        double size;
     } mult[2];
 
     mult[io_direction_write] = {
