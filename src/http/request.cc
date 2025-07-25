@@ -24,6 +24,7 @@ module;
 #endif
 
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 
 #ifdef SEASTAR_MODULE
@@ -38,16 +39,47 @@ module seastar;
 namespace seastar {
 namespace http {
 
+namespace internal {
+// NOTE: Remove this once `query_parameters` is removed
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+    const std::unordered_map<sstring, sstring>& deprecated_query_parameters(const request& r) noexcept {
+        return r.query_parameters;
+    }
+    std::unordered_map<sstring, sstring>& deprecated_query_parameters(request& r) noexcept {
+        return r.query_parameters;
+    }
+#pragma GCC diagnostic pop
+}
+
 sstring request::format_url() const {
     sstring query = "";
-    sstring delim = "?";
-    for (const auto& p : query_parameters) {
-        query += delim + internal::url_encode(p.first);
-        if (!p.second.empty()) {
-            query += "=" + internal::url_encode(p.second);
+    if (!_query_params.empty()) {
+        sstring delim = "&";
+        for (const auto& [key, values] : _query_params) {
+            auto key_component = delim + internal::url_encode(key) + "=";
+            if (values.empty()) {
+                query += key_component;
+            } else {
+                for (const auto& val : values) {
+                    query += key_component + internal::url_encode(val);
+                }
+            }
         }
-        delim = "&";
+        if (!query.empty()) {
+            query[0] = '?';
+        }
+    } else {
+        sstring delim = "?";
+        for (const auto& p : internal::deprecated_query_parameters(*this)) {
+            query += delim + internal::url_encode(p.first);
+            if (!p.second.empty()) {
+                query += "=" + internal::url_encode(p.second);
+            }
+            delim = "&";
+        }
     }
+
     return _url + query;
 }
 
@@ -65,24 +97,28 @@ future<> request::write_request_headers(output_stream<char>& out) const {
 
 void request::add_query_param(std::string_view param) {
     size_t split = param.find('=');
-
+    auto& deprecated_query_parameters = http::internal::deprecated_query_parameters(*this);
     if (split >= param.length() - 1) {
         sstring key;
         if (http::internal::url_decode(param.substr(0,split) , key)) {
-            query_parameters[key] = "";
+            _query_params[key].push_back("");
+            deprecated_query_parameters[key] = "";
         }
     } else {
         sstring key;
         sstring value;
         if (http::internal::url_decode(param.substr(0,split), key)
                 && http::internal::url_decode(param.substr(split + 1), value)) {
-            query_parameters[key] = std::move(value);
+            deprecated_query_parameters[key] = value;
+            _query_params[key].push_back(std::move(value));
         }
     }
 
 }
 
 sstring request::parse_query_param() {
+    http::internal::deprecated_query_parameters(*this).clear();
+    _query_params.clear();
     size_t pos = _url.find('?');
     if (pos == sstring::npos) {
         return _url;
