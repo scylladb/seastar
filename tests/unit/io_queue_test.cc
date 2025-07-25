@@ -563,3 +563,15 @@ SEASTAR_THREAD_TEST_CASE(test_tb_params) {
         BOOST_CHECK((d.write_bytes_rate - bandwidth_write) / d.write_bytes_rate < error_margin);
     }
 }
+
+SEASTAR_THREAD_TEST_CASE(test_unconfigured_io_queue) {
+    io_queue_for_tests tio;
+
+    for (uint64_t reqsize = 512; reqsize < 128 << 10; reqsize <<= 1) {
+        auto cost_read = tio.queue.request_capacity(internal::io_direction_and_length(internal::io_direction_and_length::read_idx, reqsize));
+        auto cost_write = tio.queue.request_capacity(internal::io_direction_and_length(internal::io_direction_and_length::write_idx, reqsize));
+
+        SEASTAR_ASSERT(cost_read == 0);
+        SEASTAR_ASSERT(cost_write == 0);
+    }
+}
