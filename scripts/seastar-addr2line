@@ -72,7 +72,7 @@ class TestStringMethods(unittest.TestCase):
         self._test(data)
 
     def test_addresses_only(self):
-        data = [
+        data: TestList = [
             (
                 '0x12f34',
                 {
@@ -123,7 +123,7 @@ class TestStringMethods(unittest.TestCase):
         self._test(data)
 
     def test_without_prefix(self):
-        data = [
+        data: TestList = [
             (
                 'Some prefix 0x12f34',
                 {
@@ -144,7 +144,7 @@ class TestStringMethods(unittest.TestCase):
         self._test(data)
 
     def test_reactor_stall_reports(self):
-        data = [
+        data: TestList = [
             (
                 'Reactor stalled on shard 1. Backtrace: 0x12f34',
                 {
@@ -189,7 +189,7 @@ class TestStringMethods(unittest.TestCase):
         self._test(data)
 
     def test_boost_failure(self):
-        data = [
+        data: TestList = [
             (
                 'Expected partition_end(), but got end of stream, at 0xa1234 0xb5678 /my/path+0xabcd',
                 {
@@ -206,7 +206,7 @@ class TestStringMethods(unittest.TestCase):
         self._test(data)
 
     def test_asan_failure(self):
-        data = [
+        data: TestList = [
             (
                 '==16118==ERROR: AddressSanitizer: heap-use-after-free on address 0x60700019c710 at pc 0x000014d24643 bp 0x7ffc51f72220 sp 0x7ffc51f72218',
                 None,
@@ -242,7 +242,7 @@ class TestStringMethods(unittest.TestCase):
         self._test(data)
 
     def test_thrown_exception(self):
-        data = [
+        data: TestList = [
             (
                 'seastar::internal::backtraced<std::runtime_error> (throw_with_backtrace_exception_logging Backtrace: 0x42bc95 /lib64/libc.so.6+0x281e1 0x412cfd)',
                 {
@@ -285,7 +285,7 @@ class TestStringMethods(unittest.TestCase):
         self._test(data)
 
     def test_assertion_failure(self):
-        data = [
+        data: TestList = [
             (
                 "2022-04-15T06:19:24+00:00 gemini-1tb-10h-master-db-node-c0c7fc43-4 !    INFO | "
                 "scylla: sstables/consumer.hh:610: future<> data_consumer::continuous_data_consumer"
@@ -322,7 +322,7 @@ class TestStringMethods(unittest.TestCase):
         self._test(data)
 
     def test_segfault_failure(self):
-        data = [
+        data: TestList = [
             ('[2022-04-19T23:09:28.311Z] Segmentation fault on shard 1.', None),
             ('[2022-04-19T23:09:28.311Z] Backtrace:', None),
             (
@@ -469,6 +469,10 @@ There are three operational modes:
     )
 
     cmdline_parser.add_argument(
+        '--timing', action='store_true', help='Emit timing information to stderr.'
+    )
+
+    cmdline_parser.add_argument(
         '-t', '--test', action='store_true', default=False, help='Self-test'
     )
 
@@ -496,7 +500,7 @@ There are three operational modes:
         lines = args.addresses
     else:
         if sys.stdin.isatty():
-            lines = read_backtrace(sys.stdin)
+            lines = list(read_backtrace(sys.stdin))
         else:
             lines = sys.stdin
 
@@ -508,9 +512,13 @@ There are three operational modes:
         verbose=args.verbose,
         cmd_path=args.addr2line,
         debug=args.debug,
+        timing=args.timing,
     ) as resolve:
-        for line in list(lines):
+        resolve_start = resolve.timing_now()
+        for line in lines:
             resolve(line.strip() + '\n')
+        resolve.timing_print_from_start(resolve_start, 'full resolve loop')
+        resolve.print_resolve_time()
 
 
 if __name__ == '__main__':
