@@ -23,6 +23,7 @@
 module;
 #endif
 
+#include <fmt/format.h>
 #include <string_view>
 #include <utility>
 
@@ -39,17 +40,27 @@ namespace seastar {
 namespace http {
 
 sstring request::format_url() const {
-    sstring query = "";
-    sstring delim = "?";
-    for (const auto& p : query_parameters) {
-        query += delim + internal::url_encode(p.first);
-        if (!p.second.empty()) {
-            query += "=" + internal::url_encode(p.second);
-        }
-        delim = "&";
+    if (query_parameters.empty()) {
+        return _url;
     }
-    return _url + query;
+
+    std::vector<sstring> components;
+    for (const auto& [key, values] : query_parameters) {
+        auto encoded_key = internal::url_encode(key);
+        if (values.empty()) {
+            components.push_back(encoded_key);
+        } else {
+            for (const auto& value : values) {
+                if (!value.empty()) {
+                    components.push_back(encoded_key + "=" + internal::url_encode(value));
+                }
+            }
+        }
+    }
+
+    return fmt::format("{}?{}", _url, fmt::join(components, "&"));
 }
+
 
 sstring request::request_line() const {
     SEASTAR_ASSERT(!_version.empty());
@@ -69,20 +80,21 @@ void request::add_query_param(std::string_view param) {
     if (split >= param.length() - 1) {
         sstring key;
         if (http::internal::url_decode(param.substr(0,split) , key)) {
-            query_parameters[key] = "";
+            query_parameters[key] = {};
         }
     } else {
         sstring key;
         sstring value;
         if (http::internal::url_decode(param.substr(0,split), key)
                 && http::internal::url_decode(param.substr(split + 1), value)) {
-            query_parameters[key] = std::move(value);
+            query_parameters[key].emplace_back(std::move(value));
         }
     }
 
 }
 
 sstring request::parse_query_param() {
+    query_parameters.clear();
     size_t pos = _url.find('?');
     if (pos == sstring::npos) {
         return _url;

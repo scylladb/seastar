@@ -64,7 +64,7 @@ struct request {
     size_t content_length = 0;
     mutable size_t _bytes_written = 0;
     std::unordered_map<sstring, sstring, seastar::internal::case_insensitive_hash, seastar::internal::case_insensitive_cmp> _headers;
-    std::unordered_map<sstring, sstring> query_parameters;
+    std::unordered_map<sstring, std::vector<sstring>> query_parameters;
     httpd::parameters param;
     sstring content; // server-side deprecated: use content_stream instead
     /*
@@ -116,6 +116,19 @@ struct request {
         auto res = query_parameters.find(key);
         if (res == query_parameters.end()) {
             return "";
+        }
+        return res->second.back();
+    }
+
+    /**
+     * Search for all query parameters of a given key
+     * @param key the query paramerter key
+     * @return a vector of all query parameter values, if it exists or an empty vector
+     */
+    std::vector<sstring> get_query_param_array(const sstring& key) const {
+        auto res = query_parameters.find(key);
+        if (res == query_parameters.end()) {
+            return {};
         }
         return res->second;
     }
