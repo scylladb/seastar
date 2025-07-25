@@ -1357,7 +1357,7 @@ SEASTAR_THREAD_TEST_CASE(test_dn_name_handling) {
     // - mtls_client2.crt - second client certificate
     //
     // The test runs server that uses mtls_server.crt.
-    // The server accepts two incomming connections, first one uses mtls_client1.crt
+    // The server accepts two incoming connections, first one uses mtls_client1.crt
     // and the second one uses mtls_client2.crt. Every client sends a short string
     // that server receives and tries to find it in the DN string.
 
@@ -1735,7 +1735,7 @@ SEASTAR_THREAD_TEST_CASE(test_tls13_session_tickets_invalidated_by_reload) {
     namespace fs = std::filesystem;
 
     // copy the wrong certs. We don't trust these
-    // blocking calls, but this is a test and seastar does not have a copy 
+    // blocking calls, but this is a test and seastar does not have a copy
     // util and I am lazy...
     fs::copy_file(certfile("test.crt"), tmp.path() / "test.crt");
     fs::copy_file(certfile("test.key"), tmp.path() / "test.key");
@@ -1858,7 +1858,7 @@ SEASTAR_THREAD_TEST_CASE(test_reload_certificates_with_only_shard0_notify) {
     namespace fs = std::filesystem;
 
     // copy the wrong certs. We don't trust these
-    // blocking calls, but this is a test and seastar does not have a copy 
+    // blocking calls, but this is a test and seastar does not have a copy
     // util and I am lazy...
     fs::copy_file(certfile("other.crt"), tmp.path() / "test.crt");
     fs::copy_file(certfile("other.key"), tmp.path() / "test.key");
@@ -1973,4 +1973,19 @@ SEASTAR_THREAD_TEST_CASE(test_reload_certificates_with_only_shard0_notify) {
 
         BOOST_CHECK_EQUAL(sstring(buf.begin(), buf.end()), "apa");
     }
+}
+
+SEASTAR_TEST_CASE(test_tls_cipher_suite_and_protocol_version, *enable_if_with_networking()) {
+    auto certs = ::make_shared<tls::certificate_credentials>();
+    co_await certs->set_system_trust();
+
+    auto c = co_await tls::connect(certs, co_await google_address(), tls::tls_options{ .server_name = google_name });
+    BOOST_CHECK_EQUAL(co_await tls::get_cipher_suite(c), "TLS_AES_256_GCM_SHA384");
+    BOOST_CHECK_EQUAL(co_await tls::get_protocol_version(c), "TLS1.3");
+}
+
+SEASTAR_TEST_CASE(test_cipher_suite_and_protocol_version_for_non_tls_connection, *enable_if_with_networking()) {
+    auto c = co_await seastar::connect(co_await google_address());
+    BOOST_CHECK_THROW(co_await tls::get_cipher_suite(c), std::invalid_argument);
+    BOOST_CHECK_THROW(co_await tls::get_protocol_version(c), std::invalid_argument);
 }
