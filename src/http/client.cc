@@ -77,7 +77,7 @@ connection::connection(connected_socket&& fd, internal::client_ref cr)
 future<> connection::write_body(const request& req) {
     if (req.body_writer) {
         if (req.content_length != 0) {
-            return req.body_writer(internal::make_http_content_length_output_stream(_write_buf, req.content_length, req._bytes_written)).then([&req] {
+            return (*req.body_writer)(internal::make_http_content_length_output_stream(_write_buf, req.content_length, req._bytes_written)).then([&req] {
                 if (req.content_length == req._bytes_written) {
                     return make_ready_future<>();
                 } else {
@@ -85,7 +85,7 @@ future<> connection::write_body(const request& req) {
                 }
             });
         }
-        return req.body_writer(internal::make_http_chunked_output_stream(_write_buf)).then([this] {
+        return (*req.body_writer)(internal::make_http_chunked_output_stream(_write_buf)).then([this] {
             return _write_buf.write("0\r\n\r\n");
         });
     } else if (!req.content.empty()) {
