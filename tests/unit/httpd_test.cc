@@ -224,6 +224,14 @@ SEASTAR_TEST_CASE(test_decode_url) {
     req.parse_query_param();
     BOOST_REQUIRE_EQUAL(req.get_query_param("a"), "#$#");
     BOOST_REQUIRE_EQUAL(req.get_query_param("b"), "\"&\"");
+    req._url = "/a?b=%22%26%22&a=%21&b=%23%24%23&a=%23%24%23";
+    req.parse_query_param();
+    auto b = req.get_query_param_array("b");
+    auto expected_b = std::vector<sstring>{"\"&\"", "#$#"};
+    BOOST_REQUIRE_EQUAL_COLLECTIONS(b.begin(), b.end(), expected_b.begin(), expected_b.end());
+    auto a = req.get_query_param_array("a");
+    auto expected_a = std::vector<sstring>{"!", "#$#"};
+    BOOST_REQUIRE_EQUAL_COLLECTIONS(a.begin(), a.end(), expected_a.begin(), expected_a.end());
     return make_ready_future<>();
 }
 
@@ -1917,8 +1925,8 @@ SEASTAR_TEST_CASE(test_url_encode_decode) {
 SEASTAR_TEST_CASE(test_url_param_encode_decode) {
     http::request to_send;
     to_send._url = "/foo/bar";
-    to_send.query_parameters["a"] = "a+a*a";
-    to_send.query_parameters["b"] = "b/b\%b";
+    to_send.query_parameters["a"] = {"a+a*a"};
+    to_send.query_parameters["b"] = {"b/b\%b"};
 
     http::request to_recv;
     to_recv._url = to_send.format_url();
@@ -1932,6 +1940,28 @@ SEASTAR_TEST_CASE(test_url_param_encode_decode) {
         BOOST_REQUIRE_EQUAL(it->second, p.second);
     }
 
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_url_param_encode_decode_multiple) {
+    http::request to_send;
+    to_send._url = "/foo/bar";
+    to_send.query_parameters["a"] = {"a+a*a", "a/a\%a", "a a"};
+    to_send.query_parameters["b"] = {"b/b\%b"};
+
+    http::request to_recv;
+    to_recv._url = to_send.format_url();
+    sstring url = to_recv.parse_query_param();
+    BOOST_REQUIRE_EQUAL(url, to_send._url);
+    BOOST_REQUIRE_EQUAL(to_recv.query_parameters.size(), to_send.query_parameters.size());
+    for (const auto& p : to_send.query_parameters) {
+        auto it = to_recv.query_parameters.find(p.first);
+        BOOST_REQUIRE(it != to_recv.query_parameters.end());
+        BOOST_REQUIRE_EQUAL(it->second.size(), p.second.size());
+        for (size_t i = 0; i < p.second.size(); ++i) {
+            BOOST_REQUIRE_EQUAL(it->second[i], p.second[i]);
+        }
+    }
     return make_ready_future<>();
 }
 
