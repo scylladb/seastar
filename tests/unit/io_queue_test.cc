@@ -97,6 +97,14 @@ struct io_queue_for_tests {
     future<size_t> queue_request(internal::priority_class pc, internal::io_direction_and_length dnl, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
         return queue.queue_request(pc, dnl, std::move(req), intent, std::move(iovs));
     }
+
+    size_t max_request_length(int dnl_idx) const noexcept {
+        return group->max_request_length(dnl_idx);
+    }
+
+    constexpr size_t request_length_limit() const noexcept {
+        return io_group::request_length_limit;
+    }
 };
 
 internal::priority_class get_default_pc() {
@@ -561,5 +569,20 @@ SEASTAR_THREAD_TEST_CASE(test_tb_params) {
         BOOST_CHECK((d.write_req_rate - iops_write) / d.write_req_rate < error_margin);
         BOOST_CHECK((d.read_bytes_rate - bandwidth_read) / d.read_bytes_rate < error_margin);
         BOOST_CHECK((d.write_bytes_rate - bandwidth_write) / d.write_bytes_rate < error_margin);
+    }
+}
+
+SEASTAR_THREAD_TEST_CASE(test_unconfigured_io_queue) {
+    io_queue_for_tests tio;
+
+    BOOST_CHECK_EQUAL(tio.max_request_length(internal::io_direction_and_length::read_idx), tio.request_length_limit());
+    BOOST_CHECK_EQUAL(tio.max_request_length(internal::io_direction_and_length::write_idx), tio.request_length_limit());
+
+    for (uint64_t reqsize = 512; reqsize < 128 << 10; reqsize <<= 1) {
+        auto cost_read = tio.queue.request_capacity(internal::io_direction_and_length(internal::io_direction_and_length::read_idx, reqsize));
+        auto cost_write = tio.queue.request_capacity(internal::io_direction_and_length(internal::io_direction_and_length::write_idx, reqsize));
+
+        BOOST_CHECK_EQUAL(cost_read, 0);
+        BOOST_CHECK_EQUAL(cost_write, 0);
     }
 }
