@@ -1569,12 +1569,14 @@ public:
             ssize_t n; // Set on the good path and unused on the bad path
 
             if (!_output_pending.failed()) {
-                scattered_message<char> msg;
+                std::vector<temporary_buffer<char>> msg;
+                msg.reserve(iovcnt);
+                n = 0;
                 for (int i = 0; i < iovcnt; ++i) {
-                    msg.append(std::string_view(reinterpret_cast<const char *>(iov[i].iov_base), iov[i].iov_len));
+                    msg.emplace_back(reinterpret_cast<const char*>(iov[i].iov_base), iov[i].iov_len);
+                    n += iov[i].iov_len;
                 }
-                n = msg.size();
-                _output_pending = _out.put(std::move(msg).release());
+                _output_pending = _out.put(std::move(msg));
             }
             if (_output_pending.failed()) {
                 // exception is copied back into _output_pending
