@@ -42,7 +42,7 @@ future<> connection::handle_pong() {
     return make_ready_future<>();
 }
 
-future<> connection::send_data(opcodes opcode, temporary_buffer<char>&& buff) {
+future<> connection::send_data(opcodes opcode, temporary_buffer<char> buff) {
     char header[10] = {'\x80', 0};
     size_t header_size = 2;
 
@@ -60,12 +60,9 @@ future<> connection::send_data(opcodes opcode, temporary_buffer<char>&& buff) {
         header[1] = uint8_t(buff.size());
     }
 
-    scattered_message<char> msg;
-    msg.append(sstring(header, header_size));
-    msg.append(std::move(buff));
-    return _write_buf.write(std::move(msg)).then([this] {
-        return _write_buf.flush();
-    });
+    co_await _write_buf.write(header, header_size);
+    co_await _write_buf.write(std::move(buff));
+    co_await _write_buf.flush();
 }
 
 future<> connection::response_loop() {
