@@ -182,13 +182,13 @@ public:
     }
     using data_sink_impl::put;
     virtual future<> put(temporary_buffer<char> buf) override {
-        if (buf.size() == 0 || _bytes_written == _limit) {
+        auto size = buf.size();
+        if (size == 0) {
             return make_ready_future<>();
         }
 
-        auto size = buf.size();
         if (_bytes_written + size > _limit) {
-            return make_exception_future<>(std::runtime_error(format("body conent length overflow: want {} limit {}", _bytes_written + buf.size(), _limit)));
+            return make_exception_future<>(std::runtime_error(format("body content length overflow: want {} limit {}", _bytes_written + buf.size(), _limit)));
         }
 
         return _out.write(buf.get(), size).then([this, size] {
