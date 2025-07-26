@@ -24,7 +24,6 @@
 #include <seastar/core/loop.hh>
 #include <seastar/util/defer.hh>
 #include <seastar/util/log.hh>
-#include <seastar/core/scattered_message.hh>
 #include <seastar/http/request.hh>
 
 namespace seastar::experimental::websocket {
