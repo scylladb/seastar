@@ -152,8 +152,8 @@ public:
 SEASTAR_MODULE_EXPORT
 class reactor {
 private:
-    struct task_queue;
-    using task_queue_list = circular_buffer_fixed_capacity<task_queue*, 1 << log2ceil(max_scheduling_groups())>;
+    struct sched_entity;
+    using scheduler_list = circular_buffer_fixed_capacity<sched_entity*, 1 << log2ceil(max_scheduling_groups())>;
     using pollfn = seastar::pollfn;
 
     class signal_pollfn;
@@ -264,17 +264,36 @@ private:
     uint64_t _fsyncs = 0;
     uint64_t _cxx_exceptions = 0;
     uint64_t _abandoned_failed_futures = 0;
-    struct task_queue {
-        explicit task_queue(unsigned id, sstring name, sstring shortname, float shares);
+
+    struct task_queue_group;
+
+    struct sched_entity {
+    protected:
+        explicit sched_entity(task_queue_group* p, float shares);
+        ~sched_entity();
+    public:
         int64_t _vruntime = 0;
         float _shares;
         int64_t _reciprocal_shares_times_2_power_32;
         bool _active = false;
-        const uint8_t _id;
+        task_queue_group* _parent = nullptr;
+
         sched_clock::time_point _ts; // to help calculating wait/starve-times
         sched_clock::duration _runtime = {};
         sched_clock::duration _waittime = {};
         sched_clock::duration _starvetime = {};
+        sched_clock::duration _time_spent_on_task_quota_violations = {};
+
+        void set_shares(float shares) noexcept;
+
+        virtual bool run_tasks() = 0;
+        void wakeup();
+        int64_t to_vruntime(sched_clock::duration runtime) const;
+    };
+
+    struct task_queue final : public sched_entity {
+        explicit task_queue(task_queue_group* p, unsigned id, sstring name, sstring shortname, float shares);
+        const uint8_t _id;
         uint64_t _tasks_processed = 0;
         circular_buffer<task*> _q;
         sstring _name;
@@ -282,22 +301,39 @@ private:
         // chars are used.
         static constexpr size_t shortname_size = 4;
         sstring _shortname;
-        int64_t to_vruntime(sched_clock::duration runtime) const;
-        void set_shares(float shares) noexcept;
         struct indirect_compare;
-        sched_clock::duration _time_spent_on_task_quota_violations = {};
         seastar::metrics::metric_groups _metrics;
+        virtual bool run_tasks() override;
         void rename(sstring new_name, sstring new_shortname);
     private:
         void register_stats();
     };
 
+    struct task_queue_group final : public sched_entity {
+        explicit task_queue_group(task_queue_group* p, float shares);
+
+        int64_t _last_vruntime = 0;
+        scheduler_list _active;
+        scheduler_list _activating;;
+        unsigned _nr_children = 0;
+
+        virtual bool run_tasks() override;
+        void run_some_tasks();
+
+        bool active() const noexcept;
+        void activate(sched_entity*);
+    private:
+        void insert_active_entity(sched_entity*);
+        sched_entity* pop_active_entity(sched_clock::time_point now);
+        void insert_activating_entities();
+        void account_runtime(reactor&, sched_entity&, sched_clock::duration runtime);
+    };
+
+    task_queue_group _cpu_sched;
+    std::vector<std::unique_ptr<task_queue_group>> _supergroups;
     std::array<std::unique_ptr<task_queue>, max_scheduling_groups()> _task_queues;
     internal::scheduling_group_specific_thread_local_data _scheduling_group_specific_data;
     shared_mutex _scheduling_group_keys_mutex;
-    int64_t _last_vruntime = 0;
-    task_queue_list _active_task_queues;
-    task_queue_list _activating_task_queues;
     task_queue* _at_destroy_tasks;
     task* _current_task = nullptr;
     /// Handler that will be called when there is no task to execute on cpu.
@@ -399,17 +435,10 @@ private:
     friend void handle_signal(int signo, noncopyable_function<void ()>&& handler, bool once);
 
     uint64_t pending_task_count() const;
-    void run_tasks(task_queue& tq);
     bool have_more_tasks() const;
     bool posix_reuseport_detect();
-    void run_some_tasks();
-    void activate(task_queue& tq);
-    void insert_active_task_queue(task_queue* tq);
-    task_queue* pop_active_task_queue(sched_clock::time_point now);
-    void insert_activating_task_queues();
-    void account_runtime(task_queue& tq, sched_clock::duration runtime);
     future<> rename_scheduling_group_specific_data(scheduling_group sg);
-    future<> init_scheduling_group(scheduling_group sg, sstring name, sstring shortname, float shares);
+    future<> init_scheduling_group(scheduling_group sg, sstring name, sstring shortname, float shares, scheduling_supergroup p);
     future<> init_new_scheduling_group_key(scheduling_group_key key, scheduling_group_key_config cfg);
     future<> destroy_scheduling_group(scheduling_group sg) noexcept;
     uint64_t tasks_processed() const;
@@ -678,17 +707,21 @@ private:
     friend class smp;
     friend class internal::poller;
     friend class scheduling_group;
+    friend class scheduling_supergroup;
     friend void internal::add_to_flush_poller(output_stream<char>& os) noexcept;
     friend void seastar::internal::increase_thrown_exceptions_counter() noexcept;
     friend void seastar::internal::increase_internal_errors_counter() noexcept;
     friend void internal::report_failed_future(const std::exception_ptr& eptr) noexcept;
     metrics::metric_groups _metric_groups;
-    friend future<scheduling_group> create_scheduling_group(sstring name, sstring shortname, float shares) noexcept;
+    friend future<scheduling_group> create_scheduling_group(sstring name, sstring shortname, float shares, scheduling_supergroup) noexcept;
+    friend future<scheduling_supergroup> create_scheduling_supergroup(float shares) noexcept;
+    friend future<> destroy_scheduling_supergroup(scheduling_supergroup sg) noexcept;
     friend future<> seastar::destroy_scheduling_group(scheduling_group) noexcept;
     friend future<> seastar::rename_scheduling_group(scheduling_group sg, sstring new_name, sstring new_shortname) noexcept;
     friend future<scheduling_group_key> scheduling_group_key_create(scheduling_group_key_config cfg) noexcept;
     friend seastar::internal::log_buf::inserter_iterator do_dump_task_queue(seastar::internal::log_buf::inserter_iterator it, const task_queue& tq);
     friend void internal::set_current_task(task* t);
+    friend scheduling_supergroup internal::scheduling_supergroup_for(scheduling_group sg) noexcept;
 
     future<struct statfs> fstatfs(int fd) noexcept;
     friend future<shared_ptr<file_impl>> make_file_impl(int fd, file_open_options options, int flags, struct stat st) noexcept;

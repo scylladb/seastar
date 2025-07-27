@@ -45,6 +45,7 @@ class reactor;
 
 class scheduling_group;
 class scheduling_group_key;
+class scheduling_supergroup;
 
 using sched_clock = std::chrono::steady_clock;
 SEASTAR_MODULE_EXPORT_END
@@ -60,9 +61,32 @@ unsigned long scheduling_group_key_id(scheduling_group_key) noexcept;
 template<typename T>
 T* scheduling_group_get_specific_ptr(scheduling_group sg, scheduling_group_key key) noexcept;
 
+scheduling_supergroup scheduling_supergroup_for(scheduling_group sg) noexcept;
+
 }
 
 SEASTAR_MODULE_EXPORT_BEGIN
+
+/// Creates a scheduling supergroup with a specified number of shares.
+///
+/// The operation is global and affects all shards. The returned scheduling
+/// supergroup can then be used in any shard.
+///
+/// \param shares number of shares of the CPU time allotted to the group;
+///              Use numbers in the 1-1000 range (but can go above).
+/// \return a scheduling supergroup that can be used on any shard
+future<scheduling_supergroup> create_scheduling_supergroup(float shares) noexcept;
+
+/// Destroys a scheduling supergroup.
+///
+/// Destroys a \ref scheduling_supergroup previously created with create_scheduling_supergroup().
+/// The destroyed group must not be populated with sub-groups use and must not be used later.
+///
+/// The operation is global and affects all shards.
+///
+/// \param sg The scheduling supergroup to be destroyed
+/// \return a future that is ready when the scheduling supergroup has been torn down
+future<> destroy_scheduling_supergroup(scheduling_supergroup sg) noexcept;
 
 /// Creates a scheduling group with a specified number of shares.
 ///
@@ -90,6 +114,22 @@ future<scheduling_group> create_scheduling_group(sstring name, float shares) noe
 ///              Use numbers in the 1-1000 range (but can go above).
 /// \return a scheduling group that can be used on any shard
 future<scheduling_group> create_scheduling_group(sstring name, sstring shortname, float shares) noexcept;
+
+/// Creates a scheduling group with a specified number of shares.
+///
+/// The operation is global and affects all shards. The returned scheduling
+/// group can then be used in any shard.
+///
+/// \param name A name that identifies the group; will be used as a label
+///             in the group's metrics
+/// \param shortname A name that identifies the group; will be printed in the
+///                  logging message aside of the shard id. please note, the
+///                  \c shortname will be truncated to 4 characters.
+/// \param shares number of shares of the CPU time allotted to the group;
+///              Use numbers in the 1-1000 range (but can go above).
+/// \param parent the supergroup to create the group in
+/// \return a scheduling group that can be used on any shard
+future<scheduling_group> create_scheduling_group(sstring name, sstring shortname, float shares, scheduling_supergroup parent) noexcept;
 
 /// Destroys a scheduling group.
 ///
@@ -285,6 +325,42 @@ future<scheduling_group_key> scheduling_group_key_create(scheduling_group_key_co
 template<typename T>
 T& scheduling_group_get_specific(scheduling_group sg, scheduling_group_key key);
 
+class scheduling_supergroup {
+    unsigned _id;
+private:
+    explicit scheduling_supergroup(unsigned index) noexcept : _id(index + 1) {}
+public:
+    bool is_root() const noexcept { return _id == 0; }
+    unsigned index() const noexcept { return _id - 1; } // assumes that it's not root
+    /// Creates a `scheduling_supergroup` object denoting the root supergroup
+    scheduling_supergroup() noexcept : _id(0) {}
+    bool operator==(scheduling_supergroup x) const noexcept { return _id == x._id; }
+    bool operator!=(scheduling_supergroup x) const noexcept { return _id != x._id; }
+
+    friend future<scheduling_supergroup> create_scheduling_supergroup(float shares) noexcept;
+    friend scheduling_supergroup internal::scheduling_supergroup_for(scheduling_group sg) noexcept;
+    friend class reactor;
+
+    /// Adjusts the number of shares allotted to the supergroup.
+    ///
+    /// Dynamically adjust the number of shares allotted to the group, increasing or
+    /// decreasing the amount of CPU bandwidth it gets. The adjustment is local to
+    /// the shard.
+    ///
+    /// This can be used to reduce a background job's interference with a foreground
+    /// load: the shares can be started at a low value, increased when the background
+    /// job's backlog increases, and reduced again when the backlog decreases.
+    ///
+    /// \param shares number of shares allotted to the group. Use numbers
+    ///               in the 1-1000 range.
+    void set_shares(float shares) noexcept;
+
+    /// Returns the number of shares the supergroup has
+    ///
+    /// Similarly to the \ref set_shares, the returned value is only relevant to
+    /// the calling shard
+    float get_shares() const noexcept;
+};
 
 /// \brief Identifies function calls that are accounted as a group
 ///
@@ -343,7 +419,7 @@ public:
     /// \return a future that is ready when the bandwidth update is applied
     future<> update_io_bandwidth(uint64_t bandwidth) const;
 
-    friend future<scheduling_group> create_scheduling_group(sstring name, sstring shortname, float shares) noexcept;
+    friend future<scheduling_group> create_scheduling_group(sstring name, sstring shortname, float shares, scheduling_supergroup) noexcept;
     friend future<> destroy_scheduling_group(scheduling_group sg) noexcept;
     friend future<> rename_scheduling_group(scheduling_group sg, sstring new_name, sstring new_shortname) noexcept;
     friend class reactor;
