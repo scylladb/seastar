@@ -22,6 +22,7 @@
 #pragma once
 
 #ifndef SEASTAR_MODULE
+#include <concepts>
 #include <type_traits>
 #include <utility>
 #include <functional>
@@ -631,15 +632,15 @@ private:
             v >>= 8;
         }
     }
-    template<typename V>
-    std::enable_if_t<std::is_integral_v<V>, uint64_t> convert(
+    template<std::integral V>
+    uint64_t convert(
             V v) const {
         uint64_t i = v;
         // network byte order
         return ntohq(i);
     }
-    template<typename V>
-    std::enable_if_t<std::is_floating_point_v<V>, uint64_t> convert(
+    template<std::floating_point V>
+    uint64_t convert(
             V t) const {
         union {
             uint64_t i;
