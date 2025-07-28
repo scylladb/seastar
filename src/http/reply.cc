@@ -44,13 +44,17 @@ module seastar;
 #include <seastar/core/loop.hh>
 #endif
 
+template<>
+struct std::hash<seastar::http::status_type> : public std::hash<int>
+{};
+
 namespace seastar {
 
 namespace http {
 
 namespace status_strings {
 
-static const std::unordered_map<reply::status_type, std::string_view> status_strings = {
+static const std::unordered_map<status_type, std::string_view> status_strings = {
     {reply::status_type::continue_, "100 Continue"},
     {reply::status_type::switching_protocols, "101 Switching Protocols"},
     {reply::status_type::ok, "200 OK"},
@@ -100,7 +104,7 @@ static const std::unordered_map<reply::status_type, std::string_view> status_str
     {reply::status_type::network_connect_timeout, "599 Network Connect Timeout"}};
 
 template<typename Func>
-static auto with_string_view(reply::status_type status, Func&& func) -> std::invoke_result_t<Func, std::string_view> {
+static auto with_string_view(status_type status, Func&& func) -> std::invoke_result_t<Func, std::string_view> {
   if (auto found = status_strings.find(status); found != status_strings.end()) [[likely]] {
      return func(found->second);
   }
@@ -110,10 +114,14 @@ static auto with_string_view(reply::status_type status, Func&& func) -> std::inv
 
 } // namespace status_strings
 
-std::ostream& operator<<(std::ostream& os, reply::status_type st) {
+std::ostream& operator<<(std::ostream& os, status_type st) {
     return status_strings::with_string_view(st, [&](std::string_view txt) -> std::ostream& {
         return os << txt;
     });
+}
+
+std::ostream& operator<<(std::ostream& os, status_type::status_init st) {
+    return os << status_type(st);
 }
 
 sstring reply::response_line() const {
