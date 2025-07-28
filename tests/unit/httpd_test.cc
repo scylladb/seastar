@@ -2178,3 +2178,45 @@ SEASTAR_TEST_CASE(test_client_close_connection) {
         }
     });
 }
+
+static constexpr http::status_type my_http_status(555);
+static const auto my_http_status_name = http::bind_status_name(my_http_status, "My Super Error");
+
+SEASTAR_TEST_CASE(test_formatting_custom_error) {
+    BOOST_REQUIRE_EQUAL(fmt::format("{} {}", int(my_http_status), my_http_status_name), fmt::format("{}", my_http_status));
+
+    try {
+        throw httpd::unexpected_status_error(my_http_status);
+    } catch (const std::exception& ex) {
+        BOOST_REQUIRE_EQUAL(sstring(ex.what()), format("{}", my_http_status));
+    }
+
+    http::reply r;
+    r.set_version("1.1");
+    r.set_status(my_http_status);
+
+    BOOST_REQUIRE_EQUAL(
+        fmt::format("HTTP/1.1 {} {}\r\n", int(my_http_status), my_http_status_name), 
+        r.response_line()
+    );
+
+    // just checking that expected 
+    // value switch expression works.
+    switch (r._status) {
+    case my_http_status: break; // ok
+    case http::status_type::ok:
+    default:
+        BOOST_FAIL("wrong value");
+    }
+
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_cannot_bind_status_name_in_runtime) {
+    constexpr http::status_type my_borked_http_status(556);
+    BOOST_REQUIRE_THROW(
+        http::bind_status_name(my_borked_http_status, "My Broken Error"),
+        std::runtime_error
+    );
+    return make_ready_future<>();
+}

@@ -331,6 +331,26 @@ private:
 std::ostream& operator<<(std::ostream& os, status_type st);
 std::ostream& operator<<(std::ostream& os, status_type::status_init st);
 
+/**
+ * Binds a defined status value to a lexical name. 
+ * Must be called at dlload time (i.e. as a static const declaraion
+ * on file level), as this modifies a structure that must be readonly
+ * during reactor runtime.
+ * 
+ * Pattern:
+ * 
+ * .hh file:
+ * constexpr seastar::http::status_type MY_ERROR(<number>);
+ * 
+ * .cc file
+ * 
+ * static const auto init_my_error = seastar::http::bind_status_name(MY_ERROR, "My Error that is nice");
+ * 
+ * @return a view of the bound string name.
+ *
+ */
+std::string_view bind_status_name(status_type, std::string_view);
+
 } // namespace http
 
 namespace httpd {
