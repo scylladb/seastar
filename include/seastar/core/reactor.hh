@@ -179,7 +179,6 @@ private:
     friend class reactor_backend_aio;
     friend class reactor_backend_uring;
     friend class reactor_backend_selector;
-    friend class io_queue; // for aio statistics
     friend struct reactor_options;
     friend class aio_storage_context;
 public:
@@ -205,6 +204,7 @@ public:
     private:
         friend class file_data_source_impl;
         friend void io_completion::complete_with(ssize_t);
+        friend class io_queue;
         static io_stats& local() noexcept;
     };
     /// Scheduling statistics.
