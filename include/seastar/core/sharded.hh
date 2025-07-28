@@ -202,14 +202,14 @@ private:
     friend struct shared_ptr_make_helper;
 
     template <typename T>
-    std::enable_if_t<std::is_base_of_v<peering_sharded_service<T>, T>>
-    set_container(T& service) noexcept {
+    requires std::is_base_of_v<peering_sharded_service<T>, T>
+    void set_container(T& service) noexcept {
         service.set_container(this);
     }
 
     template <typename T>
-    std::enable_if_t<!std::is_base_of_v<peering_sharded_service<T>, T>>
-    set_container(T&) noexcept {
+    requires (!std::is_base_of_v<peering_sharded_service<T>, T>)
+    void set_container(T&) noexcept {
     }
 
     future<>
