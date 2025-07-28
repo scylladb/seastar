@@ -581,12 +581,6 @@ bool is_abort_on_ebadf_enabled() {
     return abort_on_ebadf.load();
 }
 
-timespec to_timespec(steady_clock_type::time_point t) {
-    using ns = std::chrono::nanoseconds;
-    auto n = std::chrono::duration_cast<ns>(t.time_since_epoch()).count();
-    return { n / 1'000'000'000, n % 1'000'000'000 };
-}
-
 void lowres_clock::update() noexcept {
     lowres_clock::_now = lowres_clock::time_point(std::chrono::steady_clock::now().time_since_epoch());
     lowres_system_clock::_now = lowres_system_clock::time_point(std::chrono::system_clock::now().time_since_epoch());
@@ -2412,7 +2406,7 @@ void reactor::enable_timer(steady_clock_type::time_point when) noexcept
 {
     itimerspec its;
     its.it_interval = {};
-    its.it_value = to_timespec(when);
+    its.it_value = posix::to_timespec(when.time_since_epoch());
     _backend->arm_highres_timer(its);
 }
 
