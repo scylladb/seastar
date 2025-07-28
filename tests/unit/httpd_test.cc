@@ -856,7 +856,7 @@ SEASTAR_TEST_CASE(content_length_limit) {
             output.flush().get();
             resp = input.read().get();
             BOOST_REQUIRE_EQUAL(std::string(resp.get(), resp.size()).find("200 OK"), std::string::npos);
-            BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("413 Payload Too Large"), std::string::npos);
+            BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("413 Content Too Large"), std::string::npos);
 
             input.close().get();
             output.close().get();
@@ -1333,7 +1333,7 @@ SEASTAR_TEST_CASE(test_100_continue) {
             output.flush().get();
             auto resp = input.read().get();
             BOOST_REQUIRE_EQUAL(std::string(resp.get(), resp.size()).find("100 Continue"), std::string::npos);
-            BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("413 Payload Too Large"), std::string::npos);
+            BOOST_REQUIRE_NE(std::string(resp.get(), resp.size()).find("413 Content Too Large"), std::string::npos);
 
             input.close().get();
             output.close().get();

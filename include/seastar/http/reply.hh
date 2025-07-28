@@ -94,6 +94,12 @@ struct status_type {
         }
     };
 
+    // The following list of status codes is part of the HTTP standard,
+    // and are defined in RFC 9110, and in a few case in older RFCs as
+    // listed in IANA's "HTTP Status Code Registry". Please do not add
+    // to this list non-standard error codes. Seastar applications should
+    // be able to use non-standard error codes, but shouldn't expect
+    // Seastar to give them official names.
     static constexpr status_init continue_{100}; //!< continue
     static constexpr status_init switching_protocols{101}; //!< switching_protocols
     static constexpr status_init ok{200}; //!< ok
@@ -106,6 +112,7 @@ struct status_type {
     static constexpr status_init multiple_choices{300}; //!< multiple_choices
     static constexpr status_init moved_permanently{301}; //!< moved_permanently
     static constexpr status_init moved_temporarily{302}; //!< moved_temporarily
+    static constexpr status_init found{moved_temporarily}; //!< found is modern name for moved_temporarily
     static constexpr status_init see_other{303}; //!< see_other
     static constexpr status_init not_modified{304}; //!< not_modified
     static constexpr status_init use_proxy{305}; //!< use_proxy
@@ -118,15 +125,19 @@ struct status_type {
     static constexpr status_init not_found{404}; //!< not_found
     static constexpr status_init method_not_allowed{405}; //!< method_not_allowed
     static constexpr status_init not_acceptable{406}; //!< not_acceptable
+    static constexpr status_init proxy_authentication_required{407}; //<! proxy_authentication_required
     static constexpr status_init request_timeout{408}; //!< request_timeout
     static constexpr status_init conflict{409}; //!< conflict
     static constexpr status_init gone{410}; //!< gone
     static constexpr status_init length_required{411}; //!< length_required
+    static constexpr status_init precondition_failed{412}; //!< precondition_failed
     static constexpr status_init payload_too_large{413}; //!< payload_too_large
     static constexpr status_init uri_too_long{414}; //!< uri_too_long
     static constexpr status_init unsupported_media_type{415}; //!< unsupported_media_type
+    static constexpr status_init range_not_satisfiable{416}; //!< range_not_satisfiable
     static constexpr status_init expectation_failed{417}; //!< expectation_failed
     static constexpr status_init page_expired{419}; //!< page_expired
+    static constexpr status_init misdirected_request{421}; //!< misdirected_request
     static constexpr status_init unprocessable_entity{422}; //!< unprocessable_entity
     static constexpr status_init upgrade_required{426}; //!< upgrade_required
     static constexpr status_init too_many_requests{429}; //!< too_many_requests

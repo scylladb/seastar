@@ -68,7 +68,7 @@ static auto& status_strings() {
         {reply::status_type::partial_content, "Partial Content"},
         {reply::status_type::multiple_choices, "Multiple Choices"},
         {reply::status_type::moved_permanently, "Moved Permanently"},
-        {reply::status_type::moved_temporarily, "Moved Temporarily"},
+        {reply::status_type::moved_temporarily, "Found"},
         {reply::status_type::see_other, "See Other"},
         {reply::status_type::not_modified, "Not Modified"},
         {reply::status_type::use_proxy, "Use Proxy"},
@@ -81,16 +81,20 @@ static auto& status_strings() {
         {reply::status_type::not_found, "Not Found"},
         {reply::status_type::method_not_allowed, "Method Not Allowed"},
         {reply::status_type::not_acceptable, "Not Acceptable"},
+        {reply::status_type::proxy_authentication_required, "Proxy Authentication Required"},
         {reply::status_type::request_timeout, "Request Timeout"},
         {reply::status_type::conflict, "Conflict"},
         {reply::status_type::gone, "Gone"},
         {reply::status_type::length_required, "Length Required"},
-        {reply::status_type::payload_too_large, "Payload Too Large"},
+        {reply::status_type::precondition_failed, "Precondition Failed"},
+        {reply::status_type::payload_too_large, "Content Too Large"},
         {reply::status_type::uri_too_long, "URI Too Long"},
         {reply::status_type::unsupported_media_type, "Unsupported Media Type"},
+        {reply::status_type::range_not_satisfiable, "Range Not Satisfiable"},
         {reply::status_type::expectation_failed, "Expectation Failed"},
         {reply::status_type::page_expired, "Page Expired"},
-        {reply::status_type::unprocessable_entity, "Unprocessable Entity"},
+        {reply::status_type::misdirected_request, "Misdirected Request"},
+        {reply::status_type::unprocessable_entity, "Unprocessable Content"},
         {reply::status_type::upgrade_required, "Upgrade Required"},
         {reply::status_type::too_many_requests, "Too Many Requests"},
         {reply::status_type::login_timeout, "Login Timeout"},
@@ -103,7 +107,9 @@ static auto& status_strings() {
         {reply::status_type::insufficient_storage, "Insufficient Storage"},
         {reply::status_type::bandwidth_limit_exceeded, "Bandwidth Limit Exceeded"},
         {reply::status_type::network_read_timeout, "Network Read Timeout"},
-        {reply::status_type::network_connect_timeout, "Network Connect Timeout"}};
+        {reply::status_type::network_connect_timeout, "Network Connect Timeout"},
+        {reply::status_type::insufficient_storage, "Insufficient Storage"}
+    };
 
     return status_strings;
 }
