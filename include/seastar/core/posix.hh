@@ -69,6 +69,7 @@ SEASTAR_MODULE_EXPORT_BEGIN
 inline void throw_system_error_on(bool condition, const char* what_arg = "");
 
 template <typename T>
+requires std::signed_integral<T>
 inline void throw_kernel_error(T r);
 
 template <typename T>
@@ -470,9 +471,9 @@ void throw_system_error_on(bool condition, const char* what_arg) {
 }
 
 template <typename T>
+requires std::signed_integral<T>
 inline
 void throw_kernel_error(T r) {
-    static_assert(std::is_signed_v<T>, "kernel error variables must be signed");
     if (r < 0) {
         auto ec = -r;
         if ((ec == EBADF || ec == ENOTSOCK) && is_abort_on_ebadf_enabled()) {
