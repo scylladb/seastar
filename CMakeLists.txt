@@ -643,7 +643,6 @@ add_library (seastar
   include/seastar/rpc/rpc_types.hh
   include/seastar/util/alloc_failure_injector.hh
   include/seastar/util/backtrace.hh
-  include/seastar/util/concepts.hh
   include/seastar/util/bool_class.hh
   include/seastar/util/conversions.hh
   include/seastar/util/defer.hh
