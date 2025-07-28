@@ -541,41 +541,22 @@ typedef typed_value_impl<known_type::gauge> gauge;
 
 // lots of template junk to build typed value list tuples
 // for registered values.
-template<typename T, typename En = void>
+template<typename T>
 struct data_type_for;
 
-template<typename T, typename En = void>
-struct is_callable;
 
-template<typename T>
-struct is_callable<T,
-std::enable_if_t<
-!std::is_void_v<std::invoke_result_t<T>>,
-void>> : public std::true_type {
+template<std::unsigned_integral T>
+struct data_type_for<T> : public std::integral_constant<data_type, data_type::COUNTER> {
 };
 
-template<typename T>
-struct is_callable<T,
-std::enable_if_t<std::is_fundamental_v<T>, void>> : public std::false_type {
+template<std::floating_point T>
+struct data_type_for<T> : public std::integral_constant<data_type, data_type::GAUGE> {
 };
 
-template<typename T>
-struct data_type_for<T,
-std::enable_if_t<
-std::is_integral_v<T> && std::is_unsigned_v<T>,
-void>> : public std::integral_constant<data_type,
-data_type::COUNTER> {
+template<std::invocable Func>
+struct data_type_for<Func> : public data_type_for<std::invoke_result_t<Func>> {
 };
-template<typename T>
-struct data_type_for<T,
-std::enable_if_t<std::is_floating_point_v<T>, void>> : public std::integral_constant<
-data_type, data_type::GAUGE> {
-};
-template<typename T>
-struct data_type_for<T,
-std::enable_if_t<is_callable<T>::value, void>> : public data_type_for<
-std::invoke_result_t<T>> {
-};
+
 template<typename T>
 struct data_type_for<typed<T>> : public data_type_for<T> {
 };
@@ -596,7 +577,7 @@ public:
 
     typedef std::remove_reference_t<T> value_type;
     typedef std::conditional_t<
-            is_callable<std::remove_reference_t<T>>::value,
+            std::invocable<T>,
             value_type, wrap<value_type> > stored_type;
 
     value(const value_type & t)
