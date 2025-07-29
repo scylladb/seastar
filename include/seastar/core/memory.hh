@@ -171,10 +171,20 @@ void configure_minimal();
 [[deprecated("use set_abort_on_allocation_failure(true) instead")]]
 void enable_abort_on_allocation_failure();
 
+namespace internal {
+
+extern thread_local constinit int abort_on_alloc_failure_suppressed;
+
+}
+
 class disable_abort_on_alloc_failure_temporarily {
 public:
-    disable_abort_on_alloc_failure_temporarily();
-    ~disable_abort_on_alloc_failure_temporarily() noexcept;
+    disable_abort_on_alloc_failure_temporarily() {
+        ++internal::abort_on_alloc_failure_suppressed;
+    }
+    ~disable_abort_on_alloc_failure_temporarily() noexcept {
+        --internal::abort_on_alloc_failure_suppressed;
+    }
 };
 
 // Disables heap profiling as long as this object is alive.

@@ -157,14 +157,10 @@ namespace memory {
 // seastar allocator is enabled.
 seastar::logger seastar_memory_logger("seastar_memory");
 
-static thread_local int abort_on_alloc_failure_suppressed = 0;
+namespace internal {
 
-disable_abort_on_alloc_failure_temporarily::disable_abort_on_alloc_failure_temporarily() {
-    ++abort_on_alloc_failure_suppressed;
-}
+thread_local constinit int abort_on_alloc_failure_suppressed = 0;
 
-disable_abort_on_alloc_failure_temporarily::~disable_abort_on_alloc_failure_temporarily() noexcept {
-    --abort_on_alloc_failure_suppressed;
 }
 
 void enable_abort_on_allocation_failure() {
@@ -2168,7 +2164,7 @@ void maybe_dump_memory_diagnostics(size_t size, bool is_aborting) {
 void on_allocation_failure(size_t size) {
     alloc_stats::increment(alloc_stats::types::failed_allocs);
 
-    bool will_abort = !abort_on_alloc_failure_suppressed
+    bool will_abort = !internal::abort_on_alloc_failure_suppressed
             && abort_on_allocation_failure.load(std::memory_order_relaxed);
 
     maybe_dump_memory_diagnostics(size, will_abort);
