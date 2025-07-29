@@ -62,6 +62,12 @@ struct reply {
     /**
      * The status of the reply.
      */
+    // The following list of status codes is part of the HTTP standard,
+    // and are defined in RFC 9110, and in a few case in older RFCs as
+    // listed in IANA's "HTTP Status Code Registry". Please do not add
+    // to this list non-standard error codes. Seastar applications should
+    // be able to use non-standard error codes, but shouldn't expect
+    // Seastar to give them official names.
     enum class status_type {
         continue_ = 100, //!< continue
         switching_protocols = 101, //!< switching_protocols
@@ -87,19 +93,21 @@ struct reply {
         not_found = 404, //!< not_found
         method_not_allowed = 405, //!< method_not_allowed
         not_acceptable = 406, //!< not_acceptable
+        proxy_authentication_required = 407, //<! proxy_authentication_required
         request_timeout = 408, //!< request_timeout
         conflict = 409, //!< conflict
         gone = 410, //!< gone
         length_required = 411, //!< length_required
+        precondition_failed = 412, //!< precondition_failed
         payload_too_large = 413, //!< payload_too_large
         uri_too_long = 414, //!< uri_too_long
         unsupported_media_type = 415, //!< unsupported_media_type
+        range_not_satisfiable = 416, //!< range_not_satisfiable
         expectation_failed = 417, //!< expectation_failed
-        page_expired = 419, //!< page_expired
+        misdirected_request = 421, //!< misdirected_request
         unprocessable_entity = 422, //!< unprocessable_entity
         upgrade_required = 426, //!< upgrade_required
         too_many_requests = 429, //!< too_many_requests
-        login_timeout = 440, //!< login_timeout
         internal_server_error = 500, //!< internal_server_error
         not_implemented = 501, //!< not_implemented
         bad_gateway = 502, //!< bad_gateway
@@ -107,9 +115,6 @@ struct reply {
         gateway_timeout = 504, //!< gateway_timeout
         http_version_not_supported = 505, //!< http_version_not_supported
         insufficient_storage = 507, //!< insufficient_storage
-        bandwidth_limit_exceeded = 509, //!< bandwidth_limit_exceeded
-        network_read_timeout = 598, //!< network_read_timeout
-        network_connect_timeout = 599, //!< network_connect_timeout
     } _status;
 
     /**
