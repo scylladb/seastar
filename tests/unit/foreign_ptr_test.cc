@@ -173,3 +173,28 @@ SEASTAR_THREAD_TEST_CASE(foreign_ptr_destroy_test) {
     BOOST_REQUIRE_EQUAL(done[1].get_future().get(), true);
     BOOST_REQUIRE_EQUAL(done[0].get_future().get(), false);
 }
+
+SEASTAR_THREAD_TEST_CASE(test_foreign_ptr_use_count) {
+    shard_id shard = (this_shard_id() + 1) % smp::count;
+    auto p0 = smp::submit_to(shard, [] {
+        return make_foreign(make_lw_shared<sstring>("foo"));
+    }).get();
+    smp::submit_to(shard, [&] {
+        BOOST_REQUIRE_EQUAL(p0.get_wrapped_ptr().use_count(), 1);
+    }).get();
+    auto p1 = p0.copy().get();
+    smp::submit_to(shard, [&] {
+        BOOST_REQUIRE_EQUAL(p0.get_wrapped_ptr().use_count(), 2);
+    }).get();
+    smp::submit_to(shard, [&] {
+        auto ptr = p0.release();
+        BOOST_REQUIRE_EQUAL(p0.get_wrapped_ptr().use_count(), 0);
+        BOOST_REQUIRE_EQUAL(p1.get_wrapped_ptr().use_count(), 2);
+        ptr = {};
+        BOOST_REQUIRE_EQUAL(p1.get_wrapped_ptr().use_count(), 1);
+    }).get();
+    p1.reset();
+    smp::submit_to(shard, [&] {
+        BOOST_REQUIRE_EQUAL(p0.get_wrapped_ptr().use_count(), 0);
+    }).get();
+}
