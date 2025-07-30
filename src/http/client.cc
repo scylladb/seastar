@@ -23,6 +23,7 @@
 module;
 #endif
 
+#include <cassert>
 #include <concepts>
 #include <gnutls/gnutls.h>
 #include <memory>
@@ -36,6 +37,7 @@ module seastar;
 #include <seastar/core/loop.hh>
 #include <seastar/core/when_all.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/core/sleep.hh>
 #include <seastar/http/client.hh>
 #include <seastar/http/request.hh>
 #include <seastar/http/reply.hh>
@@ -216,12 +218,20 @@ client::client(socket_address addr, shared_ptr<tls::certificate_credentials> cre
 {
 }
 
-client::client(std::unique_ptr<connection_factory> f, unsigned max_connections, retry_requests retry, size_t max_bytes_to_drain)
+client::client(std::unique_ptr<connection_factory> f, unsigned max_connections, retry_requests retry, size_t max_bytes_to_drain): client(
+    std::move(f),
+    max_connections,
+    max_bytes_to_drain,
+    retry == retry_requests::no ? std::make_unique<no_retry_strategy>() : std::make_unique<default_retry_strategy>()) {
+}
+
+client::client(std::unique_ptr<connection_factory> f, unsigned max_connections, size_t max_bytes_to_drain, std::unique_ptr<retry_strategy>&& retry_strategy)
         : _new_connections(std::move(f))
         , _max_connections(max_connections)
         , _max_bytes_to_drain(max_bytes_to_drain)
-        , _retry(retry)
+        , _retry_strategy(std::move(retry_strategy))
 {
+    assert(_retry_strategy);
 }
 
 future<client::connection_ptr> client::get_connection(abort_source* as) {
@@ -320,39 +330,6 @@ future<> client::make_request(request&& req, reply_handler&& handle, std::option
     });
 }
 
-static bool is_retryable_exception(std::exception_ptr ex) {
-    while (ex) {
-        try {
-            std::rethrow_exception(ex);
-        } catch (const std::system_error& sys_err) {
-            auto code = sys_err.code().value();
-            if (code == EPIPE || code == ECONNABORTED || code == ECONNRESET || code == GNUTLS_E_PREMATURE_TERMINATION) {
-                return true;
-            }
-            try {
-                std::rethrow_if_nested(sys_err);
-            } catch (...) {
-                ex = std::current_exception();
-                continue;
-            }
-            return false;
-        } catch (const httpd::response_parsing_exception&) {
-            return true;
-        } catch (const std::exception& e) {
-            try {
-                std::rethrow_if_nested(e);
-            } catch (...) {
-                ex = std::current_exception();
-                continue;
-            }
-            return false;
-        } catch (...) {
-            return false;
-        }
-    }
-    return false;
-}
-
 future<> client::make_request(request& req, reply_handler& handle, std::optional<reply::status_type> expected, abort_source* as) {
     return with_connection([this, &req, &handle, as, expected] (connection& con) {
         return do_make_request(con, req, handle, as, expected);
@@ -361,16 +338,37 @@ future<> client::make_request(request& req, reply_handler& handle, std::optional
             return make_exception_future<>(as->abort_requested_exception_ptr());
         }
 
-        if (!_retry || !is_retryable_exception(ex)) {
-            return make_exception_future<>(ex);
-        }
-
-        // The 'con' connection may not yet be freed, so the total connection
-        // count still account for it and with_new_connection() may temporarily
-        // break the limit. That's OK, the 'con' will be closed really soon
-        return with_new_connection([this, &req, &handle, as, expected] (connection& con) {
-            return do_make_request(con, req, handle, as, expected);
-        }, as);
+        return do_with(std::move(ex), [this, &req, &handle, as, expected](std::exception_ptr& err) {
+            return repeat_until_value([this, &err, count = 0ull, &req, &handle, as, expected]() mutable -> future<std::optional<bool>> {
+                       ++count;
+                       return _retry_strategy->should_retry(err, count)
+                           .then([this, &err, &req, &handle, as, expected, count](bool retry) mutable -> future<std::optional<bool>> {
+                               if (retry) {
+                                   // The 'con' connection may not yet be freed, so the total connection
+                                   // count still account for it and with_new_connection() may temporarily
+                                   // break the limit. That's OK, the 'con' will be closed really soon
+                                   return seastar::sleep(_retry_strategy->delay_before_retry(err, count))
+                                       .then([this, &req, &handle, as, expected]() {
+                                           return with_new_connection(
+                                               [this, &req, &handle, as, expected](connection& con) {
+                                                   return do_make_request(con, req, handle, as, expected).then([]() {
+                                                       return make_ready_future<std::optional<bool>>(true);
+                                                   });
+                                               },
+                                               as);
+                                       })
+                                       .handle_exception([&err](std::exception_ptr error) {
+                                           err = std::move(error);
+                                           return make_ready_future<std::optional<bool>>();
+                                       });
+                               }
+                               return make_exception_future<std::optional<bool>>(std::move(err));
+                           });
+                   })
+                .then([](auto) {
+                    return make_ready_future<>();
+                });
+        });
     });
 }
 
