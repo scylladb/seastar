@@ -1722,138 +1722,118 @@ size_t sanitize_iovecs(std::vector<iovec>& iov, size_t disk_alignment) noexcept 
 future<file>
 reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_options options) noexcept {
     auto open_flags = static_cast<int>(flags);
-    {
-        sstring name(nameref);
-        syscall_result_extra<struct stat> sr = co_await _thread_pool->submit<syscall_result_extra<struct stat>>(
-                internal::thread_pool_submit_reason::file_operation, [this, name, &open_flags, &options, strict_o_direct = _cfg.strict_o_direct, bypass_fsync = _cfg.bypass_fsync] () mutable {
-            // We want O_DIRECT, except in three cases:
-            //   - tmpfs (which doesn't support it, but works fine anyway)
-            //   - strict_o_direct == false (where we forgive it being not supported)
-            //   - kernel_page_cache == true (where we disable it for short-lived test processes)
-            // Because open() with O_DIRECT will fail, we open it without O_DIRECT, try
-            // to update it to O_DIRECT with fcntl(), and if that fails, see if we
-            // can forgive it.
-            auto is_tmpfs = [] (int fd) {
-                struct ::statfs buf;
-                auto r = ::fstatfs(fd, &buf);
-                if (r == -1) {
-                    return false;
-                }
-                return buf.f_type == internal::fs_magic::tmpfs;
-            };
-            open_flags |= O_CLOEXEC;
-            if (bypass_fsync) {
-                open_flags &= ~O_DSYNC;
-            }
-            struct stat st;
-            auto mode = static_cast<mode_t>(options.create_permissions);
-            int fd = ::open(name.c_str(), open_flags, mode);
-            if (fd == -1) {
-                return wrap_syscall(fd, st);
-            }
-            auto close_fd = defer([fd] () noexcept { ::close(fd); });
-            int o_direct_flag = _cfg.kernel_page_cache ? 0 : O_DIRECT;
-            int r = ::fcntl(fd, F_SETFL, open_flags | o_direct_flag);
-            if (r == -1  && strict_o_direct) {
-                auto maybe_ret = wrap_syscall(r, st);  // capture errno (should be EINVAL)
-                if (!is_tmpfs(fd)) {
-                    return maybe_ret;
-                }
-            }
-            if (fd != -1 && options.extent_allocation_size_hint && !_cfg.kernel_page_cache) {
-                fsxattr attr = {};
-                int r = ::ioctl(fd, XFS_IOC_FSGETXATTR, &attr);
-                // xfs delayed allocation is disabled when extent size hints are present.
-                // This causes tons of xfs log fsyncs. Given that extent size hints are
-                // unneeded when delayed allocation is available (which is the case
-                // when not using O_DIRECT), disable them.
-                //
-                // Ignore error; may be !xfs, and just a hint anyway
-                if (r != -1) {
-                    attr.fsx_xflags |= XFS_XFLAG_EXTSIZE;
-                    attr.fsx_extsize = std::min(options.extent_allocation_size_hint,
-                                        file_open_options::max_extent_allocation_size_hint);
-
-                    attr.fsx_extsize = align_up<uint32_t>(attr.fsx_extsize, file_open_options::min_extent_size_hint_alignment);
-
-                    // Ignore error; may be !xfs, and just a hint anyway
-                    ::ioctl(fd, XFS_IOC_FSSETXATTR, &attr);
-                }
-            }
-            r = ::fstat(fd, &st);
+    sstring name(nameref);
+    syscall_result_extra<struct stat> sr = co_await _thread_pool->submit<syscall_result_extra<struct stat>>(
+            internal::thread_pool_submit_reason::file_operation, [this, name, &open_flags, &options, strict_o_direct = _cfg.strict_o_direct, bypass_fsync = _cfg.bypass_fsync] () mutable {
+        // We want O_DIRECT, except in three cases:
+        //   - tmpfs (which doesn't support it, but works fine anyway)
+        //   - strict_o_direct == false (where we forgive it being not supported)
+        //   - kernel_page_cache == true (where we disable it for short-lived test processes)
+        // Because open() with O_DIRECT will fail, we open it without O_DIRECT, try
+        // to update it to O_DIRECT with fcntl(), and if that fails, see if we
+        // can forgive it.
+        auto is_tmpfs = [] (int fd) {
+            struct ::statfs buf;
+            auto r = ::fstatfs(fd, &buf);
             if (r == -1) {
-                return wrap_syscall(r, st);
+                return false;
             }
-            close_fd.cancel();
-            return wrap_syscall(fd, st);
-        });
-        {
-            sr.throw_fs_exception_if_error("open failed", name);
-            shared_ptr<file_impl> impl = co_await make_file_impl(sr.result, options, open_flags, sr.extra);
-            co_return file(std::move(impl));
+            return buf.f_type == internal::fs_magic::tmpfs;
+        };
+        open_flags |= O_CLOEXEC;
+        if (bypass_fsync) {
+            open_flags &= ~O_DSYNC;
         }
-    }
+        struct stat st;
+        auto mode = static_cast<mode_t>(options.create_permissions);
+        int fd = ::open(name.c_str(), open_flags, mode);
+        if (fd == -1) {
+            return wrap_syscall(fd, st);
+        }
+        auto close_fd = defer([fd] () noexcept { ::close(fd); });
+        int o_direct_flag = _cfg.kernel_page_cache ? 0 : O_DIRECT;
+        int r = ::fcntl(fd, F_SETFL, open_flags | o_direct_flag);
+        if (r == -1  && strict_o_direct) {
+            auto maybe_ret = wrap_syscall(r, st);  // capture errno (should be EINVAL)
+            if (!is_tmpfs(fd)) {
+                return maybe_ret;
+            }
+        }
+        if (fd != -1 && options.extent_allocation_size_hint && !_cfg.kernel_page_cache) {
+            fsxattr attr = {};
+            int r = ::ioctl(fd, XFS_IOC_FSGETXATTR, &attr);
+            // xfs delayed allocation is disabled when extent size hints are present.
+            // This causes tons of xfs log fsyncs. Given that extent size hints are
+            // unneeded when delayed allocation is available (which is the case
+            // when not using O_DIRECT), disable them.
+            //
+            // Ignore error; may be !xfs, and just a hint anyway
+            if (r != -1) {
+                attr.fsx_xflags |= XFS_XFLAG_EXTSIZE;
+                attr.fsx_extsize = std::min(options.extent_allocation_size_hint,
+                                    file_open_options::max_extent_allocation_size_hint);
+
+                attr.fsx_extsize = align_up<uint32_t>(attr.fsx_extsize, file_open_options::min_extent_size_hint_alignment);
+
+                // Ignore error; may be !xfs, and just a hint anyway
+                ::ioctl(fd, XFS_IOC_FSSETXATTR, &attr);
+            }
+        }
+        r = ::fstat(fd, &st);
+        if (r == -1) {
+            return wrap_syscall(r, st);
+        }
+        close_fd.cancel();
+        return wrap_syscall(fd, st);
+    });
+    sr.throw_fs_exception_if_error("open failed", name);
+    shared_ptr<file_impl> impl = co_await make_file_impl(sr.result, options, open_flags, sr.extra);
+    co_return file(std::move(impl));
 }
 
 future<>
 reactor::remove_file(std::string_view pathname_view) noexcept {
     auto pathname = sstring(pathname_view);
-    {
-        syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
-                internal::thread_pool_submit_reason::file_operation, [pathname] {
-            return wrap_syscall<int>(::remove(pathname.c_str()));
-        });
-        {
-            sr.throw_fs_exception_if_error("remove failed", pathname);
-        }
-    }
+    syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
+            internal::thread_pool_submit_reason::file_operation, [pathname] {
+        return wrap_syscall<int>(::remove(pathname.c_str()));
+    });
+    sr.throw_fs_exception_if_error("remove failed", pathname);
 }
 
 future<>
 reactor::rename_file(std::string_view old_pathname_view, std::string_view new_pathname_view) noexcept {
     auto old_pathname = sstring(old_pathname_view);
     auto new_pathname = sstring(new_pathname_view);
-    {
-        syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
-                internal::thread_pool_submit_reason::file_operation, [old_pathname, new_pathname] {
-            return wrap_syscall<int>(::rename(old_pathname.c_str(), new_pathname.c_str()));
-        });
-        {
-            sr.throw_fs_exception_if_error("rename failed",  old_pathname, new_pathname);
-        }
-    }
+    syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
+            internal::thread_pool_submit_reason::file_operation, [old_pathname, new_pathname] {
+        return wrap_syscall<int>(::rename(old_pathname.c_str(), new_pathname.c_str()));
+    });
+    sr.throw_fs_exception_if_error("rename failed",  old_pathname, new_pathname);
 }
 
 future<>
 reactor::link_file(std::string_view oldpath_view, std::string_view newpath_view) noexcept {
     auto oldpath = sstring(oldpath_view);
     auto newpath = sstring(newpath_view);
-    {
-        syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
-                internal::thread_pool_submit_reason::file_operation, [oldpath, newpath] {
-            return wrap_syscall<int>(::link(oldpath.c_str(), newpath.c_str()));
-        });
-        {
-            sr.throw_fs_exception_if_error("link failed", oldpath, newpath);
-        }
-    }
+    syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
+            internal::thread_pool_submit_reason::file_operation, [oldpath, newpath] {
+        return wrap_syscall<int>(::link(oldpath.c_str(), newpath.c_str()));
+    });
+    sr.throw_fs_exception_if_error("link failed", oldpath, newpath);
 }
 
 future<>
 reactor::chmod(std::string_view name_view, file_permissions permissions) noexcept {
     auto mode = static_cast<mode_t>(permissions);
     auto name = sstring(name_view);
-    {
-        syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
-                internal::thread_pool_submit_reason::file_operation, [name, mode] {
-            return wrap_syscall<int>(::chmod(name.c_str(), mode));
-        });
-        {
-            if (sr.result == -1) {
-                auto reason = format("chmod(0{:o}) failed", mode);
-                sr.throw_fs_exception(reason, fs::path(name));
-            }
-        }
+    syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
+            internal::thread_pool_submit_reason::file_operation, [name, mode] {
+        return wrap_syscall<int>(::chmod(name.c_str(), mode));
+    });
+    if (sr.result == -1) {
+        auto reason = format("chmod(0{:o}) failed", mode);
+        sr.throw_fs_exception(reason, fs::path(name));
     }
 }
 
@@ -1885,24 +1865,20 @@ directory_entry_type stat_to_entry_type(mode_t type) {
 future<std::optional<directory_entry_type>>
 reactor::file_type(std::string_view name_view, follow_symlink follow) noexcept {
     auto name = sstring(name_view);
-    {
-        syscall_result_extra<struct stat> sr = co_await _thread_pool->submit<syscall_result_extra<struct stat>>(
-                internal::thread_pool_submit_reason::file_operation, [name, follow] {
-            struct stat st;
-            auto stat_syscall = follow ? stat : lstat;
-            auto ret = stat_syscall(name.c_str(), &st);
-            return wrap_syscall(ret, st);
-        });
-        {
-            if (long(sr.result) == -1) {
-                if (sr.error != ENOENT && sr.error != ENOTDIR) {
-                    sr.throw_fs_exception_if_error("stat failed", name);
-                }
-                co_return std::optional<directory_entry_type>();
-            }
-            co_return std::optional<directory_entry_type>(stat_to_entry_type(sr.extra.st_mode));
+    syscall_result_extra<struct stat> sr = co_await _thread_pool->submit<syscall_result_extra<struct stat>>(
+            internal::thread_pool_submit_reason::file_operation, [name, follow] {
+        struct stat st;
+        auto stat_syscall = follow ? stat : lstat;
+        auto ret = stat_syscall(name.c_str(), &st);
+        return wrap_syscall(ret, st);
+    });
+    if (long(sr.result) == -1) {
+        if (sr.error != ENOENT && sr.error != ENOTDIR) {
+            sr.throw_fs_exception_if_error("stat failed", name);
         }
+        co_return std::optional<directory_entry_type>();
     }
+    co_return std::optional<directory_entry_type>(stat_to_entry_type(sr.extra.st_mode));
 }
 
 future<std::optional<directory_entry_type>>
@@ -1923,42 +1899,32 @@ future<size_t> reactor::read_directory(int fd, char* buffer, size_t buffer_size)
         auto ret = ::syscall(__NR_getdents64, fd, reinterpret_cast<linux_dirent64*>(buffer), buffer_size);
         return wrap_syscall(ret);
     });
-    {
-        ret.throw_if_error();
-        co_return ret.result;
-    }
+    ret.throw_if_error();
+    co_return ret.result;
 }
 
 future<int>
 reactor::inotify_add_watch(int fd, std::string_view path_view, uint32_t flags) {
     auto path = sstring(path_view);
-    {
-        syscall_result<int> ret = co_await _thread_pool->submit<syscall_result<int>>(
-                internal::thread_pool_submit_reason::file_operation, [fd, path, flags] {
-            auto ret = ::inotify_add_watch(fd, path.c_str(), flags);
-            return wrap_syscall(ret);
-        });
-        {
-            ret.throw_if_error();
-            co_return ret.result;
-        }
-    }
+    syscall_result<int> ret = co_await _thread_pool->submit<syscall_result<int>>(
+            internal::thread_pool_submit_reason::file_operation, [fd, path, flags] {
+        auto ret = ::inotify_add_watch(fd, path.c_str(), flags);
+        return wrap_syscall(ret);
+    });
+    ret.throw_if_error();
+    co_return ret.result;
 }
 
 future<std::tuple<file_desc, file_desc>>
 reactor::make_pipe() {
     auto pipe = std::array<int, 2>{};
-    {
-        syscall_result<int> ret = co_await _thread_pool->submit<syscall_result<int>>(
-                internal::thread_pool_submit_reason::file_operation, [&pipe] {
-            return wrap_syscall<int>(::pipe2(pipe.data(), O_NONBLOCK));
-        });
-        {
-            ret.throw_if_error();
-            co_return std::tuple<file_desc, file_desc>(file_desc::from_fd(pipe[0]),
-                                                                       file_desc::from_fd(pipe[1]));
-        }
-    }
+    syscall_result<int> ret = co_await _thread_pool->submit<syscall_result<int>>(
+            internal::thread_pool_submit_reason::file_operation, [&pipe] {
+        return wrap_syscall<int>(::pipe2(pipe.data(), O_NONBLOCK));
+    });
+    ret.throw_if_error();
+    co_return std::tuple<file_desc, file_desc>(file_desc::from_fd(pipe[0]),
+                                                                file_desc::from_fd(pipe[1]));
 }
 
 future<std::tuple<pid_t, file_desc, file_desc, file_desc>>
