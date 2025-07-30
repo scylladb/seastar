@@ -1918,14 +1918,15 @@ timespec_to_time_point(const timespec& ts) {
 }
 
 future<size_t> reactor::read_directory(int fd, char* buffer, size_t buffer_size) {
-    return _thread_pool->submit<syscall_result<long>>(
+    syscall_result<long> ret = co_await _thread_pool->submit<syscall_result<long>>(
             internal::thread_pool_submit_reason::file_operation, [fd, buffer, buffer_size] () {
         auto ret = ::syscall(__NR_getdents64, fd, reinterpret_cast<linux_dirent64*>(buffer), buffer_size);
         return wrap_syscall(ret);
-    }).then([] (syscall_result<long> ret) {
-        ret.throw_if_error();
-        return make_ready_future<size_t>(ret.result);
     });
+    {
+        ret.throw_if_error();
+        co_return ret.result;
+    }
 }
 
 future<int>
