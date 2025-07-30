@@ -1721,9 +1721,10 @@ size_t sanitize_iovecs(std::vector<iovec>& iov, size_t disk_alignment) noexcept 
 
 future<file>
 reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_options options) noexcept {
-    return do_with(static_cast<int>(flags), std::move(options), [this, nameref] (auto& open_flags, file_open_options& options) {
+    auto open_flags = static_cast<int>(flags);
+    {
         sstring name(nameref);
-        return _thread_pool->submit<syscall_result_extra<struct stat>>(
+        syscall_result_extra<struct stat> sr = co_await _thread_pool->submit<syscall_result_extra<struct stat>>(
                 internal::thread_pool_submit_reason::file_operation, [this, name, &open_flags, &options, strict_o_direct = _cfg.strict_o_direct, bypass_fsync = _cfg.bypass_fsync] () mutable {
             // We want O_DIRECT, except in three cases:
             //   - tmpfs (which doesn't support it, but works fine anyway)
@@ -1785,13 +1786,13 @@ reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_opt
             }
             close_fd.cancel();
             return wrap_syscall(fd, st);
-        }).then([&options, name = std::move(name), &open_flags] (syscall_result_extra<struct stat> sr) {
-            sr.throw_fs_exception_if_error("open failed", name);
-            return make_file_impl(sr.result, options, open_flags, sr.extra);
-        }).then([] (shared_ptr<file_impl> impl) {
-            return make_ready_future<file>(std::move(impl));
         });
-    });
+        {
+            sr.throw_fs_exception_if_error("open failed", name);
+            shared_ptr<file_impl> impl = co_await make_file_impl(sr.result, options, open_flags, sr.extra);
+            co_return file(std::move(impl));
+        }
+    }
 }
 
 future<>
