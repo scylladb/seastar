@@ -1825,17 +1825,18 @@ reactor::rename_file(std::string_view old_pathname_view, std::string_view new_pa
 }
 
 future<>
-reactor::link_file(std::string_view oldpath, std::string_view newpath) noexcept {
-    // Allocating memory for a sstring can throw, hence the futurize_invoke
-    return futurize_invoke([this, oldpath, newpath] {
-        return _thread_pool->submit<syscall_result<int>>(
-                internal::thread_pool_submit_reason::file_operation, [oldpath = sstring(oldpath), newpath = sstring(newpath)] {
+reactor::link_file(std::string_view oldpath_view, std::string_view newpath_view) noexcept {
+    auto oldpath = sstring(oldpath_view);
+    auto newpath = sstring(newpath_view);
+    {
+        syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
+                internal::thread_pool_submit_reason::file_operation, [oldpath, newpath] {
             return wrap_syscall<int>(::link(oldpath.c_str(), newpath.c_str()));
-        }).then([oldpath = sstring(oldpath), newpath = sstring(newpath)] (syscall_result<int> sr) {
-            sr.throw_fs_exception_if_error("link failed", oldpath, newpath);
-            return make_ready_future<>();
         });
-    });
+        {
+            sr.throw_fs_exception_if_error("link failed", oldpath, newpath);
+        }
+    }
 }
 
 future<>
