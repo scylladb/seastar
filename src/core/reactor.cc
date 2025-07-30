@@ -1947,16 +1947,18 @@ reactor::inotify_add_watch(int fd, std::string_view path_view, uint32_t flags) {
 
 future<std::tuple<file_desc, file_desc>>
 reactor::make_pipe() {
-    return do_with(std::array<int, 2>{}, [this] (auto& pipe) {
-        return _thread_pool->submit<syscall_result<int>>(
+    auto pipe = std::array<int, 2>{};
+    {
+        syscall_result<int> ret = co_await _thread_pool->submit<syscall_result<int>>(
                 internal::thread_pool_submit_reason::file_operation, [&pipe] {
             return wrap_syscall<int>(::pipe2(pipe.data(), O_NONBLOCK));
-        }).then([&pipe] (syscall_result<int> ret) {
-            ret.throw_if_error();
-            return make_ready_future<std::tuple<file_desc, file_desc>>(file_desc::from_fd(pipe[0]),
-                                                                       file_desc::from_fd(pipe[1]));
         });
-    });
+        {
+            ret.throw_if_error();
+            co_return std::tuple<file_desc, file_desc>(file_desc::from_fd(pipe[0]),
+                                                                       file_desc::from_fd(pipe[1]));
+        }
+    }
 }
 
 future<std::tuple<pid_t, file_desc, file_desc, file_desc>>
