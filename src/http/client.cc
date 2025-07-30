@@ -397,19 +397,19 @@ future<> client::do_make_request(connection& con, request& req, reply_handler& h
 
         return _retry_strategy->analyze_reply(expected, rep, std::move(in)).then([this, &handle, &con, reply = std::move(reply)](auto _in) mutable {
             auto in = std::move(_in);
-        return handle(*reply, std::move(in)).then([this, reply = std::move(reply), &con] {
-            if (reply->content_length > reply->consumed_content) {
-                auto bytes_left = reply->content_length - reply->consumed_content;
-                if (bytes_left <= _max_bytes_to_drain) {
-                    http_log.trace("content was not fully consumed, {} bytes were left behind, skipping and returning the connection to the pool", bytes_left);
-                    return con._read_buf.skip(bytes_left);
+            return handle(*reply, std::move(in)).then([this, reply = std::move(reply), &con] {
+                if (reply->content_length > reply->consumed_content) {
+                    auto bytes_left = reply->content_length - reply->consumed_content;
+                    if (bytes_left <= _max_bytes_to_drain) {
+                        http_log.trace("content was not fully consumed, {} bytes were left behind, skipping and returning the connection to the pool", bytes_left);
+                        return con._read_buf.skip(bytes_left);
+                    }
+                    http_log.trace("content was not fully consumed, content length is {} but consumed only {}, will close the connection",
+                                   reply->content_length,
+                                   reply->consumed_content);
+                    con._persistent = false;
                 }
-                http_log.trace("content was not fully consumed, content length is {} but consumed only {}, will close the connection",
-                               reply->content_length,
-                               reply->consumed_content);
-                con._persistent = false;
-            }
-            return make_ready_future<>();
+                return make_ready_future<>();
             });
         });
     }).handle_exception([&con] (auto ex) mutable {
