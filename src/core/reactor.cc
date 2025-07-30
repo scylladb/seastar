@@ -1930,18 +1930,19 @@ future<size_t> reactor::read_directory(int fd, char* buffer, size_t buffer_size)
 }
 
 future<int>
-reactor::inotify_add_watch(int fd, std::string_view path, uint32_t flags) {
-    // Allocating memory for a sstring can throw, hence the futurize_invoke
-    return futurize_invoke([path, fd, flags, this] {
-        return _thread_pool->submit<syscall_result<int>>(
-                internal::thread_pool_submit_reason::file_operation, [fd, path = sstring(path), flags] {
+reactor::inotify_add_watch(int fd, std::string_view path_view, uint32_t flags) {
+    auto path = sstring(path_view);
+    {
+        syscall_result<int> ret = co_await _thread_pool->submit<syscall_result<int>>(
+                internal::thread_pool_submit_reason::file_operation, [fd, path, flags] {
             auto ret = ::inotify_add_watch(fd, path.c_str(), flags);
             return wrap_syscall(ret);
-        }).then([] (syscall_result<int> ret) {
-            ret.throw_if_error();
-            return make_ready_future<int>(ret.result);
         });
-    });
+        {
+            ret.throw_if_error();
+            co_return ret.result;
+        }
+    }
 }
 
 future<std::tuple<file_desc, file_desc>>
