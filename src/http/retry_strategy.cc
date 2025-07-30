@@ -82,7 +82,17 @@ future<bool> default_retry_strategy::should_retry(std::exception_ptr error, unsi
 }
 
 future<input_stream<char>> default_retry_strategy::analyze_reply(std::optional<reply::status_type> expected, const reply& rep, input_stream<char>&& in) const {
-    co_return std::move(in);
+    auto _in = std::move(in);
+    if (expected.has_value() && rep._status != expected.value()) {
+        if (!http_log.is_enabled(log_level::debug)) {
+            throw httpd::unexpected_status_error(rep._status);
+        }
+
+        auto response_content = co_await util::read_entire_stream_contiguous(_in);
+        http_log.debug("request finished with {}: {}", rep._status, response_content);
+        throw httpd::unexpected_status_error(rep._status);
+    }
+    co_return std::move(_in);
 }
 
 std::chrono::milliseconds default_retry_strategy::delay_before_retry(std::exception_ptr, unsigned attempted_retries) const {

@@ -393,21 +393,11 @@ future<> client::do_make_request(connection& con, request& req, reply_handler& h
     auto sub = as ? as->subscribe([&con] () noexcept { con.shutdown(); }) : std::nullopt;
     return con.do_make_request(req).then([this, &con, &req, &handle, expected] (connection::reply_ptr reply) mutable {
         auto& rep = *reply;
-        if (expected.has_value() && rep._status != expected.value()) {
-            if (!http_log.is_enabled(log_level::debug)) {
-                return make_exception_future<>(httpd::unexpected_status_error(rep._status));
-            }
-
-            return do_with(con.in(rep), [reply = std::move(reply)] (auto& in) mutable {
-                return util::read_entire_stream_contiguous(in).then([reply = std::move(reply)] (auto message) {
-                    http_log.debug("request finished with {}: {}", reply->_status, message);
-                    return make_exception_future<>(httpd::unexpected_status_error(reply->_status));
-                });
-            });
-        }
-
         auto in = req._method != "HEAD" ? con.in(rep) : input_stream<char>(data_source(std::make_unique<skip_body_source>(rep)));
-        return handle(rep, std::move(in)).then([this, reply = std::move(reply), &con] {
+
+        return _retry_strategy->analyze_reply(expected, rep, std::move(in)).then([this, &handle, &con, reply = std::move(reply)](auto _in) mutable {
+            auto in = std::move(_in);
+        return handle(*reply, std::move(in)).then([this, reply = std::move(reply), &con] {
             if (reply->content_length > reply->consumed_content) {
                 auto bytes_left = reply->content_length - reply->consumed_content;
                 if (bytes_left <= _max_bytes_to_drain) {
@@ -420,6 +410,7 @@ future<> client::do_make_request(connection& con, request& req, reply_handler& h
                 con._persistent = false;
             }
             return make_ready_future<>();
+            });
         });
     }).handle_exception([&con] (auto ex) mutable {
         con._persistent = false;
