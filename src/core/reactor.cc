@@ -1840,21 +1840,21 @@ reactor::link_file(std::string_view oldpath_view, std::string_view newpath_view)
 }
 
 future<>
-reactor::chmod(std::string_view name, file_permissions permissions) noexcept {
+reactor::chmod(std::string_view name_view, file_permissions permissions) noexcept {
     auto mode = static_cast<mode_t>(permissions);
-    // Allocating memory for a sstring can throw, hence the futurize_invoke
-    return futurize_invoke([name, mode, this] {
-        return _thread_pool->submit<syscall_result<int>>(
-                internal::thread_pool_submit_reason::file_operation, [name = sstring(name), mode] {
+    auto name = sstring(name_view);
+    {
+        syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
+                internal::thread_pool_submit_reason::file_operation, [name, mode] {
             return wrap_syscall<int>(::chmod(name.c_str(), mode));
-        }).then([name = sstring(name), mode] (syscall_result<int> sr) {
+        });
+        {
             if (sr.result == -1) {
                 auto reason = format("chmod(0{:o}) failed", mode);
                 sr.throw_fs_exception(reason, fs::path(name));
             }
-            return make_ready_future<>();
-        });
-    });
+        }
+    }
 }
 
 directory_entry_type stat_to_entry_type(mode_t type) {
