@@ -1796,31 +1796,32 @@ reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_opt
 }
 
 future<>
-reactor::remove_file(std::string_view pathname) noexcept {
-    // Allocating memory for a sstring can throw, hence the futurize_invoke
-    return futurize_invoke([this, pathname] {
-        return _thread_pool->submit<syscall_result<int>>(
-                internal::thread_pool_submit_reason::file_operation, [pathname = sstring(pathname)] {
+reactor::remove_file(std::string_view pathname_view) noexcept {
+    auto pathname = sstring(pathname_view);
+    {
+        syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
+                internal::thread_pool_submit_reason::file_operation, [pathname] {
             return wrap_syscall<int>(::remove(pathname.c_str()));
-        }).then([pathname = sstring(pathname)] (syscall_result<int> sr) {
-            sr.throw_fs_exception_if_error("remove failed", pathname);
-            return make_ready_future<>();
         });
-    });
+        {
+            sr.throw_fs_exception_if_error("remove failed", pathname);
+        }
+    }
 }
 
 future<>
-reactor::rename_file(std::string_view old_pathname, std::string_view new_pathname) noexcept {
-    // Allocating memory for a sstring can throw, hence the futurize_invoke
-    return futurize_invoke([this, old_pathname, new_pathname] {
-        return _thread_pool->submit<syscall_result<int>>(
-                internal::thread_pool_submit_reason::file_operation, [old_pathname = sstring(old_pathname), new_pathname = sstring(new_pathname)] {
+reactor::rename_file(std::string_view old_pathname_view, std::string_view new_pathname_view) noexcept {
+    auto old_pathname = sstring(old_pathname_view);
+    auto new_pathname = sstring(new_pathname_view);
+    {
+        syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
+                internal::thread_pool_submit_reason::file_operation, [old_pathname, new_pathname] {
             return wrap_syscall<int>(::rename(old_pathname.c_str(), new_pathname.c_str()));
-        }).then([old_pathname = sstring(old_pathname), new_pathname = sstring(new_pathname)] (syscall_result<int> sr) {
-            sr.throw_fs_exception_if_error("rename failed",  old_pathname, new_pathname);
-            return make_ready_future<>();
         });
-    });
+        {
+            sr.throw_fs_exception_if_error("rename failed",  old_pathname, new_pathname);
+        }
+    }
 }
 
 future<>
