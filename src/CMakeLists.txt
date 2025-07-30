@@ -78,6 +78,7 @@ target_sources (seastar-module
     http/mime_types.cc
     http/reply.cc
     http/request.cc
+    http/retry_strategy.cc
     http/routes.cc
     http/transformers.cc
     http/url.cc
