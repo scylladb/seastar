@@ -1883,27 +1883,26 @@ directory_entry_type stat_to_entry_type(mode_t type) {
 }
 
 future<std::optional<directory_entry_type>>
-reactor::file_type(std::string_view name, follow_symlink follow) noexcept {
-    // Allocating memory for a sstring can throw, hence the futurize_invoke
-    return futurize_invoke([name, follow, this] {
-        return _thread_pool->submit<syscall_result_extra<struct stat>>(
-                internal::thread_pool_submit_reason::file_operation, [name = sstring(name), follow] {
+reactor::file_type(std::string_view name_view, follow_symlink follow) noexcept {
+    auto name = sstring(name_view);
+    {
+        syscall_result_extra<struct stat> sr = co_await _thread_pool->submit<syscall_result_extra<struct stat>>(
+                internal::thread_pool_submit_reason::file_operation, [name, follow] {
             struct stat st;
             auto stat_syscall = follow ? stat : lstat;
             auto ret = stat_syscall(name.c_str(), &st);
             return wrap_syscall(ret, st);
-        }).then([name = sstring(name)] (syscall_result_extra<struct stat> sr) {
+        });
+        {
             if (long(sr.result) == -1) {
                 if (sr.error != ENOENT && sr.error != ENOTDIR) {
                     sr.throw_fs_exception_if_error("stat failed", name);
                 }
-                return make_ready_future<std::optional<directory_entry_type> >
-                    (std::optional<directory_entry_type>() );
+                co_return std::optional<directory_entry_type>();
             }
-            return make_ready_future<std::optional<directory_entry_type> >
-                (std::optional<directory_entry_type>(stat_to_entry_type(sr.extra.st_mode)) );
-        });
-    });
+            co_return std::optional<directory_entry_type>(stat_to_entry_type(sr.extra.st_mode));
+        }
+    }
 }
 
 future<std::optional<directory_entry_type>>
