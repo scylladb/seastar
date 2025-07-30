@@ -330,24 +330,33 @@ future<> client::make_request(request&& req, reply_handler&& handle, std::option
     });
 }
 
+future<> client::make_request(request&& req, reply_handler&& handle, const retry_strategy& strategy, std::optional<reply::status_type>&& expected, abort_source* as) {
+    return do_with(std::move(req), std::move(handle), [this, &strategy, expected, as](request& req, reply_handler& handle) mutable {
+        return make_request(req, handle, strategy, std::move(expected), as);
+    });
+}
+
 future<> client::make_request(request& req, reply_handler& handle, std::optional<reply::status_type> expected, abort_source* as) {
-    return with_connection([this, &req, &handle, as, expected] (connection& con) {
-        return do_make_request(con, req, handle, as, expected);
-    }, as).handle_exception([this, &req, &handle, as, expected] (std::exception_ptr ex) {
+    return make_request(req, handle, *_retry_strategy, expected, as);
+}
+
+future<> client::make_request(request& req, reply_handler& handle, const retry_strategy& strategy, std::optional<reply::status_type> expected, abort_source* as) {
+    return with_connection([this, &req, &handle, &strategy, as, expected] (connection& con) {
+        return do_make_request(con, req, handle, strategy, as, expected);
+    }, as).handle_exception([this, &req, &handle, &strategy, as, expected] (std::exception_ptr ex) {
         if (as && as->abort_requested()) {
             return make_exception_future<>(as->abort_requested_exception_ptr());
         }
-
-        return do_with(std::move(ex), [this, &req, &handle, as, expected](std::exception_ptr& err) {
-            return repeat_until_value([this, &err, count = 0ull, &req, &handle, as, expected]() mutable -> future<std::optional<bool>> {
+        return do_with(std::move(ex), [this, &req, &handle, &strategy, as, expected](std::exception_ptr& err) {
+            return repeat_until_value([this, &err, count = 0ull, &req, &handle, &strategy, as, expected] () mutable -> future<std::optional<bool>> {
                        ++count;
-                       return _retry_strategy->should_retry(err, count)
-                           .then([this, &err, &req, &handle, as, expected, count](bool retry) mutable -> future<std::optional<bool>> {
+                       return strategy.should_retry(err, count)
+                           .then([this, &err, &req, &handle, &strategy, as, expected, count](bool retry) mutable -> future<std::optional<bool>> {
                                if (retry) {
                                    // The 'con' connection may not yet be freed, so the total connection
                                    // count still account for it and with_new_connection() may temporarily
                                    // break the limit. That's OK, the 'con' will be closed really soon
-                                   return seastar::sleep(_retry_strategy->delay_before_retry(err, count))
+                                   return seastar::sleep(strategy.delay_before_retry(err, count))
                                        .then([this, &req, &handle, as, expected]() {
                                            return with_new_connection(
                                                [this, &req, &handle, as, expected](connection& con) {
@@ -389,13 +398,17 @@ public:
     }
 };
 
-future<> client::do_make_request(connection& con, request& req, reply_handler& handle, abort_source* as, std::optional<reply::status_type> expected) {
+future<> client::do_make_request(connection& con, request& req, reply_handler& handle, abort_source* as, std::optional<reply::status_type> expected) const {
+    return do_make_request(con, req, handle, *_retry_strategy, as, expected);
+}
+
+future<> client::do_make_request(connection& con, request& req, reply_handler& handle, const retry_strategy& strategy, abort_source* as, std::optional<reply::status_type> expected) const {
     auto sub = as ? as->subscribe([&con] () noexcept { con.shutdown(); }) : std::nullopt;
-    return con.do_make_request(req).then([this, &con, &req, &handle, expected] (connection::reply_ptr reply) mutable {
+    return con.do_make_request(req).then([this, &con, &req, &handle, &strategy, expected] (connection::reply_ptr reply) mutable {
         auto& rep = *reply;
         auto in = req._method != "HEAD" ? con.in(rep) : input_stream<char>(data_source(std::make_unique<skip_body_source>(rep)));
 
-        return _retry_strategy->analyze_reply(expected, rep, std::move(in)).then([this, &handle, &con, reply = std::move(reply)](auto _in) mutable {
+        return strategy.analyze_reply(expected, rep, std::move(in)).then([this, &handle, &con, reply = std::move(reply)](auto _in) mutable {
             auto in = std::move(_in);
             return handle(*reply, std::move(in)).then([this, reply = std::move(reply), &con] {
                 if (reply->content_length > reply->consumed_content) {

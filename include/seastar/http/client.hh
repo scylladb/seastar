@@ -183,7 +183,8 @@ private:
     requires std::invocable<Fn, connection&>
     auto with_new_connection(Fn&& fn, abort_source*);
 
-    future<> do_make_request(connection& con, request& req, reply_handler& handle, abort_source*, std::optional<reply::status_type> expected);
+    future<> do_make_request(connection& con, request& req, reply_handler& handle, abort_source*, std::optional<reply::status_type> expected) const;
+    future<> do_make_request(connection& con, request& req, reply_handler& handle, const retry_strategy& strategy, abort_source*, std::optional<reply::status_type> expected) const;
 
 public:
     /**
@@ -269,6 +270,7 @@ public:
      * in the middle of operation
      */
     future<> make_request(request&& req, reply_handler&& handle, std::optional<reply::status_type>&& expected = std::nullopt, abort_source* as = nullptr);
+    future<> make_request(request&& req, reply_handler&& handle, const retry_strategy& strategy, std::optional<reply::status_type>&& expected = std::nullopt, abort_source* as = nullptr);
 
     /**
      * \brief Send the request and handle the response (abortable), same as \ref make_request()
@@ -278,6 +280,7 @@ public:
      * are referencing valid instances
      */
     future<> make_request(request& req, reply_handler& handle, std::optional<reply::status_type> expected = std::nullopt, abort_source* as = nullptr);
+    future<> make_request(request& req, reply_handler& handle, const retry_strategy& strategy, std::optional<reply::status_type> expected = std::nullopt, abort_source* as = nullptr);
 
     /**
      * \brief Updates the maximum number of connections a client may have
