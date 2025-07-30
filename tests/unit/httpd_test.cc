@@ -1,7 +1,8 @@
 /*
  * Copyright 2015 Cloudius Systems
  */
-
+    
+#define SEASTAR_HTTP2_TEST
 #include <seastar/http/function_handlers.hh>
 #include <seastar/http/httpd.hh>
 #include <seastar/http/handlers.hh>
@@ -20,6 +21,7 @@
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include "loopback_socket.hh"
+#include "seastar/http/http2_connection.hh"
 #include <boost/algorithm/string.hpp>
 #include <seastar/core/thread.hh>
 #include <seastar/util/noncopyable_function.hh>
@@ -2176,5 +2178,43 @@ SEASTAR_TEST_CASE(test_client_close_connection) {
 
             when_all(std::move(server), std::move(client)).discard_result().get();
         }
+
+    });
+}
+
+SEASTAR_TEST_CASE(test_http2_frame_parsing) {
+
+    return seastar::async([] {
+        // Set up loopback connection factory and server socket
+        loopback_connection_factory lcf(1);
+        auto server_sock = lcf.get_server_socket();
+        loopback_socket_impl lsi(lcf);
+
+        // Start server coroutine to handle HTTP/2 connection
+        auto server = seastar::async([&] {
+            auto ar = server_sock.accept().get();
+            // Create HTTP/2 connection object
+            seastar::httpd::routes dummy_routes;
+            seastar::http::http2_connection h2conn(dummy_routes, std::move(ar.connection), ar.remote_address, ar.remote_address);
+            h2conn.process().get();
+            fmt::print("after http2 connection process, frame type {}\n", h2conn.get_parser_for_testing()._type);
+            BOOST_REQUIRE(h2conn.get_parser_for_testing()._type == 0x4); // 0x4 is the SETTINGS frame type
+    
+            fmt::print("finished processing http2 frame!!\n");
+        });
+
+        // Client coroutine: connect and send a SETTINGS frame
+        auto client = seastar::async([&] {
+            connected_socket sock = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get();
+            auto out = sock.output();
+
+            // 1. Send a SETTINGS frame (empty payload, just header)
+            char settings_frame[9] = {0,0,0, 0x4, 0x0, 0,0,0,0}; // length=0, type=4 (SETTINGS), flags=0, stream_id=0
+            out.write(settings_frame, 9).get();
+            out.flush().get();
+            out.close().get();
+        });
+        // Wait for both client and server to finish
+        when_all(std::move(server), std::move(client)).get();
     });
 }
