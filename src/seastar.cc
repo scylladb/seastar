@@ -262,6 +262,14 @@ export module seastar;
 #include <seastar/core/with_scheduling_group.hh>
 #include <seastar/core/with_timeout.hh>
 
+#include <seastar/coroutine/all.hh>
+#include <seastar/coroutine/as_future.hh>
+#include <seastar/coroutine/exception.hh>
+#include <seastar/coroutine/generator.hh>
+#include <seastar/coroutine/maybe_yield.hh>
+#include <seastar/coroutine/parallel_for_each.hh>
+#include <seastar/coroutine/switch_to.hh>
+
 #include <seastar/util/alloc_failure_injector.hh>
 #include <seastar/util/backtrace.hh>
 #include <seastar/util/conversions.hh>
