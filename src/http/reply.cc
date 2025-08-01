@@ -122,7 +122,7 @@ sstring reply::response_line() const {
     });
 }
 
-void reply::write_body(const sstring& content_type, noncopyable_function<future<>(output_stream<char>&&)>&& body_writer) {
+void reply::write_body(const sstring& content_type, shared_body_writer_type body_writer) {
     set_content_type(content_type);
     _body_writer  = std::move(body_writer);
 }
@@ -142,7 +142,7 @@ future<> reply::write_reply_to_connection(httpd::connection& con) {
         if (_skip_body) {
             return make_ready_future<>();
         }
-        return _body_writer(http::internal::make_http_chunked_output_stream(con.out())).then([&con] {
+        return (*_body_writer)(http::internal::make_http_chunked_output_stream(con.out())).then([&con] {
             return con.out().write("0\r\n\r\n", 5);
         });
     });
