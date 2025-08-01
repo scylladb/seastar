@@ -156,6 +156,7 @@ module seastar;
 #include <seastar/core/internal/uname.hh>
 #include <seastar/core/internal/stall_detector.hh>
 #include <seastar/core/internal/run_in_background.hh>
+#include <seastar/coroutine/all.hh>
 #include <seastar/net/native-stack.hh>
 #include <seastar/net/packet.hh>
 #include <seastar/net/posix-stack.hh>
@@ -1928,103 +1929,98 @@ reactor::make_pipe() {
 }
 
 future<std::tuple<pid_t, file_desc, file_desc, file_desc>>
-reactor::spawn(std::string_view pathname,
+reactor::spawn(std::string_view pathname_view,
                std::vector<sstring> argv,
                std::vector<sstring> env) {
-    return when_all_succeed(make_pipe(),
-                            make_pipe(),
-                            make_pipe()).then_unpack([pathname = sstring(pathname),
-                                                      argv = std::move(argv),
-                                                      env = std::move(env), this] (std::tuple<file_desc, file_desc> cin_pipe,
-                                                                                   std::tuple<file_desc, file_desc> cout_pipe,
-                                                                                   std::tuple<file_desc, file_desc> cerr_pipe) mutable {
-        return do_with(pid_t{},
-                       std::move(cin_pipe),
-                       std::move(cout_pipe),
-                       std::move(cerr_pipe),
-                       std::move(pathname),
-                       posix_spawn_file_actions_t{},
-                       posix_spawnattr_t{},
-                       std::move(argv),
-                       std::move(env),
-                       [this](auto& child_pid, auto& cin_pipe, auto& cout_pipe, auto& cerr_pipe, auto& pathname, auto& actions, auto& attr, auto& argv, auto& env) {
-            static constexpr int pipefd_read_end = 0;
-            static constexpr int pipefd_write_end = 1;
-            // Allocating memory for spawn {file actions,attributes} objects can throw, hence the futurize_invoke
-            return futurize_invoke([&child_pid, &cin_pipe, &cout_pipe, &cerr_pipe, &pathname, &actions, &attr, &argv, &env, this] {
-                // the args and envs parameters passed to posix_spawn() should be array of pointers, and
-                // the last one should be a null pointer.
-                std::vector<const char*> argvp;
-                std::transform(argv.cbegin(), argv.cend(), std::back_inserter(argvp),
-                               [](auto& s) { return s.c_str(); });
-                argvp.push_back(nullptr);
+    auto pathname = sstring(pathname_view);
 
-                std::vector<const char*> envp;
-                std::transform(env.cbegin(), env.cend(), std::back_inserter(envp),
-                               [](auto& s) { return s.c_str(); });
-                envp.push_back(nullptr);
+    auto [cin_pipe, cout_pipe, cerr_pipe] = co_await coroutine::all(
+            std::bind(&reactor::make_pipe, this),
+            std::bind(&reactor::make_pipe, this),
+            std::bind(&reactor::make_pipe, this));
 
-                int r = 0;
-                r = ::posix_spawn_file_actions_init(&actions);
-                throw_pthread_error(r);
-                // the child process does not write to stdin
-                std::get<pipefd_write_end>(cin_pipe).spawn_actions_add_close(&actions);
-                // the child process does not read from stdout
-                std::get<pipefd_read_end>(cout_pipe).spawn_actions_add_close(&actions);
-                // the child process does not read from stderr
-                std::get<pipefd_read_end>(cerr_pipe).spawn_actions_add_close(&actions);
-                // redirect stdin, stdout and stderr to cin_pipe, cout_pipe and cerr_pipe respectively
-                std::get<pipefd_read_end>(cin_pipe).spawn_actions_add_dup2(&actions, STDIN_FILENO);
-                std::get<pipefd_write_end>(cout_pipe).spawn_actions_add_dup2(&actions, STDOUT_FILENO);
-                std::get<pipefd_write_end>(cerr_pipe).spawn_actions_add_dup2(&actions, STDERR_FILENO);
-                // after dup2() the interesting ends of pipes, close them
-                std::get<pipefd_read_end>(cin_pipe).spawn_actions_add_close(&actions);
-                std::get<pipefd_write_end>(cout_pipe).spawn_actions_add_close(&actions);
-                std::get<pipefd_write_end>(cerr_pipe).spawn_actions_add_close(&actions);
-                // tools like "cat" expect a fd opened in blocking mode when performing I/O
-                std::get<pipefd_read_end>(cin_pipe).template ioctl<int>(FIONBIO, 0);
-                std::get<pipefd_write_end>(cout_pipe).template ioctl<int>(FIONBIO, 0);
-                std::get<pipefd_write_end>(cerr_pipe).template ioctl<int>(FIONBIO, 0);
+    auto child_pid = pid_t{};
+    auto actions = posix_spawn_file_actions_t{};
+    auto attr = posix_spawnattr_t{};
 
-                r = ::posix_spawnattr_init(&attr);
-                throw_pthread_error(r);
-                // make sure the following signals are not ignored by the child process
-                sigset_t default_signals;
-                sigemptyset(&default_signals);
-                sigaddset(&default_signals, SIGINT);
-                sigaddset(&default_signals, SIGTERM);
-                r = ::posix_spawnattr_setsigdefault(&attr, &default_signals);
-                throw_pthread_error(r);
-                // make sure no signals are marked in the child process
-                sigset_t mask_signals;
-                sigemptyset(&mask_signals);
-                r = ::posix_spawnattr_setsigmask(&attr, &mask_signals);
-                throw_pthread_error(r);
-                r = ::posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK);
-                throw_pthread_error(r);
+    static constexpr int pipefd_read_end = 0;
+    static constexpr int pipefd_write_end = 1;
 
-                return _thread_pool->submit<syscall_result<int>>(
-                        internal::thread_pool_submit_reason::process_operation,
-                        [&child_pid, &pathname, &actions, &attr,
-                         argv = std::move(argvp),
-                         env =  std::move(envp)] {
-                    return wrap_syscall<int>(::posix_spawn(&child_pid, pathname.c_str(), &actions, &attr,
-                                                           const_cast<char* const *>(argv.data()),
-                                                           const_cast<char* const *>(env.data())));
-            });
-        }).finally([&actions, &attr] {
-            posix_spawn_file_actions_destroy(&actions);
-            posix_spawnattr_destroy(&attr);
-        }).then([&child_pid, &cin_pipe, &cout_pipe, &cerr_pipe] (syscall_result<int> ret) {
-            throw_pthread_error(ret.result);
-            return make_ready_future<std::tuple<pid_t, file_desc, file_desc, file_desc>>(
-                    child_pid,
-                    std::get<pipefd_write_end>(std::move(cin_pipe)),
-                    std::get<pipefd_read_end>(std::move(cout_pipe)),
-                    std::get<pipefd_read_end>(std::move(cerr_pipe)));
-            });
-        });
+    // the args and envs parameters passed to posix_spawn() should be array of pointers, and
+    // the last one should be a null pointer.
+    std::vector<const char*> argvp;
+    std::transform(argv.cbegin(), argv.cend(), std::back_inserter(argvp),
+                    [](auto& s) { return s.c_str(); });
+    argvp.push_back(nullptr);
+
+    std::vector<const char*> envp;
+    std::transform(env.cbegin(), env.cend(), std::back_inserter(envp),
+                    [](auto& s) { return s.c_str(); });
+    envp.push_back(nullptr);
+
+    int r = 0;
+    r = ::posix_spawn_file_actions_init(&actions);
+    throw_pthread_error(r);
+    // the child process does not write to stdin
+    auto undo1 = defer([&actions] () noexcept{
+        ::posix_spawn_file_actions_destroy(&actions);
     });
+    std::get<pipefd_write_end>(cin_pipe).spawn_actions_add_close(&actions);
+    // the child process does not read from stdout
+    std::get<pipefd_read_end>(cout_pipe).spawn_actions_add_close(&actions);
+    // the child process does not read from stderr
+    std::get<pipefd_read_end>(cerr_pipe).spawn_actions_add_close(&actions);
+    // redirect stdin, stdout and stderr to cin_pipe, cout_pipe and cerr_pipe respectively
+    std::get<pipefd_read_end>(cin_pipe).spawn_actions_add_dup2(&actions, STDIN_FILENO);
+    std::get<pipefd_write_end>(cout_pipe).spawn_actions_add_dup2(&actions, STDOUT_FILENO);
+    std::get<pipefd_write_end>(cerr_pipe).spawn_actions_add_dup2(&actions, STDERR_FILENO);
+    // after dup2() the interesting ends of pipes, close them
+    std::get<pipefd_read_end>(cin_pipe).spawn_actions_add_close(&actions);
+    std::get<pipefd_write_end>(cout_pipe).spawn_actions_add_close(&actions);
+    std::get<pipefd_write_end>(cerr_pipe).spawn_actions_add_close(&actions);
+    // tools like "cat" expect a fd opened in blocking mode when performing I/O
+    std::get<pipefd_read_end>(cin_pipe).template ioctl<int>(FIONBIO, 0);
+    std::get<pipefd_write_end>(cout_pipe).template ioctl<int>(FIONBIO, 0);
+    std::get<pipefd_write_end>(cerr_pipe).template ioctl<int>(FIONBIO, 0);
+
+    r = ::posix_spawnattr_init(&attr);
+    throw_pthread_error(r);
+    auto undo2 = defer([&attr] () noexcept {
+        ::posix_spawnattr_destroy(&attr);
+    });
+    // make sure the following signals are not ignored by the child process
+    sigset_t default_signals;
+    sigemptyset(&default_signals);
+    sigaddset(&default_signals, SIGINT);
+    sigaddset(&default_signals, SIGTERM);
+    r = ::posix_spawnattr_setsigdefault(&attr, &default_signals);
+    throw_pthread_error(r);
+    // make sure no signals are marked in the child process
+    sigset_t mask_signals;
+    sigemptyset(&mask_signals);
+    r = ::posix_spawnattr_setsigmask(&attr, &mask_signals);
+    throw_pthread_error(r);
+    r = ::posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSIGDEF | POSIX_SPAWN_SETSIGMASK);
+    throw_pthread_error(r);
+
+
+
+    syscall_result<int> ret = co_await _thread_pool->submit<syscall_result<int>>(
+            internal::thread_pool_submit_reason::process_operation,
+            [&child_pid, &pathname, &actions, &attr,
+                argv = std::move(argvp),
+                env =  std::move(envp)] {
+        return wrap_syscall<int>(::posix_spawn(&child_pid, pathname.c_str(), &actions, &attr,
+                                                const_cast<char* const *>(argv.data()),
+                                                const_cast<char* const *>(env.data())));
+    });
+
+    throw_pthread_error(ret.result);
+    co_return std::tuple(
+        child_pid,
+        std::get<pipefd_write_end>(std::move(cin_pipe)),
+        std::get<pipefd_read_end>(std::move(cout_pipe)),
+        std::get<pipefd_read_end>(std::move(cerr_pipe)));
 }
 
 static auto next_waitpid_timeout(std::chrono::milliseconds this_timeout) {
