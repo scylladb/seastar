@@ -730,10 +730,6 @@ SEASTAR_TEST_CASE(test_with_file_close_on_failure) {
     });
 }
 
-namespace seastar {
-    extern bool aio_nowait_supported;
-}
-
 SEASTAR_TEST_CASE(test_nowait_flag_correctness) {
     return tmp_dir::do_with_thread([] (tmp_dir& t) {
         auto oflags = open_flags::rw | open_flags::create;
@@ -749,7 +745,7 @@ SEASTAR_TEST_CASE(test_nowait_flag_correctness) {
             return buf.f_type == internal::fs_magic::tmpfs;
         };
 
-        if (!seastar::aio_nowait_supported) {
+        if (!seastar::reactor::test::linux_aio_nowait()) {
             BOOST_TEST_WARN(0, "Skipping this test because RWF_NOWAIT is not supported by the system");
             return;
         }

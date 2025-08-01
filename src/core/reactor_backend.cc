@@ -197,8 +197,6 @@ aio_storage_context::handle_aio_error(linux_abi::iocb* iocb, int ec) {
     }
 }
 
-extern bool aio_nowait_supported;
-
 bool
 aio_storage_context::submit_work() {
     bool did_work = false;

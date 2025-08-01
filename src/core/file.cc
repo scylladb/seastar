@@ -1121,6 +1121,7 @@ make_file_impl(int fd, file_open_options options, int flags, struct stat st) noe
                 fsi.fsync_is_exclusive = true;
                 fsi.nowait_works = false;
             }
+            fsi.nowait_works &= engine()._cfg.aio_nowait_works;
             s_fstype.insert(std::make_pair(st.st_dev, std::move(fsi)));
             return make_file_impl(fd, std::move(options), flags, std::move(st));
         });
