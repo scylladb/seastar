@@ -939,7 +939,12 @@ namespace rpc {
       // Run client in the background.
       // Communicate result via _stopped.
       // The caller has to call client::stop() to synchronize.
-      (void)_socket.connect(addr, local).then([this, ops = std::move(ops)] (connected_socket fd) {
+      (void)loop(ops, addr, local);
+      enqueue_zero_frame();
+  }
+
+  future<> client::loop(client_options ops, const socket_address& addr, const socket_address& local) {
+      return _socket.connect(addr, local).then([this, ops = std::move(ops)] (connected_socket fd) {
           fd.set_nodelay(ops.tcp_nodelay);
           if (ops.keepalive) {
               fd.set_keepalive(true);
@@ -1041,7 +1046,6 @@ namespace rpc {
               _stopped.set_value();
           });
       });
-      enqueue_zero_frame();
   }
 
   client::client(const logger& l, void* s, const socket_address& addr, const socket_address& local)
