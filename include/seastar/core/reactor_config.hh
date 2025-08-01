@@ -42,6 +42,7 @@ struct reactor_config {
     bool strict_o_direct = true;
     bool bypass_fsync = false;
     bool no_poll_aio = false;
+    bool aio_nowait_works = false;
 };
 /// \endcond
 

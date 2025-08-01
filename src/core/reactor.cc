@@ -568,10 +568,6 @@ using namespace internal::linux_abi;
 
 std::atomic<manual_clock::rep> manual_clock::_now;
 
-// Base version where this works; some filesystems were only fixed later, so
-// this value is mixed in with filesystem-provided values later.
-bool aio_nowait_supported = internal::kernel_uname().whitelisted({"4.13"});
-
 static std::atomic<bool> abort_on_ebadf = { false };
 
 void set_abort_on_ebadf(bool do_abort) {
@@ -1483,6 +1479,10 @@ reactor::test::set_stall_detector_report_function(std::function<void ()> report)
 std::function<void ()>
 reactor::test::get_stall_detector_report_function() {
     return engine()._cpu_stall_detector->get_config().report;
+}
+
+bool reactor::test::linux_aio_nowait() {
+    return engine()._cfg.aio_nowait_works;
 }
 
 void
@@ -3865,7 +3865,7 @@ reactor_options::reactor_options(program_options::option_group* parent_group)
     , blocked_reactor_reports_per_minute(*this, "blocked-reactor-reports-per-minute", 5, "Maximum number of backtraces reported by stall detector per minute")
     , blocked_reactor_report_format_oneline(*this, "blocked-reactor-report-format-oneline", true, "Print a simplified backtrace on a single line")
     , relaxed_dma(*this, "relaxed-dma", "allow using buffered I/O if DMA is not available (reduces performance)")
-    , linux_aio_nowait(*this, "linux-aio-nowait", aio_nowait_supported,
+    , linux_aio_nowait(*this, "linux-aio-nowait", internal::kernel_uname().whitelisted({"4.13"}), // base version where this works
                 "use the Linux NOWAIT AIO feature, which reduces reactor stalls due to aio (autodetected)")
     , unsafe_bypass_fsync(*this, "unsafe-bypass-fsync", false, "Bypass fsync(), may result in data loss. Use for testing on consumer drives")
     , kernel_page_cache(*this, "kernel-page-cache", false,
@@ -4407,6 +4407,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
         .strict_o_direct = !reactor_opts.relaxed_dma,
         .bypass_fsync = reactor_opts.unsafe_bypass_fsync.get_value(),
         .no_poll_aio = !reactor_opts.poll_aio.get_value() || (reactor_opts.poll_aio.defaulted() && reactor_opts.overprovisioned),
+        .aio_nowait_works = reactor_opts.linux_aio_nowait.get_value(), // Mixed in with filesystem-provided values later
     };
 
     // Disable hot polling if sched wakeup granularity is too high
@@ -4425,7 +4426,6 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
         }
     }
 
-    aio_nowait_supported = reactor_opts.linux_aio_nowait.get_value();
     std::mutex mtx;
 
 #ifdef SEASTAR_HEAPPROF

@@ -96,7 +96,6 @@ linux_abi::iocb make_writev_iocb(int fd, uint64_t offset, const ::iovec* iov, si
 linux_abi::iocb make_poll_iocb(int fd, uint32_t events);
 
 void set_user_data(linux_abi::iocb& iocb, void* data);
-void set_nowait(linux_abi::iocb& iocb, bool nowait);
 
 void set_eventfd_notification(linux_abi::iocb& iocb, int eventfd);
 
@@ -114,8 +113,6 @@ int io_pgetevents(linux_abi::aio_context_t io_context, long min_nr, long nr, lin
 void setup_aio_context(size_t nr, linux_abi::aio_context_t* io_context);
 
 }
-
-extern bool aio_nowait_supported;
 
 namespace internal {
 
@@ -219,13 +216,11 @@ inline
 void
 set_nowait(linux_abi::iocb& iocb, bool nowait) {
 #ifdef RWF_NOWAIT
-    if (aio_nowait_supported) {
         if (nowait) {
             iocb.aio_rw_flags |= RWF_NOWAIT;
         } else {
             iocb.aio_rw_flags &= ~RWF_NOWAIT;
         }
-    }
 #endif
 }
 
