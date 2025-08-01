@@ -24,6 +24,7 @@
 #ifndef SEASTAR_MODULE
 #include <algorithm>
 #include <cassert>
+#include <concepts>
 #include <iterator>
 #include <type_traits>
 #include <seastar/util/assert.hh>
@@ -160,7 +161,8 @@ private:
 
     public:
         basic_iterator() noexcept = default;
-        template<bool OtherIsConst, std::enable_if_t<IsConst && !OtherIsConst, int> = 0>
+        template<bool OtherIsConst>
+        requires (IsConst && !OtherIsConst)
         inline basic_iterator(const basic_iterator<OtherIsConst>& o) noexcept
 	  :  basic_iterator{o._chunk, o._item_index} {}
         inline bool operator==(const basic_iterator& o) const noexcept;

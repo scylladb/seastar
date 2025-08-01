@@ -30,6 +30,7 @@
 #include <string>
 #include <vector>
 #include <unordered_map>
+#include <concepts>
 #include <cstring>
 #include <initializer_list>
 #include <istream>
@@ -303,11 +304,7 @@ public:
         return find(s.str(), pos, s.size());
     }
 
-    template<class StringViewLike,
-             std::enable_if_t<std::is_convertible_v<StringViewLike,
-                                                    std::basic_string_view<char_type, traits_type>>,
-                              int> = 0>
-    size_t find(const StringViewLike& sv_like, size_type pos = 0) const noexcept {
+    size_t find(const std::convertible_to<std::basic_string_view<char_type, traits_type>> auto& sv_like, size_type pos = 0) const noexcept {
         std::basic_string_view<char_type, traits_type> sv = sv_like;
         return find(sv.data(), pos, sv.size());
     }

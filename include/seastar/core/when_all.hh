@@ -29,6 +29,7 @@
 #include <seastar/util/critical_alloc_section.hh>
 #include <seastar/util/modules.hh>
 #include <cstddef>
+#include <concepts>
 #include <exception>
 #include <tuple>
 #include <type_traits>
@@ -210,12 +211,12 @@ struct is_tuple_of_futures<std::tuple<future<T...>, Rest...>> : is_tuple_of_futu
 template <typename... Futs>
 concept AllAreFutures = impl::is_tuple_of_futures<std::tuple<Futs...>>::value;
 
-template<typename Fut, std::enable_if_t<is_future<Fut>::value, int> = 0>
+template<Future Fut>
 auto futurize_invoke_if_func(Fut&& fut) noexcept {
     return std::forward<Fut>(fut);
 }
 
-template<typename Func, std::enable_if_t<!is_future<Func>::value, int> = 0>
+template<std::invocable Func>
 auto futurize_invoke_if_func(Func&& func) noexcept {
     return futurize_invoke(std::forward<Func>(func));
 }

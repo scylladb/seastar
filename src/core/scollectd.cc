@@ -202,8 +202,8 @@ struct cpwriter {
         }
         return *this;
     }
-    template<typename T>
-    std::enable_if_t<std::is_integral_v<T>, cpwriter &> write(
+    template<std::integral T>
+    cpwriter& write(
             const T & t) {
         T tmp = net::hton(t);
         auto * p = reinterpret_cast<const uint8_t *>(&tmp);
@@ -211,8 +211,8 @@ struct cpwriter {
         write(p, e);
         return *this;
     }
-    template<typename T>
-    std::enable_if_t<std::is_integral_v<T>, cpwriter &> write_le(const T & t) {
+    template<std::integral T>
+    cpwriter& write_le(const T & t) {
         T tmp = cpu_to_le(t);
         auto * p = reinterpret_cast<const uint8_t *>(&tmp);
         auto * e = p + sizeof(T);
@@ -254,8 +254,8 @@ struct cpwriter {
         }
         return *this;
     }
-    template<typename T>
-    std::enable_if_t<std::is_integral_v<T>, cpwriter &> put(
+    template<std::integral T>
+    cpwriter& put(
             part_type type, T t) {
         write(uint16_t(type));
         write(uint16_t(4 + sizeof(t)));

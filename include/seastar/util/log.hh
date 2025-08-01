@@ -125,9 +125,7 @@ public:
     struct format_info {
         /// implicitly construct format_info from a constant format string
         /// \param fmt - {fmt} style format string
-        template<
-            typename S,
-            std::enable_if_t<std::is_convertible_v<const S&, std::string_view>, int> = 0>
+        template <std::convertible_to<std::string_view> S>
         FMT_CONSTEVAL inline format_info(const S& format,
                            compat::source_location loc = compat::source_location::current()) noexcept
             : format(format)

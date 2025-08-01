@@ -23,6 +23,7 @@
 
 #include <seastar/util/modules.hh>
 #ifndef SEASTAR_MODULE
+#include <concepts>
 #include <iostream>
 #include <optional>
 #include <type_traits>
@@ -65,8 +66,8 @@ public:
         return *this;
     }
     template<typename U>
-    std::enable_if_t<std::is_same_v<std::decay_t<U>, T>, optimized_optional&>
-    operator=(U&& obj) noexcept {
+    requires std::same_as<std::decay_t<U>, T>
+    optimized_optional& operator=(U&& obj) noexcept {
         _object = std::forward<U>(obj);
         return *this;
     }
