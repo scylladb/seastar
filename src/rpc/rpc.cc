@@ -5,6 +5,7 @@
 #include <seastar/core/print.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/core/metrics.hh>
+#include <seastar/coroutine/as_future.hh>
 #include <seastar/util/assert.hh>
 #include <boost/range/adaptor/map.hpp>
 #include <boost/range/adaptor/transformed.hpp>
@@ -944,7 +945,9 @@ namespace rpc {
   }
 
   future<> client::loop(client_options ops, const socket_address& addr, const socket_address& local) {
-      return _socket.connect(addr, local).then([this, ops = std::move(ops)] (connected_socket fd) {
+      std::exception_ptr ep;
+      try {
+          connected_socket fd = co_await _socket.connect(addr, local);
           fd.set_nodelay(ops.tcp_nodelay);
           if (ops.keepalive) {
               fd.set_keepalive(true);
@@ -969,14 +972,17 @@ namespace rpc {
               features[protocol_features::ISOLATION] = _options.isolation_cookie;
           }
 
-          return negotiate_protocol(std::move(features)).then([this] {
+          co_await negotiate_protocol(std::move(features));
+          {
               _propagate_timeout = !is_stream();
               set_negotiated();
-              return do_until([this] { return _read_buf.eof() || _error; }, [this] () mutable {
+              while (!_read_buf.eof() && !_error) {
                   if (is_stream()) {
-                      return handle_stream_frame();
+                      co_await handle_stream_frame();
+                      continue;
                   }
-                  return read_response_frame_compressed(_read_buf).then([this] (response_frame::return_type msg_id_and_data) {
+                  response_frame::return_type msg_id_and_data = co_await read_response_frame_compressed(_read_buf);
+                  {
                       auto& msg_id = std::get<0>(msg_id_and_data);
                       auto& data = std::get<2>(msg_id_and_data);
                       auto it = _outstanding.find(std::abs(msg_id));
@@ -1007,13 +1013,12 @@ namespace rpc {
                           // this can happened if the message id is timed out already
                           get_logger()(peer_address(), log_level::debug, "got a reply for an expired message id");
                       }
-                  });
-              });
-          });
-      }).then_wrapped([this] (future<> f) {
-          std::exception_ptr ep;
-          if (f.failed()) {
-              ep = f.get_exception();
+                  }
+              }
+          }
+      } catch (...) {
+          ep = std::current_exception();
+          {
               if (_connected) {
                   if (is_stream()) {
                       log_exception(*this, log_level::error, "client stream connection dropped", ep);
@@ -1028,11 +1033,14 @@ namespace rpc {
                   }
               }
           }
+      }
+      {
           if (is_stream() && (ep || _error)) {
               _stream_queue.abort(std::make_exception_ptr(stream_closed()));
           }
           _error = true;
-          return stop_send_loop(ep).then_wrapped([this] (future<> f) {
+          future<> f = co_await coroutine::as_future(stop_send_loop(ep));
+          {
               f.ignore_ready_future();
               _outstanding.clear();
               if (is_stream()) {
@@ -1040,12 +1048,16 @@ namespace rpc {
               } else {
                   abort_all_streams();
               }
-          }).finally([this] {
-              return _compressor ? _compressor->close() : make_ready_future();
-          }).finally([this]{
+          }
+          {
+              if (_compressor) {
+                co_await _compressor->close();
+              }
+          }
+          {
               _stopped.set_value();
-          });
-      });
+          }
+      }
   }
 
   client::client(const logger& l, void* s, const socket_address& addr, const socket_address& local)
