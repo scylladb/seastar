@@ -5,6 +5,7 @@
 #include <seastar/core/print.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/core/metrics.hh>
+#include <seastar/coroutine/as_future.hh>
 #include <seastar/util/assert.hh>
 #include <boost/range/adaptor/map.hpp>
 #include <boost/range/adaptor/transformed.hpp>
@@ -939,7 +940,14 @@ namespace rpc {
       // Run client in the background.
       // Communicate result via _stopped.
       // The caller has to call client::stop() to synchronize.
-      (void)_socket.connect(addr, local).then([this, ops = std::move(ops)] (connected_socket fd) {
+      (void)loop(ops, addr, local);
+      enqueue_zero_frame();
+  }
+
+  future<> client::loop(client_options ops, const socket_address& addr, const socket_address& local) {
+      std::exception_ptr ep;
+      try {
+          connected_socket fd = co_await _socket.connect(addr, local);
           fd.set_nodelay(ops.tcp_nodelay);
           if (ops.keepalive) {
               fd.set_keepalive(true);
@@ -964,84 +972,79 @@ namespace rpc {
               features[protocol_features::ISOLATION] = _options.isolation_cookie;
           }
 
-          return negotiate_protocol(std::move(features)).then([this] {
-              _propagate_timeout = !is_stream();
-              set_negotiated();
-              return do_until([this] { return _read_buf.eof() || _error; }, [this] () mutable {
-                  if (is_stream()) {
-                      return handle_stream_frame();
-                  }
-                  return read_response_frame_compressed(_read_buf).then([this] (response_frame::return_type msg_id_and_data) {
-                      auto& msg_id = std::get<0>(msg_id_and_data);
-                      auto& data = std::get<2>(msg_id_and_data);
-                      auto it = _outstanding.find(std::abs(msg_id));
-                      if (!data) {
-                          _error = true;
-                      } else if (it != _outstanding.end()) {
-                          auto handler = std::move(it->second);
-                          auto ht = std::get<1>(msg_id_and_data);
-                          _outstanding.erase(it);
-                          (*handler)(*this, msg_id, std::move(data.value()));
-                          if (ht) {
-                              _stats.delay_samples++;
-                              _stats.delay_total += (rpc_clock_type::now() - handler->start) - std::chrono::microseconds(*ht);
-                          }
-                      } else if (msg_id < 0) {
-                          try {
-                              std::rethrow_exception(unmarshal_exception(data.value()));
-                          } catch(const unknown_verb_error& ex) {
-                              // if this is unknown verb exception with unknown id ignore it
-                              // can happen if unknown verb was used by no_wait client
-                              get_logger()(peer_address(), format("unknown verb exception {:d} ignored", ex.type));
-                          } catch(...) {
-                              // We've got error response but handler is no longer waiting, could be timed out.
-                              log_exception(*this, log_level::info, "ignoring error response", std::current_exception());
-                          }
-                      } else {
-                          // we get a reply for a message id not in _outstanding
-                          // this can happened if the message id is timed out already
-                          get_logger()(peer_address(), log_level::debug, "got a reply for an expired message id");
-                      }
-                  });
-              });
-          });
-      }).then_wrapped([this] (future<> f) {
-          std::exception_ptr ep;
-          if (f.failed()) {
-              ep = f.get_exception();
-              if (_connected) {
-                  if (is_stream()) {
-                      log_exception(*this, log_level::error, "client stream connection dropped", ep);
-                  } else {
-                      log_exception(*this, log_level::error, "client connection dropped", ep);
-                  }
-              } else {
-                  if (is_stream()) {
-                      log_exception(*this, log_level::debug, "stream fail to connect", ep);
-                  } else {
-                      log_exception(*this, log_level::debug, "fail to connect", ep);
-                  }
-              }
-          }
-          if (is_stream() && (ep || _error)) {
-              _stream_queue.abort(std::make_exception_ptr(stream_closed()));
-          }
-          _error = true;
-          return stop_send_loop(ep).then_wrapped([this] (future<> f) {
-              f.ignore_ready_future();
-              _outstanding.clear();
+          co_await negotiate_protocol(std::move(features));
+
+          _propagate_timeout = !is_stream();
+          set_negotiated();
+          while (!_read_buf.eof() && !_error) {
               if (is_stream()) {
-                  deregister_this_stream();
-              } else {
-                  abort_all_streams();
+                  co_await handle_stream_frame();
+                  continue;
               }
-          }).finally([this] {
-              return _compressor ? _compressor->close() : make_ready_future();
-          }).finally([this]{
-              _stopped.set_value();
-          });
-      });
-      enqueue_zero_frame();
+              response_frame::return_type msg_id_and_data = co_await read_response_frame_compressed(_read_buf);
+              auto& msg_id = std::get<0>(msg_id_and_data);
+              auto& data = std::get<2>(msg_id_and_data);
+              auto it = _outstanding.find(std::abs(msg_id));
+              if (!data) {
+                  _error = true;
+              } else if (it != _outstanding.end()) {
+                  auto handler = std::move(it->second);
+                  auto ht = std::get<1>(msg_id_and_data);
+                  _outstanding.erase(it);
+                  (*handler)(*this, msg_id, std::move(data.value()));
+                  if (ht) {
+                      _stats.delay_samples++;
+                      _stats.delay_total += (rpc_clock_type::now() - handler->start) - std::chrono::microseconds(*ht);
+                  }
+              } else if (msg_id < 0) {
+                  try {
+                      std::rethrow_exception(unmarshal_exception(data.value()));
+                  } catch(const unknown_verb_error& ex) {
+                      // if this is unknown verb exception with unknown id ignore it
+                      // can happen if unknown verb was used by no_wait client
+                      get_logger()(peer_address(), format("unknown verb exception {:d} ignored", ex.type));
+                  } catch(...) {
+                      // We've got error response but handler is no longer waiting, could be timed out.
+                      log_exception(*this, log_level::info, "ignoring error response", std::current_exception());
+                  }
+              } else {
+                  // we get a reply for a message id not in _outstanding
+                  // this can happened if the message id is timed out already
+                  get_logger()(peer_address(), log_level::debug, "got a reply for an expired message id");
+              }
+          }
+      } catch (...) {
+          ep = std::current_exception();
+          if (_connected) {
+              if (is_stream()) {
+                  log_exception(*this, log_level::error, "client stream connection dropped", ep);
+              } else {
+                  log_exception(*this, log_level::error, "client connection dropped", ep);
+              }
+          } else {
+              if (is_stream()) {
+                  log_exception(*this, log_level::debug, "stream fail to connect", ep);
+              } else {
+                  log_exception(*this, log_level::debug, "fail to connect", ep);
+              }
+          }
+      }
+      if (is_stream() && (ep || _error)) {
+          _stream_queue.abort(std::make_exception_ptr(stream_closed()));
+      }
+      _error = true;
+      future<> f = co_await coroutine::as_future(stop_send_loop(ep));
+      f.ignore_ready_future();
+      _outstanding.clear();
+      if (is_stream()) {
+          deregister_this_stream();
+      } else {
+          abort_all_streams();
+      }
+      if (_compressor) {
+          co_await _compressor->close();
+      }
+      _stopped.set_value();
   }
 
   client::client(const logger& l, void* s, const socket_address& addr, const socket_address& local)
