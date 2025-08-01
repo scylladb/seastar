@@ -390,9 +390,10 @@ task_quota_aio_completion::task_quota_aio_completion(file_desc& fd)
     : fd_kernel_completion(fd)
     , completion_with_iocb(fd.get(), POLLIN, this) {}
 
-smp_wakeup_aio_completion::smp_wakeup_aio_completion(file_desc& fd)
-        : fd_kernel_completion(fd)
-        , completion_with_iocb(fd.get(), POLLIN, this) {}
+smp_wakeup_aio_completion::smp_wakeup_aio_completion(writeable_eventfd& fd)
+        : completion_with_iocb(fd.get_read_fd(), POLLIN, this)
+        , _efd(fd)
+{}
 
 void
 hrtimer_aio_completion::complete_with(ssize_t ret) {
@@ -413,8 +414,7 @@ task_quota_aio_completion::complete_with(ssize_t ret) {
 
 void
 smp_wakeup_aio_completion::complete_with(ssize_t ret) {
-    uint64_t ignore = 0;
-    (void)_fd.read(&ignore, 8);
+    _efd.consume();
     completion_with_iocb::completed();
 }
 
@@ -526,7 +526,7 @@ reactor_backend_aio::reactor_backend_aio(reactor& r)
     , _preempting_io(_r, _r._task_quota_timer, _hrtimer_timerfd)
     , _polling_io(_r._cfg.max_networking_aio_io_control_blocks)
     , _hrtimer_poll_completion(_r, _hrtimer_timerfd)
-    , _smp_wakeup_aio_completion(_r._notify_eventfd)
+    , _smp_wakeup_aio_completion(_r._notify)
 {
     // Protect against spurious wakeups - if we get notified that the timer has
     // expired when it really hasn't, we don't want to block in read(tfd, ...).
@@ -727,7 +727,7 @@ reactor_backend_epoll::reactor_backend_epoll(reactor& r)
     ::epoll_event event;
     event.events = EPOLLIN;
     event.data.ptr = nullptr;
-    auto ret = ::epoll_ctl(_epollfd.get(), EPOLL_CTL_ADD, _r._notify_eventfd.get(), &event);
+    auto ret = ::epoll_ctl(_epollfd.get(), EPOLL_CTL_ADD, _r._notify.get_read_fd(), &event);
     throw_system_error_on(ret == -1);
     event.events = EPOLLIN;
     event.data.ptr = &_steady_clock_timer_reactor_thread;
@@ -854,8 +854,7 @@ reactor_backend_epoll::wait_and_process(int timeout, const sigset_t* active_sigm
         auto& evt = eevt[i];
         auto pfd = reinterpret_cast<pollable_fd_state*>(evt.data.ptr);
         if (!pfd) {
-            char dummy[8];
-            _r._notify_eventfd.read(dummy, 8);
+            _r._notify.consume();
             continue;
         }
         if (evt.data.ptr == &_steady_clock_timer_reactor_thread) {
@@ -1227,13 +1226,13 @@ class reactor_backend_uring final : public reactor_backend {
     };
 
     // eventfd and timerfd both need an 8-byte read after completion
-    class recurring_eventfd_or_timerfd_completion : public fd_kernel_completion {
+    class recurring_eventfd_or_timerfd_completion final : public kernel_completion {
+        writeable_eventfd& _efd;
         bool _armed = false;
     public:
-        explicit recurring_eventfd_or_timerfd_completion(file_desc& fd) : fd_kernel_completion(fd) {}
+        explicit recurring_eventfd_or_timerfd_completion(writeable_eventfd& efd) noexcept : _efd(efd) {}
         virtual void complete_with(ssize_t res) override {
-            char garbage[8];
-            auto ret = _fd.read(garbage, 8);
+            auto ret = _efd.consume();
             // Note: for hrtimer_completion we can have spurious wakeups,
             // since we wait for this using both _preempt_io_context and the
             // ring. So don't assert that we read anything.
@@ -1433,7 +1432,7 @@ public:
             , _hrtimer_timerfd(make_timerfd())
             , _preempt_io_context(_r, _r._task_quota_timer, _hrtimer_timerfd)
             , _hrtimer_completion(_r, _hrtimer_timerfd)
-            , _smp_wakeup_completion(_r._notify_eventfd) {
+            , _smp_wakeup_completion(_r._notify) {
         // Protect against spurious wakeups - if we get notified that the timer has
         // expired when it really hasn't, we don't want to block in read(tfd, ...).
         auto tfd = _r._task_quota_timer.get();

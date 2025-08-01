@@ -237,6 +237,7 @@ public:
     writeable_eventfd(writeable_eventfd&&) = default;
     readable_eventfd read_side();
     void signal(size_t nr);
+    std::optional<size_t> consume();
     int get_read_fd() { return _fd.get(); }
 private:
     explicit writeable_eventfd(file_desc&& fd) : _fd(std::move(fd)) {}
