@@ -161,7 +161,7 @@ protected:
     /*!
      * \brief Packs buff in websocket frame and sends it to the client.
      */
-    future<> send_data(opcodes opcode, temporary_buffer<char>&& buff);
+    future<> send_data(opcodes opcode, temporary_buffer<char> buff);
 };
 
 std::string sha1_base64(std::string_view source);
