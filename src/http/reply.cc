@@ -42,7 +42,12 @@ module seastar;
 #include <seastar/http/common.hh>
 #include <seastar/http/response_parser.hh>
 #include <seastar/core/loop.hh>
+#include <seastar/core/reactor.hh>
 #endif
+
+template<>
+struct std::hash<seastar::http::status_type> : public std::hash<int>
+{};
 
 namespace seastar {
 
@@ -50,76 +55,103 @@ namespace http {
 
 namespace status_strings {
 
-static const std::unordered_map<reply::status_type, std::string_view> status_strings = {
-    {reply::status_type::continue_, "100 Continue"},
-    {reply::status_type::switching_protocols, "101 Switching Protocols"},
-    {reply::status_type::ok, "200 OK"},
-    {reply::status_type::created, "201 Created"},
-    {reply::status_type::accepted, "202 Accepted"},
-    {reply::status_type::nonauthoritative_information, "203 Non-Authoritative Information"},
-    {reply::status_type::no_content, "204 No Content"},
-    {reply::status_type::reset_content, "205 Reset Content"},
-    {reply::status_type::partial_content, "206 Partial Content"},
-    {reply::status_type::multiple_choices, "300 Multiple Choices"},
-    {reply::status_type::moved_permanently, "301 Moved Permanently"},
-    {reply::status_type::moved_temporarily, "302 Moved Temporarily"},
-    {reply::status_type::see_other, "303 See Other"},
-    {reply::status_type::not_modified, "304 Not Modified"},
-    {reply::status_type::use_proxy, "305 Use Proxy"},
-    {reply::status_type::temporary_redirect, "307 Temporary Redirect"},
-    {reply::status_type::permanent_redirect, "308 Permanent Redirect"},
-    {reply::status_type::bad_request, "400 Bad Request"},
-    {reply::status_type::unauthorized, "401 Unauthorized"},
-    {reply::status_type::payment_required, "402 Payment Required"},
-    {reply::status_type::forbidden, "403 Forbidden"},
-    {reply::status_type::not_found, "404 Not Found"},
-    {reply::status_type::method_not_allowed, "405 Method Not Allowed"},
-    {reply::status_type::not_acceptable, "406 Not Acceptable"},
-    {reply::status_type::request_timeout, "408 Request Timeout"},
-    {reply::status_type::conflict, "409 Conflict"},
-    {reply::status_type::gone, "410 Gone"},
-    {reply::status_type::length_required, "411 Length Required"},
-    {reply::status_type::payload_too_large, "413 Payload Too Large"},
-    {reply::status_type::uri_too_long, "414 URI Too Long"},
-    {reply::status_type::unsupported_media_type, "415 Unsupported Media Type"},
-    {reply::status_type::expectation_failed, "417 Expectation Failed"},
-    {reply::status_type::page_expired, "419 Page Expired"},
-    {reply::status_type::unprocessable_entity, "422 Unprocessable Entity"},
-    {reply::status_type::upgrade_required, "426 Upgrade Required"},
-    {reply::status_type::too_many_requests, "429 Too Many Requests"},
-    {reply::status_type::login_timeout, "440 Login Timeout"},
-    {reply::status_type::internal_server_error, "500 Internal Server Error"},
-    {reply::status_type::not_implemented, "501 Not Implemented"},
-    {reply::status_type::bad_gateway, "502 Bad Gateway"},
-    {reply::status_type::service_unavailable, "503 Service Unavailable"},
-    {reply::status_type::gateway_timeout, "504 Gateway Timeout"},
-    {reply::status_type::http_version_not_supported, "505 HTTP Version Not Supported"},
-    {reply::status_type::insufficient_storage, "507 Insufficient Storage"},
-    {reply::status_type::bandwidth_limit_exceeded, "509 Bandwidth Limit Exceeded"},
-    {reply::status_type::network_read_timeout, "598 Network Read Timeout"},
-    {reply::status_type::network_connect_timeout, "599 Network Connect Timeout"}};
+static auto& status_strings() {
+    static std::unordered_map<status_type, std::string_view> status_strings = {
+        {reply::status_type::continue_, "Continue"},
+        {reply::status_type::switching_protocols, "Switching Protocols"},
+        {reply::status_type::ok, "OK"},
+        {reply::status_type::created, "Created"},
+        {reply::status_type::accepted, "Accepted"},
+        {reply::status_type::nonauthoritative_information, "Non-Authoritative Information"},
+        {reply::status_type::no_content, "No Content"},
+        {reply::status_type::reset_content, "Reset Content"},
+        {reply::status_type::partial_content, "Partial Content"},
+        {reply::status_type::multiple_choices, "Multiple Choices"},
+        {reply::status_type::moved_permanently, "Moved Permanently"},
+        {reply::status_type::moved_temporarily, "Found"},
+        {reply::status_type::see_other, "See Other"},
+        {reply::status_type::not_modified, "Not Modified"},
+        {reply::status_type::use_proxy, "Use Proxy"},
+        {reply::status_type::temporary_redirect, "Temporary Redirect"},
+        {reply::status_type::permanent_redirect, "Permanent Redirect"},
+        {reply::status_type::bad_request, "Bad Request"},
+        {reply::status_type::unauthorized, "Unauthorized"},
+        {reply::status_type::payment_required, "Payment Required"},
+        {reply::status_type::forbidden, "Forbidden"},
+        {reply::status_type::not_found, "Not Found"},
+        {reply::status_type::method_not_allowed, "Method Not Allowed"},
+        {reply::status_type::not_acceptable, "Not Acceptable"},
+        {reply::status_type::proxy_authentication_required, "Proxy Authentication Required"},
+        {reply::status_type::request_timeout, "Request Timeout"},
+        {reply::status_type::conflict, "Conflict"},
+        {reply::status_type::gone, "Gone"},
+        {reply::status_type::length_required, "Length Required"},
+        {reply::status_type::precondition_failed, "Precondition Failed"},
+        {reply::status_type::payload_too_large, "Content Too Large"},
+        {reply::status_type::uri_too_long, "URI Too Long"},
+        {reply::status_type::unsupported_media_type, "Unsupported Media Type"},
+        {reply::status_type::range_not_satisfiable, "Range Not Satisfiable"},
+        {reply::status_type::expectation_failed, "Expectation Failed"},
+        {reply::status_type::page_expired, "Page Expired"},
+        {reply::status_type::misdirected_request, "Misdirected Request"},
+        {reply::status_type::unprocessable_entity, "Unprocessable Content"},
+        {reply::status_type::upgrade_required, "Upgrade Required"},
+        {reply::status_type::too_many_requests, "Too Many Requests"},
+        {reply::status_type::login_timeout, "Login Timeout"},
+        {reply::status_type::internal_server_error, "Internal Server Error"},
+        {reply::status_type::not_implemented, "Not Implemented"},
+        {reply::status_type::bad_gateway, "Bad Gateway"},
+        {reply::status_type::service_unavailable, "Service Unavailable"},
+        {reply::status_type::gateway_timeout, "Gateway Timeout"},
+        {reply::status_type::http_version_not_supported, "HTTP Version Not Supported"},
+        {reply::status_type::insufficient_storage, "Insufficient Storage"},
+        {reply::status_type::bandwidth_limit_exceeded, "Bandwidth Limit Exceeded"},
+        {reply::status_type::network_read_timeout, "Network Read Timeout"},
+        {reply::status_type::network_connect_timeout, "Network Connect Timeout"},
+        {reply::status_type::insufficient_storage, "Insufficient Storage"}
+    };
+
+    return status_strings;
+}
 
 template<typename Func>
-static auto with_string_view(reply::status_type status, Func&& func) -> std::invoke_result_t<Func, std::string_view> {
-  if (auto found = status_strings.find(status); found != status_strings.end()) [[likely]] {
+static auto with_string_view(status_type status, Func&& func) -> std::invoke_result_t<Func, std::string_view> {
+    const auto& ss = status_strings();
+    if (auto found = ss.find(status); found != ss.end()) [[likely]] {
      return func(found->second);
-  }
-  auto dummy_buf = std::to_string(int(status));
-  return func(dummy_buf);
+    }
+    auto dummy_buf = std::to_string(int(status));
+    return func(dummy_buf);
 }
 
 } // namespace status_strings
 
-std::ostream& operator<<(std::ostream& os, reply::status_type st) {
+std::string_view bind_status_name(status_type st, std::string_view name) {
+    if (engine_is_ready()) {
+        throw std::runtime_error("Cannot bind http status name in runtime");
+    }
+    auto& map = status_strings::status_strings();
+    auto p = map.try_emplace(st, name);
+    if (!p.second) {
+        throw std::invalid_argument(seastar::format("Status {} {} already bound. Previous name: {}",
+            int(st), name, p.first->second
+        ));
+    }
+    return p.first->second;
+}
+
+std::ostream& operator<<(std::ostream& os, status_type st) {
     return status_strings::with_string_view(st, [&](std::string_view txt) -> std::ostream& {
-        return os << txt;
+        return os << int(st) << " " << txt;
     });
 }
 
+std::ostream& operator<<(std::ostream& os, status_type::status_init st) {
+    return os << status_type(st);
+}
+
 sstring reply::response_line() const {
-    return status_strings::with_string_view(_status, [this](std::string_view txt) {
-        return seastar::format("HTTP/{} {}\r\n", _version, txt);
-    });
+    return seastar::format("HTTP/{} {}\r\n", _version, _status);
 }
 
 void reply::write_body(const sstring& content_type, noncopyable_function<future<>(output_stream<char>&&)>&& body_writer) {
