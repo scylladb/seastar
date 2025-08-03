@@ -2184,35 +2184,31 @@ future<> reactor::chown(std::string_view filepath, uid_t owner, gid_t group) {
 future<stat_data>
 reactor::file_stat(std::string_view pathname_view, follow_symlink follow) noexcept {
     auto pathname = sstring(pathname_view);
-    {
-        syscall_result_extra<struct stat> sr = co_await _thread_pool->submit<syscall_result_extra<struct stat>>(
-                internal::thread_pool_submit_reason::file_operation, [&] {
-            struct stat st;
-            auto stat_syscall = follow ? stat : lstat;
-            auto ret = stat_syscall(pathname.c_str(), &st);
-            return wrap_syscall(ret, st);
-        });
-        {
-            sr.throw_fs_exception_if_error("stat failed", pathname);
-            struct stat& st = sr.extra;
-            stat_data sd;
-            sd.device_id = st.st_dev;
-            sd.inode_number = st.st_ino;
-            sd.mode = st.st_mode;
-            sd.type = stat_to_entry_type(st.st_mode);
-            sd.number_of_links = st.st_nlink;
-            sd.uid = st.st_uid;
-            sd.gid = st.st_gid;
-            sd.rdev = st.st_rdev;
-            sd.size = st.st_size;
-            sd.block_size = st.st_blksize;
-            sd.allocated_size = st.st_blocks * 512UL;
-            sd.time_accessed = timespec_to_time_point(st.st_atim);
-            sd.time_modified = timespec_to_time_point(st.st_mtim);
-            sd.time_changed = timespec_to_time_point(st.st_ctim);
-            co_return sd;
-        }
-    }
+    syscall_result_extra<struct stat> sr = co_await _thread_pool->submit<syscall_result_extra<struct stat>>(
+            internal::thread_pool_submit_reason::file_operation, [&] {
+        struct stat st;
+        auto stat_syscall = follow ? stat : lstat;
+        auto ret = stat_syscall(pathname.c_str(), &st);
+        return wrap_syscall(ret, st);
+    });
+    sr.throw_fs_exception_if_error("stat failed", pathname);
+    struct stat& st = sr.extra;
+    stat_data sd;
+    sd.device_id = st.st_dev;
+    sd.inode_number = st.st_ino;
+    sd.mode = st.st_mode;
+    sd.type = stat_to_entry_type(st.st_mode);
+    sd.number_of_links = st.st_nlink;
+    sd.uid = st.st_uid;
+    sd.gid = st.st_gid;
+    sd.rdev = st.st_rdev;
+    sd.size = st.st_size;
+    sd.block_size = st.st_blksize;
+    sd.allocated_size = st.st_blocks * 512UL;
+    sd.time_accessed = timespec_to_time_point(st.st_atim);
+    sd.time_modified = timespec_to_time_point(st.st_mtim);
+    sd.time_changed = timespec_to_time_point(st.st_ctim);
+    co_return sd;
 }
 
 future<uint64_t>
@@ -2224,56 +2220,48 @@ reactor::file_size(std::string_view pathname) noexcept {
 future<bool>
 reactor::file_accessible(std::string_view pathname_view, access_flags flags) noexcept {
     auto pathname = sstring(pathname_view);
-    {
-        syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
-                internal::thread_pool_submit_reason::file_operation, [&] {
-            auto aflags = std::underlying_type_t<access_flags>(flags);
-            auto ret = ::access(pathname.c_str(), aflags);
-            return wrap_syscall(ret);
-        });
-        {
-            if (sr.result < 0) {
-                if ((sr.error == ENOENT && flags == access_flags::exists) ||
-                    (sr.error == EACCES && flags != access_flags::exists)) {
-                    co_return false;
-                }
-                sr.throw_fs_exception("access failed", fs::path(pathname));
-            }
-
-            co_return true;
+    syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
+            internal::thread_pool_submit_reason::file_operation, [&] {
+        auto aflags = std::underlying_type_t<access_flags>(flags);
+        auto ret = ::access(pathname.c_str(), aflags);
+        return wrap_syscall(ret);
+    });
+    if (sr.result < 0) {
+        if ((sr.error == ENOENT && flags == access_flags::exists) ||
+            (sr.error == EACCES && flags != access_flags::exists)) {
+            co_return false;
         }
+        sr.throw_fs_exception("access failed", fs::path(pathname));
     }
+
+    co_return true;
 }
 
 future<fs_type>
 reactor::file_system_at(std::string_view pathname_view) noexcept {
     auto pathname = sstring(pathname_view);
-    {
-        syscall_result_extra<struct statfs> sr = co_await _thread_pool->submit<syscall_result_extra<struct statfs>>(
-                internal::thread_pool_submit_reason::file_operation, [&] {
-            struct statfs st;
-            auto ret = statfs(pathname.c_str(), &st);
-            return wrap_syscall(ret, st);
-        });
-        {
-            static std::unordered_map<long int, fs_type> type_mapper = {
-                { internal::fs_magic::xfs, fs_type::xfs },
-                { internal::fs_magic::ext2, fs_type::ext2 },
-                { internal::fs_magic::ext3, fs_type::ext3 },
-                { internal::fs_magic::ext4, fs_type::ext4 },
-                { internal::fs_magic::btrfs, fs_type::btrfs },
-                { internal::fs_magic::hfs, fs_type::hfs },
-                { internal::fs_magic::tmpfs, fs_type::tmpfs },
-            };
-            sr.throw_fs_exception_if_error("statfs failed", pathname);
+    syscall_result_extra<struct statfs> sr = co_await _thread_pool->submit<syscall_result_extra<struct statfs>>(
+            internal::thread_pool_submit_reason::file_operation, [&] {
+        struct statfs st;
+        auto ret = statfs(pathname.c_str(), &st);
+        return wrap_syscall(ret, st);
+    });
+    static std::unordered_map<long int, fs_type> type_mapper = {
+        { internal::fs_magic::xfs, fs_type::xfs },
+        { internal::fs_magic::ext2, fs_type::ext2 },
+        { internal::fs_magic::ext3, fs_type::ext3 },
+        { internal::fs_magic::ext4, fs_type::ext4 },
+        { internal::fs_magic::btrfs, fs_type::btrfs },
+        { internal::fs_magic::hfs, fs_type::hfs },
+        { internal::fs_magic::tmpfs, fs_type::tmpfs },
+    };
+    sr.throw_fs_exception_if_error("statfs failed", pathname);
 
-            fs_type ret = fs_type::other;
-            if (type_mapper.count(sr.extra.f_type) != 0) {
-                ret = type_mapper.at(sr.extra.f_type);
-            }
-            co_return ret;
-        }
+    fs_type ret = fs_type::other;
+    if (type_mapper.count(sr.extra.f_type) != 0) {
+        ret = type_mapper.at(sr.extra.f_type);
     }
+    co_return ret;
 }
 
 future<struct statfs>
@@ -2284,11 +2272,9 @@ reactor::fstatfs(int fd) noexcept {
         auto ret = ::fstatfs(fd, &st);
         return wrap_syscall(ret, st);
     });
-    {
-        sr.throw_if_error();
-        struct statfs st = sr.extra;
-        co_return st;
-    }
+    sr.throw_if_error();
+    struct statfs st = sr.extra;
+    co_return st;
 }
 
 future<std::filesystem::space_info>
@@ -2306,76 +2292,60 @@ reactor::file_system_space(std::string_view pathname) noexcept {
 future<struct statvfs>
 reactor::statvfs(std::string_view pathname_view) noexcept {
     auto pathname = sstring(pathname_view);
-    {
-        syscall_result_extra<struct statvfs> sr = co_await _thread_pool->submit<syscall_result_extra<struct statvfs>>(
-                internal::thread_pool_submit_reason::file_operation, [&] {
-            struct statvfs st;
-            auto ret = ::statvfs(pathname.c_str(), &st);
-            return wrap_syscall(ret, st);
-        });
-        {
-            sr.throw_fs_exception_if_error("statvfs failed", pathname);
-            struct statvfs st = sr.extra;
-            co_return st;
-        }
-    }
+    syscall_result_extra<struct statvfs> sr = co_await _thread_pool->submit<syscall_result_extra<struct statvfs>>(
+            internal::thread_pool_submit_reason::file_operation, [&] {
+        struct statvfs st;
+        auto ret = ::statvfs(pathname.c_str(), &st);
+        return wrap_syscall(ret, st);
+    });
+    sr.throw_fs_exception_if_error("statvfs failed", pathname);
+    struct statvfs st = sr.extra;
+    co_return st;
 }
 
 future<file>
 reactor::open_directory(std::string_view name_view) noexcept {
     auto name = sstring(name_view);
-    {
-        auto oflags = O_DIRECTORY | O_CLOEXEC | O_RDONLY;
-        syscall_result_extra<struct stat> sr = co_await _thread_pool->submit<syscall_result_extra<struct stat>>(
-                internal::thread_pool_submit_reason::file_operation, [&] {
-            struct stat st;
-            int fd = ::open(name.c_str(), oflags);
-            if (fd != -1) {
-                int r = ::fstat(fd, &st);
-                if (r == -1) {
-                    ::close(fd);
-                    fd = r;
-                }
+    auto oflags = O_DIRECTORY | O_CLOEXEC | O_RDONLY;
+    syscall_result_extra<struct stat> sr = co_await _thread_pool->submit<syscall_result_extra<struct stat>>(
+            internal::thread_pool_submit_reason::file_operation, [&] {
+        struct stat st;
+        int fd = ::open(name.c_str(), oflags);
+        if (fd != -1) {
+            int r = ::fstat(fd, &st);
+            if (r == -1) {
+                ::close(fd);
+                fd = r;
             }
-            return wrap_syscall(fd, st);
-        });
-        {
-            sr.throw_fs_exception_if_error("open failed", name);
-            shared_ptr<file_impl> file_impl = co_await make_file_impl(sr.result, file_open_options(), oflags, sr.extra);
-            co_return file(std::move(file_impl));
         }
-    }
+        return wrap_syscall(fd, st);
+    });
+    sr.throw_fs_exception_if_error("open failed", name);
+    shared_ptr<file_impl> file_impl = co_await make_file_impl(sr.result, file_open_options(), oflags, sr.extra);
+    co_return file(std::move(file_impl));
 }
 
 future<>
 reactor::make_directory(std::string_view name_view, file_permissions permissions) noexcept {
     auto name = sstring(name_view);
-    {
-        syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
-                internal::thread_pool_submit_reason::file_operation, [&] {
-            auto mode = static_cast<mode_t>(permissions);
-            return wrap_syscall<int>(::mkdir(name.c_str(), mode));
-        });
-        {
-            sr.throw_fs_exception_if_error("mkdir failed", name);
-        }
-    }
+    syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
+            internal::thread_pool_submit_reason::file_operation, [&] {
+        auto mode = static_cast<mode_t>(permissions);
+        return wrap_syscall<int>(::mkdir(name.c_str(), mode));
+    });
+    sr.throw_fs_exception_if_error("mkdir failed", name);
 }
 
 future<>
 reactor::touch_directory(std::string_view name_view, file_permissions permissions) noexcept {
     auto name = sstring(name_view);
-    {
-        syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
-                internal::thread_pool_submit_reason::file_operation, [&] {
-            auto mode = static_cast<mode_t>(permissions);
-            return wrap_syscall<int>(::mkdir(name.c_str(), mode));
-        });
-        {
-            if (sr.result == -1 && sr.error != EEXIST) {
-                sr.throw_fs_exception("mkdir failed", fs::path(name));
-            }
-        }
+    syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
+            internal::thread_pool_submit_reason::file_operation, [&] {
+        auto mode = static_cast<mode_t>(permissions);
+        return wrap_syscall<int>(::mkdir(name.c_str(), mode));
+    });
+    if (sr.result == -1 && sr.error != EEXIST) {
+        sr.throw_fs_exception("mkdir failed", fs::path(name));
     }
 }
 
@@ -2405,22 +2375,18 @@ reactor::fdatasync(int fd) noexcept {
             }
         };
 
-        {
-            auto desc = new fsync_io_desc;
-            auto fut = desc->get_future();
-            auto req = internal::io_request::make_fdatasync(fd);
-            _io_sink.submit(desc, std::move(req));
-            co_await std::move(fut);
-            co_return;
-        }
+        auto desc = new fsync_io_desc;
+        auto fut = desc->get_future();
+        auto req = internal::io_request::make_fdatasync(fd);
+        _io_sink.submit(desc, std::move(req));
+        co_await std::move(fut);
+        co_return;
     }
     syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
             internal::thread_pool_submit_reason::file_operation, [fd] {
         return wrap_syscall<int>(::fdatasync(fd));
     });
-    {
-        sr.throw_if_error();
-    }
+    sr.throw_if_error();
 }
 
 // Note: terminate if arm_highres_timer throws
