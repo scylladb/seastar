@@ -297,7 +297,8 @@ struct uninitialized_wrapper {
 public:
     uninitialized_wrapper() noexcept = default;
     template<typename... U>
-    std::enable_if_t<!std::is_same_v<std::tuple<std::remove_cv_t<U>...>, std::tuple<tuple_type>>, void>
+    requires (!std::same_as<std::tuple<std::remove_cv_t<U>...>, std::tuple<tuple_type>>)
+    void
     uninitialized_set(U&&... vs) {
         new (&_v.value) maybe_wrap_ref<T>(T(std::forward<U>(vs)...));
     }
@@ -626,8 +627,8 @@ struct future_state :  public future_state_base, private internal::uninitialized
         _u.st = state::result_unavailable;
         return static_cast<T&&>(this->uninitialized_get());
     }
-    template<typename U = T>
-    const std::enable_if_t<std::is_copy_constructible_v<U>, U>& get_value() const& noexcept(copy_noexcept) {
+    template<std::copy_constructible U = T>
+    const U& get_value() const& noexcept(copy_noexcept) {
         assert(_u.st == state::result);
         return this->uninitialized_get();
     }
@@ -822,7 +823,8 @@ protected:
     }
 
     template<typename Exception>
-    std::enable_if_t<!std::is_same_v<std::remove_reference_t<Exception>, std::exception_ptr>, void> set_exception(Exception&& e) noexcept {
+    requires (!std::same_as<std::remove_reference_t<Exception>, std::exception_ptr>)
+    void set_exception(Exception&& e) noexcept {
         set_exception(std::make_exception_ptr(std::forward<Exception>(e)));
     }
 
@@ -984,7 +986,8 @@ public:
     /// Forwards the exception argument to the future and makes it
     /// available.  May be called either before or after \c get_future().
     template<typename Exception>
-    std::enable_if_t<!std::is_same_v<std::remove_reference_t<Exception>, std::exception_ptr>, void> set_exception(Exception&& e) noexcept {
+    requires (!std::same_as<std::remove_reference_t<Exception>, std::exception_ptr>)
+    void set_exception(Exception&& e) noexcept {
         internal::promise_base::set_exception(std::forward<Exception>(e));
     }
 

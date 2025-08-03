@@ -22,6 +22,7 @@
 #pragma once
 
 #ifndef SEASTAR_MODULE
+#include <concepts>
 #include <functional>
 #include <limits>
 #include <map>
@@ -408,14 +409,14 @@ public:
 
 instance_id_type shard();
 
-template<typename T, typename = std::enable_if_t<std::is_invocable_v<T>>>
+template<std::invocable T>
 metric_function make_function(T val, data_type dt) {
     return [dt, val = std::move(val)] {
         return metric_value(val(), dt);
     };
 }
 
-template<typename T, typename = std::enable_if_t<!std::is_invocable_v<T>>>
+template<typename T>
 metric_function make_function(T& val, data_type dt) {
     return [dt, &val] {
         return metric_value(val, dt);

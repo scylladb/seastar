@@ -28,6 +28,7 @@
 #ifndef SEASTAR_MODULE
 #include <boost/intrusive/parent_from_member.hpp>
 #include <fmt/core.h>
+#include <concepts>
 #include <ostream>
 #include <type_traits>
 #include <utility>
@@ -539,7 +540,7 @@ public:
         x._b = nullptr;
         x._p = nullptr;
     }
-    template <typename U, typename = std::enable_if_t<std::is_base_of_v<T, U>>>
+    template <std::derived_from<T> U>
     shared_ptr(const shared_ptr<U>& x) noexcept
             : _b(x._b)
             , _p(x._p) {
@@ -547,7 +548,7 @@ public:
             ++_b->count;
         }
     }
-    template <typename U, typename = std::enable_if_t<std::is_base_of_v<T, U>>>
+    template <std::derived_from<T> U>
     shared_ptr(shared_ptr<U>&& x) noexcept
             : _b(x._b)
             , _p(x._p) {
@@ -581,7 +582,7 @@ public:
     shared_ptr& operator=(std::nullptr_t) noexcept {
         return *this = shared_ptr();
     }
-    template <typename U, typename = std::enable_if_t<std::is_base_of_v<T, U>>>
+    template <std::derived_from<T> U>
     shared_ptr& operator=(const shared_ptr<U>& x) noexcept {
         if (*this != x) {
             this->~shared_ptr();
@@ -589,7 +590,7 @@ public:
         }
         return *this;
     }
-    template <typename U, typename = std::enable_if_t<std::is_base_of_v<T, U>>>
+    template <std::derived_from<T> U>
     shared_ptr& operator=(shared_ptr<U>&& x) noexcept {
         if (*this != x) {
             this->~shared_ptr();

@@ -26,6 +26,7 @@
 #include <seastar/util/modules.hh>
 #ifndef SEASTAR_MODULE
 #include <algorithm>
+#include <concepts>
 #include <cstddef>
 #include <stdexcept>
 #include <type_traits>
@@ -632,14 +633,16 @@ inline memory_input_stream<Iterator> memory_output_stream<Iterator>::to_input_st
 // function, instead of one per each skip() and deserialize() call.
 
 SEASTAR_MODULE_EXPORT_BEGIN
-template<typename Stream, typename StreamVisitor, typename = std::enable_if_t<Stream::has_with_stream::value>>
+template<typename Stream, typename StreamVisitor>
+requires Stream::has_with_stream::value
 [[gnu::always_inline]]
  inline decltype(auto)
  with_serialized_stream(Stream& stream, StreamVisitor&& visitor) {
     return stream.with_stream(std::forward<StreamVisitor>(visitor));
 }
 
-template<typename Stream, typename StreamVisitor, typename = std::enable_if_t<!Stream::has_with_stream::value>, typename = void>
+template<typename Stream, typename StreamVisitor>
+requires (!Stream::has_with_stream::value)
 [[gnu::always_inline]]
  inline decltype(auto)
  with_serialized_stream(Stream& stream, StreamVisitor&& visitor) {
