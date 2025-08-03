@@ -24,6 +24,7 @@
 
 #include <seastar/core/future.hh>
 #include <seastar/core/make_task.hh>
+#include <seastar/core/sized-free.hh>
 #include <seastar/coroutine/exception.hh>
 #include <seastar/util/modules.hh>
 #include <seastar/util/std-compat.hh>
@@ -31,6 +32,7 @@
 
 #ifndef SEASTAR_MODULE
 #include <coroutine>
+#include <new>
 #endif
 
 namespace seastar {
@@ -51,10 +53,26 @@ execute_involving_handle_destruction_in_await_suspend(std::invocable<> auto&& fu
 }
 
 
+class coroutine_allocators {
+public:
+    static void* operator new(size_t size) {
+        memory::scoped_critical_alloc_section _;
+        return ::malloc(size);
+    }
+    static void operator delete(void* ptr) noexcept {
+        ::free(ptr);
+    }
+#ifdef __cpp_sized_deallocation
+    static void operator delete(void* ptr, std::size_t sz) noexcept {
+        memory::free(ptr, sz);
+    }
+#endif
+};
+
 template <typename T = void>
 class coroutine_traits_base {
 public:
-    class promise_type final : public seastar::task {
+    class promise_type final : public seastar::task, public coroutine_allocators {
         seastar::promise<T> _promise;
     public:
         promise_type() = default;
@@ -106,7 +124,7 @@ public:
 template <>
 class coroutine_traits_base<> {
 public:
-   class promise_type final : public seastar::task {
+   class promise_type final : public seastar::task, public coroutine_allocators {
         seastar::promise<> _promise;
     public:
         promise_type() = default;
