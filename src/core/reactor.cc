@@ -2222,26 +2222,27 @@ reactor::file_size(std::string_view pathname) noexcept {
 }
 
 future<bool>
-reactor::file_accessible(std::string_view pathname, access_flags flags) noexcept {
-    // Allocating memory for a sstring can throw, hence the futurize_invoke
-    return futurize_invoke([pathname, flags, this] {
-        return _thread_pool->submit<syscall_result<int>>(
-                internal::thread_pool_submit_reason::file_operation, [pathname = sstring(pathname), flags] {
+reactor::file_accessible(std::string_view pathname_view, access_flags flags) noexcept {
+    auto pathname = sstring(pathname_view);
+    {
+        syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
+                internal::thread_pool_submit_reason::file_operation, [&] {
             auto aflags = std::underlying_type_t<access_flags>(flags);
             auto ret = ::access(pathname.c_str(), aflags);
             return wrap_syscall(ret);
-        }).then([pathname = sstring(pathname), flags] (syscall_result<int> sr) {
+        });
+        {
             if (sr.result < 0) {
                 if ((sr.error == ENOENT && flags == access_flags::exists) ||
                     (sr.error == EACCES && flags != access_flags::exists)) {
-                    return make_ready_future<bool>(false);
+                    co_return false;
                 }
                 sr.throw_fs_exception("access failed", fs::path(pathname));
             }
 
-            return make_ready_future<bool>(true);
-        });
-    });
+            co_return true;
+        }
+    }
 }
 
 future<fs_type>
