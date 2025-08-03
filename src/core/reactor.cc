@@ -2217,9 +2217,8 @@ reactor::file_stat(std::string_view pathname_view, follow_symlink follow) noexce
 
 future<uint64_t>
 reactor::file_size(std::string_view pathname) noexcept {
-    return file_stat(pathname, follow_symlink::yes).then([] (stat_data sd) {
-        return make_ready_future<uint64_t>(sd.size);
-    });
+    stat_data sd = co_await file_stat(pathname, follow_symlink::yes);
+    co_return sd.size;
 }
 
 future<bool>
