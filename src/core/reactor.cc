@@ -2322,12 +2322,12 @@ reactor::statvfs(std::string_view pathname_view) noexcept {
 }
 
 future<file>
-reactor::open_directory(std::string_view name) noexcept {
-    // Allocating memory for a sstring can throw, hence the futurize_invoke
-    return futurize_invoke([name, this] {
+reactor::open_directory(std::string_view name_view) noexcept {
+    auto name = sstring(name_view);
+    {
         auto oflags = O_DIRECTORY | O_CLOEXEC | O_RDONLY;
-        return _thread_pool->submit<syscall_result_extra<struct stat>>(
-                internal::thread_pool_submit_reason::file_operation, [name = sstring(name), oflags] {
+        syscall_result_extra<struct stat> sr = co_await _thread_pool->submit<syscall_result_extra<struct stat>>(
+                internal::thread_pool_submit_reason::file_operation, [&] {
             struct stat st;
             int fd = ::open(name.c_str(), oflags);
             if (fd != -1) {
@@ -2338,13 +2338,13 @@ reactor::open_directory(std::string_view name) noexcept {
                 }
             }
             return wrap_syscall(fd, st);
-        }).then([name = sstring(name), oflags] (syscall_result_extra<struct stat> sr) {
-            sr.throw_fs_exception_if_error("open failed", name);
-            return make_file_impl(sr.result, file_open_options(), oflags, sr.extra);
-        }).then([] (shared_ptr<file_impl> file_impl) {
-            return make_ready_future<file>(std::move(file_impl));
         });
-    });
+        {
+            sr.throw_fs_exception_if_error("open failed", name);
+            shared_ptr<file_impl> file_impl = co_await make_file_impl(sr.result, file_open_options(), oflags, sr.extra);
+            co_return file(std::move(file_impl));
+        }
+    }
 }
 
 future<>
