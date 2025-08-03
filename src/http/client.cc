@@ -341,6 +341,9 @@ future<> client::make_request(request& req, reply_handler& handle, std::optional
 }
 
 future<> client::make_request(request& req, reply_handler& handle, const retry_strategy& strategy, std::optional<reply::status_type> expected, abort_source* as) {
+    if (as && as->abort_requested()) {
+        return make_exception_future(as->abort_requested_exception_ptr());
+    }
     return with_connection([this, &req, &handle, &strategy, as, expected] (connection& con) {
         return do_make_request(con, req, handle, strategy, as, expected);
     }, as).handle_exception([this, &req, &handle, &strategy, as, expected] (std::exception_ptr ex) {
