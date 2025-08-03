@@ -2304,20 +2304,21 @@ reactor::file_system_space(std::string_view pathname) noexcept {
 }
 
 future<struct statvfs>
-reactor::statvfs(std::string_view pathname) noexcept {
-    // Allocating memory for a sstring can throw, hence the futurize_invoke
-    return futurize_invoke([pathname, this] {
-        return _thread_pool->submit<syscall_result_extra<struct statvfs>>(
-                internal::thread_pool_submit_reason::file_operation, [pathname = sstring(pathname)] {
+reactor::statvfs(std::string_view pathname_view) noexcept {
+    auto pathname = sstring(pathname_view);
+    {
+        syscall_result_extra<struct statvfs> sr = co_await _thread_pool->submit<syscall_result_extra<struct statvfs>>(
+                internal::thread_pool_submit_reason::file_operation, [&] {
             struct statvfs st;
             auto ret = ::statvfs(pathname.c_str(), &st);
             return wrap_syscall(ret, st);
-        }).then([pathname = sstring(pathname)] (syscall_result_extra<struct statvfs> sr) {
+        });
+        {
             sr.throw_fs_exception_if_error("statvfs failed", pathname);
             struct statvfs st = sr.extra;
-            return make_ready_future<struct statvfs>(std::move(st));
-        });
-    });
+            co_return st;
+        }
+    }
 }
 
 future<file>
