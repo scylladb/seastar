@@ -2383,7 +2383,7 @@ future<>
 reactor::fdatasync(int fd) noexcept {
     ++_fsyncs;
     if (_cfg.bypass_fsync) {
-        return make_ready_future<>();
+        co_return;
     }
     if (_cfg.have_aio_fsync) {
         // Does not go through the I/O queue, but has to be deleted
@@ -2405,21 +2405,22 @@ reactor::fdatasync(int fd) noexcept {
             }
         };
 
-        return futurize_invoke([this, fd] {
+        {
             auto desc = new fsync_io_desc;
             auto fut = desc->get_future();
             auto req = internal::io_request::make_fdatasync(fd);
             _io_sink.submit(desc, std::move(req));
-            return fut;
-        });
+            co_await std::move(fut);
+            co_return;
+        }
     }
-    return _thread_pool->submit<syscall_result<int>>(
+    syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
             internal::thread_pool_submit_reason::file_operation, [fd] {
         return wrap_syscall<int>(::fdatasync(fd));
-    }).then([] (syscall_result<int> sr) {
-        sr.throw_if_error();
-        return make_ready_future<>();
     });
+    {
+        sr.throw_if_error();
+    }
 }
 
 // Note: terminate if arm_highres_timer throws
