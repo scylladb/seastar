@@ -2182,16 +2182,17 @@ future<> reactor::chown(std::string_view filepath, uid_t owner, gid_t group) {
 }
 
 future<stat_data>
-reactor::file_stat(std::string_view pathname, follow_symlink follow) noexcept {
-    // Allocating memory for a sstring can throw, hence the futurize_invoke
-    return futurize_invoke([pathname, follow, this] {
-        return _thread_pool->submit<syscall_result_extra<struct stat>>(
-                internal::thread_pool_submit_reason::file_operation, [pathname = sstring(pathname), follow] {
+reactor::file_stat(std::string_view pathname_view, follow_symlink follow) noexcept {
+    auto pathname = sstring(pathname_view);
+    {
+        syscall_result_extra<struct stat> sr = co_await _thread_pool->submit<syscall_result_extra<struct stat>>(
+                internal::thread_pool_submit_reason::file_operation, [&] {
             struct stat st;
             auto stat_syscall = follow ? stat : lstat;
             auto ret = stat_syscall(pathname.c_str(), &st);
             return wrap_syscall(ret, st);
-        }).then([pathname = sstring(pathname)] (syscall_result_extra<struct stat> sr) {
+        });
+        {
             sr.throw_fs_exception_if_error("stat failed", pathname);
             struct stat& st = sr.extra;
             stat_data sd;
@@ -2209,9 +2210,9 @@ reactor::file_stat(std::string_view pathname, follow_symlink follow) noexcept {
             sd.time_accessed = timespec_to_time_point(st.st_atim);
             sd.time_modified = timespec_to_time_point(st.st_mtim);
             sd.time_changed = timespec_to_time_point(st.st_ctim);
-            return make_ready_future<stat_data>(std::move(sd));
-        });
-    });
+            co_return sd;
+        }
+    }
 }
 
 future<uint64_t>
