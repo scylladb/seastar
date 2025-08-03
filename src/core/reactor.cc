@@ -2246,15 +2246,16 @@ reactor::file_accessible(std::string_view pathname_view, access_flags flags) noe
 }
 
 future<fs_type>
-reactor::file_system_at(std::string_view pathname) noexcept {
-    // Allocating memory for a sstring can throw, hence the futurize_invoke
-    return futurize_invoke([pathname, this] {
-        return _thread_pool->submit<syscall_result_extra<struct statfs>>(
-                internal::thread_pool_submit_reason::file_operation, [pathname = sstring(pathname)] {
+reactor::file_system_at(std::string_view pathname_view) noexcept {
+    auto pathname = sstring(pathname_view);
+    {
+        syscall_result_extra<struct statfs> sr = co_await _thread_pool->submit<syscall_result_extra<struct statfs>>(
+                internal::thread_pool_submit_reason::file_operation, [&] {
             struct statfs st;
             auto ret = statfs(pathname.c_str(), &st);
             return wrap_syscall(ret, st);
-        }).then([pathname = sstring(pathname)] (syscall_result_extra<struct statfs> sr) {
+        });
+        {
             static std::unordered_map<long int, fs_type> type_mapper = {
                 { internal::fs_magic::xfs, fs_type::xfs },
                 { internal::fs_magic::ext2, fs_type::ext2 },
@@ -2270,9 +2271,9 @@ reactor::file_system_at(std::string_view pathname) noexcept {
             if (type_mapper.count(sr.extra.f_type) != 0) {
                 ret = type_mapper.at(sr.extra.f_type);
             }
-            return make_ready_future<fs_type>(ret);
-        });
-    });
+            co_return ret;
+        }
+    }
 }
 
 future<struct statfs>
