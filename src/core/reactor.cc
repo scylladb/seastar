@@ -2348,17 +2348,18 @@ reactor::open_directory(std::string_view name_view) noexcept {
 }
 
 future<>
-reactor::make_directory(std::string_view name, file_permissions permissions) noexcept {
-    // Allocating memory for a sstring can throw, hence the futurize_invoke
-    return futurize_invoke([name, permissions, this] {
-        return _thread_pool->submit<syscall_result<int>>(
-                internal::thread_pool_submit_reason::file_operation, [name = sstring(name), permissions] {
+reactor::make_directory(std::string_view name_view, file_permissions permissions) noexcept {
+    auto name = sstring(name_view);
+    {
+        syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
+                internal::thread_pool_submit_reason::file_operation, [&] {
             auto mode = static_cast<mode_t>(permissions);
             return wrap_syscall<int>(::mkdir(name.c_str(), mode));
-        }).then([name = sstring(name)] (syscall_result<int> sr) {
-            sr.throw_fs_exception_if_error("mkdir failed", name);
         });
-    });
+        {
+            sr.throw_fs_exception_if_error("mkdir failed", name);
+        }
+    }
 }
 
 future<>
