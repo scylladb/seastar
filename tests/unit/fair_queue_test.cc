@@ -241,29 +241,10 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_different_shares) {
     }
     yield().get();
     // allow half the requests in
-    env.tick(100);
-    return env.verify("different_shares", {1, 2});
-}
-
-// Class2 twice as powerful, queue is high capacity. Still expected class2 to
-// have 2 x more requests.
-//
-// Note that we sleep less because now more requests will be going through the
-// queue.
-SEASTAR_THREAD_TEST_CASE(test_fair_queue_different_shares_hi_capacity) {
-    test_env env;
-
-    auto a = env.register_priority_class(10);
-    auto b = env.register_priority_class(20);
-
-    for (int i = 0; i < 100; ++i) {
-        env.do_op(a, 1);
-        env.do_op(b, 1);
-    }
-    yield().get();
-    // queue has capacity 10, 10 x 10 = 100, allow half the requests in
     env.tick(10);
-    env.verify("different_shares_hi_capacity", {1, 2});
+    env.verify("different_shares", {1, 2});
+    env.tick(90);
+    env.verify("different_shares_more", {1, 2});
 }
 
 // Classes equally powerful. But Class1 issues twice as expensive requests. Expected Class2 to have 2 x more requests.
