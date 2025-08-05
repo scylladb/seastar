@@ -448,6 +448,7 @@ class client : public rpc::connection, public weakly_referencable<client> {
     };
 
     void enqueue_zero_frame();
+    future<> loop(client_options ops, const socket_address& addr, const socket_address& local);
 public:
     template<typename Reply, typename Func>
     struct reply_handler final : reply_handler_base {
