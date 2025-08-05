@@ -260,8 +260,10 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_different_weights) {
     }
     yield().get();
     // allow half the requests in
-    env.tick(100);
+    env.tick(10);
     env.verify("different_weights", {1, 2});
+    env.tick(90);
+    env.verify("different_weights_more", {1, 2});
 }
 
 // Class2 pushes many requests over. Right after, don't expect Class2 to be able to push anything else.
