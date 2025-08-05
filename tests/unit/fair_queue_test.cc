@@ -174,6 +174,27 @@ public:
             BOOST_REQUIRE(_exceptions[i].size() == 0);
         }
     }
+
+    void verify_f(sstring name, std::vector<float> ratios, float error) {
+        SEASTAR_ASSERT(ratios.size() == _results.size());
+        auto str = name + ":";
+        std::vector<float> adjusted_results;
+        adjusted_results.reserve(ratios.size());
+        for (auto i = 0ul; i < _results.size(); ++i) {
+            str += format(" r[{:d}] = {:d}", i, _results[i]);
+            adjusted_results.push_back(_results[i] / ratios[i]);
+        }
+        std::cout << str << std::endl;
+        float average_result = 0.0;
+        for (auto ar : adjusted_results) {
+            average_result += ar;
+        }
+        average_result /= adjusted_results.size();
+        for (auto ar : adjusted_results) {
+            auto dev = std::abs(ar - average_result) / average_result;
+            BOOST_CHECK_LE(dev, error);
+        }
+    }
 };
 
 // Equal ratios. Expected equal results.
@@ -381,31 +402,49 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_longer_run_different_shares) {
     env.verify("longer_run_different_shares", {1, 2}, 2);
 }
 
-// Classes run for a random period of time. Equal operations expected.
+// Classes run with random shares and random requests weights. Proportional operations expected.
 SEASTAR_THREAD_TEST_CASE(test_fair_queue_random_run) {
     test_env env;
 
-    auto a = env.register_priority_class(1);
-    auto b = env.register_priority_class(1);
-
     std::default_random_engine& generator = testing::local_random_engine;
-    // multiples of 100usec - which is the approximate length of the request. We will
-    // put a minimum of 10. Below that, it is hard to guarantee anything. The maximum is
-    // about 50 seconds.
-    std::uniform_int_distribution<uint32_t> distribution(10, 500 * 1000);
-    auto reqs = distribution(generator);
+    std::uniform_int_distribution<uint32_t> shares(1, 5);
+    std::uniform_int_distribution<uint32_t> weights(1, 5);
+
+    struct test_class {
+        unsigned shares;
+        unsigned weight;
+        float expected;
+        size_t cls;
+    };
+
+    auto add_class = [&] {
+        auto s = shares(generator);
+        auto w = weights(generator);
+        std::cout << format("Add class with {} shares and {} request weight", s, w) << std::endl;
+        return test_class {
+            .shares = s,
+            .weight = w,
+            .expected = float(s)/float(w),
+            .cls = env.register_priority_class(s),
+        };
+    };
+
+    auto a = add_class();
+    auto b = add_class();
+    auto c = add_class();
+
+    unsigned reqs = 3000;
 
     // Enough requests for the maximum run (half per queue, + leeway)
     for (uint32_t i = 0; i < reqs; ++i) {
-        env.do_op(a, 1);
-        env.do_op(b, 1);
+        env.do_op(a.cls, a.weight);
+        env.do_op(b.cls, b.weight);
+        env.do_op(c.cls, c.weight);
     }
 
     yield().get();
-    // In total allow half the requests in
+    // In total allow one-third of the requests in
     env.tick(reqs);
 
-    // Accept 5 % error.
-    auto expected_error = std::max(1, int(round(reqs * 0.05)));
-    env.verify(format("random_run ({:d} requests)", reqs), {1, 1}, expected_error);
+    env.verify_f(format("random_run ({:d} requests)", reqs), {a.expected, b.expected, c.expected}, 0.05);
 }
