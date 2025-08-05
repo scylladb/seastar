@@ -110,17 +110,6 @@ public:
                 _results[req.index]++;
                 _fq.notify_request_finished(req.fqent.capacity());
             }
-
-            while (dispatched < n) {
-                auto* req = _fq.top();
-                if (req == nullptr) {
-                    break;
-                }
-
-                dispatched++;
-                _fq.pop_front();
-                boost::intrusive::get_parent_from_member(req, &request::fqent)->submit();
-            }
         }
         return processed;
     }
