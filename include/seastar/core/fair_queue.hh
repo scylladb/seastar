@@ -39,6 +39,10 @@ namespace bi = boost::intrusive;
 
 namespace seastar {
 
+namespace testing {
+class fair_queue_test;
+}
+
 /// \brief describes a request that passes through the \ref fair_queue.
 ///
 /// A ticket is specified by a \c weight and a \c size. For example, one can specify a request of \c weight
@@ -164,6 +168,7 @@ private:
 
     class priority_entry {
         friend class fair_queue;
+        friend testing::fair_queue_test;
     protected:
         uint32_t _shares = 0;
         capacity_t _accumulated = 0;
@@ -200,6 +205,7 @@ private:
 
     class priority_class_group_data final : public priority_entry {
         friend class fair_queue;
+        friend testing::fair_queue_test;
         priority_queue _children;
         capacity_t _last_accumulated = 0;
         size_t _nr_children = 0;
@@ -229,6 +235,7 @@ private:
     config _config;
     priority_class_group_data _root;
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
+    friend testing::fair_queue_test;
 
     // Total capacity of all requests waiting in the queue.
     capacity_t _queued_capacity = 0;
