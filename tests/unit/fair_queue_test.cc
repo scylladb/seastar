@@ -468,3 +468,47 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_random_run) {
 
     env.verify_f(format("random_run ({:d} requests)", reqs), {a.expected, b.expected, c.expected}, 0.05);
 }
+
+// Exhaustive test for waking-up a tree of classes with requests
+SEASTAR_THREAD_TEST_CASE(test_fair_queue_nested_wakeups) {
+    test_env env;
+
+    std::vector<unsigned> pcs;
+    unsigned g0 = env.register_priority_group(1);
+    unsigned g1 = env.register_priority_group(1);
+    pcs.push_back(env.register_priority_class(1, {}));
+    pcs.push_back(env.register_priority_class(1, {}));
+    pcs.push_back(env.register_priority_class(1, g0));
+    pcs.push_back(env.register_priority_class(1, g0));
+    pcs.push_back(env.register_priority_class(1, g0));
+    pcs.push_back(env.register_priority_class(1, g1));
+    pcs.push_back(env.register_priority_class(1, g1));
+
+    for (unsigned nr_reqs = 1; nr_reqs < 5; nr_reqs++) {
+        std::vector<unsigned> targets(nr_reqs, 0);
+
+        auto next = [&] {
+            for (unsigned i = 0; i < targets.size(); i++) {
+                if (targets[i] < pcs.size() - 1) {
+                    targets[i]++;
+                    return true;
+                }
+
+                targets[i] = 0;
+            }
+
+            return false;
+        };
+
+        do {
+            for (unsigned i = 0; i < targets.size(); i++) {
+                env.do_op(pcs[targets[i]], 1);
+            }
+
+            auto res = env.tick(targets.size());
+            BOOST_REQUIRE_EQUAL(res, targets.size());
+            res = env.tick(1);
+            BOOST_REQUIRE_EQUAL(res, 0);
+        } while (next());
+    }
+}
