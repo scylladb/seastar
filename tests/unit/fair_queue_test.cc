@@ -169,9 +169,9 @@ public:
         for (auto i = 0ul; i < ratios.size(); ++i) {
             int min_expected = ratios[i] * (_results[0] - expected_error);
             int max_expected = ratios[i] * (_results[0] + expected_error);
-            BOOST_REQUIRE(_results[i] >= min_expected);
-            BOOST_REQUIRE(_results[i] <= max_expected);
-            BOOST_REQUIRE(_exceptions[i].size() == 0);
+            BOOST_CHECK_GE(_results[i], min_expected);
+            BOOST_CHECK_LE(_results[i], max_expected);
+            BOOST_CHECK_EQUAL(_exceptions[i].size(), 0);
         }
     }
 
