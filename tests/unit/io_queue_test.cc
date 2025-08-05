@@ -38,6 +38,7 @@
 #include <seastar/core/internal/io_sink.hh>
 #include <seastar/util/assert.hh>
 #include <seastar/util/internal/iovec_utils.hh>
+#include <seastar/util/defer.hh>
 
 using namespace seastar;
 
@@ -248,9 +249,16 @@ static constexpr int nr_requests = 24;
 SEASTAR_THREAD_TEST_CASE(test_io_cancellation) {
     fake_file file;
 
+    auto sg0 = create_scheduling_group("a", 100).get();
+    auto sg1 = create_scheduling_group("b", 100).get();
+    auto stop = defer([&] () noexcept {
+        destroy_scheduling_group(sg0).get();
+        destroy_scheduling_group(sg1).get();
+    });
+
     io_queue_for_tests tio;
-    auto pc0 = internal::priority_class(create_scheduling_group("a", 100).get());
-    auto pc1 = internal::priority_class(create_scheduling_group("b", 100).get());
+    auto pc0 = internal::priority_class(sg0);
+    auto pc1 = internal::priority_class(sg1);
 
     size_t idx = 0;
     int val = 100;
