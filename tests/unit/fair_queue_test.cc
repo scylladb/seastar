@@ -201,8 +201,10 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_equal_2classes) {
 
     yield().get();
     // allow half the requests in
-    env.tick(100);
+    env.tick(10);
     env.verify("equal_2classes", {1, 1});
+    env.tick(90);
+    env.verify("equal_2classes_more", {1, 1});
 }
 
 // Equal results, spread among 4 classes.
@@ -241,27 +243,6 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_different_shares) {
     // allow half the requests in
     env.tick(100);
     return env.verify("different_shares", {1, 2});
-}
-
-// Equal ratios, high capacity queue. Should still divide equally.
-//
-// Note that we sleep less because now more requests will be going through the
-// queue.
-SEASTAR_THREAD_TEST_CASE(test_fair_queue_equal_hi_capacity_2classes) {
-    test_env env;
-
-    auto a = env.register_priority_class(10);
-    auto b = env.register_priority_class(10);
-
-    for (int i = 0; i < 100; ++i) {
-        env.do_op(a, 1);
-        env.do_op(b, 1);
-    }
-    yield().get();
-
-    // queue has capacity 10, 10 x 10 = 100, allow half the requests in
-    env.tick(10);
-    env.verify("hi_capacity_2classes", {1, 1});
 }
 
 // Class2 twice as powerful, queue is high capacity. Still expected class2 to
