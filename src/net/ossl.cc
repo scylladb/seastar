@@ -196,6 +196,26 @@ sstring asn1_str_to_str(T* asn1) {
     return sstring(reinterpret_cast<const char*>(ASN1_STRING_get0_data(asn1)), len);
 };
 
+static std::vector<std::byte> extract_x509_serial(X509* cert) {
+    constexpr size_t serial_max = 160;
+    const ASN1_INTEGER *serial_no = X509_get_serialNumber(cert);
+    const size_t serial_size = std::min(serial_max, (size_t)serial_no->length);
+    std::vector<std::byte> serial(
+        reinterpret_cast<std::byte*>(serial_no->data),
+        reinterpret_cast<std::byte*>(serial_no->data + serial_size));
+    return serial;
+}
+
+static time_t extract_x509_expiry(X509* cert) {
+    const ASN1_TIME *not_after = X509_get0_notAfter(cert);
+    if (not_after != nullptr) {
+        tm tm_struct{};
+        ASN1_TIME_to_tm(not_after, &tm_struct);
+        return mktime(&tm_struct);
+    }
+    return -1;
+}
+
 static tls::certificate_data get_der_certificate_data(X509* cert) {
     tls::certificate_data result;
     int len = i2d_X509(cert, NULL);
@@ -611,6 +631,34 @@ public:
 
     void dh_params(const tls::dh_params&) {}
 
+    std::vector<cert_info> get_x509_info() const {
+        if (_cert_and_key.cert) {
+            return {
+                cert_info{
+                    .serial = extract_x509_serial(_cert_and_key.cert.get()),
+                    .expiry = extract_x509_expiry(_cert_and_key.cert.get())}
+            };
+        }
+        return {};
+    }
+
+    std::vector<cert_info> get_x509_trust_list_info() const {
+        std::vector<cert_info> cert_infos;
+        STACK_OF(X509_OBJECT) *chain = X509_STORE_get0_objects(_creds.get());
+        auto num_elements = sk_X509_OBJECT_num(chain);
+        for (auto i=0; i < num_elements; i++) {
+            auto object = sk_X509_OBJECT_value(chain, i);
+            auto type = X509_OBJECT_get_type(object);
+            if (type == X509_LU_X509) {
+                auto cert = X509_OBJECT_get0_X509(object);
+                cert_infos.push_back(cert_info{
+                        .serial = extract_x509_serial(cert),
+                        .expiry = extract_x509_expiry(cert)});
+            }
+        }
+        return cert_infos;
+    }
+
     void set_client_auth(client_auth ca) {
         _client_auth = ca;
     }
@@ -815,6 +863,32 @@ void tls::certificate_credentials::set_dn_verification_callback(dn_callback cb) 
 
 void tls::certificate_credentials::set_enable_certificate_verification(bool enable) {
     _impl->set_enable_certificate_verification(enable);
+}
+
+std::optional<std::vector<cert_info>> tls::certificate_credentials::get_cert_info() const noexcept {
+    if (_impl == nullptr) {
+        return std::nullopt;
+    }
+
+    try {
+        auto result = _impl->get_x509_info();
+        return result;
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
+std::optional<std::vector<cert_info>> tls::certificate_credentials::get_trust_list_info() const noexcept {
+    if (_impl == nullptr) {
+        return std::nullopt;
+    }
+
+    try {
+        auto result = _impl->get_x509_trust_list_info();
+        return result;
+    } catch (...) {
+        return std::nullopt;
+    }
 }
 
 void tls::certificate_credentials::enable_load_system_trust() {
