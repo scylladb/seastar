@@ -221,14 +221,11 @@ T queue<T>::pop() noexcept {
 }
 
 template <typename T>
+// seastar allows only nothrow_move_constructible types
+// to be returned as future<T>
 requires std::is_nothrow_move_constructible_v<T>
 inline
 future<T> queue<T>::pop_eventually() noexcept {
-    // seastar allows only nothrow_move_constructible types
-    // to be returned as future<T>
-    static_assert(std::is_nothrow_move_constructible_v<T>,
-                  "Queue element type must be no-throw move constructible");
-
     if (_ex) {
         return make_exception_future<T>(_ex);
     }
