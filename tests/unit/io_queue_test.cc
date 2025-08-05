@@ -106,6 +106,14 @@ struct io_queue_for_tests {
     constexpr size_t request_length_limit() const noexcept {
         return io_group::request_length_limit;
     }
+
+    void find_or_create_class(internal::priority_class pc) {
+        queue.find_or_create_class(pc);
+    }
+
+    fair_queue& get_fair_queue() {
+        return queue._streams[0].fq;
+    }
 };
 
 internal::priority_class get_default_pc() {
@@ -593,4 +601,68 @@ SEASTAR_THREAD_TEST_CASE(test_unconfigured_io_queue) {
         BOOST_CHECK_EQUAL(cost_read, 0);
         BOOST_CHECK_EQUAL(cost_write, 0);
     }
+}
+
+namespace seastar::testing {
+class fair_queue_test {
+    fair_queue& _fq;
+public:
+    fair_queue_test(fair_queue& fq) noexcept : _fq(fq) {}
+
+    unsigned nr_children_for(std::optional<unsigned> index) {
+        return index.has_value() ? _fq._priority_groups[*index]->_nr_children : _fq._root._nr_children;
+    }
+
+    bool is_root_group(unsigned index) {
+        return _fq._priority_groups[index]->_parent == &_fq._root;
+    }
+
+    std::optional<unsigned> get_parent_index(internal::priority_class pc) {
+        auto& pe = reinterpret_cast<fair_queue::priority_entry&>(*_fq._priority_classes[pc.id()]);
+        if (pe._parent == &_fq._root) {
+            return {};
+        }
+
+        unsigned i = 0;
+        for (auto& pg : _fq._priority_groups) {
+            if (pe._parent == pg.get()) {
+                break;
+            }
+            i++;
+        }
+        return i;
+    }
+};
+}
+
+SEASTAR_THREAD_TEST_CASE(test_nested_priority_classes_basic_linkage) {
+    io_queue_for_tests tio;
+
+    auto ssg1 = create_scheduling_supergroup(100).get();
+    auto ssg2 = create_scheduling_supergroup(200).get();
+    auto sg0 = create_scheduling_group("a", 300).get();
+    auto sg1 = create_scheduling_group("b", "b", 400, ssg1).get();
+    auto sg2 = create_scheduling_group("c", "c", 500, ssg2).get();
+    auto stop = defer([&] () noexcept {
+        destroy_scheduling_group(sg0).get();
+        destroy_scheduling_group(sg1).get();
+        destroy_scheduling_group(sg2).get();
+    });
+
+    tio.find_or_create_class(internal::priority_class(sg0));
+    tio.find_or_create_class(internal::priority_class(sg1));
+    tio.find_or_create_class(internal::priority_class(sg2));
+
+    seastar::testing::fair_queue_test fq(tio.get_fair_queue());
+
+    BOOST_CHECK_EQUAL(fq.nr_children_for({}), 3);
+    BOOST_CHECK_EQUAL(fq.nr_children_for(0), 1);
+    BOOST_CHECK_EQUAL(fq.nr_children_for(1), 1);
+
+    BOOST_CHECK(fq.is_root_group(0));
+    BOOST_CHECK(fq.is_root_group(1));
+
+    BOOST_CHECK(!fq.get_parent_index(internal::priority_class(sg0)));
+    BOOST_CHECK(fq.get_parent_index(internal::priority_class(sg1)) == 0);
+    BOOST_CHECK(fq.get_parent_index(internal::priority_class(sg2)) == 1);
 }
