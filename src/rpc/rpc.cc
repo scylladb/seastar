@@ -980,15 +980,12 @@ future<> client::loop(client_options ops, const socket_address& addr, const sock
                 co_await handle_stream_frame();
                 continue;
             }
-            response_frame::return_type msg_id_and_data = co_await read_response_frame_compressed(_read_buf);
-            auto& msg_id = std::get<0>(msg_id_and_data);
-            auto& data = std::get<2>(msg_id_and_data);
+            auto&& [msg_id, ht, data] = co_await read_response_frame_compressed(_read_buf);
             auto it = _outstanding.find(std::abs(msg_id));
             if (!data) {
                 _error = true;
             } else if (it != _outstanding.end()) {
                 auto handler = std::move(it->second);
-                auto ht = std::get<1>(msg_id_and_data);
                 _outstanding.erase(it);
                 (*handler)(*this, msg_id, std::move(data.value()));
                 if (ht) {
