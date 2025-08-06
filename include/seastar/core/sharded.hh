@@ -25,6 +25,7 @@
 #include <seastar/core/loop.hh>
 #include <seastar/core/map_reduce.hh>
 #include <seastar/core/internal/run_in_background.hh>
+#include <seastar/core/on_internal_error.hh>
 #include <seastar/util/is_smart_ptr.hh>
 #include <seastar/util/tuple_utils.hh>
 #include <seastar/core/do_with.hh>
@@ -969,6 +970,14 @@ private:
         }
         return make_ready_future<>();
     }
+
+    void check_shard() const {
+#ifdef SEASTAR_DEBUG_SHARED_PTR
+        if (_cpu != this_shard_id()) [[unlikely]] {
+            on_fatal_internal_error(seastar_logger, "foreign_ptr accessed on non-owner cpu");
+        }
+#endif
+    }
 public:
     using element_type = typename std::pointer_traits<PtrType>::element_type;
     using pointer = element_type*;
@@ -1021,12 +1030,25 @@ public:
         _cpu = other._cpu;
         return *this;
     }
+    /// Return a reference to the wrapped pointer.
+    ///
+    /// Warning: This method must be called on the
+    /// owner shard to avoid accidents.
+    const PtrType& unwrap_on_owner_shard() const noexcept {
+        check_shard();
+        return _value;
+    }
+    PtrType& unwrap_on_owner_shard() noexcept {
+        check_shard();
+        return _value;
+    }
     /// Releases the owned pointer
     ///
     /// Warning: the caller is now responsible for destroying the
     /// pointer on its owner shard. This method is best called on the
     /// owner shard to avoid accidents.
     PtrType release() noexcept(std::is_nothrow_default_constructible_v<PtrType>) {
+        check_shard();
         return std::exchange(_value, {});
     }
     /// Replace the managed pointer with new_ptr.
