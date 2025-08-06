@@ -6,6 +6,7 @@
 #include <seastar/core/future-util.hh>
 #include <seastar/core/metrics.hh>
 #include <seastar/coroutine/as_future.hh>
+#include <seastar/coroutine/switch_to.hh>
 #include <seastar/util/assert.hh>
 #include <boost/range/adaptor/map.hpp>
 #include <boost/range/adaptor/transformed.hpp>
@@ -1205,22 +1206,29 @@ future<> server::connection::send_unknown_verb_reply(std::optional<rpc_clock_typ
 }
 
 future<> server::connection::process() {
-    return negotiate_protocol().then([this] () mutable {
+    // hold onto connection pointer until the while loop exits
+    auto conn_ptr = shared_from_this();
+    std::exception_ptr ep;
+    try {
+        co_await negotiate_protocol();
         auto sg = _isolation_config ? _isolation_config->sched_group : current_scheduling_group();
-        return with_scheduling_group(sg, [this] {
+        co_await coroutine::switch_to(sg);
+        {
             set_negotiated();
-            return do_until([this] { return _read_buf.eof() || _error; }, [this] () mutable {
+            while (!_read_buf.eof() && !_error) {
                 if (is_stream()) {
-                    return handle_stream_frame();
+                    co_await handle_stream_frame();
+                    continue;
                 }
-                return read_request_frame_compressed(_read_buf).then([this] (request_frame::return_type header_and_buffer) {
+                request_frame::return_type header_and_buffer = co_await read_request_frame_compressed(_read_buf);
+                {
                     auto& expire = std::get<0>(header_and_buffer);
                     auto& type = std::get<1>(header_and_buffer);
                     auto& msg_id = std::get<2>(header_and_buffer);
                     auto& data = std::get<3>(header_and_buffer);
                     if (!data) {
                         _error = true;
-                        return make_ready_future<>();
+                        continue;
                     } else {
                         std::optional<rpc_clock_type::time_point> timeout;
                         if (expire && *expire) {
@@ -1228,47 +1236,56 @@ future<> server::connection::process() {
                         }
                         auto h = get_server()._proto.get_handler(type);
                         if (!h) {
-                            return send_unknown_verb_reply(timeout, msg_id, type);
+                            co_await send_unknown_verb_reply(timeout, msg_id, type);
+                            continue;
                         }
 
                         // If the new method of per-connection scheduling group was used, honor it.
                         // Otherwise, use the old per-handler scheduling group.
                         auto sg = _isolation_config ? _isolation_config->sched_group : h->handler.sg;
-                        return with_scheduling_group(sg, [this, timeout, msg_id, &h = h->handler, data = std::move(data.value()), guard = std::move(h->holder)] () mutable {
+                        if (sg == current_scheduling_group()) {
+                            co_await h->handler.func(shared_from_this(), timeout, msg_id, std::move(data.value()), std::move(h->holder));
+                            continue;
+                        }
+                        co_await with_scheduling_group(sg, [this, timeout, msg_id, &h = h->handler, data = std::move(data.value()), guard = std::move(h->holder)] () mutable {
                             return h.func(shared_from_this(), timeout, msg_id, std::move(data), std::move(guard));
                         });
                     }
-                });
-            });
-        });
-    }).then_wrapped([this] (future<> f) {
-        std::exception_ptr ep;
-        if (f.failed()) {
-            ep = f.get_exception();
+                }
+            }
+        }
+    } catch (...) {
+        {
+            ep = std::current_exception();
             log_exception(*this, log_level::error,
                 format("server{} connection dropped", is_stream() ? " stream" : "").c_str(), ep);
         }
+    }
+    {
         _fd.shutdown_input();
         if (is_stream() && (ep || _error)) {
             _stream_queue.abort(std::make_exception_ptr(stream_closed()));
         }
         _error = true;
-        return stop_send_loop(ep).then_wrapped([this] (future<> f) {
+        future<> f = co_await coroutine::as_future(stop_send_loop(ep));
+        {
             f.ignore_ready_future();
             get_server()._conns.erase(get_connection_id());
             if (is_stream()) {
-                return deregister_this_stream();
+                co_await deregister_this_stream();
             } else {
-                return abort_all_streams();
+                co_await abort_all_streams();
             }
-        }).finally([this] {
-            return _compressor ? _compressor->close() : make_ready_future();
-        }).finally([this] {
+        }
+        {
+            if (_compressor) {
+                co_await _compressor->close();
+            }
+        }
+        {
             _stopped.set_value();
-        });
-    }).finally([conn_ptr = shared_from_this()] {
-        // hold onto connection pointer until do_until() exists
-    });
+        }
+    }
 }
 
 server::connection::connection(server& s, connected_socket&& fd, socket_address&& addr, const logger& l, void* serializer, connection_id id)
