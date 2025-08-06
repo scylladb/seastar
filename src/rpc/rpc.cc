@@ -1067,79 +1067,79 @@ server::connection::negotiate(feature_map requested) {
         auto id = e.first;
         switch (id) {
             // supported features go here
-            case protocol_features::COMPRESS: {
-                if (get_server()._options.compressor_factory) {
-                    _compressor = get_server()._options.compressor_factory->negotiate(e.second, true, [this] { return send({}); });
-                    if (_compressor) {
-                        ret[protocol_features::COMPRESS] = _compressor->name();
-                    }
+        case protocol_features::COMPRESS: {
+            if (get_server()._options.compressor_factory) {
+                _compressor = get_server()._options.compressor_factory->negotiate(e.second, true, [this] { return send({}); });
+                if (_compressor) {
+                    ret[protocol_features::COMPRESS] = _compressor->name();
                 }
             }
             break;
-            case protocol_features::TIMEOUT:
+        }
+        case protocol_features::TIMEOUT:
             _timeout_negotiated = true;
             ret[protocol_features::TIMEOUT] = "";
             break;
-            case protocol_features::HANDLER_DURATION:
+        case protocol_features::HANDLER_DURATION:
             _handler_duration_negotiated = true;
             ret[protocol_features::HANDLER_DURATION] = "";
             break;
-            case protocol_features::STREAM_PARENT: {
-                if (!get_server()._options.streaming_domain) {
-                    f = f.then([] {
-                        return make_exception_future<>(std::runtime_error("streaming is not configured for the server"));
-                    });
-                } else {
-                    _parent_id = deserialize_connection_id(e.second);
-                    _is_stream = true;
-                    // remove stream connection from rpc connection list
-                    get_server()._conns.erase(get_connection_id());
-                    f = f.then([this, c = shared_from_this()] () mutable {
-                        return smp::submit_to(_parent_id.shard(), [this, c = make_foreign(static_pointer_cast<rpc::connection>(c))] () mutable {
-                            auto sit = _servers.find(*get_server()._options.streaming_domain);
-                            if (sit == _servers.end()) {
-                                throw std::logic_error(format("Shard {:d} does not have server with streaming domain {}", this_shard_id(), *get_server()._options.streaming_domain).c_str());
-                            }
-                            auto s = sit->second;
-                            auto it = s->_conns.find(_parent_id);
-                            if (it == s->_conns.end()) {
-                                throw std::logic_error(format("Unknown parent connection {} on shard {:d}", _parent_id, this_shard_id()).c_str());
-                            }
-                            if (it->second->_error) {
-                                throw std::runtime_error(format("Parent connection {} is aborting on shard {:d}", _parent_id, this_shard_id()).c_str());
-                            }
-                            auto id = c->get_connection_id();
-                            it->second->register_stream(id, make_lw_shared(std::move(c)));
-                        });
-                    });
-                }
-                break;
-            }
-            case protocol_features::ISOLATION: {
-                auto&& isolation_cookie = e.second;
-                struct isolation_function_visitor {
-                    isolation_function_visitor(const sstring& isolation_cookie)
-                            : _isolation_cookie(isolation_cookie) { }
-                    future<isolation_config> operator() (resource_limits::syncronous_isolation_function f) const {
-                        return futurize_invoke(f, _isolation_cookie);
-                    }
-                    future<isolation_config> operator() (resource_limits::asyncronous_isolation_function f) const {
-                        return f(_isolation_cookie);
-                    }
-                    private:
-                    sstring _isolation_cookie;
-                };
-
-                auto visitor = isolation_function_visitor(isolation_cookie);
-                f = f.then([visitor = std::move(visitor), this] () mutable {
-                    return std::visit(visitor, get_server()._limits.isolate_connection).then([this] (isolation_config conf) {
-                        _isolation_config = conf;
+        case protocol_features::STREAM_PARENT: {
+            if (!get_server()._options.streaming_domain) {
+                f = f.then([] {
+                    return make_exception_future<>(std::runtime_error("streaming is not configured for the server"));
+                });
+            } else {
+                _parent_id = deserialize_connection_id(e.second);
+                _is_stream = true;
+                // remove stream connection from rpc connection list
+                get_server()._conns.erase(get_connection_id());
+                f = f.then([this, c = shared_from_this()] () mutable {
+                    return smp::submit_to(_parent_id.shard(), [this, c = make_foreign(static_pointer_cast<rpc::connection>(c))] () mutable {
+                        auto sit = _servers.find(*get_server()._options.streaming_domain);
+                        if (sit == _servers.end()) {
+                            throw std::logic_error(format("Shard {:d} does not have server with streaming domain {}", this_shard_id(), *get_server()._options.streaming_domain).c_str());
+                        }
+                        auto s = sit->second;
+                        auto it = s->_conns.find(_parent_id);
+                        if (it == s->_conns.end()) {
+                            throw std::logic_error(format("Unknown parent connection {} on shard {:d}", _parent_id, this_shard_id()).c_str());
+                        }
+                        if (it->second->_error) {
+                            throw std::runtime_error(format("Parent connection {} is aborting on shard {:d}", _parent_id, this_shard_id()).c_str());
+                        }
+                        auto id = c->get_connection_id();
+                        it->second->register_stream(id, make_lw_shared(std::move(c)));
                     });
                 });
-                ret.emplace(e);
-                break;
             }
-            default:
+            break;
+        }
+        case protocol_features::ISOLATION: {
+            auto&& isolation_cookie = e.second;
+            struct isolation_function_visitor {
+                isolation_function_visitor(const sstring& isolation_cookie)
+                        : _isolation_cookie(isolation_cookie) { }
+                future<isolation_config> operator() (resource_limits::syncronous_isolation_function f) const {
+                    return futurize_invoke(f, _isolation_cookie);
+                }
+                future<isolation_config> operator() (resource_limits::asyncronous_isolation_function f) const {
+                    return f(_isolation_cookie);
+                }
+                private:
+                sstring _isolation_cookie;
+            };
+
+            auto visitor = isolation_function_visitor(isolation_cookie);
+            f = f.then([visitor = std::move(visitor), this] () mutable {
+                return std::visit(visitor, get_server()._limits.isolate_connection).then([this] (isolation_config conf) {
+                    _isolation_config = conf;
+                });
+            });
+            ret.emplace(e);
+            break;
+        }
+        default:
             // nothing to do
             ;
         }
