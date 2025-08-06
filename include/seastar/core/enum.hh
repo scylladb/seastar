@@ -38,8 +38,8 @@ namespace seastar {
 
 SEASTAR_MODULE_EXPORT
 template <typename T>
+requires std::is_enum_v<T>
 class enum_hash {
-    static_assert(std::is_enum_v<T>, "must be an enum");
 public:
     std::size_t operator()(const T& e) const {
         using utype = std::underlying_type_t<T>;
