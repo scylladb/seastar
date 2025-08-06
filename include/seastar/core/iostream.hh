@@ -445,9 +445,6 @@ public:
     output_stream() noexcept = default;
     output_stream(data_sink fd, size_t size, output_stream_options opts = {}) noexcept
         : _fd(std::move(fd)), _size(size), _trim_to_size(opts.trim_to_size), _batch_flushes(opts.batch_flushes && _fd.can_batch_flushes()) {}
-    [[deprecated("use output_stream_options instead of booleans")]]
-    output_stream(data_sink fd, size_t size, bool trim_to_size, bool batch_flushes = false) noexcept
-        : _fd(std::move(fd)), _size(size), _trim_to_size(trim_to_size), _batch_flushes(batch_flushes && _fd.can_batch_flushes()) {}
     output_stream(data_sink fd) noexcept
         : _fd(std::move(fd)), _size(_fd.buffer_size()), _trim_to_size(true) {}
     output_stream(output_stream&&) noexcept = default;
