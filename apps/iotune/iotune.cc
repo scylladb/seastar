@@ -37,6 +37,7 @@
 #include <wordexp.h>
 #include <yaml-cpp/yaml.h>
 #include <fmt/printf.h>
+#include <fmt/ranges.h>
 #include <seastar/core/seastar.hh>
 #include <seastar/core/file.hh>
 #include <seastar/core/thread.hh>
@@ -743,6 +744,7 @@ int main(int ac, char** av) {
         ("random-write-io-buffer-size", bpo::value<unsigned>()->default_value(0), "force buffer size for random write")
         ("random-read-io-buffer-size", bpo::value<unsigned>()->default_value(0), "force buffer size for random read")
         ("force-io-depth", bpo::value<unsigned>()->default_value(0), "force io depth to a certain size (overriding auto detection logic)")
+        ("get-best-iops-with-buffer-sizes", bpo::value<std::vector<uint64_t>>()->default_value(std::vector<uint64_t>{}, ""), "run IOPS tests with buffer sizes passed as arg and choose the best combination")
     ;
 
     return app.run(ac, av, [&] {
@@ -756,6 +758,13 @@ int main(int ac, char** av) {
             auto random_write_io_buffer_size = configuration["random-write-io-buffer-size"].as<unsigned>();
             auto random_read_io_buffer_size = configuration["random-read-io-buffer-size"].as<unsigned>();
             auto force_io_depth = configuration["force-io-depth"].as<unsigned>();
+            auto buffer_sizes_for_best_iops = configuration["get-best-iops-with-buffer-sizes"].as<std::vector<uint64_t>>();
+            if (!buffer_sizes_for_best_iops.empty() && (random_read_io_buffer_size || random_write_io_buffer_size)) {
+                iotune_logger.error("--get-best-iops-with-buffer-sizes is set, but random-read-io-buffer-size or random-write-io-buffer-size are also set. "
+                                    "The options are mutually exclusive, please unset one of them.");
+                return 1;
+            }
+
 
             bool read_saturation, write_saturation;
             if (saturation == "") {
@@ -891,26 +900,39 @@ int main(int ac, char** av) {
                     fmt::print("{}\n", *read_sat);
                 }
 
-                fmt::print("Measuring random write IOPS: ");
-                std::cout.flush();
-                auto write_iops = iotune_tests.write_random_data(test_directory.minimum_io_size(), duration * 0.1).get();
-                rates = iotune_tests.get_sharded_worst_rates().get();
-                fmt::print("{} IOPS{}\n", uint64_t(write_iops.iops), accuracy_msg());
-
-                fmt::print("Measuring random read IOPS: ");
-                std::cout.flush();
-                auto read_iops = iotune_tests.read_random_data(test_directory.minimum_io_size(), duration * 0.1).get();
-                rates = iotune_tests.get_sharded_worst_rates().get();
-                fmt::print("{} IOPS{}\n", uint64_t(read_iops.iops), accuracy_msg());
-
                 struct disk_descriptor desc;
                 desc.mountpoint = mountpoint;
-                desc.read_iops = read_iops.iops;
                 desc.read_bw = read_bw.bytes_per_sec;
                 desc.read_sat_len = read_sat;
-                desc.write_iops = write_iops.iops;
                 desc.write_bw = write_bw.bytes_per_sec;
                 desc.write_sat_len = write_sat;
+
+                if (buffer_sizes_for_best_iops.empty()) {
+                    buffer_sizes_for_best_iops = {test_directory.minimum_io_size()};
+                } else {
+                    fmt::print("Evaluating various buffer sizes for choosing the best IOPS: {}\n", buffer_sizes_for_best_iops);
+                    std::cout.flush();
+                }
+                io_rates best_write_iops, best_read_iops;
+                for (uint64_t buffer_size : buffer_sizes_for_best_iops) {
+                    fmt::print("Measuring random write IOPS: ");
+                    std::cout.flush();
+                    auto write_iops = iotune_tests.write_random_data(buffer_size, duration * 0.1).get();
+                    rates = iotune_tests.get_sharded_worst_rates().get();
+                    fmt::print("{} IOPS{}\n", uint64_t(write_iops.iops), accuracy_msg());
+
+                    fmt::print("Measuring random read IOPS: ");
+                    std::cout.flush();
+                    auto read_iops = iotune_tests.read_random_data(buffer_size, duration * 0.1).get();
+                    rates = iotune_tests.get_sharded_worst_rates().get();
+                    fmt::print("{} IOPS{}\n", uint64_t(read_iops.iops), accuracy_msg());
+
+                    best_write_iops.iops = std::max(best_write_iops.iops, write_iops.iops);
+                    best_read_iops.iops = std::max(best_read_iops.iops, read_iops.iops);
+                }
+
+                desc.read_iops = best_read_iops.iops;
+                desc.write_iops = best_write_iops.iops;
                 disk_descriptors.push_back(std::move(desc));
             }
 
