@@ -207,6 +207,12 @@ void reactor::update_shares_for_queues(internal::priority_class pc, uint32_t sha
     }
 }
 
+void reactor::update_group_shares_for_queues(unsigned index, uint32_t shares) {
+    for (auto&& q : _io_queues) {
+        q.second->update_shares_for_class_group(index, shares);
+    }
+}
+
 future<> reactor::update_bandwidth_for_queues(internal::priority_class pc, uint64_t bandwidth) {
     return smp::invoke_on_all([pc, bandwidth = bandwidth / _num_io_groups] {
         return parallel_for_each(engine()._io_queues, [pc, bandwidth] (auto& queue) {
@@ -5052,6 +5058,7 @@ future<> scheduling_group::update_io_bandwidth(uint64_t bandwidth) const {
 void scheduling_supergroup::set_shares(float shares) noexcept {
     if (!is_root()) {
         engine()._supergroups[index()]->set_shares(shares);
+        engine().update_group_shares_for_queues(index(), shares);
     }
 }
 
