@@ -208,7 +208,7 @@ private:
         ;
         connected_socket socket;
         std::optional<input_stream<char>> in;
-        std::optional<output_stream<char>> out;
+        std::optional<data_sink> out;
         temporary_buffer<char> indata;
     };
     struct udp_entry {
@@ -1111,9 +1111,9 @@ dns_resolver::impl::do_sendv(ares_socket_t fd, const iovec * vec, int len) {
             switch (e.typ) {
             case type::tcp:
                 if (!e.tcp.out) {
-                    e.tcp.out = e.tcp.socket.output(0);
+                    e.tcp.out = e.tcp.socket.output(0).detach();
                 }
-                f = e.tcp.out->write(std::move(p));
+                f = e.tcp.out->put(std::move(p));
                 break;
             case type::udp:
                 // always chain UDP sends
