@@ -33,12 +33,12 @@
 
 #ifndef SEASTAR_MODULE
 #include <boost/lockfree/spsc_queue.hpp>
-#include <boost/thread/barrier.hpp>
 #include <deque>
 #include <optional>
 #include <thread>
 #include <ranges>
 #include <span>
+#include <barrier>
 #endif
 
 /// \file
@@ -316,7 +316,7 @@ class smp : public std::enable_shared_from_this<smp> {
     alien::instance& _alien;
     std::vector<posix_thread> _threads;
     std::vector<std::function<void ()>> _thread_loops; // for dpdk
-    std::optional<boost::barrier> _all_event_loops_done;
+    std::optional<std::barrier<>> _all_event_loops_done;
     std::unique_ptr<internal::memory_prefaulter> _prefaulter;
     struct qs_deleter {
       void operator()(smp_message_queue** qs) const;
