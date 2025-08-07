@@ -225,7 +225,7 @@ public:
     // append temporary_buffer (zero-copy)
     packet(packet&& x, temporary_buffer<char> buf);
     // create from temporary_buffer (zero-copy)
-    packet(temporary_buffer<char> buf);
+    explicit packet(temporary_buffer<char> buf);
     // append deleter
     packet(packet&& x, deleter d);
 
