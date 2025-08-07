@@ -31,6 +31,7 @@
 #include <seastar/net/packet.hh>
 #include <seastar/net/const.hh>
 #include <seastar/util/assert.hh>
+#include <map>
 #include <unordered_map>
 
 namespace seastar {

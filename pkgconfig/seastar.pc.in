@@ -19,7 +19,6 @@ boost_system_libs=@Boost_SYSTEM_LIBRARY@
 # Dependencies.
 boost_cflags=-I$<JOIN:@Boost_INCLUDE_DIRS@, -I>
 boost_program_options_libs=$<TARGET_PROPERTY:Boost::program_options,LOCATION>
-boost_thread_libs=${boost_system_libs} $<TARGET_PROPERTY:Boost::thread,LOCATION>
 c_ares_cflags=-I$<JOIN:@c-ares_INCLUDE_DIRS@, -I>
 c_ares_libs=$<JOIN:@c-ares_LIBRARIES@, >
 fmt_cflags=-I$<JOIN:$<TARGET_PROPERTY:fmt::fmt,INTERFACE_INCLUDE_DIRECTORIES>, -I>
@@ -37,5 +36,5 @@ Requires: liblz4 >= 1.7.3
 Requires.private: gnutls >= 3.2.26, protobuf >= 2.5.0, hwloc >= 1.11.2, $<$<BOOL:@Seastar_IO_URING@>:liburing $<ANGLE-R>= 2.0, >yaml-cpp >= 0.5.1
 Conflicts:
 Cflags: @Seastar_CXX_COMPILE_OPTION@ ${boost_cflags} ${c_ares_cflags} ${fmt_cflags} ${liburing_cflags} ${lksctp_tools_cflags} ${seastar_cflags}
-Libs: ${seastar_libs} ${boost_program_options_libs} ${boost_thread_libs} ${c_ares_libs} ${fmt_libs}
-Libs.private: ${dl_libs} ${rt_libs} ${boost_thread_libs} ${lksctp_tools_libs} ${liburing_libs} ${stdatomic_libs} ${dpdk_libs}
+Libs: ${seastar_libs} ${boost_program_options_libs} ${c_ares_libs} ${fmt_libs}
+Libs.private: ${dl_libs} ${rt_libs} ${lksctp_tools_libs} ${liburing_libs} ${stdatomic_libs} ${dpdk_libs}

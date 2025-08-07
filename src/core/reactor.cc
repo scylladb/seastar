@@ -34,6 +34,7 @@ module;
 #include <regex>
 #include <thread>
 #include <unordered_set>
+#include <barrier>
 
 #include <grp.h>
 #include <spawn.h>
@@ -52,7 +53,6 @@ module;
 #include <poll.h>
 #include <netinet/in.h>
 #include <boost/lexical_cast.hpp>
-#include <boost/thread/barrier.hpp>
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/constants.hpp>
 #include <boost/algorithm/string/find_iterator.hpp>
@@ -3986,7 +3986,7 @@ void smp::pin(unsigned cpu_id) {
 
 void smp::arrive_at_event_loop_end() {
     if (_all_event_loops_done) {
-        _all_event_loops_done->wait();
+        _all_event_loops_done->arrive_and_wait();
     }
 }
 
@@ -4449,10 +4449,10 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
 
     // Better to put it into the smp class, but at smp construction time
     // correct smp::count is not known.
-    boost::barrier reactors_registered(smp::count);
-    boost::barrier smp_queues_constructed(smp::count);
+    std::barrier reactors_registered(smp::count);
+    std::barrier smp_queues_constructed(smp::count);
     // We use shared_ptr since this thread can exit while other threads are still unlocking
-    auto inited = std::make_shared<boost::barrier>(smp::count);
+    auto inited = std::make_shared<std::barrier<>>(smp::count);
 
     auto ioq_topology = std::move(resources.ioq_topology);
 
@@ -4546,13 +4546,13 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
             allocate_reactor(i, backend_selector, reactor_cfg);
             reactors[i] = &engine();
             alloc_io_queues(i);
-            reactors_registered.wait();
-            smp_queues_constructed.wait();
+            reactors_registered.arrive_and_wait();
+            smp_queues_constructed.arrive_and_wait();
             // _qs_owner is only initialized here
             _qs = _qs_owner.get();
             start_all_queues();
             assign_io_queues(i);
-            inited->wait();
+            inited->arrive_and_wait();
             engine().configure(reactor_opts);
             engine().do_run();
           } catch (const std::exception& e) {
@@ -4583,7 +4583,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     }
 #endif
 
-    reactors_registered.wait();
+    reactors_registered.arrive_and_wait();
     _qs_owner = decltype(smp::_qs_owner){new smp_message_queue* [smp::count], qs_deleter{}};
     _qs = _qs_owner.get();
     for(unsigned i = 0; i < smp::count; i++) {
@@ -4600,10 +4600,10 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
         }
     }
     _alien._qs = alien::instance::create_qs(reactors);
-    smp_queues_constructed.wait();
+    smp_queues_constructed.arrive_and_wait();
     start_all_queues();
     assign_io_queues(0);
-    inited->wait();
+    inited->arrive_and_wait();
 
     engine().configure(reactor_opts);
 
