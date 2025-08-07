@@ -833,7 +833,6 @@ target_link_libraries (seastar
   PUBLIC
     Boost::boost
     Boost::program_options
-    Boost::thread
     c-ares::cares
     fmt::fmt
     lz4::lz4
