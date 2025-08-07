@@ -515,7 +515,7 @@ output_stream<CharType>::close() noexcept {
 template <typename CharType>
 data_sink
 output_stream<CharType>::detach() && {
-    if (_buf) {
+    if (_buf || _zc_bufs) {
         throw std::logic_error("detach() called on a used output_stream");
     }
 
