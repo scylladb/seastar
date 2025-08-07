@@ -56,61 +56,113 @@ class routes;
 namespace http {
 
 /**
+ * This type is moved to namespace level, so 
+ * we can forward declare it.
+ * 
+ * Wrapper type for HTTP status codes, including
+ * contants for the most common ones.
+ * 
+ * Note: this was an enum, but changed to a 
+ * struct wrapper type to make it extensible.
+ * 
+ * This has the drawback of the type being
+ * weakly aliasable to int. This is however
+ * also a benefit. 
+ */
+struct status_type {
+    int value;
+
+    constexpr explicit status_type(int v)
+        : value(v)
+    {}
+    constexpr operator int() const {
+        return value;
+    }
+    std::strong_ordering operator<=>(const status_type& s) const = default;
+
+    // Helper type to work around constexpr constants 
+    // not being declarable inside their own type definition.
+    // 
+    // Do not use this type directly.
+    struct status_init {
+        int value;
+        constexpr operator status_type() const {
+            return status_type(value);
+        }
+        constexpr operator int() const {
+            return value;
+        }
+    };
+
+    // The following list of status codes is part of the HTTP standard,
+    // and are defined in RFC 9110, and in a few case in older RFCs as
+    // listed in IANA's "HTTP Status Code Registry". Please do not add
+    // to this list non-standard error codes. Seastar applications should
+    // be able to use non-standard error codes, but shouldn't expect
+    // Seastar to give them official names.
+    static constexpr status_init continue_{100}; //!< continue
+    static constexpr status_init switching_protocols{101}; //!< switching_protocols
+    static constexpr status_init ok{200}; //!< ok
+    static constexpr status_init created{201}; //!< created
+    static constexpr status_init accepted{202}; //!< accepted
+    static constexpr status_init nonauthoritative_information{203}; //!< nonauthoritative_information
+    static constexpr status_init no_content{204}; //!< no_content
+    static constexpr status_init reset_content{205}; //!< reset_content
+    static constexpr status_init partial_content{206}; //! partial_content
+    static constexpr status_init multiple_choices{300}; //!< multiple_choices
+    static constexpr status_init moved_permanently{301}; //!< moved_permanently
+    static constexpr status_init moved_temporarily{302}; //!< moved_temporarily
+    static constexpr status_init found{moved_temporarily}; //!< found is modern name for moved_temporarily
+    static constexpr status_init see_other{303}; //!< see_other
+    static constexpr status_init not_modified{304}; //!< not_modified
+    static constexpr status_init use_proxy{305}; //!< use_proxy
+    static constexpr status_init temporary_redirect{307}; //!< temporary_redirect
+    static constexpr status_init permanent_redirect{308}; //!< permanent_redirect
+    static constexpr status_init bad_request{400}; //!< bad_request
+    static constexpr status_init unauthorized{401}; //!< unauthorized
+    static constexpr status_init payment_required{402}; //!< payment_required
+    static constexpr status_init forbidden{403}; //!< forbidden
+    static constexpr status_init not_found{404}; //!< not_found
+    static constexpr status_init method_not_allowed{405}; //!< method_not_allowed
+    static constexpr status_init not_acceptable{406}; //!< not_acceptable
+    static constexpr status_init proxy_authentication_required{407}; //<! proxy_authentication_required
+    static constexpr status_init request_timeout{408}; //!< request_timeout
+    static constexpr status_init conflict{409}; //!< conflict
+    static constexpr status_init gone{410}; //!< gone
+    static constexpr status_init length_required{411}; //!< length_required
+    static constexpr status_init precondition_failed{412}; //!< precondition_failed
+    static constexpr status_init payload_too_large{413}; //!< payload_too_large
+    static constexpr status_init uri_too_long{414}; //!< uri_too_long
+    static constexpr status_init unsupported_media_type{415}; //!< unsupported_media_type
+    static constexpr status_init range_not_satisfiable{416}; //!< range_not_satisfiable
+    static constexpr status_init expectation_failed{417}; //!< expectation_failed
+    static constexpr status_init page_expired{419}; //!< page_expired
+    static constexpr status_init misdirected_request{421}; //!< misdirected_request
+    static constexpr status_init unprocessable_entity{422}; //!< unprocessable_entity
+    static constexpr status_init upgrade_required{426}; //!< upgrade_required
+    static constexpr status_init too_many_requests{429}; //!< too_many_requests
+    static constexpr status_init login_timeout{440}; //!< login_timeout
+    static constexpr status_init internal_server_error{500}; //!< internal_server_error
+    static constexpr status_init not_implemented{501}; //!< not_implemented
+    static constexpr status_init bad_gateway{502}; //!< bad_gateway
+    static constexpr status_init service_unavailable{503}; //!< service_unavailable
+    static constexpr status_init gateway_timeout{504}; //!< gateway_timeout
+    static constexpr status_init http_version_not_supported{505}; //!< http_version_not_supported
+    static constexpr status_init insufficient_storage{507}; //!< insufficient_storage
+    static constexpr status_init bandwidth_limit_exceeded{509}; //!< bandwidth_limit_exceeded
+    static constexpr status_init network_read_timeout{598}; //!< network_read_timeout
+    static constexpr status_init network_connect_timeout{599}; //!< network_connect_timeout
+};
+
+/**
  * A reply to be sent to a client.
  */
 struct reply {
     /**
      * The status of the reply.
      */
-    enum class status_type {
-        continue_ = 100, //!< continue
-        switching_protocols = 101, //!< switching_protocols
-        ok = 200, //!< ok
-        created = 201, //!< created
-        accepted = 202, //!< accepted
-        nonauthoritative_information = 203, //!< nonauthoritative_information
-        no_content = 204, //!< no_content
-        reset_content = 205, //!< reset_content
-        partial_content = 206, //! partial_content
-        multiple_choices = 300, //!< multiple_choices
-        moved_permanently = 301, //!< moved_permanently
-        moved_temporarily = 302, //!< moved_temporarily
-        see_other = 303, //!< see_other
-        not_modified = 304, //!< not_modified
-        use_proxy = 305, //!< use_proxy
-        temporary_redirect = 307, //!< temporary_redirect
-        permanent_redirect = 308, //!< permanent_redirect
-        bad_request = 400, //!< bad_request
-        unauthorized = 401, //!< unauthorized
-        payment_required = 402, //!< payment_required
-        forbidden = 403, //!< forbidden
-        not_found = 404, //!< not_found
-        method_not_allowed = 405, //!< method_not_allowed
-        not_acceptable = 406, //!< not_acceptable
-        request_timeout = 408, //!< request_timeout
-        conflict = 409, //!< conflict
-        gone = 410, //!< gone
-        length_required = 411, //!< length_required
-        payload_too_large = 413, //!< payload_too_large
-        uri_too_long = 414, //!< uri_too_long
-        unsupported_media_type = 415, //!< unsupported_media_type
-        expectation_failed = 417, //!< expectation_failed
-        page_expired = 419, //!< page_expired
-        unprocessable_entity = 422, //!< unprocessable_entity
-        upgrade_required = 426, //!< upgrade_required
-        too_many_requests = 429, //!< too_many_requests
-        login_timeout = 440, //!< login_timeout
-        internal_server_error = 500, //!< internal_server_error
-        not_implemented = 501, //!< not_implemented
-        bad_gateway = 502, //!< bad_gateway
-        service_unavailable = 503,  //!< service_unavailable
-        gateway_timeout = 504, //!< gateway_timeout
-        http_version_not_supported = 505, //!< http_version_not_supported
-        insufficient_storage = 507, //!< insufficient_storage
-        bandwidth_limit_exceeded = 509, //!< bandwidth_limit_exceeded
-        network_read_timeout = 598, //!< network_read_timeout
-        network_connect_timeout = 599, //!< network_connect_timeout
-    } _status;
+    using status_type = http::status_type;
+    status_type _status;
 
     /**
      * HTTP status classes
@@ -137,7 +189,7 @@ struct reply {
      * @return one of the \ref status_class values
      */
     static constexpr status_class classify_status(status_type http_status) {
-        auto sc = static_cast<std::underlying_type_t<status_type>>(http_status) / 100;
+        auto sc = int(http_status) / 100;
         if (sc < 1 || sc > 5) [[unlikely]] {
             return status_class::unclassified;
         }
@@ -287,7 +339,28 @@ private:
     friend class httpd::connection;
 };
 
-std::ostream& operator<<(std::ostream& os, reply::status_type st);
+std::ostream& operator<<(std::ostream& os, status_type st);
+std::ostream& operator<<(std::ostream& os, status_type::status_init st);
+
+/**
+ * Binds a defined status value to a lexical name. 
+ * Must be called at dlload time (i.e. as a static const declaraion
+ * on file level), as this modifies a structure that must be readonly
+ * during reactor runtime.
+ * 
+ * Pattern:
+ * 
+ * .hh file:
+ * constexpr seastar::http::status_type MY_ERROR(<number>);
+ * 
+ * .cc file
+ * 
+ * static const auto init_my_error = seastar::http::bind_status_name(MY_ERROR, "My Error that is nice");
+ * 
+ * @return a view of the bound string name.
+ *
+ */
+std::string_view bind_status_name(status_type, std::string_view);
 
 } // namespace http
 
@@ -299,5 +372,17 @@ SEASTAR_MODULE_EXPORT_END
 }
 
 #if FMT_VERSION >= 90000
-template <> struct fmt::formatter<seastar::http::reply::status_type> : fmt::ostream_formatter {};
+template <> struct fmt::formatter<seastar::http::status_type> : fmt::ostream_formatter {};
+template <> struct fmt::formatter<seastar::http::status_type::status_init> : fmt::formatter<seastar::http::status_type> {};
 #endif
+
+/**
+ * Temporary addition to enable existing code, using things
+ * like std::underlying_type_t<status_type> for casts etc
+ * to continue worksing. This is not a fully kosher way of
+ * treating this overload, but it is mostly harmless...
+ */
+template<> 
+struct std::underlying_type<seastar::http::status_type> {
+    using type = int;
+};
