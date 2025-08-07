@@ -864,44 +864,44 @@ int main(int ac, char** av) {
                 size_t sequential_buffer_size = 1 << 20;
 
                 if (!run_iops_only) {
-                fmt::print("Measuring sequential write bandwidth: ");
-                std::cout.flush();
-                io_rates write_bw;
-                for (unsigned shard = 0; shard < smp::count; ++shard) {
-                    write_bw += iotune_tests.write_sequential_data(shard, sequential_buffer_size, duration * 0.70 / smp::count).get();
-                }
-                write_bw.bytes_per_sec /= smp::count;
-                rates = iotune_tests.get_serial_rates().get();
-                fmt::print("{} MiB/s{}\n", uint64_t(write_bw.bytes_per_sec / (1024 * 1024)), accuracy_msg());
-
-                std::optional<uint64_t> write_sat;
-
-                if (write_saturation) {
-                    fmt::print("Measuring write saturation length: ");
+                    fmt::print("Measuring sequential write bandwidth: ");
                     std::cout.flush();
-                    write_sat = iotune_tests.saturate_write(write_bw.bytes_per_sec * (1.0 - rates.stdev_percents()), sequential_buffer_size/2, duration * 0.70).get();
-                    fmt::print("{}\n", *write_sat);
-                }
+                    io_rates write_bw;
+                    for (unsigned shard = 0; shard < smp::count; ++shard) {
+                        write_bw += iotune_tests.write_sequential_data(shard, sequential_buffer_size, duration * 0.70 / smp::count).get();
+                    }
+                    write_bw.bytes_per_sec /= smp::count;
+                    rates = iotune_tests.get_serial_rates().get();
+                    fmt::print("{} MiB/s{}\n", uint64_t(write_bw.bytes_per_sec / (1024 * 1024)), accuracy_msg());
 
-                fmt::print("Measuring sequential read bandwidth: ");
-                std::cout.flush();
-                auto read_bw = iotune_tests.read_sequential_data(0, sequential_buffer_size, duration * 0.1).get();
-                rates = iotune_tests.get_serial_rates().get();
-                fmt::print("{} MiB/s{}\n", uint64_t(read_bw.bytes_per_sec / (1024 * 1024)), accuracy_msg());
+                    std::optional<uint64_t> write_sat;
 
-                std::optional<uint64_t> read_sat;
+                    if (write_saturation) {
+                        fmt::print("Measuring write saturation length: ");
+                        std::cout.flush();
+                        write_sat = iotune_tests.saturate_write(write_bw.bytes_per_sec * (1.0 - rates.stdev_percents()), sequential_buffer_size/2, duration * 0.70).get();
+                        fmt::print("{}\n", *write_sat);
+                    }
 
-                if (read_saturation) {
-                    fmt::print("Measuring read saturation length: ");
+                    fmt::print("Measuring sequential read bandwidth: ");
                     std::cout.flush();
-                    read_sat = iotune_tests.saturate_read(read_bw.bytes_per_sec * (1.0 - rates.stdev_percents()), sequential_buffer_size/2, duration * 0.1).get();
-                    fmt::print("{}\n", *read_sat);
-                }
+                    auto read_bw = iotune_tests.read_sequential_data(0, sequential_buffer_size, duration * 0.1).get();
+                    rates = iotune_tests.get_serial_rates().get();
+                    fmt::print("{} MiB/s{}\n", uint64_t(read_bw.bytes_per_sec / (1024 * 1024)), accuracy_msg());
 
-                desc.read_bw = read_bw.bytes_per_sec;
-                desc.read_sat_len = read_sat;
-                desc.write_bw = write_bw.bytes_per_sec;
-                desc.write_sat_len = write_sat;
+                    std::optional<uint64_t> read_sat;
+
+                    if (read_saturation) {
+                        fmt::print("Measuring read saturation length: ");
+                        std::cout.flush();
+                        read_sat = iotune_tests.saturate_read(read_bw.bytes_per_sec * (1.0 - rates.stdev_percents()), sequential_buffer_size/2, duration * 0.1).get();
+                        fmt::print("{}\n", *read_sat);
+                    }
+
+                    desc.read_bw = read_bw.bytes_per_sec;
+                    desc.read_sat_len = read_sat;
+                    desc.write_bw = write_bw.bytes_per_sec;
+                    desc.write_sat_len = write_sat;
                 } else {
                     // For IOPS-only mode, we need to run this workload so that the test files are filled
                     // with random data sequentially. 10% of the duration seems to be enough to not get
