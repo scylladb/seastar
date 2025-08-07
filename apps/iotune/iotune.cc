@@ -725,6 +725,7 @@ fs::path mountpoint_of(sstring filename) {
 int main(int ac, char** av) {
     namespace bpo = boost::program_options;
     bool fs_check = false;
+    bool run_iops_only = false;
 
     app_template::config app_cfg;
     app_cfg.name = "IOTune";
@@ -743,6 +744,7 @@ int main(int ac, char** av) {
         ("random-write-io-buffer-size", bpo::value<unsigned>()->default_value(0), "force buffer size for random write")
         ("random-read-io-buffer-size", bpo::value<unsigned>()->default_value(0), "force buffer size for random read")
         ("force-io-depth", bpo::value<unsigned>()->default_value(0), "force io depth to a certain size (overriding auto detection logic)")
+        ("run-iops-only", bpo::bool_switch(&run_iops_only), "run only IOPS tests and skip bandwidth tests")
     ;
 
     return app.run(ac, av, [&] {
@@ -856,39 +858,57 @@ int main(int ac, char** av) {
                 iotune_tests.create_data_file().get();
 
                 fmt::print("Starting Evaluation. This may take a while...\n");
-                fmt::print("Measuring sequential write bandwidth: ");
-                std::cout.flush();
-                io_rates write_bw;
+
+                struct disk_descriptor desc{};
+                desc.mountpoint = mountpoint;
                 size_t sequential_buffer_size = 1 << 20;
-                for (unsigned shard = 0; shard < smp::count; ++shard) {
-                    write_bw += iotune_tests.write_sequential_data(shard, sequential_buffer_size, duration * 0.70 / smp::count).get();
-                }
-                write_bw.bytes_per_sec /= smp::count;
-                rates = iotune_tests.get_serial_rates().get();
-                fmt::print("{} MiB/s{}\n", uint64_t(write_bw.bytes_per_sec / (1024 * 1024)), accuracy_msg());
 
-                std::optional<uint64_t> write_sat;
-
-                if (write_saturation) {
-                    fmt::print("Measuring write saturation length: ");
+                if (!run_iops_only) {
+                    fmt::print("Measuring sequential write bandwidth: ");
                     std::cout.flush();
-                    write_sat = iotune_tests.saturate_write(write_bw.bytes_per_sec * (1.0 - rates.stdev_percents()), sequential_buffer_size/2, duration * 0.70).get();
-                    fmt::print("{}\n", *write_sat);
-                }
+                    io_rates write_bw;
+                    for (unsigned shard = 0; shard < smp::count; ++shard) {
+                        write_bw += iotune_tests.write_sequential_data(shard, sequential_buffer_size, duration * 0.70 / smp::count).get();
+                    }
+                    write_bw.bytes_per_sec /= smp::count;
+                    rates = iotune_tests.get_serial_rates().get();
+                    fmt::print("{} MiB/s{}\n", uint64_t(write_bw.bytes_per_sec / (1024 * 1024)), accuracy_msg());
 
-                fmt::print("Measuring sequential read bandwidth: ");
-                std::cout.flush();
-                auto read_bw = iotune_tests.read_sequential_data(0, sequential_buffer_size, duration * 0.1).get();
-                rates = iotune_tests.get_serial_rates().get();
-                fmt::print("{} MiB/s{}\n", uint64_t(read_bw.bytes_per_sec / (1024 * 1024)), accuracy_msg());
+                    std::optional<uint64_t> write_sat;
 
-                std::optional<uint64_t> read_sat;
+                    if (write_saturation) {
+                        fmt::print("Measuring write saturation length: ");
+                        std::cout.flush();
+                        write_sat = iotune_tests.saturate_write(write_bw.bytes_per_sec * (1.0 - rates.stdev_percents()), sequential_buffer_size/2, duration * 0.70).get();
+                        fmt::print("{}\n", *write_sat);
+                    }
 
-                if (read_saturation) {
-                    fmt::print("Measuring read saturation length: ");
+                    fmt::print("Measuring sequential read bandwidth: ");
                     std::cout.flush();
-                    read_sat = iotune_tests.saturate_read(read_bw.bytes_per_sec * (1.0 - rates.stdev_percents()), sequential_buffer_size/2, duration * 0.1).get();
-                    fmt::print("{}\n", *read_sat);
+                    auto read_bw = iotune_tests.read_sequential_data(0, sequential_buffer_size, duration * 0.1).get();
+                    rates = iotune_tests.get_serial_rates().get();
+                    fmt::print("{} MiB/s{}\n", uint64_t(read_bw.bytes_per_sec / (1024 * 1024)), accuracy_msg());
+
+                    std::optional<uint64_t> read_sat;
+
+                    if (read_saturation) {
+                        fmt::print("Measuring read saturation length: ");
+                        std::cout.flush();
+                        read_sat = iotune_tests.saturate_read(read_bw.bytes_per_sec * (1.0 - rates.stdev_percents()), sequential_buffer_size/2, duration * 0.1).get();
+                        fmt::print("{}\n", *read_sat);
+                    }
+
+                    desc.read_bw = read_bw.bytes_per_sec;
+                    desc.read_sat_len = read_sat;
+                    desc.write_bw = write_bw.bytes_per_sec;
+                    desc.write_sat_len = write_sat;
+                } else {
+                    // For IOPS-only mode, we need to run this workload so that the test files are filled
+                    // with random data sequentially. 10% of the duration seems to be enough to not get
+                    // many cache hits and observe artificially increased iops.
+                    for (unsigned shard = 0; shard < smp::count; ++shard) {
+                        iotune_tests.write_sequential_data(shard, sequential_buffer_size, duration * 0.10 / smp::count).get();
+                    }
                 }
 
                 fmt::print("Measuring random write IOPS: ");
@@ -903,14 +923,8 @@ int main(int ac, char** av) {
                 rates = iotune_tests.get_sharded_worst_rates().get();
                 fmt::print("{} IOPS{}\n", uint64_t(read_iops.iops), accuracy_msg());
 
-                struct disk_descriptor desc;
-                desc.mountpoint = mountpoint;
                 desc.read_iops = read_iops.iops;
-                desc.read_bw = read_bw.bytes_per_sec;
-                desc.read_sat_len = read_sat;
                 desc.write_iops = write_iops.iops;
-                desc.write_bw = write_bw.bytes_per_sec;
-                desc.write_sat_len = write_sat;
                 disk_descriptors.push_back(std::move(desc));
             }
 
