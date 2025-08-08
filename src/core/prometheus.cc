@@ -900,9 +900,9 @@ class metrics_handler : public httpd::handler_base  {
     std::function<bool(const mi::labels_type&)> make_filter(const http::request& req) {
         std::unordered_map<sstring, std::regex> matcher;
         auto labels = mi::get_local_impl()->get_labels();
-        for (auto&& qp : req.query_parameters) {
+        for (auto&& qp : req.get_query_params()) {
             if (labels.find(qp.first) != labels.end()) {
-                matcher.emplace(qp.first, std::regex(qp.second.c_str()));
+                matcher.emplace(qp.first, std::regex(qp.second.back().c_str()));
             }
         }
         return (matcher.empty()) ? _true_function : [matcher](const mi::labels_type& labels) {

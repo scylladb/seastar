@@ -40,14 +40,32 @@ namespace http {
 
 sstring request::format_url() const {
     sstring query = "";
-    sstring delim = "?";
-    for (const auto& p : query_parameters) {
-        query += delim + internal::url_encode(p.first);
-        if (!p.second.empty()) {
-            query += "=" + internal::url_encode(p.second);
+    if(!_query_params.empty()) {
+         sstring delim = "&";
+        for (const auto& [key, values] : _query_params) {
+            auto key_component = delim + internal::url_encode(key) + "=";
+            if( values.empty()) {
+                query += key_component;
+            } else {
+                for (const auto& val : values) {
+                    query += key_component + internal::url_encode(val);
+                }
+            }
         }
-        delim = "&";
+        if (!query.empty()) {
+            query[0] = '?';
+        }
+    } else {
+        sstring delim = "?";
+        for (const auto& p : query_parameters) {
+            query += delim + internal::url_encode(p.first);
+            if (!p.second.empty()) {
+                query += "=" + internal::url_encode(p.second);
+            }
+            delim = "&";
+        }
     }
+
     return _url + query;
 }
 
@@ -69,6 +87,7 @@ void request::add_query_param(std::string_view param) {
     if (split >= param.length() - 1) {
         sstring key;
         if (http::internal::url_decode(param.substr(0,split) , key)) {
+            _query_params[key].push_back("");
             query_parameters[key] = "";
         }
     } else {
@@ -76,13 +95,16 @@ void request::add_query_param(std::string_view param) {
         sstring value;
         if (http::internal::url_decode(param.substr(0,split), key)
                 && http::internal::url_decode(param.substr(split + 1), value)) {
-            query_parameters[key] = std::move(value);
+            query_parameters[key] = value;
+            _query_params[key].push_back(std::move(value));
         }
     }
 
 }
 
 sstring request::parse_query_param() {
+    query_parameters.clear();
+    _query_params.clear();
     size_t pos = _url.find('?');
     if (pos == sstring::npos) {
         return _url;

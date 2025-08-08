@@ -32,6 +32,7 @@
 
 #include <seastar/core/iostream.hh>
 #include <seastar/core/sstring.hh>
+#include <string_view>
 #include <strings.h>
 #include <seastar/http/common.hh>
 #include <seastar/http/mime_types.hh>
@@ -64,7 +65,7 @@ struct request {
     size_t content_length = 0;
     mutable size_t _bytes_written = 0;
     std::unordered_map<sstring, sstring, seastar::internal::case_insensitive_hash, seastar::internal::case_insensitive_cmp> _headers;
-    std::unordered_map<sstring, sstring> query_parameters;
+    [[deprecated("Use helper methods instead")]] std::unordered_map<sstring, sstring> query_parameters; // deprecated: it is used to store last value of query parameters, but will be removed in the future
     httpd::parameters param;
     sstring content; // server-side deprecated: use content_stream instead
     /*
@@ -77,7 +78,10 @@ struct request {
     std::unordered_map<sstring, sstring> chunk_extensions;
     sstring protocol_name = "http";
     noncopyable_function<future<>(output_stream<char>&&)> body_writer; // for client
-
+    using query_param_type = std::unordered_map<sstring, std::vector<sstring>, seastar::internal::string_view_hash, std::equal_to<>>;
+private:
+    query_param_type _query_params;
+public:
     /**
      * Get the address of the client that generated the request
      * @return The address of the client that generated the request
@@ -109,15 +113,84 @@ struct request {
 
     /**
      * Search for the last query parameter of a given key
-     * @param key the query paramerter key
+     * @param key the query parameter key
      * @return the query parameter value, if it exists or empty string
      */
     sstring get_query_param(const sstring& key) const {
-        auto res = query_parameters.find(key);
-        if (res == query_parameters.end()) {
-            return "";
+        if(_query_params.empty()) {
+            auto res = query_parameters.find(key);
+            if (res != query_parameters.end()) {
+                return res->second;
+            }
+        } else {
+            auto res = _query_params.find(key);
+            if (res != _query_params.end()) {
+                return res->second.back();
+            }
         }
-        return res->second;
+
+        return "";
+    }
+
+    /**
+     * Search for all query parameters of a given key
+     * @param key the query parameter key
+     * @return a vector of all query parameter values, if it exists or an empty vector
+     */
+    const std::vector<sstring>& get_query_param_array(std::string_view key) const {
+        if(auto res = _query_params.find(key); res != _query_params.end()) {
+            return res->second;
+        }
+        static const std::vector<sstring> empty_vector;
+        return empty_vector;
+    }
+
+    /**
+     * Get all query parameters
+     * @return a map of all query parameters
+     */
+    const query_param_type& get_query_params() const {
+        return _query_params;
+    }
+
+    /**
+     * Set a query parameter value
+     * @param key the query parameter key
+     * @param value the query parameter value
+     * @return a reference to this request object
+     */
+    request& set_query_param(std::string_view key, std::string_view value) {
+        return set_query_param(key, {value});
+    }
+
+    /**
+     * Set a query parameter value
+     * @param key the query parameter key
+     * @param values the query parameter values
+     * @return a reference to this request object
+    */
+    request& set_query_param(std::string_view key, std::initializer_list<std::string_view> values) {
+        _query_params[sstring(key)] = std::vector<sstring>(values.begin(), values.end());
+        return *this;
+    }
+
+    /**
+     * Set a query parameter value
+     * @param key the query parameter key
+     * @param values the query parameter values
+     * @return a reference to this request object
+    */
+    request& set_query_param(std::string_view key, const std::vector<sstring>& values) {
+        _query_params[sstring(key)] = values;
+        return *this;
+    }
+
+    /**
+     * Set the query parameters in the request objects.
+     * @param params a map of query parameters
+     */
+    void set_query_params(const query_param_type& params) {
+        _query_params = params;
     }
 
     /**
