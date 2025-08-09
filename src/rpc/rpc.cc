@@ -1210,79 +1210,65 @@ future<> server::connection::process() {
         co_await negotiate_protocol();
         auto sg = _isolation_config ? _isolation_config->sched_group : current_scheduling_group();
         co_await coroutine::switch_to(sg);
-        {
-            set_negotiated();
-            while (!_read_buf.eof() && !_error) {
-                if (is_stream()) {
-                    co_await handle_stream_frame();
+        set_negotiated();
+        while (!_read_buf.eof() && !_error) {
+            if (is_stream()) {
+                co_await handle_stream_frame();
+                continue;
+            }
+            request_frame::return_type header_and_buffer = co_await read_request_frame_compressed(_read_buf);
+            auto& expire = std::get<0>(header_and_buffer);
+            auto& type = std::get<1>(header_and_buffer);
+            auto& msg_id = std::get<2>(header_and_buffer);
+            auto& data = std::get<3>(header_and_buffer);
+            if (!data) {
+                _error = true;
+                continue;
+            } else {
+                std::optional<rpc_clock_type::time_point> timeout;
+                if (expire && *expire) {
+                    timeout = relative_timeout_to_absolute(std::chrono::milliseconds(*expire));
+                }
+                auto h = get_server()._proto.get_handler(type);
+                if (!h) {
+                    co_await send_unknown_verb_reply(timeout, msg_id, type);
                     continue;
                 }
-                request_frame::return_type header_and_buffer = co_await read_request_frame_compressed(_read_buf);
-                {
-                    auto& expire = std::get<0>(header_and_buffer);
-                    auto& type = std::get<1>(header_and_buffer);
-                    auto& msg_id = std::get<2>(header_and_buffer);
-                    auto& data = std::get<3>(header_and_buffer);
-                    if (!data) {
-                        _error = true;
-                        continue;
-                    } else {
-                        std::optional<rpc_clock_type::time_point> timeout;
-                        if (expire && *expire) {
-                            timeout = relative_timeout_to_absolute(std::chrono::milliseconds(*expire));
-                        }
-                        auto h = get_server()._proto.get_handler(type);
-                        if (!h) {
-                            co_await send_unknown_verb_reply(timeout, msg_id, type);
-                            continue;
-                        }
 
-                        // If the new method of per-connection scheduling group was used, honor it.
-                        // Otherwise, use the old per-handler scheduling group.
-                        auto sg = _isolation_config ? _isolation_config->sched_group : h->handler.sg;
-                        if (sg == current_scheduling_group()) {
-                            co_await h->handler.func(shared_from_this(), timeout, msg_id, std::move(data.value()), std::move(h->holder));
-                            continue;
-                        }
-                        co_await with_scheduling_group(sg, [this, timeout, msg_id, &h = h->handler, data = std::move(data.value()), guard = std::move(h->holder)] () mutable {
-                            return h.func(shared_from_this(), timeout, msg_id, std::move(data), std::move(guard));
-                        });
-                    }
+                // If the new method of per-connection scheduling group was used, honor it.
+                // Otherwise, use the old per-handler scheduling group.
+                auto sg = _isolation_config ? _isolation_config->sched_group : h->handler.sg;
+                if (sg == current_scheduling_group()) {
+                    co_await h->handler.func(shared_from_this(), timeout, msg_id, std::move(data.value()), std::move(h->holder));
+                    continue;
                 }
+                co_await with_scheduling_group(sg, [this, timeout, msg_id, &h = h->handler, data = std::move(data.value()), guard = std::move(h->holder)] () mutable {
+                    return h.func(shared_from_this(), timeout, msg_id, std::move(data), std::move(guard));
+                });
             }
         }
     } catch (...) {
-        {
-            ep = std::current_exception();
-            log_exception(*this, log_level::error,
-                format("server{} connection dropped", is_stream() ? " stream" : "").c_str(), ep);
-        }
+        ep = std::current_exception();
+        log_exception(*this, log_level::error,
+            format("server{} connection dropped", is_stream() ? " stream" : "").c_str(), ep);
     }
-    {
-        _fd.shutdown_input();
-        if (is_stream() && (ep || _error)) {
-            _stream_queue.abort(std::make_exception_ptr(stream_closed()));
-        }
-        _error = true;
-        future<> f = co_await coroutine::as_future(stop_send_loop(ep));
-        {
-            f.ignore_ready_future();
-            get_server()._conns.erase(get_connection_id());
-            if (is_stream()) {
-                co_await deregister_this_stream();
-            } else {
-                co_await abort_all_streams();
-            }
-        }
-        {
-            if (_compressor) {
-                co_await _compressor->close();
-            }
-        }
-        {
-            _stopped.set_value();
-        }
+    _fd.shutdown_input();
+    if (is_stream() && (ep || _error)) {
+        _stream_queue.abort(std::make_exception_ptr(stream_closed()));
     }
+    _error = true;
+    future<> f = co_await coroutine::as_future(stop_send_loop(ep));
+    f.ignore_ready_future();
+    get_server()._conns.erase(get_connection_id());
+    if (is_stream()) {
+        co_await deregister_this_stream();
+    } else {
+        co_await abort_all_streams();
+    }
+    if (_compressor) {
+        co_await _compressor->close();
+    }
+    _stopped.set_value();
 }
 
 server::connection::connection(server& s, connected_socket&& fd, socket_address&& addr, const logger& l, void* serializer, connection_id id)
