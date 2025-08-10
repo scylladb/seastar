@@ -29,6 +29,7 @@
 #include <utility>
 #include <type_traits>
 #include <functional>
+#include <array>
 #endif
 
 namespace seastar {
@@ -66,9 +67,17 @@ private:
         // that, and complains. Silence it.
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wuninitialized"
+        // A bytewise loop doesn't optimize to a wordwise loop since
+        // the compiler can't guess if there is overlap or not. Help
+        // it out by using a temporary, which the compiler knows cannot
+        // overlap.
+        std::array<char, N> tmp;
         // Avoid including <algorithm> just for this
-        for (unsigned i = 0; i != N; ++i) {
-            to->_storage.direct[i] = from->_storage.direct[i];
+        for (size_t i = 0; i != N; ++i) {
+            tmp[i] = from->_storage.direct[i];
+        }
+        for (size_t i = 0; i != N; ++i) {
+            to->_storage.direct[i] = tmp[i];
         }
 #pragma GCC diagnostic pop
     }
