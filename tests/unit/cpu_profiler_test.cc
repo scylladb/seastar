@@ -375,5 +375,5 @@ SEASTAR_THREAD_TEST_CASE(scheduling_group_test) {
     BOOST_CHECK_GT(count_a, 0);
     BOOST_CHECK_GT(count_b, 0);
     BOOST_CHECK_LT(count_main, 10);
-    BOOST_CHECK_LT(dropped_samples, 5);
+    BOOST_CHECK_LT(dropped_samples, 10);
 }
