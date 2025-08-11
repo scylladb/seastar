@@ -104,13 +104,13 @@ void request::write_body(const sstring& content_type, sstring content) {
     this->content = std::move(content);
 }
 
-void request::write_body(const sstring& content_type, noncopyable_function<future<>(output_stream<char>&&)>&& body_writer) {
+void request::write_body(const sstring& content_type, body_writer_type&& body_writer) {
     set_content_type(content_type);
     _headers["Transfer-Encoding"] = "chunked";
     this->body_writer = std::move(body_writer);
 }
 
-void request::write_body(const sstring& content_type, size_t len, noncopyable_function<future<>(output_stream<char>&&)>&& body_writer) {
+void request::write_body(const sstring& content_type, size_t len, body_writer_type&& body_writer) {
     set_content_type(content_type);
     content_length = len;
     if (len > 0) {
