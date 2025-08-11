@@ -16,26 +16,22 @@
  * under the License.
  */
 /*
- * Copyright (C) 2019 ScyllaDB
+ * Copyright (C) 2025-present ScyllaDB
  */
 
 #pragma once
 
-// For IDEs that don't see SEASTAR_API_LEVEL, generate a nice default
-#ifndef SEASTAR_API_LEVEL
-#define SEASTAR_API_LEVEL 8
-#endif
+#include <seastar/core/future.hh>
+#include <seastar/core/iostream.hh>
+#include <seastar/util/noncopyable_function.hh>
+#include <seastar/util/modules.hh>
 
-#if SEASTAR_API_LEVEL == 8
-#define SEASTAR_INCLUDE_API_V8 inline
-#else
-#define SEASTAR_INCLUDE_API_V8
-#endif
+namespace seastar::http {
+SEASTAR_MODULE_EXPORT_BEGIN
 
-// Declare them here so we don't have to use the macros everywhere
-namespace seastar {
-    SEASTAR_INCLUDE_API_V8 namespace api_v8 {
-        inline namespace and_newer {
-        }
-    }
-}
+/// body_writer_type - a function that accepts an output stream and uses that stream to write the body.
+/// The function should take ownership of the stream while using it and must close the stream when done.
+using body_writer_type = noncopyable_function<future<>(output_stream<char>&&)>;
+
+SEASTAR_MODULE_EXPORT_END
+} // namespace seastar::http

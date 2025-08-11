@@ -36,8 +36,8 @@
 #endif
 #include <seastar/core/sstring.hh>
 #include <seastar/http/mime_types.hh>
+#include <seastar/http/types.hh>
 #include <seastar/core/iostream.hh>
-#include <seastar/util/noncopyable_function.hh>
 #include <seastar/util/modules.hh>
 #include <seastar/util/string_utils.hh>
 #include <seastar/util/iostream.hh>
@@ -245,7 +245,7 @@ struct reply {
      *
      */
 
-    void write_body(const sstring& content_type, noncopyable_function<future<>(output_stream<char>&&)>&& body_writer);
+    void write_body(const sstring& content_type, http::body_writer_type&& body_writer);
 
     /*!
      * \brief use and output stream to write the message body
@@ -282,7 +282,7 @@ private:
     future<> write_reply_to_connection(httpd::connection& con);
     future<> write_reply_headers(httpd::connection& connection);
 
-    noncopyable_function<future<>(output_stream<char>&&)> _body_writer;
+    http::body_writer_type _body_writer;
     friend class httpd::routes;
     friend class httpd::connection;
 };
