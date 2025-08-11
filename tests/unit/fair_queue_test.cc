@@ -75,7 +75,7 @@ class test_env {
         do {} while (tick() != 0);
     }
 public:
-    test_env(unsigned capacity)
+    test_env()
         : _fq(fq_config())
     {
     }
@@ -178,7 +178,7 @@ public:
 
 // Equal ratios. Expected equal results.
 SEASTAR_THREAD_TEST_CASE(test_fair_queue_equal_2classes) {
-    test_env env(1);
+    test_env env;
 
     auto a = env.register_priority_class(10);
     auto b = env.register_priority_class(10);
@@ -190,13 +190,15 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_equal_2classes) {
 
     yield().get();
     // allow half the requests in
-    env.tick(100);
+    env.tick(10);
     env.verify("equal_2classes", {1, 1});
+    env.tick(90);
+    env.verify("equal_2classes_more", {1, 1});
 }
 
 // Equal results, spread among 4 classes.
 SEASTAR_THREAD_TEST_CASE(test_fair_queue_equal_4classes) {
-    test_env env(1);
+    test_env env;
 
     auto a = env.register_priority_class(10);
     auto b = env.register_priority_class(10);
@@ -217,7 +219,7 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_equal_4classes) {
 
 // Class2 twice as powerful. Expected class2 to have 2 x more requests.
 SEASTAR_THREAD_TEST_CASE(test_fair_queue_different_shares) {
-    test_env env(1);
+    test_env env;
 
     auto a = env.register_priority_class(10);
     auto b = env.register_priority_class(20);
@@ -228,55 +230,15 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_different_shares) {
     }
     yield().get();
     // allow half the requests in
-    env.tick(100);
-    return env.verify("different_shares", {1, 2});
-}
-
-// Equal ratios, high capacity queue. Should still divide equally.
-//
-// Note that we sleep less because now more requests will be going through the
-// queue.
-SEASTAR_THREAD_TEST_CASE(test_fair_queue_equal_hi_capacity_2classes) {
-    test_env env(10);
-
-    auto a = env.register_priority_class(10);
-    auto b = env.register_priority_class(10);
-
-    for (int i = 0; i < 100; ++i) {
-        env.do_op(a, 1);
-        env.do_op(b, 1);
-    }
-    yield().get();
-
-    // queue has capacity 10, 10 x 10 = 100, allow half the requests in
     env.tick(10);
-    env.verify("hi_capacity_2classes", {1, 1});
-}
-
-// Class2 twice as powerful, queue is high capacity. Still expected class2 to
-// have 2 x more requests.
-//
-// Note that we sleep less because now more requests will be going through the
-// queue.
-SEASTAR_THREAD_TEST_CASE(test_fair_queue_different_shares_hi_capacity) {
-    test_env env(10);
-
-    auto a = env.register_priority_class(10);
-    auto b = env.register_priority_class(20);
-
-    for (int i = 0; i < 100; ++i) {
-        env.do_op(a, 1);
-        env.do_op(b, 1);
-    }
-    yield().get();
-    // queue has capacity 10, 10 x 10 = 100, allow half the requests in
-    env.tick(10);
-    env.verify("different_shares_hi_capacity", {1, 2});
+    env.verify("different_shares", {1, 2});
+    env.tick(90);
+    env.verify("different_shares_more", {1, 2});
 }
 
 // Classes equally powerful. But Class1 issues twice as expensive requests. Expected Class2 to have 2 x more requests.
 SEASTAR_THREAD_TEST_CASE(test_fair_queue_different_weights) {
-    test_env env(2);
+    test_env env;
 
     auto a = env.register_priority_class(10);
     auto b = env.register_priority_class(10);
@@ -287,13 +249,15 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_different_weights) {
     }
     yield().get();
     // allow half the requests in
-    env.tick(100);
+    env.tick(10);
     env.verify("different_weights", {1, 2});
+    env.tick(90);
+    env.verify("different_weights_more", {1, 2});
 }
 
 // Class2 pushes many requests over. Right after, don't expect Class2 to be able to push anything else.
 SEASTAR_THREAD_TEST_CASE(test_fair_queue_dominant_queue) {
-    test_env env(1);
+    test_env env;
 
     auto a = env.register_priority_class(10);
     auto b = env.register_priority_class(10);
@@ -318,7 +282,7 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_dominant_queue) {
 
 // Class2 pushes many requests at first. Right after, don't expect Class1 to be able to do the same
 SEASTAR_THREAD_TEST_CASE(test_fair_queue_forgiving_queue) {
-    test_env env(1);
+    test_env env;
 
     // The fair_queue preemption logic allows one class to gain exclusive
     // queue access for at most tau duration. Test queue configures the
@@ -352,7 +316,7 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_forgiving_queue) {
 // Classes push requests and then update swap their shares. In the end, should have executed
 // the same number of requests.
 SEASTAR_THREAD_TEST_CASE(test_fair_queue_update_shares) {
-    test_env env(1);
+    test_env env;
 
     auto a = env.register_priority_class(20);
     auto b = env.register_priority_class(10);
@@ -377,7 +341,7 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_update_shares) {
 // Classes run for a longer period of time. Balance must be kept over many timer
 // periods.
 SEASTAR_THREAD_TEST_CASE(test_fair_queue_longer_run) {
-    test_env env(1);
+    test_env env;
 
     auto a = env.register_priority_class(10);
     auto b = env.register_priority_class(10);
@@ -398,7 +362,7 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_longer_run) {
 // Classes run for a longer period of time. Proportional balance must be kept over many timer
 // periods, despite unequal shares..
 SEASTAR_THREAD_TEST_CASE(test_fair_queue_longer_run_different_shares) {
-    test_env env(1);
+    test_env env;
 
     auto a = env.register_priority_class(10);
     auto b = env.register_priority_class(20);
@@ -419,7 +383,7 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_longer_run_different_shares) {
 
 // Classes run for a random period of time. Equal operations expected.
 SEASTAR_THREAD_TEST_CASE(test_fair_queue_random_run) {
-    test_env env(1);
+    test_env env;
 
     auto a = env.register_priority_class(1);
     auto b = env.register_priority_class(1);
