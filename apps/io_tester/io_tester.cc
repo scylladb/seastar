@@ -262,6 +262,14 @@ struct job_config {
     std::unique_ptr<class_data> gen_class_data();
 };
 
+struct sched_group_config {
+    std::string name;
+    std::string parent;
+    unsigned shares;
+
+    bool is_supergroup = false;
+};
+
 std::array<double, 4> quantiles = { 0.5, 0.95, 0.99, 0.999};
 std::array<double, 2> quantiles_short = { 0.5, 0.9 };
 static bool keep_files = false;
@@ -1067,6 +1075,18 @@ struct convert<job_config> {
         return true;
     }
 };
+
+template<>
+struct convert<sched_group_config> {
+    static bool decode(const Node& node, sched_group_config& sc) {
+        sc.name = node["name"].as<std::string>();
+        sc.shares = node["shares"].as<unsigned>();
+        if (node["parent"]) {
+            sc.parent = node["parent"].as<std::string>();
+        }
+        return true;
+    }
+};
 }
 
 /// Each shard has one context, and the context is responsible for creating the classes that should
@@ -1151,6 +1171,7 @@ int main(int ac, char** av) {
         ("duration", bpo::value<unsigned>()->default_value(10), "for how long (in seconds) to run the test")
         ("conf", bpo::value<sstring>()->default_value("./conf.yaml"), "YAML file containing benchmark specification")
         ("keep-files", bpo::value<bool>()->default_value(false), "keep test files, next run may re-use them")
+        ("sched-groups", bpo::value<sstring>(), "YAML file containing scheduling groups configuration")
     ;
 
     distributed<context> ctx;
@@ -1180,14 +1201,65 @@ int main(int ac, char** av) {
 
             struct sched_class {
                 seastar::scheduling_group sg;
+                seastar::scheduling_supergroup ssg;
             };
             std::unordered_map<std::string, sched_class> sched_classes;
+
+            if (opts.contains("sched-groups")) {
+                auto& yaml = opts["sched-groups"].as<sstring>();
+                YAML::Node doc = YAML::LoadFile(yaml);
+                auto sched_config = doc.as<std::vector<sched_group_config>>();
+
+                // First, find out which sched_group_config-s are supergroups
+                for (auto& sg : sched_config) {
+                    if (sg.parent.empty()) {
+                        continue;
+                    }
+
+                    auto parent = std::find_if(sched_config.begin(), sched_config.end(), [&sg] (auto& s) { return s.name == sg.parent; });
+                    if (parent == sched_config.end()) {
+                        throw std::runtime_error(fmt::format("Unknown parent sched group {} for {} in config", sg.parent, sg.name));
+                    }
+                    parent->is_supergroup = true;
+                }
+
+                // Second, create the supergroups
+                parallel_for_each(sched_config, [&sched_classes] (auto& g) {
+                    if (!g.is_supergroup) {
+                        return make_ready_future<>();
+                    }
+
+                    fmt::print("Creating {} supergroup\n", g.name);
+                    return seastar::create_scheduling_supergroup(g.shares).then([&g, &sched_classes] (seastar::scheduling_supergroup ssg) {
+                        sched_classes.insert(std::make_pair(g.name, sched_class { .ssg = ssg }));
+                    });
+                }).get();
+
+                // Finally, create the sched groups
+                parallel_for_each(sched_config, [&sched_classes] (auto& g) {
+                    if (g.is_supergroup) {
+                        return make_ready_future<>();
+                    }
+
+                    seastar::scheduling_supergroup parent;
+                    if (!g.parent.empty()) {
+                        fmt::print("Creating {}.{} group\n", g.parent, g.name);
+                        parent = sched_classes.at(g.parent).ssg;
+                    } else {
+                        fmt::print("Creating {} group\n", g.name);
+                    }
+                    return seastar::create_scheduling_group(g.name, g.name, g.shares, parent).then([&g, &sched_classes] (seastar::scheduling_group sg) {
+                        sched_classes.insert(std::make_pair(g.name, sched_class { .sg = sg }));
+                    });
+                }).get();
+            }
 
             parallel_for_each(reqs, [&sched_classes] (auto& r) {
                 if (r.shard_info.sched_class != "") {
                     return make_ready_future<>();
                 }
 
+                fmt::print("Creating {} group (by job name)\n", r.name);
                 return seastar::create_scheduling_group(r.name, r.shard_info.shares).then([&r, &sched_classes] (seastar::scheduling_group sg) {
                     sched_classes.insert(std::make_pair(r.name, sched_class {
                         .sg = sg,
