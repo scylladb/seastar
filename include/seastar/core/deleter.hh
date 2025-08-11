@@ -22,6 +22,7 @@
 #pragma once
 
 #ifndef SEASTAR_MODULE
+#include <atomic>
 #include <cassert>
 #include <cstdint>
 #include <cstdlib>
@@ -30,7 +31,15 @@
 #include <seastar/util/modules.hh>
 #endif
 
+// The forward declarations of classes below are used for 
+// friending by the deleter.
+struct test_deleter_append_does_not_free_shared_object;
+struct test_deleter_append_same_shared_object_twice;
+
 namespace seastar {
+namespace net {
+    class packet;
+};
 
 /// \addtogroup memory-module
 /// @{
@@ -86,11 +95,19 @@ public:
         this->~deleter();
         new (this) deleter(i);
     }
+private:
     /// \endcond
     /// Appends another deleter to this deleter.  When this deleter is
     /// destroyed, both encapsulated actions will be carried out.
+    ///
+    /// This operation is not thread-safe and therefore not made public
+    /// except for a few manually verified uses that are marked as freinds
+    /// below.
     void append(deleter d);
-private:
+    friend class ::seastar::net::packet;
+    friend struct ::test_deleter_append_does_not_free_shared_object;
+    friend struct ::test_deleter_append_same_shared_object_twice;
+
     static bool is_raw_object(impl* i) noexcept {
         auto x = reinterpret_cast<uintptr_t>(i);
         return x & 1;
@@ -113,7 +130,9 @@ private:
 
 /// \cond internal
 struct deleter::impl {
-    unsigned refs = 1;
+    // The memory ordering on operations to this counter is similar to
+    // std::shared_ptr.
+    std::atomic<unsigned int> refs = 1;
     deleter next;
     impl(deleter next) : next(std::move(next)) {}
     virtual ~impl() {}
@@ -126,7 +145,7 @@ deleter::~deleter() {
         std::free(to_raw_object());
         return;
     }
-    if (_impl && --_impl->refs == 0) {
+    if (_impl && _impl->refs.fetch_sub(1, std::memory_order_acq_rel) == 1) {
         delete _impl;
     }
 }
@@ -209,7 +228,7 @@ deleter::share() {
     if (is_raw_object()) {
         _impl = new free_deleter_impl(to_raw_object());
     }
-    ++_impl->refs;
+    _impl->refs.fetch_add(1, std::memory_order_relaxed);
     return deleter(_impl);
 }
 

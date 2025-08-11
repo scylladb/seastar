@@ -94,6 +94,18 @@ frame decorate(uintptr_t addr) noexcept {
     return {&so, addr - so.begin};
 }
 
+#ifndef SEASTAR_BACKTRACE_UNIMPLEMENTED
+int guarded_backtrace(void **array, int size) noexcept {
+    static thread_local internal::signal_mutex mux{};
+    // ::backtrace isn't re-entrant so avoid calling it concurrently from the same thread.
+    if (auto guard_opt = mux.try_lock(); guard_opt.has_value()) {
+        return ::backtrace(array, size);
+    }
+
+    return 0;
+}
+#endif
+
 simple_backtrace current_backtrace_tasklocal() noexcept {
     simple_backtrace::vector_type v;
     backtrace([&] (frame f) {

@@ -24,7 +24,6 @@ module;
 #endif
 
 #include <concepts>
-#include <gnutls/gnutls.h>
 #include <memory>
 #include <optional>
 #include <stdexcept>
@@ -46,7 +45,7 @@ module seastar;
 #endif
 
 namespace seastar {
-logger http_log("http");
+logger http_log("seastar_http_client");
 namespace http {
 namespace internal {
 
@@ -326,7 +325,7 @@ static bool is_retryable_exception(std::exception_ptr ex) {
             std::rethrow_exception(ex);
         } catch (const std::system_error& sys_err) {
             auto code = sys_err.code().value();
-            if (code == EPIPE || code == ECONNABORTED || code == ECONNRESET || code == GNUTLS_E_PREMATURE_TERMINATION) {
+            if (code == EPIPE || code == ECONNABORTED || code == ECONNRESET) {
                 return true;
             }
             try {

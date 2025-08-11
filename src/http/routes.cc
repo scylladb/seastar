@@ -80,10 +80,14 @@ std::unique_ptr<http::reply> routes::exception_reply(std::exception_ptr eptr) {
         }
         std::rethrow_exception(eptr);
     } catch (const redirect_exception& _e) {
-       rep.reset(new http::reply());
-       rep->add_header("Location", _e.url).set_status(_e.status());
+       *rep = _e.to_reply();
     } catch (const base_exception& e) {
-        rep->set_status(e.status(), internal::json_exception(e).to_json());
+        if (e.content_type().size()) {
+            rep->set_status(e.status(), e.str());
+            rep->set_content_type(e.content_type());
+        } else {
+            rep->set_status(e.status(), internal::json_exception(e).to_json());
+        }
     } catch (...) {
         rep->set_status(http::reply::status_type::internal_server_error,
                 internal::json_exception(std::current_exception()).to_json());
@@ -101,6 +105,9 @@ future<std::unique_ptr<http::reply> > routes::handle(const sstring& path, std::u
             handler->verify_mandatory_params(*req);
             auto r =  handler->handle(path, std::move(req), std::move(rep));
             return r.handle_exception(_general_handler);
+        } catch (const redirect_exception& _e) {
+            *rep = _e.to_reply();
+            rep->done("json");
         } catch (...) {
             rep = exception_reply(std::current_exception());
         }

@@ -679,12 +679,12 @@ auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo, Wa
                                                            gate::holder guard) mutable {
         auto memory_consumed = client->estimate_request_size(data.size);
         if (memory_consumed > client->max_request_size()) {
-            auto err = format("request size {:d} large than memory limit {:d}", memory_consumed, client->max_request_size());
+            auto err = ::seastar::format("request size {:d} large than memory limit {:d}", memory_consumed, client->max_request_size());
             client->get_logger()(client->peer_address(), err);
             // FIXME: future is discarded
             (void)try_with_gate(client->get_server().reply_gate(), [client, timeout, msg_id, err = std::move(err)] {
                 return reply<Serializer>(wait_style(), futurize<Ret>::make_exception_future(std::runtime_error(err.c_str())), msg_id, client, timeout, std::nullopt).handle_exception([client, msg_id] (std::exception_ptr eptr) {
-                    client->get_logger()(client->info(), msg_id, seastar::format("got exception while processing an oversized message: {}", eptr));
+                    client->get_logger()(client->info(), msg_id, ::seastar::format("got exception while processing an oversized message: {}", eptr));
                 });
             }).handle_exception_type([] (gate_closed_exception&) {/* ignore */});
             return make_ready_future();
@@ -698,11 +698,11 @@ auto recv_helper(signature<Ret (InArgs...)> sig, Func&& func, WantClientInfo, Wa
                         auto start = rpc_clock_type::now();
                         return apply(func, client->info(), timeout, WantClientInfo(), WantTimePoint(), signature(), std::move(args)).then_wrapped([client, timeout, msg_id, permit = std::move(permit), start] (futurize_t<Ret> ret) mutable {
                             return reply<Serializer>(wait_style(), std::move(ret), msg_id, client, timeout, rpc_clock_type::now() - start).handle_exception([permit = std::move(permit), client, msg_id] (std::exception_ptr eptr) {
-                                client->get_logger()(client->info(), msg_id, seastar::format("got exception while processing a message: {}", eptr));
+                                client->get_logger()(client->info(), msg_id, ::seastar::format("got exception while processing a message: {}", eptr));
                             });
                         });
                     } catch (...) {
-                        client->get_logger()(client->info(), msg_id, seastar::format("caught exception while processing a message: {}", std::current_exception()));
+                        client->get_logger()(client->info(), msg_id, ::seastar::format("caught exception while processing a message: {}", std::current_exception()));
                         return make_ready_future();
                     }
                 }).handle_exception_type([g = std::move(g)] (gate_closed_exception&) {/* ignore */});

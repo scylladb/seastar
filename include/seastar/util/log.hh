@@ -328,6 +328,25 @@ public:
         }
     }
 
+    /// \cond internal
+    /// logs to desired level if enabled, otherwise we ignore the log line
+    ///
+    /// \param writer a function which writes directly to the underlying log buffer
+    /// \param fmt - optional logger::format_info passed down the call chain.
+    ///
+    /// This is a low level method for use cases where it is very important to
+    /// avoid any allocations. The \arg writer will be passed a
+    /// internal::log_buf::inserter_iterator that allows it to write into the log
+    /// buffer directly, avoiding the use of any intermediary buffers.
+    void log(log_level level, log_writer& writer, format_info_t<> fmt = {}) noexcept {
+        if (is_enabled(level)) {
+            try {
+                do_log(level, writer);
+            } catch (...) {
+                failed_to_log(std::current_exception(), "", fmt.loc);
+            }
+        }
+    }
     /// logs to desired level if enabled, otherwise we ignore the log line
     ///
     /// \param writer a function which writes directly to the underlying log buffer

@@ -370,6 +370,9 @@ seastar_add_test (lowres_clock
 seastar_add_test (metrics
   SOURCES metrics_test.cc)
 
+seastar_add_test (metrics_family_replication
+  SOURCES metric_family_replication_test.cc)
+
 seastar_add_test (net_config
   KIND BOOST
   SOURCES net_config_test.cc)
@@ -377,6 +380,10 @@ seastar_add_test (net_config
 seastar_add_test (noncopyable_function
   KIND BOOST
   SOURCES noncopyable_function_test.cc)
+
+seastar_add_test (cpu_profiler_alloc
+  KIND BOOST
+  SOURCES cpu_profiler_alloc_test.cc)
 
 seastar_add_test (output_stream
   SOURCES output_stream_test.cc)
@@ -438,6 +445,9 @@ seastar_add_test (sstring
 seastar_add_test (stall_detector
   SOURCES stall_detector_test.cc)
 
+seastar_add_test (cpu_profiler
+  SOURCES cpu_profiler_test.cc)
+
 seastar_add_test (stream_reader
   SOURCES stream_reader_test.cc)
 
@@ -467,10 +477,6 @@ seastar_add_test (source_location
 
 seastar_add_test (shared_token_bucket
   SOURCES shared_token_bucket_test.cc)
-
-seastar_add_test (prometheus_http
-  SOURCES
-    prometheus_http_test.cc)
 
 function(seastar_add_certgen name)
   cmake_parse_arguments(CERT
@@ -571,11 +577,10 @@ function(seastar_add_certgen name)
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
   )
   add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${CERT_CAROOT}"
-    COMMAND ${OPENSSL} req -x509 -new -nodes -key ${CERT_CAPRIVKEY} -days ${CERT_DAYS} -config ${CERT_NAME}.cfg -out ${CERT_CAROOT}
+    COMMAND ${OPENSSL} req -x509 -new -nodes -key ${CERT_CAPRIVKEY} -days ${CERT_DAYS} -config ${CERT_NAME}.cfg -out ${CERT_CAROOT} -extensions v3_ca
     DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/${CERT_CAPRIVKEY}" "${CMAKE_CURRENT_BINARY_DIR}/${CERT_NAME}.cfg"
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
   )
-
 
   add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${CERT_CERT}"
     COMMAND ${OPENSSL} x509 -req -in ${CERT_REQ} -CA ${CERT_CAROOT} -CAkey ${CERT_CAPRIVKEY} -CAcreateserial -out ${CERT_CERT} -days ${CERT_DAYS} -extensions req_ext -extfile ${CERT_NAME}.cfg
@@ -665,7 +670,7 @@ function(seastar_gen_mtls_certs)
   seastar_sign_cert("mtls_server"
     CA ${cert_ca}
     SERIAL_NUM 1
-    COMMON_NAME "redpanda.com")
+    COMMON_NAME "server.org")
   # client1 certificates
   seastar_sign_cert("mtls_client1"
     CA ${cert_ca}

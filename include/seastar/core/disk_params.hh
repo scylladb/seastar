@@ -47,6 +47,7 @@ struct disk_params {
     uint64_t write_saturation_length = std::numeric_limits<uint64_t>::max();
     bool duplex = false;
     float rate_factor = 1.0;
+    bool max_cost_function = true;
 };
 
 SEASTAR_MODULE_EXPORT

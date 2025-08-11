@@ -43,6 +43,16 @@ public:
             : _msg(msg), _status(status) {
     }
 
+    /**
+     * A base_exception with a content_type is specifying a full response body, whereas
+     * a base_exception with only a _status is specifying a string that may be wrapped
+     * in e.g. a json_exception.
+     */
+    base_exception(const std::string& msg, http::reply::status_type status, const std::string &content_type)
+            : _msg(msg), _status(status), _content_type(content_type) {
+    }
+
+
     virtual const char* what() const noexcept {
         return _msg.c_str();
     }
@@ -54,9 +64,14 @@ public:
     virtual const std::string& str() const {
         return _msg;
     }
+
+    virtual const std::string& content_type() const {
+        return _content_type;
+    }
 private:
     std::string _msg;
     http::reply::status_type _status;
+    std::string _content_type;
 
 };
 
@@ -65,10 +80,22 @@ private:
  */
 class redirect_exception : public base_exception {
 public:
-    redirect_exception(const std::string& url, http::reply::status_type status = http::reply::status_type::moved_permanently)
-            : base_exception("", status), url(url) {
+    redirect_exception(const std::string& url, http::reply::status_type status = http::reply::status_type::moved_permanently, const std::optional<int>& retry_after = std::nullopt)
+            : base_exception("", status), url(url), retry_after(retry_after) {
     }
+
+    http::reply to_reply() const {
+        http::reply reply{};
+        reply.add_header("Location", url);
+        if (retry_after.has_value()) {
+            reply.add_header("Retry-After", std::to_string(retry_after.value()));
+        }
+        reply.set_status(status());
+        return reply;
+    }
+
     std::string url;
+    std::optional<int> retry_after;
 };
 
 /**
@@ -127,7 +154,7 @@ public:
     explicit response_parsing_exception(const std::string& msg) : server_error_exception(msg) {}
 };
 
-class [[deprecated("Use base_exception or any of its inheritants instead")]] json_exception : public json::json_base {
+class /* [[deprecated("Use base_exception or any of its inheritants instead")]] */json_exception : public json::json_base {
 public:
     json::json_element<std::string> _msg;
     json::json_element<int> _code;

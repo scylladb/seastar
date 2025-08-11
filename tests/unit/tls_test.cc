@@ -48,7 +48,9 @@
 #include "loopback_socket.hh"
 #include "tmpdir.hh"
 
+#ifdef SEASTAR_USE_GNUTLS
 #include <gnutls/gnutls.h>
+#endif
 
 #if 0
 
@@ -170,6 +172,16 @@ SEASTAR_TEST_CASE(test_x509_client_with_builder_system_trust_multiple,
 
 SEASTAR_TEST_CASE(test_x509_client_with_system_trust_and_priority_strings,
                   *enable_if_with_networking()) {
+#ifdef SEASTAR_USE_OPENSSL
+    static std::vector<sstring> prios( {
+        "PSK-CHACHA20-POLY1305",
+        "DHE-PSK-AES128-GCM-SHA256",
+        "ECDHE-RSA-AES128-GCM-SHA256",
+        "RSA-PSK-AES128-CBC-SHA",
+        "ECDHE-ECDSA-AES256-GCM-SHA384",
+        "AES128-GCM-SHA256"
+    });
+#elif defined(SEASTAR_USE_GNUTLS)
     static std::vector<sstring> prios( {
         "NORMAL:+ARCFOUR-128", // means normal ciphers plus ARCFOUR-128.
         "SECURE128:-VERS-SSL3.0:+COMP-DEFLATE", // means that only secure ciphers are enabled, SSL3.0 is disabled, and libz compression enabled.
@@ -181,23 +193,49 @@ SEASTAR_TEST_CASE(test_x509_client_with_system_trust_and_priority_strings,
         "SECURE128:-VERS-TLS1.0:+COMP-DEFLATE",
         "SECURE128:+SECURE192:-VERS-TLS-ALL:+VERS-TLS1.2"
     });
+#else
+#error "Unknown cryptographic provider"
+#endif
     return do_for_each(prios, [](const sstring & prio) {
         tls::credentials_builder b;
         (void)b.set_system_trust();
+#ifdef SEASTAR_USE_OPENSSL
+        b.set_cipher_string(prio);
+#elif defined(SEASTAR_USE_GNUTLS)
         b.set_priority_string(prio);
+#else
+#error "Unknown cryptographic provider"
+#endif
         return connect_to_ssl_google(b.build_certificate_credentials());
     });
 }
 
 SEASTAR_TEST_CASE(test_x509_client_with_system_trust_and_priority_strings_fail,
                   *enable_if_with_networking()) {
+#ifdef SEASTAR_USE_OPENSSL
+    static std::vector<sstring> prios( {
+        "RSA-MD5-AES256-CBC-SHA"
+    });
+#elif defined(SEASTAR_USE_GNUTLS)
     static std::vector<sstring> prios( { "NONE",
         "NONE:+CURVE-SECP256R1"
     });
+#else
+#error "Unknown cryptographic provider"
+#endif
     return do_for_each(prios, [](const sstring & prio) {
         tls::credentials_builder b;
         (void)b.set_system_trust();
+
+#ifdef SEASTAR_USE_OPENSSL
+        b.set_cipher_string(prio);
+        b.set_minimum_tls_version(tls::tls_version::tlsv1_0);
+        b.set_maximum_tls_version(tls::tls_version::tlsv1_1);
+#elif defined(SEASTAR_USE_GNUTLS)
         b.set_priority_string(prio);
+#else
+#error "Unknown cryptographic provider"
+#endif
         try {
             return connect_to_ssl_google(b.build_certificate_credentials()).then([] {
                 BOOST_FAIL("Expected exception");
@@ -357,6 +395,16 @@ SEASTAR_THREAD_TEST_CASE(test_x509_client_with_builder_multiple) {
 }
 
 SEASTAR_THREAD_TEST_CASE(test_x509_client_with_priority_strings) {
+#ifdef SEASTAR_USE_OPENSSL
+    static std::vector<sstring> prios( {
+        "PSK-CHACHA20-POLY1305",
+        "DHE-PSK-AES128-GCM-SHA256",
+        "ECDHE-RSA-AES128-GCM-SHA256",
+        "RSA-PSK-AES128-CBC-SHA",
+        "ECDHE-ECDSA-AES256-GCM-SHA384",
+        "AES128-GCM-SHA256"
+    });
+#elif defined(SEASTAR_USE_GNUTLS)
     static std::vector<sstring> prios( {
         "NORMAL:+ARCFOUR-128", // means normal ciphers plus ARCFOUR-128.
         "SECURE128:-VERS-SSL3.0:+COMP-DEFLATE", // means that only secure ciphers are enabled, SSL3.0 is disabled, and libz compression enabled.
@@ -368,26 +416,126 @@ SEASTAR_THREAD_TEST_CASE(test_x509_client_with_priority_strings) {
         "SECURE128:-VERS-TLS1.0:+COMP-DEFLATE",
         "SECURE128:+SECURE192:-VERS-TLS-ALL:+VERS-TLS1.2"
     });
+#else
+#error "Unknown cryptographic provider"
+#endif
     tls::credentials_builder b;
     https_server server;
     b.set_x509_trust_file(server.cert(), tls::x509_crt_format::PEM).get();
     auto addr = server.addr();
     do_for_each(prios, [&b, addr](const sstring& prio) {
+#ifdef SEASTAR_USE_OPENSSL
+        b.set_cipher_string(prio);
+#elif defined(SEASTAR_USE_GNUTLS)
         b.set_priority_string(prio);
+#else
+#error "Unknown cryptographic provider"
+#endif
         return connect_to_ssl_addr(b.build_certificate_credentials(), addr);
     }).get();
 }
 
 SEASTAR_THREAD_TEST_CASE(test_x509_client_with_priority_strings_fail) {
+#ifdef SEASTAR_USE_OPENSSL
+    static std::vector<sstring> prios( {
+        "RSA-MD5-AES256-CBC-SHA"
+    });
+#elif defined(SEASTAR_USE_GNUTLS)
     static std::vector<sstring> prios( { "NONE",
         "NONE:+CURVE-SECP256R1"
     });
+#else
+#error "Unknown cryptographic provider"
+#endif
     tls::credentials_builder b;
     https_server server;
     b.set_x509_trust_file(server.cert(), tls::x509_crt_format::PEM).get();
     auto addr = server.addr();
     do_for_each(prios, [&b, addr](const sstring& prio) {
+#ifdef SEASTAR_USE_OPENSSL
+        b.set_cipher_string(prio);
+        b.set_minimum_tls_version(tls::tls_version::tlsv1_0);
+        b.set_maximum_tls_version(tls::tls_version::tlsv1_1);
+#elif defined(SEASTAR_USE_GNUTLS)
         b.set_priority_string(prio);
+#else
+#error "Unknown cryptographic provider"
+#endif
+        try {
+            return connect_to_ssl_addr(b.build_certificate_credentials(), addr).then([] {
+                BOOST_FAIL("Expected exception");
+            }).handle_exception([](auto ep) {
+                // ok.
+            });
+        } catch (...) {
+            // also ok
+        }
+        return make_ready_future<>();
+    }).get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_x509_client_tls13) {
+#ifdef SEASTAR_USE_OPENSSL
+    static std::vector<sstring> prios({
+        "TLS_AES_128_GCM_SHA256",
+        "TLS_AES_256_GCM_SHA384",
+        "TLS_CHACHA20_POLY1305_SHA256",
+    });
+#elif defined(SEASTAR_USE_GNUTLS)
+    static std::vector<sstring> prios({
+        "NORMAL:-VERS-ALL:+VERS-TLS1.3:-CIPHER-ALL:+AES-128-GCM",
+        "NORMAL:-VERS-ALL:+VERS-TLS1.3:-CIPHER-ALL:+AES-256-GCM",
+        "NORMAL:-VERS-ALL:+VERS-TLS1.3:-CIPHER-ALL:+CHACHA20-POLY1305"
+    });
+#else
+#error "Unknown cryptographic provider"
+#endif
+    tls::credentials_builder b;
+    https_server server;
+    b.set_x509_trust_file(server.cert(), tls::x509_crt_format::PEM).get();
+    auto addr = server.addr();
+    do_for_each(prios, [&b, addr](const sstring& prio) {
+        BOOST_TEST_CHECKPOINT("Checking priority string " << prio);
+#ifdef SEASTAR_USE_OPENSSL
+        b.set_ciphersuites(prio);
+        b.set_minimum_tls_version(tls::tls_version::tlsv1_3);
+        b.set_maximum_tls_version(tls::tls_version::tlsv1_3);
+#elif defined(SEASTAR_USE_GNUTLS)
+        b.set_priority_string(prio);
+#else
+#error "Unknown cryptographic provider"
+#endif
+        return connect_to_ssl_addr(b.build_certificate_credentials(), addr);
+    }).get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_x509_client_tls13_fail) {
+#ifdef SEASTAR_USE_OPENSSL
+    static std::vector<sstring> prios({
+        "TLS_AES_128_CCM_8_SHA256"
+    });
+#elif defined(SEASTAR_USE_GNUTLS)
+    static std::vector<sstring> prios({
+        "NORMAL:-VERS-ALL:+VERS-TLS1.3:-CIPHER-ALL:+AES-128-CCM-8"
+    });
+#else
+#error "Unknown cryptographic provider"
+#endif
+    tls::credentials_builder b;
+    https_server server;
+    b.set_x509_trust_file(server.cert(), tls::x509_crt_format::PEM).get();
+    auto addr = server.addr();
+    do_for_each(prios, [&b, addr](const sstring& prio) {
+        BOOST_TEST_CHECKPOINT("Checking priority string " << prio);
+#ifdef SEASTAR_USE_OPENSSL
+        b.set_ciphersuites(prio);
+        b.set_minimum_tls_version(tls::tls_version::tlsv1_3);
+        b.set_maximum_tls_version(tls::tls_version::tlsv1_3);
+#elif defined(SEASTAR_USE_GNUTLS)
+        b.set_priority_string(prio);
+#else
+#error "Unknown cryptographic provider"
+#endif
         try {
             return connect_to_ssl_addr(b.build_certificate_credentials(), addr).then([] {
                 BOOST_FAIL("Expected exception");
@@ -712,7 +860,7 @@ SEASTAR_TEST_CASE(test_simple_x509_client_server_again) {
     return run_echo_test(message, 20, certfile("catest.pem"), "test.scylladb.org");
 }
 
-#if GNUTLS_VERSION_NUMBER >= 0x030600
+#if GNUTLS_VERSION_NUMBER >= 0x030600 || SEASTAR_USE_OPENSSL
 // Test #769 - do not set dh_params in server certs - let gnutls negotiate.
 SEASTAR_TEST_CASE(test_simple_server_default_dhparams) {
     return run_echo_test(message, 20, certfile("catest.pem"), "test.scylladb.org",
@@ -978,8 +1126,12 @@ SEASTAR_THREAD_TEST_CASE(test_reload_certificates) {
             }
 
             try {
-                f2.get();
-                BOOST_FAIL("should not reach");
+                auto res = f2.get();
+                // If the server completes sending data to the client
+                // during the handshake before the client has fully
+                // closed its connection, then the get() call will
+                // succeed by return an empty buffer indicating EOF
+                BOOST_REQUIRE(res.size() == 0);
             } catch (...) {
                 // ok
             }
@@ -1020,6 +1172,71 @@ SEASTAR_THREAD_TEST_CASE(test_reload_certificates) {
 
         BOOST_CHECK_EQUAL(sstring(buf.begin(), buf.end()), "apa");
     }
+}
+
+SEASTAR_THREAD_TEST_CASE(test_reload_certificates_with_creds) {
+    tmpdir tmp;
+
+    namespace fs = std::filesystem;
+
+    // copy the wrong certs. We don't trust these
+    // blocking calls, but this is a test and seastar does not have a copy
+    // util and I am lazy...
+    fs::copy_file(certfile("other.crt"), tmp.path() / "test.crt");
+    fs::copy_file(certfile("other.key"), tmp.path() / "test.key");
+
+    auto cert = (tmp.path() / "test.crt").native();
+    auto key = (tmp.path() / "test.key").native();
+    std::unordered_set<sstring> changed;
+    promise<> p;
+
+    tls::credentials_builder b;
+    b.set_x509_key_file(cert, key, tls::x509_crt_format::PEM).get();
+    b.set_dh_level();
+
+    auto certs = b.build_reloadable_server_credentials([&](const std::unordered_set<sstring> &files,
+                                                           const tls::certificate_credentials &creds,
+                                                           std::exception_ptr ep,
+                                                           std::optional<tls::blob> trust_file_contents) {
+        if (ep) {
+            return;
+        }
+
+        changed.insert(files.begin(), files.end());
+        if (changed.count(cert) && changed.count(key)) {
+            p.set_value();
+        }
+
+        auto certs_info = creds.get_cert_info();
+        auto trust_list_info = creds.get_trust_list_info();
+
+        BOOST_CHECK(certs_info.has_value() && !certs_info.value().empty());
+        BOOST_CHECK(trust_list_info.has_value() && trust_list_info.value().empty());
+        BOOST_CHECK(!trust_file_contents.has_value());
+
+    }).get();
+
+    BOOST_CHECK(certs != nullptr);
+
+    auto certs_info = certs->get_cert_info();
+    auto trust_list_info = certs->get_trust_list_info();
+
+    BOOST_CHECK(certs_info.has_value() && !certs_info.value().empty());
+    BOOST_CHECK(trust_list_info.has_value());
+    BOOST_CHECK(!b.get_trust_file_blob().has_value());
+
+    // copy the right (trusted) certs over the old ones.
+    fs::copy_file(certfile("test.crt"), tmp.path() / "test0.crt");
+    fs::copy_file(certfile("test.key"), tmp.path() / "test0.key");
+
+    rename_file((tmp.path() / "test0.crt").native(), (tmp.path() / "test.crt").native()).get();
+    rename_file((tmp.path() / "test0.key").native(), (tmp.path() / "test.key").native()).get();
+
+    p.get_future().get();
+
+    // confirm that we did indeed reload some credentials
+    BOOST_CHECK(!changed.empty());
+
 }
 
 SEASTAR_THREAD_TEST_CASE(test_reload_broken_certificates) {
@@ -1406,6 +1623,17 @@ SEASTAR_THREAD_TEST_CASE(test_dn_name_handling) {
         fout.get();
 
         auto dn = fdn.get();
+        BOOST_REQUIRE(dn.has_value());
+        BOOST_REQUIRE_EQUAL(dn->subject, fmt::format("C=GB,ST=London,L=London,O=Redpanda Data,OU=Core,CN={}", id));
+        BOOST_REQUIRE_EQUAL(dn->issuer, "C=GB,ST=London,L=London,O=Redpanda Data,OU=Core,CN=redpanda.com");
+
+#ifdef SEASTAR_USE_OPENSSL
+        dn = tls::get_dn_information(s.connection, tls::dn_format::rfc2253).get();
+        BOOST_REQUIRE(dn.has_value());
+        BOOST_REQUIRE_EQUAL(dn->subject, fmt::format("CN={},OU=Core,O=Redpanda Data,L=London,ST=London,C=GB", id));
+        BOOST_REQUIRE_EQUAL(dn->issuer, "CN=redpanda.com,OU=Core,O=Redpanda Data,L=London,ST=London,C=GB");
+#endif
+
         auto client_id = fin.get();
 
         in.close().get();
@@ -1547,8 +1775,11 @@ SEASTAR_THREAD_TEST_CASE(test_peer_certificate_chain_handling) {
 
         auto ders = {read_file(certfile("test.crt.der"))};
 
-        BOOST_REQUIRE(std::ranges::equal(scrts, ders));
-        BOOST_REQUIRE(std::ranges::equal(ccrts, ders));
+        // We need to take the first certificate from the chain as there is a 
+        // difference between the OpensSSL and GnuTLS, OpenSSL cert chain always 
+        // contains the server certifacate.
+        BOOST_REQUIRE(std::ranges::equal(std::views::take(ccrts,1), ders));
+        BOOST_REQUIRE(std::ranges::equal(std::views::take(scrts,1), ders));
     }
 }
 
@@ -1614,7 +1845,11 @@ static void do_test_tls13_session_tickets(bool reset_server) {
     b.set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).get();
     b.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
     b.set_session_resume_mode(tls::session_resume_mode::TLS13_SESSION_TICKET);
+#ifdef SEASTAR_USE_OPENSSL
+    b.set_minimum_tls_version(tls::tls_version::tlsv1_3);
+#else
     b.set_priority_string("SECURE128:+SECURE192:-VERS-TLS-ALL:+VERS-TLS1.3");
+#endif
 
     auto creds = b.build_certificate_credentials();
     auto serv = b.build_server_credentials();
@@ -1747,7 +1982,13 @@ SEASTAR_THREAD_TEST_CASE(test_tls13_session_tickets_invalidated_by_reload) {
     b.set_x509_key_file(cert, key, tls::x509_crt_format::PEM).get();
     b.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
     b.set_session_resume_mode(tls::session_resume_mode::TLS13_SESSION_TICKET);
+#ifdef SEASTAR_USE_OPENSSL
+    b.set_minimum_tls_version(tls::tls_version::tlsv1_3);
+#elif defined(SEASTAR_USE_GNUTLS)
     b.set_priority_string("SECURE128:+SECURE192:-VERS-TLS-ALL:+VERS-TLS1.3");
+#else
+#error "Unknowing cryptographic provider"
+#endif
 
     auto creds = b.build_certificate_credentials();
     auto serv = b.build_reloadable_server_credentials([&p](const std::unordered_set<sstring>&, std::exception_ptr) {
@@ -1931,8 +2172,12 @@ SEASTAR_THREAD_TEST_CASE(test_reload_certificates_with_only_shard0_notify) {
             }
 
             try {
-                f2.get();
-                BOOST_FAIL("should not reach");
+                auto res = f2.get();
+                // If the server completes sending data to the client
+                // during the handshake before the client has fully
+                // closed its connection, then the get() call will
+                // succeed by return an empty buffer indicating EOF
+                BOOST_REQUIRE(res.size() == 0);
             } catch (...) {
                 // ok
             }

@@ -37,6 +37,7 @@ int main(int ac, char** av) {
     app.add_options()
                     ("port", bpo::value<uint16_t>()->default_value(10000), "Server port")
                     ("address", bpo::value<std::string>()->default_value("127.0.0.1"), "Server address")
+                    ("ca,a", bpo::value<std::string>()->default_value(""), "Server CA chain file")
                     ("cert,c", bpo::value<std::string>()->required(), "Server certificate file")
                     ("key,k", bpo::value<std::string>()->required(), "Certificate key")
                     ("verbose,v", bpo::value<bool>()->default_value(false)->implicit_value(true), "Verbose")
@@ -46,6 +47,7 @@ int main(int ac, char** av) {
             seastar_apps_lib::stop_signal stop_signal;
             auto&& config = app.configuration();
             uint16_t port = config["port"].as<uint16_t>();
+            auto ca = config["ca"].as<std::string>();
             auto crt = config["cert"].as<std::string>();
             auto key = config["key"].as<std::string>();
             auto addr = config["address"].as<std::string>();
@@ -61,7 +63,7 @@ int main(int ac, char** av) {
             auto stop_server = deferred_stop(server);
 
             try {
-                server.invoke_on_all(&echoserver::listen, socket_address(ia), sstring(crt), sstring(key), tls::client_auth::NONE).get();
+                server.invoke_on_all(&echoserver::listen, socket_address(ia), sstring(crt), sstring(key),sstring(ca)).get();
             } catch (...) {
                 std::cerr << "Error: " << std::current_exception() << std::endl;
                 return 1;

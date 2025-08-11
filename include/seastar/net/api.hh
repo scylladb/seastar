@@ -25,6 +25,7 @@
 #include <chrono>
 #include <memory>
 #include <vector>
+#include <cstddef>
 #include <cstring>
 #include <sys/types.h>
 #endif
@@ -174,6 +175,12 @@ struct connected_socket_input_stream_config final {
 struct session_dn {
     sstring subject;
     sstring issuer;
+};
+
+  /// Information about a certificate
+struct cert_info {
+    std::vector<std::byte> serial;
+    time_t expiry;
 };
 
 /// A TCP (or other stream-based protocol) connection.

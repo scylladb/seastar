@@ -89,6 +89,16 @@ if (NOT Seastar_SCHEDULING_GROUPS_COUNT MATCHES "^[1-9][0-9]*")
   message(FATAL_ERROR "Seastar_SCHEDULING_GROUPS_COUNT must be a positive number (${Seastar_SCHEDULING_GROUPS_COUNT})")
 endif ()
 
+option (Seastar_USE_OPENSSL
+  "Use OpenSSL rather than GnuTLS for cryptographic operations, including TLS"
+  OFF)
+
+if (Seastar_USE_OPENSSL)
+  set (Seastar_USE_GNUTLS OFF)
+else ()
+  set (Seastar_USE_GNUTLS ON)
+endif ()
+
 #
 # Add a dev build type.
 #
@@ -677,6 +687,7 @@ add_library (seastar
   src/core/reactor_backend.cc
   src/core/thread_pool.cc
   src/core/app-template.cc
+  src/core/cpu_profiler.cc
   src/core/disk_params.cc
   src/core/dpdk_rte.cc
   src/core/exception_hacks.cc
@@ -709,6 +720,7 @@ add_library (seastar
   src/core/io_queue.cc
   src/core/semaphore.cc
   src/core/condition-variable.cc
+  src/core/signal_mutex.cc
   src/http/api_docs.cc
   src/http/common.cc
   src/http/file_handler.cc
@@ -736,13 +748,16 @@ add_library (seastar
   src/net/native-stack-impl.hh
   src/net/native-stack.cc
   src/net/net.cc
+  $<$<BOOL:${Seastar_USE_OPENSSL}>:src/net/ossl.cc>
   src/net/packet.cc
   src/net/posix-stack.cc
   src/net/proxy.cc
   src/net/socket_address.cc
   src/net/stack.cc
   src/net/tcp.cc
-  src/net/tls.cc
+  $<$<BOOL:${Seastar_USE_GNUTLS}>:src/net/tls.cc>
+  src/net/tls-impl.cc
+  src/net/tls-impl.hh
   src/net/udp.cc
   src/net/unix_address.cc
   src/net/virtio.cc
@@ -840,7 +855,9 @@ target_link_libraries (seastar
     SourceLocation::source_location
   PRIVATE
     ${CMAKE_DL_LIBS}
-    GnuTLS::gnutls
+    $<$<BOOL:${Seastar_USE_GNUTLS}>:GnuTLS::gnutls>
+    $<$<BOOL:${Seastar_USE_OPENSSL}>:OpenSSL::SSL>
+    $<$<BOOL:${Seastar_USE_OPENSSL}>:OpenSSL::Crypto>
     StdAtomic::atomic
     lksctp-tools::lksctp-tools
     protobuf::libprotobuf
@@ -892,6 +909,8 @@ include (CTest)
 target_compile_definitions(seastar
   PUBLIC
   SEASTAR_API_LEVEL=${Seastar_API_LEVEL}
+  $<$<BOOL:${Seastar_USE_OPENSSL}>:SEASTAR_USE_OPENSSL>
+  $<$<BOOL:${Seastar_USE_GNUTLS}>:SEASTAR_USE_GNUTLS>
   $<$<BOOL:${BUILD_SHARED_LIBS}>:SEASTAR_BUILD_SHARED_LIBS>)
 
 target_compile_features(seastar

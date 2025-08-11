@@ -62,8 +62,7 @@ linux_perf_event::read() {
         return 0;
     }
     uint64_t ret;
-    auto res = ::read(_fd, &ret, sizeof(ret));
-    SEASTAR_ASSERT(res == sizeof(ret) && "read(2) failed on perf_event fd");
+    (void)::read(_fd, &ret, sizeof(ret));
     return ret;
 }
 

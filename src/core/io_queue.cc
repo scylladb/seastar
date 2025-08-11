@@ -42,6 +42,7 @@ module seastar;
 #include <seastar/core/io_queue.hh>
 #include <seastar/core/io_intent.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/core/smp.hh>
 #include <seastar/core/when_all.hh>
 #include <seastar/core/metrics.hh>
 #include <seastar/core/internal/io_desc.hh>
@@ -822,7 +823,7 @@ void io_queue::register_stats(sstring name, priority_class_data& pc) {
     }
 
     new_metrics.add_group("io_queue", std::move(metrics));
-    pc.metric_groups = std::exchange(new_metrics, {});
+    pc.metric_groups = std::exchange(new_metrics, sm::metric_groups{});
 }
 
 io_queue::priority_class_data& io_queue::find_or_create_class(internal::priority_class pc) {
@@ -895,7 +896,14 @@ double internal::request_tokens(io_direction_and_length dnl, const io_queue::con
 
     const auto& m = mult[dnl.rw_idx()];
 
-    return double(m.weight) / cfg.req_count_rate + double(m.size) * (dnl.length() >> io_queue::block_size_shift) / cfg.blocks_count_rate;
+    // See https://redpandadata.atlassian.net/wiki/x/CgAIGw#io-queue-cost-function
+    double iops_cost = double(m.weight) / cfg.req_count_rate;
+    double tp_cost = double(m.size) * (dnl.length() >> io_queue::block_size_shift) / cfg.blocks_count_rate;
+    if (cfg.max_cost_function) {
+        return std::max(iops_cost, tp_cost);
+    } else {
+        return iops_cost + tp_cost;
+    }
 }
 
 fair_queue_entry::capacity_t io_queue::request_capacity(io_direction_and_length dnl) const noexcept {
