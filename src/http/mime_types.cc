@@ -10,6 +10,11 @@
 
 #ifdef SEASTAR_MODULE
 module;
+#endif
+
+#include <string_view>
+
+#ifdef SEASTAR_MODULE
 module seastar;
 #else
 #include <seastar/http/mime_types.hh>
@@ -40,7 +45,7 @@ struct mapping {
         { "proto", "application/vnd.google.protobuf; proto=io.prometheus.client.MetricFamily; encoding=delimited"},
 };
 
-const char* extension_to_type(const sstring& extension)
+const char* extension_to_type(std::string_view extension)
 {
     for (mapping m : mappings) {
         if (extension == m.extension) {
