@@ -47,8 +47,12 @@ struct timer_test {
     timer<Clock> t3;
     timer<Clock> t4;
     timer<Clock> t5;
+    timer<Clock> t6;
+    timer<Clock> t7;
     promise<> pr1;
     promise<> pr2;
+    promise<> pr3;
+    promise<> pr4;
 
     future<> run() {
         t1.set_callback([this] {
@@ -75,10 +79,13 @@ struct timer_test {
 
         return pr1.get_future().then([this] { return test_timer_cancelling(); }).then([this] {
             return test_timer_with_scheduling_groups();
+        }).then([this] {
+            return test_cancel_in_periodic();
         });
     }
 
     future<> test_timer_cancelling() {
+        fmt::print("=== Start test_timer_cancelling test\n");
         timer<Clock>& t1 = *new timer<Clock>();
         t1.set_callback([] { BUG(); });
         t1.arm(100ms);
@@ -92,8 +99,30 @@ struct timer_test {
         return pr2.get_future().then([&t1] { delete &t1; });
     }
 
+    future<> test_cancel_in_periodic() {
+        fmt::print("=== Start test_cancel_in_periodic test\n");
+        t6.set_callback([this](){
+            if (!t6.cancel()) {
+                BUG();
+            }
+            pr3.set_value();
+        });
+        t7.set_callback([this] { OK(); pr4.set_value(); });
+        t6.arm_periodic(10ms);
+        (void)pr3.get_future().then([this]{
+            t7.arm(100ms);
+        });
+
+        // delay for reactor call
+        std::this_thread::sleep_for(100ms);
+
+        // this future never resolves
+        return pr4.get_future();
+    }
+
     future<> test_timer_with_scheduling_groups() {
         return async([] {
+            fmt::print("=== Start test_timer_with_scheduling_groups test\n");
             auto sg1 = create_scheduling_group("sg1", 100).get();
             auto sg2 = create_scheduling_group("sg2", 100).get();
             thread_attributes t1attr;
