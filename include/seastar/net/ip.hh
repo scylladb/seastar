@@ -33,7 +33,7 @@
 #include <chrono>
 #endif
 
-#include <seastar/core/array_map.hh>
+#include <seastar/util/internal/array_map.hh>
 #include <seastar/net/byteorder.hh>
 #include <seastar/core/byteorder.hh>
 #include <seastar/net/arp.hh>
@@ -292,7 +292,7 @@ private:
     ipv4_tcp _tcp;
     ipv4_icmp _icmp;
     ipv4_udp _udp;
-    array_map<ip_protocol*, 256> _l4;
+    internal::array_map<ip_protocol*, 256> _l4;
     ip_packet_filter * _packet_filter = nullptr;
     struct frag {
         packet header;
