@@ -31,6 +31,7 @@
 #endif
 
 namespace seastar {
+namespace internal {
 
 // unordered_map implemented as a simple array
 
@@ -55,4 +56,5 @@ public:
     }
 };
 
-}
+} // internal namespace
+} // seastar namespace
