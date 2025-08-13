@@ -63,6 +63,7 @@ class test_env {
     std::vector<int> _results;
     std::vector<std::vector<std::exception_ptr>> _exceptions;
     fair_queue::class_id _nr_classes = 0;
+    unsigned _nr_groups = 0;
     std::vector<request> _inflight;
 
     static fair_queue::config fq_config() {
@@ -121,10 +122,15 @@ public:
         }
     }
 
-    size_t register_priority_class(uint32_t shares) {
+    unsigned register_priority_group(uint32_t shares) {
+        _fq.ensure_priority_group(_nr_groups, shares);
+        return _nr_groups++;
+    }
+
+    size_t register_priority_class(uint32_t shares, std::optional<unsigned> group = {}) {
         _results.push_back(0);
         _exceptions.push_back(std::vector<std::exception_ptr>());
-        _fq.register_priority_class(_nr_classes, shares);
+        _fq.register_priority_class(_nr_classes, shares, group);
         return _nr_classes++;
     }
 
@@ -417,21 +423,35 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_random_run) {
         size_t cls;
     };
 
-    auto add_class = [&] {
+    auto add_class = [&] (std::optional<unsigned> group) {
         auto s = shares(generator);
         auto w = weights(generator);
-        std::cout << format("Add class with {} shares and {} request weight", s, w) << std::endl;
+        std::cout << format("Add class with {} shares and {} request weight, in group = {}", s, w, group.has_value()) << std::endl;
         return test_class {
             .shares = s,
             .weight = w,
             .expected = float(s)/float(w),
-            .cls = env.register_priority_class(s),
+            .cls = env.register_priority_class(s, group),
         };
     };
 
-    auto a = add_class();
-    auto b = add_class();
-    auto c = add_class();
+    unsigned group_shares = 0;
+    std::optional<unsigned> group;
+    std::uniform_int_distribution<unsigned> in_group(0, 1);
+    if (in_group(generator)) {
+        group_shares = shares(generator);
+        group = env.register_priority_group(group_shares);
+        std::cout << format("Add group with {} shares", group_shares) << std::endl;
+    }
+
+    auto a = add_class({});
+    auto b = add_class(group);
+    auto c = add_class(group);
+
+    if (group) {
+        b.expected = float(group_shares) * (float(b.shares) / float(b.shares + c.shares)) / float(b.weight);
+        c.expected = float(group_shares) * (float(c.shares) / float(b.shares + c.shares)) / float(c.weight);
+    }
 
     unsigned reqs = 3000;
 
@@ -447,4 +467,48 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_random_run) {
     env.tick(reqs);
 
     env.verify_f(format("random_run ({:d} requests)", reqs), {a.expected, b.expected, c.expected}, 0.05);
+}
+
+// Exhaustive test for waking-up a tree of classes with requests
+SEASTAR_THREAD_TEST_CASE(test_fair_queue_nested_wakeups) {
+    test_env env;
+
+    std::vector<unsigned> pcs;
+    unsigned g0 = env.register_priority_group(1);
+    unsigned g1 = env.register_priority_group(1);
+    pcs.push_back(env.register_priority_class(1, {}));
+    pcs.push_back(env.register_priority_class(1, {}));
+    pcs.push_back(env.register_priority_class(1, g0));
+    pcs.push_back(env.register_priority_class(1, g0));
+    pcs.push_back(env.register_priority_class(1, g0));
+    pcs.push_back(env.register_priority_class(1, g1));
+    pcs.push_back(env.register_priority_class(1, g1));
+
+    for (unsigned nr_reqs = 1; nr_reqs < 5; nr_reqs++) {
+        std::vector<unsigned> targets(nr_reqs, 0);
+
+        auto next = [&] {
+            for (unsigned i = 0; i < targets.size(); i++) {
+                if (targets[i] < pcs.size() - 1) {
+                    targets[i]++;
+                    return true;
+                }
+
+                targets[i] = 0;
+            }
+
+            return false;
+        };
+
+        do {
+            for (unsigned i = 0; i < targets.size(); i++) {
+                env.do_op(pcs[targets[i]], 1);
+            }
+
+            auto res = env.tick(targets.size());
+            BOOST_REQUIRE_EQUAL(res, targets.size());
+            res = env.tick(1);
+            BOOST_REQUIRE_EQUAL(res, 0);
+        } while (next());
+    }
 }

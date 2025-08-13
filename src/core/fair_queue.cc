@@ -98,32 +98,39 @@ fair_queue_ticket wrapping_difference(const fair_queue_ticket& a, const fair_que
 }
 
 // Priority class, to be used with a given fair_queue
-class fair_queue::priority_class_data {
+class fair_queue::priority_class_data final : public priority_entry {
     friend class fair_queue;
-    uint32_t _shares = 0;
-    capacity_t _accumulated = 0;
     capacity_t _pure_accumulated = 0;
     fair_queue_entry::container_list_t _queue;
-    bool _queued = false;
     bool _plugged = true;
-    uint32_t _activations = 0;
 
 public:
-    explicit priority_class_data(uint32_t shares) noexcept : _shares(std::max(shares, 1u)) {}
+    explicit priority_class_data(uint32_t shares, priority_class_group_data* p) noexcept : priority_entry(shares, p) {}
     priority_class_data(const priority_class_data&) = delete;
     priority_class_data(priority_class_data&&) = delete;
 
-    void update_shares(uint32_t shares) noexcept {
-        _shares = (std::max(shares, 1u));
-    }
+    fair_queue_entry* top() override;
+    std::pair<bool, capacity_t> pop_front() override;
 };
 
-bool fair_queue::class_compare::operator() (const priority_class_ptr& lhs, const priority_class_ptr & rhs) const noexcept {
+fair_queue_entry* fair_queue::priority_class_data::top() {
+    return (_plugged && !_queue.empty()) ? &_queue.front() : nullptr;
+}
+
+std::pair<bool, fair_queue_entry::capacity_t> fair_queue::priority_class_data::pop_front() {
+    auto req_cap = _queue.front()._capacity;
+    _pure_accumulated += req_cap;
+    _queue.pop_front();
+    return std::make_pair(_queue.empty(), req_cap);
+}
+
+bool fair_queue::class_compare::operator() (const priority_entry_ptr& lhs, const priority_entry_ptr& rhs) const noexcept {
     return lhs->_accumulated > rhs->_accumulated;
 }
 
 fair_queue::fair_queue(config cfg)
     : _config(std::move(cfg))
+    , _root(0, nullptr)
 {
 }
 
@@ -133,43 +140,34 @@ fair_queue::~fair_queue() {
     }
 }
 
-void fair_queue::push_priority_class(priority_class_data& pc) noexcept {
-    SEASTAR_ASSERT(pc._plugged && !pc._queued);
-    _handles.assert_enough_capacity();
-    _handles.push(&pc);
-    pc._queued = true;
-}
-
-void fair_queue::push_priority_class_from_idle(priority_class_data& pc) noexcept {
-    if (!pc._queued) {
-        // Don't let the newcomer monopolize the disk for more than tau
-        // duration. For this estimate how many capacity units can be
-        // accumulated with the current class shares per rate resulution
-        // and scale it up to tau.
-        // On start this deviation can go to negative values, so not to
-        // introduce extra if's for that short corner case, use signed
-        // arithmetics and make sure the _accumulated value doesn't grow
-        // over signed maximum (see overflow check below)
-        pc._accumulated = std::max<signed_capacity_t>(_last_accumulated - _config.forgiving_factor / pc._shares, pc._accumulated);
-        _handles.assert_enough_capacity();
-        _handles.push(&pc);
-        pc._queued = true;
-        pc._activations++;
+void fair_queue::priority_entry::wakeup(const fair_queue::config& cfg) noexcept {
+    if (!_queued) {
+        _parent->push_from_idle(*this, cfg);
     }
 }
 
-// ATTN: This can only be called on pc that is from _handles.top()
-void fair_queue::pop_priority_class(priority_class_data& pc) noexcept {
-    SEASTAR_ASSERT(pc._queued);
-    pc._queued = false;
-    _handles.pop();
+void fair_queue::priority_class_group_data::push_from_idle(priority_entry& pc, const fair_queue::config& cfg) noexcept {
+    // Don't let the newcomer monopolize the disk for more than tau
+    // duration. For this estimate how many capacity units can be
+    // accumulated with the current class shares per rate resulution
+    // and scale it up to tau.
+    // On start this deviation can go to negative values, so not to
+    // introduce extra if's for that short corner case, use signed
+    // arithmetics and make sure the _accumulated value doesn't grow
+    // over signed maximum (see overflow check below)
+    pc._accumulated = std::max<signed_capacity_t>(_last_accumulated - cfg.forgiving_factor / pc._shares, pc._accumulated);
+    _children.assert_enough_capacity();
+    _children.push(&pc);
+    pc._queued = true;
+    pc._activations++;
+    wakeup(cfg);
 }
 
 void fair_queue::plug_priority_class(priority_class_data& pc) noexcept {
     SEASTAR_ASSERT(!pc._plugged);
     pc._plugged = true;
     if (!pc._queue.empty()) {
-        push_priority_class_from_idle(pc);
+        pc.wakeup(_config);
     }
 }
 
@@ -198,23 +196,39 @@ unsigned fair_queue::activations(class_id cid) const noexcept {
     return _priority_classes[cid]->_activations;
 }
 
-void fair_queue::register_priority_class(class_id id, uint32_t shares) {
+void fair_queue::register_priority_class(class_id id, uint32_t shares, std::optional<unsigned> group) {
     if (id >= _priority_classes.size()) {
         _priority_classes.resize(id + 1);
     } else {
         SEASTAR_ASSERT(!_priority_classes[id]);
     }
 
-    _handles.reserve(_nr_classes + 1);
-    _priority_classes[id] = std::make_unique<priority_class_data>(shares);
-    _nr_classes++;
+    priority_class_group_data* pg = !group.has_value() ? &_root : _priority_groups[*group].get();
+
+    pg->reserve();
+    _priority_classes[id] = std::make_unique<priority_class_data>(shares, pg);
+    pg->_nr_children++;
+}
+
+void fair_queue::ensure_priority_group(unsigned index, uint32_t shares) {
+    if (index >= _priority_groups.size()) {
+        _priority_groups.resize(index + 1);
+    }
+
+    if (!_priority_groups[index]) {
+        _root.reserve();
+        _priority_groups[index] = std::make_unique<priority_class_group_data>(shares, &_root);
+        _root._nr_children++;
+    } else {
+        _priority_groups[index]->update_shares(shares);
+    }
 }
 
 void fair_queue::unregister_priority_class(class_id id) {
     auto& pclass = _priority_classes[id];
     SEASTAR_ASSERT(pclass);
+    pclass->_parent->_nr_children--;
     pclass.reset();
-    _nr_classes--;
 }
 
 void fair_queue::update_shares_for_class(class_id id, uint32_t shares) {
@@ -230,7 +244,7 @@ void fair_queue::queue(class_id id, fair_queue_entry& ent) noexcept {
     // Since we don't know which queue we will use to execute the next request - if ours or
     // someone else's, we need a separate promise at this point.
     if (pc._plugged) {
-        push_priority_class_from_idle(pc);
+        pc.wakeup(_config);
     }
     pc._queue.push_back(ent);
     _queued_capacity += ent.capacity();
@@ -245,44 +259,56 @@ void fair_queue::notify_request_cancelled(fair_queue_entry& ent) noexcept {
 }
 
 fair_queue_entry* fair_queue::top() {
-    while (!_handles.empty()) {
-        priority_class_data& h = *_handles.top();
-        if (h._queue.empty() || !h._plugged) {
-            pop_priority_class(h);
+    return _root.top();
+}
+
+fair_queue_entry* fair_queue::priority_class_group_data::top() {
+    while (!_children.empty()) {
+        priority_entry& h = *_children.top();
+        auto* ent = h.top();
+        if (ent == nullptr) {
+            SEASTAR_ASSERT(h._queued);
+            h._queued = false;
+            _children.pop();
             continue;
         }
 
-        return &h._queue.front();
+        return ent;
     }
 
     return nullptr;
 }
 
 void fair_queue::pop_front() {
-    auto& h = *_handles.top();
+    auto [empty, req_cap] = _root.pop_front();
+    _queued_capacity += req_cap;
+}
+
+std::pair<bool, fair_queue_entry::capacity_t> fair_queue::priority_class_group_data::pop_front() {
+    auto& h = *_children.top();
+    _children.pop();
+
+    auto [empty, req_cap] = h.pop_front();
 
     _last_accumulated = std::max(h._accumulated, _last_accumulated);
-    pop_priority_class(h);
-
-    auto& req = h._queue.front();
-    h._queue.pop_front();
 
     // Usually the cost of request is tens to hundreeds of thousands. However, for
     // unrestricted queue it can be as low as 2k. With large enough shares this
     // has chances to be translated into zero cost which, in turn, will make the
     // class show no progress and monopolize the queue.
-    auto req_cap = req._capacity;
     auto req_cost  = std::max(req_cap / h._shares, (capacity_t)1);
     h._accumulated += req_cost;
-    h._pure_accumulated += req_cap;
-    _queued_capacity -= req_cap;
 
     // signed overflow check to make push_priority_class_from_idle math work
     SEASTAR_ASSERT(h._accumulated < std::numeric_limits<signed_capacity_t>::max() - req_cost);
 
-    if (!h._queue.empty()) {
-        push_priority_class(h);
+    if (empty) {
+        h._queued = false;
+    } else {
+        _children.push(&h);
     }
+
+    return std::make_pair(_children.empty(), req_cap);
 }
 
 }
