@@ -168,7 +168,10 @@ int dl_iterate_phdr(int (*callback) (struct dl_phdr_info *info, size_t size, voi
     return r;
 }
 
-#ifndef NO_EXCEPTION_INTERCEPT
+// We disable interception of _Unwind_RaiseException when ASAN is enabled
+// since it can produce a large number of stack-related false positives when
+// it is enabled and exceptions are thrown.
+#if !defined(NO_EXCEPTION_INTERCEPT) && !defined(SEASTAR_ASAN_ENABLED)
 extern "C"
 [[gnu::visibility("default")]]
 [[gnu::used]]
