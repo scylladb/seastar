@@ -1,0 +1,13 @@
+- name: statement
+  shares: 1000
+
+- name: maintenance
+  shares: 100
+
+- name: compaction
+  shares: 200
+  parent: maintenance
+
+- name: backup
+  shares: 100
+  parent: maintenance
