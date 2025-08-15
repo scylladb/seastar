@@ -113,7 +113,7 @@ future<connection::reply_ptr> connection::maybe_wait_for_continue(const request&
 
 static void setup_request(request& req) {
     if (req._version.empty()) {
-        req._version = "1.1";
+        throw std::runtime_error("HTTP version not set");
     }
     if (req.content_length != 0) {
         if (!req.body_writer && req.content.empty()) {

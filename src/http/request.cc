@@ -126,6 +126,7 @@ void request::set_expects_continue() {
 
 request request::make(sstring method, sstring host, sstring path) {
     request rq;
+    rq._version = "1.1";
     rq._method = std::move(method);
     rq._url = std::move(path);
     rq._headers["Host"] = std::move(host);
