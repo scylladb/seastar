@@ -111,7 +111,7 @@ future<connection::reply_ptr> connection::maybe_wait_for_continue(const request&
     });
 }
 
-static void setup_request(request& req) {
+static void validate_request(const request& req) {
     if (req._version.empty()) {
         throw std::runtime_error("HTTP version not set");
     }
@@ -170,7 +170,11 @@ future<connection::reply_ptr> connection::do_make_request(const request& req) {
 }
 
 future<reply> connection::make_request(request req) {
-    setup_request(req);
+    try {
+        validate_request(req);
+    } catch (...) {
+        return current_exception_as_future<reply>();
+    }
     return do_with(std::move(req), [this] (auto& req) {
         return do_make_request(req).then([] (reply_ptr rep) {
             return make_ready_future<reply>(std::move(*rep));
@@ -351,7 +355,11 @@ static bool is_retryable_exception(std::exception_ptr ex) {
 }
 
 future<> client::make_request(request& req, reply_handler& handle, std::optional<reply::status_type> expected, abort_source* as) {
-    setup_request(req);
+    try {
+        validate_request(req);
+    } catch (...) {
+        return current_exception_as_future();
+    }
     return with_connection([this, &req, &handle, as, expected] (connection& con) {
         return do_make_request(con, req, handle, as, expected);
     }, as).handle_exception([this, &req, &handle, as, expected] (std::exception_ptr ex) {
