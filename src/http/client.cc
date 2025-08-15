@@ -111,7 +111,7 @@ future<connection::reply_ptr> connection::maybe_wait_for_continue(const request&
     });
 }
 
-void connection::setup_request(request& req) {
+static void setup_request(request& req) {
     if (req._version.empty()) {
         req._version = "1.1";
     }
@@ -156,8 +156,7 @@ future<connection::reply_ptr> connection::recv_reply() {
     });
 }
 
-future<connection::reply_ptr> connection::do_make_request(request& req) {
-    setup_request(req);
+future<connection::reply_ptr> connection::do_make_request(const request& req) {
     return send_request_head(req).then([this, &req] {
         return maybe_wait_for_continue(req).then([this, &req] (reply_ptr cont) {
             if (cont) {
@@ -174,6 +173,7 @@ future<connection::reply_ptr> connection::do_make_request(request& req) {
 }
 
 future<reply> connection::make_request(request req) {
+    setup_request(req);
     return do_with(std::move(req), [this] (auto& req) {
         return do_make_request(req).then([] (reply_ptr rep) {
             return make_ready_future<reply>(std::move(*rep));
@@ -354,6 +354,7 @@ static bool is_retryable_exception(std::exception_ptr ex) {
 }
 
 future<> client::make_request(request& req, reply_handler& handle, std::optional<reply::status_type> expected, abort_source* as) {
+    setup_request(req);
     return with_connection([this, &req, &handle, as, expected] (connection& con) {
         return do_make_request(con, req, handle, as, expected);
     }, as).handle_exception([this, &req, &handle, as, expected] (std::exception_ptr ex) {
@@ -391,7 +392,7 @@ public:
     }
 };
 
-future<> client::do_make_request(connection& con, request& req, reply_handler& handle, abort_source* as, std::optional<reply::status_type> expected) {
+future<> client::do_make_request(connection& con, const request& req, reply_handler& handle, abort_source* as, std::optional<reply::status_type> expected) {
     auto sub = as ? as->subscribe([&con] () noexcept { con.shutdown(); }) : std::nullopt;
     return con.do_make_request(req).then([this, &con, &req, &handle, expected] (connection::reply_ptr reply) mutable {
         auto& rep = *reply;
