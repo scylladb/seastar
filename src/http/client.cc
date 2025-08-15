@@ -354,7 +354,7 @@ static bool is_retryable_exception(std::exception_ptr ex) {
     return false;
 }
 
-future<> client::make_request(request& req, reply_handler& handle, std::optional<reply::status_type> expected, abort_source* as) {
+future<> client::make_request(const request& req, reply_handler& handle, std::optional<reply::status_type> expected, abort_source* as) {
     try {
         validate_request(req);
     } catch (...) {
