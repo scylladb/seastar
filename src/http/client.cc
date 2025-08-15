@@ -115,11 +115,8 @@ static void setup_request(request& req) {
     if (req._version.empty()) {
         throw std::runtime_error("HTTP version not set");
     }
-    if (req.content_length != 0) {
-        if (!req.body_writer && req.content.empty()) {
-            throw std::runtime_error("Request body writer not set and content is empty");
-        }
-        req._headers["Content-Length"] = to_sstring(req.content_length);
+    if (req.content_length != 0 && !req.body_writer && req.content.empty()) {
+        throw std::runtime_error("Request body writer not set and content is empty");
     }
 }
 
