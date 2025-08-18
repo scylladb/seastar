@@ -22,7 +22,7 @@
 #include <seastar/core/posix.hh>
 #include <seastar/util/assert.hh>
 #include <seastar/util/defer.hh>
-#include <seastar/core/linux-aio.hh>
+#include <seastar/core/internal/linux-aio.hh>
 #include <sys/time.h>
 #include <sys/resource.h>
 #include <fcntl.h>

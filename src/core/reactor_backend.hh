@@ -26,7 +26,7 @@
 #include <seastar/core/internal/io_desc.hh>
 #include <seastar/core/internal/pollable_fd.hh>
 #include <seastar/core/internal/poll.hh>
-#include <seastar/core/linux-aio.hh>
+#include <seastar/core/internal/linux-aio.hh>
 #include <seastar/core/cacheline.hh>
 #include <seastar/util/modules.hh>
 
