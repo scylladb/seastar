@@ -112,10 +112,6 @@ int io_pgetevents(linux_abi::aio_context_t io_context, long min_nr, long nr, lin
 
 void setup_aio_context(size_t nr, linux_abi::aio_context_t* io_context);
 
-}
-
-namespace internal {
-
 inline
 linux_abi::iocb
 make_read_iocb(int fd, uint64_t offset, void* buffer, size_t len) {
@@ -224,8 +220,7 @@ set_nowait(linux_abi::iocb& iocb, bool nowait) {
 #endif
 }
 
-}
+} // internal namespace
 
-
-}
+} // seastar namespace
 

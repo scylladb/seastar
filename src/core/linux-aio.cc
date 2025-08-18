@@ -36,7 +36,7 @@ module;
 #ifdef SEASTAR_MODULE
 module seastar;
 #else
-#include <seastar/core/linux-aio.hh>
+#include <seastar/core/internal/linux-aio.hh>
 #include <seastar/core/print.hh>
 #include <seastar/util/read_first_line.hh>
 #endif
