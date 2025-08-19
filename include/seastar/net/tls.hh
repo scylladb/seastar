@@ -488,6 +488,13 @@ namespace tls {
     future<std::optional<session_dn>> get_dn_information(connected_socket& socket);
 
     /**
+     * Force a re-handshake (session key renegotiotion on TLS1.3).
+     * Can only be called on a server side socket.
+     * Mainly for testing purposes.
+     */
+    future<> force_rehandshake(connected_socket& socket);
+
+    /**
      * Subject alt name types.
     */
     enum class subject_alt_name_type {

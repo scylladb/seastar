@@ -1245,15 +1245,12 @@ public:
         });
     }
 
-    future<> do_handshake() {
-        if (_connected) {
-            return make_ready_future<>();
-        }
+    future<> do_handshake_invoke(int (*func)(gnutls_session_t)) {
         if (_type == type::CLIENT && !_options.server_name.empty()) {
             gnutls_server_name_set(*this, GNUTLS_NAME_DNS, _options.server_name.data(), _options.server_name.size());
         }
         try {
-            auto res = gnutls_handshake(*this);
+            auto res = func(*this);
             if (res < 0) {
                 switch (res) {
                 case GNUTLS_E_AGAIN:
@@ -1261,14 +1258,14 @@ public:
                     // If none is pending, it should be a no-op
                 {
                     int dir = gnutls_record_get_direction(*this);
-                    return wait_for_output().then([this, dir] {
+                    return wait_for_output().then([this, dir, func] {
                         // we actually E_AGAIN:ed in a write. Don't
                         // wait for input.
                         if (dir == 1) {
-                            return do_handshake();
+                            return do_handshake_invoke(func);
                         }
-                        return wait_for_input().then([this] {
-                            return do_handshake();
+                        return wait_for_input().then([this, func] {
+                            return do_handshake_invoke(func);
                         });
                     });
                 }
@@ -1305,6 +1302,39 @@ public:
             return make_exception_future<>(std::current_exception());
         }
     }
+    future<> do_handshake() {
+        if (_connected) {
+            return make_ready_future<>();
+        }
+        return do_handshake_invoke(&gnutls_handshake);
+    }
+    future<> do_handshake_sync(future<> (session::*func)()) {
+        // acquire both semaphores to sync both read & write
+        return with_semaphore(_in_sem, 1, [this, func] {
+            return with_semaphore(_out_sem, 1, [this, func] {
+                return std::invoke(func, this).handle_exception([this](auto ep) {
+                    if (!_error) {
+                        _error = ep;
+                    }
+                    return make_exception_future<>(_error);
+                });
+            });
+        });
+    }
+    future<> do_force_rehandshake() {
+        return do_handshake_invoke(gnutls_rehandshake);
+    }
+    future<> force_rehandshake() {
+        if (!_connected) {
+            return handshake();
+        }
+        // Note: only applicable to server. 
+        if (_type == type::CLIENT) {
+            throw std::system_error(GNUTLS_E_INVALID_REQUEST, error_category(), "re-handshake only applicable for server socket");
+        }
+        return do_handshake_sync(&session::do_force_rehandshake);
+    }
+
     future<> handshake() {
         // maybe load system certificates before handshake, in case we
         // have not done so yet...
@@ -1313,17 +1343,7 @@ public:
                return handshake();
             });
         }
-        // acquire both semaphores to sync both read & write
-        return with_semaphore(_in_sem, 1, [this] {
-            return with_semaphore(_out_sem, 1, [this] {
-                return do_handshake().handle_exception([this](auto ep) {
-                    if (!_error) {
-                        _error = ep;
-                    }
-                    return make_exception_future<>(_error);
-                });
-            });
-        });
+        return do_handshake_sync(&session::do_handshake);
     }
 
     size_t in_avail() const {
@@ -1496,20 +1516,38 @@ public:
 
     future<> do_put(frag_iter i, frag_iter e) {
         SEASTAR_ASSERT(_output_pending.available());
-        return do_for_each(i, e, [this](net::fragment& f) {
+        // #2859
+        // Normally, gnutls_record_send will break up data into gnutls_record_get_max_size() 
+        // sized chunks for us (only processing the first 16k or so of provided buffer).
+        // However, if the session is in a re-handshake state, gnutls will
+        // make an intermediate alloc to prepend the requested session key
+        // to the sent data. This can cause large alloc warnings.
+        // To avoid this, we explicitly break the message into 
+        // block sized parts (same as normal case in gnutls)
+        auto max_record_len = gnutls_record_get_max_size(*this);
+
+        return do_for_each(i, e, [this, max_record_len](net::fragment& f) {
             auto ptr = f.base;
             auto size = f.size;
             size_t off = 0; // here to appease eclipse cdt
-            return repeat([this, ptr, size, off]() mutable {
+            return repeat([this, ptr, size, off, max_record_len]() mutable {
                 if (off == size) {
                     return make_ready_future<stop_iteration>(stop_iteration::yes);
                 }
-                auto res = gnutls_record_send(*this, ptr + off, size - off);
+                auto n = std::min(max_record_len, size - off);
+                auto res = gnutls_record_send(*this, ptr + off, n);
                 if (res > 0) { // don't really need to check, but...
                     off += res;
                 }
                 // what will we wait for? error or results...
-                auto f = res < 0 ? handle_output_error(res) : wait_for_output();
+                // NOTE: we _can_ get an EAGAIN here since the
+                // addition of force_rehandshake ability (and possibly before)
+                // due to the tls buffering. Just wait + retrying should work
+                // in all cases. 
+                auto f = res < 0  && res != GNUTLS_E_AGAIN
+                    ? handle_output_error(res) 
+                    : wait_for_output()
+                    ;
                 return f.then([] {
                     return make_ready_future<stop_iteration>(stop_iteration::no);
                 });
@@ -2037,6 +2075,9 @@ public:
     future<sstring> get_protocol_version() const {
         return _session->get_protocol_version();
     }
+    future<> force_rehandshake() {
+        return _session->force_rehandshake();
+    }
 };
 
 
@@ -2242,6 +2283,14 @@ future<sstring> tls::get_cipher_suite(connected_socket& socket) {
 future<sstring> tls::get_protocol_version(connected_socket& socket) {
     return get_tls_socket(socket)->get_protocol_version();
 }
+future<> tls::force_rehandshake(connected_socket& socket) {
+    auto s = get_tls_socket(socket);
+    if (!s) {
+        return make_ready_future<>();
+    }
+    return s->force_rehandshake();
+}
+
 
 std::string_view tls::format_as(subject_alt_name_type type) {
     switch (type) {
