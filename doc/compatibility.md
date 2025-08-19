@@ -76,6 +76,8 @@ versions of the API. For example.
      "while at it" file_impl API is forced to accept io_intent argument
    - Seastar_API_LEVEL=8 changes json_return_type to hold a noncopyable function
      and become a move-only type
+   - Seastar_API_LEVEL=9 defines the data_sink_impl::put(span<temporary_buffer>)
+     as the new and only method to be implemented
 
 Applications can use an old API_LEVEL during a transition
 period, fix their code, and move to the new API_LEVEL.
@@ -117,6 +119,7 @@ API Level History
 | 6   |  2020-09  | 2023-03 | future<T> instead of future<T...>            |
 | 7   |  2023-05  | 2024-09 | unified CPU/IO scheduling groups             |
 | 8   |  2025-08  |         | noncopyable function in json_return_type     |
+| 9   |  2025-08  |         | data_sink_impl new API                       |
 
 
 Note: The "mandatory" column indicates when backwards compatibility
