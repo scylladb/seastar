@@ -475,58 +475,58 @@ posix_file_impl::list_directory(std::function<future<> (directory_entry de)> nex
 }
 
 future<size_t>
-posix_file_impl::do_write_dma(uint64_t pos, const void* buffer, size_t len, internal::maybe_priority_class_ref io_priority_class, io_intent* intent) noexcept {
+posix_file_impl::do_write_dma(uint64_t pos, const void* buffer, size_t len, io_intent* intent) noexcept {
     auto req = internal::io_request::make_write(_fd, pos, buffer, len, _nowait_works);
-    return _io_queue.submit_io_write(internal::priority_class(io_priority_class), len, std::move(req), intent);
+    return _io_queue.submit_io_write(len, std::move(req), intent);
 }
 
 future<size_t>
-posix_file_impl::do_write_dma(uint64_t pos, std::vector<iovec> iov, internal::maybe_priority_class_ref io_priority_class, io_intent* intent) noexcept {
+posix_file_impl::do_write_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept {
     auto len = internal::sanitize_iovecs(iov, _disk_write_dma_alignment);
     auto req = internal::io_request::make_writev(_fd, pos, iov, _nowait_works);
-    return _io_queue.submit_io_write(internal::priority_class(io_priority_class), len, std::move(req), intent, std::move(iov));
+    return _io_queue.submit_io_write(len, std::move(req), intent, std::move(iov));
 }
 
 future<size_t>
-posix_file_impl::do_read_dma(uint64_t pos, void* buffer, size_t len, internal::maybe_priority_class_ref io_priority_class, io_intent* intent) noexcept {
+posix_file_impl::do_read_dma(uint64_t pos, void* buffer, size_t len, io_intent* intent) noexcept {
     auto req = internal::io_request::make_read(_fd, pos, buffer, len, _nowait_works);
-    return _io_queue.submit_io_read(internal::priority_class(io_priority_class), len, std::move(req), intent);
+    return _io_queue.submit_io_read(len, std::move(req), intent);
 }
 
 future<size_t>
-posix_file_impl::do_read_dma(uint64_t pos, std::vector<iovec> iov, internal::maybe_priority_class_ref io_priority_class, io_intent* intent) noexcept {
+posix_file_impl::do_read_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept {
     auto len = internal::sanitize_iovecs(iov, _disk_read_dma_alignment);
     auto req = internal::io_request::make_readv(_fd, pos, iov, _nowait_works);
-    return _io_queue.submit_io_read(internal::priority_class(io_priority_class), len, std::move(req), intent, std::move(iov));
+    return _io_queue.submit_io_read(len, std::move(req), intent, std::move(iov));
 }
 
 future<size_t>
-posix_file_real_impl::write_dma(uint64_t pos, const void* buffer, size_t len, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
-    return posix_file_impl::do_write_dma(pos, buffer, len, pc, intent);
+posix_file_real_impl::write_dma(uint64_t pos, const void* buffer, size_t len, io_intent* intent) noexcept {
+    return posix_file_impl::do_write_dma(pos, buffer, len, intent);
 }
 
 future<size_t>
-posix_file_real_impl::write_dma(uint64_t pos, std::vector<iovec> iov, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
-    return posix_file_impl::do_write_dma(pos, std::move(iov), pc, intent);
+posix_file_real_impl::write_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept {
+    return posix_file_impl::do_write_dma(pos, std::move(iov), intent);
 }
 
 future<size_t>
-posix_file_real_impl::read_dma(uint64_t pos, void* buffer, size_t len, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
-    return posix_file_impl::do_read_dma(pos, buffer, len, pc, intent);
+posix_file_real_impl::read_dma(uint64_t pos, void* buffer, size_t len, io_intent* intent) noexcept {
+    return posix_file_impl::do_read_dma(pos, buffer, len, intent);
 }
 
 future<size_t>
-posix_file_real_impl::read_dma(uint64_t pos, std::vector<iovec> iov, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
-    return posix_file_impl::do_read_dma(pos, std::move(iov), pc, intent);
+posix_file_real_impl::read_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept {
+    return posix_file_impl::do_read_dma(pos, std::move(iov), intent);
 }
 
 future<temporary_buffer<uint8_t>>
-posix_file_real_impl::dma_read_bulk(uint64_t offset, size_t range_size, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
-    return posix_file_impl::do_dma_read_bulk(offset, range_size, pc, intent);
+posix_file_real_impl::dma_read_bulk(uint64_t offset, size_t range_size, io_intent* intent) noexcept {
+    return posix_file_impl::do_dma_read_bulk(offset, range_size, intent);
 }
 
 future<temporary_buffer<uint8_t>>
-posix_file_impl::do_dma_read_bulk(uint64_t offset, size_t range_size, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
+posix_file_impl::do_dma_read_bulk(uint64_t offset, size_t range_size, io_intent* intent) noexcept {
     using tmp_buf_type = typename internal::file_read_state<uint8_t>::tmp_buf_type;
 
   try {
@@ -544,8 +544,8 @@ posix_file_impl::do_dma_read_bulk(uint64_t offset, size_t range_size, internal::
     // First, try to read directly into the buffer. Most of the reads will
     // end here.
     //
-    auto read = read_dma_one(offset, rstate->buf.get_write(), rstate->buf.size(), pc, intent);
-    return read.then([rstate, this, pc] (size_t size) mutable {
+    auto read = read_dma_one(offset, rstate->buf.get_write(), rstate->buf.size(), intent);
+    return read.then([rstate, this] (size_t size) mutable {
         rstate->pos = size;
 
         //
@@ -561,8 +561,8 @@ posix_file_impl::do_dma_read_bulk(uint64_t offset, size_t range_size, internal::
         //
         return do_until(
             [rstate] { return rstate->done(); },
-            [rstate, this, pc] () mutable {
-            return read_maybe_eof(rstate->cur_offset(), rstate->left_to_read(), pc, rstate->get_intent()).then(
+            [rstate, this] () mutable {
+            return read_maybe_eof(rstate->cur_offset(), rstate->left_to_read(), rstate->get_intent()).then(
                     [rstate] (auto buf1) mutable {
                 if (buf1.size()) {
                     rstate->append_new_data(buf1);
@@ -587,7 +587,7 @@ posix_file_impl::do_dma_read_bulk(uint64_t offset, size_t range_size, internal::
 }
 
 future<temporary_buffer<uint8_t>>
-posix_file_impl::read_maybe_eof(uint64_t pos, size_t len, internal::maybe_priority_class_ref pc, io_intent* intent) {
+posix_file_impl::read_maybe_eof(uint64_t pos, size_t len, io_intent* intent) {
     //
     // We have to allocate a new aligned buffer to make sure we don't get
     // an EINVAL error due to unaligned destination buffer.
@@ -598,7 +598,7 @@ posix_file_impl::read_maybe_eof(uint64_t pos, size_t len, internal::maybe_priori
     // try to read a single bulk from the given position
     auto dst = buf.get_write();
     auto buf_size = buf.size();
-    return read_dma_one(pos, dst, buf_size, pc, intent).then_wrapped(
+    return read_dma_one(pos, dst, buf_size, intent).then_wrapped(
             [buf = std::move(buf)](future<size_t> f) mutable {
         try {
             size_t size = f.get();
@@ -664,28 +664,28 @@ blockdev_file_impl::allocate(uint64_t position, uint64_t length) noexcept {
 }
 
 future<size_t>
-blockdev_file_impl::write_dma(uint64_t pos, const void* buffer, size_t len, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
-    return posix_file_impl::do_write_dma(pos, buffer, len, pc, intent);
+blockdev_file_impl::write_dma(uint64_t pos, const void* buffer, size_t len, io_intent* intent) noexcept {
+    return posix_file_impl::do_write_dma(pos, buffer, len, intent);
 }
 
 future<size_t>
-blockdev_file_impl::write_dma(uint64_t pos, std::vector<iovec> iov, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
-    return posix_file_impl::do_write_dma(pos, std::move(iov), pc, intent);
+blockdev_file_impl::write_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept {
+    return posix_file_impl::do_write_dma(pos, std::move(iov), intent);
 }
 
 future<size_t>
-blockdev_file_impl::read_dma(uint64_t pos, void* buffer, size_t len, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
-    return posix_file_impl::do_read_dma(pos, buffer, len, pc, intent);
+blockdev_file_impl::read_dma(uint64_t pos, void* buffer, size_t len, io_intent* intent) noexcept {
+    return posix_file_impl::do_read_dma(pos, buffer, len, intent);
 }
 
 future<size_t>
-blockdev_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
-    return posix_file_impl::do_read_dma(pos, std::move(iov), pc, intent);
+blockdev_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept {
+    return posix_file_impl::do_read_dma(pos, std::move(iov), intent);
 }
 
 future<temporary_buffer<uint8_t>>
-blockdev_file_impl::dma_read_bulk(uint64_t offset, size_t range_size, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
-    return posix_file_impl::do_dma_read_bulk(offset, range_size, pc, intent);
+blockdev_file_impl::dma_read_bulk(uint64_t offset, size_t range_size, io_intent* intent) noexcept {
+    return posix_file_impl::do_dma_read_bulk(offset, range_size, intent);
 }
 
 append_challenged_posix_file_impl::append_challenged_posix_file_impl(int fd, open_flags f, file_open_options options, const internal::fs_info& fsi, dev_t device_id)
@@ -841,7 +841,7 @@ append_challenged_posix_file_impl::commit_size(uint64_t size) noexcept {
 }
 
 future<size_t>
-append_challenged_posix_file_impl::read_dma(uint64_t pos, void* buffer, size_t len, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
+append_challenged_posix_file_impl::read_dma(uint64_t pos, void* buffer, size_t len, io_intent* intent) noexcept {
     if (pos >= _logical_size) {
         // yield() avoids tail recursion
         return yield().then([] {
@@ -854,14 +854,14 @@ append_challenged_posix_file_impl::read_dma(uint64_t pos, void* buffer, size_t l
         opcode::read,
         pos,
         len,
-        [this, pos, buffer, len, pc, iref = std::move(iref)] () mutable {
-            return posix_file_impl::do_read_dma(pos, buffer, len, pc, iref.retrieve());
+        [this, pos, buffer, len, iref = std::move(iref)] () mutable {
+            return posix_file_impl::do_read_dma(pos, buffer, len, iref.retrieve());
         }
     );
 }
 
 future<size_t>
-append_challenged_posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
+append_challenged_posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept {
     if (pos >= _logical_size) {
         // yield() avoids tail recursion
         return yield().then([] {
@@ -886,21 +886,21 @@ append_challenged_posix_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov
         opcode::read,
         pos,
         len,
-        [this, pos, iov = std::move(iov), pc, iref = std::move(iref)] () mutable {
-            return posix_file_impl::do_read_dma(pos, std::move(iov), pc, iref.retrieve());
+        [this, pos, iov = std::move(iov), iref = std::move(iref)] () mutable {
+            return posix_file_impl::do_read_dma(pos, std::move(iov), iref.retrieve());
         }
     );
 }
 
 future<size_t>
-append_challenged_posix_file_impl::write_dma(uint64_t pos, const void* buffer, size_t len, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
+append_challenged_posix_file_impl::write_dma(uint64_t pos, const void* buffer, size_t len, io_intent* intent) noexcept {
     internal::intent_reference iref(intent);
     return enqueue<size_t>(
         opcode::write,
         pos,
         len,
-        [this, pos, buffer, len, pc, iref = std::move(iref)] {
-            return posix_file_impl::do_write_dma(pos, buffer, len, pc, iref.retrieve()).then([this, pos] (size_t ret) {
+        [this, pos, buffer, len, iref = std::move(iref)] {
+            return posix_file_impl::do_write_dma(pos, buffer, len, iref.retrieve()).then([this, pos] (size_t ret) {
                 commit_size(pos + ret);
                 return make_ready_future<size_t>(ret);
             });
@@ -909,15 +909,15 @@ append_challenged_posix_file_impl::write_dma(uint64_t pos, const void* buffer, s
 }
 
 future<size_t>
-append_challenged_posix_file_impl::write_dma(uint64_t pos, std::vector<iovec> iov, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
+append_challenged_posix_file_impl::write_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept {
     auto len = internal::iovec_len(iov);
     internal::intent_reference iref(intent);
     return enqueue<size_t>(
         opcode::write,
         pos,
         len,
-        [this, pos, iov = std::move(iov), pc, iref = std::move(iref)] () mutable {
-            return posix_file_impl::do_write_dma(pos, std::move(iov), pc, iref.retrieve()).then([this, pos] (size_t ret) {
+        [this, pos, iov = std::move(iov), iref = std::move(iref)] () mutable {
+            return posix_file_impl::do_write_dma(pos, std::move(iov), iref.retrieve()).then([this, pos] (size_t ret) {
                 commit_size(pos + ret);
                 return make_ready_future<size_t>(ret);
             });
@@ -926,8 +926,8 @@ append_challenged_posix_file_impl::write_dma(uint64_t pos, std::vector<iovec> io
 }
 
 future<temporary_buffer<uint8_t>>
-append_challenged_posix_file_impl::dma_read_bulk(uint64_t offset, size_t range_size, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
-    return posix_file_impl::do_dma_read_bulk(offset, range_size, pc, intent);
+append_challenged_posix_file_impl::dma_read_bulk(uint64_t offset, size_t range_size, io_intent* intent) noexcept {
+    return posix_file_impl::do_dma_read_bulk(offset, range_size, intent);
 }
 
 future<>
@@ -1223,7 +1223,7 @@ future<uint64_t> file::get_inode_lifetime_hint() noexcept {
 }
 
 future<temporary_buffer<uint8_t>>
-file::dma_read_bulk_impl(uint64_t offset, size_t range_size, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
+file::dma_read_bulk_impl(uint64_t offset, size_t range_size, io_intent* intent) noexcept {
   try {
     return _file_impl->dma_read_bulk(offset, range_size, intent);
   } catch (...) {
@@ -1271,7 +1271,7 @@ future<> file::flush() noexcept {
   }
 }
 
-future<size_t> file::dma_write_impl(uint64_t pos, std::vector<iovec> iov, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
+future<size_t> file::dma_write_impl(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept {
   try {
     return _file_impl->write_dma(pos, std::move(iov), intent);
   } catch (...) {
@@ -1280,7 +1280,7 @@ future<size_t> file::dma_write_impl(uint64_t pos, std::vector<iovec> iov, intern
 }
 
 future<size_t>
-file::dma_write_impl(uint64_t pos, const uint8_t* buffer, size_t len, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
+file::dma_write_impl(uint64_t pos, const uint8_t* buffer, size_t len, io_intent* intent) noexcept {
   try {
     return _file_impl->write_dma(pos, buffer, len, intent);
   } catch (...) {
@@ -1288,7 +1288,7 @@ file::dma_write_impl(uint64_t pos, const uint8_t* buffer, size_t len, internal::
   }
 }
 
-future<size_t> file::dma_read_impl(uint64_t pos, std::vector<iovec> iov, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
+future<size_t> file::dma_read_impl(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept {
   try {
     return _file_impl->read_dma(pos, std::move(iov), intent);
   } catch (...) {
@@ -1297,8 +1297,8 @@ future<size_t> file::dma_read_impl(uint64_t pos, std::vector<iovec> iov, interna
 }
 
 future<temporary_buffer<uint8_t>>
-file::dma_read_exactly_impl(uint64_t pos, size_t len, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
-    return dma_read_impl(pos, len, pc, intent).then([len](auto buf) {
+file::dma_read_exactly_impl(uint64_t pos, size_t len, io_intent* intent) noexcept {
+    return dma_read_impl(pos, len, intent).then([len](auto buf) {
         if (buf.size() < len) {
             throw eof_error();
         }
@@ -1308,8 +1308,8 @@ file::dma_read_exactly_impl(uint64_t pos, size_t len, internal::maybe_priority_c
 }
 
 future<temporary_buffer<uint8_t>>
-file::dma_read_impl(uint64_t pos, size_t len, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
-    return dma_read_bulk_impl(pos, len, pc, intent).then([len](temporary_buffer<uint8_t> buf) {
+file::dma_read_impl(uint64_t pos, size_t len, io_intent* intent) noexcept {
+    return dma_read_bulk_impl(pos, len, intent).then([len](temporary_buffer<uint8_t> buf) {
         if (len < buf.size()) {
             buf.trim(len);
         }
@@ -1319,7 +1319,7 @@ file::dma_read_impl(uint64_t pos, size_t len, internal::maybe_priority_class_ref
 }
 
 future<size_t>
-file::dma_read_impl(uint64_t aligned_pos, uint8_t* aligned_buffer, size_t aligned_len, internal::maybe_priority_class_ref pc, io_intent* intent) noexcept {
+file::dma_read_impl(uint64_t aligned_pos, uint8_t* aligned_buffer, size_t aligned_len, io_intent* intent) noexcept {
   try {
     return _file_impl->read_dma(aligned_pos, aligned_buffer, aligned_len, intent);
   } catch (...) {

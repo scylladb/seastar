@@ -82,7 +82,7 @@ public:
     future<> put(temporary_buffer<char> buf) override {
         size_t buf_size = buf.size();
         auto req = internal::io_request::make_write(_fd.get(), 0, buf.get(), buf_size, false);
-        return _io_queue.submit_io_write(internal::priority_class(internal::maybe_priority_class_ref()), buf_size, std::move(req), nullptr).then(
+        return _io_queue.submit_io_write(buf_size, std::move(req), nullptr).then(
             [this, buf = std::move(buf), buf_size] (size_t written) mutable {
                 if (written < buf_size) {
                     buf.trim_front(written);

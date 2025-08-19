@@ -67,12 +67,10 @@ using io_group_ptr = std::shared_ptr<io_group>;
 using iovec_keeper = std::vector<::iovec>;
 
 namespace internal {
-struct maybe_priority_class_ref;
 class priority_class {
     unsigned _id;
 public:
     explicit priority_class(const scheduling_group& sg) noexcept;
-    explicit priority_class(internal::maybe_priority_class_ref pc) noexcept;
     unsigned id() const noexcept { return _id; }
 };
 }
@@ -203,10 +201,8 @@ public:
 
     stream_id request_stream(internal::io_direction_and_length dnl) const noexcept;
 
-    future<size_t> submit_io_read(internal::priority_class priority_class,
-            size_t len, internal::io_request req, io_intent* intent, iovec_keeper iovs = {}) noexcept;
-    future<size_t> submit_io_write(internal::priority_class priority_class,
-            size_t len, internal::io_request req, io_intent* intent, iovec_keeper iovs = {}) noexcept;
+    future<size_t> submit_io_read(size_t len, internal::io_request req, io_intent* intent, iovec_keeper iovs = {}) noexcept;
+    future<size_t> submit_io_write(size_t len, internal::io_request req, io_intent* intent, iovec_keeper iovs = {}) noexcept;
 
     void submit_request(io_desc_read_write* desc, internal::io_request req) noexcept;
     void cancel_request(queued_io_request& req) noexcept;
