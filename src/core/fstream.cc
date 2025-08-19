@@ -72,11 +72,6 @@ static inline T select_buffer_size(T configured_value, T maximum_value) noexcept
     }
 }
 
-template <typename Options>
-inline internal::maybe_priority_class_ref get_io_priority(const Options& opts) {
-    return internal::maybe_priority_class_ref{};
-}
-
 class file_data_source_impl : public data_source_impl {
     struct issued_read {
         uint64_t _pos;
@@ -310,7 +305,7 @@ private:
             auto len = end - start;
             auto actual_size = std::min(end - _pos, _remain);
             _read_buffers.emplace_back(_pos, actual_size, futurize_invoke([&] {
-                    return _file.dma_read_bulk_impl(start, len, get_io_priority(_options), &_intent);
+                    return _file.dma_read_bulk_impl(start, len, &_intent);
             }).then_wrapped(
                     [this, start, pos = _pos, remain = _remain] (future<temporary_buffer<uint8_t>> ret) {
                 --_reads_in_progress;
@@ -448,7 +443,7 @@ private:
             truncate = true;
         }
 
-        return _file.dma_write_impl(pos, reinterpret_cast<const uint8_t*>(p), buf_size, get_io_priority(_options), nullptr).then(
+        return _file.dma_write_impl(pos, reinterpret_cast<const uint8_t*>(p), buf_size, nullptr).then(
                 [this, pos, buf = std::move(buf), truncate, buf_size] (size_t size) mutable {
             // short write handling
             if (size < buf_size) {

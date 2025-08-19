@@ -374,9 +374,6 @@ namespace internal {
 priority_class::priority_class(const scheduling_group& sg) noexcept : _id(internal::scheduling_group_index(sg))
 { }
 
-priority_class::priority_class(internal::maybe_priority_class_ref pc) noexcept : priority_class(current_scheduling_group())
-{ }
-
 cancellable_queue::cancellable_queue(cancellable_queue&& o) noexcept
         : _first(std::exchange(o._first, nullptr))
         , _rest(std::move(o._rest)) {
@@ -998,14 +995,16 @@ future<size_t> io_queue::queue_request(internal::priority_class pc, io_direction
     });
 }
 
-future<size_t> io_queue::submit_io_read(internal::priority_class pc, size_t len, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
+future<size_t> io_queue::submit_io_read(size_t len, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
+    internal::priority_class pc = internal::priority_class(current_scheduling_group());
     auto& io_stats = reactor::io_stats::local();
     ++io_stats.aio_reads;
     io_stats.aio_read_bytes += len;
     return queue_request(std::move(pc), io_direction_and_length(io_direction_read, len), std::move(req), intent, std::move(iovs));
 }
 
-future<size_t> io_queue::submit_io_write(internal::priority_class pc, size_t len, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
+future<size_t> io_queue::submit_io_write(size_t len, internal::io_request req, io_intent* intent, iovec_keeper iovs) noexcept {
+    internal::priority_class pc = internal::priority_class(current_scheduling_group());
     auto& io_stats = reactor::io_stats::local();
     ++io_stats.aio_writes;
     io_stats.aio_write_bytes += len;

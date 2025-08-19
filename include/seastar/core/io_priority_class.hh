@@ -38,9 +38,4 @@ using io_priority_class_id = unsigned;
 
 SEASTAR_MODULE_EXPORT_END
 
-namespace internal {
-struct maybe_priority_class_ref {
-};
-}
-
 } // namespace seastar
