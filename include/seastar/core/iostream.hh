@@ -495,8 +495,10 @@ public:
     future<> write(const std::basic_string<char_type>& s) noexcept;
 
     /// Appends the packet as zero-copy buffer
+    [[deprecated("Use write(temporary_buffer) overload")]]
     future<> write(net::packet p) noexcept;
     /// Appends the scattered message as zero-copy buffer
+    [[deprecated("Use write(temporary_buffer) overload")]]
     future<> write(scattered_message<char_type> msg) noexcept;
     /// Appends the temporary buffer as zero-copy buffer
     future<> write(temporary_buffer<char_type>) noexcept;
