@@ -131,16 +131,16 @@ void internal::increase_thrown_exceptions_counter() noexcept {
 #ifndef NO_EXCEPTION_INTERCEPT
 seastar::logger exception_logger("exception");
 
-void log_exception_trace() noexcept {
+void log_exception_trace(seastar::log_level level) noexcept {
     static thread_local bool nested = false;
-    if (!nested && exception_logger.is_enabled(log_level::trace)) {
+    if (!nested && exception_logger.is_enabled(level)) {
         nested = true;
-        exception_logger.trace("Throw exception at:\n{}", current_backtrace());
+        exception_logger.log(level, "Throw exception at:\n{}", current_backtrace());
         nested = false;
     }
 }
 #else
-void log_exception_trace() noexcept {}
+void log_exception_trace(seastar::log_level) noexcept {}
 #endif
 
 }
@@ -184,7 +184,7 @@ int _Unwind_RaiseException(struct ::_Unwind_Exception *h) {
     }
     if (seastar::local_engine) {
         seastar::internal::increase_thrown_exceptions_counter();
-        seastar::log_exception_trace();
+        seastar::log_exception_trace(seastar::log_level::debug);
     }
     return org(h);
 }
