@@ -381,7 +381,9 @@ public:
             _write_behind_sem.ensure_space_for_waiters(1); // So that wait() doesn't throw
 	}
     }
+#if SEASTAR_API_LEVEL < 9
     future<> put(net::packet data) override { abort(); }
+#endif
     virtual temporary_buffer<char> allocate_buffer(size_t size) override {
         return temporary_buffer<char>::aligned(_file.memory_dma_alignment(), size);
     }

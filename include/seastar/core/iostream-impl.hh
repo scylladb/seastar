@@ -78,10 +78,10 @@ output_stream<CharType>::zero_copy_put(net::packet p) noexcept {
     if (_flushing) {
         // flush in progress, wait for it to end before continuing
         return _in_batch.value().get_future().then([this, p = std::move(p)] () mutable {
-            return _fd.put(std::move(p));
+            return _fd.deprecated_put(std::move(p));
         });
     } else {
-        return _fd.put(std::move(p));
+        return _fd.deprecated_put(std::move(p));
     }
 }
 
@@ -423,7 +423,7 @@ future<> output_stream<CharType>::do_flush() noexcept {
             return _fd.flush();
         });
     } else if (_zc_bufs) {
-        return _fd.put(std::move(_zc_bufs)).then([this] {
+        return _fd.deprecated_put(std::move(_zc_bufs)).then([this] {
             return _fd.flush();
         });
     } else {

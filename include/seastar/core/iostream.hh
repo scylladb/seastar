@@ -36,6 +36,8 @@
 #pragma once
 
 #include <seastar/core/future.hh>
+#include <seastar/core/loop.hh>
+#include <seastar/core/do_with.hh>
 #include <seastar/core/coroutine.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/core/scattered_message.hh>
@@ -112,6 +114,7 @@ public:
     virtual temporary_buffer<char> allocate_buffer(size_t size) {
         return temporary_buffer<char>(size);
     }
+#if SEASTAR_API_LEVEL < 9
     virtual future<> put(net::packet data) = 0;
     virtual future<> put(std::vector<temporary_buffer<char>> data) {
         net::packet p;
@@ -124,6 +127,19 @@ public:
     virtual future<> put(temporary_buffer<char> buf) {
         return put(net::packet(net::fragment{buf.get_write(), buf.size()}, buf.release()));
     }
+#else
+    virtual future<> put(temporary_buffer<char> buf) = 0;
+    virtual future<> put(std::vector<temporary_buffer<char>> bufs) {
+        if (bufs.size() == 1) {
+            return put(std::move(bufs.front()));
+        }
+        return do_with(std::move(bufs), [this] (std::vector<temporary_buffer<char>>& bufs) {
+            return do_for_each(bufs, [this] (temporary_buffer<char>& buf) {
+                return put(std::move(buf));
+            });
+        });
+    }
+#endif
     virtual future<> flush() {
         return make_ready_future<>();
     }
@@ -150,6 +166,7 @@ public:
         SEASTAR_ASSERT(false && "Data sink must implement on_batch_flush_error() method");
     }
 
+#if SEASTAR_API_LEVEL < 9
 protected:
     // This is a helper function that classes that inherit from data_sink_impl
     // can use to implement the put overload for net::packet.
@@ -163,6 +180,7 @@ protected:
             co_await this->put(std::move(buf));
         }
     }
+#endif
 };
 
 class data_sink {
@@ -189,6 +207,7 @@ public:
         return current_exception_as_future();
       }
     }
+#if SEASTAR_API_LEVEL < 9
     future<> put(net::packet p) noexcept {
       try {
         return _dsi->put(std::move(p));
@@ -196,6 +215,14 @@ public:
         return current_exception_as_future();
       }
     }
+    future<> deprecated_put(net::packet p) noexcept {
+        return put(std::move(p));
+    }
+#else
+    future<> deprecated_put(net::packet p) noexcept {
+        return put(p.release());
+    }
+#endif
     future<> flush() noexcept {
       try {
         return _dsi->flush();

@@ -91,6 +91,7 @@ public:
                 return make_ready_future();
             });
     }
+#if SEASTAR_API_LEVEL < 9
     future<> put(net::packet data) override {
         return do_with(data.release(), [this] (std::vector<temporary_buffer<char>>& bufs) {
             return do_for_each(bufs, [this] (temporary_buffer<char>& buf) {
@@ -98,6 +99,7 @@ public:
             });
         });
     }
+#endif
     future<> close() override {
         _fd.close();
         return make_ready_future();
