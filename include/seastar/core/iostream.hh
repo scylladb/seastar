@@ -218,10 +218,6 @@ public:
     future<> put(temporary_buffer<char> data) noexcept {
         return put(std::span<temporary_buffer<char>>(&data, 1));
     }
-    future<> put(net::packet data) noexcept {
-        std::vector<temporary_buffer<char>> bufs = data.release();
-        return put(std::span<temporary_buffer<char>>(bufs));
-    }
 #else
     future<> put(std::vector<temporary_buffer<char>> data) noexcept {
       try {
@@ -469,9 +465,10 @@ class output_stream final {
     static_assert(sizeof(CharType) == 1, "must buffer stream of bytes");
     data_sink _fd;
     temporary_buffer<CharType> _buf;
-    net::packet _zc_bufs = net::packet::make_null_packet(); //zero copy buffers
+    std::vector<temporary_buffer<CharType>> _zc_bufs; // zero copy buffers
     size_t _size = 0;
     size_t _end = 0;
+    size_t _zc_len = 0;
     bool _trim_to_size = false;
     bool _batch_flushes = false;
     std::optional<promise<>> _in_batch;
@@ -485,8 +482,8 @@ private:
     future<> put(temporary_buffer<CharType> buf) noexcept;
     void poll_flush() noexcept;
     future<> do_flush() noexcept;
-    future<> zero_copy_put(net::packet p) noexcept;
-    future<> zero_copy_split_and_put(net::packet p) noexcept;
+    future<> zero_copy_put(std::vector<temporary_buffer<CharType>> b) noexcept;
+    future<> zero_copy_split_and_put(std::vector<temporary_buffer<CharType>> b, size_t len) noexcept;
     [[gnu::noinline]]
     future<> slow_write(const CharType* buf, size_t n) noexcept;
 public:
@@ -502,7 +499,7 @@ public:
         if (_batch_flushes) {
             SEASTAR_ASSERT(!_in_batch && "Was this stream properly closed?");
         } else {
-            SEASTAR_ASSERT(!_end && !_zc_bufs && "Was this stream properly closed?");
+            SEASTAR_ASSERT(!_end && !_zc_len && "Was this stream properly closed?");
         }
     }
     /// Writes n bytes from the memory pointed by buf into the buffer
