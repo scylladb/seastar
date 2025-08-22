@@ -19,6 +19,9 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
+#include <seastar/testing/test_case.hh>
+#include <seastar/testing/test_runner.hh>
+
 #include <seastar/util/std-compat.hh>
 #ifdef SEASTAR_COROUTINES_ENABLED
 #include <seastar/core/coroutine.hh>
@@ -56,7 +59,7 @@ const char* de_type_desc(directory_entry_type t)
     return nullptr;
 }
 
-future<> lister_test() {
+SEASTAR_TEST_CASE(test_lister) {
     class lister {
         file _f;
         subscription<directory_entry> _listing;
@@ -123,22 +126,14 @@ public:
     virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, io_intent* i) override { return get_file_impl(_lower)->dma_read_bulk(offset, range_size, i); }
 };
 
-future<> lister_generator_test() {
-    fmt::print("--- Generator lister test ---\n");
+SEASTAR_TEST_CASE(test_generator_lister) {
     auto f = co_await engine().open_directory(".");
     co_await lister_generator_test(std::move(f));
+}
 
-    fmt::print("--- Generator fallback test ---\n");
+SEASTAR_TEST_CASE(test_generator_fallback) {
     auto lf = co_await engine().open_directory(".");
     auto tf = ::seastar::make_shared<test_file_impl>(std::move(lf));
     auto f2 = file(std::move(tf));
     co_await lister_generator_test(std::move(f2));
-}
-
-int main(int ac, char** av) {
-    return app_template().run(ac, av, [] {
-        return lister_test().then([] {
-            return lister_generator_test();
-        });
-    });
 }
