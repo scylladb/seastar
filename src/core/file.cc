@@ -1342,16 +1342,16 @@ file_impl::dup() {
 }
 
 static coroutine::experimental::generator<directory_entry> make_list_directory_fallback_generator(file_impl& me) {
-    queue<std::optional<directory_entry>> ents(16);
-    auto lister = me.list_directory([&ents] (directory_entry de) {
-        return ents.push_eventually(std::move(de));
+    auto ents = make_lw_shared<queue<std::optional<directory_entry>>>(16);
+    auto lister = me.list_directory([ents] (directory_entry de) {
+        return ents->push_eventually(std::move(de));
     });
-    auto done = lister.done().finally([&ents] {
-        return ents.push_eventually(std::nullopt);
+    auto done = lister.done().finally([ents] {
+        return ents->push_eventually(std::nullopt);
     });
 
     while (true) {
-        auto de = co_await ents.pop_eventually();
+        auto de = co_await ents->pop_eventually();
         if (!de) {
             break;
         }
