@@ -71,11 +71,6 @@ future<> output_stream<CharType>::write(const std::basic_string<CharType>& s) no
 }
 
 template<typename CharType>
-future<> output_stream<CharType>::write(scattered_message<CharType> msg) noexcept {
-    return write(std::move(msg).release());
-}
-
-template<typename CharType>
 future<>
 output_stream<CharType>::zero_copy_put(net::packet p) noexcept {
     // if flush is scheduled, disable it, so it will not try to write in parallel
@@ -150,6 +145,11 @@ future<> output_stream<CharType>::write(temporary_buffer<CharType> p) noexcept {
   } catch (...) {
     return current_exception_as_future();
   }
+}
+
+template<typename CharType>
+future<> output_stream<CharType>::write(scattered_message<CharType> msg) noexcept {
+    return write(std::move(msg).release());
 }
 
 template <typename CharType>
