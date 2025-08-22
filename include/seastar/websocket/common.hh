@@ -32,7 +32,7 @@ namespace seastar::experimental::websocket {
 
 extern sstring magic_key_suffix;
 
-using handler_t = std::function<future<>(input_stream<char>&, output_stream<char>&)>;
+using handler_t = std::function<future<>(data_source&, data_sink&)>;
 
 class server;
 
@@ -126,9 +126,9 @@ protected:
 
     websocket_parser _websocket_parser;
     queue <temporary_buffer<char>> _input_buffer;
-    input_stream<char> _input;
+    data_source _input;
     queue <temporary_buffer<char>> _output_buffer;
-    output_stream<char> _output;
+    data_sink _output;
 
     sstring _subprotocol;
     handler_t _handler;
@@ -143,10 +143,8 @@ public:
         , _input_buffer{PIPE_SIZE}
         , _output_buffer{PIPE_SIZE}
     {
-        _input = input_stream<char>{data_source{
-                std::make_unique<connection_source_impl>(&_input_buffer)}};
-        _output = output_stream<char>{data_sink{
-                std::make_unique<connection_sink_impl>(&_output_buffer)}};
+        _input = data_source{std::make_unique<connection_source_impl>(&_input_buffer)};
+        _output = data_sink{std::make_unique<connection_sink_impl>(&_output_buffer)};
     }
 
     /*!
