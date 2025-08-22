@@ -290,7 +290,7 @@ seastar_add_test (deleter
   KIND BOOST
   SOURCES deleter_test.cc)
 
-seastar_add_app_test (directory
+seastar_add_test (directory
   SOURCES directory_test.cc)
 
 seastar_add_test (distributed
