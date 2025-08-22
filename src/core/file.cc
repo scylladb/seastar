@@ -64,6 +64,7 @@ module seastar;
 #include <seastar/core/file.hh>
 #include <seastar/core/report_exception.hh>
 #include <seastar/util/later.hh>
+#include <seastar/util/defer.hh>
 #include <seastar/util/internal/magic.hh>
 #include <seastar/util/internal/iovec_utils.hh>
 #include <seastar/core/io_queue.hh>
@@ -1349,6 +1350,10 @@ static coroutine::experimental::generator<directory_entry> make_list_directory_f
     auto done = lister.done().finally([ents] {
         return ents->push_eventually(std::nullopt);
     });
+    auto abort = defer([ents, &done] () mutable noexcept {
+        ents->abort(std::make_exception_ptr(std::runtime_error("generator abandoned")));
+        engine().run_in_background(std::move(done).handle_exception([] (std::exception_ptr ignored) {}));
+    });
 
     while (true) {
         auto de = co_await ents->pop_eventually();
@@ -1358,6 +1363,7 @@ static coroutine::experimental::generator<directory_entry> make_list_directory_f
         co_yield *de;
     }
 
+    abort.cancel();
     co_await std::move(done);
 }
 
