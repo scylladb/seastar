@@ -381,9 +381,11 @@ class memory_data_sink_impl : public data_sink_impl {
 public:
     memory_data_sink_impl(std::stringstream& ss) : _ss(ss) {
     }
+#if SEASTAR_API_LEVEL < 9
     virtual future<> put(net::packet data)  override {
         return data_sink_impl::fallback_put(std::move(data));
     }
+#endif
     virtual future<> put(temporary_buffer<char> buf) override {
         _ss.write(buf.get(), buf.size());
         return make_ready_future<>();

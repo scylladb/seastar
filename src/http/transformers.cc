@@ -163,9 +163,11 @@ public:
         }
     }
 
+#if SEASTAR_API_LEVEL < 9
     virtual future<> put(net::packet data)  override {
         return make_ready_future<>();
     }
+#endif
 
     using data_sink_impl::put;
 

@@ -681,6 +681,7 @@ posix_data_sink_impl::put(temporary_buffer<char> buf) {
     return _fd.write_all(buf.get(), buf.size()).then([d = buf.release()] {});
 }
 
+#if SEASTAR_API_LEVEL < 9
 future<>
 posix_data_sink_impl::put(packet p) {
     _p = std::move(p);
@@ -688,6 +689,15 @@ posix_data_sink_impl::put(packet p) {
     bytes_sent[sg_id] += _p.len();
     return _fd.write_all(_p).then([this] { _p.reset(); });
 }
+#else
+future<>
+posix_data_sink_impl::put(std::vector<temporary_buffer<char>> bufs) {
+    _p = net::packet::make(std::move(bufs));
+    auto sg_id = internal::scheduling_group_index(current_scheduling_group());
+    bytes_sent[sg_id] += _p.len();
+    return _fd.write_all(_p).then([this] { _p.reset(); });
+}
+#endif
 
 future<>
 posix_data_sink_impl::close() {

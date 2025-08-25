@@ -206,11 +206,28 @@ public:
     explicit native_data_sink_impl(lw_shared_ptr<connection_type> conn)
         : _conn(std::move(conn)) {}
     using data_sink_impl::put;
+#if SEASTAR_API_LEVEL < 9
     virtual future<> put(packet p) override {
         auto sg_id = internal::scheduling_group_index(current_scheduling_group());
         internal::native_stack_net_stats::bytes_sent[sg_id] += p.len();
         return _conn->send(std::move(p));
     }
+#else
+private:
+    future<> put(net::packet p) {
+        auto sg_id = internal::scheduling_group_index(current_scheduling_group());
+        internal::native_stack_net_stats::bytes_sent[sg_id] += p.len();
+        return _conn->send(std::move(p));
+    }
+public:
+    virtual future<> put(temporary_buffer<char> buf) override {
+        return put(net::packet(std::move(buf)));
+    }
+
+    virtual future<> put(std::vector<temporary_buffer<char>> bufs) override {
+        return put(net::packet::make(std::move(bufs)));
+    }
+#endif
     virtual future<> close() override {
         _conn->close_write();
         return make_ready_future<>();
