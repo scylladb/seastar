@@ -47,7 +47,7 @@ void set_routes(routes& r) {
         api_json::my_object obj;
         obj.var1 = req.param.at("var1");
         obj.var2 = req.param.at("var2");
-        query_enum v = str2query_enum(req.query_parameters.at("query_enum"));
+        query_enum v = str2query_enum(req.get_query_param("query_enum"));
         // This demonstrate enum conversion
         obj.enum_var = v;
 
@@ -55,7 +55,7 @@ void set_routes(routes& r) {
         obj.array_var = vec123;
         obj.chunked_array_var = vec123;
 
-        auto use_streaming = req.query_parameters.at("use_streaming");
+        auto use_streaming = req.get_query_param("use_streaming");
 
         if (use_streaming != "false" && use_streaming != "true") {
             throw bad_param_exception("param use_streaming must be true or false");
