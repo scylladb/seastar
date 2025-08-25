@@ -3276,19 +3276,6 @@ int reactor::do_run() {
     while (true) {
         _cpu_sched.run_some_tasks();
         if (_stopped) {
-            load_timer.cancel();
-            // Final tasks may include sending the last response to cpu 0, so run them
-            while (have_more_tasks()) {
-                _cpu_sched.run_some_tasks();
-            }
-            while (_at_destroy_tasks->run_tasks()) {
-                // keep running while it's active
-            }
-            _finished_running_tasks = true;
-            _smp->arrive_at_event_loop_end();
-            if (_id == 0) {
-                _smp->join_all();
-            }
             break;
         }
 
@@ -3341,6 +3328,20 @@ int reactor::do_run() {
                 check_for_work();
             }
         }
+    }
+
+    load_timer.cancel();
+    // Final tasks may include sending the last response to cpu 0, so run them
+    while (have_more_tasks()) {
+        _cpu_sched.run_some_tasks();
+    }
+    while (_at_destroy_tasks->run_tasks()) {
+        // keep running while it's active
+    }
+    _finished_running_tasks = true;
+    _smp->arrive_at_event_loop_end();
+    if (_id == 0) {
+        _smp->join_all();
     }
     // To prevent ordering issues from rising, destroy the I/O queue explicitly at this point.
     // This is needed because the reactor is destroyed from the thread_local destructors. If
