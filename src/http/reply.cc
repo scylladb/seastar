@@ -152,6 +152,10 @@ future<> reply::write_reply_to_connection(httpd::connection& con) {
 future<> reply::write_reply_headers(httpd::connection& con) {
     return do_for_each(_headers, [&con](auto& h) {
         return con.out().write(h.first + ": " + h.second + "\r\n");
+    }).then([this, &con] {
+        return do_for_each(_cookies, [&con] (auto& c) {
+            return con.out().write("Set-Cookie: " + c.first + "=" + c.second + "\r\n");
+        });
     });
 }
 
