@@ -64,6 +64,7 @@ module seastar;
 #include <seastar/core/file.hh>
 #include <seastar/core/report_exception.hh>
 #include <seastar/util/later.hh>
+#include <seastar/util/defer.hh>
 #include <seastar/util/internal/magic.hh>
 #include <seastar/util/internal/iovec_utils.hh>
 #include <seastar/core/io_queue.hh>
@@ -1342,22 +1343,27 @@ file_impl::dup() {
 }
 
 static coroutine::experimental::generator<directory_entry> make_list_directory_fallback_generator(file_impl& me) {
-    queue<std::optional<directory_entry>> ents(16);
-    auto lister = me.list_directory([&ents] (directory_entry de) {
-        return ents.push_eventually(std::move(de));
+    auto ents = make_lw_shared<queue<std::optional<directory_entry>>>(16);
+    auto lister = me.list_directory([ents] (directory_entry de) {
+        return ents->push_eventually(std::move(de));
     });
-    auto done = lister.done().finally([&ents] {
-        return ents.push_eventually(std::nullopt);
+    auto done = lister.done().finally([ents] {
+        return ents->push_eventually(std::nullopt);
+    });
+    auto abort = defer([ents, &done] () mutable noexcept {
+        ents->abort(std::make_exception_ptr(std::runtime_error("generator abandoned")));
+        engine().run_in_background(std::move(done).handle_exception([] (std::exception_ptr ignored) {}));
     });
 
     while (true) {
-        auto de = co_await ents.pop_eventually();
+        auto de = co_await ents->pop_eventually();
         if (!de) {
             break;
         }
         co_yield *de;
     }
 
+    abort.cancel();
     co_await std::move(done);
 }
 
