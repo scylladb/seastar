@@ -127,8 +127,7 @@ public:
     future<> close();
 
 private:
-    future<reply_ptr> do_make_request(request& rq);
-    void setup_request(request& rq);
+    future<reply_ptr> do_make_request(const request& rq);
     future<> send_request_head(const request& rq);
     future<reply_ptr> maybe_wait_for_continue(const request& req);
     future<> write_body(const request& rq);
@@ -182,7 +181,7 @@ private:
     requires std::invocable<Fn, connection&>
     auto with_new_connection(Fn&& fn, abort_source*);
 
-    future<> do_make_request(connection& con, request& req, reply_handler& handle, abort_source*, std::optional<reply::status_type> expected);
+    future<> do_make_request(connection& con, const request& req, reply_handler& handle, abort_source*, std::optional<reply::status_type> expected);
 
 public:
     /**
@@ -275,7 +274,7 @@ public:
      * `request and the `handle`, it caller's responsibility the make sure they
      * are referencing valid instances
      */
-    future<> make_request(request& req, reply_handler& handle, std::optional<reply::status_type> expected = std::nullopt, abort_source* as = nullptr);
+    future<> make_request(const request& req, reply_handler& handle, std::optional<reply::status_type> expected = std::nullopt, abort_source* as = nullptr);
 
     /**
      * \brief Updates the maximum number of connections a client may have
