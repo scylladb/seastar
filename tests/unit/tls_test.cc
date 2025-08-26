@@ -868,6 +868,7 @@ SEASTAR_THREAD_TEST_CASE(test_close_timout) {
                 return _sink.flush();
             }
             using data_sink_impl::put;
+#if SEASTAR_API_LEVEL < 9
             future<> put(net::packet p) override {
                 if (std::exchange(_impl._close, false)) {
                     return _p.get_future().then([this, p = std::move(p)]() mutable {
@@ -876,6 +877,16 @@ SEASTAR_THREAD_TEST_CASE(test_close_timout) {
                 }
                 return _sink.put(std::move(p));
             }
+#else
+            future<> put(temporary_buffer<char> buf) override {
+                if (std::exchange(_impl._close, false)) {
+                    return _p.get_future().then([this, buf = std::move(buf)]() mutable {
+                        return put(std::move(buf));
+                    });
+                }
+                return _sink.put(std::move(buf));
+            }
+#endif
             future<> close() override {
                 _p.set_value();
                 return make_ready_future<>();

@@ -229,6 +229,8 @@ public:
     // append deleter
     packet(packet&& x, deleter d);
 
+    static packet make(std::vector<temporary_buffer<char>> bufs);
+
     packet& operator=(packet&& x) noexcept {
         if (this != &x) {
             this->~packet();

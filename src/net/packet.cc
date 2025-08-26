@@ -137,6 +137,14 @@ std::ostream& operator<<(std::ostream& os, const packet& p) {
     return os;
 }
 
+packet packet::make(std::vector<temporary_buffer<char>> bufs) {
+    packet p(bufs.size());
+    for (auto&& buf : bufs) {
+        p = packet(std::move(p), std::move(buf));
+    }
+    return p;
+}
+
 }
 
 }
