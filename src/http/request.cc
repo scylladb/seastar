@@ -101,6 +101,7 @@ sstring request::parse_query_param() {
 void request::write_body(const sstring& content_type, sstring content) {
     set_content_type(content_type);
     content_length = content.size();
+    _headers["Content-Length"] = to_sstring(content_length);
     this->content = std::move(content);
 }
 
@@ -113,6 +114,7 @@ void request::write_body(const sstring& content_type, body_writer_type&& body_wr
 void request::write_body(const sstring& content_type, size_t len, body_writer_type&& body_writer) {
     set_content_type(content_type);
     content_length = len;
+    _headers["Content-Length"] = to_sstring(content_length);
     if (len > 0) {
         // At the time of this writing, connection::write_body()
         // assumes that `body_writer` is unset if `content_length` is 0.
@@ -126,6 +128,7 @@ void request::set_expects_continue() {
 
 request request::make(sstring method, sstring host, sstring path) {
     request rq;
+    rq._version = "1.1";
     rq._method = std::move(method);
     rq._url = std::move(path);
     rq._headers["Host"] = std::move(host);
