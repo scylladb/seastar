@@ -109,3 +109,24 @@ SEASTAR_TEST_CASE(test_skip_all) {
         BOOST_REQUIRE(to_sstring(empty_inp.read().get()).empty());
     });
 }
+
+SEASTAR_THREAD_TEST_CASE(test_read_exactly) {
+    const size_t total_size = 22;
+    for (size_t bs = 3; bs < total_size; bs++) {
+        input_stream<char> in(data_source(std::make_unique<test_source_impl>(5, total_size)));
+        size_t total = 0;
+        while (true) {
+            auto buf = in.read_exactly(bs).get();
+            total += buf.size();
+            if (buf.size() != bs) {
+                BOOST_REQUIRE_LT(buf.size(), bs);
+                if (buf.size() != 0) {
+                    buf = in.read_exactly(bs).get();
+                    BOOST_REQUIRE_EQUAL(buf.size(), 0);
+                }
+                break;
+            }
+        }
+        BOOST_REQUIRE_EQUAL(total, total_size);
+    }
+}
