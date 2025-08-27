@@ -66,7 +66,7 @@ void set_routes(routes& r) {
         demo_json::my_object obj;
         obj.var1 = req.param.at("var1");
         obj.var2 = req.param.at("var2");
-        demo_json::ns_hello_world::query_enum v = demo_json::ns_hello_world::str2query_enum(req.query_parameters.at("query_enum"));
+        demo_json::ns_hello_world::query_enum v = demo_json::ns_hello_world::str2query_enum(req.get_query_param("query_enum"));
         // This demonstrate enum conversion
         obj.enum_var = v;
         return obj;
