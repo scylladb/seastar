@@ -808,3 +808,7 @@ set_tests_properties (Seastar.unit.prometheus
 seastar_add_test (gate
   SOURCES
     gate_test.cc)
+
+seastar_add_test (test_fixture
+  SOURCES
+    test_fixture_test.cc)

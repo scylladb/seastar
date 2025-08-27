@@ -25,6 +25,7 @@
 
 #include <seastar/testing/entry_point.hh>
 #include <seastar/testing/seastar_test.hh>
+#include <seastar/testing/test_fixture.hh>
 #include <seastar/testing/test_runner.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/on_internal_error.hh>
@@ -104,6 +105,10 @@ scoped_no_abort_on_internal_error::scoped_no_abort_on_internal_error() noexcept
 
 scoped_no_abort_on_internal_error::~scoped_no_abort_on_internal_error() {
     set_abort_on_internal_error(_prev);
+}
+
+void detail::warn_teardown_exception(const sstring& name, std::exception_ptr e) {
+    std::cerr << "Warning! Exception in fixture " << name << "::teardown. " << e << std::endl;
 }
 
 }
