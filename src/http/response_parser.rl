@@ -19,6 +19,8 @@
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
+#pragma once
+
 #ifndef SEASTAR_MODULE
 #include <memory>
 #include <unordered_map>
