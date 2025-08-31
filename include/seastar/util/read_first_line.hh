@@ -1,3 +1,6 @@
+
+#pragma once
+
 #include <filesystem>
 #include <seastar/core/sstring.hh>
 #ifndef SEASTAR_MODULE
