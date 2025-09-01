@@ -2099,7 +2099,7 @@ SEASTAR_THREAD_TEST_CASE(test_http_with_broken_wire) {
 
     http::experimental::client c(addr, creds);
     http::request req;
-
+    req._version = "1.1";
     req.write_body("html", std::string(5134, 'a'));
 
     auto sa = server.accept();
