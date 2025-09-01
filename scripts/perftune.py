@@ -334,6 +334,16 @@ def auto_detect_irq_mask(cpu_mask, cores_per_irq_core):
         return run_hwloc_calc(['--restrict', cpu_mask] + hwloc_args)
 
 
+def check_sysfs_numa_topology_is_valid():
+    # Verify that the sysfs entry exists correctly, same as the checks
+    # performed by hwloc code (check_sysfs_cpu_path() on topology-linux.c)
+    if os.path.isdir("/sys/devices/system/cpu"):
+        if os.path.exists("/sys/devices/system/cpu/cpu0/topology/package_cpus") or os.path.exists("/sys/devices/system/cpu/cpu0/topology/core_cpus"):
+            return True
+        if os.path.exists("/sys/devices/system/cpu/cpu0/topology/core_siblings") or os.path.exists("/sys/devices/system/cpu/cpu0/topology/thread_siblings"):
+            return True
+    return False
+
 ################################################################################
 class PerfTunerBase(metaclass=abc.ABCMeta):
     def __init__(self, args):
@@ -347,6 +357,8 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
         elif args.irq_cpu_mask:
             self.irqs_cpu_mask = args.irq_cpu_mask
         else:
+            if not check_sysfs_numa_topology_is_valid():
+                raise PerfTunerBase.InvalidNUMATopologyException("NUMA topology information is corrupted")
             self.irqs_cpu_mask = auto_detect_irq_mask(self.cpu_mask, self.cores_per_irq_core)
 
         self.__is_aws_i3_nonmetal_instance = None
@@ -356,6 +368,10 @@ class PerfTunerBase(metaclass=abc.ABCMeta):
 #### Public methods ##########################
     class CPUMaskIsZeroException(Exception):
         """Thrown if CPU mask turns out to be zero"""
+        pass
+
+    class InvalidNUMATopologyException(Exception):
+        """Thrown if NUMA Topology is invalid"""
         pass
 
     class SupportedModes(enum.IntEnum):
@@ -1884,6 +1900,10 @@ except PerfTunerBase.CPUMaskIsZeroException as e:
         perftune_print("0x0")
     else:
         sys.exit("ERROR: {}. Your system can't be tuned until the issue is fixed.".format(e))
+except PerfTunerBase.InvalidNUMATopologyException as e:
+    print("ERROR: {}. Your system can't be tuned until the issue is fixed.".format(e), file=sys.stderr)
+    # set special exit code to handle InvalidNUMATopologyException from the caller script
+    sys.exit(3)
 except Exception as e:
     sys.exit("ERROR: {}. Your system can't be tuned until the issue is fixed.".format(e))
 
