@@ -27,6 +27,7 @@
 #include <seastar/net/api.hh>
 #include <seastar/http/connection_factory.hh>
 #include <seastar/http/reply.hh>
+#include <seastar/http/retry_strategy.hh>
 #include <seastar/core/condition-variable.hh>
 #include <seastar/core/iostream.hh>
 #include <seastar/util/modules.hh>
@@ -163,7 +164,7 @@ private:
     unsigned _max_connections;
     size_t _max_bytes_to_drain;
     unsigned long _total_new_connections = 0;
-    const retry_requests _retry;
+    std::unique_ptr<retry_strategy> _retry_strategy;
     condition_variable _wait_con;
     connections_list_t _pool;
 
@@ -218,7 +219,7 @@ public:
      * \param f -- the factory pointer
      * \param max_connections -- maximum number of connection a client is allowed to maintain
      * (both active and cached in pool)
-     * \param retry -- whether or not to retry requests on connection IO errors
+     * \param retry_strategy -- optional custom logic for retrying failed requests
      *
      * The client uses connections provided by factory to send requests over and receive responses
      * back. Once request-response cycle is over the connection used for that is kept by a client
@@ -247,6 +248,7 @@ public:
      * second attempt fails, this error is reported back to user.
      */
     explicit client(std::unique_ptr<connection_factory> f, unsigned max_connections = default_max_connections, retry_requests retry = retry_requests::no, size_t max_bytes_to_drain = default_max_bytes_to_drain);
+    client(std::unique_ptr<connection_factory> f, unsigned max_connections, size_t max_bytes_to_drain, std::unique_ptr<retry_strategy>&& retry_strategy);
 
     /**
      * \brief Send the request and handle the response
