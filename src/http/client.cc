@@ -342,6 +342,9 @@ future<> client::make_request(const request& req, reply_handler& handle, std::op
 }
 
 future<> client::make_request(const request& req, reply_handler& handle, const retry_strategy& strategy, std::optional<reply::status_type> expected, abort_source* as) {
+    if (as && as->abort_requested()) {
+        return make_exception_future(as->abort_requested_exception_ptr());
+    }
     try {
         validate_request(req);
     } catch (...) {
