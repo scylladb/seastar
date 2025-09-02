@@ -72,7 +72,7 @@ static auto random_seed = std::chrono::duration_cast<std::chrono::microseconds>(
 static thread_local std::default_random_engine random_generator(random_seed);
 
 class context;
-enum class request_type { seqread, seqwrite, randread, randwrite, append, cpu, unlink };
+enum class request_type { seqread, overwrite, randread, randwrite, append, cpu, unlink };
 
 namespace std {
 
@@ -95,38 +95,27 @@ auto allocate_and_fill_buffer(size_t buffer_size) {
     return buffer;
 }
 
-future<std::pair<file, uint64_t>> create_and_fill_file(sstring name, uint64_t fsize, open_flags flags, file_open_options options) {
-    return open_file_dma(name, flags, options).then([fsize] (auto f) mutable {
-        return do_with(std::move(f), [fsize] (auto& f) {
-            return f.size().then([f, fsize] (uint64_t pre_truncate_size) mutable {
-                return f.truncate(fsize).then([f, fsize, pre_truncate_size] () mutable {
-                    if (pre_truncate_size >= fsize) {
-                        return make_ready_future<std::pair<file, uint64_t>>(std::pair{f, 0u});
-                    }
+future<file> create_and_fill_file(sstring name, uint64_t fsize, open_flags flags, file_open_options options, bool fill) {
+    auto f = co_await open_file_dma(name, flags, options);
+    uint64_t pre_truncate_size = co_await f.size();
+    co_await f.truncate(fsize);
+    if (!fill || (pre_truncate_size >= fsize)) {
+        co_return f;
+    }
 
-                    const uint64_t buffer_size{256ul << 10};
-                    const uint64_t additional_iteration = (fsize % buffer_size == 0) ? 0 : 1;
-                    const uint64_t buffers_count{static_cast<uint64_t>(fsize / buffer_size) + additional_iteration};
-                    const uint64_t last_buffer_id = (buffers_count - 1u);
-                    const uint64_t last_write_position = buffer_size * last_buffer_id;
-
-                    return do_with(std::views::iota(UINT64_C(0), buffers_count), [f, buffer_size] (auto& buffers_range) mutable {
-                        return max_concurrent_for_each(buffers_range.begin(), buffers_range.end(), 64, [f, buffer_size] (auto buffer_id) mutable {
-                            auto source_buffer = allocate_and_fill_buffer(buffer_size);
-                            auto write_position = buffer_id * buffer_size;
-                            return do_with(std::move(source_buffer), [f, write_position, buffer_size] (const auto& buffer) mutable {
-                                return f.dma_write(write_position, buffer.get(), buffer_size).discard_result();
-                            });
-                        });
-                    }).then([f]() mutable {
-                        return f.flush();
-                    }).then([f, last_write_position]() {
-                        return make_ready_future<std::pair<file, uint64_t>>(std::pair{f, last_write_position});
-                    });
-                });
+    const uint64_t buffer_size{256ul << 10};
+    const uint64_t additional_iteration = (fsize % buffer_size == 0) ? 0 : 1;
+    const uint64_t buffers_count{static_cast<uint64_t>(fsize / buffer_size) + additional_iteration};
+    auto buffers_range = std::views::iota(UINT64_C(0), buffers_count);
+    co_await max_concurrent_for_each(buffers_range.begin(), buffers_range.end(), 64, [f, buffer_size] (auto buffer_id) mutable {
+            auto source_buffer = allocate_and_fill_buffer(buffer_size);
+            auto write_position = buffer_id * buffer_size;
+            return do_with(std::move(source_buffer), [f, write_position, buffer_size] (const auto& buffer) mutable {
+                return f.dma_write(write_position, buffer.get(), buffer_size).discard_result();
             });
-        });
     });
+    co_await f.flush();
+    co_return f;
 }
 
 future<> busyloop_sleep(std::chrono::steady_clock::time_point until, std::chrono::steady_clock::time_point now) {
@@ -288,8 +277,6 @@ protected:
 
     job_config _config;
     uint64_t _alignment;
-    uint64_t _last_pos = 0;
-    uint64_t _offset = 0;
 
     seastar::scheduling_group _sg;
 
@@ -299,7 +286,6 @@ protected:
     std::chrono::steady_clock::time_point _start = {};
     accumulator_type _latencies;
     uint64_t _requests = 0;
-    std::uniform_int_distribution<uint32_t> _pos_distribution;
     file _file;
     bool _think = false;
     ::sleep_fn _sleep_fn = timer_sleep<lowres_clock>;
@@ -313,7 +299,6 @@ public:
         , _alignment(_config.shard_info.request_size >= 4096 ? 4096 : 512)
         , _sg(cfg.shard_info.scheduling_group)
         , _latencies(extended_p_square_probabilities = quantiles)
-        , _pos_distribution(0,  _config.file_size / _config.shard_info.request_size)
         , _sleep_fn(_config.options.sleep_fn)
         , _thinker([this] { think_tick(); })
     {
@@ -425,7 +410,7 @@ public:
     // unlink them. So every job (a class in a shard) will have its own file(s) and will operate differently depending on the type:
     //
     // sequential reads  : will read the file from pos = 0 onwards, back to 0 on EOF
-    // sequential writes : will write the file from pos = 0 onwards, back to 0 on EOF
+    // overwrites        : will write the file from pos = 0 onwards, back to 0 on EOF
     // random reads      : will read the file at random positions, between 0 and EOF
     // random writes     : will overwrite the file at a random position, between 0 and EOF
     // append            : will write to the file from pos = EOF onwards, always appending to the end.
@@ -455,7 +440,7 @@ protected:
     sstring type_str() const {
         return std::unordered_map<request_type, sstring>{
             { request_type::seqread, "SEQ READ" },
-            { request_type::seqwrite, "SEQ WRITE" },
+            { request_type::overwrite, "OVERWRITE" },
             { request_type::randread, "RAND READ" },
             { request_type::randwrite, "RAND WRITE" },
             { request_type::append , "APPEND" },
@@ -528,27 +513,6 @@ protected:
         return _requests;
     }
 
-    bool is_sequential() const {
-        return (req_type() == request_type::seqread) || (req_type() == request_type::seqwrite);
-    }
-    bool is_random() const {
-        return (req_type() == request_type::randread) || (req_type() == request_type::randwrite);
-    }
-
-    uint64_t get_pos() {
-        uint64_t pos;
-        if (is_random()) {
-            pos = _pos_distribution(random_generator) * req_size();
-        } else {
-            pos = _last_pos + req_size();
-            if (is_sequential() && (pos >= _config.file_size)) {
-                pos = 0;
-            }
-        }
-        _last_pos = pos;
-        return pos + _offset;
-    }
-
     void add_result(size_t data, std::chrono::microseconds latency) {
         _data += data;
         _latencies(latency.count());
@@ -563,6 +527,10 @@ public:
 };
 
 class io_class_data : public class_data {
+    uint64_t _last_pos = 0;
+    uint64_t _offset = 0;
+    unsigned _overflows = 0;
+    std::uniform_int_distribution<uint32_t> _pos_distribution;
 protected:
     bool _is_dev_null = false;
     timer<> _queue_length_timer;
@@ -578,9 +546,31 @@ protected:
         });
     }
 
+    bool is_random() const {
+        return (req_type() == request_type::randread) || (req_type() == request_type::randwrite);
+    }
+
+    uint64_t get_pos() {
+        uint64_t pos;
+        if (is_random()) {
+            pos = _pos_distribution(random_generator) * req_size();
+        } else {
+            pos = _last_pos + req_size();
+            if (pos >= _config.file_size) {
+                _overflows++;
+                if (req_type() != request_type::append) {
+                    pos = 0;
+                }
+            }
+        }
+        _last_pos = pos;
+        return pos + _offset;
+    }
+
 public:
     io_class_data(job_config cfg)
             : class_data(std::move(cfg))
+            , _pos_distribution(0,  _config.file_size / _config.shard_info.request_size)
             , _queue_length_timer([this] { update_queue_length(); })
             , _disk_queue_lengths(extended_p_square_probabilities = quantiles_short)
     {}
@@ -621,12 +611,10 @@ private:
         }
         file_open_options options;
         options.extent_allocation_size_hint = _config.extent_allocation_size_hint.value_or(_config.file_size);
-        options.append_is_unlikely = true;
+        options.append_is_unlikely = (req_type() != request_type::append);
 
-        return create_and_fill_file(fname, _config.file_size, flags, options).then([this](std::pair<file, uint64_t> p) {
-            _file = std::move(p.first);
-            _last_pos = (req_type() == request_type::append) ? p.second : 0u;
-
+        return create_and_fill_file(fname, _config.file_size, flags, options, req_type() != request_type::append).then([this](file f) {
+            _file = std::move(f);
             return make_ready_future<>();
         }).then([fname] {
             // If keep_files == false, then the file shall not exist after the execution.
@@ -721,6 +709,7 @@ public:
         }
         out << YAML::Key << "max" << YAML::Value << (unsigned)max(_disk_queue_lengths);
         out << YAML::EndMap;
+        out << YAML::Key << "file_size_overflows" << YAML::Value << _overflows;
         out << YAML::EndMap;
     }
 };
@@ -834,8 +823,8 @@ private:
             options.extent_allocation_size_hint = _config.extent_allocation_size_hint.value_or(fsize);
             options.append_is_unlikely = true;
 
-            return create_and_fill_file(fname, fsize, flags, options).then([](std::pair<file, uint64_t> p) {
-                return do_with(std::move(p.first), [] (auto& f) {
+            return create_and_fill_file(fname, fsize, flags, options, true).then([](file f) {
+                return do_with(std::move(f), [] (auto& f) {
                     return f.close();
                 });
             });
@@ -948,7 +937,7 @@ struct convert<request_type> {
     static bool decode(const Node& node, request_type& rt) {
         static std::unordered_map<std::string, request_type> mappings = {
             { "seqread", request_type::seqread },
-            { "seqwrite", request_type::seqwrite},
+            { "overwrite", request_type::overwrite},
             { "randread", request_type::randread },
             { "randwrite", request_type::randwrite },
             { "append", request_type::append},
