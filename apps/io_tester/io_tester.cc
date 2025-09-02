@@ -611,7 +611,7 @@ private:
         }
         file_open_options options;
         options.extent_allocation_size_hint = _config.extent_allocation_size_hint.value_or(_config.file_size);
-        options.append_is_unlikely = true;
+        options.append_is_unlikely = (req_type() != request_type::append);
 
         return create_and_fill_file(fname, _config.file_size, flags, options, req_type() != request_type::append).then([this](file f) {
             _file = std::move(f);
