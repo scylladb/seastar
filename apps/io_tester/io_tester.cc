@@ -103,19 +103,19 @@ future<std::pair<file, uint64_t>> create_and_fill_file(sstring name, uint64_t fs
         co_return std::make_pair(std::move(f), 0ul);
     }
 
-                    const uint64_t buffer_size{256ul << 10};
-                    const uint64_t additional_iteration = (fsize % buffer_size == 0) ? 0 : 1;
-                    const uint64_t buffers_count{static_cast<uint64_t>(fsize / buffer_size) + additional_iteration};
-                    const uint64_t last_buffer_id = (buffers_count - 1u);
-                    const uint64_t last_write_position = buffer_size * last_buffer_id;
-                    auto buffers_range = std::views::iota(UINT64_C(0), buffers_count);
-                    co_await max_concurrent_for_each(buffers_range.begin(), buffers_range.end(), 64, [f, buffer_size] (auto buffer_id) mutable {
-                            auto source_buffer = allocate_and_fill_buffer(buffer_size);
-                            auto write_position = buffer_id * buffer_size;
-                            return do_with(std::move(source_buffer), [f, write_position, buffer_size] (const auto& buffer) mutable {
-                                return f.dma_write(write_position, buffer.get(), buffer_size).discard_result();
-                            });
-                    });
+    const uint64_t buffer_size{256ul << 10};
+    const uint64_t additional_iteration = (fsize % buffer_size == 0) ? 0 : 1;
+    const uint64_t buffers_count{static_cast<uint64_t>(fsize / buffer_size) + additional_iteration};
+    const uint64_t last_buffer_id = (buffers_count - 1u);
+    const uint64_t last_write_position = buffer_size * last_buffer_id;
+    auto buffers_range = std::views::iota(UINT64_C(0), buffers_count);
+    co_await max_concurrent_for_each(buffers_range.begin(), buffers_range.end(), 64, [f, buffer_size] (auto buffer_id) mutable {
+            auto source_buffer = allocate_and_fill_buffer(buffer_size);
+            auto write_position = buffer_id * buffer_size;
+            return do_with(std::move(source_buffer), [f, write_position, buffer_size] (const auto& buffer) mutable {
+                return f.dma_write(write_position, buffer.get(), buffer_size).discard_result();
+            });
+    });
     co_await f.flush();
     co_return std::make_pair(std::move(f), last_write_position);
 }
