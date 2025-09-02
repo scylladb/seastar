@@ -277,8 +277,6 @@ protected:
 
     job_config _config;
     uint64_t _alignment;
-    uint64_t _last_pos = 0;
-    uint64_t _offset = 0;
 
     seastar::scheduling_group _sg;
 
@@ -288,7 +286,6 @@ protected:
     std::chrono::steady_clock::time_point _start = {};
     accumulator_type _latencies;
     uint64_t _requests = 0;
-    std::uniform_int_distribution<uint32_t> _pos_distribution;
     file _file;
     bool _think = false;
     ::sleep_fn _sleep_fn = timer_sleep<lowres_clock>;
@@ -302,7 +299,6 @@ public:
         , _alignment(_config.shard_info.request_size >= 4096 ? 4096 : 512)
         , _sg(cfg.shard_info.scheduling_group)
         , _latencies(extended_p_square_probabilities = quantiles)
-        , _pos_distribution(0,  _config.file_size / _config.shard_info.request_size)
         , _sleep_fn(_config.options.sleep_fn)
         , _thinker([this] { think_tick(); })
     {
@@ -517,6 +513,38 @@ protected:
         return _requests;
     }
 
+    void add_result(size_t data, std::chrono::microseconds latency) {
+        _data += data;
+        _latencies(latency.count());
+        _requests++;
+    }
+
+public:
+    virtual void emit_results(YAML::Emitter& out) = 0;
+    virtual future<> stop_hook() {
+        return make_ready_future<>();
+    }
+};
+
+class io_class_data : public class_data {
+    uint64_t _last_pos = 0;
+    uint64_t _offset = 0;
+    std::uniform_int_distribution<uint32_t> _pos_distribution;
+protected:
+    bool _is_dev_null = false;
+    timer<> _queue_length_timer;
+    accumulator_type _disk_queue_lengths;
+
+    future<size_t> on_io_completed(future<size_t> f) {
+        if (!_is_dev_null) {
+            return f;
+        }
+
+        return f.then([this] (auto size_f) {
+            return make_ready_future<size_t>(this->req_size());
+        });
+    }
+
     bool is_sequential() const {
         return (req_type() == request_type::seqread) || (req_type() == request_type::overwrite);
     }
@@ -538,38 +566,10 @@ protected:
         return pos + _offset;
     }
 
-    void add_result(size_t data, std::chrono::microseconds latency) {
-        _data += data;
-        _latencies(latency.count());
-        _requests++;
-    }
-
-public:
-    virtual void emit_results(YAML::Emitter& out) = 0;
-    virtual future<> stop_hook() {
-        return make_ready_future<>();
-    }
-};
-
-class io_class_data : public class_data {
-protected:
-    bool _is_dev_null = false;
-    timer<> _queue_length_timer;
-    accumulator_type _disk_queue_lengths;
-
-    future<size_t> on_io_completed(future<size_t> f) {
-        if (!_is_dev_null) {
-            return f;
-        }
-
-        return f.then([this] (auto size_f) {
-            return make_ready_future<size_t>(this->req_size());
-        });
-    }
-
 public:
     io_class_data(job_config cfg)
             : class_data(std::move(cfg))
+            , _pos_distribution(0,  _config.file_size / _config.shard_info.request_size)
             , _queue_length_timer([this] { update_queue_length(); })
             , _disk_queue_lengths(extended_p_square_probabilities = quantiles_short)
     {}
