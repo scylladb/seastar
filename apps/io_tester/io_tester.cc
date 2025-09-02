@@ -95,11 +95,11 @@ auto allocate_and_fill_buffer(size_t buffer_size) {
     return buffer;
 }
 
-future<std::pair<file, uint64_t>> create_and_fill_file(sstring name, uint64_t fsize, open_flags flags, file_open_options options) {
+future<std::pair<file, uint64_t>> create_and_fill_file(sstring name, uint64_t fsize, open_flags flags, file_open_options options, bool fill) {
     auto f = co_await open_file_dma(name, flags, options);
     uint64_t pre_truncate_size = co_await f.size();
     co_await f.truncate(fsize);
-    if (pre_truncate_size >= fsize) {
+    if (!fill || (pre_truncate_size >= fsize)) {
         co_return std::make_pair(std::move(f), 0ul);
     }
 
@@ -614,10 +614,8 @@ private:
         options.extent_allocation_size_hint = _config.extent_allocation_size_hint.value_or(_config.file_size);
         options.append_is_unlikely = true;
 
-        return create_and_fill_file(fname, _config.file_size, flags, options).then([this](std::pair<file, uint64_t> p) {
+        return create_and_fill_file(fname, _config.file_size, flags, options, req_type() != request_type::append).then([this](std::pair<file, uint64_t> p) {
             _file = std::move(p.first);
-            _last_pos = (req_type() == request_type::append) ? p.second : 0u;
-
             return make_ready_future<>();
         }).then([fname] {
             // If keep_files == false, then the file shall not exist after the execution.
@@ -825,7 +823,7 @@ private:
             options.extent_allocation_size_hint = _config.extent_allocation_size_hint.value_or(fsize);
             options.append_is_unlikely = true;
 
-            return create_and_fill_file(fname, fsize, flags, options).then([](std::pair<file, uint64_t> p) {
+            return create_and_fill_file(fname, fsize, flags, options, true).then([](std::pair<file, uint64_t> p) {
                 return do_with(std::move(p.first), [] (auto& f) {
                     return f.close();
                 });
