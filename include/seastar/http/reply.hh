@@ -278,13 +278,12 @@ struct reply {
         _skip_body = true;
     }
 
-private:
     future<> write_reply(output_stream<char>& out);
     future<> write_reply_headers(output_stream<char>& out);
 
+private:
     http::body_writer_type _body_writer;
     friend class httpd::routes;
-    friend class httpd::connection;
 };
 
 std::ostream& operator<<(std::ostream& os, reply::status_type st);
