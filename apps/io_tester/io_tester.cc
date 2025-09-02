@@ -95,19 +95,17 @@ auto allocate_and_fill_buffer(size_t buffer_size) {
     return buffer;
 }
 
-future<std::pair<file, uint64_t>> create_and_fill_file(sstring name, uint64_t fsize, open_flags flags, file_open_options options, bool fill) {
+future<file> create_and_fill_file(sstring name, uint64_t fsize, open_flags flags, file_open_options options, bool fill) {
     auto f = co_await open_file_dma(name, flags, options);
     uint64_t pre_truncate_size = co_await f.size();
     co_await f.truncate(fsize);
     if (!fill || (pre_truncate_size >= fsize)) {
-        co_return std::make_pair(std::move(f), 0ul);
+        co_return f;
     }
 
     const uint64_t buffer_size{256ul << 10};
     const uint64_t additional_iteration = (fsize % buffer_size == 0) ? 0 : 1;
     const uint64_t buffers_count{static_cast<uint64_t>(fsize / buffer_size) + additional_iteration};
-    const uint64_t last_buffer_id = (buffers_count - 1u);
-    const uint64_t last_write_position = buffer_size * last_buffer_id;
     auto buffers_range = std::views::iota(UINT64_C(0), buffers_count);
     co_await max_concurrent_for_each(buffers_range.begin(), buffers_range.end(), 64, [f, buffer_size] (auto buffer_id) mutable {
             auto source_buffer = allocate_and_fill_buffer(buffer_size);
@@ -117,7 +115,7 @@ future<std::pair<file, uint64_t>> create_and_fill_file(sstring name, uint64_t fs
             });
     });
     co_await f.flush();
-    co_return std::make_pair(std::move(f), last_write_position);
+    co_return f;
 }
 
 future<> busyloop_sleep(std::chrono::steady_clock::time_point until, std::chrono::steady_clock::time_point now) {
@@ -614,8 +612,8 @@ private:
         options.extent_allocation_size_hint = _config.extent_allocation_size_hint.value_or(_config.file_size);
         options.append_is_unlikely = true;
 
-        return create_and_fill_file(fname, _config.file_size, flags, options, req_type() != request_type::append).then([this](std::pair<file, uint64_t> p) {
-            _file = std::move(p.first);
+        return create_and_fill_file(fname, _config.file_size, flags, options, req_type() != request_type::append).then([this](file f) {
+            _file = std::move(f);
             return make_ready_future<>();
         }).then([fname] {
             // If keep_files == false, then the file shall not exist after the execution.
@@ -823,8 +821,8 @@ private:
             options.extent_allocation_size_hint = _config.extent_allocation_size_hint.value_or(fsize);
             options.append_is_unlikely = true;
 
-            return create_and_fill_file(fname, fsize, flags, options, true).then([](std::pair<file, uint64_t> p) {
-                return do_with(std::move(p.first), [] (auto& f) {
+            return create_and_fill_file(fname, fsize, flags, options, true).then([](file f) {
+                return do_with(std::move(f), [] (auto& f) {
                     return f.close();
                 });
             });
