@@ -23,6 +23,7 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/util/backtrace.hh>
 #include <seastar/util/log-impl.hh>
+#include <seastar/util/log-level.hh>
 #include <seastar/core/lowres_clock.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/modules.hh>
@@ -42,34 +43,6 @@
 /// \addtogroup logging
 /// @{
 
-namespace seastar {
-
-SEASTAR_MODULE_EXPORT_BEGIN
-
-/// \brief log level used with \see {logger}
-/// used with the logger.do_log method.
-/// Levels are in increasing order. That is if you want to see debug(3) logs you
-/// will also see error(0), warn(1), info(2).
-///
-enum class log_level {
-    error,
-    warn,
-    info,
-    debug,
-    trace,
-};
-
-std::ostream& operator<<(std::ostream& out, log_level level);
-std::istream& operator>>(std::istream& in, log_level& level);
-
-SEASTAR_MODULE_EXPORT_END
-}
-
-template <>
-struct fmt::formatter<seastar::log_level> {
-    constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }
-    auto format(seastar::log_level level, fmt::format_context& ctx) const -> decltype(ctx.out());
-};
 
 namespace seastar {
 SEASTAR_MODULE_EXPORT_BEGIN
