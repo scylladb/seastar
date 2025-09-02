@@ -31,7 +31,38 @@ extern logger http_log;
 namespace http::experimental {
 logger rs_logger("default_http_retry_strategy");
 
-extern bool is_retryable_exception(std::exception_ptr ex);
+static bool is_retryable_exception(std::exception_ptr ex) {
+    while (ex) {
+        try {
+            std::rethrow_exception(ex);
+        } catch (const std::system_error& sys_err) {
+            auto code = sys_err.code().value();
+            if (code == EPIPE || code == ECONNABORTED || code == ECONNRESET || code == GNUTLS_E_PREMATURE_TERMINATION) {
+                return true;
+            }
+            try {
+                std::rethrow_if_nested(sys_err);
+            } catch (...) {
+                ex = std::current_exception();
+                continue;
+            }
+            return false;
+        } catch (const httpd::response_parsing_exception&) {
+            return true;
+        } catch (const std::exception& e) {
+            try {
+                std::rethrow_if_nested(e);
+            } catch (...) {
+                ex = std::current_exception();
+                continue;
+            }
+            return false;
+        } catch (...) {
+            return false;
+        }
+    }
+    return false;
+}
 
 default_retry_strategy::default_retry_strategy(unsigned max_retries)
     : _max_retries(max_retries) {
