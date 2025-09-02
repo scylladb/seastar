@@ -545,9 +545,6 @@ protected:
         });
     }
 
-    bool is_sequential() const {
-        return (req_type() == request_type::seqread) || (req_type() == request_type::overwrite);
-    }
     bool is_random() const {
         return (req_type() == request_type::randread) || (req_type() == request_type::randwrite);
     }
@@ -558,8 +555,10 @@ protected:
             pos = _pos_distribution(random_generator) * req_size();
         } else {
             pos = _last_pos + req_size();
-            if (is_sequential() && (pos >= _config.file_size)) {
-                pos = 0;
+            if (pos >= _config.file_size) {
+                if (req_type() != request_type::append) {
+                    pos = 0;
+                }
             }
         }
         _last_pos = pos;
