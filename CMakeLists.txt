@@ -720,6 +720,7 @@ add_library (seastar
   src/http/url.cc
   src/http/client.cc
   src/http/request.cc
+  src/http/retry_strategy.cc
   src/json/formatter.cc
   src/json/json_elements.cc
   src/net/arp.cc
