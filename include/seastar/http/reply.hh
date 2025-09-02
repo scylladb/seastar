@@ -279,7 +279,7 @@ struct reply {
     }
 
 private:
-    future<> write_reply_to_connection(output_stream<char>& out);
+    future<> write_reply(output_stream<char>& out);
     future<> write_reply_headers(output_stream<char>& out);
 
     http::body_writer_type _body_writer;

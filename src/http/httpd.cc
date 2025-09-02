@@ -99,7 +99,7 @@ future<> connection::do_response_loop() {
 
 future<> connection::start_response() {
     if (_resp->_body_writer) {
-        return _resp->write_reply_to_connection(out()).then_wrapped([this] (auto f) {
+        return _resp->write_reply(out()).then_wrapped([this] (auto f) {
             if (f.failed()) {
                 // In case of an error during the write close the connection
                 _server._respond_errors++;

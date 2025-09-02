@@ -132,7 +132,7 @@ void reply::write_body(const sstring& content_type, sstring content) {
     done(content_type);
 }
 
-future<> reply::write_reply_to_connection(output_stream<char>& out) {
+future<> reply::write_reply(output_stream<char>& out) {
     add_header("Transfer-Encoding", "chunked");
     return out.write(response_line()).then([this, &out] () mutable {
         return write_reply_headers(out);
