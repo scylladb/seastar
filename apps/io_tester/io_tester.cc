@@ -72,7 +72,7 @@ static auto random_seed = std::chrono::duration_cast<std::chrono::microseconds>(
 static thread_local std::default_random_engine random_generator(random_seed);
 
 class context;
-enum class request_type { seqread, seqwrite, randread, randwrite, append, cpu, unlink };
+enum class request_type { seqread, overwrite, randread, randwrite, append, cpu, unlink };
 
 namespace std {
 
@@ -414,7 +414,7 @@ public:
     // unlink them. So every job (a class in a shard) will have its own file(s) and will operate differently depending on the type:
     //
     // sequential reads  : will read the file from pos = 0 onwards, back to 0 on EOF
-    // sequential writes : will write the file from pos = 0 onwards, back to 0 on EOF
+    // overwrites        : will write the file from pos = 0 onwards, back to 0 on EOF
     // random reads      : will read the file at random positions, between 0 and EOF
     // random writes     : will overwrite the file at a random position, between 0 and EOF
     // append            : will write to the file from pos = EOF onwards, always appending to the end.
@@ -444,7 +444,7 @@ protected:
     sstring type_str() const {
         return std::unordered_map<request_type, sstring>{
             { request_type::seqread, "SEQ READ" },
-            { request_type::seqwrite, "SEQ WRITE" },
+            { request_type::overwrite, "OVERWRITE" },
             { request_type::randread, "RAND READ" },
             { request_type::randwrite, "RAND WRITE" },
             { request_type::append , "APPEND" },
@@ -518,7 +518,7 @@ protected:
     }
 
     bool is_sequential() const {
-        return (req_type() == request_type::seqread) || (req_type() == request_type::seqwrite);
+        return (req_type() == request_type::seqread) || (req_type() == request_type::overwrite);
     }
     bool is_random() const {
         return (req_type() == request_type::randread) || (req_type() == request_type::randwrite);
@@ -935,7 +935,7 @@ struct convert<request_type> {
     static bool decode(const Node& node, request_type& rt) {
         static std::unordered_map<std::string, request_type> mappings = {
             { "seqread", request_type::seqread },
-            { "seqwrite", request_type::seqwrite},
+            { "overwrite", request_type::overwrite},
             { "randread", request_type::randread },
             { "randwrite", request_type::randwrite },
             { "append", request_type::append},
