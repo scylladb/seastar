@@ -133,20 +133,28 @@ void reply::write_body(const sstring& content_type, sstring content) {
 }
 
 future<> reply::write_reply(output_stream<char>& out) {
-    add_header("Transfer-Encoding", "chunked");
-    return out.write(response_line()).then([this, &out] () mutable {
-        return write_reply_headers(out);
-    }).then([&out] () mutable {
-        return out.write("\r\n", 2);
-    }).then([this, &out] () mutable {
-        if (_skip_body) {
-            return make_ready_future<>();
+    return out.write(response_line().data(), response_line().size()).then([this, &out] {
+        if (_body_writer) {
+            add_header("Transfer-Encoding", "chunked");
+        } else {
+            add_header("Content-Length", to_sstring(_content.size()));
         }
-        return _body_writer(http::internal::make_http_chunked_output_stream(out)).then([&out] {
-            return out.write("0\r\n\r\n", 5);
+
+        return write_reply_headers(out).then([&out] {
+            return out.write("\r\n", 2);
+        }).then([this, &out] {
+            if (_skip_body) {
+                return make_ready_future<>();
+            }
+            if (_body_writer) {
+                return _body_writer(http::internal::make_http_chunked_output_stream(out)).then([&out] {
+                    return out.write("0\r\n\r\n", 5);
+                });
+            } else {
+                return out.write(_content.data(), _content.size());
+            }
         });
     });
-
 }
 
 future<> reply::write_reply_headers(output_stream<char>& out) {

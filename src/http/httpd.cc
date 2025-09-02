@@ -98,7 +98,6 @@ future<> connection::do_response_loop() {
 }
 
 future<> connection::start_response() {
-    if (_resp->_body_writer) {
         return _resp->write_reply(out()).then_wrapped([this] (auto f) {
             if (f.failed()) {
                 // In case of an error during the write close the connection
@@ -133,25 +132,6 @@ future<> connection::start_response() {
             _resp.reset();
             return make_ready_future<>();
         });
-    }
-    set_headers(*_resp);
-    _resp->_headers["Content-Length"] = to_sstring(
-            _resp->_content.size());
-    return _write_buf.write(_resp->_response_line.data(),
-            _resp->_response_line.size()).then([this] {
-        return _resp->write_reply_headers(out());
-    }).then([this] {
-        return _write_buf.write("\r\n", 2);
-    }).then([this] {
-        if (_resp->_skip_body) {
-            return make_ready_future<>();
-        }
-        return write_body();
-    }).then([this] {
-        return _write_buf.flush();
-    }).then([this] {
-        _resp.reset();
-    });
 }
 
 connection::~connection() {
