@@ -529,6 +529,7 @@ public:
 class io_class_data : public class_data {
     uint64_t _last_pos = 0;
     uint64_t _offset = 0;
+    unsigned _overflows = 0;
     std::uniform_int_distribution<uint32_t> _pos_distribution;
 protected:
     bool _is_dev_null = false;
@@ -556,6 +557,7 @@ protected:
         } else {
             pos = _last_pos + req_size();
             if (pos >= _config.file_size) {
+                _overflows++;
                 if (req_type() != request_type::append) {
                     pos = 0;
                 }
@@ -707,6 +709,7 @@ public:
         }
         out << YAML::Key << "max" << YAML::Value << (unsigned)max(_disk_queue_lengths);
         out << YAML::EndMap;
+        out << YAML::Key << "file_size_overflows" << YAML::Value << _overflows;
         out << YAML::EndMap;
     }
 };
