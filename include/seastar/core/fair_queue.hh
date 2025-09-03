@@ -39,6 +39,10 @@ namespace bi = boost::intrusive;
 
 namespace seastar {
 
+namespace testing {
+class fair_queue_test;
+}
+
 /// \brief describes a request that passes through the \ref fair_queue.
 ///
 /// A ticket is specified by a \c weight and a \c size. For example, one can specify a request of \c weight
@@ -156,19 +160,43 @@ public:
     };
 
     using class_id = unsigned int;
-    class priority_class_data;
     using capacity_t = fair_queue_entry::capacity_t;
     using signed_capacity_t = std::make_signed_t<capacity_t>;
 
 private:
-    using clock_type = std::chrono::steady_clock;
-    using priority_class_ptr = priority_class_data*;
-    struct class_compare {
-        bool operator() (const priority_class_ptr& lhs, const priority_class_ptr & rhs) const noexcept;
+    class priority_class_group_data;
+
+    class priority_entry {
+        friend class fair_queue;
+        friend testing::fair_queue_test;
+    protected:
+        uint32_t _shares = 0;
+        capacity_t _accumulated = 0;
+        bool _queued = false;
+        uint32_t _activations = 0;
+        priority_class_group_data* _parent = nullptr;
+        priority_entry(uint32_t shares, priority_class_group_data* p) noexcept
+                : _shares(std::max(shares, 1u))
+                , _parent(p)
+        {}
+    public:
+        virtual fair_queue_entry* top() = 0;
+        virtual std::pair<bool, capacity_t> pop_front() = 0;
+        void wakeup(const config&) noexcept;
+
+        void update_shares(uint32_t shares) noexcept {
+            _shares = (std::max(shares, 1u));
+        }
     };
 
-    class priority_queue : public std::priority_queue<priority_class_ptr, std::vector<priority_class_ptr>, class_compare> {
-        using super = std::priority_queue<priority_class_ptr, std::vector<priority_class_ptr>, class_compare>;
+    using clock_type = std::chrono::steady_clock;
+    using priority_entry_ptr = priority_entry*;
+    struct class_compare {
+        bool operator() (const priority_entry_ptr& lhs, const priority_entry_ptr & rhs) const noexcept;
+    };
+
+    class priority_queue : public std::priority_queue<priority_entry_ptr, std::vector<priority_entry_ptr>, class_compare> {
+        using super = std::priority_queue<priority_entry_ptr, std::vector<priority_entry_ptr>, class_compare>;
     public:
         void reserve(size_t len) {
             c.reserve(len);
@@ -179,18 +207,44 @@ private:
         }
     };
 
+    class priority_class_group_data final : public priority_entry {
+        friend class fair_queue;
+        friend testing::fair_queue_test;
+        priority_queue _children;
+        capacity_t _last_accumulated = 0;
+        size_t _nr_children = 0;
+    public:
+        priority_class_group_data(uint32_t shares, priority_class_group_data* p) noexcept
+                : priority_entry(shares, p)
+        {
+            if (_parent == nullptr) {
+                _queued = true;
+            }
+        }
+        priority_class_group_data(const priority_class_group_data&) = delete;
+        priority_class_group_data(priority_class_group_data&&) = delete;
+
+        fair_queue_entry* top() override;
+        std::pair<bool, capacity_t> pop_front() override;
+
+        void reserve() {
+            _children.reserve(_nr_children + 1);
+        }
+
+        void push_from_idle(priority_entry&, const config&) noexcept;
+    };
+
+    class priority_class_data;
+
     config _config;
-    priority_queue _handles;
+    priority_class_group_data _root;
+    std::vector<std::unique_ptr<priority_class_group_data>> _priority_groups;
     std::vector<std::unique_ptr<priority_class_data>> _priority_classes;
-    size_t _nr_classes = 0;
-    capacity_t _last_accumulated = 0;
+    friend testing::fair_queue_test;
 
     // Total capacity of all requests waiting in the queue.
     capacity_t _queued_capacity = 0;
 
-    void push_priority_class(priority_class_data& pc) noexcept;
-    void push_priority_class_from_idle(priority_class_data& pc) noexcept;
-    void pop_priority_class(priority_class_data& pc) noexcept;
     void plug_priority_class(priority_class_data& pc) noexcept;
     void unplug_priority_class(priority_class_data& pc) noexcept;
 
@@ -207,7 +261,10 @@ public:
     /// Registers a priority class against this fair queue.
     ///
     /// \param shares how many shares to create this class with
-    void register_priority_class(class_id c, uint32_t shares);
+    void register_priority_class(class_id c, uint32_t shares, std::optional<unsigned> group_idx = {});
+
+    /// Makes sure class groups exists
+    void ensure_priority_group(unsigned index, uint32_t shares);
 
     /// Unregister a priority class.
     ///

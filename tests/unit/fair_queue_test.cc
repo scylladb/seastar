@@ -63,6 +63,7 @@ class test_env {
     std::vector<int> _results;
     std::vector<std::vector<std::exception_ptr>> _exceptions;
     fair_queue::class_id _nr_classes = 0;
+    unsigned _nr_groups = 0;
     std::vector<request> _inflight;
 
     static fair_queue::config fq_config() {
@@ -121,10 +122,15 @@ public:
         }
     }
 
-    size_t register_priority_class(uint32_t shares) {
+    unsigned register_priority_group(uint32_t shares) {
+        _fq.ensure_priority_group(_nr_groups, shares);
+        return _nr_groups++;
+    }
+
+    size_t register_priority_class(uint32_t shares, std::optional<unsigned> group = {}) {
         _results.push_back(0);
         _exceptions.push_back(std::vector<std::exception_ptr>());
-        _fq.register_priority_class(_nr_classes, shares);
+        _fq.register_priority_class(_nr_classes, shares, group);
         return _nr_classes++;
     }
 
@@ -193,6 +199,18 @@ public:
         for (auto ar : adjusted_results) {
             auto dev = std::abs(ar - average_result) / average_result;
             BOOST_CHECK_LE(dev, error);
+        }
+    }
+
+    void verify_x(sstring name, std::vector<int> values) {
+        SEASTAR_ASSERT(values.size() == _results.size());
+        auto str = name + ":";
+        for (auto i = 0ul; i < _results.size(); ++i) {
+            str += format(" r[{:d}] = {:d}", i, _results[i]);
+        }
+        std::cout << str <<std::endl;
+        for (unsigned i = 0; i < _results.size(); i++) {
+            BOOST_CHECK_EQUAL(_results[i], values[i]);
         }
     }
 };
@@ -334,6 +352,105 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_forgiving_queue) {
     env.verify("forgiving_queue", {1, 3}, 2);
 }
 
+SEASTAR_THREAD_TEST_CASE(test_fair_queue_forgiving_group) {
+    test_env env;
+
+    auto g = env.register_priority_group(10);
+    auto a = env.register_priority_class(10, g);
+    auto b = env.register_priority_class(10, g);
+    auto c = env.register_priority_class(10);
+
+    auto step = [&env] (std::string name, unsigned pc, unsigned nr, std::vector<int> results) {
+        for (unsigned i = 0; i < nr; i++) {
+            env.do_op(pc, 1);
+        }
+        env.tick(100);
+        env.verify_x("forgiving_group_" + name, std::move(results));
+    };
+
+    auto drain = [&] () {
+        env.tick(300);
+        env.reset_results(a);
+        env.reset_results(b);
+        env.reset_results(c);
+    };
+
+    // Test one -- activate in top-nesetd-nested order
+    {
+        // Step-1 -- let the top-level clas work on its own and dispatch 100
+        // requests. At this point those 100 requests will be dispatched.
+        step("1_top", c, 300, {0, 0, 100});
+
+        // Step-2 -- activate a sub-class and its class group, then dispatch
+        // 100 more requests. Queue fogrives 50 requests to the group upon
+        // activation, then dispatches remaining 50 in 1:1 proportion between
+        // two active classes.
+        step("1_nest_1", a, 200, {75, 0, 125});
+
+        // Step-3 -- activate another sub-class, then dispatch 100 more requests.
+        // This time queue forgives 50 requests to the sub-class, but not to the
+        // group, because it's still active since previous step. After it, the
+        // top-level class and a subgroup are dispatched in 1:1 ratio, but since
+        // the newly activated sub-class has 50 forgiven requests, only _this_
+        // class will be dispatched from in this group, the other sub-class would
+        // remain idle during this 100-requests dispatch.
+        step("1_nest_2", b, 100, {75, 50, 175});
+
+        // Finally, continue dispatching. At this point no more "forgiven" requests
+        // are left and all three classes are dispatched from according to their
+        // shares. Given it's {1:1}:2 ratios, the addition should be {25, 25, 50}
+        step("1_cont", 0, 0, {100, 75, 225});
+
+        drain();
+    }
+
+    // Test two -- activate in nested-outer-nested order
+    {
+        // Step-1 -- netsted class works on its own and dispatches
+        // all the requests it wants.
+        step("2_nest_1", a, 300, {100, 0, 0});
+
+        // Step-2 -- top-level class activates and gets 50 fogiven requests.
+        // 50 remaining are shared between a and c in 1:1 proportion, just like
+        // it was in the top-nest-nest sequence above, no difference here
+        step("2_top", c, 200, {125, 0, 75});
+
+        // Step-3 -- another nested class activates and gets 50 forgiven
+        // requests. 100 requests are shared between c and {a+b} in 1:1
+        // fraction, so c gets 50 and a+b get another 50 which all go to
+        // b class for its "forgiven" credit
+        step("2_nest_2", b, 100, {125, 50, 125});
+
+        // Remaining requests are shared as in test-1 above: {25, 25, 50}
+        step("2_cont", 0, 0, {150, 75, 175});
+
+        drain();
+    }
+
+    // Test two -- activate in nested-nested-outer order
+    {
+        // First two steps don't differ from the previous runs -- first
+        // class gets 100 requests, then the 2nd activates and gets 50
+        // forgiven and remaining 50 are split evenly.
+        step("3_nest_1", a, 300, {100, 0, 0});
+        step("3_nest_2", b, 200, {125, 75, 0});
+
+        // Step-3 -- top level class activates and get 50 forgiven
+        // requests. After it remaining 50 are divided between it and
+        // the a+b group in 1:1 fraction, so class c gets 25 more.
+        // Classes in group shared the remaining 25 requests in 1:1 as
+        // well, so one class get 12 requests and another one gets 13.
+        step("3_top", c, 100, {137, 88, 75});
+
+        // The remaining requests are as well shared in {25, 25, 50}
+        // proportion just as before (give c more requests so that it
+        // can dispatch its goal).
+        step("3_cont", c, 50, {162, 113, 125});
+
+        drain();
+    }
+}
+
 // Classes push requests and then update swap their shares. In the end, should have executed
 // the same number of requests.
 SEASTAR_THREAD_TEST_CASE(test_fair_queue_update_shares) {
@@ -417,21 +534,35 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_random_run) {
         size_t cls;
     };
 
-    auto add_class = [&] {
+    auto add_class = [&] (std::optional<unsigned> group) {
         auto s = shares(generator);
         auto w = weights(generator);
-        std::cout << format("Add class with {} shares and {} request weight", s, w) << std::endl;
+        std::cout << format("Add class with {} shares and {} request weight, in group = {}", s, w, group.has_value()) << std::endl;
         return test_class {
             .shares = s,
             .weight = w,
             .expected = float(s)/float(w),
-            .cls = env.register_priority_class(s),
+            .cls = env.register_priority_class(s, group),
         };
     };
 
-    auto a = add_class();
-    auto b = add_class();
-    auto c = add_class();
+    unsigned group_shares = 0;
+    std::optional<unsigned> group;
+    std::uniform_int_distribution<unsigned> in_group(0, 1);
+    if (in_group(generator)) {
+        group_shares = shares(generator);
+        group = env.register_priority_group(group_shares);
+        std::cout << format("Add group with {} shares", group_shares) << std::endl;
+    }
+
+    auto a = add_class({});
+    auto b = add_class(group);
+    auto c = add_class(group);
+
+    if (group) {
+        b.expected = float(group_shares) * (float(b.shares) / float(b.shares + c.shares)) / float(b.weight);
+        c.expected = float(group_shares) * (float(c.shares) / float(b.shares + c.shares)) / float(c.weight);
+    }
 
     unsigned reqs = 3000;
 
@@ -447,4 +578,48 @@ SEASTAR_THREAD_TEST_CASE(test_fair_queue_random_run) {
     env.tick(reqs);
 
     env.verify_f(format("random_run ({:d} requests)", reqs), {a.expected, b.expected, c.expected}, 0.05);
+}
+
+// Exhaustive test for waking-up a tree of classes with requests
+SEASTAR_THREAD_TEST_CASE(test_fair_queue_nested_wakeups) {
+    test_env env;
+
+    std::vector<unsigned> pcs;
+    unsigned g0 = env.register_priority_group(1);
+    unsigned g1 = env.register_priority_group(1);
+    pcs.push_back(env.register_priority_class(1, {}));
+    pcs.push_back(env.register_priority_class(1, {}));
+    pcs.push_back(env.register_priority_class(1, g0));
+    pcs.push_back(env.register_priority_class(1, g0));
+    pcs.push_back(env.register_priority_class(1, g0));
+    pcs.push_back(env.register_priority_class(1, g1));
+    pcs.push_back(env.register_priority_class(1, g1));
+
+    for (unsigned nr_reqs = 1; nr_reqs < 5; nr_reqs++) {
+        std::vector<unsigned> targets(nr_reqs, 0);
+
+        auto next = [&] {
+            for (unsigned i = 0; i < targets.size(); i++) {
+                if (targets[i] < pcs.size() - 1) {
+                    targets[i]++;
+                    return true;
+                }
+
+                targets[i] = 0;
+            }
+
+            return false;
+        };
+
+        do {
+            for (unsigned i = 0; i < targets.size(); i++) {
+                env.do_op(pcs[targets[i]], 1);
+            }
+
+            auto res = env.tick(targets.size());
+            BOOST_REQUIRE_EQUAL(res, targets.size());
+            res = env.tick(1);
+            BOOST_REQUIRE_EQUAL(res, 0);
+        } while (next());
+    }
 }
