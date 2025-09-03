@@ -43,6 +43,7 @@
 #include <seastar/util/backtrace.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/modules.hh>
+#include <seastar/util/log-level.hh>
 
 namespace seastar {
 
@@ -1890,7 +1891,7 @@ future<T> current_exception_as_future() noexcept {
     return future<T>(future_state_base::current_exception_future_marker());
 }
 
-void log_exception_trace() noexcept;
+void log_exception_trace(log_level level) noexcept;
 
 /// \brief Creates a \ref future in an available, failed state.
 ///
@@ -1901,7 +1902,7 @@ void log_exception_trace() noexcept;
 template <typename T, typename Exception>
 inline
 future<T> make_exception_future(Exception&& ex) noexcept {
-    log_exception_trace();
+    log_exception_trace(log_level::trace);
     return make_exception_future<T>(std::make_exception_ptr(std::forward<Exception>(ex)));
 }
 

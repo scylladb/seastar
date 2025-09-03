@@ -98,7 +98,7 @@ template<typename T>
 [[deprecated("Use co_await coroutine::return_exception_ptr or co_return coroutine::exception instead")]]
 [[nodiscard]]
 exception make_exception(T&& t) noexcept {
-    log_exception_trace();
+    log_exception_trace(log_level::trace);
     return exception(std::make_exception_ptr(std::forward<T>(t)));
 }
 
@@ -148,7 +148,7 @@ inline exception return_exception(std::exception_ptr ex) noexcept {
 template<typename T>
 [[nodiscard]]
 exception return_exception(T&& t) noexcept {
-    log_exception_trace();
+    log_exception_trace(log_level::trace);
     return exception(std::make_exception_ptr(std::forward<T>(t)));
 }
 
