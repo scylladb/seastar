@@ -131,9 +131,29 @@ SEASTAR_TEST_CASE(test_generator_lister) {
     co_await lister_generator_test(std::move(f));
 }
 
+SEASTAR_TEST_CASE(test_generator_early_abort) {
+    auto f = co_await engine().open_directory(".");
+    {
+        auto lister = f.experimental_list_directory();
+        auto de = co_await lister();
+    } // destroys the lister object before it reports EOF
+    co_await f.close();
+}
+
 SEASTAR_TEST_CASE(test_generator_fallback) {
     auto lf = co_await engine().open_directory(".");
     auto tf = ::seastar::make_shared<test_file_impl>(std::move(lf));
     auto f2 = file(std::move(tf));
     co_await lister_generator_test(std::move(f2));
+}
+
+SEASTAR_TEST_CASE(test_generator_fallback_early_abort) {
+    auto lf = co_await engine().open_directory(".");
+    auto tf = ::seastar::make_shared<test_file_impl>(std::move(lf));
+    auto f = file(std::move(tf));
+    {
+        auto lister = f.experimental_list_directory();
+        auto de = co_await lister();
+    } // destroys the lister object before it reports EOF
+    co_await f.close();
 }
