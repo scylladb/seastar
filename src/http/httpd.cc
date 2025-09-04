@@ -98,40 +98,40 @@ future<> connection::do_response_loop() {
 }
 
 future<> connection::start_response() {
-        return _resp->write_reply(out()).then_wrapped([this] (auto f) {
-            if (f.failed()) {
-                // In case of an error during the write close the connection
-                _server._respond_errors++;
-                _done = true;
-                _replies.abort(std::make_exception_ptr(std::logic_error("Unknown exception during body creation")));
-                _replies.push(std::unique_ptr<http::reply>());
-                f.ignore_ready_future();
-            }
+    return _resp->write_reply(out()).then_wrapped([this] (auto f) {
+        if (f.failed()) {
+            // In case of an error during the write close the connection
+            _server._respond_errors++;
+            _done = true;
+            _replies.abort(std::make_exception_ptr(std::logic_error("Unknown exception during body creation")));
+            _replies.push(std::unique_ptr<http::reply>());
+            f.ignore_ready_future();
+        }
+        return make_ready_future<>();
+    }).then_wrapped([this ] (auto f) {
+        if (f.failed()) {
+            // We could not write the closing sequence
+            // Something is probably wrong with the connection,
+            // we should close it, so the client will disconnect
+            _done = true;
+            _replies.abort(std::make_exception_ptr(std::logic_error("Unknown exception during body creation")));
+            _replies.push(std::unique_ptr<http::reply>());
+            f.ignore_ready_future();
             return make_ready_future<>();
-        }).then_wrapped([this ] (auto f) {
-            if (f.failed()) {
-                // We could not write the closing sequence
-                // Something is probably wrong with the connection,
-                // we should close it, so the client will disconnect
-                _done = true;
-                _replies.abort(std::make_exception_ptr(std::logic_error("Unknown exception during body creation")));
-                _replies.push(std::unique_ptr<http::reply>());
-                f.ignore_ready_future();
-                return make_ready_future<>();
-            } else {
-                return _write_buf.flush();
-            }
-        }).then_wrapped([this] (auto f) {
-            if (f.failed()) {
-                // flush failed. just close the connection
-                _done = true;
-                _replies.abort(std::make_exception_ptr(std::logic_error("Unknown exception during body creation")));
-                _replies.push(std::unique_ptr<http::reply>());
-                f.ignore_ready_future();
-            }
-            _resp.reset();
-            return make_ready_future<>();
-        });
+        } else {
+            return _write_buf.flush();
+        }
+    }).then_wrapped([this] (auto f) {
+        if (f.failed()) {
+            // flush failed. just close the connection
+            _done = true;
+            _replies.abort(std::make_exception_ptr(std::logic_error("Unknown exception during body creation")));
+            _replies.push(std::unique_ptr<http::reply>());
+            f.ignore_ready_future();
+        }
+        _resp.reset();
+        return make_ready_future<>();
+    });
 }
 
 connection::~connection() {
