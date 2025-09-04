@@ -1334,6 +1334,9 @@ public:
         }
         return do_handshake_sync(&session::do_force_rehandshake);
     }
+    void skip_wait_for_eof_on_shutdown() {
+        _options.wait_for_eof_on_shutdown = false;
+    }
 
     future<> handshake() {
         // maybe load system certificates before handshake, in case we
@@ -2078,6 +2081,9 @@ public:
     future<> force_rehandshake() {
         return _session->force_rehandshake();
     }
+    void skip_wait_for_eof_on_shutdown() {
+        _session->skip_wait_for_eof_on_shutdown();
+    }
 };
 
 
@@ -2291,6 +2297,9 @@ future<> tls::force_rehandshake(connected_socket& socket) {
     return s->force_rehandshake();
 }
 
+void tls::skip_wait_for_eof_on_shutdown(connected_socket& socket) {
+    get_tls_socket(socket)->skip_wait_for_eof_on_shutdown();
+}
 
 std::string_view tls::format_as(subject_alt_name_type type) {
     switch (type) {
