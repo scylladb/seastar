@@ -495,6 +495,14 @@ namespace tls {
     future<> force_rehandshake(connected_socket& socket);
 
     /**
+     * Clear the "wait for EOF on shutdown" bit.
+     * Useful if the caller is willing to close the connection immediately
+     * Must be called before socket is shutdown or closed, otherwise it
+     * has no effect
+     */
+    void skip_wait_for_eof_on_shutdown(connected_socket& socket);
+
+    /**
      * Subject alt name types.
     */
     enum class subject_alt_name_type {
