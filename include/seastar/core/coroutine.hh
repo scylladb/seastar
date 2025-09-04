@@ -30,16 +30,33 @@
 
 #ifndef SEASTAR_MODULE
 #include <coroutine>
+#include <new>
 #endif
 
 namespace seastar {
 
 namespace internal {
 
+class coroutine_allocators {
+public:
+    static void* operator new(size_t size) {
+        memory::scoped_critical_alloc_section _;
+        return ::operator new(size);
+    }
+    static void operator delete(void* ptr) noexcept {
+        ::operator delete(ptr);
+    }
+#ifdef __cpp_sized_deallocation
+    static void operator delete(void* ptr, std::size_t sz) noexcept {
+        ::operator delete(ptr, sz);
+    }
+#endif
+};
+
 template <typename T = void>
 class coroutine_traits_base {
 public:
-    class promise_type final : public seastar::task {
+    class promise_type final : public seastar::task, public coroutine_allocators {
         seastar::promise<T> _promise;
     public:
         promise_type() = default;
@@ -91,7 +108,7 @@ public:
 template <>
 class coroutine_traits_base<> {
 public:
-   class promise_type final : public seastar::task {
+   class promise_type final : public seastar::task, public coroutine_allocators {
         seastar::promise<> _promise;
     public:
         promise_type() = default;
