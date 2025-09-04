@@ -297,18 +297,7 @@ io_queue_topology::io_queue_topology(io_queue_topology&& o)
 
 namespace seastar {
 
-cpu_set_t cpuid_to_cpuset(unsigned cpuid) {
-    cpu_set_t cs;
-    CPU_ZERO(&cs);
-    CPU_SET(cpuid, &cs);
-    return cs;
-}
-
 namespace resource {
-
-size_t div_roundup(size_t num, size_t denom) {
-    return (num + denom - 1) / denom;
-}
 
 static hwloc_uint64_t get_memory_from_hwloc_obj(hwloc_obj_t obj) {
 #if HWLOC_API_VERSION >= 0x00020000
