@@ -167,10 +167,6 @@ internal::numa_layout configure(std::vector<resource::memory> m, bool mbind,
 
 void configure_minimal();
 
-// A deprecated alias for set_abort_on_allocation_failure(true).
-[[deprecated("use set_abort_on_allocation_failure(true) instead")]]
-void enable_abort_on_allocation_failure();
-
 namespace internal {
 
 extern thread_local constinit int abort_on_alloc_failure_suppressed;
