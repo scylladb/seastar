@@ -22,7 +22,7 @@
 #include <iostream>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/reactor.hh>
-#include <seastar/core/distributed.hh>
+#include <seastar/core/sharded.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/units.hh>
 
@@ -37,7 +37,7 @@ static int tx_msg_nr = tx_msg_total_size / tx_msg_size;
 static std::string str_txbuf(tx_msg_size, 'X');
 
 class client;
-distributed<client> clients;
+sharded<client> clients;
 
 transport protocol = transport::TCP;
 

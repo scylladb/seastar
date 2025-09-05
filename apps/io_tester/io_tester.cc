@@ -19,7 +19,7 @@
  * Copyright (C) 2017 ScyllaDB
  */
 #include <seastar/core/app-template.hh>
-#include <seastar/core/distributed.hh>
+#include <seastar/core/sharded.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/shared_ptr.hh>
@@ -1133,7 +1133,7 @@ public:
     }
 };
 
-static void show_results(distributed<context>& ctx) {
+static void show_results(sharded<context>& ctx) {
     YAML::Emitter out;
     out << YAML::BeginDoc;
     out << YAML::BeginSeq;
@@ -1163,7 +1163,7 @@ int main(int ac, char** av) {
         ("sched-groups", bpo::value<sstring>(), "YAML file containing scheduling groups configuration")
     ;
 
-    distributed<context> ctx;
+    sharded<context> ctx;
     return app.run(ac, av, [&] {
         return seastar::async([&] {
             auto& opts = app.configuration();

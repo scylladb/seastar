@@ -22,8 +22,8 @@
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 
-#include <seastar/core/distributed.hh>
 #include <seastar/core/shared_ptr.hh>
+#include <seastar/core/sharded.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/sleep.hh>
 #include <iostream>

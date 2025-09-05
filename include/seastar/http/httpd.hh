@@ -31,7 +31,7 @@
 #include <seastar/http/request.hh>
 #include <seastar/core/seastar.hh>
 #include <seastar/core/sstring.hh>
-#include <seastar/core/distributed.hh>
+#include <seastar/core/sharded.hh>
 #include <seastar/core/queue.hh>
 #include <seastar/core/gate.hh>
 #include <seastar/core/metrics_registration.hh>
@@ -157,7 +157,7 @@ public:
      *
      * Use case example using seastar threads for clarity:
 
-        distributed<http_server> server; // typical server
+        sharded<http_server> server; // typical server
 
         seastar::shared_ptr<seastar::tls::credentials_builder> creds = seastar::make_shared<seastar::tls::credentials_builder>();
         sstring ms_cert = "MyCertificate.crt";
@@ -231,11 +231,11 @@ public:
  *              });
  */
 class http_server_control {
-    std::unique_ptr<distributed<http_server>> _server_dist;
+    std::unique_ptr<sharded<http_server>> _server_dist;
 private:
     static sstring generate_server_name();
 public:
-    http_server_control() : _server_dist(new distributed<http_server>) {
+    http_server_control() : _server_dist(new sharded<http_server>) {
     }
 
     future<> start(const sstring& name = generate_server_name());
@@ -245,7 +245,7 @@ public:
     future<> listen(socket_address addr, http_server::server_credentials_ptr credentials);
     future<> listen(socket_address addr, listen_options lo);
     future<> listen(socket_address addr, listen_options lo, http_server::server_credentials_ptr credentials);
-    distributed<http_server>& server();
+    sharded<http_server>& server();
 };
 SEASTAR_MODULE_EXPORT_END
 }

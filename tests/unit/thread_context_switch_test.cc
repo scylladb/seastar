@@ -24,7 +24,7 @@
 #include <seastar/core/semaphore.hh>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/do_with.hh>
-#include <seastar/core/distributed.hh>
+#include <seastar/core/sharded.hh>
 #include <seastar/core/sleep.hh>
 #include <fmt/printf.h>
 
@@ -75,7 +75,7 @@ public:
 int main(int ac, char** av) {
     static const auto test_time = 5s;
     return app_template().run_deprecated(ac, av, [] {
-        auto dcstp = std::make_unique<distributed<context_switch_tester>>();
+        auto dcstp = std::make_unique<sharded<context_switch_tester>>();
         auto& dcst = *dcstp;
         return dcst.start().then([&dcst] {
             return dcst.invoke_on_all(&context_switch_tester::begin_measurement);
