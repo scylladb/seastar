@@ -226,6 +226,9 @@ struct options {
     bool dsync = false;
     ::sleep_fn sleep_fn = timer_sleep<lowres_clock>;
     ::pause_fn pause_fn = make_uniform_pause;
+    // the value passed as a hint for allocated extent size
+    // if not specified, then file_size is used as a hint
+    std::optional<uint64_t> extent_allocation_size_hint;
 };
 
 class class_data;
@@ -241,9 +244,6 @@ struct job_config {
     // of the disk's cache. An exception to that rule is unlink_class_data, that creates files_count
     // files with file_size/files_count.
     uint64_t file_size;
-    // the value passed as a hint for allocated extent size
-    // if not specified, then file_size is used as a hint
-    std::optional<uint64_t> extent_allocation_size_hint;
     // the number of files to create and unlink by unlink_class_data per shard
     // remaining operations utilize only one file per shard
     std::optional<uint64_t> files_count;
@@ -610,7 +610,7 @@ private:
             flags |= open_flags::dsync;
         }
         file_open_options options;
-        options.extent_allocation_size_hint = _config.extent_allocation_size_hint.value_or(_config.file_size);
+        options.extent_allocation_size_hint = _config.options.extent_allocation_size_hint.value_or(_config.file_size);
         options.append_is_unlikely = (req_type() != request_type::append);
 
         return create_and_fill_file(fname, _config.file_size, flags, options, req_type() != request_type::append).then([this](file f) {
@@ -820,7 +820,7 @@ private:
             const auto flags = open_flags::rw | open_flags::create;
 
             file_open_options options;
-            options.extent_allocation_size_hint = _config.extent_allocation_size_hint.value_or(fsize);
+            options.extent_allocation_size_hint = _config.options.extent_allocation_size_hint.value_or(fsize);
             options.append_is_unlikely = true;
 
             return create_and_fill_file(fname, fsize, flags, options, true).then([](file f) {
@@ -1021,6 +1021,12 @@ struct convert<options> {
                 throw std::runtime_error(seastar::format("Unknown pause_distribution {}", pd));
             }
         }
+        // By default the file size is used as the allocation hint.
+        // However, certain tests may require using a specific value (e.g. 32MB).
+        if (node["extent_allocation_size_hint"]) {
+            op.extent_allocation_size_hint = node["extent_allocation_size_hint"].as<byte_size>().size;
+        }
+
         return true;
     }
 };
@@ -1041,12 +1047,6 @@ struct convert<job_config> {
             cl.file_size = 0;
         } else {
             cl.file_size = 1ull << 30; // 1G by default
-        }
-
-        // By default the file size is used as the allocation hint.
-        // However, certain tests may require using a specific value (e.g. 32MB).
-        if (node["extent_allocation_size_hint"]) {
-            cl.extent_allocation_size_hint = node["extent_allocation_size_hint"].as<byte_size>().size;
         }
 
         // By default a job may create 0 or 1 file.
