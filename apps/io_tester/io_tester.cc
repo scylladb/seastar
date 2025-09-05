@@ -95,10 +95,13 @@ auto allocate_and_fill_buffer(size_t buffer_size) {
     return buffer;
 }
 
-future<file> create_and_fill_file(sstring name, uint64_t fsize, open_flags flags, file_open_options options, bool fill) {
+future<file> create_and_fill_file(sstring name, uint64_t fsize, open_flags flags, file_open_options options, bool fill, bool fallocate) {
     auto f = co_await open_file_dma(name, flags, options);
     uint64_t pre_truncate_size = co_await f.size();
     co_await f.truncate(fsize);
+    if (fallocate) {
+        co_await f.allocate(0, fsize);
+    }
     if (!fill || (pre_truncate_size >= fsize)) {
         co_return f;
     }
@@ -229,6 +232,7 @@ struct options {
     // the value passed as a hint for allocated extent size
     // if not specified, then file_size is used as a hint
     std::optional<uint64_t> extent_allocation_size_hint;
+    bool pre_allocate_blocks = false;
 };
 
 class class_data;
@@ -613,7 +617,7 @@ private:
         options.extent_allocation_size_hint = _config.options.extent_allocation_size_hint.value_or(_config.file_size);
         options.append_is_unlikely = (req_type() != request_type::append);
 
-        return create_and_fill_file(fname, _config.file_size, flags, options, req_type() != request_type::append).then([this](file f) {
+        return create_and_fill_file(fname, _config.file_size, flags, options, req_type() != request_type::append, _config.options.pre_allocate_blocks).then([this](file f) {
             _file = std::move(f);
             return make_ready_future<>();
         }).then([fname] {
@@ -823,7 +827,7 @@ private:
             options.extent_allocation_size_hint = _config.options.extent_allocation_size_hint.value_or(fsize);
             options.append_is_unlikely = true;
 
-            return create_and_fill_file(fname, fsize, flags, options, true).then([](file f) {
+            return create_and_fill_file(fname, fsize, flags, options, true, false).then([](file f) {
                 return do_with(std::move(f), [] (auto& f) {
                     return f.close();
                 });
@@ -1025,6 +1029,9 @@ struct convert<options> {
         // However, certain tests may require using a specific value (e.g. 32MB).
         if (node["extent_allocation_size_hint"]) {
             op.extent_allocation_size_hint = node["extent_allocation_size_hint"].as<byte_size>().size;
+        }
+        if (node["fallocate"]) {
+            op.pre_allocate_blocks = node["fallocate"].as<bool>();
         }
 
         return true;
