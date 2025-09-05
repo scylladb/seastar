@@ -22,7 +22,7 @@
 #include <seastar/core/reactor.hh>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/temporary_buffer.hh>
-#include <seastar/core/distributed.hh>
+#include <seastar/core/sharded.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/util/closeable.hh>
@@ -210,7 +210,7 @@ int main(int ac, char** av) {
                 fmt::print(std::cerr, "Error: no protocols enabled. Use \"--tcp yes\" and/or \"--sctp yes\" to enable\n");
                 return 1;
             }
-            distributed<tcp_server> server;
+            sharded<tcp_server> server;
             server.start().get();
             auto stop_server = deferred_stop(server);
             // Start listening in the background.
