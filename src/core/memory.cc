@@ -163,10 +163,6 @@ thread_local constinit int abort_on_alloc_failure_suppressed = 0;
 
 }
 
-void enable_abort_on_allocation_failure() {
-    set_abort_on_allocation_failure(true);
-}
-
 static std::pmr::polymorphic_allocator<char> static_malloc_allocator{std::pmr::get_default_resource()};;
 std::pmr::polymorphic_allocator<char>* malloc_allocator{&static_malloc_allocator};
 
