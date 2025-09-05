@@ -954,7 +954,7 @@ future<> add_prometheus_routes(httpd::http_server& server, config ctx) {
     return make_ready_future<>();
 }
 
-future<> add_prometheus_routes(distributed<httpd::http_server>& server, config ctx) {
+future<> add_prometheus_routes(sharded<httpd::http_server>& server, config ctx) {
     return server.invoke_on_all([ctx](httpd::http_server& s) {
         return add_prometheus_routes(s, ctx);
     });

@@ -35,7 +35,7 @@
 #include <seastar/core/stream.hh>
 #include <seastar/core/memory.hh>
 #include <seastar/core/units.hh>
-#include <seastar/core/distributed.hh>
+#include <seastar/core/sharded.hh>
 #include <seastar/core/vector-data-sink.hh>
 #include <seastar/core/bitops.hh>
 #include <seastar/core/slab.hh>
@@ -734,14 +734,14 @@ public:
 
 class sharded_cache {
 private:
-    distributed<cache>& _peers;
+    sharded<cache>& _peers;
 
     inline
     unsigned get_cpu(const item_key& key) {
         return std::hash<item_key>()(key) % smp::count;
     }
 public:
-    sharded_cache(distributed<cache>& peers) : _peers(peers) {}
+    sharded_cache(sharded<cache>& peers) : _peers(peers) {}
 
     future<> flush_all() {
         return _peers.invoke_on_all(&cache::flush_all);
@@ -867,7 +867,7 @@ class ascii_protocol {
 private:
     using this_type = ascii_protocol;
     sharded_cache& _cache;
-    distributed<system_stats>& _system_stats;
+    sharded<system_stats>& _system_stats;
     memcache_ascii_parser _parser;
     item_key _item_key;
     item_insertion_data _insertion;
@@ -1028,7 +1028,7 @@ private:
         });
     }
 public:
-    ascii_protocol(sharded_cache& cache, distributed<system_stats>& system_stats)
+    ascii_protocol(sharded_cache& cache, sharded<system_stats>& system_stats)
         : _cache(cache)
         , _system_stats(system_stats)
     {}
@@ -1226,7 +1226,7 @@ public:
 private:
     std::optional<future<>> _task;
     sharded_cache& _cache;
-    distributed<system_stats>& _system_stats;
+    sharded<system_stats>& _system_stats;
     udp_channel _chan;
     uint16_t _port;
     size_t _max_datagram_size = default_max_datagram_size;
@@ -1258,7 +1258,7 @@ private:
         }
 
         connection(ipv4_addr src, uint16_t request_id, input_stream<char>&& in, size_t out_size,
-                sharded_cache& c, distributed<system_stats>& system_stats)
+                sharded_cache& c, sharded<system_stats>& system_stats)
             : _src(src)
             , _request_id(request_id)
             , _in(std::move(in))
@@ -1280,7 +1280,7 @@ private:
     };
 
 public:
-    udp_server(sharded_cache& c, distributed<system_stats>& system_stats, uint16_t port = 11211)
+    udp_server(sharded_cache& c, sharded<system_stats>& system_stats, uint16_t port = 11211)
          : _cache(c)
          , _system_stats(system_stats)
          , _port(port)
@@ -1340,7 +1340,7 @@ private:
     std::optional<future<>> _task;
     lw_shared_ptr<seastar::server_socket> _listener;
     sharded_cache& _cache;
-    distributed<system_stats>& _system_stats;
+    sharded<system_stats>& _system_stats;
     uint16_t _port;
     struct connection {
         connected_socket _socket;
@@ -1348,8 +1348,8 @@ private:
         input_stream<char> _in;
         output_stream<char> _out;
         ascii_protocol _proto;
-        distributed<system_stats>& _system_stats;
-        connection(connected_socket&& socket, socket_address addr, sharded_cache& c, distributed<system_stats>& system_stats)
+        sharded<system_stats>& _system_stats;
+        connection(connected_socket&& socket, socket_address addr, sharded_cache& c, sharded<system_stats>& system_stats)
             : _socket(std::move(socket))
             , _addr(addr)
             , _in(_socket.input())
@@ -1365,7 +1365,7 @@ private:
         }
     };
 public:
-    tcp_server(sharded_cache& cache, distributed<system_stats>& system_stats, uint16_t port = 11211)
+    tcp_server(sharded_cache& cache, sharded<system_stats>& system_stats, uint16_t port = 11211)
         : _cache(cache)
         , _system_stats(system_stats)
         , _port(port)
@@ -1431,11 +1431,11 @@ public:
 } /* namespace memcache */
 
 int main(int ac, char** av) {
-    distributed<memcache::cache> cache_peers;
+    sharded<memcache::cache> cache_peers;
     memcache::sharded_cache cache(cache_peers);
-    distributed<memcache::system_stats> system_stats;
-    distributed<memcache::udp_server> udp_server;
-    distributed<memcache::tcp_server> tcp_server;
+    sharded<memcache::system_stats> system_stats;
+    sharded<memcache::udp_server> udp_server;
+    sharded<memcache::tcp_server> tcp_server;
     memcache::stats_printer stats(cache);
 
     namespace bpo = boost::program_options;

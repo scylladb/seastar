@@ -42,7 +42,7 @@ module seastar;
 #include <seastar/core/sstring.hh>
 #include <seastar/core/app-template.hh>
 #include <seastar/core/circular_buffer.hh>
-#include <seastar/core/distributed.hh>
+#include <seastar/core/sharded.hh>
 #include <seastar/core/queue.hh>
 #include <seastar/core/when_all.hh>
 #include <seastar/core/metrics.hh>
@@ -516,7 +516,7 @@ future<> http_server_control::listen(socket_address addr, listen_options lo, htt
     return _server_dist->invoke_on_all<future<> (http_server::*)(socket_address, listen_options, http_server::server_credentials_ptr)>(&http_server::listen, addr, lo, credentials);
 }
 
-distributed<http_server>& http_server_control::server() {
+sharded<http_server>& http_server_control::server() {
     return *_server_dist;
 }
 
