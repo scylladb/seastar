@@ -149,6 +149,8 @@ struct reply {
      */
     std::unordered_map<sstring, sstring, seastar::internal::case_insensitive_hash, seastar::internal::case_insensitive_cmp> _headers;
 
+    std::unordered_map<sstring, sstring> _cookies;
+
     sstring _version;
     /**
      * The content to be sent in the reply.
@@ -216,6 +218,14 @@ struct reply {
         return *this;
     }
 
+    /**
+     * Set the cookie with the given name and value.
+     */
+    reply& set_cookie(const sstring& name, const sstring& value) {
+        _cookies[name] = value;
+        return *this;
+    }
+
     reply& done(const sstring& content_type) {
         return set_content_type(content_type).done();
     }
@@ -278,13 +288,12 @@ struct reply {
         _skip_body = true;
     }
 
-private:
-    future<> write_reply_to_connection(httpd::connection& con);
-    future<> write_reply_headers(httpd::connection& connection);
+    future<> write_reply(output_stream<char>& out);
+    future<> write_reply_headers(output_stream<char>& out);
 
+private:
     http::body_writer_type _body_writer;
     friend class httpd::routes;
-    friend class httpd::connection;
 };
 
 std::ostream& operator<<(std::ostream& os, reply::status_type st);

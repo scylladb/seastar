@@ -98,59 +98,39 @@ future<> connection::do_response_loop() {
 }
 
 future<> connection::start_response() {
-    if (_resp->_body_writer) {
-        return _resp->write_reply_to_connection(*this).then_wrapped([this] (auto f) {
-            if (f.failed()) {
-                // In case of an error during the write close the connection
-                _server._respond_errors++;
-                _done = true;
-                _replies.abort(std::make_exception_ptr(std::logic_error("Unknown exception during body creation")));
-                _replies.push(std::unique_ptr<http::reply>());
-                f.ignore_ready_future();
-            }
-            return make_ready_future<>();
-        }).then_wrapped([this ] (auto f) {
-            if (f.failed()) {
-                // We could not write the closing sequence
-                // Something is probably wrong with the connection,
-                // we should close it, so the client will disconnect
-                _done = true;
-                _replies.abort(std::make_exception_ptr(std::logic_error("Unknown exception during body creation")));
-                _replies.push(std::unique_ptr<http::reply>());
-                f.ignore_ready_future();
-                return make_ready_future<>();
-            } else {
-                return _write_buf.flush();
-            }
-        }).then_wrapped([this] (auto f) {
-            if (f.failed()) {
-                // flush failed. just close the connection
-                _done = true;
-                _replies.abort(std::make_exception_ptr(std::logic_error("Unknown exception during body creation")));
-                _replies.push(std::unique_ptr<http::reply>());
-                f.ignore_ready_future();
-            }
-            _resp.reset();
-            return make_ready_future<>();
-        });
-    }
-    set_headers(*_resp);
-    _resp->_headers["Content-Length"] = to_sstring(
-            _resp->_content.size());
-    return _write_buf.write(_resp->_response_line.data(),
-            _resp->_response_line.size()).then([this] {
-        return _resp->write_reply_headers(*this);
-    }).then([this] {
-        return _write_buf.write("\r\n", 2);
-    }).then([this] {
-        if (_resp->_skip_body) {
-            return make_ready_future<>();
+    return _resp->write_reply(out()).then_wrapped([this] (auto f) {
+        if (f.failed()) {
+            // In case of an error during the write close the connection
+            _server._respond_errors++;
+            _done = true;
+            _replies.abort(std::make_exception_ptr(std::logic_error("Unknown exception during body creation")));
+            _replies.push(std::unique_ptr<http::reply>());
+            f.ignore_ready_future();
         }
-        return write_body();
-    }).then([this] {
-        return _write_buf.flush();
-    }).then([this] {
+        return make_ready_future<>();
+    }).then_wrapped([this ] (auto f) {
+        if (f.failed()) {
+            // We could not write the closing sequence
+            // Something is probably wrong with the connection,
+            // we should close it, so the client will disconnect
+            _done = true;
+            _replies.abort(std::make_exception_ptr(std::logic_error("Unknown exception during body creation")));
+            _replies.push(std::unique_ptr<http::reply>());
+            f.ignore_ready_future();
+            return make_ready_future<>();
+        } else {
+            return _write_buf.flush();
+        }
+    }).then_wrapped([this] (auto f) {
+        if (f.failed()) {
+            // flush failed. just close the connection
+            _done = true;
+            _replies.abort(std::make_exception_ptr(std::logic_error("Unknown exception during body creation")));
+            _replies.push(std::unique_ptr<http::reply>());
+            f.ignore_ready_future();
+        }
         _resp.reset();
+        return make_ready_future<>();
     });
 }
 

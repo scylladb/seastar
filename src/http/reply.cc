@@ -132,26 +132,38 @@ void reply::write_body(const sstring& content_type, sstring content) {
     done(content_type);
 }
 
-future<> reply::write_reply_to_connection(httpd::connection& con) {
-    add_header("Transfer-Encoding", "chunked");
-    return con.out().write(response_line()).then([this, &con] () mutable {
-        return write_reply_headers(con);
-    }).then([&con] () mutable {
-        return con.out().write("\r\n", 2);
-    }).then([this, &con] () mutable {
-        if (_skip_body) {
-            return make_ready_future<>();
+future<> reply::write_reply(output_stream<char>& out) {
+    return out.write(response_line().data(), response_line().size()).then([this, &out] {
+        if (_body_writer) {
+            add_header("Transfer-Encoding", "chunked");
+        } else {
+            add_header("Content-Length", to_sstring(_content.size()));
         }
-        return _body_writer(http::internal::make_http_chunked_output_stream(con.out())).then([&con] {
-            return con.out().write("0\r\n\r\n", 5);
+
+        return write_reply_headers(out).then([&out] {
+            return out.write("\r\n", 2);
+        }).then([this, &out] {
+            if (_skip_body) {
+                return make_ready_future<>();
+            }
+            if (_body_writer) {
+                return _body_writer(http::internal::make_http_chunked_output_stream(out)).then([&out] {
+                    return out.write("0\r\n\r\n", 5);
+                });
+            } else {
+                return out.write(_content.data(), _content.size());
+            }
         });
     });
-
 }
 
-future<> reply::write_reply_headers(httpd::connection& con) {
-    return do_for_each(_headers, [&con](auto& h) {
-        return con.out().write(h.first + ": " + h.second + "\r\n");
+future<> reply::write_reply_headers(output_stream<char>& out) {
+    return do_for_each(_headers, [&out](auto& h) {
+        return out.write(h.first + ": " + h.second + "\r\n");
+    }).then([this, &out] {
+        return do_for_each(_cookies, [&out] (auto& c) {
+            return out.write("Set-Cookie: " + c.first + "=" + c.second + "\r\n");
+        });
     });
 }
 

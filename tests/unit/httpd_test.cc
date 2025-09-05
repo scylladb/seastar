@@ -2232,3 +2232,34 @@ SEASTAR_THREAD_TEST_CASE(test_content_length_data_sink) {
     do_check(2, "12", true);
     do_check(2, "123", true);
 }
+
+SEASTAR_THREAD_TEST_CASE(test_reply_cookies) {
+    auto reply = std::make_unique<http::reply>();
+    reply->set_cookie("cookie1", "1");
+    reply->set_cookie("cookie2", "2");
+    reply->add_header("Content-Encoding", "gzip");
+
+    std::stringstream ss;
+    auto os = output_stream<char>(data_sink(std::make_unique<memory_data_sink_impl>(ss)));
+    auto close_os = deferred_close(os);
+
+    reply->write_reply_headers(os).get();
+
+    os.flush().get();
+
+    auto headers_str = ss.str();
+
+    auto e = std::remove(headers_str.begin(), headers_str.end(), '\r');
+    sstring headers_str_no_cr(headers_str.begin(), e);
+
+    std::vector<sstring> lines;
+    boost::split(lines, headers_str_no_cr, boost::is_any_of("\n"));
+    BOOST_REQUIRE_EQUAL(lines.size(), 4);
+    lines.pop_back(); // last line is empty
+    std::sort(lines.begin(), lines.end());
+
+    // Check that both headers and cookies are present
+    BOOST_REQUIRE_EQUAL(lines[0], "Content-Encoding: gzip");
+    BOOST_REQUIRE_EQUAL(lines[1], "Set-Cookie: cookie1=1");
+    BOOST_REQUIRE_EQUAL(lines[2], "Set-Cookie: cookie2=2");
+}
