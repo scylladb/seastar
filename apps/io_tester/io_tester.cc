@@ -1037,6 +1037,8 @@ struct convert<job_config> {
         if (node["data_size"]) {
             const uint64_t per_shard_bytes = node["data_size"].as<byte_size>().size / smp::count;
             cl.file_size = align_up<uint64_t>(per_shard_bytes, extent_size_hint_alignment);
+        } else if (cl.type == request_type::append) {
+            cl.file_size = 0;
         } else {
             cl.file_size = 1ull << 30; // 1G by default
         }
