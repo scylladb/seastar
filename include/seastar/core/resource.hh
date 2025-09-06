@@ -41,7 +41,6 @@
 
 namespace seastar {
 
-cpu_set_t cpuid_to_cpuset(unsigned cpuid);
 class io_queue;
 class io_group;
 
