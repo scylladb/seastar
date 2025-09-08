@@ -33,6 +33,7 @@
 
 #ifndef SEASTAR_MODULE
 #include <unordered_map>
+#include <string_view>
 #endif
 #include <seastar/core/sstring.hh>
 #include <seastar/http/mime_types.hh>
@@ -200,22 +201,29 @@ struct reply {
     }
 
     /**
-     * Set the content type mime type.
-     * Used when the mime type is known.
-     * For most cases, use the set_content_type
+     * Set the content type. The content_type string can be one of:
+     * 1. A MIME (RFC 2045) Content-Type - looking like "type/subtype", e.g.,
+     *   "text/html"
+     * 2. If a "/" is missing in the given string, we look it up in a list of
+     *    common file extensions listed in the http::mime_types map. For
+     *    example "html" will be mapped to "text/html".
      */
-    reply& set_mime_type(const sstring& mime) {
-        _headers["Content-Type"] = mime;
+    reply& set_content_type(std::string_view content_type) {
+        if (content_type.find('/') == std::string_view::npos) {
+            content_type = http::mime_types::extension_to_type(content_type);
+        }
+        _headers["Content-Type"] = sstring(content_type);
         return *this;
     }
 
-    /**
-     * Set the content type mime type according to the file extension
-     * that would have been used if it was a file: e.g. html, txt, json etc'
-     */
-    reply& set_content_type(const sstring& content_type = "html") {
-        set_mime_type(http::mime_types::extension_to_type(content_type));
-        return *this;
+    [[deprecated("Use set_content_type(std::string_view) instead")]]
+    reply& set_content_type() {
+        return set_content_type("html");
+    }
+
+    [[deprecated("Use set_content_type(std::string_view) instead")]]
+    reply& set_mime_type(const sstring& mime) {
+        return set_content_type(mime);
     }
 
     /**
