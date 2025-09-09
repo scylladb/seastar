@@ -1679,16 +1679,19 @@ public:
         return wait_for_output();
     }
     future<> wait_for_eof() {
-        if (!_options.wait_for_eof_on_shutdown) {
-            return make_ready_future();
-        }
-
         // read records until we get an eof alert
         // since this call could time out, we must not ac
         return with_semaphore(_in_sem, 1, [this] {
             if (_error || !_connected) {
                 return make_ready_future();
             }
+            if (!_options.wait_for_data_on_shutdown) {
+                if (eof()) {
+                    return make_ready_future<>();
+                }
+                return do_get().discard_result();
+            }
+
             return repeat([this] {
                 if (eof()) {
                     return make_ready_future<stop_iteration>(stop_iteration::yes);
@@ -1720,8 +1723,11 @@ public:
         // only do once.
         if (!std::exchange(_shutdown, true)) {
             auto me = shared_from_this();
-            // running in background. try to bye-handshake us nicely, but after 10s we forcefully close.
-            engine().run_in_background(with_timeout(timer<>::clock::now() + std::chrono::seconds(10), shutdown()).finally([this] {
+            auto f = _options.bye_timeout.count() > 0 && (_options.wait_for_eof_on_shutdown._value == true)
+                // try to bye-handshake us nicely, but after a timeout we forcefully close.
+                ? with_timeout(timer<>::clock::now() + _options.bye_timeout, shutdown())
+                : make_ready_future<>();
+            engine().run_in_background(std::move(f).finally([this] {
                 _eof = true;
                 try {
                     (void)_in.close().handle_exception([](std::exception_ptr) {}); // should wake any waiters
