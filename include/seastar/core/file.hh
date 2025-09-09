@@ -589,7 +589,6 @@ private:
 template <std::invocable<file&> Func>
 requires std::is_nothrow_move_constructible_v<Func>
 auto with_file(future<file> file_fut, Func func) noexcept {
-    static_assert(std::is_nothrow_move_constructible_v<Func>, "Func's move constructor must not throw");
     return file_fut.then([func = std::move(func)] (file f) mutable {
         return do_with(std::move(f), [func = std::move(func)] (file& f) mutable {
             return futurize_invoke(func, f).finally([&f] {
@@ -616,7 +615,6 @@ auto with_file(future<file> file_fut, Func func) noexcept {
 template <std::invocable<file&> Func>
 requires std::is_nothrow_move_constructible_v<Func>
 auto with_file_close_on_failure(future<file> file_fut, Func func) noexcept {
-    static_assert(std::is_nothrow_move_constructible_v<Func>, "Func's move constructor must not throw");
     return file_fut.then([func = std::move(func)] (file f) mutable {
         return do_with(std::move(f), [func = std::move(func)] (file& f) mutable {
             return futurize_invoke(std::move(func), f).then_wrapped([&f] (auto ret) mutable {
