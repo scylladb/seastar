@@ -1575,7 +1575,7 @@ SEASTAR_THREAD_TEST_CASE(test_skip_wait_for_eof) {
         auto sa = server.accept();
         auto c = engine().connect(addr).get();
         auto c_tls = tls::wrap_client(creds, std::move(c),
-                                      tls::tls_options{.wait_for_eof_on_shutdown = false}).get();
+                                      tls::tls_options{.bye_timeout = std::chrono::seconds(0)}).get();
         auto s = sa.get();
 
         auto in = s.connection.input();
@@ -2096,4 +2096,57 @@ SEASTAR_THREAD_TEST_CASE(test_send_recv_alloc_limits) {
 
         BOOST_CHECK_EQUAL(stats_after.large_allocations(), stats_before.large_allocations());
     }
+}
+
+static std::pair<connected_socket, connected_socket> tls_socketpair() {
+    auto certs = ::make_shared<tls::server_credentials>(::make_shared<tls::dh_params>());
+    certs->set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).get();
+
+    ::listen_options opts;
+    opts.reuse_address = true;
+    auto addr = ::make_ipv4_address( {0x7f000001, 4712});
+    auto ss = tls::listen(certs, addr, opts);
+    tls::credentials_builder b;
+    b.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
+
+    auto cf = tls::connect(b.build_certificate_credentials(), addr);
+    auto ar = ss.accept().get();
+    auto cs = cf.get();
+
+    return std::make_pair(std::move(ar.connection), std::move(cs));
+}
+
+SEASTAR_THREAD_TEST_CASE(test_session_close_with_unread_data) {
+    auto p = tls_socketpair();
+
+    auto c = seastar::async([c = std::move(p.first)] () mutable {
+        auto in = c.input();
+        auto b = in.read_exactly(1).get();
+        in.close().get();
+        c.shutdown_output();
+    });
+
+    auto s = seastar::async([s = std::move(p.second)] () mutable {
+        auto out = s.output();
+        size_t bytes_sent = 0;
+        auto buf = temporary_buffer<char>(1024);
+        std::memset(buf.get_write(), '\0', buf.size());
+        auto start = std::chrono::steady_clock::now();
+        while (true) {
+            try {
+                out.write(buf.get(), buf.size()).get();
+                out.flush().get();
+                bytes_sent += buf.size();
+            } catch (...) {
+                break;
+            }
+        }
+        auto delay = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::steady_clock::now() - start);
+        BOOST_TEST_MESSAGE(fmt::format("Wrote {} bytes in {:.3f} seconds\n", bytes_sent, delay.count()));
+        out.close().handle_exception([] (auto x) {}).get();
+        s.shutdown_input();
+        BOOST_CHECK_LT(delay.count(), 1.0);
+    });
+
+    seastar::when_all(std::move(c), std::move(s)).discard_result().get();
 }

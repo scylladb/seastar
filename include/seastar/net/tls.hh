@@ -366,8 +366,21 @@ namespace tls {
 
     /// TLS configuration options
     struct tls_options {
+    private:
+        struct deprecated_wait_for_eof_on_shutdown {
+            bool _value = true;
+            deprecated_wait_for_eof_on_shutdown() noexcept : _value(true) {}
+            [[deprecated("Use tls::options::bye_timeout instead")]]
+            deprecated_wait_for_eof_on_shutdown(bool value) noexcept : _value(value) {}
+            [[deprecated("Use tls::options::bye_timeout instead")]]
+            void operator=(bool value) noexcept { _value = value; }
+            [[deprecated("Use tls::options::bye_timeout instead")]]
+            operator bool() const noexcept { return _value; }
+        };
+
+    public:
         /// \brief whether to wait for EOF from server on session termination
-        bool wait_for_eof_on_shutdown = true;
+        deprecated_wait_for_eof_on_shutdown wait_for_eof_on_shutdown;
         /// \brief server name to be used for the SNI TLS extension
         sstring server_name = {};
 
@@ -382,6 +395,16 @@ namespace tls {
         /// \brief Optional list of ALPN protocols to offer to the server,
         /// in order of preference.
         std::vector<sstring> alpn_protocols;
+
+        // \brief Time to wait for correct session wrap-up
+        // If set to zero, the TLS-level closing is not performed, the
+        // connection is just aborted
+        std::chrono::seconds bye_timeout = std::chrono::seconds(10);
+
+        // \brief Whether or not to pick up any unread data during shutdown
+        // When false and any data arrives at the socket, the connection is
+        // immediately aborted without waiting for graceful wrap-up
+        bool wait_for_data_on_shutdown = false;
     };
 
     /**
