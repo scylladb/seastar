@@ -29,6 +29,7 @@
 #include <seastar/util/is_smart_ptr.hh>
 #include <seastar/core/simple-stream.hh>
 #include <seastar/net/packet-data-source.hh>
+#include <seastar/core/deleter.hh>
 
 #include <boost/type.hpp> // for compatibility
 
@@ -824,63 +825,60 @@ std::optional<protocol_base::handler_with_holder> protocol<Serializer, MsgType>:
 
 namespace internal {
 
-template<typename T> T make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<T>> org);
+template<typename Serializer, typename... Out>
+sink_impl<Serializer, Out...>::sink_impl(xshard_connection_ptr con)
+    : sink<Out...>::impl(std::move(con))
+    , _send_queue([this] (snd_buf* buf) { return send_buffer(buf); }, this->_con->get_owner_shard())
+    , _delete_queue([] (snd_buf* buf) { delete buf; return make_ready_future<>(); }, this_shard_id())
+{
+    this->_con->get()->_sink_closed = false;
+}
+
+snd_buf make_shard_local_buffer_copy(snd_buf* org, std::function<deleter(snd_buf*)> make_deleter);
+
+// Runs on connection shard
+template<typename Serializer, typename... Out>
+future<> sink_impl<Serializer, Out...>::send_buffer(snd_buf* data) {
+    auto local_data = make_shard_local_buffer_copy(data, [this] (snd_buf* org) {
+        return deleter(new snd_buf_deleter_impl(org, _delete_queue));
+    });
+    // Exceptions are allowed from here since destroying local_data will free the original data buffer
+    if (this->_ex) {
+        return make_ready_future<>();
+    }
+    connection* con = this->_con->get();
+    // Keep first error in _ex, but make sure to drain the whole batch
+    // and destroy all queued buffers
+    if (con->error()) {
+        this->_ex = std::make_exception_ptr(closed_error());
+        return make_ready_future<>();
+    }
+    if (con->sink_closed()) {
+        this->_ex = std::make_exception_ptr(stream_closed());
+        return make_ready_future<>();
+    }
+
+    return con->send(std::move(local_data), {}, nullptr);
+}
 
 template<typename Serializer, typename... Out>
 future<> sink_impl<Serializer, Out...>::operator()(const Out&... args) {
     // note that we use remote serializer pointer, so if serailizer needs a state
     // it should have per-cpu one
-    snd_buf data = marshall(this->_con->get()->template serializer<Serializer>(), 4, args...);
+    auto data = std::make_unique<snd_buf>(marshall(this->_con->get()->template serializer<Serializer>(), 4, args...));
     static_assert(snd_buf::chunk_size >= 4, "send buffer chunk size is too small");
-    auto p = data.front().get_write();
-    write_le<uint32_t>(p, data.size - 4);
+    auto p = data->front().get_write();
+    write_le<uint32_t>(p, data->size - 4);
     // we do not want to dead lock on huge packets, so let them in
     // but only one at a time
-    auto size = std::min(size_t(data.size), max_stream_buffers_memory);
-    const auto seq_num = _next_seq_num++;
-    return get_units(this->_sem, size).then([this, data = make_foreign(std::make_unique<snd_buf>(std::move(data))), seq_num] (semaphore_units<> su) mutable {
+    auto size = std::min(size_t(data->size), max_stream_buffers_memory);
+    return get_units(this->_sem, size).then([this, data = std::move(data)] (semaphore_units<> su) mutable {
         if (this->_ex) {
             return make_exception_future(this->_ex);
         }
         data->su = std::move(su);
-        // It is OK to discard this future. The user is required to
-        // wait for it when closing.
-        (void)smp::submit_to(this->_con->get_owner_shard(), [this, data = std::move(data), seq_num] () mutable {
-            connection* con = this->_con->get();
-            if (con->error()) {
-                return make_exception_future(closed_error());
-            }
-            if(con->sink_closed()) {
-                return make_exception_future(stream_closed());
-            }
-
-            auto& last_seq_num = _remote_state.last_seq_num;
-            auto& out_of_order_bufs = _remote_state.out_of_order_bufs;
-
-            auto local_data = make_shard_local_buffer_copy(std::move(data));
-            const auto seq_num_diff = seq_num - last_seq_num;
-            if (seq_num_diff > 1) {
-                auto [it, _] = out_of_order_bufs.emplace(seq_num, deferred_snd_buf{promise<>{}, std::move(local_data)});
-                return it->second.pr.get_future();
-            }
-
-            last_seq_num = seq_num;
-            auto ret_fut = con->send(std::move(local_data), {}, nullptr);
-            while (!out_of_order_bufs.empty() && out_of_order_bufs.begin()->first == (last_seq_num + 1)) {
-                auto it = out_of_order_bufs.begin();
-                last_seq_num = it->first;
-                auto fut = con->send(std::move(it->second.data), {}, nullptr);
-                fut.forward_to(std::move(it->second.pr));
-                out_of_order_bufs.erase(it);
-            }
-            return ret_fut;
-        }).then_wrapped([this] (future<> f) {
-            if (f.failed() && !this->_ex) { // first error is the interesting one
-                this->_ex = f.get_exception();
-            } else {
-                f.ignore_ready_future();
-            }
-        });
+        _send_queue.enqueue(data.get());
+        data.release();
         return make_ready_future<>();
     });
 }
@@ -899,6 +897,8 @@ future<> sink_impl<Serializer, Out...>::flush() {
 template<typename Serializer, typename... Out>
 future<> sink_impl<Serializer, Out...>::close() {
     return with_semaphore(this->_sem, max_stream_buffers_memory, [this] {
+        // the send and delete queues should be drained already
+        // since we acquired all the semaphore units, so no need to stop them.
         return smp::submit_to(this->_con->get_owner_shard(), [this] {
             connection* con = this->_con->get();
             if (con->sink_closed()) { // double close, should not happen!
@@ -925,6 +925,8 @@ sink_impl<Serializer, Out...>::~sink_impl() {
     // this is destroyed, leading to use-after-free bugs.
     SEASTAR_ASSERT(this->_con->get()->sink_closed());
 }
+
+rcv_buf make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<rcv_buf>> org);
 
 template<typename Serializer, typename... In>
 future<std::optional<std::tuple<In...>>> source_impl<Serializer, In...>::operator()() {

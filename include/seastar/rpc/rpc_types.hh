@@ -32,6 +32,7 @@
 #include <stdexcept>
 #include <string>
 #include <any>
+#include <boost/intrusive/slist.hpp>
 #include <seastar/util/assert.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/variant_utils.hh>
@@ -250,7 +251,7 @@ struct rcv_buf {
         : size(size), bufs(std::move(bufs)) {};
 };
 
-struct snd_buf {
+struct snd_buf : public boost::intrusive::slist_base_hook<> {
     // Preferred, but not required, chunk size.
     static constexpr size_t chunk_size = 128*1024;
     uint32_t size = 0;
