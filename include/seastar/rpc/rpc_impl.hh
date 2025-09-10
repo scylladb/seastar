@@ -29,6 +29,7 @@
 #include <seastar/util/is_smart_ptr.hh>
 #include <seastar/core/simple-stream.hh>
 #include <seastar/net/packet-data-source.hh>
+#include <seastar/core/deleter.hh>
 
 #include <boost/type.hpp> // for compatibility
 
@@ -822,7 +823,10 @@ std::optional<protocol_base::handler_with_holder> protocol<Serializer, MsgType>:
     return std::nullopt;
 }
 
-template<typename T> T make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<T>> org);
+template<typename T> T make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<T>> org,
+        std::function<deleter(foreign_ptr<std::unique_ptr<T>> org)> make_deleter = [] (foreign_ptr<std::unique_ptr<T>> org) {
+            return make_object_deleter(std::move(org));
+        });
 
 template<typename Serializer, typename... Out>
 future<> sink_impl<Serializer, Out...>::operator()(const Out&... args) {
