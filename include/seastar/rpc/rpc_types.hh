@@ -249,7 +249,7 @@ struct rcv_buf {
         : size(size), bufs(std::move(bufs)) {};
 };
 
-struct snd_buf {
+struct snd_buf : public boost::intrusive::list_base_hook<boost::intrusive::link_mode<boost::intrusive::auto_unlink>> {
     // Preferred, but not required, chunk size.
     static constexpr size_t chunk_size = 128*1024;
     uint32_t size = 0;

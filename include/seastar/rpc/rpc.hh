@@ -392,12 +392,37 @@ class sink_impl : public sink<Out...>::impl {
     alignas (cache_line_size) uint64_t _next_seq_num = 1;
 
     // Used on the shard the _conn lives on.
-    struct alignas (cache_line_size) {
+    struct alignas (cache_line_size) remote_state {
+        using snd_buf_list_t = boost::intrusive::list<snd_buf, boost::intrusive::constant_time_size<false>>;
+
+        shard_id shard;
         uint64_t last_seq_num = 0;
         std::map<uint64_t, deferred_snd_buf> out_of_order_bufs;
-    } _remote_state;
+        std::vector<snd_buf_list_t> per_shard_snd_bufs_to_destroy;
+        std::vector<future<>> per_shard_snd_bufs_destroy_futures;
+    };
+
+    class snd_buf_deleter_impl final : public deleter::impl {
+        foreign_ptr<std::unique_ptr<snd_buf>> _obj;
+        remote_state& _state;
+    public:
+        snd_buf_deleter_impl(remote_state& state, foreign_ptr<std::unique_ptr<snd_buf>> obj);
+        snd_buf_deleter_impl(const snd_buf_deleter_impl&) = delete;
+        snd_buf_deleter_impl(snd_buf_deleter_impl&&) = delete;
+        virtual ~snd_buf_deleter_impl() override;
+    };
+
+    remote_state _remote_state;
 public:
-    sink_impl(xshard_connection_ptr con) : sink<Out...>::impl(std::move(con)) { this->_con->get()->_sink_closed = false; }
+    sink_impl(xshard_connection_ptr con) : sink<Out...>::impl(std::move(con)) {
+        this->_con->get()->_sink_closed = false;
+        _remote_state.shard = this_shard_id();
+        _remote_state.per_shard_snd_bufs_to_destroy.resize(smp::count);
+        _remote_state.per_shard_snd_bufs_destroy_futures.reserve(smp::count);
+        for (shard_id i = 0; i < smp::count; ++i) {
+            _remote_state.per_shard_snd_bufs_destroy_futures.emplace_back(make_ready_future());
+        }
+    }
     future<> operator()(const Out&... args) override;
     future<> close() override;
     future<> flush() override;
