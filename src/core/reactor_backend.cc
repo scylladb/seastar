@@ -232,6 +232,7 @@ aio_storage_context::submit_work() {
     }
 
     size_t nr_consumed = 0;
+    _r._io_stats.io_submits_in_reactor += to_submit;
     for (auto iocbs = _submission_queue.data(), end = iocbs + to_submit; iocbs < end; iocbs += nr_consumed) {
         auto nr = end - iocbs;
         auto r = io_submit(_io_context, nr, iocbs);
@@ -289,6 +290,7 @@ void aio_storage_context::schedule_retry() {
             } else {
                 nr_consumed = result.result;
             }
+            _r._io_stats.io_submits_in_thread_pool += nr_consumed;
             _aio_retries.erase(_aio_retries.begin(), _aio_retries.begin() + nr_consumed);
         });
     });

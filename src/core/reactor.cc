@@ -2530,6 +2530,8 @@ void reactor::register_metrics() {
             sm::make_histogram("stalls", sm::description("A histogram of reactor stall durations"), [this] {return _stalls_histogram.to_metrics_histogram();}).aggregate({seastar::metrics::shard_label}).set_skip_when_empty(),
             // total_operations value:DERIVE:0:U
             sm::make_counter("fsyncs", _fsyncs, sm::description("Total number of fsync operations")),
+            sm::make_counter("io_submits_in_reactor", _io_stats.io_submits_in_reactor, sm::description("Total number of IOCB-s submitted by reactor")),
+            sm::make_counter("io_submits_in_thread_pool", _io_stats.io_submits_in_thread_pool, sm::description("Total number of IOCB-s submitted by thread-pool")),
             // total_operations value:DERIVE:0:U
             io_fallback_counter("aio_fallback", internal::thread_pool_submit_reason::aio_fallback),
             // total_operations value:DERIVE:0:U

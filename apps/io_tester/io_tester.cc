@@ -1137,6 +1137,11 @@ public:
                 cl->emit_results(out);
                 out << YAML::EndMap;
             }
+            out << YAML::Key << "statistics";
+            out << YAML::BeginMap;
+            out << YAML::Key << "io_submits" << YAML::Value << engine().get_io_stats().io_submits_in_reactor;
+            out << YAML::Key << "io_submits_fallback" << YAML::Value << engine().get_io_stats().io_submits_in_thread_pool;
+            out << YAML::EndMap;
             return make_ready_future<>();
         });
     }
