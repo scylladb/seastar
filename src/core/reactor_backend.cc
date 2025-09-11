@@ -306,6 +306,7 @@ bool aio_storage_context::reap_completions(bool allow_retry)
         auto iocb = get_iocb(_ev_buffer[i]);
         if (_ev_buffer[i].res == -EAGAIN && allow_retry) {
             set_nowait(*iocb, false);
+            _r._io_stats.aio_retries++;
             _pending_aio_retry.push_back(iocb);
             continue;
         }
