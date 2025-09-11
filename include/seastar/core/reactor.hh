@@ -194,6 +194,8 @@ public:
         uint64_t aio_write_bytes = 0;
         uint64_t aio_outsizes = 0;
         uint64_t aio_errors = 0;
+        uint64_t io_submits_in_reactor = 0;
+        uint64_t io_submits_in_thread_pool = 0;
         uint64_t fstream_reads = 0;
         uint64_t fstream_read_bytes = 0;
         uint64_t fstream_reads_blocked = 0;
