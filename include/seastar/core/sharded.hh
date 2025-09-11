@@ -62,6 +62,11 @@ class sharded;
 
 SEASTAR_MODULE_EXPORT_END
 
+namespace rpc {
+template<typename Serializer, typename... Out>
+class sink_impl;
+}
+
 namespace internal {
 
 template <typename Func, typename... Param>
@@ -978,6 +983,13 @@ private:
         }
 #endif
     }
+
+    PtrType unsafe_release() noexcept(std::is_nothrow_default_constructible_v<PtrType>) {
+        return std::exchange(_value, {});
+    }
+
+    template<typename Serializer, typename... Out>
+    friend class rpc::sink_impl;
 public:
     using element_type = typename std::pointer_traits<PtrType>::element_type;
     using pointer = element_type*;
@@ -1049,7 +1061,7 @@ public:
     /// owner shard to avoid accidents.
     PtrType release() noexcept(std::is_nothrow_default_constructible_v<PtrType>) {
         check_shard();
-        return std::exchange(_value, {});
+        return unsafe_release();
     }
     /// Replace the managed pointer with new_ptr.
     ///

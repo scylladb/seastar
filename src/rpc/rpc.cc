@@ -77,7 +77,7 @@ temporary_buffer<char>& snd_buf::front() {
 // Make a copy of a remote buffer. No data is actually copied, only pointers and
 // a deleter of a new buffer takes care of deleting the original buffer
 template<typename T> // T is either snd_buf or rcv_buf
-T make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<T>> org) {
+T make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<T>> org, std::function<deleter(foreign_ptr<std::unique_ptr<T>> org)> make_deleter) {
     if (org.get_owner_shard() == this_shard_id()) {
         return std::move(*org);
     }
@@ -85,12 +85,12 @@ T make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<T>> org) {
     auto* one = std::get_if<temporary_buffer<char>>(&org->bufs);
 
     if (one) {
-        buf.bufs = temporary_buffer<char>(one->get_write(), one->size(), make_object_deleter(std::move(org)));
+        buf.bufs = temporary_buffer<char>(one->get_write(), one->size(), make_deleter(std::move(org)));
     } else {
         auto& orgbufs = std::get<std::vector<temporary_buffer<char>>>(org->bufs);
         std::vector<temporary_buffer<char>> newbufs;
         newbufs.reserve(orgbufs.size());
-        deleter d = make_object_deleter(std::move(org));
+        deleter d = make_deleter(std::move(org));
         for (auto&& b : orgbufs) {
             newbufs.emplace_back(b.get_write(), b.size(), d.share());
         }
@@ -100,8 +100,8 @@ T make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<T>> org) {
     return buf;
 }
 
-template snd_buf make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<snd_buf>>);
-template rcv_buf make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<rcv_buf>>);
+template snd_buf make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<snd_buf>>, std::function<deleter(foreign_ptr<std::unique_ptr<snd_buf>> org)> make_deleter);
+template rcv_buf make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<rcv_buf>>, std::function<deleter(foreign_ptr<std::unique_ptr<rcv_buf>> org)> make_deleter);
 
 static void log_exception(connection& c, log_level level, const char* log, std::exception_ptr eptr) {
     const char* s;

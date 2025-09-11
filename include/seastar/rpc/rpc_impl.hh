@@ -29,6 +29,7 @@
 #include <seastar/util/is_smart_ptr.hh>
 #include <seastar/core/simple-stream.hh>
 #include <seastar/net/packet-data-source.hh>
+#include <seastar/core/deleter.hh>
 
 #include <boost/type.hpp> // for compatibility
 
@@ -822,7 +823,43 @@ std::optional<protocol_base::handler_with_holder> protocol<Serializer, MsgType>:
     return std::nullopt;
 }
 
-template<typename T> T make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<T>> org);
+template<typename Serializer, typename... Out>
+sink_impl<Serializer, Out...>::snd_buf_deleter_impl::snd_buf_deleter_impl(remote_state& state, foreign_ptr<std::unique_ptr<snd_buf>> obj)
+    : impl(deleter())
+    , _obj(std::move(obj))
+    , _state(state)
+{}
+
+template<typename Serializer, typename... Out>
+sink_impl<Serializer, Out...>::snd_buf_deleter_impl::~snd_buf_deleter_impl() {
+    // We cannot delete the buffer directly, since it may be
+    // accessed by the remote shard. Instead, we enqueue it
+    // for deletion on the remote shard.
+    auto owner_shard = _obj.get_owner_shard();
+    auto& lst = _state.per_shard_snd_bufs_to_destroy[owner_shard];
+    auto& fut = _state.per_shard_snd_bufs_destroy_futures[owner_shard];
+    lst.push_back(*_obj.unsafe_release().release());
+    if (fut.available()) {
+        // It's possible that more buffers would get queued
+        // while we are destroying the current batch on the owner_shard.
+        // They would be processed as a batch in the next iteration.
+        fut = do_until([&lst] { return lst.empty(); }, [owner_shard, &lst] () mutable {
+            // We need to destroy the buffers on their owner shard.
+            return smp::submit_to(owner_shard, [lst = std::move(lst)] () mutable {
+                return do_until([&lst] { return lst.empty(); }, [&lst] {
+                    auto* buf_ptr = &lst.front();
+                    // Destroy the snd_buf (this will call its destructor).
+                    lst.pop_front();
+                    // And free its memory on the owner shard (that was allocated by std::unique_ptr<snd_buf>)
+                    std::default_delete<snd_buf>()(buf_ptr);
+                    return make_ready_future();
+                });
+            });
+        });
+    }
+}
+
+template<typename T> T make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<T>> org, std::function<deleter(foreign_ptr<std::unique_ptr<T>> org)> make_deleter);
 
 template<typename Serializer, typename... Out>
 future<> sink_impl<Serializer, Out...>::operator()(const Out&... args) {
@@ -854,7 +891,10 @@ future<> sink_impl<Serializer, Out...>::operator()(const Out&... args) {
             auto& last_seq_num = _remote_state.last_seq_num;
             auto& out_of_order_bufs = _remote_state.out_of_order_bufs;
 
-            auto local_data = make_shard_local_buffer_copy(std::move(data));
+            std::function<deleter(foreign_ptr<std::unique_ptr<snd_buf>> org)> make_deleter = [this] (foreign_ptr<std::unique_ptr<snd_buf>> org) {
+                return deleter(new snd_buf_deleter_impl(_remote_state, std::move(org)));
+            };
+            auto local_data = make_shard_local_buffer_copy(std::move(data), make_deleter);
             const auto seq_num_diff = seq_num - last_seq_num;
             if (seq_num_diff > 1) {
                 auto [it, _] = out_of_order_bufs.emplace(seq_num, deferred_snd_buf{promise<>{}, std::move(local_data)});
@@ -911,7 +951,11 @@ future<> sink_impl<Serializer, Out...>::close() {
             } else {
                 f = this->_ex ? make_exception_future(this->_ex) : make_exception_future(closed_error());
             }
-            return f.finally([con] { return con->close_sink(); });
+            return f.finally([this, con] {
+                return con->close_sink().finally([this] {
+                    return when_all(_remote_state.per_shard_snd_bufs_destroy_futures.begin(), _remote_state.per_shard_snd_bufs_destroy_futures.end());
+                });
+            });
         });
     });
 }
@@ -928,10 +972,13 @@ future<std::optional<std::tuple<In...>>> source_impl<Serializer, In...>::operato
     auto process_one_buffer = [this] {
         foreign_ptr<std::unique_ptr<rcv_buf>> buf = std::move(this->_bufs.front());
         this->_bufs.pop_front();
+        std::function<deleter(foreign_ptr<std::unique_ptr<rcv_buf>> org)> make_deleter = [] (foreign_ptr<std::unique_ptr<rcv_buf>> org) {
+            return make_object_deleter(std::move(org));
+        };
         return std::apply([] (In&&... args) {
             auto ret = std::make_optional(std::make_tuple(std::move(args)...));
             return make_ready_future<std::optional<std::tuple<In...>>>(std::move(ret));
-        }, unmarshall<Serializer, In...>(*this->_con->get(), make_shard_local_buffer_copy(std::move(buf))));
+        }, unmarshall<Serializer, In...>(*this->_con->get(), make_shard_local_buffer_copy(std::move(buf), make_deleter)));
     };
 
     if (!this->_bufs.empty()) {
