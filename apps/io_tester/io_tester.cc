@@ -1145,6 +1145,10 @@ public:
                 cl->emit_results(out);
                 out << YAML::EndMap;
             }
+            out << YAML::Key << "statistics";
+            out << YAML::BeginMap;
+            out << YAML::Key << "aio_retries" << YAML::Value << engine().get_io_stats().aio_retries;
+            out << YAML::EndMap;
             return make_ready_future<>();
         });
     }
