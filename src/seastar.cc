@@ -178,7 +178,6 @@ export module seastar;
 #include <seastar/core/coroutine.hh>
 #include <seastar/core/deleter.hh>
 #include <seastar/core/disk_params.hh>
-#include <seastar/core/distributed.hh>
 #include <seastar/core/do_with.hh>
 #include <seastar/core/enum.hh>
 #include <seastar/core/exception_hacks.hh>

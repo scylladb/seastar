@@ -24,7 +24,7 @@
 #include <seastar/core/seastar.hh>
 #include <seastar/core/print.hh>
 #include <seastar/core/app-template.hh>
-#include <seastar/core/distributed.hh>
+#include <seastar/core/sharded.hh>
 #include <seastar/core/semaphore.hh>
 #include <chrono>
 
@@ -194,7 +194,7 @@ int main(int ac, char** av) {
             return make_ready_future<int>(-1);
         }
 
-        auto http_clients = new distributed<http_client>;
+        auto http_clients = new sharded<http_client>;
 
         // Start http requests on all the cores
         auto started = steady_clock_type::now();
