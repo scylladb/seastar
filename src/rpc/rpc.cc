@@ -5,6 +5,7 @@
 #include <seastar/core/print.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/core/metrics.hh>
+#include <seastar/core/sleep.hh>
 #include <seastar/coroutine/as_future.hh>
 #include <seastar/coroutine/switch_to.hh>
 #include <seastar/util/assert.hh>
@@ -77,8 +78,8 @@ temporary_buffer<char>& snd_buf::front() {
 // Make a copy of a remote buffer. No data is actually copied, only pointers and
 // a deleter of a new buffer takes care of deleting the original buffer
 template<typename T> // T is either snd_buf or rcv_buf
-T make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<T>> org, std::function<deleter(foreign_ptr<std::unique_ptr<T>> org)> make_deleter) {
-    if (org.get_owner_shard() == this_shard_id()) {
+T make_shard_local_buffer_copy(foreign_rpc_buf<T> org, std::function<deleter(foreign_rpc_buf<T> org)> make_deleter) {
+    if (org.owner_shard() == this_shard_id()) {
         return std::move(*org);
     }
     T buf(org->size);
@@ -100,8 +101,72 @@ T make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<T>> org, std::functio
     return buf;
 }
 
-template snd_buf make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<snd_buf>>, std::function<deleter(foreign_ptr<std::unique_ptr<snd_buf>> org)> make_deleter);
-template rcv_buf make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<rcv_buf>>, std::function<deleter(foreign_ptr<std::unique_ptr<rcv_buf>> org)> make_deleter);
+template snd_buf make_shard_local_buffer_copy(foreign_rpc_buf<snd_buf>, std::function<deleter(foreign_rpc_buf<snd_buf> org)> make_deleter);
+template rcv_buf make_shard_local_buffer_copy(foreign_rpc_buf<rcv_buf>, std::function<deleter(foreign_rpc_buf<rcv_buf> org)> make_deleter);
+
+template <typename T>
+requires (std::is_same_v<T, snd_buf> || std::is_same_v<T, rcv_buf>)
+void xshard_destroy_queue<T>::delete_buf(foreign_rpc_buf<T> obj) {
+    auto [buf, buf_owner_shard] = std::move(obj).release();
+    if (buf_owner_shard == this_shard_id()) {
+        std::default_delete<T>()(buf);
+        return;
+    }
+    if (!_bufs_owner_shard) {
+        _bufs_owner_shard = buf_owner_shard;
+    } else {
+        assert(_bufs_owner_shard.value() == buf_owner_shard);
+    }
+    // Enqueue the buffer for deletion.
+    _bufs_to_destroy.push_back(*buf);
+    // Kick-start batch deleter if needed.
+    if (_destroy_fut.available()) {
+        _destroy_fut = destroy_bufs();
+    }
+}
+
+template void xshard_destroy_queue<snd_buf>::delete_buf(foreign_rpc_buf<snd_buf>);
+template void xshard_destroy_queue<rcv_buf>::delete_buf(foreign_rpc_buf<rcv_buf>);
+
+template <typename T>
+requires (std::is_same_v<T, snd_buf> || std::is_same_v<T, rcv_buf>)
+future<> xshard_destroy_queue<T>::destroy_bufs() {
+    // It's possible that more buffers would get queued
+    // while we are destroying the current batch on the owner_shard.
+    // They would be processed as a batch in the next iteration.
+    return do_until([this] { return _bufs_to_destroy.empty(); }, [this] {
+        return smp::submit_to(*_bufs_owner_shard, [this, lst = std::move(_bufs_to_destroy)] () mutable {
+            auto size = lst.size();
+            seastar_logger.debug("xshard_destroy_queue[{}] destroying {} rpc buffers on shard {}", fmt::ptr(this), size, this_shard_id());
+            return do_until([&lst] { return lst.empty(); }, [&lst] {
+                auto* buf_ptr = &lst.front();
+                try {
+                    // Destroy the snd_buf (this will call its destructor).
+                    lst.pop_front();
+                    // And free its memory on the owner shard (that was allocated by std::unique_ptr<snd_buf>)
+                    std::default_delete<T>()(buf_ptr);
+                } catch (...) {
+                    // We cannot do much about exceptions thrown in the destroyer,
+                    // just log them.
+                    seastar_logger.warn("rpc buffer destroyer failed: {}.  Ignored", std::current_exception());
+                }
+                return make_ready_future();
+            });
+        });
+    });
+}
+
+template future<> xshard_destroy_queue<snd_buf>::destroy_bufs();
+template future<> xshard_destroy_queue<rcv_buf>::destroy_bufs();
+
+template <typename T>
+requires (std::is_same_v<T, snd_buf> || std::is_same_v<T, rcv_buf>)
+future<> xshard_destroy_queue<T>::stop() {
+    return std::exchange(_destroy_fut, make_ready_future<>());
+}
+
+template future<> xshard_destroy_queue<snd_buf>::stop();
+template future<> xshard_destroy_queue<rcv_buf>::stop();
 
 static void log_exception(connection& c, log_level level, const char* log, std::exception_ptr eptr) {
     const char* s;
@@ -564,13 +629,13 @@ future<> connection::handle_stream_frame() {
     });
 }
 
-future<> connection::stream_receive(circular_buffer<foreign_ptr<std::unique_ptr<rcv_buf>>>& bufs) {
+future<> connection::stream_receive(circular_buffer<foreign_rpc_buf<rcv_buf>>& bufs) {
     return _stream_queue.not_empty().then([this, &bufs] {
         bool eof = !_stream_queue.consume([&bufs] (rcv_buf&& b) {
             if (b.size == -1U) { // max fragment length marks an end of a stream
                 return false;
             } else {
-                bufs.push_back(make_foreign(std::make_unique<rcv_buf>(std::move(b))));
+                bufs.emplace_back(std::make_unique<rcv_buf>(std::move(b)));
                 return true;
             }
         });

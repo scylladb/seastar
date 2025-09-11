@@ -237,7 +237,7 @@ struct cancellable {
     }
 };
 
-struct rcv_buf {
+struct rcv_buf : public boost::intrusive::list_base_hook<boost::intrusive::link_mode<boost::intrusive::auto_unlink>> {
     uint32_t size = 0;
     std::optional<semaphore_units<>> su;
     std::variant<std::vector<temporary_buffer<char>>, temporary_buffer<char>> bufs;
@@ -249,7 +249,7 @@ struct rcv_buf {
         : size(size), bufs(std::move(bufs)) {};
 };
 
-struct snd_buf {
+struct snd_buf : public boost::intrusive::list_base_hook<boost::intrusive::link_mode<boost::intrusive::auto_unlink>> {
     // Preferred, but not required, chunk size.
     static constexpr size_t chunk_size = 128*1024;
     uint32_t size = 0;
@@ -265,6 +265,71 @@ struct snd_buf {
         : size(size), bufs(std::move(bufs)) {};
 
     temporary_buffer<char>& front();
+};
+
+template <typename T>
+requires (std::is_same_v<T, snd_buf> || std::is_same_v<T, rcv_buf>)
+class foreign_rpc_buf {
+    std::unique_ptr<T> _buf;
+    shard_id _owner_shard;
+
+public:
+    foreign_rpc_buf(std::unique_ptr<T> p = {}, shard_id owner = this_shard_id()) noexcept
+        : _buf(std::move(p)), _owner_shard(owner)
+    {}
+
+    foreign_rpc_buf(foreign_rpc_buf&&) noexcept = default;
+    foreign_rpc_buf& operator=(foreign_rpc_buf&&) noexcept = default;
+    foreign_rpc_buf(const foreign_rpc_buf&) = delete;
+    foreign_rpc_buf& operator=(const foreign_rpc_buf&) = delete;
+
+    ~foreign_rpc_buf() {
+        reset();
+    }
+
+    T* get() const noexcept {
+        return _buf.get();
+    }
+
+    T* operator->() const noexcept {
+        return get();
+    }
+
+    T& operator*() const noexcept {
+        return *_buf;
+    }
+
+    shard_id owner_shard() const noexcept {
+        return _owner_shard;
+    }
+
+    // Owner is responsible to destroy the buffer on the owner shard
+    std::tuple<T*, shard_id> release() && noexcept {
+        return std::make_tuple(_buf.release(), _owner_shard);
+    }
+
+    void reset() noexcept {
+        if (_buf) {
+            assert(_owner_shard == this_shard_id());
+            _buf.reset();
+        }
+    }
+};
+
+template <typename T>
+requires (std::is_same_v<T, snd_buf> || std::is_same_v<T, rcv_buf>)
+class xshard_destroy_queue {
+    using snd_buf_list_t = boost::intrusive::list<T, boost::intrusive::constant_time_size<false>>;
+
+    std::optional<shard_id> _bufs_owner_shard;
+    snd_buf_list_t _bufs_to_destroy;
+    future<> _destroy_fut = make_ready_future();
+
+    future<> destroy_bufs();
+public:
+    void delete_buf(foreign_rpc_buf<T> obj);
+
+    future<> stop();
 };
 
 static inline memory_input_stream<rcv_buf::iterator> make_deserializer_stream(rcv_buf& input) {
@@ -359,20 +424,46 @@ public:
     class impl {
     protected:
         xshard_connection_ptr _con;
-        circular_buffer<foreign_ptr<std::unique_ptr<rcv_buf>>> _bufs;
+        circular_buffer<foreign_rpc_buf<rcv_buf>> _bufs;
+        xshard_destroy_queue<rcv_buf> _destroy_queue;
+
         impl(xshard_connection_ptr con) : _con(std::move(con)) {
             _bufs.reserve(max_queued_stream_buffers);
         }
+
+        class rcv_buf_deleter final : public deleter::impl {
+            source::impl& _impl;
+            foreign_rpc_buf<rcv_buf> _obj;
+        public:
+            rcv_buf_deleter(source::impl& impl, foreign_rpc_buf<rcv_buf>&& obj)
+                : deleter::impl(deleter())
+                , _impl(impl), _obj(std::move(obj))
+            {}
+            ~rcv_buf_deleter() {
+                _impl._destroy_queue.delete_buf(std::move(_obj));
+            }
+        };
+
+        rcv_buf_deleter* make_rcv_buf_deleter(foreign_rpc_buf<rcv_buf>&& obj) {
+            return new rcv_buf_deleter(*this, std::move(obj));
+        }
     public:
         virtual ~impl() {}
+        future<> stop() {
+            return _destroy_queue.stop();
+        }
         virtual future<std::optional<std::tuple<In...>>> operator()() = 0;
         friend source;
     };
+
 private:
     shared_ptr<impl> _impl;
 
 public:
     source(shared_ptr<impl> impl) : _impl(std::move(impl)) {}
+    future<> stop() {
+        return _impl->stop();
+    }
     future<std::optional<std::tuple<In...>>> operator()() {
         return _impl->operator()();
     };

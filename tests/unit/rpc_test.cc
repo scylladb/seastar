@@ -498,6 +498,7 @@ SEASTAR_TEST_CASE(test_rpc_remote_verb_error) {
 struct stream_test_result {
     bool client_source_closed = false;
     bool server_source_closed = false;
+    std::exception_ptr server_source_error;
     bool sink_exception = false;
     bool sink_close_exception = false;
     bool source_done_exception = false;
@@ -528,7 +529,8 @@ future<stream_test_result> stream_test_func(rpc_test_env<>& env, bool stop_clien
             }).finally([sink] {});
 
             auto source_loop = seastar::async([source, &r] () mutable {
-                while (!r.server_source_closed) {
+                while (!r.server_source_closed && !r.server_source_error) {
+                  try {
                     auto data = source().get();
                     if (data) {
                         r.server_sum += std::get<0>(*data);
@@ -541,10 +543,16 @@ future<stream_test_result> stream_test_func(rpc_test_env<>& env, bool stop_clien
                         } catch (rpc::stream_closed& ex) {
                           // expected
                         } catch (...) {
-                           BOOST_FAIL("wrong exception on reading from a stream after eos");
+                           BOOST_FAIL(format("wrong exception on reading from a stream after eos: {}", std::current_exception()));
                         }
                     }
+                  } catch (const rpc::stream_closed& ex) {
+                    r.server_source_error = std::current_exception();
+                  } catch (...) {
+                    BOOST_FAIL(format("wrong exception on reading from a stream: {}", std::current_exception()));
+                  }
                 }
+                source.stop().get();
             });
             server_done = when_all_succeed(std::move(sink_loop), std::move(source_loop)).discard_result();
             return sink;

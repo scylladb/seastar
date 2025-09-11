@@ -30,6 +30,7 @@
 #include <seastar/core/simple-stream.hh>
 #include <seastar/net/packet-data-source.hh>
 #include <seastar/core/deleter.hh>
+#include <seastar/rpc/rpc_types.hh>
 
 #include <boost/type.hpp> // for compatibility
 
@@ -823,10 +824,7 @@ std::optional<protocol_base::handler_with_holder> protocol<Serializer, MsgType>:
     return std::nullopt;
 }
 
-template<typename T> T make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<T>> org,
-        std::function<deleter(foreign_ptr<std::unique_ptr<T>> org)> make_deleter = [] (foreign_ptr<std::unique_ptr<T>> org) {
-            return make_object_deleter(std::move(org));
-        });
+template<typename T> T make_shard_local_buffer_copy(foreign_rpc_buf<T> org, std::function<deleter(foreign_rpc_buf<T> org)> make_deleter);
 
 template<typename Serializer, typename... Out>
 future<> sink_impl<Serializer, Out...>::operator()(const Out&... args) {
@@ -840,7 +838,7 @@ future<> sink_impl<Serializer, Out...>::operator()(const Out&... args) {
     // but only one at a time
     auto size = std::min(size_t(data.size), max_stream_buffers_memory);
     const auto seq_num = _next_seq_num++;
-    return get_units(this->_sem, size).then([this, data = make_foreign(std::make_unique<snd_buf>(std::move(data))), seq_num] (semaphore_units<> su) mutable {
+    return get_units(this->_sem, size).then([this, data = foreign_rpc_buf(std::make_unique<snd_buf>(std::move(data))), seq_num] (semaphore_units<> su) mutable {
         if (this->_ex) {
             return make_exception_future(this->_ex);
         }
@@ -858,7 +856,10 @@ future<> sink_impl<Serializer, Out...>::operator()(const Out&... args) {
             auto& last_seq_num = _remote_state.last_seq_num;
             auto& out_of_order_bufs = _remote_state.out_of_order_bufs;
 
-            auto local_data = make_shard_local_buffer_copy(std::move(data));
+            std::function<deleter(foreign_rpc_buf<snd_buf> org)> make_deleter = [this] (foreign_rpc_buf<snd_buf> org) {
+                return deleter(new snd_buf_deleter_impl(_remote_state, std::move(org)));
+            };
+            auto local_data = make_shard_local_buffer_copy(std::move(data), make_deleter);
             const auto seq_num_diff = seq_num - last_seq_num;
             if (seq_num_diff > 1) {
                 auto [it, _] = out_of_order_bufs.emplace(seq_num, deferred_snd_buf{promise<>{}, std::move(local_data)});
@@ -915,7 +916,9 @@ future<> sink_impl<Serializer, Out...>::close() {
             } else {
                 f = this->_ex ? make_exception_future(this->_ex) : make_exception_future(closed_error());
             }
-            return f.finally([con] { return con->close_sink(); });
+            return f.finally([con] { return con->close_sink(); }).finally([this] {
+                return _remote_state.destroy_queue.stop();
+            });
         });
     });
 }
@@ -930,12 +933,15 @@ sink_impl<Serializer, Out...>::~sink_impl() {
 template<typename Serializer, typename... In>
 future<std::optional<std::tuple<In...>>> source_impl<Serializer, In...>::operator()() {
     auto process_one_buffer = [this] {
-        foreign_ptr<std::unique_ptr<rcv_buf>> buf = std::move(this->_bufs.front());
+        foreign_rpc_buf<rcv_buf> buf = std::move(this->_bufs.front());
         this->_bufs.pop_front();
+        std::function<deleter(foreign_rpc_buf<rcv_buf> org)> make_deleter = [this] (foreign_rpc_buf<rcv_buf> org) {
+            return deleter{this->make_rcv_buf_deleter(std::move(org))};
+        };
         return std::apply([] (In&&... args) {
             auto ret = std::make_optional(std::make_tuple(std::move(args)...));
             return make_ready_future<std::optional<std::tuple<In...>>>(std::move(ret));
-        }, unmarshall<Serializer, In...>(*this->_con->get(), make_shard_local_buffer_copy(std::move(buf))));
+        }, unmarshall<Serializer, In...>(*this->_con->get(), make_shard_local_buffer_copy(std::move(buf), make_deleter)));
     };
 
     if (!this->_bufs.empty()) {
