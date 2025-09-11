@@ -122,6 +122,7 @@ public:
             , _batch_flush_error(std::move(flush_error))
     {
     }
+#if SEASTAR_API_LEVEL < 9
     future<> put(net::packet data) override {
         return do_with(data.release(), [this] (std::vector<temporary_buffer<char>>& bufs) {
             return do_for_each(bufs, [this] (temporary_buffer<char>& buf) {
@@ -131,6 +132,13 @@ public:
             });
         });
     }
+#else
+    future<> put(temporary_buffer<char> buf) override {
+        return smp::submit_to(_buffer->get_owner_shard(), [this, buf = std::move(buf)] {
+            return (*_buffer)->push(temporary_buffer<char>(buf.get(), buf.size()));
+        });
+    }
+#endif
     future<> close() override {
         return smp::submit_to(_buffer->get_owner_shard(), [this] {
             return (*_buffer)->push({}).handle_exception_type([] (std::system_error& err) {
