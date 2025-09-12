@@ -22,6 +22,7 @@
 #include <exception>
 #include <numeric>
 #include <ranges>
+#include <any>
 
 #include <seastar/core/circular_buffer.hh>
 #include <seastar/core/coroutine.hh>
@@ -35,8 +36,10 @@
 #include <seastar/coroutine/as_future.hh>
 #include <seastar/coroutine/exception.hh>
 #include <seastar/coroutine/generator.hh>
+#include <seastar/coroutine/try_future.hh>
 #include <seastar/testing/random.hh>
 #include <seastar/testing/test_case.hh>
+#include <seastar/util/defer.hh>
 #include <seastar/util/later.hh>
 
 using seastar::broken_promise;
@@ -1017,4 +1020,146 @@ SEASTAR_TEST_CASE(test_lambda_coroutine_in_continuation) {
         co_return std::sin(n);
     }));
     BOOST_REQUIRE_EQUAL(sin1, sin2);
+}
+
+class test_exception : std::exception { };
+
+future<> throw_void() {
+    fmt::print("throw_void()\n");
+    co_await sleep(1ms);
+    throw test_exception{};
+}
+
+future<> return_ex_void() {
+    fmt::print("return_ex_void()\n");
+    return make_exception_future<>(test_exception{});
+}
+
+future<> return_void() {
+    fmt::print("return_void()\n");
+    co_await sleep(1ms);
+}
+
+future<int> throw_int() {
+    fmt::print("throw_int()\n");
+    co_await sleep(1ms);
+    throw test_exception{};
+}
+
+future<int> return_ex_int() {
+    fmt::print("return_ex_int()\n");
+    return make_exception_future<int>(test_exception{});
+}
+
+future<int> return_int() {
+    fmt::print("return_int()\n");
+    co_await sleep(1ms);
+    co_return 128;
+}
+
+class dummy {
+    int& _c;
+
+public:
+    explicit dummy(int& c) : _c(c) { ++_c; }
+    dummy(const dummy& o) : _c(o._c) { ++_c; }
+    dummy(dummy&&) = delete;
+    ~dummy() { --_c; }
+};
+
+template <bool CheckPreempt, std::invocable<> F>
+std::invoke_result_t<F> do_run_try_future_test(F underlying_func, int& ctor_dtor_counter, bool& run_past) {
+    const auto check_cxx_exceptions_on_exit = seastar::defer([cxx_exception_before = seastar::engine().cxx_exceptions()] () noexcept {
+        if (seastar::engine().cxx_exceptions() != cxx_exception_before) {
+            // We are in a destructor, cannot throw
+            std::abort();
+        }
+    });
+
+    dummy d1{ctor_dtor_counter};
+    dummy d2{ctor_dtor_counter};
+
+    std::vector<dummy> dummies;
+    for (unsigned i = 0; i < 10; ++i) {
+        dummies.emplace_back(ctor_dtor_counter);
+    }
+
+    BOOST_REQUIRE_GT(ctor_dtor_counter, 0);
+
+    using return_future_type = std::invoke_result_t<F>;
+    using return_type = typename return_future_type::value_type;
+    constexpr bool is_void = std::is_same_v<return_future_type, future<>>;
+
+    std::any ret;
+
+    try {
+        if constexpr (is_void) {
+            if constexpr (CheckPreempt) {
+                co_await seastar::coroutine::try_future(underlying_func());
+            } else {
+                co_await seastar::coroutine::try_future_without_preemption_check(underlying_func());
+            }
+        } else {
+            if constexpr (CheckPreempt) {
+                ret = co_await seastar::coroutine::try_future(underlying_func());
+            } else {
+                ret = co_await seastar::coroutine::try_future_without_preemption_check(underlying_func());
+            }
+        }
+        run_past = true;
+    } catch (...) {
+        BOOST_FAIL(fmt::format("Exception should be handled in try_future, bug caught: {}", std::current_exception()));
+    }
+
+    if constexpr (!is_void) {
+        co_return std::any_cast<return_type>(ret);
+    }
+}
+
+template <bool CheckPreempt, std::invocable<> F>
+future<> run_try_future_test(F underlying_func, std::optional<std::any> expected_value, std::source_location sl = std::source_location::current()) {
+    fmt::print("running test case at {}:{}\n", sl.file_name(), sl.line());
+
+    int ctor_dtor_counter{0};
+    bool run_past{false};
+
+    const bool throws = !expected_value.has_value();
+
+    using return_future_type = std::invoke_result_t<F>;
+    using return_type = typename return_future_type::value_type;
+    constexpr bool is_void = std::is_same_v<return_future_type, future<>>;
+
+    try {
+        if constexpr (is_void) {
+            co_await do_run_try_future_test<CheckPreempt>(std::move(underlying_func), ctor_dtor_counter, run_past);
+            BOOST_REQUIRE(expected_value);
+        } else {
+            auto value = co_await do_run_try_future_test<CheckPreempt>(std::move(underlying_func), ctor_dtor_counter, run_past);
+            BOOST_REQUIRE(expected_value);
+            BOOST_REQUIRE_EQUAL(value, std::any_cast<return_type>(*expected_value));
+        }
+    } catch (test_exception&) {
+        BOOST_REQUIRE(throws);
+    } catch (...) {
+        BOOST_FAIL(fmt::format("Unexpected exception {}", std::current_exception()));
+    }
+
+    BOOST_REQUIRE_EQUAL(run_past, !throws);
+    BOOST_REQUIRE_EQUAL(ctor_dtor_counter, 0);
+}
+
+SEASTAR_TEST_CASE(test_try_future) {
+    co_await run_try_future_test<true>(return_void, std::any{});
+    co_await run_try_future_test<false>(return_void, std::any{});
+    co_await run_try_future_test<true>(return_ex_void, std::nullopt);
+    co_await run_try_future_test<false>(return_ex_void, std::nullopt);
+    co_await run_try_future_test<true>(throw_void, std::nullopt);
+    co_await run_try_future_test<false>(throw_void, std::nullopt);
+
+    co_await run_try_future_test<true>(return_int, 128);
+    co_await run_try_future_test<false>(return_int, 128);
+    co_await run_try_future_test<true>(return_ex_int, std::nullopt);
+    co_await run_try_future_test<false>(return_ex_int, std::nullopt);
+    co_await run_try_future_test<true>(throw_int, std::nullopt);
+    co_await run_try_future_test<false>(throw_int, std::nullopt);
 }
