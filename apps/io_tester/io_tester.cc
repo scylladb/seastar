@@ -233,6 +233,7 @@ struct options {
     // if not specified, then file_size is used as a hint
     std::optional<uint64_t> extent_allocation_size_hint;
     bool pre_allocate_blocks = false;
+    std::optional<uint64_t> sloppy_size_hint;
 };
 
 class class_data;
@@ -615,6 +616,10 @@ private:
         }
         file_open_options options;
         options.extent_allocation_size_hint = _config.options.extent_allocation_size_hint.value_or(_config.file_size);
+        if (_config.options.sloppy_size_hint.has_value()) {
+            options.sloppy_size = true;
+            options.sloppy_size_hint = *_config.options.sloppy_size_hint;
+        }
         options.append_is_unlikely = (req_type() != request_type::append);
 
         return create_and_fill_file(fname, _config.file_size, flags, options, req_type() != request_type::append, _config.options.pre_allocate_blocks).then([this](file f) {
@@ -1029,6 +1034,9 @@ struct convert<options> {
         // However, certain tests may require using a specific value (e.g. 32MB).
         if (node["extent_allocation_size_hint"]) {
             op.extent_allocation_size_hint = node["extent_allocation_size_hint"].as<byte_size>().size;
+        }
+        if (node["sloppy_size_hint"]) {
+            op.sloppy_size_hint = node["sloppy_size_hint"].as<byte_size>().size;
         }
         if (node["fallocate"]) {
             op.pre_allocate_blocks = node["fallocate"].as<bool>();
