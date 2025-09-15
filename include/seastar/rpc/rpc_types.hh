@@ -41,6 +41,7 @@
 #include <seastar/core/lowres_clock.hh>
 #include <boost/functional/hash.hpp>
 #include <seastar/core/sharded.hh>
+#include <seastar/core/semaphore.hh>
 
 namespace seastar {
 
@@ -254,6 +255,8 @@ struct snd_buf {
     static constexpr size_t chunk_size = 128*1024;
     uint32_t size = 0;
     std::variant<std::vector<temporary_buffer<char>>, temporary_buffer<char>> bufs;
+    // Holds semaphore units to extend backpressure lifetime until snd_buf is destroyed.
+    semaphore_units<> su;
     using iterator = std::vector<temporary_buffer<char>>::iterator;
     snd_buf() {}
     snd_buf(snd_buf&&) noexcept;

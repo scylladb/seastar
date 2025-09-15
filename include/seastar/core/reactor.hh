@@ -744,6 +744,8 @@ public:
     void update_blocked_reactor_notify_ms(std::chrono::milliseconds ms);
     std::chrono::milliseconds get_blocked_reactor_notify_ms() const;
 
+    const reactor_config& get_reactor_config() const { return _cfg; }
+
     class test {
     public:
         static void with_allow_abandoned_failed_futures(unsigned count, noncopyable_function<void ()> func);
