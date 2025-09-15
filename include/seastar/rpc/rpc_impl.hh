@@ -840,6 +840,7 @@ future<> sink_impl<Serializer, Out...>::operator()(const Out&... args) {
         if (this->_ex) {
             return make_exception_future(this->_ex);
         }
+        data->su = std::move(su);
         // It is OK to discard this future. The user is required to
         // wait for it when closing.
         (void)smp::submit_to(this->_con->get_owner_shard(), [this, data = std::move(data), seq_num] () mutable {
@@ -871,7 +872,7 @@ future<> sink_impl<Serializer, Out...>::operator()(const Out&... args) {
                 out_of_order_bufs.erase(it);
             }
             return ret_fut;
-        }).then_wrapped([su = std::move(su), this] (future<> f) {
+        }).then_wrapped([this] (future<> f) {
             if (f.failed() && !this->_ex) { // first error is the interesting one
                 this->_ex = f.get_exception();
             } else {
