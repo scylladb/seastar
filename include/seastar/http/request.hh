@@ -136,15 +136,15 @@ public:
     /**
      * Search for the last query parameter of a given key
      * @param key the query parameter key
-     * @return the query parameter value, if it exists or empty string
+     * @return the query parameter value, if it exists or the default_value otherwise
      */
-    sstring get_query_param(std::string_view key) const {
+    sstring get_query_param(std::string_view key, std::string_view default_value = "") const {
         auto res = _query_params.find(key);
         if (res != _query_params.end()) {
             return res->second.back();
         }
 
-        return "";
+        return sstring(default_value);
     }
 
     /**
