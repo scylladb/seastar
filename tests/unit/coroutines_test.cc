@@ -1018,3 +1018,17 @@ SEASTAR_TEST_CASE(test_lambda_coroutine_in_continuation) {
     }));
     BOOST_REQUIRE_EQUAL(sin1, sin2);
 }
+
+#ifdef __cpp_lib_expected
+
+future<std::expected<void, std::string>> void_return_expected() {
+  co_return {};
+}
+
+SEASTAR_TEST_CASE(test_std_expected_void_specialization) {
+  auto result = co_await void_return_expected();
+  BOOST_REQUIRE(result.has_value());
+}
+
+#endif
+

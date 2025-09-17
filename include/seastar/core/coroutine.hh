@@ -30,6 +30,9 @@
 
 #ifndef SEASTAR_MODULE
 #include <coroutine>
+#ifdef __cpp_lib_expected
+#include <expected>
+#endif
 #endif
 
 namespace seastar {
@@ -129,6 +132,59 @@ public:
         }
     };
 };
+
+#ifdef __cpp_lib_expected
+template <typename Err>
+class coroutine_traits_base<std::expected<void, Err>> {
+public:
+   class promise_type final : public seastar::task {
+        seastar::promise<std::expected<void, Err>> _promise;
+    public:
+        promise_type() = default;
+        promise_type(promise_type&&) = delete;
+        promise_type(const promise_type&) = delete;
+
+        template<typename... U>
+        void return_value(U&&... value) {
+            _promise.set_value(std::forward<U>(value)...);
+        }
+
+        void return_value(std::expected<void, Err>&& value) {
+            _promise.set_value(std::forward<std::expected<void, Err>>(value));
+        }
+
+        void return_value(coroutine::exception ce) noexcept {
+            _promise.set_exception(std::move(ce.eptr));
+        }
+
+        void set_exception(std::exception_ptr&& eptr) noexcept {
+            _promise.set_exception(std::move(eptr));
+        }
+
+        void unhandled_exception() noexcept {
+            _promise.set_exception(std::current_exception());
+        }
+
+        seastar::future<std::expected<void, Err>> get_return_object() noexcept {
+            return _promise.get_future();
+        }
+
+        std::suspend_never initial_suspend() noexcept { return { }; }
+        std::suspend_never final_suspend() noexcept { return { }; }
+
+        virtual void run_and_dispose() noexcept override {
+            auto handle = std::coroutine_handle<promise_type>::from_promise(*this);
+            handle.resume();
+        }
+
+        task* waiting_task() noexcept override { return _promise.waiting_task(); }
+
+        scheduling_group set_scheduling_group(scheduling_group new_sg) noexcept {
+            return task::set_scheduling_group(new_sg);
+        }
+    };
+};
+#endif
 
 template<bool CheckPreempt, typename T>
 struct awaiter {
