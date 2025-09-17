@@ -166,7 +166,7 @@ public:
         return out._end;
     }
     static bool has_zc(const ::output_stream<char>& out) {
-        return (bool)out._zc_bufs;
+        return !out._zc_bufs.empty();
     }
 };
 
