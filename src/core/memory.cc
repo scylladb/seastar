@@ -549,6 +549,10 @@ struct cpu_pages {
     uint32_t nr_free_pages;
     uint32_t current_min_free_pages = 0;
     size_t large_allocation_warning_threshold = std::numeric_limits<size_t>::max();
+    size_t large_allocation_warning_threshold_base = std::numeric_limits<size_t>::max();
+    static constexpr size_t large_allocation_warning_decay_step = page_size;
+    static constexpr lowres_clock::duration large_allocation_warning_decay_period = std::chrono::seconds(10);
+    timer<lowres_clock> large_allocation_warning_decay;
     unsigned cpu_id = -1U;
     std::function<void (std::function<void ()>)> reclaim_hook;
     std::vector<reclaimer*> reclaimers;
@@ -839,6 +843,7 @@ cpu_pages::warn_large_allocation(size_t size) {
     alloc_stats::increment_local(alloc_stats::types::large_allocs);
     seastar_memory_logger.warn("oversized allocation: {} bytes. This is non-fatal, but could lead to latency and/or fragmentation issues. Please report: at {}", size, current_backtrace());
     large_allocation_warning_threshold *= 1.618; // prevent spam
+    large_allocation_warning_decay.rearm(lowres_clock::now() + large_allocation_warning_decay_period); // schedule for more spam later
 }
 
 allocation_site_ptr
@@ -1198,6 +1203,10 @@ bool cpu_pages::is_initialized() const {
     return bool(nr_pages);
 }
 
+namespace internal {
+void decrease_large_allocation_warning_threshold();
+}
+
 bool cpu_pages::initialize() {
     if (is_initialized()) {
         return false;
@@ -1230,6 +1239,7 @@ bool cpu_pages::initialize() {
     pages[nr_pages].free = false;
     free_span_unaligned(reserved, nr_pages - reserved);
     live_cpus[cpu_id].store(true, std::memory_order_relaxed);
+    large_allocation_warning_decay.set_callback(default_scheduling_group(), [] { internal::decrease_large_allocation_warning_threshold(); });
     return true;
 }
 
@@ -1809,6 +1819,8 @@ reclaimer::~reclaimer() {
 
 void set_large_allocation_warning_threshold(size_t threshold) {
     get_cpu_mem().large_allocation_warning_threshold = threshold;
+    get_cpu_mem().large_allocation_warning_threshold_base = threshold;
+    get_cpu_mem().large_allocation_warning_decay.cancel();
 }
 
 size_t get_large_allocation_warning_threshold() {
@@ -1816,7 +1828,21 @@ size_t get_large_allocation_warning_threshold() {
 }
 
 void disable_large_allocation_warning() {
-    get_cpu_mem().large_allocation_warning_threshold = std::numeric_limits<size_t>::max();
+    set_large_allocation_warning_threshold(std::numeric_limits<size_t>::max());
+}
+
+namespace internal {
+void decrease_large_allocation_warning_threshold() {
+    size_t& threshold = get_cpu_mem().large_allocation_warning_threshold;
+    size_t base = get_cpu_mem().large_allocation_warning_threshold_base;
+
+    if (threshold > base + cpu_pages::large_allocation_warning_decay_step) {
+        threshold -= cpu_pages::large_allocation_warning_decay_step;
+        get_cpu_mem().large_allocation_warning_decay.arm(cpu_pages::large_allocation_warning_decay_period);
+    } else {
+        threshold = base;
+    }
+}
 }
 
 void configure_minimal() {
