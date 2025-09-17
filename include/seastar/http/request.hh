@@ -125,6 +125,15 @@ public:
     }
 
     /**
+     * Does the query parameters contain a given key?
+     * @param key the query parameter key
+     * @return true if the key exists, false otherwise
+     */
+    bool has_query_param(std::string_view key) const {
+        return _query_params.contains(key);
+    }
+
+    /**
      * Search for the last query parameter of a given key
      * @param key the query parameter key
      * @return the query parameter value, if it exists or empty string
