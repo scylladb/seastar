@@ -39,6 +39,8 @@ struct fs_info;
 
 }
 
+enum class nowait_mode { yes, no };
+
 class posix_file_handle_impl : public seastar::file_handle_impl {
     int _fd;
     std::atomic<unsigned>* _refcount;
@@ -48,14 +50,14 @@ class posix_file_handle_impl : public seastar::file_handle_impl {
     uint32_t _disk_read_dma_alignment;
     uint32_t _disk_write_dma_alignment;
     uint32_t _disk_overwrite_dma_alignment;
-    bool _nowait_works;
+    const nowait_mode _nowait_works;
 public:
     posix_file_handle_impl(int fd, open_flags f, std::atomic<unsigned>* refcount, dev_t device_id,
             uint32_t memory_dma_alignment,
             uint32_t disk_read_dma_alignment,
             uint32_t disk_write_dma_alignment,
             uint32_t disk_overwrite_dma_alignment,
-            bool nowait_works)
+            nowait_mode nowait_works)
             : _fd(fd), _refcount(refcount), _device_id(device_id), _open_flags(f)
             , _memory_dma_alignment(memory_dma_alignment)
             , _disk_read_dma_alignment(disk_read_dma_alignment)
@@ -72,21 +74,21 @@ public:
 
 class posix_file_impl : public file_impl {
     std::atomic<unsigned>* _refcount = nullptr;
-    const bool _nowait_works;
+    const nowait_mode _nowait_works;
     const dev_t _device_id;
     io_queue& _io_queue;
     const open_flags _open_flags;
 protected:
     int _fd;
 
-    posix_file_impl(int fd, open_flags, file_open_options options, dev_t device_id, bool nowait_works);
+    posix_file_impl(int fd, open_flags, file_open_options options, dev_t device_id, nowait_mode nowait_works);
     posix_file_impl(int fd, open_flags, file_open_options options, dev_t device_id, const internal::fs_info& fsi);
     posix_file_impl(int fd, open_flags, std::atomic<unsigned>* refcount, dev_t device_id,
             uint32_t memory_dma_alignment,
             uint32_t disk_read_dma_alignment,
             uint32_t disk_write_dma_alignment,
             uint32_t disk_overwrite_dma_alignment,
-            bool nowait_works);
+            nowait_mode nowait_works);
 public:
     virtual ~posix_file_impl() override;
     future<> flush() noexcept override;
@@ -157,7 +159,7 @@ public:
     posix_file_real_impl(int fd, open_flags of, file_open_options options, const internal::fs_info& fsi, dev_t device_id)
         : posix_file_impl(fd, of, std::move(options), device_id, fsi) {}
     posix_file_real_impl(int fd, open_flags of, std::atomic<unsigned>* refcount, dev_t device_id,
-            uint32_t memory_dma_alignment, uint32_t disk_read_dma_alignment, uint32_t disk_write_dma_alignment, uint32_t disk_overwrite_dma_alignment, bool nowait_works)
+            uint32_t memory_dma_alignment, uint32_t disk_read_dma_alignment, uint32_t disk_write_dma_alignment, uint32_t disk_overwrite_dma_alignment, nowait_mode nowait_works)
         : posix_file_impl(fd, of, refcount, device_id, memory_dma_alignment, disk_read_dma_alignment, disk_write_dma_alignment, disk_overwrite_dma_alignment, nowait_works) {}
     virtual future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, io_intent* intent) noexcept override;
     virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept override;
