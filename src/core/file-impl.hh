@@ -39,7 +39,7 @@ struct fs_info;
 
 }
 
-enum class nowait_mode { yes, no };
+enum class nowait_mode { yes, no, read_only };
 
 class posix_file_handle_impl : public seastar::file_handle_impl {
     int _fd;
