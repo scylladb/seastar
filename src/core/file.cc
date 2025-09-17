@@ -491,14 +491,14 @@ posix_file_impl::do_write_dma(uint64_t pos, std::vector<iovec> iov, io_intent* i
 
 future<size_t>
 posix_file_impl::do_read_dma(uint64_t pos, void* buffer, size_t len, io_intent* intent) noexcept {
-    auto req = internal::io_request::make_read(_fd, pos, buffer, len, _nowait_works == nowait_mode::yes);
+    auto req = internal::io_request::make_read(_fd, pos, buffer, len, _nowait_works == nowait_mode::yes || _nowait_works == nowait_mode::read_only);
     return _io_queue.submit_io_read(len, std::move(req), intent);
 }
 
 future<size_t>
 posix_file_impl::do_read_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept {
     auto len = internal::sanitize_iovecs(iov, _disk_read_dma_alignment);
-    auto req = internal::io_request::make_readv(_fd, pos, iov, _nowait_works == nowait_mode::yes);
+    auto req = internal::io_request::make_readv(_fd, pos, iov, _nowait_works == nowait_mode::yes || _nowait_works == nowait_mode::read_only);
     return _io_queue.submit_io_read(len, std::move(req), intent, std::move(iov));
 }
 
