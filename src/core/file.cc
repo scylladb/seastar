@@ -1107,10 +1107,22 @@ make_file_impl(int fd, file_open_options options, int flags, struct stat st) noe
                 fsi.fsync_is_exclusive = true;
             }
 
-            if (fs_nowait_works && engine()._cfg.aio_nowait_works) {
-                fsi.nowait_works = nowait_mode::yes;
-            } else {
+            if (!fs_nowait_works) {
                 fsi.nowait_works = nowait_mode::no;
+            } else if (engine()._cfg.aio_nowait_works.has_value()) {
+                if (*engine()._cfg.aio_nowait_works) {
+                    fsi.nowait_works = nowait_mode::yes;
+                } else {
+                    fsi.nowait_works = nowait_mode::no;
+                }
+            } else {
+                if (internal::kernel_uname().whitelisted({"6.0"})) {
+                    fsi.nowait_works = nowait_mode::read_only; // seastar issue #2974
+                } else if (internal::kernel_uname().whitelisted({"4.13"})) {
+                    fsi.nowait_works = nowait_mode::yes;
+                } else {
+                    fsi.nowait_works = nowait_mode::no;
+                }
             }
             s_fstype.insert(std::make_pair(st.st_dev, std::move(fsi)));
             return make_file_impl(fd, std::move(options), flags, std::move(st));
