@@ -22,9 +22,9 @@
 #pragma once
 
 #include <seastar/core/future.hh>
+#include <seastar/core/slim_source_location.hh>
 #include <coroutine>
 #include <exception>
-#include <source_location>
 
 namespace seastar {
 
@@ -43,7 +43,7 @@ struct exception_awaiter {
     }
 
     template<typename U>
-    void await_suspend(std::coroutine_handle<U> hndl, std::source_location sl = std::source_location::current()) noexcept {
+    void await_suspend(std::coroutine_handle<U> hndl, slim_source_location sl = {}) noexcept {
         hndl.promise().update_resume_point(sl);
         hndl.promise().set_exception(std::move(eptr));
         hndl.destroy();

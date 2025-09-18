@@ -30,8 +30,9 @@
 
 #ifndef SEASTAR_MODULE
 #include <coroutine>
-#include <source_location>
 #endif
+
+#include <seastar/core/slim_source_location.hh>
 
 namespace seastar {
 
@@ -145,7 +146,7 @@ public:
     }
 
     template<typename U>
-    void await_suspend(std::coroutine_handle<U> hndl, std::source_location sl = std::source_location::current()) noexcept {
+    void await_suspend(std::coroutine_handle<U> hndl, slim_source_location sl = {}) noexcept {
         hndl.promise().update_resume_point(sl);
         if (!CheckPreempt || !_future.available()) {
             _future.set_coroutine(hndl.promise());
@@ -171,7 +172,7 @@ public:
     }
 
     template<typename U>
-    void await_suspend(std::coroutine_handle<U> hndl, std::source_location sl = std::source_location::current()) noexcept {
+    void await_suspend(std::coroutine_handle<U> hndl, slim_source_location sl = {}) noexcept {
         hndl.promise().update_resume_point(sl);
         if (!CheckPreempt || !_future.available()) {
             _future.set_coroutine(hndl.promise());
