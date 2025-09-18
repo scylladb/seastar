@@ -43,6 +43,7 @@
 #include <seastar/util/noncopyable_function.hh>
 #include <seastar/util/later.hh>
 #include <seastar/core/coroutine.hh>
+#include <seastar/core/reactor.hh>
 
 #include <boost/range/numeric.hpp>
 
@@ -180,6 +181,7 @@ struct rpc_test_config {
 
 template<typename MsgType = int>
 class rpc_test_env {
+public:
     struct rpc_test_service {
         test_rpc_proto _proto;
         test_rpc_proto::server _server;
@@ -213,6 +215,11 @@ class rpc_test_env {
             return proto().register_handler(t, sg, std::move(func));
         }
 
+        template<typename Func>
+        auto register_handler(MsgType t, Func func) {
+            return register_handler(t, scheduling_group(), std::forward<Func>(func));
+        }
+
         future<> unregister_handler(MsgType t) {
             auto it = std::find(_handlers.begin(), _handlers.end(), t);
             SEASTAR_ASSERT(it != _handlers.end());
@@ -221,6 +228,7 @@ class rpc_test_env {
         }
     };
 
+private:
     rpc_test_config _cfg;
     loopback_connection_factory _lcf;
     std::unique_ptr<sharded<rpc_test_service>> _service;
@@ -295,6 +303,10 @@ public:
         return _service->invoke_on_all([t] (rpc_test_service& s) mutable {
             return s.unregister_handler(t);
         });
+    }
+
+    future<> invoke_on_all(std::function<future<> (rpc_test_service& s)> func) {
+        return _service->invoke_on_all(std::move(func));
     }
 
 private:
@@ -1899,4 +1911,95 @@ SEASTAR_TEST_CASE(test_timeout_cancel) {
         abort_handler.request_abort();
         env.unregister_handler(id).get();
     });
+}
+
+SEASTAR_THREAD_TEST_CASE(test_rpc_stream_backpressure_across_shards) {
+    static seastar::logger log("test");
+    rpc::server_options so;
+    so.streaming_domain = rpc::streaming_domain_type(1);
+    rpc_test_config cfg;
+    cfg.server_options = so;
+    rpc_test_env<>::do_with_thread(cfg, [] (rpc_test_env<>& env) {
+        std::vector<foreign_ptr<std::unique_ptr<reactor::test::long_task_queue_state>>> long_task_queue_states;
+        long_task_queue_states.resize(smp::count);
+        smp::invoke_on_all([&] {
+            long_task_queue_states[this_shard_id()] = make_foreign(std::make_unique<reactor::test::long_task_queue_state>(reactor::test::save_long_task_queue_state()));
+            reactor::test::set_long_task_queue_state(reactor::test::long_task_queue_state{
+                .abort_on_too_long_task_queue = true,
+                .max_task_backlog = 500,
+            });
+        }).get();
+
+        constexpr int msg_id = 1;
+        env.register_handler(msg_id, [] (shard_id sending_shard, size_t msgs_to_send, rpc::source<sstring> source) {
+            auto sink = source.make_sink<serializer, sstring>();
+
+            // It is safe to drop the future since the caller awaits for the stream to get closed.
+            (void)seastar::async([sending_shard, msgs_to_send, source, sink] () mutable {
+                auto close_sink = deferred_close(sink);
+                log.info("Handler: send {} messages to shard {}: starting", msgs_to_send, sending_shard);
+                sstring data;
+                data.resize(64, 'x');
+                for (size_t i = 0; i < msgs_to_send; ++i) {
+                    sink(data).get();
+                }
+                sink(sstring()).get();
+                sink.flush().get();
+                close_sink.close_now();
+                log.info("Handler: send {} messages to shard {}: done", msgs_to_send, sending_shard);
+            });
+
+            return sink;
+        }).get();
+
+        size_t msgs_per_shard = 1000000;
+#ifdef SEASTAR_DEBUG
+        msgs_per_shard = 50000;
+#endif
+        env.invoke_on_all([&] (rpc_test_env<>::rpc_test_service& s) {
+            return async([&] {
+                test_rpc_proto::client cl(env.proto(), {}, env.make_socket(), ipv4_addr());
+                auto stop_cl = deferred_stop(cl);
+                auto sink = cl.make_stream_sink<serializer, sstring>(env.make_socket()).get();
+                auto close_sink = deferred_close(sink);
+                auto call = env.proto().make_client<rpc::source<sstring> (shard_id, size_t, rpc::sink<sstring>)>(msg_id);
+                auto source = call(cl, this_shard_id(), msgs_per_shard, sink).get();
+
+                size_t count = 0;
+                for (;;) {
+                    try {
+                        if (auto data = source().get()) {
+                            auto val = std::get<0>(*data);
+                            if (val.size()) {
+                                if (count && !(count % 100000)) {
+                                    log.debug("cl_rep_loop: received {} messages...", count);
+                                }
+                                count++;
+                                continue;
+                            } else {
+                                log.debug("cl_rep_loop: got end-of-stream");
+                                continue;
+                            }
+                        } else {
+                            log.debug("cl_rep_loop: got empty data");
+                            continue;
+                        }
+                    } catch (const rpc::stream_closed&) {
+                        log.debug("cl_rep_loop: stream closed");
+                    } catch (...) {
+                        auto msg = format("cl_rep_loop: unexpected exception: {}", std::current_exception());
+                        log.error("{}", msg);
+                        throw std::runtime_error(msg);
+                    }
+                    break;
+                }
+                log.info("cl_rep_loop: received {} messages", count);
+                if (count != msgs_per_shard) {
+                    auto msg = format("cl_rep_loop: expected {}, got {}", msgs_per_shard, count);
+                    log.error("{}", msg);
+                    throw std::runtime_error(msg);
+                }
+            });
+        }).get();
+    }).get();
 }
