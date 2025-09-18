@@ -152,7 +152,7 @@ public:
     }
 
     template<typename T>
-    void await_suspend(std::coroutine_handle<T> h, std::source_location sl = std::source_location::current()) noexcept {
+    void await_suspend(std::coroutine_handle<T> h, slim_source_location sl = {}) noexcept {
         h.promise().update_resume_point(sl);
         _when_ready = h;
         _waiting_task = &h.promise();

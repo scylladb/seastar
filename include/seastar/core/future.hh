@@ -31,13 +31,13 @@
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
-#include <source_location>
 #endif
 
 #include <seastar/core/task.hh>
 #include <seastar/core/thread_impl.hh>
 #include <seastar/core/function_traits.hh>
 #include <seastar/core/shard_id.hh>
+#include <seastar/core/slim_source_location.hh>
 #include <seastar/util/assert.hh>
 #include <seastar/util/critical_alloc_section.hh>
 #include <seastar/util/noncopyable_function.hh>
@@ -1234,7 +1234,7 @@ private:
         future_base::schedule(tws, &tws->_state);
     }
     template <typename Pr, typename Func, typename Wrapper>
-    void schedule(Pr&& pr, Func&& func, Wrapper&& wrapper, std::source_location sl) noexcept {
+    void schedule(Pr&& pr, Func&& func, Wrapper&& wrapper, slim_source_location sl) noexcept {
         // If this new throws a std::bad_alloc there is nothing that
         // can be done about it. The corresponding future is not ready
         // and we cannot break the chain. Since this function is
@@ -1359,7 +1359,7 @@ public:
     requires std::invocable<Func, T>
                  || (std::same_as<void, T> && std::invocable<Func>)
     Result
-    then(Func&& func, std::source_location sl = std::source_location::current()) noexcept {
+    then(Func&& func, slim_source_location sl = {}) noexcept {
       // Avoid having to special-case lvalue-references downstream by converting
       // them to an rvalue reference here.
       if constexpr (std::is_lvalue_reference_v<Func>) {
@@ -1403,7 +1403,7 @@ public:
     template <typename Func, typename Result = futurize_t<internal::result_of_apply_t<Func, T>>>
     requires ::seastar::CanApplyTuple<Func, T>
     Result
-    then_unpack(Func&& func, std::source_location sl = std::source_location::current()) noexcept {
+    then_unpack(Func&& func, slim_source_location sl = {}) noexcept {
       // Avoid having to special-case lvalue-references downstream by converting
       // them to an rvalue reference here.
       if constexpr (std::is_lvalue_reference_v<Func>) {
@@ -1420,7 +1420,7 @@ private:
 
     // Keep this simple so that Named Return Value Optimization is used.
     template <typename Func, typename Result>
-    Result then_impl_nrvo(Func&& func, std::source_location sl) noexcept {
+    Result then_impl_nrvo(Func&& func, slim_source_location sl) noexcept {
         using futurator = futurize<internal::future_result_t<Func, T>>;
         typename futurator::type fut(future_for_get_promise_marker{});
         using pr_type = decltype(fut.get_promise());
@@ -1441,7 +1441,7 @@ private:
 
     template <typename Func, typename Result = futurize_t<internal::future_result_t<Func, T>>>
     Result
-    then_impl(Func&& func, std::source_location sl) noexcept {
+    then_impl(Func&& func, slim_source_location sl) noexcept {
 #ifndef SEASTAR_DEBUG
         using futurator = futurize<internal::future_result_t<Func, T>>;
         if (failed()) {
@@ -1471,7 +1471,7 @@ public:
     ///         to the eventual value of this future.
     template <std::invocable<future> Func, typename FuncResult = std::invoke_result_t<Func, future>>
     futurize_t<FuncResult>
-    then_wrapped(Func&& func, std::source_location sl = std::source_location::current()) & noexcept {
+    then_wrapped(Func&& func, slim_source_location sl = {}) & noexcept {
       // Avoid having to special-case lvalue-references downstream by converting
       // them to an rvalue reference here.
       if constexpr (std::is_lvalue_reference_v<Func>) {
@@ -1483,7 +1483,7 @@ public:
 
     template <std::invocable<future&&> Func, typename FuncResult = std::invoke_result_t<Func, future&&>>
     futurize_t<FuncResult>
-    then_wrapped(Func&& func, std::source_location sl = std::source_location::current()) && noexcept {
+    then_wrapped(Func&& func, slim_source_location sl = {}) && noexcept {
       // Avoid having to special-case lvalue-references downstream by converting
       // them to an rvalue reference here.
       if constexpr (std::is_lvalue_reference_v<Func>) {
@@ -1497,7 +1497,7 @@ private:
 
     template <bool AsSelf, typename FuncResult, typename Func>
     futurize_t<FuncResult>
-    then_wrapped_maybe_erase(Func&& func, std::source_location sl) noexcept {
+    then_wrapped_maybe_erase(Func&& func, slim_source_location sl) noexcept {
 #ifndef SEASTAR_TYPE_ERASE_MORE
         return then_wrapped_common<AsSelf, FuncResult>(std::forward<Func>(func), sl);
 #else
@@ -1517,7 +1517,7 @@ private:
     // Keep this simple so that Named Return Value Optimization is used.
     template <typename FuncResult, typename Func>
     futurize_t<FuncResult>
-    then_wrapped_nrvo(Func&& func, std::source_location sl) noexcept {
+    then_wrapped_nrvo(Func&& func, slim_source_location sl) noexcept {
         using futurator = futurize<FuncResult>;
         typename futurator::type fut(future_for_get_promise_marker{});
         using pr_type = decltype(fut.get_promise());
@@ -1532,7 +1532,7 @@ private:
 
     template <bool AsSelf, typename FuncResult, typename Func>
     futurize_t<FuncResult>
-    then_wrapped_common(Func&& func, std::source_location sl) noexcept {
+    then_wrapped_common(Func&& func, slim_source_location sl) noexcept {
 #ifndef SEASTAR_DEBUG
         using futurator = futurize<FuncResult>;
         if (available()) {
@@ -1598,7 +1598,7 @@ public:
      * nested will be propagated.
      */
     template <std::invocable Func>
-    future<T> finally(Func&& func, std::source_location sl = std::source_location::current()) noexcept {
+    future<T> finally(Func&& func, slim_source_location sl = {}) noexcept {
       // Avoid having to special-case lvalue-references downstream by converting
       // them to an rvalue reference here.
       if constexpr (std::is_lvalue_reference_v<Func>) {
@@ -1651,7 +1651,7 @@ public:
     ///
     /// Terminates the entire program is this future resolves
     /// to an exception.  Use with caution.
-    future<> or_terminate(std::source_location sl = std::source_location::current()) noexcept {
+    future<> or_terminate(slim_source_location sl = {}) noexcept {
         return then_wrapped([] (auto&& f) {
             try {
                 f.get();
@@ -1665,7 +1665,7 @@ public:
     ///
     /// Converts the future into a no-value \c future<>, by
     /// ignoring any result.  Exceptions are propagated unchanged.
-    future<> discard_result(std::source_location sl = std::source_location::current()) noexcept {
+    future<> discard_result(slim_source_location sl = {}) noexcept {
         // We need the generic variadic lambda, below, because then() behaves differently
         // when value_type is when_all_succeed_tuple
         return then([] (auto&&...) {}, sl);
@@ -1689,7 +1689,7 @@ public:
                     || (std::tuple_size_v<tuple_type> == 0 && std::is_invocable_r_v<void, Func, std::exception_ptr>)
                     || (std::tuple_size_v<tuple_type> == 1 && std::is_invocable_r_v<T, Func, std::exception_ptr>)
                     || (std::tuple_size_v<tuple_type> > 1 && std::is_invocable_r_v<tuple_type ,Func, std::exception_ptr>)
-    future<T> handle_exception(Func&& func, std::source_location sl = std::source_location::current()) noexcept {
+    future<T> handle_exception(Func&& func, slim_source_location sl = {}) noexcept {
       // Avoid having to special-case lvalue-references downstream by converting
       // them to an rvalue reference here.
       if constexpr (std::is_lvalue_reference_v<Func>) {
@@ -1717,7 +1717,7 @@ public:
     /// If exception, that future holds, does not match func parameter type
     /// it is propagated as is.
     template <typename Func>
-    future<T> handle_exception_type(Func&& func, std::source_location sl = std::source_location::current()) noexcept {
+    future<T> handle_exception_type(Func&& func, slim_source_location sl = {}) noexcept {
       // Avoid having to special-case lvalue-references downstream by converting
       // them to an rvalue reference here.
       if constexpr (std::is_lvalue_reference_v<Func>) {

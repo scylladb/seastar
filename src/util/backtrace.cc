@@ -30,7 +30,6 @@ module;
 #include <cerrno>
 #include <cstring>
 #include <iostream>
-#include <source_location>
 #include <variant>
 #include <vector>
 #include <boost/container/static_vector.hpp>
@@ -44,6 +43,7 @@ module seastar;
 #include <seastar/core/print.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/core/slim_source_location.hh>
 #endif
 
 namespace seastar {
@@ -217,7 +217,7 @@ auto formatter<seastar::tasktrace>::format(const seastar::tasktrace& b, format_c
     out = fmt::format_to(out, "{}", b._main);
     for(auto i = 0u; i < b._prev.size(); ++i) {
         const auto &e = b._prev[i];
-        auto resume_loc = i < b._prev_resume_points.size() ? b._prev_resume_points[i] : std::source_location{};
+        auto resume_loc = i < b._prev_resume_points.size() ? b._prev_resume_points[i] : seastar::slim_source_location{};
 
         out = fmt::format_to(out,  "\n   --------");
 

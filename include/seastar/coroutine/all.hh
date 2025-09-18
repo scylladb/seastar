@@ -162,7 +162,7 @@ private:
             }, state._futures);
         }
         template <typename U>
-        void await_suspend(std::coroutine_handle<U> h, std::source_location sl = std::source_location::current()) {
+        void await_suspend(std::coroutine_handle<U> h, slim_source_location sl = {}) {
             h.promise().update_resume_point(sl);
             when_ready = h;
             process<0>();
