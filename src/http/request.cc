@@ -138,7 +138,7 @@ void request::write_body(const sstring& content_type, sstring content) {
     set_content_type(content_type);
     content_length = content.size();
     _headers["Content-Length"] = to_sstring(content_length);
-    this->content = std::move(content);
+    internal::deprecated_content(*this) = std::move(content);
 }
 
 void request::write_body(const sstring& content_type, body_writer_type&& body_writer) {

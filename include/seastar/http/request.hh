@@ -69,6 +69,7 @@ struct request {
     // deprecated: it is used to store last value of query parameters, but will be removed in the future
     [[deprecated("Use helper methods instead")]] std::unordered_map<sstring, sstring> query_parameters;
     httpd::parameters param;
+    [[deprecated("use content_stream (server-side) / write_body (client-side) instead")]]
     sstring content; // server-side deprecated: use content_stream instead
     /*
      * The handler should read the contents of this stream till reaching eof (i.e., the end of this request's content). Failing to do so
@@ -86,7 +87,7 @@ private:
     query_parameters_type _query_params;
 public:
 
-// NOTE: Remove this once `query_parameters` is removed
+// NOTE: Remove this once both `query_parameters` and `content` are removed
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     request() = default;
@@ -417,6 +418,14 @@ private:
     void add_query_param(std::string_view param);
     friend class experimental::connection;
 };
+
+namespace internal {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+inline sstring& deprecated_content(request& req) noexcept { return req.content; }
+inline const sstring& deprecated_content(const request& req) noexcept { return req.content; }
+#pragma GCC diagnostic pop
+}
 
 } // namespace httpd
 
