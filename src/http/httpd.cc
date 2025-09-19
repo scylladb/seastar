@@ -177,7 +177,7 @@ set_request_content(std::unique_ptr<http::request> req, input_stream<char>* cont
     } else {
         // Read the entire content into the request content string
         return util::read_entire_stream_contiguous(*content_stream).then([req = std::move(req)] (sstring content) mutable {
-            req->content = std::move(content);
+            http::internal::deprecated_content(*req) = std::move(content);
             return make_ready_future<std::unique_ptr<http::request>>(std::move(req));
         });
     }
