@@ -1732,15 +1732,7 @@ void* allocate_aligned(size_t align, size_t size) {
     } else {
         ptr = allocate_large_aligned(align, size, should_sample);
     }
-    if (!ptr) {
-        on_allocation_failure(size);
-    } else {
-#ifdef SEASTAR_DEBUG_ALLOCATIONS
-        std::memset(ptr, debug_allocation_pattern, size);
-#endif
-    }
-    alloc_stats::increment_local(alloc_stats::types::allocs);
-    return ptr;
+    return finish_allocation(ptr, size);
 }
 
 
