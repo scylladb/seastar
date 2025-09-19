@@ -1452,12 +1452,13 @@ struct echo_stream_handler : public echo_handler {
 
 /*
  * Same handler as above, but without using streams
+ * String content is deprecated, but keep testing it until removed
  *  */
 struct echo_string_handler : public echo_handler {
     echo_string_handler(bool chunked_reply = false) : echo_handler(chunked_reply) {}
     future<std::unique_ptr<http::reply>> handle(const sstring& path,
             std::unique_ptr<http::request> req, std::unique_ptr<http::reply> rep) override {
-        return this->do_handle(req, rep, req->content);
+        return this->do_handle(req, rep, http::internal::deprecated_content(*req));
     }
 };
 

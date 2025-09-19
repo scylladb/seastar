@@ -88,8 +88,8 @@ future<> connection::write_body(const request& req) {
         return req.body_writer(internal::make_http_chunked_output_stream(_write_buf)).then([this] {
             return _write_buf.write("0\r\n\r\n");
         });
-    } else if (!req.content.empty()) {
-        return _write_buf.write(req.content);
+    } else if (auto& c = internal::deprecated_content(req); !c.empty()) {
+        return _write_buf.write(c);
     } else {
         return make_ready_future<>();
     }
@@ -115,7 +115,7 @@ static void validate_request(const request& req) {
     if (req._version.empty()) {
         throw std::runtime_error("HTTP version not set");
     }
-    if (req.content_length != 0 && !req.body_writer && req.content.empty()) {
+    if (req.content_length != 0 && !req.body_writer && internal::deprecated_content(req).empty()) {
         throw std::runtime_error("Request body writer not set and content is empty");
     }
 }
