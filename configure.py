@@ -74,7 +74,7 @@ arg_parser.add_argument('--ldflags', action='store', dest='user_ldflags', defaul
                         help='Extra flags for the linker')
 arg_parser.add_argument('--optflags', action='store', dest='user_optflags', default='',
                         help='Extra optimization flags for the release mode')
-arg_parser.add_argument('--api-level', action='store', dest='api_level', default='8',
+arg_parser.add_argument('--api-level', action='store', dest='api_level', default='9',
                         help='Compatibility API level (8=latest)')
 arg_parser.add_argument('--compiler', action='store', dest='cxx', default='g++',
                         help='C++ compiler path')

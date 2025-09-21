@@ -32,6 +32,7 @@
 #include <seastar/util/eclipse.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/modules.hh>
+#include <seastar/util/assert.hh>
 
 namespace seastar {
 
@@ -248,5 +249,35 @@ public:
 };
 
 /// @}
+
+namespace internal {
+
+template <typename CharType>
+inline std::vector<temporary_buffer<CharType>> split_buffers(std::vector<temporary_buffer<CharType>>& bufs, size_t offset) {
+    std::vector<temporary_buffer<CharType>> ret;
+    auto it = bufs.begin();
+    while (it != bufs.end()) {
+        if (it->size() <= offset) {
+            offset -= it->size();
+            ret.emplace_back(std::move(*it));
+            it++;
+            continue;
+        } else {
+            if (offset > 0) {
+                auto b = it->share();
+                b.trim(offset);
+                it->trim_front(offset);
+                ret.emplace_back(std::move(b));
+                offset = 0;
+            }
+            break;
+        }
+    }
+    bufs.erase(bufs.begin(), it);
+    SEASTAR_ASSERT(offset == 0);
+    return ret;
+}
+
+} // internal namespace
 
 }
