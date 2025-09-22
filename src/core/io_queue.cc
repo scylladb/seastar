@@ -453,7 +453,7 @@ std::vector<io_request::part> io_request::split(size_t max_length) {
         return split_iovec(max_length);
     }
 
-    seastar_logger.error("Invalid operation for split: {}", static_cast<int>(op));
+    io_log.error("Invalid operation for split: {}", static_cast<int>(op));
     std::abort();
 }
 
@@ -665,7 +665,7 @@ io_group::io_group(io_queue::config io_cfg, unsigned nr_queues)
 
     auto goal = io_latency_goal();
     auto lvl = goal > 1.1 * _config.rate_limit_duration ? log_level::warn : log_level::debug;
-    seastar_logger.log(lvl, "IO queue uses {:.2f}ms latency goal for {}", goal.count() * 1000, _config.mountpoint);
+    io_log.log(lvl, "IO queue uses {:.2f}ms latency goal for {}", goal.count() * 1000, _config.mountpoint);
 
     /*
      * The maximum request size shouldn't result in the capacity that would
@@ -708,7 +708,7 @@ io_group::io_group(io_queue::config io_cfg, unsigned nr_queues)
             // configured io_properties are huge and capacity ends up being always 0.
             // _max_request_length will hold default values of io_group::request_length_limit
             if (req_length > io_group::request_length_limit) {
-                seastar_logger.info("IO queue was unable to find a suitable maximum request length, the search was cut-off early at: {}MB", io_group::request_length_limit >> 20);
+                io_log.info("IO queue was unable to find a suitable maximum request length, the search was cut-off early at: {}MB", io_group::request_length_limit >> 20);
                 break;
             }
         };
