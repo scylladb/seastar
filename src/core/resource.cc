@@ -390,8 +390,7 @@ struct distribute_objects {
 };
 
 static io_queue_topology
-allocate_io_queues(hwloc_topology_t topology, std::vector<cpu> cpus, std::unordered_map<unsigned, hwloc_obj_t>& cpu_to_node,
-        unsigned num_io_groups, unsigned& last_node_idx) {
+allocate_io_queues(hwloc_topology_t topology, const std::vector<cpu>& cpus, const std::unordered_map<unsigned, hwloc_obj_t>& cpu_to_node, unsigned num_io_groups, unsigned& last_node_idx) {
     auto node_of_shard = [&cpus, &cpu_to_node] (unsigned shard) {
         auto node = cpu_to_node.at(cpus[shard].cpu_id);
         return hwloc_bitmap_first(node->nodeset);
