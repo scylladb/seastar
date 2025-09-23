@@ -372,6 +372,26 @@ SEASTAR_THREAD_TEST_CASE(sg_create_and_key_create_in_parallel) {
     }
 }
 
+SEASTAR_THREAD_TEST_CASE(sg_rename_recreate_with_the_same_name) {
+    auto do_nothing = [] {};
+    inheriting_concrete_execution_stage<void> stage{"my_stage", do_nothing};
+
+    std::vector<scheduling_group> sgs;
+    sgs.push_back(create_scheduling_group("foo", 100).get());
+    with_scheduling_group(sgs[0], [&] { return stage(); }).get();
+
+    rename_scheduling_group(sgs[0], "bar").get();
+
+    BOOST_CHECK_NO_THROW({
+        sgs.push_back(create_scheduling_group("foo", 100).get());
+        with_scheduling_group(sgs[1], [&] { return stage(); }).get();
+    });
+
+    for (scheduling_group sg : sgs) {
+        destroy_scheduling_group(sg).get();
+    }
+}
+
 SEASTAR_THREAD_TEST_CASE(sg_key_constructor_exception_when_creating_new_key) {
     scheduling_group_key_config key_conf = make_scheduling_group_key_config<int>();
     scheduling_group_key_create(key_conf).get();
