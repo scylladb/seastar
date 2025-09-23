@@ -114,6 +114,10 @@ struct io_queue_for_tests {
     fair_queue& get_fair_queue() {
         return queue._streams[0].fq;
     }
+
+    bool is_class_registered(internal::priority_class pc) const noexcept {
+        return queue._priority_classes.size() > pc.id() && (queue._priority_classes[pc.id()] != nullptr);
+    }
 };
 
 internal::priority_class get_default_pc() {
@@ -665,4 +669,29 @@ SEASTAR_THREAD_TEST_CASE(test_nested_priority_classes_basic_linkage) {
     BOOST_CHECK(!fq.get_parent_index(internal::priority_class(sg0)));
     BOOST_CHECK(fq.get_parent_index(internal::priority_class(sg1)) == 0);
     BOOST_CHECK(fq.get_parent_index(internal::priority_class(sg2)) == 1);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_destroy_priority_class_with_requests) {
+    io_queue_for_tests tio;
+
+    auto sg = create_scheduling_group("a", 100).get();
+    auto pc = internal::priority_class(sg);
+
+    auto fx = tio.queue_request(pc,
+        internal::io_direction_and_length(internal::io_direction_and_length::read_idx, 0), 
+        internal::io_request::make_write(0, 0, nullptr, 1, false),
+        nullptr, {});
+
+    // Push this request through to make io-queue instantiate the priority class
+    tio.queue.poll_io_queue();
+    tio.sink.drain([] (const internal::io_request& rq, io_completion* desc) -> bool {
+        desc->complete_with(1);
+        return true;
+    });
+    BOOST_REQUIRE_EQUAL(fx.get(), 1);
+
+    BOOST_REQUIRE(tio.is_class_registered(pc));
+    tio.queue.destroy_priority_class(internal::priority_class(sg));
+    destroy_scheduling_group(sg).get();
+    BOOST_REQUIRE(!tio.is_class_registered(pc));
 }
