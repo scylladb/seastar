@@ -170,6 +170,8 @@ public:
     bool poll() const noexcept {
         return !_empty;
     }
+private:
+    void update_metric_group();
 };
 
 /// \cond internal
