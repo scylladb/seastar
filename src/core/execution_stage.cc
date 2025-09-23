@@ -67,6 +67,20 @@ execution_stage* execution_stage_manager::get_stage(const sstring& name) {
     return _stages_by_name[name];
 }
 
+void execution_stage_manager::update_scheduling_group_name(const sstring& new_sg_name) {
+    for (auto&& stage : _execution_stages) {
+        if (stage->get_sg().name() == new_sg_name) {
+            auto old_name = stage->name();
+            stage->rename();
+            _stages_by_name.erase(old_name);
+            auto ret = _stages_by_name.emplace(stage->name(), stage);
+            if (!ret.second) {
+                throw std::invalid_argument(format("Execution stage {} already exists when updating.", stage->name()));
+            }
+        }
+    }
+}
+
 bool execution_stage_manager::flush() noexcept {
     bool did_work = false;
     for (auto&& stage : _execution_stages) {
@@ -101,6 +115,7 @@ execution_stage::execution_stage(execution_stage&& other)
     , _stats(other._stats)
     , _name(std::move(other._name))
     , _metric_group(std::move(other._metric_group))
+    , _rename_func(std::move(other._rename_func))
 {
     internal::execution_stage_manager::get().update_execution_stage_registration(other, *this);
 }
