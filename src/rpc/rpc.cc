@@ -1216,11 +1216,7 @@ future<> server::connection::process() {
                 co_await handle_stream_frame();
                 continue;
             }
-            request_frame::return_type header_and_buffer = co_await read_request_frame_compressed(_read_buf);
-            auto& expire = std::get<0>(header_and_buffer);
-            auto& type = std::get<1>(header_and_buffer);
-            auto& msg_id = std::get<2>(header_and_buffer);
-            auto& data = std::get<3>(header_and_buffer);
+            auto [expire, type, msg_id, data] = co_await read_request_frame_compressed(_read_buf);
             if (!data) {
                 _error = true;
                 continue;
