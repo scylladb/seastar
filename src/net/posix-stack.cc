@@ -503,9 +503,7 @@ public:
 
 future<accept_result>
 posix_server_socket_impl::accept() {
-    return _lfd.accept().then([this] (std::tuple<pollable_fd, socket_address> fd_sa) {
-        auto& fd = std::get<0>(fd_sa);
-        auto& sa = std::get<1>(fd_sa);
+    return _lfd.accept().then_unpack([this] (pollable_fd fd, socket_address sa) {
         auto cth = [this, &sa] {
             switch(_lba) {
             case server_socket::load_balancing_algorithm::connection_distribution:
@@ -592,9 +590,7 @@ posix_ap_server_socket_impl::abort_accept() {
 
 future<accept_result>
 posix_reuseport_server_socket_impl::accept() {
-    return _lfd.accept().then([allocator = _allocator, protocol = _protocol] (std::tuple<pollable_fd, socket_address> fd_sa) {
-        auto& fd = std::get<0>(fd_sa);
-        auto& sa = std::get<1>(fd_sa);
+    return _lfd.accept().then_unpack([allocator = _allocator, protocol = _protocol] (pollable_fd fd, socket_address sa) {
         std::unique_ptr<connected_socket_impl> csi(
                 new posix_connected_socket_impl(sa.family(), protocol, std::move(fd), allocator));
         return make_ready_future<accept_result>(
