@@ -532,7 +532,7 @@ public:
 };
 
 class io_class_data : public class_data {
-    uint64_t _last_pos = 0;
+    uint64_t _next_seq_pos = 0;
     uint64_t _offset = 0;
     unsigned _overflows = 0;
     std::uniform_int_distribution<uint32_t> _pos_distribution;
@@ -560,15 +560,15 @@ protected:
         if (is_random()) {
             pos = _pos_distribution(random_generator) * req_size();
         } else {
-            pos = _last_pos + req_size();
-            if (pos >= _config.file_size) {
+            pos = _next_seq_pos;
+            _next_seq_pos += req_size();
+            if (_next_seq_pos >= _config.file_size) {
                 _overflows++;
                 if (req_type() != request_type::append) {
-                    pos = 0;
+                    _next_seq_pos = 0;
                 }
             }
         }
-        _last_pos = pos;
         return pos + _offset;
     }
 
