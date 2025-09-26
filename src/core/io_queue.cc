@@ -154,6 +154,7 @@ class io_queue::priority_class_data {
     io_group::priority_class_data& _group;
     size_t _replenish_head;
     timer<lowres_clock> _replenish;
+    std::optional<promise<>> _drained;
 
     void try_to_replenish() noexcept {
         _group.tb.replenish(io_queue::clock_type::now());
@@ -192,6 +193,11 @@ public:
     priority_class_data(const priority_class_data&) = delete;
     priority_class_data(priority_class_data&&) = delete;
 
+    ~priority_class_data() {
+        SEASTAR_ASSERT(_nr_queued == 0);
+        SEASTAR_ASSERT(_nr_executing == 0);
+    }
+
     void on_queue() noexcept {
         _nr_queued++;
         if (_nr_executing == 0 && _nr_queued == 1) {
@@ -223,18 +229,27 @@ public:
         _nr_queued--;
     }
 
+    void on_drained() noexcept {
+        if (_nr_queued != 0) {
+            _activated = io_queue::clock_type::now();
+        }
+        if (_drained.has_value()) [[unlikely]] {
+            _drained->set_value();
+        }
+    }
+
     void on_complete(std::chrono::duration<double> lat) noexcept {
         _total_execution_time += lat;
         _nr_executing--;
-        if (_nr_executing == 0 && _nr_queued != 0) {
-            _activated = io_queue::clock_type::now();
+        if (_nr_executing == 0) {
+            on_drained();
         }
     }
 
     void on_error() noexcept {
         _nr_executing--;
-        if (_nr_executing == 0 && _nr_queued != 0) {
-            _activated = io_queue::clock_type::now();
+        if (_nr_executing == 0) {
+            on_drained();
         }
     }
 
@@ -243,6 +258,15 @@ public:
     }
 
     fair_queue::class_id fq_class() const noexcept { return _pc.id(); }
+
+    std::optional<future<>> delayed_drain() noexcept {
+        if (_nr_executing == 0) {
+            return {};
+        }
+
+        _drained.emplace();
+        return _drained->get_future();
+    }
 
     std::vector<seastar::metrics::impl::metric_definition_impl> metrics();
     metrics::metric_groups metric_groups;
@@ -350,6 +374,14 @@ public:
     void cancel() noexcept {
         _ioq.cancel_request(*this);
         _desc.release()->cancel();
+    }
+
+    void destroy() noexcept {
+        if (!is_cancelled()) {
+            cancel();
+        }
+        _ioq.complete_cancelled_request(*this);
+        delete this;
     }
 
     void set_intent(internal::cancellable_queue& cq) noexcept {
@@ -729,6 +761,7 @@ io_queue::~io_queue() {
     // And that will happen only when there are no more fibers to run. If we ever change
     // that, then this has to change.
     SEASTAR_ASSERT(_queued_requests == 0);
+    SEASTAR_ASSERT(_requests_executing == 0);
     for (auto&& pc_data : _priority_classes) {
         if (pc_data) {
             for (auto&& s : _streams) {
@@ -1136,6 +1169,36 @@ io_queue::rename_priority_class(internal::priority_class pc, sstring new_name) {
             // a class that was already created with the new name will be
             // renamed again (this will cause a double registration exception
             // to be thrown).
+        }
+    }
+}
+
+void io_queue::destroy_priority_class(internal::priority_class pc) noexcept {
+    if (_priority_classes.size() > pc.id() && _priority_classes[pc.id()]) {
+        auto pc_data = std::exchange(_priority_classes[pc.id()], nullptr);
+
+        for (auto&& s : _streams) {
+            while (true) {
+                auto* ent = s.fq.top();
+                if (ent == nullptr) {
+                    break;
+                }
+                s.fq.pop_front();
+                queued_io_request::from_fq_entry(*ent).destroy();
+            }
+            s.fq.unregister_priority_class(pc_data->fq_class());
+        }
+
+        if (auto f = pc_data->delayed_drain(); f.has_value()) {
+            // Could return a future to let caller wait for it, but ~io_queue
+            // assumes that all requests are done by the time reactor stops, so
+            // why not assume the same here and just let pc_data dissolve in the
+            // background?
+            io_log.debug("Schedule pclass {} for garbage collection", pc.id());
+            // The class destruction is delayed, but if another class is created
+            // with the same name, it shouldn't conflict on metrics registration
+            pc_data->metric_groups = {};
+            (void)std::move(*f).finally([p = std::move(pc_data)] {});
         }
     }
 }
