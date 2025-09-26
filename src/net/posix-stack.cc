@@ -454,8 +454,7 @@ class posix_socket_impl final : public socket_impl {
         return engine().posix_connect(_fd, sa, local).then(
             [fd = _fd, allocator = _allocator](){
                 // a problem with 'private' interaction with 'unique_ptr'
-                std::unique_ptr<connected_socket_impl> csi;
-                csi.reset(new posix_connected_socket_impl{AF_UNIX, 0, std::move(fd), allocator});
+                std::unique_ptr<connected_socket_impl> csi(new posix_connected_socket_impl{AF_UNIX, 0, std::move(fd), allocator});
                 return make_ready_future<connected_socket>(connected_socket(std::move(csi)));
             }
         );
@@ -469,8 +468,7 @@ public:
             return connect_unix_domain(sa, local);
         }
         return find_port_and_connect(sa, local, proto).then([this, sa, proto, allocator = _allocator] () mutable {
-            std::unique_ptr<connected_socket_impl> csi;
-            csi.reset(new posix_connected_socket_impl(sa.family(), static_cast<int>(proto), _fd, allocator));
+            std::unique_ptr<connected_socket_impl> csi(new posix_connected_socket_impl(sa.family(), static_cast<int>(proto), _fd, allocator));
             return make_ready_future<connected_socket>(connected_socket(std::move(csi)));
         });
     }
