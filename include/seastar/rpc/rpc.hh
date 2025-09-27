@@ -478,8 +478,8 @@ class sink_impl : public sink<Out...>::impl {
 public:
     sink_impl(xshard_connection_ptr con);
     future<> operator()(const Out&... args) override;
-    future<> close() override;
-    future<> flush() override;
+    future<> close() noexcept override;
+    future<> flush() noexcept override;
     ~sink_impl() override;
 
 private:

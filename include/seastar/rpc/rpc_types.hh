@@ -330,8 +330,9 @@ public:
     public:
         virtual ~impl() {};
         virtual future<> operator()(const Out&... args) = 0;
-        virtual future<> close() = 0;
-        virtual future<> flush() = 0;
+        // Failures may be returned as an exceptional future
+        virtual future<> close() noexcept = 0;
+        virtual future<> flush() noexcept = 0;
         friend sink;
     };
 
@@ -343,14 +344,15 @@ public:
     future<> operator()(const Out&... args) {
         return _impl->operator()(args...);
     }
-    future<> close() {
+    // Failures may be returned as an exceptional future
+    future<> close() noexcept {
         return _impl->close();
     }
     // Calling this function makes sure that any data buffered
     // by the stream sink will be flushed to the network.
     // It does not mean the data was received by the corresponding
     // source.
-    future<> flush() {
+    future<> flush() noexcept {
         return _impl->flush();
     }
     connection_id get_id() const;
