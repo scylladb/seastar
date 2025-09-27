@@ -25,6 +25,7 @@
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/when_all.hh>
+#include <seastar/core/reactor.hh>
 #include <seastar/util/assert.hh>
 #include <seastar/util/is_smart_ptr.hh>
 #include <seastar/core/simple-stream.hh>
@@ -835,11 +836,19 @@ future<> sink_impl<Serializer, Out...>::operator()(const Out&... args) {
     // we do not want to dead lock on huge packets, so let them in
     // but only one at a time
     auto size = std::min(size_t(data.size), max_stream_buffers_memory);
+    if (this->_con->get_owner_shard() != this_shard_id()) {
+        const auto& cfg = engine().get_reactor_config();
+        // Reduce concurrency when sending to a remote shard
+        // to avoid too long task queues.
+        // We take into account 3 outstanding tasks per message.
+        size = std::max(size, max_stream_buffers_memory / (size_t(cfg.max_task_backlog) / 3));
+    }
     const auto seq_num = _next_seq_num++;
     return get_units(this->_sem, size).then([this, data = make_foreign(std::make_unique<snd_buf>(std::move(data))), seq_num] (semaphore_units<> su) mutable {
         if (this->_ex) {
             return make_exception_future(this->_ex);
         }
+        data->su = std::move(su);
         // It is OK to discard this future. The user is required to
         // wait for it when closing.
         (void)smp::submit_to(this->_con->get_owner_shard(), [this, data = std::move(data), seq_num] () mutable {
@@ -871,7 +880,7 @@ future<> sink_impl<Serializer, Out...>::operator()(const Out&... args) {
                 out_of_order_bufs.erase(it);
             }
             return ret_fut;
-        }).then_wrapped([su = std::move(su), this] (future<> f) {
+        }).then_wrapped([this] (future<> f) {
             if (f.failed() && !this->_ex) { // first error is the interesting one
                 this->_ex = f.get_exception();
             } else {
