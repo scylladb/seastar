@@ -537,15 +537,13 @@ posix_file_impl::do_dma_read_bulk(uint64_t offset, size_t range_size, io_intent*
                                                        _memory_dma_alignment,
                                                        _disk_read_dma_alignment,
                                                        intent);
-    auto* rstate = &state;
-
     //
     // First, try to read directly into the buffer. Most of the reads will
     // end here.
     //
-    size_t size = co_await read_dma_one(offset, rstate->buf.get_write(), rstate->buf.size(), intent);
+    size_t size = co_await read_dma_one(offset, state.buf.get_write(), state.buf.size(), intent);
     {
-        rstate->pos = size;
+        state.pos = size;
 
         //
         // If we haven't read all required data at once -
@@ -558,13 +556,13 @@ posix_file_impl::do_dma_read_bulk(uint64_t offset, size_t range_size, io_intent*
         // In EOF case or in case of a persistent I/O error the only overhead is
         // an extra allocation.
         //
-        while (!rstate->done()) {
-            auto buf1 = co_await read_maybe_eof(rstate->cur_offset(), rstate->left_to_read(), rstate->get_intent());
+        while (!state.done()) {
+            auto buf1 = co_await read_maybe_eof(state.cur_offset(), state.left_to_read(), state.get_intent());
             {
                 if (buf1.size()) {
-                    rstate->append_new_data(buf1);
+                    state.append_new_data(buf1);
                 } else {
-                    rstate->eof = true;
+                    state.eof = true;
                 }
             }
         }
@@ -573,8 +571,8 @@ posix_file_impl::do_dma_read_bulk(uint64_t offset, size_t range_size, io_intent*
             // If we are here we are promised to have read some bytes beyond
             // "front" so we may trim straight away.
             //
-            rstate->trim_buf_before_ret();
-            co_return std::move(rstate->buf);
+            state.trim_buf_before_ret();
+            co_return std::move(state.buf);
         }
     }
 }
