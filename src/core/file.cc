@@ -528,25 +528,23 @@ posix_file_real_impl::dma_read_bulk(uint64_t offset, size_t range_size, io_inten
 
 future<temporary_buffer<uint8_t>>
 posix_file_impl::do_dma_read_bulk(uint64_t offset, size_t range_size, io_intent* intent) noexcept {
-    using tmp_buf_type = typename internal::file_read_state<uint8_t>::tmp_buf_type;
-
-  try {
     auto front = offset & (_disk_read_dma_alignment - 1);
     offset -= front;
     range_size += front;
 
-    auto rstate = make_lw_shared<internal::file_read_state<uint8_t>>(offset, front,
+    auto state = internal::file_read_state<uint8_t>(offset, front,
                                                        range_size,
                                                        _memory_dma_alignment,
                                                        _disk_read_dma_alignment,
                                                        intent);
+    auto* rstate = &state;
 
     //
     // First, try to read directly into the buffer. Most of the reads will
     // end here.
     //
-    auto read = read_dma_one(offset, rstate->buf.get_write(), rstate->buf.size(), intent);
-    return read.then([rstate, this] (size_t size) mutable {
+    size_t size = co_await read_dma_one(offset, rstate->buf.get_write(), rstate->buf.size(), intent);
+    {
         rstate->pos = size;
 
         //
@@ -560,31 +558,25 @@ posix_file_impl::do_dma_read_bulk(uint64_t offset, size_t range_size, io_intent*
         // In EOF case or in case of a persistent I/O error the only overhead is
         // an extra allocation.
         //
-        return do_until(
-            [rstate] { return rstate->done(); },
-            [rstate, this] () mutable {
-            return read_maybe_eof(rstate->cur_offset(), rstate->left_to_read(), rstate->get_intent()).then(
-                    [rstate] (auto buf1) mutable {
+        while (!rstate->done()) {
+            auto buf1 = co_await read_maybe_eof(rstate->cur_offset(), rstate->left_to_read(), rstate->get_intent());
+            {
                 if (buf1.size()) {
                     rstate->append_new_data(buf1);
                 } else {
                     rstate->eof = true;
                 }
-
-                return make_ready_future<>();
-            });
-        }).then([rstate] () mutable {
+            }
+        }
+        {
             //
             // If we are here we are promised to have read some bytes beyond
             // "front" so we may trim straight away.
             //
             rstate->trim_buf_before_ret();
-            return make_ready_future<tmp_buf_type>(std::move(rstate->buf));
-        });
-    });
-  } catch (...) {
-      return make_exception_future<tmp_buf_type>(std::current_exception());
-  }
+            co_return std::move(rstate->buf);
+        }
+    }
 }
 
 future<temporary_buffer<uint8_t>>
