@@ -69,6 +69,7 @@ module seastar;
 #include <seastar/util/internal/iovec_utils.hh>
 #include <seastar/core/io_queue.hh>
 #include <seastar/core/queue.hh>
+#include <seastar/coroutine/as_future.hh>
 #include "core/file-impl.hh"
 #include "core/syscall_result.hh"
 #include "core/thread_pool.hh"
@@ -1172,19 +1173,18 @@ future<int> file::fcntl_short(int op, uintptr_t arg) noexcept {
 }
 
 future<> file::set_lifetime_hint_impl(int op, uint64_t hint) noexcept {
-    return do_with(hint, [op, this] (uint64_t& arg) {
-        try {
-            return _file_impl->fcntl(op, (uintptr_t)&arg).then_wrapped([] (future<int> f) {
+    uint64_t arg = hint;
+    {
+        {
+            future<int> f = co_await coroutine::as_future(_file_impl->fcntl(op, (uintptr_t)&arg));
+            {
                 // Need to handle return value differently from that of fcntl
                 if (f.failed()) {
-                    return make_exception_future<>(f.get_exception());
+                    co_await coroutine::exception(f.get_exception());
                 }
-                return make_ready_future<>();
-            });
-        } catch (...) {
-            return current_exception_as_future<>();
+            }
         }
-    });
+    }
 }
 
 future<> file::set_inode_lifetime_hint(uint64_t hint) noexcept {
