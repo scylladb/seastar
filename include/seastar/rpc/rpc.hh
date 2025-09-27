@@ -440,8 +440,8 @@ public:
         _remote_state.remote_shard = this->_con->get_owner_shard();
     }
     future<> operator()(const Out&... args) override;
-    future<> close() override;
-    future<> flush() override;
+    future<> close() noexcept override;
+    future<> flush() noexcept override;
     ~sink_impl() override;
 
 private:

@@ -899,7 +899,7 @@ future<> sink_impl<Serializer, Out...>::operator()(const Out&... args) {
 }
 
 template<typename Serializer, typename... Out>
-future<> sink_impl<Serializer, Out...>::flush() {
+future<> sink_impl<Serializer, Out...>::flush() noexcept {
     // wait until everything is sent out before returning.
     return with_semaphore(this->_sem, max_stream_buffers_memory, [this] {
         if (this->_ex) {
@@ -910,7 +910,7 @@ future<> sink_impl<Serializer, Out...>::flush() {
 }
 
 template<typename Serializer, typename... Out>
-future<> sink_impl<Serializer, Out...>::close() {
+future<> sink_impl<Serializer, Out...>::close() noexcept {
     return with_semaphore(this->_sem, max_stream_buffers_memory, [this] {
         return smp::submit_to(this->_con->get_owner_shard(), [this] {
             connection* con = this->_con->get();
