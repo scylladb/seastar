@@ -589,14 +589,12 @@ posix_file_impl::read_maybe_eof(uint64_t pos, size_t len, io_intent* intent) {
     // try to read a single bulk from the given position
     auto dst = buf.get_write();
     auto buf_size = buf.size();
-    return read_dma_one(pos, dst, buf_size, intent).then_wrapped(
-            [buf = std::move(buf)](future<size_t> f) mutable {
+    {
         try {
-            size_t size = f.get();
-
+            size_t size = co_await read_dma_one(pos, dst, buf_size, intent);
             buf.trim(size);
 
-            return std::move(buf);
+            co_return std::move(buf);
         } catch (std::system_error& e) {
             //
             // TODO: implement a non-trowing file_impl::dma_read() interface to
@@ -609,12 +607,12 @@ posix_file_impl::read_maybe_eof(uint64_t pos, size_t len, io_intent* intent) {
             //
             if (e.code().value() == EINVAL) {
                 buf.trim(0);
-                return std::move(buf);
+                co_return std::move(buf);
             } else {
                 throw;
             }
         }
-    });
+    }
 }
 
 static bool blockdev_gen_nowait_works = internal::kernel_uname().whitelisted({"4.13"});
