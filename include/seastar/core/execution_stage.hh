@@ -126,6 +126,7 @@ public:
         uint64_t function_calls_enqueued = 0;
         uint64_t function_calls_executed = 0;
     };
+    using rename_func_t = std::function<sstring (const execution_stage& stage)>;
 protected:
     bool _empty = true;
     bool _flush_scheduled = false;
@@ -133,6 +134,8 @@ protected:
     stats _stats;
     sstring _name;
     metrics::metric_group _metric_group;
+    // Default implementation: keep old behavior, do nothing, just use the old name
+    rename_func_t _rename_func = [](const execution_stage& stage) { return stage._name; };
 protected:
     virtual void do_flush() noexcept = 0;
 public:
@@ -170,6 +173,24 @@ public:
     bool poll() const noexcept {
         return !_empty;
     }
+
+    /// Returns const reference to scheduling_group
+    const scheduling_group& get_sg() const noexcept { return _sg; }
+
+    /// Rename execution_stage by calling _rename_func
+    void rename() {
+        _name = _rename_func(*this);
+        // We changed the name, so we need to update metrics to use the new name
+        update_metric_group();
+    }
+
+    /// Set new _rename_func that will be called on rename() call
+    void set_rename_function(rename_func_t func) {
+        _rename_func = func;
+    }
+
+private:
+    void update_metric_group();
 };
 
 /// \cond internal
@@ -186,6 +207,7 @@ public:
     void register_execution_stage(execution_stage& stage);
     void unregister_execution_stage(execution_stage& stage) noexcept;
     void update_execution_stage_registration(execution_stage& old_es, execution_stage& new_es) noexcept;
+    void update_scheduling_group_name(const sstring& new_name);
     execution_stage* get_stage(const sstring& name);
     bool flush() noexcept;
     bool poll() const noexcept;
@@ -337,8 +359,14 @@ private:
         auto wrapped_function = [&_function = _function] (Args... args) {
             return _function(std::forward<Args>(args)...);
         };
-        auto name = fmt::format("{}.{}", _name, sg.name());
-        return per_group_stage_type(name, sg, wrapped_function);
+
+        auto base_name = _name;
+        auto current_name = fmt::format("{}.{}", base_name, sg.name());
+        auto execution_stage = per_group_stage_type(current_name, sg, wrapped_function);
+        execution_stage.set_rename_function([base_name](const class execution_stage& stage) {
+            return fmt::format("{}.{}", base_name, stage.get_sg().name());
+        });
+        return execution_stage;
     }
 public:
     /// Construct an inheriting concrete execution stage.
