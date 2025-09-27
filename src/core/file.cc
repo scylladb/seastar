@@ -1299,13 +1299,14 @@ file::dma_read_exactly_impl(uint64_t pos, size_t len, io_intent* intent) noexcep
 
 future<temporary_buffer<uint8_t>>
 file::dma_read_impl(uint64_t pos, size_t len, io_intent* intent) noexcept {
-    return dma_read_bulk_impl(pos, len, intent).then([len](temporary_buffer<uint8_t> buf) {
+    temporary_buffer<uint8_t> buf = co_await dma_read_bulk_impl(pos, len, intent);
+    {
         if (len < buf.size()) {
             buf.trim(len);
         }
 
-        return buf;
-    });
+        co_return std::move(buf);
+    }
 }
 
 future<size_t>
