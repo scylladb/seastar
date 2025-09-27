@@ -1192,19 +1192,19 @@ future<> file::set_inode_lifetime_hint(uint64_t hint) noexcept {
 }
 
 future<uint64_t> file::get_lifetime_hint_impl(int op) noexcept {
-    return do_with(uint64_t(0), [op, this] (uint64_t& arg) {
-        try {
-            return _file_impl->fcntl(op, (uintptr_t)&arg).then_wrapped([&arg] (future<int> f) {
+    uint64_t arg;
+    {
+        {
+            future<int> f = co_await coroutine::as_future(_file_impl->fcntl(op, (uintptr_t)&arg));
+            {
                 // Need to handle return value differently from that of fcntl
                 if (f.failed()) {
-                    return make_exception_future<uint64_t>(f.get_exception());
+                    co_return coroutine::exception(f.get_exception());
                 }
-                return make_ready_future<uint64_t>(arg);
-            });
-        } catch (...) {
-            return current_exception_as_future<uint64_t>();
+                co_return arg;
+            }
         }
-    });
+    }
 }
 
 future<uint64_t> file::get_inode_lifetime_hint() noexcept {
