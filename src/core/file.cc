@@ -1287,13 +1287,14 @@ future<size_t> file::dma_read_impl(uint64_t pos, std::vector<iovec> iov, io_inte
 
 future<temporary_buffer<uint8_t>>
 file::dma_read_exactly_impl(uint64_t pos, size_t len, io_intent* intent) noexcept {
-    return dma_read_impl(pos, len, intent).then([len](auto buf) {
+    auto buf = co_await dma_read_impl(pos, len, intent);
+    {
         if (buf.size() < len) {
             throw eof_error();
         }
 
-        return buf;
-    });
+        co_return std::move(buf);
+    }
 }
 
 future<temporary_buffer<uint8_t>>
