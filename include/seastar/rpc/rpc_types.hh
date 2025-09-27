@@ -342,8 +342,8 @@ public:
     future<> operator()(const Out&... args) {
         return _impl->operator()(args...);
     }
-    future<> close() {
-        return _impl->close();
+    future<> close() noexcept {
+        return futurize_invoke([this] { return _impl->close(); });
     }
     // Calling this function makes sure that any data buffered
     // by the stream sink will be flushed to the network.
