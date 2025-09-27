@@ -756,6 +756,18 @@ public:
         static void set_stall_detector_report_function(std::function<void ()> report);
         static std::function<void ()> get_stall_detector_report_function();
         static bool linux_aio_nowait();
+
+        struct long_task_queue_state {
+            std::optional<bool> abort_on_too_long_task_queue;
+            std::optional<unsigned> max_task_backlog;
+
+            // restores this state on destruction
+            ~long_task_queue_state();
+        };
+        static long_task_queue_state save_long_task_queue_state();
+        // Set abort_on_too_long_task_queue and optionally max_task_backlog.
+        // Returns the previous state, which will be restored upon destruction.
+        static void set_long_task_queue_state(const long_task_queue_state& new_cfg);
     };
 };
 

@@ -1485,6 +1485,29 @@ bool reactor::test::linux_aio_nowait() {
     return engine()._cfg.aio_nowait_works;
 }
 
+reactor::test::long_task_queue_state::~long_task_queue_state() {
+    reactor::test::set_long_task_queue_state(*this);
+}
+
+reactor::test::long_task_queue_state
+reactor::test::save_long_task_queue_state() {
+    auto& r = engine();
+    return long_task_queue_state{
+        .abort_on_too_long_task_queue = r._cfg.abort_on_too_long_task_queue,
+        .max_task_backlog = r._cfg.max_task_backlog,
+    };
+}
+
+void reactor::test::set_long_task_queue_state(const long_task_queue_state& new_cfg) {
+    auto& r = engine();
+    if (new_cfg.abort_on_too_long_task_queue) {
+        r._cfg.abort_on_too_long_task_queue = *new_cfg.abort_on_too_long_task_queue;
+    }
+    if (new_cfg.max_task_backlog) {
+        r._cfg.max_task_backlog = *new_cfg.max_task_backlog;
+    }
+}
+
 void
 reactor::block_notifier(int) {
     engine()._cpu_stall_detector->on_signal();
@@ -2633,6 +2656,10 @@ bool reactor::task_queue::run_tasks() {
                 static thread_local logger::rate_limit rate_limit(std::chrono::seconds(10));
                 logger::lambda_log_writer writer([this] (auto it) { return do_dump_task_queue(it, *this); });
                 seastar_logger.log(log_level::warn, rate_limit, writer);
+                if (r._cfg.abort_on_too_long_task_queue) {
+                    auto msg = fmt::format("Too long task queue: {}, max_task_backlog={}", _q.size(), r._cfg.max_task_backlog);
+                    on_fatal_internal_error(seastar_logger, msg);
+                }
             }
         }
     }
@@ -3874,6 +3901,7 @@ reactor_options::reactor_options(program_options::option_group* parent_group)
                 " Useful for short-lived functional tests with a small data set.")
     , overprovisioned(*this, "overprovisioned", "run in an overprovisioned environment (such as docker or a laptop); equivalent to --idle-poll-time-us 0 --thread-affinity 0 --poll-aio 0")
     , abort_on_seastar_bad_alloc(*this, "abort-on-seastar-bad-alloc", "abort when seastar allocator cannot allocate memory")
+    , abort_on_too_long_task_queue(*this, "abort-on-too-long-task-queue", false, "abort when the task queue is too long")
     , force_aio_syscalls(*this, "force-aio-syscalls", false,
                 "Force io_getevents(2) to issue a system call, instead of bypassing the kernel when possible."
                 " This makes strace output more useful, but slows down the application")
@@ -4409,6 +4437,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
         .bypass_fsync = reactor_opts.unsafe_bypass_fsync.get_value(),
         .no_poll_aio = !reactor_opts.poll_aio.get_value() || (reactor_opts.poll_aio.defaulted() && reactor_opts.overprovisioned),
         .aio_nowait_works = reactor_opts.linux_aio_nowait.get_value(), // Mixed in with filesystem-provided values later
+        .abort_on_too_long_task_queue = reactor_opts.abort_on_too_long_task_queue.get_value(),
     };
 
     // Disable hot polling if sched wakeup granularity is too high
