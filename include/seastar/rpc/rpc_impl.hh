@@ -333,12 +333,12 @@ struct unmarshal_one {
     }
     template<typename... T> struct helper<sink<T...>> {
         static sink<T...> doit(connection& c, Input& in) {
-            return sink<T...>(make_shared<sink_impl<Serializer, T...>>(c.get_stream(get_connection_id(in))));
+            return sink<T...>(make_shared<internal::sink_impl<Serializer, T...>>(c.get_stream(get_connection_id(in))));
         }
     };
     template<typename... T> struct helper<source<T...>> {
         static source<T...> doit(connection& c, Input& in) {
-            return source<T...>(make_shared<source_impl<Serializer, T...>>(c.get_stream(get_connection_id(in))));
+            return source<T...>(make_shared<internal::source_impl<Serializer, T...>>(c.get_stream(get_connection_id(in))));
         }
     };
     template <typename... T> struct helper<tuple<T...>> {
@@ -473,7 +473,7 @@ struct rcv_reply_base  {
     template<typename... V>
     void set_value(V&&... v) {
         done = true;
-        p.set_value(internal::untuple(std::forward<V>(v))...);
+        p.set_value(seastar::internal::untuple(std::forward<V>(v))...);
     }
     ~rcv_reply_base() {
         if (!done) {
@@ -822,6 +822,8 @@ std::optional<protocol_base::handler_with_holder> protocol<Serializer, MsgType>:
     return std::nullopt;
 }
 
+namespace internal {
+
 template<typename T> T make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<T>> org);
 
 template<typename Serializer, typename... Out>
@@ -969,6 +971,8 @@ future<std::optional<std::tuple<In...>>> source_impl<Serializer, In...>::operato
     });
 }
 
+} // namespace internal
+
 template<typename... Out>
 connection_id sink<Out...>::get_id() const {
     return _impl->_con->get()->get_connection_id();
@@ -982,7 +986,7 @@ connection_id source<In...>::get_id() const {
 template<typename... In>
 template<typename Serializer, typename... Out>
 sink<Out...> source<In...>::make_sink() {
-    return sink<Out...>(make_shared<sink_impl<Serializer, Out...>>(_impl->_con));
+    return sink<Out...>(make_shared<internal::sink_impl<Serializer, Out...>>(_impl->_con));
 }
 
 }

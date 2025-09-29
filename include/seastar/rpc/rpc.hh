@@ -228,6 +228,14 @@ public:
     void operator()(const socket_address& addr, log_level level, std::string_view str) const;
 };
 
+namespace internal {
+template<typename Serializer, typename... Out>
+class sink_impl;
+
+template<typename Serializer, typename... In>
+class source_impl;
+}
+
 class connection {
 protected:
     struct socket_and_buffers {
@@ -378,9 +386,9 @@ public:
     future<typename FrameType::return_type> read_frame_compressed(socket_address info, std::unique_ptr<compressor>& compressor, input_stream<char>& in);
     friend class client;
     template<typename Serializer, typename... Out>
-    friend class sink_impl;
+    friend class internal::sink_impl;
     template<typename Serializer, typename... In>
-    friend class source_impl;
+    friend class internal::source_impl;
 
     void suspend_for_testing(promise<>& p) {
         _outgoing_queue_ready.get();
@@ -390,6 +398,8 @@ public:
         (void)p.get_future().then([dummy = std::move(dummy)] { dummy->done.set_value(); });
     }
 };
+
+namespace internal {
 
 struct deferred_snd_buf {
     promise<> pr;
@@ -422,6 +432,8 @@ public:
     source_impl(xshard_connection_ptr con) : source<In...>::impl(std::move(con)) { this->_con->get()->_source_closed = false; }
     future<std::optional<std::tuple<In...>>> operator()() override;
 };
+
+} // namespace internal
 
 class client : public rpc::connection, public weakly_referencable<client> {
     socket _socket;
@@ -562,7 +574,7 @@ public:
                 }
                 xshard_connection_ptr s = make_lw_shared(make_foreign(static_pointer_cast<rpc::connection>(c)));
                 this->register_stream(c->get_connection_id(), s);
-                return sink<Out...>(make_shared<sink_impl<Serializer, Out...>>(std::move(s)));
+                return sink<Out...>(make_shared<internal::sink_impl<Serializer, Out...>>(std::move(s)));
             }).handle_exception([c] (std::exception_ptr eptr) {
                 // If await_connection fails we need to stop the client
                 // before destroying it.
