@@ -69,6 +69,7 @@ module seastar;
 #include <seastar/util/internal/iovec_utils.hh>
 #include <seastar/core/io_queue.hh>
 #include <seastar/core/queue.hh>
+#include <seastar/coroutine/as_future.hh>
 #include "core/file-impl.hh"
 #include "core/syscall_result.hh"
 #include "core/thread_pool.hh"
@@ -528,63 +529,47 @@ posix_file_real_impl::dma_read_bulk(uint64_t offset, size_t range_size, io_inten
 
 future<temporary_buffer<uint8_t>>
 posix_file_impl::do_dma_read_bulk(uint64_t offset, size_t range_size, io_intent* intent) noexcept {
-    using tmp_buf_type = typename internal::file_read_state<uint8_t>::tmp_buf_type;
-
-  try {
     auto front = offset & (_disk_read_dma_alignment - 1);
     offset -= front;
     range_size += front;
 
-    auto rstate = make_lw_shared<internal::file_read_state<uint8_t>>(offset, front,
+    auto state = internal::file_read_state<uint8_t>(offset, front,
                                                        range_size,
                                                        _memory_dma_alignment,
                                                        _disk_read_dma_alignment,
                                                        intent);
-
     //
     // First, try to read directly into the buffer. Most of the reads will
     // end here.
     //
-    auto read = read_dma_one(offset, rstate->buf.get_write(), rstate->buf.size(), intent);
-    return read.then([rstate, this] (size_t size) mutable {
-        rstate->pos = size;
+    size_t size = co_await read_dma_one(offset, state.buf.get_write(), state.buf.size(), intent);
+    state.pos = size;
 
-        //
-        // If we haven't read all required data at once -
-        // start read-copy sequence. We can't continue with direct reads
-        // into the previously allocated buffer here since we have to ensure
-        // the aligned read length and thus the aligned destination buffer
-        // size.
-        //
-        // The copying will actually take place only if there was a HW glitch.
-        // In EOF case or in case of a persistent I/O error the only overhead is
-        // an extra allocation.
-        //
-        return do_until(
-            [rstate] { return rstate->done(); },
-            [rstate, this] () mutable {
-            return read_maybe_eof(rstate->cur_offset(), rstate->left_to_read(), rstate->get_intent()).then(
-                    [rstate] (auto buf1) mutable {
-                if (buf1.size()) {
-                    rstate->append_new_data(buf1);
-                } else {
-                    rstate->eof = true;
-                }
-
-                return make_ready_future<>();
-            });
-        }).then([rstate] () mutable {
-            //
-            // If we are here we are promised to have read some bytes beyond
-            // "front" so we may trim straight away.
-            //
-            rstate->trim_buf_before_ret();
-            return make_ready_future<tmp_buf_type>(std::move(rstate->buf));
-        });
-    });
-  } catch (...) {
-      return make_exception_future<tmp_buf_type>(std::current_exception());
-  }
+    //
+    // If we haven't read all required data at once -
+    // start read-copy sequence. We can't continue with direct reads
+    // into the previously allocated buffer here since we have to ensure
+    // the aligned read length and thus the aligned destination buffer
+    // size.
+    //
+    // The copying will actually take place only if there was a HW glitch.
+    // In EOF case or in case of a persistent I/O error the only overhead is
+    // an extra allocation.
+    //
+    while (!state.done()) {
+        auto buf1 = co_await read_maybe_eof(state.cur_offset(), state.left_to_read(), state.get_intent());
+        if (buf1.size()) {
+            state.append_new_data(buf1);
+        } else {
+            state.eof = true;
+        }
+    }
+    //
+    // If we are here we are promised to have read some bytes beyond
+    // "front" so we may trim straight away.
+    //
+    state.trim_buf_before_ret();
+    co_return std::move(state.buf);
 }
 
 future<temporary_buffer<uint8_t>>
@@ -599,32 +584,28 @@ posix_file_impl::read_maybe_eof(uint64_t pos, size_t len, io_intent* intent) {
     // try to read a single bulk from the given position
     auto dst = buf.get_write();
     auto buf_size = buf.size();
-    return read_dma_one(pos, dst, buf_size, intent).then_wrapped(
-            [buf = std::move(buf)](future<size_t> f) mutable {
-        try {
-            size_t size = f.get();
+    try {
+        size_t size = co_await read_dma_one(pos, dst, buf_size, intent);
+        buf.trim(size);
 
-            buf.trim(size);
-
-            return std::move(buf);
-        } catch (std::system_error& e) {
-            //
-            // TODO: implement a non-trowing file_impl::dma_read() interface to
-            //       avoid the exceptions throwing in a good flow completely.
-            //       Otherwise for users that don't want to care about the
-            //       underlying file size and preventing the attempts to read
-            //       bytes beyond EOF there will always be at least one
-            //       exception throwing at the file end for files with unaligned
-            //       length.
-            //
-            if (e.code().value() == EINVAL) {
-                buf.trim(0);
-                return std::move(buf);
-            } else {
-                throw;
-            }
+        co_return std::move(buf);
+    } catch (std::system_error& e) {
+        //
+        // TODO: implement a non-trowing file_impl::dma_read() interface to
+        //       avoid the exceptions throwing in a good flow completely.
+        //       Otherwise for users that don't want to care about the
+        //       underlying file size and preventing the attempts to read
+        //       bytes beyond EOF there will always be at least one
+        //       exception throwing at the file end for files with unaligned
+        //       length.
+        //
+        if (e.code().value() == EINVAL) {
+            buf.trim(0);
+            co_return std::move(buf);
+        } else {
+            throw;
         }
-    });
+    }
 }
 
 static bool blockdev_gen_nowait_works = internal::kernel_uname().whitelisted({"4.13"});
@@ -1184,19 +1165,12 @@ future<int> file::fcntl_short(int op, uintptr_t arg) noexcept {
 }
 
 future<> file::set_lifetime_hint_impl(int op, uint64_t hint) noexcept {
-    return do_with(hint, [op, this] (uint64_t& arg) {
-        try {
-            return _file_impl->fcntl(op, (uintptr_t)&arg).then_wrapped([] (future<int> f) {
-                // Need to handle return value differently from that of fcntl
-                if (f.failed()) {
-                    return make_exception_future<>(f.get_exception());
-                }
-                return make_ready_future<>();
-            });
-        } catch (...) {
-            return current_exception_as_future<>();
-        }
-    });
+    uint64_t arg = hint;
+    future<int> f = co_await coroutine::as_future(_file_impl->fcntl(op, (uintptr_t)&arg));
+    // Need to handle return value differently from that of fcntl
+    if (f.failed()) {
+        co_await coroutine::exception(f.get_exception());
+    }
 }
 
 future<> file::set_inode_lifetime_hint(uint64_t hint) noexcept {
@@ -1204,19 +1178,12 @@ future<> file::set_inode_lifetime_hint(uint64_t hint) noexcept {
 }
 
 future<uint64_t> file::get_lifetime_hint_impl(int op) noexcept {
-    return do_with(uint64_t(0), [op, this] (uint64_t& arg) {
-        try {
-            return _file_impl->fcntl(op, (uintptr_t)&arg).then_wrapped([&arg] (future<int> f) {
-                // Need to handle return value differently from that of fcntl
-                if (f.failed()) {
-                    return make_exception_future<uint64_t>(f.get_exception());
-                }
-                return make_ready_future<uint64_t>(arg);
-            });
-        } catch (...) {
-            return current_exception_as_future<uint64_t>();
-        }
-    });
+    uint64_t arg;
+    future<int> f = co_await coroutine::as_future(_file_impl->fcntl(op, (uintptr_t)&arg));
+    if (f.failed()) {
+        co_return coroutine::exception(f.get_exception());
+    }
+    co_return arg;
 }
 
 future<uint64_t> file::get_inode_lifetime_hint() noexcept {
@@ -1299,24 +1266,22 @@ future<size_t> file::dma_read_impl(uint64_t pos, std::vector<iovec> iov, io_inte
 
 future<temporary_buffer<uint8_t>>
 file::dma_read_exactly_impl(uint64_t pos, size_t len, io_intent* intent) noexcept {
-    return dma_read_impl(pos, len, intent).then([len](auto buf) {
-        if (buf.size() < len) {
-            throw eof_error();
-        }
+    auto buf = co_await dma_read_impl(pos, len, intent);
+    if (buf.size() < len) {
+        throw eof_error();
+    }
 
-        return buf;
-    });
+    co_return std::move(buf);
 }
 
 future<temporary_buffer<uint8_t>>
 file::dma_read_impl(uint64_t pos, size_t len, io_intent* intent) noexcept {
-    return dma_read_bulk_impl(pos, len, intent).then([len](temporary_buffer<uint8_t> buf) {
-        if (len < buf.size()) {
-            buf.trim(len);
-        }
+    temporary_buffer<uint8_t> buf = co_await dma_read_bulk_impl(pos, len, intent);
+    if (len < buf.size()) {
+        buf.trim(len);
+    }
 
-        return buf;
-    });
+    co_return std::move(buf);
 }
 
 future<size_t>
