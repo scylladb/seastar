@@ -74,6 +74,8 @@ temporary_buffer<char>& snd_buf::front() {
     }
 }
 
+namespace internal {
+
 // Make a copy of a remote buffer. No data is actually copied, only pointers and
 // a deleter of a new buffer takes care of deleting the original buffer
 template<typename T> // T is either snd_buf or rcv_buf
@@ -102,6 +104,8 @@ T make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<T>> org) {
 
 template snd_buf make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<snd_buf>>);
 template rcv_buf make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<rcv_buf>>);
+
+} // namespace internal
 
 static void log_exception(connection& c, log_level level, const char* log, std::exception_ptr eptr) {
     const char* s;
