@@ -333,12 +333,22 @@ auto client::with_new_connection(Fn&& fn, abort_source* as) {
 }
 
 future<> client::make_request(request&& req, reply_handler&& handle, std::optional<reply::status_type>&& expected, abort_source* as) {
-    return do_with(std::move(req), std::move(handle), [this, expected, as](request& req, reply_handler& handle) mutable {
-        return make_request(req, handle, std::move(expected), as);
+    return do_with(std::move(req), std::move(handle), [this, expected, as](const request& req, reply_handler& handle) mutable {
+        return make_request(req, handle, expected, as);
+    });
+}
+
+future<> client::make_request(request&& req, reply_handler&& handle, const retry_strategy& strategy, std::optional<reply::status_type>&& expected, abort_source* as) {
+    return do_with(std::move(req), std::move(handle), [this, &strategy, expected, as](const request& req, reply_handler& handle) mutable {
+        return make_request(req, handle, strategy, expected, as);
     });
 }
 
 future<> client::make_request(const request& req, reply_handler& handle, std::optional<reply::status_type> expected, abort_source* as) {
+    return make_request(req, handle, *_retry_strategy, expected, as);
+}
+
+future<> client::make_request(const request& req, reply_handler& handle, const retry_strategy& strategy, std::optional<reply::status_type> expected, abort_source* as) {
     try {
         validate_request(req);
     } catch (...) {
@@ -346,29 +356,29 @@ future<> client::make_request(const request& req, reply_handler& handle, std::op
     }
     return with_connection([this, &req, &handle, as, expected] (connection& con) {
         return do_make_request(con, req, handle, as, expected);
-    }, as).handle_exception([this, &req, &handle, as, expected] (std::exception_ptr ex) {
+    }, as).handle_exception([this, &req, &handle, &strategy, as, expected] (std::exception_ptr ex) {
         if (as && as->abort_requested()) {
             return make_exception_future<>(as->abort_requested_exception_ptr());
         }
-        return maybe_retry_request(std::move(ex), 0, req, handle, *_retry_strategy, expected, as);
+        return maybe_retry_request(std::move(ex), 0, req, handle, strategy, expected, as);
     });
 }
 
 future<> client::maybe_retry_request(std::exception_ptr ex,
-        unsigned retry_count,
-        const request& req,
-        reply_handler& handle,
-        const retry_strategy& strategy,
-        std::optional<reply::status_type> expected,
-        abort_source* as) {
+                                     unsigned retry_count,
+                                     const request& req,
+                                     reply_handler& handle,
+                                     const retry_strategy& strategy,
+                                     std::optional<reply::status_type> expected,
+                                     abort_source* as) {
     return strategy.should_retry(ex, retry_count).then([this, ex = std::move(ex), retry_count, &req, &handle, &strategy, as, expected](bool retry) mutable {
         if (!retry) {
             return make_exception_future<>(std::move(ex));
         }
         return with_new_connection([this, &req, &handle, as, expected](connection& con) {
-                    return do_make_request(con, req, handle, as, expected);
-                },
-                as).handle_exception([this, retry_count, &req, &handle, &strategy, as, expected](std::exception_ptr ex) {
+                                       return do_make_request(con, req, handle, as, expected);
+                                   },
+                                   as).handle_exception([this, retry_count, &req, &handle, &strategy, as, expected](std::exception_ptr ex) {
             return maybe_retry_request(std::move(ex), retry_count + 1, req, handle, strategy, expected, as);
         });
     });

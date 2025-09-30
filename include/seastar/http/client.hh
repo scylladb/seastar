@@ -278,6 +278,24 @@ public:
     future<> make_request(request&& req, reply_handler&& handle, std::optional<reply::status_type>&& expected = std::nullopt, abort_source* as = nullptr);
 
     /**
+     * \brief Send the request and handle the response with retry strategy
+     *
+     * Same as \ref make_request()
+     * The retry strategy defines how the client should behave in case of transient failures.
+     *
+     * \param req -- request to be sent
+     * \param handle -- the response handler
+     * \param strategy -- retry strategy to apply on transient failures
+     * \param expected -- the optional expected reply status code, default is std::nullopt
+     * \param as -- abort source that aborts the request
+     *
+     * Note that the handle callback should be prepared to be called more than once, because
+     * client may restart the whole request processing in case server closes the connection
+     * in the middle of operation
+     */
+    future<> make_request(request&& req, reply_handler&& handle, const retry_strategy& strategy, std::optional<reply::status_type>&& expected = std::nullopt, abort_source* as = nullptr);
+
+    /**
      * \brief Send the request and handle the response (abortable), same as \ref make_request()
      *
      *  @attention Note that the method does not take the ownership of the
@@ -285,6 +303,24 @@ public:
      * are referencing valid instances
      */
     future<> make_request(const request& req, reply_handler& handle, std::optional<reply::status_type> expected = std::nullopt, abort_source* as = nullptr);
+
+    /**
+     * \brief Send the request and handle the response with retry strategy (abortable), same as \ref make_request()
+     *
+     * Same as \ref make_request()
+     * The retry strategy defines how the client should behave in case of transient failures.
+     *
+     * \param req -- request to be sent (non-owning reference)
+     * \param handle -- the response handler (non-owning reference)
+     * \param strategy -- retry strategy to apply on transient failures
+     * \param expected -- the optional expected reply status code, default is std::nullopt
+     * \param as -- abort source that aborts the request
+     *
+     * @attention Note that the method does not take the ownership of the
+     * `request` and the `handle`, it is the caller's responsibility to ensure they
+     * are referencing valid instances
+     */
+    future<> make_request(const request& req, reply_handler& handle, const retry_strategy& strategy, std::optional<reply::status_type> expected = std::nullopt, abort_source* as = nullptr);
 
     /**
      * \brief Updates the maximum number of connections a client may have
