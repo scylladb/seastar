@@ -66,3 +66,33 @@ PERF_TEST_CN(fixture, test_coro_n) {
     co_await coroutine::maybe_yield();
     co_return loop();
 }
+
+PERF_TEST(perf_tests, test_empty) { }
+
+PERF_TEST(perf_tests, test_timer_overhead) {
+    constexpr auto TIMER_LOOPS = 1000;
+    for (size_t i = 0; i < TIMER_LOOPS; i++) {
+        perf_tests::start_measuring_time();
+        perf_tests::stop_measuring_time();
+    }
+    return TIMER_LOOPS;
+}
+
+// The following tests run in order check that pre-run hooks are executed properly.
+
+static int hook_1_count = 0, hook_2_count = 1;
+
+PERF_PRE_RUN_HOOK([](const std::string& g, const std::string& c) {
+    ++hook_1_count;
+});
+
+PERF_PRE_RUN_HOOK([](const std::string& g, const std::string& c) {
+    ++hook_2_count;
+});
+
+PERF_TEST(hook_checker, hook_did_run_0) {
+    // check in a subsequent test that the hook ran
+    assert(hook_1_count > 0);
+    assert(hook_2_count > 0);
+}
+
