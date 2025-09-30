@@ -568,7 +568,6 @@ add_library (seastar
   include/seastar/core/sstring.hh
   include/seastar/core/stall_sampler.hh
   include/seastar/core/stream.hh
-  include/seastar/core/systemwide_memory_barrier.hh
   include/seastar/core/task.hh
   include/seastar/core/temporary_buffer.hh
   include/seastar/core/thread.hh
