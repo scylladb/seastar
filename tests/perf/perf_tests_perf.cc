@@ -85,3 +85,21 @@ PERF_TEST(perf_tests, test_timer_overhead) {
     return TIMER_LOOPS;
 }
 
+// The following tests run in order check that pre-run hooks are executed properly.
+
+static int hook_1_count = 0, hook_2_count = 1;
+
+PERF_PRE_RUN_HOOK([](const std::string& g, const std::string& c) {
+    ++hook_1_count;
+});
+
+PERF_PRE_RUN_HOOK([](const std::string& g, const std::string& c) {
+    ++hook_2_count;
+});
+
+PERF_TEST(hook_checker, hook_did_run_0) {
+    // check in a subsequent test that the hook ran
+    assert(hook_1_count > 0);
+    assert(hook_2_count > 0);
+}
+
