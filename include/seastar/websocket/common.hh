@@ -92,10 +92,16 @@ protected:
     public:
         connection_sink_impl(queue<buff_t>* data) : data(data) {}
 
+#if SEASTAR_API_LEVEL < 9
         virtual future<> put(net::packet d) override {
             net::fragment f = d.frag(0);
             return data->push_eventually(temporary_buffer<char>{std::move(f.base), f.size});
         }
+#else
+        virtual future<> put(temporary_buffer<char> buf) override {
+            return data->push_eventually(std::move(buf));
+        }
+#endif
 
         size_t buffer_size() const noexcept override {
             return data->max_size();

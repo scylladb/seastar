@@ -129,7 +129,11 @@ class posix_data_sink_impl : public data_sink_impl {
 public:
     explicit posix_data_sink_impl(pollable_fd fd) : _fd(std::move(fd)) {}
     using data_sink_impl::put;
+#if SEASTAR_API_LEVEL < 9
     future<> put(packet p) override;
+#else
+    future<> put(std::vector<temporary_buffer<char>> bufs) override;
+#endif
     future<> put(temporary_buffer<char> buf) override;
     future<> close() override;
     bool can_batch_flushes() const noexcept override { return true; }
