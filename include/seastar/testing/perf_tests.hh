@@ -30,10 +30,15 @@
 #include <seastar/core/future.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/testing/linux_perf_event.hh>
+#include <seastar/util/noncopyable_function.hh>
 
 using namespace seastar;
 
 namespace perf_tests {
+
+// The type of the pre-run hook. See PERF_PRE_RUN_HOOK.
+using pre_run_hook = noncopyable_function<void(const sstring& test_group, const sstring& test_case)>;
+
 namespace internal {
 
 struct config;
@@ -142,6 +147,9 @@ protected:
     virtual void set_up() = 0;
     virtual void tear_down() noexcept = 0;
     virtual future<run_result> do_single_run() = 0;
+
+    // execute the pre-run hooks
+    void run_hooks();
 public:
     performance_test(const std::string& test_case, const std::string& test_group)
         : _test_case(test_case)
@@ -246,6 +254,7 @@ protected:
 
     [[gnu::hot]]
     virtual future<run_result> do_single_run() override {
+        run_hooks();
         _instructions_retired_counter.enable();
         _cpu_cycles_retired_counter.enable();
         measure_time.start_run(&_instructions_retired_counter, &_cpu_cycles_retired_counter);
@@ -290,6 +299,10 @@ struct test_registrar {
         performance_test::register_test(std::move(test));
     }
 };
+
+
+// internal hook registration function
+int register_pre_run_hook(pre_run_hook hook);
 
 }
 
@@ -358,3 +371,19 @@ void do_not_optimize(const T& v)
     static ::perf_tests::internal::test_registrar<test_##test_group##_##test_case> \
     test_##test_group##_##test_case##_registrar(#test_group, #test_case); \
     future<size_t> test_##test_group##_##test_case::run()
+
+
+#define CONCAT_IMPL(a, b) a##b
+#define CONCAT(a, b) CONCAT_IMPL(a, b)
+
+// Installs a pre-run hook.
+//
+// Register a function to be called before each test run. These are called before
+// all runs include the "dry run" used to estimate the number of iterations, if
+// that is used.
+//
+// Multiple hooks may be registered, they will be called in order of registration.
+//
+// Hooks cannot be deregistered.
+#define PERF_PRE_RUN_HOOK(hook) \
+    static int CONCAT(hook_registrar_, __COUNTER__) = ::perf_tests::internal::register_pre_run_hook(hook);
