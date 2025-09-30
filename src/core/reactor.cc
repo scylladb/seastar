@@ -144,7 +144,6 @@ module seastar;
 #include <seastar/core/smp.hh>
 #include <seastar/core/smp_options.hh>
 #include <seastar/core/stall_sampler.hh>
-#include <seastar/core/systemwide_memory_barrier.hh>
 #include <seastar/core/task.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/thread_cputime_clock.hh>
@@ -183,6 +182,7 @@ module seastar;
 #endif
 #endif // SEASTAR_MODULE
 #include <seastar/util/assert.hh>
+#include <seastar/core/internal/systemwide_memory_barrier.hh>
 
 namespace seastar {
 
@@ -2887,7 +2887,7 @@ public:
         // systemwide_memory_barrier() is very slow if run concurrently,
         // so don't go to sleep if it is running now.
         _r._sleeping.store(true, std::memory_order_relaxed);
-        bool barrier_done = try_systemwide_memory_barrier();
+        bool barrier_done = internal::try_systemwide_memory_barrier();
         if (!barrier_done) {
             _r._sleeping.store(false, std::memory_order_relaxed);
             return false;

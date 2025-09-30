@@ -36,7 +36,7 @@ module;
 #ifdef SEASTAR_MODULE
 module seastar;
 #else
-#include <seastar/core/systemwide_memory_barrier.hh>
+#include <seastar/core/internal/systemwide_memory_barrier.hh>
 #include <seastar/core/cacheline.hh>
 #include <seastar/util/log.hh>
 #include <seastar/util/defer.hh>
@@ -44,6 +44,7 @@ module seastar;
 #include <seastar/util/assert.hh>
 
 namespace seastar {
+namespace internal {
 
 
 #ifdef SEASTAR_HAS_MEMBARRIER
@@ -158,5 +159,6 @@ bool try_systemwide_memory_barrier() {
     return true;
 }
 
+}
 }
 
