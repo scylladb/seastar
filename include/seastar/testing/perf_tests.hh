@@ -281,8 +281,6 @@ public:
     using performance_test::performance_test;
 };
 
-void register_test(std::unique_ptr<performance_test>);
-
 template<typename Test>
 struct test_registrar {
     test_registrar(const std::string& test_group, const std::string& test_case) {
