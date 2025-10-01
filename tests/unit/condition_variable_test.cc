@@ -20,6 +20,8 @@
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
 
+#include "seastar/core/abort_source.hh"
+#include "seastar/core/manual_clock.hh"
 #include <seastar/core/thread.hh>
 #include <seastar/core/do_with.hh>
 #include <seastar/testing/test_case.hh>
@@ -393,4 +395,116 @@ SEASTAR_TEST_CASE(test_condition_variable_when_predicate_throws) {
                      i--;
                      return false;
              }), std::runtime_error);
+}
+
+SEASTAR_TEST_CASE(test_condition_variable_abort_source) {
+    abort_source as;
+    condition_variable cv;
+
+    auto fut = cv.wait(as);
+    BOOST_REQUIRE_EQUAL(fut.available(), false);
+    cv.signal();
+    co_await std::move(fut);
+
+    fut = cv.wait(as);
+    BOOST_REQUIRE_EQUAL(fut.available(), false);
+    as.request_abort();
+    BOOST_REQUIRE_THROW(
+      co_await std::move(fut),
+      abort_requested_exception);
+
+    fut = cv.wait(as);
+    BOOST_REQUIRE_THROW(
+      co_await std::move(fut),
+      abort_requested_exception);
+
+    cv.signal();
+    fut = cv.wait(as);
+    BOOST_REQUIRE_EQUAL(fut.available(), true);
+    co_await std::move(fut);
+}
+
+SEASTAR_TEST_CASE(test_condition_variable_abort_source_with_custom_exception) {
+    class my_cool_exception : std::exception {};
+    abort_source as;
+    condition_variable cv;
+
+    auto fut = cv.wait(as);
+    BOOST_REQUIRE_EQUAL(fut.available(), false);
+    cv.signal();
+    co_await std::move(fut);
+
+    fut = cv.wait(as);
+    BOOST_REQUIRE_EQUAL(fut.available(), false);
+    as.request_abort_ex(my_cool_exception());
+    BOOST_REQUIRE_THROW(
+      co_await std::move(fut),
+      my_cool_exception);
+
+    fut = cv.wait(as);
+    BOOST_REQUIRE_THROW(
+      co_await std::move(fut),
+      my_cool_exception);
+
+    cv.signal();
+    fut = cv.wait(as);
+    BOOST_REQUIRE_EQUAL(fut.available(), true);
+    co_await std::move(fut);
+}
+
+SEASTAR_TEST_CASE(test_condition_variable_abort_source_with_predicate) {
+    abort_source as;
+    condition_variable cv;
+
+    int i = 0;
+    auto fut = cv.wait(as, [&i] { return ++i == 2; });
+    BOOST_REQUIRE_EQUAL(fut.available(), false);
+    cv.signal();
+    BOOST_REQUIRE_EQUAL(fut.available(), false);
+    cv.signal();
+    co_await std::move(fut);
+
+    fut = cv.wait(as, [] { return false; });
+    BOOST_REQUIRE_EQUAL(fut.available(), false);
+    as.request_abort();
+    BOOST_REQUIRE_THROW(
+      co_await std::move(fut),
+      abort_requested_exception);
+
+    fut = cv.wait(as, [] { return false; });
+    BOOST_REQUIRE_THROW(
+      co_await std::move(fut),
+      abort_requested_exception);
+
+    cv.signal();
+    fut = cv.wait(as, [] { return true; });
+    BOOST_REQUIRE_EQUAL(fut.available(), true);
+    co_await std::move(fut);
+}
+
+SEASTAR_TEST_CASE(test_condition_variable_abort_source_with_timeout) {
+    abort_source as;
+    condition_variable cv;
+
+    auto now = manual_clock::now();
+    auto fut = cv.wait(now + 1s, as);
+    BOOST_REQUIRE_EQUAL(fut.available(), false);
+    cv.signal();
+    co_await std::move(fut);
+
+    now = manual_clock::now();
+    fut = cv.wait(now + 1s, as);
+    BOOST_REQUIRE_EQUAL(fut.available(), false);
+    manual_clock::advance(1s);
+    BOOST_REQUIRE_THROW(
+      co_await std::move(fut),
+      condition_variable_timed_out);
+
+    now = manual_clock::now();
+    fut = cv.wait(now + 1s, as);
+    BOOST_REQUIRE_EQUAL(fut.available(), false);
+    as.request_abort();
+    BOOST_REQUIRE_THROW(
+      co_await std::move(fut),
+      abort_requested_exception);
 }

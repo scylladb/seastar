@@ -22,6 +22,7 @@
 module;
 #include <exception>
 #include <utility>
+#include <memory>
 module seastar;
 #else
 #include <seastar/core/condition-variable.hh>
@@ -56,6 +57,11 @@ void condition_variable::waiter::timeout() noexcept {
     this->set_exception(std::make_exception_ptr(condition_variable_timed_out()));
 }
 
+void condition_variable::waiter::abort(const std::exception_ptr& ex) noexcept {
+    this->unlink();
+    this->set_exception(ex);
+}
+
 bool condition_variable::wakeup_first() noexcept {
     if (_waiters.empty()) {
         return false;
@@ -78,6 +84,27 @@ void condition_variable::signal() noexcept {
     if (!wakeup_first()) {
         _signalled = true;
     }
+}
+
+future<> condition_variable::wait(abort_source& as) noexcept {
+    if (check_and_consume_signal()) {
+        return make_ready_future();
+    }
+    struct abort_waiter : public promise_waiter {
+        abort_source::subscription sub;
+    };
+    auto w = std::make_unique<abort_waiter>();
+    auto sub = as.subscribe([w = w.get(), &as]() noexcept {
+        w->abort(as.abort_requested_exception_ptr());
+    });
+    auto f = w->get_future();
+    if (!sub) {
+      w.release()->set_exception(as.abort_requested_exception_ptr());
+      return f;
+    }
+    w->sub = std::move(*sub);
+    add_waiter(*w.release());
+    return f;
 }
 
 /// Notify variable and wake up all waiter

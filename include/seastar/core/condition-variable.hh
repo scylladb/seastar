@@ -81,6 +81,7 @@ private:
         waiter& operator=(const waiter&) = delete;
         virtual ~waiter() = default;
         void timeout() noexcept;
+        void abort(const std::exception_ptr&) noexcept;
 
         virtual void signal() noexcept = 0;
         virtual void set_exception(std::exception_ptr) noexcept = 0;
@@ -195,7 +196,6 @@ private:
     bool _signalled = false; // set to true if signalled while no waiters
 
     void add_waiter(waiter&) noexcept;
-    void timeout(waiter&) noexcept;
     bool wakeup_first() noexcept;
     bool check_and_consume_signal() noexcept;
 public:
@@ -256,6 +256,49 @@ public:
         return wait(timer<>::clock::now() + timeout);
     }
 
+    /// Waits until condition variable is signaled or the abort source is aborted
+    ///
+    /// \param as the \ref abort_source that eventually notifies that the wait
+    ///            should be aborted.
+    ///
+    /// \return a future that becomes ready when \ref signal() is called
+    ///         If the condition variable was \ref broken() will return \ref broken_condition_variable
+    ///         exception. If abort source is aborted will return an exception.
+    future<> wait(abort_source& as) noexcept;
+
+    /// Waits until condition variable is signaled or the abort source is aborted
+    ///
+    /// \param timeout time point at which wait will exit with a timeout
+    /// \param as the \ref abort_source that eventually notifies that the wait
+    ///            should be aborted.
+    ///
+    /// \return a future that becomes ready when \ref signal() is called
+    ///         If the condition variable was \ref broken() will return \ref broken_condition_variable
+    ///         exception. If abort source is aborted will return an exception.
+    template<typename Clock = typename timer<>::clock, typename Duration = typename Clock::duration>
+    future<> wait(std::chrono::time_point<Clock, Duration> timeout, abort_source& as) noexcept {
+        if (check_and_consume_signal()) {
+            return make_ready_future();
+        }
+        struct abort_waiter : public promise_waiter, public timer<Clock> {
+            abort_source::subscription sub;
+        };
+        auto w = std::make_unique<abort_waiter>();
+        auto sub = as.subscribe([w = w.get(), &as]() noexcept {
+            w->abort(as.abort_requested_exception_ptr());
+        });
+        auto f = w->get_future();
+        if (!sub) {
+            w.release()->set_exception(as.abort_requested_exception_ptr());
+            return f;
+        }
+        w->sub = std::move(*sub);
+        w->set_callback(std::bind(&waiter::timeout, w.get()));
+        w->arm(timeout);
+        add_waiter(*w.release());
+        return f;
+    }
+
     /// Waits until condition variable is notified and pred() == true, otherwise
     /// wait again.
     ///
@@ -301,6 +344,44 @@ public:
     requires std::is_invocable_r_v<bool, Pred>
     future<> wait(std::chrono::duration<Rep, Period> timeout, Pred&& pred) noexcept {
         return wait(timer<>::clock::now() + timeout, std::forward<Pred>(pred));
+    }
+
+    /// Waits until condition variable is notified and pred() == true or the abort source is 
+    /// notified, otherwise wait again.
+    ///
+    /// \param as the \ref abort_source that eventually notifies that the wait
+    ///            should be aborted.
+    /// \param pred predicate that checks that awaited condition is true
+    ///
+    /// \return a future that becomes ready when \ref signal() is called
+    ///         If the condition variable was \ref broken() will return \ref broken_condition_variable
+    ///         exception. If abort source is aborted will return an exception.
+    template<typename Pred>
+    requires std::is_invocable_r_v<bool, Pred>
+    future<> wait(abort_source& as, Pred&& pred) noexcept {
+        return do_until(std::forward<Pred>(pred), [this, &as] {
+            return wait(as);
+        });
+    }
+
+    /// Waits until condition variable is notified and pred() == true or timeout is reached or the 
+    /// abort source is signalled, otherwise wait again.
+    ///
+    /// \param timeout duration after which wait will exit with a timeout
+    /// \param as the \ref abort_source that eventually notifies that the wait
+    ///            should be aborted.
+    /// \param pred predicate that checks that awaited condition is true
+    ///
+    /// \return a future that becomes ready when \ref signal() is called
+    ///         If the condition variable was \ref broken() will return \ref broken_condition_variable
+    ///         exception. If timepoint is passed will return \ref condition_variable_timed_out exception.
+    ///         If the abort source was notified it will return an exception.
+    template<typename Clock = typename timer<>::clock, typename Duration = typename Clock::duration, typename Pred>
+    requires std::is_invocable_r_v<bool, Pred>
+    future<> wait(std::chrono::time_point<Clock, Duration> timeout, abort_source& as, Pred&& pred) noexcept {
+        return do_until(std::forward<Pred>(pred), [this, timeout, &as] {
+            return wait(timeout, as);
+        });
     }
 
     /// Coroutine/co_await only waiter.
