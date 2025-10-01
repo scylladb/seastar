@@ -170,7 +170,18 @@ public:
     bool poll() const noexcept {
         return !_empty;
     }
+
+    /// Returns execution stage scheduling_group
+    scheduling_group get_scheduling_group() const noexcept { return _sg; }
+
+    /// Updates execution stage name and metric_group
+    void update_name_and_metric_group() {
+        update_name();
+        update_metric_group();
+    }
+
 private:
+    virtual void update_name() { /* Do nothing in the default implementation */ };
     void update_metric_group();
 };
 
@@ -188,6 +199,7 @@ public:
     void register_execution_stage(execution_stage& stage);
     void unregister_execution_stage(execution_stage& stage) noexcept;
     void update_execution_stage_registration(execution_stage& old_es, execution_stage& new_es) noexcept;
+    void update_scheduling_group_name(scheduling_group sg) noexcept;
     execution_stage* get_stage(const sstring& name);
     bool flush() noexcept;
     bool poll() const noexcept;
@@ -344,6 +356,10 @@ class inheriting_concrete_execution_stage final : public inheriting_execution_st
 
         per_group_stage_type(const sstring& name, noncopyable_function<ReturnType (Args...)> f)
             : per_group_stage_type(name, scheduling_group(), std::move(f)) {
+        }
+
+        void update_name() override {
+            this->_name = per_group_stage_type::format_name(_base_name, this->_sg);
         }
     };
 

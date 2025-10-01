@@ -67,6 +67,17 @@ execution_stage* execution_stage_manager::get_stage(const sstring& name) {
     return _stages_by_name[name];
 }
 
+void execution_stage_manager::update_scheduling_group_name(scheduling_group sg) noexcept {
+    for (auto&& stage : _execution_stages) {
+        if (stage->get_scheduling_group() == sg) {
+            auto old_name = stage->name();
+            stage->update_name_and_metric_group();
+            _stages_by_name.erase(old_name);
+            _stages_by_name.emplace(stage->name(), stage);
+        }
+    }
+}
+
 bool execution_stage_manager::flush() noexcept {
     bool did_work = false;
     for (auto&& stage : _execution_stages) {

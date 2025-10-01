@@ -5186,6 +5186,7 @@ rename_scheduling_group(scheduling_group sg, sstring new_name, sstring new_short
     }
     return smp::invoke_on_all([sg, new_name, new_shortname] {
         engine()._task_queues[sg._id]->rename(new_name, new_shortname);
+        internal::execution_stage_manager::get().update_scheduling_group_name(sg);
         engine().rename_queues(internal::priority_class(sg), new_name);
         return engine().rename_scheduling_group_specific_data(sg);
     });
