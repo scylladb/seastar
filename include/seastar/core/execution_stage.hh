@@ -330,7 +330,22 @@ requires std::is_nothrow_move_constructible_v<std::tuple<Args...>>
 class inheriting_concrete_execution_stage final : public inheriting_execution_stage {
     using return_type = futurize_t<ReturnType>;
     using args_tuple = std::tuple<Args...>;
-    using per_group_stage_type = concrete_execution_stage<ReturnType, Args...>;
+
+    class per_group_stage_type final : public internal::concrete_execution_stage_base<ReturnType, Args...> {
+        static sstring format_name(const sstring& name, scheduling_group sg) {
+            return fmt::format("{}.{}", name, sg.name());
+        }
+        sstring _base_name;
+    public:
+        per_group_stage_type(const sstring& base_name, scheduling_group sg, noncopyable_function<ReturnType (Args...)> f)
+            : internal::concrete_execution_stage_base<ReturnType, Args...>(per_group_stage_type::format_name(base_name, sg), sg, std::move(f))
+            , _base_name(base_name)
+        { }
+
+        per_group_stage_type(const sstring& name, noncopyable_function<ReturnType (Args...)> f)
+            : per_group_stage_type(name, scheduling_group(), std::move(f)) {
+        }
+    };
 
     static_assert(std::is_nothrow_move_constructible_v<args_tuple>,
                   "Function arguments need to be nothrow move constructible");
@@ -345,8 +360,7 @@ private:
         auto wrapped_function = [&_function = _function] (Args... args) {
             return _function(std::forward<Args>(args)...);
         };
-        auto name = fmt::format("{}.{}", _name, sg.name());
-        return per_group_stage_type(name, sg, wrapped_function);
+        return per_group_stage_type(_name, sg, wrapped_function);
     }
 public:
     /// Construct an inheriting concrete execution stage.
