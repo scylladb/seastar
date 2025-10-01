@@ -426,7 +426,8 @@ function (seastar_generate_ragel)
     OUTPUT ${args_OUT_FILE}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${out_dir}
     COMMAND ${ragel_RAGEL_EXECUTABLE} -G2 -o ${args_OUT_FILE} ${args_IN_FILE}
-    COMMAND sed -i -e "'1h;2,$$H;$$!d;g'" -re "'s/static const char _nfa[^;]*;//g'" ${args_OUT_FILE})
+    COMMAND sed -i -e "'1h;2,$$H;$$!d;g'" -re "'s/static const char _nfa[^;]*;//g'" ${args_OUT_FILE}
+    COMMAND touch ${args_OUT_FILE} -r ${args_IN_FILE})
 
   add_custom_target (${args_TARGET}
     DEPENDS ${args_OUT_FILE})
