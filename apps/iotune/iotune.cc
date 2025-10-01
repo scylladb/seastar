@@ -323,13 +323,16 @@ public:
 std::chrono::duration<double>
 warmup_period(std::chrono::duration<double> duration) {
     auto min_warmup = 3s;
-    auto five_percent = duration / 5;
-    return min_warmup.count() > five_percent.count() ? min_warmup : five_percent;
+    auto five_percent = duration * 0.05;
+    return std::max(min_warmup, std::chrono::duration_cast<std::chrono::seconds>(five_percent));
 }
 
 class io_worker {
     class requests_rate_meter {
-        std::vector<unsigned>& _rates;
+        std::vector<unsigned> _rates;
+        // Passed in rates might be reused so we locally track in our own vector
+        // (such that we can modify that list) and append later.
+        std::vector<unsigned>& _parent_rates;
         const unsigned& _requests;
         unsigned _prev_requests = 0;
         std::chrono::duration<double> _duration;
@@ -339,7 +342,8 @@ class io_worker {
 
     public:
         requests_rate_meter(std::chrono::duration<double> duration, std::vector<unsigned>& rates, const unsigned& requests)
-            : _rates(rates)
+            : _rates()
+            , _parent_rates(rates)
             , _requests(requests)
             , _duration(duration)
             , _tick([this] {
@@ -360,9 +364,14 @@ class io_worker {
                 _rates.push_back(_requests);
             }
 
-            // drop samples that got measured during the warm up period
-            size_t samples_to_drop = warmup_period(_duration) / period;
+            // Drop samples that got measured during the warm up period.
+            // We drop an extra sample. This is because the one second timer
+            // logic is really independent of when we start counting requests in
+            // `issue_request` itself so the first bucket might not be a full
+            // measurement and cause skew otherwise.
+            size_t samples_to_drop = warmup_period(_duration) / period + 1;
             _rates.erase(_rates.begin(), _rates.begin() + std::min(samples_to_drop, _rates.size()));
+            _parent_rates.insert(_parent_rates.end(), _rates.begin(), _rates.end());
         }
     };
 
