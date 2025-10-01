@@ -195,20 +195,9 @@ public:
     static execution_stage_manager& get() noexcept;
 };
 
-}
-/// \endcond
-
-/// \brief Concrete execution stage class
-///
-/// \note The recommended way of creating execution stages is to use
-/// make_execution_stage().
-///
-/// \tparam ReturnType return type of the function object
-/// \tparam Args  argument pack containing arguments to the function object, needs
-///                   to have move constructor that doesn't throw
 template<typename ReturnType, typename... Args>
 requires std::is_nothrow_move_constructible_v<std::tuple<Args...>>
-class concrete_execution_stage final : public execution_stage {
+class concrete_execution_stage_base : public execution_stage {
     using args_tuple = std::tuple<Args...>;
     static_assert(std::is_nothrow_move_constructible_v<args_tuple>,
                   "Function arguments need to be nothrow move constructible");
@@ -257,14 +246,14 @@ private:
         _empty = _queue.empty();
     }
 public:
-    explicit concrete_execution_stage(const sstring& name, scheduling_group sg, noncopyable_function<ReturnType (Args...)> f)
+    explicit concrete_execution_stage_base(const sstring& name, scheduling_group sg, noncopyable_function<ReturnType (Args...)> f)
         : execution_stage(name, sg)
         , _function(std::move(f))
     {
         _queue.reserve(flush_threshold);
     }
-    explicit concrete_execution_stage(const sstring& name, noncopyable_function<ReturnType (Args...)> f)
-        : concrete_execution_stage(name, scheduling_group(), std::move(f)) {
+    explicit concrete_execution_stage_base(const sstring& name, noncopyable_function<ReturnType (Args...)> f)
+        : concrete_execution_stage_base(name, scheduling_group(), std::move(f)) {
     }
 
     /// Enqueues a call to the stage's function
@@ -299,6 +288,23 @@ public:
         flush();
         return f;
     }
+};
+
+}
+/// \endcond
+
+/// \brief Concrete execution stage class
+///
+/// \note The recommended way of creating execution stages is to use
+/// make_execution_stage().
+///
+/// \tparam ReturnType return type of the function object
+/// \tparam Args  argument pack containing arguments to the function object, needs
+///                   to have move constructor that doesn't throw
+template<typename ReturnType, typename... Args>
+requires std::is_nothrow_move_constructible_v<std::tuple<Args...>>
+class concrete_execution_stage final : public internal::concrete_execution_stage_base<ReturnType, Args...> {
+    using internal::concrete_execution_stage_base<ReturnType, Args...>::concrete_execution_stage_base;
 };
 
 /// \brief Base class for execution stages with support for automatic \ref scheduling_group inheritance
