@@ -38,6 +38,10 @@ jobs:
       mode: release
       enables: --enable-dpdk
       options: --cook dpdk
+    # disable dpdk build as we don't use it an it is
+    # long and breaks now and then: it still runs
+    # upstream
+    if: false
   build_with_cxx_modules_gnutls:
     name: "Test with C++20 modules enabled (GnuTLS)"
     uses: ./.github/workflows/test.yaml
