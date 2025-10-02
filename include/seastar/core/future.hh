@@ -728,7 +728,7 @@ struct continuation final : continuation_base_with_promise<Promise, T> {
         , _wrapper(std::move(wrapper)) {}
     virtual void run_and_dispose() noexcept override {
         try {
-            _wrapper(std::move(this->_pr), _func, std::move(this->_state));
+            _wrapper(std::move(this->_pr), std::move(_func), std::move(this->_state));
         } catch (...) {
             this->_pr.set_to_current_exception();
         }
@@ -1422,7 +1422,7 @@ private:
         using futurator = futurize<internal::future_result_t<Func, T>>;
         typename futurator::type fut(future_for_get_promise_marker{});
         using pr_type = decltype(fut.get_promise());
-        schedule(fut.get_promise(), std::move(func), [](pr_type&& pr, Func& func, future_state&& state) {
+        schedule(fut.get_promise(), std::move(func), [](pr_type&& pr, Func&& func, future_state&& state) {
             if (state.failed()) {
                 pr.set_exception(static_cast<future_state_base&&>(std::move(state)));
             } else {
@@ -1430,7 +1430,7 @@ private:
                     // clang thinks that "state" is not used, below, for future<>.
                     // Make it think it is used to avoid an unused-lambda-capture warning.
                     (void)state;
-                    return internal::future_invoke(func, std::move(state).get_value());
+                    return internal::future_invoke(std::move(func), std::move(state).get_value());
                 });
             }
         });
@@ -1519,7 +1519,7 @@ private:
         using futurator = futurize<FuncResult>;
         typename futurator::type fut(future_for_get_promise_marker{});
         using pr_type = decltype(fut.get_promise());
-        schedule(fut.get_promise(), std::move(func), [](pr_type&& pr, Func& func, future_state&& state) {
+        schedule(fut.get_promise(), std::move(func), [](pr_type&& pr, Func&& func, future_state&& state) {
             futurator::satisfy_with_result_of(std::move(pr), [&func, &state] {
                 return func(future(std::move(state)));
             });
@@ -1994,14 +1994,14 @@ template<typename T>
 template<typename Func, typename... FuncArgs>
 typename futurize<T>::type futurize<T>::invoke(Func&& func, FuncArgs&&... args) noexcept {
     try {
-        using ret_t = decltype(func(std::forward<FuncArgs>(args)...));
+        using ret_t = decltype(std::forward<Func>(func)(std::forward<FuncArgs>(args)...));
         if constexpr (std::is_void_v<ret_t>) {
-            func(std::forward<FuncArgs>(args)...);
+            std::forward<Func>(func)(std::forward<FuncArgs>(args)...);
             return make_ready_future<>();
         } else if constexpr (is_future<ret_t>::value) {
-            return func(std::forward<FuncArgs>(args)...);
+            return std::forward<Func>(func)(std::forward<FuncArgs>(args)...);
         } else {
-            return convert(func(std::forward<FuncArgs>(args)...));
+            return convert(std::forward<Func>(func)(std::forward<FuncArgs>(args)...));
         }
     } catch (...) {
         return current_exception_as_future();
