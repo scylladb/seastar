@@ -393,6 +393,19 @@ public:
 
 };
 
+static std::vector<pre_run_hook> pre_run_hooks;
+
+int register_pre_run_hook(pre_run_hook hook) {
+    pre_run_hooks.emplace_back(std::move(hook));
+    return 0; // this return value just helps run this function as a global constructor
+}
+
+void performance_test::run_hooks() {
+    for (auto& hook : pre_run_hooks) {
+        hook(test_group(), test_case());
+    }
+}
+
 void performance_test::do_run(const config& conf)
 {
     _max_single_run_iterations = conf.single_run_iterations;

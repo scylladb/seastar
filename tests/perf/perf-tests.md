@@ -53,7 +53,7 @@ PERF_TEST(example, simple2)
 
 As it is in case of unit tests, performance tests may benefit from using a fixture that would set up a proper environment. Such tests should use macro `PERF_TEST_F(test_group, test_case)`. The test itself will be a member function of a class derivative of `test_group`.
 
-The constructor and destructor of a fixture are executed in a context of Seastar thread, but the actual test logic is not. The same instance of a fixture will be used for multiple iterations of the test.
+The constructor and destructor of a fixture are executed in a context of Seastar thread, but the actual test logic is not. The same instance of a fixture will be used all runs (and iterations) of a given test, but a unique fixture is created for each test. In the example below, exactly 2 fixture objects will be created, for `fixture1` and `fixture2` tests. If you want to share setup _between_ test cases, you can use static members as shown below.
 
 ```c++
 class example {
@@ -84,7 +84,7 @@ PERF_TEST_F(example, fixture2)
 
 ### Custom time measurement
 
-Even with fixtures it may be necessary to do some costly initialisation during each iteration. Its impact can be reduced by specifying the exact part of the test that should be measured using functions `perf_tests::start_measuring_time()` and `perf_tests::stop_measuring_time()`.
+Even with fixtures it may be necessary to do some costly initialization during each iteration. Its impact can be reduced by specifying the exact part of the test that should be measured using functions `perf_tests::start_measuring_time()` and `perf_tests::stop_measuring_time()`.
 
 ```c++
 PERF_TEST(example, custom_time_measurement2)
@@ -104,3 +104,9 @@ PERF_TEST(example, custom_time_measurement2)
     });
 }
 ```
+
+#### Measurement overhead
+
+The cost of starting and stopping the timers is substantial, about 0.5μs for a start/stop pair, due to the overhead of reading the performance counters in the kernel. In the case you use manual time measurement with start/stop_measuring_time you should ensure that the timed region is substantially longer than time in order to reduce the error imposed by this overhead: for example by using a loop inside the timed region and returning the number of iterations from the test method.
+
+If you do _not_ use these manual methods, the overhead is very low (a few instructions) as the test method is already called in such a loop by the framework, with the time manipulation methods outside that.
