@@ -67,6 +67,17 @@ execution_stage* execution_stage_manager::get_stage(const sstring& name) {
     return _stages_by_name[name];
 }
 
+void execution_stage_manager::update_scheduling_group_name(scheduling_group sg) noexcept {
+    for (auto&& stage : _execution_stages) {
+        if (stage->get_scheduling_group() == sg) {
+            auto old_name = stage->name();
+            stage->update_name_and_metric_group();
+            _stages_by_name.erase(old_name);
+            _stages_by_name.emplace(stage->name(), stage);
+        }
+    }
+}
+
 bool execution_stage_manager::flush() noexcept {
     bool did_work = false;
     for (auto&& stage : _execution_stages) {
@@ -111,33 +122,38 @@ execution_stage::execution_stage(const sstring& name, scheduling_group sg)
 {
     internal::execution_stage_manager::get().register_execution_stage(*this);
     auto undo = defer([&] () noexcept { internal::execution_stage_manager::get().unregister_execution_stage(*this); });
+    update_metric_group();
+    undo.cancel();
+}
+
+void execution_stage::update_metric_group() {
+    _metric_group.clear();
     _metric_group = metrics::metric_group("execution_stages", {
              metrics::make_counter("tasks_scheduled",
                                   metrics::description("Counts tasks scheduled by execution stages"),
-                                  { metrics::label_instance("execution_stage", name), },
-                                  [name, &esm = internal::execution_stage_manager::get()] {
+                                  { metrics::label_instance("execution_stage", _name), },
+                                  [name = _name, &esm = internal::execution_stage_manager::get()] {
                                       return esm.get_stage(name)->get_stats().tasks_scheduled;
                                   }),
              metrics::make_counter("tasks_preempted",
                                   metrics::description("Counts tasks which were preempted before execution all queued operations"),
-                                  { metrics::label_instance("execution_stage", name), },
-                                  [name, &esm = internal::execution_stage_manager::get()] {
+                                  { metrics::label_instance("execution_stage", _name), },
+                                  [name = _name, &esm = internal::execution_stage_manager::get()] {
                                       return esm.get_stage(name)->get_stats().tasks_preempted;
                                   }),
              metrics::make_counter("function_calls_enqueued",
                                   metrics::description("Counts function calls added to execution stages queues"),
-                                  { metrics::label_instance("execution_stage", name), },
-                                  [name, &esm = internal::execution_stage_manager::get()] {
+                                  { metrics::label_instance("execution_stage", _name), },
+                                  [name = _name, &esm = internal::execution_stage_manager::get()] {
                                       return esm.get_stage(name)->get_stats().function_calls_enqueued;
                                   }),
              metrics::make_counter("function_calls_executed",
                                   metrics::description("Counts function calls executed by execution stages"),
-                                  { metrics::label_instance("execution_stage", name), },
-                                  [name, &esm = internal::execution_stage_manager::get()] {
+                                  { metrics::label_instance("execution_stage", _name), },
+                                  [name = _name, &esm = internal::execution_stage_manager::get()] {
                                       return esm.get_stage(name)->get_stats().function_calls_executed;
                                   }),
            });
-    undo.cancel();
 }
 
 bool execution_stage::flush() noexcept {

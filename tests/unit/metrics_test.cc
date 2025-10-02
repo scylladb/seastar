@@ -20,6 +20,7 @@
  * Copyright (C) 2019 ScyllaDB.
  */
 
+#include <seastar/core/execution_stage.hh>
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/core/metrics.hh>
 #include <seastar/core/metrics_api.hh>
@@ -30,6 +31,7 @@
 #include <seastar/core/do_with.hh>
 #include <seastar/core/io_queue.hh>
 #include <seastar/core/loop.hh>
+#include <seastar/core/with_scheduling_group.hh>
 #include <seastar/core/internal/estimated_histogram.hh>
 #include <seastar/testing/random.hh>
 #include <seastar/testing/test_case.hh>
@@ -119,6 +121,28 @@ SEASTAR_THREAD_TEST_CASE(test_renaming_scheuling_groups) {
     bool name1_found = label_vals.find(sstring(name1)) != label_vals.end();
     bool name2_found = label_vals.find(sstring(name2)) != label_vals.end();
     BOOST_REQUIRE((name1_found && !name2_found) || (name2_found && !name1_found));
+}
+
+SEASTAR_THREAD_TEST_CASE(test_renaming_execution_stage) {
+    using namespace seastar;
+    const sstring sg1_name = "sg1";
+    const sstring sg2_name = "sg2";
+    const sstring stage_name = "my_stage";
+
+    inheriting_concrete_execution_stage<void> stage{stage_name, []{}};
+    scheduling_group sg = create_scheduling_group(sg1_name, 111).get();
+    with_scheduling_group(sg, [&] { return stage(); }).get();
+
+    std::set<sstring> label_vals = get_label_values(sstring("execution_stages_tasks_scheduled"), sstring("execution_stage"));
+    BOOST_REQUIRE(label_vals.find(stage_name + sstring(".") + sstring(sg1_name)) != label_vals.end());
+
+    rename_scheduling_group(sg, sg2_name).get();
+
+    label_vals = get_label_values(sstring("execution_stages_tasks_scheduled"), sstring("execution_stage"));
+    BOOST_REQUIRE(label_vals.find(stage_name + sstring(".") + sstring(sg1_name)) == label_vals.end());
+    BOOST_REQUIRE(label_vals.find(stage_name + sstring(".") + sstring(sg2_name)) != label_vals.end());
+
+    destroy_scheduling_group(sg).get();
 }
 
 int count_by_label(const std::string& label) {

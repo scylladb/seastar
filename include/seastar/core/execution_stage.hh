@@ -170,6 +170,19 @@ public:
     bool poll() const noexcept {
         return !_empty;
     }
+
+    /// Returns execution stage scheduling_group
+    scheduling_group get_scheduling_group() const noexcept { return _sg; }
+
+    /// Updates execution stage name and metric_group
+    void update_name_and_metric_group() {
+        update_name();
+        update_metric_group();
+    }
+
+private:
+    virtual void update_name() { /* Do nothing in the default implementation */ };
+    void update_metric_group();
 };
 
 /// \cond internal
@@ -186,6 +199,7 @@ public:
     void register_execution_stage(execution_stage& stage);
     void unregister_execution_stage(execution_stage& stage) noexcept;
     void update_execution_stage_registration(execution_stage& old_es, execution_stage& new_es) noexcept;
+    void update_scheduling_group_name(scheduling_group sg) noexcept;
     execution_stage* get_stage(const sstring& name);
     bool flush() noexcept;
     bool poll() const noexcept;
@@ -193,20 +207,9 @@ public:
     static execution_stage_manager& get() noexcept;
 };
 
-}
-/// \endcond
-
-/// \brief Concrete execution stage class
-///
-/// \note The recommended way of creating execution stages is to use
-/// make_execution_stage().
-///
-/// \tparam ReturnType return type of the function object
-/// \tparam Args  argument pack containing arguments to the function object, needs
-///                   to have move constructor that doesn't throw
 template<typename ReturnType, typename... Args>
 requires std::is_nothrow_move_constructible_v<std::tuple<Args...>>
-class concrete_execution_stage final : public execution_stage {
+class concrete_execution_stage_base : public execution_stage {
     using args_tuple = std::tuple<Args...>;
     static_assert(std::is_nothrow_move_constructible_v<args_tuple>,
                   "Function arguments need to be nothrow move constructible");
@@ -255,14 +258,14 @@ private:
         _empty = _queue.empty();
     }
 public:
-    explicit concrete_execution_stage(const sstring& name, scheduling_group sg, noncopyable_function<ReturnType (Args...)> f)
+    explicit concrete_execution_stage_base(const sstring& name, scheduling_group sg, noncopyable_function<ReturnType (Args...)> f)
         : execution_stage(name, sg)
         , _function(std::move(f))
     {
         _queue.reserve(flush_threshold);
     }
-    explicit concrete_execution_stage(const sstring& name, noncopyable_function<ReturnType (Args...)> f)
-        : concrete_execution_stage(name, scheduling_group(), std::move(f)) {
+    explicit concrete_execution_stage_base(const sstring& name, noncopyable_function<ReturnType (Args...)> f)
+        : concrete_execution_stage_base(name, scheduling_group(), std::move(f)) {
     }
 
     /// Enqueues a call to the stage's function
@@ -299,6 +302,23 @@ public:
     }
 };
 
+}
+/// \endcond
+
+/// \brief Concrete execution stage class
+///
+/// \note The recommended way of creating execution stages is to use
+/// make_execution_stage().
+///
+/// \tparam ReturnType return type of the function object
+/// \tparam Args  argument pack containing arguments to the function object, needs
+///                   to have move constructor that doesn't throw
+template<typename ReturnType, typename... Args>
+requires std::is_nothrow_move_constructible_v<std::tuple<Args...>>
+class concrete_execution_stage final : public internal::concrete_execution_stage_base<ReturnType, Args...> {
+    using internal::concrete_execution_stage_base<ReturnType, Args...>::concrete_execution_stage_base;
+};
+
 /// \brief Base class for execution stages with support for automatic \ref scheduling_group inheritance
 class inheriting_execution_stage {
 public:
@@ -322,7 +342,26 @@ requires std::is_nothrow_move_constructible_v<std::tuple<Args...>>
 class inheriting_concrete_execution_stage final : public inheriting_execution_stage {
     using return_type = futurize_t<ReturnType>;
     using args_tuple = std::tuple<Args...>;
-    using per_group_stage_type = concrete_execution_stage<ReturnType, Args...>;
+
+    class per_group_stage_type final : public internal::concrete_execution_stage_base<ReturnType, Args...> {
+        static sstring format_name(const sstring& name, scheduling_group sg) {
+            return fmt::format("{}.{}", name, sg.name());
+        }
+        sstring _base_name;
+    public:
+        per_group_stage_type(const sstring& base_name, scheduling_group sg, noncopyable_function<ReturnType (Args...)> f)
+            : internal::concrete_execution_stage_base<ReturnType, Args...>(per_group_stage_type::format_name(base_name, sg), sg, std::move(f))
+            , _base_name(base_name)
+        { }
+
+        per_group_stage_type(const sstring& name, noncopyable_function<ReturnType (Args...)> f)
+            : per_group_stage_type(name, scheduling_group(), std::move(f)) {
+        }
+
+        void update_name() override {
+            this->_name = per_group_stage_type::format_name(_base_name, this->_sg);
+        }
+    };
 
     static_assert(std::is_nothrow_move_constructible_v<args_tuple>,
                   "Function arguments need to be nothrow move constructible");
@@ -337,8 +376,7 @@ private:
         auto wrapped_function = [&_function = _function] (Args... args) {
             return _function(std::forward<Args>(args)...);
         };
-        auto name = fmt::format("{}.{}", _name, sg.name());
-        return per_group_stage_type(name, sg, wrapped_function);
+        return per_group_stage_type(_name, sg, wrapped_function);
     }
 public:
     /// Construct an inheriting concrete execution stage.
