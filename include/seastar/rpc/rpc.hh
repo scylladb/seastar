@@ -40,6 +40,7 @@
 #include <seastar/core/queue.hh>
 #include <seastar/core/weak_ptr.hh>
 #include <seastar/core/scheduling.hh>
+#include <seastar/core/deleter.hh>
 #include <seastar/util/backtrace.hh>
 #include <seastar/util/log.hh>
 
@@ -228,6 +229,14 @@ public:
     void operator()(const socket_address& addr, log_level level, std::string_view str) const;
 };
 
+namespace internal {
+template<typename Serializer, typename... Out>
+class sink_impl;
+
+template<typename Serializer, typename... In>
+class source_impl;
+}
+
 class connection {
 protected:
     connected_socket _fd;
@@ -367,9 +376,9 @@ public:
     future<typename FrameType::return_type> read_frame_compressed(socket_address info, std::unique_ptr<compressor>& compressor, input_stream<char>& in);
     friend class client;
     template<typename Serializer, typename... Out>
-    friend class sink_impl;
+    friend class internal::sink_impl;
     template<typename Serializer, typename... In>
-    friend class source_impl;
+    friend class internal::source_impl;
 
     void suspend_for_testing(promise<>& p) {
         _outgoing_queue_ready.get();
@@ -380,9 +389,36 @@ public:
     }
 };
 
-struct deferred_snd_buf {
-    promise<> pr;
-    snd_buf data;
+namespace internal {
+
+// Used on the shard the _conn lives on.
+struct alignas (cache_line_size) sink_impl_remote_state {
+    shard_id local_shard;
+    shard_id remote_shard;
+    bi::slist<snd_buf, bi::constant_time_size<false>, bi::cache_last<true>> delete_queue;
+    future<> delete_loop = make_ready_future();
+};
+
+// Safely delete the original allocation buffer on the local shard
+// When deleted after it was sent on the remote shard, we queue
+// up the buffer pointers to be destroyed and deleted as a batch
+// back on the local shard.
+class snd_buf_deleter_impl final : public deleter::impl {
+    snd_buf* _obj_ptr;
+    sink_impl_remote_state& _state;
+
+    static void destroy_and_delete(snd_buf* obj_ptr) {
+        obj_ptr->~snd_buf();
+        std::default_delete<snd_buf>()(obj_ptr);
+    }
+public:
+    snd_buf_deleter_impl(snd_buf* obj_ptr, sink_impl_remote_state& state)
+        : impl(deleter())
+        , _obj_ptr(obj_ptr)
+        , _state(state)
+    {}
+
+    virtual ~snd_buf_deleter_impl() override;
 };
 
 // send data Out...
@@ -392,16 +428,24 @@ class sink_impl : public sink<Out...>::impl {
     alignas (cache_line_size) uint64_t _next_seq_num = 1;
 
     // Used on the shard the _conn lives on.
-    struct alignas (cache_line_size) {
-        uint64_t last_seq_num = 0;
-        std::map<uint64_t, deferred_snd_buf> out_of_order_bufs;
-    } _remote_state;
+    sink_impl_remote_state _remote_state;
+
+    bi::slist<snd_buf, bi::constant_time_size<false>, bi::cache_last<true>> _queue;
+    future<> _send_loop = make_ready_future();
+
 public:
-    sink_impl(xshard_connection_ptr con) : sink<Out...>::impl(std::move(con)) { this->_con->get()->_sink_closed = false; }
+    sink_impl(xshard_connection_ptr con) : sink<Out...>::impl(std::move(con)) {
+        this->_con->get()->_sink_closed = false;
+        _remote_state.local_shard = this_shard_id();
+        _remote_state.remote_shard = this->_con->get_owner_shard();
+    }
     future<> operator()(const Out&... args) override;
-    future<> close() override;
-    future<> flush() override;
+    future<> close() noexcept override;
+    future<> flush() noexcept override;
     ~sink_impl() override;
+
+private:
+    future<> send_loop();
 };
 
 // receive data In...
@@ -411,6 +455,8 @@ public:
     source_impl(xshard_connection_ptr con) : source<In...>::impl(std::move(con)) { this->_con->get()->_source_closed = false; }
     future<std::optional<std::tuple<In...>>> operator()() override;
 };
+
+} // namespace internal
 
 class client : public rpc::connection, public weakly_referencable<client> {
     socket _socket;
@@ -551,7 +597,7 @@ public:
                 }
                 xshard_connection_ptr s = make_lw_shared(make_foreign(static_pointer_cast<rpc::connection>(c)));
                 this->register_stream(c->get_connection_id(), s);
-                return sink<Out...>(make_shared<sink_impl<Serializer, Out...>>(std::move(s)));
+                return sink<Out...>(make_shared<internal::sink_impl<Serializer, Out...>>(std::move(s)));
             }).handle_exception([c] (std::exception_ptr eptr) {
                 // If await_connection fails we need to stop the client
                 // before destroying it.

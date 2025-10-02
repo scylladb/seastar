@@ -74,14 +74,61 @@ temporary_buffer<char>& snd_buf::front() {
     }
 }
 
+namespace internal {
+
+snd_buf_deleter_impl::~snd_buf_deleter_impl() {
+    if (this_shard_id() == _state.local_shard) {
+        destroy_and_delete(_obj_ptr);
+        return;
+    }
+    SEASTAR_ASSERT(this_shard_id() == _state.remote_shard);
+    _state.delete_queue.push_back(*_obj_ptr);
+    if (!_state.delete_loop.available()) {
+        // The buffer will get picked up by the delete loop in the next batch
+        return;
+    }
+    _state.delete_loop = do_until([&state = _state] { return state.delete_queue.empty(); }, [&state = _state] {
+        auto batch = std::move(state.delete_queue);
+        return smp::submit_to(state.local_shard, [batch = std::move(batch)] () mutable {
+            return do_until([&batch] { return batch.empty(); }, [&batch] () mutable {
+                auto* buf_ptr = &batch.front();
+                batch.pop_front();
+                destroy_and_delete(buf_ptr);
+                return make_ready_future();
+            });
+        });
+    });
+}
+
 // Make a copy of a remote buffer. No data is actually copied, only pointers and
 // a deleter of a new buffer takes care of deleting the original buffer
-template<typename T> // T is either snd_buf or rcv_buf
-T make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<T>> org) {
+snd_buf make_shard_local_buffer_copy(snd_buf* org, std::function<deleter(snd_buf*)> make_deleter) {
+    snd_buf buf(org->size);
+    auto* one = std::get_if<temporary_buffer<char>>(&org->bufs);
+
+    if (one) {
+        buf.bufs = temporary_buffer<char>(one->get_write(), one->size(), make_deleter(org));
+    } else {
+        auto& orgbufs = std::get<std::vector<temporary_buffer<char>>>(org->bufs);
+        std::vector<temporary_buffer<char>> newbufs;
+        newbufs.reserve(orgbufs.size());
+        auto d = make_deleter(org);
+        for (auto&& b : orgbufs) {
+            newbufs.emplace_back(b.get_write(), b.size(), d.share());
+        }
+        buf.bufs = std::move(newbufs);
+    }
+
+    return buf;
+}
+
+// Make a copy of a remote buffer. No data is actually copied, only pointers and
+// a deleter of a new buffer takes care of deleting the original buffer
+rcv_buf make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<rcv_buf>> org) {
     if (org.get_owner_shard() == this_shard_id()) {
         return std::move(*org);
     }
-    T buf(org->size);
+    rcv_buf buf(org->size);
     auto* one = std::get_if<temporary_buffer<char>>(&org->bufs);
 
     if (one) {
@@ -100,8 +147,7 @@ T make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<T>> org) {
     return buf;
 }
 
-template snd_buf make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<snd_buf>>);
-template rcv_buf make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<rcv_buf>>);
+} // namespace internal
 
 static void log_exception(connection& c, log_level level, const char* log, std::exception_ptr eptr) {
     const char* s;
