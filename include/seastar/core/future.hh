@@ -1358,6 +1358,11 @@ public:
                  || (std::same_as<void, T> && std::invocable<Func>)
     Result
     then(Func&& func) noexcept {
+      // Avoid having to special-case lvalue-references downstream by converting
+      // them to an rvalue reference here.
+      if constexpr (std::is_lvalue_reference_v<Func>) {
+        return then(std::ref(func));
+      } else {
 #ifndef SEASTAR_TYPE_ERASE_MORE
         return then_impl(std::move(func));
 #else
@@ -1371,6 +1376,7 @@ public:
         }
         return then_impl(std::move(ncf));
 #endif
+      }
     }
 
     /// \brief Schedule a block of code to run when the future is ready, unpacking tuples.
@@ -1396,10 +1402,16 @@ public:
     requires ::seastar::CanApplyTuple<Func, T>
     Result
     then_unpack(Func&& func) noexcept {
+      // Avoid having to special-case lvalue-references downstream by converting
+      // them to an rvalue reference here.
+      if constexpr (std::is_lvalue_reference_v<Func>) {
+        return then_unpack(std::ref(func));
+      } else {
         return then([func = std::forward<Func>(func)] (T&& tuple) mutable {
             // sizeof...(tuple) is required to be 1
             return std::apply(func, std::move(tuple));
         });
+      }
     }
 
 private:
@@ -1458,13 +1470,25 @@ public:
     template <std::invocable<future> Func, typename FuncResult = std::invoke_result_t<Func, future>>
     futurize_t<FuncResult>
     then_wrapped(Func&& func) & noexcept {
+      // Avoid having to special-case lvalue-references downstream by converting
+      // them to an rvalue reference here.
+      if constexpr (std::is_lvalue_reference_v<Func>) {
+        return then_wrapped(std::ref(func));
+      } else {
         return then_wrapped_maybe_erase<false, FuncResult>(std::forward<Func>(func));
+      }
     }
 
     template <std::invocable<future&&> Func, typename FuncResult = std::invoke_result_t<Func, future&&>>
     futurize_t<FuncResult>
     then_wrapped(Func&& func) && noexcept {
+      // Avoid having to special-case lvalue-references downstream by converting
+      // them to an rvalue reference here.
+      if constexpr (std::is_lvalue_reference_v<Func>) {
+        return std::move(*this).then_wrapped(std::ref(func));
+      } else {
         return then_wrapped_maybe_erase<true, FuncResult>(std::forward<Func>(func));
+      }
     }
 
 private:
@@ -1573,7 +1597,13 @@ public:
      */
     template <std::invocable Func>
     future<T> finally(Func&& func) noexcept {
+      // Avoid having to special-case lvalue-references downstream by converting
+      // them to an rvalue reference here.
+      if constexpr (std::is_lvalue_reference_v<Func>) {
+        return finally(std::ref(func));
+      } else {
         return then_wrapped(finally_body<Func, is_future<std::invoke_result_t<Func>>::value>(std::forward<Func>(func)));
+      }
     }
 
 
@@ -1658,6 +1688,11 @@ public:
                     || (std::tuple_size_v<tuple_type> == 1 && std::is_invocable_r_v<T, Func, std::exception_ptr>)
                     || (std::tuple_size_v<tuple_type> > 1 && std::is_invocable_r_v<tuple_type ,Func, std::exception_ptr>)
     future<T> handle_exception(Func&& func) noexcept {
+      // Avoid having to special-case lvalue-references downstream by converting
+      // them to an rvalue reference here.
+      if constexpr (std::is_lvalue_reference_v<Func>) {
+        return handle_exception(std::ref(func));
+      } else {
         return then_wrapped([func = std::forward<Func>(func)]
                              (auto&& fut) mutable -> future<T> {
             if (!fut.failed()) {
@@ -1666,6 +1701,7 @@ public:
                 return futurize_invoke(func, fut.get_exception());
             }
         });
+      }
     }
 
     /// \brief Handle the exception of a certain type carried by this future.
@@ -1680,6 +1716,11 @@ public:
     /// it is propagated as is.
     template <typename Func>
     future<T> handle_exception_type(Func&& func) noexcept {
+      // Avoid having to special-case lvalue-references downstream by converting
+      // them to an rvalue reference here.
+      if constexpr (std::is_lvalue_reference_v<Func>) {
+        return handle_exception_type(std::ref(func));
+      } else {
         using trait = function_traits<Func>;
         static_assert(trait::arity == 1, "func can take only one parameter");
         using ex_type = typename trait::template arg<0>::type;
@@ -1691,6 +1732,7 @@ public:
                 return futurize_invoke(func, ex);
             }
         });
+      }
     }
 
     /// \brief Ignore any result hold by this future
