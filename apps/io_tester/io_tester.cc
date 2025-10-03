@@ -38,6 +38,7 @@
 #include <chrono>
 #include <optional>
 #include <ranges>
+#include <stdexcept>
 #include <utility>
 #include <unordered_set>
 #include <vector>
@@ -58,9 +59,10 @@
 #include <boost/range/adaptor/filtered.hpp>
 #include <boost/range/adaptor/map.hpp>
 #include <boost/array.hpp>
-#include <iomanip>
 #include <random>
 #include <yaml-cpp/yaml.h>
+
+#include <fmt/format.h>
 
 using namespace seastar;
 using namespace std::chrono_literals;
@@ -588,7 +590,7 @@ public:
 
 private:
     void update_queue_length() {
-        unsigned qlen = get_one_metrics("io_queue_disk_queue_length").value();
+        unsigned qlen = get_one_metrics("io_queue_disk_queue_length", "class", name()).value();
         _disk_queue_lengths(qlen);
     }
 
@@ -661,26 +663,51 @@ private:
         });
     }
 
-    std::optional<double> get_one_metrics(sstring m_name, bool check_class_metrics = true) {
+    // Given the metric with the given name, and label matching label=label_value (or if label
+    // is empty, any label), return the value of the metric. It is an error if there are
+    // multiple matches.
+    std::optional<double> get_one_metrics(sstring m_name, sstring label, sstring label_value) {
         const auto& values = seastar::metrics::impl::get_value_map();
         const auto& mf = values.find(m_name);
         SEASTAR_ASSERT(mf != values.end());
-        for (auto&& mi : mf->second) {
-            if (check_class_metrics) {
-                auto&& cname = mi.first.labels().find("class");
-                if (cname == mi.first.labels().end() || cname->second != name()) {
-                    continue;
-                }
-            }
-            return mi.second->get_function()().d();
+        if (mf->second.empty()) {
+            return {};
         }
-        return {};
+
+        std::vector<double> results;
+        for (auto&& mi : mf->second) {
+            auto label_itr = mi.first.labels().find(label);
+            if (label.empty() ||
+                (label_itr != mi.first.labels().end() && label_itr->second == label_value)) {
+                results.push_back(mi.second->get_function()().d());
+            }
+        }
+
+        if (results.size() != 1) {
+            auto prefix = fmt::format("while looking for metric '{}' with label {}={} ", m_name, label, label_value);
+
+            if (results.empty()) {
+                throw std::runtime_error(fmt::format("{}: no such metric\n", prefix));
+            } else {
+                throw std::runtime_error(fmt::format("{}: multiple matches\n", prefix));
+            }
+        }
+
+        return results.front();
+    }
+
+    void emit_one(YAML::Emitter& out, sstring m_name, std::optional<double> v) {
+        if (v) {
+            out << YAML::Key << m_name << YAML::Value << *v;
+        }
     }
 
     void emit_one_metrics(YAML::Emitter& out, sstring m_name, bool check_class_metrics = true) {
-        if (auto v = get_one_metrics(m_name, check_class_metrics); v.has_value()) {
-            out << YAML::Key << m_name << YAML::Value << *v;
-        }
+        emit_one(out, m_name, get_one_metrics(m_name, check_class_metrics ? "class" : "", name()));
+    }
+
+    void emit_one_metrics(YAML::Emitter& out, sstring m_name, sstring label, sstring label_value) {
+        emit_one(out, m_name, get_one_metrics(m_name, label, label_value));
     }
 
     void emit_metrics(YAML::Emitter& out) {
@@ -692,6 +719,7 @@ private:
         emit_one_metrics(out, "io_queue_adjusted_consumption");
         emit_one_metrics(out, "io_queue_activations");
         emit_one_metrics(out, "reactor_aio_outsizes", false);
+        emit_one_metrics(out, "reactor_io_threaded_fallbacks", "reason", "aio_fallback");
     }
 
 public:
