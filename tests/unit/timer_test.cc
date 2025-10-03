@@ -33,10 +33,6 @@
 using namespace seastar;
 using namespace std::chrono_literals;
 
-#define OK() do { \
-        std::cerr << "OK @ " << __FILE__ << ":" << __LINE__ << std::endl; \
-    } while (0)
-
 template <typename Clock>
 void test_timer_basic() {
     timer<Clock> t1;
@@ -47,16 +43,15 @@ void test_timer_basic() {
     promise<> pr1;
 
     t1.set_callback([&] {
-        OK();
         fmt::print(" 500ms timer expired\n");
         BOOST_REQUIRE(t4.cancel());
         BOOST_REQUIRE(t5.cancel());
         t5.arm(1100ms);
     });
-    t2.set_callback([] { OK(); fmt::print(" 900ms timer expired\n"); });
-    t3.set_callback([] { OK(); fmt::print("1000ms timer expired\n"); });
+    t2.set_callback([] { fmt::print(" 900ms timer expired\n"); });
+    t3.set_callback([] { fmt::print("1000ms timer expired\n"); });
     t4.set_callback([] { BOOST_FAIL("cancelled timer expired\n"); });
-    t5.set_callback([&pr1] { OK(); fmt::print("1600ms rearmed timer expired\n"); pr1.set_value(); });
+    t5.set_callback([&pr1] { fmt::print("1600ms rearmed timer expired\n"); pr1.set_value(); });
 
     t1.arm(500ms);
     t2.arm(900ms);
@@ -87,7 +82,7 @@ void test_timer_cancelling() {
     t1.arm(100ms);
     t1.cancel();
 
-    t1.set_callback([&pr2] { OK(); pr2.set_value(); });
+    t1.set_callback([&pr2] { pr2.set_value(); });
     t1.arm(100ms);
 
     pr2.get_future().get();
@@ -121,7 +116,6 @@ void test_timer_with_scheduling_groups() {
         t2.arm(10ms);
         sleep(500ms).get();
         BOOST_REQUIRE_EQUAL(expirations, 2);
-        OK();
     }).get();
     destroy_scheduling_group(sg1).get();
     destroy_scheduling_group(sg2).get();
