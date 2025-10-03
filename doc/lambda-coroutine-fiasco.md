@@ -62,7 +62,35 @@ ready. However, the coroutine can access the lambda captures
 stored in this memory area after the future is returned and before
 it becomes ready. This is a use-after-free.
 
-## Solution
+## Solution (C++23 and up)
+
+With "deducing this", the value category of the implicit object
+parameter to the lambda, which contains the captures, can be changed.
+
+A lambda of the form
+
+```cpp
+[captures...] (this auto, arguments...)
+```
+
+Is transformed to a function call operator of the form
+
+```cpp
+seastar::future<> lambda::operator()(this auto, arguments...);
+```
+
+Which in turn is equivalent to the free function
+
+```cpp
+seastar::future<> lambda_call_operator(lambda, arguments...);
+```
+
+Since the function accepts the lambda struct containing the
+capture groups by value, the capture groups are moved to the
+coroutine frame and are not tied to the lifetime of the expression
+that created the lambda.
+
+## Solution (pre C++23)
 
 The solution is to avoid copying or moving the lambda into
 the memory area managed by `seastar::future::then()`. Instead,
@@ -83,7 +111,7 @@ only difference is that it works with temporaries); it can be safely moved to
 the memory area managed by `seastar::future::then()` since it's only used
 to call the real lambda, and then is safe to discard.
 
-## Alternative solution when lifetime extension cannot be used.
+## Alternative solution (pre C++23) when lifetime extension cannot be used.
 
 If the lambda coroutine is not co_await'ed immediately, we cannot rely on
 lifetime extension and so we must name the coroutine and use `std::ref()` to

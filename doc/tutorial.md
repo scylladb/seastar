@@ -381,7 +381,47 @@ In #4, we call a function that returns a `seastar::future<>`. In this case, the 
 
 Line #5 demonstrates returning a value. The integer value is used to satisfy the `future<int>` that our caller got when calling the coroutine.
 
-## Lambda coroutines
+## Lambda coroutines (C++ 23 and later)
+
+In C++ 23 and later, lambda coroutines can be safely used from all contexts.
+
+If the lambda coroutine is awaited from an outer coroutine, nothing special needs to be done:
+
+```cpp
+future<>
+outer_coroutine() {
+    co_await [captures...] () {
+        co_await ...;
+        co_return;
+    }();
+}
+```
+
+This works even if the lambda is called indirectly, as long as it is captured by value and
+awaited in the same statement it is defined in, as C++ will extend the lifetime of the capture
+group until the semicolon.
+
+In other cases (lambdas called asynchronously to the caller, or passed to continuations, add
+`this auto` as the first parameter to convert the signature of the generated `operator()()`
+to accept the lambda by value. This copies the capture group to the lambda coroutine frame when
+it is called.
+
+```cpp
+future<>
+outer_coroutine() {
+    asynchronous_function([captures...] (this auto) {
+        co_await ...;
+        co_return;
+    });
+    // The lambda coroutine can be called after outer_coroutine() returns
+    co_return;
+}
+```
+
+Using `this auto` can add some small overhead to move objects, but is generally safer
+when it's not clear the lambda is awaited synchronously.
+
+## Lambda coroutines (before C++ 23)
 
 A lambda function can be a coroutine. Due to an interaction between how C++ lambda coroutines are specified and how
 Seastar coroutines work, using lambda coroutines as continuations can result in use-after-free. To avoid such problems,
