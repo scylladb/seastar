@@ -454,7 +454,7 @@ seastar_add_test (scheduling_group_nesting
 seastar_add_app_test (thread_context_switch
   SOURCES thread_context_switch_test.cc)
 
-seastar_add_app_test (timer
+seastar_add_test (timer
   SOURCES timer_test.cc)
 
 seastar_add_test (uname

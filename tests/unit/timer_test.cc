@@ -19,7 +19,9 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#include <seastar/core/app-template.hh>
+#include <seastar/testing/test_case.hh>
+#include <seastar/testing/thread_test_case.hh>
+
 #include <seastar/core/timer.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/print.hh>
@@ -31,111 +33,98 @@
 using namespace seastar;
 using namespace std::chrono_literals;
 
-#define BUG() do { \
-        std::cerr << "ERROR @ " << __FILE__ << ":" << __LINE__ << std::endl; \
-        throw std::runtime_error("test failed"); \
-    } while (0)
-
-#define OK() do { \
-        std::cerr << "OK @ " << __FILE__ << ":" << __LINE__ << std::endl; \
-    } while (0)
-
 template <typename Clock>
-struct timer_test {
+void test_timer_basic() {
     timer<Clock> t1;
     timer<Clock> t2;
     timer<Clock> t3;
     timer<Clock> t4;
     timer<Clock> t5;
     promise<> pr1;
+
+    t1.set_callback([&] {
+        fmt::print(" 500ms timer expired\n");
+        BOOST_REQUIRE(t4.cancel());
+        BOOST_REQUIRE(t5.cancel());
+        t5.arm(1100ms);
+    });
+    t2.set_callback([] { fmt::print(" 900ms timer expired\n"); });
+    t3.set_callback([] { fmt::print("1000ms timer expired\n"); });
+    t4.set_callback([] { BOOST_FAIL("cancelled timer expired\n"); });
+    t5.set_callback([&pr1] { fmt::print("1600ms rearmed timer expired\n"); pr1.set_value(); });
+
+    t1.arm(500ms);
+    t2.arm(900ms);
+    t3.arm(1000ms);
+    t4.arm(700ms);
+    t5.arm(800ms);
+
+    pr1.get_future().get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_timer_basic_steady) {
+    test_timer_basic<steady_clock_type>();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_timer_basic_lowres) {
+    test_timer_basic<lowres_clock>();
+}
+
+template <typename Clock>
+void test_timer_cancelling() {
     promise<> pr2;
 
-    future<> run() {
-        t1.set_callback([this] {
-            OK();
-            fmt::print(" 500ms timer expired\n");
-            if (!t4.cancel()) {
-                BUG();
-            }
-            if (!t5.cancel()) {
-                BUG();
-            }
-            t5.arm(1100ms);
-        });
-        t2.set_callback([] { OK(); fmt::print(" 900ms timer expired\n"); });
-        t3.set_callback([] { OK(); fmt::print("1000ms timer expired\n"); });
-        t4.set_callback([] { OK(); fmt::print("  BAD cancelled timer expired\n"); });
-        t5.set_callback([this] { OK(); fmt::print("1600ms rearmed timer expired\n"); pr1.set_value(); });
+    timer<Clock> t1;
+    t1.set_callback([] { BOOST_FAIL("canceled timer expired"); });
+    t1.arm(100ms);
+    t1.cancel();
 
-        t1.arm(500ms);
-        t2.arm(900ms);
-        t3.arm(1000ms);
-        t4.arm(700ms);
-        t5.arm(800ms);
+    t1.arm(100ms);
+    t1.cancel();
 
-        return pr1.get_future().then([this] { return test_timer_cancelling(); }).then([this] {
-            return test_timer_with_scheduling_groups();
-        });
-    }
+    t1.set_callback([&pr2] { pr2.set_value(); });
+    t1.arm(100ms);
 
-    future<> test_timer_cancelling() {
-        timer<Clock>& t1 = *new timer<Clock>();
-        t1.set_callback([] { BUG(); });
-        t1.arm(100ms);
-        t1.cancel();
+    pr2.get_future().get();
+}
 
-        t1.arm(100ms);
-        t1.cancel();
+SEASTAR_THREAD_TEST_CASE(test_timer_cancelling_steady) {
+    test_timer_cancelling<steady_clock_type>();
+}
 
-        t1.set_callback([this] { OK(); pr2.set_value(); });
-        t1.arm(100ms);
-        return pr2.get_future().then([&t1] { delete &t1; });
-    }
+SEASTAR_THREAD_TEST_CASE(test_timer_cancelling_lowres) {
+    test_timer_cancelling<lowres_clock>();
+}
 
-    future<> test_timer_with_scheduling_groups() {
-        return async([] {
-            auto sg1 = create_scheduling_group("sg1", 100).get();
-            auto sg2 = create_scheduling_group("sg2", 100).get();
-            thread_attributes t1attr;
-            t1attr.sched_group = sg1;
-            auto expirations = 0;
-            async(t1attr, [&] {
-                auto make_callback_checking_sg = [&] (scheduling_group sg_to_check) {
-                    return [sg_to_check, &expirations] {
-                        ++expirations;
-                        if (current_scheduling_group() != sg_to_check) {
-                            BUG();
-                        }
-                    };
-                };
-                timer<Clock> t1(make_callback_checking_sg(sg1));
-                t1.arm(10ms);
-                timer<Clock> t2(sg2, make_callback_checking_sg(sg2));
-                t2.arm(10ms);
-                sleep(500ms).get();
-                if (expirations != 2) {
-                    BUG();
-                }
-                OK();
-            }).get();
-            destroy_scheduling_group(sg1).get();
-            destroy_scheduling_group(sg2).get();
-        });
-    }
-};
+template <typename Clock>
+void test_timer_with_scheduling_groups() {
+    auto sg1 = create_scheduling_group("sg1", 100).get();
+    auto sg2 = create_scheduling_group("sg2", 100).get();
+    thread_attributes t1attr;
+    t1attr.sched_group = sg1;
+    auto expirations = 0;
+    async(t1attr, [&] {
+        auto make_callback_checking_sg = [&] (scheduling_group sg_to_check) {
+            return [sg_to_check, &expirations] {
+                ++expirations;
+                BOOST_REQUIRE(current_scheduling_group() == sg_to_check);
+            };
+        };
+        timer<Clock> t1(make_callback_checking_sg(sg1));
+        t1.arm(10ms);
+        timer<Clock> t2(sg2, make_callback_checking_sg(sg2));
+        t2.arm(10ms);
+        sleep(500ms).get();
+        BOOST_REQUIRE_EQUAL(expirations, 2);
+    }).get();
+    destroy_scheduling_group(sg1).get();
+    destroy_scheduling_group(sg2).get();
+}
 
-int main(int ac, char** av) {
-    app_template app;
-    timer_test<steady_clock_type> t1;
-    timer_test<lowres_clock> t2;
-    return app.run_deprecated(ac, av, [&t1, &t2] {
-        fmt::print("=== Start High res clock test\n");
-        return t1.run().then([&t2] {
-            fmt::print("=== Start Low  res clock test\n");
-            return t2.run();
-        }).then([] {
-            fmt::print("Done\n");
-            engine().exit(0);
-        });
-    });
+SEASTAR_THREAD_TEST_CASE(test_timer_with_scheduling_groups_steady) {
+    test_timer_with_scheduling_groups<steady_clock_type>();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_timer_with_scheduling_groups_lowres) {
+    test_timer_with_scheduling_groups<lowres_clock>();
 }
