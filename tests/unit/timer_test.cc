@@ -51,27 +51,27 @@ void test_timer_basic() {
     timer<Clock> t5;
     promise<> pr1;
 
-        t1.set_callback([&] {
-            OK();
-            fmt::print(" 500ms timer expired\n");
-            if (!t4.cancel()) {
-                BUG();
-            }
-            if (!t5.cancel()) {
-                BUG();
-            }
-            t5.arm(1100ms);
-        });
-        t2.set_callback([] { OK(); fmt::print(" 900ms timer expired\n"); });
-        t3.set_callback([] { OK(); fmt::print("1000ms timer expired\n"); });
-        t4.set_callback([] { OK(); fmt::print("  BAD cancelled timer expired\n"); });
-        t5.set_callback([&pr1] { OK(); fmt::print("1600ms rearmed timer expired\n"); pr1.set_value(); });
+    t1.set_callback([&] {
+        OK();
+        fmt::print(" 500ms timer expired\n");
+        if (!t4.cancel()) {
+            BUG();
+        }
+        if (!t5.cancel()) {
+            BUG();
+        }
+        t5.arm(1100ms);
+    });
+    t2.set_callback([] { OK(); fmt::print(" 900ms timer expired\n"); });
+    t3.set_callback([] { OK(); fmt::print("1000ms timer expired\n"); });
+    t4.set_callback([] { OK(); fmt::print("  BAD cancelled timer expired\n"); });
+    t5.set_callback([&pr1] { OK(); fmt::print("1600ms rearmed timer expired\n"); pr1.set_value(); });
 
-        t1.arm(500ms);
-        t2.arm(900ms);
-        t3.arm(1000ms);
-        t4.arm(700ms);
-        t5.arm(800ms);
+    t1.arm(500ms);
+    t2.arm(900ms);
+    t3.arm(1000ms);
+    t4.arm(700ms);
+    t5.arm(800ms);
 
     pr1.get_future().get();
 }
@@ -88,16 +88,16 @@ template <typename Clock>
 void test_timer_cancelling() {
     promise<> pr2;
 
-        timer<Clock> t1;
-        t1.set_callback([] { BUG(); });
-        t1.arm(100ms);
-        t1.cancel();
+    timer<Clock> t1;
+    t1.set_callback([] { BUG(); });
+    t1.arm(100ms);
+    t1.cancel();
 
-        t1.arm(100ms);
-        t1.cancel();
+    t1.arm(100ms);
+    t1.cancel();
 
-        t1.set_callback([&pr2] { OK(); pr2.set_value(); });
-        t1.arm(100ms);
+    t1.set_callback([&pr2] { OK(); pr2.set_value(); });
+    t1.arm(100ms);
 
     pr2.get_future().get();
 }
@@ -112,32 +112,32 @@ SEASTAR_THREAD_TEST_CASE(test_timer_cancelling_lowres) {
 
 template <typename Clock>
 void test_timer_with_scheduling_groups() {
-            auto sg1 = create_scheduling_group("sg1", 100).get();
-            auto sg2 = create_scheduling_group("sg2", 100).get();
-            thread_attributes t1attr;
-            t1attr.sched_group = sg1;
-            auto expirations = 0;
-            async(t1attr, [&] {
-                auto make_callback_checking_sg = [&] (scheduling_group sg_to_check) {
-                    return [sg_to_check, &expirations] {
-                        ++expirations;
-                        if (current_scheduling_group() != sg_to_check) {
-                            BUG();
-                        }
-                    };
-                };
-                timer<Clock> t1(make_callback_checking_sg(sg1));
-                t1.arm(10ms);
-                timer<Clock> t2(sg2, make_callback_checking_sg(sg2));
-                t2.arm(10ms);
-                sleep(500ms).get();
-                if (expirations != 2) {
+    auto sg1 = create_scheduling_group("sg1", 100).get();
+    auto sg2 = create_scheduling_group("sg2", 100).get();
+    thread_attributes t1attr;
+    t1attr.sched_group = sg1;
+    auto expirations = 0;
+    async(t1attr, [&] {
+        auto make_callback_checking_sg = [&] (scheduling_group sg_to_check) {
+            return [sg_to_check, &expirations] {
+                ++expirations;
+                if (current_scheduling_group() != sg_to_check) {
                     BUG();
                 }
-                OK();
-            }).get();
-            destroy_scheduling_group(sg1).get();
-            destroy_scheduling_group(sg2).get();
+            };
+        };
+        timer<Clock> t1(make_callback_checking_sg(sg1));
+        t1.arm(10ms);
+        timer<Clock> t2(sg2, make_callback_checking_sg(sg2));
+        t2.arm(10ms);
+        sleep(500ms).get();
+        if (expirations != 2) {
+            BUG();
+        }
+        OK();
+    }).get();
+    destroy_scheduling_group(sg1).get();
+    destroy_scheduling_group(sg2).get();
 }
 
 SEASTAR_THREAD_TEST_CASE(test_timer_with_scheduling_groups_steady) {
