@@ -33,11 +33,6 @@
 using namespace seastar;
 using namespace std::chrono_literals;
 
-#define BUG() do { \
-        std::cerr << "ERROR @ " << __FILE__ << ":" << __LINE__ << std::endl; \
-        throw std::runtime_error("test failed"); \
-    } while (0)
-
 #define OK() do { \
         std::cerr << "OK @ " << __FILE__ << ":" << __LINE__ << std::endl; \
     } while (0)
@@ -54,12 +49,8 @@ void test_timer_basic() {
     t1.set_callback([&] {
         OK();
         fmt::print(" 500ms timer expired\n");
-        if (!t4.cancel()) {
-            BUG();
-        }
-        if (!t5.cancel()) {
-            BUG();
-        }
+        BOOST_REQUIRE(t4.cancel());
+        BOOST_REQUIRE(t5.cancel());
         t5.arm(1100ms);
     });
     t2.set_callback([] { OK(); fmt::print(" 900ms timer expired\n"); });
@@ -89,7 +80,7 @@ void test_timer_cancelling() {
     promise<> pr2;
 
     timer<Clock> t1;
-    t1.set_callback([] { BUG(); });
+    t1.set_callback([] { BOOST_FAIL("canceled timer expired"); });
     t1.arm(100ms);
     t1.cancel();
 
@@ -121,9 +112,7 @@ void test_timer_with_scheduling_groups() {
         auto make_callback_checking_sg = [&] (scheduling_group sg_to_check) {
             return [sg_to_check, &expirations] {
                 ++expirations;
-                if (current_scheduling_group() != sg_to_check) {
-                    BUG();
-                }
+                BOOST_REQUIRE(current_scheduling_group() == sg_to_check);
             };
         };
         timer<Clock> t1(make_callback_checking_sg(sg1));
@@ -131,9 +120,7 @@ void test_timer_with_scheduling_groups() {
         timer<Clock> t2(sg2, make_callback_checking_sg(sg2));
         t2.arm(10ms);
         sleep(500ms).get();
-        if (expirations != 2) {
-            BUG();
-        }
+        BOOST_REQUIRE_EQUAL(expirations, 2);
         OK();
     }).get();
     destroy_scheduling_group(sg1).get();
