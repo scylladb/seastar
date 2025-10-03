@@ -44,6 +44,9 @@ module seastar;
 #include <seastar/util/assert.hh>
 
 namespace seastar {
+
+extern logger seastar_logger;
+
 namespace internal {
 
 
@@ -146,7 +149,6 @@ bool try_systemwide_memory_barrier() {
     // Some (not all) ARM processors can broadcast TLB invalidations using the
     // TLBI instruction. On those, the mprotect trick won't work.
     static std::once_flag warn_once;
-    extern logger seastar_logger;
     std::call_once(warn_once, [] {
         seastar_logger.warn("membarrier(MEMBARRIER_CMD_PRIVATE_EXPEDITED) is not available, reactor will not sleep when idle. Upgrade to Linux 4.14 or later");
     });
