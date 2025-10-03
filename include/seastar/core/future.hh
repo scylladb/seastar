@@ -1371,7 +1371,7 @@ public:
         {
             memory::scoped_critical_alloc_section _;
             ncf = noncopyable_function<func_type>([func = std::forward<Func>(func)](auto&&... args) mutable {
-                return futurize_invoke(func, std::forward<decltype(args)>(args)...);
+                return futurize_invoke(std::move(func), std::forward<decltype(args)>(args)...);
             });
         }
         return then_impl(std::move(ncf));
