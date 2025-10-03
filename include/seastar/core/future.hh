@@ -1994,14 +1994,14 @@ template<typename T>
 template<typename Func, typename... FuncArgs>
 typename futurize<T>::type futurize<T>::invoke(Func&& func, FuncArgs&&... args) noexcept {
     try {
-        using ret_t = decltype(std::forward<Func>(func)(std::forward<FuncArgs>(args)...));
+        using ret_t = std::invoke_result_t<Func, FuncArgs&&...>;
         if constexpr (std::is_void_v<ret_t>) {
-            std::forward<Func>(func)(std::forward<FuncArgs>(args)...);
+            std::invoke(std::forward<Func>(func), std::forward<FuncArgs>(args)...);
             return make_ready_future<>();
         } else if constexpr (is_future<ret_t>::value) {
-            return std::forward<Func>(func)(std::forward<FuncArgs>(args)...);
+            return std::invoke(std::forward<Func>(func), std::forward<FuncArgs>(args)...);
         } else {
-            return convert(std::forward<Func>(func)(std::forward<FuncArgs>(args)...));
+            return convert(std::invoke(std::forward<Func>(func), std::forward<FuncArgs>(args)...));
         }
     } catch (...) {
         return current_exception_as_future();
