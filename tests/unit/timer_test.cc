@@ -55,7 +55,7 @@ void test_timer_basic() {
     });
     t2.set_callback([] { OK(); fmt::print(" 900ms timer expired\n"); });
     t3.set_callback([] { OK(); fmt::print("1000ms timer expired\n"); });
-    t4.set_callback([] { OK(); fmt::print("  BAD cancelled timer expired\n"); });
+    t4.set_callback([] { BOOST_FAIL("cancelled timer expired\n"); });
     t5.set_callback([&pr1] { OK(); fmt::print("1600ms rearmed timer expired\n"); pr1.set_value(); });
 
     t1.arm(500ms);
