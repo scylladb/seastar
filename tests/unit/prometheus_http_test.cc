@@ -51,20 +51,31 @@ struct test_metrics {
     }
 };
 
-future<> test_prometheus_metrics_body() {
+struct test_case {
+    // iff true, add a global label in prometheus config
+    bool use_global_label;
+};
+
+static const metrics::label_instance global_label{"global", "foo"};
+
+future<> test_prometheus_metrics_body(test_case tc) {
+
     test_metrics metrics;
     metrics.setup_metrics();
 
-    co_await seastar::async([] {
+    co_await seastar::async([tc] {
         loopback_connection_factory lcf(1);
         http_server server("test");
         loopback_socket_impl lsi(lcf);
         httpd::http_server_tester::listeners(server).emplace_back(lcf.get_server_socket());
 
         prometheus::config ctx;
+        if (tc.use_global_label) {
+            ctx.label = global_label;
+        }
         add_prometheus_routes(server, ctx).get();
 
-        future<> client = seastar::async([&lsi] {
+        future<> client = seastar::async([&lsi, tc] {
             connected_socket c_socket = lsi.connect(socket_address(ipv4_addr()), socket_address(ipv4_addr())).get();
             input_stream<char> input(c_socket.input());
             auto close_input = deferred_close(input);
@@ -77,10 +88,19 @@ future<> test_prometheus_metrics_body() {
             auto resp_str = std::string(resp.get(), resp.size());
             BOOST_REQUIRE(std::ranges::search(resp_str, "200 OK"sv));
 
-            BOOST_REQUIRE_MESSAGE(std::ranges::search(resp_str, R"(seastar_aaaa_escaped_label_value_test{shard="0",somekey="special\"\\nvalue"} 10.000000)"sv), "Response: " + resp_str);
-            BOOST_REQUIRE_MESSAGE(std::ranges::search(resp_str, R"(seastar_aaaa_int_test{shard="0"} 10.000000)"sv), "Response: " + resp_str);
-            BOOST_REQUIRE_MESSAGE(std::ranges::search(resp_str, R"(seastar_aaaa_double_test{shard="0"} 1234567654321.000000)"sv), "Response: " + resp_str);
-            BOOST_REQUIRE_MESSAGE(std::ranges::search(resp_str, R"(seastar_aaaa_counter_test{shard="0"} 1234567654321)"sv), "Response: " + resp_str);
+            auto global_label_str = tc.use_global_label ? fmt::format("{}=\"{}\",", global_label.key(), global_label.value()) : std::string{};
+
+            std::string expected0 = R"(seastar_aaaa_escaped_label_value_test{)" + global_label_str + R"(shard="0",somekey="special\"\\nvalue"} 10.000000)";
+            std::string expected1 = R"(seastar_aaaa_int_test{)" + global_label_str + R"(shard="0"} 10.000000)";
+            std::string expected2 = R"(seastar_aaaa_double_test{)" + global_label_str + R"(shard="0"} 1234567654321.000000)";
+            std::string expected3 = R"(seastar_aaaa_counter_test{)" + global_label_str + R"(shard="0"} 1234567654321)";
+
+            auto all_expected = {expected0, expected1, expected2, expected3};
+
+            for (auto& expected : all_expected) {
+                BOOST_REQUIRE_MESSAGE(std::ranges::search(resp_str, expected),
+                    fmt::format("cannot find: {}\nResponse: {}\n", expected, resp_str));
+            }
         });
 
         server.do_accepts(0).get();
@@ -93,5 +113,9 @@ future<> test_prometheus_metrics_body() {
 }
 
 SEASTAR_TEST_CASE(test_prometheus_metrics) {
-    return test_prometheus_metrics_body();
+    return test_prometheus_metrics_body({.use_global_label = false});
+}
+
+SEASTAR_TEST_CASE(test_prometheus_metrics_global_label) {
+    return test_prometheus_metrics_body({.use_global_label = true});
 }
