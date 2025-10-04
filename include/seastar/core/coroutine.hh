@@ -185,7 +185,7 @@ public:
 SEASTAR_MODULE_EXPORT_BEGIN
 
 template<typename T>
-auto operator co_await(future<T> f) noexcept {
+auto operator co_await(future<T>&& f) noexcept {
     return internal::awaiter<true, T>(std::move(f));
 }
 
