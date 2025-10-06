@@ -135,6 +135,8 @@ void at_destroy(Func&& func);
 void at_exit(noncopyable_function<future<> ()> func);
 void set_current_task(task* t);
 
+pollable_fd posix_listen(socket_address sa, listen_options opts = {});
+
 }
 
 class io_queue;
@@ -506,7 +508,10 @@ public:
     future<connected_socket> connect(socket_address sa);
     future<connected_socket> connect(socket_address, socket_address, transport proto = transport::TCP);
 
-    pollable_fd posix_listen(socket_address sa, listen_options opts = {});
+    [[deprecated("Internal reactor function, consider using seastar::listen()")]]
+    pollable_fd posix_listen(socket_address sa, listen_options opts = {}) {
+        return internal::posix_listen(sa, opts);
+    }
 
     // FIXME: reuseport currently leads to heavy load imbalance.
     // Until we fix that, just disable it unconditionally.

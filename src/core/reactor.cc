@@ -1520,8 +1520,9 @@ void reactor::configure(const reactor_options& opts) {
     }
 }
 
-pollable_fd
-reactor::posix_listen(socket_address sa, listen_options opts) {
+namespace internal {
+
+pollable_fd posix_listen(socket_address sa, listen_options opts) {
     auto specific_protocol = (int)(opts.proto);
     if (sa.is_af_unix()) {
         // no type-safe way to create listen_opts with proto=0
@@ -1578,6 +1579,8 @@ reactor::posix_listen(socket_address sa, listen_options opts) {
 
     return pollable_fd(std::move(fd));
 }
+
+} // internel namespace
 
 void pollable_fd_state::maybe_no_more_recv() {
     if (shutdown_mask & posix::rcv_shutdown) {
