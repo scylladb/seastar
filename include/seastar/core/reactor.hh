@@ -136,6 +136,7 @@ void at_exit(noncopyable_function<future<> ()> func);
 void set_current_task(task* t);
 
 pollable_fd posix_listen(socket_address sa, listen_options opts = {});
+future<> posix_connect(pollable_fd pfd, socket_address sa, socket_address local);
 
 }
 
@@ -519,7 +520,10 @@ public:
 
     pollable_fd make_pollable_fd(socket_address sa, int proto);
 
-    future<> posix_connect(pollable_fd pfd, socket_address sa, socket_address local);
+    [[deprecated("Internal reactor function, consider using seastar::connect)")]]
+    future<> posix_connect(pollable_fd pfd, socket_address sa, socket_address local) {
+        return internal::posix_connect(std::move(pfd), sa, local);
+    }
 
     future<> send_all(pollable_fd_state& fd, const void* buffer, size_t size);
 

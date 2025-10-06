@@ -1629,8 +1629,9 @@ reactor::make_pollable_fd(socket_address sa, int proto) {
     return pollable_fd(std::move(fd));
 }
 
-future<>
-reactor::posix_connect(pollable_fd pfd, socket_address sa, socket_address local) {
+namespace internal {
+
+future<> posix_connect(pollable_fd pfd, socket_address sa, socket_address local) {
 #ifdef IP_BIND_ADDRESS_NO_PORT
     if (!sa.is_af_unix()) {
         try {
@@ -1652,6 +1653,8 @@ reactor::posix_connect(pollable_fd pfd, socket_address sa, socket_address local)
     }
     return pfd.connect(sa).finally([pfd] {});
 }
+
+} // internal namespace
 
 server_socket
 reactor::listen(socket_address sa, listen_options opt) {
