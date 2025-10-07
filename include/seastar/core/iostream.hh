@@ -44,6 +44,7 @@
 #include <seastar/util/modules.hh>
 #ifndef SEASTAR_MODULE
 #include <boost/intrusive/slist.hpp>
+#include <ranges>
 #include <algorithm>
 #include <memory>
 #include <optional>
@@ -112,6 +113,12 @@ public:
     virtual temporary_buffer<char> allocate_buffer(size_t size) {
         return temporary_buffer<char>(size);
     }
+#if SEASTAR_API_LEVEL >= 9
+    // The caller assumes that the storage that backs this span can be released
+    // once this method returns, so implementations should move the buffers into
+    // stable storage on their own early, before the returned future resolves.
+    virtual future<> put(std::span<temporary_buffer<char>> data) = 0;
+#else
     virtual future<> put(net::packet data) = 0;
     virtual future<> put(std::vector<temporary_buffer<char>> data) {
         net::packet p;
@@ -124,6 +131,7 @@ public:
     virtual future<> put(temporary_buffer<char> buf) {
         return put(net::packet(net::fragment{buf.get_write(), buf.size()}, buf.release()));
     }
+#endif
     virtual future<> flush() {
         return make_ready_future<>();
     }
@@ -151,6 +159,26 @@ public:
     }
 
 protected:
+#if SEASTAR_API_LEVEL >= 9
+    // A helper function that class that inhrerit from data_sink_impl
+    // can use to create a future chain holding buffers from the span
+    // to sequentially put them with the help of fn function
+    template <typename Fn>
+    requires std::is_invocable_r_v<future<>, Fn, temporary_buffer<char>&&>
+    static future<> fallback_put(std::span<temporary_buffer<char>> bufs, Fn fn) {
+        if (bufs.size() == 1) [[likely]] {
+            return fn(std::move(bufs.front()));
+        }
+
+        auto f = fn(std::move(bufs.front()));
+        for (auto&& buf : bufs.subspan(1)) {
+            f = std::move(f).then([fn, buf = std::move(buf)] () mutable {
+                return fn(std::move(buf));
+            });
+        }
+        return f;
+    }
+#else
     // This is a helper function that classes that inherit from data_sink_impl
     // can use to implement the put overload for net::packet.
     // Unfortunately, we currently cannot define this function as
@@ -163,6 +191,7 @@ protected:
             co_await this->put(std::move(buf));
         }
     }
+#endif
 };
 
 class data_sink {
@@ -175,6 +204,25 @@ public:
     temporary_buffer<char> allocate_buffer(size_t size) {
         return _dsi->allocate_buffer(size);
     }
+#if SEASTAR_API_LEVEL >= 9
+    future<> put(std::span<temporary_buffer<char>> data) noexcept {
+        try {
+            return _dsi->put(data);
+        } catch (...) {
+            return current_exception_as_future();
+        }
+    }
+    future<> put(std::vector<temporary_buffer<char>> data) noexcept {
+        return put(std::span<temporary_buffer<char>>(data));
+    }
+    future<> put(temporary_buffer<char> data) noexcept {
+        return put(std::span<temporary_buffer<char>>(&data, 1));
+    }
+    future<> put(net::packet data) noexcept {
+        std::vector<temporary_buffer<char>> bufs = data.release();
+        return put(std::span<temporary_buffer<char>>(bufs));
+    }
+#else
     future<> put(std::vector<temporary_buffer<char>> data) noexcept {
       try {
         return _dsi->put(std::move(data));
@@ -196,6 +244,7 @@ public:
         return current_exception_as_future();
       }
     }
+#endif
     future<> flush() noexcept {
       try {
         return _dsi->flush();

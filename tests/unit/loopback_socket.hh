@@ -133,9 +133,16 @@ private:
         });
     }
 public:
+#if SEASTAR_API_LEVEL >= 9
+    future<> put(std::span<temporary_buffer<char>> bufs) override {
+        std::vector<temporary_buffer<char>> stable_bufs(std::make_move_iterator(bufs.begin()), std::make_move_iterator(bufs.end()));
+        return put(std::move(stable_bufs));
+    }
+#else
     future<> put(net::packet data) override {
         return put(data.release());
     }
+#endif
     future<> close() override {
         return smp::submit_to(_buffer->get_owner_shard(), [this] {
             return (*_buffer)->push({}).handle_exception_type([] (std::system_error& err) {
