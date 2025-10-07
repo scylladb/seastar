@@ -309,8 +309,8 @@ cooking_ingredient (dpdk
 
 cooking_ingredient (fmt
   EXTERNAL_PROJECT_ARGS
-    URL https://github.com/fmtlib/fmt/archive/9.1.0.tar.gz
-    URL_MD5 21fac48cae8f3b4a5783ae06b443973a
+    URL https://github.com/fmtlib/fmt/archive/11.2.0.tar.gz
+    URL_MD5 2f3701cada629ca455c3388d1089f5bd
   CMAKE_ARGS
     -DFMT_DOC=OFF
     -DFMT_TEST=OFF)
