@@ -145,6 +145,7 @@ future<> output_stream<CharType>::write(temporary_buffer<CharType> p) noexcept {
   }
 }
 
+#if SEASTAR_API_LEVEL < 9
 template<typename CharType>
 future<> output_stream<CharType>::write(net::packet p) noexcept {
     try {
@@ -159,6 +160,7 @@ template<typename CharType>
 future<> output_stream<CharType>::write(scattered_message<CharType> msg) noexcept {
     return write(std::move(msg).release());
 }
+#endif
 
 template <typename CharType>
 future<temporary_buffer<CharType>>

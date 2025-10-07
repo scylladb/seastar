@@ -917,7 +917,8 @@ private:
                 scattered_message<char> msg;
                 this_type::append_item<WithVersion>(msg, std::move(item));
                 msg.append_static(msg_end);
-                return out.write(std::move(msg));
+                std::vector<temporary_buffer<char>> bufs = std::move(msg).release().release();
+                return out.write(std::span<temporary_buffer<char>>(bufs));
             });
         } else {
             _items.clear();
@@ -931,7 +932,8 @@ private:
                     append_item<WithVersion>(msg, std::move(item));
                 }
                 msg.append_static(msg_end);
-                return out.write(std::move(msg));
+                std::vector<temporary_buffer<char>> bufs = std::move(msg).release().release();
+                return out.write(std::span<temporary_buffer<char>>(bufs));
             });
         }
     }
