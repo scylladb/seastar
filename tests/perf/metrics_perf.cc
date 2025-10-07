@@ -24,7 +24,12 @@
 #include <seastar/testing/perf_tests.hh>
 #include <seastar/util/tmp_file.hh>
 
+#include <seastar/core/internal/estimated_histogram.hh>
+
 #include <ranges>
+#include <stdexcept>
+
+namespace sm = seastar::metrics;
 
 namespace {
 
@@ -58,7 +63,6 @@ struct counting_data_sink_impl : public data_sink_impl {
 #else
     virtual future<> put(net::packet data) override {
         abort();
-        return make_ready_future<>();
     }
 
     virtual future<> put(temporary_buffer<char> buf) override {
@@ -92,11 +96,19 @@ public:
 
 namespace seastar::prometheus::details {
 
+using data_type = seastar::metrics::impl::data_type;
+
 struct metrics_perf_fixture {
+
+    static constexpr uint64_t histo_min = 1, histo_max = 1000000;
+    using histo_type = sm::internal::approximate_exponential_histogram<histo_min, histo_max, 1>;
+    const int histo_buckets = histo_type{}.find_bucket_index(-1) + 1;
 
     const filter_t always_true = [](auto& mi){ return true; };
 
-    seastar::future<size_t> run_metrics_bench(size_t group_count, size_t families_per_group, size_t series_per_family) {
+    template <typename COUNTER_TYPE = double>
+    seastar::future<size_t> run_metrics_bench(
+        size_t group_count, size_t families_per_group, size_t series_per_family, data_type type, bool enable_aggregation = false, bool use_protobuf = false) {
         using namespace seastar;
         using namespace seastar::metrics;
 
@@ -113,7 +125,17 @@ struct metrics_perf_fixture {
 
         auto label_template = fmt::runtime("label_value_medium_long_{}");
 
-        label label_0{"some-long-label-name-this-happens-in-real-life"}, label_1{"short"};
+        label label_0{"some-long-label-name-this-happens-in-real-life"};
+        label label_1{"short"};
+        label label_2("fixed-label");
+
+        std::optional<histo_type> histogram;
+        if (type == data_type::HISTOGRAM) {
+            histogram = histo_type{};
+            for (double v = histo_min; v < histo_max; v *= 1.3) {
+                histogram->add(v);
+            }
+        }
 
         for (auto group_id : irange(group_count)) {
             std::vector<metric_definition> defs;
@@ -124,8 +146,29 @@ struct metrics_perf_fixture {
                 for (auto label_id : irange(series_per_family)) {
                     auto label0 = label_0(fmt::format(label_template, label_id));
                     auto label1 = label_1(fmt::format(label_template, label_id));
-                    defs.emplace_back(
-                        make_counter(name, description(name), {label0, label1}, [] { return 0.0; }));
+                    auto label2 = label_2("a fixed value");
+                    auto l = label0;
+
+                    std::vector<label_instance> labels{label0, label1, label2};
+
+                    auto impl = [&] {
+                        if (type == data_type::COUNTER) {
+                            return
+                                make_counter(name, description(desc), labels, [] { return (COUNTER_TYPE)123.4; });
+                        } else if (type == data_type::HISTOGRAM) {
+                            return
+                                make_histogram(name, description(desc), labels,
+                                    [histogram]() { return histogram->to_metrics_histogram(); });
+                        }
+                        throw std::runtime_error("bad type");
+                    }();
+
+                    if (enable_aggregation) {
+                       impl.aggregate({label_0, label_1});
+                    }
+
+                    defs.emplace_back(std::move(impl));
+
                 }
             }
             perf_metrics.add_group(fmt::format("group-{}", group_id), defs);
@@ -140,36 +183,79 @@ struct metrics_perf_fixture {
         perf_tests::start_measuring_time();
         for ([[maybe_unused]] auto _: irange(iterations)) {
             output_stream<char> out{counting_data_sink{}};
-            co_await access{}.write_body(config, false, "", false, true, false, always_true, std::move(out));
+            co_await access{}.write_body(config, use_protobuf, "", false, true,
+                 enable_aggregation, always_true, std::move(out));
         }
         perf_tests::stop_measuring_time();
 
-        co_return series_count * iterations;
+        // if histogram metrics are used there are N buckets per metric, plus 2 for count and sum
+        co_return series_count * iterations * (type == data_type::HISTOGRAM ? histo_buckets + 2 : 1);
     }
-
 };
 
 PERF_TEST_CN(metrics_perf_fixture, test_few_metrics) {
-    // only 1 series added, stresses the fixed costs we pay per
-    // scrape, regardless of how many metrics we actually have
-    co_return co_await run_metrics_bench(1, 1, 1);
+    // only 1 series added, but note there are some seastar metrics
+    // which are registered too, so this gives a very bloated time as
+    co_return co_await run_metrics_bench(1, 1, 1, data_type::COUNTER);
 }
 
 PERF_TEST_CN(metrics_perf_fixture, test_large_families) {
     // relatively few families, but many series in each, stresses
     // "per series" work
-    co_return co_await run_metrics_bench(1, 1, 10000);
+    co_return co_await run_metrics_bench(1, 1, 10000, data_type::COUNTER);
 }
 
-PERF_TEST_CN(metrics_perf_fixture, test_many_families) {
+PERF_TEST_CN(metrics_perf_fixture, test_large_families_int) {
+    // relatively few families, but many series in each, stresses
+    // "per series" work
+    co_return co_await run_metrics_bench<size_t>(1, 1, 10000, data_type::COUNTER);
+}
+
+PERF_TEST_CN(metrics_perf_fixture, test_large_families_int_aggr) {
+    // relatively few families, but many series in each, stresses
+    // "per series" work
+    co_return co_await run_metrics_bench<size_t>(1, 1, 10000, data_type::COUNTER, true);
+}
+
+PERF_TEST_CN(metrics_perf_fixture, test_many_families_int) {
     // many families, each with only 1 series, stresses "per family"
     // work
-    co_return co_await run_metrics_bench(1, 10000, 1);
+    co_return co_await run_metrics_bench<size_t>(1, 10000, 1, data_type::COUNTER);
+}
+
+PERF_TEST_CN(metrics_perf_fixture, test_many_families_int_aggr) {
+    // many families, each with only 1 series, stresses "per family"
+    // work
+    co_return co_await run_metrics_bench<size_t>(1, 10000, 1, data_type::COUNTER, true);
 }
 
 PERF_TEST_CN(metrics_perf_fixture, test_middle_ground) {
     // the goldilocks version
-    co_return co_await run_metrics_bench(1, 1000, 10);
+    co_return co_await run_metrics_bench(1, 1000, 10, data_type::COUNTER);
+}
+
+PERF_TEST_CN(metrics_perf_fixture, test_middle_ground_int) {
+    // the goldilocks version
+    co_return co_await run_metrics_bench<size_t>(1, 1000, 10, data_type::COUNTER);
+}
+
+PERF_TEST_CN(metrics_perf_fixture, test_middle_ground_protobuf) {
+    // the goldilocks version, protobuf output
+    // note that protobuf perf is the same with int or float, so we don't both
+    // with the int variants
+    co_return co_await run_metrics_bench(1, 1000, 10, data_type::COUNTER, false, true);
+}
+
+PERF_TEST_CN(metrics_perf_fixture, test_histogram) {
+    co_return co_await run_metrics_bench(1, 100, 10, data_type::HISTOGRAM);
+}
+
+PERF_TEST_CN(metrics_perf_fixture, test_histogram_protobuf) {
+    co_return co_await run_metrics_bench(1, 100, 10, data_type::HISTOGRAM, false, true);
+}
+
+PERF_TEST_CN(metrics_perf_fixture, test_histogram_aggr) {
+    co_return co_await run_metrics_bench(1, 100, 10, data_type::HISTOGRAM, true);
 }
 
 }
