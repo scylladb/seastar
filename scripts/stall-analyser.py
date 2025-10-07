@@ -62,6 +62,13 @@ def get_command_line_parser():
 class Node:
     def __init__(self, addr: str):
         self.addr = addr
+        x = addr.find('+')
+        if x >= 0:
+            self.addr_only = addr[x + 1:]
+            self.module = addr[:x]
+        else:
+            self.addr_only = addr
+            self.module = None
         self.callers = {}
         self.callees = {}
         self.printed = False
@@ -232,7 +239,7 @@ Use --direction={'bottom-up' if top_down else 'top-down'} to print {'callees' if
                 l = f"{prefix}{p}{l} addr={n.addr}{stats}"
                 p = "| "
                 if self.resolver:
-                    lines = self.resolver.resolve_address(n.addr).splitlines()
+                    lines = self.resolver.resolve_address(n.addr_only, module=n.module).splitlines()
                     if len(lines) == 1:
                         li = lines[0]
                         if li.startswith("??"):
