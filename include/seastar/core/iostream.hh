@@ -512,10 +512,13 @@ public:
     /// Writes the given string into the buffer
     future<> write(const std::basic_string<char_type>& s) noexcept;
 
+#if SEASTAR_API_LEVEL < 9
     /// Appends the packet as zero-copy buffer
     future<> write(net::packet p) noexcept;
     /// Appends the scattered message as zero-copy buffer
     future<> write(scattered_message<char_type> msg) noexcept;
+#endif
+
     /// Appends the temporary buffer as zero-copy buffer
     future<> write(temporary_buffer<char_type>) noexcept;
     /// Appends a bunch of buffers as zero-copy
