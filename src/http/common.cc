@@ -124,6 +124,10 @@ public:
     }
     using data_sink_impl::put;
     virtual future<> put(temporary_buffer<char> buf) override {
+        return do_put(std::move(buf));
+    }
+private:
+    future<> do_put(temporary_buffer<char> buf) {
         if (buf.size() == 0) {
             // size 0 buffer should be ignored, some server
             // may consider it an end of message

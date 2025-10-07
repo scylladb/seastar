@@ -122,14 +122,19 @@ public:
             , _batch_flush_error(std::move(flush_error))
     {
     }
-    future<> put(net::packet data) override {
-        return do_with(data.release(), [this] (std::vector<temporary_buffer<char>>& bufs) {
+private:
+    future<> put(std::vector<temporary_buffer<char>> bufs) {
+        return do_with(std::move(bufs), [this] (std::vector<temporary_buffer<char>>& bufs) {
             return do_for_each(bufs, [this] (temporary_buffer<char>& buf) {
                 return smp::submit_to(_buffer->get_owner_shard(), [this, b = buf.get(), s = buf.size()] {
                     return (*_buffer)->push(temporary_buffer<char>(b, s));
                 });
             });
         });
+    }
+public:
+    future<> put(net::packet data) override {
+        return put(data.release());
     }
     future<> close() override {
         return smp::submit_to(_buffer->get_owner_shard(), [this] {
