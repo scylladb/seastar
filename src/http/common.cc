@@ -26,6 +26,7 @@ module;
 #include <cstdlib>
 #include <memory>
 #include <utility>
+#include <numeric>
 
 #ifdef SEASTAR_MODULE
 module seastar;
@@ -119,6 +120,13 @@ class http_chunked_data_sink_impl : public data_sink_impl {
 public:
     http_chunked_data_sink_impl(output_stream<char>& out) : _out(out) {
     }
+#if SEASTAR_API_LEVEL >= 9
+    future<> put(std::span<temporary_buffer<char>> data) override {
+        return data_sink_impl::fallback_put(data, [this] (temporary_buffer<char>&& buf) {
+            return do_put(std::move(buf));
+        });
+    }
+#else
     virtual future<> put(net::packet data) override {
         return data_sink_impl::fallback_put(std::move(data));
     }
@@ -126,6 +134,7 @@ public:
     virtual future<> put(temporary_buffer<char> buf) override {
         return do_put(std::move(buf));
     }
+#endif
 private:
     future<> do_put(temporary_buffer<char> buf) {
         if (buf.size() == 0) {
@@ -172,6 +181,20 @@ public:
         // at the very beginning, 0 bytes were written
         _bytes_written = 0;
     }
+#if SEASTAR_API_LEVEL >= 9
+    future<> put(std::span<temporary_buffer<char>> data) override {
+        size_t size = std::accumulate(data.begin(), data.end(), size_t(0), [] (size_t s, const auto& b) { return s + b.size(); });
+        if (size == 0) {
+            return make_ready_future<>();
+        }
+        if (_bytes_written + size > _limit) {
+            return make_exception_future<>(std::runtime_error(format("body content length overflow: want {} limit {}", _bytes_written + size, _limit)));
+        }
+        return _out.write(data).then([this, size] {
+            _bytes_written += size;
+        });
+    }
+#else
     virtual future<> put(net::packet data) override {
         auto size = data.len();
         if (size == 0) {
@@ -199,6 +222,7 @@ public:
             _bytes_written += size;
         });
     }
+#endif
     virtual future<> close() override {
         return make_ready_future<>();
     }

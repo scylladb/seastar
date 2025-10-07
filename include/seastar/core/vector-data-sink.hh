@@ -37,10 +37,18 @@ private:
 public:
     vector_data_sink(vector_type& v) : _v(v) {}
 
+#if SEASTAR_API_LEVEL >= 9
+    future<> put(std::span<temporary_buffer<char>> bufs) override {
+        net::packet p = net::packet(bufs);
+        _v.push_back(std::move(p));
+        return make_ready_future<>();
+    }
+#else
     virtual future<> put(net::packet p) override {
         _v.push_back(std::move(p));
         return make_ready_future<>();
     }
+#endif
 
     virtual future<> close() override {
         // TODO: close on local side

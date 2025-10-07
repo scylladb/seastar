@@ -379,11 +379,19 @@ public:
     virtual temporary_buffer<char> allocate_buffer(size_t size) override {
         return temporary_buffer<char>::aligned(_file.memory_dma_alignment(), size);
     }
+#if SEASTAR_API_LEVEL >= 9
+    future<> put(std::span<temporary_buffer<char>> bufs) override {
+        return data_sink_impl::fallback_put(bufs, [this] (temporary_buffer<char>&& buf) {
+            return do_put(std::move(buf));
+        });
+    }
+#else
     using data_sink_impl::put;
     future<> put(net::packet data) override { abort(); }
     virtual future<> put(temporary_buffer<char> buf) override {
         return do_put(std::move(buf));
     }
+#endif
 private:
     future<> do_put(temporary_buffer<char> buf) {
         uint64_t pos = _pos;

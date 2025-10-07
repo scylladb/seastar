@@ -93,6 +93,13 @@ private:
     }
 
 public:
+#if SEASTAR_API_LEVEL >= 9
+    future<> put(std::span<temporary_buffer<char>> bufs) override {
+        return data_sink_impl::fallback_put(bufs, [this] (temporary_buffer<char>&& buf) {
+            return do_put(std::move(buf));
+        });
+    }
+#else
     using data_sink_impl::put;
     future<> put(temporary_buffer<char> buf) override {
         return do_put(std::move(buf));
@@ -104,6 +111,7 @@ public:
             });
         });
     }
+#endif
     future<> close() override {
         _fd.close();
         return make_ready_future();
