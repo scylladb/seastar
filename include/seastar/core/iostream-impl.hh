@@ -107,9 +107,10 @@ output_stream<CharType>::zero_copy_split_and_put(net::packet p) noexcept {
 }
 
 template<typename CharType>
-future<> output_stream<CharType>::write(net::packet p) noexcept {
+future<> output_stream<CharType>::write(std::span<temporary_buffer<CharType>> bufs) noexcept {
     static_assert(std::is_same_v<CharType, char>, "packet works on char");
   try {
+    net::packet p(bufs);
     if (p.len() != 0) {
         if (_end) {
             _buf.trim(_end);
@@ -141,10 +142,20 @@ future<> output_stream<CharType>::write(net::packet p) noexcept {
 template<typename CharType>
 future<> output_stream<CharType>::write(temporary_buffer<CharType> p) noexcept {
   try {
-    return write(net::packet(std::move(p)));
+    return write(std::span<temporary_buffer<CharType>>(&p, 1));
   } catch (...) {
     return current_exception_as_future();
   }
+}
+
+template<typename CharType>
+future<> output_stream<CharType>::write(net::packet p) noexcept {
+    try {
+        std::vector<temporary_buffer<CharType>> bufs = std::move(p).release();
+        return write(std::span<temporary_buffer<CharType>>(bufs));
+    } catch (...) {
+        return current_exception_as_future();
+    }
 }
 
 template<typename CharType>
