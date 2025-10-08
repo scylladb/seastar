@@ -100,7 +100,6 @@ int main(int ac, char** av) {
                 prometheus::config pctx;
                 net::inet_address prom_addr(config["prometheus_address"].as<sstring>());
 
-                pctx.metric_help = "seastar::httpd server statistics";
                 pctx.prefix = config["prometheus_prefix"].as<sstring>();
 
                 std::cout << "starting prometheus API server" << std::endl;
