@@ -658,8 +658,6 @@ public:
     /// \returns Returns the `smp` instance which owns this reactor.
     const seastar::smp& smp() const noexcept;
 
-    void try_sleep();
-
     steady_clock_type::duration total_idle_time();
     steady_clock_type::duration total_busy_time();
     steady_clock_type::duration total_awake_time() const;

@@ -3396,15 +3396,6 @@ reactor::wait_and_process_events() {
     _backend->wait_and_process_events(&_active_sigmask);
 }
 
-void
-reactor::try_sleep() {
-    if (!pollers_enter_interrupt_mode()) {
-        return;
-    }
-    wait_and_process_events();
-    pollers_exit_interrupt_mode();
-}
-
 bool
 reactor::poll_once() {
     bool work = false;
