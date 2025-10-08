@@ -472,6 +472,8 @@ public:
     future<> write(scattered_message<char_type> msg) noexcept;
     /// Appends the temporary buffer as zero-copy buffer
     future<> write(temporary_buffer<char_type>) noexcept;
+    /// Appends a bunch of buffers as zero-copy
+    future<> write(std::span<temporary_buffer<char_type>>) noexcept;
 
     future<> flush() noexcept;
 
