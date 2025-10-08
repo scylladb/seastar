@@ -39,3 +39,12 @@ namespace seastar {
         }
     }
 }
+
+// Helpers for ignoring deprecation warnings in code that has to deal with
+// deprecated APIs, e.g., constructors/etc for structs with deprecated fields.
+#define SEASTAR_INTERNAL_BEGIN_IGNORE_DEPRECATIONS \
+    _Pragma("GCC diagnostic push") \
+    _Pragma("GCC diagnostic ignored \"-Wdeprecated-declarations\"")
+
+#define SEASTAR_INTERNAL_END_IGNORE_DEPRECATIONS \
+    _Pragma("GCC diagnostic pop")
