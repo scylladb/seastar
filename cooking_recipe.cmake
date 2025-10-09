@@ -185,8 +185,8 @@ cooking_ingredient (GnuTLS
     gmp
     nettle
   EXTERNAL_PROJECT_ARGS
-    URL https://www.gnupg.org/ftp/gcrypt/gnutls/v3.5/gnutls-3.5.18.tar.xz
-    URL_MD5 c2d93d305ecbc55939bc2a8ed4a76a3d
+    URL https://www.gnupg.org/ftp/gcrypt/gnutls/v3.7/gnutls-3.7.11.tar.xz
+    URL_MD5 dd8c16b17f1d37fca203e756e981a957
     CONFIGURE_COMMAND
      ${CMAKE_COMMAND} -E env ${PKG_CONFIG_PATH}
       <SOURCE_DIR>/configure
