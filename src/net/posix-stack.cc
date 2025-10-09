@@ -429,7 +429,7 @@ class posix_socket_impl final : public socket_impl {
             _fd.get_file_desc().setsockopt(SOL_SOCKET, SO_REUSEADDR, int(_reuseaddr));
             uint16_t port = attempts++ < 5 && requested_port == 0 && proto == transport::TCP ? u(random_engine) * smp::count + this_shard_id() : requested_port;
             local.as_posix_sockaddr_in().sin_port = hton(port);
-            return futurize_invoke([this, sa, local] { return engine().posix_connect(_fd, sa, local); }).then_wrapped([port, requested_port] (future<> f) {
+            return futurize_invoke([this, sa, local] { return internal::posix_connect(_fd, sa, local); }).then_wrapped([port, requested_port] (future<> f) {
                 try {
                     f.get();
                     return stop_iteration::yes;
@@ -451,7 +451,7 @@ class posix_socket_impl final : public socket_impl {
         }
 
         _fd = engine().make_pollable_fd(sa, 0);
-        return engine().posix_connect(_fd, sa, local).then(
+        return internal::posix_connect(_fd, sa, local).then(
             [fd = _fd, allocator = _allocator](){
                 // a problem with 'private' interaction with 'unique_ptr'
                 std::unique_ptr<connected_socket_impl> csi(new posix_connected_socket_impl{AF_UNIX, 0, std::move(fd), allocator});
@@ -705,13 +705,13 @@ posix_network_stack::listen(socket_address sa, listen_options opt) {
         sa = inet_address(inet_address::family::INET);
     }
     if (sa.is_af_unix()) {
-        return server_socket(std::make_unique<posix_server_socket_impl>(0, sa, engine().posix_listen(sa, opt), opt.lba, opt.fixed_cpu, _allocator));
+        return server_socket(std::make_unique<posix_server_socket_impl>(0, sa, internal::posix_listen(sa, opt), opt.lba, opt.fixed_cpu, _allocator));
     }
     auto protocol = static_cast<int>(opt.proto);
     return _reuseport ?
-        server_socket(std::make_unique<posix_reuseport_server_socket_impl>(protocol, sa, engine().posix_listen(sa, opt), _allocator))
+        server_socket(std::make_unique<posix_reuseport_server_socket_impl>(protocol, sa, internal::posix_listen(sa, opt), _allocator))
         :
-        server_socket(std::make_unique<posix_server_socket_impl>(protocol, sa, engine().posix_listen(sa, opt), opt.lba, opt.fixed_cpu, _allocator));
+        server_socket(std::make_unique<posix_server_socket_impl>(protocol, sa, internal::posix_listen(sa, opt), opt.lba, opt.fixed_cpu, _allocator));
 }
 
 ::seastar::socket posix_network_stack::socket() {
@@ -734,7 +734,7 @@ posix_ap_network_stack::listen(socket_address sa, listen_options opt) {
     }
     auto protocol = static_cast<int>(opt.proto);
     return _reuseport ?
-        server_socket(std::make_unique<posix_reuseport_server_socket_impl>(protocol, sa, engine().posix_listen(sa, opt), _allocator))
+        server_socket(std::make_unique<posix_reuseport_server_socket_impl>(protocol, sa, internal::posix_listen(sa, opt), _allocator))
         :
         server_socket(std::make_unique<posix_ap_server_socket_impl>(protocol, sa, _allocator));
 }

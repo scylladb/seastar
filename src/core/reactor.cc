@@ -1520,8 +1520,9 @@ void reactor::configure(const reactor_options& opts) {
     }
 }
 
-pollable_fd
-reactor::posix_listen(socket_address sa, listen_options opts) {
+namespace internal {
+
+pollable_fd posix_listen(socket_address sa, listen_options opts) {
     auto specific_protocol = (int)(opts.proto);
     if (sa.is_af_unix()) {
         // no type-safe way to create listen_opts with proto=0
@@ -1579,6 +1580,8 @@ reactor::posix_listen(socket_address sa, listen_options opts) {
     return pollable_fd(std::move(fd));
 }
 
+} // internel namespace
+
 void pollable_fd_state::maybe_no_more_recv() {
     if (shutdown_mask & posix::rcv_shutdown) {
         throw std::system_error(std::error_code(ECONNABORTED, std::system_category()));
@@ -1626,8 +1629,9 @@ reactor::make_pollable_fd(socket_address sa, int proto) {
     return pollable_fd(std::move(fd));
 }
 
-future<>
-reactor::posix_connect(pollable_fd pfd, socket_address sa, socket_address local) {
+namespace internal {
+
+future<> posix_connect(pollable_fd pfd, socket_address sa, socket_address local) {
 #ifdef IP_BIND_ADDRESS_NO_PORT
     if (!sa.is_af_unix()) {
         try {
@@ -1649,6 +1653,8 @@ reactor::posix_connect(pollable_fd pfd, socket_address sa, socket_address local)
     }
     return pfd.connect(sa).finally([pfd] {});
 }
+
+} // internal namespace
 
 server_socket
 reactor::listen(socket_address sa, listen_options opt) {
