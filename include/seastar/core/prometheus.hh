@@ -24,6 +24,7 @@
 #ifndef SEASTAR_MODULE
 #include <seastar/http/httpd.hh>
 #include <seastar/core/metrics.hh>
+#include <seastar/core/metrics_api.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/modules.hh>
 #include <optional>
@@ -54,6 +55,16 @@ future<> start(httpd::http_server_control& http_server, config ctx);
 future<> add_prometheus_routes(sharded<httpd::http_server>& server, config ctx);
 future<> add_prometheus_routes(httpd::http_server& server, config ctx);
 /// @}
+
+namespace details {
+using filter_t = std::function<bool(const metrics::impl::labels_type&)>;
+
+class test_access {
+    future<> write_body(config cfg, bool use_protobuf_format, sstring metric_family_name, bool prefix, bool show_help, bool enable_aggregation, filter_t filter, output_stream<char>&& s);
+
+    friend struct metrics_perf_fixture;
+};
+}
 SEASTAR_MODULE_EXPORT_END
 }
 }
