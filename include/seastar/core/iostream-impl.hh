@@ -23,6 +23,7 @@
 
 #pragma once
 
+#include <numeric>
 #include <seastar/core/coroutine.hh>
 #include <seastar/core/do_with.hh>
 #include <seastar/core/loop.hh>
@@ -72,34 +73,31 @@ future<> output_stream<CharType>::write(const std::basic_string<CharType>& s) no
 
 template<typename CharType>
 future<>
-output_stream<CharType>::zero_copy_put(net::packet p) noexcept {
+output_stream<CharType>::zero_copy_put(std::vector<temporary_buffer<CharType>> b) noexcept {
     // if flush is scheduled, disable it, so it will not try to write in parallel
     _flush = false;
     if (_flushing) {
         // flush in progress, wait for it to end before continuing
-        return _in_batch.value().get_future().then([this, p = std::move(p)] () mutable {
-            return _fd.put(std::move(p));
+        return _in_batch.value().get_future().then([this, b = std::move(b)] () mutable {
+            return _fd.put(std::move(b));
         });
     } else {
-        return _fd.put(std::move(p));
+        return _fd.put(std::move(b));
     }
 }
 
 // Writes @p in chunks of _size length. The last chunk is buffered if smaller.
 template <typename CharType>
 future<>
-output_stream<CharType>::zero_copy_split_and_put(net::packet p) noexcept {
-    return repeat([this, p = std::move(p)] () mutable {
-        if (p.len() < _size) {
-            if (p.len()) {
-                _zc_bufs = std::move(p);
-            } else {
-                _zc_bufs = net::packet::make_null_packet();
-            }
+output_stream<CharType>::zero_copy_split_and_put(std::vector<temporary_buffer<CharType>> b, size_t len) noexcept {
+    return repeat([this, b = std::move(b), len] () mutable {
+        if (len < _size) {
+            _zc_bufs = std::move(b);
+            _zc_len = len;
             return make_ready_future<stop_iteration>(stop_iteration::yes);
         }
-        auto chunk = p.share(0, _size);
-        p.trim_front(_size);
+        auto chunk = internal::detach_front(b, _size);
+        len -= _size;
         return zero_copy_put(std::move(chunk)).then([] {
             return stop_iteration::no;
         });
@@ -107,27 +105,27 @@ output_stream<CharType>::zero_copy_split_and_put(net::packet p) noexcept {
 }
 
 template<typename CharType>
-future<> output_stream<CharType>::write(net::packet p) noexcept {
+future<> output_stream<CharType>::write(std::span<temporary_buffer<CharType>> bufs) noexcept {
     static_assert(std::is_same_v<CharType, char>, "packet works on char");
   try {
-    if (p.len() != 0) {
+    size_t size = std::accumulate(bufs.begin(), bufs.end(), size_t(0), [] (size_t s, const auto& b) { return s + b.size(); });
+    if (size != 0) {
         if (_end) {
+            SEASTAR_ASSERT(_zc_bufs.empty());
             _buf.trim(_end);
+            _zc_len = _end;
             _end = 0;
-            SEASTAR_ASSERT(!_zc_bufs);
-            _zc_bufs = net::packet(std::move(_buf));
+            _zc_bufs.reserve(bufs.size() + 1);
+            _zc_bufs.emplace_back(std::move(_buf));
         }
 
-        if (_zc_bufs) {
-            _zc_bufs.append(std::move(p));
-        } else {
-            _zc_bufs = std::move(p);
-        }
-
-        if (_zc_bufs.len() >= _size) {
+        _zc_len += size;
+        _zc_bufs.insert(_zc_bufs.end(), std::make_move_iterator(bufs.begin()), std::make_move_iterator(bufs.end()));
+        if (_zc_len >= _size) {
             if (_trim_to_size) {
-                return zero_copy_split_and_put(std::move(_zc_bufs));
+                return zero_copy_split_and_put(std::move(_zc_bufs), std::exchange(_zc_len, 0));
             } else {
+                _zc_len = 0;
                 return zero_copy_put(std::move(_zc_bufs));
             }
         }
@@ -141,16 +139,28 @@ future<> output_stream<CharType>::write(net::packet p) noexcept {
 template<typename CharType>
 future<> output_stream<CharType>::write(temporary_buffer<CharType> p) noexcept {
   try {
-    return write(net::packet(std::move(p)));
+    return write(std::span<temporary_buffer<CharType>>(&p, 1));
   } catch (...) {
     return current_exception_as_future();
   }
+}
+
+#if SEASTAR_API_LEVEL < 9
+template<typename CharType>
+future<> output_stream<CharType>::write(net::packet p) noexcept {
+    try {
+        std::vector<temporary_buffer<CharType>> bufs = std::move(p).release();
+        return write(std::span<temporary_buffer<CharType>>(bufs));
+    } catch (...) {
+        return current_exception_as_future();
+    }
 }
 
 template<typename CharType>
 future<> output_stream<CharType>::write(scattered_message<CharType> msg) noexcept {
     return write(std::move(msg).release());
 }
+#endif
 
 template <typename CharType>
 future<temporary_buffer<CharType>>
@@ -360,7 +370,7 @@ template <typename CharType>
 future<>
 output_stream<CharType>::slow_write(const char_type* buf, size_t n) noexcept {
   try {
-    SEASTAR_ASSERT(!_zc_bufs && "Mixing buffered writes and zero-copy writes not supported yet");
+    SEASTAR_ASSERT(_zc_bufs.empty() && "Mixing buffered writes and zero-copy writes not supported yet");
     auto bulk_threshold = _end ? (2 * _size - _end) : _size;
     if (n >= bulk_threshold) {
         if (_end) {
@@ -422,7 +432,8 @@ future<> output_stream<CharType>::do_flush() noexcept {
         return _fd.put(std::move(_buf)).then([this] {
             return _fd.flush();
         });
-    } else if (_zc_bufs) {
+    } else if (!_zc_bufs.empty()) {
+        _zc_len = 0;
         return _fd.put(std::move(_zc_bufs)).then([this] {
             return _fd.flush();
         });
@@ -515,7 +526,7 @@ output_stream<CharType>::close() noexcept {
 template <typename CharType>
 data_sink
 output_stream<CharType>::detach() && {
-    if (_buf || _zc_bufs) {
+    if (_buf || !_zc_bufs.empty()) {
         throw std::logic_error("detach() called on a used output_stream");
     }
 

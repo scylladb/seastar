@@ -1113,7 +1113,7 @@ dns_resolver::impl::do_sendv(ares_socket_t fd, const iovec * vec, int len) {
                 if (!e.tcp.out) {
                     e.tcp.out = e.tcp.socket.output(0).detach();
                 }
-                f = e.tcp.out->put(std::move(p));
+                f = e.tcp.out->put(p.release());
                 break;
             case type::udp:
                 // always chain UDP sends

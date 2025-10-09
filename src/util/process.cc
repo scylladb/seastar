@@ -78,18 +78,31 @@ public:
     static auto from_fd(file_desc&& fd) {
         return std::make_unique<pipe_data_sink_impl>(std::move(fd));
     }
-    using data_sink_impl::put;
-    future<> put(temporary_buffer<char> buf) override {
+private:
+    future<> do_put(temporary_buffer<char> buf) {
         size_t buf_size = buf.size();
         auto req = internal::io_request::make_write(_fd.get(), 0, buf.get(), buf_size, false);
         return _io_queue.submit_io_write(buf_size, std::move(req), nullptr).then(
             [this, buf = std::move(buf), buf_size] (size_t written) mutable {
                 if (written < buf_size) {
                     buf.trim_front(written);
-                    return put(std::move(buf));
+                    return do_put(std::move(buf));
                 }
                 return make_ready_future();
             });
+    }
+
+public:
+#if SEASTAR_API_LEVEL >= 9
+    future<> put(std::span<temporary_buffer<char>> bufs) override {
+        return data_sink_impl::fallback_put(bufs, [this] (temporary_buffer<char>&& buf) {
+            return do_put(std::move(buf));
+        });
+    }
+#else
+    using data_sink_impl::put;
+    future<> put(temporary_buffer<char> buf) override {
+        return do_put(std::move(buf));
     }
     future<> put(net::packet data) override {
         return do_with(data.release(), [this] (std::vector<temporary_buffer<char>>& bufs) {
@@ -98,6 +111,7 @@ public:
             });
         });
     }
+#endif
     future<> close() override {
         _fd.close();
         return make_ready_future();
