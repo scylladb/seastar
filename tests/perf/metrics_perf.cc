@@ -50,6 +50,7 @@ void remove_existing_metrics() {
 struct counting_data_sink_impl : public data_sink_impl {
     counting_data_sink_impl(size_t buf_size) : buf_size{buf_size} {}
 
+#if SEASTAR_API_LEVEL <= 8
     virtual future<> put(net::packet data) override {
         abort();
         return make_ready_future<>();
@@ -59,6 +60,14 @@ struct counting_data_sink_impl : public data_sink_impl {
         written += buf.size();
         return make_ready_future<>();
     }
+#else
+    virtual future<> put(std::span<temporary_buffer<char>> bufs) override {
+        for (auto& buf : bufs) {
+            written += buf.size();
+        }
+        return make_ready_future<>();
+    }
+#endif
 
     virtual future<> flush() override {
         return make_ready_future<>();
