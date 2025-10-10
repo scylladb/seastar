@@ -793,8 +793,13 @@ public:
 
     void append_backtrace_oneline() noexcept {
         backtrace([this] (frame f) noexcept {
-            reserve(3 + sizeof(f.addr) * 2);
-            append(" 0x");
+            reserve(3 + sizeof(f.addr) * 2 + (f.so->name.empty() ? 0 : f.so->name.size() + 1));
+            append(" ");
+            if (!f.so->name.empty()) {
+                append(f.so->name.c_str(), f.so->name.size());
+                append("+");
+            }
+            append("0x");
             append_hex(f.addr);
         }, _immediate);
     }
