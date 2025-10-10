@@ -41,6 +41,7 @@
 #include <seastar/core/lowres_clock.hh>
 #include <boost/functional/hash.hpp>
 #include <seastar/core/sharded.hh>
+#include <seastar/core/semaphore.hh>
 
 namespace seastar {
 
@@ -249,11 +250,13 @@ struct rcv_buf {
         : size(size), bufs(std::move(bufs)) {};
 };
 
-struct snd_buf {
+struct snd_buf : public boost::intrusive::slist_base_hook<> {
     // Preferred, but not required, chunk size.
     static constexpr size_t chunk_size = 128*1024;
     uint32_t size = 0;
     std::variant<std::vector<temporary_buffer<char>>, temporary_buffer<char>> bufs;
+    // Holds semaphore units to extend backpressure lifetime until snd_buf is destroyed.
+    semaphore_units<> su;
     using iterator = std::vector<temporary_buffer<char>>::iterator;
     snd_buf() {}
     snd_buf(snd_buf&&) noexcept;
@@ -326,8 +329,9 @@ public:
     public:
         virtual ~impl() {};
         virtual future<> operator()(const Out&... args) = 0;
-        virtual future<> close() = 0;
-        virtual future<> flush() = 0;
+        // Failures may be returned as an exceptional future
+        virtual future<> close() noexcept = 0;
+        virtual future<> flush() noexcept = 0;
         friend sink;
     };
 
@@ -339,14 +343,15 @@ public:
     future<> operator()(const Out&... args) {
         return _impl->operator()(args...);
     }
-    future<> close() {
+    // Failures may be returned as an exceptional future
+    future<> close() noexcept {
         return _impl->close();
     }
     // Calling this function makes sure that any data buffered
     // by the stream sink will be flushed to the network.
     // It does not mean the data was received by the corresponding
     // source.
-    future<> flush() {
+    future<> flush() noexcept {
         return _impl->flush();
     }
     connection_id get_id() const;

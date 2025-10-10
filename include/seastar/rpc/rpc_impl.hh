@@ -29,6 +29,7 @@
 #include <seastar/util/is_smart_ptr.hh>
 #include <seastar/core/simple-stream.hh>
 #include <seastar/net/packet-data-source.hh>
+#include <seastar/core/deleter.hh>
 
 #include <boost/type.hpp> // for compatibility
 
@@ -333,12 +334,12 @@ struct unmarshal_one {
     }
     template<typename... T> struct helper<sink<T...>> {
         static sink<T...> doit(connection& c, Input& in) {
-            return sink<T...>(make_shared<sink_impl<Serializer, T...>>(c.get_stream(get_connection_id(in))));
+            return sink<T...>(make_shared<internal::sink_impl<Serializer, T...>>(c.get_stream(get_connection_id(in))));
         }
     };
     template<typename... T> struct helper<source<T...>> {
         static source<T...> doit(connection& c, Input& in) {
-            return source<T...>(make_shared<source_impl<Serializer, T...>>(c.get_stream(get_connection_id(in))));
+            return source<T...>(make_shared<internal::source_impl<Serializer, T...>>(c.get_stream(get_connection_id(in))));
         }
     };
     template <typename... T> struct helper<tuple<T...>> {
@@ -473,7 +474,7 @@ struct rcv_reply_base  {
     template<typename... V>
     void set_value(V&&... v) {
         done = true;
-        p.set_value(internal::untuple(std::forward<V>(v))...);
+        p.set_value(seastar::internal::untuple(std::forward<V>(v))...);
     }
     ~rcv_reply_base() {
         if (!done) {
@@ -822,68 +823,83 @@ std::optional<protocol_base::handler_with_holder> protocol<Serializer, MsgType>:
     return std::nullopt;
 }
 
-template<typename T> T make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<T>> org);
+namespace internal {
+
+snd_buf make_shard_local_buffer_copy(snd_buf* org, std::function<deleter(snd_buf*)> make_deleter);
+
+template<typename Serializer, typename... Out>
+future<> sink_impl<Serializer, Out...>::send_loop() {
+    if (!_send_loop.available()) {
+        return make_ready_future();
+    }
+    return do_until([this] { return _queue.empty(); }, [this] {
+        // Grab the current queue and send it on the remote shard
+        // It can be moved safely across shards as it uses an intrusive list
+        auto batch = std::move(_queue);
+        return smp::submit_to(this->_con->get_owner_shard(), [this, batch = std::move(batch)] () mutable {
+            return do_until([&batch] { return batch.empty(); }, [&] () mutable {
+                auto* data = &batch.front();
+                batch.pop_front();
+                auto local_data = make_shard_local_buffer_copy(data, [this] (snd_buf* org) {
+                    return deleter(new snd_buf_deleter_impl(org, _remote_state));
+                });
+                // Exceptions are allowed from here since destroying local_data will free the original data buffer
+                if (this->_ex) {
+                    return make_ready_future<>();
+                }
+                connection* con = this->_con->get();
+                // Keep first error in _ex, but make sure to drain the whole batch
+                // and destroy all queued buffers
+                if (con->error()) {
+                    this->_ex = std::make_exception_ptr(closed_error());
+                    return make_ready_future<>();
+                }
+                if (con->sink_closed()) {
+                    this->_ex = std::make_exception_ptr(stream_closed());
+                    return make_ready_future<>();
+                }
+
+                return con->send(std::move(local_data), {}, nullptr);
+            }).then_wrapped([this] (future<> f) mutable {
+                if (f.failed()) { // first error is the interesting one
+                    auto ex = f.get_exception();
+                    if (!this->_ex) {
+                        this->_ex = std::move(ex);
+                    }
+                } else {
+                    f.ignore_ready_future();
+                }
+            });
+        });
+    });
+}
 
 template<typename Serializer, typename... Out>
 future<> sink_impl<Serializer, Out...>::operator()(const Out&... args) {
     // note that we use remote serializer pointer, so if serailizer needs a state
     // it should have per-cpu one
-    snd_buf data = marshall(this->_con->get()->template serializer<Serializer>(), 4, args...);
+    auto data = std::make_unique<snd_buf>(marshall(this->_con->get()->template serializer<Serializer>(), 4, args...));
     static_assert(snd_buf::chunk_size >= 4, "send buffer chunk size is too small");
-    auto p = data.front().get_write();
-    write_le<uint32_t>(p, data.size - 4);
+    auto p = data->front().get_write();
+    write_le<uint32_t>(p, data->size - 4);
     // we do not want to dead lock on huge packets, so let them in
     // but only one at a time
-    auto size = std::min(size_t(data.size), max_stream_buffers_memory);
-    const auto seq_num = _next_seq_num++;
-    return get_units(this->_sem, size).then([this, data = make_foreign(std::make_unique<snd_buf>(std::move(data))), seq_num] (semaphore_units<> su) mutable {
+    auto size = std::min(size_t(data->size), max_stream_buffers_memory);
+    return get_units(this->_sem, size).then([this, data = std::move(data)] (semaphore_units<> su) mutable {
         if (this->_ex) {
             return make_exception_future(this->_ex);
         }
-        // It is OK to discard this future. The user is required to
-        // wait for it when closing.
-        (void)smp::submit_to(this->_con->get_owner_shard(), [this, data = std::move(data), seq_num] () mutable {
-            connection* con = this->_con->get();
-            if (con->error()) {
-                return make_exception_future(closed_error());
-            }
-            if(con->sink_closed()) {
-                return make_exception_future(stream_closed());
-            }
-
-            auto& last_seq_num = _remote_state.last_seq_num;
-            auto& out_of_order_bufs = _remote_state.out_of_order_bufs;
-
-            auto local_data = make_shard_local_buffer_copy(std::move(data));
-            const auto seq_num_diff = seq_num - last_seq_num;
-            if (seq_num_diff > 1) {
-                auto [it, _] = out_of_order_bufs.emplace(seq_num, deferred_snd_buf{promise<>{}, std::move(local_data)});
-                return it->second.pr.get_future();
-            }
-
-            last_seq_num = seq_num;
-            auto ret_fut = con->send(std::move(local_data), {}, nullptr);
-            while (!out_of_order_bufs.empty() && out_of_order_bufs.begin()->first == (last_seq_num + 1)) {
-                auto it = out_of_order_bufs.begin();
-                last_seq_num = it->first;
-                auto fut = con->send(std::move(it->second.data), {}, nullptr);
-                fut.forward_to(std::move(it->second.pr));
-                out_of_order_bufs.erase(it);
-            }
-            return ret_fut;
-        }).then_wrapped([su = std::move(su), this] (future<> f) {
-            if (f.failed() && !this->_ex) { // first error is the interesting one
-                this->_ex = f.get_exception();
-            } else {
-                f.ignore_ready_future();
-            }
+        // No exceptions allowed beyond this point since we release the unique_ptr deleter
+        data->su = std::move(su);
+        return std::invoke([this, data = data.release()] () noexcept {
+            _queue.push_back(*data);
+            return send_loop();
         });
-        return make_ready_future<>();
     });
 }
 
 template<typename Serializer, typename... Out>
-future<> sink_impl<Serializer, Out...>::flush() {
+future<> sink_impl<Serializer, Out...>::flush() noexcept {
     // wait until everything is sent out before returning.
     return with_semaphore(this->_sem, max_stream_buffers_memory, [this] {
         if (this->_ex) {
@@ -894,7 +910,7 @@ future<> sink_impl<Serializer, Out...>::flush() {
 }
 
 template<typename Serializer, typename... Out>
-future<> sink_impl<Serializer, Out...>::close() {
+future<> sink_impl<Serializer, Out...>::close() noexcept {
     return with_semaphore(this->_sem, max_stream_buffers_memory, [this] {
         return smp::submit_to(this->_con->get_owner_shard(), [this] {
             connection* con = this->_con->get();
@@ -922,6 +938,8 @@ sink_impl<Serializer, Out...>::~sink_impl() {
     // this is destroyed, leading to use-after-free bugs.
     SEASTAR_ASSERT(this->_con->get()->sink_closed());
 }
+
+rcv_buf make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<rcv_buf>> org);
 
 template<typename Serializer, typename... In>
 future<std::optional<std::tuple<In...>>> source_impl<Serializer, In...>::operator()() {
@@ -968,6 +986,8 @@ future<std::optional<std::tuple<In...>>> source_impl<Serializer, In...>::operato
     });
 }
 
+} // namespace internal
+
 template<typename... Out>
 connection_id sink<Out...>::get_id() const {
     return _impl->_con->get()->get_connection_id();
@@ -981,7 +1001,7 @@ connection_id source<In...>::get_id() const {
 template<typename... In>
 template<typename Serializer, typename... Out>
 sink<Out...> source<In...>::make_sink() {
-    return sink<Out...>(make_shared<sink_impl<Serializer, Out...>>(_impl->_con));
+    return sink<Out...>(make_shared<internal::sink_impl<Serializer, Out...>>(_impl->_con));
 }
 
 }
