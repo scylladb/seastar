@@ -319,19 +319,32 @@ public:
     }
 };
 
+std::chrono::duration<double>
+warmup_period(std::chrono::duration<double> duration) {
+    auto min_warmup = 3s;
+    auto five_percent = duration * 0.05;
+    return std::max(min_warmup, std::chrono::duration_cast<std::chrono::seconds>(five_percent));
+}
+
 class io_worker {
     class requests_rate_meter {
-        std::vector<unsigned>& _rates;
+        std::vector<unsigned> _rates;
+        // Passed in rates might be reused so we locally track in our own vector
+        // (such that we can modify that list) and append later.
+        std::vector<unsigned>& _parent_rates;
         const unsigned& _requests;
         unsigned _prev_requests = 0;
+        std::chrono::duration<double> _duration;
         timer<> _tick;
 
         static constexpr auto period = 1s;
 
     public:
         requests_rate_meter(std::chrono::duration<double> duration, std::vector<unsigned>& rates, const unsigned& requests)
-            : _rates(rates)
+            : _rates()
+            , _parent_rates(rates)
             , _requests(requests)
+            , _duration(duration)
             , _tick([this] {
                 _rates.push_back(_requests - _prev_requests);
                 _prev_requests = _requests;
@@ -349,6 +362,15 @@ class io_worker {
             } else {
                 _rates.push_back(_requests);
             }
+
+            // Drop samples that got measured during the warm up period.
+            // We drop an extra sample. This is because the one second timer
+            // logic is really independent of when we start counting requests in
+            // `issue_request` itself so the first bucket might not be a full
+            // measurement and cause skew otherwise.
+            size_t samples_to_drop = warmup_period(_duration) / period + 1;
+            _rates.erase(_rates.begin(), _rates.begin() + std::min(samples_to_drop, _rates.size()));
+            _parent_rates.insert(_parent_rates.end(), _rates.begin(), _rates.end());
         }
     };
 
@@ -376,7 +398,7 @@ public:
 
     io_worker(size_t buffer_size, std::chrono::duration<double> duration, std::unique_ptr<request_issuer> reqs, std::unique_ptr<position_generator> pos, std::vector<unsigned>& rates)
         : _buffer_size(buffer_size)
-        , _start_measuring(iotune_clock::now() + std::chrono::duration<double>(10ms))
+        , _start_measuring(iotune_clock::now() + std::chrono::duration<double>(warmup_period(duration)))
         , _end_measuring(_start_measuring + duration)
         , _end_load(_end_measuring + 10ms)
         , _last_time_seen(_start_measuring)
