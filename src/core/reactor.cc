@@ -4988,6 +4988,9 @@ reactor::destroy_scheduling_group(scheduling_group sg) noexcept {
     }).then( [this, sg] () {
         get_sg_data(sg).queue_is_initialized = false;
         _task_queues[sg._id].reset();
+        for (auto&& queue : _io_queues) {
+            queue.second->destroy_priority_class(internal::priority_class(sg));
+        }
     });
 
 }

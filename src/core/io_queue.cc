@@ -192,6 +192,11 @@ public:
     priority_class_data(const priority_class_data&) = delete;
     priority_class_data(priority_class_data&&) = delete;
 
+    ~priority_class_data() {
+        SEASTAR_ASSERT(_nr_queued == 0);
+        SEASTAR_ASSERT(_nr_executing == 0);
+    }
+
     void on_queue() noexcept {
         _nr_queued++;
         if (_nr_executing == 0 && _nr_queued == 1) {
@@ -1137,6 +1142,16 @@ io_queue::rename_priority_class(internal::priority_class pc, sstring new_name) {
             // renamed again (this will cause a double registration exception
             // to be thrown).
         }
+    }
+}
+
+void io_queue::destroy_priority_class(internal::priority_class pc) noexcept {
+    if (_priority_classes.size() > pc.id() && _priority_classes[pc.id()]) {
+        auto& pc_ptr = _priority_classes[pc.id()];
+        for (auto&& s : _streams) {
+            s.fq.unregister_priority_class(pc_ptr->fq_class());
+        }
+        pc_ptr.reset();
     }
 }
 
