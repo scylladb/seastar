@@ -376,12 +376,24 @@ public:
             _write_behind_sem.ensure_space_for_waiters(1); // So that wait() doesn't throw
 	}
     }
-    future<> put(net::packet data) override { abort(); }
     virtual temporary_buffer<char> allocate_buffer(size_t size) override {
         return temporary_buffer<char>::aligned(_file.memory_dma_alignment(), size);
     }
+#if SEASTAR_API_LEVEL >= 9
+    future<> put(std::span<temporary_buffer<char>> bufs) override {
+        return data_sink_impl::fallback_put(bufs, [this] (temporary_buffer<char>&& buf) {
+            return do_put(std::move(buf));
+        });
+    }
+#else
     using data_sink_impl::put;
+    future<> put(net::packet data) override { abort(); }
     virtual future<> put(temporary_buffer<char> buf) override {
+        return do_put(std::move(buf));
+    }
+#endif
+private:
+    future<> do_put(temporary_buffer<char> buf) {
         uint64_t pos = _pos;
         _pos += buf.size();
         if (!_options.write_behind) {
@@ -420,7 +432,7 @@ public:
             return make_ready_future<>();
         });
     }
-private:
+
     future<> do_put(uint64_t pos, temporary_buffer<char> buf) noexcept {
       try {
         // put() must usually be of chunks multiple of file::dma_alignment.

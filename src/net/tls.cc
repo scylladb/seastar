@@ -2111,10 +2111,16 @@ private:
     future<> flush() override {
         return _session->flush();
     }
+#if SEASTAR_API_LEVEL >= 9
+    future<> put(std::span<temporary_buffer<char>> bufs) override {
+        return _session->put(net::packet(bufs));
+    }
+#else
     using data_sink_impl::put;
     future<> put(net::packet p) override {
         return _session->put(std::move(p));
     }
+#endif
     future<> close() override {
         _session->close();
         return make_ready_future<>();

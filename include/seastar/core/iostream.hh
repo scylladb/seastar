@@ -44,6 +44,7 @@
 #include <seastar/util/modules.hh>
 #ifndef SEASTAR_MODULE
 #include <boost/intrusive/slist.hpp>
+#include <ranges>
 #include <algorithm>
 #include <memory>
 #include <optional>
@@ -112,6 +113,12 @@ public:
     virtual temporary_buffer<char> allocate_buffer(size_t size) {
         return temporary_buffer<char>(size);
     }
+#if SEASTAR_API_LEVEL >= 9
+    // The caller assumes that the storage that backs this span can be released
+    // once this method returns, so implementations should move the buffers into
+    // stable storage on their own early, before the returned future resolves.
+    virtual future<> put(std::span<temporary_buffer<char>> data) = 0;
+#else
     virtual future<> put(net::packet data) = 0;
     virtual future<> put(std::vector<temporary_buffer<char>> data) {
         net::packet p;
@@ -124,6 +131,7 @@ public:
     virtual future<> put(temporary_buffer<char> buf) {
         return put(net::packet(net::fragment{buf.get_write(), buf.size()}, buf.release()));
     }
+#endif
     virtual future<> flush() {
         return make_ready_future<>();
     }
@@ -151,6 +159,26 @@ public:
     }
 
 protected:
+#if SEASTAR_API_LEVEL >= 9
+    // A helper function that class that inhrerit from data_sink_impl
+    // can use to create a future chain holding buffers from the span
+    // to sequentially put them with the help of fn function
+    template <typename Fn>
+    requires std::is_invocable_r_v<future<>, Fn, temporary_buffer<char>&&>
+    static future<> fallback_put(std::span<temporary_buffer<char>> bufs, Fn fn) {
+        if (bufs.size() == 1) [[likely]] {
+            return fn(std::move(bufs.front()));
+        }
+
+        auto f = fn(std::move(bufs.front()));
+        for (auto&& buf : bufs.subspan(1)) {
+            f = std::move(f).then([fn, buf = std::move(buf)] () mutable {
+                return fn(std::move(buf));
+            });
+        }
+        return f;
+    }
+#else
     // This is a helper function that classes that inherit from data_sink_impl
     // can use to implement the put overload for net::packet.
     // Unfortunately, we currently cannot define this function as
@@ -163,6 +191,7 @@ protected:
             co_await this->put(std::move(buf));
         }
     }
+#endif
 };
 
 class data_sink {
@@ -175,6 +204,21 @@ public:
     temporary_buffer<char> allocate_buffer(size_t size) {
         return _dsi->allocate_buffer(size);
     }
+#if SEASTAR_API_LEVEL >= 9
+    future<> put(std::span<temporary_buffer<char>> data) noexcept {
+        try {
+            return _dsi->put(data);
+        } catch (...) {
+            return current_exception_as_future();
+        }
+    }
+    future<> put(std::vector<temporary_buffer<char>> data) noexcept {
+        return put(std::span<temporary_buffer<char>>(data));
+    }
+    future<> put(temporary_buffer<char> data) noexcept {
+        return put(std::span<temporary_buffer<char>>(&data, 1));
+    }
+#else
     future<> put(std::vector<temporary_buffer<char>> data) noexcept {
       try {
         return _dsi->put(std::move(data));
@@ -196,6 +240,7 @@ public:
         return current_exception_as_future();
       }
     }
+#endif
     future<> flush() noexcept {
       try {
         return _dsi->flush();
@@ -420,9 +465,10 @@ class output_stream final {
     static_assert(sizeof(CharType) == 1, "must buffer stream of bytes");
     data_sink _fd;
     temporary_buffer<CharType> _buf;
-    net::packet _zc_bufs = net::packet::make_null_packet(); //zero copy buffers
+    std::vector<temporary_buffer<CharType>> _zc_bufs; // zero copy buffers
     size_t _size = 0;
     size_t _end = 0;
+    size_t _zc_len = 0;
     bool _trim_to_size = false;
     bool _batch_flushes = false;
     std::optional<promise<>> _in_batch;
@@ -436,8 +482,8 @@ private:
     future<> put(temporary_buffer<CharType> buf) noexcept;
     void poll_flush() noexcept;
     future<> do_flush() noexcept;
-    future<> zero_copy_put(net::packet p) noexcept;
-    future<> zero_copy_split_and_put(net::packet p) noexcept;
+    future<> zero_copy_put(std::vector<temporary_buffer<CharType>> b) noexcept;
+    future<> zero_copy_split_and_put(std::vector<temporary_buffer<CharType>> b, size_t len) noexcept;
     [[gnu::noinline]]
     future<> slow_write(const CharType* buf, size_t n) noexcept;
 public:
@@ -453,7 +499,7 @@ public:
         if (_batch_flushes) {
             SEASTAR_ASSERT(!_in_batch && "Was this stream properly closed?");
         } else {
-            SEASTAR_ASSERT(!_end && !_zc_bufs && "Was this stream properly closed?");
+            SEASTAR_ASSERT(!_end && !_zc_len && "Was this stream properly closed?");
         }
     }
     /// Writes n bytes from the memory pointed by buf into the buffer
@@ -466,12 +512,17 @@ public:
     /// Writes the given string into the buffer
     future<> write(const std::basic_string<char_type>& s) noexcept;
 
+#if SEASTAR_API_LEVEL < 9
     /// Appends the packet as zero-copy buffer
     future<> write(net::packet p) noexcept;
     /// Appends the scattered message as zero-copy buffer
     future<> write(scattered_message<char_type> msg) noexcept;
+#endif
+
     /// Appends the temporary buffer as zero-copy buffer
     future<> write(temporary_buffer<char_type>) noexcept;
+    /// Appends a bunch of buffers as zero-copy
+    future<> write(std::span<temporary_buffer<char_type>>) noexcept;
 
     future<> flush() noexcept;
 
