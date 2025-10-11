@@ -1037,12 +1037,26 @@ xfs_concurrency_from_kernel_version() {
 future<shared_ptr<file_impl>>
 make_file_impl(int fd, file_open_options options, int flags, struct stat st) noexcept {
     if (S_ISBLK(st.st_mode)) {
-        size_t block_size;
-        auto ret = ::ioctl(fd, BLKBSZGET, &block_size);
-        if (ret == -1) {
+        size_t logical_block_size;
+        if (auto ret = ::ioctl(fd, BLKBSZGET, &logical_block_size); ret == -1) {
             return make_exception_future<shared_ptr<file_impl>>(
                     std::system_error(errno, std::system_category(), "ioctl(BLKBSZGET) failed"));
         }
+        size_t physical_block_size;
+        if (auto ret = ::ioctl(fd, BLKPBSZGET, &physical_block_size); ret == -1) {
+            return make_exception_future<shared_ptr<file_impl>>(
+                    std::system_error(errno, std::system_category(), "ioctl(BLKPBSZGET) failed"));
+        }
+        size_t minimum_io_size;
+        if (auto ret = ::ioctl(fd, BLKIOMIN, &minimum_io_size); ret == -1) {
+            return make_exception_future<shared_ptr<file_impl>>(
+                    std::system_error(errno, std::system_category(), "ioctl(BLKIOMIN) failed"));
+        }
+        // use the maximum size of:
+        // - minimum_io_size: preferred minimum I/O size the device can perform without performing read-modify-write
+        // - physical block size: smallest unit a physical storage device can write atomically
+        // - logical block size: smallest unit the the storage device can address (typically 512 bytes)
+        size_t block_size = std::ranges::max({logical_block_size, physical_block_size, minimum_io_size});
         return make_ready_future<shared_ptr<file_impl>>(make_shared<blockdev_file_impl>(fd, open_flags(flags), options, st.st_rdev, block_size));
     }
 
