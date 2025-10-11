@@ -266,7 +266,11 @@ static internal::log_buf::inserter_iterator print_real_timestamp(internal::log_b
     if (this_second.t != t) {
         this_second.t = t;
         this_second.buf.clear();
-        fmt::format_to(this_second.buf.back_insert_begin(), "{:%Y-%m-%d %T}", fmt::localtime(t));
+        std::tm tm_local;
+        if (!localtime_r(&t, &tm_local)) {
+            throw fmt::format_error("time_t value out of range");
+        }
+        fmt::format_to(this_second.buf.back_insert_begin(), "{:%F %T}", tm_local);
     }
     auto ms = (n - clock::from_time_t(t)) / 1ms;
     return fmt::format_to(it, "{},{:03d}", this_second.buf.view(), ms);
