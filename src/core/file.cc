@@ -621,7 +621,11 @@ static bool blockdev_nowait_works(dev_t device_id) {
 
 blockdev_file_impl::blockdev_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id, size_t block_size)
         : posix_file_impl(fd, f, options, device_id, blockdev_nowait_works(device_id)) {
-    // FIXME -- configure file_impl::_..._dma_alignment's from block_size
+    // Configure DMA alignment requirements based on block device block size
+    _memory_dma_alignment = block_size;
+    _disk_read_dma_alignment = block_size;
+    _disk_write_dma_alignment = block_size;
+    _disk_overwrite_dma_alignment = block_size;
 }
 
 future<>
