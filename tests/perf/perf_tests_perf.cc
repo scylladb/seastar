@@ -16,6 +16,7 @@
  * under the License.
  */
 
+#include <random>
 #include <seastar/core/future.hh>
 #include <seastar/coroutine/maybe_yield.hh>
 #include <seastar/util/later.hh>
@@ -58,6 +59,43 @@ PERF_TEST(perf_tests, test_unready_async_n) {
     auto i = loop();
     return yield().then([=] { return i; });
 };
+
+
+PERF_TEST(output_check, high_iters) {
+    return 10000;
+}
+
+PERF_TEST(output_check, no_runtime) {
+}
+
+PERF_TEST(output_check, low_runtime) {
+    loop(100);
+}
+
+PERF_TEST(output_check, high_runtime) {
+    loop(1000000);
+}
+
+PERF_TEST(output_check, high_runtime_allocs) {
+    for (size_t i = 0; i < 100000000; i++) {
+        auto* p = new int(i);
+        perf_tests::do_not_optimize(p);
+        delete p;
+    }   
+}
+
+PERF_TEST(output_check, highly_variable_runtime) {
+    auto rand = [](size_t max) {
+        static thread_local std::default_random_engine gen(std::random_device{}());
+        return std::uniform_int_distribution<>(0, max)(gen);
+    };
+    size_t iters = rand(2) ? rand(10000000) : rand(100);
+    for (size_t i = 0; i < iters; i++) {
+        auto* p = new int(i);
+        perf_tests::do_not_optimize(p);
+        delete p;
+    }   
+}
 
 PERF_TEST_F(fixture, test_fixture_1) { perf_tests::do_not_optimize(sink); }
 
