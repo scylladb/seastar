@@ -1824,6 +1824,16 @@ SEASTAR_TEST_CASE(test_bad_chunk_length) {
     }, {"400 Bad Request", "Can't parse chunk size and extensions"}, true, new echo_stream_handler());
 }
 
+SEASTAR_TEST_CASE(test_close_response) {
+    return check_http_reply({
+        "GET /test HTTP/1.1\r\nHost: test\r\nConnection: close\r\n\r\n"
+    }, {"200 OK", "Connection: close"}, true, new echo_stream_handler()).then([] {
+        return check_http_reply({
+            "/test\r\n\r\n"
+        }, {"400 Bad Request", "Connection: close", "Can't parse the request"}, false, new echo_string_handler());
+    });
+}
+
 SEASTAR_TEST_CASE(case_insensitive_header) {
     std::unique_ptr<seastar::http::request> req = std::make_unique<seastar::http::request>();
     req->_headers["conTEnt-LengtH"] = "17";
