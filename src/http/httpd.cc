@@ -183,11 +183,24 @@ set_request_content(std::unique_ptr<http::request> req, input_stream<char>* cont
     }
 }
 
+static void set_header_connection(http::reply& resp, bool keep_alive) {
+    if (keep_alive) {
+        if (resp._version == "1.0") {
+            resp.add_header("Connection", "Keep-Alive");
+        }
+    } else {
+        if (resp._version == "1.1") {
+            resp.add_header("Connection", "close");
+        }
+    }
+}
+
 void connection::generate_error_reply_and_close(std::unique_ptr<http::request> req, http::reply::status_type status, const sstring& msg) {
     auto resp = std::make_unique<http::reply>();
     // TODO: Handle HTTP/2.0 when it releases
     resp->set_version(req->_version);
     resp->set_status(status, msg);
+    set_header_connection(*resp, false);
     resp->done();
     _done = true;
     _replies.push(std::move(resp));
@@ -336,9 +349,7 @@ future<bool> connection::generate_reply(std::unique_ptr<http::request> req) {
     resp->set_version(req->_version);
     set_headers(*resp);
     bool keep_alive = req->should_keep_alive();
-    if (keep_alive && req->_version == "1.0") {
-        resp->_headers["Connection"] = "Keep-Alive";
-    }
+    set_header_connection(*resp, keep_alive);
 
     sstring url = req->parse_query_param();
     sstring version = req->_version;
