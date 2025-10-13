@@ -222,7 +222,7 @@ static constexpr unsigned bits_for_cpu_id_and_memory = 44; // 3 reserved for mem
 
 static constexpr unsigned cpu_id_shift_initial = bits_for_cpu_id_and_memory - 8;
 static constinit unsigned cpu_id_shift = cpu_id_shift_initial; // Will be adjusted later after we know how many cpus we have
-static constexpr unsigned max_cpus = 256;
+static constexpr unsigned max_cpus = 4096;
 static constinit uintptr_t cpu_id_and_mem_base_mask = ~((uintptr_t(1) << cpu_id_shift_initial) - 1);
 
 using pageidx = uint32_t;
