@@ -118,9 +118,9 @@ module seastar;
 #include <seastar/util/sampler.hh>
 #include <seastar/util/log.hh>
 #include <seastar/core/aligned_buffer.hh>
+#include <seastar/core/align.hh>
 #ifndef SEASTAR_DEFAULT_ALLOCATOR
 #include <seastar/core/bitops.hh>
-#include <seastar/core/align.hh>
 #include <seastar/core/posix.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/util/backtrace.hh>
@@ -1832,6 +1832,14 @@ static long mbind(void *addr,
     );
 }
 
+size_t
+internal::per_shard_memory(size_t mem, unsigned procs) {
+    // limit memory address to fit in 36-bit, see Memory map
+    constexpr size_t max_mem_per_proc = 1UL << 36;
+    auto mem_per_proc = std::min(align_down<size_t>(mem / procs, 2 << 20), max_mem_per_proc);
+    return mem_per_proc;
+}
+
 internal::numa_layout
 configure(std::vector<resource::memory> m, bool mbind,
         bool transparent_hugepages,
@@ -2696,6 +2704,11 @@ void set_additional_diagnostics_producer(noncopyable_function<void(memory_diagno
 sstring generate_memory_diagnostics_report() {
     // Ignore, not supported for default allocator.
     return {};
+}
+
+size_t
+internal::per_shard_memory(size_t total_memory, unsigned nr_shards) {
+    return align_down<size_t>(total_memory / nr_shards, 2 << 20);
 }
 
 }
