@@ -390,7 +390,7 @@ output_stream<CharType>::slow_write(const char_type* buf, size_t n) noexcept {
     _end += now;
     if (now == n) {
         return make_ready_future<>();
-    } else {
+    }
         temporary_buffer<char> next = _fd.allocate_buffer(std::max(n - now, _size));
         std::copy(buf + now, buf + n, next.get_write());
 
@@ -407,7 +407,6 @@ output_stream<CharType>::slow_write(const char_type* buf, size_t n) noexcept {
 
         _end = n - now;
         return put(std::exchange(_buf, std::move(next)));
-    }
   } catch (...) {
     return current_exception_as_future();
   }
