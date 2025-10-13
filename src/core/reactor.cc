@@ -4263,6 +4263,8 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
 
     resource::configuration rc;
 
+    rc.overcommit = reactor_opts.overprovisioned;
+
     smp::_tmain = std::this_thread::get_id();
     resource::cpuset cpu_set = get_current_cpuset();
 
