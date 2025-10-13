@@ -614,6 +614,7 @@ resources allocate(configuration& c) {
 
     size_t mem = calculate_memory(c, std::min(available_memory,
                                               cgroup::memory_limit()));
+    seastar::memory::internal::global_setup(procs);
     auto mem_per_proc = seastar::memory::internal::per_shard_memory(mem, procs);
 
     resources ret;
@@ -755,6 +756,7 @@ resources allocate(configuration& c) {
     auto mem = calculate_memory(c, available_memory);
     auto procs = c.cpus;
     ret.cpus.reserve(procs);
+    seastar::memory::internal::global_setup(procs);
     auto mem_per_proc = seastar::memory::internal::per_shard_memory(mem, procs);
     for (auto cpuid : c.cpu_set) {
         ret.cpus.push_back(cpu{cpuid, {{mem_per_proc, 0}}});
