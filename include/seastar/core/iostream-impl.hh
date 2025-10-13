@@ -369,9 +369,9 @@ output_stream<CharType>::write(const char_type* buf, size_t n) noexcept {
 template <typename CharType>
 future<>
 output_stream<CharType>::slow_write(const char_type* buf, size_t n) noexcept {
-  try {
-    SEASTAR_ASSERT(_zc_bufs.empty() && "Mixing buffered writes and zero-copy writes not supported yet");
-    if (!_end && (n >= _size)) {
+    try {
+        SEASTAR_ASSERT(_zc_bufs.empty() && "Mixing buffered writes and zero-copy writes not supported yet");
+        if (!_end && (n >= _size)) {
             temporary_buffer<char> tmp = _fd.allocate_buffer(n);
             std::copy(buf, buf + n, tmp.get_write());
             if (_trim_to_size) {
@@ -379,18 +379,18 @@ output_stream<CharType>::slow_write(const char_type* buf, size_t n) noexcept {
             } else {
                 return put(std::move(tmp));
             }
-    }
+        }
 
-    if (!_buf) {
-        _buf = _fd.allocate_buffer(_size);
-    }
+        if (!_buf) {
+            _buf = _fd.allocate_buffer(_size);
+        }
 
-    auto now = std::min(n, _size - _end);
-    std::copy(buf, buf + now, _buf.get_write() + _end);
-    _end += now;
-    if (now == n) {
-        return make_ready_future<>();
-    }
+        auto now = std::min(n, _size - _end);
+        std::copy(buf, buf + now, _buf.get_write() + _end);
+        _end += now;
+        if (now == n) {
+            return make_ready_future<>();
+        }
         temporary_buffer<char> next = _fd.allocate_buffer(std::max(n - now, _size));
         std::copy(buf + now, buf + n, next.get_write());
 
@@ -407,9 +407,9 @@ output_stream<CharType>::slow_write(const char_type* buf, size_t n) noexcept {
 
         _end = n - now;
         return put(std::exchange(_buf, std::move(next)));
-  } catch (...) {
-    return current_exception_as_future();
-  }
+    } catch (...) {
+      return current_exception_as_future();
+    }
 }
 
 namespace internal {
