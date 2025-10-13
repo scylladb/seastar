@@ -406,8 +406,7 @@ output_stream<CharType>::slow_write(const char_type* buf, size_t n) noexcept {
         }
 
         _end = n - now;
-        std::swap(next, _buf);
-        return put(std::move(next));
+        return put(std::exchange(_buf, std::move(next)));
     }
   } catch (...) {
     return current_exception_as_future();
