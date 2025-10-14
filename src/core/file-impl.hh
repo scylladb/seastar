@@ -166,6 +166,10 @@ public:
     virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, io_intent* intent) noexcept override;
 };
 
+namespace testing {
+class append_challenged_posix_file_test;
+}
+
 // The Linux XFS implementation is challenged wrt. append: a write that changes
 // eof will be blocked by any other concurrent AIO operation to the same file, whether
 // it changes file size or not. Furthermore, ftruncate() will also block and be blocked
@@ -259,7 +263,15 @@ public:
     future<uint64_t> size() noexcept override;
     virtual future<> allocate(uint64_t position, uint64_t length) noexcept override;
     future<> close() noexcept override;
+
+    friend class testing::append_challenged_posix_file_test;
 };
+
+class file_desc;
+namespace testing {
+shared_ptr<append_challenged_posix_file_impl>
+make_append_challenged_posix_file(file_desc& fd, unsigned concurrency, bool fsync_is_exclusive, std::optional<size_t> sloppy_size);
+}
 
 class blockdev_file_impl final : public posix_file_impl {
 public:

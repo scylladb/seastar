@@ -36,12 +36,14 @@
 #include <seastar/core/stall_sampler.hh>
 #include <seastar/core/aligned_buffer.hh>
 #include <seastar/core/io_intent.hh>
+#include <seastar/core/sleep.hh>
 #include <seastar/util/assert.hh>
 #include <seastar/util/tmp_file.hh>
 #include <seastar/util/alloc_failure_injector.hh>
 #include <seastar/util/closeable.hh>
 #include <seastar/util/internal/magic.hh>
 #include <seastar/util/internal/iovec_utils.hh>
+#include <seastar/util/later.hh>
 
 #include <boost/range/adaptor/transformed.hpp>
 #include <iostream>
@@ -958,5 +960,134 @@ SEASTAR_TEST_CASE(test_file_system_space) {
         BOOST_REQUIRE_LE(si.free, si.capacity);
         BOOST_REQUIRE_LE(si.available, si.capacity);
         BOOST_REQUIRE_LE(si.available, si.free);
+    });
+}
+
+#include "../src/core/file-impl.hh"
+
+namespace seastar::testing {
+class append_challenged_posix_file_test {
+    const unsigned _max_appends;
+    const bool _fsync_is_exclusive;
+    file_desc _fd;
+    shared_ptr<append_challenged_posix_file_impl> _file;
+    static constexpr size_t _block_size = 1024;
+    uint64_t _pos = 0;
+    unsigned _appends = 0;
+    unsigned _writes = 0;
+    unsigned _flushes = 0;
+    using opcode = append_challenged_posix_file_impl::opcode;
+
+    struct req {
+        unsigned& counter;
+        uint64_t pos;
+        promise<> complete;
+        req(unsigned& c, uint64_t p = 0) noexcept : counter(c), pos(p), complete() {
+            counter++;
+        }
+    };
+
+    std::deque<req> _queue;
+
+public:
+    append_challenged_posix_file_test(tmp_dir& t, unsigned append_concurrency, bool fsync_is_exclusive)
+        : _max_appends(append_concurrency)
+        , _fsync_is_exclusive(fsync_is_exclusive)
+        , _fd(file_desc::open((t.get_path() / "testfile.tmp").native(), O_RDWR | O_CREAT | O_TRUNC, 0600))
+        , _file(seastar::testing::make_append_challenged_posix_file(_fd, _max_appends, _fsync_is_exclusive, {}))
+    {
+    }
+
+    future<> flush() {
+        return _file->enqueue(opcode::flush, 0, 0, [this] {
+            if (_fsync_is_exclusive) {
+                BOOST_CHECK_EQUAL(_writes, 0);
+            }
+            _queue.emplace_back(_flushes);
+            return _queue.back().complete.get_future();
+        });
+    }
+
+    future<> write_one() {
+        auto pos = _pos;
+        _pos += _block_size;
+        return _file->enqueue(opcode::write, pos, _block_size, [this, pos] {
+            uint64_t fsize = _fd.size();
+            if (pos + _block_size > fsize) {
+                _appends++;
+                BOOST_CHECK_LE(_appends, _max_appends);
+            }
+            if (_fsync_is_exclusive) {
+                BOOST_CHECK_EQUAL(_flushes, 0);
+            }
+            _queue.emplace_back(_writes, pos);
+            return _queue.back().complete.get_future();
+        });
+    }
+
+    bool complete_one() {
+        if (!_queue.empty()) {
+            auto r = std::move(_queue.front());
+            _queue.pop_front();
+            r.counter--;
+            r.complete.set_value();
+            return true;
+        }
+
+        return false;
+    }
+
+    future<> close() {
+        BOOST_CHECK_EQUAL(_appends, _max_appends);
+        return _file->close();
+    }
+};
+}
+
+static void test_append_challenged_posix_file_concurrency(tmp_dir& t, unsigned c) {
+    seastar::testing::append_challenged_posix_file_test test(t, c, false);
+
+    std::deque<future<>> futs;
+    for (unsigned i = 0; i < 64; i++) {
+        futs.push_back(test.write_one());
+    }
+
+    while (!futs.empty()) {
+        while (!test.complete_one()) {
+            yield().get();
+        }
+        futs.front().get();
+        futs.pop_front();
+    }
+    test.close().get();
+}
+
+static void test_append_challenged_posix_file_flush(tmp_dir& t) {
+    seastar::testing::append_challenged_posix_file_test test(t, 1, true);
+
+    std::deque<future<>> futs;
+    for (unsigned i = 0; i < 4; i++) {
+        futs.push_back(test.write_one());
+    }
+    futs.push_back(test.flush());
+    for (unsigned i = 0; i < 4; i++) {
+        futs.push_back(test.write_one());
+    }
+
+    while (!futs.empty()) {
+        while (!test.complete_one()) {
+            yield().get();
+        }
+        futs.front().get();
+        futs.pop_front();
+    }
+    test.close().get();
+}
+
+SEASTAR_TEST_CASE(test_append_challenged_posix_file_impl) {
+    return tmp_dir::do_with_thread([] (tmp_dir& t) {
+        test_append_challenged_posix_file_concurrency(t, 0);
+        test_append_challenged_posix_file_concurrency(t, 1);
+        test_append_challenged_posix_file_flush(t);
     });
 }
