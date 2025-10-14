@@ -337,11 +337,12 @@ class io_worker {
         unsigned _prev_requests = 0;
         std::chrono::duration<double> _duration;
         timer<> _tick;
+        bool _with_warmup;
 
         static constexpr auto period = 1s;
 
     public:
-        requests_rate_meter(std::chrono::duration<double> duration, std::vector<unsigned>& rates, const unsigned& requests)
+        requests_rate_meter(std::chrono::duration<double> duration, std::vector<unsigned>& rates, const unsigned& requests, bool with_warmup)
             : _rates()
             , _parent_rates(rates)
             , _requests(requests)
@@ -350,6 +351,7 @@ class io_worker {
                 _rates.push_back(_requests - _prev_requests);
                 _prev_requests = _requests;
             })
+            , _with_warmup(with_warmup)
         {
             _rates.reserve(256); // ~2 minutes
             if (duration > 4 * period) {
@@ -369,7 +371,7 @@ class io_worker {
             // logic is really independent of when we start counting requests in
             // `issue_request` itself so the first bucket might not be a full
             // measurement and cause skew otherwise.
-            size_t samples_to_drop = warmup_period(_duration) / period + 1;
+            size_t samples_to_drop = _with_warmup ? warmup_period(_duration) / period + 1 : 0;
             _rates.erase(_rates.begin(), _rates.begin() + std::min(samples_to_drop, _rates.size()));
             _parent_rates.insert(_parent_rates.end(), _rates.begin(), _rates.end());
         }
@@ -397,13 +399,13 @@ public:
         return iotune_clock::now() >= _end_load;
     }
 
-    io_worker(size_t buffer_size, std::chrono::duration<double> duration, std::unique_ptr<request_issuer> reqs, std::unique_ptr<position_generator> pos, std::vector<unsigned>& rates)
+    io_worker(size_t buffer_size, std::chrono::duration<double> duration, std::unique_ptr<request_issuer> reqs, std::unique_ptr<position_generator> pos, std::vector<unsigned>& rates, bool with_warmup = true)
         : _buffer_size(buffer_size)
-        , _start_measuring(iotune_clock::now() + std::chrono::duration<double>(warmup_period(duration)))
+        , _start_measuring(iotune_clock::now() + (with_warmup ? std::chrono::duration<double>(warmup_period(duration)) : 0s))
         , _end_measuring(_start_measuring + duration)
         , _end_load(_end_measuring + 10ms)
         , _last_time_seen(_start_measuring)
-        , _rr_meter(duration, rates, _requests)
+        , _rr_meter(duration, rates, _requests, with_warmup)
         , _pos_impl(std::move(pos))
         , _req_impl(std::move(reqs))
     {}
@@ -529,15 +531,15 @@ public:
         });
     }
 
-    future<io_rates> read_workload(size_t buffer_size, pattern access_pattern, unsigned max_os_concurrency, std::chrono::duration<double> duration, std::vector<unsigned>& rates) {
+    future<io_rates> read_workload(size_t buffer_size, pattern access_pattern, unsigned max_os_concurrency, std::chrono::duration<double> duration, std::vector<unsigned>& rates, bool _ = true) {
         buffer_size = calculate_buffer_size(access_pattern, buffer_size, _file.disk_read_dma_alignment(), access_type::read);
         auto worker = std::make_unique<io_worker>(buffer_size, duration, std::make_unique<read_request_issuer>(_file), get_position_generator(buffer_size, access_pattern), rates);
         return do_workload(std::move(worker), max_os_concurrency);
     }
 
-    future<io_rates> write_workload(size_t buffer_size, pattern access_pattern, unsigned max_os_concurrency, std::chrono::duration<double> duration, std::vector<unsigned>& rates) {
+    future<io_rates> write_workload(size_t buffer_size, pattern access_pattern, unsigned max_os_concurrency, std::chrono::duration<double> duration, std::vector<unsigned>& rates, bool with_warmup = true) {
         buffer_size = calculate_buffer_size(access_pattern, buffer_size, _file.disk_write_dma_alignment(), access_type::write);
-        auto worker = std::make_unique<io_worker>(buffer_size, duration, std::make_unique<write_request_issuer>(_file), get_position_generator(buffer_size, access_pattern), rates);
+        auto worker = std::make_unique<io_worker>(buffer_size, duration, std::make_unique<write_request_issuer>(_file), get_position_generator(buffer_size, access_pattern), rates, with_warmup);
         bool update_file_size = worker->is_sequential();
         return do_workload(std::move(worker), max_os_concurrency, update_file_size).then([this] (io_rates r) {
             return _file.flush().then([r = std::move(r)] () mutable {
@@ -605,7 +607,16 @@ public:
 
     future<io_rates> write_sequential_data(unsigned shard, size_t buffer_size, std::chrono::duration<double> duration) {
         return _iotune_test_file.invoke_on(shard, [this, buffer_size, duration] (test_file& tf) {
-            return tf.write_workload(buffer_size, test_file::pattern::sequential, 4 * _test_directory.disks_per_array(), duration, serial_rates);
+            return tf.write_workload(buffer_size, test_file::pattern::sequential, 4 * _test_directory.disks_per_array(), duration, serial_rates, false);
+        });
+    }
+
+    future<> warm_up_sequential_data(size_t buffer_size, std::chrono::duration<double> duration) {
+        return _iotune_test_file.invoke_on_all([this, buffer_size, duration] (test_file& tf) {
+            return tf.write_workload(buffer_size, test_file::pattern::sequential, 4 * _test_directory.disks_per_array(), duration, sharded_rates.local(), false).then([this] (io_rates r) {
+                sharded_rates.local().clear();
+                return make_ready_future<>();
+            });
         });
     }
 
@@ -641,7 +652,7 @@ private:
     template <typename Fn>
     future<uint64_t> saturate(float rate_threshold, size_t buffer_size, std::chrono::duration<double> duration, Fn&& workload) {
         return _iotune_test_file.invoke_on(0, [this, rate_threshold, buffer_size, duration, workload] (test_file& tf) {
-            return (tf.*workload)(buffer_size, test_file::pattern::sequential, 1, duration, serial_rates).then([this, rate_threshold, buffer_size, duration, workload] (io_rates rates) {
+            return (tf.*workload)(buffer_size, test_file::pattern::sequential, 1, duration, serial_rates, true).then([this, rate_threshold, buffer_size, duration, workload] (io_rates rates) {
                 serial_rates.clear();
                 if (rates.bytes_per_sec < rate_threshold) {
                     // The throughput with the given buffer-size is already "small enough", so
@@ -888,6 +899,9 @@ int main(int ac, char** av) {
                 };
 
                 iotune_tests.create_data_file().get();
+
+                fmt::print("Warming up the disk for sequential write job...\n");
+                iotune_tests.warm_up_sequential_data(sequential_write_buffer_size, warmup_period(duration)).get();
 
                 fmt::print("Starting Evaluation. This may take a while...\n");
                 fmt::print("Measuring sequential write bandwidth: ");
