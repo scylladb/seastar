@@ -72,12 +72,12 @@ SEASTAR_TEST_CASE(test_lister) {
     private:
         future<> report(directory_entry de) {
             stat_data sd = co_await file_stat(de.name, follow_symlink::no);
-                if (de.type) {
-                    SEASTAR_ASSERT(*de.type == sd.type);
-                } else {
-                    SEASTAR_ASSERT(sd.type == directory_entry_type::unknown);
-                }
-                fmt::print("{} (type={})\n", de.name, de_type_desc(sd.type));
+            if (de.type) {
+                SEASTAR_ASSERT(*de.type == sd.type);
+            } else {
+                SEASTAR_ASSERT(sd.type == directory_entry_type::unknown);
+            }
+            fmt::print("{} (type={})\n", de.name, de_type_desc(sd.type));
         }
     };
     fmt::print("--- Regular lister test ---\n");
