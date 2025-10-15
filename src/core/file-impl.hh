@@ -115,6 +115,10 @@ public:
     open_flags flags() const {
         return _open_flags;
     }
+
+    // can be moved to private once reactor::read_directory is removed
+    static future<size_t> read_directory(int fd, char* buffer, size_t buffer_size);
+
 private:
     void configure_dma_alignment(const internal::fs_info& fsi);
     void configure_io_lengths() noexcept;
