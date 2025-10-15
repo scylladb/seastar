@@ -71,15 +71,13 @@ SEASTAR_TEST_CASE(test_lister) {
         future<> done() { return _listing.done(); }
     private:
         future<> report(directory_entry de) {
-            return file_stat(de.name, follow_symlink::no).then([de = std::move(de)] (stat_data sd) {
+            stat_data sd = co_await file_stat(de.name, follow_symlink::no);
                 if (de.type) {
                     SEASTAR_ASSERT(*de.type == sd.type);
                 } else {
                     SEASTAR_ASSERT(sd.type == directory_entry_type::unknown);
                 }
                 fmt::print("{} (type={})\n", de.name, de_type_desc(sd.type));
-                return make_ready_future<>();
-            });
         }
     };
     fmt::print("--- Regular lister test ---\n");
