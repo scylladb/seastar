@@ -393,11 +393,25 @@ static std::optional<directory_entry_type> dirent_type(const linux_dirent64& de)
     return type;
 }
 
+future<size_t> posix_file_impl::read_directory(int fd, char* buffer, size_t buffer_size) {
+    syscall_result<long> ret = co_await engine()._thread_pool->submit<syscall_result<long>>(
+            internal::thread_pool_submit_reason::file_operation, [fd, buffer, buffer_size] () {
+        auto ret = ::syscall(__NR_getdents64, fd, reinterpret_cast<linux_dirent64*>(buffer), buffer_size);
+        return wrap_syscall(ret);
+    });
+    ret.throw_if_error();
+    co_return ret.result;
+}
+
+future<size_t> reactor::read_directory(int fd, char* buffer, size_t buffer_size) {
+    return posix_file_impl::read_directory(fd, buffer, buffer_size);
+}
+
 static coroutine::experimental::generator<directory_entry> make_list_directory_generator(int fd) {
     temporary_buffer<char> buf(8192);
 
     while (true) {
-        auto size = co_await engine().read_directory(fd, buf.get_write(), buf.size());
+        auto size = co_await posix_file_impl::read_directory(fd, buf.get_write(), buf.size());
         if (size == 0) {
             co_return;
         }
@@ -451,7 +465,7 @@ posix_file_impl::list_directory(std::function<future<> (directory_entry de)> nex
         auto eofcond = [w] { return w->eof; };
         return do_until(eofcond, [w, this] {
             if (w->current == w->total) {
-                return engine().read_directory(_fd, w->buffer, buffer_size).then([w] (auto size) {
+                return read_directory(_fd, w->buffer, buffer_size).then([w] (auto size) {
                     if (size == 0) {
                         w->eof = true;
                     } else {
