@@ -83,11 +83,9 @@ SEASTAR_TEST_CASE(test_lister) {
         }
     };
     fmt::print("--- Regular lister test ---\n");
-    return engine().open_directory(".").then([] (file f) {
-        return do_with(lister(std::move(f)), [] (lister& l) {
-          return l.done();
-       });
-    });
+    file f = co_await open_directory(".");
+    lister l(std::move(f));
+    co_await l.done();
 }
 
 future<> lister_generator_test(file f) {
