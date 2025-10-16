@@ -68,7 +68,6 @@ module;
 #include <boost/range/algorithm/find_if.hpp>
 #include <boost/algorithm/clamp.hpp>
 #include <boost/version.hpp>
-#include <dirent.h>
 #define __user /* empty */  // for xfs includes, below
 #include <linux/types.h> // for xfs, below
 #include <sys/ioctl.h>
@@ -1909,16 +1908,6 @@ timespec_to_time_point(const timespec& ts) {
     auto d = std::chrono::duration_cast<std::chrono::system_clock::duration>(
             ts.tv_sec * 1s + ts.tv_nsec * 1ns);
     return std::chrono::system_clock::time_point(d);
-}
-
-future<size_t> reactor::read_directory(int fd, char* buffer, size_t buffer_size) {
-    syscall_result<long> ret = co_await _thread_pool->submit<syscall_result<long>>(
-            internal::thread_pool_submit_reason::file_operation, [fd, buffer, buffer_size] () {
-        auto ret = ::syscall(__NR_getdents64, fd, reinterpret_cast<linux_dirent64*>(buffer), buffer_size);
-        return wrap_syscall(ret);
-    });
-    ret.throw_if_error();
-    co_return ret.result;
 }
 
 future<int>
