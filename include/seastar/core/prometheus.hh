@@ -40,8 +40,19 @@ SEASTAR_MODULE_EXPORT_BEGIN
  * Holds prometheus related configuration
  */
 struct config {
-    sstring metric_help; //!< Default help message for the returned metrics
-    sstring hostname; //!< hostname is deprecated, use label instead
+
+    [[deprecated("metric_help is deprecated and no longer used, to be removed in 2027")]]
+    sstring metric_help;
+
+    [[deprecated("hostname is deprecated and unused, use label instead, to be removed in 2027")]]
+    sstring hostname;
+
+    SEASTAR_INTERNAL_BEGIN_IGNORE_DEPRECATIONS // prevent warnings about deprecated fields in implicitly-defined special member functions
+    config() = default;
+    config(const config&) = default;
+    config(config&&) = default;
+    SEASTAR_INTERNAL_END_IGNORE_DEPRECATIONS
+
     std::optional<metrics::label_instance> label; //!< A label that will be added to all metrics, we advice not to use it and set it on the prometheus server
     sstring prefix = "seastar"; //!< a prefix that will be added to metric names
     bool allow_protobuf = false; // protobuf support is experimental and off by default
