@@ -369,26 +369,9 @@ output_stream<CharType>::write(const char_type* buf, size_t n) noexcept {
 template <typename CharType>
 future<>
 output_stream<CharType>::slow_write(const char_type* buf, size_t n) noexcept {
-  try {
-    SEASTAR_ASSERT(_zc_bufs.empty() && "Mixing buffered writes and zero-copy writes not supported yet");
-    auto bulk_threshold = _end ? (2 * _size - _end) : _size;
-    if (n >= bulk_threshold) {
-        if (_end) {
-            auto now = _size - _end;
-            std::copy(buf, buf + now, _buf.get_write() + _end);
-            _end = _size;
-            temporary_buffer<char> tmp = _fd.allocate_buffer(n - now);
-            std::copy(buf + now, buf + n, tmp.get_write());
-            _buf.trim(_end);
-            _end = 0;
-            return put(std::move(_buf)).then([this, tmp = std::move(tmp)]() mutable {
-                if (_trim_to_size) {
-                    return split_and_put(std::move(tmp));
-                } else {
-                    return put(std::move(tmp));
-                }
-            });
-        } else {
+    try {
+        SEASTAR_ASSERT(_zc_bufs.empty() && "Mixing buffered writes and zero-copy writes not supported yet");
+        if (!_end && (n >= _size)) {
             temporary_buffer<char> tmp = _fd.allocate_buffer(n);
             std::copy(buf, buf + n, tmp.get_write());
             if (_trim_to_size) {
@@ -397,27 +380,36 @@ output_stream<CharType>::slow_write(const char_type* buf, size_t n) noexcept {
                 return put(std::move(tmp));
             }
         }
-    }
 
-    if (!_buf) {
-        _buf = _fd.allocate_buffer(_size);
-    }
+        if (!_buf) {
+            _buf = _fd.allocate_buffer(_size);
+        }
 
-    auto now = std::min(n, _size - _end);
-    std::copy(buf, buf + now, _buf.get_write() + _end);
-    _end += now;
-    if (now == n) {
-        return make_ready_future<>();
-    } else {
-        temporary_buffer<char> next = _fd.allocate_buffer(_size);
+        auto now = std::min(n, _size - _end);
+        std::copy(buf, buf + now, _buf.get_write() + _end);
+        _end += now;
+        if (now == n) {
+            return make_ready_future<>();
+        }
+        temporary_buffer<char> next = _fd.allocate_buffer(std::max(n - now, _size));
         std::copy(buf + now, buf + n, next.get_write());
+
+        if (n - now >= _size) {
+            _end = 0;
+            return put(std::move(_buf)).then([this, next = std::move(next)]() mutable {
+                if (_trim_to_size) {
+                    return split_and_put(std::move(next));
+                } else {
+                    return put(std::move(next));
+                }
+            });
+        }
+
         _end = n - now;
-        std::swap(next, _buf);
-        return put(std::move(next));
+        return put(std::exchange(_buf, std::move(next)));
+    } catch (...) {
+      return current_exception_as_future();
     }
-  } catch (...) {
-    return current_exception_as_future();
-  }
 }
 
 namespace internal {
