@@ -53,6 +53,8 @@ namespace pm = io::prometheus::client;
 
 namespace mi = metrics::impl;
 
+using mi::labels_type;
+
 /**
  * Taken from an answer in stackoverflow:
  * http://stackoverflow.com/questions/2340730/are-there-c-equivalents-for-the-protocol-buffers-delimited-i-o-functions-in-ja
@@ -92,7 +94,7 @@ static pm::Metric* add_label(pm::Metric* mt, const metrics::impl::labels_type & 
     for (auto && [name, value] : id) {
         auto label = mt->add_label();
         label->set_name(std::string(name));
-        label->set_value(std::string(value));
+        label->set_value(std::string(value.value()));
     }
     return mt;
 }
@@ -236,28 +238,12 @@ static std::ostream& operator<<(std::ostream& os, const seastar::metrics::impl::
     return os;
 }
 
-/*
- * Sanitizes the prometheus label value as per the line format rules and writes it out to the ostream:
- * > label_value can be any sequence of UTF-8 characters, but the backslash (\), double-quote ("), and
- * > line feed (\n) characters have to be escaped as \\, \", and \n, respectively.
- */
-static void escape_and_write_label_value(std::ostream& s, std::string_view label_value) {
-    for (char c : label_value) {
-        switch (c) {
-            case '\\': s << R"(\\)"; break;
-            case '\"': s << R"(\")"; break;
-            case '\n': s << R"(\n)"; break;
-            default:   s << c;
-        }
-    }
-}
-
-static void add_name(std::ostream& s, const sstring& name, const std::map<sstring, sstring>& labels, const config& ctx) {
+static void add_name(std::ostream& s, const sstring& name, const labels_type& labels, const config& ctx) {
     s << name << "{";
     const char* delimiter = "";
     if (ctx.label) {
         s << ctx.label->key()  << "=\"";
-        escape_and_write_label_value(s, ctx.label->value());
+        s << ctx.label->value();
         s << '"';
         delimiter = ",";
     }
@@ -267,7 +253,7 @@ static void add_name(std::ostream& s, const sstring& name, const std::map<sstrin
             if (!boost::algorithm::starts_with(l.first, "__")) {
                 s << delimiter;
                 s << l.first  << "=\"";
-                escape_and_write_label_value(s, l.second);
+                s << l.second.value();
                 s << '"';
                 delimiter = ",";
             }
@@ -669,7 +655,7 @@ metric_family_range get_range(const metrics_families_per_shard& mf, const sstrin
 
 }
 
-void write_histogram(std::stringstream& s, const config& ctx, const sstring& name, const seastar::metrics::histogram& h, std::map<sstring, sstring> labels) noexcept {
+void write_histogram(std::stringstream& s, const config& ctx, const sstring& name, const seastar::metrics::histogram& h, labels_type labels) noexcept {
     add_name(s, name + "_sum", labels, ctx);
     s << h.sample_sum << '\n';
 
@@ -688,7 +674,7 @@ void write_histogram(std::stringstream& s, const config& ctx, const sstring& nam
     s << h.sample_count  << '\n';
 }
 
-void write_summary(std::stringstream& s, const config& ctx, const sstring& name, const seastar::metrics::histogram& h, std::map<sstring, sstring> labels) noexcept {
+void write_summary(std::stringstream& s, const config& ctx, const sstring& name, const seastar::metrics::histogram& h, labels_type labels) noexcept {
     if (h.sample_sum) {
         add_name(s, name + "_sum", labels, ctx);
         s << h.sample_sum  << '\n';
@@ -718,7 +704,7 @@ void write_summary(std::stringstream& s, const config& ctx, const sstring& name,
  */
 class metric_aggregate_by_labels {
     std::vector<std::string> _labels_to_aggregate_by;
-    std::unordered_map<std::map<sstring, sstring>, seastar::metrics::impl::metric_value> _values;
+    std::unordered_map<labels_type, seastar::metrics::impl::metric_value> _values;
 public:
     metric_aggregate_by_labels(std::vector<std::string> labels) : _labels_to_aggregate_by(std::move(labels)) {
     }
@@ -731,18 +717,18 @@ public:
      * The metric would be added to the aggregated metric with labels {'name':'myhist'}.
      *
      */
-    void add(const seastar::metrics::impl::metric_value& m, std::map<sstring, sstring> labels) noexcept {
+    void add(const seastar::metrics::impl::metric_value& m, labels_type labels) noexcept {
         for (auto&& l : _labels_to_aggregate_by) {
             labels.erase(l);
         }
-        std::unordered_map<std::map<sstring, sstring>, seastar::metrics::impl::metric_value>::iterator i = _values.find(labels);
+        std::unordered_map<labels_type, seastar::metrics::impl::metric_value>::iterator i = _values.find(labels);
         if ( i == _values.end()) {
             _values.emplace(std::move(labels), m);
         } else {
             i->second += m;
         }
     }
-    const std::unordered_map<std::map<sstring, sstring>, seastar::metrics::impl::metric_value>& get_values() const noexcept {
+    const std::unordered_map<labels_type, seastar::metrics::impl::metric_value>& get_values() const noexcept {
         return _values;
     }
     bool empty() const noexcept {
@@ -929,7 +915,7 @@ class metrics_handler : public httpd::handler_base  {
         return (matcher.empty()) ? _true_function : [matcher](const mi::labels_type& labels) {
             for (auto&& m : matcher) {
                 auto l = labels.find(m.first);
-                if (!std::regex_match((l == labels.end())? "" : l->second.c_str(), m.second)) {
+                if (!std::regex_match((l == labels.end())? "" : l->second.value().c_str(), m.second)) {
                     return false;
                 }
             }

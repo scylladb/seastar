@@ -347,7 +347,7 @@ SEASTAR_TEST_CASE(test_metrics_filtering) {
     // This should return only metric_1 and metric_2
     sp::details::filter_t filter = [](const sm::impl::labels_type& labels) {
         auto it = labels.find("label-0");
-        return it == labels.end() || it->second != "label-0-0";
+        return it == labels.end() || it->second.value() != "label-0-0";
     };
 
     test_config cfg{data_type::COUNTER, 3};

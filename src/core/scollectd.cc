@@ -51,6 +51,8 @@ module seastar;
 
 namespace seastar {
 
+using seastar::metrics::impl::labels_type;
+
 void scollectd::type_instance_id::truncate(sstring& field, const char* field_desc) {
     if (field.size() > max_collectd_field_text_len) {
         auto suffix_len = std::ceil(std::log10(++_next_truncated_idx)) + 1;
@@ -184,7 +186,7 @@ struct cpwriter {
         sstring res = name;
         for (auto i : labels) {
             if (i.first != seastar::metrics::shard_label.name()) {
-                res += "-" + i.second;
+                res += "-" + i.second.value();
             }
         }
         return res;
@@ -301,7 +303,7 @@ struct cpwriter {
         // Use lo-res ts for now, it is probably quite sufficient.
         put_cached(part_type::Plugin, group_name);
         // Optional
-        auto instance_id = labels.at(metrics::shard_label.name());
+        sstring instance_id = labels.at(metrics::shard_label.name());
         put_cached(part_type::PluginInst,
                 instance_id == per_cpu_plugin_instance ?
                         to_sstring(this_shard_id()) : instance_id);
