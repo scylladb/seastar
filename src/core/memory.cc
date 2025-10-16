@@ -118,9 +118,9 @@ module seastar;
 #include <seastar/util/sampler.hh>
 #include <seastar/util/log.hh>
 #include <seastar/core/aligned_buffer.hh>
+#include <seastar/core/align.hh>
 #ifndef SEASTAR_DEFAULT_ALLOCATOR
 #include <seastar/core/bitops.hh>
-#include <seastar/core/align.hh>
 #include <seastar/core/posix.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/util/backtrace.hh>
@@ -218,9 +218,12 @@ static allocation_site_ptr get_allocation_site();
 [[gnu::noinline]]
 static void on_allocation_failure(size_t size);
 
-static constexpr unsigned cpu_id_shift = 36; // FIXME: make dynamic
-static constexpr unsigned max_cpus = 256;
-static constexpr uintptr_t cpu_id_and_mem_base_mask = ~((uintptr_t(1) << cpu_id_shift) - 1);
+static constexpr unsigned bits_for_cpu_id_and_memory = 44; // 3 reserved for memory area prefix, 47 total address space
+
+static constexpr unsigned cpu_id_shift_initial = bits_for_cpu_id_and_memory - 8;
+static constinit unsigned cpu_id_shift = cpu_id_shift_initial; // Will be adjusted later after we know how many cpus we have
+static constexpr unsigned max_cpus = 4096;
+static constinit uintptr_t cpu_id_and_mem_base_mask = ~((uintptr_t(1) << cpu_id_shift_initial) - 1);
 
 using pageidx = uint32_t;
 
@@ -305,9 +308,12 @@ namespace bi = boost::intrusive;
 
 static thread_local uintptr_t local_expected_cpu_id = std::numeric_limits<uintptr_t>::max();
 
+
 inline
 unsigned object_cpu_id(const void* ptr) {
-    return (reinterpret_cast<uintptr_t>(ptr) >> cpu_id_shift) & 0xff;
+    auto uptr = reinterpret_cast<uintptr_t>(ptr);
+    auto mask = (size_t(1) << bits_for_cpu_id_and_memory) - 1;
+    return (uptr & mask) >> cpu_id_shift;
 }
 
 class page_list_link {
@@ -317,7 +323,7 @@ class page_list_link {
     friend seastar::internal::log_buf::inserter_iterator do_dump_memory_diagnostics(seastar::internal::log_buf::inserter_iterator);
 };
 
-constexpr size_t mem_base_alloc = size_t(1) << 44;
+constexpr size_t mem_base_alloc = size_t(1) << bits_for_cpu_id_and_memory;
 
 static char* mem_base() {
     static char* known;
@@ -1864,6 +1870,28 @@ static long mbind(void *addr,
     );
 }
 
+static
+unsigned
+cpu_id_bits(unsigned nr_shards) {
+    auto w = std::bit_width(nr_shards - 1);
+    // Preserve at least 8 bits for CPU ID to have a traditional memory map
+    return std::max(w, 8);
+}
+
+size_t
+internal::per_shard_memory(size_t mem, unsigned procs) {
+    // limit memory address to fit in 36-bit, see Memory map
+    size_t max_mem_per_proc = 1UL << cpu_id_shift;
+    auto mem_per_proc = std::min(align_down<size_t>(mem / procs, 2 << 20), max_mem_per_proc);
+    return mem_per_proc;
+}
+
+void
+internal::global_setup(unsigned nr_shards) {
+    cpu_id_shift = bits_for_cpu_id_and_memory - cpu_id_bits(nr_shards);
+    cpu_id_and_mem_base_mask = ~((uintptr_t(1) << cpu_id_shift) - 1);
+}
+
 internal::numa_layout
 configure(std::vector<resource::memory> m, bool mbind,
         bool transparent_hugepages,
@@ -2728,6 +2756,15 @@ void set_additional_diagnostics_producer(noncopyable_function<void(memory_diagno
 sstring generate_memory_diagnostics_report() {
     // Ignore, not supported for default allocator.
     return {};
+}
+
+size_t
+internal::per_shard_memory(size_t total_memory, unsigned nr_shards) {
+    return align_down<size_t>(total_memory / nr_shards, 2 << 20);
+}
+
+void
+internal::global_setup(unsigned nr_shards) {
 }
 
 }

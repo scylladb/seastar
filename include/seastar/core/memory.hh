@@ -159,6 +159,10 @@ struct numa_layout {
 
 numa_layout merge(numa_layout one, numa_layout two);
 
+size_t per_shard_memory(size_t total_memory, unsigned nr_shards);
+
+void global_setup(unsigned nr_shards);
+
 }
 
 internal::numa_layout configure(std::vector<resource::memory> m, bool mbind,

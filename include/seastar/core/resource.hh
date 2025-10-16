@@ -99,6 +99,7 @@ struct configuration {
     std::vector<unsigned> io_queues;
     unsigned num_io_groups;
     hwloc::internal::topology_holder topology;
+    bool overcommit = false;
 };
 
 struct memory {
