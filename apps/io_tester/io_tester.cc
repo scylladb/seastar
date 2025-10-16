@@ -668,7 +668,7 @@ private:
         for (auto&& mi : mf->second) {
             if (check_class_metrics) {
                 auto&& cname = mi.first.labels().find("class");
-                if (cname == mi.first.labels().end() || cname->second != name()) {
+                if (cname == mi.first.labels().end() || cname->second.value() != name()) {
                     continue;
                 }
             }
