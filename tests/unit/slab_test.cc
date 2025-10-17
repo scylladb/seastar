@@ -60,13 +60,13 @@ BOOST_AUTO_TEST_CASE(test_allocation_1) {
     constexpr unsigned slab_limit_size = 5*1024*1024;
 
     slab_allocator<item> slab(growth_factor, slab_limit_size, max_object_size);
-    size_t size = max_object_size;
+    constexpr size_t size = max_object_size;
 
     slab.print_slab_classes();
 
     std::vector<item *> items;
 
-    SEASTAR_ASSERT(slab_limit_size % size == 0);
+    static_assert(slab_limit_size % size == 0);
     for (auto i = 0u; i < (slab_limit_size / size); i++) {
         auto item = slab.create(size);
         items.push_back(item);
@@ -137,8 +137,8 @@ BOOST_AUTO_TEST_CASE(test_limit_is_violated_by_new_class) {
 
     // Exhaust the slab page limit using the largest possible object size.
     // This will consume all `_available_slab_pages`.
-    const size_t large_size = max_object_size;
-    SEASTAR_ASSERT(slab_limit_size % large_size == 0);
+    constexpr size_t large_size = max_object_size;
+    static_assert(slab_limit_size % large_size == 0);
     auto pages_in_limit = slab_limit_size / large_size;
 
     std::vector<item *> items;
