@@ -18,9 +18,11 @@
 /*
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  *
- * To compile: g++ -std=c++14 slab_test.cc
  */
 
+#define BOOST_TEST_MODULE slab
+
+#include <boost/test/unit_test.hpp>
 #include <iostream>
 #include <seastar/core/slab.hh>
 #include <seastar/util/assert.hh>
@@ -53,7 +55,10 @@ static void free_vector(slab_allocator<Item>& slab, std::vector<item *>& items) 
     }
 }
 
-static void test_allocation_1(const double growth_factor, const unsigned slab_limit_size) {
+BOOST_AUTO_TEST_CASE(test_allocation_1) {
+    constexpr double growth_factor = 1.25;
+    constexpr unsigned slab_limit_size = 5*1024*1024;
+
     slab_allocator<item> slab(growth_factor, slab_limit_size, max_object_size);
     size_t size = max_object_size;
 
@@ -72,7 +77,10 @@ static void test_allocation_1(const double growth_factor, const unsigned slab_li
     std::cout << __FUNCTION__ << " done!\n";
 }
 
-static void test_allocation_2(const double growth_factor, const unsigned slab_limit_size) {
+BOOST_AUTO_TEST_CASE(test_allocation_2) {
+    constexpr double growth_factor = 1.07; // it's growth_factor used by facebook
+    constexpr unsigned slab_limit_size = 5*1024*1024;
+
     slab_allocator<item> slab(growth_factor, slab_limit_size, max_object_size);
     size_t size = 1024;
 
@@ -97,7 +105,10 @@ static void test_allocation_2(const double growth_factor, const unsigned slab_li
     std::cout << __FUNCTION__ << " done!\n";
 }
 
-static void test_allocation_with_lru(const double growth_factor, const unsigned slab_limit_size) {
+BOOST_AUTO_TEST_CASE(test_allocation_with_lru) {
+    constexpr double growth_factor = 1.25;
+    constexpr unsigned slab_limit_size = 5*1024*1024;
+
     bi::list<item, bi::member_hook<item, bi::list_member_hook<>, &item::_cache_link>> _cache;
     unsigned evictions = 0;
 
@@ -118,7 +129,10 @@ static void test_allocation_with_lru(const double growth_factor, const unsigned 
     std::cout << __FUNCTION__ << " done!\n";
 }
 
-static void test_limit_is_violated_by_new_class(const double growth_factor, const unsigned slab_limit_size) {
+BOOST_AUTO_TEST_CASE(test_limit_is_violated_by_new_class) {
+    constexpr double growth_factor = 1.25;
+    constexpr unsigned slab_limit_size = 5*1024*1024;
+
     slab_allocator<item> slab(growth_factor, slab_limit_size, max_object_size);
 
     // Exhaust the slab page limit using the largest possible object size.
@@ -147,12 +161,4 @@ static void test_limit_is_violated_by_new_class(const double growth_factor, cons
 
     free_vector<item>(slab, items);
     std::cout << __FUNCTION__ << " done!\n";
-}
-
-int main(int ac, char** av) {
-    test_allocation_1(1.25, 5*1024*1024);
-    test_allocation_2(1.07, 5*1024*1024); // 1.07 is the growth factor used by facebook.
-    test_allocation_with_lru(1.25, 5*1024*1024);
-    test_limit_is_violated_by_new_class(1.25, 5*1024*1024);
-    return 0;
 }
