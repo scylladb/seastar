@@ -74,14 +74,59 @@ temporary_buffer<char>& snd_buf::front() {
     }
 }
 
+namespace internal {
+
+void snd_buf_batched_queue::enqueue(snd_buf* buf) {
+    _queue.push_back(buf);
+    if (_process_fut.available()) {
+        _process_fut = process_loop();
+    }
+}
+
+future<> snd_buf_batched_queue::process_loop() {
+    return seastar::do_until([this] { return _queue.empty(); }, [this] {
+        _cur_batch.clear();
+        std::swap(_cur_batch, _queue);
+        _cur_batch_pos = _cur_batch.begin();
+        return smp::submit_to(_processing_shard, [this] {
+            return seastar::do_until([this] { return _cur_batch_pos == _cur_batch.end(); }, [this] {
+                auto* buf = *_cur_batch_pos;
+                ++_cur_batch_pos;
+                return _process_func(buf);
+            });
+        });
+    });
+}
+
 // Make a copy of a remote buffer. No data is actually copied, only pointers and
 // a deleter of a new buffer takes care of deleting the original buffer
-template<typename T> // T is either snd_buf or rcv_buf
-T make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<T>> org) {
+snd_buf make_shard_local_buffer_copy(snd_buf* org, std::function<deleter(snd_buf*)> make_deleter) {
+    snd_buf buf(org->size);
+    auto* one = std::get_if<temporary_buffer<char>>(&org->bufs);
+
+    if (one) {
+        buf.bufs = temporary_buffer<char>(one->get_write(), one->size(), make_deleter(org));
+    } else {
+        auto& orgbufs = std::get<std::vector<temporary_buffer<char>>>(org->bufs);
+        std::vector<temporary_buffer<char>> newbufs;
+        newbufs.reserve(orgbufs.size());
+        auto d = make_deleter(org);
+        for (auto&& b : orgbufs) {
+            newbufs.emplace_back(b.get_write(), b.size(), d.share());
+        }
+        buf.bufs = std::move(newbufs);
+    }
+
+    return buf;
+}
+
+// Make a copy of a remote buffer. No data is actually copied, only pointers and
+// a deleter of a new buffer takes care of deleting the original buffer
+rcv_buf make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<rcv_buf>> org) {
     if (org.get_owner_shard() == this_shard_id()) {
         return std::move(*org);
     }
-    T buf(org->size);
+    rcv_buf buf(org->size);
     auto* one = std::get_if<temporary_buffer<char>>(&org->bufs);
 
     if (one) {
@@ -100,8 +145,7 @@ T make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<T>> org) {
     return buf;
 }
 
-template snd_buf make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<snd_buf>>);
-template rcv_buf make_shard_local_buffer_copy(foreign_ptr<std::unique_ptr<rcv_buf>>);
+} // namespace internal
 
 static void log_exception(connection& c, log_level level, const char* log, std::exception_ptr eptr) {
     const char* s;
