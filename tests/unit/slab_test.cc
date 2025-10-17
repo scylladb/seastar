@@ -25,7 +25,6 @@
 #include <boost/test/unit_test.hpp>
 #include <iostream>
 #include <seastar/core/slab.hh>
-#include <seastar/util/assert.hh>
 
 using namespace seastar;
 
@@ -71,7 +70,7 @@ BOOST_AUTO_TEST_CASE(test_allocation_1) {
         auto item = slab.create(size);
         items.push_back(item);
     }
-    SEASTAR_ASSERT(slab.create(size) == nullptr);
+    BOOST_REQUIRE(slab.create(size) == nullptr);
 
     free_vector<item>(slab, items);
     std::cout << __FUNCTION__ << " done!\n";
@@ -99,7 +98,7 @@ BOOST_AUTO_TEST_CASE(test_allocation_2) {
     auto class_size = slab.class_size(size);
     auto per_slab_page = max_object_size / class_size;
     auto available_slab_pages = slab_limit_size / max_object_size;
-    SEASTAR_ASSERT(allocations == (per_slab_page * available_slab_pages));
+    BOOST_REQUIRE_EQUAL(allocations, per_slab_page * available_slab_pages);
 
     free_vector<item>(slab, items);
     std::cout << __FUNCTION__ << " done!\n";
@@ -119,10 +118,10 @@ BOOST_AUTO_TEST_CASE(test_allocation_with_lru) {
     auto max = slab_limit_size / max_object_size;
     for (auto i = 0u; i < max * 1000; i++) {
         auto item = slab.create(size);
-        SEASTAR_ASSERT(item != nullptr);
+        BOOST_REQUIRE(item != nullptr);
         _cache.push_front(*item);
     }
-    SEASTAR_ASSERT(evictions == max * 999);
+    BOOST_REQUIRE_EQUAL(evictions, max * 999);
 
     _cache.clear();
 
@@ -144,20 +143,20 @@ BOOST_AUTO_TEST_CASE(test_limit_is_violated_by_new_class) {
     std::vector<item *> items;
     for (auto i = 0u; i < pages_in_limit; i++) {
         auto item = slab.create(large_size);
-        SEASTAR_ASSERT(item != nullptr); // These should succeed
+        BOOST_REQUIRE(item != nullptr); // These should succeed
         items.push_back(item);
     }
 
     // Verify that the limit is enforced for the same slab class.
     // This assertion should pass, as it does in test_allocation_1.
-    SEASTAR_ASSERT(slab.create(large_size) == nullptr);
+    BOOST_REQUIRE(slab.create(large_size) == nullptr);
 
     // According to the memory limit, this should fail.
     const size_t medium_size = 1024;
     item* leaky_item = slab.create(medium_size);
 
     // Assert that the allocation FAILED, proving the limit is now correctly enforced.
-    SEASTAR_ASSERT(leaky_item == nullptr);
+    BOOST_REQUIRE(leaky_item == nullptr);
 
     free_vector<item>(slab, items);
     std::cout << __FUNCTION__ << " done!\n";
