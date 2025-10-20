@@ -469,54 +469,6 @@ impl::metric_definition_impl make_gauge(metric_name_type name,
 
 
 /*!
- * \brief Derive are used when a rate is more interesting than the value.
- *
- * Derive is an integer value that can increase or decrease, typically it is used when looking at the
- * derivation of the value.
- *
- * It is OK to use it when counting things and if no wrap-around is expected (it shouldn't) it's prefer over counter metric.
- */
-template<typename T>
-[[deprecated("Use make_counter()")]]
-impl::metric_definition_impl make_derive(metric_name_type name,
-        T&& val, description d = description(), std::vector<label_instance> labels = {}) {
-    return make_counter(std::move(name), std::forward<T>(val), std::move(d), std::move(labels));
-}
-
-
-/*!
- * \brief Derive are used when a rate is more interesting than the value.
- *
- * Derive is an integer value that can increase or decrease, typically it is used when looking at the
- * derivation of the value.
- *
- * It is OK to use it when counting things and if no wrap-around is expected (it shouldn't) it's prefer over counter metric.
- */
-template<typename T>
-[[deprecated("Use make_counter()")]]
-impl::metric_definition_impl make_derive(metric_name_type name, description d,
-        T&& val) {
-    return make_counter(std::move(name), std::forward<T>(val), std::move(d), {});
-}
-
-
-/*!
- * \brief Derive are used when a rate is more interesting than the value.
- *
- * Derive is an integer value that can increase or decrease, typically it is used when looking at the
- * derivation of the value.
- *
- * It is OK to use it when counting things and if no wrap-around is expected (it shouldn't) it's prefer over counter metric.
- */
-template<typename T>
-[[deprecated("Use make_counter()")]]
-impl::metric_definition_impl make_derive(metric_name_type name, description d, std::vector<label_instance> labels,
-        T&& val) {
-    return make_counter(std::move(name), std::forward<T>(val), std::move(d), std::move(labels));
-}
-
-
-/*!
  * \brief create a counter metric
  *
  * Counters are used when a rate is more interesting than the value, monitoring systems take
@@ -560,18 +512,6 @@ impl::metric_definition_impl make_counter(metric_name_type name, description d, 
     return make_counter(std::move(name), std::forward<T>(val), std::move(d), std::move(labels));
 }
 
-/*!
- * \brief create an absolute metric.
- *
- * Absolute are used for metric that are being erased after each time they are read.
- * They are here for compatibility reasons and should general be avoided in most applications.
- */
-template<typename T>
-[[deprecated("Use make_counter()")]]
-impl::metric_definition_impl make_absolute(metric_name_type name,
-        T&& val, description d = description(), std::vector<label_instance> labels = {}) {
-    return make_counter(std::move(name), std::forward<T>(val), std::move(d), std::move(labels));
-}
 
 /*!
  * \brief create a histogram metric.
