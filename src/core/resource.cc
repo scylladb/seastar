@@ -45,6 +45,7 @@ module;
 module seastar;
 #else
 #include <seastar/core/resource.hh>
+#include <seastar/core/memory.hh>
 #include <seastar/core/align.hh>
 #include <seastar/core/print.hh>
 #include <seastar/util/defer.hh>
@@ -571,7 +572,7 @@ resources allocate(configuration& c) {
     }
     unsigned procs = c.cpus;
     if (unsigned available_procs = hwloc_get_nbobjs_by_type(topology, HWLOC_OBJ_PU);
-        procs > available_procs) {
+        !c.overcommit && procs > available_procs) {
         throw std::runtime_error(format("insufficient processing units: needed {} available {}", procs, available_procs));
     }
     if (procs == 0) {
@@ -613,9 +614,8 @@ resources allocate(configuration& c) {
 
     size_t mem = calculate_memory(c, std::min(available_memory,
                                               cgroup::memory_limit()));
-    // limit memory address to fit in 36-bit, see core/memory.cc:Memory map
-    constexpr size_t max_mem_per_proc = 1UL << 36;
-    auto mem_per_proc = std::min(align_down<size_t>(mem / procs, 2 << 20), max_mem_per_proc);
+    seastar::memory::internal::global_setup(procs);
+    auto mem_per_proc = seastar::memory::internal::per_shard_memory(mem, procs);
 
     resources ret;
     std::unordered_map<unsigned, hwloc_obj_t> cpu_to_node;
@@ -756,9 +756,8 @@ resources allocate(configuration& c) {
     auto mem = calculate_memory(c, available_memory);
     auto procs = c.cpus;
     ret.cpus.reserve(procs);
-    // limit memory address to fit in 36-bit, see core/memory.cc:Memory map
-    constexpr size_t max_mem_per_proc = 1UL << 36;
-    auto mem_per_proc = std::min(mem / procs, max_mem_per_proc);
+    seastar::memory::internal::global_setup(procs);
+    auto mem_per_proc = seastar::memory::internal::per_shard_memory(mem, procs);
     for (auto cpuid : c.cpu_set) {
         ret.cpus.push_back(cpu{cpuid, {{mem_per_proc, 0}}});
     }

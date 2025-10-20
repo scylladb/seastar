@@ -4268,6 +4268,8 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
 
     resource::configuration rc;
 
+    rc.overcommit = reactor_opts.overprovisioned;
+
     smp::_tmain = std::this_thread::get_id();
     resource::cpuset cpu_set = get_current_cpuset();
 
@@ -4529,11 +4531,30 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     auto backend_selector = reactor_opts.reactor_backend.get_selected_candidate();
     seastar_logger.info("Reactor backend: {}", backend_selector);
 
+    _qs_owner = decltype(smp::_qs_owner){new smp_message_queue* [smp::count], qs_deleter{}};
+
+    auto allocate_qs_owner = [this] (unsigned i) {
+        // smp_message_queue has members with hefty alignment requirements.
+        // if we are reactor thread, or not running with dpdk, doing this
+        // new default aligned seemingly works, as does reordering
+        // dlinit dependencies (ugh). But we should enforce calling out to
+        // aligned_alloc, instead of pure malloc, if possible.
+        smp::_qs_owner[i] = reinterpret_cast<smp_message_queue*>(operator new[] (sizeof(smp_message_queue) * smp::count
+            , std::align_val_t(alignof(smp_message_queue))
+        ));
+    };
+
+    auto allocate_smp_queues = [this, &reactors] (unsigned i) {
+        for (unsigned j = 0; j < smp::count; ++j) {
+            new (&smp::_qs_owner[i][j]) smp_message_queue(reactors[j], reactors[i]);
+        }
+    };
+
     unsigned i;
     auto smp_tmain = smp::_tmain;
     for (i = 1; i < smp::count; i++) {
         auto allocation = allocations[i];
-        create_thread([this, smp_tmain, inited, &reactors_registered, &smp_queues_constructed, &smp_opts, &reactor_opts, &reactors, hugepages_path, i, allocation, assign_io_queues, alloc_io_queues, thread_affinity, heapprof_sampling_rate, mbind, backend_selector, reactor_cfg, &mtx, &layout, use_transparent_hugepages] {
+        create_thread([this, smp_tmain, inited, &reactors_registered, &smp_queues_constructed, &smp_opts, &reactor_opts, &reactors, hugepages_path, i, allocation, assign_io_queues, alloc_io_queues, thread_affinity, heapprof_sampling_rate, mbind, backend_selector, reactor_cfg, &mtx, &layout, use_transparent_hugepages, allocate_qs_owner, allocate_smp_queues] {
           try {
             // initialize thread_locals that are equal across all reacto threads of this smp instance
             smp::_tmain = smp_tmain;
@@ -4565,10 +4586,11 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
             allocate_reactor(i, backend_selector, reactor_cfg);
             reactors[i] = &engine();
             alloc_io_queues(i);
-            reactors_registered.arrive_and_wait();
-            smp_queues_constructed.arrive_and_wait();
-            // _qs_owner is only initialized here
+            allocate_qs_owner(i);
             _qs = _qs_owner.get();
+            reactors_registered.arrive_and_wait();
+            allocate_smp_queues(i);
+            smp_queues_constructed.arrive_and_wait();
             start_all_queues();
             assign_io_queues(i);
             inited->arrive_and_wait();
@@ -4602,22 +4624,10 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
     }
 #endif
 
+    allocate_qs_owner(0);
     reactors_registered.arrive_and_wait();
-    _qs_owner = decltype(smp::_qs_owner){new smp_message_queue* [smp::count], qs_deleter{}};
     _qs = _qs_owner.get();
-    for(unsigned i = 0; i < smp::count; i++) {
-        smp::_qs_owner[i] = reinterpret_cast<smp_message_queue*>(operator new[] (sizeof(smp_message_queue) * smp::count
-        // smp_message_queue has members with hefty alignment requirements.
-        // if we are reactor thread, or not running with dpdk, doing this
-        // new default aligned seemingly works, as does reordering
-        // dlinit dependencies (ugh). But we should enforce calling out to
-        // aligned_alloc, instead of pure malloc, if possible.
-            , std::align_val_t(alignof(smp_message_queue))
-        ));
-        for (unsigned j = 0; j < smp::count; ++j) {
-            new (&smp::_qs_owner[i][j]) smp_message_queue(reactors[j], reactors[i]);
-        }
-    }
+    allocate_smp_queues(0);
     _alien._qs = alien::instance::create_qs(reactors);
     smp_queues_constructed.arrive_and_wait();
     start_all_queues();
