@@ -251,13 +251,36 @@ struct format_options {
     int precision = -1;    // -1 triggers adaptive reduction logic
 };
 
-// compute the apparent width of a utf-8 string, taking into account
-// that some characters (e.g. CJK ideographs) are wider than one column
-// and some (e.g. combining accents) are zero-width. Use a concept so we
-// accept either std::string_view directly or any type exposing data()/size()
-// (e.g. seastar::sstring) without creating multiple overloads.
+// compute the apparent width of a utf-8 string for terminal display.
+// The only multi-byte UTF-8 characters we use are ± (U+00B1) and µ (U+00B5),
+// both of which are 2 bytes but display as 1 column. All other characters are ASCII.
+// Use a concept so we accept either std::string_view directly or any type exposing
+// data()/size() (e.g. seastar::sstring) without creating multiple overloads.
 size_t apparent_width(std::convertible_to<std::string_view> auto sv) {
-    return fmt::detail::compute_width(std::string_view{sv});
+    using namespace std::string_view_literals;
+    std::string_view view{sv};
+
+    // Count occurrences of ± (UTF-8: 0xC2 0xB1) and µ (UTF-8: 0xC2 0xB5)
+    // Each is 2 bytes but displays as 1 column, so subtract 1 for each occurrence
+    auto count_subsequence = [](std::string_view haystack, std::string_view needle) {
+        size_t count = 0;
+        for (auto pos = haystack; !pos.empty(); ) {
+            auto found = std::ranges::search(pos, needle);
+            if (found.empty()) {
+                break;
+            }
+            ++count;
+            pos = std::string_view(found.end(), pos.end());
+        }
+        return count;
+    };
+
+    size_t multibyte_count = 0;
+    for (auto pattern : {"\xC2\xB1"sv, "\xC2\xB5"sv}) {
+        multibyte_count += count_subsequence(view, pattern);
+    }
+
+    return view.size() - multibyte_count;
 }
 
 // Definition of adaptive formatter (see forward declaration above).
@@ -413,7 +436,7 @@ struct column {
         header_size = [=, fopts = fopts](const text_options& opts) {
             printer p{fopts, opts.mad_columns.contains(header)};
             auto v = p(result_traits::sample_value);
-            return fmt::detail::compute_width(std::string_view(v));
+            return apparent_width(std::string_view(v));
         };
 
         to_double = [fn](const result& r) {
