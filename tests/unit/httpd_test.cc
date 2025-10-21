@@ -2243,7 +2243,7 @@ SEASTAR_THREAD_TEST_CASE(test_http_with_broken_wire) {
     c.close().get();
 }
 
-SEASTAR_TEST_CASE(test_client_close_connection) {
+future<> test_client_close_connection(bool chunked) {
     return async([] {
         loopback_connection_factory lcf(1);
         auto make_test_request = [&lcf]() {
@@ -2312,6 +2312,10 @@ SEASTAR_TEST_CASE(test_client_close_connection) {
             when_all(std::move(server), std::move(client)).discard_result().get();
         }
     });
+}
+
+SEASTAR_TEST_CASE(test_client_close_connection_content_length) {
+    return test_client_close_connection(false);
 }
 
 SEASTAR_THREAD_TEST_CASE(test_content_length_data_sink) {
