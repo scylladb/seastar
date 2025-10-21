@@ -307,6 +307,7 @@ protected:
     future<> stream_close();
     future<> stream_process_incoming(rcv_buf&&);
     future<> handle_stream_frame();
+    future<> send_negotiation_frame(feature_map features);
 
 public:
     connection(connected_socket&& fd, const logger& l, void* s, connection_id id = invalid_connection_id) : connection(l, s, id) {
@@ -319,10 +320,11 @@ public:
     }
 
     void set_socket(connected_socket&& fd);
-    future<> send_negotiation_frame(feature_map features);
     bool error() const noexcept { return _error; }
     void abort();
     future<> stop() noexcept;
+
+private:
     future<> stream_receive(circular_buffer<foreign_ptr<std::unique_ptr<rcv_buf>>>& bufs);
     future<> close_sink() {
         _sink_closed = true;
@@ -341,6 +343,8 @@ public:
         }
         return make_ready_future();
     }
+
+public:
     connection_id get_connection_id() const noexcept {
         return _id;
     }
