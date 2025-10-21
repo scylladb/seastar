@@ -554,6 +554,7 @@ add_library (seastar
   include/seastar/core/scollectd.hh
   include/seastar/core/scollectd_api.hh
   include/seastar/core/seastar.hh
+  include/seastar/core/smp.hh
   include/seastar/core/semaphore.hh
   include/seastar/core/shard_id.hh
   include/seastar/core/sharded.hh
