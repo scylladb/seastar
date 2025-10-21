@@ -21,8 +21,9 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
+#include <seastar/core/resource.hh>
 #include <seastar/util/program-options.hh>
+#ifndef SEASTAR_MODULE
 #include <seastar/util/modules.hh>
 #include <string>
 #endif

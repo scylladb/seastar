@@ -27,6 +27,7 @@ module;
 #include <memory>
 #include <utility>
 #include <numeric>
+#include <span>
 
 #ifdef SEASTAR_MODULE
 module seastar;
