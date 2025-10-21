@@ -70,10 +70,10 @@ requires std::invocable<Func, input_stream<char>&>
 typename futurize<typename std::invoke_result_t<Func, input_stream<char>&>>::type with_file_input_stream(const std::filesystem::path& path, Func func, file_open_options file_opts = {}, file_input_stream_options input_stream_opts = {}) {
     static_assert(std::is_nothrow_move_constructible_v<Func>);
     auto f = co_await open_file_dma(path.native(), open_flags::ro, std::move(file_opts));
-    input_stream<char> in;
+    data_source ins;
     std::exception_ptr ex;
     try {
-        in = make_file_input_stream(f, std::move(input_stream_opts));
+        ins = make_file_data_source(f, std::move(input_stream_opts));
     } catch (...) {
         ex = std::current_exception();
     }
@@ -82,6 +82,7 @@ typename futurize<typename std::invoke_result_t<Func, input_stream<char>&>>::typ
         co_await coroutine::return_exception_ptr(std::move(ex));
     }
 
+    input_stream<char> in(std::move(ins));
     auto res = co_await coroutine::as_future(futurize_invoke(std::move(func), in));
     co_await in.close();
     co_await f.close();

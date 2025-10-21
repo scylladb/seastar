@@ -230,11 +230,18 @@ public:
 
 class connection {
 protected:
-    connected_socket _fd;
-    input_stream<char> _read_buf;
-    output_stream<char> _write_buf;
+    struct socket_and_buffers {
+        connected_socket fd;
+        input_stream<char> read_buf;
+        output_stream<char> write_buf;
+        socket_and_buffers(connected_socket cs) noexcept
+                : fd(std::move(cs))
+                , read_buf(fd.input())
+                , write_buf(fd.output())
+        {}
+    };
     bool _error = false;
-    bool _connected = false;
+    std::optional<socket_and_buffers> _connected;
     std::optional<shared_promise<>> _negotiated = shared_promise<>();
     promise<> _stopped;
     stats _stats;

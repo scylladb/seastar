@@ -358,9 +358,11 @@ public:
     // unconsumed_remainder is mapped for compatibility only; new code should use consumption_result_type
     using unconsumed_remainder = std::optional<tmp_buf>;
     using char_type = CharType;
+    [[deprecated("Uninitialized input_stream is useless")]]
     input_stream() noexcept = default;
     explicit input_stream(data_source fd) noexcept : _fd(std::move(fd)), _buf() {}
     input_stream(input_stream&&) = default;
+    [[deprecated("Input stream cannot be move-assigned, consider move-constructing the target in place")]]
     input_stream& operator=(input_stream&&) = default;
     /// Reads n bytes from the stream, or fewer if reached the end of stream.
     ///
@@ -488,12 +490,14 @@ private:
     future<> slow_write(const CharType* buf, size_t n) noexcept;
 public:
     using char_type = CharType;
+    [[deprecated("Uninitialized output_stream is useless")]]
     output_stream() noexcept = default;
     output_stream(data_sink fd, size_t size, output_stream_options opts = {}) noexcept
         : _fd(std::move(fd)), _size(size), _trim_to_size(opts.trim_to_size), _batch_flushes(opts.batch_flushes && _fd.can_batch_flushes()) {}
     output_stream(data_sink fd) noexcept
         : _fd(std::move(fd)), _size(_fd.buffer_size()), _trim_to_size(true) {}
     output_stream(output_stream&&) noexcept = default;
+    [[deprecated("Output stream cannot be move-assigned, consider move-constructing the target in place")]]
     output_stream& operator=(output_stream&&) noexcept = default;
     ~output_stream() {
         if (_batch_flushes) {
