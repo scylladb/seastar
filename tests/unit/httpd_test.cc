@@ -2284,23 +2284,23 @@ future<> test_client_close_connection(bool chunked) {
                     }
                     ++responses;
                     try {
-                      if (!chunked) {
-                        out.write(format("HTTP/1.1 200 OK\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n", response_size)).get();
-                        out.flush().get();
-                      } else {
-                        out.write(format("HTTP/1.1 200 OK\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n{:x}\r\n", response_size)).get();
-                        out.flush().get();
-                      }
+                        if (!chunked) {
+                            out.write(format("HTTP/1.1 200 OK\r\nHost: localhost\r\nContent-Length: {}\r\n\r\n", response_size)).get();
+                            out.flush().get();
+                        } else {
+                            out.write(format("HTTP/1.1 200 OK\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n{:x}\r\n", response_size)).get();
+                            out.flush().get();
+                        }
                         out.write(sstring(response_size / 2, 'a')).get();
                         out.flush().get();
 
                         out.write(sstring(response_size / 2, 'a')).get();
                         out.flush().get();
 
-                      if (chunked) {
-                        out.write(format("\r\n0\r\n\r\n")).get();
-                        out.flush().get();
-                      }
+                        if (chunked) {
+                            out.write(format("\r\n0\r\n\r\n")).get();
+                            out.flush().get();
+                        }
                     } catch (...) {
                         break;
                     }
