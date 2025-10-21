@@ -99,10 +99,12 @@ class chunked_source_impl : public data_source_impl {
         // references to fields in the request structure
         std::unordered_map<sstring, sstring>& _chunk_extensions;
         std::unordered_map<sstring, sstring>& _trailing_headers;
+        size_t& _remaining_bytes;
         using consumption_result_type = consumption_result<char>;
     public:
-        chunk_parser(std::unordered_map<sstring, sstring>& chunk_extensions, std::unordered_map<sstring, sstring>& trailing_headers)
-            : _chunk_extensions(chunk_extensions), _trailing_headers(trailing_headers) {
+        chunk_parser(std::unordered_map<sstring, sstring>& chunk_extensions, std::unordered_map<sstring, sstring>& trailing_headers, size_t& remaining)
+            : _chunk_extensions(chunk_extensions), _trailing_headers(trailing_headers), _remaining_bytes(remaining) {
+                _remaining_bytes = std::numeric_limits<size_t>::max();
                 _size_and_ext_parser.init();
         }
         temporary_buffer<char> buf() {
@@ -200,6 +202,7 @@ class chunked_source_impl : public data_source_impl {
                         // save trailing headers
                         _trailing_headers = _trailer_parser.get_parsed_headers();
                         _end_of_request = true;
+                        _remaining_bytes = 0;
                         return make_ready_future<consumption_result_type>(stop_consuming(std::move(*res)));
                     } else {
                         return make_ready_future<consumption_result_type>(continue_consuming{});
@@ -211,10 +214,15 @@ class chunked_source_impl : public data_source_impl {
     };
     input_stream<char>& _inp;
     chunk_parser _chunk;
+    size_t _builtin_remaining_bytes = 0;
 
 public:
+    chunked_source_impl(input_stream<char>& inp, std::unordered_map<sstring, sstring>& chunk_extensions, std::unordered_map<sstring, sstring>& trailing_headers, size_t& remaining)
+        : _inp(inp), _chunk(chunk_extensions, trailing_headers, remaining) {
+    }
+
     chunked_source_impl(input_stream<char>& inp, std::unordered_map<sstring, sstring>& chunk_extensions, std::unordered_map<sstring, sstring>& trailing_headers)
-        : _inp(inp), _chunk(chunk_extensions, trailing_headers) {
+        : _inp(inp), _chunk(chunk_extensions, trailing_headers, _builtin_remaining_bytes) {
     }
 
     virtual future<temporary_buffer<char>> get() override {
