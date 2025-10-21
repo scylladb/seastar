@@ -189,7 +189,7 @@ input_stream<char> connection::in(reply& rep) {
         return input_stream<char>(data_source(std::make_unique<httpd::internal::chunked_source_impl>(_read_buf, rep.chunk_extensions, rep.trailing_headers)));
     }
 
-    return input_stream<char>(data_source(std::make_unique<httpd::internal::content_length_source_impl>(_read_buf, rep.content_length, &rep.consumed_content)));
+    return input_stream<char>(data_source(std::make_unique<httpd::internal::content_length_source_impl>(_read_buf, rep.content_length, rep.left_content_length)));
 }
 
 void connection::shutdown() noexcept {
@@ -391,7 +391,7 @@ class skip_body_source : public data_source_impl {
 public:
     skip_body_source(reply& rep) {
         // nothing to consume here
-        rep.consumed_content = rep.content_length;
+        rep.left_content_length = 0;
         http_log.trace("Skipping HEAD reply body");
     }
 
@@ -423,15 +423,15 @@ future<> client::do_make_request(connection& con, const request& req, reply_hand
 
         auto in = req._method != "HEAD" ? con.in(rep) : input_stream<char>(data_source(std::make_unique<skip_body_source>(rep)));
         return handle(rep, std::move(in)).then([this, reply = std::move(reply), &con] {
-            if (reply->content_length > reply->consumed_content) {
-                auto bytes_left = reply->content_length - reply->consumed_content;
+            if (reply->left_content_length > 0) {
+                auto bytes_left = reply->left_content_length;
                 if (bytes_left <= _max_bytes_to_drain) {
                     http_log.trace("content was not fully consumed, {} bytes were left behind, skipping and returning the connection to the pool", bytes_left);
                     return con._read_buf.skip(bytes_left);
                 }
-                http_log.trace("content was not fully consumed, content length is {} but consumed only {}, will close the connection",
+                http_log.trace("content was not fully consumed, content length is {} but {} left, will close the connection",
                                reply->content_length,
-                               reply->consumed_content);
+                               reply->left_content_length);
                 con._persistent = false;
             }
             return make_ready_future<>();
