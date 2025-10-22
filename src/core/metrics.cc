@@ -228,18 +228,17 @@ registered_metric::registered_metric(metric_id id, metric_function f, bool enabl
     _info.original_labels = id.internalized_labels();
 }
 
-metric_value metric_value::operator+(const metric_value& c) {
-    metric_value res(*this);
+metric_value& metric_value::operator+=(const metric_value& c) {
     switch (_type) {
     case data_type::HISTOGRAM:
     case data_type::SUMMARY:
-        std::get<histogram>(res.u) += std::get<histogram>(c.u);
+        std::get<histogram>(u) += std::get<histogram>(c.u);
         break;
     default:
-        std::get<double>(res.u) += std::get<double>(c.u);
+        std::get<double>(u) += std::get<double>(c.u);
         break;
     }
-    return res;
+    return *this;
 }
 
 void metric_value::ulong_conversion_error(double d) {
