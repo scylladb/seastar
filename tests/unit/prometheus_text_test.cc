@@ -27,6 +27,7 @@
 #include <seastar/testing/test_case.hh>
 #include <seastar/util/closeable.hh>
 
+#include "core/prometheus-impl.hh"
 #include "memory_data_sink.hh"
 
 #include <sstream>
@@ -36,9 +37,13 @@
 using namespace seastar;
 using namespace httpd;
 using namespace std::literals;
+using namespace seastar::prometheus;
 
 namespace sm = seastar::metrics;
 namespace sp = seastar::prometheus;
+namespace mi = sm::impl;
+
+using labels_list_type = std::vector<std::string>;
 
 thread_local auto impl_ = sm::impl::get_local_impl();
 
@@ -408,5 +413,260 @@ SEASTAR_TEST_CASE(test_label_starting_with_double_underscore) {
         R"(# TYPE seastar_group_1_metric_0 counter)" "\n"
         R"(seastar_group_1_metric_0{label-0="label-0-0",shard="0"} 123)" "\n"
     );
+}
+
+
+SEASTAR_TEST_CASE(test_metric_aggregate_by_labels_basic_counter) {
+    // Create aggregator that aggregates by "shard" label
+    labels_list_type aggregate_labels = {"shard"};
+    metric_aggregate_by_labels aggregator(aggregate_labels);
+
+    // Create two counter metrics with same name but different shard labels
+    mi::labels_type labels1;
+    labels1["name"] = "counter1";
+    labels1["shard"] = "0";
+
+    mi::labels_type labels2;
+    labels2["name"] = "counter1";
+    labels2["shard"] = "1";
+
+    // Add counter values
+    mi::metric_value value1(123, mi::data_type::COUNTER);
+    mi::metric_value value2(456, mi::data_type::COUNTER);
+
+    aggregator.add(value1, labels1);
+    aggregator.add(value2, labels2);
+
+    // After aggregation, should have one metric with "shard" label removed
+    const auto& values = aggregator.get_values();
+    BOOST_REQUIRE_EQUAL(values.size(), 1);
+
+    // Check that the aggregated value has the correct labels (without "shard")
+    auto it = values.begin();
+    // Labels are already filtered (aggregated labels removed)
+    BOOST_REQUIRE_EQUAL(it->first.size(), 1);
+    BOOST_REQUIRE_EQUAL(it->first.at("name").value(), "counter1");
+
+    // Check that values were summed: 123 + 456 = 579
+    BOOST_REQUIRE_EQUAL(it->second.d(), 579);
+
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_metric_aggregate_by_labels_multiple_labels) {
+    // Create aggregator that aggregates by "shard" and "cpu" labels
+    labels_list_type aggregate_labels = {"shard", "cpu"};
+    metric_aggregate_by_labels aggregator(aggregate_labels);
+
+    // Create metrics with multiple labels
+    mi::labels_type labels1;
+    labels1["name"] = "metric1";
+    labels1["type"] = "typeA";
+    labels1["shard"] = "0";
+    labels1["cpu"] = "1";
+
+    mi::labels_type labels2;
+    labels2["name"] = "metric1";
+    labels2["type"] = "typeA";
+    labels2["shard"] = "1";
+    labels2["cpu"] = "2";
+
+    mi::metric_value value1(100, mi::data_type::COUNTER);
+    mi::metric_value value2(200, mi::data_type::COUNTER);
+
+    aggregator.add(value1, labels1);
+    aggregator.add(value2, labels2);
+
+    // After aggregation, should have one metric with "shard" and "cpu" removed
+    const auto& values = aggregator.get_values();
+    BOOST_REQUIRE_EQUAL(values.size(), 1);
+
+    auto it = values.begin();
+    // Labels are already filtered (aggregated labels removed)
+    BOOST_REQUIRE_EQUAL(it->first.size(), 2);
+    BOOST_REQUIRE_EQUAL(it->first.at("name").value(), "metric1");
+    BOOST_REQUIRE_EQUAL(it->first.at("type").value(), "typeA");
+    BOOST_REQUIRE_EQUAL(it->second.d(), 300);
+
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_metric_aggregate_by_labels_different_label_values) {
+    // Create aggregator that aggregates by "shard"
+    labels_list_type aggregate_labels = {"shard"};
+    metric_aggregate_by_labels aggregator(aggregate_labels);
+
+    // Create metrics with different non-aggregated label values
+    mi::labels_type labels1;
+    labels1["name"] = "metric1";
+    labels1["shard"] = "0";
+
+    mi::labels_type labels2;
+    labels2["name"] = "metric2";
+    labels2["shard"] = "0";
+
+    mi::metric_value value1(100, mi::data_type::COUNTER);
+    mi::metric_value value2(200, mi::data_type::COUNTER);
+
+    aggregator.add(value1, labels1);
+    aggregator.add(value2, labels2);
+
+    // Should have TWO separate aggregated metrics (different "name" values)
+    const auto& values = aggregator.get_values();
+    BOOST_REQUIRE_EQUAL(values.size(), 2);
+
+    // Verify we have both metrics by iterating
+    int count_metric1 = 0;
+    int count_metric2 = 0;
+    for (auto it = values.begin(); it != values.end(); ++it) {
+        if (it->first.at("name").value() == "metric1") {
+            count_metric1++;
+            BOOST_REQUIRE_EQUAL(it->second.d(), 100);
+        } else if (it->first.at("name").value() == "metric2") {
+            count_metric2++;
+            BOOST_REQUIRE_EQUAL(it->second.d(), 200);
+        }
+    }
+    BOOST_REQUIRE_EQUAL(count_metric1, 1);
+    BOOST_REQUIRE_EQUAL(count_metric2, 1);
+
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_metric_aggregate_by_labels_empty) {
+    // Create aggregator but don't add any metrics
+    labels_list_type aggregate_labels = {"shard"};
+    metric_aggregate_by_labels aggregator(aggregate_labels);
+
+    BOOST_REQUIRE(aggregator.empty());
+    BOOST_REQUIRE_EQUAL(aggregator.get_values().size(), 0);
+
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_metric_aggregate_by_labels_no_aggregation) {
+    // Create aggregator with empty list (no labels to aggregate)
+    labels_list_type aggregate_labels = {};
+    metric_aggregate_by_labels aggregator(aggregate_labels);
+
+    mi::labels_type labels1;
+    labels1["name"] = "metric1";
+    labels1["shard"] = "0";
+
+    mi::labels_type labels2;
+    labels2["name"] = "metric1";
+    labels2["shard"] = "1";
+
+    mi::metric_value value1(100, mi::data_type::COUNTER);
+    mi::metric_value value2(200, mi::data_type::COUNTER);
+
+    aggregator.add(value1, labels1);
+    aggregator.add(value2, labels2);
+
+    // Should have TWO separate metrics (no aggregation)
+    const auto& values = aggregator.get_values();
+    BOOST_REQUIRE_EQUAL(values.size(), 2);
+
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_metric_aggregate_by_labels_real_counters) {
+    // Test with real (floating point) counters
+    labels_list_type aggregate_labels = {"shard"};
+    metric_aggregate_by_labels aggregator(aggregate_labels);
+
+    mi::labels_type labels1;
+    labels1["name"] = "counter";
+    labels1["shard"] = "0";
+
+    mi::labels_type labels2;
+    labels2["name"] = "counter";
+    labels2["shard"] = "1";
+
+    mi::metric_value value1(123.5, mi::data_type::REAL_COUNTER);
+    mi::metric_value value2(456.7, mi::data_type::REAL_COUNTER);
+
+    aggregator.add(value1, labels1);
+    aggregator.add(value2, labels2);
+
+    const auto& values = aggregator.get_values();
+    BOOST_REQUIRE_EQUAL(values.size(), 1);
+
+    auto it = values.begin();
+    BOOST_REQUIRE_CLOSE(it->second.d(), 580.2, 0.001);
+
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_metric_aggregate_by_labels_histograms) {
+    // Test with histograms
+    labels_list_type aggregate_labels = {"shard"};
+    metric_aggregate_by_labels aggregator(aggregate_labels);
+
+    mi::labels_type labels1;
+    labels1["name"] = "histogram";
+    labels1["shard"] = "0";
+
+    mi::labels_type labels2;
+    labels2["name"] = "histogram";
+    labels2["shard"] = "1";
+
+    // Create simple histograms
+    sm::histogram h1;
+    h1.sample_count = 10;
+    h1.sample_sum = 100;
+    h1.buckets.push_back(sm::histogram_bucket{5, 1.0});
+    h1.buckets.push_back(sm::histogram_bucket{10, 2.0});
+
+    sm::histogram h2;
+    h2.sample_count = 20;
+    h2.sample_sum = 300;
+    h2.buckets.push_back(sm::histogram_bucket{8, 1.0});
+    h2.buckets.push_back(sm::histogram_bucket{20, 2.0});
+
+    mi::metric_value value1(h1);
+    mi::metric_value value2(h2);
+
+    aggregator.add(value1, labels1);
+    aggregator.add(value2, labels2);
+
+    const auto& values = aggregator.get_values();
+    BOOST_REQUIRE_EQUAL(values.size(), 1);
+
+    auto it = values.begin();
+    const auto& aggregated_hist = it->second.get_histogram();
+
+    // Check aggregated histogram values
+    BOOST_REQUIRE_EQUAL(aggregated_hist.sample_count, 30);
+    BOOST_REQUIRE_EQUAL(aggregated_hist.sample_sum, 400);
+    BOOST_REQUIRE_EQUAL(aggregated_hist.buckets.size(), 2);
+    BOOST_REQUIRE_EQUAL(aggregated_hist.buckets[0].count, 13);
+    BOOST_REQUIRE_EQUAL(aggregated_hist.buckets[1].count, 30);
+
+    return make_ready_future<>();
+}
+
+SEASTAR_TEST_CASE(test_metric_aggregate_by_labels_same_metric_added_twice) {
+    // Test adding the same metric configuration twice (should aggregate)
+    labels_list_type aggregate_labels = {"shard"};
+    metric_aggregate_by_labels aggregator(aggregate_labels);
+
+    mi::labels_type labels;
+    labels["name"] = "metric";
+    labels["shard"] = "0";
+
+    mi::metric_value value1(100, mi::data_type::COUNTER);
+    mi::metric_value value2(150, mi::data_type::COUNTER);
+
+    aggregator.add(value1, labels);
+    aggregator.add(value2, labels);
+
+    const auto& values = aggregator.get_values();
+    BOOST_REQUIRE_EQUAL(values.size(), 1);
+
+    auto it = values.begin();
+    BOOST_REQUIRE_EQUAL(it->second.d(), 250);
+
+    return make_ready_future<>();
 }
 
