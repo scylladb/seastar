@@ -1873,7 +1873,7 @@ static long mbind(void *addr,
 static
 unsigned
 cpu_id_bits(unsigned nr_shards) {
-    auto w = std::bit_width(nr_shards - 1);
+    int w = std::bit_width(nr_shards - 1);
     // Preserve at least 8 bits for CPU ID to have a traditional memory map
     return std::max(w, 8);
 }
