@@ -32,6 +32,8 @@
 #include <seastar/core/scollectd.hh>
 #include <seastar/http/function_handlers.hh>
 
+#include "prometheus-impl.hh"
+
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/range/algorithm_ext/erase.hpp>
 #include <boost/algorithm/string.hpp>
@@ -870,52 +872,6 @@ void write_summary(buf_t& buf, const config& ctx, std::string_view name, const s
             extra_label{"quantile", fmt::format(FMT_COMPILE("{:f}"), i.upper_bound)} );
     }
 }
-
-/*!
- * \brief a helper class to aggregate metrics over labels
- *
- * This class sum multiple metrics based on a list of labels.
- * It returns one or more metrics each aggregated by the aggregate_by labels.
- *
- * To use it, you define what labels it should aggregate by and then pass to
- * it metrics with their labels.
- * For example if a metrics has a 'shard' and 'name' labels and you aggregate by 'shard'
- * it would return a map of metrics each with only the 'name' label
- *
- */
-class metric_aggregate_by_labels {
-    std::vector<std::string> _labels_to_aggregate_by;
-    std::unordered_map<labels_type, seastar::metrics::impl::metric_value> _values;
-public:
-    metric_aggregate_by_labels(std::vector<std::string> labels) : _labels_to_aggregate_by(std::move(labels)) {
-    }
-    /*!
-     * \brief add a metric
-     *
-     * This method gets a metric and its labels and adds it to the aggregated metric.
-     * For example, if a metric has the labels {'shard':'0', 'name':'myhist'} and we are aggregating
-     * over 'shard'
-     * The metric would be added to the aggregated metric with labels {'name':'myhist'}.
-     *
-     */
-    void add(const seastar::metrics::impl::metric_value& m, labels_type labels) noexcept {
-        for (auto&& l : _labels_to_aggregate_by) {
-            labels.erase(l);
-        }
-        std::unordered_map<labels_type, seastar::metrics::impl::metric_value>::iterator i = _values.find(labels);
-        if ( i == _values.end()) {
-            _values.emplace(std::move(labels), m);
-        } else {
-            i->second += m;
-        }
-    }
-    const std::unordered_map<labels_type, seastar::metrics::impl::metric_value>& get_values() const noexcept {
-        return _values;
-    }
-    bool empty() const noexcept {
-        return _values.empty();
-    }
-};
 
 void write_value_as_string(buf_t& s, const mi::metric_value& value) noexcept {
     try {
