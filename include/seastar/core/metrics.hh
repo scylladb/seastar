@@ -341,12 +341,12 @@ public:
             : u(d), _type(t) {
     }
 
-    metric_value& operator+=(const metric_value& c) {
-        *this = *this + c;
-        return *this;
+    metric_value& operator+=(const metric_value& c);
+
+    metric_value operator+(const metric_value& c) {
+        return metric_value(*this) += c;
     }
 
-    metric_value operator+(const metric_value& c);
     const histogram& get_histogram() const {
         return std::get<histogram>(u);
     }
