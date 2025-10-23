@@ -27,6 +27,7 @@
 
 #include <seastar/core/future.hh>
 #include <seastar/core/iostream.hh>
+#include <seastar/core/metrics.hh>
 #include <seastar/core/metrics_api.hh>
 #include <seastar/core/prometheus.hh>
 #include <seastar/core/scollectd.hh>
@@ -942,11 +943,14 @@ future<> write_context::write_text_representation() {
             if (!aggregated_values.empty()) {
                 for (auto&& h : aggregated_values.get_values()) {
                     s.clear();
-                    if (h.second.type() == mi::data_type::HISTOGRAM) {
-                        write_histogram(s, ctx, name, h.second.get_histogram(), h.first);
+                    // Labels are already filtered (aggregated labels removed)
+                    auto& labels = h.second.labels;
+                    auto& value = h.second.m;
+                    if (value.type() == mi::data_type::HISTOGRAM) {
+                        write_histogram(s, ctx, name, value.get_histogram(), labels);
                     } else {
-                        write_name_and_labels(s, name, "", h.first, ctx);
-                        write_value_as_string(s, h.second);
+                        write_name_and_labels(s, name, "", labels, ctx);
+                        write_value_as_string(s, value);
                     }
                     out.write(s.data(), s.size()).get();
                     thread::maybe_yield();
@@ -978,8 +982,8 @@ future<> write_context::write_protobuf_representation() {
                 empty_metric = false;
             }
         });
-        for (auto& [labels, value] : aggregated_values.get_values()) {
-            fill_metric(mtf, value, labels, ctx);
+        for (auto& [_, value] : aggregated_values.get_values()) {
+            fill_metric(mtf, value.m, value.labels, ctx);
             empty_metric = false;
         }
         if (empty_metric) {
