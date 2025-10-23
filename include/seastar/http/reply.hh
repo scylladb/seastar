@@ -158,7 +158,7 @@ struct reply {
      */
     sstring _content;
     size_t content_length = 0; // valid when received via client connection
-    size_t consumed_content = 0;
+    size_t left_content_length = std::numeric_limits<size_t>::max();
     bool _skip_body = false;
 
     sstring _response_line;
