@@ -34,6 +34,7 @@
 #include <seastar/util/short_streams.hh>
 #include <seastar/util/closeable.hh>
 #include <seastar/net/tls.hh>
+#include "memory_data_sink.hh"
 
 using namespace seastar;
 using namespace httpd;
@@ -318,7 +319,7 @@ SEASTAR_THREAD_TEST_CASE(test_text_route) {
 
     auto reply = route.handle("/hello", std::make_unique<http::request>(),
             std::make_unique<http::reply>()).get();
-    
+
     BOOST_CHECK_EQUAL((int )reply->_status, (int )http::reply::status_type::ok);
     BOOST_CHECK_EQUAL(reply->_headers["Content-Type"], "text/plain");
     BOOST_CHECK_EQUAL(reply->_content, "hello, you");
@@ -392,49 +393,6 @@ SEASTAR_TEST_CASE(test_json_path) {
             std::get<3>(fs).get();
     });
 }
-
-/*!
- * \brief a helper data sink that stores everything it gets in a stringstream
- */
-class memory_data_sink_impl : public data_sink_impl {
-    std::stringstream& _ss;
-public:
-    memory_data_sink_impl(std::stringstream& ss) : _ss(ss) {
-    }
-#if SEASTAR_API_LEVEL >= 9
-    future<> put(std::span<temporary_buffer<char>> bufs) override {
-        for (auto& buf : bufs) {
-            _ss.write(buf.get(), buf.size());
-        }
-        return make_ready_future<>();
-    }
-#else
-    virtual future<> put(net::packet data)  override {
-        return data_sink_impl::fallback_put(std::move(data));
-    }
-    virtual future<> put(temporary_buffer<char> buf) override {
-        _ss.write(buf.get(), buf.size());
-        return make_ready_future<>();
-    }
-#endif
-    virtual future<> flush() override {
-        return make_ready_future<>();
-    }
-
-    virtual future<> close() override {
-        return make_ready_future<>();
-    }
-
-    virtual size_t buffer_size() const noexcept override {
-        return 1024;
-    }
-};
-
-class memory_data_sink : public data_sink {
-public:
-    memory_data_sink(std::stringstream& ss)
-        : data_sink(std::make_unique<memory_data_sink_impl>(ss)) {}
-};
 
 future<> test_transformer_stream(std::stringstream& ss, content_replace& cr, std::vector<sstring>&& buffer_parts) {
     std::unique_ptr<seastar::http::request> req = std::make_unique<seastar::http::request>();
