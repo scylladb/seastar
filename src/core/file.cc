@@ -1368,4 +1368,24 @@ future<file> open_directory(std::string_view name) noexcept {
     return engine().open_directory(name);
 }
 
+namespace testing {
+
+shared_ptr<append_challenged_posix_file_impl>
+make_append_challenged_posix_file(file_desc& fd, unsigned concurrency, bool fsync_is_exclusive, std::optional<size_t> sloppy_size) {
+    internal::fs_info fsi {
+        .block_size = 4096,
+        .append_challenged = true,
+        .append_concurrency = concurrency,
+        .fsync_is_exclusive = fsync_is_exclusive,
+        .nowait_works = true,
+        .dioinfo = std::nullopt,
+    };
+    // device number can be any value, reactor would just pick "fallback" queue
+    // that will be unused anyway, because no real IO is supposed to happen
+    constexpr dev_t dev = 0;
+    return make_shared<append_challenged_posix_file_impl>(fd.get(), open_flags::rw, file_open_options{}, fsi, dev);
+}
+
+}
+
 }
