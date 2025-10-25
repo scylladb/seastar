@@ -25,6 +25,7 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/core/scheduling.hh>
 #include <seastar/core/shared_ptr.hh>
+#include <seastar/core/slim_source_location.hh>
 #include <seastar/util/assert.hh>
 #include <seastar/util/modules.hh>
 
@@ -159,14 +160,17 @@ class tasktrace {
 public:
     using entry = std::variant<shared_backtrace, task_entry>;
     using vector_type = boost::container::static_vector<entry, 16>;
+    using vector_resume_points_type = boost::container::static_vector<slim_source_location, 16>;
 private:
     simple_backtrace _main;
     vector_type _prev;
+    vector_resume_points_type _prev_resume_points;
     scheduling_group _sg;
     size_t _hash;
 public:
     tasktrace() = default;
     tasktrace(simple_backtrace main, vector_type prev, size_t prev_hash, scheduling_group sg) noexcept;
+    tasktrace(simple_backtrace main, vector_type prev, vector_resume_points_type prev_resume_points, size_t prev_hash, scheduling_group sg) noexcept;
     tasktrace(const tasktrace&) = default;
     tasktrace& operator=(const tasktrace&) = default;
     ~tasktrace();
