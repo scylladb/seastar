@@ -51,6 +51,7 @@ struct config {
     config() = default;
     config(const config&) = default;
     config(config&&) = default;
+    ~config() = default;
     SEASTAR_INTERNAL_END_IGNORE_DEPRECATIONS
 
     std::optional<metrics::label_instance> label; //!< A label that will be added to all metrics, we advice not to use it and set it on the prometheus server
