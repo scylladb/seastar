@@ -43,6 +43,7 @@ struct reactor_config {
     bool bypass_fsync = false;
     bool no_poll_aio = false;
     bool aio_nowait_works = false;
+    bool abort_on_too_long_task_queue = false;
 };
 /// \endcond
 
@@ -135,6 +136,8 @@ struct reactor_options : public program_options::option_group {
     program_options::value<> overprovisioned;
     /// \brief Abort when seastar allocator cannot allocate memory.
     program_options::value<> abort_on_seastar_bad_alloc;
+    /// \brief Abort when a task queue becomes too long.
+    program_options::value<bool> abort_on_too_long_task_queue;
     /// \brief Force \p io_getevents(2) to issue a system call, instead of
     /// bypassing the kernel when possible.
     ///
