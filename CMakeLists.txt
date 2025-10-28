@@ -475,6 +475,12 @@ seastar_generate_ragel (
   IN_FILE ${CMAKE_CURRENT_SOURCE_DIR}/src/http/request_parser.rl
   OUT_FILE ${Seastar_GEN_BINARY_DIR}/include/seastar/http/request_parser.hh)
 
+  seastar_generate_ragel (
+    TARGET seastar_http2_frame_parser
+    VAR http2_frame_parser_file
+    IN_FILE ${CMAKE_CURRENT_SOURCE_DIR}/src/http/http2_frame_parser.rl
+    OUT_FILE ${Seastar_GEN_BINARY_DIR}/include/seastar/http/http2_frame_parser.hh)
+
 seastar_generate_ragel (
   TARGET seastar_http_response_parser
   VAR http_response_parser_file
@@ -490,6 +496,7 @@ seastar_generate_protobuf (
 add_library (seastar
   ${http_chunk_parsers_file}
   ${http_request_parser_file}
+  ${http2_frame_parser_file}
   ${proto_metrics2_files}
   ${seastar_dpdk_obj}
   include/seastar/core/abort_source.hh
@@ -599,6 +606,7 @@ add_library (seastar
   include/seastar/http/mime_types.hh
   include/seastar/http/reply.hh
   include/seastar/http/request.hh
+  include/seastar/http/http2_connection.hh
   include/seastar/http/routes.hh
   include/seastar/http/short_streams.hh
   include/seastar/http/transformers.hh
@@ -720,6 +728,7 @@ add_library (seastar
   src/http/transformers.cc
   src/http/url.cc
   src/http/client.cc
+  src/http/http2_connection.cc
   src/http/request.cc
   src/http/retry_strategy.cc
   src/json/formatter.cc
@@ -771,6 +780,7 @@ add_dependencies (seastar
   seastar_http_chunk_parsers
   seastar_http_request_parser
   seastar_http_response_parser
+  seastar_http2_frame_parser
   seastar_proto_metrics2)
 
 target_include_directories (seastar
