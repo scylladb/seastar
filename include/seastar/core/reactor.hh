@@ -236,6 +236,8 @@ private:
     // ... when dispatched all requests get into this single sink
     internal::io_sink _io_sink;
     unsigned _num_io_groups = 0;
+    // Override physical_block_size for devices that lie about it (from io_properties.yaml)
+    std::unordered_map<dev_t, uint32_t> _physical_block_size_overrides;
 
     std::vector<noncopyable_function<future<> ()>> _exit_funcs;
     const unsigned _id = 0;

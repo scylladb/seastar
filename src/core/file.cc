@@ -1067,6 +1067,13 @@ make_file_impl(int fd, file_open_options options, int flags, struct stat st) noe
                     std::system_error(errno, std::system_category(), "ioctl(BLKPBSZGET) failed"));
         }
 
+        // Check for physical_block_size override from io_properties.yaml
+        // This is needed because some devices lie about their physical block size
+        auto it = engine()._physical_block_size_overrides.find(st.st_rdev);
+        if (it != engine()._physical_block_size_overrides.end()) {
+            physical_block_size = it->second;
+        }
+
         // Query DIO memory alignment using statx (kernel 6.1+)
         // This gives us the actual DMA buffer alignment requirement (typically 4 bytes for NVMe)
         size_t memory_dma_alignment = physical_block_size; // fallback to physical_block_size
