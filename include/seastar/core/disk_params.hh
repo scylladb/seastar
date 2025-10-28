@@ -42,6 +42,7 @@ struct disk_params {
     uint64_t write_req_rate = std::numeric_limits<uint64_t>::max();
     uint64_t read_saturation_length = std::numeric_limits<uint64_t>::max();
     uint64_t write_saturation_length = std::numeric_limits<uint64_t>::max();
+    std::optional<uint32_t> physical_block_size; // Override for disks that lie about their physical block size
     bool duplex = false;
     float rate_factor = 1.0;
 };
@@ -91,6 +92,19 @@ public:
 
     const std::vector<dev_t>& queue_devices(unsigned q) const {
         return _disks.at(q).devices;
+    }
+
+    // Look up physical_block_size override for a device
+    // Returns std::nullopt if no override is configured
+    std::optional<uint32_t> get_physical_block_size(dev_t device) const {
+        for (const auto& [q, params] : _disks) {
+            for (auto dev : params.devices) {
+                if (dev == device) {
+                    return params.physical_block_size;
+                }
+            }
+        }
+        return std::nullopt;
     }
 };
 
