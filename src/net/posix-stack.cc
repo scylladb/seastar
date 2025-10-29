@@ -508,19 +508,17 @@ posix_server_socket_impl::accept() {
     while (true) { // exited via co_return
         auto [fd, sa] = co_await _lfd.accept();
         auto cth = conntrack::handle();
-        {
-            switch(_lba) {
-            case server_socket::load_balancing_algorithm::connection_distribution:
-                cth = _conntrack.get_handle();
-                break;
-            case server_socket::load_balancing_algorithm::port:
-                cth = _conntrack.get_handle(ntoh(sa.as_posix_sockaddr_in().sin_port) % smp::count);
-                break;
-            case server_socket::load_balancing_algorithm::fixed:
-                cth = _conntrack.get_handle(_fixed_cpu);
-                break;
-            default: abort();
-            }
+        switch(_lba) {
+        case server_socket::load_balancing_algorithm::connection_distribution:
+            cth = _conntrack.get_handle();
+            break;
+        case server_socket::load_balancing_algorithm::port:
+            cth = _conntrack.get_handle(ntoh(sa.as_posix_sockaddr_in().sin_port) % smp::count);
+            break;
+        case server_socket::load_balancing_algorithm::fixed:
+            cth = _conntrack.get_handle(_fixed_cpu);
+            break;
+        default: abort();
         }
         auto cpu = cth.cpu();
         if (cpu == this_shard_id()) {
