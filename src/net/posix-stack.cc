@@ -47,6 +47,7 @@ module seastar;
 #include <seastar/core/loop.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/coroutine.hh>
+#include <seastar/core/byteorder.hh>
 #include <seastar/net/posix-stack.hh>
 #include <seastar/net/net.hh>
 #include <seastar/net/packet.hh>
@@ -525,10 +526,116 @@ get_port_or_counter(const socket_address& sa) {
     }
 }
 
+static
+proxy_data
+local_proxy_data(const pollable_fd& pfd) {
+    auto& fd = pfd.get_file_desc();
+
+    auto local_sa = fd.get_address();
+    auto remote_sa = fd.get_remote_address();
+
+    proxy_data header = {
+        .remote_address = remote_sa,
+        .local_address = local_sa,
+    };
+
+    return header;
+}
+
+// Parses proxy protocol v2 header; returns std::nullopt if no valid header is found.
+static
+future<std::optional<proxy_data>>
+read_proxy_data(pollable_fd& fd) {
+    constexpr size_t pp2_header_len = 16;
+    char header_buf[pp2_header_len];
+    auto n_read = co_await fd.read_some(header_buf, pp2_header_len);
+    if (n_read < pp2_header_len) {
+        co_return std::nullopt;
+    }
+    static const char pp2_signature[12] = {
+        0x0d, 0x0a, 0x0d, 0x0a, 0x00, 0x0d, 0x0a, 0x51, 0x55, 0x49, 0x54, 0x0a
+    };
+    if (std::memcmp(header_buf, pp2_signature, sizeof(pp2_signature)) != 0) {
+        co_return std::nullopt;
+    }
+
+    auto len = read_be<uint16_t>(header_buf + 14);
+
+    char stack_buffer[36]; // Suitable for IPv6 without extra TLVs
+    std::unique_ptr<char[]> heap_buffer;
+    auto* buffer = stack_buffer;
+
+    if (len > sizeof(stack_buffer)) {
+        heap_buffer = std::make_unique<char[]>(len);
+        buffer = heap_buffer.get();
+    }
+
+    auto xlen = co_await fd.read_some(buffer, len);
+    if (xlen < len) {
+        co_return std::nullopt;
+    }
+
+    uint8_t fam_proto = header_buf[13];
+    switch (header_buf[12]) { // version and command
+    case 0x20: // v2, LOCAL
+        if (fam_proto != 0x00) { // UNSPEC
+            co_return std::nullopt;
+        }
+        co_return local_proxy_data(fd);
+    case 0x21: // v2, PROXY
+        // Mainline continues after the switch
+        break;
+    default:   // Not defined, must reject
+        co_return std::nullopt;
+    }
+
+    auto fam = fam_proto >> 4;
+    auto proto = fam_proto & 0x0F;
+
+    // We could, in principle, support DGRAM here, but there's no
+    // real need for it. Real-world proxies support proxying UDP as UDP.
+    if (proto != 0x1) { // STREAM
+        co_return std::nullopt;
+    }
+
+    proxy_data addr_data;
+
+    switch (fam) {
+    case 0x1: { // INET
+        if (len < 12) {
+            co_return std::nullopt;
+        }
+        addr_data.remote_address = ipv4_addr(inet_address(copy_reinterpret_cast<in_addr>(buffer)), read_be<uint16_t>(buffer + 8));
+        addr_data.local_address = ipv4_addr(inet_address(copy_reinterpret_cast<in_addr>(buffer + 4)), read_be<uint16_t>(buffer + 10));
+        break;
+    }
+    case 0x2: { // INET6
+        if (len < 36) {
+            co_return std::nullopt;
+        }
+        addr_data.remote_address = ipv6_addr(inet_address(copy_reinterpret_cast<in6_addr>(buffer)), read_be<uint16_t>(buffer + 32));
+        addr_data.local_address = ipv6_addr(inet_address(copy_reinterpret_cast<in6_addr>(buffer + 16)), read_be<uint16_t>(buffer + 34));
+        break;
+    }
+    default:
+        co_return std::nullopt;
+    }
+    co_return addr_data;
+}
+
 future<accept_result>
 posix_server_socket_impl::accept() {
     while (true) { // exited via co_return
         auto [fd, sa] = co_await _lfd.accept();
+
+        if (_proxy_protocol) {
+            auto addr_data_opt = co_await read_proxy_data(fd);
+            if (!addr_data_opt) {
+                continue; // drop the connection
+            }
+            sa = addr_data_opt->remote_address;
+        }
+
         auto cth = conntrack::handle();
         switch(_lba) {
         case server_socket::load_balancing_algorithm::connection_distribution:
@@ -753,13 +860,13 @@ posix_network_stack::listen(socket_address sa, listen_options opt) {
         sa = inet_address(inet_address::family::INET);
     }
     if (sa.is_af_unix()) {
-        return server_socket(std::make_unique<posix_server_socket_impl>(0, sa, internal::posix_listen(sa, opt), opt.lba, opt.fixed_cpu, _allocator));
+        return server_socket(std::make_unique<posix_server_socket_impl>(0, sa, internal::posix_listen(sa, opt), opt.lba, opt.fixed_cpu, opt.proxy_protocol, _allocator));
     }
     auto protocol = static_cast<int>(opt.proto);
     return _reuseport ?
         server_socket(std::make_unique<posix_reuseport_server_socket_impl>(protocol, sa, internal::posix_listen(sa, opt), _allocator))
         :
-        server_socket(std::make_unique<posix_server_socket_impl>(protocol, sa, internal::posix_listen(sa, opt), opt.lba, opt.fixed_cpu, _allocator));
+        server_socket(std::make_unique<posix_server_socket_impl>(protocol, sa, internal::posix_listen(sa, opt), opt.lba, opt.fixed_cpu, opt.proxy_protocol, _allocator));
 }
 
 ::seastar::socket posix_network_stack::socket() {
