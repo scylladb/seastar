@@ -529,17 +529,21 @@ future<accept_result>
 posix_server_socket_impl::accept() {
     while (true) { // exited via co_return
         auto [fd, sa] = co_await _lfd.accept();
-        auto cth = [this, &sa] {
+        auto cth = conntrack::handle();
+        {
             switch(_lba) {
             case server_socket::load_balancing_algorithm::connection_distribution:
-                return _conntrack.get_handle();
+                cth = _conntrack.get_handle();
+                break;
             case server_socket::load_balancing_algorithm::port:
-                return _conntrack.get_handle(get_port_or_counter(sa) % smp::count);
+                cth = _conntrack.get_handle(get_port_or_counter(sa) % smp::count);
+                break;
             case server_socket::load_balancing_algorithm::fixed:
-                return _conntrack.get_handle(_fixed_cpu);
+                cth = _conntrack.get_handle(_fixed_cpu);
+                break;
             default: abort();
             }
-        } ();
+        }
         auto cpu = cth.cpu();
         if (cpu == this_shard_id()) {
             std::unique_ptr<connected_socket_impl> csi(
