@@ -142,6 +142,11 @@ public:
     void on_batch_flush_error() noexcept override;
 };
 
+struct proxy_protocol_v2_header {
+    socket_address remote_address;
+    socket_address local_address;
+};
+
 class posix_ap_server_socket_impl : public server_socket_impl {
     using protocol_and_socket_address = std::tuple<int, socket_address>;
     struct connection {

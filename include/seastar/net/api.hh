@@ -336,6 +336,10 @@ public:
         // to a specific shard in a server given it knows how many shards server has by choosing
         // src port number accordingly.
         port,
+        // This algorithm distributes new connection based on the peer's tcp port (like `port` above),
+        // but takes into consideration the PROXY protocol v2 header if present. All connections to
+        // this server_socket must have the header present.
+        proxy_protocol_v2_and_port,
         // This algorithm distributes all new connections to listen_options::fixed_cpu shard only.
         fixed,
         default_ = connection_distribution
