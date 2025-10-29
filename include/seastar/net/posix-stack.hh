@@ -84,6 +84,8 @@ public:
 
         handle(const handle&) = delete;
         handle(handle&&) = default;
+        handle& operator=(const handle&) = delete;
+        handle& operator=(handle&&) = default;
         ~handle() {
             if (!_lb) {
                 return;
