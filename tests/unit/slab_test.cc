@@ -18,12 +18,13 @@
 /*
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  *
- * To compile: g++ -std=c++14 slab_test.cc
  */
 
+#define BOOST_TEST_MODULE slab
+
+#include <boost/test/unit_test.hpp>
 #include <iostream>
 #include <seastar/core/slab.hh>
-#include <seastar/util/assert.hh>
 
 using namespace seastar;
 
@@ -53,26 +54,32 @@ static void free_vector(slab_allocator<Item>& slab, std::vector<item *>& items) 
     }
 }
 
-static void test_allocation_1(const double growth_factor, const unsigned slab_limit_size) {
+BOOST_AUTO_TEST_CASE(test_allocation_1) {
+    constexpr double growth_factor = 1.25;
+    constexpr unsigned slab_limit_size = 5*1024*1024;
+
     slab_allocator<item> slab(growth_factor, slab_limit_size, max_object_size);
-    size_t size = max_object_size;
+    constexpr size_t size = max_object_size;
 
     slab.print_slab_classes();
 
     std::vector<item *> items;
 
-    SEASTAR_ASSERT(slab_limit_size % size == 0);
+    static_assert(slab_limit_size % size == 0);
     for (auto i = 0u; i < (slab_limit_size / size); i++) {
         auto item = slab.create(size);
         items.push_back(item);
     }
-    SEASTAR_ASSERT(slab.create(size) == nullptr);
+    BOOST_REQUIRE(slab.create(size) == nullptr);
 
     free_vector<item>(slab, items);
     std::cout << __FUNCTION__ << " done!\n";
 }
 
-static void test_allocation_2(const double growth_factor, const unsigned slab_limit_size) {
+BOOST_AUTO_TEST_CASE(test_allocation_2) {
+    constexpr double growth_factor = 1.07; // it's growth_factor used by facebook
+    constexpr unsigned slab_limit_size = 5*1024*1024;
+
     slab_allocator<item> slab(growth_factor, slab_limit_size, max_object_size);
     size_t size = 1024;
 
@@ -91,13 +98,16 @@ static void test_allocation_2(const double growth_factor, const unsigned slab_li
     auto class_size = slab.class_size(size);
     auto per_slab_page = max_object_size / class_size;
     auto available_slab_pages = slab_limit_size / max_object_size;
-    SEASTAR_ASSERT(allocations == (per_slab_page * available_slab_pages));
+    BOOST_REQUIRE_EQUAL(allocations, per_slab_page * available_slab_pages);
 
     free_vector<item>(slab, items);
     std::cout << __FUNCTION__ << " done!\n";
 }
 
-static void test_allocation_with_lru(const double growth_factor, const unsigned slab_limit_size) {
+BOOST_AUTO_TEST_CASE(test_allocation_with_lru) {
+    constexpr double growth_factor = 1.25;
+    constexpr unsigned slab_limit_size = 5*1024*1024;
+
     bi::list<item, bi::member_hook<item, bi::list_member_hook<>, &item::_cache_link>> _cache;
     unsigned evictions = 0;
 
@@ -108,51 +118,46 @@ static void test_allocation_with_lru(const double growth_factor, const unsigned 
     auto max = slab_limit_size / max_object_size;
     for (auto i = 0u; i < max * 1000; i++) {
         auto item = slab.create(size);
-        SEASTAR_ASSERT(item != nullptr);
+        BOOST_REQUIRE(item != nullptr);
         _cache.push_front(*item);
     }
-    SEASTAR_ASSERT(evictions == max * 999);
+    BOOST_REQUIRE_EQUAL(evictions, max * 999);
 
     _cache.clear();
 
     std::cout << __FUNCTION__ << " done!\n";
 }
 
-static void test_limit_is_violated_by_new_class(const double growth_factor, const unsigned slab_limit_size) {
+BOOST_AUTO_TEST_CASE(test_limit_is_violated_by_new_class) {
+    constexpr double growth_factor = 1.25;
+    constexpr unsigned slab_limit_size = 5*1024*1024;
+
     slab_allocator<item> slab(growth_factor, slab_limit_size, max_object_size);
 
     // Exhaust the slab page limit using the largest possible object size.
     // This will consume all `_available_slab_pages`.
-    const size_t large_size = max_object_size;
-    SEASTAR_ASSERT(slab_limit_size % large_size == 0);
+    constexpr size_t large_size = max_object_size;
+    static_assert(slab_limit_size % large_size == 0);
     auto pages_in_limit = slab_limit_size / large_size;
 
     std::vector<item *> items;
     for (auto i = 0u; i < pages_in_limit; i++) {
         auto item = slab.create(large_size);
-        SEASTAR_ASSERT(item != nullptr); // These should succeed
+        BOOST_REQUIRE(item != nullptr); // These should succeed
         items.push_back(item);
     }
 
     // Verify that the limit is enforced for the same slab class.
     // This assertion should pass, as it does in test_allocation_1.
-    SEASTAR_ASSERT(slab.create(large_size) == nullptr);
+    BOOST_REQUIRE(slab.create(large_size) == nullptr);
 
     // According to the memory limit, this should fail.
     const size_t medium_size = 1024;
     item* leaky_item = slab.create(medium_size);
 
     // Assert that the allocation FAILED, proving the limit is now correctly enforced.
-    SEASTAR_ASSERT(leaky_item == nullptr);
+    BOOST_REQUIRE(leaky_item == nullptr);
 
     free_vector<item>(slab, items);
     std::cout << __FUNCTION__ << " done!\n";
-}
-
-int main(int ac, char** av) {
-    test_allocation_1(1.25, 5*1024*1024);
-    test_allocation_2(1.07, 5*1024*1024); // 1.07 is the growth factor used by facebook.
-    test_allocation_with_lru(1.25, 5*1024*1024);
-    test_limit_is_violated_by_new_class(1.25, 5*1024*1024);
-    return 0;
 }
