@@ -62,6 +62,9 @@ void set_routes(routes& r) {
     r.add(operation_type::GET, url("/jf"), h2);
     r.add(operation_type::GET, url("/file").remainder("path"),
             new directory_handler("/"));
+    r.add(operation_type::GET, url("/shard"), new function_handler([] (const_req req) {
+        return seastar::sstring(fmt::format("{}", seastar::this_shard_id()));
+    }));
     demo_json::hello_world.set(r, [] (const_req req) {
         demo_json::my_object obj;
         obj.var1 = req.param.at("var1");
