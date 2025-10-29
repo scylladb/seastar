@@ -24,6 +24,7 @@
 #ifndef SEASTAR_MODULE
 #include <string>
 #include <vector>
+#include <concepts>
 #endif
 
 #include <seastar/core/chunked_fifo.hh>
@@ -34,6 +35,9 @@
 #include <seastar/json/formatter.hh>
 #include <seastar/util/modules.hh>
 #include <seastar/http/types.hh>
+#include <seastar/core/coroutine.hh>
+#include <seastar/coroutine/generator.hh>
+#include <seastar/coroutine/as_future.hh>
 
 namespace seastar {
 
@@ -233,6 +237,12 @@ public:
     }
 };
 
+template <typename T>
+concept Jsonable = requires (T j, output_stream<char>& s) {
+    { j.to_json() } -> std::convertible_to<std::string_view>;
+    { j.write(s) } -> std::same_as<future<>>;
+};
+
 /**
  * The base class for all json objects
  * It holds a list of all the element in it,
@@ -374,6 +384,52 @@ json_return_type::body_writer_type stream_range_as_array(Container val, Func fun
         });
     };
 }
+
+/*!
+ * \brief consume jsonable values from a coroutine generator \c gen and write them
+ * onto the \c out output_stream as a json array.
+ */
+template<Jsonable T, template<typename> class Container>
+future<> generate_array_element(output_stream<char>& out, coroutine::experimental::generator<T, Container>& gen) {
+    bool first = true;
+    co_await out.write("[");
+    while (auto val = co_await gen()) {
+        if (first) {
+            first = false;
+        } else {
+            co_await out.write(", ");
+        }
+        co_await formatter::write(out, *val);
+    }
+    co_await out.write("]");
+}
+
+#if SEASTAR_API_LEVEL >= 8
+
+/*!
+ * \brief return a json body_writer function that consumes jsonable values from a coroutine generator \c gen
+ * and writes them onto its \c output_stream parameter.
+ *
+ * To use it, pass a reference to coroutine::generator \c gen.
+ * For example, if ``gen`` is a coroutine::generator<std::pair<K, V>> and you want to return the keys as json array
+ *
+ * return make_ready_future<json::json_return_type>(generate_array(gen, [](const auto&i) {return i.first}));
+ *
+ * Note that \c gen is passed by reference since we need to return a copyable function but generators cannot be copied.
+ * So the caller is responsible for ensuring that the generator remains valid for the lifetime of the returned function.
+ */
+template<Jsonable T, template<typename> class Container>
+json_return_type::body_writer_type generate_array(coroutine::experimental::generator<T, Container> gen) {
+    return [gen_ = std::move(gen)] (output_stream<char>&& s) mutable -> future<> {
+        auto gen = std::move(gen_);
+        auto out = std::move(s);
+        auto f = co_await coroutine::as_future(generate_array_element(out, gen));
+        co_await out.close();
+        f.get();
+    };
+}
+
+#endif // SEASTAR_API_LEVEL >= 8
 
 /*!
  * \brief capture an object and return a serialize function for it.

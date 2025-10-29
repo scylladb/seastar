@@ -25,6 +25,7 @@
 #include <seastar/testing/test_case.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/vector-data-sink.hh>
+#include <seastar/core/circular_buffer.hh>
 #include <seastar/json/formatter.hh>
 #include <seastar/json/json_elements.hh>
 #include <seastar/testing/thread_test_case.hh>
@@ -32,7 +33,7 @@
 using namespace seastar;
 using namespace json;
 
-SEASTAR_TEST_CASE(test_simple_values) {
+SEASTAR_TEST_CASE(test_values) {
     BOOST_CHECK_EQUAL("3", formatter::to_json(3));
     BOOST_CHECK_EQUAL("3", formatter::to_json(3.0));
     BOOST_CHECK_EQUAL("3.5", formatter::to_json(3.5));
@@ -86,6 +87,13 @@ struct object_json : public json_base {
       subject = e.subject;
       values = e.values;
     }
+
+    object_json(object_json&& e) noexcept {
+        register_params();
+        subject = std::move(e.subject);
+        values = std::move(e.values);
+    }
+
 };
 
 SEASTAR_TEST_CASE(test_jsonable) {
@@ -120,7 +128,6 @@ void formatter_check_expected(sstring expected, F f, bool close = true) {
     BOOST_CHECK_EQUAL(expected, result);
 }
 
-
 SEASTAR_THREAD_TEST_CASE(test_stream_range_as_array) {
     sstring expected = R"([{"subject":"1","values":[1]}, {"subject":"2","values":[2]}, {"subject":"3","values":[3]}])";
     formatter_check_expected(expected, [] (auto& out) {
@@ -134,6 +141,59 @@ SEASTAR_THREAD_TEST_CASE(test_stream_range_as_array) {
         mapper(std::move(out)).get();
     }, false);
 }
+
+#if SEASTAR_API_LEVEL >= 8
+
+SEASTAR_THREAD_TEST_CASE(test_generate_array) {
+    sstring expected = R"([{"subject":"1","values":[1]}, {"subject":"2","values":[2]}, {"subject":"3","values":[3]}])";
+    auto generate_json_values = [] () -> coroutine::experimental::generator<object_json> {
+        for (int i : {1,2,3}) {
+            object_json obj;
+            obj.subject = std::to_string(i);
+            obj.values.push(i);
+            co_yield obj;
+        }
+    };
+
+    // Copy the streamer function on purpose to ensure it doesn't cause
+    // use-after-stack-return.
+    auto streamer = generate_array(generate_json_values());
+
+    formatter_check_expected(expected, [streamer = std::move(streamer)] (auto& out) {
+        streamer(std::move(out)).get();
+    }, false);
+}
+
+namespace {
+template<template<typename> class Container>
+coroutine::experimental::generator<object_json, Container> generate_values_buffered(coroutine::experimental::buffer_size_t size, int count) {
+    for (int i = 1; i <= count; ++i) {
+        object_json obj;
+        obj.subject = std::to_string(i);
+        obj.values.push(i);
+        co_yield obj;
+    }
+}
+
+template<typename T>
+using buffered_container = circular_buffer<T>;
+}
+
+SEASTAR_THREAD_TEST_CASE(test_generate_array_buffered) {
+    sstring expected = R"([{"subject":"1","values":[1]}, {"subject":"2","values":[2]}, {"subject":"3","values":[3]}])";
+    // Test buffer size larger than the number of elements
+    auto gen = generate_values_buffered<buffered_container>(coroutine::experimental::buffer_size_t(16), 3);
+
+    // Copy the streamer function on purpose to ensure it doesn't cause
+    // use-after-stack-return.
+    auto streamer = generate_array(std::move(gen));
+
+    formatter_check_expected(expected, [streamer = std::move(streamer)] (auto& out) {
+        streamer(std::move(out)).get();
+    }, false);
+}
+
+#endif // SEASTAR_API_LEVEL >= 8
 
 SEASTAR_THREAD_TEST_CASE(formatter_write) {
 
