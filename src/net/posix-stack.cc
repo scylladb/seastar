@@ -28,6 +28,7 @@ module;
 #include <functional>
 #include <random>
 #include <variant>
+#include <coroutine>
 
 #include <unistd.h>
 #include <linux/if.h>
@@ -45,6 +46,7 @@ module seastar;
 #else
 #include <seastar/core/loop.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/core/coroutine.hh>
 #include <seastar/net/posix-stack.hh>
 #include <seastar/net/net.hh>
 #include <seastar/net/packet.hh>
@@ -525,7 +527,8 @@ get_port_or_counter(const socket_address& sa) {
 
 future<accept_result>
 posix_server_socket_impl::accept() {
-    return _lfd.accept().then_unpack([this] (pollable_fd fd, socket_address sa) {
+    while (true) { // exited via co_return
+        auto [fd, sa] = co_await _lfd.accept();
         auto cth = [this, &sa] {
             switch(_lba) {
             case server_socket::load_balancing_algorithm::connection_distribution:
@@ -541,16 +544,14 @@ posix_server_socket_impl::accept() {
         if (cpu == this_shard_id()) {
             std::unique_ptr<connected_socket_impl> csi(
                     new posix_connected_socket_impl(sa.family(), _protocol, std::move(fd), std::move(cth), _allocator));
-            return make_ready_future<accept_result>(
-                    accept_result{connected_socket(std::move(csi)), sa});
+            co_return accept_result{connected_socket(std::move(csi)), sa};
         } else {
             // FIXME: future is discarded
             (void)smp::submit_to(cpu, [protocol = _protocol, ssa = _sa, fd = std::move(fd.get_file_desc()), sa, cth = std::move(cth), allocator = _allocator] () mutable {
                 posix_ap_server_socket_impl::move_connected_socket(protocol, ssa, pollable_fd(std::move(fd)), sa, std::move(cth), allocator);
             });
-            return accept();
         }
-    });
+    };
 }
 
 void
