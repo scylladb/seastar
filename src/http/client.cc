@@ -425,6 +425,19 @@ future<> client::do_make_request(connection& con, const request& req, reply_hand
         return handle(rep, std::move(in)).then([this, reply = std::move(reply), &con] {
             if (reply->left_content_length > 0) {
                 auto bytes_left = reply->left_content_length;
+                /*
+                 * Reply with known body size (content_length_source_impl) tracks this counter
+                 * carefully and sets it with the exact number of bytes left to be read. If this
+                 * value is low enough, it's cheaper to read the body up to the end and instantly
+                 * discard it rather than to close the connection and establish a new one for
+                 * next request.
+                 *
+                 * Reply with "dynamic" body (chunked_source_impl) will set this counter to zero
+                 * after reading all body contents, otherwise it will be set to maximum uint64_t
+                 * value, so the below check will be false in this case.
+                 *
+                 * The "HEAD" reply doesn't have body and will report zero left bytes.
+                 */
                 if (bytes_left <= _max_bytes_to_drain) {
                     http_log.trace("content was not fully consumed, {} bytes were left behind, skipping and returning the connection to the pool", bytes_left);
                     return con._read_buf.skip(bytes_left);
