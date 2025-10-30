@@ -157,7 +157,8 @@ class posix_ap_server_socket_impl : public server_socket_impl {
         pollable_fd fd;
         socket_address addr;
         conntrack::handle connection_tracking_handle;
-        connection(pollable_fd xfd, socket_address xaddr, conntrack::handle cth) : fd(std::move(xfd)), addr(xaddr), connection_tracking_handle(std::move(cth)) {}
+        std::optional<proxy_protocol_v2_header> proxy_protocol_header_opt;
+        connection(pollable_fd xfd, socket_address xaddr, conntrack::handle cth, std::optional<proxy_protocol_v2_header> ppho) : fd(std::move(xfd)), addr(xaddr), connection_tracking_handle(std::move(cth)), proxy_protocol_header_opt(std::move(ppho)) {}
     };
     using port_map_t = std::unordered_set<protocol_and_socket_address>;
     using sockets_map_t = std::unordered_map<protocol_and_socket_address, promise<accept_result>>;
@@ -176,7 +177,7 @@ public:
     socket_address local_address() const override {
         return _sa;
     }
-    static void move_connected_socket(int protocol, socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle handle, std::pmr::polymorphic_allocator<char>* allocator);
+    static void move_connected_socket(int protocol, socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle handle, std::optional<proxy_protocol_v2_header> ppho, std::pmr::polymorphic_allocator<char>* allocator);
 
     template <typename T>
     friend class std::hash;
