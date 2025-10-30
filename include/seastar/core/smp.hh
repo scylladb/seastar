@@ -403,6 +403,23 @@ public:
     static std::ranges::range auto all_cpus() noexcept {
         return std::views::iota(0u, count);
     }
+private:
+    template <typename Func>
+    requires std::is_nothrow_copy_constructible_v<Func>
+    static futurize_t<std::invoke_result_t<Func>> copy_and_submit_to(unsigned t, smp_submit_to_options options, const Func& func) noexcept {
+        return submit_to(t, options, Func(func));
+    }
+
+    template <typename Func>
+    requires (!std::is_nothrow_copy_constructible_v<Func>)
+    static futurize_t<std::invoke_result_t<Func>> copy_and_submit_to(unsigned t, smp_submit_to_options options, const Func& func) noexcept {
+        try {
+            return submit_to(t, options, Func(func));
+        } catch (...) {
+            return current_exception_as_future();
+        }
+    }
+public:
     /// Invokes func on all shards.
     ///
     /// \param options the options to forward to the \ref smp::submit_to()
@@ -417,7 +434,7 @@ public:
         static_assert(std::is_same_v<future<>, typename futurize<std::invoke_result_t<Func>>::type>, "bad Func signature");
         static_assert(std::is_nothrow_move_constructible_v<Func>);
         return parallel_for_each(all_cpus(), [options, &func] (unsigned id) {
-            return smp::submit_to(id, options, Func(func));
+            return smp::copy_and_submit_to(id, options, func);
         });
     }
     /// Invokes func on all shards.
@@ -443,13 +460,12 @@ public:
     ///         of \c func.
     /// \returns a future that resolves when all async invocations finish.
     template<typename Func>
-    requires std::is_nothrow_move_constructible_v<Func> &&
-            std::is_nothrow_copy_constructible_v<Func>
+    requires std::is_nothrow_move_constructible_v<Func>
     static future<> invoke_on_others(unsigned cpu_id, smp_submit_to_options options, Func func) noexcept {
         static_assert(std::is_same_v<future<>, typename futurize<std::invoke_result_t<Func>>::type>, "bad Func signature");
         static_assert(std::is_nothrow_move_constructible_v<Func>);
         return parallel_for_each(all_cpus(), [cpu_id, options, func = std::move(func)] (unsigned id) {
-            return id != cpu_id ? smp::submit_to(id, options, Func(func)) : make_ready_future<>();
+            return id != cpu_id ? smp::copy_and_submit_to(id, options, func) : make_ready_future<>();
         });
     }
     /// Invokes func on all other shards.
