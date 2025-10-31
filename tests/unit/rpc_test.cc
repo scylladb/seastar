@@ -1673,7 +1673,7 @@ SEASTAR_THREAD_TEST_CASE(test_rpc_metric_domains) {
         BOOST_REQUIRE(mf != values.end());
         for (auto&& mi : mf->second) {
             for (auto&&li : mi.first.labels()) {
-                if (li.first == "domain" && li.second == domain) {
+                if (li.first == "domain" && li.second.value() == domain) {
                     return mi.second->get_function()().i();
                 }
             }
