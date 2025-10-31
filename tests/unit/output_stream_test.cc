@@ -21,26 +21,17 @@
 
 #include <seastar/core/app-template.hh>
 #include <seastar/core/shared_ptr.hh>
-#include <seastar/core/vector-data-sink.hh>
 #include <seastar/core/loop.hh>
+#include <seastar/core/iostream.hh>
 #include <seastar/util/later.hh>
 #include <seastar/core/sstring.hh>
-#include <seastar/net/packet.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <vector>
+#include "memory-data-sink.hh"
 
 using namespace seastar;
 using namespace net;
-
-static sstring to_sstring(const packet& p) {
-    sstring res = uninitialized_string(p.len());
-    auto i = res.begin();
-    for (auto& frag : p.fragments()) {
-        i = std::copy(frag.base, frag.base + frag.size, i);
-    }
-    return res;
-}
 
 struct stream_maker {
     output_stream_options opts;
@@ -61,27 +52,41 @@ struct stream_maker {
     }
 };
 
+class checker_sink final : public data_sink_impl {
+    const std::vector<std::string> _expected;
+    std::vector<std::string>::const_iterator _cur;
+public:
+    checker_sink(std::vector<std::string> expected)
+        : _expected(std::move(expected))
+        , _cur(_expected.begin())
+    { }
+
+    future<> put(std::span<temporary_buffer<char>> bufs) override {
+        for (auto&& buf : bufs) {
+            BOOST_REQUIRE(_cur != _expected.end());
+            BOOST_REQUIRE_EQUAL(internal::to_sstring<sstring>(buf), *_cur++);
+        }
+        return make_ready_future<>();
+    }
+
+    future<> close() override {
+        BOOST_REQUIRE(_cur == _expected.end());
+        return make_ready_future<>();
+    }
+};
+
 template <typename T, typename StreamConstructor>
 future<> assert_split(StreamConstructor stream_maker, std::initializer_list<T> write_calls,
         std::vector<std::string> expected_split) {
     static int i = 0;
     BOOST_TEST_MESSAGE("checking split: " << i++);
     auto sh_write_calls = make_lw_shared<std::vector<T>>(std::move(write_calls));
-    auto sh_expected_splits = make_lw_shared<std::vector<std::string>>(std::move(expected_split));
-    auto v = make_shared<std::vector<packet>>();
-    auto out = stream_maker(data_sink(std::make_unique<vector_data_sink>(*v)));
+    auto out = stream_maker(data_sink(std::make_unique<checker_sink>(std::move(expected_split))));
 
     return do_for_each(sh_write_calls->begin(), sh_write_calls->end(), [out, sh_write_calls] (auto&& chunk) {
         return out->write(chunk);
-    }).then([out, v, sh_expected_splits] {
-        return out->close().then([out, v, sh_expected_splits] {
-            BOOST_REQUIRE_EQUAL(v->size(), sh_expected_splits->size());
-            int i = 0;
-            for (auto&& chunk : *sh_expected_splits) {
-                BOOST_REQUIRE(to_sstring((*v)[i]) == chunk);
-                i++;
-            }
-        });
+    }).then([out] {
+        return out->close().finally([out] {});
     });
 }
 
@@ -120,20 +125,17 @@ SEASTAR_TEST_CASE(test_splitting_with_trimming) {
         ;
 }
 
-SEASTAR_TEST_CASE(test_flush_on_empty_buffer_does_not_push_empty_packet_down_stream) {
-    auto v = make_shared<std::vector<packet>>();
-    auto out = make_shared<output_stream<char>>(
-        data_sink(std::make_unique<vector_data_sink>(*v)), 8);
+SEASTAR_THREAD_TEST_CASE(test_flush_on_empty_buffer_does_not_push_empty_packet_down_stream) {
+    std::stringstream ss;
+    auto out = output_stream<char>(testing::memory_data_sink(ss), 8);
 
-    return out->flush().then([v, out] {
-        BOOST_REQUIRE(v->empty());
-        return out->close();
-    }).finally([out]{});
+    out.flush().get();
+    BOOST_REQUIRE(ss.str().empty());
 }
 
 SEASTAR_THREAD_TEST_CASE(test_simple_write) {
-    auto vec = std::vector<net::packet>{};
-    auto out = output_stream<char>(data_sink(std::make_unique<vector_data_sink>(vec)), 8);
+    std::stringstream ss;
+    auto out = output_stream<char>(testing::memory_data_sink(ss), 8);
 
     auto value1 = sstring("te");
     out.write(value1).get();
@@ -148,14 +150,8 @@ SEASTAR_THREAD_TEST_CASE(test_simple_write) {
     out.close().get();
 
     auto value = value1 + value2 + value3;
-    auto packets = net::packet{};
-    for (auto& p : vec) {
-        packets.append(std::move(p));
-    }
-    packets.linearize();
-    auto buf = packets.release();
-    BOOST_REQUIRE_EQUAL(buf.size(), 1);
-    BOOST_REQUIRE_EQUAL(sstring(buf.front().get(), buf.front().size()), value);
+
+    BOOST_REQUIRE_EQUAL(ss.str(), value);
 }
 
 namespace seastar::testing {
@@ -173,8 +169,8 @@ public:
 }
 
 SEASTAR_THREAD_TEST_CASE(test_mixed_mode_write) {
-    auto vec = std::vector<net::packet>{};
-    auto out = output_stream<char>(data_sink(std::make_unique<vector_data_sink>(vec)), 8);
+    std::stringstream ss;
+    auto out = output_stream<char>(testing::memory_data_sink(ss), 8);
 
     // First -- put some data in "buffered" mode and check that
     // stream gains a buffer but not a zc packet
@@ -191,12 +187,5 @@ SEASTAR_THREAD_TEST_CASE(test_mixed_mode_write) {
 
     out.close().get();
 
-    auto packets = net::packet{};
-    for (auto& p : vec) {
-        packets.append(std::move(p));
-    }
-    packets.linearize();
-    auto buf = packets.release();
-    BOOST_REQUIRE_EQUAL(buf.size(), 1);
-    BOOST_REQUIRE_EQUAL(sstring(buf.front().get(), buf.front().size()), "test");
+    BOOST_REQUIRE_EQUAL(ss.str(), "test");
 }

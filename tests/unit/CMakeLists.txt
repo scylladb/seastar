@@ -347,7 +347,8 @@ seastar_add_test (sharded
 seastar_add_test (httpd
   SOURCES
     httpd_test.cc
-    loopback_socket.hh)
+    loopback_socket.hh
+    memory-data-sink.hh)
 
 seastar_add_test (websocket
   SOURCES websocket_test.cc)
@@ -359,7 +360,9 @@ seastar_add_test (network_interface
   SOURCES network_interface_test.cc)
 
 seastar_add_test (json_formatter
-  SOURCES json_formatter_test.cc)
+  SOURCES
+    json_formatter_test.cc
+    memory-data-sink.hh)
 
 seastar_add_test (libc_wrapper
   SOURCES libc_wrapper_test.cc)
@@ -382,7 +385,9 @@ seastar_add_test (noncopyable_function
   SOURCES noncopyable_function_test.cc)
 
 seastar_add_test (output_stream
-  SOURCES output_stream_test.cc)
+  SOURCES
+    output_stream_test.cc
+    memory-data-sink.hh)
 
 seastar_add_test (packet
   KIND BOOST
