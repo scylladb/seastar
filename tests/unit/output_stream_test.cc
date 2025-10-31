@@ -29,6 +29,7 @@
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <vector>
+#include "memory-data-sink.hh"
 
 using namespace seastar;
 using namespace net;
@@ -121,17 +122,16 @@ SEASTAR_TEST_CASE(test_splitting_with_trimming) {
 }
 
 SEASTAR_THREAD_TEST_CASE(test_flush_on_empty_buffer_does_not_push_empty_packet_down_stream) {
-    auto v = make_shared<std::vector<packet>>();
-    auto out = output_stream<char>(
-        data_sink(std::make_unique<vector_data_sink>(*v)), 8);
+    std::stringstream ss;
+    auto out = output_stream<char>(testing::memory_data_sink(ss), 8);
 
     out.flush().get();
-    BOOST_REQUIRE(v->empty());
+    BOOST_REQUIRE(ss.str().empty());
 }
 
 SEASTAR_THREAD_TEST_CASE(test_simple_write) {
-    auto vec = std::vector<net::packet>{};
-    auto out = output_stream<char>(data_sink(std::make_unique<vector_data_sink>(vec)), 8);
+    std::stringstream ss;
+    auto out = output_stream<char>(testing::memory_data_sink(ss), 8);
 
     auto value1 = sstring("te");
     out.write(value1).get();
@@ -146,14 +146,8 @@ SEASTAR_THREAD_TEST_CASE(test_simple_write) {
     out.close().get();
 
     auto value = value1 + value2 + value3;
-    auto packets = net::packet{};
-    for (auto& p : vec) {
-        packets.append(std::move(p));
-    }
-    packets.linearize();
-    auto buf = packets.release();
-    BOOST_REQUIRE_EQUAL(buf.size(), 1);
-    BOOST_REQUIRE_EQUAL(sstring(buf.front().get(), buf.front().size()), value);
+
+    BOOST_REQUIRE_EQUAL(ss.str(), value);
 }
 
 namespace seastar::testing {
@@ -171,8 +165,8 @@ public:
 }
 
 SEASTAR_THREAD_TEST_CASE(test_mixed_mode_write) {
-    auto vec = std::vector<net::packet>{};
-    auto out = output_stream<char>(data_sink(std::make_unique<vector_data_sink>(vec)), 8);
+    std::stringstream ss;
+    auto out = output_stream<char>(testing::memory_data_sink(ss), 8);
 
     // First -- put some data in "buffered" mode and check that
     // stream gains a buffer but not a zc packet
@@ -189,12 +183,5 @@ SEASTAR_THREAD_TEST_CASE(test_mixed_mode_write) {
 
     out.close().get();
 
-    auto packets = net::packet{};
-    for (auto& p : vec) {
-        packets.append(std::move(p));
-    }
-    packets.linearize();
-    auto buf = packets.release();
-    BOOST_REQUIRE_EQUAL(buf.size(), 1);
-    BOOST_REQUIRE_EQUAL(sstring(buf.front().get(), buf.front().size()), "test");
+    BOOST_REQUIRE_EQUAL(ss.str(), "test");
 }

@@ -385,7 +385,9 @@ seastar_add_test (noncopyable_function
   SOURCES noncopyable_function_test.cc)
 
 seastar_add_test (output_stream
-  SOURCES output_stream_test.cc)
+  SOURCES
+    output_stream_test.cc
+    memory-data-sink.hh)
 
 seastar_add_test (packet
   KIND BOOST
