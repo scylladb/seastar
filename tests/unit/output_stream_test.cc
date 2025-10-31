@@ -120,15 +120,13 @@ SEASTAR_TEST_CASE(test_splitting_with_trimming) {
         ;
 }
 
-SEASTAR_TEST_CASE(test_flush_on_empty_buffer_does_not_push_empty_packet_down_stream) {
+SEASTAR_THREAD_TEST_CASE(test_flush_on_empty_buffer_does_not_push_empty_packet_down_stream) {
     auto v = make_shared<std::vector<packet>>();
-    auto out = make_shared<output_stream<char>>(
+    auto out = output_stream<char>(
         data_sink(std::make_unique<vector_data_sink>(*v)), 8);
 
-    return out->flush().then([v, out] {
-        BOOST_REQUIRE(v->empty());
-        return out->close();
-    }).finally([out]{});
+    out.flush().get();
+    BOOST_REQUIRE(v->empty());
 }
 
 SEASTAR_THREAD_TEST_CASE(test_simple_write) {
