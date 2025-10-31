@@ -20,6 +20,7 @@
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include "loopback_socket.hh"
+#include "memory-data-sink.hh"
 #include <boost/algorithm/string.hpp>
 #include <seastar/core/thread.hh>
 #include <seastar/util/noncopyable_function.hh>
@@ -393,56 +394,13 @@ SEASTAR_TEST_CASE(test_json_path) {
     });
 }
 
-/*!
- * \brief a helper data sink that stores everything it gets in a stringstream
- */
-class memory_data_sink_impl : public data_sink_impl {
-    std::stringstream& _ss;
-public:
-    memory_data_sink_impl(std::stringstream& ss) : _ss(ss) {
-    }
-#if SEASTAR_API_LEVEL >= 9
-    future<> put(std::span<temporary_buffer<char>> bufs) override {
-        for (auto& buf : bufs) {
-            _ss.write(buf.get(), buf.size());
-        }
-        return make_ready_future<>();
-    }
-#else
-    virtual future<> put(net::packet data)  override {
-        return data_sink_impl::fallback_put(std::move(data));
-    }
-    virtual future<> put(temporary_buffer<char> buf) override {
-        _ss.write(buf.get(), buf.size());
-        return make_ready_future<>();
-    }
-#endif
-    virtual future<> flush() override {
-        return make_ready_future<>();
-    }
-
-    virtual future<> close() override {
-        return make_ready_future<>();
-    }
-
-    virtual size_t buffer_size() const noexcept override {
-        return 1024;
-    }
-};
-
-class memory_data_sink : public data_sink {
-public:
-    memory_data_sink(std::stringstream& ss)
-        : data_sink(std::make_unique<memory_data_sink_impl>(ss)) {}
-};
-
 future<> test_transformer_stream(std::stringstream& ss, content_replace& cr, std::vector<sstring>&& buffer_parts) {
     std::unique_ptr<seastar::http::request> req = std::make_unique<seastar::http::request>();
     ss.str("");
     req->_headers["Host"] = "localhost";
     output_stream_options opts;
     opts.trim_to_size = true;
-    return do_with(output_stream<char>(cr.transform(std::move(req), "json", output_stream<char>(memory_data_sink(ss), 32000, opts))),
+    return do_with(output_stream<char>(cr.transform(std::move(req), "json", output_stream<char>(testing::memory_data_sink(ss), 32000, opts))),
             std::vector<sstring>(std::move(buffer_parts)), [] (output_stream<char>& os, std::vector<sstring>& parts) {
         return do_for_each(parts, [&os](auto& p) {
             return os.write(p);
@@ -456,7 +414,7 @@ SEASTAR_TEST_CASE(test_transformer) {
     return do_with(std::stringstream(), content_replace("json"), [] (std::stringstream& ss, content_replace& cr) {
         output_stream_options opts;
         opts.trim_to_size = true;
-        return do_with(output_stream<char>(cr.transform(std::make_unique<seastar::http::request>(), "html", output_stream<char>(memory_data_sink(ss), 32000, opts))),
+        return do_with(output_stream<char>(cr.transform(std::make_unique<seastar::http::request>(), "html", output_stream<char>(testing::memory_data_sink(ss), 32000, opts))),
                 [] (output_stream<char>& os) {
             return os.write(sstring("hello-{{Protocol}}-xyz-{{Host}}")).then([&os] {
                 return os.close();
@@ -2344,7 +2302,7 @@ SEASTAR_THREAD_TEST_CASE(test_content_length_data_sink) {
         size_t expected = 0;
         std::stringstream ss;
         sstring expected_ss;
-        output_stream<char> data = output_stream<char>(memory_data_sink(ss));
+        output_stream<char> data = output_stream<char>(testing::memory_data_sink(ss));
         output_stream<char> out = http::internal::make_http_content_length_output_stream(data, len, written);
         BOOST_CHECK_EQUAL(written, 0);
 
@@ -2389,7 +2347,7 @@ SEASTAR_THREAD_TEST_CASE(test_reply_cookies) {
     reply->add_header("Content-Encoding", "gzip");
 
     std::stringstream ss;
-    auto os = output_stream<char>(data_sink(std::make_unique<memory_data_sink_impl>(ss)));
+    auto os = output_stream<char>(data_sink(std::make_unique<testing::memory_data_sink_impl>(ss)));
     auto close_os = deferred_close(os);
 
     reply->write_reply_headers(os).get();

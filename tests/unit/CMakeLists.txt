@@ -347,7 +347,8 @@ seastar_add_test (sharded
 seastar_add_test (httpd
   SOURCES
     httpd_test.cc
-    loopback_socket.hh)
+    loopback_socket.hh
+    memory-data-sink.hh)
 
 seastar_add_test (websocket
   SOURCES websocket_test.cc)
