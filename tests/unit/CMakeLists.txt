@@ -360,7 +360,9 @@ seastar_add_test (network_interface
   SOURCES network_interface_test.cc)
 
 seastar_add_test (json_formatter
-  SOURCES json_formatter_test.cc)
+  SOURCES
+    json_formatter_test.cc
+    memory-data-sink.hh)
 
 seastar_add_test (libc_wrapper
   SOURCES libc_wrapper_test.cc)

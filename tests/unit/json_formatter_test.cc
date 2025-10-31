@@ -24,10 +24,10 @@
 #include <seastar/core/do_with.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/core/sstring.hh>
-#include <seastar/core/vector-data-sink.hh>
 #include <seastar/json/formatter.hh>
 #include <seastar/json/json_elements.hh>
 #include <seastar/testing/thread_test_case.hh>
+#include "memory-data-sink.hh"
 
 using namespace seastar;
 using namespace json;
@@ -101,23 +101,15 @@ SEASTAR_TEST_CASE(test_jsonable) {
 
 template<typename F>
 void formatter_check_expected(sstring expected, F f, bool close = true) {
-    auto vec = std::vector<net::packet>{};
-    auto out = output_stream<char>(data_sink(std::make_unique<vector_data_sink>(vec)), 8);
+    std::stringstream ss;
+    auto out = output_stream<char>(testing::memory_data_sink(ss), 8);
 
     f(out);
     if (close) {
         out.close().get();
     }
 
-    auto packets = net::packet{};
-    for (auto &p : vec) {
-      packets.append(std::move(p));
-    }
-    packets.linearize();
-    auto buf = packets.release();
-
-    sstring result(buf.front().get(), buf.front().size());
-    BOOST_CHECK_EQUAL(expected, result);
+    BOOST_CHECK_EQUAL(expected, ss.str());
 }
 
 
