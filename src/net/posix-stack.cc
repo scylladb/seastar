@@ -501,6 +501,21 @@ public:
     }
 };
 
+static
+unsigned
+get_port_or_counter(const socket_address& sa) {
+    static thread_local constinit unsigned counter = 0;
+    switch (sa.family()) {
+    case AF_INET:
+        return ntoh(sa.as_posix_sockaddr_in().sin_port);
+    case AF_INET6:
+        return ntoh(sa.as_posix_sockaddr_in6().sin6_port);
+    default:
+        // AF_UNIX? Shouldn't happen but not worth raising an error for it
+        return counter++;
+    }
+}
+
 future<accept_result>
 posix_server_socket_impl::accept() {
     return _lfd.accept().then_unpack([this] (pollable_fd fd, socket_address sa) {
@@ -509,7 +524,7 @@ posix_server_socket_impl::accept() {
             case server_socket::load_balancing_algorithm::connection_distribution:
                 return _conntrack.get_handle();
             case server_socket::load_balancing_algorithm::port:
-                return _conntrack.get_handle(ntoh(sa.as_posix_sockaddr_in().sin_port) % smp::count);
+                return _conntrack.get_handle(get_port_or_counter(sa) % smp::count);
             case server_socket::load_balancing_algorithm::fixed:
                 return _conntrack.get_handle(_fixed_cpu);
             default: abort();
