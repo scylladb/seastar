@@ -2234,3 +2234,39 @@ SEASTAR_TEST_CASE(test_cipher_suite_and_protocol_version_for_non_tls_connection,
     BOOST_CHECK_THROW(co_await tls::get_cipher_suite(c), std::invalid_argument);
     BOOST_CHECK_THROW(co_await tls::get_protocol_version(c), std::invalid_argument);
 }
+
+SEASTAR_THREAD_TEST_CASE(test_early_server_disconnect) {
+    // This test ensures that we do not crash when the server closes before we wrap
+    // the client in a TLS client
+    tls::credentials_builder b;
+
+    b.set_x509_key_file(certfile("test.crt"), certfile("test.key"), tls::x509_crt_format::PEM).get();
+    b.set_x509_trust_file(certfile("catest.pem"), tls::x509_crt_format::PEM).get();
+
+    auto creds = b.build_certificate_credentials();
+    auto serv = b.build_server_credentials();
+
+    ::listen_options opts;
+    opts.reuse_address = true;
+    opts.set_fixed_cpu(this_shard_id());
+
+    auto addr = ::make_ipv4_address({0x7f000001, 4712});
+    auto server = tls::listen(serv, addr, opts);
+
+    auto sa = server.accept();
+    auto c = engine().connect(addr).get();
+
+    {
+        auto s = sa.get();
+        s.connection.input().close().get();
+        s.connection.output().close().get();
+        s.connection.shutdown_input();
+        s.connection.shutdown_output();
+    }
+
+    // Simulate the server closing the connection early
+    c.input().close().get();
+    c.output().close().get();
+
+    auto _ = tls::wrap_client(creds, std::move(c), tls::tls_options{}).get();
+}

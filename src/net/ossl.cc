@@ -987,8 +987,20 @@ public:
     session(session_type t, shared_ptr<tls::certificate_credentials> creds,
             std::unique_ptr<net::connected_socket_impl> sock, tls_options options = {})
       : _sock(std::move(sock))
-      , _local_address(fmt::to_string(_sock->local_address()))
-      , _remote_address(fmt::to_string(_sock->remote_address()))
+      , _local_address([this]() -> sstring {
+            try {
+                return fmt::to_string(_sock->local_address());
+            } catch(const std::system_error&) {
+                return "DISCONNECTED";
+            }
+        }())
+      , _remote_address([this]() -> sstring {
+            try {
+                return fmt::to_string(_sock->remote_address());
+            } catch(const std::system_error&) {
+                return "DISCONNECTED";
+            }
+        }())
       , _creds(creds->_impl)
       , _in(_sock->source())
       , _out(_sock->sink())
@@ -1764,10 +1776,14 @@ public:
         });
     }
 
+    // Returns the local address formatted as a string (e.g. 'ip:port') or
+    // `DISCONNECTED` if not connected
     const sstring& local_address() const noexcept {
         return _local_address;
     }
 
+    // Returns the remote address formatted as a string (e.g. 'ip:port') or
+    // `DISCONNECTED` if not connected
     const sstring& remote_address() const noexcept {
         return _remote_address;
     }
