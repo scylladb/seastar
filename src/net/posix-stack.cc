@@ -28,6 +28,7 @@ module;
 #include <functional>
 #include <random>
 #include <variant>
+#include <coroutine>
 
 #include <unistd.h>
 #include <linux/if.h>
@@ -45,6 +46,8 @@ module seastar;
 #else
 #include <seastar/core/loop.hh>
 #include <seastar/core/reactor.hh>
+#include <seastar/core/coroutine.hh>
+#include <seastar/core/byteorder.hh>
 #include <seastar/net/posix-stack.hh>
 #include <seastar/net/net.hh>
 #include <seastar/net/packet.hh>
@@ -234,12 +237,12 @@ static void shutdown_socket_fd(pollable_fd& fd, int how) noexcept {
     }
 }
 
-class posix_connected_socket_impl final : public connected_socket_impl {
+class posix_connected_socket_impl : public connected_socket_impl {
     pollable_fd _fd;
     const posix_connected_socket_operations* _ops;
     conntrack::handle _handle;
     std::pmr::polymorphic_allocator<char>* _allocator;
-private:
+public:
     explicit posix_connected_socket_impl(sa_family_t family, int protocol, pollable_fd fd, std::pmr::polymorphic_allocator<char>* allocator=memory::malloc_allocator) :
         _fd(std::move(fd)), _ops(get_posix_connected_socket_ops(family, protocol)), _allocator(allocator) {}
     explicit posix_connected_socket_impl(sa_family_t family, int protocol, pollable_fd fd, conntrack::handle&& handle,
@@ -301,6 +304,32 @@ public:
     friend class posix_network_stack;
     friend class posix_ap_network_stack;
     friend class posix_socket_impl;
+};
+
+// Like posix_connected_socket_impl, but overrides local_address() and remote_address()
+// to return the addresses from the PROXY protocol v2 header.
+class posix_proxied_connected_socket_impl final : public posix_connected_socket_impl {
+    socket_address _proxy_local_addr;
+    socket_address _proxy_remote_addr;
+public:
+    posix_proxied_connected_socket_impl(
+            sa_family_t family,
+            int protocol,
+            pollable_fd fd,
+            conntrack::handle&& handle,
+            socket_address proxy_local_addr,
+            socket_address proxy_remote_addr,
+            std::pmr::polymorphic_allocator<char>* allocator = memory::malloc_allocator)
+        : posix_connected_socket_impl(family, protocol, std::move(fd), std::move(handle), allocator)
+        , _proxy_local_addr(proxy_local_addr)
+        , _proxy_remote_addr(proxy_remote_addr) {
+    }
+    virtual socket_address local_address() const noexcept override {
+        return _proxy_local_addr;
+    }
+    virtual socket_address remote_address() const noexcept override {
+        return _proxy_remote_addr;
+    }
 };
 
 static void resolve_outgoing_address(socket_address& a) {
@@ -501,34 +530,179 @@ public:
     }
 };
 
+static
+proxy_protocol_v2_header
+local_proxy_protocol_v2_header(const pollable_fd& pfd) {
+    auto& fd = pfd.get_file_desc();
+
+    auto local_sa = fd.get_address();
+    auto remote_sa = fd.get_remote_address();
+
+    proxy_protocol_v2_header header = {
+        .remote_address = remote_sa,
+        .local_address = local_sa,
+    };
+
+    return header;
+}
+
+// Parses proxy protocol v2 header; returns std::nullopt if no valid header is found.
+static
+future<std::optional<proxy_protocol_v2_header>>
+read_proxy_protocol_v2_header(pollable_fd& fd) {
+    constexpr size_t pp2_header_len = 16;
+    char header_buf[pp2_header_len];
+    auto n_read = co_await fd.read_some(header_buf, pp2_header_len);
+    if (n_read < pp2_header_len) {
+        co_return std::nullopt;
+    }
+    static const char pp2_signature[12] = {
+        0x0d, 0x0a, 0x0d, 0x0a, 0x00, 0x0d, 0x0a, 0x51, 0x55, 0x49, 0x54, 0x0a
+    };
+    if (std::memcmp(header_buf, pp2_signature, sizeof(pp2_signature)) != 0) {
+        co_return std::nullopt;
+    }
+
+    auto len = read_be<uint16_t>(header_buf + 14);
+
+    char stack_buffer[36]; // Suitable for IPv6 without extra TLVs
+    std::unique_ptr<char[]> heap_buffer;
+    auto* buffer = stack_buffer;
+
+    if (len > sizeof(stack_buffer)) {
+        heap_buffer = std::make_unique<char[]>(len);
+        buffer = heap_buffer.get();
+    }
+
+    auto xlen = co_await fd.read_some(buffer, len);
+    if (xlen < len) {
+        co_return std::nullopt;
+    }
+
+    uint8_t fam_proto = header_buf[13];
+    switch (header_buf[12]) { // version and command
+    case 0x20: // v2, LOCAL
+        if (fam_proto != 0x00) { // UNSPEC
+            co_return std::nullopt;
+        }
+        co_return local_proxy_protocol_v2_header(fd);
+    case 0x21: // v2, PROXY
+        // Mainline continues after the switch
+        break;
+    default:   // Not defined, must reject
+        co_return std::nullopt;
+    }
+
+    auto fam = fam_proto >> 4;
+    auto proto = fam_proto & 0x0F;
+
+    if (proto != 0x1) { // STREAM
+        co_return std::nullopt;
+    }
+
+    proxy_protocol_v2_header header;
+
+    switch (fam) {
+    case 0x1: { // INET
+        if (len < 12) {
+            co_return std::nullopt;
+        }
+        header.remote_address = ipv4_addr(inet_address(copy_reinterpret_cast<in_addr>(buffer)), read_be<uint16_t>(buffer + 8));
+        header.local_address = ipv4_addr(inet_address(copy_reinterpret_cast<in_addr>(buffer + 4)), read_be<uint16_t>(buffer + 10));
+        break;
+    }
+    case 0x2: { // INET6
+        if (len < 36) {
+            co_return std::nullopt;
+        }
+        header.remote_address = ipv6_addr(inet_address(copy_reinterpret_cast<in6_addr>(buffer)), read_be<uint16_t>(buffer + 32));
+        header.local_address = ipv6_addr(inet_address(copy_reinterpret_cast<in6_addr>(buffer + 16)), read_be<uint16_t>(buffer + 34));
+        break;
+    }
+    default:
+        co_return std::nullopt;
+    }
+    co_return header;
+}
+
+static
+std::unique_ptr<connected_socket_impl>
+make_maybe_proxied_connected_socket_impl(
+        sa_family_t family,
+        int protocol,
+        pollable_fd fd,
+        conntrack::handle&& handle,
+        std::optional<proxy_protocol_v2_header> proxy_protocol_header_opt,
+        std::pmr::polymorphic_allocator<char>* allocator = memory::malloc_allocator) {
+    if (proxy_protocol_header_opt) {
+        return std::make_unique<posix_proxied_connected_socket_impl>(
+            family,
+            protocol,
+            std::move(fd),
+            std::move(handle),
+            std::move(proxy_protocol_header_opt->local_address),
+            std::move(proxy_protocol_header_opt->remote_address),
+            allocator);
+    } else {
+        return std::make_unique<posix_connected_socket_impl>(
+            family,
+            protocol,
+            std::move(fd),
+            std::move(handle),
+            allocator);
+    }
+}
+
 future<accept_result>
 posix_server_socket_impl::accept() {
-    return _lfd.accept().then_unpack([this] (pollable_fd fd, socket_address sa) {
-        auto cth = [this, &sa] {
-            switch(_lba) {
-            case server_socket::load_balancing_algorithm::connection_distribution:
-                return _conntrack.get_handle();
-            case server_socket::load_balancing_algorithm::port:
-                return _conntrack.get_handle(ntoh(sa.as_posix_sockaddr_in().sin_port) % smp::count);
-            case server_socket::load_balancing_algorithm::fixed:
-                return _conntrack.get_handle(_fixed_cpu);
-            default: abort();
+    while (true) { // exited via co_return
+        auto [fd, sa] = co_await _lfd.accept();
+        auto cth = conntrack::handle();
+        std::optional<proxy_protocol_v2_header> proxy_protocol_header_opt;
+        switch(_lba) {
+        case server_socket::load_balancing_algorithm::connection_distribution:
+            cth = _conntrack.get_handle();
+            break;
+        case server_socket::load_balancing_algorithm::port:
+            cth = _conntrack.get_handle(ntoh(sa.as_posix_sockaddr_in().sin_port) % smp::count);
+            break;
+        case server_socket::load_balancing_algorithm::proxy_protocol_v2_and_port: {
+            proxy_protocol_header_opt = co_await read_proxy_protocol_v2_header(fd);
+            if (!proxy_protocol_header_opt) {
+                continue; // drop the connection
             }
-        } ();
+            auto& proxy_protocol_header = *proxy_protocol_header_opt;
+            auto& psa = proxy_protocol_header.remote_address;
+            cth = _conntrack.get_handle(ntoh(psa.as_posix_sockaddr_in().sin_port) % smp::count);
+            break;
+        }
+        case server_socket::load_balancing_algorithm::fixed:
+            cth = _conntrack.get_handle(_fixed_cpu);
+            break;
+        default: abort();
+        }
+
+        if (proxy_protocol_header_opt) {
+            sa = proxy_protocol_header_opt->local_address;
+        }
+
         auto cpu = cth.cpu();
         if (cpu == this_shard_id()) {
-            std::unique_ptr<connected_socket_impl> csi(
-                    new posix_connected_socket_impl(sa.family(), _protocol, std::move(fd), std::move(cth), _allocator));
-            return make_ready_future<accept_result>(
-                    accept_result{connected_socket(std::move(csi)), sa});
+            auto csi = make_maybe_proxied_connected_socket_impl(
+                sa.family(),
+                _protocol,
+                std::move(fd),
+                std::move(cth),
+                std::move(proxy_protocol_header_opt),
+                _allocator);
+            co_return accept_result{connected_socket(std::move(csi)), sa};
         } else {
             // FIXME: future is discarded
-            (void)smp::submit_to(cpu, [protocol = _protocol, ssa = _sa, fd = std::move(fd.get_file_desc()), sa, cth = std::move(cth), allocator = _allocator] () mutable {
-                posix_ap_server_socket_impl::move_connected_socket(protocol, ssa, pollable_fd(std::move(fd)), sa, std::move(cth), allocator);
+            (void)smp::submit_to(cpu, [protocol = _protocol, ssa = _sa, fd = std::move(fd.get_file_desc()), sa, cth = std::move(cth), ppho = std::move(proxy_protocol_header_opt), allocator = _allocator] () mutable {
+                posix_ap_server_socket_impl::move_connected_socket(protocol, ssa, pollable_fd(std::move(fd)), sa, std::move(cth), std::move(ppho), allocator);
             });
-            return accept();
         }
-    });
+    };
 }
 
 void
@@ -608,19 +782,25 @@ socket_address posix_reuseport_server_socket_impl::local_address() const {
 }
 
 void
-posix_ap_server_socket_impl::move_connected_socket(int protocol, socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle cth, std::pmr::polymorphic_allocator<char>* allocator) {
+posix_ap_server_socket_impl::move_connected_socket(int protocol, socket_address sa, pollable_fd fd, socket_address addr, conntrack::handle cth, std::optional<proxy_protocol_v2_header> ppho, std::pmr::polymorphic_allocator<char>* allocator) {
     auto t_sa = std::make_tuple(protocol, sa);
     auto i = sockets.find(t_sa);
     if (i != sockets.end()) {
         try {
-            std::unique_ptr<connected_socket_impl> csi(new posix_connected_socket_impl(sa.family(), protocol, std::move(fd), std::move(cth), allocator));
+            auto csi = make_maybe_proxied_connected_socket_impl(
+                sa.family(),
+                protocol,
+                std::move(fd),
+                std::move(cth),
+                std::move(ppho),
+                allocator);
             i->second.set_value(accept_result{connected_socket(std::move(csi)), std::move(addr)});
         } catch (...) {
             i->second.set_exception(std::current_exception());
         }
         sockets.erase(i);
     } else {
-        conn_q.emplace(std::piecewise_construct, std::make_tuple(t_sa), std::make_tuple(std::move(fd), std::move(addr), std::move(cth)));
+        conn_q.emplace(std::piecewise_construct, std::make_tuple(t_sa), std::make_tuple(std::move(fd), std::move(addr), std::move(cth), std::move(ppho)));
     }
 }
 
