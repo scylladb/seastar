@@ -285,10 +285,10 @@ public:
     int get_sockopt(int level, int optname, void* data, size_t len) const override {
         return _ops->get_sockopt(_fd.get_file_desc(), level, optname, data, len);
     }
-    socket_address local_address() const noexcept override {
+    socket_address local_address() const override {
         return _ops->local_address(_fd.get_file_desc());
     }
-    socket_address remote_address() const noexcept override {
+    socket_address remote_address() const override {
         return _ops->remote_address(_fd.get_file_desc());
     }
     future<> wait_input_shutdown() override {
