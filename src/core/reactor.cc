@@ -325,14 +325,6 @@ reactor::do_send(pollable_fd_state& fd, const void* buffer, size_t len) {
 future<size_t>
 reactor::do_sendmsg(pollable_fd_state& fd, std::span<iovec> iovs, size_t len) {
     return writeable(fd).then([this, &fd, iovs, len] () mutable {
-        static_assert(offsetof(iovec, iov_base) == offsetof(net::fragment, base) &&
-            sizeof(iovec::iov_base) == sizeof(net::fragment::base) &&
-            offsetof(iovec, iov_len) == offsetof(net::fragment, size) &&
-            sizeof(iovec::iov_len) == sizeof(net::fragment::size) &&
-            alignof(iovec) == alignof(net::fragment) &&
-            sizeof(iovec) == sizeof(net::fragment)
-            , "net::fragment and iovec should be equivalent");
-
         msghdr mh = {};
         mh.msg_iov = iovs.data();
         mh.msg_iovlen = std::min<size_t>(iovs.size(), IOV_MAX);
@@ -399,6 +391,14 @@ future<temporary_buffer<char>> pollable_fd_state::read_some(internal::buffer_all
 }
 
 future<size_t> pollable_fd_state::write_some(net::packet& p) {
+    static_assert(offsetof(iovec, iov_base) == offsetof(net::fragment, base) &&
+        sizeof(iovec::iov_base) == sizeof(net::fragment::base) &&
+        offsetof(iovec, iov_len) == offsetof(net::fragment, size) &&
+        sizeof(iovec::iov_len) == sizeof(net::fragment::size) &&
+        alignof(iovec) == alignof(net::fragment) &&
+        sizeof(iovec) == sizeof(net::fragment)
+        , "net::fragment and iovec should be equivalent");
+
     auto fragments = p.fragments();
     auto iovecs = std::span(reinterpret_cast<iovec*>(fragments._start), fragments._finish - fragments._start);
     return engine()._backend->sendmsg(*this, iovecs, p.len());
