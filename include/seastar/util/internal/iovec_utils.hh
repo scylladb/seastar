@@ -19,6 +19,8 @@
  * Copyright (C) 2022 ScyllaDB.
  */
 
+#include <span>
+
 #ifndef SEASTAR_MODULE
 #include <sys/types.h>
 #endif
@@ -38,8 +40,8 @@ inline size_t iovec_len(const iovec* begin, size_t len)
     return ret;
 }
 
-inline size_t iovec_len(const std::vector<iovec>& iov)
-{
+
+inline size_t iovec_len(std::span<const iovec> iov) {
     size_t ret = 0;
     for (auto&& e : iov) {
         ret += e.iov_len;
