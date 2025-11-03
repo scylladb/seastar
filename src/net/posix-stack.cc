@@ -670,10 +670,24 @@ std::vector<iovec> to_iovec(std::vector<temporary_buffer<char>>& buf_vec) {
 
 #if SEASTAR_API_LEVEL >= 9
 future<> posix_data_sink_impl::put(std::span<temporary_buffer<char>> bufs) {
-    _p = net::packet(bufs);
+    size_t total = 0;
+    std::vector<iovec> vecs;
+    deleter del;
+
+    vecs.reserve(bufs.size());
+    for (auto&& buf : bufs) {
+        auto b = std::move(buf);
+        total += b.size();
+        vecs.push_back({ .iov_base = b.get_write(), .iov_len = b.size() });
+        deleter d = b.release();
+        d.append(std::move(del));
+        del = std::move(d);
+    }
+
     auto sg_id = internal::scheduling_group_index(current_scheduling_group());
-    bytes_sent[sg_id] += _p.len();
-    return _fd.write_all(_p).then([this] { _p.reset(); });
+    bytes_sent[sg_id] += total;
+    _vecs = std::move(vecs);
+    return _fd.write_all(_vecs).then([this, del = std::move(del)] { _vecs.clear(); });
 }
 #else
 future<>
