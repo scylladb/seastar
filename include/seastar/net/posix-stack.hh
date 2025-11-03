@@ -125,7 +125,11 @@ public:
 
 class posix_data_sink_impl : public data_sink_impl {
     pollable_fd _fd;
+#if SEASTAR_API_LEVEL >= 9
+    std::vector<iovec> _vecs;
+#else
     packet _p;
+#endif
 public:
     explicit posix_data_sink_impl(pollable_fd fd) : _fd(std::move(fd)) {}
 #if SEASTAR_API_LEVEL >= 9

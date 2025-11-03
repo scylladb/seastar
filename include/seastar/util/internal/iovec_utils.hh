@@ -19,6 +19,8 @@
  * Copyright (C) 2022 ScyllaDB.
  */
 
+#include <span>
+
 #ifndef SEASTAR_MODULE
 #include <sys/types.h>
 #endif
@@ -38,13 +40,30 @@ inline size_t iovec_len(const iovec* begin, size_t len)
     return ret;
 }
 
-inline size_t iovec_len(const std::vector<iovec>& iov)
-{
+
+inline size_t iovec_len(std::span<const iovec> iov) {
     size_t ret = 0;
     for (auto&& e : iov) {
         ret += e.iov_len;
     }
     return ret;
+}
+
+// Skips first \size bytes from the data \iov points to
+// Can update some iovecs in-place
+inline std::span<iovec> iovec_trim_front(std::span<iovec> iov, size_t size) {
+    unsigned pos = 0;
+    while (pos < iov.size() && size > 0) {
+        if (iov[pos].iov_len > size) {
+            iov[pos].iov_base = reinterpret_cast<void*>(reinterpret_cast<uintptr_t>(iov[pos].iov_base) + size);
+            iov[pos].iov_len -= size;
+            break;
+        }
+
+        size -= iov[pos].iov_len;
+        pos++;
+    }
+    return iov.subspan(pos);
 }
 
 // Given a properly aligned vector of iovecs, ensures that it respects the

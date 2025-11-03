@@ -323,25 +323,16 @@ reactor::do_send(pollable_fd_state& fd, const void* buffer, size_t len) {
 }
 
 future<size_t>
-reactor::do_sendmsg(pollable_fd_state& fd, net::packet& p) {
-    return writeable(fd).then([this, &fd, &p] () mutable {
-        static_assert(offsetof(iovec, iov_base) == offsetof(net::fragment, base) &&
-            sizeof(iovec::iov_base) == sizeof(net::fragment::base) &&
-            offsetof(iovec, iov_len) == offsetof(net::fragment, size) &&
-            sizeof(iovec::iov_len) == sizeof(net::fragment::size) &&
-            alignof(iovec) == alignof(net::fragment) &&
-            sizeof(iovec) == sizeof(net::fragment)
-            , "net::fragment and iovec should be equivalent");
-
-        iovec* iov = reinterpret_cast<iovec*>(p.fragment_array());
+reactor::do_sendmsg(pollable_fd_state& fd, std::span<iovec> iovs, size_t len) {
+    return writeable(fd).then([this, &fd, iovs, len] () mutable {
         msghdr mh = {};
-        mh.msg_iov = iov;
-        mh.msg_iovlen = std::min<size_t>(p.nr_frags(), IOV_MAX);
+        mh.msg_iov = iovs.data();
+        mh.msg_iovlen = std::min<size_t>(iovs.size(), IOV_MAX);
         auto r = fd.fd.sendmsg(&mh, MSG_NOSIGNAL);
         if (!r) {
-            return do_sendmsg(fd, p);
+            return do_sendmsg(fd, iovs, len);
         }
-        if (size_t(*r) == p.len()) {
+        if (size_t(*r) == len) {
             fd.speculate_epoll(EPOLLOUT);
         }
         return make_ready_future<size_t>(*r);
@@ -399,9 +390,25 @@ future<temporary_buffer<char>> pollable_fd_state::read_some(internal::buffer_all
     return engine()._backend->read_some(*this, ba);
 }
 
-future<size_t> pollable_fd_state::write_some(net::packet& p) {
-    return engine()._backend->sendmsg(*this, p);
+#if SEASTAR_API_LEVEL >= 9
+future<size_t> pollable_fd_state::write_some(std::span<iovec> iovs) {
+    return engine()._backend->sendmsg(*this, iovs, internal::iovec_len(iovs));
 }
+#else
+future<size_t> pollable_fd_state::write_some(net::packet& p) {
+    static_assert(offsetof(iovec, iov_base) == offsetof(net::fragment, base) &&
+        sizeof(iovec::iov_base) == sizeof(net::fragment::base) &&
+        offsetof(iovec, iov_len) == offsetof(net::fragment, size) &&
+        sizeof(iovec::iov_len) == sizeof(net::fragment::size) &&
+        alignof(iovec) == alignof(net::fragment) &&
+        sizeof(iovec) == sizeof(net::fragment)
+        , "net::fragment and iovec should be equivalent");
+
+    auto fragments = p.fragments();
+    auto iovecs = std::span(reinterpret_cast<iovec*>(fragments._start), fragments._finish - fragments._start);
+    return engine()._backend->sendmsg(*this, iovecs, p.len());
+}
+#endif
 
 future<> pollable_fd_state::write_all(const char* buffer, size_t size) {
     return engine().send_all(*this, buffer, size);
@@ -411,6 +418,14 @@ future<> pollable_fd_state::write_all(const uint8_t* buffer, size_t size) {
     return engine().send_all(*this, buffer, size);
 }
 
+#if SEASTAR_API_LEVEL >= 9
+future<> pollable_fd_state::write_all(std::span<iovec> iovs) {
+    return write_some(iovs).then([this, iovs] (size_t size) {
+        auto niovs = internal::iovec_trim_front(iovs, size);
+        return niovs.empty() ? make_ready_future<>() : write_all(niovs);
+    });
+}
+#else
 future<> pollable_fd_state::write_all(net::packet& p) {
     return write_some(p).then([this, &p] (size_t size) {
         if (p.len() == size) {
@@ -420,6 +435,7 @@ future<> pollable_fd_state::write_all(net::packet& p) {
         return write_all(p);
     });
 }
+#endif
 
 future<> pollable_fd_state::readable() {
     return engine().readable(*this);

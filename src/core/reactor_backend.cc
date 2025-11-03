@@ -678,8 +678,8 @@ reactor_backend_aio::send(pollable_fd_state& fd, const void* buffer, size_t len)
 }
 
 future<size_t>
-reactor_backend_aio::sendmsg(pollable_fd_state& fd, net::packet& p) {
-    return _r.do_sendmsg(fd, p);
+reactor_backend_aio::sendmsg(pollable_fd_state& fd, std::span<iovec> iovs, size_t len) {
+    return _r.do_sendmsg(fd, iovs, len);
 }
 
 future<temporary_buffer<char>>
@@ -1062,8 +1062,8 @@ reactor_backend_epoll::send(pollable_fd_state& fd, const void* buffer, size_t le
 }
 
 future<size_t>
-reactor_backend_epoll::sendmsg(pollable_fd_state& fd, net::packet& p) {
-    return _r.do_sendmsg(fd, p);
+reactor_backend_epoll::sendmsg(pollable_fd_state& fd, std::span<iovec> iovs, size_t len) {
+    return _r.do_sendmsg(fd, iovs, len);
 }
 
 future<temporary_buffer<char>>
@@ -1692,23 +1692,15 @@ public:
             return submit_request(std::move(desc), std::move(req));
         });
     }
-    virtual future<size_t> sendmsg(pollable_fd_state& fd, net::packet& p) final {
+    virtual future<size_t> sendmsg(pollable_fd_state& fd, std::span<iovec> iovs, size_t len) final {
         if (fd.take_speculation(EPOLLOUT)) {
-            static_assert(offsetof(iovec, iov_base) == offsetof(net::fragment, base) &&
-                sizeof(iovec::iov_base) == sizeof(net::fragment::base) &&
-                offsetof(iovec, iov_len) == offsetof(net::fragment, size) &&
-                sizeof(iovec::iov_len) == sizeof(net::fragment::size) &&
-                alignof(iovec) == alignof(net::fragment) &&
-                sizeof(iovec) == sizeof(net::fragment)
-                , "net::fragment and iovec should be equivalent");
-
             ::msghdr mh = {};
-            mh.msg_iov = reinterpret_cast<iovec*>(p.fragment_array());
-            mh.msg_iovlen = std::min<size_t>(p.nr_frags(), IOV_MAX);
+            mh.msg_iov = iovs.data();
+            mh.msg_iovlen = std::min<size_t>(iovs.size(), IOV_MAX);
             try {
                 auto r = fd.fd.sendmsg(&mh, MSG_NOSIGNAL | MSG_DONTWAIT);
                 if (r) {
-                    if (size_t(*r) == p.len()) {
+                    if (size_t(*r) == len) {
                         fd.speculate_epoll(EPOLLOUT);
                     }
                     return make_ready_future<size_t>(*r);
@@ -1723,10 +1715,10 @@ public:
             const size_t _to_write;
             promise<size_t> _result;
         public:
-            write_completion(pollable_fd_state& fd, net::packet& p)
-                : _fd(fd), _to_write(p.len()) {
-                _mh.msg_iov = reinterpret_cast<iovec*>(p.fragment_array());
-                _mh.msg_iovlen = std::min<size_t>(p.nr_frags(), IOV_MAX);
+            write_completion(pollable_fd_state& fd, std::span<iovec> iovs, size_t len)
+                : _fd(fd), _to_write(len) {
+                _mh.msg_iov = iovs.data();
+                _mh.msg_iovlen = std::min<size_t>(iovs.size(), IOV_MAX);
             }
             void complete(size_t bytes) noexcept final {
                 if (bytes == _to_write) {
@@ -1746,7 +1738,7 @@ public:
                 return _result.get_future();
             }
         };
-        auto desc = std::make_unique<write_completion>(fd, p);
+        auto desc = std::make_unique<write_completion>(fd, iovs, len);
         auto req = internal::io_request::make_sendmsg(fd.fd.get(), desc->msghdr(), MSG_NOSIGNAL);
         return submit_request(std::move(desc), std::move(req));
     }
