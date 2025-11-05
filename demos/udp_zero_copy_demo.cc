@@ -21,8 +21,6 @@
 
 #include <seastar/core/seastar.hh>
 #include <seastar/core/app-template.hh>
-#include <seastar/core/scattered_message.hh>
-#include <seastar/core/vector-data-sink.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/units.hh>
 #include <seastar/core/timer.hh>
@@ -49,8 +47,6 @@ private:
     uint64_t _n_sent {};
     size_t _chunk_size;
     bool _copy;
-    std::vector<packet> _packets;
-    std::unique_ptr<output_stream<char>> _out;
     steady_clock_type::time_point _last;
     sstring _key;
     size_t _packet_size = 8*KB;
@@ -94,9 +90,6 @@ public:
         _copy = copy;
         _key = sstring(new char[64], 64);
 
-        _out = std::make_unique<output_stream<char>>(
-            data_sink(std::make_unique<vector_data_sink>(_packets)), _packet_size);
-
         _mem = new char[mem_size];
         _mem_size = mem_size;
 
@@ -108,27 +101,17 @@ public:
         (void)keep_doing([this] {
             return _chan.receive().then([this] (datagram dgram) {
                 auto chunk = next_chunk();
-                lw_shared_ptr<sstring> item;
-                if (_copy) {
-                    _packets.clear();
-                    // FIXME: future is discarded
-                    (void)_out->write(chunk, _chunk_size);
+                std::vector<temporary_buffer<char>> bufs;
+                bufs.reserve(3);
+                for (unsigned int i = 0; i < bufs.size(); i++) {
+                    if (_copy) {
+                        bufs.emplace_back(temporary_buffer<char>(chunk, _chunk_size));
+                    } else {
+                        bufs.emplace_back(temporary_buffer<char>(chunk, _chunk_size, deleter()));
+                    }
                     chunk += _chunk_size;
-                    (void)_out->write(chunk, _chunk_size);
-                    chunk += _chunk_size;
-                    (void)_out->write(chunk, _chunk_size);
-                    (void)_out->flush();
-                    SEASTAR_ASSERT(_packets.size() == 1);
-                    return send(dgram.get_src(), std::move(_packets[0]));
-                } else {
-                    auto chunk = next_chunk();
-                    scattered_message<char> msg;
-                    msg.reserve(3);
-                    msg.append_static(chunk, _chunk_size);
-                    msg.append_static(chunk, _chunk_size);
-                    msg.append_static(chunk, _chunk_size);
-                    return send(dgram.get_src(), std::move(msg).release());
                 }
+                return send(dgram.get_src(), net::packet(std::span(bufs)));
             });
         });
     }
