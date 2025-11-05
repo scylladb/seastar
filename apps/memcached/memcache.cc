@@ -36,7 +36,6 @@
 #include <seastar/core/memory.hh>
 #include <seastar/core/units.hh>
 #include <seastar/core/sharded.hh>
-#include <seastar/core/vector-data-sink.hh>
 #include <seastar/core/bitops.hh>
 #include <seastar/core/slab.hh>
 #include <seastar/core/align.hh>
@@ -1250,8 +1249,28 @@ private:
         uint16_t _request_id;
         input_stream<char> _in;
         output_stream<char> _out;
-        std::vector<packet> _out_bufs;
+        std::vector<std::vector<temporary_buffer<char>>> _out_bufs;
         ascii_protocol _proto;
+
+        class sink final : public data_sink_impl {
+        private:
+            connection& _con;
+        public:
+            sink(connection& con) noexcept : _con(con) {}
+
+            future<> put(std::span<temporary_buffer<char>> bufs) override {
+                std::vector<temporary_buffer<char>> stable_bufs;
+                stable_bufs.reserve(bufs.size() + 1);
+                stable_bufs.emplace_back(sizeof(header));
+                stable_bufs.insert(stable_bufs.end(), std::make_move_iterator(bufs.begin()), std::make_move_iterator(bufs.end()));
+                _con._out_bufs.emplace_back(std::move(stable_bufs));
+                return make_ready_future<>();
+            }
+
+            virtual future<> close() override {
+                return make_ready_future<>();
+            }
+        };
 
         static output_stream_options make_opts() noexcept {
             output_stream_options opts;
@@ -1264,19 +1283,19 @@ private:
             : _src(src)
             , _request_id(request_id)
             , _in(std::move(in))
-            , _out(output_stream<char>(data_sink(std::make_unique<vector_data_sink>(_out_bufs)), out_size, make_opts()))
+            , _out(output_stream<char>(data_sink(std::make_unique<sink>(*this)), out_size, make_opts()))
             , _proto(c, system_stats)
         {}
 
         future<> respond(udp_channel& chan) {
             int i = 0;
-            return do_for_each(_out_bufs.begin(), _out_bufs.end(), [this, i, &chan] (packet& p) mutable {
-                header* out_hdr = p.prepend_header<header>(0);
+            return do_for_each(_out_bufs.begin(), _out_bufs.end(), [this, i, &chan] (std::vector<temporary_buffer<char>>& bufs) mutable {
+                header* out_hdr = reinterpret_cast<header*>(bufs.front().get_write());
                 out_hdr->_request_id = _request_id;
                 out_hdr->_sequence_number = i++;
                 out_hdr->_n = _out_bufs.size();
                 *out_hdr = hton(*out_hdr);
-                return chan.send(_src, std::move(p));
+                return chan.send(_src, net::packet(std::span(bufs)));
             });
         }
     };
