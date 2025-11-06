@@ -1533,29 +1533,29 @@ private:
         // block sized parts (same as normal case in gnutls)
         auto max_record_len = gnutls_record_get_max_size(*this);
 
-            size_t off = 0; // here to appease eclipse cdt
-            return repeat([this, ptr, size, off, max_record_len]() mutable {
-                if (off == size) {
-                    return make_ready_future<stop_iteration>(stop_iteration::yes);
-                }
-                auto n = std::min(max_record_len, size - off);
-                auto res = gnutls_record_send(*this, ptr + off, n);
-                if (res > 0) { // don't really need to check, but...
-                    off += res;
-                }
-                // what will we wait for? error or results...
-                // NOTE: we _can_ get an EAGAIN here since the
-                // addition of force_rehandshake ability (and possibly before)
-                // due to the tls buffering. Just wait + retrying should work
-                // in all cases. 
-                auto f = res < 0  && res != GNUTLS_E_AGAIN
-                    ? handle_output_error(res) 
-                    : wait_for_output()
-                    ;
-                return f.then([] {
-                    return make_ready_future<stop_iteration>(stop_iteration::no);
-                });
+        size_t off = 0; // here to appease eclipse cdt
+        return repeat([this, ptr, size, off, max_record_len]() mutable {
+            if (off == size) {
+                return make_ready_future<stop_iteration>(stop_iteration::yes);
+            }
+            auto n = std::min(max_record_len, size - off);
+            auto res = gnutls_record_send(*this, ptr + off, n);
+            if (res > 0) { // don't really need to check, but...
+                off += res;
+            }
+            // what will we wait for? error or results...
+            // NOTE: we _can_ get an EAGAIN here since the
+            // addition of force_rehandshake ability (and possibly before)
+            // due to the tls buffering. Just wait + retrying should work
+            // in all cases. 
+            auto f = res < 0  && res != GNUTLS_E_AGAIN
+                ? handle_output_error(res) 
+                : wait_for_output()
+                ;
+            return f.then([] {
+                return make_ready_future<stop_iteration>(stop_iteration::no);
             });
+        });
     }
 
 public:
