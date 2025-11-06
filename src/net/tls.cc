@@ -1517,6 +1517,12 @@ private:
 
     future<> do_put(frag_iter i, frag_iter e) {
         SEASTAR_ASSERT(_output_pending.available());
+        return do_for_each(i, e, [this](net::fragment& f) {
+            return do_put_one(f.base, f.size);
+        });
+    }
+
+    future<> do_put_one(const char* ptr, size_t size) {
         // #2859
         // Normally, gnutls_record_send will break up data into gnutls_record_get_max_size() 
         // sized chunks for us (only processing the first 16k or so of provided buffer).
@@ -1527,9 +1533,6 @@ private:
         // block sized parts (same as normal case in gnutls)
         auto max_record_len = gnutls_record_get_max_size(*this);
 
-        return do_for_each(i, e, [this, max_record_len](net::fragment& f) {
-            auto ptr = f.base;
-            auto size = f.size;
             size_t off = 0; // here to appease eclipse cdt
             return repeat([this, ptr, size, off, max_record_len]() mutable {
                 if (off == size) {
@@ -1553,7 +1556,6 @@ private:
                     return make_ready_future<stop_iteration>(stop_iteration::no);
                 });
             });
-        });
     }
 
 public:
