@@ -36,6 +36,7 @@ jobs:
       mode: release
       enables: --enable-dpdk
       options: --cook dpdk
+      enable-ccache: false
   build_with_cxx_modules:
     name: "Test with C++20 modules enabled"
     uses: ./.github/workflows/test.yaml
