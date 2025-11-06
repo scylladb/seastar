@@ -23,10 +23,6 @@
 
 #include <seastar/core/coroutine.hh>
 #include <seastar/coroutine/maybe_yield.hh>
-#include <seastar/coroutine/generator.hh>
-#include <seastar/core/circular_buffer_fixed_capacity.hh>
-#include <seastar/util/later.hh>
-#include <vector>
 
 struct coroutine_test {
 };
@@ -49,41 +45,4 @@ PERF_TEST_C(coroutine_test, ready)
 PERF_TEST_C(coroutine_test, maybe_yield)
 {
     co_await coroutine::maybe_yield();
-}
-
-// Benchmark unbuffered generator: one suspension per element
-PERF_TEST_C(coroutine_test, unbuffered_generator)
-{
-    constexpr int count = 100;
-
-    auto gen = []() -> coroutine::experimental::generator<int> {
-        for (int i = 0; i < count; ++i) {
-            co_yield i;
-        }
-    }();
-
-    int sum = 0;
-    while (auto val = co_await gen()) {
-        sum += *val;
-    }
-    perf_tests::do_not_optimize(sum);
-}
-
-// Benchmark buffered generator: amortized suspension overhead
-PERF_TEST_C(coroutine_test, buffered_generator)
-{
-    constexpr int count = 100;
-    constexpr int buffer_size = 16;
-
-    auto gen = []() -> coroutine::experimental::generator<int, int, circular_buffer_fixed_capacity<int, buffer_size>> {
-        for (int i = 0; i < count; ++i) {
-            co_yield i;
-        }
-    }();
-
-    int sum = 0;
-    while (auto val = co_await gen()) {
-        sum += *val;
-    }
-    perf_tests::do_not_optimize(sum);
 }

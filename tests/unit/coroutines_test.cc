@@ -34,6 +34,7 @@
 #include <seastar/coroutine/parallel_for_each.hh>
 #include <seastar/coroutine/as_future.hh>
 #include <seastar/coroutine/exception.hh>
+#include <seastar/coroutine/generator.hh>
 #include <seastar/testing/random.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/util/later.hh>
@@ -758,6 +759,239 @@ SEASTAR_TEST_CASE(test_as_future_preemption) {
     BOOST_REQUIRE_THROW(f0.get(), std::runtime_error);
 }
 
+std::vector<int> gen_expected_fibs(unsigned count) {
+    std::vector<int> expected_fibs = {0, 1};
+    for (unsigned i = 2; i < count; ++i) {
+        expected_fibs.emplace_back(expected_fibs[i-2] + expected_fibs[i-1]);
+    }
+    return expected_fibs;
+}
+
+template<template<typename> class Container>
+coroutine::experimental::generator<int, Container>
+fibonacci_sequence(coroutine::experimental::buffer_size_t size, unsigned count) {
+    auto a = 0, b = 1;
+    for (unsigned i = 0; i < count; ++i) {
+        if (std::numeric_limits<decltype(a)>::max() - a < b) {
+            throw std::out_of_range(
+                fmt::format("fibonacci[{}] is greater than the largest value of int", i));
+        }
+        co_yield std::exchange(a, std::exchange(b, a + b));
+    }
+}
+
+// Test that the generator generates exactly all expected `count` values
+// of the Fibonacci series.
+template<template<typename> class Container>
+seastar::future<> test_async_generator_drained(coroutine::experimental::generator<int, Container> fib, unsigned count) {
+    auto expected_fibs = gen_expected_fibs(count);
+    for (auto expected_fib : expected_fibs) {
+        auto actual_fib = co_await fib();
+        BOOST_REQUIRE(actual_fib.has_value());
+        BOOST_REQUIRE_EQUAL(actual_fib.value(), expected_fib);
+    }
+    auto sentinel = co_await fib();
+    BOOST_REQUIRE(!sentinel.has_value());
+}
+
+template<template<typename> class Container>
+seastar::future<> test_async_generator_drained() {
+    unsigned count = 11;
+    co_await test_async_generator_drained(fibonacci_sequence<Container>(coroutine::experimental::buffer_size_t{2}, count), count);
+}
+
+// Test that the generator generates exactly all expected `count` values
+// of the Fibonacci series, even if moved in the middle.
+template<template<typename> class Container>
+seastar::future<> test_move_async_generator_drained() {
+    unsigned count = 11;
+    auto fib0 = fibonacci_sequence<Container>(coroutine::experimental::buffer_size_t{2}, count);
+    co_await test_async_generator_drained(std::move(fib0), count);
+    auto fib1 = fibonacci_sequence<Container>(coroutine::experimental::buffer_size_t{2}, ++count);
+    fib0 = std::move(fib1);
+    co_await test_async_generator_drained(std::move(fib0), count);
+    fib0 = fibonacci_sequence<Container>(coroutine::experimental::buffer_size_t{2}, ++count);
+    fib1 = fibonacci_sequence<Container>(coroutine::experimental::buffer_size_t{2}, ++count);
+    fib0 = std::move(fib1);
+    co_await test_async_generator_drained(std::move(fib0), count);
+}
+
+// Test that the generator generates exactly all expected `count` values
+// of the Fibonacci series, even if swapped in the middle.
+template<template<typename> class Container>
+seastar::future<> test_swap_async_generator_drained() {
+    unsigned count[2] = {11, 17};
+    auto fib0 = fibonacci_sequence<Container>(coroutine::experimental::buffer_size_t{2}, count[0]);
+    auto fib1 = fibonacci_sequence<Container>(coroutine::experimental::buffer_size_t{2}, count[1]);
+    std::swap(fib0, fib1);
+    std::swap(count[0], count[1]);
+    co_await test_async_generator_drained(std::move(fib0), count[0]);
+    co_await test_async_generator_drained(std::move(fib1), count[1]);
+}
+
+template<typename T>
+using buffered_container = circular_buffer<T>;
+
+SEASTAR_TEST_CASE(test_async_generator_drained_buffered) {
+    return test_async_generator_drained<buffered_container>();
+}
+
+SEASTAR_TEST_CASE(test_async_generator_drained_unbuffered) {
+    return test_async_generator_drained<std::optional>();
+}
+
+SEASTAR_TEST_CASE(test_move_async_generator_drained_buffered) {
+    return test_move_async_generator_drained<buffered_container>();
+}
+
+SEASTAR_TEST_CASE(test_move_async_generator_drained_unbuffered) {
+    return test_move_async_generator_drained<std::optional>();
+}
+
+SEASTAR_TEST_CASE(test_swap_async_generator_drained_buffered) {
+    return test_swap_async_generator_drained<buffered_container>();
+}
+
+SEASTAR_TEST_CASE(test_swap_async_generator_drained_unbuffered) {
+    return test_swap_async_generator_drained<std::optional>();
+}
+
+template<template<typename> class Container>
+seastar::future<coroutine::experimental::generator<int, Container>> test_async_generator_drained_incrementally(coroutine::experimental::generator<int, Container> fib, std::optional<int> expected_value) {
+    auto actual_fib = co_await fib();
+    if (expected_value) {
+        BOOST_REQUIRE(actual_fib.has_value());
+        BOOST_REQUIRE_EQUAL(actual_fib.value(), *expected_value);
+    } else {
+        BOOST_REQUIRE(!actual_fib.has_value());
+    }
+    co_return fib;
+}
+
+template<template<typename> class Container>
+seastar::future<> test_async_generator_drained_incrementally() {
+    unsigned count = 17;
+    auto expected_fibs = gen_expected_fibs(count);
+    auto fib = fibonacci_sequence<Container>(coroutine::experimental::buffer_size_t{2}, count);
+    for (auto it = expected_fibs.begin(); it != expected_fibs.end(); ++it) {
+        fib = co_await test_async_generator_drained_incrementally(std::move(fib), *it);
+    }
+    fib = co_await test_async_generator_drained_incrementally(std::move(fib), std::nullopt);
+    // once drained generator return std::nullopt
+    fib = co_await test_async_generator_drained_incrementally(std::move(fib), std::nullopt);
+}
+
+SEASTAR_TEST_CASE(test_async_generator_drained_incrementally_buffered) {
+    return test_async_generator_drained_incrementally<buffered_container>();
+}
+
+SEASTAR_TEST_CASE(test_async_generator_drained_incrementally_unbuffered) {
+    return test_async_generator_drained_incrementally<std::optional>();
+}
+
+template<template<typename> class Container>
+seastar::future<> test_async_generator_not_drained() {
+    auto fib = fibonacci_sequence<Container>(coroutine::experimental::buffer_size_t{2},
+                                             42);
+    auto actual_fib = co_await fib();
+    BOOST_REQUIRE(actual_fib.has_value());
+    BOOST_REQUIRE_EQUAL(actual_fib.value(), 0);
+}
+
+SEASTAR_TEST_CASE(test_async_generator_not_drained_buffered) {
+    return test_async_generator_not_drained<buffered_container>();
+}
+
+SEASTAR_TEST_CASE(test_async_generator_not_drained_unbuffered) {
+    return test_async_generator_not_drained<std::optional>();
+}
+
+struct counter_t {
+    int n;
+    int* count;
+    counter_t(counter_t&& other) noexcept
+        : n{std::exchange(other.n, -1)},
+          count{std::exchange(other.count, nullptr)}
+    {}
+    counter_t(int n, int* count) noexcept
+        : n{n}, count{count} {
+        ++(*count);
+    }
+    ~counter_t() noexcept {
+        if (count) {
+            --(*count);
+        }
+    }
+};
+std::ostream& operator<<(std::ostream& os, const counter_t& c) {
+    return os << c.n;
+}
+
+template<template<typename> class Container>
+coroutine::experimental::generator<counter_t, Container>
+fiddle(coroutine::experimental::buffer_size_t size, int n, int* total) {
+    int i = 0;
+    while (true) {
+        if (i++ == n) {
+            throw std::invalid_argument("Eureka from generator!");
+        }
+        co_yield counter_t{i, total};
+    }
+}
+
+template<template<typename> class Container>
+seastar::future<> test_async_generator_throws_from_generator() {
+    int total = 0;
+    auto count_to = [total=&total](unsigned n) -> seastar::future<> {
+        auto count = fiddle<Container>(coroutine::experimental::buffer_size_t{2},
+                                       n, total);
+        for (unsigned i = 0; i < 2 * n; i++) {
+            co_await count();
+        }
+    };
+    co_await count_to(42).then_wrapped([&total] (auto f) {
+        BOOST_REQUIRE(f.failed());
+        BOOST_REQUIRE_THROW(std::rethrow_exception(f.get_exception()), std::invalid_argument);
+        BOOST_REQUIRE_EQUAL(total, 0);
+    });
+}
+
+SEASTAR_TEST_CASE(test_async_generator_throws_from_generator_buffered) {
+    return test_async_generator_throws_from_generator<buffered_container>();
+}
+
+SEASTAR_TEST_CASE(test_async_generator_throws_from_generator_unbuffered) {
+    return test_async_generator_throws_from_generator<std::optional>();
+}
+
+template<template<typename> class Container>
+seastar::future<> test_async_generator_throws_from_consumer() {
+    int total = 0;
+    auto count_to = [total=&total](unsigned n) -> seastar::future<> {
+        auto count = fiddle<Container>(coroutine::experimental::buffer_size_t{2},
+                                       n, total);
+        for (unsigned i = 0; i < n; i++) {
+            if (i == n / 2) {
+                throw std::invalid_argument("Eureka from consumer!");
+            }
+            co_await count();
+        }
+    };
+    co_await count_to(42).then_wrapped([&total] (auto f) {
+        BOOST_REQUIRE(f.failed());
+        BOOST_REQUIRE_THROW(std::rethrow_exception(f.get_exception()), std::invalid_argument);
+        BOOST_REQUIRE_EQUAL(total, 0);
+    });
+}
+
+SEASTAR_TEST_CASE(test_async_generator_throws_from_consumer_buffered) {
+    return test_async_generator_throws_from_consumer<buffered_container>();
+}
+
+SEASTAR_TEST_CASE(test_async_generator_throws_from_consumer_unbuffered) {
+    return test_async_generator_throws_from_consumer<std::optional>();
+}
+
 SEASTAR_TEST_CASE(test_lambda_coroutine_in_continuation) {
     auto dist = std::uniform_real_distribution<>(0.0, 1.0);
     auto rand_eng = std::default_random_engine(std::random_device()());
@@ -784,3 +1018,30 @@ SEASTAR_TEST_CASE(test_lambda_coroutine_in_continuation) {
     }));
     BOOST_REQUIRE_EQUAL(sin1, sin2);
 }
+
+#ifdef __cpp_explicit_this_parameter
+
+SEASTAR_TEST_CASE(test_lambda_value_capture_coroutine) {
+    // Note: crashes without "this auto"
+    auto f1 = [p = std::make_unique<int>(7)] (this auto) -> future<int> {
+        co_await yield();
+        co_return *p + 2;
+    }();
+    // f1 is not ready at this point (due to the yield). Verify that the capture
+    // group was copied to the coroutine frame.
+    auto n = co_await std::move(f1);
+    BOOST_REQUIRE_EQUAL(n, 9);
+}
+
+SEASTAR_TEST_CASE(test_lambda_value_capture_continuation) {
+    // Note: crashes without "this auto"
+    return yield().then([p = std::make_unique<int>(7)] (this auto) -> future<int> {
+        co_await yield();
+        co_return *p + 2;
+    }).then([] (int n) {
+        BOOST_REQUIRE_EQUAL(n, 9);
+    });
+}
+
+
+#endif

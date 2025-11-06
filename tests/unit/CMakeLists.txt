@@ -285,9 +285,6 @@ seastar_add_test (content_source
 seastar_add_test (coroutines
   SOURCES coroutines_test.cc)
 
-seastar_add_test (generator
-  SOURCES generator_test.cc)
-
 seastar_add_test (defer
   KIND BOOST
   SOURCES defer_test.cc)

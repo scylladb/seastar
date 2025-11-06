@@ -25,7 +25,6 @@
 #include <seastar/util/std-compat.hh>
 #ifdef SEASTAR_COROUTINES_ENABLED
 #include <seastar/core/coroutine.hh>
-#include <seastar/coroutine/generator.hh>
 #endif
 #include <seastar/core/reactor.hh>
 #include <seastar/core/app-template.hh>
@@ -93,16 +92,14 @@ SEASTAR_TEST_CASE(test_lister) {
 
 future<> lister_generator_test(file f) {
     auto lister = f.experimental_list_directory();
-
     while (auto de = co_await lister()) {
-        auto& entry = de->get();
-        auto sd = co_await file_stat(entry.name, follow_symlink::no);
-        if (entry.type) {
-            SEASTAR_ASSERT(entry.type == sd.type);
+        auto sd = co_await file_stat(de->name, follow_symlink::no);
+        if (de->type) {
+            SEASTAR_ASSERT(*de->type == sd.type);
         } else {
             SEASTAR_ASSERT(sd.type == directory_entry_type::unknown);
         }
-        fmt::print("{} (type={})\n", entry.name, de_type_desc(sd.type));
+        fmt::print("{} (type={})\n", de->name, de_type_desc(sd.type));
     }
     co_await f.close();
 }
@@ -138,7 +135,7 @@ SEASTAR_TEST_CASE(test_generator_early_abort) {
     auto f = co_await engine().open_directory(".");
     {
         auto lister = f.experimental_list_directory();
-        [[maybe_unused]] auto de = co_await lister();
+        auto de = co_await lister();
     } // destroys the lister object before it reports EOF
     co_await f.close();
 }
@@ -156,7 +153,7 @@ SEASTAR_TEST_CASE(test_generator_fallback_early_abort) {
     auto f = file(std::move(tf));
     {
         auto lister = f.experimental_list_directory();
-        [[maybe_unused]] auto de = co_await lister();
+        auto de = co_await lister();
     } // destroys the lister object before it reports EOF
     co_await f.close();
 }
