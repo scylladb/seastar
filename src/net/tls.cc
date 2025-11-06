@@ -1512,6 +1512,7 @@ public:
         });
     }
 
+private:
     typedef net::fragment* frag_iter;
 
     future<> do_put(frag_iter i, frag_iter e) {
@@ -1554,6 +1555,8 @@ public:
             });
         });
     }
+
+public:
     future<> put(net::packet p) {
         if (_error) {
             return make_exception_future<>(_error);
