@@ -41,7 +41,7 @@
 #include <seastar/core/align.hh>
 #include <seastar/core/print.hh>
 #include <seastar/net/api.hh>
-#include <seastar/net/packet-data-source.hh>
+#include <seastar/util/memory-data-source.hh>
 #include <seastar/util/assert.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/log.hh>
@@ -1326,7 +1326,7 @@ public:
                 p.trim_front(sizeof(hdr));
 
                 auto request_id = hdr._request_id;
-                auto in = as_input_stream(std::move(p));
+                auto in = util::as_input_stream(p.release());
                 auto conn = make_lw_shared<connection>(dgram.get_src(), request_id, std::move(in),
                     _max_datagram_size - sizeof(header), _cache, _system_stats);
 
