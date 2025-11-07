@@ -7,6 +7,7 @@
 #include <seastar/core/metrics.hh>
 #include <seastar/coroutine/as_future.hh>
 #include <seastar/coroutine/switch_to.hh>
+#include <seastar/util/memory-data-source.hh>
 #include <seastar/util/assert.hh>
 #include <boost/range/adaptor/map.hpp>
 #include <boost/range/adaptor/transformed.hpp>
@@ -498,18 +499,8 @@ connection::read_frame_compressed(socket_address info, std::unique_ptr<compresso
                     // The yield() is here to limit the stack depth of the recursion to 1.
                     return yield().then([this, info, &in, &compressor] { return read_frame_compressed<FrameType>(info, compressor, in); });
                 }
-                net::packet p;
-                auto* one = std::get_if<temporary_buffer<char>>(&eb.bufs);
-                if (one) {
-                    p = net::packet(std::move(p), std::move(*one));
-                } else {
-                    auto&& bufs = std::get<std::vector<temporary_buffer<char>>>(eb.bufs);
-                    p.reserve(bufs.size());
-                    for (auto&& b : bufs) {
-                        p = net::packet(std::move(p), std::move(b));
-                    }
-                }
-                return do_with(as_input_stream(std::move(p)), [this, info] (input_stream<char>& in) {
+                auto source = std::visit([] (auto&& b) { return util::as_input_stream(std::move(b)); }, eb.bufs);
+                return do_with(std::move(source), [this, info] (input_stream<char>& in) {
                     return read_frame<FrameType>(info, in);
                 });
             });

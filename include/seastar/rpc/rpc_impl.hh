@@ -28,7 +28,6 @@
 #include <seastar/util/assert.hh>
 #include <seastar/util/is_smart_ptr.hh>
 #include <seastar/core/simple-stream.hh>
-#include <seastar/net/packet-data-source.hh>
 #include <seastar/core/deleter.hh>
 
 #include <boost/type.hpp> // for compatibility
