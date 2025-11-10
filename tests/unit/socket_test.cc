@@ -469,3 +469,35 @@ SEASTAR_THREAD_TEST_CASE(load_balancing_algorithm_port_ipv4_test) {
 SEASTAR_THREAD_TEST_CASE(load_balancing_algorithm_port_ipv6_test) {
     test_load_balancing_algorithm_port(ipv6_addr("::1", 11001));
 }
+
+SEASTAR_THREAD_TEST_CASE(inet_local_remote_address_sanity) {
+    auto addr = make_ipv4_address(11003);
+    auto ls = listen(addr);
+    auto ar_f = ls.accept();
+
+    std::optional<connected_socket> cs = connect(addr).get();
+    auto ar = ar_f.get();
+    auto ss = std::move(ar.connection);
+
+    BOOST_CHECK_EQUAL(cs->local_address(), ss.remote_address());
+    BOOST_CHECK_EQUAL(cs->remote_address(), ss.local_address());
+
+    // Now disconnect the server socket on the kernel level
+    // For that -- write some data into client, then close the client. When
+    // it happens, kernel forces connection reset and server socket will
+    // get into unconnected state
+    auto sout = ss.output();
+    sout.write("data").get();
+    sout.flush().get();
+    sout.close().get();
+    // Sockets are batch-flushed, so we need to give it a time to get
+    // flush-polled and also let kernel transfer the data into client
+    // socket
+    seastar::sleep(std::chrono::milliseconds(500)).get();
+    // Close the socket. Closing in/out streams won't work, it will shutdown
+    // the socket and shutting down doesn't send RST-s
+    cs.reset();
+
+    ss.wait_input_shutdown().get();
+    BOOST_CHECK(ss.remote_address().is_unspecified());
+}
