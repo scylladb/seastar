@@ -900,25 +900,25 @@ future<> sink_impl<Serializer, Out...>::close() noexcept {
         // break the semaphore to prevent any new messages to be sent
         this->_sem.broken(stream_closed());
         return _send_queue.stop().finally([this] {
-        return smp::submit_to(this->_con->get_owner_shard(), [this] {
-          return _delete_queue.stop().finally([this] {
-            connection* con = this->_con->get();
-            if (con->sink_closed()) { // double close, should not happen!
-                return make_exception_future(stream_closed());
-            }
-            future<> f = make_ready_future<>();
-            if (!con->error() && !this->_ex) {
-                snd_buf data = marshall(con->template serializer<Serializer>(), 4);
-                static_assert(snd_buf::chunk_size >= 4, "send buffer chunk size is too small");
-                auto p = data.front().get_write();
-                write_le<uint32_t>(p, -1U); // max len fragment marks an end of a stream
-                f = con->send(std::move(data), {}, nullptr);
-            } else {
-                f = this->_ex ? make_exception_future(this->_ex) : make_exception_future(closed_error());
-            }
-            return f.finally([con] { return con->close_sink(); });
-          });
-        });
+            return smp::submit_to(this->_con->get_owner_shard(), [this] {
+                return _delete_queue.stop().finally([this] {
+                    connection* con = this->_con->get();
+                    if (con->sink_closed()) { // double close, should not happen!
+                        return make_exception_future(stream_closed());
+                    }
+                    future<> f = make_ready_future<>();
+                    if (!con->error() && !this->_ex) {
+                        snd_buf data = marshall(con->template serializer<Serializer>(), 4);
+                        static_assert(snd_buf::chunk_size >= 4, "send buffer chunk size is too small");
+                        auto p = data.front().get_write();
+                        write_le<uint32_t>(p, -1U); // max len fragment marks an end of a stream
+                        f = con->send(std::move(data), {}, nullptr);
+                    } else {
+                        f = this->_ex ? make_exception_future(this->_ex) : make_exception_future(closed_error());
+                    }
+                    return f.finally([con] { return con->close_sink(); });
+                });
+            });
         });
     });
 }
