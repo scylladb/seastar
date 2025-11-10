@@ -1944,6 +1944,9 @@ SEASTAR_THREAD_TEST_CASE(test_rpc_stream_backpressure_across_shards) {
                 sink.flush().get();
                 close_sink.close_now();
                 log.info("Handler: send {} messages to shard {}: done", msgs_to_send, sending_shard);
+                // After closing the sink, any further send should throw stream_closed
+                // Reproducer for https://github.com/scylladb/seastar/issues/3088
+                BOOST_REQUIRE_THROW(sink(data).get(), rpc::stream_closed);
             });
 
             return sink;

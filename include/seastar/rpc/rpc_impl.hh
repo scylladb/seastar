@@ -897,9 +897,11 @@ future<> sink_impl<Serializer, Out...>::flush() noexcept {
 template<typename Serializer, typename... Out>
 future<> sink_impl<Serializer, Out...>::close() noexcept {
     return with_semaphore(this->_sem, max_stream_buffers_memory, [this] {
-        // the send and delete queues should be drained already
-        // since we acquired all the semaphore units, so no need to stop them.
+        // break the semaphore to prevent any new messages to be sent
+        this->_sem.broken(stream_closed());
+        return _send_queue.stop().finally([this] {
         return smp::submit_to(this->_con->get_owner_shard(), [this] {
+          return _delete_queue.stop().finally([this] {
             connection* con = this->_con->get();
             if (con->sink_closed()) { // double close, should not happen!
                 return make_exception_future(stream_closed());
@@ -915,6 +917,8 @@ future<> sink_impl<Serializer, Out...>::close() noexcept {
                 f = this->_ex ? make_exception_future(this->_ex) : make_exception_future(closed_error());
             }
             return f.finally([con] { return con->close_sink(); });
+          });
+        });
         });
     });
 }
