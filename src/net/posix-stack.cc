@@ -111,7 +111,14 @@ public:
         return _fd.get_address();
     }
     virtual socket_address remote_address(file_desc& _fd) const {
-        return _fd.get_remote_address();
+        try {
+            return _fd.get_remote_address();
+        } catch (const std::system_error& e) {
+            if (e.code().value() != ENOTCONN) {
+                throw;
+            }
+            return socket_address();
+        }
     }
 };
 
