@@ -25,7 +25,7 @@ module;
 #endif
 
 #include <cstdint>
-#include <deque>
+#include <list>
 #include <optional>
 #include <filesystem>
 #include <iostream>
@@ -177,7 +177,7 @@ static future<> do_recursive_remove_directory(const fs::path path) noexcept {
         }
     };
 
-    return do_with(std::deque<work_entry>(), [path = std::move(path)] (auto& work_queue) mutable {
+    return do_with(std::list<work_entry>(), [path = std::move(path)] (auto& work_queue) mutable {
         work_queue.emplace_back(std::move(path), false);
         return do_until([&work_queue] { return work_queue.empty(); }, [&work_queue] () mutable {
             auto ent = work_queue.back();
