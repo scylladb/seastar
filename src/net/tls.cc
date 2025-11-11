@@ -31,6 +31,7 @@ module;
 #include <chrono>
 #include <span>
 #include <unordered_set>
+#include <numeric>
 
 #include <seastar/util/assert.hh>
 
@@ -1512,10 +1513,26 @@ public:
         });
     }
 
-    typedef net::fragment* frag_iter;
+private:
+    typedef std::vector<temporary_buffer<char>>::iterator frag_iter;
 
     future<> do_put(frag_iter i, frag_iter e) {
         SEASTAR_ASSERT(_output_pending.available());
+        return do_for_each(i, e, [this](temporary_buffer<char>& b) {
+            return do_put_one(b.get(), b.size());
+        });
+    }
+
+    future<> do_put_one(temporary_buffer<char> buf) {
+        auto ptr = buf.get();
+        auto size = buf.size();
+        return with_semaphore(_out_sem, 1, [this, ptr, size] {
+            SEASTAR_ASSERT(_output_pending.available());
+            return do_put_one(ptr, size);
+        }).finally([b = std::move(buf)] {});
+    }
+
+    future<> do_put_one(const char* ptr, size_t size) {
         // #2859
         // Normally, gnutls_record_send will break up data into gnutls_record_get_max_size() 
         // sized chunks for us (only processing the first 16k or so of provided buffer).
@@ -1526,35 +1543,33 @@ public:
         // block sized parts (same as normal case in gnutls)
         auto max_record_len = gnutls_record_get_max_size(*this);
 
-        return do_for_each(i, e, [this, max_record_len](net::fragment& f) {
-            auto ptr = f.base;
-            auto size = f.size;
-            size_t off = 0; // here to appease eclipse cdt
-            return repeat([this, ptr, size, off, max_record_len]() mutable {
-                if (off == size) {
-                    return make_ready_future<stop_iteration>(stop_iteration::yes);
-                }
-                auto n = std::min(max_record_len, size - off);
-                auto res = gnutls_record_send(*this, ptr + off, n);
-                if (res > 0) { // don't really need to check, but...
-                    off += res;
-                }
-                // what will we wait for? error or results...
-                // NOTE: we _can_ get an EAGAIN here since the
-                // addition of force_rehandshake ability (and possibly before)
-                // due to the tls buffering. Just wait + retrying should work
-                // in all cases. 
-                auto f = res < 0  && res != GNUTLS_E_AGAIN
-                    ? handle_output_error(res) 
-                    : wait_for_output()
-                    ;
-                return f.then([] {
-                    return make_ready_future<stop_iteration>(stop_iteration::no);
-                });
+        size_t off = 0; // here to appease eclipse cdt
+        return repeat([this, ptr, size, off, max_record_len]() mutable {
+            if (off == size) {
+                return make_ready_future<stop_iteration>(stop_iteration::yes);
+            }
+            auto n = std::min(max_record_len, size - off);
+            auto res = gnutls_record_send(*this, ptr + off, n);
+            if (res > 0) { // don't really need to check, but...
+                off += res;
+            }
+            // what will we wait for? error or results...
+            // NOTE: we _can_ get an EAGAIN here since the
+            // addition of force_rehandshake ability (and possibly before)
+            // due to the tls buffering. Just wait + retrying should work
+            // in all cases. 
+            auto f = res < 0  && res != GNUTLS_E_AGAIN
+                ? handle_output_error(res) 
+                : wait_for_output()
+                ;
+            return f.then([] {
+                return make_ready_future<stop_iteration>(stop_iteration::no);
             });
         });
     }
-    future<> put(net::packet p) {
+
+public:
+    future<> put(std::span<temporary_buffer<char>> bufs) {
         if (_error) {
             return make_exception_future<>(_error);
         }
@@ -1562,9 +1577,16 @@ public:
             return make_exception_future<>(std::system_error(EPIPE, std::system_category()));
         }
         if (!_connected) {
+            std::vector<temporary_buffer<char>> p;
+            p.reserve(bufs.size());
+            p.insert(p.end(), std::make_move_iterator(bufs.begin()), std::make_move_iterator(bufs.end()));
             return handshake().then([this, p = std::move(p)]() mutable {
-               return put(std::move(p));
+               return put(std::span(p));
             });
+        }
+
+        if (bufs.size() == 1) {
+            return do_put_one(std::move(bufs.front()));
         }
 
         // We want to make sure that we call gnutls_record_send with as large
@@ -1574,12 +1596,23 @@ public:
         // cases where we would do an extra syscall for something like a 100
         // bytes header we linearize the packet if it's below the max TLS record
         // size.
-        if (p.nr_frags() > 1 && p.len() <= gnutls_record_get_max_size(*this)) {
-            p.linearize();
+
+        size_t size = std::accumulate(bufs.begin(), bufs.end(), size_t(0), [] (size_t s, const auto& b) { return s + b.size(); });
+        if (size <= gnutls_record_get_max_size(*this)) {
+            temporary_buffer<char> linear(size);
+            char* pos = linear.get_write();
+            for (auto& buf : bufs) {
+                std::copy_n(buf.get(), buf.size(), pos);
+                pos += buf.size();
+            }
+            return do_put_one(std::move(linear));
         }
 
-        auto i = p.fragments().begin();
-        auto e = p.fragments().end();
+        std::vector<temporary_buffer<char>> p;
+        p.reserve(bufs.size());
+        p.insert(p.end(), std::make_move_iterator(bufs.begin()), std::make_move_iterator(bufs.end()));
+        auto i = p.begin();
+        auto e = p.end();
         return with_semaphore(_out_sem, 1, std::bind(&session::do_put, this, i, e)).finally([p = std::move(p)] {});
     }
 
@@ -2113,12 +2146,13 @@ private:
     }
 #if SEASTAR_API_LEVEL >= 9
     future<> put(std::span<temporary_buffer<char>> bufs) override {
-        return _session->put(net::packet(bufs));
+        return _session->put(bufs);
     }
 #else
     using data_sink_impl::put;
     future<> put(net::packet p) override {
-        return _session->put(std::move(p));
+        auto vec = p.release();
+        return _session->put(std::span(vec));
     }
 #endif
     future<> close() override {
