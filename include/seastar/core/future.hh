@@ -958,6 +958,8 @@ public:
     ///
     /// Forwards the arguments and makes them available to the associated
     /// future.  May be called either before or after \c get_future().
+    /// Must be called at most once, setting value on a promise with a value
+    /// is undefined behavior. Must not be called after \c set_exception().
     ///
     /// The arguments can have either the types the promise is
     /// templated with, or a corresponding std::tuple. That is, given
@@ -974,6 +976,8 @@ public:
     ///
     /// Forwards the exception argument to the future and makes it
     /// available.  May be called either before or after \c get_future().
+    /// Just like \c set_value(), must not be called more than once, must
+    /// not be called after set_value() itself either.
     void set_exception(std::exception_ptr&& ex) noexcept {
         internal::promise_base::set_exception(std::move(ex));
     }
