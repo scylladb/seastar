@@ -1525,7 +1525,7 @@ private:
         }).finally([b = std::move(bufs)] {});
     }
 
-    future<> do_put_one(temporary_buffer<char> buf) {
+    future<> do_put(temporary_buffer<char> buf) {
         auto ptr = buf.get();
         auto size = buf.size();
         return with_semaphore(_out_sem, 1, [this, ptr, size] {
@@ -1588,7 +1588,7 @@ public:
         }
 
         if (bufs.size() == 1) {
-            return do_put_one(std::move(bufs.front()));
+            return do_put(std::move(bufs.front()));
         }
 
         // We want to make sure that we call gnutls_record_send with as large
@@ -1607,7 +1607,7 @@ public:
                 std::copy_n(buf.get(), buf.size(), pos);
                 pos += buf.size();
             }
-            return do_put_one(std::move(linear));
+            return do_put(std::move(linear));
         }
 
         std::vector<temporary_buffer<char>> p;
