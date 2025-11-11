@@ -1514,13 +1514,15 @@ public:
     }
 
 private:
-    typedef std::vector<temporary_buffer<char>>::iterator frag_iter;
-
-    future<> do_put(frag_iter i, frag_iter e) {
+    future<> do_put(std::vector<temporary_buffer<char>> bufs) {
+      auto i = bufs.begin();
+      auto e = bufs.end();
+      return with_semaphore(_out_sem, 1, [this, i, e] {
         SEASTAR_ASSERT(_output_pending.available());
         return do_for_each(i, e, [this](temporary_buffer<char>& b) {
             return do_put_one(b.get(), b.size());
         });
+      }).finally([b = std::move(bufs)] {});
     }
 
     future<> do_put_one(temporary_buffer<char> buf) {
@@ -1611,9 +1613,7 @@ public:
         std::vector<temporary_buffer<char>> p;
         p.reserve(bufs.size());
         p.insert(p.end(), std::make_move_iterator(bufs.begin()), std::make_move_iterator(bufs.end()));
-        auto i = p.begin();
-        auto e = p.end();
-        return with_semaphore(_out_sem, 1, std::bind(&session::do_put, this, i, e)).finally([p = std::move(p)] {});
+        return do_put(std::move(p));
     }
 
     ssize_t pull(void* dst, size_t len) {
