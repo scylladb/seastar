@@ -3207,8 +3207,8 @@ void reactor::sched_entity::wakeup() {
 
 void reactor::service_highres_timer() noexcept {
     _timers.complete(_expired_timers, [this] () noexcept {
-        if (!_timers.empty()) {
-            enable_timer(_timers.get_next_timeout());
+        if (auto next = _timers.get_next_timeout(); next != decltype(next)::time_point::max()) {
+            enable_timer(next);
         }
     });
 }
