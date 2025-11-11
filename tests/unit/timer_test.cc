@@ -27,6 +27,7 @@
 #include <seastar/core/print.hh>
 #include <seastar/core/thread.hh>
 #include <seastar/core/sleep.hh>
+#include <seastar/util/later.hh>
 #include <chrono>
 #include <iostream>
 
@@ -127,4 +128,34 @@ SEASTAR_THREAD_TEST_CASE(test_timer_with_scheduling_groups_steady) {
 
 SEASTAR_THREAD_TEST_CASE(test_timer_with_scheduling_groups_lowres) {
     test_timer_with_scheduling_groups<lowres_clock>();
+}
+
+// Regression test for #3013
+SEASTAR_THREAD_TEST_CASE(test_highres_periodic_cancel_in_callback) {
+    timer<steady_clock_type> t1;
+    timer<steady_clock_type> t2;
+    bool t1_fired = false;
+    bool t2_fired = false;
+
+    t1.set_callback([&] {
+        t1_fired = true;
+        t1.cancel();
+        (void)yield().then([&] {
+            t2.arm(10ms);
+        });
+    });
+
+    t2.set_callback([&] {
+        t2_fired = true;
+    });
+
+    t1.arm_periodic(5ms);
+
+    auto end = std::chrono::steady_clock::now() + 1s;
+    do {
+        yield().get();
+    } while (std::chrono::steady_clock::now() < end);
+
+    BOOST_REQUIRE(t1_fired);
+    BOOST_REQUIRE(t2_fired);
 }
