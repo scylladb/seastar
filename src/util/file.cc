@@ -174,33 +174,23 @@ static future<> do_recursive_remove_directory(const fs::path path) noexcept {
     };
 
     std::list<work_entry> work_queue;
-    {
-        work_queue.emplace_back(std::move(path), false);
-        while (!work_queue.empty()) {
-            auto ent = work_queue.back();
-            work_queue.pop_back();
-            if (ent.listed) {
-                co_await remove_file(ent.path.native());
-            } else {
-                work_queue.emplace_back(ent.path, true);
-                auto path = std::move(ent.path);
-                {
-                    file dir = co_await open_directory(path.native());
-                    {
-                        {
-                            co_await dir.list_directory([&] (directory_entry de) -> future<> {
-                                fs::path sub_path = path / de.name.c_str();
-                                bool is_dir = de.type && *de.type == directory_entry_type::directory;
-                                work_queue.emplace_back(std::move(sub_path), !is_dir);
-                                co_return;
-                            }).done();
-                            {
-                                co_await dir.close();
-                            }
-                        }
-                    }
-                }
-            }
+    work_queue.emplace_back(std::move(path), false);
+    while (!work_queue.empty()) {
+        auto ent = work_queue.back();
+        work_queue.pop_back();
+        if (ent.listed) {
+            co_await remove_file(ent.path.native());
+        } else {
+            work_queue.emplace_back(ent.path, true);
+            auto path = std::move(ent.path);
+            file dir = co_await open_directory(path.native());
+            co_await dir.list_directory([&] (directory_entry de) -> future<> {
+                fs::path sub_path = path / de.name.c_str();
+                bool is_dir = de.type && *de.type == directory_entry_type::directory;
+                work_queue.emplace_back(std::move(sub_path), !is_dir);
+                co_return;
+            }).done();
+            co_await dir.close();
         }
     }
 }
