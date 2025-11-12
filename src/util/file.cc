@@ -167,14 +167,8 @@ future<> chmod(std::string_view name, file_permissions permissions) noexcept {
 
 static future<> do_recursive_remove_directory(const fs::path path) noexcept {
     struct work_entry {
-        const fs::path path;
+        fs::path path;
         bool listed;
-
-        work_entry(const fs::path path, bool listed)
-                : path(std::move(path))
-                , listed(listed)
-        {
-        }
     };
 
     return do_with(std::list<work_entry>(), [path = std::move(path)] (auto& work_queue) mutable {
