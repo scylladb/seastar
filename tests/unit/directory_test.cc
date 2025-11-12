@@ -72,23 +72,19 @@ SEASTAR_TEST_CASE(test_lister) {
         future<> done() { return _listing.done(); }
     private:
         future<> report(directory_entry de) {
-            return file_stat(de.name, follow_symlink::no).then([de = std::move(de)] (stat_data sd) {
-                if (de.type) {
-                    SEASTAR_ASSERT(*de.type == sd.type);
-                } else {
-                    SEASTAR_ASSERT(sd.type == directory_entry_type::unknown);
-                }
-                fmt::print("{} (type={})\n", de.name, de_type_desc(sd.type));
-                return make_ready_future<>();
-            });
+            stat_data sd = co_await file_stat(de.name, follow_symlink::no);
+            if (de.type) {
+                SEASTAR_ASSERT(*de.type == sd.type);
+            } else {
+                SEASTAR_ASSERT(sd.type == directory_entry_type::unknown);
+            }
+            fmt::print("{} (type={})\n", de.name, de_type_desc(sd.type));
         }
     };
     fmt::print("--- Regular lister test ---\n");
-    return engine().open_directory(".").then([] (file f) {
-        return do_with(lister(std::move(f)), [] (lister& l) {
-          return l.done();
-       });
-    });
+    file f = co_await open_directory(".");
+    lister l(std::move(f));
+    co_await l.done();
 }
 
 future<> lister_generator_test(file f) {
