@@ -316,6 +316,11 @@ public:
     static packet make_null_packet() noexcept {
         return net::packet(nullptr);
     }
+
+    bool is_null_packet() const noexcept {
+        return _impl == nullptr;
+    }
+    
 private:
     void linearize(size_t at_frag, size_t desired_size);
     bool allocate_headroom(size_t size);

@@ -1065,7 +1065,7 @@ public:
             : session(t, std::move(creds), net::get_impl::get(std::move(sock)), options) {}
 
     ~session() {
-        SEASTAR_ASSERT(_output_pending.available());
+        SEASTAR_ASSERT(!is_inflight_output());
     }
 
     const char * get_type_string() const {
@@ -1076,12 +1076,16 @@ public:
     // If an error occurs, it is saved off into _error and returned
     future<> wait_for_output() {
         tls_log.trace("{} wait_for_output", *this);
-        return std::exchange(_output_pending, make_ready_future())
-          .handle_exception([this](auto ep) {
-              tls_log.debug("{} wait_for_output error: {}", *this, ep);
-              _error = ep;
-              return make_exception_future(ep);
-          });
+
+        return get_units(_output_pending_guard, 1).then([this](auto units) {
+            return std::exchange(_output_pending, make_ready_future())
+                .handle_exception([this](auto ep) {
+                    tls_log.debug("{} wait_for_output error: {}", *this, ep);
+                    _error = ep;
+                    return make_exception_future(ep);
+                }).finally([units = std::move(units)] {});
+        });
+        
     }
 
     template<std::derived_from<std::exception> T>
@@ -1166,7 +1170,7 @@ public:
     // any unprocessed part of the packet is returned.
     future<> do_put(net::packet p) {
         tls_log.trace("{} do_put", *this);
-        SEASTAR_ASSERT(_output_pending.available());
+        SEASTAR_ASSERT(!is_inflight_output());
         return do_with(std::move(p),
             [this](net::packet& p) {
                 // This do_until runs until either a renegotiation occurs or the packet is empty
@@ -2139,6 +2143,10 @@ private:
     BIO* in_bio() { return SSL_get_rbio(_ssl.get()); }
     BIO* out_bio() { return SSL_get_wbio(_ssl.get()); }
 
+    bool is_inflight_output() {
+        return !(_output_pending.available() && try_get_units(_output_pending_guard, 1).has_value());
+    }
+
 private:
     std::unique_ptr<net::connected_socket_impl> _sock;
     sstring _local_address;
@@ -2152,6 +2160,7 @@ private:
     semaphore _out_sem;
     tls_options _options;
 
+    semaphore _output_pending_guard{1};
     future<> _output_pending;
     buf_type _input;
     // ALPN protocols in OPENSSL format
@@ -2268,7 +2277,7 @@ long bio_ctrl(BIO * b, int ctrl, long num, void * data) {
     case BIO_CTRL_PENDING:
         return static_cast<long>(session->_input.size());
     case BIO_CTRL_WPENDING:
-        return session->_output_pending.available() ? 0 : 1;
+        return session->is_inflight_output() ? 1 : 0;
     default:
         return 0;
     }
@@ -2294,7 +2303,8 @@ int bio_write_ex(BIO* b, const char * data, size_t dlen, size_t * written) {
     tls_log.trace("{} bio_write_ex: dlen {}", *session, dlen);
     BIO_clear_retry_flags(b);
 
-    if (!session->_output_pending.available()) {
+    // refuse the put if theres an inflight put
+    if (session->is_inflight_output()) {
         tls_log.trace("{} bio_write_ex: nothing pending in output", *session);
         BIO_set_retry_write(b);
         return 0;

@@ -411,7 +411,9 @@ future<> pollable_fd_state::write_all(const uint8_t* buffer, size_t size) {
 }
 
 future<> pollable_fd_state::write_all(net::packet& p) {
+    SEASTAR_ASSERT(!p.is_null_packet());
     return write_some(p).then([this, &p] (size_t size) {
+        SEASTAR_ASSERT(!p.is_null_packet());
         if (p.len() == size) {
             return make_ready_future<>();
         }
