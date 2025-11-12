@@ -400,6 +400,9 @@ seastar_add_test (program_options
   KIND BOOST
   SOURCES program_options_test.cc)
 
+seastar_add_test (proxy_protocol
+  SOURCES proxy_protocol_test.cc)
+
 seastar_add_test (queue
   SOURCES queue_test.cc)
 
