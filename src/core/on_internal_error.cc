@@ -19,9 +19,6 @@
  * Copyright 2020 ScyllaDB
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <atomic>
 #include <exception>
@@ -29,13 +26,9 @@ module;
 #include <string_view>
 #include <cstdlib>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/core/on_internal_error.hh>
 #include <seastar/util/backtrace.hh>
 #include <seastar/util/log.hh>
-#endif
 
 static std::atomic<bool> abort_on_internal_error{false};
 

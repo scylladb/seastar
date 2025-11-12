@@ -31,14 +31,11 @@
 #include <seastar/core/do_with.hh>
 #include <seastar/util/assert.hh>
 #include <seastar/util/log.hh>
-#include <seastar/util/modules.hh>
 
-#ifndef SEASTAR_MODULE
 #include <concepts>
 #include <functional>
 #include <ranges>
 #include <type_traits>
-#endif
 
 /// \defgroup smp-module Multicore
 ///
@@ -52,7 +49,6 @@
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 template <typename Func, typename... Param>
 class sharded_parameter;
@@ -60,7 +56,6 @@ class sharded_parameter;
 template <typename Service>
 class sharded;
 
-SEASTAR_MODULE_EXPORT_END
 
 namespace internal {
 
@@ -113,7 +108,6 @@ concept unsigned_range = std::ranges::range<R>
 /// \addtogroup smp-module
 /// @{
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 template <typename T>
 class sharded;
@@ -572,7 +566,6 @@ private:
 /// \example sharded_parameter_demo.cc
 ///
 /// Example use of \ref sharded_parameter.
-SEASTAR_MODULE_EXPORT_END
 /// @}
 
 template <typename Service>
@@ -913,7 +906,6 @@ void sharded<Service>::check_local() const {
     }
 }
 
-SEASTAR_MODULE_EXPORT_BEGIN
 /// \addtogroup smp-module
 /// @{
 /// Smart pointer wrapper which makes it safe to move across CPUs.
@@ -1091,6 +1083,5 @@ foreign_ptr<T> make_foreign(T ptr) {
 template<typename T>
 struct is_smart_ptr<foreign_ptr<T>> : std::true_type {};
 
-SEASTAR_MODULE_EXPORT_END
 
 }

@@ -21,7 +21,6 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <concepts>
 #include <type_traits>
 #include <utility>
@@ -33,7 +32,6 @@
 #include <string>
 #include <tuple>
 #include <chrono>
-#endif
 
 #include <seastar/core/future.hh>
 #include <seastar/net/byteorder.hh>
@@ -41,7 +39,6 @@
 #include <seastar/core/sstring.hh>
 #include <seastar/util/log.hh>
 #include <seastar/util/program-options.hh>
-#include <seastar/util/modules.hh>
 #include <seastar/core/metrics_api.hh>
 
 namespace seastar {

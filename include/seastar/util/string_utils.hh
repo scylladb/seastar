@@ -30,19 +30,15 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <cstring>
 #include <stdio.h>
-#endif
 
-#include <seastar/util/modules.hh>
 #include <seastar/core/sstring.hh>
 
 namespace seastar {
 
 namespace internal {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 //
 // Collection of utilities for working with strings .
 //
@@ -74,7 +70,6 @@ struct case_insensitive_hash {
     }
 };
 
-SEASTAR_MODULE_EXPORT_END
 
 }
 

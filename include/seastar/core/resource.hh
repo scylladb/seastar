@@ -22,9 +22,7 @@
 #pragma once
 
 #include <seastar/util/spinlock.hh>
-#include <seastar/util/modules.hh>
 #include <seastar/core/shared_ptr.hh>
-#ifndef SEASTAR_MODULE
 #include <cassert>
 #include <cstdlib>
 #include <memory>
@@ -36,7 +34,6 @@
 #include <unordered_map>
 #ifdef SEASTAR_HAVE_HWLOC
 #include <hwloc.h>
-#endif
 #endif
 
 namespace seastar {
@@ -87,7 +84,6 @@ struct topology_holder {};
 
 } // namespace hwloc::internal
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 struct configuration {
     optional<size_t> total_memory;
@@ -136,7 +132,6 @@ struct resources {
 resources allocate(configuration& c);
 unsigned nr_processing_units(configuration& c);
 
-SEASTAR_MODULE_EXPORT_END
 
 std::optional<resource::cpuset> parse_cpuset(std::string value);
 

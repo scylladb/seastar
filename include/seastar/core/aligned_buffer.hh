@@ -19,11 +19,8 @@
  * Copyright (C) 2016 ScyllaDB.
  */
 #pragma once
-#ifndef SEASTAR_MODULE
 #include <stdlib.h>
 #include <memory>
-#include <seastar/util/modules.hh>
-#endif
 
 namespace seastar {
 
@@ -31,7 +28,6 @@ namespace internal {
 void* allocate_aligned_buffer_impl(size_t size, size_t align);
 }
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 struct free_deleter {
     void operator()(void* p) { ::free(p); }
@@ -45,6 +41,5 @@ std::unique_ptr<CharType[], free_deleter> allocate_aligned_buffer(size_t size, s
     return std::unique_ptr<CharType[], free_deleter>(reinterpret_cast<CharType *>(ret));
 }
 
-SEASTAR_MODULE_EXPORT_END
 
 }

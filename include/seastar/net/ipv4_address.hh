@@ -24,13 +24,11 @@
 
 #include <seastar/net/socket_defs.hh>
 #include <seastar/core/byteorder.hh>
-#include <seastar/util/modules.hh>
 
 namespace seastar {
 
 namespace net {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 struct ipv4_address {
     ipv4_address() noexcept : ip(0) {}
@@ -78,7 +76,6 @@ inline bool is_unspecified(ipv4_address addr) noexcept { return addr.ip == 0; }
 
 std::ostream& operator<<(std::ostream& os, const ipv4_address& a);
 
-SEASTAR_MODULE_EXPORT_END
 
 }
 
@@ -86,7 +83,6 @@ SEASTAR_MODULE_EXPORT_END
 
 namespace std {
 
-SEASTAR_MODULE_EXPORT
 template <>
 struct hash<seastar::net::ipv4_address> {
     size_t operator()(seastar::net::ipv4_address a) const { return a.ip; }

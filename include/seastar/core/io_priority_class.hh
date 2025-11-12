@@ -21,21 +21,16 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <seastar/core/sstring.hh>
 #include <seastar/core/future.hh>
-#include <seastar/util/modules.hh>
 
-#endif
 
 namespace seastar {
 
 class io_queue;
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 using io_priority_class_id = unsigned;
 
-SEASTAR_MODULE_EXPORT_END
 
 } // namespace seastar

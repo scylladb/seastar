@@ -20,9 +20,7 @@
  */
 
 #pragma once
-#ifndef SEASTAR_MODULE
 #include <unordered_set>
-#endif
 #include <seastar/core/sharded.hh>
 #include <seastar/core/internal/pollable_fd.hh>
 #include <seastar/net/stack.hh>

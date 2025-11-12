@@ -21,7 +21,6 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <ranges>
 #include <string>
 #include <tuple>
@@ -30,12 +29,10 @@
 #include <map>
 #include <time.h>
 #include <sstream>
-#endif
 
 #include <seastar/core/loop.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/iostream.hh>
-#include <seastar/util/modules.hh>
 
 namespace seastar {
 
@@ -68,7 +65,6 @@ concept is_string_like =
 
 namespace json {
 
-SEASTAR_MODULE_EXPORT
 class jsonable;
 
 typedef struct tm date_time;
@@ -78,7 +74,6 @@ typedef struct tm date_time;
  * it overload to_json method for each of the supported format
  * all to_json parameters are passed as a pointer
  */
-SEASTAR_MODULE_EXPORT
 class formatter {
     enum class state {
         none, array, map

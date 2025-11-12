@@ -23,9 +23,7 @@
 
 #include <seastar/core/format.hh>
 #include <seastar/core/sstring.hh>
-#include <seastar/util/modules.hh>
 
-#ifndef SEASTAR_MODULE
 #include <fmt/format.h>
 
 #include <boost/any.hpp>
@@ -38,7 +36,6 @@
 #include <optional>
 #include <set>
 #include <memory>
-#endif
 
 /// \defgroup program-options Program Options
 ///
@@ -120,7 +117,6 @@ using list_base_hook = boost::intrusive::list_base_hook<boost::intrusive::link_m
 
 } // namespace program_options
 
-SEASTAR_MODULE_EXPORT_BEGIN
 enum class log_level;
 enum class logger_timestamp_style;
 enum class logger_ostream_type;
@@ -624,6 +620,5 @@ public:
 /// @}
 
 }
-SEASTAR_MODULE_EXPORT_END
 
 }

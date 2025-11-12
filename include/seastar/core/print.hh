@@ -23,15 +23,11 @@
 
 #include <seastar/core/format.hh>
 #include <seastar/core/sstring.hh>
-#include <seastar/util/modules.hh>
-#ifndef SEASTAR_MODULE
 #include <fmt/ostream.h>
 #include <iostream>
 #include <iomanip>
 #include <chrono>
-#endif
 
-SEASTAR_MODULE_EXPORT
 inline
 std::ostream&
 operator<<(std::ostream&& os, const void* ptr) {

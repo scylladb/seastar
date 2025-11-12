@@ -69,9 +69,6 @@
 // tag in pool.
 //
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <concepts>
 #include <unordered_set>
@@ -106,9 +103,6 @@ module;
 
 #endif // !defined(SEASTAR_DEFAULT_ALLOCATOR)
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/core/cacheline.hh>
 #include <seastar/core/memory.hh>
 #include <seastar/core/print.hh>
@@ -124,7 +118,6 @@ module seastar;
 #include <seastar/core/posix.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/util/backtrace.hh>
-#endif
 #endif
 
 #ifdef SEASTAR_DEBUG

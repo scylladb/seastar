@@ -24,14 +24,11 @@
 #include <seastar/core/future.hh>
 #include <seastar/core/iostream.hh>
 #include <seastar/util/noncopyable_function.hh>
-#include <seastar/util/modules.hh>
 
 namespace seastar::http {
-SEASTAR_MODULE_EXPORT_BEGIN
 
 /// body_writer_type - a function that accepts an output stream and uses that stream to write the body.
 /// The function should take ownership of the stream while using it and must close the stream when done.
 using body_writer_type = noncopyable_function<future<>(output_stream<char>&&)>;
 
-SEASTAR_MODULE_EXPORT_END
 } // namespace seastar::http

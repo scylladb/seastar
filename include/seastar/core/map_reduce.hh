@@ -22,17 +22,13 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <iterator>
 
 #include <seastar/core/future.hh>
 #include <seastar/core/shared_ptr.hh>
-#include <seastar/util/modules.hh>
-#endif
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 /// \addtogroup future-util
 /// @{
@@ -288,6 +284,5 @@ public:
 
 /// @}
 
-SEASTAR_MODULE_EXPORT_END
 
 } // namespace seastar
