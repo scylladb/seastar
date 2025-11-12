@@ -142,6 +142,7 @@ arg_parser.add_argument('--heap-profiling', dest='heap_profiling', action='store
 arg_parser.add_argument('--dpdk-machine', default='native', help='Specify the target architecture')
 add_tristate(arg_parser, name='deferred-action-require-noexcept', dest='deferred_action_require_noexcept', help='noexcept requirement for deferred actions', default=True)
 arg_parser.add_argument('--prefix', dest='install_prefix', default='/usr/local', help='Root installation path of Seastar files')
+arg_parser.add_argument('--sanitizers', action='store', dest='sanitizers', default='address;undefined_behavior', help='Use specified sanitizers')
 args = arg_parser.parse_args()
 
 
@@ -209,6 +210,7 @@ def configure_mode(mode):
         tr(args.deferred_action_require_noexcept, 'DEFERRED_ACTION_REQUIRE_NOEXCEPT'),
         tr(args.unused_result_error, 'UNUSED_RESULT_ERROR'),
         tr(args.debug_shared_ptr, 'DEBUG_SHARED_PTR', value_when_none='default'),
+        tr(args.sanitizers, 'SANITIZERS'),
     ]
 
     ingredients_to_cook = set(args.cook)
