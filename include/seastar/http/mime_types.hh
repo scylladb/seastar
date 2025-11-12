@@ -10,11 +10,8 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <string_view>
-#endif
 #include <seastar/core/sstring.hh>
-#include <seastar/util/modules.hh>
 
 namespace seastar {
 
@@ -28,7 +25,6 @@ namespace mime_types {
  * @param extension the file extension
  * @return the mime type as a string
  */
-SEASTAR_MODULE_EXPORT
 const char* extension_to_type(std::string_view extension);
 
 } // namespace mime_types

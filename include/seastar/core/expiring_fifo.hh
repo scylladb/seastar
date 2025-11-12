@@ -21,7 +21,6 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <seastar/core/future.hh>
 #include <seastar/core/chunked_fifo.hh>
 #include <exception>
@@ -30,8 +29,6 @@
 #include <seastar/core/lowres_clock.hh>
 #include <seastar/core/timed_out_error.hh>
 #include <seastar/util/assert.hh>
-#include <seastar/util/modules.hh>
-#endif
 
 namespace seastar {
 
@@ -55,7 +52,6 @@ struct promise_expiry {
 ///
 /// The container can only be moved before any elements are pushed.
 ///
-SEASTAR_MODULE_EXPORT
 template <typename T, typename OnExpiry = dummy_expiry<T>, typename Clock = lowres_clock>
 class expiring_fifo {
 public:

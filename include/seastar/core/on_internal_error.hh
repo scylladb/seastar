@@ -23,15 +23,11 @@
 
 #include <seastar/util/assert.hh>
 #include <seastar/util/std-compat.hh>
-#include <seastar/util/modules.hh>
-#ifndef SEASTAR_MODULE
 #include <exception>
 #include <string_view>
-#endif
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 class logger;
 
@@ -76,5 +72,4 @@ namespace internal {
 extern thread_local uint64_t internal_errors;
 }
 
-SEASTAR_MODULE_EXPORT_END
 }

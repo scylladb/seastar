@@ -21,7 +21,6 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
 #include <sys/ioctl.h>
@@ -45,17 +44,14 @@
 #include <memory>
 #include <set>
 #include <optional>
-#endif
 #include "abort_on_ebadf.hh"
 #include <seastar/core/sstring.hh>
 #include <seastar/net/socket_defs.hh>
 #include <seastar/util/assert.hh>
 #include <seastar/util/std-compat.hh>
-#include <seastar/util/modules.hh>
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 /// \file
 /// \defgroup posix-support POSIX Support
@@ -527,5 +523,4 @@ std::set<unsigned> get_current_cpuset();
 
 /// @}
 
-SEASTAR_MODULE_EXPORT_END
 }

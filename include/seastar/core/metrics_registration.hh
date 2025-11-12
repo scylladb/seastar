@@ -21,13 +21,10 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <memory>
 #include <vector>
 
 #include <seastar/core/sstring.hh>
-#include <seastar/util/modules.hh>
-#endif
 
 /*!
  * \file metrics_registration.hh
@@ -59,7 +56,6 @@ struct metric_definition_impl;
 class metric_groups_impl;
 }
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 using group_name_type = sstring; /*!< A group of logically related metrics */
 class metric_groups;
@@ -173,7 +169,6 @@ public:
     metric_group(const group_name_type& name, std::initializer_list<metric_definition> l);
 };
 
-SEASTAR_MODULE_EXPORT_END
 
 }
 }

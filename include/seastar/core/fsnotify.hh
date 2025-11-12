@@ -21,18 +21,14 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <sys/inotify.h>
 
 #include <seastar/core/future.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/core/shared_ptr.hh>
-#include <seastar/util/modules.hh>
-#endif
 
 namespace seastar::experimental {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 /// \defgroup fsnotifier FileSystem Notifier
 ///
@@ -202,6 +198,5 @@ inline void operator&=(fsnotifier::flags& a, fsnotifier::flags b) {
 
 /// @}
 
-SEASTAR_MODULE_EXPORT_END
 
 }

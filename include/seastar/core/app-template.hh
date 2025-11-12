@@ -20,11 +20,9 @@
  */
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <boost/program_options.hpp>
 #include <functional>
 #include <chrono>
-#endif
 #include <seastar/core/future.hh>
 #include <seastar/core/smp_options.hh>
 #include <seastar/core/sstring.hh>
@@ -32,7 +30,6 @@
 #include <seastar/core/metrics_api.hh>
 #include <seastar/core/scollectd.hh>
 #include <seastar/util/log-cli.hh>
-#include <seastar/util/modules.hh>
 
 namespace seastar {
 
@@ -44,7 +41,6 @@ class instance;
 
 }
 
-SEASTAR_MODULE_EXPORT
 class app_template {
 public:
     struct config {

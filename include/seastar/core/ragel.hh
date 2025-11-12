@@ -21,7 +21,6 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <seastar/core/sstring.hh>
 #include <seastar/core/temporary_buffer.hh>
 #include <seastar/util/assert.hh>
@@ -30,9 +29,7 @@
 #include <memory>
 #include <cassert>
 #include <optional>
-#include <seastar/util/modules.hh>
 #include <seastar/core/future.hh>
-#endif
 
 namespace seastar {
 
@@ -95,7 +92,6 @@ public:
     }
 };
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 // CRTP
 template <typename ConcreteParser>
@@ -153,6 +149,5 @@ inline void trim_trailing_spaces_and_tabs(sstring& str) {
     }
     str.resize(i);
 }
-SEASTAR_MODULE_EXPORT_END
 
 }

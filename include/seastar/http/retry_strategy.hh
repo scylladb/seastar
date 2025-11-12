@@ -9,10 +9,8 @@
 #pragma once
 #include <seastar/core/future.hh>
 #include <seastar/http/reply.hh>
-#include <seastar/util/modules.hh>
 
 namespace seastar {
-SEASTAR_MODULE_EXPORT_BEGIN
 
 namespace http::experimental {
 
@@ -39,5 +37,4 @@ public:
 };
 } // namespace http::experimental
 
-SEASTAR_MODULE_EXPORT_END
 } // namespace seastar

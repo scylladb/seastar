@@ -21,15 +21,12 @@
 
 #pragma once
 
-#include <seastar/util/modules.hh>
 #include <seastar/util/assert.hh>
 
-#ifndef SEASTAR_MODULE
 #include <atomic>
 
 #if defined(__x86_64__) || defined(__i386__)
 #include <xmmintrin.h>
-#endif
 #endif
 
 namespace seastar {
@@ -84,7 +81,6 @@ namespace util {
 // BasicLockable.
 // Async-signal safe.
 // unlock() "synchronizes with" lock().
-SEASTAR_MODULE_EXPORT
 class spinlock {
     std::atomic<bool> _busy = { false };
 public:

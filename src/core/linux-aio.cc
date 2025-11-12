@@ -19,9 +19,6 @@
  * Copyright (C) 2017 ScyllaDB
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <atomic>
 #include <algorithm>
@@ -33,13 +30,9 @@ module;
 #include <sys/syscall.h>
 #include <valgrind/valgrind.h>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/core/internal/linux-aio.hh>
 #include <seastar/core/print.hh>
 #include <seastar/util/read_first_line.hh>
-#endif
 
 namespace seastar {
 

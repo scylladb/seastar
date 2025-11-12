@@ -21,20 +21,16 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <seastar/core/coroutine.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/chunked_fifo.hh>
 #include <seastar/util/assert.hh>
-#include <seastar/util/modules.hh>
 #include <mutex>
 #include <utility>
 #include <shared_mutex>
-#endif
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 /// \addtogroup fiber-module
 /// @{
@@ -301,6 +297,5 @@ future<std::unique_lock<T>> get_unique_lock(T& t) {
 }
 
 /// @}
-SEASTAR_MODULE_EXPORT_END
 
 }

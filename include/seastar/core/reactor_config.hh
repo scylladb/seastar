@@ -23,7 +23,6 @@
 
 #include <seastar/util/program-options.hh>
 #include <seastar/util/memory_diagnostics.hh>
-#include <seastar/util/modules.hh>
 #include <seastar/core/scheduling.hh>
 
 namespace seastar {
@@ -51,7 +50,6 @@ class reactor_backend_selector;
 class network_stack_factory;
 
 /// Configuration for the reactor.
-SEASTAR_MODULE_EXPORT
 struct reactor_options : public program_options::option_group {
     /// \brief Select network stack to use.
     ///

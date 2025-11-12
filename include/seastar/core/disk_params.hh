@@ -21,10 +21,8 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <boost/range/adaptor/map.hpp>
 #include <chrono>
-#endif
 
 #include <seastar/core/io_queue.hh>
 #include <seastar/core/reactor_config.hh>
@@ -35,7 +33,6 @@ struct smp_options;
 
 namespace internal {
 
-SEASTAR_MODULE_EXPORT
 struct disk_params {
     std::vector<std::string> mountpoints;
     std::vector<dev_t> devices;
@@ -49,7 +46,6 @@ struct disk_params {
     float rate_factor = 1.0;
 };
 
-SEASTAR_MODULE_EXPORT
 class disk_config_params {
 private:
     const unsigned _max_queues;

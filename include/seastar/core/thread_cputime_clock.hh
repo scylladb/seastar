@@ -21,10 +21,8 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <chrono>
 #include <time.h>
-#endif
 #include <seastar/util/assert.hh>
 
 namespace seastar {

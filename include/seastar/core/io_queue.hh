@@ -21,13 +21,11 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <boost/container/static_vector.hpp>
 #include <chrono>
 #include <memory>
 #include <vector>
 #include <sys/uio.h>
-#endif
 #include <seastar/core/sstring.hh>
 #include <seastar/core/fair_queue.hh>
 #include <seastar/core/metrics_registration.hh>
@@ -35,7 +33,6 @@
 #include <seastar/core/internal/io_request.hh>
 #include <seastar/core/lowres_clock.hh>
 #include <seastar/util/spinlock.hh>
-#include <seastar/util/modules.hh>
 #include <seastar/util/shared_token_bucket.hh>
 
 struct io_queue_for_tests;
@@ -49,7 +46,6 @@ namespace internal {
 const io_throttler& get_throttler(const io_queue& ioq, unsigned stream);
 }
 
-SEASTAR_MODULE_EXPORT
 class io_intent;
 
 namespace internal {

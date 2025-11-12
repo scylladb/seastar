@@ -29,13 +29,10 @@
 #include <seastar/core/timed_out_error.hh>
 #include <seastar/core/abort_on_expiry.hh>
 #include <seastar/util/assert.hh>
-#include <seastar/util/modules.hh>
-#ifndef SEASTAR_MODULE
 #include <exception>
 #include <optional>
 #include <stdexcept>
 #include <utility>
-#endif
 
 namespace seastar {
 
@@ -62,7 +59,6 @@ public:
 
 /// \addtogroup fiber-module
 /// @{
-SEASTAR_MODULE_EXPORT_BEGIN
 /// Exception thrown when a semaphore is broken by
 /// \ref semaphore::broken().
 class broken_semaphore : public std::exception {
@@ -503,7 +499,6 @@ public:
         _wait_list.reserve(n);
     }
 };
-SEASTAR_MODULE_EXPORT_END
 
 template<typename ExceptionFactory, typename Clock>
 inline
@@ -519,7 +514,6 @@ basic_semaphore<ExceptionFactory, Clock>::broken(std::exception_ptr xp) noexcept
     }
 }
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 template<typename ExceptionFactory = semaphore_default_exception_factory, typename Clock = typename timer<>::clock>
 class semaphore_units {
@@ -818,7 +812,6 @@ with_semaphore(basic_semaphore<ExceptionFactory, Clock>& sem, size_t units, type
 using semaphore = basic_semaphore<semaphore_default_exception_factory>;
 using named_semaphore = basic_semaphore<named_semaphore_exception_factory>;
 
-SEASTAR_MODULE_EXPORT_END
 
 /// @}
 

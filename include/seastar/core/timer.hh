@@ -26,12 +26,9 @@
 #include <seastar/core/timer-set.hh>
 #include <seastar/util/assert.hh>
 #include <seastar/util/std-compat.hh>
-#include <seastar/util/modules.hh>
-#ifndef SEASTAR_MODULE
 #include <boost/intrusive/list.hpp>
 #include <chrono>
 #include <optional>
-#endif
 
 /// \file
 
@@ -52,7 +49,6 @@
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 using steady_clock_type = std::chrono::steady_clock;
 
@@ -227,6 +223,5 @@ extern template class timer<steady_clock_type>;
 
 
 /// @}
-SEASTAR_MODULE_EXPORT_END
 }
 

@@ -21,18 +21,13 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <seastar/core/sharded.hh>
-#include <seastar/util/modules.hh>
-#endif
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 template <typename Service>
 using distributed [[deprecated("Use sharded<T> from sharded.hh instead")]] = sharded<Service>;
 
-SEASTAR_MODULE_EXPORT_END
 
 }

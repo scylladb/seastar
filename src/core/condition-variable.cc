@@ -18,14 +18,7 @@
 /*
  * Copyright (C) 2020 ScyllaDB, Ltd.
  */
-#ifdef SEASTAR_MODULE
-module;
-#include <exception>
-#include <utility>
-module seastar;
-#else
 #include <seastar/core/condition-variable.hh>
-#endif
 #include <seastar/util/assert.hh>
 
 namespace seastar {

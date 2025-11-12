@@ -16,13 +16,11 @@
 #include <seastar/core/bitset-iter.hh>
 #include <seastar/core/scheduling.hh>
 #include <seastar/util/assert.hh>
-#ifndef SEASTAR_MODULE
 #include <boost/intrusive/list.hpp>
 #include <exception>
 #include <array>
 #include <bitset>
 #include <limits>
-#endif
 
 namespace seastar {
 

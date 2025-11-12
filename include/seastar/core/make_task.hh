@@ -21,15 +21,11 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <seastar/core/task.hh>
 #include <seastar/core/future.hh>
-#include <seastar/util/modules.hh>
-#endif
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 template <typename Func>
 requires std::invocable<Func>
@@ -66,6 +62,5 @@ make_task(scheduling_group sg, Func&& func) noexcept {
     return new lambda_task<Func>(sg, std::forward<Func>(func));
 }
 
-SEASTAR_MODULE_EXPORT_END
 
 }

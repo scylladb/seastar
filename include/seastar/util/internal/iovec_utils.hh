@@ -21,9 +21,7 @@
 
 #include <span>
 
-#ifndef SEASTAR_MODULE
 #include <sys/types.h>
-#endif
 
 #pragma once
 

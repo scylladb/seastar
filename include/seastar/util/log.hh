@@ -26,9 +26,7 @@
 #include <seastar/util/log-level.hh>
 #include <seastar/core/lowres_clock.hh>
 #include <seastar/util/std-compat.hh>
-#include <seastar/util/modules.hh>
 
-#ifndef SEASTAR_MODULE
 #include <concepts>
 #include <unordered_map>
 #include <exception>
@@ -38,14 +36,12 @@
 #include <type_traits>
 #include <fmt/core.h>
 #include <fmt/format.h>
-#endif
 
 /// \addtogroup logging
 /// @{
 
 
 namespace seastar {
-SEASTAR_MODULE_EXPORT_BEGIN
 class logger;
 class logger_registry;
 
@@ -524,7 +520,6 @@ struct logging_settings final {
 ///
 void apply_logging_settings(const logging_settings&);
 
-SEASTAR_MODULE_EXPORT_END
 
 /// \cond internal
 

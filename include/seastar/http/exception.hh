@@ -22,7 +22,6 @@
 #pragma once
 
 #include <seastar/util/log.hh>
-#include <seastar/util/modules.hh>
 #include <seastar/http/reply.hh>
 #include <seastar/json/json_elements.hh>
 
@@ -30,7 +29,6 @@ namespace seastar {
 
 namespace httpd {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 /**
  * The base_exception is a base for all http exception.
@@ -163,12 +161,10 @@ public:
     {}
 };
 
-SEASTAR_MODULE_EXPORT_END
 }
 
 }
 
-SEASTAR_MODULE_EXPORT
 template <>
 struct fmt::formatter<seastar::httpd::base_exception> {
     constexpr auto parse(format_parse_context& ctx) { return ctx.begin(); }

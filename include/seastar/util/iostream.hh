@@ -24,11 +24,9 @@
 #include <type_traits>
 #include <seastar/core/future.hh>
 #include <seastar/core/iostream.hh>
-#include <seastar/util/modules.hh>
 
 namespace seastar {
 namespace util {
-SEASTAR_MODULE_EXPORT_BEGIN
 
 /// Writes data to stream and properly flushes and closes one
 ///
@@ -54,7 +52,6 @@ future<> write_to_stream_and_close(output_stream<char>&& out_, W writer) {
     }
 }
 
-SEASTAR_MODULE_EXPORT_END
 } // util namespace
 } // seastar namespace
 

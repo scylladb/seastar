@@ -21,18 +21,14 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <cstddef>
-#endif
 #include <seastar/core/semaphore.hh>
 #include <seastar/util/assert.hh>
-#include <seastar/util/modules.hh>
 
 namespace seastar {
 
 /// \cond internal
 // lock / unlock semantics for rwlock, so it can be used with with_lock()
-SEASTAR_MODULE_EXPORT
 template<typename Clock>
 class basic_rwlock;
 
@@ -71,7 +67,6 @@ public:
 /// fibers running in the same CPU that may use the same resource.
 /// Acquiring the write lock will effectively cause all readers not to be executed
 /// until the write part is done.
-SEASTAR_MODULE_EXPORT
 template<typename Clock = typename timer<>::clock>
 class basic_rwlock : private rwlock_for_read<Clock>, rwlock_for_write<Clock> {
     using semaphore_type = basic_semaphore<semaphore_default_exception_factory, Clock>;
@@ -208,7 +203,6 @@ public:
     friend class rwlock_for_write<Clock>;
 };
 
-SEASTAR_MODULE_EXPORT
 using rwlock = basic_rwlock<>;
 
 /// @}
