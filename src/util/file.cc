@@ -185,11 +185,8 @@ static future<> do_recursive_remove_directory(const fs::path path) noexcept {
                         return do_with(std::move(dir), [&path, &work_queue] (file& dir) mutable {
                             return dir.list_directory([&path, &work_queue] (directory_entry de) mutable {
                                 fs::path sub_path = path / de.name.c_str();
-                                if (de.type && *de.type == directory_entry_type::directory) {
-                                    work_queue.emplace_back(std::move(sub_path), false);
-                                } else {
-                                    work_queue.emplace_back(std::move(sub_path), true);
-                                }
+                                bool is_dir = de.type && *de.type == directory_entry_type::directory;
+                                work_queue.emplace_back(std::move(sub_path), !is_dir);
                                 return make_ready_future<>();
                             }).done().then([&dir] () mutable {
                                 return dir.close();
