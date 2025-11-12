@@ -142,6 +142,7 @@ public:
 class closed_error : public error {
 public:
     closed_error() : error("connection is closed") {}
+    closed_error(const std::string& msg) : error(msg) {}
 };
 
 class timeout_error : public error {
