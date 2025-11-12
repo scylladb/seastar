@@ -35,6 +35,7 @@
 #include <seastar/util/short_streams.hh>
 #include <seastar/util/closeable.hh>
 #include <seastar/net/tls.hh>
+#include "memory_data_sink.hh"
 
 using namespace seastar;
 using namespace httpd;
@@ -319,7 +320,7 @@ SEASTAR_THREAD_TEST_CASE(test_text_route) {
 
     auto reply = route.handle("/hello", std::make_unique<http::request>(),
             std::make_unique<http::reply>()).get();
-    
+
     BOOST_CHECK_EQUAL((int )reply->_status, (int )http::reply::status_type::ok);
     BOOST_CHECK_EQUAL(reply->_headers["Content-Type"], "text/plain");
     BOOST_CHECK_EQUAL(reply->_content, "hello, you");

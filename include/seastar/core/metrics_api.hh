@@ -42,7 +42,6 @@ namespace seastar {
 namespace metrics {
 namespace impl {
 
-using labels_type = std::map<sstring, sstring>;
 using internalized_labels_ref = lw_shared_ptr<const labels_type>;
 
 }

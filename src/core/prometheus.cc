@@ -20,18 +20,21 @@
  */
 
 #include <fmt/core.h>
-#include <fmt/ostream.h>
-#include <seastar/core/prometheus.hh>
+#include <fmt/compile.h>
 #include <google/protobuf/io/coded_stream.h>
 #include <google/protobuf/io/zero_copy_stream_impl_lite.h>
 #include "proto/metrics2.pb.h"
-#include <sstream>
 
-#include <seastar/core/metrics_api.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/iostream.hh>
+#include <seastar/core/metrics.hh>
+#include <seastar/core/metrics_api.hh>
+#include <seastar/core/prometheus.hh>
 #include <seastar/core/scollectd.hh>
 #include <seastar/http/function_handlers.hh>
+
+#include "prometheus-impl.hh"
+
 #include <boost/algorithm/string/replace.hpp>
 #include <boost/range/algorithm_ext/erase.hpp>
 #include <boost/algorithm/string.hpp>
@@ -43,16 +46,185 @@
 #include <ranges>
 #include <regex>
 #include <string_view>
+#include <type_traits>
+
+using namespace std::literals;
+
+template<>
+struct fmt::formatter<seastar::metrics::impl::metric_value> {
+    constexpr auto parse (format_parse_context& ctx) {
+        return ctx.begin();
+    }
+
+    constexpr auto format(const seastar::metrics::impl::metric_value& v, auto& ctx) const {
+        switch (v.type()) {
+        case seastar::metrics::impl::data_type::GAUGE:
+        case seastar::metrics::impl::data_type::REAL_COUNTER:
+            return format_to(ctx.out(), FMT_COMPILE("{:.6f}"), v.d());
+            break;
+        case seastar::metrics::impl::data_type::COUNTER:
+            return format_to(ctx.out(), FMT_COMPILE("{}"), v.i());
+            break;
+        case seastar::metrics::impl::data_type::HISTOGRAM:
+        case seastar::metrics::impl::data_type::SUMMARY:
+            // handled with a different code path
+            return ctx.out();
+        }
+        assert(false);
+        __builtin_unreachable();
+    }
+};
 
 namespace seastar {
 
 extern seastar::logger seastar_logger;
+
+constexpr std::string_view to_string(seastar::metrics::impl::data_type t) {
+    switch (t) {
+    case seastar::metrics::impl::data_type::GAUGE:
+        return "gauge";
+    case seastar::metrics::impl::data_type::COUNTER:
+    case seastar::metrics::impl::data_type::REAL_COUNTER:
+        return "counter";
+    case seastar::metrics::impl::data_type::HISTOGRAM:
+        return "histogram";
+    case seastar::metrics::impl::data_type::SUMMARY:
+        return "summary";
+    };
+    return "untyped";
+};
 
 namespace prometheus {
 namespace pm = io::prometheus::client;
 
 namespace mi = metrics::impl;
 
+using mi::labels_type;
+
+namespace {
+
+// A wrapper around a std::vector for efficient formatting and appending
+// of text data. Just using a std::vector is much slower.
+// Inspired by log_buf.
+class fmt_buf {
+    char* _current;
+    std::vector<char> buffer;
+private:
+
+    const char* buf_end() const noexcept {
+        return buffer.data() + buffer.size();
+    }
+
+    auto& realloc_buffer_and_append(char c) {
+        auto current_size = size();  // Save size before resizing
+        buffer.resize(buffer.size() * 2);
+        _current = buffer.data() + current_size;
+        *_current++ = c;
+        return *this;
+    }
+
+public:
+    static constexpr size_t initial_size = 1024;
+
+    fmt_buf() {
+        buffer.resize(initial_size);
+        _current = buffer.data();
+    }
+
+    fmt_buf(const fmt_buf&) = delete;
+    fmt_buf(fmt_buf&&) = delete;
+    fmt_buf& operator=(const fmt_buf&) = delete;
+    fmt_buf& operator=(fmt_buf&&) = delete;
+
+    /// Clear the buffer, setting its position back to the start, but does not
+    /// free any buffers (after this called, size is zero, capacity is unchanged).
+    /// Any existing iterators are invalidated.
+    void clear() { _current = data(); }
+
+    /// The amount of data written so far.
+    size_t size() const noexcept { return _current - data(); }
+
+    /// The remaining space
+    size_t remaining() const noexcept { return buf_end() - _current; }
+
+    const char* data() const noexcept { return buffer.data(); }
+    char* data() noexcept { return buffer.data(); }
+
+    auto& append(char c) noexcept {
+        if (_current == buf_end()) [[unlikely]] {
+            return realloc_buffer_and_append(c);
+        }
+        *_current++ = c;
+        return *this;
+    }
+
+    fmt_buf& append(std::string_view str) {
+        if (str.size() <= remaining()) [[likely]] {
+            std::copy(str.begin(), str.end(), _current);
+            _current += str.size();
+        } else {
+            append_slowpath(str);
+        }
+        return *this;
+    }
+
+    fmt_buf& operator<<(std::string_view str) {
+        return append(str);
+    }
+
+    void append_slowpath(std::string_view sv) {
+        // This is taken very infrequently, as we (a) size the buffer generously
+        // to start and (b) keep using the same buffer for the entire request
+        // but flush it every metric, so so once it grows larger (if it needs
+        // to) that space can be reused by subsequent metrics, so the total number
+        // of appends is effectively capped per request.
+        // Therefore, we just do the simplest thing here which is to append char
+        // by char (which internally handles the resize).
+        for (auto c : sv) {
+            append(c);
+        }
+    }
+
+    // removes last character added (buffer must not be empty)
+    void pop_back() {
+        --_current;
+    }
+
+    // the last character added (buffer must not be empty)
+    char back() {
+        return *(_current - 1);
+    }
+
+    std::string_view str() const {
+        return {data(), size()};
+    }
+
+    class inserter_iterator {
+        fmt_buf* _buf;
+    public:
+        using iterator_category = std::output_iterator_tag;
+        using difference_type = std::ptrdiff_t;
+        using value_type = void;
+        using pointer = void;
+        using reference = void;
+
+        explicit inserter_iterator(fmt_buf& buf) noexcept : _buf(&buf) { }
+
+        void operator=(char c) noexcept {
+            _buf->append(c);
+        }
+
+        inserter_iterator& operator*() noexcept { return *this; }
+        inserter_iterator& operator++() noexcept { return *this; }
+        inserter_iterator operator++(int) noexcept { return *this; }
+    };
+
+    /// Create an output iterator which allows writing into the buffer.
+    inserter_iterator back_insert_begin() noexcept { return inserter_iterator(*this); }
+};
+}
+
+using buf_t = fmt_buf;
 /**
  * Taken from an answer in stackoverflow:
  * http://stackoverflow.com/questions/2340730/are-there-c-equivalents-for-the-protocol-buffers-delimited-i-o-functions-in-ja
@@ -92,7 +264,7 @@ static pm::Metric* add_label(pm::Metric* mt, const metrics::impl::labels_type & 
     for (auto && [name, value] : id) {
         auto label = mt->add_label();
         label->set_name(std::string(name));
-        label->set_value(std::string(value));
+        label->set_value(std::string(value.value()));
     }
     return mt;
 }
@@ -205,76 +377,61 @@ static void fill_metric(pm::MetricFamily& mf, const metrics::impl::metric_value&
     }
 }
 
-static std::ostream& operator<<(std::ostream& os, seastar::metrics::impl::data_type dt) {
-    switch (dt) {
-    case seastar::metrics::impl::data_type::GAUGE:
-        return os << "gauge";
-    case seastar::metrics::impl::data_type::COUNTER:
-    case seastar::metrics::impl::data_type::REAL_COUNTER:
-        return os << "counter";
-    case seastar::metrics::impl::data_type::HISTOGRAM:
-        return os << "histogram";
-    case seastar::metrics::impl::data_type::SUMMARY:
-        return os << "summary";
+static inline bool is_internal(const sstring& name) {
+    if (auto cstr = name.c_str(); cstr[0] == '_' && cstr[1] == '_') [[unlikely]] {
+        return true;
     }
-    return os << "untyped";
+    return false;
 }
 
-static std::ostream& operator<<(std::ostream& os, const seastar::metrics::impl::metric_value& v) {
-    switch (v.type()) {
-    case seastar::metrics::impl::data_type::GAUGE:
-    case seastar::metrics::impl::data_type::REAL_COUNTER:
-        fmt::print(os, "{:.6f}", v.d());
-        break;
-    case seastar::metrics::impl::data_type::COUNTER:
-        fmt::print(os, "{}", v.i());
-        break;
-    case seastar::metrics::impl::data_type::HISTOGRAM:
-    case seastar::metrics::impl::data_type::SUMMARY:
-        break;
-    }
-    return os;
-}
+[[gnu::always_inline]]
+static inline void write_label(buf_t& s, std::string_view key, std::string_view value) {
+    s << key << "=\"";
+    s << value;
+    s << "\",";
+};
 
-/*
- * Sanitizes the prometheus label value as per the line format rules and writes it out to the ostream:
- * > label_value can be any sequence of UTF-8 characters, but the backslash (\), double-quote ("), and
- * > line feed (\n) characters have to be escaped as \\, \", and \n, respectively.
- */
-static void escape_and_write_label_value(std::ostream& s, std::string_view label_value) {
-    for (char c : label_value) {
-        switch (c) {
-            case '\\': s << R"(\\)"; break;
-            case '\"': s << R"(\")"; break;
-            case '\n': s << R"(\n)"; break;
-            default:   s << c;
-        }
-    }
-}
+struct no_label {};
 
-static void add_name(std::ostream& s, const sstring& name, const std::map<sstring, sstring>& labels, const config& ctx) {
-    s << name << "{";
-    const char* delimiter = "";
-    if (ctx.label) {
-        s << ctx.label->key()  << "=\"";
-        escape_and_write_label_value(s, ctx.label->value());
-        s << '"';
-        delimiter = ",";
+template <typename Extra = no_label>
+static void write_name_and_labels(buf_t& buf, std::string_view name, auto suffix, const labels_type& labels, const config& ctx, Extra extra = {}) {
+
+    // extra label can be injected in by the caller, unfortunately prometheus
+    // requires labels to be sorted by name, so we have to jump through some
+    // hoops to do that.
+    constexpr bool has_extra = !std::is_same_v<Extra, no_label>;
+
+    buf << name << suffix << "{";
+    if (ctx.label) [[unlikely]] {
+        write_label(buf, ctx.label->key(), ctx.label->value());
     }
 
-    if (!labels.empty()) {
-        for (auto l : labels) {
-            if (!boost::algorithm::starts_with(l.first, "__")) {
-                s << delimiter;
-                s << l.first  << "=\"";
-                escape_and_write_label_value(s, l.second);
-                s << '"';
-                delimiter = ",";
+    bool wrote_extra = false;
+
+    for (auto& l : labels) {
+        std::string_view label_name = l.first;
+        if constexpr (has_extra) {
+            if (!wrote_extra && extra.name < label_name) {
+                write_label(buf, extra.name, extra.value);
+                wrote_extra = true;
             }
         }
+        if (!is_internal(l.first)) [[likely]] {
+            write_label(buf, label_name, l.second.value());
+        }
     }
-    s << "} ";
 
+    if constexpr (has_extra) {
+        if (!wrote_extra) {
+            write_label(buf, extra.name, extra.value);
+        }
+    }
+
+    if (buf.back() == ',') {
+        buf.pop_back();
+    }
+
+    buf.append("} ");
 }
 
 /*!
@@ -669,94 +826,60 @@ metric_family_range get_range(const metrics_families_per_shard& mf, const sstrin
 
 }
 
-void write_histogram(std::stringstream& s, const config& ctx, const sstring& name, const seastar::metrics::histogram& h, std::map<sstring, sstring> labels) noexcept {
-    add_name(s, name + "_sum", labels, ctx);
-    s << h.sample_sum << '\n';
 
-    add_name(s, name + "_count", labels, ctx);
-    s << h.sample_count  << '\n';
-
-    auto& le = labels["le"];
-    auto bucket = name + "_bucket";
-    for (auto  i : h.buckets) {
-         le = std::to_string(i.upper_bound);
-        add_name(s, bucket, labels, ctx);
-        s << i.count << '\n';
-    }
-    labels["le"] = "+Inf";
-    add_name(s, bucket, labels, ctx);
-    s << h.sample_count  << '\n';
-}
-
-void write_summary(std::stringstream& s, const config& ctx, const sstring& name, const seastar::metrics::histogram& h, std::map<sstring, sstring> labels) noexcept {
-    if (h.sample_sum) {
-        add_name(s, name + "_sum", labels, ctx);
-        s << h.sample_sum  << '\n';
-    }
-    if (h.sample_count) {
-        add_name(s, name + "_count", labels, ctx);
-        s << h.sample_count  << '\n';
-    }
-    auto& le = labels["quantile"];
-    for (auto  i : h.buckets) {
-        le = std::to_string(i.upper_bound);
-        add_name(s, name, labels, ctx);
-        s << i.count  << '\n';
-    }
-}
-/*!
- * \brief a helper class to aggregate metrics over labels
- *
- * This class sum multiple metrics based on a list of labels.
- * It returns one or more metrics each aggregated by the aggregate_by labels.
- *
- * To use it, you define what labels it should aggregate by and then pass to
- * it metrics with their labels.
- * For example if a metrics has a 'shard' and 'name' labels and you aggregate by 'shard'
- * it would return a map of metrics each with only the 'name' label
- *
- */
-class metric_aggregate_by_labels {
-    std::vector<std::string> _labels_to_aggregate_by;
-    std::unordered_map<std::map<sstring, sstring>, seastar::metrics::impl::metric_value> _values;
-public:
-    metric_aggregate_by_labels(std::vector<std::string> labels) : _labels_to_aggregate_by(std::move(labels)) {
-    }
-    /*!
-     * \brief add a metric
-     *
-     * This method gets a metric and its labels and adds it to the aggregated metric.
-     * For example, if a metric has the labels {'shard':'0', 'name':'myhist'} and we are aggregating
-     * over 'shard'
-     * The metric would be added to the aggregated metric with labels {'name':'myhist'}.
-     *
-     */
-    void add(const seastar::metrics::impl::metric_value& m, std::map<sstring, sstring> labels) noexcept {
-        for (auto&& l : _labels_to_aggregate_by) {
-            labels.erase(l);
-        }
-        std::unordered_map<std::map<sstring, sstring>, seastar::metrics::impl::metric_value>::iterator i = _values.find(labels);
-        if ( i == _values.end()) {
-            _values.emplace(std::move(labels), m);
-        } else {
-            i->second += m;
-        }
-    }
-    const std::unordered_map<std::map<sstring, sstring>, seastar::metrics::impl::metric_value>& get_values() const noexcept {
-        return _values;
-    }
-    bool empty() const noexcept {
-        return _values.empty();
-    }
+template <typename Extra = no_label>
+static inline void write_series(buf_t& buf, std::string_view name, const labels_type& labels, const config& ctx, auto v, std::string_view suffix, Extra e = {}) {
+    write_name_and_labels(buf, name, suffix, labels, ctx, e);
+    static constexpr auto format = std::is_floating_point_v<decltype(v)> ? "{:g}\n" : "{}\n";
+    fmt::format_to(buf.back_insert_begin(), FMT_COMPILE(format), v);
 };
 
-void write_value_as_string(std::stringstream& s, const mi::metric_value& value) noexcept {
-    std::string value_str;
+
+struct extra_label {
+    std::string_view name, value;
+};
+
+void write_histogram(buf_t& buf, const config& ctx, std::string_view name, const seastar::metrics::histogram& h, const labels_type& labels) noexcept {
+
+    auto write_one = [&] (auto v, std::string_view suffix) {
+        write_series(buf, name, labels, ctx, v, suffix);
+    };
+
+    write_one(h.sample_sum, "_sum");
+    write_one(h.sample_count, "_count");
+
+    for (auto  i : h.buckets) {
+        write_series(buf, name, labels, ctx, i.count, "_bucket",
+            extra_label{"le", fmt::format(FMT_COMPILE("{:f}"), i.upper_bound)} );
+    }
+    write_series(buf, name, labels, ctx, h.sample_count, "_bucket", extra_label{"le", "+Inf"} );
+}
+
+void write_summary(buf_t& buf, const config& ctx, std::string_view name, const seastar::metrics::histogram& h, const labels_type& labels) noexcept {
+
+    auto write_one = [&] (auto v, std::string_view suffix) {
+        write_series(buf, name, labels, ctx, v, suffix);
+    };
+
+    if (h.sample_sum) {
+        write_one(h.sample_sum, "_sum");
+    }
+    if (h.sample_count) {
+        write_one(h.sample_count, "_count");
+    }
+
+    for (auto  i : h.buckets) {
+        write_series(buf, name, labels, ctx, i.count, "",
+            extra_label{"quantile", fmt::format(FMT_COMPILE("{:f}"), i.upper_bound)} );
+    }
+}
+
+void write_value_as_string(buf_t& s, const mi::metric_value& value) noexcept {
     try {
-        s << value;
+        fmt::format_to(s.back_insert_begin(), FMT_COMPILE("{}\n"), value);
     } catch (const std::range_error& e) {
         seastar_logger.debug("prometheus: write_value_as_string: {}: {}", s.str(), e.what());
-        s << "NaN";
+        s << "NaN\n";
     } catch (...) {
         auto ex = std::current_exception();
         // print this error as it's ignored later on by `connection::start_response`
@@ -786,7 +909,7 @@ struct write_context {
 
 future<> write_context::write_text_representation() {
     return seastar::async([this] {
-        std::stringstream s;
+        buf_t s;
         for (metric_family& metric_family : m) {
             auto name = ctx.prefix + "_" + metric_family.name();
             bool found = false;
@@ -794,15 +917,14 @@ future<> write_context::write_text_representation() {
             bool should_aggregate = args.enable_aggregation && !metric_family.metadata().aggregate_labels.empty();
             metric_family.foreach_metric([this, &s, &found, &name, &metric_family, &aggregated_values, should_aggregate](const mi::metric_value& value, const mi::metric_series_metadata& value_info) mutable {
                 s.clear();
-                s.str("");
                 if ((value_info.should_skip_when_empty() && value.is_empty()) || !args.filter(value_info.labels())) {
                     return;
                 }
                 if (!found) {
                     if (args.show_help && metric_family.metadata().d.str() != "") {
-                        s << "# HELP " << name << " " <<  metric_family.metadata().d.str() << '\n';
+                        s << "# HELP " << name << " " <<  metric_family.metadata().d.str() << "\n";
                     }
-                    s << "# TYPE " << name << " " << metric_family.metadata().type << '\n';
+                    s << "# TYPE " << name << " " << to_string(metric_family.metadata().type) << "\n";
                     found = true;
                 }
                 if (should_aggregate) {
@@ -812,25 +934,25 @@ future<> write_context::write_text_representation() {
                 } else if (value.type() == mi::data_type::HISTOGRAM) {
                     write_histogram(s, ctx, name, value.get_histogram(), value_info.labels());
                 } else {
-                    add_name(s, name, value_info.labels(), ctx);
+                    write_name_and_labels(s, name, "", value_info.labels(), ctx);
                     write_value_as_string(s, value);
-                    s << '\n';
                 }
-                out.write(s.str()).get();
+                out.write(s.data(), s.size()).get();
                 thread::maybe_yield();
             });
             if (!aggregated_values.empty()) {
                 for (auto&& h : aggregated_values.get_values()) {
                     s.clear();
-                    s.str("");
-                    if (h.second.type() == mi::data_type::HISTOGRAM) {
-                        write_histogram(s, ctx, name, h.second.get_histogram(), h.first);
+                    // Labels are already filtered (aggregated labels removed)
+                    auto& labels = h.second.labels;
+                    auto& value = h.second.m;
+                    if (value.type() == mi::data_type::HISTOGRAM) {
+                        write_histogram(s, ctx, name, value.get_histogram(), labels);
                     } else {
-                        add_name(s, name, h.first, ctx);
-                        write_value_as_string(s, h.second);
-                        s << '\n';
+                        write_name_and_labels(s, name, "", labels, ctx);
+                        write_value_as_string(s, value);
                     }
-                    out.write(s.str()).get();
+                    out.write(s.data(), s.size()).get();
                     thread::maybe_yield();
                 }
             }
@@ -860,8 +982,8 @@ future<> write_context::write_protobuf_representation() {
                 empty_metric = false;
             }
         });
-        for (auto& [labels, value] : aggregated_values.get_values()) {
-            fill_metric(mtf, value, labels, ctx);
+        for (auto& [_, value] : aggregated_values.get_values()) {
+            fill_metric(mtf, value.m, value.labels, ctx);
             empty_metric = false;
         }
         if (empty_metric) {
@@ -929,7 +1051,7 @@ class metrics_handler : public httpd::handler_base  {
         return (matcher.empty()) ? _true_function : [matcher](const mi::labels_type& labels) {
             for (auto&& m : matcher) {
                 auto l = labels.find(m.first);
-                if (!std::regex_match((l == labels.end())? "" : l->second.c_str(), m.second)) {
+                if (!std::regex_match((l == labels.end())? "" : l->second.value().c_str(), m.second)) {
                     return false;
                 }
             }

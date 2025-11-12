@@ -30,6 +30,8 @@
 #include <optional>
 #endif
 
+struct prometheus_test_fixture;
+
 namespace seastar {
 
 namespace prometheus {
@@ -75,6 +77,7 @@ class test_access {
     future<> write_body(config cfg, bool use_protobuf_format, sstring metric_family_name, bool prefix, bool show_help, bool enable_aggregation, filter_t filter, output_stream<char>&& s);
 
     friend struct metrics_perf_fixture;
+    friend struct ::prometheus_test_fixture;
 };
 }
 SEASTAR_MODULE_EXPORT_END

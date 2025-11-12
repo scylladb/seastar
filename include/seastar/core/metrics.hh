@@ -261,6 +261,41 @@ SEASTAR_MODULE_EXPORT_END
  */
 namespace impl {
 
+// A escaped label value.
+//
+// This is "just" as a string, with the additional invariant that it has already been
+// escaped, and this type preserves that invariant.
+class escaped_string {
+    sstring _value;
+
+public:
+    escaped_string() = default;
+    escaped_string(const escaped_string&) = default;
+    escaped_string(escaped_string&&) = default;
+
+    // this constructor escapes the input if necessary
+    explicit escaped_string(sstring v);
+
+    const sstring& value() const {
+        return _value;
+    }
+
+    operator const sstring&() const {
+        return value();
+    }
+
+    bool operator==(const escaped_string& o) const = default;
+    auto operator<=>(const escaped_string& o) const = default;
+
+    escaped_string& operator=(const escaped_string&) = default;
+    escaped_string& operator=(escaped_string&&) = default;
+
+    // assignment from an unescaped string escapes it if necessary
+    escaped_string& operator=(const sstring&);
+};
+
+using labels_type = std::map<sstring, escaped_string>;
+
 // The value binding data types
 enum class data_type : uint8_t {
     COUNTER,
@@ -341,12 +376,12 @@ public:
             : u(d), _type(t) {
     }
 
-    metric_value& operator+=(const metric_value& c) {
-        *this = *this + c;
-        return *this;
+    metric_value& operator+=(const metric_value& c);
+
+    metric_value operator+(const metric_value& c) {
+        return metric_value(*this) += c;
     }
 
-    metric_value operator+(const metric_value& c);
     const histogram& get_histogram() const {
         return std::get<histogram>(u);
     }
@@ -380,7 +415,7 @@ struct metric_definition_impl {
     bool enabled = true;
     skip_when_empty _skip_when_empty = skip_when_empty::no;
     std::vector<std::string> aggregate_labels;
-    std::map<sstring, sstring> labels;
+    labels_type labels;
     metric_definition_impl& operator ()(bool enabled);
     metric_definition_impl& operator ()(const label_instance& label);
     metric_definition_impl& operator ()(skip_when_empty skip) noexcept;
@@ -407,7 +442,7 @@ public:
     virtual metric_groups_def& add_group(group_name_type name, const std::vector<metric_definition>& l) = 0;
 };
 
-instance_id_type shard();
+escaped_string shard();
 
 template<std::invocable T>
 metric_function make_function(T val, data_type dt) {
@@ -621,4 +656,14 @@ impl::metric_definition_impl make_total_operations(metric_name_type name,
 
 /*! @} */
 }
+}
+
+namespace fmt {
+template<>
+struct formatter<seastar::metrics::impl::escaped_string> : public fmt::formatter<seastar::sstring> {
+    template <typename FormatContext>
+    auto format(const seastar::metrics::impl::escaped_string& s, FormatContext& ctx) const {
+        return fmt::formatter<seastar::sstring>::format(s, ctx);
+    }
+};
 }

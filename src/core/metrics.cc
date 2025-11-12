@@ -220,6 +220,48 @@ static std::string get_unique_id() {
 label shard_label("shard");
 namespace impl {
 
+namespace {
+/*
+ * true if a label value needs escaping under prometheus rules, invalid characters in
+ * prometheus are also invalid in scollectd
+ */
+inline bool label_needs_escaping(std::string_view value) {
+    // newline, " and \ need to be escaped
+    static constexpr std::string_view disallowed = "\n\"\\";
+    return value.find_first_of(disallowed) != std::string_view::npos;
+}
+
+/*
+ * Sanitizes the label value as per the line format rules
+ * > label_value can be any sequence of UTF-8 characters, but the backslash (\), double-quote ("), and
+ * > line feed (\n) characters have to be escaped as \\, \", and \n, respectively.
+ */
+inline sstring escape_label_value(sstring label_value) {
+    if (!label_needs_escaping(label_value)) {
+        return label_value;
+    }
+    std::string escaped;
+    escaped.reserve(label_value.size() + 1); // some extra space
+    for (char c : label_value) {
+        switch (c) {
+            case '\\': escaped += R"(\\)"; break;
+            case '\"': escaped += R"(\")"; break;
+            case '\n': escaped += R"(\n)"; break;
+            default:   escaped += c;
+        }
+    }
+    return escaped;
+}
+
+}
+
+escaped_string::escaped_string(sstring v) : _value(escape_label_value(std::move(v))) {}
+
+escaped_string& escaped_string::operator=(const sstring& v) {
+    _value = escape_label_value(v);
+    return *this;
+}
+
 registered_metric::registered_metric(metric_id id, metric_function f, bool enabled, skip_when_empty skip) :
         _f(f) {
     _info.enabled = enabled;
@@ -228,18 +270,17 @@ registered_metric::registered_metric(metric_id id, metric_function f, bool enabl
     _info.original_labels = id.internalized_labels();
 }
 
-metric_value metric_value::operator+(const metric_value& c) {
-    metric_value res(*this);
+metric_value& metric_value::operator+=(const metric_value& c) {
     switch (_type) {
     case data_type::HISTOGRAM:
     case data_type::SUMMARY:
-        std::get<histogram>(res.u) += std::get<histogram>(c.u);
+        std::get<histogram>(u) += std::get<histogram>(c.u);
         break;
     default:
-        std::get<double>(res.u) += std::get<double>(c.u);
+        std::get<double>(u) += std::get<double>(c.u);
         break;
     }
-    return res;
+    return *this;
 }
 
 void metric_value::ulong_conversion_error(double d) {
@@ -416,8 +457,8 @@ foreign_ptr<values_reference> get_values() {
 }
 
 
-instance_id_type shard() {
-    return to_sstring(this_shard_id());
+escaped_string shard() {
+    return escaped_string{to_sstring(this_shard_id())};
 }
 
 void impl::gc_internalized_labels() {
