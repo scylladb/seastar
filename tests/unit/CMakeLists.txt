@@ -428,6 +428,7 @@ seastar_add_test (simple_stream
   SOURCES simple_stream_test.cc)
 
 seastar_add_test (slab
+  KIND BOOST
   SOURCES slab_test.cc)
 
 seastar_add_app_test (smp
