@@ -22,15 +22,12 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <seastar/core/future.hh>
 #include <seastar/core/abortable_fifo.hh>
 #include <seastar/core/abort_on_expiry.hh>
 #include <seastar/core/timed_out_error.hh>
-#include <seastar/util/modules.hh>
 #include <exception>
 #include <optional>
-#endif
 
 namespace seastar {
 
@@ -314,7 +311,6 @@ public:
 /// When the shared_promise is made ready, every waiter is also made ready.
 ///
 /// Like the shared_future, the types in the parameter pack T must all be copy-constructible.
-SEASTAR_MODULE_EXPORT
 template <typename... T>
 class shared_promise {
 public:

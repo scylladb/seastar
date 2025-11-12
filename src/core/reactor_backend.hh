@@ -28,7 +28,6 @@
 #include <seastar/core/internal/poll.hh>
 #include <seastar/core/internal/linux-aio.hh>
 #include <seastar/core/cacheline.hh>
-#include <seastar/util/modules.hh>
 
 #ifndef SEASTAR_MODULE
 #include <fmt/ostream.h>

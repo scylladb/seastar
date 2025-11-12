@@ -20,9 +20,6 @@
  */
 
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <atomic>
 #include <cstdint>
@@ -30,11 +27,7 @@ module;
 #include <pthread.h>
 #include <signal.h>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include "core/thread_pool.hh"
-#endif
 #include <seastar/util/assert.hh>
 
 namespace seastar {

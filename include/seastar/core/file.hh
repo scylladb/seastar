@@ -32,8 +32,6 @@
 #include <seastar/core/io_priority_class.hh>
 #include <seastar/core/file-types.hh>
 #include <seastar/core/circular_buffer.hh>
-#include <seastar/util/modules.hh>
-#ifndef SEASTAR_MODULE
 #include <sys/statvfs.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
@@ -45,11 +43,9 @@
 #include <cstdint>
 #include <functional>
 #include <optional>
-#endif
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 /// \addtogroup fileio-module
 /// @{
@@ -672,6 +668,5 @@ public:
     }
 };
 
-SEASTAR_MODULE_EXPORT_END
 
 }

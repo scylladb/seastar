@@ -130,5 +130,9 @@ if (Seastar_MODULE)
       hello-cxx-module.cc)
   target_link_libraries (hello_cxx_module
     PRIVATE
-      seastar-module)
+      seastar)
+  set_target_properties (hello_cxx_module
+    PROPERTIES
+      CXX_STANDARD ${CMAKE_CXX_STANDARD}
+      CXX_EXTENSIONS ON)
 endif ()

@@ -22,9 +22,7 @@
 #pragma once
 
 #include <seastar/core/sstring.hh>
-#ifndef SEASTAR_MODULE
 #include <fmt/format.h>
-#endif
 
 namespace seastar {
 

@@ -43,11 +43,9 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <cstdint>
 #include <span>
 #include <vector>
-#endif
 
 namespace seastar {
 

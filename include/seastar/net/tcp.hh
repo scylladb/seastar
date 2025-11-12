@@ -21,7 +21,6 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <unordered_map>
 #include <map>
 #include <functional>
@@ -32,7 +31,6 @@
 #include <stdexcept>
 #include <system_error>
 #include <gnutls/crypto.h>
-#endif
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/queue.hh>
 #include <seastar/core/semaphore.hh>

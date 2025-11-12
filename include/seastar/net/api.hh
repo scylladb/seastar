@@ -21,13 +21,11 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <chrono>
 #include <memory>
 #include <vector>
 #include <cstring>
 #include <sys/types.h>
-#endif
 
 #include <seastar/core/future.hh>
 #include <seastar/net/byteorder.hh>
@@ -39,7 +37,6 @@
 #include <seastar/core/iostream.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/program-options.hh>
-#include <seastar/util/modules.hh>
 
 namespace seastar {
 

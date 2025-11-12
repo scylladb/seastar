@@ -21,10 +21,8 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <string>
 #include <vector>
-#endif
 
 #include <seastar/core/chunked_fifo.hh>
 #include <seastar/core/do_with.hh>
@@ -32,14 +30,12 @@
 #include <seastar/core/loop.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/json/formatter.hh>
-#include <seastar/util/modules.hh>
 #include <seastar/http/types.hh>
 
 namespace seastar {
 
 namespace json {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 /**
  * The base class for all json element.
@@ -392,7 +388,6 @@ json_return_type::body_writer_type stream_object(T val) {
     };
 }
 
-SEASTAR_MODULE_EXPORT_END
 }
 
 }

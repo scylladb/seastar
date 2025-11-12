@@ -28,7 +28,6 @@
 #endif
 
 #include <seastar/util/program-options.hh>
-#include <seastar/util/modules.hh>
 
 namespace bpo = boost::program_options;
 

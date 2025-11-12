@@ -21,9 +21,7 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <cstring>
-#endif
 
 #include <seastar/core/align.hh>
 #include <seastar/core/internal/io_intent.hh>

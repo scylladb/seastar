@@ -21,12 +21,9 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <cstdlib>
 #include <string_view>
 #include <vector>
-#endif
-#include <seastar/util/modules.hh>
 
 namespace seastar {
 
@@ -46,7 +43,6 @@ namespace seastar {
 // "7GB" -> (7 << 30)
 // "1TiB" -> (1 << 40)
 // anything else: exception
-SEASTAR_MODULE_EXPORT
 size_t parse_memory_size(std::string_view s);
 
 static inline std::vector<char> string2vector(std::string_view str) {

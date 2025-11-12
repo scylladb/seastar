@@ -21,9 +21,7 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <memory>
-#endif
 #include <seastar/net/net.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/util/program-options.hh>

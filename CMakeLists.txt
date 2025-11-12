@@ -765,6 +765,16 @@ add_library (seastar
   src/websocket/server.cc
   )
 
+if (Seastar_MODULE)
+  target_sources(seastar
+    PUBLIC
+      FILE_SET CXX_MODULES
+      TYPE CXX_MODULES
+      FILES
+        src/seastar.cppm
+  )
+endif ()
+
 add_library (Seastar::seastar ALIAS seastar)
 
 add_dependencies (seastar
@@ -1176,7 +1186,6 @@ if (Seastar_MODULE)
     cmake_policy (SET CMP0155 NEW)
   endif ()
   include (CxxModulesRules)
-  add_subdirectory (src)
 endif ()
 
 #
@@ -1338,7 +1347,7 @@ if (Seastar_INSTALL)
     PROGRAMS ${CMAKE_CURRENT_SOURCE_DIR}/scripts/seastar-json2code.py
     DESTINATION ${CMAKE_INSTALL_BINDIR})
 
-  install (
+  set (seastar_install_targets
     TARGETS
       seastar
       seastar_testing
@@ -1346,6 +1355,16 @@ if (Seastar_INSTALL)
     EXPORT seastar-export
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+
+  if (Seastar_MODULE)
+    list (APPEND seastar_install_targets
+      FILE_SET CXX_MODULES
+        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/cxx/modules"
+      CXX_MODULES_BMI
+        DESTINATION "${CMAKE_INSTALL_LIBDIR}/cxx/bmi")
+  endif ()
+
+  install (${seastar_install_targets})
 
   install (
     EXPORT seastar-export
@@ -1404,14 +1423,29 @@ if (Seastar_INSTALL)
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
     RENAME seastar-testing.pc)
 
+  if (Seastar_MODULE)
+    install (
+      TARGETS seastar
+      CXX_MODULES_BMI
+        DESTINATION "${CMAKE_INSTALL_LIBDIR}/cxx/bmi"
+      FILE_SET CXX_MODULES
+        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/cxx/modules")
+  endif ()
+
   #
   # Export targets from the build tree for the user package registry.
   #
 
-  export (
+  set (export_args
     EXPORT seastar-export
     FILE ${CMAKE_CURRENT_BINARY_DIR}/SeastarTargets.cmake
     NAMESPACE Seastar::)
+
+  if (Seastar_MODULE)
+    list (APPEND export_args CXX_MODULES_DIRECTORY "include/cxx/modules")
+  endif ()
+
+  export (${export_args})
 
   export (PACKAGE Seastar)
 

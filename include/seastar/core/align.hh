@@ -21,15 +21,11 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
-#include <seastar/util/modules.hh>
 #include <cstdint>
 #include <cstdlib>
-#endif
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 template <typename T>
 inline constexpr
@@ -57,6 +53,5 @@ T* align_down(T* v, size_t align) {
     return reinterpret_cast<T*>(align_down(reinterpret_cast<uintptr_t>(v), align));
 }
 
-SEASTAR_MODULE_EXPORT_END
 
 }

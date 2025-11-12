@@ -21,17 +21,14 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
 #include <string_view>
 #include <malloc.h>
-#endif
 #include <seastar/core/deleter.hh>
 #include <seastar/util/eclipse.hh>
 #include <seastar/util/std-compat.hh>
-#include <seastar/util/modules.hh>
 #include <seastar/util/assert.hh>
 
 namespace seastar {
@@ -64,7 +61,6 @@ namespace seastar {
 ///    tcp output)
 ///
 /// \tparam CharType underlying character type (must be a variant of \c char).
-SEASTAR_MODULE_EXPORT
 template <typename CharType>
 class temporary_buffer {
     static_assert(sizeof(CharType) == 1, "must buffer stream of bytes");

@@ -31,21 +31,17 @@
 //
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <unordered_map>
 #include <string_view>
-#endif
 #include <seastar/core/sstring.hh>
 #include <seastar/http/mime_types.hh>
 #include <seastar/http/types.hh>
 #include <seastar/core/iostream.hh>
-#include <seastar/util/modules.hh>
 #include <seastar/util/string_utils.hh>
 #include <seastar/util/iostream.hh>
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 namespace httpd {
 
@@ -312,7 +308,6 @@ namespace httpd {
 using reply [[deprecated("Use http::reply instead")]] = http::reply;
 }
 
-SEASTAR_MODULE_EXPORT_END
 }
 
 #if FMT_VERSION >= 90000

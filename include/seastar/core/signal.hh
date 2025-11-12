@@ -21,12 +21,10 @@
 /// \file
 
 // Seastar interface for POSIX signals.
-#include <seastar/util/modules.hh>
 #include <seastar/util/noncopyable_function.hh>
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 /// \brief Sets a signal handler for the specified signal.
 ///
@@ -35,6 +33,5 @@ SEASTAR_MODULE_EXPORT_BEGIN
 /// \param once Should the handler be invoked only once.
 void handle_signal(int signo, noncopyable_function<void ()>&& handler, bool once = false);
 
-SEASTAR_MODULE_EXPORT_END
 
 }

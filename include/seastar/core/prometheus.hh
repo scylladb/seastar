@@ -21,14 +21,11 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <seastar/http/httpd.hh>
 #include <seastar/core/metrics.hh>
 #include <seastar/core/metrics_api.hh>
 #include <seastar/util/std-compat.hh>
-#include <seastar/util/modules.hh>
 #include <optional>
-#endif
 
 struct prometheus_test_fixture;
 
@@ -36,7 +33,6 @@ namespace seastar {
 
 namespace prometheus {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 /*!
  * Holds prometheus related configuration
@@ -80,6 +76,5 @@ class test_access {
     friend struct ::prometheus_test_fixture;
 };
 }
-SEASTAR_MODULE_EXPORT_END
 }
 }

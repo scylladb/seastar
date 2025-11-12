@@ -27,12 +27,10 @@
 #endif
 
 #include <seastar/core/ragel.hh>
-#include <seastar/util/modules.hh>
 #include <seastar/http/reply.hh>
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 %% machine reply;
 
@@ -197,5 +195,4 @@ public:
         return _error_message;
     }
 };
-SEASTAR_MODULE_EXPORT_END
 }

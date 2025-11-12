@@ -21,9 +21,7 @@
 
 #pragma once
 
-#include <seastar/util/modules.hh>
 
-#ifndef SEASTAR_MODULE
 
 #if __has_include(<memory_resource>)
 #include <memory_resource>
@@ -59,10 +57,8 @@ namespace std::pmr {
 #include <seastar/util/source_location-compat.hh>
 #endif
 
-#endif // !defined(SEASTAR_MODULE)
 
 namespace seastar::compat {
-SEASTAR_MODULE_EXPORT_BEGIN
 
 #if defined(__cpp_lib_source_location) && !defined(SEASTAR_BROKEN_SOURCE_LOCATION)
 using source_location = std::source_location;
@@ -72,5 +68,4 @@ using source_location = std::experimental::source_location;
 using source_location = seastar::internal::source_location;
 #endif
 
-SEASTAR_MODULE_EXPORT_END
 }

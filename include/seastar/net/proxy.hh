@@ -17,9 +17,7 @@
  */
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <memory>
-#endif
 #include <seastar/net/net.hh>
 #include <seastar/net/packet.hh>
 

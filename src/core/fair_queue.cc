@@ -19,9 +19,6 @@
  * Copyright 2019 ScyllaDB
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <chrono>
 #include <functional>
@@ -29,16 +26,12 @@ module;
 #include <boost/container/small_vector.hpp>
 #include <boost/intrusive/parent_from_member.hpp>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/core/fair_queue.hh>
 #include <seastar/core/future.hh>
 #include <seastar/core/shared_ptr.hh>
 #include <seastar/core/circular_buffer.hh>
 #include <seastar/util/noncopyable_function.hh>
 #include <seastar/core/metrics.hh>
-#endif
 #include <seastar/util/assert.hh>
 
 namespace seastar {

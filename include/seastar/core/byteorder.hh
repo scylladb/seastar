@@ -21,16 +21,12 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <algorithm>
 #include <boost/endian/conversion.hpp>
 #include <seastar/core/unaligned.hh>
-#include <seastar/util/modules.hh>
-#endif
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 template <typename T>
 inline T cpu_to_le(T x) noexcept {
@@ -111,6 +107,5 @@ produce_be(char*& p, T datum) noexcept {
     p += sizeof(T);
 }
 
-SEASTAR_MODULE_EXPORT_END
 
 }

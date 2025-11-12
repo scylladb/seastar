@@ -19,9 +19,6 @@
  * Copyright (C) 2014 Cloudius Systems, Ltd.
  */
 
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <fstream>
 #include <cstdlib>
@@ -31,9 +28,6 @@ module;
 #include <boost/program_options.hpp>
 #include <boost/make_shared.hpp>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/core/app-template.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/alien.hh>
@@ -44,7 +38,6 @@ module seastar;
 #include <seastar/util/log-cli.hh>
 #include <seastar/net/native-stack.hh>
 #include "program_options.hh"
-#endif
 
 namespace seastar {
 

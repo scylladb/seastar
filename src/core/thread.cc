@@ -24,9 +24,6 @@
 /*
  * Copyright (C) 2015 Cloudius Systems, Ltd.
  */
-#ifdef SEASTAR_MODULE
-module;
-#endif
 
 #include <ucontext.h>
 #ifndef SEASTAR_ASAN_ENABLED
@@ -38,14 +35,10 @@ module;
 #include <utility>
 #include <boost/intrusive/list.hpp>
 
-#ifdef SEASTAR_MODULE
-module seastar;
-#else
 #include <seastar/core/thread.hh>
 #include <seastar/core/posix.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/util/assert.hh>
-#endif
 
 /// \cond internal
 

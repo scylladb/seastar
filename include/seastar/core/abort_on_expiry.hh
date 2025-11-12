@@ -25,7 +25,6 @@
 #include <seastar/core/timer.hh>
 #include <seastar/core/lowres_clock.hh>
 #include <seastar/core/timed_out_error.hh>
-#include <seastar/util/modules.hh>
 
 namespace seastar {
 
@@ -34,7 +33,6 @@ namespace seastar {
 
 /// Facility to tie a timeout with an abort source
 /// Can be used to make abortable fibers also support timeouts
-SEASTAR_MODULE_EXPORT
 template<typename Clock = lowres_clock>
 class abort_on_expiry {
     timer<Clock> _tr;

@@ -21,18 +21,15 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <boost/intrusive/list.hpp>
 
 #include <seastar/core/future.hh>
 #include <seastar/util/assert.hh>
 #include <seastar/util/std-compat.hh>
-#include <seastar/util/modules.hh>
 #include <cassert>
 #include <exception>
 #include <optional>
 #include <utility>
-#endif
 
 #ifdef SEASTAR_DEBUG
 #define SEASTAR_GATE_HOLDER_DEBUG
@@ -45,7 +42,6 @@ namespace seastar {
 
 /// Exception thrown when a \ref gate object has been closed
 /// by the \ref gate::close() method.
-SEASTAR_MODULE_EXPORT
 class gate_closed_exception : public std::exception {
 public:
     virtual const char* what() const noexcept override {
@@ -55,7 +51,6 @@ public:
 
 /// Exception thrown when a \ref named_gate object has been closed
 /// by the \ref gate::close() method.
-SEASTAR_MODULE_EXPORT
 class named_gate_closed_exception : public gate_closed_exception {
     static constexpr const char* _default_what = "named gate closed";
     sstring _what;
@@ -79,7 +74,6 @@ public:
 /// When stopping a service that serves asynchronous requests, we are faced with
 /// two problems: preventing new requests from coming in, and knowing when existing
 /// requests have completed.  The \c gate class provides a solution.
-SEASTAR_MODULE_EXPORT
 class gate {
     size_t _count = 0;
     std::optional<promise<>> _stopped;
@@ -331,7 +325,6 @@ private:
 };
 
 #ifdef SEASTAR_GATE_HOLDER_DEBUG
-SEASTAR_MODULE_EXPORT
 inline void gate::assert_not_held_when_moved() const noexcept {
     SEASTAR_ASSERT(_holders.empty() && "gate moved with outstanding holders");
 }
@@ -377,7 +370,6 @@ invoke_func_with_gate(gate::holder&& gh, Func&& func) noexcept {
 /// \returns whatever \c func returns
 ///
 /// \relates gate
-SEASTAR_MODULE_EXPORT
 template <typename Func>
 inline
 auto
@@ -396,7 +388,6 @@ with_gate(gate& g, Func&& func) {
 /// \returns whatever \c func returns.
 ///
 /// \relates gate
-SEASTAR_MODULE_EXPORT
 template <typename Func>
 inline
 auto

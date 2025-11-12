@@ -25,13 +25,10 @@
 #include <seastar/core/future.hh>
 #include <seastar/core/make_task.hh>
 #include <seastar/coroutine/exception.hh>
-#include <seastar/util/modules.hh>
 #include <seastar/util/std-compat.hh>
 
 
-#ifndef SEASTAR_MODULE
 #include <coroutine>
-#endif
 
 namespace seastar {
 
@@ -197,7 +194,6 @@ public:
 
 } // seastar::internal
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 template<typename T>
 auto operator co_await(future<T>&& f) noexcept {
@@ -258,14 +254,12 @@ auto operator co_await(coroutine::without_preemption_check<T> f) noexcept {
     return internal::awaiter<false, T>(std::move(f));
 }
 
-SEASTAR_MODULE_EXPORT_END
 
 } // seastar
 
 
 namespace std {
 
-SEASTAR_MODULE_EXPORT
 template<typename T, typename... Args>
 class coroutine_traits<seastar::future<T>, Args...> : public seastar::internal::coroutine_traits_base<T> {
 };

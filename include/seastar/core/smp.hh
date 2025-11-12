@@ -29,9 +29,7 @@
 #include <seastar/core/reactor_config.hh>
 #include <seastar/core/resource.hh>
 #include <seastar/core/shard_id.hh>
-#include <seastar/util/modules.hh>
 
-#ifndef SEASTAR_MODULE
 #include <boost/lockfree/spsc_queue.hpp>
 #include <deque>
 #include <optional>
@@ -39,7 +37,6 @@
 #include <ranges>
 #include <span>
 #include <barrier>
-#endif
 
 /// \file
 
@@ -47,7 +44,6 @@ namespace seastar {
 
 class reactor_backend_selector;
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 class smp_service_group;
 
@@ -56,7 +52,6 @@ namespace alien {
 class instance;
 
 }
-SEASTAR_MODULE_EXPORT_END
 
 namespace internal {
 
@@ -72,7 +67,6 @@ struct numa_layout;
 
 }
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 /// Configuration for smp_service_group objects.
 ///
@@ -123,7 +117,6 @@ private:
     friend future<> destroy_smp_service_group(smp_service_group) noexcept;
 };
 
-SEASTAR_MODULE_EXPORT_END
 
 inline
 unsigned
@@ -131,7 +124,6 @@ internal::smp_service_group_id(smp_service_group ssg) noexcept {
     return ssg._id;
 }
 
-SEASTAR_MODULE_EXPORT_BEGIN
 /// Returns the default smp_service_group. This smp_service_group
 /// does not impose any limits on concurrency in the target shard.
 /// This makes is deadlock-safe, but can consume unbounded resources,
@@ -160,11 +152,9 @@ using smp_timeout_clock = lowres_clock;
 using smp_service_group_semaphore = basic_semaphore<named_semaphore_exception_factory, smp_timeout_clock>;
 using smp_service_group_semaphore_units = semaphore_units<named_semaphore_exception_factory, smp_timeout_clock>;
 
-SEASTAR_MODULE_EXPORT_END
 
 static constexpr smp_timeout_clock::time_point smp_no_timeout = smp_timeout_clock::time_point::max();
 
-SEASTAR_MODULE_EXPORT_BEGIN
 /// Options controlling the behaviour of \ref smp::submit_to().
 struct smp_submit_to_options {
     /// Controls resource allocation.
@@ -505,6 +495,5 @@ public:
     static unsigned count;
 };
 
-SEASTAR_MODULE_EXPORT_END
 
 }

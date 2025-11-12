@@ -53,18 +53,14 @@
 #include <seastar/core/posix.hh>
 #include <seastar/util/bool_class.hh>
 #include <seastar/util/std-compat.hh>
-#include <seastar/util/modules.hh>
 #include "./internal/api-level.hh"
-#ifndef SEASTAR_MODULE
 #include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <string_view>
-#endif
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 // iostream.hh
 template <class CharType> class input_stream;
@@ -487,6 +483,5 @@ future<process> spawn_process(const std::filesystem::path& pathname);
 /// @}
 }
 
-SEASTAR_MODULE_EXPORT_END
 
 }

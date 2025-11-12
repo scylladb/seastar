@@ -22,7 +22,6 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <signal.h>
 #include <atomic>
 #include <limits>
@@ -30,11 +29,9 @@
 #include <functional>
 #include <memory>
 #include <linux/perf_event.h>
-#endif
 #include <seastar/core/posix.hh>
 #include <seastar/core/metrics_registration.hh>
 #include <seastar/core/scheduling.hh>
-#include <seastar/util/modules.hh>
 
 namespace seastar {
 

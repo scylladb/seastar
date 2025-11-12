@@ -25,13 +25,10 @@
 #include <seastar/core/future.hh>
 #include <seastar/core/chunked_fifo.hh>
 #include <seastar/util/assert.hh>
-#include <seastar/util/modules.hh>
 
-#ifndef SEASTAR_MODULE
 #include <memory>
 #include <optional>
 #include <type_traits>
-#endif
 
 namespace seastar {
 

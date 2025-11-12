@@ -22,13 +22,10 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <seastar/core/future.hh>
 #include <seastar/core/make_task.hh>
-#include <seastar/util/modules.hh>
 #include <tuple>
 #include <utility>
-#endif
 
 namespace seastar {
 
@@ -60,7 +57,6 @@ schedule_in_group(scheduling_group sg, Func func) noexcept {
 /// \param func function to run; must be movable or copyable
 /// \param args arguments to the function; may be copied or moved, so use \c std::ref()
 ///             to force passing references
-SEASTAR_MODULE_EXPORT
 template <typename Func, typename... Args>
 requires std::is_nothrow_move_constructible_v<Func>
 inline

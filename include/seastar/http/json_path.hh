@@ -21,15 +21,12 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <vector>
-#endif
 
 #include <seastar/http/common.hh>
 #include <seastar/core/sstring.hh>
 #include <seastar/http/routes.hh>
 #include <seastar/http/function_handlers.hh>
-#include <seastar/util/modules.hh>
 
 namespace seastar {
 
@@ -40,7 +37,6 @@ namespace httpd {
  * operation are associated to a path, that can
  * have multiple methods
  */
-SEASTAR_MODULE_EXPORT
 struct json_operation {
     /**
      * default constructor
@@ -78,7 +74,6 @@ struct json_operation {
  * definition file, during auto code generation in the
  * compilation.
  */
-SEASTAR_MODULE_EXPORT
 struct path_description {
     //
     enum class url_component_type {

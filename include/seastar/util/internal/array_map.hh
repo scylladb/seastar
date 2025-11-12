@@ -21,21 +21,17 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <array>
 #include <cstddef>
 #include <stdexcept>
 #include <string>
 #include <utility>
-#include <seastar/util/modules.hh>
-#endif
 
 namespace seastar {
 namespace internal {
 
 // unordered_map implemented as a simple array
 
-SEASTAR_MODULE_EXPORT
 template <typename Value, size_t Max>
 class array_map {
     std::array<Value, Max> _a {};

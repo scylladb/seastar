@@ -20,19 +20,15 @@
  */
 #pragma once
 
-#include <seastar/util/modules.hh>
 
-#ifndef SEASTAR_MODULE
 #include <iosfwd>
 #include <fmt/core.h>
-#endif
 
 /// \addtogroup logging
 /// @{
 
 namespace seastar {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 /// \brief log level used with \see {logger}
 /// used with the logger.do_log method.
@@ -50,7 +46,6 @@ enum class log_level {
 std::ostream& operator<<(std::ostream& out, log_level level);
 std::istream& operator>>(std::istream& in, log_level& level);
 
-SEASTAR_MODULE_EXPORT_END
 }
 
 template <>

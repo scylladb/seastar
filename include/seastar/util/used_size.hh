@@ -21,10 +21,8 @@
 
 #pragma once
 
-#ifndef SEASTAR_MODULE
 #include <stddef.h>
 #include <type_traits>
-#endif
 
 namespace seastar {
 namespace internal {

@@ -26,8 +26,6 @@
 #include <seastar/net/const.hh>
 #include <seastar/util/assert.hh>
 #include <seastar/util/std-compat.hh>
-#include <seastar/util/modules.hh>
-#ifndef SEASTAR_MODULE
 #include <span>
 #include <algorithm>
 #include <cstdint>
@@ -36,13 +34,11 @@
 #include <memory>
 #include <optional>
 #include <vector>
-#endif
 
 namespace seastar {
 
 namespace net {
 
-SEASTAR_MODULE_EXPORT_BEGIN
 
 struct fragment {
     char* base;
@@ -330,7 +326,6 @@ public:
 
 std::ostream& operator<<(std::ostream& os, const packet& p);
 
-SEASTAR_MODULE_EXPORT_END
 
 inline
 packet::packet(packet&& x) noexcept
