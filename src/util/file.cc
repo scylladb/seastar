@@ -176,7 +176,7 @@ static future<> do_recursive_remove_directory(const fs::path path) noexcept {
     std::list<work_entry> work_queue;
     work_queue.emplace_back(std::move(path), false);
     while (!work_queue.empty()) {
-        auto ent = work_queue.back();
+        auto ent = std::move(work_queue.back());
         work_queue.pop_back();
         if (ent.listed) {
             co_await remove_file(ent.path.native());
