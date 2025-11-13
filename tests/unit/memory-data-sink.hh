@@ -29,8 +29,13 @@ namespace testing {
  */
 class memory_data_sink_impl : public data_sink_impl {
     std::stringstream& _ss;
+    const size_t _buffer_size;
 public:
-    memory_data_sink_impl(std::stringstream& ss) : _ss(ss) {
+    static constexpr size_t default_buffer_size = 1024;
+    memory_data_sink_impl(std::stringstream& ss, size_t buffer_size = default_buffer_size)
+        : _ss(ss)
+        , _buffer_size(buffer_size)
+    {
     }
 #if SEASTAR_API_LEVEL >= 9
     future<> put(std::span<temporary_buffer<char>> bufs) override {
@@ -57,7 +62,7 @@ public:
     }
 
     virtual size_t buffer_size() const noexcept override {
-        return 1024;
+        return _buffer_size;
     }
 };
 
