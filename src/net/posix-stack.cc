@@ -683,6 +683,7 @@ posix_data_sink_impl::put(temporary_buffer<char> buf) {
 
 future<>
 posix_data_sink_impl::put(packet p) {
+    SEASTAR_ASSERT(!_p);
     _p = std::move(p);
     auto sg_id = internal::scheduling_group_index(current_scheduling_group());
     bytes_sent[sg_id] += _p.len();
