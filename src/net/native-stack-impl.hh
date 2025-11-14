@@ -207,17 +207,19 @@ public:
         : _conn(std::move(conn)) {}
 #if SEASTAR_API_LEVEL >= 9
     future<> put(std::span<temporary_buffer<char>> bufs) override {
-        net::packet p = net::packet(bufs);
         auto sg_id = internal::scheduling_group_index(current_scheduling_group());
-        internal::native_stack_net_stats::bytes_sent[sg_id] += p.len();
-        return _conn->send(std::move(p));
+        auto sizes = bufs | std::views::transform(&temporary_buffer<char>::size);
+        auto len = std::accumulate(sizes.begin(), sizes.end(), size_t(0));
+        internal::native_stack_net_stats::bytes_sent[sg_id] += len;
+        return _conn->send(bufs);
     }
 #else
     using data_sink_impl::put;
     virtual future<> put(packet p) override {
         auto sg_id = internal::scheduling_group_index(current_scheduling_group());
         internal::native_stack_net_stats::bytes_sent[sg_id] += p.len();
-        return _conn->send(std::move(p));
+        auto v = std::move(p).release();
+        return _conn->send(v);
     }
 #endif
     virtual future<> close() override {
