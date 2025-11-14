@@ -125,7 +125,7 @@ public:
 
 class posix_data_sink_impl : public data_sink_impl {
     pollable_fd _fd;
-    packet _p{net::packet::make_null_packet()};
+    packet _p;
 public:
     explicit posix_data_sink_impl(pollable_fd fd) : _fd(std::move(fd)) {}
     using data_sink_impl::put;
