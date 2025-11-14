@@ -4166,6 +4166,11 @@ static void sigabrt_action(siginfo_t *info, ucontext_t* uc) noexcept {
     reraise_signal(SIGABRT);
 }
 
+static void sigill_action(siginfo_t *info, ucontext_t* uc) noexcept {
+    print_with_backtrace("Invalid instruction");
+    reraise_signal(SIGILL);
+}
+
 // We don't need to handle SIGSEGV when asan is enabled.
 #ifdef SEASTAR_ASAN_ENABLED
 template<>
@@ -4275,6 +4280,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
 
     install_oneshot_signal_handler<SIGSEGV, sigsegv_action>();
     install_oneshot_signal_handler<SIGABRT, sigabrt_action>();
+    install_oneshot_signal_handler<SIGILL, sigill_action>();
 
 #ifdef SEASTAR_HAVE_DPDK
     const auto* native_stack = dynamic_cast<const net::native_stack_options*>(reactor_opts.network_stack.get_selected_candidate_opts());
@@ -4604,7 +4610,7 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
             }
             sigset_t mask;
             sigfillset(&mask);
-            for (auto sig : { SIGSEGV }) {
+            for (auto sig : { SIGSEGV, SIGILL }) {
                 sigdelset(&mask, sig);
             }
             auto r = ::pthread_sigmask(SIG_BLOCK, &mask, NULL);
