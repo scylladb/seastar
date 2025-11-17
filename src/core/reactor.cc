@@ -1079,6 +1079,11 @@ reactor::reactor(std::shared_ptr<seastar::smp> smp, alien::instance& alien, unsi
             fn();
         }));
     });
+
+    _loads.reserve(loads_size);
+    for (unsigned i = 0; i < loads_size; i++) {
+        _loads.push_back(0.0);
+    }
 }
 
 reactor::~reactor() {
@@ -3298,13 +3303,10 @@ int reactor::do_run() {
         last_idle = _total_idle;
         load = std::min(load, 1.0);
         idle_start = idle_end;
+        _load -= _loads.back() / loads_size;
+        _loads.pop_back();
         _loads.push_front(load);
-        if (_loads.size() > 5) {
-            auto drop = _loads.back();
-            _loads.pop_back();
-            _load -= (drop/5);
-        }
-        _load += (load/5);
+        _load += (load / loads_size);
     });
     load_timer.arm_periodic(1s);
 
