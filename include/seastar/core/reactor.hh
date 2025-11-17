@@ -353,6 +353,7 @@ private:
     lowres_clock::time_point _lowres_next_timeout = lowres_clock::time_point::max();
     std::optional<pollable_fd> _aio_eventfd;
     static constexpr unsigned loads_size = 5;
+    timer<lowres_clock> _load_timer;
     circular_buffer<double> _loads;
     double _load = 0;
     // Next two fields are required to enforce the monotonicity of total_steal_time()
