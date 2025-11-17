@@ -45,7 +45,7 @@ parser.add_argument('--create-cc', dest='create_cc', action='store_true', defaul
 config = parser.parse_args()
 
 
-valid_vars = {'string': 'sstring', 'int': 'int', 'double': 'double',
+valid_vars = {'string': 'sstring', 'int': 'int', 'integer': 'int', 'double': 'double',
              'float': 'float', 'long': 'long', 'boolean': 'bool', 'char': 'char',
              'datetime': 'json::date_time'}
 
