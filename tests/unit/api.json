@@ -94,6 +94,9 @@
           "items": {
             "type": "int"
           }
+        },
+        "integer_var": {
+          "type": "integer"
         }
       }
     }
