@@ -286,6 +286,9 @@ private:
         }
     };
 
+    using send_packet_t = net::packet;
+    ssize_t do_send_udp(sock_entry& e, send_packet_t p, size_t len, ares_socket_t fd);
+
     sock_entry& get_socket_entry(ares_socket_t fd);
 
     using socket_map = std::unordered_map<ares_socket_t, sock_entry>;
@@ -1321,6 +1324,38 @@ dns_resolver::impl::do_recvfrom(ares_socket_t fd, void * dst, size_t len, int fl
     return -1;
 }
 
+ssize_t dns_resolver::impl::do_send_udp(sock_entry& e, send_packet_t p, size_t bytes, ares_socket_t fd) {
+    // always chain UDP sends
+    e.udp.f = e.udp.f.finally([&e, p = std::move(p)]() mutable {
+        return e.udp.channel.send(e.udp.dst, std::move(p));;
+    }).finally([fd, me = shared_from_this()] {
+        me->release(fd);
+    });
+
+    if (e.udp.f.available()) {
+        // if we have a fast-fail, give error.
+        if (e.udp.f.failed()) {
+            try {
+                e.udp.f.get();
+            } catch (std::system_error& e) {
+                errno = e.code().value();
+            } catch (...) {
+            }
+            e.udp.f = make_ready_future<>();
+            return -1;
+        }
+    } else {
+        // ensure that no exception from channel.send is left uncaught
+        e.udp.f = e.udp.f.handle_exception_type([](std::system_error const& e){
+            dns_log.warn("UDP send exception: {}", e.what());
+        });
+    }
+    // c-ares does _not_ use non-blocking retry for udp sockets. We just pretend
+    // all is fine even though we have no idea. Barring stack/adapter failure it
+    // is close to the same guarantee a "normal" message send would have anyway.
+    return bytes;
+}
+
 ssize_t
 dns_resolver::impl::do_sendv(ares_socket_t fd, const iovec * vec, int len) {
     if (_closed) {
@@ -1382,35 +1417,7 @@ dns_resolver::impl::do_sendv(ares_socket_t fd, const iovec * vec, int len) {
                 f = e.tcp.out->put(p.release());
                 break;
             case type::udp:
-                // always chain UDP sends
-                e.udp.f = e.udp.f.finally([&e, p = std::move(p)]() mutable {
-                    return e.udp.channel.send(e.udp.dst, std::move(p));;
-                }).finally([fd, me = shared_from_this()] {
-                    me->release(fd);
-                });
-
-                if (e.udp.f.available()) {
-                    // if we have a fast-fail, give error.
-                    if (e.udp.f.failed()) {
-                        try {
-                            e.udp.f.get();
-                        } catch (std::system_error& e) {
-                            errno = e.code().value();
-                        } catch (...) {
-                        }
-                        e.udp.f = make_ready_future<>();
-                        return -1;
-                    }
-                } else {
-                    // ensure that no exception from channel.send is left uncaught
-                    e.udp.f = e.udp.f.handle_exception_type([](std::system_error const& e){
-                        dns_log.warn("UDP send exception: {}", e.what());
-                    });
-                }
-                // c-ares does _not_ use non-blocking retry for udp sockets. We just pretend
-                // all is fine even though we have no idea. Barring stack/adapter failure it
-                // is close to the same guarantee a "normal" message send would have anyway.
-                return bytes;
+                return do_send_udp(e, std::move(p), bytes, fd);
             default:
                 return -1;
             }
