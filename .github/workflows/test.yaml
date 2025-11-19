@@ -60,6 +60,11 @@ jobs:
         run: |
           sudo apt-get -y install clang-tools-20
 
+      - name: Install g++
+        if: ${{ inputs.compiler == 'g++' }}
+        run: |
+          sudo apt-get -y install gcc-14 g++-14
+
       - name: Install ccache
         if: ${{ inputs.enable-ccache }}
         run: |
@@ -77,8 +82,8 @@ jobs:
             CC=clang-20
             CPP=clang++-20
           else
-            CC=gcc
-            CPP=g++
+            CC=gcc-14
+            CPP=g++-14
           fi
           if ${{ inputs.enable-ccache }}; then
             MAYBE_CCACHE_OPT="--ccache"
