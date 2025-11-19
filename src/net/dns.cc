@@ -1356,7 +1356,7 @@ dns_resolver::impl::do_sendv(ares_socket_t fd, const iovec * vec, int len) {
                 return -1;
             }
 
-            if (!e.tcp.socket) {
+            if (e.type == type::tcp && !e.tcp.socket) {
                 errno = ENOTCONN;
                 return -1;
             }
