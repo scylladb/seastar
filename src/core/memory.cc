@@ -1783,7 +1783,7 @@ void* allocate_aligned(size_t align, size_t size) {
 /// in the same code path.
 template <typename S = no_size>
 [[gnu::always_inline]]
-inline void free(void* obj, S size = {}) {
+inline void do_free(void* obj, S size = {}) {
     if (!__builtin_expect(cpu_pages::try_free_fastpath(obj), true)) {
         free_slowpath(obj, size);
     }
@@ -1801,7 +1801,7 @@ void free_aligned(void* obj, size_t align, size_t size) {
         size = 1 << log2ceil(size);
     }
 #endif
-    free(obj, size);
+    do_free(obj, size);
 }
 
 void shrink(void* obj, size_t new_size) {
@@ -2285,7 +2285,7 @@ extern "C"
 [[gnu::visibility("default")]]
 [[gnu::used]]
 void free(void* ptr) {
-    seastar::memory::free(ptr);
+    seastar::memory::do_free(ptr);
 }
 
 extern "C"
@@ -2502,25 +2502,25 @@ void* operator new[](size_t size) {
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete(void* ptr) noexcept {
-    seastar::memory::free(ptr);
+    seastar::memory::do_free(ptr);
 }
 
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr) noexcept {
-    seastar::memory::free(ptr);
+    seastar::memory::do_free(ptr);
 }
 
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete(void* ptr, size_t size) noexcept {
-    seastar::memory::free(ptr, size);
+    seastar::memory::do_free(ptr, size);
 }
 
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr, size_t size) noexcept {
-    seastar::memory::free(ptr, size);
+    seastar::memory::do_free(ptr, size);
 }
 
 extern "C++"
@@ -2541,25 +2541,25 @@ void* operator new[](size_t size, std::nothrow_t) noexcept {
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete(void* ptr, std::nothrow_t) noexcept {
-    seastar::memory::free(ptr);
+    seastar::memory::do_free(ptr);
 }
 
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr, std::nothrow_t) noexcept {
-    seastar::memory::free(ptr);
+    seastar::memory::do_free(ptr);
 }
 
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete(void* ptr, size_t size, std::nothrow_t) noexcept {
-    seastar::memory::free(ptr, size);
+    seastar::memory::do_free(ptr, size);
 }
 
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr, size_t size, std::nothrow_t) noexcept {
-    seastar::memory::free(ptr, size);
+    seastar::memory::do_free(ptr, size);
 }
 
 extern "C++"
@@ -2599,13 +2599,13 @@ void* operator new[](size_t size, std::align_val_t a, const std::nothrow_t&) noe
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete(void* ptr, std::align_val_t a) noexcept {
-    seastar::memory::free(ptr);
+    seastar::memory::do_free(ptr);
 }
 
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr, std::align_val_t a) noexcept {
-    seastar::memory::free(ptr);
+    seastar::memory::do_free(ptr);
 }
 
 extern "C++"
@@ -2627,13 +2627,13 @@ void operator delete[](void* ptr, size_t size, std::align_val_t a) noexcept {
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete(void* ptr, std::align_val_t a, const std::nothrow_t&) noexcept {
-    seastar::memory::free(ptr);
+    seastar::memory::do_free(ptr);
 }
 
 extern "C++"
 [[gnu::visibility("default")]]
 void operator delete[](void* ptr, std::align_val_t a, const std::nothrow_t&) noexcept {
-    seastar::memory::free(ptr);
+    seastar::memory::do_free(ptr);
 }
 
 namespace seastar {
