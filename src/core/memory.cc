@@ -2255,6 +2255,10 @@ size_t sampled_memory_profile(allocation_site* output, size_t size) {
     return to_copy;
 }
 
+void free(void* ptr, size_t size) {
+    do_free(ptr, size);
+}
+
 }
 
 }
@@ -2765,6 +2769,10 @@ internal::per_shard_memory(size_t total_memory, unsigned nr_shards) {
 
 void
 internal::global_setup(unsigned nr_shards) {
+}
+
+void free(void* ptr, size_t size) {
+    ::free(ptr);
 }
 
 }
