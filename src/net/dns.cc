@@ -216,7 +216,11 @@ private:
     socket_address sock_addr(const sockaddr * addr, socklen_t len);
     int do_connect(ares_socket_t fd, const sockaddr * addr, socklen_t len);
     ssize_t do_recvfrom(ares_socket_t fd, void * dst, size_t len, int flags, struct sockaddr * from, socklen_t * from_len);
+#if ARES_VERSION >= 0x012200
+    ssize_t do_send(ares_socket_t fd, const void * buf, size_t bytes);
+#else
     ssize_t do_sendv(ares_socket_t fd, const iovec * vec, int len);
+#endif
 
     // Note: cannot use to much here, because fd_sets only handle
     // ~1024 fd:s. Set to something below that in case you need to
@@ -286,7 +290,11 @@ private:
         }
     };
 
+#if ARES_VERSION >= 0x012200
+    using send_packet_t = temporary_buffer<char>;
+#else
     using send_packet_t = std::vector<temporary_buffer<char>>;
+#endif
     ssize_t do_send_tcp(sock_entry& e, send_packet_t p, size_t len, ares_socket_t fd);
     ssize_t do_send_udp(sock_entry& e, send_packet_t p, size_t len, ares_socket_t fd);
 
@@ -424,9 +432,7 @@ dns_resolver::impl::impl(network_stack& stack, const options& opts)
             return static_cast<ares_ssize_t>(get_impl(p)->do_recvfrom(s, dst, len, flags, addr, alen));
         },
         .asendto = [](ares_socket_t s, const void * buffer, size_t len, int flags, const struct sockaddr * addr, ares_socklen_t addrlen, void * p) {
-            // We need to convert to iovec for compatibility with our existing sendv implementation
-            struct iovec vec = { const_cast<void*>(buffer), len };
-            return static_cast<ares_ssize_t>(get_impl(p)->do_sendv(s, &vec, 1));
+            return static_cast<ares_ssize_t>(get_impl(p)->do_send(s, buffer, len));
         },
         .agetsockname = nullptr,  // Not needed
         .abind = nullptr,  // Not needed
@@ -1370,7 +1376,11 @@ ssize_t dns_resolver::impl::do_send_tcp(sock_entry& e, send_packet_t p, size_t b
 ssize_t dns_resolver::impl::do_send_udp(sock_entry& e, send_packet_t p, size_t bytes, ares_socket_t fd) {
     // always chain UDP sends
     e.udp.f = e.udp.f.finally([&e, p = std::move(p)]() mutable {
+#if ARES_VERSION >= 0x012200
+        std::span<temporary_buffer<char>> sp(&p, 1);
+#else
         std::span<temporary_buffer<char>> sp(p);
+#endif
         return e.udp.channel.send(e.udp.dst, net::packet(sp));
     }).finally([fd, me = shared_from_this()] {
         me->release(fd);
@@ -1401,7 +1411,11 @@ ssize_t dns_resolver::impl::do_send_udp(sock_entry& e, send_packet_t p, size_t b
 }
 
 ssize_t
+#if ARES_VERSION >= 0x012200
+dns_resolver::impl::do_send(ares_socket_t fd, const void * buf, size_t bytes) {
+#else
 dns_resolver::impl::do_sendv(ares_socket_t fd, const iovec * vec, int len) {
+#endif
     if (_closed) {
         return -1;
     }
@@ -1441,6 +1455,9 @@ dns_resolver::impl::do_sendv(ares_socket_t fd, const iovec * vec, int len) {
                 }
             }
 
+#if ARES_VERSION >= 0x012200
+            temporary_buffer<char> p(reinterpret_cast<const char *>(buf), bytes);
+#else
             std::vector<temporary_buffer<char>> p;
             p.reserve(len);
             size_t bytes = 0;
@@ -1448,6 +1465,7 @@ dns_resolver::impl::do_sendv(ares_socket_t fd, const iovec * vec, int len) {
                 bytes += vec[i].iov_len;
                 p.emplace_back(reinterpret_cast<const char *>(vec[i].iov_base), vec[i].iov_len);
             }
+#endif
 
             use(fd);
 
