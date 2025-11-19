@@ -22,6 +22,7 @@
 #include <exception>
 #include <numeric>
 #include <ranges>
+#include <expected>
 
 #include <seastar/core/circular_buffer.hh>
 #include <seastar/core/coroutine.hh>
@@ -783,4 +784,68 @@ SEASTAR_TEST_CASE(test_lambda_coroutine_in_continuation) {
         co_return std::sin(n);
     }));
     BOOST_REQUIRE_EQUAL(sin1, sin2);
+}
+
+#ifdef __cpp_lib_expected
+
+future<std::expected<void, std::string>> void_return_expected() {
+  co_return {};
+}
+
+SEASTAR_TEST_CASE(test_std_expected_void_specialization) {
+  auto result = co_await void_return_expected();
+  BOOST_REQUIRE(result.has_value());
+}
+
+#endif
+
+struct explisyt;
+struct implicit {
+    implicit() = default;
+    implicit(explisyt &&) {}
+    operator explisyt();
+};
+struct explisyt {
+    explisyt() = default;
+    explicit operator implicit() {
+        throw 42;
+    }
+    explicit explisyt(implicit &&) {
+        throw 42;
+    }
+};
+implicit::operator explisyt() { return {}; }
+
+// implicit conversion used, explicit ctor ruled out
+future<explisyt> i2e() {
+    co_return implicit();
+};
+
+// implicit ctor used, explicit conversion ruled out
+future<implicit> e2i() {
+    co_return explisyt();
+};
+
+future<std::vector<std::string>> co_return_vector(int cnt) {
+    switch (cnt) {
+    case 0:
+        co_return {};
+    case 2:
+        co_return {"foo", "foo"};
+    case 3:
+        co_return {3, "foo"};
+    default:
+        throw std::runtime_error("bad option");
+    }
+}
+
+SEASTAR_TEST_CASE(test_co_return_conversions) {
+    std::ignore = co_await i2e();
+    std::ignore = co_await e2i();
+    BOOST_REQUIRE_EQUAL(co_await co_return_vector(0), (std::vector<std::string>{}));
+    // gcc 13.3 will ICE if we inline the expected values here
+    std::vector<std::string> foo_x2{"foo", "foo"};
+    BOOST_REQUIRE_EQUAL(co_await co_return_vector(2), foo_x2);
+    std::vector<std::string> foo_x3{"foo", "foo", "foo"};
+    BOOST_REQUIRE_EQUAL(co_await co_return_vector(3), foo_x3);
 }
