@@ -286,7 +286,7 @@ private:
         }
     };
 
-    using send_packet_t = net::packet;
+    using send_packet_t = std::vector<temporary_buffer<char>>;
     ssize_t do_send_tcp(sock_entry& e, send_packet_t p, size_t len, ares_socket_t fd);
     ssize_t do_send_udp(sock_entry& e, send_packet_t p, size_t len, ares_socket_t fd);
 
@@ -1329,7 +1329,7 @@ ssize_t dns_resolver::impl::do_send_tcp(sock_entry& e, send_packet_t p, size_t b
     if (!e.tcp.out) {
         e.tcp.out = e.tcp.socket.output(0).detach();
     }
-    auto f = e.tcp.out->put(p.release());
+    auto f = e.tcp.out->put(std::move(p));
 
     if (!f.available()) {
         dns_log.trace("Send {} unavailable.", fd);
@@ -1370,7 +1370,8 @@ ssize_t dns_resolver::impl::do_send_tcp(sock_entry& e, send_packet_t p, size_t b
 ssize_t dns_resolver::impl::do_send_udp(sock_entry& e, send_packet_t p, size_t bytes, ares_socket_t fd) {
     // always chain UDP sends
     e.udp.f = e.udp.f.finally([&e, p = std::move(p)]() mutable {
-        return e.udp.channel.send(e.udp.dst, std::move(p));;
+        std::span<temporary_buffer<char>> sp(p);
+        return e.udp.channel.send(e.udp.dst, net::packet(sp));
     }).finally([fd, me = shared_from_this()] {
         me->release(fd);
     });
@@ -1440,13 +1441,13 @@ dns_resolver::impl::do_sendv(ares_socket_t fd, const iovec * vec, int len) {
                 }
             }
 
-            packet p;
+            std::vector<temporary_buffer<char>> p;
             p.reserve(len);
+            size_t bytes = 0;
             for (int i = 0; i < len; ++i) {
-                p = packet(std::move(p), fragment{reinterpret_cast<char *>(vec[i].iov_base), vec[i].iov_len});
+                bytes += vec[i].iov_len;
+                p.emplace_back(reinterpret_cast<const char *>(vec[i].iov_base), vec[i].iov_len);
             }
-
-            auto bytes = p.len();
 
             use(fd);
 
