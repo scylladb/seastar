@@ -287,6 +287,7 @@ private:
     };
 
     using send_packet_t = net::packet;
+    ssize_t do_send_tcp(sock_entry& e, send_packet_t p, size_t len, ares_socket_t fd);
     ssize_t do_send_udp(sock_entry& e, send_packet_t p, size_t len, ares_socket_t fd);
 
     sock_entry& get_socket_entry(ares_socket_t fd);
@@ -1324,6 +1325,48 @@ dns_resolver::impl::do_recvfrom(ares_socket_t fd, void * dst, size_t len, int fl
     return -1;
 }
 
+ssize_t dns_resolver::impl::do_send_tcp(sock_entry& e, send_packet_t p, size_t bytes, ares_socket_t fd) {
+    if (!e.tcp.out) {
+        e.tcp.out = e.tcp.socket.output(0).detach();
+    }
+    auto f = e.tcp.out->put(p.release());
+
+    if (!f.available()) {
+        dns_log.trace("Send {} unavailable.", fd);
+        e.avail &= ~POLLOUT;
+        // FIXME: future is discarded
+        (void)f.then_wrapped([me = shared_from_this(), &e, bytes, fd](future<> f) {
+            try {
+                f.get();
+                dns_log.trace("Send {}. {} bytes sent.", fd, bytes);
+            } catch (...) {
+                dns_log.debug("Send {} failed: {}", fd, std::current_exception());
+            }
+            e.avail |= POLLOUT;
+            me->poll_sockets();
+            me->release(fd);
+        });
+
+        // For tcp we also pretend we're done, to make sure we don't have to deal with
+        // matching sent data
+        return bytes;
+    }
+
+    release(fd);
+
+    if (f.failed()) {
+        try {
+            f.get();
+        } catch (std::system_error& e) {
+            errno = e.code().value();
+        } catch (...) {
+        }
+        return -1;
+    }
+
+    return bytes;
+}
+
 ssize_t dns_resolver::impl::do_send_udp(sock_entry& e, send_packet_t p, size_t bytes, ares_socket_t fd) {
     // always chain UDP sends
     e.udp.f = e.udp.f.finally([&e, p = std::move(p)]() mutable {
@@ -1411,51 +1454,12 @@ dns_resolver::impl::do_sendv(ares_socket_t fd, const iovec * vec, int len) {
 
             switch (e.typ) {
             case type::tcp:
-                if (!e.tcp.out) {
-                    e.tcp.out = e.tcp.socket.output(0).detach();
-                }
-                f = e.tcp.out->put(p.release());
-                break;
+                return do_send_tcp(e, std::move(p), bytes, fd);
             case type::udp:
                 return do_send_udp(e, std::move(p), bytes, fd);
             default:
                 return -1;
             }
-
-            if (!f.available()) {
-                dns_log.trace("Send {} unavailable.", fd);
-                e.avail &= ~POLLOUT;
-                // FIXME: future is discarded
-                (void)f.then_wrapped([me = shared_from_this(), &e, bytes, fd](future<> f) {
-                    try {
-                        f.get();
-                        dns_log.trace("Send {}. {} bytes sent.", fd, bytes);
-                    } catch (...) {
-                        dns_log.debug("Send {} failed: {}", fd, std::current_exception());
-                    }
-                    e.avail |= POLLOUT;
-                    me->poll_sockets();
-                    me->release(fd);
-                });
-
-                // For tcp we also pretend we're done, to make sure we don't have to deal with
-                // matching sent data
-                return bytes;
-            }
-
-            release(fd);
-
-            if (f.failed()) {
-                try {
-                    f.get();
-                } catch (std::system_error& e) {
-                    errno = e.code().value();
-                } catch (...) {
-                }
-                return -1;
-            }
-
-            return bytes;
         }
     } catch (...) {
     }
