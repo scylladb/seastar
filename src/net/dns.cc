@@ -1426,7 +1426,6 @@ dns_resolver::impl::do_sendv(ares_socket_t fd, const iovec * vec, int len) {
         //     memory in packets. Bad.
 
 
-        for (;;) {
             // check if we're already writing.
             if (e.typ == type::tcp) {
                 if (!(e.avail & POLLOUT)) {
@@ -1460,7 +1459,6 @@ dns_resolver::impl::do_sendv(ares_socket_t fd, const iovec * vec, int len) {
             default:
                 return -1;
             }
-        }
     } catch (...) {
     }
     return -1;
