@@ -53,12 +53,12 @@ jobs:
       - name: Install clang++
         if: ${{ inputs.compiler == 'clang++' }}
         run: |
-          sudo apt-get -y install clang
+          sudo apt-get -y install clang-20
 
       - name: Install clang-scan-deps
         if: ${{ contains(inputs.enables, 'cxx-modules') }}
         run: |
-          sudo apt-get -y install clang-tools
+          sudo apt-get -y install clang-tools-20
 
       - name: Install ccache
         if: ${{ inputs.enable-ccache }}
@@ -74,16 +74,18 @@ jobs:
       - name: Configure
         run: |
           if [ ${{ inputs.compiler }} = "clang++" ]; then
-            CC=clang
+            CC=clang-20
+            CPP=clang++-20
           else
             CC=gcc
+            CPP=g++
           fi
           if ${{ inputs.enable-ccache }}; then
             MAYBE_CCACHE_OPT="--ccache"
           fi
           ./configure.py                          \
             --c++-standard ${{ inputs.standard }} \
-            --compiler ${{ inputs.compiler }}     \
+            --compiler $CPP                       \
             --c-compiler $CC                      \
             --mode ${{ inputs.mode }}             \
             $MAYBE_CCACHE_OPT                     \
