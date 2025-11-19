@@ -23,6 +23,7 @@
 
 
 #include <seastar/core/future.hh>
+#include <seastar/core/make_task.hh>
 #include <seastar/coroutine/exception.hh>
 #include <seastar/util/modules.hh>
 #include <seastar/util/std-compat.hh>
@@ -43,7 +44,7 @@ execute_involving_handle_destruction_in_await_suspend(std::invocable<> auto&& fu
 #if defined(__GNUC__) && !defined(__clang__) && (__GNUC__ > 15 || (__GNUC__ == 15 && __GNUC_MINOR__ >= 2))
     // See https://gcc.gnu.org/bugzilla/show_bug.cgi?id=121961
     memory::scoped_critical_alloc_section _;
-    schedule(new lambda_task(std::forward<decltype(func)>(func)));
+    schedule(new lambda_task(current_scheduling_group(), std::forward<decltype(func)>(func)));
 #else
     std::invoke(std::forward<decltype(func)>(func));
 #endif
