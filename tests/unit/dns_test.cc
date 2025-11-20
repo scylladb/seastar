@@ -37,16 +37,15 @@ using namespace seastar::net;
 static const sstring seastar_name = "seastar.io";
 
 static future<> test_resolve(dns_resolver::options opts) {
-    auto d = ::make_lw_shared<dns_resolver>(std::move(opts));
-    return d->get_host_by_name(seastar_name, inet_address::family::INET).then([d](hostent e) {
-        return d->get_host_by_addr(e.addr_list.front()).then([d, a = e.addr_list.front()](hostent e) {
-            return d->get_host_by_name(e.names.front(), inet_address::family::INET).then([a](hostent e) {
-                BOOST_REQUIRE(std::count(e.addr_list.begin(), e.addr_list.end(), a));
-            });
-        });
-    }).finally([d]{
-        return d->close();
-    });
+    auto d = dns_resolver(std::move(opts));
+    {
+        auto hostname = seastar_name;
+        hostent e = co_await d.get_host_by_name(hostname, inet_address::family::INET);
+        hostent a = co_await d.get_host_by_addr(e.addr_list.front());
+        hostent e2 = co_await d.get_host_by_name(a.names.front(), inet_address::family::INET);
+        BOOST_REQUIRE(std::count(e2.addr_list.begin(), e2.addr_list.end(), e.addr_list.front()));
+        co_await d.close();
+    }
 }
 
 static future<> test_bad_name(dns_resolver::options opts) {
