@@ -1447,7 +1447,6 @@ dns_resolver::impl::do_sendv(ares_socket_t fd, const iovec * vec, int len) {
             }
 
             auto bytes = p.len();
-            auto f = make_ready_future();
 
             use(fd);
 
