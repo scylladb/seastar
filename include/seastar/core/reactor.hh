@@ -221,7 +221,7 @@ private:
     std::shared_ptr<seastar::smp> _smp;
     alien::instance& _alien;
     reactor_config _cfg;
-    file_desc _notify_eventfd;
+    writeable_eventfd _notify;
     file_desc _task_quota_timer;
     std::unique_ptr<reactor_backend> _backend;
     sigset_t _active_sigmask; // holds sigmask while sleeping with sig disabled
