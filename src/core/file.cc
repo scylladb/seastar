@@ -1067,7 +1067,7 @@ make_file_impl(int fd, file_open_options options, int flags, struct stat st) noe
 
     auto i = s_fstype.find(st_dev);
     if (i == s_fstype.end()) [[unlikely]] {
-        return engine().fstatfs(fd).then([fd, options = std::move(options), flags, st = std::move(st)] (struct statfs sfs) {
+        return engine().fstatfs(fd).then([fd, st_dev] (struct statfs sfs) {
             internal::fs_info fsi;
             fsi.block_size = sfs.f_bsize;
             switch (sfs.f_type) {
@@ -1115,7 +1115,9 @@ make_file_impl(int fd, file_open_options options, int flags, struct stat st) noe
                 fsi.nowait_works = false;
             }
             fsi.nowait_works &= engine()._cfg.aio_nowait_works;
-            s_fstype.insert(std::make_pair(st.st_dev, std::move(fsi)));
+            s_fstype.insert(std::make_pair(st_dev, std::move(fsi)));
+            return make_ready_future<>();
+        }).then([fd, options = std::move(options), flags, st = std::move(st)] {
             return make_file_impl(fd, std::move(options), flags, std::move(st));
         });
     }
