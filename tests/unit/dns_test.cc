@@ -37,16 +37,25 @@ using namespace seastar::net;
 static const sstring seastar_name = "seastar.io";
 
 static future<> test_resolve(dns_resolver::options opts) {
-    auto d = ::make_lw_shared<dns_resolver>(std::move(opts));
-    return d->get_host_by_name(seastar_name, inet_address::family::INET).then([d](hostent e) {
-        return d->get_host_by_addr(e.addr_list.front()).then([d, a = e.addr_list.front()](hostent e) {
-            return d->get_host_by_name(e.names.front(), inet_address::family::INET).then([a](hostent e) {
-                BOOST_REQUIRE(std::count(e.addr_list.begin(), e.addr_list.end(), a));
-            });
-        });
-    }).finally([d]{
-        return d->close();
-    });
+    auto d = dns_resolver(std::move(opts));
+
+    for (auto hostname : {"seastar.io", "scylladb.com", "kernel.org", "www.google.com"}) {
+        hostent e = co_await d.get_host_by_name(hostname, inet_address::family::INET);
+        hostent a;
+        try {
+            a = co_await d.get_host_by_addr(e.addr_list.front());
+        } catch (const std::system_error& e) {
+            if (e.code().category() != dns::error_category()) {
+                throw;
+            }
+            continue;
+        }
+        hostent e2 = co_await d.get_host_by_name(a.names.front(), inet_address::family::INET);
+        BOOST_REQUIRE(std::count(e2.addr_list.begin(), e2.addr_list.end(), e.addr_list.front()));
+        co_await d.close();
+        co_return;
+    }
+    BOOST_FAIL("No more hosts to try");
 }
 
 static future<> test_bad_name(dns_resolver::options opts) {
