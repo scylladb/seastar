@@ -28,7 +28,7 @@
 #include <seastar/util/closeable.hh>
 
 #include "core/prometheus-impl.hh"
-#include "memory_data_sink.hh"
+#include "memory-data-sink.hh"
 
 #include <sstream>
 #include <string_view>
@@ -170,7 +170,7 @@ struct prometheus_test_fixture {
         using access = prometheus::details::test_access;
 
         std::stringstream ss;
-        output_stream<char> out{data_sink{std::make_unique<memory_data_sink_impl>(ss, 10)}};
+        output_stream<char> out{data_sink{std::make_unique<testing::memory_data_sink_impl>(ss, 10)}};
         auto filter = test_conf.filter.value_or(always_true);
         co_await access{}.write_body(config,
             false,

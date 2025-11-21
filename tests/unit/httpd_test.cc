@@ -35,7 +35,6 @@
 #include <seastar/util/short_streams.hh>
 #include <seastar/util/closeable.hh>
 #include <seastar/net/tls.hh>
-#include "memory_data_sink.hh"
 
 using namespace seastar;
 using namespace httpd;
