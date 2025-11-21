@@ -81,6 +81,75 @@ struct fs_info {
     std::optional<dioattr> dioinfo;
 };
 
+static thread_local std::unordered_map<dev_t, fs_info> s_fstype;
+
+// Some kernels can append to xfs filesystems, some cannot; determine
+// from kernel version.
+static
+unsigned
+xfs_concurrency_from_kernel_version() {
+    // try to see if this is a mainline kernel with xfs append fixed (3.15+)
+    // or a RHEL kernel with the backported fix (3.10.0-325.el7+)
+    if (internal::kernel_uname().whitelisted({"3.15", "3.10.0-325.el7"})) {
+            // Can append, but not concurrently
+            return 1;
+    }
+    // Cannot append at all; need ftrucnate().
+    return 0;
+}
+
+future<> populate_fs_info(dev_t dev, int fd) {
+    struct statfs sfs = co_await engine().fstatfs(fd);
+    internal::fs_info fsi;
+    fsi.block_size = sfs.f_bsize;
+    switch (sfs.f_type) {
+    case internal::fs_magic::xfs:
+        dioattr da;
+        if (::ioctl(fd, XFS_IOC_DIOINFO, &da) == 0) {
+            fsi.dioinfo = std::move(da);
+        }
+
+        fsi.append_challenged = true;
+        static auto xc = xfs_concurrency_from_kernel_version();
+        fsi.append_concurrency = xc;
+        fsi.fsync_is_exclusive = true;
+        fsi.nowait_works = internal::kernel_uname().whitelisted({"4.13"});
+        break;
+    case internal::fs_magic::nfs:
+        fsi.append_challenged = false;
+        fsi.append_concurrency = 0;
+        fsi.fsync_is_exclusive = false;
+        fsi.nowait_works = internal::kernel_uname().whitelisted({"4.13"});
+        break;
+    case internal::fs_magic::ext4:
+        fsi.append_challenged = true;
+        fsi.append_concurrency = 0;
+        fsi.fsync_is_exclusive = false;
+        fsi.nowait_works = internal::kernel_uname().whitelisted({"5.5"});
+        break;
+    case internal::fs_magic::btrfs:
+        fsi.append_challenged = true;
+        fsi.append_concurrency = 0;
+        fsi.fsync_is_exclusive = true;
+        fsi.nowait_works = internal::kernel_uname().whitelisted({"5.9"});
+        break;
+    case internal::fs_magic::tmpfs:
+    case internal::fs_magic::fuse:
+        fsi.append_challenged = false;
+        fsi.append_concurrency = 999;
+        fsi.fsync_is_exclusive = false;
+        fsi.nowait_works = false;
+        break;
+    default:
+        fsi.append_challenged = true;
+        fsi.append_concurrency = 0;
+        fsi.fsync_is_exclusive = true;
+        fsi.nowait_works = false;
+    }
+    fsi.nowait_works &= engine()._cfg.aio_nowait_works;
+    s_fstype.insert(std::make_pair(dev, std::move(fsi)));
+}
+
 };
 
 using namespace internal::linux_abi;
@@ -1026,21 +1095,6 @@ posix_file_handle_impl::to_file() && {
     return ret;
 }
 
-// Some kernels can append to xfs filesystems, some cannot; determine
-// from kernel version.
-static
-unsigned
-xfs_concurrency_from_kernel_version() {
-    // try to see if this is a mainline kernel with xfs append fixed (3.15+)
-    // or a RHEL kernel with the backported fix (3.10.0-325.el7+)
-    if (internal::kernel_uname().whitelisted({"3.15", "3.10.0-325.el7"})) {
-            // Can append, but not concurrently
-            return 1;
-    }
-    // Cannot append at all; need ftrucnate().
-    return 0;
-}
-
 future<shared_ptr<file_impl>>
 make_file_impl(int fd, file_open_options options, int flags, struct stat st) noexcept {
     if (S_ISBLK(st.st_mode)) {
@@ -1063,61 +1117,10 @@ make_file_impl(int fd, file_open_options options, int flags, struct stat st) noe
     }
 
     auto st_dev = st.st_dev;
-    static thread_local std::unordered_map<decltype(st_dev), internal::fs_info> s_fstype;
 
-    auto i = s_fstype.find(st_dev);
-    if (i == s_fstype.end()) [[unlikely]] {
-        return engine().fstatfs(fd).then([fd, st_dev] (struct statfs sfs) {
-            internal::fs_info fsi;
-            fsi.block_size = sfs.f_bsize;
-            switch (sfs.f_type) {
-            case internal::fs_magic::xfs:
-                dioattr da;
-                if (::ioctl(fd, XFS_IOC_DIOINFO, &da) == 0) {
-                    fsi.dioinfo = std::move(da);
-                }
-
-                fsi.append_challenged = true;
-                static auto xc = xfs_concurrency_from_kernel_version();
-                fsi.append_concurrency = xc;
-                fsi.fsync_is_exclusive = true;
-                fsi.nowait_works = internal::kernel_uname().whitelisted({"4.13"});
-                break;
-            case internal::fs_magic::nfs:
-                fsi.append_challenged = false;
-                fsi.append_concurrency = 0;
-                fsi.fsync_is_exclusive = false;
-                fsi.nowait_works = internal::kernel_uname().whitelisted({"4.13"});
-                break;
-            case internal::fs_magic::ext4:
-                fsi.append_challenged = true;
-                fsi.append_concurrency = 0;
-                fsi.fsync_is_exclusive = false;
-                fsi.nowait_works = internal::kernel_uname().whitelisted({"5.5"});
-                break;
-            case internal::fs_magic::btrfs:
-                fsi.append_challenged = true;
-                fsi.append_concurrency = 0;
-                fsi.fsync_is_exclusive = true;
-                fsi.nowait_works = internal::kernel_uname().whitelisted({"5.9"});
-                break;
-            case internal::fs_magic::tmpfs:
-            case internal::fs_magic::fuse:
-                fsi.append_challenged = false;
-                fsi.append_concurrency = 999;
-                fsi.fsync_is_exclusive = false;
-                fsi.nowait_works = false;
-                break;
-            default:
-                fsi.append_challenged = true;
-                fsi.append_concurrency = 0;
-                fsi.fsync_is_exclusive = true;
-                fsi.nowait_works = false;
-            }
-            fsi.nowait_works &= engine()._cfg.aio_nowait_works;
-            s_fstype.insert(std::make_pair(st_dev, std::move(fsi)));
-            return make_ready_future<>();
-        }).then([fd, options = std::move(options), flags, st = std::move(st)] {
+    auto i = internal::s_fstype.find(st_dev);
+    if (i == internal::s_fstype.end()) [[unlikely]] {
+        return internal::populate_fs_info(st.st_dev, fd).then([fd, options = std::move(options), flags, st = std::move(st)] {
             return make_file_impl(fd, std::move(options), flags, std::move(st));
         });
     }
