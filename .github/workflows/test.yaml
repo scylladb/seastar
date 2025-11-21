@@ -38,32 +38,34 @@ jobs:
   test:
     timeout-minutes: 40
     runs-on: ubuntu-24.04
+    container: fedora:43
     steps:
+      - name: Install git
+        run: |
+          dnf -y install git-core
+
       - uses: actions/checkout@v4
         with:
           submodules: "${{ contains(inputs.enables, 'dpdk') }}"
 
-      - run: |
-          sudo apt-get update
-
       - name: Install build dependencies
         run: |
-          sudo ./install-dependencies.sh
+          ./install-dependencies.sh
 
       - name: Install clang++
         if: ${{ inputs.compiler == 'clang++' }}
         run: |
-          sudo apt-get -y install clang
+          dnf install -y clang
 
       - name: Install clang-scan-deps
         if: ${{ contains(inputs.enables, 'cxx-modules') }}
         run: |
-          sudo apt-get -y install clang-tools
+          dnf install -y clang-tools-extra
 
       - name: Install ccache
         if: ${{ inputs.enable-ccache }}
         run: |
-          sudo apt-get -y install ccache
+          dnf install -y ccache
 
       - name: Setup ccache
         if: ${{ inputs.enable-ccache }}
