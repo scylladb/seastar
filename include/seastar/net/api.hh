@@ -415,6 +415,15 @@ struct listen_options {
         lba = server_socket::load_balancing_algorithm::fixed;
         fixed_cpu = cpu;
     }
+
+    // The connection is encapsulated with proxy protocol (which is just
+    // a header prepended to the data stream). connected_socket::remote_address()
+    // and connected_socket::local_address() will return the addresses
+    // as specified in the proxy protocol header. load_balancing_algorithm::port
+    // will use the port from the proxy protocol header.
+    //
+    // Currently only proxy protocol v2 is supported.
+    bool proxy_protocol = false;
 };
 
 class network_interface {
