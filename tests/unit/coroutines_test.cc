@@ -784,3 +784,30 @@ SEASTAR_TEST_CASE(test_lambda_coroutine_in_continuation) {
     }));
     BOOST_REQUIRE_EQUAL(sin1, sin2);
 }
+
+#ifdef __cpp_explicit_this_parameter
+
+SEASTAR_TEST_CASE(test_lambda_value_capture_coroutine) {
+    // Note: crashes without "this auto"
+    auto f1 = [p = std::make_unique<int>(7)] (this auto) -> future<int> {
+        co_await yield();
+        co_return *p + 2;
+    }();
+    // f1 is not ready at this point (due to the yield). Verify that the capture
+    // group was copied to the coroutine frame.
+    auto n = co_await std::move(f1);
+    BOOST_REQUIRE_EQUAL(n, 9);
+}
+
+SEASTAR_TEST_CASE(test_lambda_value_capture_continuation) {
+    // Note: crashes without "this auto"
+    return yield().then([p = std::make_unique<int>(7)] (this auto) -> future<int> {
+        co_await yield();
+        co_return *p + 2;
+    }).then([] (int n) {
+        BOOST_REQUIRE_EQUAL(n, 9);
+    });
+}
+
+
+#endif
