@@ -355,10 +355,10 @@ private:
 
     // Last measured accumulated steal time, i.e., the simple difference of accumulated
     // awake time and consumed thread CPU time.
-    sched_clock::duration _last_true_steal{0};
+    mutable sched_clock::duration _last_true_steal{0};
     // Accumulated steal time forced to be monotinic by rejecting any updates that would
     // decrease it. See total_steal_time() for details.
-    sched_clock::duration _last_mono_steal{0};
+    mutable sched_clock::duration _last_mono_steal{0};
     sched_clock::duration _total_idle{0};
     sched_clock::duration _total_sleep{0};
     sched_clock::time_point _start_time = now();
@@ -655,11 +655,11 @@ public:
     /// \returns Returns the `smp` instance which owns this reactor.
     const seastar::smp& smp() const noexcept;
 
-    steady_clock_type::duration total_idle_time();
-    steady_clock_type::duration total_busy_time();
+    steady_clock_type::duration total_idle_time() const;
+    steady_clock_type::duration total_busy_time() const;
     steady_clock_type::duration total_awake_time() const;
     std::chrono::nanoseconds total_cpu_time() const;
-    std::chrono::nanoseconds total_steal_time();
+    std::chrono::nanoseconds total_steal_time() const;
 
     const io_stats& get_io_stats() const { return _io_stats; }
     /// Returns statistics related to scheduling. The statistics are
