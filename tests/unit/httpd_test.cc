@@ -395,6 +395,26 @@ SEASTAR_TEST_CASE(test_json_path) {
     });
 }
 
+SEASTAR_TEST_CASE(test_match_rule_order_with_param) {
+    parameters param;
+    routes route;
+
+    handl* h1 = new handl();
+    handl* h2 = new handl();
+    handl* h3 = new handl();
+    handl* h4 = new handl();
+
+    route.add(operation_type::GET, url("/draw"), h1);
+    route.add(operation_type::GET, url("/draw").remainder("path"), h2);
+    route.add(operation_type::GET, url("/ward").remainder("path"), h3);
+    route.add(operation_type::GET, url("/ward"), h4);
+
+    BOOST_REQUIRE_EQUAL(route.get_handler(GET, "/draw", param), h1);
+    BOOST_REQUIRE_EQUAL(route.get_handler(GET, "/ward", param), h3); // ATTN: it's NOT h4
+
+    return make_ready_future<>();
+}
+
 future<> test_transformer_stream(std::stringstream& ss, content_replace& cr, std::vector<sstring>&& buffer_parts) {
     std::unique_ptr<seastar::http::request> req = std::make_unique<seastar::http::request>();
     ss.str("");
