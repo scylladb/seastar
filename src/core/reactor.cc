@@ -1844,11 +1844,15 @@ reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_opt
         if (r == -1) {
             return wrap_syscall(r, std::make_pair(st, fsi));
         }
+        fsi = internal::get_fs_info(st.st_dev, fd);
+        if (fsi == nullptr) {
+            return wrap_syscall(-1, std::make_pair(st, fsi));
+        }
         close_fd.cancel();
         return wrap_syscall(fd, std::make_pair(st, fsi));
     });
     sr.throw_fs_exception_if_error("open failed", name);
-    shared_ptr<file_impl> impl = co_await make_file_impl(sr.result, options, open_flags, sr.extra.first);
+    shared_ptr<file_impl> impl = co_await make_file_impl(sr.result, options, open_flags, sr.extra.first, *sr.extra.second);
     co_return file(std::move(impl));
 }
 
@@ -2333,12 +2337,18 @@ reactor::open_directory(std::string_view name) noexcept {
                 if (r == -1) {
                     ::close(fd);
                     fd = r;
+                } else {
+                    fsi = internal::get_fs_info(st.st_dev, fd);
+                    if (fsi == nullptr) {
+                        ::close(fd);
+                        fd = -1;
+                    }
                 }
             }
             return wrap_syscall(fd, std::make_pair(std::move(st), fsi));
         }).then([name = sstring(name), oflags] (syscall_result_extra<std::pair<struct stat, const internal::fs_info*>> sr) {
             sr.throw_fs_exception_if_error("open failed", name);
-            return make_file_impl(sr.result, file_open_options(), oflags, sr.extra.first);
+            return make_file_impl(sr.result, file_open_options(), oflags, sr.extra.first, *sr.extra.second);
         }).then([] (shared_ptr<file_impl> file_impl) {
             return make_ready_future<file>(std::move(file_impl));
         });

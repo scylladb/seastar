@@ -160,9 +160,10 @@ public:
 
 namespace internal {
 struct fs_info;
+const fs_info* get_fs_info(dev_t dev, int fd);
 }
 
-future<shared_ptr<file_impl>> make_file_impl(int fd, file_open_options options, int oflags, struct stat st) noexcept;
+future<shared_ptr<file_impl>> make_file_impl(int fd, file_open_options options, int oflags, struct stat st, const internal::fs_info&) noexcept;
 
 /// \endcond
 

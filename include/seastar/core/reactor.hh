@@ -125,8 +125,6 @@ size_t scheduling_group_count();
 void increase_thrown_exceptions_counter() noexcept;
 void increase_internal_errors_counter() noexcept;
 
-future<> populate_fs_info(dev_t, int);
-
 template <typename Func>
 void at_destroy(Func&& func);
 
@@ -732,7 +730,6 @@ private:
     friend scheduling_supergroup internal::scheduling_supergroup_for(scheduling_group sg) noexcept;
 
     future<struct statfs> fstatfs(int fd) noexcept;
-    friend future<> internal::populate_fs_info(dev_t, int);
 public:
     future<> readable(pollable_fd_state& fd);
     future<> writeable(pollable_fd_state& fd);

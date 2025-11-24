@@ -98,8 +98,16 @@ xfs_concurrency_from_kernel_version() {
     return 0;
 }
 
-future<> populate_fs_info(dev_t dev, int fd) {
-    struct statfs sfs = co_await engine().fstatfs(fd);
+const fs_info* get_fs_info(dev_t dev, int fd) {
+    auto i = s_fstype.find(dev);
+    if (i != s_fstype.end()) {
+        return i->second.get();
+    }
+
+    struct statfs sfs;
+    if (::fstatfs(fd, &sfs) < 0) {
+        return nullptr;
+    }
     internal::fs_info fsi;
     fsi.block_size = sfs.f_bsize;
     switch (sfs.f_type) {
@@ -147,7 +155,9 @@ future<> populate_fs_info(dev_t dev, int fd) {
         fsi.nowait_works = false;
     }
     auto fsi_p = std::make_unique<fs_info>(std::move(fsi));
+    const fs_info* ret = fsi_p.get();
     s_fstype.insert(std::make_pair(dev, std::move(fsi_p)));
+    return ret;
 }
 
 };
@@ -1096,7 +1106,7 @@ posix_file_handle_impl::to_file() && {
 }
 
 future<shared_ptr<file_impl>>
-make_file_impl(int fd, file_open_options options, int flags, struct stat st) noexcept {
+make_file_impl(int fd, file_open_options options, int flags, struct stat st, const internal::fs_info& fsi) noexcept {
     if (S_ISBLK(st.st_mode)) {
         size_t block_size;
         auto ret = ::ioctl(fd, BLKBSZGET, &block_size);
@@ -1118,15 +1128,7 @@ make_file_impl(int fd, file_open_options options, int flags, struct stat st) noe
 
     auto st_dev = st.st_dev;
 
-    auto i = internal::s_fstype.find(st_dev);
-    if (i == internal::s_fstype.end()) [[unlikely]] {
-        return internal::populate_fs_info(st.st_dev, fd).then([fd, options = std::move(options), flags, st = std::move(st)] {
-            return make_file_impl(fd, std::move(options), flags, std::move(st));
-        });
-    }
-
     try {
-        const internal::fs_info& fsi = *i->second;
         if (!fsi.append_challenged || options.append_is_unlikely || ((flags & O_ACCMODE) == O_RDONLY)) {
             return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_real_impl>(fd, open_flags(flags), std::move(options), fsi, st_dev));
         }
