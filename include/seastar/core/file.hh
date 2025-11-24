@@ -158,6 +158,10 @@ public:
     virtual coroutine::experimental::generator<directory_entry> experimental_list_directory();
 };
 
+namespace internal {
+struct fs_info;
+}
+
 future<shared_ptr<file_impl>> make_file_impl(int fd, file_open_options options, int oflags, struct stat st) noexcept;
 
 /// \endcond
@@ -667,6 +671,5 @@ public:
         return "cancelled";
     }
 };
-
 
 }
