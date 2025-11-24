@@ -146,7 +146,6 @@ future<> populate_fs_info(dev_t dev, int fd) {
         fsi.fsync_is_exclusive = true;
         fsi.nowait_works = false;
     }
-    fsi.nowait_works &= engine()._cfg.aio_nowait_works;
     auto fsi_p = std::make_unique<fs_info>(std::move(fsi));
     s_fstype.insert(std::make_pair(dev, std::move(fsi_p)));
 }
@@ -190,7 +189,7 @@ posix_file_impl::posix_file_impl(int fd, open_flags f, file_open_options options
 }
 
 posix_file_impl::posix_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id, const internal::fs_info& fsi)
-        : posix_file_impl(fd, f, options, device_id, fsi.nowait_works)
+        : posix_file_impl(fd, f, options, device_id, fsi.nowait_works && engine()._cfg.aio_nowait_works)
 {
     configure_dma_alignment(fsi);
 }
