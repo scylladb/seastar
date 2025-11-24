@@ -81,7 +81,7 @@ struct fs_info {
     std::optional<dioattr> dioinfo;
 };
 
-static thread_local std::unordered_map<dev_t, fs_info> s_fstype;
+static thread_local std::unordered_map<dev_t, std::unique_ptr<fs_info>> s_fstype;
 
 // Some kernels can append to xfs filesystems, some cannot; determine
 // from kernel version.
@@ -147,7 +147,8 @@ future<> populate_fs_info(dev_t dev, int fd) {
         fsi.nowait_works = false;
     }
     fsi.nowait_works &= engine()._cfg.aio_nowait_works;
-    s_fstype.insert(std::make_pair(dev, std::move(fsi)));
+    auto fsi_p = std::make_unique<fs_info>(std::move(fsi));
+    s_fstype.insert(std::make_pair(dev, std::move(fsi_p)));
 }
 
 };
@@ -1126,7 +1127,7 @@ make_file_impl(int fd, file_open_options options, int flags, struct stat st) noe
     }
 
     try {
-        const internal::fs_info& fsi = i->second;
+        const internal::fs_info& fsi = *i->second;
         if (!fsi.append_challenged || options.append_is_unlikely || ((flags & O_ACCMODE) == O_RDONLY)) {
             return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_real_impl>(fd, open_flags(flags), std::move(options), fsi, st_dev));
         }
