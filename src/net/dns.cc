@@ -216,7 +216,11 @@ private:
     socket_address sock_addr(const sockaddr * addr, socklen_t len);
     int do_connect(ares_socket_t fd, const sockaddr * addr, socklen_t len);
     ssize_t do_recvfrom(ares_socket_t fd, void * dst, size_t len, int flags, struct sockaddr * from, socklen_t * from_len);
+#if ARES_VERSION >= 0x012200
+    ssize_t do_send(ares_socket_t fd, const void * buf, size_t bytes);
+#else
     ssize_t do_sendv(ares_socket_t fd, const iovec * vec, int len);
+#endif
 
     // Note: cannot use to much here, because fd_sets only handle
     // ~1024 fd:s. Set to something below that in case you need to
@@ -285,6 +289,14 @@ private:
             }
         }
     };
+
+#if ARES_VERSION >= 0x012200
+    using send_packet_t = temporary_buffer<char>;
+#else
+    using send_packet_t = std::vector<temporary_buffer<char>>;
+#endif
+    ssize_t do_send_tcp(sock_entry& e, send_packet_t p, size_t len, ares_socket_t fd);
+    ssize_t do_send_udp(sock_entry& e, send_packet_t p, size_t len, ares_socket_t fd);
 
     sock_entry& get_socket_entry(ares_socket_t fd);
 
@@ -420,9 +432,7 @@ dns_resolver::impl::impl(network_stack& stack, const options& opts)
             return static_cast<ares_ssize_t>(get_impl(p)->do_recvfrom(s, dst, len, flags, addr, alen));
         },
         .asendto = [](ares_socket_t s, const void * buffer, size_t len, int flags, const struct sockaddr * addr, ares_socklen_t addrlen, void * p) {
-            // We need to convert to iovec for compatibility with our existing sendv implementation
-            struct iovec vec = { const_cast<void*>(buffer), len };
-            return static_cast<ares_ssize_t>(get_impl(p)->do_sendv(s, &vec, 1));
+            return static_cast<ares_ssize_t>(get_impl(p)->do_send(s, buffer, len));
         },
         .agetsockname = nullptr,  // Not needed
         .abind = nullptr,  // Not needed
@@ -1321,8 +1331,91 @@ dns_resolver::impl::do_recvfrom(ares_socket_t fd, void * dst, size_t len, int fl
     return -1;
 }
 
+ssize_t dns_resolver::impl::do_send_tcp(sock_entry& e, send_packet_t p, size_t bytes, ares_socket_t fd) {
+    if (!e.tcp.out) {
+        e.tcp.out = e.tcp.socket.output(0).detach();
+    }
+    auto f = e.tcp.out->put(std::move(p));
+
+    if (!f.available()) {
+        dns_log.trace("Send {} unavailable.", fd);
+        e.avail &= ~POLLOUT;
+        // FIXME: future is discarded
+        (void)f.then_wrapped([me = shared_from_this(), &e, bytes, fd](future<> f) {
+            try {
+                f.get();
+                dns_log.trace("Send {}. {} bytes sent.", fd, bytes);
+            } catch (...) {
+                dns_log.debug("Send {} failed: {}", fd, std::current_exception());
+            }
+            e.avail |= POLLOUT;
+            me->poll_sockets();
+            me->release(fd);
+        });
+
+        // For tcp we also pretend we're done, to make sure we don't have to deal with
+        // matching sent data
+        return bytes;
+    }
+
+    release(fd);
+
+    if (f.failed()) {
+        try {
+            f.get();
+        } catch (std::system_error& e) {
+            errno = e.code().value();
+        } catch (...) {
+        }
+        return -1;
+    }
+
+    return bytes;
+}
+
+ssize_t dns_resolver::impl::do_send_udp(sock_entry& e, send_packet_t p, size_t bytes, ares_socket_t fd) {
+    // always chain UDP sends
+    e.udp.f = e.udp.f.finally([&e, p = std::move(p)]() mutable {
+#if ARES_VERSION >= 0x012200
+        std::span<temporary_buffer<char>> sp(&p, 1);
+#else
+        std::span<temporary_buffer<char>> sp(p);
+#endif
+        return e.udp.channel.send(e.udp.dst, net::packet(sp));
+    }).finally([fd, me = shared_from_this()] {
+        me->release(fd);
+    });
+
+    if (e.udp.f.available()) {
+        // if we have a fast-fail, give error.
+        if (e.udp.f.failed()) {
+            try {
+                e.udp.f.get();
+            } catch (std::system_error& e) {
+                errno = e.code().value();
+            } catch (...) {
+            }
+            e.udp.f = make_ready_future<>();
+            return -1;
+        }
+    } else {
+        // ensure that no exception from channel.send is left uncaught
+        e.udp.f = e.udp.f.handle_exception_type([](std::system_error const& e){
+            dns_log.warn("UDP send exception: {}", e.what());
+        });
+    }
+    // c-ares does _not_ use non-blocking retry for udp sockets. We just pretend
+    // all is fine even though we have no idea. Barring stack/adapter failure it
+    // is close to the same guarantee a "normal" message send would have anyway.
+    return bytes;
+}
+
 ssize_t
+#if ARES_VERSION >= 0x012200
+dns_resolver::impl::do_send(ares_socket_t fd, const void * buf, size_t bytes) {
+#else
 dns_resolver::impl::do_sendv(ares_socket_t fd, const iovec * vec, int len) {
+#endif
     if (_closed) {
         return -1;
     }
@@ -1348,7 +1441,6 @@ dns_resolver::impl::do_sendv(ares_socket_t fd, const iovec * vec, int len) {
         //     memory in packets. Bad.
 
 
-        for (;;) {
             // check if we're already writing.
             if (e.typ == type::tcp) {
                 if (!(e.avail & POLLOUT)) {
@@ -1363,93 +1455,28 @@ dns_resolver::impl::do_sendv(ares_socket_t fd, const iovec * vec, int len) {
                 }
             }
 
-            packet p;
+#if ARES_VERSION >= 0x012200
+            temporary_buffer<char> p(reinterpret_cast<const char *>(buf), bytes);
+#else
+            std::vector<temporary_buffer<char>> p;
             p.reserve(len);
+            size_t bytes = 0;
             for (int i = 0; i < len; ++i) {
-                p = packet(std::move(p), fragment{reinterpret_cast<char *>(vec[i].iov_base), vec[i].iov_len});
+                bytes += vec[i].iov_len;
+                p.emplace_back(reinterpret_cast<const char *>(vec[i].iov_base), vec[i].iov_len);
             }
-
-            auto bytes = p.len();
-            auto f = make_ready_future();
+#endif
 
             use(fd);
 
             switch (e.typ) {
             case type::tcp:
-                if (!e.tcp.out) {
-                    e.tcp.out = e.tcp.socket.output(0).detach();
-                }
-                f = e.tcp.out->put(p.release());
-                break;
+                return do_send_tcp(e, std::move(p), bytes, fd);
             case type::udp:
-                // always chain UDP sends
-                e.udp.f = e.udp.f.finally([&e, p = std::move(p)]() mutable {
-                    return e.udp.channel.send(e.udp.dst, std::move(p));;
-                }).finally([fd, me = shared_from_this()] {
-                    me->release(fd);
-                });
-
-                if (e.udp.f.available()) {
-                    // if we have a fast-fail, give error.
-                    if (e.udp.f.failed()) {
-                        try {
-                            e.udp.f.get();
-                        } catch (std::system_error& e) {
-                            errno = e.code().value();
-                        } catch (...) {
-                        }
-                        e.udp.f = make_ready_future<>();
-                        return -1;
-                    }
-                } else {
-                    // ensure that no exception from channel.send is left uncaught
-                    e.udp.f = e.udp.f.handle_exception_type([](std::system_error const& e){
-                        dns_log.warn("UDP send exception: {}", e.what());
-                    });
-                }
-                // c-ares does _not_ use non-blocking retry for udp sockets. We just pretend
-                // all is fine even though we have no idea. Barring stack/adapter failure it
-                // is close to the same guarantee a "normal" message send would have anyway.
-                return bytes;
+                return do_send_udp(e, std::move(p), bytes, fd);
             default:
                 return -1;
             }
-
-            if (!f.available()) {
-                dns_log.trace("Send {} unavailable.", fd);
-                e.avail &= ~POLLOUT;
-                // FIXME: future is discarded
-                (void)f.then_wrapped([me = shared_from_this(), &e, bytes, fd](future<> f) {
-                    try {
-                        f.get();
-                        dns_log.trace("Send {}. {} bytes sent.", fd, bytes);
-                    } catch (...) {
-                        dns_log.debug("Send {} failed: {}", fd, std::current_exception());
-                    }
-                    e.avail |= POLLOUT;
-                    me->poll_sockets();
-                    me->release(fd);
-                });
-
-                // For tcp we also pretend we're done, to make sure we don't have to deal with
-                // matching sent data
-                return bytes;
-            }
-
-            release(fd);
-
-            if (f.failed()) {
-                try {
-                    f.get();
-                } catch (std::system_error& e) {
-                    errno = e.code().value();
-                } catch (...) {
-                }
-                return -1;
-            }
-
-            return bytes;
-        }
     } catch (...) {
     }
     return -1;
