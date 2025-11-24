@@ -2269,19 +2269,6 @@ reactor::file_system_at(std::string_view pathname_view) noexcept {
     co_return ret;
 }
 
-future<struct statfs>
-reactor::fstatfs(int fd) noexcept {
-    syscall_result_extra<struct statfs> sr = co_await _thread_pool->submit<syscall_result_extra<struct statfs>>(
-            internal::thread_pool_submit_reason::file_operation, [fd] {
-        struct statfs st;
-        auto ret = ::fstatfs(fd, &st);
-        return wrap_syscall(ret, st);
-    });
-    sr.throw_if_error();
-    struct statfs st = sr.extra;
-    co_return st;
-}
-
 future<std::filesystem::space_info>
 reactor::file_system_space(std::string_view pathname) noexcept {
     auto sr = co_await _thread_pool->submit<syscall_result_extra<std::filesystem::space_info>>(
