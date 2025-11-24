@@ -1852,7 +1852,7 @@ reactor::open_file_dma(std::string_view nameref, open_flags flags, file_open_opt
         return wrap_syscall(fd, std::make_pair(st, fsi));
     });
     sr.throw_fs_exception_if_error("open failed", name);
-    shared_ptr<file_impl> impl = make_file_impl(sr.result, options, open_flags, sr.extra.first, *sr.extra.second);
+    shared_ptr<file_impl> impl = internal::make_file_impl(sr.result, options, open_flags, sr.extra.first, *sr.extra.second);
     co_return file(std::move(impl));
 }
 
@@ -2348,7 +2348,7 @@ reactor::open_directory(std::string_view name) noexcept {
             return wrap_syscall(fd, std::make_pair(std::move(st), fsi));
         }).then([name = sstring(name), oflags] (syscall_result_extra<std::pair<struct stat, const internal::fs_info*>> sr) {
             sr.throw_fs_exception_if_error("open failed", name);
-            auto file_impl = make_file_impl(sr.result, file_open_options(), oflags, sr.extra.first, *sr.extra.second);
+            auto file_impl = internal::make_file_impl(sr.result, file_open_options(), oflags, sr.extra.first, *sr.extra.second);
             return make_ready_future<file>(std::move(file_impl));
         });
     });
