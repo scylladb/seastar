@@ -1105,16 +1105,15 @@ posix_file_handle_impl::to_file() && {
     return ret;
 }
 
-future<shared_ptr<file_impl>>
-make_file_impl(int fd, file_open_options options, int flags, struct stat st, const internal::fs_info& fsi) noexcept {
+shared_ptr<file_impl>
+make_file_impl(int fd, file_open_options options, int flags, struct stat st, const internal::fs_info& fsi) {
     if (S_ISBLK(st.st_mode)) {
         size_t block_size;
         auto ret = ::ioctl(fd, BLKBSZGET, &block_size);
         if (ret == -1) {
-            return make_exception_future<shared_ptr<file_impl>>(
-                    std::system_error(errno, std::system_category(), "ioctl(BLKBSZGET) failed"));
+            throw std::system_error(errno, std::system_category(), "ioctl(BLKBSZGET) failed");
         }
-        return make_ready_future<shared_ptr<file_impl>>(make_shared<blockdev_file_impl>(fd, open_flags(flags), options, st.st_rdev, block_size));
+        return make_shared<blockdev_file_impl>(fd, open_flags(flags), options, st.st_rdev, block_size);
     }
 
     if (S_ISDIR(st.st_mode)) {
@@ -1123,19 +1122,15 @@ make_file_impl(int fd, file_open_options options, int flags, struct stat st, con
         internal::fs_info fsi;
         fsi.block_size = 4096;
         fsi.nowait_works = false;
-        return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_real_impl>(fd, open_flags(flags), options, fsi, st.st_dev));
+        return make_shared<posix_file_real_impl>(fd, open_flags(flags), options, fsi, st.st_dev);
     }
 
     auto st_dev = st.st_dev;
 
-    try {
         if (!fsi.append_challenged || options.append_is_unlikely || ((flags & O_ACCMODE) == O_RDONLY)) {
-            return make_ready_future<shared_ptr<file_impl>>(make_shared<posix_file_real_impl>(fd, open_flags(flags), std::move(options), fsi, st_dev));
+            return make_shared<posix_file_real_impl>(fd, open_flags(flags), std::move(options), fsi, st_dev);
         }
-        return make_ready_future<shared_ptr<file_impl>>(make_shared<append_challenged_posix_file_impl>(fd, open_flags(flags), std::move(options), fsi, st_dev));
-    } catch(...) {
-        return current_exception_as_future<shared_ptr<file_impl>>();
-    }
+        return make_shared<append_challenged_posix_file_impl>(fd, open_flags(flags), std::move(options), fsi, st_dev);
 }
 
 file::file(seastar::file_handle&& handle) noexcept
