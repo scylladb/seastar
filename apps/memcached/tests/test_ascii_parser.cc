@@ -23,7 +23,7 @@
 #include <limits>
 #include <seastar/testing/test_case.hh>
 #include <seastar/core/shared_ptr.hh>
-#include <seastar/net/packet-data-source.hh>
+#include <seastar/util/memory-data-source.hh>
 #include "ascii.hh"
 #include <seastar/core/loop.hh>
 
@@ -33,25 +33,20 @@ using namespace memcache;
 
 using parser_type = memcache_ascii_parser;
 
-static packet make_packet(std::vector<std::string> chunks, size_t buffer_size) {
-    packet p;
+static std::vector<temporary_buffer<char>> make_packet(std::vector<std::string> chunks, size_t buffer_size) {
+    std::vector<temporary_buffer<char>> ret;
     for (auto&& chunk : chunks) {
         size_t size = chunk.size();
         for (size_t pos = 0; pos < size; pos += buffer_size) {
             auto now = std::min(pos + buffer_size, chunk.size()) - pos;
-            p.append(packet(chunk.data() + pos, now));
+            ret.emplace_back(chunk.data() + pos, now);
         }
     }
-    return p;
+    return ret;
 }
 
-static auto make_input_stream(packet&& p) {
-    return input_stream<char>(data_source(
-            std::make_unique<packet_data_source>(std::move(p))));
-}
-
-static auto parse(packet&& p) {
-    auto is = make_lw_shared<input_stream<char>>(make_input_stream(std::move(p)));
+static auto parse(std::vector<temporary_buffer<char>>&& bufs) {
+    auto is = make_lw_shared<input_stream<char>>(util::as_input_stream(std::move(bufs)));
     auto parser = make_lw_shared<parser_type>();
     parser->init();
     return is->consume(*parser).then([is, parser] {
@@ -277,7 +272,7 @@ SEASTAR_TEST_CASE(test_catches_errors_in_get) {
 SEASTAR_TEST_CASE(test_parser_returns_eof_state_when_no_command_follows) {
     return for_each_fragment_size([] (auto make_packet) {
         auto p = make_shared<parser_type>();
-        auto is = make_shared<input_stream<char>>(make_input_stream(make_packet({"get key\r\n"})));
+        auto is = make_shared<input_stream<char>>(util::as_input_stream(make_packet({"get key\r\n"})));
         p->init();
         return is->consume(*p).then([p] {
             BOOST_REQUIRE(p->_state == parser_type::state::cmd_get);
@@ -293,7 +288,7 @@ SEASTAR_TEST_CASE(test_parser_returns_eof_state_when_no_command_follows) {
 SEASTAR_TEST_CASE(test_incomplete_command_is_an_error) {
     return for_each_fragment_size([] (auto make_packet) {
         auto p = make_shared<parser_type>();
-        auto is = make_shared<input_stream<char>>(make_input_stream(make_packet({"get"})));
+        auto is = make_shared<input_stream<char>>(util::as_input_stream(make_packet({"get"})));
         p->init();
         return is->consume(*p).then([p] {
             BOOST_REQUIRE(p->_state == parser_type::state::error);
@@ -309,7 +304,7 @@ SEASTAR_TEST_CASE(test_incomplete_command_is_an_error) {
 SEASTAR_TEST_CASE(test_multiple_requests_in_one_stream) {
     return for_each_fragment_size([] (auto make_packet) {
         auto p = make_shared<parser_type>();
-        auto is = make_shared<input_stream<char>>(make_input_stream(make_packet({"set key1 1 1 5\r\ndata1\r\nset key2 2 2 6\r\ndata2+\r\n"})));
+        auto is = make_shared<input_stream<char>>(util::as_input_stream(make_packet({"set key1 1 1 5\r\ndata1\r\nset key2 2 2 6\r\ndata2+\r\n"})));
         p->init();
         return is->consume(*p).then([p] {
             BOOST_REQUIRE(p->_state == parser_type::state::cmd_set);

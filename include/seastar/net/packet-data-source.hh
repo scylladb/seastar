@@ -17,6 +17,7 @@
  */
 #pragma once
 
+#include <seastar/util/memory-data-source.hh>
 #include <seastar/net/packet.hh>
 #include <seastar/core/iostream.hh>
 
@@ -24,28 +25,26 @@ namespace seastar {
 
 namespace net {
 
-class packet_data_source final : public data_source_impl {
-    size_t _cur_frag = 0;
-    packet _p;
+class [[deprecated("Use util::memory_data_source")]] packet_data_source final : public data_source_impl {
+    util::memory_data_source _mds;
+
 public:
     explicit packet_data_source(net::packet&& p)
-        : _p(std::move(p))
+        : _mds(p.release())
     {}
 
     virtual future<temporary_buffer<char>> get() override {
-        if (_cur_frag != _p.nr_frags()) {
-            auto& f = _p.fragments()[_cur_frag++];
-            return make_ready_future<temporary_buffer<char>>(
-                    temporary_buffer<char>(f.base, f.size,
-                            make_deleter(deleter(), [p = _p.share()] () mutable {})));
-        }
-        return make_ready_future<temporary_buffer<char>>(temporary_buffer<char>());
+        return _mds.get();
     }
 };
 
+[[deprecated("Use util::as_input_stream")]]
 static inline
 input_stream<char> as_input_stream(packet&& p) {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
     return input_stream<char>(data_source(std::make_unique<packet_data_source>(std::move(p))));
+#pragma GCC diagnostic pop
 }
 
 }
