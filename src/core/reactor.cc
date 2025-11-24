@@ -2182,110 +2182,99 @@ future<> reactor::chown(std::string_view filepath, uid_t owner, gid_t group) {
 }
 
 future<stat_data>
-reactor::file_stat(std::string_view pathname, follow_symlink follow) noexcept {
-    // Allocating memory for a sstring can throw, hence the futurize_invoke
-    return futurize_invoke([pathname, follow, this] {
-        return _thread_pool->submit<syscall_result_extra<struct stat>>(
-                internal::thread_pool_submit_reason::file_operation, [pathname = sstring(pathname), follow] {
-            struct stat st;
-            auto stat_syscall = follow ? stat : lstat;
-            auto ret = stat_syscall(pathname.c_str(), &st);
-            return wrap_syscall(ret, st);
-        }).then([pathname = sstring(pathname)] (syscall_result_extra<struct stat> sr) {
-            sr.throw_fs_exception_if_error("stat failed", pathname);
-            struct stat& st = sr.extra;
-            stat_data sd;
-            sd.device_id = st.st_dev;
-            sd.inode_number = st.st_ino;
-            sd.mode = st.st_mode;
-            sd.type = stat_to_entry_type(st.st_mode);
-            sd.number_of_links = st.st_nlink;
-            sd.uid = st.st_uid;
-            sd.gid = st.st_gid;
-            sd.rdev = st.st_rdev;
-            sd.size = st.st_size;
-            sd.block_size = st.st_blksize;
-            sd.allocated_size = st.st_blocks * 512UL;
-            sd.time_accessed = timespec_to_time_point(st.st_atim);
-            sd.time_modified = timespec_to_time_point(st.st_mtim);
-            sd.time_changed = timespec_to_time_point(st.st_ctim);
-            return make_ready_future<stat_data>(std::move(sd));
-        });
+reactor::file_stat(std::string_view pathname_view, follow_symlink follow) noexcept {
+    auto pathname = sstring(pathname_view);
+    syscall_result_extra<struct stat> sr = co_await _thread_pool->submit<syscall_result_extra<struct stat>>(
+            internal::thread_pool_submit_reason::file_operation, [&] {
+        struct stat st;
+        auto stat_syscall = follow ? stat : lstat;
+        auto ret = stat_syscall(pathname.c_str(), &st);
+        return wrap_syscall(ret, st);
     });
+    sr.throw_fs_exception_if_error("stat failed", pathname);
+    struct stat& st = sr.extra;
+    stat_data sd;
+    sd.device_id = st.st_dev;
+    sd.inode_number = st.st_ino;
+    sd.mode = st.st_mode;
+    sd.type = stat_to_entry_type(st.st_mode);
+    sd.number_of_links = st.st_nlink;
+    sd.uid = st.st_uid;
+    sd.gid = st.st_gid;
+    sd.rdev = st.st_rdev;
+    sd.size = st.st_size;
+    sd.block_size = st.st_blksize;
+    sd.allocated_size = st.st_blocks * 512UL;
+    sd.time_accessed = timespec_to_time_point(st.st_atim);
+    sd.time_modified = timespec_to_time_point(st.st_mtim);
+    sd.time_changed = timespec_to_time_point(st.st_ctim);
+    co_return sd;
 }
 
 future<uint64_t>
 reactor::file_size(std::string_view pathname) noexcept {
-    return file_stat(pathname, follow_symlink::yes).then([] (stat_data sd) {
-        return make_ready_future<uint64_t>(sd.size);
-    });
+    stat_data sd = co_await file_stat(pathname, follow_symlink::yes);
+    co_return sd.size;
 }
 
 future<bool>
-reactor::file_accessible(std::string_view pathname, access_flags flags) noexcept {
-    // Allocating memory for a sstring can throw, hence the futurize_invoke
-    return futurize_invoke([pathname, flags, this] {
-        return _thread_pool->submit<syscall_result<int>>(
-                internal::thread_pool_submit_reason::file_operation, [pathname = sstring(pathname), flags] {
-            auto aflags = std::underlying_type_t<access_flags>(flags);
-            auto ret = ::access(pathname.c_str(), aflags);
-            return wrap_syscall(ret);
-        }).then([pathname = sstring(pathname), flags] (syscall_result<int> sr) {
-            if (sr.result < 0) {
-                if ((sr.error == ENOENT && flags == access_flags::exists) ||
-                    (sr.error == EACCES && flags != access_flags::exists)) {
-                    return make_ready_future<bool>(false);
-                }
-                sr.throw_fs_exception("access failed", fs::path(pathname));
-            }
-
-            return make_ready_future<bool>(true);
-        });
+reactor::file_accessible(std::string_view pathname_view, access_flags flags) noexcept {
+    auto pathname = sstring(pathname_view);
+    syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
+            internal::thread_pool_submit_reason::file_operation, [&] {
+        auto aflags = std::underlying_type_t<access_flags>(flags);
+        auto ret = ::access(pathname.c_str(), aflags);
+        return wrap_syscall(ret);
     });
+    if (sr.result < 0) {
+        if ((sr.error == ENOENT && flags == access_flags::exists) ||
+            (sr.error == EACCES && flags != access_flags::exists)) {
+            co_return false;
+        }
+        sr.throw_fs_exception("access failed", fs::path(pathname));
+    }
+
+    co_return true;
 }
 
 future<fs_type>
-reactor::file_system_at(std::string_view pathname) noexcept {
-    // Allocating memory for a sstring can throw, hence the futurize_invoke
-    return futurize_invoke([pathname, this] {
-        return _thread_pool->submit<syscall_result_extra<struct statfs>>(
-                internal::thread_pool_submit_reason::file_operation, [pathname = sstring(pathname)] {
-            struct statfs st;
-            auto ret = statfs(pathname.c_str(), &st);
-            return wrap_syscall(ret, st);
-        }).then([pathname = sstring(pathname)] (syscall_result_extra<struct statfs> sr) {
-            static std::unordered_map<long int, fs_type> type_mapper = {
-                { internal::fs_magic::xfs, fs_type::xfs },
-                { internal::fs_magic::ext2, fs_type::ext2 },
-                { internal::fs_magic::ext3, fs_type::ext3 },
-                { internal::fs_magic::ext4, fs_type::ext4 },
-                { internal::fs_magic::btrfs, fs_type::btrfs },
-                { internal::fs_magic::hfs, fs_type::hfs },
-                { internal::fs_magic::tmpfs, fs_type::tmpfs },
-            };
-            sr.throw_fs_exception_if_error("statfs failed", pathname);
-
-            fs_type ret = fs_type::other;
-            if (type_mapper.count(sr.extra.f_type) != 0) {
-                ret = type_mapper.at(sr.extra.f_type);
-            }
-            return make_ready_future<fs_type>(ret);
-        });
+reactor::file_system_at(std::string_view pathname_view) noexcept {
+    auto pathname = sstring(pathname_view);
+    syscall_result_extra<struct statfs> sr = co_await _thread_pool->submit<syscall_result_extra<struct statfs>>(
+            internal::thread_pool_submit_reason::file_operation, [&] {
+        struct statfs st;
+        auto ret = statfs(pathname.c_str(), &st);
+        return wrap_syscall(ret, st);
     });
+    static std::unordered_map<long int, fs_type> type_mapper = {
+        { internal::fs_magic::xfs, fs_type::xfs },
+        { internal::fs_magic::ext2, fs_type::ext2 },
+        { internal::fs_magic::ext3, fs_type::ext3 },
+        { internal::fs_magic::ext4, fs_type::ext4 },
+        { internal::fs_magic::btrfs, fs_type::btrfs },
+        { internal::fs_magic::hfs, fs_type::hfs },
+        { internal::fs_magic::tmpfs, fs_type::tmpfs },
+    };
+    sr.throw_fs_exception_if_error("statfs failed", pathname);
+
+    fs_type ret = fs_type::other;
+    if (type_mapper.count(sr.extra.f_type) != 0) {
+        ret = type_mapper.at(sr.extra.f_type);
+    }
+    co_return ret;
 }
 
 future<struct statfs>
 reactor::fstatfs(int fd) noexcept {
-    return _thread_pool->submit<syscall_result_extra<struct statfs>>(
+    syscall_result_extra<struct statfs> sr = co_await _thread_pool->submit<syscall_result_extra<struct statfs>>(
             internal::thread_pool_submit_reason::file_operation, [fd] {
         struct statfs st;
         auto ret = ::fstatfs(fd, &st);
         return wrap_syscall(ret, st);
-    }).then([] (syscall_result_extra<struct statfs> sr) {
-        sr.throw_if_error();
-        struct statfs st = sr.extra;
-        return make_ready_future<struct statfs>(std::move(st));
     });
+    sr.throw_if_error();
+    struct statfs st = sr.extra;
+    co_return st;
 }
 
 future<std::filesystem::space_info>
@@ -2301,84 +2290,70 @@ reactor::file_system_space(std::string_view pathname) noexcept {
 }
 
 future<struct statvfs>
-reactor::statvfs(std::string_view pathname) noexcept {
-    // Allocating memory for a sstring can throw, hence the futurize_invoke
-    return futurize_invoke([pathname, this] {
-        return _thread_pool->submit<syscall_result_extra<struct statvfs>>(
-                internal::thread_pool_submit_reason::file_operation, [pathname = sstring(pathname)] {
-            struct statvfs st;
-            auto ret = ::statvfs(pathname.c_str(), &st);
-            return wrap_syscall(ret, st);
-        }).then([pathname = sstring(pathname)] (syscall_result_extra<struct statvfs> sr) {
-            sr.throw_fs_exception_if_error("statvfs failed", pathname);
-            struct statvfs st = sr.extra;
-            return make_ready_future<struct statvfs>(std::move(st));
-        });
+reactor::statvfs(std::string_view pathname_view) noexcept {
+    auto pathname = sstring(pathname_view);
+    syscall_result_extra<struct statvfs> sr = co_await _thread_pool->submit<syscall_result_extra<struct statvfs>>(
+            internal::thread_pool_submit_reason::file_operation, [&] {
+        struct statvfs st;
+        auto ret = ::statvfs(pathname.c_str(), &st);
+        return wrap_syscall(ret, st);
     });
+    sr.throw_fs_exception_if_error("statvfs failed", pathname);
+    struct statvfs st = sr.extra;
+    co_return st;
 }
 
 future<file>
-reactor::open_directory(std::string_view name) noexcept {
-    // Allocating memory for a sstring can throw, hence the futurize_invoke
-    return futurize_invoke([name, this] {
-        auto oflags = O_DIRECTORY | O_CLOEXEC | O_RDONLY;
-        return _thread_pool->submit<syscall_result_extra<struct stat>>(
-                internal::thread_pool_submit_reason::file_operation, [name = sstring(name), oflags] {
-            struct stat st;
-            int fd = ::open(name.c_str(), oflags);
-            if (fd != -1) {
-                int r = ::fstat(fd, &st);
-                if (r == -1) {
-                    ::close(fd);
-                    fd = r;
-                }
+reactor::open_directory(std::string_view name_view) noexcept {
+    auto name = sstring(name_view);
+    auto oflags = O_DIRECTORY | O_CLOEXEC | O_RDONLY;
+    syscall_result_extra<struct stat> sr = co_await _thread_pool->submit<syscall_result_extra<struct stat>>(
+            internal::thread_pool_submit_reason::file_operation, [&] {
+        struct stat st;
+        int fd = ::open(name.c_str(), oflags);
+        if (fd != -1) {
+            int r = ::fstat(fd, &st);
+            if (r == -1) {
+                ::close(fd);
+                fd = r;
             }
-            return wrap_syscall(fd, st);
-        }).then([name = sstring(name), oflags] (syscall_result_extra<struct stat> sr) {
-            sr.throw_fs_exception_if_error("open failed", name);
-            return make_file_impl(sr.result, file_open_options(), oflags, sr.extra);
-        }).then([] (shared_ptr<file_impl> file_impl) {
-            return make_ready_future<file>(std::move(file_impl));
-        });
+        }
+        return wrap_syscall(fd, st);
     });
+    sr.throw_fs_exception_if_error("open failed", name);
+    shared_ptr<file_impl> file_impl = co_await make_file_impl(sr.result, file_open_options(), oflags, sr.extra);
+    co_return file(std::move(file_impl));
 }
 
 future<>
-reactor::make_directory(std::string_view name, file_permissions permissions) noexcept {
-    // Allocating memory for a sstring can throw, hence the futurize_invoke
-    return futurize_invoke([name, permissions, this] {
-        return _thread_pool->submit<syscall_result<int>>(
-                internal::thread_pool_submit_reason::file_operation, [name = sstring(name), permissions] {
-            auto mode = static_cast<mode_t>(permissions);
-            return wrap_syscall<int>(::mkdir(name.c_str(), mode));
-        }).then([name = sstring(name)] (syscall_result<int> sr) {
-            sr.throw_fs_exception_if_error("mkdir failed", name);
-        });
+reactor::make_directory(std::string_view name_view, file_permissions permissions) noexcept {
+    auto name = sstring(name_view);
+    syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
+            internal::thread_pool_submit_reason::file_operation, [&] {
+        auto mode = static_cast<mode_t>(permissions);
+        return wrap_syscall<int>(::mkdir(name.c_str(), mode));
     });
+    sr.throw_fs_exception_if_error("mkdir failed", name);
 }
 
 future<>
-reactor::touch_directory(std::string_view name, file_permissions permissions) noexcept {
-    // Allocating memory for a sstring can throw, hence the futurize_invoke
-    return futurize_invoke([this, name, permissions] {
-        return _thread_pool->submit<syscall_result<int>>(
-                internal::thread_pool_submit_reason::file_operation, [name = sstring(name), permissions] {
-            auto mode = static_cast<mode_t>(permissions);
-            return wrap_syscall<int>(::mkdir(name.c_str(), mode));
-        }).then([name = sstring(name)] (syscall_result<int> sr) {
-            if (sr.result == -1 && sr.error != EEXIST) {
-                sr.throw_fs_exception("mkdir failed", fs::path(name));
-            }
-            return make_ready_future<>();
-        });
+reactor::touch_directory(std::string_view name_view, file_permissions permissions) noexcept {
+    auto name = sstring(name_view);
+    syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
+            internal::thread_pool_submit_reason::file_operation, [&] {
+        auto mode = static_cast<mode_t>(permissions);
+        return wrap_syscall<int>(::mkdir(name.c_str(), mode));
     });
+    if (sr.result == -1 && sr.error != EEXIST) {
+        sr.throw_fs_exception("mkdir failed", fs::path(name));
+    }
 }
 
 future<>
 reactor::fdatasync(int fd) noexcept {
     ++_fsyncs;
     if (_cfg.bypass_fsync) {
-        return make_ready_future<>();
+        co_return;
     }
     if (_cfg.have_aio_fsync) {
         // Does not go through the I/O queue, but has to be deleted
@@ -2400,21 +2375,18 @@ reactor::fdatasync(int fd) noexcept {
             }
         };
 
-        return futurize_invoke([this, fd] {
-            auto desc = new fsync_io_desc;
-            auto fut = desc->get_future();
-            auto req = internal::io_request::make_fdatasync(fd);
-            _io_sink.submit(desc, std::move(req));
-            return fut;
-        });
+        auto desc = new fsync_io_desc;
+        auto fut = desc->get_future();
+        auto req = internal::io_request::make_fdatasync(fd);
+        _io_sink.submit(desc, std::move(req));
+        co_await std::move(fut);
+        co_return;
     }
-    return _thread_pool->submit<syscall_result<int>>(
+    syscall_result<int> sr = co_await _thread_pool->submit<syscall_result<int>>(
             internal::thread_pool_submit_reason::file_operation, [fd] {
         return wrap_syscall<int>(::fdatasync(fd));
-    }).then([] (syscall_result<int> sr) {
-        sr.throw_if_error();
-        return make_ready_future<>();
     });
+    sr.throw_if_error();
 }
 
 // Note: terminate if arm_highres_timer throws
