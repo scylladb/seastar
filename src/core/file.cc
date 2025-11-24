@@ -1105,6 +1105,8 @@ posix_file_handle_impl::to_file() && {
     return ret;
 }
 
+namespace internal {
+
 shared_ptr<file_impl>
 make_file_impl(int fd, file_open_options options, int flags, struct stat st, const internal::fs_info& fsi) {
     if (S_ISBLK(st.st_mode)) {
@@ -1132,6 +1134,8 @@ make_file_impl(int fd, file_open_options options, int flags, struct stat st, con
     }
     return make_shared<append_challenged_posix_file_impl>(fd, open_flags(flags), std::move(options), fsi, st_dev);
 }
+
+} // internal namespace
 
 file::file(seastar::file_handle&& handle) noexcept
         : _file_impl(std::move(std::move(handle).to_file()._file_impl)) {
