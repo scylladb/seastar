@@ -1127,10 +1127,10 @@ make_file_impl(int fd, file_open_options options, int flags, struct stat st, con
 
     auto st_dev = st.st_dev;
 
-        if (!fsi.append_challenged || options.append_is_unlikely || ((flags & O_ACCMODE) == O_RDONLY)) {
-            return make_shared<posix_file_real_impl>(fd, open_flags(flags), std::move(options), fsi, st_dev);
-        }
-        return make_shared<append_challenged_posix_file_impl>(fd, open_flags(flags), std::move(options), fsi, st_dev);
+    if (!fsi.append_challenged || options.append_is_unlikely || ((flags & O_ACCMODE) == O_RDONLY)) {
+        return make_shared<posix_file_real_impl>(fd, open_flags(flags), std::move(options), fsi, st_dev);
+    }
+    return make_shared<append_challenged_posix_file_impl>(fd, open_flags(flags), std::move(options), fsi, st_dev);
 }
 
 file::file(seastar::file_handle&& handle) noexcept
