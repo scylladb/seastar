@@ -666,7 +666,6 @@ add_library (seastar
   include/seastar/util/tuple_utils.hh
   include/seastar/util/variant_utils.hh
   include/seastar/util/closeable.hh
-  include/seastar/util/source_location-compat.hh
   include/seastar/util/short_streams.hh
   include/seastar/websocket/common.hh
   include/seastar/websocket/server.hh
@@ -846,7 +845,6 @@ target_link_libraries (seastar
     c-ares::cares
     fmt::fmt
     lz4::lz4
-    SourceLocation::source_location
   PRIVATE
     ${CMAKE_DL_LIBS}
     GnuTLS::gnutls
@@ -1393,7 +1391,6 @@ if (Seastar_INSTALL)
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindGnuTLS.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindLinuxMembarrier.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindSanitizers.cmake
-      ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindSourceLocation.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/FindStdAtomic.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Findc-ares.cmake
       ${CMAKE_CURRENT_SOURCE_DIR}/cmake/Finddpdk.cmake

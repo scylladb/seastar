@@ -28,6 +28,7 @@
 #include <seastar/util/std-compat.hh>
 
 #include <concepts>
+#include <source_location>
 #include <unordered_map>
 #include <exception>
 #include <iosfwd>
@@ -96,7 +97,7 @@ public:
         /// \param fmt - {fmt} style format string
         template <std::convertible_to<std::string_view> S>
         FMT_CONSTEVAL inline format_info(const S& format,
-                           compat::source_location loc = compat::source_location::current()) noexcept
+                           std::source_location loc = std::source_location::current()) noexcept
             : format(format)
             , loc(loc)
         {}
@@ -105,7 +106,7 @@ public:
         /// this constructor is used by other printers which print to logger
         /// \param s a format_string
         inline format_info(fmt::format_string<Args...> s,
-                           compat::source_location loc = compat::source_location::current()) noexcept
+                           std::source_location loc = std::source_location::current()) noexcept
             : format(s)
             , loc(loc)
         {}
@@ -115,7 +116,7 @@ public:
         using runtime_format_string_t = fmt::basic_runtime<char>;
 #endif
         inline format_info(runtime_format_string_t s,
-                           compat::source_location loc = compat::source_location::current()) noexcept
+                           std::source_location loc = std::source_location::current()) noexcept
             : format(s)
             , loc(loc)
         {}
@@ -124,7 +125,7 @@ public:
             : format_info("")
         {}
         fmt::format_string<Args...> format;
-        compat::source_location loc;
+        std::source_location loc;
     };
 #ifdef __cpp_lib_type_identity
     template <typename T>
@@ -141,23 +142,23 @@ public:
     struct format_info {
         /// implicitly construct format_info from a const char* format string.
         /// \param fmt - {fmt} style format string
-        format_info(const char* format, compat::source_location loc = compat::source_location::current()) noexcept
+        format_info(const char* format, std::source_location loc = std::source_location::current()) noexcept
             : format(format)
             , loc(loc)
         {}
         /// implicitly construct format_info from a std::string_view format string.
         /// \param fmt - {fmt} style format string_view
-        format_info(std::string_view format, compat::source_location loc = compat::source_location::current()) noexcept
+        format_info(std::string_view format, std::source_location loc = std::source_location::current()) noexcept
             : format(format)
             , loc(loc)
         {}
         /// implicitly construct format_info with no format string.
-        format_info(compat::source_location loc = compat::source_location::current()) noexcept
+        format_info(std::source_location loc = std::source_location::current()) noexcept
             : format()
             , loc(loc)
         {}
         std::string_view format;
-        compat::source_location loc;
+        std::source_location loc;
     };
     // to reduce the number of #ifdefs, let's be compatible with the templated
     // format_info
@@ -171,7 +172,7 @@ private:
     void do_log(log_level level, log_writer& writer);
     void failed_to_log(std::exception_ptr ex,
                        fmt::string_view fmt,
-                       compat::source_location loc) noexcept;
+                       std::source_location loc) noexcept;
 
     class silencer {
     public:
