@@ -388,7 +388,7 @@ logger::do_log(log_level level, log_writer& writer) {
 
 void logger::failed_to_log(std::exception_ptr ex,
                            fmt::string_view fmt,
-                           compat::source_location loc) noexcept
+                           std::source_location loc) noexcept
 {
     try {
         lambda_log_writer writer([ex = std::move(ex), fmt, loc] (internal::log_buf::inserter_iterator it) {
