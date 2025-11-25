@@ -41,7 +41,7 @@ struct reactor_config {
     bool strict_o_direct = true;
     bool bypass_fsync = false;
     bool no_poll_aio = false;
-    bool aio_nowait_works = false;
+    std::optional<bool> aio_nowait_works = false;
     bool abort_on_too_long_task_queue = false;
 };
 /// \endcond
