@@ -97,14 +97,14 @@ public:
     future<size_t> read_some(uint8_t* buffer, size_t size);
     future<size_t> read_some(const std::vector<iovec>& iov);
     future<temporary_buffer<char>> read_some(internal::buffer_allocator* ba);
-    future<> write_all(const char* buffer, size_t size);
-    future<> write_all(const uint8_t* buffer, size_t size);
 #if SEASTAR_API_LEVEL >= 9
     future<size_t> write_some(std::span<iovec> iovs);
     future<> write_all(std::span<iovec> iovs);
 #else
     future<size_t> write_some(net::packet& p);
     future<> write_all(net::packet& p);
+    future<> write_all(const char* buffer, size_t size);
+    future<> write_all(const uint8_t* buffer, size_t size);
 #endif
     future<> readable();
     future<> writeable();
@@ -151,12 +151,6 @@ public:
     future<temporary_buffer<char>> read_some(internal::buffer_allocator* ba) {
         return _s->read_some(ba);
     }
-    future<> write_all(const char* buffer, size_t size) {
-        return _s->write_all(buffer, size);
-    }
-    future<> write_all(const uint8_t* buffer, size_t size) {
-        return _s->write_all(buffer, size);
-    }
 #if SEASTAR_API_LEVEL >= 9
     future<size_t> write_some(std::span<iovec> iov) {
         return _s->write_some(iov);
@@ -170,6 +164,12 @@ public:
     }
     future<> write_all(net::packet& p) {
         return _s->write_all(p);
+    }
+    future<> write_all(const char* buffer, size_t size) {
+        return _s->write_all(buffer, size);
+    }
+    future<> write_all(const uint8_t* buffer, size_t size) {
+        return _s->write_all(buffer, size);
     }
 #endif
     future<> readable() {

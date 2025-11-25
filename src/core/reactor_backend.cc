@@ -672,10 +672,12 @@ reactor_backend_aio::read_some(pollable_fd_state& fd, internal::buffer_allocator
     return _r.do_read_some(fd, ba);
 }
 
+#if SEASTAR_API_LEVEL < 9
 future<size_t>
 reactor_backend_aio::send(pollable_fd_state& fd, const void* buffer, size_t len) {
     return _r.do_send(fd, buffer, len);
 }
+#endif
 
 future<size_t>
 reactor_backend_aio::sendmsg(pollable_fd_state& fd, std::span<iovec> iovs, size_t len) {
@@ -1056,10 +1058,12 @@ reactor_backend_epoll::read_some(pollable_fd_state& fd, internal::buffer_allocat
     return _r.do_read_some(fd, ba);
 }
 
+#if SEASTAR_API_LEVEL < 9
 future<size_t>
 reactor_backend_epoll::send(pollable_fd_state& fd, const void* buffer, size_t len) {
     return _r.do_send(fd, buffer, len);
 }
+#endif
 
 future<size_t>
 reactor_backend_epoll::sendmsg(pollable_fd_state& fd, std::span<iovec> iovs, size_t len) {
@@ -1742,6 +1746,8 @@ public:
         auto req = internal::io_request::make_sendmsg(fd.fd.get(), desc->msghdr(), MSG_NOSIGNAL);
         return submit_request(std::move(desc), std::move(req));
     }
+
+#if SEASTAR_API_LEVEL < 9
     virtual future<size_t> send(pollable_fd_state& fd, const void* buffer, size_t len) override {
         if (fd.take_speculation(EPOLLOUT)) {
             try {
@@ -1782,6 +1788,7 @@ public:
         auto req = internal::io_request::make_send(fd.fd.get(), buffer, len, MSG_NOSIGNAL);
         return submit_request(std::move(desc), std::move(req));
     }
+#endif
 
     virtual future<temporary_buffer<char>> recv_some(pollable_fd_state& fd, internal::buffer_allocator* ba) override {
         if (fd.take_speculation(POLLIN)) {
