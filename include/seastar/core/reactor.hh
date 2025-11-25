@@ -459,8 +459,11 @@ private:
     future<temporary_buffer<char>>
     do_read_some(pollable_fd_state& fd, internal::buffer_allocator* ba);
 
+#if SEASTAR_API_LEVEL < 9
     future<size_t>
     do_send(pollable_fd_state& fd, const void* buffer, size_t size);
+#endif
+
     future<size_t>
     do_sendmsg(pollable_fd_state& fd, std::span<iovec> iovs, size_t len);
 
@@ -522,7 +525,9 @@ public:
         return internal::posix_connect(std::move(pfd), sa, local);
     }
 
+#if SEASTAR_API_LEVEL < 9
     future<> send_all(pollable_fd_state& fd, const void* buffer, size_t size);
+#endif
 
     future<file> open_file_dma(std::string_view name, open_flags flags, file_open_options options = {}) noexcept;
     future<file> open_directory(std::string_view name) noexcept;
@@ -683,7 +688,10 @@ private:
     void unregister_poller(pollfn* p);
     void replace_poller(pollfn* old, pollfn* neww);
     void register_metrics();
+
+#if SEASTAR_API_LEVEL < 9
     future<> send_all_part(pollable_fd_state& fd, const void* buffer, size_t size, size_t completed);
+#endif
 
     future<> fdatasync(int fd) noexcept;
 
