@@ -125,6 +125,7 @@ public:
 
     future<datagram> receive();
     future<> send(const socket_address& dst, const char* msg);
+    [[deprecated("Use send(std::span<temporary_buffer<char>>) overload")]]
     future<> send(const socket_address& dst, packet p);
     /**
      * \brief Send a datagram composed of multiple buffers to the specified destination.
