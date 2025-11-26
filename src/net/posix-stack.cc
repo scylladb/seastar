@@ -912,7 +912,7 @@ public:
     virtual ~posix_datagram_channel() { if (!_closed) close(); };
     virtual future<datagram> receive() override;
     virtual future<> send(const socket_address& dst, const char *msg) override;
-    virtual future<> send(const socket_address& dst, packet p) override;
+    virtual future<> send(const socket_address& dst, std::span<temporary_buffer<char>> bufs) override;
     virtual void shutdown_input() override {
         _fd.shutdown(SHUT_RD, pollable_fd::shutdown_kernel_only::no);
     }
@@ -940,8 +940,7 @@ future<> posix_datagram_channel::send(const socket_address& dst, const char *mes
             .then([len] (size_t size) { SEASTAR_ASSERT(size == len); });
 }
 
-future<> posix_datagram_channel::send(const socket_address& dst, packet p) {
-    auto bufs = std::move(p).release();
+future<> posix_datagram_channel::send(const socket_address& dst, std::span<temporary_buffer<char>> bufs) {
     auto sg_id = internal::scheduling_group_index(current_scheduling_group());
     auto [ len, del ] = _send.prepare(dst, bufs);
     bytes_sent[sg_id] += len;

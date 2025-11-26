@@ -126,6 +126,18 @@ public:
     future<datagram> receive();
     future<> send(const socket_address& dst, const char* msg);
     future<> send(const socket_address& dst, packet p);
+    /**
+     * \brief Send a datagram composed of multiple buffers to the specified destination.
+     *
+     * The temporary_buffers objects referenced must remain valid only for the duration
+     * of the call. The implementation transfers the buffers ownership before returning
+     * the future.
+     *
+     * \param dst The destination socket address.
+     * \param bufs A span of temporary_buffer<char> objects containing the data to send.
+     * \return A future that completes when the send operation is finished.
+     */
+    future<> send(const socket_address& dst, std::span<temporary_buffer<char>> bufs);
     bool is_closed() const;
     /// Causes a pending receive() to complete (possibly with an exception)
     void shutdown_input();
