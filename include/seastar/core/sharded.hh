@@ -966,7 +966,7 @@ private:
     void check_shard() const {
 #ifdef SEASTAR_DEBUG_SHARED_PTR
         if (_cpu != this_shard_id()) [[unlikely]] {
-            on_fatal_internal_error(seastar_logger, "foreign_ptr accessed on non-owner cpu");
+            on_fatal_internal_error(seastar_logger, format("foreign_ptr accessed on non-owner cpu {} (owner cpu is {})", this_shard_id(), _cpu));
         }
 #endif
     }

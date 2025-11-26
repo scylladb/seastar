@@ -65,7 +65,7 @@ public:
 private:
     void check() const {
         if (__builtin_expect(_cpu != std::this_thread::get_id(), false)) {
-            on_fatal_internal_error(seastar_logger, "shared_ptr accessed on non-owner cpu");
+            on_fatal_internal_error(seastar_logger, format("shared_ptr accessed on non-owner cpu {} (owner cpu is {})", std::this_thread::get_id(), _cpu));
         }
     }
 };
