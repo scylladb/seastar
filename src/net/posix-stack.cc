@@ -697,24 +697,6 @@ future<> posix_data_source_impl::close() {
     return make_ready_future<>();
 }
 
-std::vector<struct iovec> to_iovec(const packet& p) {
-    std::vector<struct iovec> v;
-    v.reserve(p.nr_frags());
-    for (auto&& f : p.fragments()) {
-        v.push_back({.iov_base = f.base, .iov_len = f.size});
-    }
-    return v;
-}
-
-std::vector<iovec> to_iovec(std::vector<temporary_buffer<char>>& buf_vec) {
-    std::vector<iovec> v;
-    v.reserve(buf_vec.size());
-    for (auto& buf : buf_vec) {
-        v.push_back({.iov_base = buf.get_write(), .iov_len = buf.size()});
-    }
-    return v;
-}
-
 #if SEASTAR_API_LEVEL >= 9
 future<> posix_data_sink_impl::put(std::span<temporary_buffer<char>> bufs) {
     auto [ total, del ] = _vecs.populate(bufs);
