@@ -841,9 +841,8 @@ private:
     };
     struct send_ctx {
         struct msghdr _hdr;
-        std::vector<struct iovec> _iovecs;
+        internal::wrapped_iovecs _vecs;
         socket_address _dst;
-        packet _p;
 
         send_ctx() {
             memset(&_hdr, 0, sizeof(_hdr));
@@ -854,14 +853,14 @@ private:
         send_ctx(const send_ctx&) = delete;
         send_ctx(send_ctx&&) = delete;
 
-        void prepare(const socket_address& dst, packet p) {
+        auto prepare(const socket_address& dst, std::span<temporary_buffer<char>> bufs) {
             _dst = dst;
             _hdr.msg_namelen = _dst.addr_length;
-            _p = std::move(p);
-            _iovecs = to_iovec(_p);
-            _hdr.msg_iov = _iovecs.data();
-            _hdr.msg_iovlen = _iovecs.size();
+            auto ret = _vecs.populate(bufs);
+            _hdr.msg_iov = _vecs.v.data();
+            _hdr.msg_iovlen = _vecs.v.size();
             resolve_outgoing_address(_dst);
+            return ret;
         }
     };
 
@@ -942,12 +941,12 @@ future<> posix_datagram_channel::send(const socket_address& dst, const char *mes
 }
 
 future<> posix_datagram_channel::send(const socket_address& dst, packet p) {
-    auto len = p.len();
-    _send.prepare(dst, std::move(p));
+    auto bufs = std::move(p).release();
     auto sg_id = internal::scheduling_group_index(current_scheduling_group());
+    auto [ len, del ] = _send.prepare(dst, bufs);
     bytes_sent[sg_id] += len;
     return _fd.sendmsg(&_send._hdr)
-            .then([len] (size_t size) { SEASTAR_ASSERT(size == len); });
+            .then([len, del = std::move(del) ] (size_t size) { SEASTAR_ASSERT(size == len); });
 }
 
 udp_channel
