@@ -88,6 +88,31 @@ thread_local std::array<uint64_t, seastar::max_scheduling_groups()> bytes_receiv
 
 namespace seastar {
 
+namespace internal {
+
+std::pair<size_t, deleter> wrapped_iovecs::populate(std::span<temporary_buffer<char>> bufs) {
+    size_t total = 0;
+    deleter del;
+
+    if (!v.empty()) {
+        on_internal_error(seastar_logger, "wrapped_iovecs are re-populated live");
+    }
+
+    v.reserve(bufs.size());
+    for (auto&& buf : bufs) {
+        auto b = std::move(buf);
+        total += b.size();
+        v.push_back({ .iov_base = b.get_write(), .iov_len = b.size() });
+        deleter d = b.release();
+        d.append(std::move(del));
+        del = std::move(d);
+    }
+
+    return std::make_pair(total, make_deleter(std::move(del), [this] { v.clear(); }));
+}
+
+}
+
 namespace net {
 
 using namespace seastar;
@@ -692,24 +717,10 @@ std::vector<iovec> to_iovec(std::vector<temporary_buffer<char>>& buf_vec) {
 
 #if SEASTAR_API_LEVEL >= 9
 future<> posix_data_sink_impl::put(std::span<temporary_buffer<char>> bufs) {
-    size_t total = 0;
-    std::vector<iovec> vecs;
-    deleter del;
-
-    vecs.reserve(bufs.size());
-    for (auto&& buf : bufs) {
-        auto b = std::move(buf);
-        total += b.size();
-        vecs.push_back({ .iov_base = b.get_write(), .iov_len = b.size() });
-        deleter d = b.release();
-        d.append(std::move(del));
-        del = std::move(d);
-    }
-
+    auto [ total, del ] = _vecs.populate(bufs);
     auto sg_id = internal::scheduling_group_index(current_scheduling_group());
     bytes_sent[sg_id] += total;
-    _vecs = std::move(vecs);
-    return _fd.write_all(_vecs).then([this, del = std::move(del)] { _vecs.clear(); });
+    return _fd.write_all(_vecs.v).finally([del = std::move(del)] {} );
 }
 #else
 future<>
