@@ -163,6 +163,7 @@ struct reactor_options : public program_options::option_group {
     /// * \p linux-aio
     /// * \p epoll
     /// * \p io_uring
+    /// * \p asymmetric_io_uring
     ///
     /// Default: \p linux-aio (if available).
     program_options::selection_value<reactor_backend_selector> reactor_backend;

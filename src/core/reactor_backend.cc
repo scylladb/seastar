@@ -2135,6 +2135,13 @@ std::unique_ptr<reactor_backend> reactor_backend_selector::create(reactor& r) {
         throw std::runtime_error("io_uring backend not compiled in");
 #endif
     }
+    if (_name == "asymmetric_io_uring") {
+#ifdef SEASTAR_HAVE_URING
+        return std::make_unique<reactor_backend_asymmetric_uring>(r);
+#else
+        throw std::runtime_error("asymmetric_io_uring backend not compiled in");
+#endif
+    }
     if (_name == "linux-aio") {
         return std::make_unique<reactor_backend_aio>(r);
     } else if (_name == "epoll") {
@@ -2152,6 +2159,7 @@ std::vector<reactor_backend_selector> reactor_backend_selector::available() {
 #ifdef SEASTAR_HAVE_URING
     if (detect_io_uring()) {
         ret.push_back(reactor_backend_selector("io_uring"));
+        ret.push_back(reactor_backend_selector("asymmetric_io_uring"));
     }
 #endif
     if (has_enough_aio_nr() && detect_aio_poll()) {
