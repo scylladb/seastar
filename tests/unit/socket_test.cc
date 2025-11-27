@@ -344,17 +344,19 @@ SEASTAR_THREAD_TEST_CASE(socket_bufsize) {
 
 static
 void
-test_load_balancing_algorithm_port(socket_address listen_addr) {
+test_load_balancing_algorithm_port(socket_address listen_addr, bool proxy_protocol) {
     auto& alien = engine().alien();
     listen_options lo;
     lo.reuse_address = true;
     lo.lba = server_socket::load_balancing_algorithm::port;
+    lo.proxy_protocol = proxy_protocol;
 
     struct client_results {
         int attempts = 0;
         int bad_socket = 0;
         int bad_bind = 0;
         int bad_connect = 0;
+        int bad_proxy_send = 0;
         int bad_recv = 0;
         int bad_shard = 0;
         int good = 0;
@@ -423,15 +425,49 @@ test_load_balancing_algorithm_port(socket_address listen_addr) {
             int opt = 1;
             ::setsockopt(conn, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
             auto do_close = defer([conn] () noexcept { ::close(conn); });
-            int bind_result = ::bind(conn, &client_addr.as_posix_sockaddr(), client_addr.length());
-            if (bind_result == -1) {
-                ++r.bad_bind; // port may be busy;
-                continue;
+            if (!proxy_protocol) {
+                int bind_result = ::bind(conn, &client_addr.as_posix_sockaddr(), client_addr.length());
+                if (bind_result == -1) {
+                    ++r.bad_bind; // port may be busy;
+                    continue;
+                }
             }
             int conn_result = ::connect(conn, &listen_addr.as_posix_sockaddr(), listen_addr.length());
             if (conn_result == -1) {
                 ++r.bad_connect;
                 continue;
+            }
+            if (proxy_protocol) {
+                // send a minimal PROXY protocol v2 header with correct source port
+                char buf[16 + 36] = {
+                    0x0d, 0x0a, 0x0d, 0x0a, 0x00, 0x0d, 0x0a, 0x51, 0x55, 0x49, 0x54, 0x0a, // signature
+                };
+                buf[12] = 0x21;                   // version and command (PROXY)
+                buf[13] = (listen_addr.family() == AF_INET) ? 0x11 : 0x21; // family and protocol
+                uint16_t xlen = (listen_addr.family() == AF_INET) ? 12 : 36;
+                write_be<uint16_t>(buf + 14, xlen); // length
+                if (listen_addr.family() == AF_INET) {
+                    buf[16] = 127;
+                    buf[17] = 0;
+                    buf[18] = 0;
+                    buf[19] = 1;
+                    buf[20] = 127;
+                    buf[21] = 0;
+                    buf[22] = 0;
+                    buf[23] = 1;
+                    write_be<uint16_t>(buf + 24, client_addr.port()); // source port
+                    write_be<uint16_t>(buf + 26, listen_addr.port()); // destination port
+                } else {
+                    buf[31] = 1;
+                    buf[47] = 1;
+                    write_be<uint16_t>(buf + 48, client_addr.port()); // source port
+                    write_be<uint16_t>(buf + 50, listen_addr.port()); // destination port
+                }
+                auto proxy_send_result = ::send(conn, buf, 16 + xlen, 0);
+                if (proxy_send_result != 16 + xlen) {
+                    ++r.bad_proxy_send;
+                    continue;
+                }
             }
             char buf[4];
             auto recv_result = ::recv(conn, buf, sizeof(buf), 0);
@@ -458,16 +494,25 @@ test_load_balancing_algorithm_port(socket_address listen_addr) {
     // 20 should be plenty of margin.
     BOOST_REQUIRE_LE(results.bad_bind, 20);
     BOOST_REQUIRE_EQUAL(results.bad_connect, 0);
+    BOOST_REQUIRE_EQUAL(results.bad_proxy_send, 0);
     BOOST_REQUIRE_EQUAL(results.bad_recv, 0);
     BOOST_REQUIRE_EQUAL(results.bad_shard, 0);
 }
 
 SEASTAR_THREAD_TEST_CASE(load_balancing_algorithm_port_ipv4_test) {
-    test_load_balancing_algorithm_port(ipv4_addr("127.0.0.1", 11001));
+    test_load_balancing_algorithm_port(ipv4_addr("127.0.0.1", 11001), false);
 }
 
 SEASTAR_THREAD_TEST_CASE(load_balancing_algorithm_port_ipv6_test) {
-    test_load_balancing_algorithm_port(ipv6_addr("::1", 11001));
+    test_load_balancing_algorithm_port(ipv6_addr("::1", 11001), false);
+}
+
+SEASTAR_THREAD_TEST_CASE(load_balancing_algorithm_port_ipv4_proxy_test) {
+    test_load_balancing_algorithm_port(ipv4_addr("127.0.0.1", 11001), true);
+}
+
+SEASTAR_THREAD_TEST_CASE(load_balancing_algorithm_port_ipv6_proxy_test) {
+    test_load_balancing_algorithm_port(ipv6_addr("::1", 11001), true);
 }
 
 SEASTAR_THREAD_TEST_CASE(inet_local_remote_address_sanity) {
