@@ -4851,11 +4851,11 @@ future<> later() noexcept {
     return check_for_io_immediately();
 }
 
-steady_clock_type::duration reactor::total_idle_time() {
+steady_clock_type::duration reactor::total_idle_time() const {
     return _total_idle;
 }
 
-steady_clock_type::duration reactor::total_busy_time() {
+steady_clock_type::duration reactor::total_busy_time() const {
     return now() - _start_time - _total_idle;
 }
 
@@ -4867,7 +4867,7 @@ std::chrono::nanoseconds reactor::total_cpu_time() const {
     return thread_cputime_clock::now().time_since_epoch();
 }
 
-std::chrono::nanoseconds reactor::total_steal_time() {
+std::chrono::nanoseconds reactor::total_steal_time() const {
     // Steal time: this mimics the concept some Hypervisors have about Steal time.
     // That is the time in which a VM has something to run, but is not running because some other
     // process (another VM or the hypervisor itself) is in control.
