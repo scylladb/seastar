@@ -91,6 +91,31 @@ thread_local std::array<uint64_t, seastar::max_scheduling_groups()> bytes_receiv
 
 namespace seastar {
 
+namespace internal {
+
+std::pair<size_t, deleter> wrapped_iovecs::populate(std::span<temporary_buffer<char>> bufs) {
+    size_t total = 0;
+    deleter del;
+
+    if (!v.empty()) {
+        on_internal_error(seastar_logger, "wrapped_iovecs are re-populated live");
+    }
+
+    v.reserve(bufs.size());
+    for (auto&& buf : bufs) {
+        auto b = std::move(buf);
+        total += b.size();
+        v.push_back({ .iov_base = b.get_write(), .iov_len = b.size() });
+        deleter d = b.release();
+        d.append(std::move(del));
+        del = std::move(d);
+    }
+
+    return std::make_pair(total, make_deleter(std::move(del), [this] { v.clear(); }));
+}
+
+}
+
 namespace net {
 
 using namespace seastar;
@@ -849,44 +874,12 @@ future<> posix_data_source_impl::close() {
     return make_ready_future<>();
 }
 
-std::vector<struct iovec> to_iovec(const packet& p) {
-    std::vector<struct iovec> v;
-    v.reserve(p.nr_frags());
-    for (auto&& f : p.fragments()) {
-        v.push_back({.iov_base = f.base, .iov_len = f.size});
-    }
-    return v;
-}
-
-std::vector<iovec> to_iovec(std::vector<temporary_buffer<char>>& buf_vec) {
-    std::vector<iovec> v;
-    v.reserve(buf_vec.size());
-    for (auto& buf : buf_vec) {
-        v.push_back({.iov_base = buf.get_write(), .iov_len = buf.size()});
-    }
-    return v;
-}
-
 #if SEASTAR_API_LEVEL >= 9
 future<> posix_data_sink_impl::put(std::span<temporary_buffer<char>> bufs) {
-    size_t total = 0;
-    std::vector<iovec> vecs;
-    deleter del;
-
-    vecs.reserve(bufs.size());
-    for (auto&& buf : bufs) {
-        auto b = std::move(buf);
-        total += b.size();
-        vecs.push_back({ .iov_base = b.get_write(), .iov_len = b.size() });
-        deleter d = b.release();
-        d.append(std::move(del));
-        del = std::move(d);
-    }
-
+    auto [ total, del ] = _vecs.populate(bufs);
     auto sg_id = internal::scheduling_group_index(current_scheduling_group());
     bytes_sent[sg_id] += total;
-    _vecs = std::move(vecs);
-    return _fd.write_all(_vecs).then([this, del = std::move(del)] { _vecs.clear(); });
+    return _fd.write_all(_vecs.v).finally([del = std::move(del)] {} );
 }
 #else
 future<>
@@ -1007,9 +1000,8 @@ private:
     };
     struct send_ctx {
         struct msghdr _hdr;
-        std::vector<struct iovec> _iovecs;
+        internal::wrapped_iovecs _vecs;
         socket_address _dst;
-        packet _p;
 
         send_ctx() {
             memset(&_hdr, 0, sizeof(_hdr));
@@ -1020,14 +1012,14 @@ private:
         send_ctx(const send_ctx&) = delete;
         send_ctx(send_ctx&&) = delete;
 
-        void prepare(const socket_address& dst, packet p) {
+        auto prepare(const socket_address& dst, std::span<temporary_buffer<char>> bufs) {
             _dst = dst;
             _hdr.msg_namelen = _dst.addr_length;
-            _p = std::move(p);
-            _iovecs = to_iovec(_p);
-            _hdr.msg_iov = _iovecs.data();
-            _hdr.msg_iovlen = _iovecs.size();
+            auto ret = _vecs.populate(bufs);
+            _hdr.msg_iov = _vecs.v.data();
+            _hdr.msg_iovlen = _vecs.v.size();
             resolve_outgoing_address(_dst);
+            return ret;
         }
     };
 
@@ -1079,7 +1071,7 @@ public:
     virtual ~posix_datagram_channel() { if (!_closed) close(); };
     virtual future<datagram> receive() override;
     virtual future<> send(const socket_address& dst, const char *msg) override;
-    virtual future<> send(const socket_address& dst, packet p) override;
+    virtual future<> send(const socket_address& dst, std::span<temporary_buffer<char>> bufs) override;
     virtual void shutdown_input() override {
         _fd.shutdown(SHUT_RD, pollable_fd::shutdown_kernel_only::no);
     }
@@ -1107,13 +1099,12 @@ future<> posix_datagram_channel::send(const socket_address& dst, const char *mes
             .then([len] (size_t size) { SEASTAR_ASSERT(size == len); });
 }
 
-future<> posix_datagram_channel::send(const socket_address& dst, packet p) {
-    auto len = p.len();
-    _send.prepare(dst, std::move(p));
+future<> posix_datagram_channel::send(const socket_address& dst, std::span<temporary_buffer<char>> bufs) {
     auto sg_id = internal::scheduling_group_index(current_scheduling_group());
+    auto [ len, del ] = _send.prepare(dst, bufs);
     bytes_sent[sg_id] += len;
     return _fd.sendmsg(&_send._hdr)
-            .then([len] (size_t size) { SEASTAR_ASSERT(size == len); });
+            .then([len, del = std::move(del) ] (size_t size) { SEASTAR_ASSERT(size == len); });
 }
 
 udp_channel

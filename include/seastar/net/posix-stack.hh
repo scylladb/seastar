@@ -32,6 +32,22 @@
 
 namespace seastar {
 
+namespace internal {
+
+// Holder of iovec-s for vectorized IO syscalls
+// Gets populated from temporary_buffers, providing deleter object
+// that controls the lifetime of the buffers it points to
+struct wrapped_iovecs {
+    std::vector<iovec> v;
+    std::pair<size_t, deleter> populate(std::span<temporary_buffer<char>> bufs);
+
+    wrapped_iovecs() = default;
+    wrapped_iovecs(const wrapped_iovecs&) = delete;
+    wrapped_iovecs(wrapped_iovecs&&) = delete;
+};
+
+}
+
 namespace net {
 
 using namespace seastar;
@@ -126,7 +142,7 @@ public:
 class posix_data_sink_impl : public data_sink_impl {
     pollable_fd _fd;
 #if SEASTAR_API_LEVEL >= 9
-    std::vector<iovec> _vecs;
+    internal::wrapped_iovecs _vecs;
 #else
     packet _p;
 #endif

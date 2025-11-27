@@ -77,7 +77,12 @@ future<> net::datagram_channel::send(const socket_address& dst, const char* msg)
 }
 
 future<> net::datagram_channel::send(const socket_address& dst, packet p) {
-    return _impl->send(dst, std::move(p));
+    auto bufs = std::move(p).release();
+    return _impl->send(dst, bufs);
+}
+
+future<> net::datagram_channel::send(const socket_address& dst, std::span<temporary_buffer<char>> bufs) {
+    return _impl->send(dst, bufs);
 }
 
 bool net::datagram_channel::is_closed() const {

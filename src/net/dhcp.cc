@@ -391,7 +391,8 @@ public:
         pkt = hton(pkt);
 
         // FIXME: future is discarded
-        (void)_sock.send({0xffffffff, server_port}, packet(reinterpret_cast<char *>(&pkt), sizeof(pkt)));
+        temporary_buffer<char> buf(reinterpret_cast<char *>(&pkt), sizeof(pkt));
+        (void)_sock.send({0xffffffff, server_port}, std::span(&buf, 1));
 
         return make_ready_future<>();
     }

@@ -51,7 +51,8 @@ public:
         // Run server in background.
         _task = keep_doing([this] {
             return _chan->receive().then([this] (datagram dgram) {
-                return _chan->send(dgram.get_src(), std::move(dgram.get_data())).then([this] {
+                auto bufs = std::move(dgram.get_data()).release();
+                return _chan->send(dgram.get_src(), bufs).then([this] {
                     _n_sent++;
                 });
             });

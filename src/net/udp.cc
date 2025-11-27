@@ -111,10 +111,12 @@ public:
     }
 
     virtual future<> send(const socket_address& dst, const char* msg) override {
-        return send(dst, packet::from_static_data(msg, strlen(msg)));
+        temporary_buffer<char> buf(const_cast<char *>(msg), strlen(msg), deleter());
+        return send(dst, std::span(&buf, 1));
     }
 
-    virtual future<> send(const socket_address& dst, packet p) override {
+    virtual future<> send(const socket_address& dst, std::span<temporary_buffer<char>> bufs) override {
+        auto p = net::packet(bufs);
         auto len = p.len();
         return _state->wait_for_send_buffer(len).then([this, dst, p = std::move(p), len] () mutable {
             p = packet(std::move(p), make_deleter([s = _state, len] { s->complete_send(len); }));
