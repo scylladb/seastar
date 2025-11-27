@@ -25,7 +25,11 @@
 
 namespace seastar {
 
-class vector_data_sink final : public data_sink_impl {
+class
+#if SEASTAR_API_LEVEL >= 9
+[[deprecated("Use util::memory_data_sink")]]
+#endif
+vector_data_sink final : public data_sink_impl {
 public:
     using vector_type = std::vector<net::packet>;
 private:
