@@ -165,6 +165,7 @@ module;
 #include <seastar/util/read_first_line.hh>
 #include <seastar/util/short_streams.hh>
 #include <seastar/util/memory-data-source.hh>
+#include <seastar/util/memory-data-sink.hh>
 
 #include <seastar/net/arp.hh>
 #include <seastar/net/packet.hh>
@@ -342,6 +343,7 @@ export namespace seastar::util {
 
 using seastar::util::basic_memory_data_source;
 using seastar::util::temporary_buffer_data_source;
+using seastar::util::basic_memory_data_sink;
 
 }
 
