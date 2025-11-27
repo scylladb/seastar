@@ -2291,6 +2291,20 @@ void __libc_free(void* obj) noexcept;
 
 extern "C"
 [[gnu::visibility("default")]]
+[[gnu::used]]
+void free_sized(void* ptr, size_t size) {
+    seastar::memory::free(ptr, size);
+}
+
+extern "C"
+[[gnu::visibility("default")]]
+[[gnu::used]]
+void free_aligned_sized(void* ptr, size_t alignment, size_t size) {
+    seastar::memory::free_aligned(ptr, alignment, size);
+}
+
+extern "C"
+[[gnu::visibility("default")]]
 void* calloc(size_t nmemb, size_t size) {
     if (try_trigger_error_injector()) {
         return nullptr;
@@ -2760,9 +2774,34 @@ void
 internal::global_setup(unsigned nr_shards) {
 }
 
+void free(void* ptr, size_t size) {
+    ::free(ptr);
 }
 
 }
+
+}
+
+#if !(__GLIBC__ == 2 && __GLIBC_MINOR__ >= 43) && !(__GLIBC__ > 2)
+
+// glibc 2.43 or later defines free_sized and free_aligned_sized, while we want to use
+// it even earlier
+
+extern "C"
+[[gnu::visibility("default")]]
+[[gnu::used]]
+void free_sized(void* ptr, size_t size) {
+    ::free(ptr);
+}
+
+extern "C"
+[[gnu::visibility("default")]]
+[[gnu::used]]
+void free_aligned_sized(void* ptr, size_t alignment, size_t size) {
+    ::free(ptr);
+}
+
+#endif
 
 namespace seastar {
 
