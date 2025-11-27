@@ -279,7 +279,7 @@ make_append_challenged_posix_file(file_desc& fd, unsigned concurrency, bool fsyn
 
 class blockdev_file_impl final : public posix_file_impl {
 public:
-    blockdev_file_impl(int fd, open_flags, file_open_options options, dev_t device_id, size_t block_size);
+    blockdev_file_impl(int fd, open_flags, file_open_options options, dev_t device_id, size_t read_block_size, size_t write_block_size);
     future<> truncate(uint64_t length) noexcept override;
     future<> discard(uint64_t offset, uint64_t length) noexcept override;
     future<uint64_t> size() noexcept override;
