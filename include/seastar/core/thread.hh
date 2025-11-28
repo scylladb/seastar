@@ -125,7 +125,6 @@ public:
     friend class thread;
     friend void thread_impl::switch_in(thread_context*);
     friend void thread_impl::switch_out(thread_context*);
-    friend scheduling_group thread_impl::sched_group(const thread_context*);
 };
 
 /// \endcond
