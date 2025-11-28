@@ -28,8 +28,11 @@
 
 namespace seastar {
 
+class task_slist;
+
 class task {
 private:
+    friend class task_slist;
     uintptr_t _scheduling_group_id_or_next_task;
 
     static uintptr_t disguise_sched_group(scheduling_group sg) noexcept {
@@ -71,6 +74,64 @@ public:
 // The sched_group disguising/unveiling (see above) assumes that
 // the task* always has its zero bit cleared
 static_assert(alignof(task) > 1, "task pointer must not occupy zero bit");
+
+class task_slist {
+    uintptr_t _first;
+    uintptr_t* _last_p;
+    size_t _size;
+
+public:
+    task_slist() noexcept : _first(0), _last_p(&_first), _size(0) {}
+    task_slist(const task_slist&) = delete;
+    task_slist(task_slist&&) = delete;
+
+    void push_back(task* t) noexcept {
+        SEASTAR_ASSERT(t->_scheduling_group_id_or_next_task & 0x1);
+        t->_scheduling_group_id_or_next_task = 0;
+        *_last_p = reinterpret_cast<uintptr_t>(t);
+        _last_p = &t->_scheduling_group_id_or_next_task;
+        _size++;
+    }
+
+    void push_front(task* t) noexcept {
+        SEASTAR_ASSERT(t->_scheduling_group_id_or_next_task & 0x1);
+        t->_scheduling_group_id_or_next_task = _first;
+        _first = reinterpret_cast<uintptr_t>(t);
+        if (_last_p == &_first) {
+            _last_p = &t->_scheduling_group_id_or_next_task;
+        }
+        _size++;
+    }
+
+    task* pop_front(scheduling_group current) noexcept {
+        task* f = reinterpret_cast<task*>(_first);
+        _first = f->_scheduling_group_id_or_next_task;
+        f->_scheduling_group_id_or_next_task = task::disguise_sched_group(current);
+        if (_last_p == &f->_scheduling_group_id_or_next_task) {
+            _last_p = &_first;
+        }
+        _size--;
+        return f;
+    }
+
+    bool empty() const noexcept {
+        return _first == 0;
+    }
+
+    size_t size() const noexcept {
+        return _size;
+    }
+
+    template <typename Fn>
+    void do_for_each(Fn&& fn) const {
+        uintptr_t f = _first;
+        while (f != 0) {
+            task* t = reinterpret_cast<task*>(f);
+            f = t->_scheduling_group_id_or_next_task;
+            fn(t);
+        }
+    }
+};
 
 void schedule(task* t) noexcept;
 void schedule_checked(task* t) noexcept;
