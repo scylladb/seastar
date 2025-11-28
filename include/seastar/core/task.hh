@@ -28,9 +28,15 @@
 
 namespace seastar {
 
+class task_slist;
+
 class task {
 private:
-    unsigned _scheduling_group_id;
+    friend class task_slist;
+    union {
+        unsigned _scheduling_group_id;
+        task* _next;
+    };
 
     static uintptr_t disguise_sched_group(scheduling_group sg) noexcept {
         unsigned id = internal::scheduling_group_index(sg);
@@ -71,6 +77,61 @@ public:
 // The sched_group disguising/unveiling (see above) assumes that
 // the task* always has its zero bit cleared
 static_assert(alignof(task) > 1, "task pointer must not occupy zero bit");
+
+class task_slist {
+    task* _first;
+    task** _last_p;
+    size_t _size;
+
+public:
+    task_slist() noexcept : _first(0), _last_p(&_first), _size(0) {}
+    task_slist(const task_slist&) = delete;
+    task_slist(task_slist&&) = delete;
+
+    void push_back(task* t) noexcept {
+        SEASTAR_ASSERT(t->_scheduling_group_id & 0x1);
+        t->_next = nullptr;
+        *_last_p = t;
+        _last_p = &t->_next;
+        _size++;
+    }
+
+    void push_front(task* t) noexcept {
+        SEASTAR_ASSERT(t->_scheduling_group_id & 0x1);
+        t->_next = _first;
+        _first = t;
+        if (_last_p == &_first) {
+            _last_p = &t->_next;
+        }
+        _size++;
+    }
+
+    task* pop_front(scheduling_group current) noexcept {
+        task* f = _first;
+        _first = f->_next;
+        if (_last_p == &f->_next) {
+            _last_p = &_first;
+        }
+        f->_scheduling_group_id = task::disguise_sched_group(current);
+        _size--;
+        return f;
+    }
+
+    bool empty() const noexcept {
+        return _first == 0;
+    }
+
+    size_t size() const noexcept {
+        return _size;
+    }
+
+    template <typename Fn>
+    void do_for_each(Fn&& fn) const {
+        for (const task* t = _first; t != nullptr; t = t->_next) {
+            fn(t);
+        }
+    }
+};
 
 void schedule(task* t) noexcept;
 void schedule_checked(task* t) noexcept;

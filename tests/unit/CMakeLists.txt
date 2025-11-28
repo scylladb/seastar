@@ -487,6 +487,10 @@ seastar_add_test (prometheus_http
   SOURCES
     prometheus_http_test.cc)
 
+seastar_add_test (task_queue_test
+  KIND BOOST
+  SOURCES task_queue_test.cc)
+
 function(seastar_add_certgen name)
   cmake_parse_arguments(CERT
     ""

@@ -2641,11 +2641,11 @@ void reactor::register_metrics() {
 seastar::internal::log_buf::inserter_iterator do_dump_task_queue(seastar::internal::log_buf::inserter_iterator it, const reactor::task_queue& tq) {
     memory::scoped_critical_alloc_section _;
     std::unordered_map<const char*, unsigned> infos;
-    for (const auto& tp : tq._q) {
+    tq._q.do_for_each([&] (const task* tp) {
         const std::type_info& ti = typeid(*tp);
         auto [ it, ins ] = infos.emplace(std::make_pair(ti.name(), 0u));
         it->second++;
-    }
+    });
     it = fmt::format_to(it, "Too long queue accumulated for {} ({} tasks)\n", tq._name, tq._q.size());
     for (auto& ti : infos) {
         it = fmt::format_to(it, " {}: {}\n", ti.second, ti.first);
@@ -2657,10 +2657,10 @@ bool reactor::task_queue::run_tasks() {
     reactor& r = engine();
 
     // Make sure new tasks will inherit our scheduling group
-    *internal::current_scheduling_group_ptr() = scheduling_group(_id);
+    auto current_sg = scheduling_group(_id);
+    *internal::current_scheduling_group_ptr() = current_sg;
     while (!_q.empty()) {
-        auto tsk = _q.front();
-        _q.pop_front();
+        auto tsk = _q.pop_front(current_sg);
         STAP_PROBE(seastar, reactor_run_tasks_single_start);
         internal::task_histogram_add_task(*tsk);
         r._current_task = tsk;
@@ -2694,6 +2694,7 @@ bool reactor::task_queue::run_tasks() {
     return !_q.empty();
 }
 
+#if 0
 namespace {
 
 #ifdef SEASTAR_SHUFFLE_TASK_QUEUE
@@ -2709,6 +2710,7 @@ void shuffle(task*&, circular_buffer<task*>&) {
 #endif
 
 }
+#endif
 
 void reactor::force_poll() {
     request_preemption();
@@ -3100,7 +3102,7 @@ void reactor::add_task(task* t) noexcept {
     auto* q = _task_queues[sg._id].get();
     bool was_empty = q->_q.empty();
     q->_q.push_back(std::move(t));
-    shuffle(q->_q.back(), q->_q);
+    // shuffle(q->_q.back(), q->_q);
     if (was_empty) {
         q->wakeup();
     }
@@ -3112,7 +3114,7 @@ void reactor::add_urgent_task(task* t) noexcept {
     auto* q = _task_queues[sg._id].get();
     bool was_empty = q->_q.empty();
     q->_q.push_front(std::move(t));
-    shuffle(q->_q.front(), q->_q);
+    // shuffle(q->_q.front(), q->_q);
     if (was_empty) {
         q->wakeup();
     }
