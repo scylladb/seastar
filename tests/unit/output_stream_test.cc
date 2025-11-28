@@ -28,6 +28,8 @@
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
 #include <vector>
+#include <list>
+#include <deque>
 #include "memory-data-sink.hh"
 
 using namespace seastar;
@@ -188,4 +190,27 @@ SEASTAR_THREAD_TEST_CASE(test_mixed_mode_write) {
     out.close().get();
 
     BOOST_REQUIRE_EQUAL(ss.str(), "test");
+}
+
+// Simple (mainly compilation) test for basic_memory_data_sink implementation over standard collections
+template <template <typename T> class Col>
+void do_test_memory_data_sink() {
+    using Collection = Col<temporary_buffer<char>>;
+    Collection col;
+    auto s = data_sink(std::make_unique<util::basic_memory_data_sink<Collection>>(col));
+    for (unsigned i = 0; i < 3; i++) {
+        s.put(temporary_buffer<char>::copy_of(fmt::to_string(i))).get();
+    }
+    BOOST_REQUIRE_EQUAL(col.size(), 3);
+    auto it = col.begin();
+    for (unsigned i = 0; i < 3; i++) {
+        BOOST_REQUIRE_EQUAL(internal::to_sstring<std::string>(*it), fmt::to_string(i));
+        it++;
+    }
+}
+
+SEASTAR_THREAD_TEST_CASE(test_memory_data_sink) {
+    do_test_memory_data_sink<std::vector>();
+    do_test_memory_data_sink<std::list>();
+    do_test_memory_data_sink<std::deque>();
 }
