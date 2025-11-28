@@ -337,11 +337,6 @@ void init() {
     g_current_context = &g_unthreaded_context;
 }
 
-scheduling_group
-sched_group(const thread_context* thread) {
-    return thread->group();
-}
-
 }
 
 void thread::yield() {
