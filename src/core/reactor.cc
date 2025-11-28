@@ -304,6 +304,7 @@ reactor::do_recvmsg(pollable_fd_state& fd, const std::vector<iovec>& iov) {
     });
 }
 
+#if SEASTAR_API_LEVEL < 9
 future<size_t>
 reactor::do_send(pollable_fd_state& fd, const void* buffer, size_t len) {
     return writeable(fd).then([this, &fd, buffer, len] () mutable {
@@ -317,6 +318,7 @@ reactor::do_send(pollable_fd_state& fd, const void* buffer, size_t len) {
         return make_ready_future<size_t>(*r);
     });
 }
+#endif
 
 future<size_t>
 reactor::do_sendmsg(pollable_fd_state& fd, std::span<iovec> iovs, size_t len) {
@@ -335,6 +337,7 @@ reactor::do_sendmsg(pollable_fd_state& fd, std::span<iovec> iovs, size_t len) {
     });
 }
 
+#if SEASTAR_API_LEVEL < 9
 future<>
 reactor::send_all_part(pollable_fd_state& fd, const void* buffer, size_t len, size_t completed) {
     if (completed == len) {
@@ -346,7 +349,7 @@ reactor::send_all_part(pollable_fd_state& fd, const void* buffer, size_t len, si
         });
     }
 }
-
+#endif
 
 future<temporary_buffer<char>>
 reactor::do_recv_some(pollable_fd_state& fd, internal::buffer_allocator* ba) {
@@ -364,11 +367,13 @@ reactor::do_recv_some(pollable_fd_state& fd, internal::buffer_allocator* ba) {
     });
 }
 
+#if SEASTAR_API_LEVEL < 9
 future<>
 reactor::send_all(pollable_fd_state& fd, const void* buffer, size_t len) {
     SEASTAR_ASSERT(len);
     return send_all_part(fd, buffer, len, 0);
 }
+#endif
 
 future<size_t> pollable_fd_state::read_some(char* buffer, size_t size) {
     return engine()._backend->read(*this, buffer, size);
@@ -406,14 +411,6 @@ future<size_t> pollable_fd_state::write_some(net::packet& p) {
 }
 #endif
 
-future<> pollable_fd_state::write_all(const char* buffer, size_t size) {
-    return engine().send_all(*this, buffer, size);
-}
-
-future<> pollable_fd_state::write_all(const uint8_t* buffer, size_t size) {
-    return engine().send_all(*this, buffer, size);
-}
-
 #if SEASTAR_API_LEVEL >= 9
 future<> pollable_fd_state::write_all(std::span<iovec> iovs) {
     return write_some(iovs).then([this, iovs] (size_t size) {
@@ -430,6 +427,14 @@ future<> pollable_fd_state::write_all(net::packet& p) {
         p.trim_front(size);
         return write_all(p);
     });
+}
+
+future<> pollable_fd_state::write_all(const char* buffer, size_t size) {
+    return engine().send_all(*this, buffer, size);
+}
+
+future<> pollable_fd_state::write_all(const uint8_t* buffer, size_t size) {
+    return engine().send_all(*this, buffer, size);
 }
 #endif
 
