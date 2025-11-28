@@ -29,9 +29,8 @@
 namespace seastar {
 
 class task {
-protected:
-    scheduling_group _sg;
 private:
+    scheduling_group _sg;
 #ifdef SEASTAR_TASK_BACKTRACE
     shared_backtrace _bt;
 #endif
