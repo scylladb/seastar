@@ -63,7 +63,7 @@ public:
         _waiting_task = hndl.promise().waiting_task();
 
         if (_future.available()) {
-            execute_involving_handle_destruction_in_await_suspend(*this);
+            execute_involving_handle_destruction_in_await_suspend(this);
         } else {
             _future.set_coroutine(*this);
         }
@@ -77,11 +77,7 @@ public:
         }
     }
 
-    void operator()() noexcept {
-        run_and_dispose();
-    }
-
-    virtual void run_and_dispose() noexcept override {
+    virtual void run_and_dispose() noexcept final override {
         _resume_or_destroy(_future, *_coroutine_task);
     }
 
