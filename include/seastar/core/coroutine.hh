@@ -39,18 +39,22 @@ inline
 void
 execute_involving_handle_destruction_in_await_suspend(std::invocable<> auto&& func) noexcept {
 #if defined(__GNUC__) && !defined(__clang__) && (__GNUC__ > 15 || (__GNUC__ == 15 && __GNUC_MINOR__ >= 2))
-    // See https://gcc.gnu.org/bugzilla/show_bug.cgi?id=121961
-    if constexpr (std::is_base_of_v<seastar::task, std::remove_cvref_t<decltype(func)>>) {
-        schedule(&func);
-    } else {
-        memory::scoped_critical_alloc_section _;
-        schedule(new lambda_task(current_scheduling_group(), std::forward<decltype(func)>(func)));
-    }
+    memory::scoped_critical_alloc_section _;
+    schedule(new lambda_task(current_scheduling_group(), std::forward<decltype(func)>(func)));
 #else
     std::invoke(std::forward<decltype(func)>(func));
 #endif
 }
 
+inline
+void
+execute_involving_handle_destruction_in_await_suspend(task* tsk) noexcept {
+#if defined(__GNUC__) && !defined(__clang__) && (__GNUC__ > 15 || (__GNUC__ == 15 && __GNUC_MINOR__ >= 2))
+    schedule(tsk);
+#else
+    tsk->run_and_dispose();
+#endif
+}
 
 template <typename T = void>
 class coroutine_traits_base {
