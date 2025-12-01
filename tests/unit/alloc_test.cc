@@ -36,6 +36,7 @@
 #include <iostream>
 
 #include <malloc.h>
+#include <stdlib.h>
 
 using namespace seastar;
 
@@ -680,5 +681,26 @@ SEASTAR_TEST_CASE(test_large_allocation_warning_off_by_one) {
 
     free(obj);
 #endif
+    return make_ready_future<>();
+}
+
+#if !(__GLIBC__ == 2 && __GLIBC_MINOR__ >= 43) && !(__GLIBC__ > 2)
+
+extern "C" {
+
+void free_sized(void* ptr, size_t size);
+void free_aligned_sized(void* ptr, size_t alignment, size_t size);
+
+}
+
+#endif
+
+SEASTAR_TEST_CASE(c23_free_sized) {
+    auto p1 = malloc(100);
+    free_sized(p1, 100);
+    void* p2;
+    int r = posix_memalign(&p2, 1024, 4096);
+    BOOST_REQUIRE_EQUAL(r, 0);
+    free_aligned_sized(p2, 1024, 4096);
     return make_ready_future<>();
 }

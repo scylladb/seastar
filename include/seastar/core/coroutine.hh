@@ -29,6 +29,19 @@
 
 
 #include <coroutine>
+#include <new>
+#include <cstdlib>
+
+#if !(__GLIBC__ == 2 && __GLIBC_MINOR__ >= 43) && !(__GLIBC__ > 2)
+
+extern "C" {
+
+void free_sized(void* ptr, size_t size);
+
+}
+
+#endif
+
 
 namespace seastar {
 
@@ -56,10 +69,26 @@ execute_involving_handle_destruction_in_await_suspend(task* tsk) noexcept {
 #endif
 }
 
+class coroutine_allocators {
+public:
+    static void* operator new(size_t size) {
+        memory::scoped_critical_alloc_section _;
+        return ::malloc(size);
+    }
+    static void operator delete(void* ptr) noexcept {
+        ::free(ptr);
+    }
+#ifdef __cpp_sized_deallocation
+    static void operator delete(void* ptr, std::size_t sz) noexcept {
+        ::free_sized(ptr, sz);
+    }
+#endif
+};
+
 template <typename T = void>
 class coroutine_traits_base {
 public:
-    class promise_type final : public seastar::task {
+    class promise_type final : public seastar::task, public coroutine_allocators {
         seastar::promise<T> _promise;
     public:
         promise_type() = default;
@@ -111,7 +140,7 @@ public:
 template <>
 class coroutine_traits_base<> {
 public:
-   class promise_type final : public seastar::task {
+   class promise_type final : public seastar::task, public coroutine_allocators {
         seastar::promise<> _promise;
     public:
         promise_type() = default;
