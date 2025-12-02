@@ -175,6 +175,7 @@ private:
     friend class reactor_backend_epoll;
     friend class reactor_backend_aio;
     friend class reactor_backend_uring;
+    friend class reactor_backend_asymmetric_uring;
     friend class reactor_backend_selector;
     friend struct reactor_options;
     friend class aio_storage_context;

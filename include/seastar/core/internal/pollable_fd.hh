@@ -92,6 +92,7 @@ public:
     friend class reactor;
     friend class pollable_fd;
     friend class reactor_backend_uring;
+    friend class reactor_backend_asymmetric_uring;
 
     future<size_t> read_some(char* buffer, size_t size);
     future<size_t> read_some(uint8_t* buffer, size_t size);
