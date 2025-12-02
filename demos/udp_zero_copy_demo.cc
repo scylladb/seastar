@@ -63,8 +63,8 @@ public:
     server()
         : _rnd(std::random_device()()) {
     }
-    future<> send(ipv4_addr dst, packet p) {
-        return _chan.send(dst, std::move(p)).then([this] {
+    future<> send(ipv4_addr dst, std::vector<temporary_buffer<char>> bufs) {
+        return _chan.send(dst, bufs).then([this] {
             _n_sent++;
         });
     }
@@ -111,7 +111,7 @@ public:
                     }
                     chunk += _chunk_size;
                 }
-                return send(dgram.get_src(), net::packet(std::span(bufs)));
+                return send(dgram.get_src(), std::move(bufs));
             });
         });
     }

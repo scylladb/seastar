@@ -1295,7 +1295,7 @@ private:
                 out_hdr->_sequence_number = i++;
                 out_hdr->_n = _out_bufs.size();
                 *out_hdr = hton(*out_hdr);
-                return chan.send(_src, net::packet(std::span(bufs)));
+                return chan.send(_src, bufs);
             });
         }
     };

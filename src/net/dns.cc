@@ -1381,7 +1381,7 @@ ssize_t dns_resolver::impl::do_send_udp(sock_entry& e, send_packet_t p, size_t b
 #else
         std::span<temporary_buffer<char>> sp(p);
 #endif
-        return e.udp.channel.send(e.udp.dst, net::packet(sp));
+        return e.udp.channel.send(e.udp.dst, sp);
     }).finally([fd, me = shared_from_this()] {
         me->release(fd);
     });

@@ -354,7 +354,8 @@ future<> impl::send_metric(const type_instance_id & id,
     }
     cpwriter out;
     out.put(_host, duration(), id, values);
-    return _chan.send(_addr, net::packet(out.data(), out.size()));
+    temporary_buffer<char> buf(out.data(), out.size());
+    return _chan.send(_addr, std::span(&buf, 1));
 }
 
 future<> impl::send_notification(const type_instance_id & id,
@@ -363,7 +364,8 @@ future<> impl::send_notification(const type_instance_id & id,
     auto mid = to_metrics_id(id);
     out.put(_host, mid.group_name(), mid.name(), mid.labels(), id.type());
     out.put(part_type::Message, msg);
-    return _chan.send(_addr, net::packet(out.data(), out.size()));
+    temporary_buffer<char> buf(out.data(), out.size());
+    return _chan.send(_addr, std::span(&buf, 1));
 }
 
 // initiates actual value polling -> send to target "loop"
@@ -479,7 +481,8 @@ void impl::run() {
         if (out.empty()) {
             return make_ready_future();
         }
-        return _chan.send(_addr, net::packet(out.data(), out.size())).then([start, ctxt, this]() {
+        temporary_buffer<char> buf(out.data(), out.size());
+        return _chan.send(_addr, std::span(&buf, 1)).then([start, ctxt, this]() {
                     auto & out = std::get<cpwriter>(*ctxt);
                     auto now = steady_clock_type::now();
                     // dogfood stats
