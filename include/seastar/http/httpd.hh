@@ -135,6 +135,7 @@ class http_server {
     size_t _content_length_limit = std::numeric_limits<size_t>::max();
     bool _content_streaming = false;
     gate _task_gate;
+    std::optional<net::keepalive_params> _keepalive_params;
 public:
     routes _routes;
     using connection = seastar::httpd::connection;
@@ -170,6 +171,10 @@ public:
      */
     [[deprecated("use listen(socket_address addr, server_credentials_ptr credentials)")]]
     void set_tls_credentials(server_credentials_ptr credentials);
+
+    void set_keepalive_parameters(std::optional<net::keepalive_params> params) {
+        _keepalive_params = std::move(params);
+    }
 
     size_t get_content_length_limit() const;
 

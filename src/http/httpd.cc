@@ -440,6 +440,10 @@ future<> http_server::do_accepts(int which){
 
 future<> http_server::do_accept_one(int which, bool tls) {
     return _listeners[which].accept().then([this, tls] (accept_result ar) mutable {
+        if (_keepalive_params) {
+            ar.connection.set_keepalive(true);
+            ar.connection.set_keepalive_parameters(_keepalive_params.value());
+        }
         auto local_address = ar.connection.local_address();
         auto conn = std::make_unique<connection>(*this, std::move(ar.connection),
                 std::move(ar.remote_address), std::move(local_address), tls);
