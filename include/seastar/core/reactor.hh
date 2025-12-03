@@ -293,7 +293,7 @@ private:
         explicit task_queue(task_queue_group* p, unsigned id, sstring name, sstring shortname, float shares);
         const uint8_t _id;
         uint64_t _tasks_processed = 0;
-        circular_buffer<task*> _q;
+        task_slist _q;
         sstring _name;
         // the shortened version of scheduling_gruop's name, only the first 4
         // chars are used.
