@@ -19,10 +19,12 @@
  * Copyright (C) 2018 ScyllaDB Ltd.
  */
 
+#include <random>
 #include <boost/range.hpp>
 #include <boost/range/irange.hpp>
 
 #include <seastar/testing/perf_tests.hh>
+#include <seastar/testing/random.hh>
 #include <seastar/core/coroutine.hh>
 #include <seastar/coroutine/as_future.hh>
 #include <seastar/coroutine/parallel_for_each.hh>
@@ -499,6 +501,57 @@ struct sched {
 
         task* waiting_task() noexcept override { return nullptr; }
     };
+
+    class noop_task final : public seastar::task {
+    public:
+        noop_task(scheduling_group sg) noexcept : task(sg) {}
+        virtual void run_and_dispose() noexcept override { }
+        virtual task* waiting_task() noexcept override { return nullptr; }
+    };
+
+    class completion_task final : public seastar::task {
+        std::optional<promise<>> _done;
+    public:
+        completion_task(scheduling_group sg) noexcept : task(sg) {}
+        virtual void run_and_dispose() noexcept override {
+            _done->set_value();
+            _done.reset();
+        }
+        virtual task* waiting_task() noexcept override { return nullptr; }
+
+        void activate() {
+            _done.emplace();
+            seastar::schedule(this);
+        }
+
+        future<> get_future() {
+            return _done->get_future();
+        }
+    };
+
+    unsigned int nr_tasks = 100;
+    std::vector<std::unique_ptr<noop_task>> tasks;
+    std::unique_ptr<completion_task> comp;
+
+    void prepare_tasks(scheduling_group sg) {
+        if (auto p = perf_tests::get_parameter("nr_tasks"); p != "") {
+            nr_tasks = std::atoi(p.c_str());
+        }
+
+        tasks.reserve(nr_tasks);
+        for (size_t i = 0; i < nr_tasks; i++) {
+            tasks.push_back(std::make_unique<noop_task>(sg));
+        }
+        std::shuffle(tasks.begin(), tasks.end(), seastar::testing::local_random_engine);
+        comp = std::make_unique<completion_task>(sg);
+    }
+
+    void activate_tasks() {
+        for (auto& t : tasks) {
+            seastar::schedule(t.get());
+        }
+        comp->activate();
+    }
 };
 
 PERF_TEST_CN(sched, context_switch)
@@ -554,4 +607,19 @@ PERF_TEST_CN(sched, context_switch_x1_5)
     co_await std::move(f);
     perf_tests::stop_measuring_time();
     co_return 1000;
+}
+
+PERF_TEST_CN(sched, scan_runqueue)
+{
+    if (!once) {
+        g1 = co_await create_scheduling_group("scan", 10);
+        prepare_tasks(g1);
+        once = true;
+    }
+
+    activate_tasks();
+    perf_tests::start_measuring_time();
+    co_await comp->get_future();
+    perf_tests::stop_measuring_time();
+    co_return nr_tasks;
 }
