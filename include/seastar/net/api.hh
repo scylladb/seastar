@@ -92,7 +92,7 @@ public:
     virtual socket_address get_src() = 0;
     virtual socket_address get_dst() = 0;
     virtual uint16_t get_dst_port() = 0;
-    virtual packet& get_data() = 0;
+    virtual std::span<temporary_buffer<char>> get_buffers() = 0;
 };
 
 using udp_datagram_impl = datagram_impl;
@@ -100,12 +100,23 @@ using udp_datagram_impl = datagram_impl;
 class datagram final {
 private:
     std::unique_ptr<datagram_impl> _impl;
+    // The get_data() below will need to tell
+    //  - _p wasn't initialized from get_buffers() span
+    //  - _p was initialized, but was then release()-d by caller
+    // from each other. thus std::optional
+    std::optional<net::packet> _p;
 public:
     datagram(std::unique_ptr<datagram_impl>&& impl) noexcept : _impl(std::move(impl)) {};
     socket_address get_src() { return _impl->get_src(); }
     socket_address get_dst() { return _impl->get_dst(); }
     uint16_t get_dst_port() { return _impl->get_dst_port(); }
-    packet& get_data() { return _impl->get_data(); }
+    packet& get_data() {
+        if (!_p) {
+            _p.emplace(_impl->get_buffers());
+        }
+        return _p.value();
+    }
+    std::span<temporary_buffer<char>> get_buffers() { return _impl->get_buffers(); }
 };
 
 using udp_datagram = datagram;
