@@ -23,6 +23,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 #include <atomic>
+#include <mutex>
 
 #if SEASTAR_HAS_MEMBARRIER
 #include <linux/membarrier.h>
@@ -33,7 +34,6 @@
 #include <seastar/core/internal/systemwide_memory_barrier.hh>
 #include <seastar/core/cacheline.hh>
 #include <seastar/util/log.hh>
-#include <seastar/util/defer.hh>
 #include <seastar/util/assert.hh>
 
 namespace seastar {
@@ -126,12 +126,7 @@ bool try_systemwide_memory_barrier() {
     //
     // To fix this, only we serialize membarrier calls ourselves, but instead of sleeping, we just
     // return to the reactor poll loop. If an event is ready, we will wake up immediately.
-    if (!membarrier_lock.try_lock()) {
-        return false;
-    }
-    auto unlock = defer([] () noexcept {
-        membarrier_lock.unlock();
-    });
+  if (auto lck = std::unique_lock(membarrier_lock, std::try_to_lock)) {
 
     if (try_native_membarrier()) {
         return true;
@@ -152,6 +147,8 @@ bool try_systemwide_memory_barrier() {
 
     systemwide_memory_barrier();
     return true;
+  }
+  return false; // couldn't get the lock
 }
 
 }
