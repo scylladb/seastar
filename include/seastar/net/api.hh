@@ -110,6 +110,7 @@ public:
     socket_address get_src() { return _impl->get_src(); }
     socket_address get_dst() { return _impl->get_dst(); }
     uint16_t get_dst_port() { return _impl->get_dst_port(); }
+    [[deprecated("Use get_buf() instead")]]
     packet& get_data() {
         if (!_p) {
             _p.emplace(_impl->get_buffers());
