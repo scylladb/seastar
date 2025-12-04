@@ -1316,17 +1316,17 @@ public:
         // Run in the background.
         _task = keep_doing([this] {
             return _chan.receive().then([this](datagram dgram) {
-                packet& p = dgram.get_data();
-                if (p.len() < sizeof(header)) {
+                temporary_buffer<char>& b = dgram.get_buf();
+                if (b.size() < sizeof(header)) {
                     // dropping invalid packet
                     return make_ready_future<>();
                 }
 
-                header hdr = ntoh(*p.get_header<header>());
-                p.trim_front(sizeof(hdr));
+                header hdr = ntoh(*reinterpret_cast<const header*>(b.get()));
+                b.trim_front(sizeof(hdr));
 
                 auto request_id = hdr._request_id;
-                auto in = util::as_input_stream(p.release());
+                auto in = util::as_input_stream(std::move(b));
                 auto conn = make_lw_shared<connection>(dgram.get_src(), request_id, std::move(in),
                     _max_datagram_size - sizeof(header), _cache, _system_stats);
 

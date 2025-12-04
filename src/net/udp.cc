@@ -52,15 +52,19 @@ class native_datagram : public datagram_impl {
 private:
     ipv4_addr _src;
     ipv4_addr _dst;
-    packet _p;
+    temporary_buffer<char> _buf;
 public:
-    native_datagram(ipv4_address src, ipv4_address dst, packet p)
-            : _p(std::move(p)) {
+    native_datagram(ipv4_address src, ipv4_address dst, packet _p)
+    {
         udp_hdr* hdr = _p.get_header<udp_hdr>();
         auto h = ntoh(*hdr);
         _p.trim_front(sizeof(*hdr));
         _src = to_ipv4_addr(src, h.src_port);
         _dst = to_ipv4_addr(dst, h.dst_port);
+        _p.linearize();
+        auto bufs = _p.release();
+        SEASTAR_ASSERT(bufs.size() == 1);
+        _buf = std::move(bufs.front());
     }
 
     virtual socket_address get_src() override {
@@ -75,8 +79,8 @@ public:
         return _dst.port;
     }
 
-    virtual packet& get_data() override {
-        return _p;
+    virtual temporary_buffer<char>& get_data() override {
+        return _buf;
     }
 };
 
