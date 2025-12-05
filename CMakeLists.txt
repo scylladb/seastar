@@ -883,7 +883,8 @@ if (condition)
   target_link_libraries (seastar
     PUBLIC
       $<${condition}:Sanitizers::address>
-      $<${condition}:Sanitizers::undefined_behavior>)
+      $<${condition}:Sanitizers::undefined_behavior>
+      $<${condition}:Sanitizers::vptr>)
 endif ()
 
 # We only need valgrind to find uninitialized memory uses, so disable
