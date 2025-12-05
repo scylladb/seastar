@@ -4530,6 +4530,10 @@ void smp::configure(const smp_options& smp_opts, const reactor_options& reactor_
             SEASTAR_ASSERT(queue);
             for (const dev_t& dev : disk_config.queue_devices(q)) {
                 engine()._io_queues.emplace(dev, queue);
+                // Populate physical_block_size overrides from io_properties.yaml
+                if (auto pbs = disk_config.get_physical_block_size(dev)) {
+                    engine()._physical_block_size_overrides[dev] = *pbs;
+                }
             }
         }
     };

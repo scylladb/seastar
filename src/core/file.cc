@@ -36,6 +36,7 @@
 #include <dirent.h>
 #include <linux/types.h> // for xfs, below
 #include <linux/fs.h> // BLKBSZGET
+#include <linux/stat.h> // for statx
 #include <linux/major.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
@@ -626,13 +627,16 @@ static bool blockdev_nowait_works(dev_t device_id) {
     return blockdev_gen_nowait_works;
 }
 
-blockdev_file_impl::blockdev_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id, size_t block_size)
+blockdev_file_impl::blockdev_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id, size_t memory_dma_alignment, size_t read_block_size, size_t write_block_size)
         : posix_file_impl(fd, f, options, device_id, blockdev_nowait_works(device_id)) {
-    // Configure DMA alignment requirements based on block device block size
-    _memory_dma_alignment = block_size;
-    _disk_read_dma_alignment = block_size;
-    _disk_write_dma_alignment = block_size;
-    _disk_overwrite_dma_alignment = block_size;
+    // Configure DMA alignment requirements based on block device characteristics
+    // - Memory alignment: stx_dio_mem_align from statx (DMA buffer alignment, typically 4 bytes for NVMe)
+    // - Read alignment: logical_block_size (file offset alignment, typically 512 bytes)
+    // - Write alignment: physical_block_size (avoids hardware-level RMW, typically 512 or 4096 bytes)
+    _memory_dma_alignment = memory_dma_alignment;
+    _disk_read_dma_alignment = read_block_size;
+    _disk_write_dma_alignment = write_block_size;
+    _disk_overwrite_dma_alignment = write_block_size;
 }
 
 future<>
@@ -1044,13 +1048,46 @@ xfs_concurrency_from_kernel_version() {
 future<shared_ptr<file_impl>>
 make_file_impl(int fd, file_open_options options, int flags, struct stat st) noexcept {
     if (S_ISBLK(st.st_mode)) {
-        size_t block_size;
-        auto ret = ::ioctl(fd, BLKBSZGET, &block_size);
-        if (ret == -1) {
+        size_t logical_block_size;
+        if (auto ret = ::ioctl(fd, BLKBSZGET, &logical_block_size); ret == -1) {
             return make_exception_future<shared_ptr<file_impl>>(
                     std::system_error(errno, std::system_category(), "ioctl(BLKBSZGET) failed"));
         }
-        return make_ready_future<shared_ptr<file_impl>>(make_shared<blockdev_file_impl>(fd, open_flags(flags), options, st.st_rdev, block_size));
+        size_t physical_block_size;
+        if (auto ret = ::ioctl(fd, BLKPBSZGET, &physical_block_size); ret == -1) {
+            return make_exception_future<shared_ptr<file_impl>>(
+                    std::system_error(errno, std::system_category(), "ioctl(BLKPBSZGET) failed"));
+        }
+
+        // Check for physical_block_size override from io_properties.yaml
+        // This is needed because some devices lie about their physical block size
+        auto it = engine()._physical_block_size_overrides.find(st.st_rdev);
+        if (it != engine()._physical_block_size_overrides.end()) {
+            physical_block_size = it->second;
+        }
+
+        // Query DIO memory alignment using statx (kernel 4.18+)
+        // This gives us the actual DMA buffer alignment requirement (typically 4 bytes for NVMe)
+        size_t memory_dma_alignment = physical_block_size; // fallback to physical_block_size
+        struct statx stx;
+        if (syscall(__NR_statx, fd, "", AT_EMPTY_PATH, STATX_DIOALIGN, &stx) == 0) {
+            if (stx.stx_mask & STATX_DIOALIGN) {
+                // Use kernel-reported memory alignment (stx_dio_mem_align)
+                memory_dma_alignment = stx.stx_dio_mem_align;
+            }
+        }
+        // If statx fails or doesn't support STATX_DIOALIGN, we fall back to physical_block_size
+
+        // For reads: use logical_block_size (no performance penalty for reading 512-byte blocks from 4K sector disks)
+        size_t read_block_size = logical_block_size;
+        // For writes: use physical_block_size to avoid hardware-level read-modify-write
+        // - physical_block_size: smallest unit a physical storage device can write atomically (e.g., 4096 bytes for Advanced Format disks)
+        // - logical_block_size: smallest unit the storage device can address (typically 512 bytes)
+        //
+        // The Linux kernel only enforces logical_block_size alignment for O_DIRECT (see block/fops.c:blkdev_dio_invalid).
+        // Using physical_block_size avoids RMW at the hardware level.
+        size_t write_block_size = physical_block_size;
+        return make_ready_future<shared_ptr<file_impl>>(make_shared<blockdev_file_impl>(fd, open_flags(flags), options, st.st_rdev, memory_dma_alignment, read_block_size, write_block_size));
     }
 
     if (S_ISDIR(st.st_mode)) {
