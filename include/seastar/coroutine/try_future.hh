@@ -22,6 +22,7 @@
 #pragma once
 
 #include <seastar/core/coroutine.hh>
+#include <seastar/core/internal/current_task.hh>
 
 namespace seastar::internal {
 
@@ -34,6 +35,7 @@ void try_future_resume_or_destroy_coroutine(seastar::future<T>& fut, seastar::ta
         hndl.promise().set_exception(std::move(fut).get_exception());
         hndl.destroy();
     } else {
+        set_current_task(promise_ptr);
         hndl.resume();
     }
 }
