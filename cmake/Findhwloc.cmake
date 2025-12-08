@@ -57,6 +57,7 @@ if (hwloc_FOUND)
     set_target_properties (hwloc::hwloc
       PROPERTIES
         IMPORTED_LOCATION ${hwloc_LIBRARY}
-        INTERFACE_INCLUDE_DIRECTORIES ${hwloc_INCLUDE_DIRS})
+        INTERFACE_INCLUDE_DIRECTORIES ${hwloc_INCLUDE_DIRS}
+        INTERFACE_SYSTEM_INCLUDE_DIRECTORIES ${hwloc_INCLUDE_DIRS})
   endif ()
 endif ()
