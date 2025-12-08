@@ -27,6 +27,7 @@
 #include <seastar/core/chunked_fifo.hh>
 #include <seastar/core/circular_buffer.hh>
 #include <seastar/util/split-list.hh>
+#include <seastar/core/chunked_fifo.hh>
 #include <seastar/testing/random.hh>
 
 using trivial_elem = int;
@@ -262,6 +263,8 @@ class sum_perf {
     using split_list = seastar::internal::intrusive_split_list<element, 16, &element::sl_next>;
     split_list _split_list_16;
 
+    seastar::chunked_fifo<element*, 128> _chunked_fifo;
+
 public:
     unsigned nr_elements = 1000;
 
@@ -288,11 +291,13 @@ public:
 
         // Finally -- populate collections
         _array_of_pointers.reserve(nr_elements);
+        _chunked_fifo.reserve(nr_elements);
         for (unsigned i = 0; i < nr_elements; i++) {
             element* e = &_elements[idx[i]];
             _array_of_pointers.push_back(e);
             _singly_linked_list.push_back(*e);
             _split_list_16.push_back(e);
+            _chunked_fifo.push_back(e);
         }
     }
 
@@ -327,6 +332,14 @@ public:
         }
         return ret;
     }
+
+    uint64_t sum_fifo() const noexcept {
+        uint64_t ret = 0;
+        for (auto i = _chunked_fifo.begin(); i != _chunked_fifo.end(); i++) {
+            ret += (*i)->value;
+        }
+        return ret;
+    }
 };
 
 PERF_TEST_F(sum_perf, sum_plain) {
@@ -349,6 +362,12 @@ PERF_TEST_F(sum_perf, sum_list) {
 
 PERF_TEST_F(sum_perf, sum_sl16) {
     auto value = sum_sl16();
+    perf_tests::do_not_optimize(value);
+    return nr_elements;
+}
+
+PERF_TEST_F(sum_perf, sum_fifo) {
+    auto value = sum_fifo();
     perf_tests::do_not_optimize(value);
     return nr_elements;
 }
