@@ -26,6 +26,7 @@
 #include <seastar/testing/perf_tests.hh>
 #include <seastar/core/chunked_fifo.hh>
 #include <seastar/core/circular_buffer.hh>
+#include <seastar/util/split-list.hh>
 #include <seastar/testing/random.hh>
 
 using trivial_elem = int;
@@ -239,8 +240,9 @@ PERF_TEST_F(container_perf, iter_small_boost_deque) {
 class sum_perf {
     struct element {
         bi::slist_member_hook<> l_next;
+        element* sl_next;
         unsigned value;
-        char pad[64 - sizeof(value) - sizeof(l_next)];
+        char pad[64 - sizeof(value) - sizeof(l_next) - sizeof(sl_next)];
         element(unsigned v) noexcept : value(v) {}
     };
 
@@ -256,6 +258,9 @@ class sum_perf {
         bi::member_hook<element, bi::slist_member_hook<>, &element::l_next>>;
     static_assert(sizeof(slist) <= 2 * sizeof(void*));
     slist _singly_linked_list;
+
+    using split_list = seastar::internal::intrusive_split_list<element, 16, &element::sl_next>;
+    split_list _split_list_16;
 
 public:
     unsigned nr_elements = 1000;
@@ -287,6 +292,7 @@ public:
             element* e = &_elements[idx[i]];
             _array_of_pointers.push_back(e);
             _singly_linked_list.push_back(*e);
+            _split_list_16.push_back(e);
         }
     }
 
@@ -313,6 +319,14 @@ public:
         }
         return ret;
     }
+
+    uint64_t sum_sl16() const noexcept {
+        uint64_t ret = 0;
+        for (auto i = _split_list_16.begin(); i != _split_list_16.end(); ++i) {
+            ret += i->value;
+        }
+        return ret;
+    }
 };
 
 PERF_TEST_F(sum_perf, sum_plain) {
@@ -329,6 +343,12 @@ PERF_TEST_F(sum_perf, sum_array) {
 
 PERF_TEST_F(sum_perf, sum_list) {
     auto value = sum_list();
+    perf_tests::do_not_optimize(value);
+    return nr_elements;
+}
+
+PERF_TEST_F(sum_perf, sum_sl16) {
+    auto value = sum_sl16();
     perf_tests::do_not_optimize(value);
     return nr_elements;
 }
