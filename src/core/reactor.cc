@@ -5331,6 +5331,10 @@ void log_timer_callback_exception(std::exception_ptr ex) noexcept {
     seastar_logger.error("Timer callback failed: {}", std::current_exception());
 }
 
+void set_current_task(task* t) {
+    local_engine->_current_task = t;
+}
+
 }
 
 #ifdef SEASTAR_TASK_BACKTRACE

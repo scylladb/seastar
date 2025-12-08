@@ -27,7 +27,7 @@
 
 #include <seastar/core/loop.hh>
 #include <seastar/core/coroutine.hh>
-#include <seastar/core/reactor.hh>
+#include <seastar/core/internal/current_task.hh>
 
 namespace seastar::coroutine {
 

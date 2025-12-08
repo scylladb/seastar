@@ -29,6 +29,7 @@
 #include <seastar/core/future-util.hh>
 #include <seastar/core/sleep.hh>
 #include <seastar/core/thread.hh>
+#include <seastar/core/reactor.hh>
 #include <seastar/coroutine/all.hh>
 #include <seastar/coroutine/maybe_yield.hh>
 #include <seastar/coroutine/switch_to.hh>
