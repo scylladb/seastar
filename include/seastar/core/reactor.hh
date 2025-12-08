@@ -808,13 +808,6 @@ template <typename Func>
 void at_destroy(Func&& func) {
     engine().do_at_destroy(std::forward<Func>(func));
 }
-// If a task wants to resume a different task instead of returning control to the reactor,
-// it should set _current_task to the resumed task.
-// In particular, this is mandatory if the task is going to die before control is returned
-// to the reactor -- otherwise _current_task will be left dangling.
-inline void set_current_task(task* t) {
-    local_engine->_current_task = t;
-}
 
 } // namespace internal
 

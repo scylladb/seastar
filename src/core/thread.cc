@@ -37,7 +37,7 @@
 
 #include <seastar/core/thread.hh>
 #include <seastar/core/posix.hh>
-#include <seastar/core/reactor.hh>
+#include <seastar/core/internal/current_task.hh>
 #include <seastar/util/assert.hh>
 
 /// \cond internal

@@ -35,6 +35,7 @@
 #include <seastar/core/rwlock.hh>
 #include <seastar/core/shared_mutex.hh>
 #include <seastar/util/alloc_failure_injector.hh>
+#include <seastar/util/log.hh>
 
 using namespace seastar;
 using namespace std::chrono_literals;
