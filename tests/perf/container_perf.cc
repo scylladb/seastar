@@ -25,6 +25,7 @@
 #include <seastar/testing/perf_tests.hh>
 #include <seastar/core/chunked_fifo.hh>
 #include <seastar/core/circular_buffer.hh>
+#include <seastar/testing/random.hh>
 
 using trivial_elem = int;
 
@@ -233,3 +234,44 @@ PERF_TEST_F(container_perf, iter_small_boost_deque) {
     return iteration_bench<boost_deque_traits>(small_size);
 }
 
+class sum_perf {
+    struct element {
+        unsigned value;
+        char pad[64 - sizeof(value)];
+        element(unsigned v) noexcept : value(v) {}
+    };
+
+    static_assert(sizeof(element) == 64);
+    std::vector<element> _elements;
+
+public:
+    unsigned nr_elements = 1000;
+
+    sum_perf() {
+        if (auto p = perf_tests::get_parameter("elements"); p != "") {
+            nr_elements = std::atoi(p.c_str());
+        }
+
+        auto dist = std::uniform_int_distribution<unsigned>(0, std::numeric_limits<char>::max());
+
+        // First -- allocate elements themselves
+        _elements.reserve(nr_elements);
+        for (unsigned i = 0; i < nr_elements; i++) {
+            _elements.emplace_back(dist(seastar::testing::local_random_engine));
+        }
+    }
+
+    uint64_t sum_plain() const noexcept {
+        uint64_t ret = 0;
+        for (unsigned i = 0; i < _elements.size(); i++) {
+            ret += _elements[i].value;
+        }
+        return ret;
+    }
+};
+
+PERF_TEST_F(sum_perf, sum_plain) {
+    auto value = sum_plain();
+    perf_tests::do_not_optimize(value);
+    return nr_elements;
+}
