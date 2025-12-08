@@ -244,6 +244,8 @@ class sum_perf {
     static_assert(sizeof(element) == 64);
     std::vector<element> _elements;
 
+    std::vector<element*> _array_of_pointers;
+
 public:
     unsigned nr_elements = 1000;
 
@@ -259,6 +261,21 @@ public:
         for (unsigned i = 0; i < nr_elements; i++) {
             _elements.emplace_back(dist(seastar::testing::local_random_engine));
         }
+
+        // Next -- randomize the orider for other collections
+        std::vector<unsigned> idx;
+        idx.reserve(nr_elements);
+        for (unsigned i = 0; i < nr_elements; i++) {
+            idx.push_back(i);
+        }
+        std::shuffle(idx.begin(), idx.end(), seastar::testing::local_random_engine);
+
+        // Finally -- populate collections
+        _array_of_pointers.reserve(nr_elements);
+        for (unsigned i = 0; i < nr_elements; i++) {
+            element* e = &_elements[idx[i]];
+            _array_of_pointers.push_back(e);
+        }
     }
 
     uint64_t sum_plain() const noexcept {
@@ -268,10 +285,24 @@ public:
         }
         return ret;
     }
+
+    uint64_t sum_array() const noexcept {
+        uint64_t ret = 0;
+        for (unsigned i = 0; i < _elements.size(); i++) {
+            ret += _array_of_pointers[i]->value;
+        }
+        return ret;
+    }
 };
 
 PERF_TEST_F(sum_perf, sum_plain) {
     auto value = sum_plain();
+    perf_tests::do_not_optimize(value);
+    return nr_elements;
+}
+
+PERF_TEST_F(sum_perf, sum_array) {
+    auto value = sum_array();
     perf_tests::do_not_optimize(value);
     return nr_elements;
 }
