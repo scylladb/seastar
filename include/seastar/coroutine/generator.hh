@@ -25,6 +25,7 @@
 #include <exception>
 #include <iterator>
 #include <memory>
+#include <optional>
 #include <type_traits>
 #include <utility>
 #include <seastar/core/future.hh>

@@ -26,6 +26,7 @@
 #include <seastar/util/bool_class.hh>
 #include <boost/intrusive_ptr.hpp>
 #include <cstdint>
+#include <span>
 #include <vector>
 #include <tuple>
 #include <sys/uio.h>

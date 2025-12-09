@@ -28,6 +28,7 @@
 // Similar to libstdc++'s std::deque, except that it uses a single level
 // store, and so is more efficient for simple stored items.
 
+#include <algorithm>
 #include <type_traits>
 #include <cstddef>
 #include <iterator>
