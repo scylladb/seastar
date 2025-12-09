@@ -110,7 +110,7 @@ public:
     virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept override = 0;
     virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, io_intent* intent) noexcept override = 0;
     virtual future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept override = 0;
-    virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, io_intent* intent) noexcept override = 0;
+    virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, io_intent* intent) noexcept final override;
 
     open_flags flags() const {
         return _open_flags;
@@ -152,7 +152,6 @@ protected:
     future<size_t> do_write_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept;
     future<size_t> do_read_dma(uint64_t pos, void* buffer, size_t len, io_intent* intent) noexcept;
     future<size_t> do_read_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept;
-    future<temporary_buffer<uint8_t>> do_dma_read_bulk(uint64_t offset, size_t range_size, io_intent* intent) noexcept;
 };
 
 class posix_file_real_impl final : public posix_file_impl {
@@ -166,7 +165,6 @@ public:
     virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept override;
     virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, io_intent* intent) noexcept override;
     virtual future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept override;
-    virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, io_intent* intent) noexcept override;
 };
 
 namespace testing {
@@ -258,7 +256,6 @@ public:
     virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept override;
     virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, io_intent* intent) noexcept override;
     virtual future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept override;
-    virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, io_intent* intent) noexcept override;
 
     future<> flush() noexcept override;
     future<struct stat> stat() noexcept override;
@@ -289,7 +286,6 @@ public:
     virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept override;
     virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, io_intent* intent) noexcept override;
     virtual future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept override;
-    virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, io_intent* intent) noexcept override;
 };
 
 }

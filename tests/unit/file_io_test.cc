@@ -1168,9 +1168,7 @@ public:
         std::memcpy(buffer, _data.get() + pos, rlen);
         return make_ready_future<size_t>(rlen);
     }
-    virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, io_intent* i) noexcept override {
-        return posix_file_impl::do_dma_read_bulk(offset, range_size, i);
-    }
+
     test_posix_file_impl(const temporary_buffer<char>& d)
         : posix_file_impl(0, {}, nullptr, 0, block_size, block_size, block_size, block_size, true)
         , _data(d)
