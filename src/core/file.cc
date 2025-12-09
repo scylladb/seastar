@@ -52,8 +52,9 @@
 #include <xfs/xfs.h>
 #undef min
 
-#include <seastar/core/internal/read_state.hh>
+#include <seastar/core/align.hh>
 #include <seastar/core/internal/uname.hh>
+#include <seastar/core/internal/io_intent.hh>
 #include <seastar/core/reactor.hh>
 #include <seastar/core/file.hh>
 #include <seastar/core/report_exception.hh>
@@ -540,17 +541,14 @@ posix_file_impl::do_dma_read_bulk(uint64_t offset, size_t range_size, io_intent*
     offset -= front;
     range_size += front;
 
-    auto state = internal::file_read_state<uint8_t>(offset, front,
-                                                       range_size,
-                                                       _memory_dma_alignment,
-                                                       _disk_read_dma_alignment,
-                                                       intent);
+    temporary_buffer<uint8_t> buf = temporary_buffer<uint8_t>::aligned(
+            _memory_dma_alignment, align_up(range_size, size_t(_disk_read_dma_alignment)));
+
     //
     // First, try to read directly into the buffer. Most of the reads will
     // end here.
     //
-    size_t size = co_await read_dma_one(offset, state.buf.get_write(), state.buf.size(), intent);
-    state.pos = size;
+    size_t pos = co_await read_dma_one(offset, buf.get_write(), buf.size(), intent);
 
     //
     // If we haven't read all required data at once -
@@ -563,20 +561,27 @@ posix_file_impl::do_dma_read_bulk(uint64_t offset, size_t range_size, io_intent*
     // In EOF case or in case of a persistent I/O error the only overhead is
     // an extra allocation.
     //
-    while (!state.done()) {
-        auto buf1 = co_await read_maybe_eof(state.cur_offset(), state.left_to_read(), state.get_intent());
-        if (buf1.size()) {
-            state.append_new_data(buf1);
-        } else {
-            state.eof = true;
+    while (pos < range_size) {
+        auto buf1 = co_await read_maybe_eof(offset + pos, range_size - pos, intent);
+        if (!buf1.size()) {
+            break;
         }
+
+        auto to_copy = std::min(buf.size() - pos, buf1.size());
+        std::memcpy(buf.get_write() + pos, buf1.get(), to_copy);
+        pos += to_copy;
     }
     //
     // If we are here we are promised to have read some bytes beyond
     // "front" so we may trim straight away.
     //
-    state.trim_buf_before_ret();
-    co_return std::move(state.buf);
+    if (pos > front) {
+        buf.trim(pos);
+        buf.trim_front(front);
+    } else {
+        buf.trim(0);
+    }
+    co_return std::move(buf);
 }
 
 future<temporary_buffer<uint8_t>>

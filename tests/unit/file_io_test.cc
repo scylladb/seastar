@@ -1091,3 +1091,85 @@ SEASTAR_TEST_CASE(test_append_challenged_posix_file_impl) {
         test_append_challenged_posix_file_flush(t);
     });
 }
+
+// Helper class for test_posix_file_impl.
+// Copies data from external buffer in it read() operation, but
+// doesn't provide more than a single block at one, to force the
+// do_dma_read_bulk() issue several reads
+class test_posix_file_impl : public posix_file_impl {
+    const temporary_buffer<char>& _data;
+public:
+    static constexpr size_t block_size = 512;
+    virtual future<size_t> write_dma(uint64_t pos, const void* buffer, size_t len, io_intent* i) noexcept override { abort(); }
+    virtual future<size_t> write_dma(uint64_t pos, std::vector<iovec> iov, io_intent* i) noexcept override { abort(); }
+    virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, io_intent* i) noexcept override { abort(); }
+
+    virtual future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, io_intent* i) noexcept override {
+        fmt::print("  IO {}:{}\n", pos, len);
+
+        if (pos >= _data.size()) {
+            return make_ready_future<size_t>(0);
+        }
+
+        BOOST_REQUIRE(!(pos & (block_size - 1)));
+        BOOST_REQUIRE(!(len & (block_size - 1)));
+        BOOST_REQUIRE(!((uintptr_t)(buffer) & (block_size - 1)));
+
+        size_t avail = std::min(_data.size() - pos, size_t(block_size));
+        size_t rlen = std::min(len, avail);
+        std::memcpy(buffer, _data.get() + pos, rlen);
+        return make_ready_future<size_t>(rlen);
+    }
+    virtual future<temporary_buffer<uint8_t>> dma_read_bulk(uint64_t offset, size_t range_size, io_intent* i) noexcept override {
+        return posix_file_impl::do_dma_read_bulk(offset, range_size, i);
+    }
+    test_posix_file_impl(const temporary_buffer<char>& d)
+        : posix_file_impl(0, {}, nullptr, 0, block_size, block_size, block_size, block_size, true)
+        , _data(d)
+    {}
+};
+
+// Test that posix file bulk reading code works
+// Prepares a lengthy buffer and a file reading from it, then
+// runs a test with various (aligned and (!) not) offsets and
+// lengths, checking that the returned buffer for sanity and
+// to contain the bytes that it claims to contain
+SEASTAR_THREAD_TEST_CASE(test_posix_file_dma_read_bulk) {
+    static constexpr size_t data_size = 5 * test_posix_file_impl::block_size + 123;
+    temporary_buffer<char> data(data_size);
+    auto random_engine = testing::local_random_engine;
+    auto dist = std::uniform_int_distribution<char>();
+    std::ranges::generate(data.get_write(), data.end(), [&] { return dist(random_engine); });
+    auto f = std::make_unique<test_posix_file_impl>(data);
+
+    auto read_and_validate = [&] (size_t offset, size_t length) {
+        fmt::print("Check {}:{}\n", offset, length);
+        auto buf = f->dma_read_bulk(offset, length, nullptr).get();
+        fmt::print(" read returned {} bytes\n", buf.size());
+        if (offset >= data.size()) {
+            // read past EOF --> empty buffer
+            BOOST_REQUIRE_EQUAL(buf.size(), 0);
+        } else {
+            size_t avail = std::min(data.size() - offset, length);
+            // must have read at least what's available
+            BOOST_REQUIRE_GE(buf.size(), avail);
+            // no read past EOF
+            BOOST_REQUIRE_LE(offset + buf.size(), data.size());
+            BOOST_REQUIRE(std::memcmp(buf.get(), data.get() + offset, buf.size()) == 0);
+        }
+    };
+
+    for (size_t offset : {size_t(0), test_posix_file_impl::block_size, 3 * test_posix_file_impl::block_size, data_size - test_posix_file_impl::block_size, data_size}) {
+        for (size_t len : { test_posix_file_impl::block_size, test_posix_file_impl::block_size * 3 }) {
+            for (ssize_t mis_off : { 0, -41, 87 }) {
+                for (ssize_t mis_len : { 0, -63, 25 }) {
+                    if (ssize_t(offset) + mis_off < 0) {
+                        continue;
+                    }
+
+                    read_and_validate(offset + mis_off, len + mis_len);
+                }
+            }
+        }
+    }
+}
