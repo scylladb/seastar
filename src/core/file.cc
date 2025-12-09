@@ -531,12 +531,7 @@ posix_file_real_impl::read_dma(uint64_t pos, std::vector<iovec> iov, io_intent* 
 }
 
 future<temporary_buffer<uint8_t>>
-posix_file_real_impl::dma_read_bulk(uint64_t offset, size_t range_size, io_intent* intent) noexcept {
-    return posix_file_impl::do_dma_read_bulk(offset, range_size, intent);
-}
-
-future<temporary_buffer<uint8_t>>
-posix_file_impl::do_dma_read_bulk(uint64_t offset, size_t range_size, io_intent* intent) noexcept {
+posix_file_impl::dma_read_bulk(uint64_t offset, size_t range_size, io_intent* intent) noexcept {
     auto front = offset & (_disk_read_dma_alignment - 1);
     offset -= front;
     range_size += front;
@@ -679,11 +674,6 @@ blockdev_file_impl::read_dma(uint64_t pos, void* buffer, size_t len, io_intent* 
 future<size_t>
 blockdev_file_impl::read_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept {
     return posix_file_impl::do_read_dma(pos, std::move(iov), intent);
-}
-
-future<temporary_buffer<uint8_t>>
-blockdev_file_impl::dma_read_bulk(uint64_t offset, size_t range_size, io_intent* intent) noexcept {
-    return posix_file_impl::do_dma_read_bulk(offset, range_size, intent);
 }
 
 append_challenged_posix_file_impl::append_challenged_posix_file_impl(int fd, open_flags f, file_open_options options, const internal::fs_info& fsi, dev_t device_id)
@@ -921,11 +911,6 @@ append_challenged_posix_file_impl::write_dma(uint64_t pos, std::vector<iovec> io
             });
         }
     );
-}
-
-future<temporary_buffer<uint8_t>>
-append_challenged_posix_file_impl::dma_read_bulk(uint64_t offset, size_t range_size, io_intent* intent) noexcept {
-    return posix_file_impl::do_dma_read_bulk(offset, range_size, intent);
 }
 
 future<>
