@@ -2630,6 +2630,20 @@ seastar::internal::log_buf::inserter_iterator do_dump_task_queue(seastar::intern
     return it;
 }
 
+namespace {
+
+#ifdef SEASTAR_SHUFFLE_TASK_QUEUE
+bool shuffle() {
+    static thread_local std::mt19937 gen = std::mt19937(std::default_random_engine()());
+    std::uniform_int_distribution<size_t> tasks_dist{0, 2};
+    return tasks_dist(gen) == 0;
+}
+#else
+constexpr bool shuffle() { return false; }
+#endif
+
+}
+
 bool reactor::task_queue::run_tasks() {
     reactor& r = engine();
 
@@ -2639,6 +2653,10 @@ bool reactor::task_queue::run_tasks() {
     while (!_q.empty()) {
         task* tsk = _q.pop_front();
         tsk->_scheduling_group_id = task::disguise_sched_group(current);
+        if (shuffle()) {
+            _q.push_back(tsk);
+            continue;
+        }
         STAP_PROBE(seastar, reactor_run_tasks_single_start);
         internal::task_histogram_add_task(*tsk);
         r._current_task = tsk;
@@ -2671,24 +2689,6 @@ bool reactor::task_queue::run_tasks() {
 
     return !_q.empty();
 }
-
-#if 0
-namespace {
-
-#ifdef SEASTAR_SHUFFLE_TASK_QUEUE
-void shuffle(task*& t, circular_buffer<task*>& q) {
-    static thread_local std::mt19937 gen = std::mt19937(std::default_random_engine()());
-    std::uniform_int_distribution<size_t> tasks_dist{0, q.size() - 1};
-    auto& to_swap = q[tasks_dist(gen)];
-    std::swap(to_swap, t);
-}
-#else
-void shuffle(task*&, circular_buffer<task*>&) {
-}
-#endif
-
-}
-#endif
 
 void reactor::force_poll() {
     request_preemption();
@@ -3080,7 +3080,6 @@ void reactor::add_task(task* t) noexcept {
     auto* q = _task_queues[sg._id].get();
     bool was_empty = q->_q.empty();
     q->_q.push_back(std::move(t));
-    // shuffle(q->_q.back(), q->_q);
     if (was_empty) {
         q->wakeup();
     }
@@ -3092,7 +3091,6 @@ void reactor::add_urgent_task(task* t) noexcept {
     auto* q = _task_queues[sg._id].get();
     bool was_empty = q->_q.empty();
     q->_q.push_front(std::move(t));
-    // shuffle(q->_q.front(), q->_q);
     if (was_empty) {
         q->wakeup();
     }
