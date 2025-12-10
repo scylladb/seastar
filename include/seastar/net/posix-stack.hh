@@ -144,7 +144,7 @@ class posix_data_sink_impl : public data_sink_impl {
 #if SEASTAR_API_LEVEL >= 9
     internal::wrapped_iovecs _vecs;
 #else
-    packet _p;
+    packet _p{net::packet::make_null_packet()};
 #endif
 public:
     explicit posix_data_sink_impl(pollable_fd fd) : _fd(std::move(fd)) {}
