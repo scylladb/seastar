@@ -28,9 +28,15 @@
 
 namespace seastar {
 
+class reactor;
+
 class task {
 private:
-    unsigned _scheduling_group_id;
+    friend class reactor;
+    union {
+        unsigned _scheduling_group_id;
+        task* _next;
+    };
 
     static uintptr_t disguise_sched_group(scheduling_group sg) noexcept {
         unsigned id = internal::scheduling_group_index(sg);
