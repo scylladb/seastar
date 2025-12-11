@@ -25,7 +25,10 @@
 #include <cstddef>
 #include <cstring>
 #include <string_view>
+#include <vector>
+
 #include <malloc.h>
+
 #include <seastar/core/deleter.hh>
 #include <seastar/util/eclipse.hh>
 #include <seastar/util/std-compat.hh>
