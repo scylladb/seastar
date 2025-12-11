@@ -198,6 +198,15 @@ public:
         }
         return *this;
     }
+
+    template<class C>
+    json_list_template& operator=(json_list_template<T, Container>&& list) noexcept {
+        if (this != &list) {
+            _elements = std::move(list._elements);
+        }
+        return *this;
+    }
+
     virtual future<> write(output_stream<char>& s) const override {
         return formatter::write(s, _elements);
     }
