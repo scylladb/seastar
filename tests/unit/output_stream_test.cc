@@ -61,12 +61,32 @@ public:
         , _cur(_expected.begin())
     { }
 
+#if SEASTAR_API_LEVEL >= 9
     future<> put(std::span<temporary_buffer<char>> bufs) override {
         for (auto&& buf : bufs) {
-            BOOST_REQUIRE(_cur != _expected.end());
-            BOOST_REQUIRE_EQUAL(internal::to_sstring<sstring>(buf), *_cur++);
+            check_one(std::move(buf));
         }
         return make_ready_future<>();
+    }
+#else
+    virtual future<> put(net::packet data) override {
+        abort();
+    }
+    virtual future<> put(std::vector<temporary_buffer<char>> bufs) override {
+        for (auto&& buf : bufs) {
+            check_one(std::move(buf));
+        }
+        return make_ready_future<>();
+    }
+    virtual future<> put(temporary_buffer<char> buf) override {
+        check_one(std::move(buf));
+        return make_ready_future<>();
+    }
+#endif
+
+    void check_one(temporary_buffer<char> buf) {
+        BOOST_REQUIRE(_cur != _expected.end());
+        BOOST_REQUIRE_EQUAL(internal::to_sstring<sstring>(buf), *_cur++);
     }
 
     future<> close() override {

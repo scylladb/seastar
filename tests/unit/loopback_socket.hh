@@ -123,7 +123,11 @@ public:
     {
     }
 private:
+#if SEASTAR_API_LEVEL >= 9
     future<> put(std::vector<temporary_buffer<char>> bufs) {
+#else
+    future<> put(std::vector<temporary_buffer<char>> bufs) override {
+#endif
         return do_with(std::move(bufs), [this] (std::vector<temporary_buffer<char>>& bufs) {
             return do_for_each(bufs, [this] (temporary_buffer<char>& buf) {
                 return smp::submit_to(_buffer->get_owner_shard(), [this, b = buf.get(), s = buf.size()] {
