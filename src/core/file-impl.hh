@@ -79,7 +79,6 @@ class posix_file_impl : public file_impl {
 protected:
     int _fd;
 
-    posix_file_impl(int fd, open_flags, file_open_options options, dev_t device_id, bool nowait_works);
     posix_file_impl(int fd, open_flags, file_open_options options, dev_t device_id, const internal::fs_info& fsi);
     posix_file_impl(int fd, open_flags, std::atomic<unsigned>* refcount, dev_t device_id,
             uint32_t memory_dma_alignment,
@@ -120,7 +119,6 @@ public:
     static future<size_t> read_directory(int fd, char* buffer, size_t buffer_size);
 
 private:
-    void configure_dma_alignment(const internal::fs_info& fsi);
     void configure_io_lengths() noexcept;
 
     /**
@@ -279,7 +277,9 @@ make_append_challenged_posix_file(file_desc& fd, unsigned concurrency, bool fsyn
 
 class blockdev_file_impl final : public posix_file_impl {
 public:
-    blockdev_file_impl(int fd, open_flags, file_open_options options, dev_t device_id, size_t block_size);
+    blockdev_file_impl(int fd, open_flags f, file_open_options options, const internal::fs_info& fsi, dev_t device_id)
+        : posix_file_impl(fd, f, options, device_id, fsi) {}
+
     future<> truncate(uint64_t length) noexcept override;
     future<> discard(uint64_t offset, uint64_t length) noexcept override;
     future<uint64_t> size() noexcept override;
