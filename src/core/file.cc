@@ -73,13 +73,20 @@ namespace seastar {
 
 namespace internal {
 
+struct alignments {
+    unsigned memory;
+    unsigned disk_read;
+    unsigned disk_write;
+    unsigned disk_overwrite;
+};
+
 struct fs_info {
     uint32_t block_size;
     bool append_challenged;
     unsigned append_concurrency;
     bool fsync_is_exclusive;
     bool nowait_works;
-    std::optional<dioattr> dioinfo;
+    std::optional<alignments> align;
 };
 
 };
@@ -110,20 +117,20 @@ file_handle::to_file() && {
     return file(std::move(*_impl).to_file());
 }
 
-posix_file_impl::posix_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id, bool nowait_works)
-        : _nowait_works(nowait_works)
+posix_file_impl::posix_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id, const internal::fs_info& fsi)
+        : _nowait_works(fsi.nowait_works)
         , _device_id(device_id)
         , _io_queue(engine().get_io_queue(_device_id))
         , _open_flags(f)
         , _fd(fd)
 {
+    if (fsi.align.has_value()) {
+        _memory_dma_alignment = fsi.align->memory;
+        _disk_read_dma_alignment = fsi.align->disk_read;
+        _disk_write_dma_alignment = fsi.align->disk_write;
+        _disk_overwrite_dma_alignment = fsi.align->disk_overwrite;
+    }
     configure_io_lengths();
-}
-
-posix_file_impl::posix_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id, const internal::fs_info& fsi)
-        : posix_file_impl(fd, f, options, device_id, fsi.nowait_works)
-{
-    configure_dma_alignment(fsi);
 }
 
 posix_file_impl::~posix_file_impl() {
@@ -134,20 +141,6 @@ posix_file_impl::~posix_file_impl() {
     if (_fd != -1) {
         // Note: close() can be a blocking operation on NFS
         ::close(_fd);
-    }
-}
-
-void
-posix_file_impl::configure_dma_alignment(const internal::fs_info& fsi) {
-    if (fsi.dioinfo) {
-        const dioattr& da = *fsi.dioinfo;
-        _memory_dma_alignment = da.d_mem;
-        _disk_read_dma_alignment = da.d_miniosz;
-        // xfs wants at least the block size for writes
-        // FIXME: really read the block size
-        _disk_write_dma_alignment = std::max<unsigned>(da.d_miniosz, fsi.block_size);
-        static bool xfs_with_relaxed_overwrite_alignment = internal::kernel_uname().whitelisted({"5.12"});
-        _disk_overwrite_dma_alignment = xfs_with_relaxed_overwrite_alignment ? da.d_miniosz : _disk_write_dma_alignment;
     }
 }
 
@@ -631,15 +624,6 @@ static bool blockdev_nowait_works(dev_t device_id) {
     return blockdev_gen_nowait_works;
 }
 
-blockdev_file_impl::blockdev_file_impl(int fd, open_flags f, file_open_options options, dev_t device_id, size_t block_size)
-        : posix_file_impl(fd, f, options, device_id, blockdev_nowait_works(device_id)) {
-    // Configure DMA alignment requirements based on block device block size
-    _memory_dma_alignment = block_size;
-    _disk_read_dma_alignment = block_size;
-    _disk_write_dma_alignment = block_size;
-    _disk_overwrite_dma_alignment = block_size;
-}
-
 future<>
 blockdev_file_impl::truncate(uint64_t length) noexcept {
     return make_ready_future<>();
@@ -1046,6 +1030,18 @@ xfs_concurrency_from_kernel_version() {
     return 0;
 }
 
+static internal::alignments xfs_alignments(const dioattr& da, unsigned block_size) {
+    static bool xfs_with_relaxed_overwrite_alignment = internal::kernel_uname().whitelisted({"5.12"});
+    internal::alignments ret;
+    ret.memory = da.d_mem;
+    ret.disk_read = da.d_miniosz;
+    // xfs wants at least the block size for writes
+    // FIXME: really read the block size
+    ret.disk_write = std::max<unsigned>(da.d_miniosz, block_size);
+    ret.disk_overwrite = xfs_with_relaxed_overwrite_alignment ? da.d_miniosz : ret.disk_write;
+    return ret;
+}
+
 future<shared_ptr<file_impl>>
 make_file_impl(int fd, file_open_options options, int flags, struct stat st) noexcept {
     if (S_ISBLK(st.st_mode)) {
@@ -1055,7 +1051,11 @@ make_file_impl(int fd, file_open_options options, int flags, struct stat st) noe
             return make_exception_future<shared_ptr<file_impl>>(
                     std::system_error(errno, std::system_category(), "ioctl(BLKBSZGET) failed"));
         }
-        return make_ready_future<shared_ptr<file_impl>>(make_shared<blockdev_file_impl>(fd, open_flags(flags), options, st.st_rdev, block_size));
+        internal::fs_info fsi;
+        fsi.block_size = block_size;
+        fsi.nowait_works = blockdev_nowait_works(st.st_dev);
+        fsi.align = internal::alignments { fsi.block_size, fsi.block_size, fsi.block_size, fsi.block_size };
+        return make_ready_future<shared_ptr<file_impl>>(make_shared<blockdev_file_impl>(fd, open_flags(flags), options, fsi, st.st_rdev));
     }
 
     if (S_ISDIR(st.st_mode)) {
@@ -1079,7 +1079,7 @@ make_file_impl(int fd, file_open_options options, int flags, struct stat st) noe
             case internal::fs_magic::xfs:
                 dioattr da;
                 if (::ioctl(fd, XFS_IOC_DIOINFO, &da) == 0) {
-                    fsi.dioinfo = std::move(da);
+                    fsi.align = xfs_alignments(da, fsi.block_size);
                 }
 
                 fsi.append_challenged = true;
@@ -1390,7 +1390,7 @@ make_append_challenged_posix_file(file_desc& fd, unsigned concurrency, bool fsyn
         .append_concurrency = concurrency,
         .fsync_is_exclusive = fsync_is_exclusive,
         .nowait_works = true,
-        .dioinfo = std::nullopt,
+        .align = std::nullopt,
     };
     // device number can be any value, reactor would just pick "fallback" queue
     // that will be unused anyway, because no real IO is supposed to happen
