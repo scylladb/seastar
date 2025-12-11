@@ -2707,11 +2707,11 @@ reactor::do_expire_lowres_timers() noexcept {
     auto now = lowres_clock::now();
     if (now >= _lowres_next_timeout) {
         _lowres_timers.complete(_expired_lowres_timers);
-            if (!_lowres_timers.empty()) {
-                _lowres_next_timeout = _lowres_timers.get_next_timeout();
-            } else {
-                _lowres_next_timeout = lowres_clock::time_point::max();
-            }
+        if (!_lowres_timers.empty()) {
+            _lowres_next_timeout = _lowres_timers.get_next_timeout();
+        } else {
+            _lowres_next_timeout = lowres_clock::time_point::max();
+        }
         return true;
     }
     return false;
@@ -3184,9 +3184,9 @@ void reactor::sched_entity::wakeup() {
 
 void reactor::service_highres_timer() noexcept {
     _timers.complete(_expired_timers);
-        if (auto next = _timers.get_next_timeout(); next != decltype(next)::time_point::max()) {
-            enable_timer(next);
-        }
+    if (auto next = _timers.get_next_timeout(); next != decltype(next)::time_point::max()) {
+        enable_timer(next);
+    }
 }
 
 int reactor::run() noexcept {
