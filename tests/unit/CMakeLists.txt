@@ -771,6 +771,9 @@ seastar_add_test (pipe
 seastar_add_test (spawn
   SOURCES spawn_test.cc)
 
+seastar_add_test (variant_utils
+  SOURCES variant_utils_test.cc)
+
 seastar_generate_swagger (
   TARGET rest_api_httpd_swagger
   VAR rest_api_httpd_swagger_files

@@ -65,7 +65,7 @@ auto make_visitor(Args&&... args)
 /// \param args lambda objects each accepting one or some types stored in the variant as input
 /// \return
 template <typename Variant, typename... Args>
-inline auto visit(Variant&& variant, Args&&... args)
+inline decltype(auto) visit(Variant&& variant, Args&&... args)
 {
     static_assert(sizeof...(Args) > 0, "At least one lambda must be provided for visitation");
     return std::visit(
