@@ -42,6 +42,7 @@
 #include <seastar/net/inet_address.hh>
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/thread_test_case.hh>
+#include <seastar/testing/random.hh>
 #include <seastar/util/defer.hh>
 
 #include <boost/dll.hpp>
@@ -2162,4 +2163,63 @@ SEASTAR_THREAD_TEST_CASE(test_session_close_with_unread_data) {
     });
 
     seastar::when_all(std::move(c), std::move(s)).discard_result().get();
+}
+
+SEASTAR_THREAD_TEST_CASE(test_send_two_large) {
+    // send two 20MB buffers over a tls socket pair
+    // which gives additoiinal coverage since it
+    // triggers cases inside openssl/gnutls which occur
+    // when the underlying output buffer cannot fully
+    // absorb the write, and also the case of > 1 buffer
+    // flushed at once.
+
+    auto p = tls_socketpair();
+
+    constexpr size_t buf_size = 20 * 1024 * 1024;
+    constexpr size_t total_size = 2 * buf_size;
+
+    std::default_random_engine random_engine(42);
+    auto dist = std::uniform_int_distribution<char>();
+
+    auto expected_data = temporary_buffer<char>(total_size);
+    std::generate(expected_data.get_write(), expected_data.get_write() + total_size,
+                  [&] { return dist(random_engine); });
+
+    auto sender = seastar::async([s = std::move(p.second), data = expected_data.share()] () mutable {
+        auto out = s.output();
+
+        // Create two temporary buffers from the expected data
+        auto buf1 = temporary_buffer<char>(buf_size);
+        std::copy_n(data.get(), buf_size, buf1.get_write());
+
+        auto buf2 = temporary_buffer<char>(buf_size);
+        std::copy_n(data.get() + buf_size, buf_size, buf2.get_write());
+
+        out.write(buf1.get(), buf1.size()).get();
+        out.write(buf2.get(), buf2.size()).get();
+        out.flush().get();
+
+        out.close().get();
+        s.shutdown_input();
+    });
+
+    auto receiver = seastar::async([c = std::move(p.first), expected = expected_data.share(), total_size] () mutable {
+        auto in = c.input();
+        size_t bytes_received = 0;
+        temporary_buffer<char> received_data(total_size);
+
+        while (!in.eof()) {
+            auto buf = in.read().get();
+            std::copy_n(buf.get(), buf.size(), received_data.get_write() + bytes_received);
+            bytes_received += buf.size();
+        }
+
+        BOOST_CHECK_EQUAL(bytes_received, total_size);
+        BOOST_CHECK(std::equal(expected.get(), expected.get() + total_size, received_data.get()));
+
+        in.close().get();
+        c.shutdown_output();
+    });
+
+    seastar::when_all(std::move(sender), std::move(receiver)).discard_result().get();
 }
