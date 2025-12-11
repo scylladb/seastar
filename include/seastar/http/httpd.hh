@@ -37,6 +37,7 @@
 #include <seastar/http/routes.hh>
 #include <seastar/net/tls.hh>
 #include <seastar/core/shared_ptr.hh>
+#include <seastar/core/lowres_clock.hh>
 
 namespace seastar {
 
@@ -72,6 +73,8 @@ class connection : public boost::intrusive::list_base_hook<> {
     queue<std::unique_ptr<http::reply>> _replies { 10 };
     bool _done = false;
     const bool _tls;
+    // Timer to enforce set_request_timeout()
+    timer<lowres_clock> _request_timeout_timer;
 public:
     [[deprecated("use connection(http_server&, connected_socket&&, bool tls)")]]
     connection(http_server& server, connected_socket&& fd, socket_address, bool tls)
@@ -94,7 +97,8 @@ public:
             , _write_buf(_fd.output())
             , _client_addr(std::move(client_addr))
             , _server_addr(std::move(server_addr))
-            , _tls(tls) {
+            , _tls(tls)
+            , _request_timeout_timer([this] { _fd.shutdown_input(); }) {
         on_new_connection();
     }
     ~connection();
@@ -136,6 +140,7 @@ class http_server {
     bool _content_streaming = false;
     gate _task_gate;
     std::optional<net::keepalive_params> _keepalive_params;
+    std::chrono::milliseconds _request_timeout = 0ms;
 public:
     routes _routes;
     using connection = seastar::httpd::connection;
@@ -172,8 +177,43 @@ public:
     [[deprecated("use listen(socket_address addr, server_credentials_ptr credentials)")]]
     void set_tls_credentials(server_credentials_ptr credentials);
 
+    /**
+     * Enable or disable TCP keepalive on accepted connections. The kernel
+     * will periodically send keepalive probes on idle connections, and close
+     * connections that do not respond - with the given keepalive_params
+     * determining how often to probe and when to give up.
+     *
+     * Note that set_keepalive_parameters() and set_request_timeout() are
+     * different mechanisms that may be used to achieve similar goals, and
+     * it's not recommended to use both simultaneously.
+     */
     void set_keepalive_parameters(std::optional<net::keepalive_params> params) {
         _keepalive_params = std::move(params);
+    }
+
+    /**
+     * Enable closing a connection if reading the next request from it takes
+     * more than the given timeout duration. This feature will typically close
+     * idle connections (a.k.a. persistent connections or HTTP "keep alive")
+     * but can also close connections to clients that died in the middle of
+     * sending a request. Expiring such hung connections is important -
+     * otherwise defunct connections belonging to dead clients or forgotten
+     * load-balancer sessions can accumulate indefinitely, consuming growing
+     * server resources. A timeout on reading a request, whether or not it is
+     * making slow progress, is also a protection against "slowloris" attacks.
+     * 
+     * If the timeout is zero (this is the default), request timeout is
+     * disabled.
+     *
+     * A server which expects to handle low-bandwidth clients or very long
+     * requests should be careful not to set the request timeout too low.
+     *
+     * Note that set_keepalive_parameters() and set_request_timeout() are
+     * different mechanisms that may be used to achieve similar goals, and
+     * it's not recommended to use both simultaneously.
+     */
+    void set_request_timeout(std::chrono::milliseconds timeout) {
+        _request_timeout = timeout;
     }
 
     size_t get_content_length_limit() const;
