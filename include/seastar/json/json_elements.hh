@@ -192,6 +192,7 @@ public:
     template<class C>
     json_list_template& operator=(const C& list) {
         _elements.clear();
+        _elements.reserve(std::size(list));
         for  (auto i : list) {
             push(i);
         }
