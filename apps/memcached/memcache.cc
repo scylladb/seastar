@@ -42,6 +42,11 @@
 #include <seastar/core/print.hh>
 #include <seastar/net/api.hh>
 #include <seastar/util/memory-data-source.hh>
+
+using matrix_of_buffers = std::vector<std::vector<seastar::temporary_buffer<char>>>;
+namespace seastar::util { void append_buffers(matrix_of_buffers& vb, std::span<seastar::temporary_buffer<char>> bufs); }
+
+#include <seastar/util/memory-data-sink.hh>
 #include <seastar/util/assert.hh>
 #include <seastar/util/std-compat.hh>
 #include <seastar/util/log.hh>
@@ -1248,29 +1253,9 @@ private:
         ipv4_addr _src;
         uint16_t _request_id;
         input_stream<char> _in;
+        matrix_of_buffers _out_bufs;
         output_stream<char> _out;
-        std::vector<std::vector<temporary_buffer<char>>> _out_bufs;
         ascii_protocol _proto;
-
-        class sink final : public data_sink_impl {
-        private:
-            connection& _con;
-        public:
-            sink(connection& con) noexcept : _con(con) {}
-
-            future<> put(std::span<temporary_buffer<char>> bufs) override {
-                std::vector<temporary_buffer<char>> stable_bufs;
-                stable_bufs.reserve(bufs.size() + 1);
-                stable_bufs.emplace_back(sizeof(header));
-                stable_bufs.insert(stable_bufs.end(), std::make_move_iterator(bufs.begin()), std::make_move_iterator(bufs.end()));
-                _con._out_bufs.emplace_back(std::move(stable_bufs));
-                return make_ready_future<>();
-            }
-
-            virtual future<> close() override {
-                return make_ready_future<>();
-            }
-        };
 
         static output_stream_options make_opts() noexcept {
             output_stream_options opts;
@@ -1283,7 +1268,7 @@ private:
             : _src(src)
             , _request_id(request_id)
             , _in(std::move(in))
-            , _out(output_stream<char>(data_sink(std::make_unique<sink>(*this)), out_size, make_opts()))
+            , _out(output_stream<char>(data_sink(std::make_unique<util::basic_memory_data_sink<matrix_of_buffers>>(_out_bufs)), out_size, make_opts()))
             , _proto(c, system_stats)
         {}
 
@@ -1301,6 +1286,8 @@ private:
     };
 
 public:
+    static constexpr size_t header_size = sizeof(header);
+
     udp_server(sharded_cache& c, sharded<system_stats>& system_stats, uint16_t port = 11211)
          : _cache(c)
          , _system_stats(system_stats)
@@ -1450,6 +1437,16 @@ public:
 };
 
 } /* namespace memcache */
+
+namespace seastar::util {
+void append_buffers(matrix_of_buffers& vb, std::span<temporary_buffer<char>> bufs) {
+    std::vector<temporary_buffer<char>> stable;
+    stable.reserve(bufs.size() + 1);
+    stable.emplace_back(memcache::udp_server::header_size);
+    std::ranges::move(bufs, std::back_inserter(stable));
+    vb.emplace_back(std::move(stable));
+}
+}
 
 int main(int ac, char** av) {
     sharded<memcache::cache> cache_peers;
