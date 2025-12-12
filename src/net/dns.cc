@@ -1263,9 +1263,9 @@ dns_resolver::impl::do_recvfrom(ares_socket_t fd, void * dst, size_t len, int fl
             case type::udp: {
                 auto & udp = e.udp;
                 if (udp.in) {
-                    auto & p = udp.in->get_data();
+                    temporary_buffer<char>& b = udp.in->get_buf();
 
-                    dns_log.trace("Read {}. {} bytes available from {}", fd, p.len(), udp.in->get_src());
+                    dns_log.trace("Read {}. {} bytes available from {}", fd, b.size(), udp.in->get_src());
 
                     if (from != nullptr) {
                         *from = socket_address(udp.in->get_src()).as_posix_sockaddr();
@@ -1275,18 +1275,12 @@ dns_resolver::impl::do_recvfrom(ares_socket_t fd, void * dst, size_t len, int fl
                         }
                     }
 
-                    len = std::min(len, size_t(p.len()));
-                    size_t rem = len;
-                    auto * out = reinterpret_cast<char *>(dst);
-                    for (auto & f : p.fragments()) {
-                        auto n = std::min(rem, f.size);
-                        out = std::copy_n(f.base, n, out);
-                        rem = rem - n;
-                    }
-                    if (p.len() == len) {
+                    len = std::min(len, size_t(b.size()));
+                    std::copy_n(b.get(), len, reinterpret_cast<char*>(dst));
+                    if (b.size() == len) {
                         udp.in = {};
                     } else {
-                        p.trim_front(len);
+                        b.trim_front(len);
                     }
                     return len;
                 }
@@ -1299,7 +1293,7 @@ dns_resolver::impl::do_recvfrom(ares_socket_t fd, void * dst, size_t len, int fl
                     (void)f.then_wrapped([me = shared_from_this(), &e, fd](future<datagram> f) {
                         try {
                             auto d = f.get();
-                            dns_log.trace("Read {} -> {} bytes", fd, d.get_data().len());
+                            dns_log.trace("Read {} -> {} bytes", fd, d.get_buf().size());
                             e.udp.in = std::move(d);
                             e.avail |= POLLIN;
                         } catch (...) {
