@@ -22,6 +22,7 @@
 #pragma once
 
 #include <tuple>
+#include <functional>
 
 namespace seastar {
 
@@ -75,6 +76,10 @@ struct function_traits : public function_traits<decltype(&T::operator())>
 
 template<typename T>
 struct function_traits<T&> : public function_traits<std::remove_reference_t<T>>
+{};
+
+template<typename T>
+struct function_traits<std::reference_wrapper<T>> : public function_traits<T>
 {};
 
 }
