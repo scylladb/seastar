@@ -31,6 +31,7 @@
 
 #include <seastar/core/reactor.hh>
 #include <seastar/core/shared_ptr.hh>
+#include <seastar/core/future.hh>
 #include <seastar/core/future-util.hh>
 #include <seastar/core/loop.hh>
 #include <seastar/core/sleep.hh>
@@ -2287,4 +2288,124 @@ SEASTAR_THREAD_TEST_CASE(test_foreign_promise_set_value) {
     setter.get();
 
     BOOST_REQUIRE_EQUAL(getter.get(), other_shard);
+}
+
+void compile_tests() {
+    // never executed, only to check that certain constructs compile
+
+    auto f = make_ready_future();
+
+    // check that it compiles with rvalue handlers
+    f = std::move(f).handle_exception([](auto e){});
+    f = std::move(f).handle_exception_type([](const std::runtime_error& e){});
+
+    // and lvalue handlers
+    auto lvalue_exn_handler = [](std::exception_ptr e){};
+    f = std::move(f).handle_exception(lvalue_exn_handler);
+
+    auto lvalue_type_handler = [](const std::runtime_error& e){};
+    f = std::move(f).handle_exception_type(lvalue_type_handler);
+
+    // static asserts for function_traits
+
+    // Test plain function pointer
+    int plain_func(double, char);
+    static_assert(std::is_same_v<function_traits<decltype(plain_func)>::return_type, int>);
+    static_assert(function_traits<decltype(plain_func)>::arity == 2);
+    static_assert(std::is_same_v<function_traits<decltype(plain_func)>::arg<0>::type, double>);
+    static_assert(std::is_same_v<function_traits<decltype(plain_func)>::arg<1>::type, char>);
+    static_assert(std::is_same_v<function_traits<decltype(plain_func)>::args_as_tuple, std::tuple<double, char>>);
+
+    // Test function pointer type
+    using func_ptr = void(*)(int, float, long);
+    static_assert(std::is_same_v<function_traits<func_ptr>::return_type, void>);
+    static_assert(function_traits<func_ptr>::arity == 3);
+    static_assert(std::is_same_v<function_traits<func_ptr>::arg<0>::type, int>);
+    static_assert(std::is_same_v<function_traits<func_ptr>::arg<1>::type, float>);
+    static_assert(std::is_same_v<function_traits<func_ptr>::arg<2>::type, long>);
+
+    // Test noexcept function pointer
+    using noexcept_func_ptr = bool(*)(std::string) noexcept;
+    static_assert(std::is_same_v<function_traits<noexcept_func_ptr>::return_type, bool>);
+    static_assert(function_traits<noexcept_func_ptr>::arity == 1);
+    static_assert(std::is_same_v<function_traits<noexcept_func_ptr>::arg<0>::type, std::string>);
+
+    // Test lambda (non-capturing)
+    auto lambda = [](int x, double y) -> float { return x + y; };
+    static_assert(std::is_same_v<function_traits<decltype(lambda)>::return_type, float>);
+    static_assert(function_traits<decltype(lambda)>::arity == 2);
+    static_assert(std::is_same_v<function_traits<decltype(lambda)>::arg<0>::type, int>);
+    static_assert(std::is_same_v<function_traits<decltype(lambda)>::arg<1>::type, double>);
+
+    // Test mutable lambda
+    auto mutable_lambda = [](char c) mutable -> int { return c; };
+    static_assert(std::is_same_v<function_traits<decltype(mutable_lambda)>::return_type, int>);
+    static_assert(function_traits<decltype(mutable_lambda)>::arity == 1);
+    static_assert(std::is_same_v<function_traits<decltype(mutable_lambda)>::arg<0>::type, char>);
+
+    // Test lambda reference
+    auto lambda_ref_test = [](short s, long l) -> double { return s + l; };
+    using lambda_ref_type = decltype(lambda_ref_test)&;
+    static_assert(std::is_same_v<function_traits<lambda_ref_type>::return_type, double>);
+    static_assert(function_traits<lambda_ref_type>::arity == 2);
+    static_assert(std::is_same_v<function_traits<lambda_ref_type>::arg<0>::type, short>);
+    static_assert(std::is_same_v<function_traits<lambda_ref_type>::arg<1>::type, long>);
+
+    // Test const lambda reference
+    const auto const_lambda = [](int x) -> int { return x * 2; };
+    static_assert(std::is_same_v<function_traits<decltype(const_lambda)>::return_type, int>);
+    static_assert(function_traits<decltype(const_lambda)>::arity == 1);
+
+    // Test std::reference_wrapper of lambda
+    auto wrapped_lambda = [](std::string s, size_t n) -> bool { return s.size() > n; };
+    auto ref_wrapper = std::ref(wrapped_lambda);
+    static_assert(std::is_same_v<function_traits<decltype(ref_wrapper)>::return_type, bool>);
+    static_assert(function_traits<decltype(ref_wrapper)>::arity == 2);
+    static_assert(std::is_same_v<function_traits<decltype(ref_wrapper)>::arg<0>::type, std::string>);
+    static_assert(std::is_same_v<function_traits<decltype(ref_wrapper)>::arg<1>::type, size_t>);
+
+    // Test member function pointer
+    struct test_struct {
+        int member_func(double d, char c) { return d + c; }
+        void const_member_func(float f) const {}
+        bool noexcept_member_func(int x) noexcept { return x > 0; }
+        void const_noexcept_member_func(long l) const noexcept {}
+    };
+
+    using member_func_type = decltype(&test_struct::member_func);
+    static_assert(std::is_same_v<function_traits<member_func_type>::return_type, int>);
+    static_assert(function_traits<member_func_type>::arity == 2);
+    static_assert(std::is_same_v<function_traits<member_func_type>::arg<0>::type, double>);
+    static_assert(std::is_same_v<function_traits<member_func_type>::arg<1>::type, char>);
+
+    // Test const member function pointer
+    using const_member_func_type = decltype(&test_struct::const_member_func);
+    static_assert(std::is_same_v<function_traits<const_member_func_type>::return_type, void>);
+    static_assert(function_traits<const_member_func_type>::arity == 1);
+    static_assert(std::is_same_v<function_traits<const_member_func_type>::arg<0>::type, float>);
+
+    // Test noexcept member function pointer
+    using noexcept_member_func_type = decltype(&test_struct::noexcept_member_func);
+    static_assert(std::is_same_v<function_traits<noexcept_member_func_type>::return_type, bool>);
+    static_assert(function_traits<noexcept_member_func_type>::arity == 1);
+    static_assert(std::is_same_v<function_traits<noexcept_member_func_type>::arg<0>::type, int>);
+
+    // Test const noexcept member function pointer
+    using const_noexcept_member_func_type = decltype(&test_struct::const_noexcept_member_func);
+    static_assert(std::is_same_v<function_traits<const_noexcept_member_func_type>::return_type, void>);
+    static_assert(function_traits<const_noexcept_member_func_type>::arity == 1);
+    static_assert(std::is_same_v<function_traits<const_noexcept_member_func_type>::arg<0>::type, long>);
+
+    // Test function with no arguments
+    auto no_args_lambda = []() -> int { return 42; };
+    static_assert(std::is_same_v<function_traits<decltype(no_args_lambda)>::return_type, int>);
+    static_assert(function_traits<decltype(no_args_lambda)>::arity == 0);
+    static_assert(std::is_same_v<function_traits<decltype(no_args_lambda)>::args_as_tuple, std::tuple<>>);
+
+    // Test function with many arguments
+    auto many_args = [](int, float, double, char, short, long, bool, std::string) -> void {};
+    static_assert(std::is_same_v<function_traits<decltype(many_args)>::return_type, void>);
+    static_assert(function_traits<decltype(many_args)>::arity == 8);
+    static_assert(std::is_same_v<function_traits<decltype(many_args)>::arg<3>::type, char>);
+    static_assert(std::is_same_v<function_traits<decltype(many_args)>::arg<7>::type, std::string>);
 }
