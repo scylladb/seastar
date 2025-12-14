@@ -69,6 +69,8 @@ module seastar;
 
 namespace seastar {
 
+using namespace std::string_view_literals;
+
 class net::get_impl {
 public:
     static std::unique_ptr<connected_socket_impl> get(connected_socket s) {
@@ -627,12 +629,12 @@ void tls::server_credentials::set_alpn_protocols(const std::vector<sstring>& pro
     _impl->set_alpn_protocols(protocols);
 }
 
-static const sstring dh_level_key = "dh_level";
-static const sstring x509_trust_key = "x509_trust";
-static const sstring x509_crl_key = "x509_crl";
-static const sstring x509_key_key = "x509_key";
-static const sstring pkcs12_key = "pkcs12";
-static const sstring system_trust = "system_trust";
+constexpr auto dh_level_key = "dh_level"sv;
+constexpr auto x509_trust_key = "x509_trust"sv;
+constexpr auto x509_crl_key = "x509_crl"sv;
+constexpr auto x509_key_key = "x509_key"sv;
+constexpr auto pkcs12_key = "pkcs12"sv;
+constexpr auto system_trust = "system_trust"sv;
 
 using buffer_type = std::basic_string<tls::blob::value_type, tls::blob::traits_type, std::allocator<tls::blob::value_type>>;
 
@@ -744,7 +746,7 @@ void tls::credentials_builder::set_alpn_protocols(const std::vector<sstring>& pr
 
 template<typename Blobs, typename Visitor>
 static void visit_blobs(Blobs& blobs, Visitor&& visitor) {
-    auto visit = [&](const sstring& key, auto* vt) {
+    auto visit = [&](const std::string_view& key, auto* vt) {
         auto tr = blobs.equal_range(key);
         for (auto& p : boost::make_iterator_range(tr.first, tr.second)) {
             auto* v = std::any_cast<std::decay_t<decltype(*vt)>>(&p.second);
@@ -760,17 +762,17 @@ static void visit_blobs(Blobs& blobs, Visitor&& visitor) {
 void tls::credentials_builder::apply_to(certificate_credentials& creds) const {
     // Could potentially be templated down, but why bother...
     visit_blobs(_blobs, make_visitor(
-        [&](const sstring& key, const x509_simple& info) {
+        [&](const std::string_view& key, const x509_simple& info) {
             if (key == x509_trust_key) {
                 creds.set_x509_trust(info.data, info.format);
             } else if (key == x509_crl_key) {
                 creds.set_x509_crl(info.data, info.format);
             }
         },
-        [&](const sstring&, const x509_key& info) {
+        [&](const std::string_view&, const x509_key& info) {
             creds.set_x509_key(info.cert, info.key, info.format);
         },
-        [&](const sstring&, const pkcs12_simple& info) {
+        [&](const std::string_view&, const pkcs12_simple& info) {
             creds.set_simple_pkcs12(info.data, info.format, info.password);
         }
     ));
@@ -842,14 +844,14 @@ public:
         future<> init() {
             std::vector<future<>> futures;
             visit_blobs(_blobs, make_visitor(
-                [&](const sstring&, const x509_simple& info) {
+                [&](const std::string_view&, const x509_simple& info) {
                     _all_files.emplace(info.file.filename);
                 },
-                [&](const sstring&, const x509_key& info) {
+                [&](const std::string_view&, const x509_key& info) {
                     _all_files.emplace(info.cert_file.filename);
                     _all_files.emplace(info.key_file.filename);
                 },
-                [&](const sstring&, const pkcs12_simple& info) {
+                [&](const std::string_view&, const pkcs12_simple& info) {
                     _all_files.emplace(info.file.filename);
                 }
             ));
@@ -942,14 +944,14 @@ public:
                 ++num_changed;
             };
             visit_blobs(_blobs, make_visitor(
-                [&](const sstring&, x509_simple& info) {
+                [&](const std::string_view&, x509_simple& info) {
                     maybe_reload(info.file.filename, info.data);
                 },
-                [&](const sstring&, x509_key& info) {
+                [&](const std::string_view&, x509_key& info) {
                     maybe_reload(info.cert_file.filename, info.cert);
                     maybe_reload(info.key_file.filename, info.key);
                 },
-                [&](const sstring&, pkcs12_simple& info) {
+                [&](const std::string_view&, pkcs12_simple& info) {
                     maybe_reload(info.file.filename, info.data);
                 }
             ));

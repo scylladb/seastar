@@ -28,12 +28,15 @@
 
 namespace seastar::experimental::websocket {
 
-static sstring http_upgrade_reply_template =
+using namespace std::string_view_literals;
+
+constexpr auto magic_key_suffix = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"sv;
+constexpr auto http_upgrade_reply_template =
     "HTTP/1.1 101 Switching Protocols\r\n"
     "Upgrade: websocket\r\n"
     "Connection: Upgrade\r\n"
     "Sec-WebSocket-Version: 13\r\n"
-    "Sec-WebSocket-Accept: ";
+    "Sec-WebSocket-Accept: "sv;
 
 void server::listen(socket_address addr, listen_options lo) {
     _listeners.push_back(seastar::listen(addr, lo));
@@ -135,14 +138,14 @@ future<> server_connection::read_http_upgrade_request() {
     sstring sec_key = req->get_header("Sec-Websocket-Key");
     sstring sec_version = req->get_header("Sec-Websocket-Version");
 
-    sstring sha1_input = sec_key + magic_key_suffix;
+    auto sha1_input = fmt::format("{}{}", sec_key, magic_key_suffix);
 
     websocket_logger.debug("Sec-Websocket-Key: {}, Sec-Websocket-Version: {}", sec_key, sec_version);
 
     std::string sha1_output = sha1_base64(sha1_input);
     websocket_logger.debug("SHA1 output: {} of size {}", sha1_output, sha1_output.size());
 
-    co_await _write_buf.write(http_upgrade_reply_template);
+    co_await _write_buf.write(http_upgrade_reply_template.data(), http_upgrade_reply_template.size());
     co_await _write_buf.write(sha1_output);
     if (!_subprotocol.empty()) {
         co_await _write_buf.write("\r\nSec-WebSocket-Protocol: ", 26);
