@@ -56,7 +56,7 @@ future<sstring> read_entire_stream_contiguous(input_stream<char>& inp) {
         for (auto&& buf : bufs) {
             total_size += buf.size();
         }
-        sstring ret(sstring::initialized_later(), total_size);
+        auto ret = uninitialized_string(total_size);
         size_t pos = 0;
         for (auto&& buf : bufs) {
             std::copy(buf.begin(), buf.end(), ret.data() + pos);
