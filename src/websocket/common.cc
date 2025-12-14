@@ -29,7 +29,6 @@
 
 namespace seastar::experimental::websocket {
 
-sstring magic_key_suffix = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 logger websocket_logger("websocket");
 
 future<> connection::handle_ping() {

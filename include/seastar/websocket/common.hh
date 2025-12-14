@@ -30,8 +30,6 @@
 
 namespace seastar::experimental::websocket {
 
-extern sstring magic_key_suffix;
-
 using handler_t = std::function<future<>(input_stream<char>&, output_stream<char>&)>;
 
 class server;

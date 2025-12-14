@@ -350,7 +350,7 @@ namespace tls {
     private:
         friend class reloadable_credentials_base;
 
-        std::multimap<sstring, std::any> _blobs;
+        std::multimap<std::string_view, std::any> _blobs;
         client_auth _client_auth = client_auth::NONE;
         session_resume_mode _session_resume_mode = session_resume_mode::NONE;
         sstring _priority;
