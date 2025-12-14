@@ -658,7 +658,7 @@ template<>
 struct formatter<seastar::metrics::impl::escaped_string> : public fmt::formatter<seastar::sstring> {
     template <typename FormatContext>
     auto format(const seastar::metrics::impl::escaped_string& s, FormatContext& ctx) const {
-        return fmt::formatter<seastar::sstring>::format(s, ctx);
+        return fmt::formatter<seastar::sstring>::format(s.value(), ctx);
     }
 };
 }

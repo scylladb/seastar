@@ -24,7 +24,7 @@ namespace seastar {
 namespace rpc {
 
 void logger::operator()(const client_info& info, id_type msg_id, const sstring& str) const {
-    log(format("client {} msg_id {}:  {}", info.addr, msg_id, str));
+    log(fmt::format("client {} msg_id {}:  {}", info.addr, msg_id, str));
 }
 
 void logger::operator()(const client_info& info, id_type msg_id, log_level level, std::string_view str) const {
@@ -40,7 +40,7 @@ void logger::operator()(const client_info& info, log_level level, std::string_vi
 }
 
 void logger::operator()(const socket_address& addr, const sstring& str) const {
-    log(format("client {}: {}", addr, str));
+    log(fmt::format("client {}: {}", addr, str));
 }
 
 void logger::operator()(const socket_address& addr, log_level level, std::string_view str) const {

@@ -897,7 +897,7 @@ static sstring shorten_name(const sstring& name, size_t length) {
     using split_iter_t = ba::split_iterator<sstring::const_iterator>;
     static constexpr auto delimiter = "_";
 
-    sstring shortname(typename sstring::initialized_later{}, length);
+    auto shortname = uninitialized_string(length);
     auto output = shortname.begin();
     auto last = shortname.end();
     if (name.find(delimiter) == name.npos) {

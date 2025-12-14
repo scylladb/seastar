@@ -197,7 +197,7 @@ static auto get_gtls_string = [](auto func, auto... args) noexcept {
         return std::make_pair(ret, sstring{});
     }
     SEASTAR_ASSERT(size != 0);
-    sstring res(sstring::initialized_later{}, size - 1);
+    auto res = uninitialized_string(size - 1);
     ret = func(args..., res.data(), &size);
     return std::make_pair(ret, res);
 };

@@ -294,7 +294,7 @@ static sstring format_double_fit(double value, size_t width, size_t default_prec
     };
 
     auto make_hash_fallback = [width]() {
-        sstring r(sstring::initialized_later{}, width);
+        auto r = uninitialized_string(width);
         for (size_t i = 0; i < width; ++i) {
             r.data()[i] = '#';
         }
