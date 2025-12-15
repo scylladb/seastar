@@ -32,9 +32,9 @@
 #include <set>
 #include <sched.h>
 #include <unordered_map>
-#ifdef SEASTAR_HAVE_HWLOC
-#include <hwloc.h>
-#endif
+
+struct hwloc_topology;
+using hwloc_topology_t = hwloc_topology*;
 
 namespace seastar {
 
