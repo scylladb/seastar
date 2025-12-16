@@ -27,6 +27,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <system_error>
 #include <vector>
 #include <seastar/util/assert.hh>
 
@@ -438,6 +439,37 @@ list_directory_generator_type make_list_directory_generator(int fd) {
 
 list_directory_generator_type posix_file_impl::experimental_list_directory() {
     return make_list_directory_generator(_fd);
+}
+
+list_directory_ext_generator_type posix_file_impl::experimental_list_directory_ext() {
+    temporary_buffer<char> buf(8192);
+
+    while (true) {
+        auto size = co_await read_directory(_fd, buf.get_write(), buf.size());
+        if (size == 0) {
+            co_return;
+        }
+
+        for (const char* b = buf.get(); b < buf.get() + size; ) {
+            const auto de = reinterpret_cast<const linux_dirent64*>(b);
+            b += de->d_reclen;
+            sstring name(de->d_name);
+            if (name == "." || name == "..") {
+                continue;
+            }
+            try {
+                directory_entry_ext ret(make_stat_data(co_await statat(name, AT_SYMLINK_NOFOLLOW)), std::move(name));
+                co_yield ret;
+            } catch (const std::system_error& e) {
+                if (e.code().value() == ENOENT) {
+                    // The file disappeared between the readdir and statat calls.
+                    // Just skip it.
+                    continue;
+                }
+                throw;
+            }
+        }
+    }
 }
 
 subscription<directory_entry>
@@ -1170,6 +1202,10 @@ list_directory_generator_type file::experimental_list_directory() {
     return _file_impl->experimental_list_directory();
 }
 
+list_directory_ext_generator_type file::experimental_list_directory_ext() {
+    return _file_impl->experimental_list_directory_ext();
+}
+
 future<int> file::ioctl(uint64_t cmd, void* argp) noexcept {
     return _file_impl->ioctl(cmd, argp);
 }
@@ -1362,8 +1398,47 @@ static list_directory_generator_type make_list_directory_fallback_generator(file
     co_await std::move(done);
 }
 
+static list_directory_ext_generator_type make_list_directory_ext_fallback_generator(file_impl& me) {
+    auto ents = make_lw_shared<queue<std::optional<directory_entry_ext>>>(list_directory_ext_generator_buffer_size);
+    auto lister = me.list_directory([&me, ents] (directory_entry de) -> future<> {
+        try {
+            directory_entry_ext ent(make_stat_data(co_await me.statat(de.name, AT_SYMLINK_NOFOLLOW)), std::move(de.name));
+            co_return co_await ents->push_eventually(std::move(ent));
+        } catch (const std::system_error& e) {
+            if (e.code().value() == ENOENT) {
+                // The file disappeared between the readdir and statat calls.
+                // Just skip it.
+                co_return;
+            }
+            throw;
+        }
+    });
+    auto done = lister.done().finally([ents] {
+        return ents->push_eventually(std::nullopt);
+    });
+    auto abort = defer([ents, &done] () mutable noexcept {
+        ents->abort(std::make_exception_ptr(std::runtime_error("generator abandoned")));
+        engine().run_in_background(std::move(done).handle_exception([] (std::exception_ptr ignored) {}));
+    });
+
+    while (true) {
+        auto de = co_await ents->pop_eventually();
+        if (!de) {
+            break;
+        }
+        co_yield *de;
+    }
+
+    abort.cancel();
+    co_await std::move(done);
+}
+
 list_directory_generator_type file_impl::experimental_list_directory() {
     return make_list_directory_fallback_generator(*this);
+}
+
+list_directory_ext_generator_type file_impl::experimental_list_directory_ext() {
+    return make_list_directory_ext_fallback_generator(*this);
 }
 
 future<int> file_impl::ioctl(uint64_t cmd, void* argp) noexcept {

@@ -121,6 +121,19 @@ constexpr size_t list_directory_generator_buffer_size = calc_circular_buffer_cap
 using list_directory_generator_type = coroutine::experimental::generator<directory_entry, directory_entry,
         circular_buffer_fixed_capacity<directory_entry, list_directory_generator_buffer_size>>;
 
+struct directory_entry_ext : public stat_data {
+    /// Name of the file in a directory entry.  Will never be "." or "..".  Only the last component is included.
+    sstring name;
+
+    directory_entry_ext(stat_data sd, sstring n)
+        : stat_data(std::move(sd))
+        , name(std::move(n))
+    {}
+};
+constexpr size_t list_directory_ext_generator_buffer_size = calc_circular_buffer_capacity<directory_entry_ext, 512>();
+using list_directory_ext_generator_type = coroutine::experimental::generator<directory_entry_ext, directory_entry_ext,
+        circular_buffer_fixed_capacity<directory_entry_ext, list_directory_ext_generator_buffer_size>>;
+
 // A handle that can be transported across shards and used to
 // create a dup(2)-like `file` object referring to the same underlying file
 class file_handle_impl {
@@ -164,6 +177,7 @@ public:
     virtual std::unique_ptr<file_handle_impl> dup();
     virtual subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next) = 0;
     virtual list_directory_generator_type experimental_list_directory();
+    virtual list_directory_ext_generator_type experimental_list_directory_ext();
 };
 
 future<shared_ptr<file_impl>> make_file_impl(int fd, file_open_options options, int oflags, struct stat st) noexcept;
@@ -525,6 +539,9 @@ public:
 
     /// Returns a directory listing, given that this file object is a directory.
     list_directory_generator_type experimental_list_directory();
+
+    /// Returns a directory listing that includes the stat_data for each entry, given that this file object is a directory.
+    list_directory_ext_generator_type experimental_list_directory_ext();
 
     /**
      * Read a data bulk containing the provided addresses range that starts at

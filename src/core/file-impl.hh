@@ -106,6 +106,7 @@ public:
     virtual std::unique_ptr<seastar::file_handle_impl> dup() override;
     virtual subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next) override;
     virtual list_directory_generator_type experimental_list_directory() override;
+    virtual list_directory_ext_generator_type experimental_list_directory_ext() override;
 
     virtual future<size_t> read_dma(uint64_t pos, void* buffer, size_t len, io_intent* intent) noexcept override = 0;
     virtual future<size_t> read_dma(uint64_t pos, std::vector<iovec> iov, io_intent* intent) noexcept override = 0;

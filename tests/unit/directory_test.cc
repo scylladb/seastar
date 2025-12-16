@@ -147,6 +147,17 @@ SEASTAR_TEST_CASE(test_generator_fallback) {
     co_await lister_generator_test(std::move(f2));
 }
 
+SEASTAR_TEST_CASE(test_generator_lister_ext) {
+    auto f = co_await engine().open_directory(".");
+    auto lister = f.experimental_list_directory_ext();
+
+    while (auto ent = co_await lister()) {
+        auto sd = co_await file_stat(ent->name, follow_symlink::no);
+        BOOST_REQUIRE_EQUAL(sd.inode_number, ent->inode_number);
+    }
+    co_await f.close();
+}
+
 SEASTAR_TEST_CASE(test_generator_fallback_early_abort) {
     auto lf = co_await engine().open_directory(".");
     auto tf = ::seastar::make_shared<test_file_impl>(std::move(lf));
