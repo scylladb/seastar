@@ -355,6 +355,21 @@ using follow_symlink = bool_class<follow_symlink_tag>;
 /// with follow_symlink::yes, or for the link itself, with follow_symlink::no.
 future<stat_data> file_stat(std::string_view name, follow_symlink fs = follow_symlink::yes) noexcept;
 
+/// Return stat information about a file in a directory.
+///
+/// \param directory a open directory
+/// \param name name of the file to return its stat information
+/// \param fs a follow_symlink flag to follow symbolic links.
+///
+/// \return stat_data of the file identified by name.
+///
+/// If the pathname given in \c name is relative, then it is interpreted relative to the open \c directory.
+/// If pathname given in \c name is absolute, then \c directory is ignored.
+///
+/// If name identifies a symbolic link then stat_data is returned either for the target of the link,
+/// with follow_symlink::yes, or for the link itself, with follow_symlink::no.
+future<stat_data> file_stat(file& directory, std::string_view name, follow_symlink fs = follow_symlink::yes) noexcept;
+
 /// Wrapper around getgrnam_r.
 /// If the provided group name does not exist in the group database, this call will return an empty optional.
 /// If the provided group name exists in the group database, the optional returned will contain the struct group_details information.

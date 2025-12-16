@@ -85,6 +85,9 @@ public:
     virtual future<struct stat> stat() noexcept override {
         return make_exception_future<struct stat>(std::bad_function_call());
     }
+    virtual future<struct stat> statat(std::string_view name, int flags) noexcept override {
+        return make_exception_future<struct stat>(std::bad_function_call());
+    }
     virtual future<> truncate(uint64_t) noexcept override {
         return make_exception_future<>(std::bad_function_call());
     }

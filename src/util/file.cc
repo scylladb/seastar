@@ -139,6 +139,10 @@ future<stat_data> file_stat(std::string_view name, follow_symlink follow) noexce
     return engine().file_stat(name, follow);
 }
 
+future<stat_data> file_stat(file& directory, std::string_view name, follow_symlink follow) noexcept {
+    return engine().file_stat(directory, name, follow);
+}
+
 future<std::optional<struct group_details>> getgrnam(std::string_view name) {
     return engine().getgrnam(name);
 }
