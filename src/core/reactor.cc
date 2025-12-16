@@ -2186,18 +2186,7 @@ future<> reactor::chown(std::string_view filepath, uid_t owner, gid_t group) {
     co_return;
 }
 
-future<stat_data>
-reactor::file_stat(std::string_view pathname_view, follow_symlink follow) noexcept {
-    auto pathname = sstring(pathname_view);
-    syscall_result_extra<struct stat> sr = co_await _thread_pool->submit<syscall_result_extra<struct stat>>(
-            internal::thread_pool_submit_reason::file_operation, [&] {
-        struct stat st;
-        auto stat_syscall = follow ? stat : lstat;
-        auto ret = stat_syscall(pathname.c_str(), &st);
-        return wrap_syscall(ret, st);
-    });
-    sr.throw_fs_exception_if_error("stat failed", pathname);
-    struct stat& st = sr.extra;
+static stat_data make_stat_data(const struct stat& st) {
     stat_data sd;
     sd.device_id = st.st_dev;
     sd.inode_number = st.st_ino;
@@ -2213,7 +2202,28 @@ reactor::file_stat(std::string_view pathname_view, follow_symlink follow) noexce
     sd.time_accessed = timespec_to_time_point(st.st_atim);
     sd.time_modified = timespec_to_time_point(st.st_mtim);
     sd.time_changed = timespec_to_time_point(st.st_ctim);
-    co_return sd;
+    return sd;
+}
+
+future<stat_data>
+reactor::file_stat(std::string_view pathname_view, follow_symlink follow) noexcept {
+    auto pathname = sstring(pathname_view);
+    syscall_result_extra<struct stat> sr = co_await _thread_pool->submit<syscall_result_extra<struct stat>>(
+            internal::thread_pool_submit_reason::file_operation, [&] {
+        struct stat st;
+        auto stat_syscall = follow ? stat : lstat;
+        auto ret = stat_syscall(pathname.c_str(), &st);
+        return wrap_syscall(ret, st);
+    });
+    sr.throw_fs_exception_if_error("stat failed", pathname);
+    co_return make_stat_data(sr.extra);
+}
+
+
+future<stat_data>
+reactor::file_stat(file& directory, std::string_view pathname, follow_symlink follow) noexcept {
+    auto st = co_await directory.statat(pathname, follow ? 0 : AT_SYMLINK_NOFOLLOW);
+    co_return make_stat_data(st);
 }
 
 future<uint64_t>

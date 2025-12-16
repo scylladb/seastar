@@ -505,6 +505,46 @@ SEASTAR_TEST_CASE(test_file_stat_method) {
   });
 }
 
+SEASTAR_TEST_CASE(test_dir_statat_method) {
+    return tmp_dir::do_with_thread([] (tmp_dir& t) {
+        auto oflags = open_flags::rw | open_flags::create;
+        auto path = t.get_path();
+        const char* filename = "testfile.tmp";
+
+        // Create file in tmp dir
+        auto orig_umask = umask(0);
+
+        auto f = open_file_dma((path / filename).native(), oflags).get();
+        auto close_f = deferred_close(f);
+        size_t buffer_size = 4096;
+        auto buf = temporary_buffer<char>::aligned(f.memory_dma_alignment(), buffer_size);
+        memset(buf.get_write(), 0, buf.size());
+        auto written = f.dma_write(0, buf.get(), buf.size()).get();
+        BOOST_REQUIRE_EQUAL(written, buffer_size);
+        close_f.close_now();
+
+        // Open dir and get the file stat using statat
+        auto dir = open_directory(path.native()).get();
+        auto close_dir = deferred_close(dir);
+
+        auto file_st = dir.statat(filename).get();
+        BOOST_REQUIRE_EQUAL(file_st.st_size, buffer_size);
+
+        const char* linkname = "test_link.tmp";
+        auto rc = ::symlink((path / filename).c_str(), (path / linkname).c_str());
+        BOOST_REQUIRE_EQUAL(rc, 0);
+
+        auto link_st = dir.statat(linkname, AT_SYMLINK_NOFOLLOW).get();
+        BOOST_REQUIRE_NE(link_st.st_ino, file_st.st_ino);
+
+        // Default flags are expected to follow symlinks
+        auto st = dir.statat(linkname).get();
+        BOOST_REQUIRE_EQUAL(st.st_ino, file_st.st_ino);
+
+        umask(orig_umask);
+    });
+}
+
 SEASTAR_TEST_CASE(test_file_write_lifetime_method) {
     return tmp_dir::do_with_thread([] (tmp_dir& t) {
         auto oflags = open_flags::rw | open_flags::create;
@@ -610,6 +650,9 @@ public:
         abort();
     }
     virtual future<struct stat> stat(void) override {
+        abort();
+    }
+    virtual future<struct stat> statat(std::string_view, int) override {
         abort();
     }
     virtual future<> truncate(uint64_t length) override {

@@ -535,6 +535,7 @@ public:
     future<> touch_directory(std::string_view name, file_permissions permissions = file_permissions::default_dir_permissions) noexcept;
     future<std::optional<directory_entry_type>>  file_type(std::string_view name, follow_symlink = follow_symlink::yes) noexcept;
     future<stat_data> file_stat(std::string_view pathname, follow_symlink) noexcept;
+    future<stat_data> file_stat(file& directory, std::string_view pathname, follow_symlink) noexcept;
     future<> chown(std::string_view filepath, uid_t owner, gid_t group);
     future<std::optional<struct group_details>> getgrnam(std::string_view name);
     future<uint64_t> file_size(std::string_view pathname) noexcept;
