@@ -86,6 +86,8 @@ struct stat_data {
     std::chrono::system_clock::time_point time_changed;   // Time of last status change (either content or attributes)
 };
 
+stat_data make_stat_data(const struct stat& st);
+
 /// File open options
 ///
 /// Options used to configure an open file.
