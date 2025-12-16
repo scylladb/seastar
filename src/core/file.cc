@@ -210,6 +210,18 @@ posix_file_impl::stat() noexcept {
     co_return ret.extra;
 }
 
+future<struct stat>
+posix_file_impl::statat(std::string_view name, int flags) noexcept {
+    auto ret = co_await engine()._thread_pool->submit<syscall_result_extra<struct stat>>(
+            internal::thread_pool_submit_reason::file_operation, [fd = _fd, name = sstring(name), flags] {
+        struct stat st;
+        auto ret = ::fstatat(fd, name.data(), &st, flags);
+        return wrap_syscall(ret, st);
+    });
+    ret.throw_if_error();
+    co_return ret.extra;
+}
+
 future<>
 posix_file_impl::truncate(uint64_t length) noexcept {
     auto sr = co_await engine()._thread_pool->submit<syscall_result<int>>(
@@ -1236,6 +1248,14 @@ future<> file::truncate(uint64_t length) noexcept {
 future<struct stat> file::stat() noexcept {
   try {
     return _file_impl->stat();
+  } catch (...) {
+    return current_exception_as_future<struct stat>();
+  }
+}
+
+future<struct stat> file::statat(std::string_view name, int flags) noexcept {
+  try {
+    return _file_impl->statat(name, flags);
   } catch (...) {
     return current_exception_as_future<struct stat>();
   }

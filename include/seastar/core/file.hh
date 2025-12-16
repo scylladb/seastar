@@ -149,6 +149,7 @@ public:
 
     virtual future<> flush() = 0;
     virtual future<struct stat> stat() = 0;
+    virtual future<struct stat> statat(std::string_view name, int flags = 0) = 0;
     virtual future<> truncate(uint64_t length) = 0;
     virtual future<> discard(uint64_t offset, uint64_t length) = 0;
     virtual future<int> ioctl(uint64_t cmd, void* argp) noexcept;
@@ -388,6 +389,12 @@ public:
 
     /// Returns \c stat information about the file.
     future<struct stat> stat() noexcept;
+
+    /// Returns \c stat information about a file in this directory.
+    ///
+    /// \param name the name of the file relative to this directory
+    /// \param flags optional flags (e.g., AT_SYMLINK_NOFOLLOW, see man fstatat)
+    future<struct stat> statat(std::string_view name, int flags = 0) noexcept;
 
     /// Truncates the file to a specified length.
     future<> truncate(uint64_t length) noexcept;

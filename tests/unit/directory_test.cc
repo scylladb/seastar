@@ -110,6 +110,7 @@ public:
 
     virtual future<> flush() override { return get_file_impl(_lower)->flush(); }
     virtual future<struct stat> stat() override { return get_file_impl(_lower)->stat(); }
+    virtual future<struct stat> statat(std::string_view name, int flags) override { return get_file_impl(_lower)->statat(name, flags); }
     virtual future<> truncate(uint64_t length) override { return get_file_impl(_lower)->truncate(length); }
     virtual future<> discard(uint64_t offset, uint64_t length) override { return get_file_impl(_lower)->discard(offset, length); }
     virtual future<> allocate(uint64_t position, uint64_t length) override { return get_file_impl(_lower)->allocate(position, length); }
