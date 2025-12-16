@@ -2269,6 +2269,48 @@ SEASTAR_THREAD_TEST_CASE(test_ready_future_across_shards) {
     }).get();
 }
 
+class canary {
+public:
+    canary() {
+        seastar_logger.info("canary: {} default constructor", fmt::ptr(this));
+    }
+
+    canary(const canary&) {
+        seastar_logger.info("canary: {} copy constructor", fmt::ptr(this));
+    }
+
+    canary(canary&&) noexcept {
+        seastar_logger.info("canary: {} move constructor", fmt::ptr(this));
+    }
+
+    canary& operator=(const canary&) {
+        seastar_logger.info("canary: {} copy assignment operator", fmt::ptr(this));
+        return *this;
+    }
+
+    canary& operator=(canary&&) noexcept {
+        seastar_logger.info("canary: {} move assignment operator", fmt::ptr(this));
+        return *this;
+    }
+
+    ~canary() {
+        seastar_logger.info("canary: {} destructor", fmt::ptr(this));
+    }
+};
+
+future<> local_lvalue() {
+    auto lvalue_lambda = [canary0 = canary{}]() {
+        seastar_logger.info("Inside lvalue lambda with canary0 @ {}", fmt::ptr(&canary0));
+        return make_ready_future<>();
+    };
+
+    return yield().then(lvalue_lambda);
+}
+
+SEASTAR_THREAD_TEST_CASE(test_then_lifetime) {
+    local_lvalue().get();
+}
+
 SEASTAR_THREAD_TEST_CASE(test_foreign_promise_set_value) {
     if (smp::count == 1) {
         seastar_logger.info("test_foreign_promise_set_value requires at least 2 shards");
