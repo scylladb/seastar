@@ -31,7 +31,8 @@
 #include <seastar/core/align.hh>
 #include <seastar/core/io_priority_class.hh>
 #include <seastar/core/file-types.hh>
-#include <seastar/core/circular_buffer.hh>
+#include <seastar/core/circular_buffer_fixed_capacity.hh>
+
 #include <sys/statvfs.h>
 #include <sys/ioctl.h>
 #include <sys/types.h>
@@ -112,7 +113,11 @@ class file_handle;
 class file_data_sink_impl;
 class file_data_source_impl;
 
-using list_directory_generator_type = coroutine::experimental::generator<directory_entry>;
+// The directory_entry size is 24 bytes (as the file name is allocated separately)
+// so the circular buffer is tuned to hold 16 entries
+constexpr size_t list_directory_generator_buffer_size = calc_circular_buffer_capacity<directory_entry, 512>();
+using list_directory_generator_type = coroutine::experimental::generator<directory_entry, directory_entry,
+        circular_buffer_fixed_capacity<directory_entry, list_directory_generator_buffer_size>>;
 
 // A handle that can be transported across shards and used to
 // create a dup(2)-like `file` object referring to the same underlying file
@@ -155,8 +160,6 @@ public:
     virtual future<> close() = 0;
     virtual std::unique_ptr<file_handle_impl> dup();
     virtual subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next) = 0;
-    // due to https://github.com/scylladb/seastar/issues/1913, we cannot use
-    // buffered generator yet.
     virtual list_directory_generator_type experimental_list_directory();
 };
 
@@ -512,8 +515,6 @@ public:
     subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next);
 
     /// Returns a directory listing, given that this file object is a directory.
-    // due to https://github.com/scylladb/seastar/issues/1913, we cannot use
-    // buffered generator yet.
     list_directory_generator_type experimental_list_directory();
 
     /**

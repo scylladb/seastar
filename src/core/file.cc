@@ -418,7 +418,6 @@ list_directory_generator_type make_list_directory_generator(int fd) {
                 continue;
             }
             std::optional<directory_entry_type> type = dirent_type(*de);
-            // See: https://github.com/scylladb/seastar/issues/1677
             directory_entry ret{std::move(name), type};
             co_yield ret;
         }
@@ -426,11 +425,6 @@ list_directory_generator_type make_list_directory_generator(int fd) {
 }
 
 list_directory_generator_type posix_file_impl::experimental_list_directory() {
-    // due to https://github.com/scylladb/seastar/issues/1913, we cannot use
-    // buffered generator yet.
-    // TODO:
-    // Keep 8 entries. The sizeof(directory_entry) is 24 bytes, the name itself
-    // is allocated out of this buffer, so the buffer would grow up to ~200 bytes
     return make_list_directory_generator(_fd);
 }
 
@@ -1324,7 +1318,7 @@ file_impl::dup() {
 }
 
 static list_directory_generator_type make_list_directory_fallback_generator(file_impl& me) {
-    auto ents = make_lw_shared<queue<std::optional<directory_entry>>>(16);
+    auto ents = make_lw_shared<queue<std::optional<directory_entry>>>(list_directory_generator_buffer_size);
     auto lister = me.list_directory([ents] (directory_entry de) {
         return ents->push_eventually(std::move(de));
     });
