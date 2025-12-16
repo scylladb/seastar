@@ -112,6 +112,8 @@ class file_handle;
 class file_data_sink_impl;
 class file_data_source_impl;
 
+using list_directory_generator_type = coroutine::experimental::generator<directory_entry>;
+
 // A handle that can be transported across shards and used to
 // create a dup(2)-like `file` object referring to the same underlying file
 class file_handle_impl {
@@ -155,7 +157,7 @@ public:
     virtual subscription<directory_entry> list_directory(std::function<future<> (directory_entry de)> next) = 0;
     // due to https://github.com/scylladb/seastar/issues/1913, we cannot use
     // buffered generator yet.
-    virtual coroutine::experimental::generator<directory_entry> experimental_list_directory();
+    virtual list_directory_generator_type experimental_list_directory();
 };
 
 future<shared_ptr<file_impl>> make_file_impl(int fd, file_open_options options, int oflags, struct stat st) noexcept;
@@ -512,7 +514,7 @@ public:
     /// Returns a directory listing, given that this file object is a directory.
     // due to https://github.com/scylladb/seastar/issues/1913, we cannot use
     // buffered generator yet.
-    coroutine::experimental::generator<directory_entry> experimental_list_directory();
+    list_directory_generator_type experimental_list_directory();
 
     /**
      * Read a data bulk containing the provided addresses range that starts at
