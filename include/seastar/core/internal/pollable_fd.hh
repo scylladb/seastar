@@ -210,14 +210,12 @@ public:
     future<> poll_rdhup() {
         return _s->poll_rdhup();
     }
-protected:
     int get_fd() const { return _s->fd.get(); }
+
+protected:
     void maybe_no_more_recv() { return _s->maybe_no_more_recv(); }
     void maybe_no_more_send() { return _s->maybe_no_more_send(); }
-    friend class reactor;
-    friend class readable_eventfd;
-    friend class writeable_eventfd;
-    friend class aio_storage_context;
+
 private:
     pollable_fd_state_ptr _s;
 };
