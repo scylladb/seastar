@@ -31,6 +31,8 @@ namespace seastar {
 
 namespace httpd {
 
+class parameter_metadata_registry;
+
 typedef const http::request& const_req;
 
 /**
@@ -41,6 +43,8 @@ typedef const http::request& const_req;
  */
 class handler_base {
     std::vector<sstring> _mandatory_param;
+    const parameter_metadata_registry* _param_metadata = nullptr;
+    bool _skip_validation = false;
 protected:
     handler_base() = default;
     handler_base(const handler_base&) = default;
@@ -79,6 +83,32 @@ public:
             }
         }
     }
+
+    /**
+     * Set parameter metadata for validation
+     * Called by the routing layer when metadata is available
+     * @param metadata pointer to parameter metadata registry
+     */
+    void set_parameter_metadata(const parameter_metadata_registry* metadata);
+
+    /**
+     * Skip automatic parameter validation for this handler
+     * Use this when you need custom validation logic
+     * @param skip whether to skip validation (default true)
+     * @return a reference to the handler
+     */
+    handler_base& skip_validation(bool skip = true) {
+        _skip_validation = skip;
+        return *this;
+    }
+
+    /**
+     * Validate all parameters according to metadata
+     * This is called automatically by the routing layer before handle()
+     * Sets up the request with metadata for lazy validation
+     * @param req the http request
+     */
+    void validate_parameters(http::request& req) const;
 };
 
 }
