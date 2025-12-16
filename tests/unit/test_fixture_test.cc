@@ -20,6 +20,8 @@
  * Copyright (C) 2025 ScyllaDB Ltd.
  */
 
+#include <boost/test/execution_monitor.hpp>
+
 #include <seastar/testing/test_case.hh>
 #include <seastar/testing/test_fixture.hh>
 
@@ -124,3 +126,36 @@ SEASTAR_TEST_CASE(test_shared_fixture_init_value) {
 }
 
 BOOST_AUTO_TEST_SUITE_END()
+
+static bool do_throw = false;
+
+// Dummy test that on its own does nothing.
+SEASTAR_TEST_CASE(test_nested_throw_helper) {
+    if (std::exchange(do_throw, false)) {
+        try {
+            throw std::invalid_argument("Message 1");
+        } catch (...) {
+            std::throw_with_nested(std::out_of_range("Message 2"));
+        }
+    }
+    return make_ready_future<>();
+}
+
+// Cannot be a SEASTAR_TEST_CASE, because of recursion of seastar::test::run.
+BOOST_AUTO_TEST_CASE(test_nested_throw) {
+    // make helper throw its nested test failure
+    do_throw = true;
+    try {
+        // fake "normal" test invoke. This will push the test into the main
+        // runner etc. The exception will be thrown.
+        const_cast<test_nested_throw_helper&>(test_nested_throw_helper_instance).run();
+    } catch (boost::execution_exception& e) {
+        // Should get a cpp exception failure
+        BOOST_REQUIRE_EQUAL(e.code(), boost::execution_exception::error_code::cpp_exception_error);
+        // Should have the nested message
+        BOOST_REQUIRE(e.what().find("Message 1") != std::string::npos);
+        // Should have the outer message
+        BOOST_REQUIRE(e.what().find("Message 2") != std::string::npos);
+    }
+}
+

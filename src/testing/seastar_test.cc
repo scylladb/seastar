@@ -23,6 +23,10 @@
 #include <thread>
 #include <iostream>
 
+#include <boost/test/execution_monitor.hpp>
+#include <boost/exception/diagnostic_information.hpp>
+#include <boost/core/type_name.hpp>
+
 #include <seastar/testing/entry_point.hh>
 #include <seastar/testing/seastar_test.hh>
 #include <seastar/testing/test_fixture.hh>
@@ -39,6 +43,54 @@ namespace testing {
 exchanger_base::exchanger_base() { }
 exchanger_base::~exchanger_base() { }
 
+// #3165 - build a message for a possibly nested exception chain.
+static boost::execution_exception::location
+add_exception_message(const std::exception* ep, bool rec, char *out, char *end) {
+    auto pfx = rec ? "; Caused by " : "";
+
+    if (ep) {
+        out = fmt::format_to_n(out, end - out, "{}{}: {}", pfx, seastar::pretty_type_name(typeid(*ep)), ep->what()).out;
+    } else {
+        auto tp = abi::__cxa_current_exception_type();
+        out = fmt::format_to_n(out, out - end, "{}{}", pfx, tp ? seastar::pretty_type_name(*tp) : "<unknown>").out;
+    }
+
+    boost::execution_exception::location loc;
+    if (auto* be = dynamic_cast<const boost::exception*>(ep)) {
+        auto sloc = boost::exception_detail::get_exception_throw_location(*be);
+        if (rec) {
+            out = fmt::format_to_n(out, end - out, "({}:{}:{})", sloc.file_name(), sloc.function_name(), sloc.line()).out;
+        }
+        loc = boost::execution_exception::location(sloc.file_name(), sloc.line(), sloc.function_name());
+    }
+
+    *out = 0; // see initial invoke below. always valid
+
+    if (ep) {
+        try {
+            std::rethrow_if_nested(*ep);
+        } catch (std::exception& e) {
+            add_exception_message(&e, true, out, end);
+        } catch (...) {
+            add_exception_message(nullptr, true, out, end);
+        }
+    }
+
+    return loc;
+}
+
+[[noreturn]]
+static void repackage_exception_and_rethrow(const std::exception* ep) {
+    // Note: using a static buffer for formatting, same as boost::test code,
+    // so we make it less prone to fail in failure handling for OOM
+    // situations etc.
+    static const int REPORT_ERROR_BUFFER_SIZE = 4096;
+    static char buf[REPORT_ERROR_BUFFER_SIZE];
+
+    auto loc = add_exception_message(ep, false, buf, buf + sizeof(buf) - 1);
+    boost:: BOOST_TEST_I_THROW(boost::execution_exception(boost::execution_exception::cpp_exception_error, buf, loc));
+}
+
 void seastar_test::run() {
     // HACK: please see https://github.com/cloudius-systems/seastar/issues/10
     BOOST_REQUIRE(true);
@@ -49,7 +101,16 @@ void seastar_test::run() {
     set_abort_on_internal_error(true);
 
     global_test_runner().run_sync([this] {
-        return run_test_case();
+        // #3165 - do exception catch here already, and package
+        // the info into an execution_exception, potentially including
+        // nestedness etc.
+        try {
+            return run_test_case();
+        } catch (std::exception& e) {
+            repackage_exception_and_rethrow(&e);
+        } catch (...) {
+            repackage_exception_and_rethrow(nullptr);
+        }
     });
 }
 
